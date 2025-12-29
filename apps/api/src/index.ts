@@ -44,6 +44,11 @@ app.use(cors({
       return callback(null, true);
     }
     
+    // Allow codescriet.dev domains
+    if (origin.endsWith('.codescriet.dev') || origin === 'https://codescriet.dev') {
+      return callback(null, true);
+    }
+    
     callback(new Error('Not allowed by CORS'));
   },
   credentials: true,
