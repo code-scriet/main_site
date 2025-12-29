@@ -1,12 +1,13 @@
-# Render Blueprint for code.scriet API
+# Render Blueprint for code.scriet
 services:
+  # Backend API
   - type: web
     name: codescriet-api
     runtime: node
     plan: free
-    buildCommand: npm install && npm run build --workspace=apps/api
-    startCommand: npm run start --workspace=apps/api
-    healthCheckPath: /health
+    buildCommand: npm install && npx prisma generate --schema=./prisma/schema.prisma && npm run build --workspace=apps/api
+    startCommand: npx prisma migrate deploy --schema=./prisma/schema.prisma && npm run start --workspace=apps/api
+    healthCheckPath: /ping
     envVars:
       - key: NODE_ENV
         value: production
@@ -25,4 +26,26 @@ services:
       - key: FRONTEND_URL
         sync: false
       - key: BACKEND_URL
+        sync: false
+
+  # Frontend Static Site
+  - type: web
+    name: codescriet-web
+    runtime: static
+    plan: free
+    buildCommand: npm install && npm run build --workspace=apps/web
+    staticPublishPath: ./apps/web/dist
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
+    headers:
+      - path: /*
+        name: X-Content-Type-Options
+        value: nosniff
+      - path: /*
+        name: X-Frame-Options
+        value: DENY
+    envVars:
+      - key: VITE_API_URL
         sync: false
