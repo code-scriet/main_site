@@ -18,21 +18,28 @@ export default function AuthCallbackPage() {
   const navigate = useNavigate();
   const { login } = useAuth();
   const [status, setStatus] = useState('Completing sign in...');
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     const processCallback = async () => {
-      const token = searchParams.get('token');
-      const error = searchParams.get('error');
+      try {
+        const token = searchParams.get('token');
+        const errorParam = searchParams.get('error');
 
-      if (error) {
-        console.error('Auth error:', error);
-        navigate('/signin?error=' + error);
-        return;
-      }
+        if (errorParam) {
+          console.error('Auth error:', errorParam);
+          navigate('/signin?error=' + errorParam);
+          return;
+        }
 
-      if (token) {
+        if (!token) {
+          console.error('No token found in callback');
+          navigate('/signin');
+          return;
+        }
+
         // First, login the user
-        login(token);
+        await login(token);
 
         // Check if there's a hiring intent stored
         const hiringIntentStr = localStorage.getItem('hiring_intent');
@@ -94,9 +101,12 @@ export default function AuthCallbackPage() {
         }
 
         // Default: navigate to dashboard
+        setStatus('Redirecting to dashboard...');
         navigate('/dashboard');
-      } else {
-        navigate('/signin');
+      } catch (err) {
+        console.error('Callback processing error:', err);
+        setError(err instanceof Error ? err.message : 'Authentication failed');
+        setTimeout(() => navigate('/signin'), 2000);
       }
     };
 
@@ -104,10 +114,22 @@ export default function AuthCallbackPage() {
   }, [searchParams, navigate, login]);
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-amber-50">
-      <div className="text-center">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-amber-600 mx-auto mb-4"></div>
-        <p className="text-gray-600">{status}</p>
+    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-amber-50 via-orange-50 to-amber-100">
+      <div className="text-center bg-white p-8 rounded-lg shadow-lg max-w-md">
+        {error ? (
+          <>
+            <div className="text-red-500 text-5xl mb-4">✕</div>
+            <h2 className="text-xl font-bold text-gray-800 mb-2">Authentication Error</h2>
+            <p className="text-gray-600 mb-4">{error}</p>
+            <p className="text-sm text-gray-500">Redirecting to sign in...</p>
+          </>
+        ) : (
+          <>
+            <div className="animate-spin rounded-full h-16 w-16 border-b-4 border-amber-600 mx-auto mb-6"></div>
+            <h2 className="text-xl font-semibold text-gray-800 mb-2">{status}</h2>
+            <p className="text-sm text-gray-500">Please wait...</p>
+          </>
+        )}
       </div>
     </div>
   );
