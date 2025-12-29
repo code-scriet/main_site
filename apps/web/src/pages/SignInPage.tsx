@@ -57,8 +57,15 @@ export default function SignInPage() {
   // Fetch available auth providers
   useEffect(() => {
     api.getProviders()
-      .then(setProviders)
-      .catch(console.error)
+      .then((data) => {
+        console.log('Providers fetched:', data);
+        setProviders(data);
+      })
+      .catch((err) => {
+        console.error('Failed to fetch providers:', err);
+        // Fallback: show all OAuth options if API fails
+        setProviders({ google: true, github: true, devLogin: false, emailPassword: true });
+      })
       .finally(() => setLoading(false));
   }, []);
 
