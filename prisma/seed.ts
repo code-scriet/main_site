@@ -1,0 +1,71 @@
+import { PrismaClient } from '@prisma/client';
+import * as bcrypt from 'bcryptjs';
+import * as dotenv from 'dotenv';
+
+dotenv.config();
+
+const prisma = new PrismaClient();
+
+async function main() {
+  console.log('🌱 Starting database seed...');
+
+  // Get super admin credentials from environment variables
+  // Defaults are used for development only
+  const superAdminEmail = process.env.SUPER_ADMIN_EMAIL || 'developer.aary@gmail.com';
+  const superAdminPassword = process.env.SUPER_ADMIN_PASSWORD || 'Dk261135@';
+  const superAdminName = process.env.SUPER_ADMIN_NAME || 'Super Admin';
+
+  // Hash the password for storage
+  const hashedPassword = await bcrypt.hash(superAdminPassword, 12);
+
+  // Create or update super admin user with password
+  const admin = await prisma.user.upsert({
+    where: { email: superAdminEmail },
+    update: {
+      password: hashedPassword, // Update password if user exists
+    },
+    create: {
+      name: superAdminName,
+      email: superAdminEmail,
+      password: hashedPassword,
+      oauthProvider: 'email',
+      oauthId: `email-${Date.now()}`,
+      role: 'ADMIN',
+      avatar: `https://api.dicebear.com/7.x/avataaars/svg?seed=${superAdminEmail}`,
+    },
+  });
+
+  // Create default settings if they don't exist
+  await prisma.settings.upsert({
+    where: { id: 'default' },
+    update: {},
+    create: {
+      id: 'default',
+      clubName: 'code.scriet',
+      clubEmail: 'contact@codescriet.com',
+      clubDescription: 'Building tomorrow\'s problem solvers through collaborative learning and hands-on coding experiences.',
+    },
+  });
+
+  console.log('✅ Database seeded successfully!');
+  console.log('📧 Super Admin created with email:', superAdminEmail);
+  console.log('🔑 Password:', process.env.NODE_ENV === 'production' ? '***hidden***' : superAdminPassword);
+  console.log('\n🎯 Admin can now login and add events, teams, and other content through the admin panel.');
+  console.log({
+    admin: {
+      id: admin.id,
+      name: admin.name,
+      email: admin.email,
+      role: admin.role,
+    },
+  });
+}
+
+main()
+  .catch((e) => {
+    console.error('❌ Error seeding database:', e);
+    process.exit(1);
+  })
+  .finally(async () => {
+    await prisma.$disconnect();
+  });

@@ -1,0 +1,38 @@
+{
+  "name": "code-scriet-platform",
+  "version": "1.0.0",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "concurrently -n \"API,WEB\" -c \"blue,green\" \"npm run dev --workspace=apps/api\" \"npm run dev --workspace=apps/web\"",
+    "start": "npm run build && npm run start:prod",
+    "start:prod": "NODE_ENV=production concurrently \"npm run start --workspace=apps/api\" \"npm run preview --workspace=apps/web\"",
+    "build": "npm run build --workspace=apps/web && npm run build --workspace=apps/api",
+    "web": "npm run dev --workspace=apps/web",
+    "api": "npm run dev --workspace=apps/api",
+    "db:migrate": "prisma migrate dev",
+    "db:migrate:deploy": "prisma migrate deploy",
+    "db:seed": "prisma db seed",
+    "db:studio": "prisma studio",
+    "db:reset": "prisma migrate reset --force",
+    "setup": "npm install && npm run db:migrate && npm run db:seed"
+  },
+  "devDependencies": {
+    "@types/node": "^20.19.27",
+    "concurrently": "^9.2.1",
+    "dotenv": "^17.2.3",
+    "prisma": "^5.8.0",
+    "ts-node": "^10.9.2",
+    "tsx": "^4.21.0",
+    "typescript": "^5.3.3"
+  },
+  "dependencies": {
+    "@prisma/client": "^5.8.0"
+  },
+  "prisma": {
+    "seed": "tsx prisma/seed.ts"
+  }
+}

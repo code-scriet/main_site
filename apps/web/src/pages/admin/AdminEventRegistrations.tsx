@@ -1,0 +1,256 @@
+import { useState, useEffect } from 'react';
+import { motion } from 'framer-motion';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Loader2, Calendar, Users, Search, Download, Mail } from 'lucide-react';
+import { useAuth } from '@/context/AuthContext';
+import { api } from '@/lib/api';
+
+interface EventWithRegistrations {
+  id: string;
+  title: string;
+  startDate: string;
+  endDate?: string;
+  location?: string;
+  capacity?: number;
+  status: 'UPCOMING' | 'ONGOING' | 'PAST';
+  registrations: {
+    id: string;
+    timestamp: string;
+    user: {
+      id: string;
+      name: string;
+      email: string;
+      role: string;
+    };
+  }[];
+}
+
+export default function AdminEventRegistrations() {
+  const { token } = useAuth();
+  const [events, setEvents] = useState<EventWithRegistrations[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [selectedEvent, setSelectedEvent] = useState<string | null>(null);
+
+  useEffect(() => {
+    loadEvents();
+  }, [token]);
+
+  const loadEvents = async () => {
+    if (!token) {
+      setError('Authentication required');
+      setLoading(false);
+      return;
+    }
+    try {
+      setLoading(true);
+      setError(null);
+      const data = await api.getEvents();
+      // Get detailed registration data for each event
+      const eventsWithDetails = await Promise.all(
+        data.map(async (event) => {
+          try {
+            const response = await fetch(`http://localhost:5001/api/events/${event.id}/registrations`, {
+              headers: { Authorization: `Bearer ${token}` }
+            });
+            const result = await response.json();
+            // API returns { success: true, data: [...] }
+            const registrations = result.data || result || [];
+            return { ...event, registrations };
+          } catch {
+            return { ...event, registrations: [] };
+          }
+        })
+      );
+      setEvents(eventsWithDetails);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load events');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const filteredEvents = events.filter(event =>
+    event.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    event.registrations.some(r => 
+      r.user.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      r.user.email.toLowerCase().includes(searchQuery.toLowerCase())
+    )
+  );
+
+  const exportToCSV = (event: EventWithRegistrations) => {
+    const csvData = [
+      ['Name', 'Email', 'Role', 'Registration Date'],
+      ...event.registrations.map(r => [
+        r.user.name,
+        r.user.email,
+        r.user.role,
+        new Date(r.timestamp).toLocaleString()
+      ])
+    ];
+    const csvContent = csvData.map(row => row.join(',')).join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${event.title.replace(/\s+/g, '_')}_registrations.csv`;
+    a.click();
+  };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-20">
+        <Loader2 className="h-8 w-8 animate-spin text-amber-600" />
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold text-amber-900">Event Registrations</h1>
+          <p className="text-gray-600">View and manage event participants</p>
+        </div>
+      </div>
+
+      {/* Search */}
+      <Card>
+        <CardContent className="pt-6">
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+            <Input
+              placeholder="Search by event name, participant name, or email..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="pl-10"
+            />
+          </div>
+        </CardContent>
+      </Card>
+
+      {error && (
+        <Card className="border-red-200 bg-red-50">
+          <CardContent className="pt-6">
+            <p className="text-red-700">{error}</p>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Events List */}
+      <div className="space-y-4">
+        {filteredEvents.length === 0 ? (
+          <Card>
+            <CardContent className="py-12 text-center text-gray-500">
+              {searchQuery ? 'No events match your search' : 'No events found'}
+            </CardContent>
+          </Card>
+        ) : (
+          filteredEvents.map((event) => (
+            <motion.div
+              key={event.id}
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+            >
+              <Card className="border-amber-100">
+                <CardHeader>
+                  <div className="flex items-start justify-between">
+                    <div className="space-y-1">
+                      <CardTitle className="flex items-center gap-3">
+                        <Calendar className="h-5 w-5 text-amber-600" />
+                        {event.title}
+                      </CardTitle>
+                      <div className="flex items-center gap-4 text-sm text-gray-500">
+                        <span>{new Date(event.startDate).toLocaleDateString()}</span>
+                        {event.location && <span>• {event.location}</span>}
+                        <Badge variant={event.status === 'UPCOMING' ? 'default' : 'secondary'}>
+                          {event.status}
+                        </Badge>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Badge className="bg-amber-100 text-amber-800 hover:bg-amber-200">
+                        <Users className="h-3 w-3 mr-1" />
+                        {event.registrations.length}
+                        {event.capacity && ` / ${event.capacity}`}
+                      </Badge>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => setSelectedEvent(selectedEvent === event.id ? null : event.id)}
+                      >
+                        {selectedEvent === event.id ? 'Hide' : 'View'} Details
+                      </Button>
+                      {event.registrations.length > 0 && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => exportToCSV(event)}
+                        >
+                          <Download className="h-4 w-4 mr-1" />
+                          Export
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+                </CardHeader>
+
+                {selectedEvent === event.id && (
+                  <CardContent>
+                    {event.registrations.length === 0 ? (
+                      <p className="text-gray-500 text-center py-8">No registrations yet</p>
+                    ) : (
+                      <div className="space-y-2">
+                        <h3 className="font-semibold text-sm text-gray-700 mb-3">
+                          Participants ({event.registrations.length})
+                        </h3>
+                        <div className="divide-y divide-gray-100">
+                          {event.registrations.map((registration) => (
+                            <div
+                              key={registration.id}
+                              className="py-3 flex items-center justify-between hover:bg-amber-50 px-3 -mx-3 rounded-lg transition-colors"
+                            >
+                              <div className="flex items-center gap-3">
+                                <div className="h-10 w-10 rounded-full bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center text-white font-semibold">
+                                  {registration.user.name.charAt(0).toUpperCase()}
+                                </div>
+                                <div>
+                                  <div className="flex items-center gap-2">
+                                    <span className="font-medium text-gray-900">
+                                      {registration.user.name}
+                                    </span>
+                                    <Badge variant="outline" className="text-xs">
+                                      {registration.user.role}
+                                    </Badge>
+                                  </div>
+                                  <div className="flex items-center gap-4 text-sm text-gray-500">
+                                    <span className="flex items-center gap-1">
+                                      <Mail className="h-3 w-3" />
+                                      {registration.user.email}
+                                    </span>
+                                    <span>
+                                      Registered: {new Date(registration.timestamp).toLocaleDateString()}
+                                    </span>
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </CardContent>
+                )}
+              </Card>
+            </motion.div>
+          ))
+        )}
+      </div>
+    </div>
+  );
+}
