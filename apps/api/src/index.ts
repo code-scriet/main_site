@@ -19,6 +19,7 @@ import { hiringRouter } from './routes/hiring.js';
 import { setupPassport } from './config/passport.js';
 import { requestLogger, logger } from './utils/logger.js';
 import { ApiResponse, ErrorCodes } from './utils/response.js';
+import { initializeDatabase } from './utils/init.js';
 
 dotenv.config();
 
@@ -145,8 +146,16 @@ const shutdown = () => {
 process.on('SIGTERM', shutdown);
 process.on('SIGINT', shutdown);
 
-app.listen(PORT, () => {
-  logger.info(`🚀 Server running on http://localhost:${PORT}`, { environment: NODE_ENV });
-});
+// Initialize database (create admin and settings if needed)
+initializeDatabase()
+  .then(() => {
+    app.listen(PORT, () => {
+      logger.info(`🚀 Server running on http://localhost:${PORT}`, { environment: NODE_ENV });
+    });
+  })
+  .catch((error) => {
+    logger.error('Failed to start server:', error);
+    process.exit(1);
+  });
 
 export default app;

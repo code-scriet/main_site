@@ -18,7 +18,7 @@ build/
 # Database
 *.db
 *.db-journal
-
+.Deployment.md
 # Logs
 logs/
 *.log

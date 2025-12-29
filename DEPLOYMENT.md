@@ -55,21 +55,13 @@
    | `GITHUB_CLIENT_ID` | Your GitHub OAuth client ID |
    | `GITHUB_CLIENT_SECRET` | Your GitHub OAuth secret |
    | `PORT` | `5001` |
+   | `SUPER_ADMIN_EMAIL` | Your admin email (e.g., `admin@codescriet.com`) |
+   | `SUPER_ADMIN_PASSWORD` | Strong password for admin |
+   | `SUPER_ADMIN_NAME` | Admin display name (e.g., `Super Admin`) |
 
 6. Click **Create Web Service**
 
-### Seed Database (First Time)
-
-Since Render doesn't provide shell access on free tier, you need to seed locally then push:
-
-**Option 1: Seed from local machine**
-1. Update your local `.env` with production `DATABASE_URL` from Neon
-2. Run: `npx prisma db seed`
-3. Restore local `.env`
-
-**Option 2: Create seed migration**
-1. Create a seed SQL file in `prisma/seed.sql`
-2. Run it directly in Neon SQL Editor
+**Note**: The backend will automatically create the super admin user and default settings on first startup using the environment variables provided.
 
 ---
 
