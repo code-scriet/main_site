@@ -5,7 +5,7 @@ services:
     name: codescriet-api
     runtime: node
     plan: free
-    buildCommand: npm install && npx prisma generate --schema=./prisma/schema.prisma && npm run build --workspace=apps/api
+    buildCommand: npm install --include=dev && npx prisma generate --schema=./prisma/schema.prisma && npm run build --workspace=apps/api
     startCommand: npx prisma migrate deploy --schema=./prisma/schema.prisma && npm run start --workspace=apps/api
     healthCheckPath: /ping
     envVars:

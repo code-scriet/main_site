@@ -33,7 +33,7 @@
    - **Runtime**: Node
    - **Build Command**: 
      ```bash
-     npm install && npx prisma generate --schema=./prisma/schema.prisma && npm run build --workspace=apps/api
+     npm install --include=dev && npx prisma generate --schema=./prisma/schema.prisma && npm run build --workspace=apps/api
      ```
    - **Start Command**: 
      ```bash
