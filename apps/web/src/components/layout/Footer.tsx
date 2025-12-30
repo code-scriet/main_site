@@ -10,9 +10,9 @@ export function Footer() {
   ];
 
   const socialLinks = [
-    // { name: 'GitHub', icon: Github, href: 'https://github.com' },
+    { name: 'GitHub', icon: Github, href: 'https://github.com' },
     { name: 'LinkedIn', icon: Linkedin, href: 'https://www.linkedin.com/company/code-scriet/' },
-    // { name: 'Twitter', icon: Twitter, href: 'https://twitter.com' },
+    { name: 'Twitter', icon: Twitter, href: 'https://twitter.com' },
     { name: 'Email', icon: Mail, href: 'mailto:code.scriet@gmail.com' },
   ];
 
