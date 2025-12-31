@@ -20,6 +20,11 @@ settingsRouter.get('/public', async (req: Request, res: Response) => {
         showQOTD: true,
         showAchievements: true,
         announcementsEnabled: true,
+        githubUrl: true,
+        linkedinUrl: true,
+        twitterUrl: true,
+        instagramUrl: true,
+        discordUrl: true,
       },
     });
 
@@ -36,6 +41,11 @@ settingsRouter.get('/public', async (req: Request, res: Response) => {
           showQOTD: true,
           showAchievements: true,
           announcementsEnabled: true,
+          githubUrl: null,
+          linkedinUrl: null,
+          twitterUrl: null,
+          instagramUrl: null,
+          discordUrl: null,
         },
       });
     }
@@ -80,6 +90,11 @@ settingsRouter.put('/', authMiddleware, requireRole('ADMIN'), async (req: Reques
       showLeaderboard,
       showQOTD,
       showAchievements,
+      githubUrl,
+      linkedinUrl,
+      twitterUrl,
+      instagramUrl,
+      discordUrl,
     } = req.body;
 
     const settings = await prisma.settings.upsert({
@@ -95,6 +110,11 @@ settingsRouter.put('/', authMiddleware, requireRole('ADMIN'), async (req: Reques
         ...(showLeaderboard !== undefined && { showLeaderboard }),
         ...(showQOTD !== undefined && { showQOTD }),
         ...(showAchievements !== undefined && { showAchievements }),
+        ...(githubUrl !== undefined && { githubUrl: githubUrl || null }),
+        ...(linkedinUrl !== undefined && { linkedinUrl: linkedinUrl || null }),
+        ...(twitterUrl !== undefined && { twitterUrl: twitterUrl || null }),
+        ...(instagramUrl !== undefined && { instagramUrl: instagramUrl || null }),
+        ...(discordUrl !== undefined && { discordUrl: discordUrl || null }),
       },
       update: {
         ...(clubName && { clubName }),
@@ -106,6 +126,11 @@ settingsRouter.put('/', authMiddleware, requireRole('ADMIN'), async (req: Reques
         ...(showLeaderboard !== undefined && { showLeaderboard }),
         ...(showQOTD !== undefined && { showQOTD }),
         ...(showAchievements !== undefined && { showAchievements }),
+        ...(githubUrl !== undefined && { githubUrl: githubUrl || null }),
+        ...(linkedinUrl !== undefined && { linkedinUrl: linkedinUrl || null }),
+        ...(twitterUrl !== undefined && { twitterUrl: twitterUrl || null }),
+        ...(instagramUrl !== undefined && { instagramUrl: instagramUrl || null }),
+        ...(discordUrl !== undefined && { discordUrl: discordUrl || null }),
       },
     });
 

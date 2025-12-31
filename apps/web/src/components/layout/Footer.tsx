@@ -92,11 +92,6 @@ export function Footer() {
                 );
               })}
             </div>
-            {socialLinks.length <= 1 && (
-              <p className="text-amber-300 text-sm mt-3">
-                Social links can be configured in admin settings.
-              </p>
-            )}
           </div>
         </div>
 
