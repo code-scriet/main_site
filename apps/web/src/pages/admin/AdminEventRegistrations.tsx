@@ -51,12 +51,13 @@ export default function AdminEventRegistrations() {
     try {
       setLoading(true);
       setError(null);
+      const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:5001/api';
       const data = await api.getEvents();
       // Get detailed registration data for each event
       const eventsWithDetails = await Promise.all(
         data.map(async (event) => {
           try {
-            const response = await fetch(`http://localhost:5001/api/events/${event.id}/registrations`, {
+            const response = await fetch(`${apiUrl}/events/${event.id}/registrations`, {
               headers: { Authorization: `Bearer ${token}` }
             });
             const result = await response.json();
@@ -84,23 +85,32 @@ export default function AdminEventRegistrations() {
     )
   );
 
-  const exportToCSV = (event: EventWithRegistrations) => {
-    const csvData = [
-      ['Name', 'Email', 'Role', 'Registration Date'],
-      ...event.registrations.map(r => [
-        r.user.name,
-        r.user.email,
-        r.user.role,
-        new Date(r.timestamp).toLocaleString()
-      ])
-    ];
-    const csvContent = csvData.map(row => row.join(',')).join('\n');
-    const blob = new Blob([csvContent], { type: 'text/csv' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `${event.title.replace(/\s+/g, '_')}_registrations.csv`;
-    a.click();
+  const exportToExcel = async (event: EventWithRegistrations) => {
+    if (!token) {
+      setError('Authentication required');
+      return;
+    }
+    
+    try {
+      const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:5001/api';
+      const response = await fetch(`${apiUrl}/events/${event.id}/registrations/export`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      
+      if (!response.ok) {
+        throw new Error('Failed to export registrations');
+      }
+      
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${event.title.replace(/\s+/g, '_')}_registrations.xlsx`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to export');
+    }
   };
 
   const handleDeleteEvent = async (eventId: string, eventTitle: string) => {
@@ -216,10 +226,11 @@ export default function AdminEventRegistrations() {
                         <Button
                           size="sm"
                           variant="outline"
-                          onClick={() => exportToCSV(event)}
+                          onClick={() => exportToExcel(event)}
+                          className="text-green-600 hover:text-green-700 hover:bg-green-50 border-green-200"
                         >
                           <Download className="h-4 w-4 mr-1" />
-                          Export
+                          Export Excel
                         </Button>
                       )}
                       <Link to={`/admin/events/${event.id}/edit`}>

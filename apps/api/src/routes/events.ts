@@ -200,20 +200,141 @@ eventsRouter.get('/:id/registrations', authMiddleware, requireRole('CORE_MEMBER'
 
 eventsRouter.get('/:id/registrations/export', authMiddleware, requireRole('CORE_MEMBER'), async (req: Request, res: Response) => {
   try {
+    const { format = 'xlsx' } = req.query;
+    
     const event = await prisma.event.findUnique({
       where: { id: req.params.id },
-      include: { registrations: { include: { user: { select: { name: true, email: true } } } } },
+      include: {
+        registrations: {
+          include: {
+            user: {
+              select: {
+                id: true,
+                name: true,
+                email: true,
+                avatar: true,
+                role: true,
+                oauthProvider: true,
+                githubUrl: true,
+                linkedinUrl: true,
+                twitterUrl: true,
+                websiteUrl: true,
+                createdAt: true,
+              },
+            },
+          },
+          orderBy: { timestamp: 'asc' },
+        },
+      },
     });
 
     if (!event) {
       return res.status(404).json({ success: false, error: { message: 'Event not found' } });
     }
 
-    const csv = ['Name,Email,Registered At', ...event.registrations.map((r) => `"${r.user.name}","${r.user.email}","${r.timestamp.toISOString()}"`)].join('\n');
-    res.setHeader('Content-Type', 'text/csv');
-    res.setHeader('Content-Disposition', `attachment; filename="${event.title.replace(/[^a-z0-9]/gi, '_')}_registrations.csv"`);
-    res.send(csv);
+    // For CSV format (backwards compatible)
+    if (format === 'csv') {
+      const csv = [
+        'Name,Email,Role,OAuth Provider,Registered At,Account Created',
+        ...event.registrations.map((r) => 
+          `"${r.user.name}","${r.user.email}","${r.user.role}","${r.user.oauthProvider || 'email'}","${r.timestamp.toISOString()}","${r.user.createdAt.toISOString()}"`
+        ),
+      ].join('\n');
+      res.setHeader('Content-Type', 'text/csv');
+      res.setHeader('Content-Disposition', `attachment; filename="${event.title.replace(/[^a-z0-9]/gi, '_')}_registrations.csv"`);
+      return res.send(csv);
+    }
+
+    // For Excel format
+    const ExcelJS = await import('exceljs');
+    const workbook = new ExcelJS.default.Workbook();
+    workbook.creator = 'code.scriet';
+    workbook.created = new Date();
+
+    const worksheet = workbook.addWorksheet('Registrations');
+
+    // Define columns
+    worksheet.columns = [
+      { header: 'S.No', key: 'sno', width: 8 },
+      { header: 'Name', key: 'name', width: 25 },
+      { header: 'Email', key: 'email', width: 35 },
+      { header: 'Role', key: 'role', width: 15 },
+      { header: 'Auth Method', key: 'authMethod', width: 15 },
+      { header: 'Registered At', key: 'registeredAt', width: 22 },
+      { header: 'Account Created', key: 'accountCreated', width: 22 },
+      { header: 'GitHub', key: 'github', width: 25 },
+      { header: 'LinkedIn', key: 'linkedin', width: 25 },
+      { header: 'Twitter', key: 'twitter', width: 25 },
+      { header: 'Website', key: 'website', width: 30 },
+    ];
+
+    // Style header row
+    worksheet.getRow(1).font = { bold: true, color: { argb: 'FFFFFFFF' } };
+    worksheet.getRow(1).fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: 'FFD97706' }, // Amber color
+    };
+    worksheet.getRow(1).alignment = { horizontal: 'center', vertical: 'middle' };
+    worksheet.getRow(1).height = 25;
+
+    // Add data rows
+    event.registrations.forEach((reg, index) => {
+      worksheet.addRow({
+        sno: index + 1,
+        name: reg.user.name,
+        email: reg.user.email,
+        role: reg.user.role,
+        authMethod: reg.user.oauthProvider || 'Email/Password',
+        registeredAt: reg.timestamp.toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }),
+        accountCreated: reg.user.createdAt.toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }),
+        github: reg.user.githubUrl || '',
+        linkedin: reg.user.linkedinUrl || '',
+        twitter: reg.user.twitterUrl || '',
+        website: reg.user.websiteUrl || '',
+      });
+    });
+
+    // Add alternating row colors
+    worksheet.eachRow((row, rowNumber) => {
+      if (rowNumber > 1) {
+        row.fill = {
+          type: 'pattern',
+          pattern: 'solid',
+          fgColor: { argb: rowNumber % 2 === 0 ? 'FFFEF3C7' : 'FFFFFFFF' },
+        };
+      }
+      row.border = {
+        top: { style: 'thin', color: { argb: 'FFE5E7EB' } },
+        bottom: { style: 'thin', color: { argb: 'FFE5E7EB' } },
+        left: { style: 'thin', color: { argb: 'FFE5E7EB' } },
+        right: { style: 'thin', color: { argb: 'FFE5E7EB' } },
+      };
+    });
+
+    // Add summary info at the top
+    const summarySheet = workbook.addWorksheet('Event Info');
+    summarySheet.addRow(['Event Title', event.title]);
+    summarySheet.addRow(['Start Date', event.startDate.toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })]);
+    summarySheet.addRow(['End Date', event.endDate?.toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }) || 'N/A']);
+    summarySheet.addRow(['Location', event.location || 'N/A']);
+    summarySheet.addRow(['Venue', event.venue || 'N/A']);
+    summarySheet.addRow(['Total Registrations', event.registrations.length]);
+    summarySheet.addRow(['Capacity', event.capacity || 'Unlimited']);
+    summarySheet.addRow(['Export Date', new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })]);
+
+    summarySheet.getColumn(1).width = 20;
+    summarySheet.getColumn(1).font = { bold: true };
+    summarySheet.getColumn(2).width = 40;
+
+    // Send Excel file
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="${event.title.replace(/[^a-z0-9]/gi, '_')}_registrations.xlsx"`);
+
+    await workbook.xlsx.write(res);
+    res.end();
   } catch (error) {
+    console.error('Export error:', error);
     res.status(500).json({ success: false, error: { message: 'Failed to export registrations' } });
   }
 });
