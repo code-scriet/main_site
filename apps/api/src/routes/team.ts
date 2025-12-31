@@ -62,7 +62,7 @@ teamRouter.get('/meta/teams', async (req: Request, res: Response) => {
 teamRouter.post('/', authMiddleware, requireRole('ADMIN'), async (req: Request, res: Response) => {
   try {
     const authUser = getAuthUser(req)!;
-    const { name, role, team, imageUrl, github, linkedin, twitter, order } = req.body;
+    const { name, role, team, imageUrl, github, linkedin, twitter, instagram, order } = req.body;
 
     if (!name || !role || !team || !imageUrl) {
       return res.status(400).json({
@@ -80,6 +80,7 @@ teamRouter.post('/', authMiddleware, requireRole('ADMIN'), async (req: Request, 
         github: github || null,
         linkedin: linkedin || null,
         twitter: twitter || null,
+        instagram: instagram || null,
         order: order || 0,
       },
     });
@@ -95,7 +96,7 @@ teamRouter.post('/', authMiddleware, requireRole('ADMIN'), async (req: Request, 
 teamRouter.put('/:id', authMiddleware, requireRole('ADMIN'), async (req: Request, res: Response) => {
   try {
     const authUser = getAuthUser(req)!;
-    const { name, role, team, imageUrl, github, linkedin, twitter, order } = req.body;
+    const { name, role, team, imageUrl, github, linkedin, twitter, instagram, order } = req.body;
 
     const teamMember = await prisma.teamMember.update({
       where: { id: req.params.id },
@@ -107,6 +108,7 @@ teamRouter.put('/:id', authMiddleware, requireRole('ADMIN'), async (req: Request
         ...(github !== undefined && { github }),
         ...(linkedin !== undefined && { linkedin }),
         ...(twitter !== undefined && { twitter }),
+        ...(instagram !== undefined && { instagram }),
         ...(order !== undefined && { order }),
       },
     });

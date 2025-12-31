@@ -25,6 +25,7 @@ export default function AdminTeam() {
     linkedin: '',
     github: '',
     twitter: '',
+    instagram: '',
     order: 0,
   });
 
@@ -53,6 +54,7 @@ export default function AdminTeam() {
       linkedin: '',
       github: '',
       twitter: '',
+      instagram: '',
       order: 0,
     });
     setEditingId(null);
@@ -68,6 +70,7 @@ export default function AdminTeam() {
       linkedin: member.linkedin || '',
       github: member.github || '',
       twitter: member.twitter || '',
+      instagram: member.instagram || '',
       order: member.order || 0,
     });
     setEditingId(member.id);
@@ -102,6 +105,7 @@ export default function AdminTeam() {
         linkedin: form.linkedin.trim() || undefined,
         github: form.github.trim() || undefined,
         twitter: form.twitter.trim() || undefined,
+        instagram: form.instagram.trim() || undefined,
         order: form.order,
       };
 
@@ -254,7 +258,7 @@ export default function AdminTeam() {
                 />
                 <p className="text-xs text-gray-500">Leave empty to auto-generate an avatar</p>
               </div>
-              <div className="grid gap-4 sm:grid-cols-3">
+              <div className="grid gap-4 sm:grid-cols-4">
                 <div className="space-y-2">
                   <label className="text-sm font-medium">GitHub Username</label>
                   <Input
@@ -276,6 +280,14 @@ export default function AdminTeam() {
                   <Input
                     value={form.twitter}
                     onChange={(e) => setForm({ ...form, twitter: e.target.value })}
+                    placeholder="username"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Instagram Username</label>
+                  <Input
+                    value={form.instagram}
+                    onChange={(e) => setForm({ ...form, instagram: e.target.value })}
                     placeholder="username"
                   />
                 </div>

@@ -161,6 +161,7 @@ model TeamMember {
   github    String?
   linkedin  String?
   twitter   String?
+  instagram String?
   order     Int      @default(0)
   createdAt DateTime @default(now()) @map("created_at")
   

@@ -117,6 +117,7 @@ export interface TeamMember {
   github?: string;
   linkedin?: string;
   twitter?: string;
+  instagram?: string;
   order?: number;
 }
 
