@@ -4,7 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Loader2, Calendar, Users, Search, Download, Mail } from 'lucide-react';
+import { Loader2, Calendar, Users, Search, Download, Mail, Trash2 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { api } from '@/lib/api';
 
@@ -35,6 +35,7 @@ export default function AdminEventRegistrations() {
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedEvent, setSelectedEvent] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   useEffect(() => {
     loadEvents();
@@ -99,6 +100,30 @@ export default function AdminEventRegistrations() {
     a.href = url;
     a.download = `${event.title.replace(/\s+/g, '_')}_registrations.csv`;
     a.click();
+  };
+
+  const handleDeleteEvent = async (eventId: string, eventTitle: string) => {
+    if (!token) {
+      setError('Authentication required');
+      return;
+    }
+    
+    const confirmed = window.confirm(
+      `Are you sure you want to delete "${eventTitle}"? This action cannot be undone and will remove all registrations for this event.`
+    );
+    
+    if (!confirmed) return;
+    
+    try {
+      setDeletingId(eventId);
+      setError(null);
+      await api.deleteEvent(eventId, token);
+      await loadEvents();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to delete event');
+    } finally {
+      setDeletingId(null);
+    }
   };
 
   if (loading) {
@@ -196,6 +221,22 @@ export default function AdminEventRegistrations() {
                           Export
                         </Button>
                       )}
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => handleDeleteEvent(event.id, event.title)}
+                        disabled={deletingId === event.id}
+                        className="text-red-600 hover:text-red-700 hover:bg-red-50 border-red-200"
+                      >
+                        {deletingId === event.id ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          <>
+                            <Trash2 className="h-4 w-4 mr-1" />
+                            Delete
+                          </>
+                        )}
+                      </Button>
                     </div>
                   </div>
                 </CardHeader>
