@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { Layout } from '@/components/layout/Layout';
 import { motion } from 'framer-motion';
 import { Button } from '@/components/ui/button';
-import { Github, Linkedin, Twitter, Loader2 } from 'lucide-react';
+import { Github, Linkedin, Twitter, Instagram, Loader2 } from 'lucide-react';
 import { api, type TeamMember } from '@/lib/api';
 
 export default function TeamPage() {
@@ -191,6 +191,16 @@ function MemberCard({ member, index }: { member: TeamMember; index: number }) {
             className="text-gray-400 hover:text-sky-500 transition-colors"
           >
             <Twitter className="h-4 w-4" />
+          </a>
+        )}
+        {member.instagram && (
+          <a
+            href={`https://instagram.com/${member.instagram}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-gray-400 hover:text-pink-500 transition-colors"
+          >
+            <Instagram className="h-4 w-4" />
           </a>
         )}
       </div>
