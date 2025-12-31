@@ -68,6 +68,12 @@ export interface Settings {
   showLeaderboard?: boolean;
   showQOTD?: boolean;
   showAchievements?: boolean;
+  // Social Links
+  githubUrl?: string;
+  linkedinUrl?: string;
+  twitterUrl?: string;
+  instagramUrl?: string;
+  discordUrl?: string;
   updatedAt: string;
 }
 

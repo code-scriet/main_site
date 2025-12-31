@@ -86,6 +86,13 @@ model Settings {
   showQOTD            Boolean  @default(true) @map("show_qotd")
   showAchievements    Boolean  @default(true) @map("show_achievements")
   
+  // Social Links
+  githubUrl           String?  @map("github_url")
+  linkedinUrl         String?  @map("linkedin_url")
+  twitterUrl          String?  @map("twitter_url")
+  instagramUrl        String?  @map("instagram_url")
+  discordUrl          String?  @map("discord_url")
+  
   updatedAt           DateTime @updatedAt @map("updated_at")
   
   @@map("settings")

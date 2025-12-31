@@ -2,9 +2,10 @@ import { useState, useEffect, useMemo } from 'react';
 import { motion, useScroll, useTransform } from 'framer-motion';
 import { Button } from '@/components/ui/button';
 import { Link } from 'react-router-dom';
-import { ArrowRight, Users, Calendar, Trophy, Sparkles, Terminal, Zap } from 'lucide-react';
+import { ArrowRight, Users, Calendar, Trophy, Sparkles, Terminal, Zap, LayoutDashboard } from 'lucide-react';
 import { api } from '@/lib/api';
 import type { Settings } from '@/lib/api';
+import { useAuth } from '@/context/AuthContext';
 
 // Animated typing text effect
 const typingPhrases = [
@@ -158,6 +159,7 @@ function AnimatedCounter({ value, suffix = '' }: { value: number; suffix?: strin
 }
 
 export function Hero() {
+  const { user } = useAuth();
   const [stats, setStats] = useState({ members: 0, events: 0, achievements: 0 });
   const [settings, setSettings] = useState<Settings | null>(null);
   const { scrollY } = useScroll();
@@ -332,16 +334,29 @@ export function Hero() {
                 />
               </Button>
             </Link>
-            <Link to="/signin">
-              <Button 
-                size="lg" 
-                variant="outline" 
-                className="border-2 border-white/20 text-white hover:bg-white/10 hover:border-white/40 h-14 px-8 text-lg backdrop-blur-sm bg-white/5"
-              >
-                <Users className="h-5 w-5 mr-2" />
-                Sign In / Register
-              </Button>
-            </Link>
+            {user ? (
+              <Link to="/dashboard">
+                <Button 
+                  size="lg" 
+                  variant="outline" 
+                  className="border-2 border-white/20 text-white hover:bg-white/10 hover:border-white/40 h-14 px-8 text-lg backdrop-blur-sm bg-white/5"
+                >
+                  <LayoutDashboard className="h-5 w-5 mr-2" />
+                  Dashboard
+                </Button>
+              </Link>
+            ) : (
+              <Link to="/signin">
+                <Button 
+                  size="lg" 
+                  variant="outline" 
+                  className="border-2 border-white/20 text-white hover:bg-white/10 hover:border-white/40 h-14 px-8 text-lg backdrop-blur-sm bg-white/5"
+                >
+                  <Users className="h-5 w-5 mr-2" />
+                  Sign In / Register
+                </Button>
+              </Link>
+            )}
           </motion.div>
 
           {/* Stats */}

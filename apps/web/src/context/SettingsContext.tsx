@@ -20,6 +20,11 @@ const defaultSettings: Settings = {
   showLeaderboard: false,
   showQOTD: true,
   showAchievements: true,
+  githubUrl: '',
+  linkedinUrl: '',
+  twitterUrl: '',
+  instagramUrl: '',
+  discordUrl: '',
   updatedAt: new Date().toISOString(),
 };
 
