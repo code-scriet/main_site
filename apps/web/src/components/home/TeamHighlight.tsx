@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { Button } from '@/components/ui/button';
 import { Link } from 'react-router-dom';
-import { Github, Linkedin, Twitter, ArrowRight, Users, Loader2 } from 'lucide-react';
+import { Github, Linkedin, Twitter, Instagram, ArrowRight, Users, Loader2 } from 'lucide-react';
 import { api, type TeamMember } from '@/lib/api';
 
 export function TeamHighlight() {
@@ -152,6 +152,18 @@ export function TeamHighlight() {
                       whileTap={{ scale: 0.95 }}
                     >
                       <Twitter className="h-4 w-4" />
+                    </motion.a>
+                  )}
+                  {member.instagram && (
+                    <motion.a
+                      href={`https://instagram.com/${member.instagram}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="p-2 rounded-lg bg-gray-100 text-gray-500 hover:bg-pink-500 hover:text-white transition-all"
+                      whileHover={{ scale: 1.1 }}
+                      whileTap={{ scale: 0.95 }}
+                    >
+                      <Instagram className="h-4 w-4" />
                     </motion.a>
                   )}
                 </div>

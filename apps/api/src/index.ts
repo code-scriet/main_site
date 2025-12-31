@@ -28,6 +28,13 @@ const PORT = process.env.PORT || 5001;
 const NODE_ENV = process.env.NODE_ENV || 'development';
 
 // Middleware
+
+// Trust proxy - required for rate limiting behind reverse proxies (Render, etc.)
+// This tells Express to trust the X-Forwarded-For header
+if (NODE_ENV === 'production') {
+  app.set('trust proxy', 1);
+}
+
 app.use(helmet());
 app.use(cors({
   origin: (origin, callback) => {
