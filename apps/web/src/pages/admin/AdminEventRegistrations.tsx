@@ -4,9 +4,10 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Loader2, Calendar, Users, Search, Download, Mail, Trash2 } from 'lucide-react';
+import { Loader2, Calendar, Users, Search, Download, Mail, Trash2, Pencil } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { api } from '@/lib/api';
+import { Link } from 'react-router-dom';
 
 interface EventWithRegistrations {
   id: string;
@@ -221,6 +222,16 @@ export default function AdminEventRegistrations() {
                           Export
                         </Button>
                       )}
+                      <Link to={`/admin/events/${event.id}/edit`}>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="text-blue-600 hover:text-blue-700 hover:bg-blue-50 border-blue-200"
+                        >
+                          <Pencil className="h-4 w-4 mr-1" />
+                          Edit
+                        </Button>
+                      </Link>
                       <Button
                         size="sm"
                         variant="outline"

@@ -29,6 +29,7 @@ import AdminUsers from '@/pages/admin/AdminUsers';
 import AdminTeam from '@/pages/admin/AdminTeam';
 import AdminSettings from '@/pages/admin/AdminSettings';
 import AdminEventRegistrations from '@/pages/admin/AdminEventRegistrations';
+import EditEvent from '@/pages/admin/EditEvent';
 import AdminHiring from '@/pages/admin/AdminHiring';
 
 // Auth Components
@@ -82,6 +83,7 @@ function App() {
                 <Route path="users" element={<AdminUsers />} />
                 <Route path="team" element={<AdminTeam />} />
                 <Route path="event-registrations" element={<AdminEventRegistrations />} />
+                <Route path="events/:id/edit" element={<EditEvent />} />
                 <Route path="hiring" element={<AdminHiring />} />
                 <Route path="settings" element={<AdminSettings />} />
               </Route>
