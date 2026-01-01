@@ -9,6 +9,11 @@ export interface AuthUser {
   email: string;
   role: string;
   avatar?: string | null;
+  phone?: string | null;
+  course?: string | null;
+  branch?: string | null;
+  year?: string | null;
+  profileCompleted?: boolean | null;
 }
 
 // AuthRequest extends Request with custom user
@@ -55,6 +60,11 @@ const authMiddlewareImpl = async (
         email: true,
         role: true,
         avatar: true,
+        phone: true,
+        course: true,
+        branch: true,
+        year: true,
+        profileCompleted: true,
       },
     });
 
@@ -98,6 +108,11 @@ const optionalAuthMiddlewareImpl = async (
         email: true,
         role: true,
         avatar: true,
+        phone: true,
+        course: true,
+        branch: true,
+        year: true,
+        profileCompleted: true,
       },
     });
 
