@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Layout } from '@/components/layout/Layout';
+import { SEO } from '@/components/SEO';
 import { motion } from 'framer-motion';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Bell, Calendar, AlertCircle, Info, AlertTriangle, Megaphone } from 'lucide-react';
@@ -62,6 +63,12 @@ export default function AnnouncementsPage() {
 
   return (
     <Layout>
+      <SEO 
+        title="Announcements"
+        description="Stay updated with the latest news, updates, and announcements from code.scriet - SCRIET's official coding club."
+        url="/announcements"
+        keywords="code.scriet announcements, SCRIET coding club news, club updates"
+      />
       <section className="py-20 bg-gradient-to-br from-amber-50 via-orange-50 to-amber-100 min-h-screen">
         <div className="container mx-auto px-4">
           {/* Header */}

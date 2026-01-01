@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Layout } from '@/components/layout/Layout';
+import { SEO } from '@/components/SEO';
 import { motion } from 'framer-motion';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -133,6 +134,12 @@ export default function EventsPage() {
 
   return (
     <Layout>
+      <SEO 
+        title="Events"
+        description="Discover upcoming workshops, hackathons, and coding events by code.scriet - SCRIET's coding club. Register and participate in exciting tech events."
+        url="/events"
+        keywords="code.scriet events, SCRIET hackathons, coding workshops, programming events, tech events"
+      />
       {/* Hero Section */}
       <section className="py-16 bg-gradient-to-br from-amber-400 via-orange-500 to-amber-900 text-white">
         <div className="container mx-auto px-4">

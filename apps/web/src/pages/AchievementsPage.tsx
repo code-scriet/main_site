@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Layout } from '@/components/layout/Layout';
+import { SEO } from '@/components/SEO';
 import { motion } from 'framer-motion';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -41,6 +42,12 @@ export default function AchievementsPage() {
 
   return (
     <Layout>
+      <SEO 
+        title="Achievements"
+        description="Celebrating the accomplishments of code.scriet members - hackathon wins, competition victories, and outstanding achievements."
+        url="/achievements"
+        keywords="code.scriet achievements, SCRIET coding club awards, hackathon winners, programming achievements"
+      />
       {/* Hero Section */}
       <section className="py-16 bg-gradient-to-br from-amber-400 via-orange-500 to-amber-900 text-white">
         <div className="container mx-auto px-4">

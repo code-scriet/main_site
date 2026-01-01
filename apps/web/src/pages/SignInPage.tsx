@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams, Link } from 'react-router-dom';
 import { Layout } from '@/components/layout/Layout';
+import { SEO } from '@/components/SEO';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -155,6 +156,12 @@ export default function SignInPage() {
 
   return (
     <Layout>
+      <SEO 
+        title="Sign In"
+        description="Sign in to your code.scriet account to access events, announcements, and member features."
+        url="/signin"
+        noIndex={true}
+      />
       <section className="min-h-[80vh] flex items-center justify-center py-20 bg-gradient-to-br from-amber-50 via-orange-50 to-amber-100">
         <div className="container mx-auto px-4">
           <motion.div

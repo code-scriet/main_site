@@ -1,0 +1,13 @@
+# robots.txt for code.scriet
+# https://www.robotstxt.org/robotstxt.html
+
+User-agent: *
+Allow: /
+
+# Disallow admin and dashboard areas from indexing
+Disallow: /admin/
+Disallow: /dashboard/
+Disallow: /auth/
+
+# Sitemap location
+Sitemap: https://codescriet.dev/sitemap.xml

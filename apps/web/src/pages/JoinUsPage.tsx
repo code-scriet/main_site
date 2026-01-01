@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Layout } from '@/components/layout/Layout';
+import { SEO } from '@/components/SEO';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -215,6 +216,12 @@ export default function JoinUsPage() {
 
   return (
     <Layout>
+      <SEO 
+        title="Join Us"
+        description="Join code.scriet - SCRIET's premier coding club. Apply to become a core team member and contribute to our coding community."
+        url="/join-us"
+        keywords="join code.scriet, SCRIET coding club recruitment, coding club membership, become a member"
+      />
       <section className="min-h-screen py-12 bg-gradient-to-br from-amber-50 via-orange-50 to-amber-100">
         <div className="container mx-auto px-4">
           {/* Header */}

@@ -1,4 +1,5 @@
 import { Layout } from '@/components/layout/Layout';
+import { SEO } from '@/components/SEO';
 import { motion } from 'framer-motion';
 import { Card, CardContent } from '@/components/ui/card';
 import { Target, Eye, History, Rocket, Ban, Code, Users, Trophy } from 'lucide-react';
@@ -27,6 +28,12 @@ export default function AboutPage() {
 
   return (
     <Layout>
+      <SEO 
+        title="About Us"
+        description="Learn about code.scriet - SCRIET's premier coding club. Our vision, mission, and the passionate community building tomorrow's problem solvers."
+        url="/about"
+        keywords="about code.scriet, SCRIET coding club history, coding community, programming club mission"
+      />
       {/* Hero Section */}
       <section className="py-20 bg-gradient-to-br from-amber-400 via-orange-500 to-amber-900 text-white">
         <div className="container mx-auto px-4">
