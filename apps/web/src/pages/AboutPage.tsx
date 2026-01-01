@@ -6,7 +6,7 @@ import { Target, Eye, History, Rocket, Ban, Code, Users, Trophy } from 'lucide-r
 
 export default function AboutPage() {
   const timeline = [
-    { year: '2025', title: 'Club Founded', description: 'code.scriet was founded by our seniors, Prince Gupta and Girdhari Singh Yadav, with a shared vision to build a strong coding culture.' },
+    { year: '2025', title: 'Club Founded', description: 'Code.Scriet was founded by our seniors, Prince Gupta and Girdhari Singh Yadav, with a shared vision to build a strong coding culture.' },
     { year: '2025', title: 'First Workshop', description: 'Organized our first successful 3-Day Workshop' },
     { year: '2025', title: '500+ Members', description: 'Reached a milestone of 500 active members' },
     { year: '2026', title: 'Expanding', description: 'Launching new initiatives and growing our community' },
