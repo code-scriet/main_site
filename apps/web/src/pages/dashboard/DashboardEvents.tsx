@@ -7,7 +7,7 @@ import { useAuth } from '@/context/AuthContext';
 import { api } from '@/lib/api';
 import type { Registration, Event } from '@/lib/api';
 import { Calendar, MapPin, Users, Clock, Loader2, AlertCircle, Plus, CheckCircle } from 'lucide-react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 
 // Helper to get registration status
 function getRegistrationStatus(event: Event): {
@@ -45,6 +45,7 @@ function getRegistrationStatus(event: Event): {
 
 export default function DashboardEvents() {
   const { user, token } = useAuth();
+  const navigate = useNavigate();
   const [registrations, setRegistrations] = useState<Registration[]>([]);
   const [availableEvents, setAvailableEvents] = useState<Event[]>([]);
   const [loading, setLoading] = useState(true);
@@ -53,6 +54,9 @@ export default function DashboardEvents() {
   const [cancelingId, setCancelingId] = useState<string | null>(null);
 
   const isCoreMember = user?.role === 'CORE_MEMBER' || user?.role === 'ADMIN';
+  
+  // Check if academic details are complete
+  const hasCompleteAcademicDetails = user?.phone && user?.course && user?.branch && user?.year;
 
   useEffect(() => {
     loadData();
@@ -90,9 +94,9 @@ export default function DashboardEvents() {
       return;
     }
     
-    // Check if profile is completed
-    if (user && !user.profileCompleted) {
-      setError('Please complete your profile before registering for events');
+    // Check if academic details are complete - redirect to profile if not
+    if (!hasCompleteAcademicDetails) {
+      navigate('/dashboard/profile');
       return;
     }
     

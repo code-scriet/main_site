@@ -306,7 +306,8 @@ usersRouter.get('/', authMiddleware, requireRole('ADMIN'), async (_req: Request,
 // Get user by ID (admin)
 usersRouter.get('/:id', authMiddleware, requireRole('ADMIN'), async (req: Request, res: Response) => {
   try {
-    const user = await prisma.user.findUnique({
+    const authUser = getAuthUser(req)!;
+    const targetUser = await prisma.user.findUnique({
       where: { id: req.params.id },
       select: {
         id: true,
@@ -315,20 +316,107 @@ usersRouter.get('/:id', authMiddleware, requireRole('ADMIN'), async (req: Reques
         role: true,
         avatar: true,
         bio: true,
+        phone: true,
+        course: true,
+        branch: true,
+        year: true,
+        profileCompleted: true,
         githubUrl: true,
         linkedinUrl: true,
+        twitterUrl: true,
+        websiteUrl: true,
         createdAt: true,
         _count: { select: { registrations: true, qotdSubmissions: true } },
       },
     });
 
-    if (!user) {
+    if (!targetUser) {
       return res.status(404).json({ success: false, error: { message: 'User not found' } });
     }
 
-    res.json({ success: true, data: user });
+    // Check permissions: Super admin can see everyone, other admins cannot see other admins
+    const superAdminEmail = process.env.SUPER_ADMIN_EMAIL;
+    const isSuperAdmin = authUser.email === superAdminEmail;
+    
+    if (targetUser.role === 'ADMIN' && !isSuperAdmin) {
+      return res.status(403).json({ success: false, error: { message: 'You cannot view other admin profiles' } });
+    }
+
+    res.json({ success: true, data: targetUser });
   } catch (error) {
     res.status(500).json({ success: false, error: { message: 'Failed to fetch user' } });
+  }
+});
+
+// Update user profile (admin)
+usersRouter.put('/:id', authMiddleware, requireRole('ADMIN'), async (req: Request, res: Response) => {
+  try {
+    const authUser = getAuthUser(req)!;
+    const { name, bio, phone, course, branch, year, avatarUrl, githubUrl, linkedinUrl, twitterUrl, websiteUrl } = req.body;
+
+    const targetUser = await prisma.user.findUnique({
+      where: { id: req.params.id },
+      select: { id: true, role: true, email: true },
+    });
+
+    if (!targetUser) {
+      return res.status(404).json({ success: false, error: { message: 'User not found' } });
+    }
+
+    // Check permissions: Super admin can edit everyone, other admins cannot edit other admins
+    const superAdminEmail = process.env.SUPER_ADMIN_EMAIL;
+    const isSuperAdmin = authUser.email === superAdminEmail;
+    
+    if (targetUser.role === 'ADMIN' && !isSuperAdmin) {
+      return res.status(403).json({ success: false, error: { message: 'You cannot edit other admin profiles' } });
+    }
+
+    // Prevent editing super admin unless you are super admin
+    if (targetUser.email === superAdminEmail && !isSuperAdmin) {
+      return res.status(403).json({ success: false, error: { message: 'Cannot modify super admin' } });
+    }
+
+    const isProfileCompletion = phone && course && branch && year;
+
+    const user = await prisma.user.update({
+      where: { id: req.params.id },
+      data: {
+        ...(name && { name }),
+        ...(bio !== undefined && { bio }),
+        ...(avatarUrl !== undefined && { avatar: avatarUrl }),
+        ...(githubUrl !== undefined && { githubUrl }),
+        ...(linkedinUrl !== undefined && { linkedinUrl }),
+        ...(twitterUrl !== undefined && { twitterUrl }),
+        ...(websiteUrl !== undefined && { websiteUrl }),
+        ...(phone !== undefined && { phone }),
+        ...(course !== undefined && { course }),
+        ...(branch !== undefined && { branch }),
+        ...(year !== undefined && { year }),
+        ...(isProfileCompletion && { profileCompleted: true }),
+      },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        role: true,
+        avatar: true,
+        bio: true,
+        phone: true,
+        course: true,
+        branch: true,
+        year: true,
+        profileCompleted: true,
+        githubUrl: true,
+        linkedinUrl: true,
+        twitterUrl: true,
+        websiteUrl: true,
+      },
+    });
+
+    await auditLog(authUser.id, 'UPDATE', 'user', user.id, { updatedBy: 'admin' });
+    res.json({ success: true, data: user, message: 'User profile updated successfully' });
+  } catch (error) {
+    res.status(500).json({ success: false, error: { message: 'Failed to update user profile' } });
   }
 });
 

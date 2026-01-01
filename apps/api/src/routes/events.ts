@@ -189,10 +189,44 @@ eventsRouter.get('/:id/registrations', authMiddleware, requireRole('CORE_MEMBER'
   try {
     const registrations = await prisma.eventRegistration.findMany({
       where: { eventId: req.params.id },
-      include: { user: { select: { id: true, name: true, email: true, avatar: true } } },
+      include: { 
+        user: { 
+          select: { 
+            id: true, 
+            name: true, 
+            email: true, 
+            avatar: true,
+            phone: true,
+            course: true,
+            branch: true,
+            year: true,
+            role: true
+          } 
+        } 
+      },
       orderBy: { timestamp: 'asc' },
     });
     res.json({ success: true, data: registrations });
+  } catch (error) {
+    res.status(500).json({ success: false, error: { message: 'Failed to fetch registrations' } });
+  }
+});
+
+// Delete a registration (admin only)
+eventsRouter.delete('/:eventId/registrations/:registrationId', authMiddleware, requireRole('CORE_MEMBER'), async (req: Request, res: Response) => {
+  try {
+    const { eventId, registrationId } = req.params;
+    
+    const registration = await prisma.eventRegistration.findFirst({
+      where: { id: registrationId, eventId },
+    });
+    
+    if (!registration) {
+      return res.status(404).json({ success: false, error: { message: 'Registration not found' } });
+    }
+    
+    await prisma.eventRegistration.delete({ where: { id: registrationId } });
+    res.json({ success: true, message: 'Registration deleted successfully' });
   } catch (error) {
     res.status(500).json({ success: false, error: { message: 'Failed to fetch registrations' } });
   }

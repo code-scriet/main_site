@@ -102,11 +102,9 @@ export default function EventsPage() {
       return;
     }
 
-    // Check if profile is completed
-    if (user && !user.profileCompleted) {
-      setRegistrationError('Please complete your profile in the dashboard before registering for events');
-      setTimeout(() => setRegistrationError(null), 5000);
-      navigate('/dashboard');
+    // Check if academic details are complete - redirect to profile if not
+    if (!user.phone || !user.course || !user.branch || !user.year) {
+      navigate('/dashboard/profile');
       return;
     }
 

@@ -237,6 +237,21 @@ export const api = {
   
   // Users (Admin)
   getUsers: (token: string) => request('/users', { token }),
+  getUser: (id: string, token: string) => request(`/users/${id}`, { token }),
+  updateUser: (id: string, data: {
+    name?: string;
+    bio?: string;
+    avatarUrl?: string;
+    phone?: string;
+    course?: string;
+    branch?: string;
+    year?: string;
+    githubUrl?: string;
+    linkedinUrl?: string;
+    twitterUrl?: string;
+    websiteUrl?: string;
+  }, token: string) =>
+    request(`/users/${id}`, { method: 'PUT', body: JSON.stringify(data), token }),
   updateUserRole: (id: string, role: string, token: string) =>
     request(`/users/${id}/role`, { method: 'PUT', body: JSON.stringify({ role }), token }),
   deleteUser: (id: string, token: string) =>

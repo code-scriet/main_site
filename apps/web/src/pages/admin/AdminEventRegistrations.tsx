@@ -4,7 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Loader2, Calendar, Users, Search, Download, Mail, Trash2, Pencil } from 'lucide-react';
+import { Loader2, Calendar, Users, Search, Download, Mail, Trash2, Pencil, Phone, GraduationCap } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { api } from '@/lib/api';
 import { Link } from 'react-router-dom';
@@ -25,6 +25,10 @@ interface EventWithRegistrations {
       name: string;
       email: string;
       role: string;
+      phone?: string;
+      course?: string;
+      branch?: string;
+      year?: string;
     };
   }[];
 }
@@ -37,6 +41,7 @@ export default function AdminEventRegistrations() {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedEvent, setSelectedEvent] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [deletingRegId, setDeletingRegId] = useState<string | null>(null);
 
   useEffect(() => {
     loadEvents();
@@ -134,6 +139,39 @@ export default function AdminEventRegistrations() {
       setError(err instanceof Error ? err.message : 'Failed to delete event');
     } finally {
       setDeletingId(null);
+    }
+  };
+
+  const handleDeleteRegistration = async (eventId: string, registrationId: string, userName: string) => {
+    if (!token) {
+      setError('Authentication required');
+      return;
+    }
+    
+    const confirmed = window.confirm(
+      `Are you sure you want to remove "${userName}" from this event?`
+    );
+    
+    if (!confirmed) return;
+    
+    try {
+      setDeletingRegId(registrationId);
+      setError(null);
+      const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:5001/api';
+      const response = await fetch(`${apiUrl}/events/${eventId}/registrations/${registrationId}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      
+      if (!response.ok) {
+        throw new Error('Failed to delete registration');
+      }
+      
+      await loadEvents();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to remove participant');
+    } finally {
+      setDeletingRegId(null);
     }
   };
 
@@ -276,14 +314,14 @@ export default function AdminEventRegistrations() {
                           {event.registrations.map((registration) => (
                             <div
                               key={registration.id}
-                              className="py-3 flex items-center justify-between hover:bg-amber-50 px-3 -mx-3 rounded-lg transition-colors"
+                              className="py-3 flex items-start justify-between hover:bg-amber-50 px-3 -mx-3 rounded-lg transition-colors"
                             >
-                              <div className="flex items-center gap-3">
-                                <div className="h-10 w-10 rounded-full bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center text-white font-semibold">
+                              <div className="flex items-start gap-3">
+                                <div className="h-10 w-10 rounded-full bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center text-white font-semibold flex-shrink-0">
                                   {registration.user.name.charAt(0).toUpperCase()}
                                 </div>
                                 <div>
-                                  <div className="flex items-center gap-2">
+                                  <div className="flex items-center gap-2 flex-wrap">
                                     <span className="font-medium text-gray-900">
                                       {registration.user.name}
                                     </span>
@@ -291,17 +329,45 @@ export default function AdminEventRegistrations() {
                                       {registration.user.role}
                                     </Badge>
                                   </div>
-                                  <div className="flex items-center gap-4 text-sm text-gray-500">
+                                  <div className="flex items-center gap-4 text-sm text-gray-500 mt-1">
                                     <span className="flex items-center gap-1">
                                       <Mail className="h-3 w-3" />
                                       {registration.user.email}
                                     </span>
-                                    <span>
+                                  </div>
+                                  {/* Academic Details */}
+                                  <div className="flex items-center gap-4 text-sm text-gray-500 mt-1 flex-wrap">
+                                    {registration.user.phone && (
+                                      <span className="flex items-center gap-1">
+                                        <Phone className="h-3 w-3" />
+                                        {registration.user.phone}
+                                      </span>
+                                    )}
+                                    {registration.user.course && registration.user.branch && registration.user.year && (
+                                      <span className="flex items-center gap-1">
+                                        <GraduationCap className="h-3 w-3" />
+                                        {registration.user.course} - {registration.user.branch} - {registration.user.year}
+                                      </span>
+                                    )}
+                                    <span className="text-xs text-gray-400">
                                       Registered: {new Date(registration.timestamp).toLocaleDateString()}
                                     </span>
                                   </div>
                                 </div>
                               </div>
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => handleDeleteRegistration(event.id, registration.id, registration.user.name)}
+                                disabled={deletingRegId === registration.id}
+                                className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                              >
+                                {deletingRegId === registration.id ? (
+                                  <Loader2 className="h-4 w-4 animate-spin" />
+                                ) : (
+                                  <Trash2 className="h-4 w-4" />
+                                )}
+                              </Button>
                             </div>
                           ))}
                         </div>

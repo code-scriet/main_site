@@ -58,7 +58,8 @@ export default function AuthCallbackPage() {
               });
               
               if (meResponse.ok) {
-                const userData = await meResponse.json();
+                const result = await meResponse.json();
+                const userData = result.data || result;
                 
                 // Submit the hiring application
                 const applicationResponse = await fetch(`${API_URL}/hiring/apply`, {
@@ -100,7 +101,24 @@ export default function AuthCallbackPage() {
           }
         }
 
-        // Default: navigate to dashboard
+        // Default: Check if profile is complete, redirect accordingly
+        setStatus('Checking profile...');
+        const meResponse = await fetch(`${API_URL}/auth/me`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        
+        if (meResponse.ok) {
+          const result = await meResponse.json();
+          const userData = result.data || result;
+          
+          // Check if academic details are filled
+          if (!userData.phone || !userData.course || !userData.branch || !userData.year) {
+            setStatus('Redirecting to complete your profile...');
+            navigate('/dashboard/profile');
+            return;
+          }
+        }
+        
         setStatus('Redirecting to dashboard...');
         navigate('/dashboard');
       } catch (err) {

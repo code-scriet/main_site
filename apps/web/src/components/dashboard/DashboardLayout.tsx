@@ -1,9 +1,8 @@
-import { useState } from 'react';
-import { Link, Outlet, useLocation } from 'react-router-dom';
+import { useState, useEffect } from 'react';
+import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '@/context/AuthContext';
 import { useSettings } from '@/context/SettingsContext';
 import { Button } from '@/components/ui/button';
-import { ProfileCompletionModal } from '@/components/dashboard/ProfileCompletionModal';
 import {
   Home,
   Calendar,
@@ -38,12 +37,21 @@ const adminNavItems = [
 
 export default function DashboardLayout() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const { user, token, logout, refreshUser } = useAuth();
+  const { user, logout } = useAuth();
   const { settings } = useSettings();
   const location = useLocation();
+  const navigate = useNavigate();
 
-  // Check if profile completion is needed
-  const showProfileCompletion = user && user.profileCompleted === false;
+  // Check if academic details are missing
+  const needsProfileCompletion = user && (!user.phone || !user.course || !user.branch || !user.year);
+  const isOnProfilePage = location.pathname === '/dashboard/profile';
+
+  // Redirect to profile page if academic details are missing (except when already on profile)
+  useEffect(() => {
+    if (needsProfileCompletion && !isOnProfilePage) {
+      navigate('/dashboard/profile');
+    }
+  }, [needsProfileCompletion, isOnProfilePage, navigate]);
 
   const isCoreMember = user?.role === 'CORE_MEMBER' || user?.role === 'ADMIN';
   const isAdmin = user?.role === 'ADMIN';
@@ -60,27 +68,16 @@ export default function DashboardLayout() {
 
   return (
     <div className="min-h-screen bg-amber-50">
-      {/* Profile Completion Modal - Blocks all content */}
-      <ProfileCompletionModal 
-        isOpen={!!showProfileCompletion} 
-        userName={user?.name || ''} 
-        token={token || ''} 
-        onComplete={refreshUser} 
-      />
+      {/* Mobile Sidebar Overlay */}
+      {sidebarOpen && (
+        <div
+          className="fixed inset-0 z-40 bg-black/50 lg:hidden"
+          onClick={() => setSidebarOpen(false)}
+        />
+      )}
 
-      {/* Only show dashboard content if profile is completed */}
-      {!showProfileCompletion && (
-        <>
-          {/* Mobile Sidebar Overlay */}
-          {sidebarOpen && (
-            <div
-              className="fixed inset-0 z-40 bg-black/50 lg:hidden"
-              onClick={() => setSidebarOpen(false)}
-            />
-          )}
-
-          {/* Sidebar */}
-          <aside
+      {/* Sidebar */}
+      <aside
         className={cn(
           'fixed inset-y-0 left-0 z-50 w-64 bg-white border-r border-amber-200 transform transition-transform duration-300 lg:translate-x-0',
           sidebarOpen ? 'translate-x-0' : '-translate-x-full'
@@ -204,8 +201,6 @@ export default function DashboardLayout() {
           <Outlet />
         </main>
       </div>
-      </>
-      )}
     </div>
   );
 }

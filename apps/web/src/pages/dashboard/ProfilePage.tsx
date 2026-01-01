@@ -199,6 +199,9 @@ export default function ProfilePage() {
     );
   }
 
+  // Check if academic details are missing
+  const needsAcademicDetails = !profile?.phone || !profile?.course || !profile?.branch || !profile?.year;
+
   return (
     <div className="max-w-4xl mx-auto">
         <motion.div
@@ -211,6 +214,23 @@ export default function ProfilePage() {
             <h1 className="text-3xl font-bold text-gray-900">My Profile</h1>
             <p className="text-gray-600 mt-1">Manage your account settings and profile information</p>
           </div>
+
+          {/* Academic Details Required Banner */}
+          {needsAcademicDetails && (
+            <motion.div
+              initial={{ opacity: 0, y: -10 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="mb-6 p-4 rounded-lg bg-amber-50 border border-amber-300 text-amber-800"
+            >
+              <div className="flex items-start gap-3">
+                <AlertCircle className="h-5 w-5 mt-0.5 flex-shrink-0" />
+                <div>
+                  <p className="font-semibold">Complete Your Academic Details</p>
+                  <p className="text-sm mt-1">Please fill in your Phone Number, Course, Branch, and Year to access all features including event registration.</p>
+                </div>
+              </div>
+            </motion.div>
+          )}
 
           {/* Message */}
           {message && (
