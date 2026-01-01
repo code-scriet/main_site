@@ -17,6 +17,7 @@ import {
   Shield,
   Code,
   UserPlus,
+  User,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -50,6 +51,7 @@ export default function DashboardLayout() {
     { name: 'Announcements', href: '/dashboard/announcements', icon: Bell },
     // Only show leaderboard if enabled in settings
     ...(settings?.showLeaderboard !== false ? [{ name: 'Leaderboard', href: '/dashboard/leaderboard', icon: Trophy }] : []),
+    { name: 'My Profile', href: '/dashboard/profile', icon: User },
   ];
 
   return (

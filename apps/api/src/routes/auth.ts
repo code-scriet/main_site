@@ -77,7 +77,7 @@ authRouter.post('/login', async (req: Request, res: Response) => {
     const { email, password } = validation.data;
     const user = await prisma.user.findUnique({ 
       where: { email },
-      select: { id: true, name: true, email: true, password: true, role: true, avatar: true },
+      select: { id: true, name: true, email: true, password: true, role: true, avatar: true, oauthProvider: true },
     });
     
     if (!user) {
@@ -85,7 +85,7 @@ authRouter.post('/login', async (req: Request, res: Response) => {
     }
 
     if (!user.password) {
-      return res.status(401).json({ error: 'This account uses OAuth sign-in' });
+      return res.status(401).json({ error: 'This account uses OAuth sign-in only. Please sign in with OAuth or add a password first.' });
     }
 
     const isValid = await bcrypt.compare(password, user.password);

@@ -23,6 +23,7 @@ import DashboardLeaderboard from '@/pages/dashboard/DashboardLeaderboard';
 import CreateEvent from '@/pages/dashboard/CreateEvent';
 import CreateAnnouncement from '@/pages/dashboard/CreateAnnouncement';
 import CreateQOTD from '@/pages/dashboard/CreateQOTD';
+import ProfilePage from '@/pages/dashboard/ProfilePage';
 
 // Admin Pages
 import AdminUsers from '@/pages/admin/AdminUsers';
@@ -74,6 +75,7 @@ function App() {
                 <Route path="events/new" element={<CreateEvent />} />
                 <Route path="announcements/new" element={<CreateAnnouncement />} />
                 <Route path="qotd" element={<CreateQOTD />} />
+                <Route path="profile" element={<ProfilePage />} />
               </Route>
             </Route>
 

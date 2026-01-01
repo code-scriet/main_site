@@ -21,6 +21,8 @@ usersRouter.get('/me', authMiddleware, async (req: Request, res: Response) => {
         role: true,
         avatar: true,
         bio: true,
+        password: true, // Check if password exists
+        oauthProvider: true,
         githubUrl: true,
         linkedinUrl: true,
         twitterUrl: true,
@@ -34,7 +36,15 @@ usersRouter.get('/me', authMiddleware, async (req: Request, res: Response) => {
       return res.status(404).json({ success: false, error: { message: 'User not found' } });
     }
 
-    res.json({ success: true, data: user });
+    // Return user data without password, but with hasPassword flag
+    const { password, ...userData } = user;
+    res.json({ 
+      success: true, 
+      data: {
+        ...userData,
+        hasPassword: !!password, // Boolean flag indicating if password is set
+      }
+    });
   } catch (error) {
     res.status(500).json({ success: false, error: { message: 'Failed to fetch profile' } });
   }
@@ -78,6 +88,46 @@ usersRouter.put('/me', authMiddleware, async (req: Request, res: Response) => {
   }
 });
 
+// Add password for OAuth-only accounts
+usersRouter.post('/me/add-password', authMiddleware, async (req: Request, res: Response) => {
+  try {
+    const authUser = getAuthUser(req)!;
+    const { newPassword } = req.body;
+
+    if (!newPassword) {
+      return res.status(400).json({ success: false, error: { message: 'New password is required' } });
+    }
+
+    if (newPassword.length < 8) {
+      return res.status(400).json({ success: false, error: { message: 'Password must be at least 8 characters' } });
+    }
+
+    const user = await prisma.user.findUnique({
+      where: { id: authUser.id },
+      select: { id: true, password: true },
+    });
+
+    if (!user) {
+      return res.status(404).json({ success: false, error: { message: 'User not found' } });
+    }
+
+    if (user.password) {
+      return res.status(400).json({ success: false, error: { message: 'You already have a password set. Use "Change Password" instead.' } });
+    }
+
+    const hashedPassword = await bcrypt.hash(newPassword, 12);
+    await prisma.user.update({
+      where: { id: authUser.id },
+      data: { password: hashedPassword },
+    });
+
+    await auditLog(authUser.id, 'CREATE', 'user', authUser.id, { action: 'password_added' });
+    res.json({ success: true, message: 'Password added successfully! You can now sign in with email and password.' });
+  } catch (error) {
+    res.status(500).json({ success: false, error: { message: 'Failed to add password' } });
+  }
+});
+
 // Change password
 usersRouter.post('/me/change-password', authMiddleware, async (req: Request, res: Response) => {
   try {
@@ -102,7 +152,7 @@ usersRouter.post('/me/change-password', authMiddleware, async (req: Request, res
     }
 
     if (!user.password) {
-      return res.status(400).json({ success: false, error: { message: 'Cannot change password for OAuth-only accounts' } });
+      return res.status(400).json({ success: false, error: { message: 'You have not set a password yet. Please use "Add Password" instead.' } });
     }
 
     const isValid = await bcrypt.compare(currentPassword, user.password);
@@ -262,6 +312,38 @@ usersRouter.put('/:id/role', authMiddleware, requireRole('ADMIN'), async (req: R
       return res.status(400).json({ success: false, error: { message: 'Invalid role' } });
     }
 
+    // Get target user to check their current role
+    const targetUser = await prisma.user.findUnique({
+      where: { id: req.params.id },
+      select: { id: true, role: true, email: true }
+    });
+
+    if (!targetUser) {
+      return res.status(404).json({ success: false, error: { message: 'User not found' } });
+    }
+
+    // Super admin protection: only super admin can modify admin roles
+    const superAdminEmail = process.env.SUPER_ADMIN_EMAIL;
+    const isSuperAdmin = authUser.email === superAdminEmail;
+
+    // Check if this action involves admin role changes
+    const involvesAdminRole = role === 'ADMIN' || targetUser.role === 'ADMIN';
+
+    if (involvesAdminRole && !isSuperAdmin) {
+      return res.status(403).json({ 
+        success: false, 
+        error: { message: 'Only super admin can promote to or demote from admin role' } 
+      });
+    }
+
+    // Prevent changing super admin's role
+    if (targetUser.email === superAdminEmail && !isSuperAdmin) {
+      return res.status(403).json({ 
+        success: false, 
+        error: { message: 'Cannot modify super admin role' } 
+      });
+    }
+
     const user = await prisma.user.update({
       where: { id: req.params.id },
       data: { role },
@@ -282,6 +364,36 @@ usersRouter.delete('/:id', authMiddleware, requireRole('ADMIN'), async (req: Req
     
     if (req.params.id === authUser.id) {
       return res.status(400).json({ success: false, error: { message: 'Cannot delete your own account' } });
+    }
+
+    // Get target user to check their role
+    const targetUser = await prisma.user.findUnique({
+      where: { id: req.params.id },
+      select: { id: true, role: true, email: true }
+    });
+
+    if (!targetUser) {
+      return res.status(404).json({ success: false, error: { message: 'User not found' } });
+    }
+
+    // Super admin protection
+    const superAdminEmail = process.env.SUPER_ADMIN_EMAIL;
+    const isSuperAdmin = authUser.email === superAdminEmail;
+
+    // Prevent deleting super admin
+    if (targetUser.email === superAdminEmail) {
+      return res.status(403).json({ 
+        success: false, 
+        error: { message: 'Cannot delete super admin account' } 
+      });
+    }
+
+    // Only super admin can delete other admins
+    if (targetUser.role === 'ADMIN' && !isSuperAdmin) {
+      return res.status(403).json({ 
+        success: false, 
+        error: { message: 'Only super admin can delete admin accounts' } 
+      });
     }
 
     await prisma.user.delete({ where: { id: req.params.id } });

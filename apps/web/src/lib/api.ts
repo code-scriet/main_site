@@ -238,4 +238,45 @@ export const api = {
   getSettings: () => request<Settings>('/settings/public'),
   updateSettings: (data: Partial<Settings>, token: string) =>
     request<Settings>('/settings', { method: 'PUT', body: JSON.stringify(data), token }),
+  
+  // Profile
+  getProfile: (token: string) => request<{
+    id: string;
+    name: string;
+    email: string;
+    role: string;
+    avatar?: string;
+    bio?: string;
+    githubUrl?: string;
+    linkedinUrl?: string;
+    twitterUrl?: string;
+    websiteUrl?: string;
+    createdAt: string;
+    _count: { registrations: number; qotdSubmissions: number };
+  }>('/users/me', { token }),
+  
+  updateProfile: (data: {
+    name?: string;
+    bio?: string;
+    avatarUrl?: string;
+    githubUrl?: string;
+    linkedinUrl?: string;
+    twitterUrl?: string;
+    websiteUrl?: string;
+  }, token: string) =>
+    request('/users/me', { method: 'PUT', body: JSON.stringify(data), token }),
+  
+  changePassword: (currentPassword: string, newPassword: string, token: string) =>
+    request('/users/me/change-password', { 
+      method: 'POST', 
+      body: JSON.stringify({ currentPassword, newPassword }), 
+      token 
+    }),
+  
+  addPassword: (newPassword: string, token: string) =>
+    request('/users/me/add-password', { 
+      method: 'POST', 
+      body: JSON.stringify({ newPassword }), 
+      token 
+    }),
 };
