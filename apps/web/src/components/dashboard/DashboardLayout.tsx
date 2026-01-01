@@ -60,7 +60,7 @@ export default function DashboardLayout() {
 
   return (
     <div className="min-h-screen bg-amber-50">
-      {/* Profile Completion Modal */}
+      {/* Profile Completion Modal - Blocks all content */}
       <ProfileCompletionModal 
         isOpen={!!showProfileCompletion} 
         userName={user?.name || ''} 
@@ -68,16 +68,19 @@ export default function DashboardLayout() {
         onComplete={refreshUser} 
       />
 
-      {/* Mobile Sidebar Overlay */}
-      {sidebarOpen && (
-        <div
-          className="fixed inset-0 z-40 bg-black/50 lg:hidden"
-          onClick={() => setSidebarOpen(false)}
-        />
-      )}
+      {/* Only show dashboard content if profile is completed */}
+      {!showProfileCompletion && (
+        <>
+          {/* Mobile Sidebar Overlay */}
+          {sidebarOpen && (
+            <div
+              className="fixed inset-0 z-40 bg-black/50 lg:hidden"
+              onClick={() => setSidebarOpen(false)}
+            />
+          )}
 
-      {/* Sidebar */}
-      <aside
+          {/* Sidebar */}
+          <aside
         className={cn(
           'fixed inset-y-0 left-0 z-50 w-64 bg-white border-r border-amber-200 transform transition-transform duration-300 lg:translate-x-0',
           sidebarOpen ? 'translate-x-0' : '-translate-x-full'
@@ -201,6 +204,8 @@ export default function DashboardLayout() {
           <Outlet />
         </main>
       </div>
+      </>
+      )}
     </div>
   );
 }

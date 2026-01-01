@@ -102,6 +102,14 @@ export default function EventsPage() {
       return;
     }
 
+    // Check if profile is completed
+    if (user && !user.profileCompleted) {
+      setRegistrationError('Please complete your profile in the dashboard before registering for events');
+      setTimeout(() => setRegistrationError(null), 5000);
+      navigate('/dashboard');
+      return;
+    }
+
     try {
       setRegistering(event.id);
       setRegistrationError(null);

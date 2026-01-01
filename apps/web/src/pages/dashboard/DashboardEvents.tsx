@@ -89,6 +89,13 @@ export default function DashboardEvents() {
       setError('Please log in to register for events');
       return;
     }
+    
+    // Check if profile is completed
+    if (user && !user.profileCompleted) {
+      setError('Please complete your profile before registering for events');
+      return;
+    }
+    
     try {
       console.log('Registering for event:', eventId);
       setRegisteringId(eventId);
