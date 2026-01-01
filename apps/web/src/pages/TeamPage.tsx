@@ -227,22 +227,22 @@ export default function TeamPage() {
 function TeamGrid({ members }: { members: TeamMember[] }) {
   const totalMembers = members.length;
   
-  // Calculate animation delay based on position from center
+  // Calculate animation delay based on position from center (slower animation)
   const getAnimationDelay = (index: number) => {
     const centerIndex = (totalMembers - 1) / 2;
     const distanceFromCenter = Math.abs(index - centerIndex);
-    return distanceFromCenter * 0.12;
+    return distanceFromCenter * 0.2 + 0.1; // Slower stagger
   };
 
-  // Calculate horizontal offset for center-out animation
+  // Calculate horizontal offset for center-out animation (reduced offset)
   const getInitialX = (index: number) => {
     const centerIndex = (totalMembers - 1) / 2;
     const position = index - centerIndex;
-    return position > 0 ? 60 : position < 0 ? -60 : 0;
+    return position > 0 ? 40 : position < 0 ? -40 : 0; // Less dramatic horizontal offset
   };
 
   return (
-    <div className="flex flex-wrap justify-center gap-8 md:gap-12 max-w-5xl mx-auto">
+    <div className="flex flex-wrap justify-center gap-6 md:gap-8 max-w-5xl mx-auto">
       {members.map((member, index) => (
         <MemberCard 
           key={member.id} 
@@ -268,21 +268,21 @@ function MemberCard({
 
   return (
     <motion.div
-      initial={{ opacity: 0, x: initialX, y: 30, scale: 0.8 }}
+      initial={{ opacity: 0, x: initialX, y: 20, scale: 0.95 }}
       whileInView={{ opacity: 1, x: 0, y: 0, scale: 1 }}
-      viewport={{ once: true, margin: "-30px" }}
+      viewport={{ once: true, margin: "-50px" }}
       transition={{ 
-        duration: 0.6, 
+        duration: 0.8, 
         delay: delay,
-        ease: [0.25, 0.46, 0.45, 0.94]
+        ease: [0.22, 1, 0.36, 1] // Smooth ease-out curve
       }}
-      whileHover={{ y: -8 }}
+      whileHover={{ y: -6, transition: { duration: 0.3 } }}
       onHoverStart={() => setIsHovered(true)}
       onHoverEnd={() => setIsHovered(false)}
-      className="text-center w-36 md:w-44"
+      className="text-center w-40 md:w-48"
     >
-      {/* Card with glassmorphism effect */}
-      <div className="relative p-4 rounded-2xl bg-white/60 backdrop-blur-sm border border-white/80 shadow-lg hover:shadow-2xl hover:shadow-amber-500/20 transition-all duration-500 group">
+      {/* Card with glassmorphism effect - fixed height for consistency */}
+      <div className="relative p-5 rounded-2xl bg-white/70 backdrop-blur-sm border border-white/80 shadow-lg hover:shadow-2xl hover:shadow-amber-500/20 transition-all duration-700 group h-full min-h-[280px] md:min-h-[300px] flex flex-col">
         {/* Animated gradient border on hover */}
         <motion.div
           className="absolute inset-0 rounded-2xl opacity-0 group-hover:opacity-100 transition-opacity duration-500"
@@ -297,7 +297,7 @@ function MemberCard({
         />
         
         {/* Avatar container */}
-        <div className="relative mb-4 z-10">
+        <div className="relative mb-5 z-10 flex-shrink-0">
           <motion.div 
             className="w-24 h-24 md:w-28 md:h-28 mx-auto rounded-full overflow-hidden relative"
             whileHover={{ scale: 1.05 }}
@@ -335,28 +335,31 @@ function MemberCard({
           </motion.div>
         </div>
         
-        {/* Member info */}
-        <motion.h3 
-          className="font-bold text-amber-900 text-lg mb-1 relative z-10"
-          animate={isHovered ? { scale: 1.02 } : { scale: 1 }}
-          transition={{ duration: 0.2 }}
-        >
-          {member.name}
-        </motion.h3>
-        <motion.p 
-          className="text-sm text-gray-600 mb-3 relative z-10"
-          initial={{ opacity: 0.8 }}
-          animate={isHovered ? { opacity: 1 } : { opacity: 0.8 }}
-        >
-          {member.role}
-        </motion.p>
+        {/* Member info - flex-grow to push icons to bottom */}
+        <div className="flex-grow flex flex-col justify-center">
+          <motion.h3 
+            className="font-bold text-amber-900 text-base md:text-lg mb-1 relative z-10 line-clamp-2 min-h-[2.5rem] flex items-center justify-center"
+            animate={isHovered ? { scale: 1.02 } : { scale: 1 }}
+            transition={{ duration: 0.3 }}
+          >
+            {member.name}
+          </motion.h3>
+          <motion.p 
+            className="text-xs md:text-sm text-gray-600 mb-3 relative z-10 line-clamp-1"
+            initial={{ opacity: 0.8 }}
+            animate={isHovered ? { opacity: 1 } : { opacity: 0.8 }}
+            transition={{ duration: 0.3 }}
+          >
+            {member.role}
+          </motion.p>
+        </div>
         
-        {/* Social links with staggered animation */}
+        {/* Social links - always at bottom */}
         <motion.div 
-          className="flex justify-center gap-3 relative z-10"
-          initial={{ opacity: 0.6 }}
-          animate={isHovered ? { opacity: 1 } : { opacity: 0.6 }}
-          transition={{ duration: 0.3 }}
+          className="flex justify-center gap-3 relative z-10 mt-auto pt-2"
+          initial={{ opacity: 0.7 }}
+          animate={isHovered ? { opacity: 1 } : { opacity: 0.7 }}
+          transition={{ duration: 0.4 }}
         >
           {member.github && (
             <SocialLink 
