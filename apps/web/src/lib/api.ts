@@ -55,6 +55,12 @@ export interface User {
   email: string;
   role: string;
   avatar?: string;
+  phone?: string;
+  course?: string;
+  branch?: string;
+  year?: string;
+  profileCompleted?: boolean;
+  createdAt?: string;
 }
 
 export interface Settings {
@@ -233,6 +239,8 @@ export const api = {
   getUsers: (token: string) => request('/users', { token }),
   updateUserRole: (id: string, role: string, token: string) =>
     request(`/users/${id}/role`, { method: 'PUT', body: JSON.stringify({ role }), token }),
+  deleteUser: (id: string, token: string) =>
+    request(`/users/${id}`, { method: 'DELETE', token }),
   
   // Settings
   getSettings: () => request<Settings>('/settings/public'),

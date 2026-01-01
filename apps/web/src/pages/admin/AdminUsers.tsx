@@ -2,9 +2,10 @@ import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { api } from '@/lib/api';
 import type { User } from '@/lib/api';
-import { Users, Loader2, AlertCircle, Shield, UserCheck, Crown } from 'lucide-react';
+import { Users, Loader2, AlertCircle, Shield, UserCheck, Crown, Trash2, Phone, GraduationCap, CheckCircle, XCircle } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 
 const roleColors = {
@@ -20,11 +21,12 @@ const roleIcons = {
 };
 
 export default function AdminUsers() {
-  const { token } = useAuth();
+  const { token, user: currentUser } = useAuth();
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [updatingId, setUpdatingId] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   useEffect(() => {
     loadUsers();
@@ -62,6 +64,40 @@ export default function AdminUsers() {
       setError(err instanceof Error ? err.message : 'Failed to update role');
     } finally {
       setUpdatingId(null);
+    }
+  };
+
+  const handleDeleteUser = async (userId: string, userName: string, userRole: string) => {
+    // Prevent deleting admins
+    if (userRole === 'ADMIN') {
+      setError('Cannot delete admin accounts');
+      return;
+    }
+
+    // Prevent self-deletion
+    if (userId === currentUser?.id) {
+      setError('Cannot delete your own account');
+      return;
+    }
+
+    if (!window.confirm(`Are you sure you want to delete ${userName}? This action cannot be undone.`)) {
+      return;
+    }
+
+    if (!token) {
+      setError('Authentication required');
+      return;
+    }
+
+    try {
+      setDeletingId(userId);
+      setError(null);
+      await api.deleteUser(userId, token);
+      await loadUsers();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to delete user');
+    } finally {
+      setDeletingId(null);
     }
   };
 
@@ -160,41 +196,86 @@ export default function AdminUsers() {
                     initial={{ opacity: 0, y: 20 }}
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ delay: index * 0.05 }}
-                    className="flex flex-col sm:flex-row sm:items-center justify-between p-4 rounded-lg border border-amber-200 bg-amber-50/50 gap-4"
+                    className="p-4 rounded-lg border border-amber-200 bg-amber-50/50"
                   >
-                    <div className="flex items-center gap-3">
-                      <div className="h-10 w-10 rounded-full overflow-hidden bg-amber-200 flex-shrink-0">
-                        {user.avatar ? (
-                          <img src={user.avatar} alt={user.name} className="w-full h-full object-cover" />
-                        ) : (
-                          <div className="w-full h-full flex items-center justify-center text-amber-700 font-bold">
-                            {user.name.charAt(0)}
+                    <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
+                      <div className="flex items-start gap-3 flex-1">
+                        <div className="h-12 w-12 rounded-full overflow-hidden bg-amber-200 flex-shrink-0">
+                          {user.avatar ? (
+                            <img src={user.avatar} alt={user.name} className="w-full h-full object-cover" />
+                          ) : (
+                            <div className="w-full h-full flex items-center justify-center text-amber-700 font-bold text-lg">
+                              {user.name.charAt(0)}
+                            </div>
+                          )}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 mb-1">
+                            <p className="font-semibold text-amber-900">{user.name}</p>
+                            {user.profileCompleted ? (
+                              <span title="Profile Completed">
+                                <CheckCircle className="h-4 w-4 text-green-500" />
+                              </span>
+                            ) : (
+                              <span title="Profile Incomplete">
+                                <XCircle className="h-4 w-4 text-red-500" />
+                              </span>
+                            )}
                           </div>
+                          <p className="text-sm text-gray-600 mb-2">{user.email}</p>
+                          
+                          {/* Academic Details */}
+                          <div className="flex flex-wrap gap-3 text-xs text-gray-600">
+                            {user.phone && (
+                              <div className="flex items-center gap-1">
+                                <Phone className="h-3 w-3" />
+                                <span>{user.phone}</span>
+                              </div>
+                            )}
+                            {user.course && user.branch && user.year && (
+                              <div className="flex items-center gap-1">
+                                <GraduationCap className="h-3 w-3" />
+                                <span>{user.course} - {user.branch} - {user.year}</span>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                      
+                      <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap">
+                        <Badge variant={roleColors[user.role as keyof typeof roleColors] || 'secondary'} className="whitespace-nowrap">
+                          <RoleIcon className="h-3 w-3 mr-1" />
+                          {user.role}
+                        </Badge>
+                        <select
+                          value={user.role}
+                          onChange={(e) => handleRoleChange(user.id, e.target.value)}
+                          disabled={updatingId === user.id}
+                          className="h-9 px-3 rounded-md border border-input bg-background text-sm disabled:opacity-50"
+                        >
+                          <option value="USER">User</option>
+                          <option value="CORE_MEMBER">Core Member</option>
+                          <option value="ADMIN">Admin</option>
+                        </select>
+                        {updatingId === user.id && (
+                          <Loader2 className="h-4 w-4 animate-spin text-amber-600" />
+                        )}
+                        {user.role !== 'ADMIN' && user.id !== currentUser?.id && (
+                          <Button
+                            variant="destructive"
+                            size="sm"
+                            onClick={() => handleDeleteUser(user.id, user.name, user.role)}
+                            disabled={deletingId === user.id}
+                            className="h-9"
+                          >
+                            {deletingId === user.id ? (
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                            ) : (
+                              <Trash2 className="h-4 w-4" />
+                            )}
+                          </Button>
                         )}
                       </div>
-                      <div>
-                        <p className="font-medium text-amber-900">{user.name}</p>
-                        <p className="text-sm text-gray-500">{user.email}</p>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-3">
-                      <Badge variant={roleColors[user.role as keyof typeof roleColors] || 'secondary'}>
-                        <RoleIcon className="h-3 w-3 mr-1" />
-                        {user.role}
-                      </Badge>
-                      <select
-                        value={user.role}
-                        onChange={(e) => handleRoleChange(user.id, e.target.value)}
-                        disabled={updatingId === user.id}
-                        className="h-9 px-3 rounded-md border border-input bg-background text-sm disabled:opacity-50"
-                      >
-                        <option value="USER">User</option>
-                        <option value="CORE_MEMBER">Core Member</option>
-                        <option value="ADMIN">Admin</option>
-                      </select>
-                      {updatingId === user.id && (
-                        <Loader2 className="h-4 w-4 animate-spin text-amber-600" />
-                      )}
                     </div>
                   </motion.div>
                 );
