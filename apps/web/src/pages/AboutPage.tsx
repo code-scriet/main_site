@@ -6,10 +6,10 @@ import { Target, Eye, History, Rocket, Ban, Code, Users, Trophy } from 'lucide-r
 
 export default function AboutPage() {
   const timeline = [
-    { year: '2022', title: 'Club Founded', description: 'code.scriet was established with 20 founding members' },
-    { year: '2023', title: 'First Hackathon', description: 'Organized our first successful 24-hour hackathon' },
-    { year: '2023', title: '500+ Members', description: 'Reached a milestone of 500 active members' },
-    { year: '2024', title: 'Expanding', description: 'Launching new initiatives and growing our community' },
+    { year: '2025', title: 'Club Founded', description: 'code.scriet was established with 20 founding members' },
+    { year: '2025', title: 'First Workshop', description: 'Organized our first successful 3-Day Workshop' },
+    { year: '2025', title: '500+ Members', description: 'Reached a milestone of 500 active members' },
+    { year: '2026', title: 'Expanding', description: 'Launching new initiatives and growing our community' },
   ];
 
   const focusAreas = [
