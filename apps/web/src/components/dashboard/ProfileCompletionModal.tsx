@@ -35,6 +35,7 @@ const BRANCHES: Record<string, { value: string; label: string }[]> = {
     { value: 'CE', label: 'Civil Engineering' },
     { value: 'CSE-AI', label: 'CSE (Artificial Intelligence)' },
     { value: 'CSE-DS', label: 'CSE (Data Science)' },
+    { value: 'AG', label: 'Agriculture Engineering' },
   ],
   BSC: [
     { value: 'CS', label: 'Computer Science' },
@@ -54,6 +55,7 @@ const BRANCHES: Record<string, { value: string; label: string }[]> = {
     { value: 'IT', label: 'Information Technology' },
     { value: 'ECE', label: 'Electronics & Communication' },
     { value: 'EE', label: 'Electrical Engineering' },
+    { value: 'AG', label: 'Agriculture Engineering' },
   ],
   MSC: [
     { value: 'CS', label: 'Computer Science' },
@@ -68,7 +70,6 @@ const YEARS = [
   { value: '2nd Year', label: '2nd Year' },
   { value: '3rd Year', label: '3rd Year' },
   { value: '4th Year', label: '4th Year' },
-  { value: '5th Year', label: '5th Year (Integrated)' },
 ];
 
 interface ProfileCompletionModalProps {

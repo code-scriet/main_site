@@ -27,14 +27,14 @@ import {
 // Course and branch options
 const COURSES = ['BTech', 'BSC', 'BCA', 'MCA', 'MTech', 'MSC'] as const;
 const BRANCH_OPTIONS: Record<string, string[]> = {
-  'BTech': ['CSE', 'IT', 'ECE', 'EE', 'ME', 'CE', 'AIML', 'DS'],
-  'MTech': ['CSE', 'IT', 'ECE', 'EE', 'ME', 'CE', 'AIML', 'DS'],
+  'BTech': ['CSE', 'IT', 'ECE', 'EE', 'ME', 'CE', 'AIML', 'DS', 'AG'],
+  'MTech': ['CSE', 'IT', 'ECE', 'EE', 'ME', 'CE', 'AIML', 'DS', 'AG'],
   'BSC': ['Physics', 'Chemistry', 'Mathematics', 'Computer Science', 'Statistics'],
   'MSC': ['Physics', 'Chemistry', 'Mathematics', 'Computer Science', 'Statistics'],
   'BCA': ['General'],
   'MCA': ['General'],
 };
-const YEARS = ['1st Year', '2nd Year', '3rd Year', '4th Year', '5th Year'] as const;
+const YEARS = ['1st Year', '2nd Year', '3rd Year', '4th Year'] as const;
 
 interface ProfileData {
   id: string;
