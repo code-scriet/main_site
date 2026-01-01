@@ -58,7 +58,7 @@ interface ProfileData {
 }
 
 export default function ProfilePage() {
-  const { token } = useAuth();
+  const { token, refreshUser } = useAuth();
   const [profile, setProfile] = useState<ProfileData | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -134,6 +134,10 @@ export default function ProfilePage() {
         twitterUrl,
         websiteUrl,
       }, token);
+      
+      // Refresh user context to update academic details
+      await refreshUser();
+      
       setMessage({ type: 'success', text: 'Profile updated successfully!' });
     } catch (error) {
       setMessage({ type: 'error', text: error instanceof Error ? error.message : 'Failed to update profile' });
