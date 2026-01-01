@@ -247,6 +247,13 @@ export const api = {
     role: string;
     avatar?: string;
     bio?: string;
+    phone?: string;
+    course?: string;
+    branch?: string;
+    year?: string;
+    profileCompleted?: boolean;
+    hasPassword?: boolean;
+    oauthProvider?: string;
     githubUrl?: string;
     linkedinUrl?: string;
     twitterUrl?: string;
@@ -259,6 +266,10 @@ export const api = {
     name?: string;
     bio?: string;
     avatarUrl?: string;
+    phone?: string;
+    course?: string;
+    branch?: string;
+    year?: string;
     githubUrl?: string;
     linkedinUrl?: string;
     twitterUrl?: string;

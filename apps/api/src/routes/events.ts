@@ -212,6 +212,10 @@ eventsRouter.get('/:id/registrations/export', authMiddleware, requireRole('CORE_
                 id: true,
                 name: true,
                 email: true,
+                phone: true,
+                course: true,
+                branch: true,
+                year: true,
                 avatar: true,
                 role: true,
                 oauthProvider: true,
@@ -235,9 +239,9 @@ eventsRouter.get('/:id/registrations/export', authMiddleware, requireRole('CORE_
     // For CSV format (backwards compatible)
     if (format === 'csv') {
       const csv = [
-        'Name,Email,Role,OAuth Provider,Registered At,Account Created',
-        ...event.registrations.map((r) => 
-          `"${r.user.name}","${r.user.email}","${r.user.role}","${r.user.oauthProvider || 'email'}","${r.timestamp.toISOString()}","${r.user.createdAt.toISOString()}"`
+        'S.No,Name,Email,Phone,Course,Branch,Year,Role,Registered At,Account Created',
+        ...event.registrations.map((r, i) => 
+          `${i + 1},"${r.user.name}","${r.user.email}","${r.user.phone || ''}","${r.user.course || ''}","${r.user.branch || ''}","${r.user.year || ''}","${r.user.role}","${r.timestamp.toISOString()}","${r.user.createdAt.toISOString()}"`
         ),
       ].join('\n');
       res.setHeader('Content-Type', 'text/csv');
@@ -253,19 +257,20 @@ eventsRouter.get('/:id/registrations/export', authMiddleware, requireRole('CORE_
 
     const worksheet = workbook.addWorksheet('Registrations');
 
-    // Define columns
+    // Define columns with new fields
     worksheet.columns = [
       { header: 'S.No', key: 'sno', width: 8 },
       { header: 'Name', key: 'name', width: 25 },
       { header: 'Email', key: 'email', width: 35 },
+      { header: 'Phone', key: 'phone', width: 15 },
+      { header: 'Course', key: 'course', width: 12 },
+      { header: 'Branch', key: 'branch', width: 15 },
+      { header: 'Year', key: 'year', width: 12 },
       { header: 'Role', key: 'role', width: 15 },
-      { header: 'Auth Method', key: 'authMethod', width: 15 },
       { header: 'Registered At', key: 'registeredAt', width: 22 },
       { header: 'Account Created', key: 'accountCreated', width: 22 },
       { header: 'GitHub', key: 'github', width: 25 },
       { header: 'LinkedIn', key: 'linkedin', width: 25 },
-      { header: 'Twitter', key: 'twitter', width: 25 },
-      { header: 'Website', key: 'website', width: 30 },
     ];
 
     // Style header row
@@ -284,14 +289,15 @@ eventsRouter.get('/:id/registrations/export', authMiddleware, requireRole('CORE_
         sno: index + 1,
         name: reg.user.name,
         email: reg.user.email,
+        phone: reg.user.phone || 'N/A',
+        course: reg.user.course || 'N/A',
+        branch: reg.user.branch || 'N/A',
+        year: reg.user.year || 'N/A',
         role: reg.user.role,
-        authMethod: reg.user.oauthProvider || 'Email/Password',
         registeredAt: reg.timestamp.toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }),
         accountCreated: reg.user.createdAt.toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }),
         github: reg.user.githubUrl || '',
         linkedin: reg.user.linkedinUrl || '',
-        twitter: reg.user.twitterUrl || '',
-        website: reg.user.websiteUrl || '',
       });
     });
 

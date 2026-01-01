@@ -19,8 +19,22 @@ import {
   Loader2, 
   Lock,
   CheckCircle,
-  AlertCircle
+  AlertCircle,
+  GraduationCap,
+  Phone
 } from 'lucide-react';
+
+// Course and branch options
+const COURSES = ['BTech', 'BSC', 'BCA', 'MCA', 'MTech', 'MSC'] as const;
+const BRANCH_OPTIONS: Record<string, string[]> = {
+  'BTech': ['CSE', 'IT', 'ECE', 'EE', 'ME', 'CE', 'AIML', 'DS'],
+  'MTech': ['CSE', 'IT', 'ECE', 'EE', 'ME', 'CE', 'AIML', 'DS'],
+  'BSC': ['Physics', 'Chemistry', 'Mathematics', 'Computer Science', 'Statistics'],
+  'MSC': ['Physics', 'Chemistry', 'Mathematics', 'Computer Science', 'Statistics'],
+  'BCA': ['General'],
+  'MCA': ['General'],
+};
+const YEARS = ['1st Year', '2nd Year', '3rd Year', '4th Year', '5th Year'] as const;
 
 interface ProfileData {
   id: string;
@@ -29,6 +43,10 @@ interface ProfileData {
   role: string;
   avatar?: string;
   bio?: string;
+  phone?: string;
+  course?: string;
+  branch?: string;
+  year?: string;
   githubUrl?: string;
   linkedinUrl?: string;
   twitterUrl?: string;
@@ -50,11 +68,17 @@ export default function ProfilePage() {
   const [name, setName] = useState('');
   const [bio, setBio] = useState('');
   const [avatarUrl, setAvatarUrl] = useState('');
+  const [phone, setPhone] = useState('');
+  const [course, setCourse] = useState('');
+  const [branch, setBranch] = useState('');
+  const [year, setYear] = useState('');
   const [githubUrl, setGithubUrl] = useState('');
   const [linkedinUrl, setLinkedinUrl] = useState('');
   const [twitterUrl, setTwitterUrl] = useState('');
   const [websiteUrl, setWebsiteUrl] = useState('');
   
+  // Get available branches based on selected course
+  const availableBranches = course ? (BRANCH_OPTIONS[course] || []) : [];  
   // Password change
   const [showPasswordForm, setShowPasswordForm] = useState(false);
   const [isAddingPassword, setIsAddingPassword] = useState(false);
@@ -72,6 +96,10 @@ export default function ProfilePage() {
         setName(data.name || '');
         setBio(data.bio || '');
         setAvatarUrl(data.avatar || '');
+        setPhone(data.phone || '');
+        setCourse(data.course || '');
+        setBranch(data.branch || '');
+        setYear(data.year || '');
         setGithubUrl(data.githubUrl || '');
         setLinkedinUrl(data.linkedinUrl || '');
         setTwitterUrl(data.twitterUrl || '');
@@ -97,6 +125,10 @@ export default function ProfilePage() {
         name,
         bio,
         avatarUrl,
+        phone,
+        course,
+        branch,
+        year,
         githubUrl,
         linkedinUrl,
         twitterUrl,
@@ -275,6 +307,76 @@ export default function ProfilePage() {
                     placeholder="Tell us about yourself..."
                     rows={3}
                   />
+                </div>
+              </div>
+            </div>
+
+            {/* Academic Information */}
+            <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 mb-6">
+              <h2 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
+                <GraduationCap className="h-5 w-5 text-amber-600" />
+                Academic Information
+              </h2>
+              
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <Label htmlFor="phone" className="flex items-center gap-2">
+                    <Phone className="h-4 w-4" /> Phone Number
+                  </Label>
+                  <Input
+                    id="phone"
+                    value={phone}
+                    onChange={(e) => setPhone(e.target.value)}
+                    placeholder="10-digit mobile number"
+                    pattern="[0-9]{10}"
+                    maxLength={10}
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="course">Course</Label>
+                  <select
+                    id="course"
+                    value={course}
+                    onChange={(e) => {
+                      setCourse(e.target.value);
+                      setBranch(''); // Reset branch when course changes
+                    }}
+                    className="w-full h-10 px-3 rounded-md border border-gray-300 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent"
+                  >
+                    <option value="">Select Course</option>
+                    {COURSES.map(c => (
+                      <option key={c} value={c}>{c}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <Label htmlFor="branch">Branch</Label>
+                  <select
+                    id="branch"
+                    value={branch}
+                    onChange={(e) => setBranch(e.target.value)}
+                    disabled={!course}
+                    className="w-full h-10 px-3 rounded-md border border-gray-300 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent disabled:bg-gray-100 disabled:cursor-not-allowed"
+                  >
+                    <option value="">Select Branch</option>
+                    {availableBranches.map(b => (
+                      <option key={b} value={b}>{b}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <Label htmlFor="year">Year</Label>
+                  <select
+                    id="year"
+                    value={year}
+                    onChange={(e) => setYear(e.target.value)}
+                    className="w-full h-10 px-3 rounded-md border border-gray-300 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent"
+                  >
+                    <option value="">Select Year</option>
+                    {YEARS.map(y => (
+                      <option key={y} value={y}>{y}</option>
+                    ))}
+                  </select>
                 </div>
               </div>
             </div>

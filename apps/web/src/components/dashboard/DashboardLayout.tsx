@@ -3,6 +3,7 @@ import { Link, Outlet, useLocation } from 'react-router-dom';
 import { useAuth } from '@/context/AuthContext';
 import { useSettings } from '@/context/SettingsContext';
 import { Button } from '@/components/ui/button';
+import { ProfileCompletionModal } from '@/components/dashboard/ProfileCompletionModal';
 import {
   Home,
   Calendar,
@@ -37,9 +38,12 @@ const adminNavItems = [
 
 export default function DashboardLayout() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const { user, logout } = useAuth();
+  const { user, token, logout, refreshUser } = useAuth();
   const { settings } = useSettings();
   const location = useLocation();
+
+  // Check if profile completion is needed
+  const showProfileCompletion = user && user.profileCompleted === false;
 
   const isCoreMember = user?.role === 'CORE_MEMBER' || user?.role === 'ADMIN';
   const isAdmin = user?.role === 'ADMIN';
@@ -56,6 +60,14 @@ export default function DashboardLayout() {
 
   return (
     <div className="min-h-screen bg-amber-50">
+      {/* Profile Completion Modal */}
+      <ProfileCompletionModal 
+        isOpen={!!showProfileCompletion} 
+        userName={user?.name || ''} 
+        token={token || ''} 
+        onComplete={refreshUser} 
+      />
+
       {/* Mobile Sidebar Overlay */}
       {sidebarOpen && (
         <div

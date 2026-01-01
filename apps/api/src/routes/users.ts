@@ -21,7 +21,12 @@ usersRouter.get('/me', authMiddleware, async (req: Request, res: Response) => {
         role: true,
         avatar: true,
         bio: true,
-        password: true, // Check if password exists
+        phone: true,
+        course: true,
+        branch: true,
+        year: true,
+        profileCompleted: true,
+        password: true,
         oauthProvider: true,
         githubUrl: true,
         linkedinUrl: true,
@@ -42,7 +47,7 @@ usersRouter.get('/me', authMiddleware, async (req: Request, res: Response) => {
       success: true, 
       data: {
         ...userData,
-        hasPassword: !!password, // Boolean flag indicating if password is set
+        hasPassword: !!password,
       }
     });
   } catch (error) {
@@ -54,7 +59,10 @@ usersRouter.get('/me', authMiddleware, async (req: Request, res: Response) => {
 usersRouter.put('/me', authMiddleware, async (req: Request, res: Response) => {
   try {
     const authUser = getAuthUser(req)!;
-    const { name, bio, avatarUrl, githubUrl, linkedinUrl, twitterUrl, websiteUrl } = req.body;
+    const { name, bio, avatarUrl, githubUrl, linkedinUrl, twitterUrl, websiteUrl, phone, course, branch, year } = req.body;
+
+    // Check if this is a profile completion (all required fields provided)
+    const isProfileCompletion = phone && course && branch && year;
 
     const user = await prisma.user.update({
       where: { id: authUser.id },
@@ -66,6 +74,11 @@ usersRouter.put('/me', authMiddleware, async (req: Request, res: Response) => {
         ...(linkedinUrl !== undefined && { linkedinUrl }),
         ...(twitterUrl !== undefined && { twitterUrl }),
         ...(websiteUrl !== undefined && { websiteUrl }),
+        ...(phone !== undefined && { phone }),
+        ...(course !== undefined && { course }),
+        ...(branch !== undefined && { branch }),
+        ...(year !== undefined && { year }),
+        ...(isProfileCompletion && { profileCompleted: true }),
       },
       select: {
         id: true,
@@ -74,6 +87,11 @@ usersRouter.put('/me', authMiddleware, async (req: Request, res: Response) => {
         role: true,
         avatar: true,
         bio: true,
+        phone: true,
+        course: true,
+        branch: true,
+        year: true,
+        profileCompleted: true,
         githubUrl: true,
         linkedinUrl: true,
         twitterUrl: true,

@@ -54,6 +54,13 @@ model User {
   oauthId       String?   @map("oauth_id")
   role          Role      @default(USER)
   
+  // Academic & Contact Details (Required for profile completion)
+  phone         String?
+  course        String?   // BTech, BSC, etc.
+  branch        String?   // CSE, IT, ECE, etc.
+  year          String?   // 1st Year, 2nd Year, etc.
+  profileCompleted Boolean @default(false) @map("profile_completed")
+  
   // Social links
   githubUrl     String?   @map("github_url")
   linkedinUrl   String?   @map("linkedin_url")

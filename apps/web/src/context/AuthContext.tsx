@@ -3,8 +3,16 @@ import type { ReactNode } from 'react';
 import { api } from '@/lib/api';
 import type { User } from '@/lib/api';
 
+interface ExtendedUser extends User {
+  profileCompleted?: boolean;
+  phone?: string;
+  course?: string;
+  branch?: string;
+  year?: string;
+}
+
 interface AuthContextType {
-  user: User | null;
+  user: ExtendedUser | null;
   token: string | null;
   isLoading: boolean;
   error: string | null;
@@ -14,20 +22,21 @@ interface AuthContextType {
   devLogin: (email: string, name?: string) => Promise<void>;
   logout: () => void;
   clearError: () => void;
+  refreshUser: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
-  const [user, setUser] = useState<User | null>(null);
+  const [user, setUser] = useState<ExtendedUser | null>(null);
   const [token, setToken] = useState<string | null>(localStorage.getItem('token'));
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const fetchUser = useCallback(async (token: string): Promise<User | null> => {
+  const fetchUser = useCallback(async (token: string): Promise<ExtendedUser | null> => {
     try {
       const userData = await api.getMe(token);
-      return userData;
+      return userData as ExtendedUser;
     } catch (err) {
       console.error('Failed to fetch user:', err);
       localStorage.removeItem('token');
@@ -46,6 +55,14 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     };
     
     initAuth();
+  }, [fetchUser]);
+
+  const refreshUser = useCallback(async () => {
+    const currentToken = localStorage.getItem('token');
+    if (currentToken) {
+      const userData = await fetchUser(currentToken);
+      setUser(userData);
+    }
   }, [fetchUser]);
 
   const login = async (newToken: string) => {
@@ -131,7 +148,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const clearError = () => setError(null);
 
   return (
-    <AuthContext.Provider value={{ user, token, isLoading, error, login, loginWithEmail, register, devLogin, logout, clearError }}>
+    <AuthContext.Provider value={{ user, token, isLoading, error, login, loginWithEmail, register, devLogin, logout, clearError, refreshUser }}>
       {children}
     </AuthContext.Provider>
   );
