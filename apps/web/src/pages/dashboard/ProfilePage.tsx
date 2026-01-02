@@ -182,7 +182,11 @@ export default function ProfilePage() {
           });
         }
       } else {
-        setMessage({ type: 'success', text: 'Profile updated successfully!' });
+        setMessage({ type: 'success', text: 'Profile updated successfully! Redirecting...' });
+        // Redirect to dashboard after a short delay
+        setTimeout(() => {
+          navigate('/dashboard');
+        }, 1500);
       }
     } catch (error) {
       setMessage({ type: 'error', text: error instanceof Error ? error.message : 'Failed to update profile' });
