@@ -7,6 +7,7 @@ import { Calendar, MapPin, ArrowRight, Loader2, Users, Clock } from 'lucide-reac
 import { api, type Event } from '@/lib/api';
 import { formatTime, getWeekdayShort, getMonthShort, getDayOfMonth } from '@/lib/dateUtils';
 import { useMotionConfig } from '@/hooks/useMotionConfig';
+import { useAuth } from '@/context/AuthContext';
 
 function getRegistrationStatus(event: Event): {
   status: 'not_started' | 'open' | 'closed' | 'full' | 'past';
@@ -41,12 +42,24 @@ export function UpcomingEvents() {
   const [events, setEvents] = useState<Event[]>([]);
   const [loading, setLoading] = useState(true);
   const { isMobile, shouldReduceMotion } = useMotionConfig();
+  const { token } = useAuth();
+  const [registeredEventIds, setRegisteredEventIds] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     const fetchEvents = async () => {
       try {
         const data = await api.getEvents('UPCOMING');
         setEvents(data.slice(0, 3));
+        
+        // Fetch user registrations if logged in
+        if (token) {
+          try {
+            const registrations = await api.getMyRegistrations(token);
+            setRegisteredEventIds(new Set(registrations.map(r => r.eventId)));
+          } catch (err) {
+            console.error('Failed to fetch user registrations', err);
+          }
+        }
       } catch (err) {
         console.error('Failed to fetch events:', err);
       } finally {
@@ -54,7 +67,7 @@ export function UpcomingEvents() {
       }
     };
     fetchEvents();
-  }, []);
+  }, [token]);
 
   // Animation configs based on device
   const animationDuration = shouldReduceMotion ? 0.3 : 0.6;
@@ -125,6 +138,7 @@ export function UpcomingEvents() {
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
             {events.map((event, index) => {
               const regStatus = getRegistrationStatus(event);
+              const isRegistered = registeredEventIds.has(event.id);
               
               return (
                 <motion.div
@@ -167,12 +181,13 @@ export function UpcomingEvents() {
                       <div className="absolute top-4 right-4">
                         <Badge 
                           className={`backdrop-blur-sm shadow-sm ${
+                            isRegistered ? 'bg-green-600 text-white' :
                             regStatus.status === 'open' ? 'bg-green-500 text-white' :
                             regStatus.status === 'not_started' ? 'bg-blue-500 text-white' :
                             'bg-gray-500 text-white'
                           }`}
                         >
-                          {regStatus.message}
+                          {isRegistered ? 'Registered' : regStatus.message}
                         </Badge>
                       </div>
                       
@@ -223,16 +238,24 @@ export function UpcomingEvents() {
                       
                       {/* CTA */}
                       <Link to="/events">
-                        <Button 
-                          className={`w-full ${
-                            regStatus.canRegister 
-                              ? 'bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white'
-                              : 'bg-gray-100 text-gray-500'
-                          }`}
-                          disabled={!regStatus.canRegister}
-                        >
-                          {regStatus.canRegister ? 'View & Register' : regStatus.message}
-                        </Button>
+                        {isRegistered ? (
+                          <Button 
+                            className="w-full bg-green-50 text-green-700 hover:bg-green-100 border border-green-200"
+                          >
+                            Registered
+                          </Button>
+                        ) : (
+                          <Button 
+                            className={`w-full ${
+                              regStatus.canRegister 
+                                ? 'bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white'
+                                : 'bg-gray-100 text-gray-500'
+                            }`}
+                            disabled={!regStatus.canRegister}
+                          >
+                            {regStatus.canRegister ? 'View & Register' : regStatus.message}
+                          </Button>
+                        )}
                       </Link>
                     </div>
                   </div>
