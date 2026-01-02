@@ -102,7 +102,7 @@ export default function SignInPage() {
           const userData = await api.getProfile(token);
           // If academic details are incomplete, redirect to profile
           if (!userData.phone || !userData.course || !userData.branch || !userData.year) {
-            navigate('/dashboard/profile');
+            navigate('/dashboard/profile', { state: { pendingEventId } });
             return;
           }
           
@@ -159,7 +159,7 @@ export default function SignInPage() {
       const pendingEventId = localStorage.getItem('pendingEventRegistration');
       if (pendingEventId) {
         // If there's a pending event, must complete profile first
-        navigate('/dashboard/profile');
+        navigate('/dashboard/profile', { state: { pendingEventId } });
       } else {
         navigate('/dashboard');
       }

@@ -115,7 +115,8 @@ export default function AuthCallbackPage() {
           // Check if academic details are filled
           if (!userData.phone || !userData.course || !userData.branch || !userData.year) {
             setStatus('Redirecting to complete your profile...');
-            navigate('/dashboard/profile');
+            const pendingEventId = localStorage.getItem('pendingEventRegistration');
+            navigate('/dashboard/profile', { state: { pendingEventId } });
             return;
           }
         }

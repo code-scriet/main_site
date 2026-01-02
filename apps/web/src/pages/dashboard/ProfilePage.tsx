@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { useAuth } from '@/context/AuthContext';
 import { api } from '@/lib/api';
@@ -62,7 +62,7 @@ interface ProfileData {
 export default function ProfilePage() {
   const { token, refreshUser } = useAuth();
   const navigate = useNavigate();
-  // const location = useLocation();
+  const location = useLocation();
   const [profile, setProfile] = useState<ProfileData | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -94,9 +94,18 @@ export default function ProfilePage() {
   const [pendingEventId, setPendingEventId] = useState<string | null>(null);
 
   useEffect(() => {
-    // Check for pending event registration on mount
-    const pendingId = localStorage.getItem('pendingEventRegistration');
+    // Check for pending event registration on mount (storage OR navigation state)
+    // We check state first as it's more reliable during redirects
+    const statePendingId = location.state?.pendingEventId;
+    const storagePendingId = localStorage.getItem('pendingEventRegistration');
+    
+    const pendingId = statePendingId || storagePendingId;
+    
     if (pendingId) {
+      // Ensure it's in localStorage for persistence if page refreshed
+      if (!storagePendingId) {
+        localStorage.setItem('pendingEventRegistration', pendingId);
+      }
       setPendingEventId(pendingId);
     }
 

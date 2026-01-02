@@ -101,7 +101,7 @@ export default function EventsPage() {
       // Save pending registration
       localStorage.setItem('pendingEventRegistration', event.id);
       // Redirect to sign in
-      navigate('/signin', { state: { from: '/events', message: 'Please sign in to register for events' } });
+      navigate('/signin', { state: { from: '/events', message: 'Please sign in to register for events', pendingEventId: event.id } });
       return;
     }
 
@@ -109,7 +109,7 @@ export default function EventsPage() {
     if (!user.phone || !user.course || !user.branch || !user.year) {
       // Save pending registration
       localStorage.setItem('pendingEventRegistration', event.id);
-      navigate('/dashboard/profile', { state: { message: 'Please complete your profile to register for events' } });
+      navigate('/dashboard/profile', { state: { message: 'Please complete your profile to register for events', pendingEventId: event.id } });
       return;
     }
 
