@@ -5,7 +5,7 @@ import { ArrowRight, Code, Sparkles, Rocket, Users } from 'lucide-react';
 import { useMotionConfig } from '@/hooks/useMotionConfig';
 
 export function CTASection() {
-  const { isMobile, shouldReduceMotion } = useMotionConfig();
+  const { shouldReduceMotion } = useMotionConfig();
   
   // Animation configs based on device
   const animationDuration = shouldReduceMotion ? 0.3 : 0.6;
