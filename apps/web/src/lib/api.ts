@@ -31,9 +31,15 @@ async function request<T>(endpoint: string, options: RequestOptions = {}): Promi
       throw new Error(messages);
     }
     // Handle string error messages
-    const message = typeof errorData.error === 'string' 
-      ? errorData.error 
-      : errorData.message || `HTTP error! status: ${response.status}`;
+    let message: string;
+    if (typeof errorData.error === 'string') {
+      message = errorData.error;
+    } else if (errorData.error?.message) {
+      // Handle object error: { error: { message: "..." } }
+      message = errorData.error.message;
+    } else {
+      message = errorData.message || `HTTP error! status: ${response.status}`;
+    }
     throw new Error(message);
   }
 
