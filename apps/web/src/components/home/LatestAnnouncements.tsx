@@ -7,6 +7,7 @@ import { Bell, Calendar, ArrowRight, Megaphone, AlertTriangle, Info, CheckCircle
 import { api } from '@/lib/api';
 import type { Announcement } from '@/lib/api';
 import { formatDate } from '@/lib/dateUtils';
+import { useMotionConfig } from '@/hooks/useMotionConfig';
 
 const priorityConfig = {
   LOW: { 
@@ -38,6 +39,7 @@ const priorityConfig = {
 export function LatestAnnouncements() {
   const [announcements, setAnnouncements] = useState<Announcement[]>([]);
   const [loading, setLoading] = useState(true);
+  const { isMobile, shouldReduceMotion } = useMotionConfig();
 
   useEffect(() => {
     api.getAnnouncements()
@@ -49,6 +51,11 @@ export function LatestAnnouncements() {
   if (loading) return null;
   if (announcements.length === 0) return null;
 
+  // Animation configs based on device
+  const animationDuration = shouldReduceMotion ? 0.3 : 0.6;
+  const animationY = shouldReduceMotion ? 15 : 30;
+  const staggerDelay = shouldReduceMotion ? 0.05 : 0.1;
+
   return (
     <section className="py-24 bg-white relative overflow-hidden">
       {/* Background Decoration */}
@@ -57,16 +64,16 @@ export function LatestAnnouncements() {
       <div className="container mx-auto px-4 relative">
         {/* Section Header */}
         <motion.div
-          initial={{ opacity: 0, y: 20 }}
+          initial={{ opacity: 0, y: shouldReduceMotion ? 10 : 20 }}
           whileInView={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.6 }}
+          transition={{ duration: animationDuration }}
           viewport={{ once: true }}
           className="text-center mb-12"
         >
           <motion.div 
-            initial={{ opacity: 0, scale: 0.8 }}
+            initial={{ opacity: 0, scale: shouldReduceMotion ? 0.95 : 0.8 }}
             whileInView={{ opacity: 1, scale: 1 }}
-            transition={{ duration: 0.5 }}
+            transition={{ duration: shouldReduceMotion ? 0.3 : 0.5 }}
             viewport={{ once: true }}
             className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-purple-100 text-purple-700 mb-6"
           >
@@ -94,11 +101,11 @@ export function LatestAnnouncements() {
             return (
               <motion.div
                 key={announcement.id}
-                initial={{ opacity: 0, y: 30 }}
+                initial={{ opacity: 0, y: animationY }}
                 whileInView={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.6, delay: index * 0.1 }}
+                transition={{ duration: animationDuration, delay: index * staggerDelay }}
                 viewport={{ once: true }}
-                whileHover={{ y: -5 }}
+                whileHover={!isMobile ? { y: -5 } : undefined}
                 className="group"
               >
                 <div className={`h-full p-6 rounded-2xl border-2 transition-all duration-300 hover:shadow-lg ${config.bg}`}>
@@ -140,9 +147,9 @@ export function LatestAnnouncements() {
 
         {/* CTA */}
         <motion.div
-          initial={{ opacity: 0, y: 20 }}
+          initial={{ opacity: 0, y: shouldReduceMotion ? 10 : 20 }}
           whileInView={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.6, delay: 0.4 }}
+          transition={{ duration: animationDuration, delay: shouldReduceMotion ? 0.1 : 0.4 }}
           viewport={{ once: true }}
           className="text-center"
         >

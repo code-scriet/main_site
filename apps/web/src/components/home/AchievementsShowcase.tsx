@@ -5,10 +5,12 @@ import { Link } from 'react-router-dom';
 import { Trophy, ArrowRight, Loader2, Award, Star, Medal } from 'lucide-react';
 import { api, type Achievement } from '@/lib/api';
 import { formatDate } from '@/lib/dateUtils';
+import { useMotionConfig } from '@/hooks/useMotionConfig';
 
 export function AchievementsShowcase() {
   const [achievements, setAchievements] = useState<Achievement[]>([]);
   const [loading, setLoading] = useState(true);
+  const { isMobile, shouldReduceMotion } = useMotionConfig();
 
   useEffect(() => {
     const fetchAchievements = async () => {
@@ -24,6 +26,11 @@ export function AchievementsShowcase() {
     fetchAchievements();
   }, []);
 
+  // Animation configs based on device
+  const animationDuration = shouldReduceMotion ? 0.3 : 0.6;
+  const animationY = shouldReduceMotion ? 15 : 30;
+  const staggerDelay = shouldReduceMotion ? 0.05 : 0.1;
+
   return (
     <section className="py-24 relative overflow-hidden">
       {/* Background */}
@@ -33,9 +40,9 @@ export function AchievementsShowcase() {
       <div className="absolute top-20 left-10 w-64 h-64 bg-amber-200/50 rounded-full blur-3xl" />
       <div className="absolute bottom-20 right-10 w-80 h-80 bg-orange-200/50 rounded-full blur-3xl" />
       
-      {/* Trophy Pattern */}
+      {/* Trophy Pattern - reduce on mobile */}
       <div className="absolute inset-0 opacity-[0.03]">
-        {[...Array(20)].map((_, i) => (
+        {[...Array(isMobile ? 8 : 20)].map((_, i) => (
           <Trophy 
             key={i} 
             className="absolute h-8 w-8 text-amber-900"
@@ -50,16 +57,16 @@ export function AchievementsShowcase() {
       <div className="container mx-auto px-4 relative">
         {/* Section Header */}
         <motion.div
-          initial={{ opacity: 0, y: 20 }}
+          initial={{ opacity: 0, y: shouldReduceMotion ? 10 : 20 }}
           whileInView={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.6 }}
+          transition={{ duration: animationDuration }}
           viewport={{ once: true }}
           className="text-center mb-12"
         >
           <motion.div 
-            initial={{ opacity: 0, scale: 0.8 }}
+            initial={{ opacity: 0, scale: shouldReduceMotion ? 0.95 : 0.8 }}
             whileInView={{ opacity: 1, scale: 1 }}
-            transition={{ duration: 0.5 }}
+            transition={{ duration: shouldReduceMotion ? 0.3 : 0.5 }}
             viewport={{ once: true }}
             className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-amber-200 text-amber-800 mb-6"
           >
@@ -100,11 +107,11 @@ export function AchievementsShowcase() {
             {achievements.map((achievement, index) => (
               <motion.div
                 key={achievement.id}
-                initial={{ opacity: 0, y: 30 }}
+                initial={{ opacity: 0, y: animationY }}
                 whileInView={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.6, delay: index * 0.1 }}
+                transition={{ duration: animationDuration, delay: index * staggerDelay }}
                 viewport={{ once: true }}
-                whileHover={{ y: -8, scale: 1.02 }}
+                whileHover={!isMobile ? { y: -8, scale: 1.02 } : undefined}
                 className="group"
               >
                 <div className="h-full bg-white rounded-2xl shadow-lg overflow-hidden border border-amber-100 hover:shadow-2xl transition-all duration-500">
@@ -125,10 +132,10 @@ export function AchievementsShowcase() {
                     {/* Overlay */}
                     <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/20 to-transparent" />
                     
-                    {/* Medal Icon */}
+                    {/* Medal Icon - disable hover animation on mobile */}
                     <motion.div 
                       className="absolute top-4 right-4"
-                      whileHover={{ rotate: 15, scale: 1.1 }}
+                      whileHover={!isMobile ? { rotate: 15, scale: 1.1 } : undefined}
                     >
                       <div className="p-2 bg-white/90 rounded-full shadow-lg backdrop-blur-sm">
                         <Medal className="h-5 w-5 text-amber-600" />
@@ -175,9 +182,9 @@ export function AchievementsShowcase() {
 
         {/* CTA */}
         <motion.div
-          initial={{ opacity: 0, y: 20 }}
+          initial={{ opacity: 0, y: shouldReduceMotion ? 10 : 20 }}
           whileInView={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.6, delay: 0.5 }}
+          transition={{ duration: animationDuration, delay: shouldReduceMotion ? 0.1 : 0.5 }}
           viewport={{ once: true }}
           className="text-center"
         >

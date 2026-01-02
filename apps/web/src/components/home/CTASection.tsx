@@ -2,8 +2,15 @@ import { motion } from 'framer-motion';
 import { Button } from '@/components/ui/button';
 import { Link } from 'react-router-dom';
 import { ArrowRight, Code, Sparkles, Rocket, Users } from 'lucide-react';
+import { useMotionConfig } from '@/hooks/useMotionConfig';
 
 export function CTASection() {
+  const { isMobile, shouldReduceMotion } = useMotionConfig();
+  
+  // Animation configs based on device
+  const animationDuration = shouldReduceMotion ? 0.3 : 0.6;
+  const animationY = shouldReduceMotion ? 15 : 30;
+
   return (
     <section className="py-24 relative overflow-hidden">
       {/* Background */}
@@ -24,42 +31,59 @@ export function CTASection() {
         }}
       />
       
-      {/* Floating Icons */}
-      <motion.div
-        className="absolute top-20 left-[15%] text-amber-500/20"
-        animate={{ y: [0, -20, 0], rotate: [0, 10, 0] }}
-        transition={{ duration: 6, repeat: Infinity, ease: 'easeInOut' }}
-      >
-        <Code className="h-16 w-16" />
-      </motion.div>
-      <motion.div
-        className="absolute bottom-20 right-[15%] text-orange-500/20"
-        animate={{ y: [0, 20, 0], rotate: [0, -10, 0] }}
-        transition={{ duration: 8, repeat: Infinity, ease: 'easeInOut' }}
-      >
-        <Rocket className="h-20 w-20" />
-      </motion.div>
-      <motion.div
-        className="absolute top-1/2 right-[10%] text-amber-400/15"
-        animate={{ y: [0, -15, 0], scale: [1, 1.1, 1] }}
-        transition={{ duration: 7, repeat: Infinity, ease: 'easeInOut' }}
-      >
-        <Users className="h-14 w-14" />
-      </motion.div>
+      {/* Floating Icons - disable animation on mobile */}
+      {!shouldReduceMotion ? (
+        <>
+          <motion.div
+            className="absolute top-20 left-[15%] text-amber-500/20 hidden md:block"
+            animate={{ y: [0, -20, 0], rotate: [0, 10, 0] }}
+            transition={{ duration: 6, repeat: Infinity, ease: 'easeInOut' }}
+          >
+            <Code className="h-16 w-16" />
+          </motion.div>
+          <motion.div
+            className="absolute bottom-20 right-[15%] text-orange-500/20 hidden md:block"
+            animate={{ y: [0, 20, 0], rotate: [0, -10, 0] }}
+            transition={{ duration: 8, repeat: Infinity, ease: 'easeInOut' }}
+          >
+            <Rocket className="h-20 w-20" />
+          </motion.div>
+          <motion.div
+            className="absolute top-1/2 right-[10%] text-amber-400/15 hidden md:block"
+            animate={{ y: [0, -15, 0], scale: [1, 1.1, 1] }}
+            transition={{ duration: 7, repeat: Infinity, ease: 'easeInOut' }}
+          >
+            <Users className="h-14 w-14" />
+          </motion.div>
+        </>
+      ) : (
+        /* Static icons for mobile */
+        <>
+          <div className="absolute top-20 left-[15%] text-amber-500/20 hidden md:block">
+            <Code className="h-16 w-16" />
+          </div>
+          <div className="absolute bottom-20 right-[15%] text-orange-500/20 hidden md:block">
+            <Rocket className="h-20 w-20" />
+          </div>
+          <div className="absolute top-1/2 right-[10%] text-amber-400/15 hidden md:block">
+            <Users className="h-14 w-14" />
+          </div>
+        </>
+      )}
       
       <div className="container mx-auto px-4 relative z-10">
         <motion.div
-          initial={{ opacity: 0, y: 30 }}
+          initial={{ opacity: 0, y: animationY }}
           whileInView={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.6 }}
+          transition={{ duration: animationDuration }}
           viewport={{ once: true }}
           className="max-w-4xl mx-auto text-center"
         >
           {/* Badge */}
           <motion.div 
-            initial={{ opacity: 0, scale: 0.8 }}
+            initial={{ opacity: 0, scale: shouldReduceMotion ? 0.95 : 0.8 }}
             whileInView={{ opacity: 1, scale: 1 }}
-            transition={{ duration: 0.5, delay: 0.2 }}
+            transition={{ duration: shouldReduceMotion ? 0.3 : 0.5, delay: shouldReduceMotion ? 0.05 : 0.2 }}
             viewport={{ once: true }}
             className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-amber-500/20 border border-amber-500/30 mb-8"
           >
@@ -69,9 +93,9 @@ export function CTASection() {
           
           {/* Heading */}
           <motion.h2 
-            initial={{ opacity: 0, y: 20 }}
+            initial={{ opacity: 0, y: shouldReduceMotion ? 10 : 20 }}
             whileInView={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.6, delay: 0.3 }}
+            transition={{ duration: animationDuration, delay: shouldReduceMotion ? 0.1 : 0.3 }}
             viewport={{ once: true }}
             className="text-4xl md:text-5xl lg:text-6xl font-bold text-white mb-6 leading-tight"
           >
@@ -83,9 +107,9 @@ export function CTASection() {
           
           {/* Description */}
           <motion.p 
-            initial={{ opacity: 0, y: 20 }}
+            initial={{ opacity: 0, y: shouldReduceMotion ? 10 : 20 }}
             whileInView={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.6, delay: 0.4 }}
+            transition={{ duration: animationDuration, delay: shouldReduceMotion ? 0.15 : 0.4 }}
             viewport={{ once: true }}
             className="text-lg md:text-xl text-white/70 mb-10 max-w-2xl mx-auto leading-relaxed"
           >
@@ -94,9 +118,9 @@ export function CTASection() {
           
           {/* CTA Buttons */}
           <motion.div 
-            initial={{ opacity: 0, y: 20 }}
+            initial={{ opacity: 0, y: shouldReduceMotion ? 10 : 20 }}
             whileInView={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.6, delay: 0.5 }}
+            transition={{ duration: animationDuration, delay: shouldReduceMotion ? 0.2 : 0.5 }}
             viewport={{ once: true }}
             className="flex flex-col sm:flex-row gap-4 justify-center items-center"
           >
@@ -107,13 +131,18 @@ export function CTASection() {
               >
                 <span className="relative z-10 flex items-center">
                   Join Now — It's Free
-                  <motion.span
-                    className="ml-2"
-                    animate={{ x: [0, 4, 0] }}
-                    transition={{ duration: 1.5, repeat: Infinity }}
-                  >
-                    <ArrowRight className="h-5 w-5" />
-                  </motion.span>
+                  {/* Arrow animation - disable on mobile */}
+                  {!shouldReduceMotion ? (
+                    <motion.span
+                      className="ml-2"
+                      animate={{ x: [0, 4, 0] }}
+                      transition={{ duration: 1.5, repeat: Infinity }}
+                    >
+                      <ArrowRight className="h-5 w-5" />
+                    </motion.span>
+                  ) : (
+                    <ArrowRight className="h-5 w-5 ml-2" />
+                  )}
                 </span>
               </Button>
             </Link>
@@ -132,7 +161,7 @@ export function CTASection() {
           <motion.div 
             initial={{ opacity: 0 }}
             whileInView={{ opacity: 1 }}
-            transition={{ duration: 0.6, delay: 0.7 }}
+            transition={{ duration: animationDuration, delay: shouldReduceMotion ? 0.25 : 0.7 }}
             viewport={{ once: true }}
             className="mt-12 flex flex-wrap justify-center items-center gap-6 text-white/50 text-sm"
           >

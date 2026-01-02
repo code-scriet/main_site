@@ -6,6 +6,7 @@ import { ArrowRight, Users, Calendar, Trophy, Sparkles, Terminal, Zap, LayoutDas
 import { api } from '@/lib/api';
 import type { Settings } from '@/lib/api';
 import { useAuth } from '@/context/AuthContext';
+import { useMotionConfig } from '@/hooks/useMotionConfig';
 
 // Animated typing text effect
 const typingPhrases = [
@@ -57,17 +58,20 @@ function TypingAnimation() {
   );
 }
 
-// Floating particles
-function Particles() {
+// Floating particles - optimized for mobile
+function Particles({ isMobile }: { isMobile: boolean }) {
+  // Reduce particle count on mobile for better performance
+  const particleCount = isMobile ? 10 : 50;
+  
   const particles = useMemo(() => 
-    Array.from({ length: 50 }, (_, i) => ({
+    Array.from({ length: particleCount }, (_, i) => ({
       id: i,
       x: Math.random() * 100,
       y: Math.random() * 100,
       size: Math.random() * 3 + 1,
       duration: Math.random() * 20 + 10,
       delay: Math.random() * 5,
-    })), []
+    })), [particleCount]
   );
 
   return (
@@ -82,11 +86,11 @@ function Particles() {
             width: particle.size,
             height: particle.size,
           }}
-          animate={{
+          animate={isMobile ? {} : {
             y: [0, -30, 0],
             opacity: [0.3, 0.6, 0.3],
           }}
-          transition={{
+          transition={isMobile ? {} : {
             duration: particle.duration,
             delay: particle.delay,
             repeat: Infinity,
@@ -160,12 +164,15 @@ function AnimatedCounter({ value, suffix = '' }: { value: number; suffix?: strin
 
 export function Hero() {
   const { user } = useAuth();
+  const { isMobile, shouldReduceMotion } = useMotionConfig();
   const [stats, setStats] = useState({ members: 0, events: 0, achievements: 0 });
   const [settings, setSettings] = useState<Settings | null>(null);
   const { scrollY } = useScroll();
-  const opacity = useTransform(scrollY, [0, 400], [1, 0]);
-  const scale = useTransform(scrollY, [0, 400], [1, 0.95]);
-  const y = useTransform(scrollY, [0, 400], [0, 100]);
+  
+  // Disable parallax on mobile for better performance
+  const opacity = useTransform(scrollY, [0, 400], shouldReduceMotion ? [1, 1] : [1, 0]);
+  const scale = useTransform(scrollY, [0, 400], shouldReduceMotion ? [1, 1] : [1, 0.95]);
+  const y = useTransform(scrollY, [0, 400], shouldReduceMotion ? [0, 0] : [0, 100]);
 
   useEffect(() => {
     api.getPublicStats()
@@ -181,13 +188,20 @@ export function Hero() {
     hidden: { opacity: 0 },
     visible: {
       opacity: 1,
-      transition: { staggerChildren: 0.15, delayChildren: 0.3 },
+      transition: { 
+        staggerChildren: shouldReduceMotion ? 0.05 : 0.15, 
+        delayChildren: shouldReduceMotion ? 0.1 : 0.3 
+      },
     },
   };
 
   const itemVariants = {
-    hidden: { opacity: 0, y: 40 },
-    visible: { opacity: 1, y: 0, transition: { duration: 0.8 } },
+    hidden: { opacity: 0, y: shouldReduceMotion ? 15 : 40 },
+    visible: { 
+      opacity: 1, 
+      y: 0, 
+      transition: { duration: shouldReduceMotion ? 0.3 : 0.8 } 
+    },
   };
 
   return (
@@ -211,27 +225,39 @@ export function Hero() {
         }}
       />
 
-      {/* Particles */}
-      <Particles />
+      {/* Particles - pass mobile flag */}
+      <Particles isMobile={isMobile} />
 
-      {/* Code Background */}
+      {/* Code Background - hidden on mobile via CSS */}
       <CodeBackground />
 
-      {/* Glowing Orbs */}
-      <motion.div 
-        className="absolute top-20 left-20 w-72 h-72 bg-amber-500/20 rounded-full blur-[100px]"
-        animate={{ scale: [1, 1.2, 1], opacity: [0.2, 0.3, 0.2] }}
-        transition={{ duration: 8, repeat: Infinity, ease: 'easeInOut' }}
-      />
-      <motion.div 
-        className="absolute bottom-20 right-20 w-96 h-96 bg-orange-600/20 rounded-full blur-[120px]"
-        animate={{ scale: [1, 1.1, 1], opacity: [0.15, 0.25, 0.15] }}
-        transition={{ duration: 10, repeat: Infinity, ease: 'easeInOut', delay: 2 }}
-      />
+      {/* Glowing Orbs - disable animation on mobile */}
+      {!shouldReduceMotion && (
+        <>
+          <motion.div 
+            className="absolute top-20 left-20 w-72 h-72 bg-amber-500/20 rounded-full blur-[100px]"
+            animate={{ scale: [1, 1.2, 1], opacity: [0.2, 0.3, 0.2] }}
+            transition={{ duration: 8, repeat: Infinity, ease: 'easeInOut' }}
+          />
+          <motion.div 
+            className="absolute bottom-20 right-20 w-96 h-96 bg-orange-600/20 rounded-full blur-[120px]"
+            animate={{ scale: [1, 1.1, 1], opacity: [0.15, 0.25, 0.15] }}
+            transition={{ duration: 10, repeat: Infinity, ease: 'easeInOut', delay: 2 }}
+          />
+        </>
+      )}
+      
+      {/* Static orbs for mobile */}
+      {shouldReduceMotion && (
+        <>
+          <div className="absolute top-20 left-20 w-72 h-72 bg-amber-500/20 rounded-full blur-[100px]" />
+          <div className="absolute bottom-20 right-20 w-96 h-96 bg-orange-600/20 rounded-full blur-[120px]" />
+        </>
+      )}
 
       {/* Main Content */}
       <motion.div 
-        style={{ opacity, scale, y }}
+        style={shouldReduceMotion ? {} : { opacity, scale, y }}
         className="container mx-auto px-4 relative z-10"
       >
         <motion.div
@@ -244,7 +270,7 @@ export function Hero() {
           <motion.div variants={itemVariants} className="flex justify-center">
             <motion.div 
               className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-amber-500/10 border border-amber-500/20 backdrop-blur-sm"
-              whileHover={{ scale: 1.05 }}
+              whileHover={!isMobile ? { scale: 1.05 } : undefined}
             >
               <Sparkles className="h-4 w-4 text-amber-400" />
               <span className="text-amber-200 text-sm font-medium">SCRIET's Premier Coding Community</span>
@@ -255,7 +281,7 @@ export function Hero() {
           <motion.div variants={itemVariants} className="flex justify-center">
             <motion.div 
               className="relative"
-              whileHover={{ scale: 1.05, rotate: 2 }}
+              whileHover={!isMobile ? { scale: 1.05, rotate: 2 } : undefined}
               transition={{ type: 'spring', stiffness: 300 }}
             >
               <div className="absolute -inset-4 bg-gradient-to-r from-amber-500/30 via-orange-500/30 to-amber-500/30 rounded-3xl blur-2xl" />
@@ -266,15 +292,26 @@ export function Hero() {
                   className="h-20 w-20 md:h-24 md:w-24 object-cover rounded-xl"
                 />
               </div>
-              <motion.div
-                className="absolute -top-3 -right-3"
-                animate={{ rotate: 360 }}
-                transition={{ duration: 10, repeat: Infinity, ease: 'linear' }}
-              >
-                <div className="p-2 bg-amber-500/20 rounded-full backdrop-blur-sm border border-amber-500/30">
-                  <Zap className="h-4 w-4 text-amber-400" />
+              {/* Rotating Zap - disable on mobile */}
+              {!shouldReduceMotion && (
+                <motion.div
+                  className="absolute -top-3 -right-3"
+                  animate={{ rotate: 360 }}
+                  transition={{ duration: 10, repeat: Infinity, ease: 'linear' }}
+                >
+                  <div className="p-2 bg-amber-500/20 rounded-full backdrop-blur-sm border border-amber-500/30">
+                    <Zap className="h-4 w-4 text-amber-400" />
+                  </div>
+                </motion.div>
+              )}
+              {/* Static Zap for mobile */}
+              {shouldReduceMotion && (
+                <div className="absolute -top-3 -right-3">
+                  <div className="p-2 bg-amber-500/20 rounded-full backdrop-blur-sm border border-amber-500/30">
+                    <Zap className="h-4 w-4 text-amber-400" />
+                  </div>
                 </div>
-              </motion.div>
+              )}
             </motion.div>
           </motion.div>
 
@@ -318,18 +355,23 @@ export function Hero() {
               >
                 <span className="relative z-10 flex items-center">
                   Join Our Team
-                  <motion.span
-                    className="ml-2"
-                    animate={{ x: [0, 4, 0] }}
-                    transition={{ duration: 1.5, repeat: Infinity }}
-                  >
-                    <ArrowRight className="h-5 w-5" />
-                  </motion.span>
+                  {/* Arrow animation - disable on mobile */}
+                  {!shouldReduceMotion ? (
+                    <motion.span
+                      className="ml-2"
+                      animate={{ x: [0, 4, 0] }}
+                      transition={{ duration: 1.5, repeat: Infinity }}
+                    >
+                      <ArrowRight className="h-5 w-5" />
+                    </motion.span>
+                  ) : (
+                    <ArrowRight className="h-5 w-5 ml-2" />
+                  )}
                 </span>
                 <motion.div
                   className="absolute inset-0 bg-gradient-to-r from-amber-400 to-orange-400"
                   initial={{ x: '-100%' }}
-                  whileHover={{ x: 0 }}
+                  whileHover={!isMobile ? { x: 0 } : undefined}
                   transition={{ duration: 0.3 }}
                 />
               </Button>
@@ -371,7 +413,7 @@ export function Hero() {
             ].map((stat) => (
               <motion.div
                 key={stat.label}
-                whileHover={{ scale: 1.05, y: -5 }}
+                whileHover={!isMobile ? { scale: 1.05, y: -5 } : undefined}
                 transition={{ type: 'spring', stiffness: 400 }}
                 className="group relative"
               >
@@ -391,7 +433,7 @@ export function Hero() {
         </motion.div>
       </motion.div>
 
-      {/* Scroll Indicator */}
+      {/* Scroll Indicator - disable animation on mobile */}
       <motion.div
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
@@ -399,7 +441,7 @@ export function Hero() {
         className="absolute bottom-8 left-1/2 -translate-x-1/2 z-10"
       >
         <motion.div
-          animate={{ y: [0, 8, 0] }}
+          animate={!shouldReduceMotion ? { y: [0, 8, 0] } : {}}
           transition={{ duration: 2, repeat: Infinity, ease: 'easeInOut' }}
           className="flex flex-col items-center gap-2 cursor-pointer"
           onClick={() => window.scrollTo({ top: window.innerHeight, behavior: 'smooth' })}
@@ -407,7 +449,7 @@ export function Hero() {
           <span className="text-white/40 text-xs uppercase tracking-widest font-medium">Scroll</span>
           <div className="w-6 h-10 border-2 border-white/20 rounded-full flex items-start justify-center p-2">
             <motion.div
-              animate={{ y: [0, 12, 0] }}
+              animate={!shouldReduceMotion ? { y: [0, 12, 0] } : {}}
               transition={{ duration: 1.5, repeat: Infinity }}
               className="w-1.5 h-1.5 bg-amber-400 rounded-full"
             />

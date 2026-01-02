@@ -6,6 +6,7 @@ import { Link } from 'react-router-dom';
 import { Calendar, MapPin, ArrowRight, Loader2, Users, Clock } from 'lucide-react';
 import { api, type Event } from '@/lib/api';
 import { formatTime, getWeekdayShort, getMonthShort, getDayOfMonth } from '@/lib/dateUtils';
+import { useMotionConfig } from '@/hooks/useMotionConfig';
 
 function getRegistrationStatus(event: Event): {
   status: 'not_started' | 'open' | 'closed' | 'full' | 'past';
@@ -39,6 +40,7 @@ function getRegistrationStatus(event: Event): {
 export function UpcomingEvents() {
   const [events, setEvents] = useState<Event[]>([]);
   const [loading, setLoading] = useState(true);
+  const { isMobile, shouldReduceMotion } = useMotionConfig();
 
   useEffect(() => {
     const fetchEvents = async () => {
@@ -54,6 +56,11 @@ export function UpcomingEvents() {
     fetchEvents();
   }, []);
 
+  // Animation configs based on device
+  const animationDuration = shouldReduceMotion ? 0.3 : 0.6;
+  const animationY = shouldReduceMotion ? 15 : 30;
+  const staggerDelay = shouldReduceMotion ? 0.05 : 0.15;
+
   return (
     <section className="py-24 bg-gradient-to-b from-amber-50/50 to-white relative overflow-hidden">
       {/* Background Decoration */}
@@ -62,17 +69,17 @@ export function UpcomingEvents() {
       <div className="container mx-auto px-4 relative">
         {/* Section Header */}
         <motion.div
-          initial={{ opacity: 0, y: 20 }}
+          initial={{ opacity: 0, y: animationY }}
           whileInView={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.6 }}
+          transition={{ duration: animationDuration }}
           viewport={{ once: true }}
           className="flex flex-col md:flex-row justify-between items-start md:items-end mb-12 gap-6"
         >
           <div>
             <motion.div 
-              initial={{ opacity: 0, scale: 0.8 }}
+              initial={{ opacity: 0, scale: shouldReduceMotion ? 0.95 : 0.8 }}
               whileInView={{ opacity: 1, scale: 1 }}
-              transition={{ duration: 0.5 }}
+              transition={{ duration: shouldReduceMotion ? 0.3 : 0.5 }}
               viewport={{ once: true }}
               className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-orange-100 text-orange-700 mb-4"
             >
@@ -122,11 +129,11 @@ export function UpcomingEvents() {
               return (
                 <motion.div
                   key={event.id}
-                  initial={{ opacity: 0, y: 30 }}
+                  initial={{ opacity: 0, y: animationY }}
                   whileInView={{ opacity: 1, y: 0 }}
-                  transition={{ duration: 0.6, delay: index * 0.15 }}
+                  transition={{ duration: animationDuration, delay: index * staggerDelay }}
                   viewport={{ once: true }}
-                  whileHover={{ y: -8 }}
+                  whileHover={!isMobile ? { y: -8 } : undefined}
                   className="group"
                 >
                   <div className="h-full bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden hover:shadow-xl transition-all duration-500">

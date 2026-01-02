@@ -4,10 +4,12 @@ import { Button } from '@/components/ui/button';
 import { Link } from 'react-router-dom';
 import { Github, Linkedin, Twitter, Instagram, ArrowRight, Users, Loader2 } from 'lucide-react';
 import { api, type TeamMember } from '@/lib/api';
+import { useMotionConfig } from '@/hooks/useMotionConfig';
 
 export function TeamHighlight() {
   const [teamMembers, setTeamMembers] = useState<TeamMember[]>([]);
   const [loading, setLoading] = useState(true);
+  const { isMobile, shouldReduceMotion } = useMotionConfig();
 
   useEffect(() => {
     const fetchTeam = async () => {
@@ -23,6 +25,11 @@ export function TeamHighlight() {
     fetchTeam();
   }, []);
 
+  // Animation configs based on device
+  const animationDuration = shouldReduceMotion ? 0.3 : 0.6;
+  const animationY = shouldReduceMotion ? 15 : 30;
+  const staggerDelay = shouldReduceMotion ? 0.05 : 0.1;
+
   return (
     <section className="py-24 bg-gradient-to-b from-white to-gray-50 relative overflow-hidden">
       {/* Background Decoration */}
@@ -31,16 +38,16 @@ export function TeamHighlight() {
       <div className="container mx-auto px-4 relative">
         {/* Section Header */}
         <motion.div
-          initial={{ opacity: 0, y: 20 }}
+          initial={{ opacity: 0, y: shouldReduceMotion ? 10 : 20 }}
           whileInView={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.6 }}
+          transition={{ duration: animationDuration }}
           viewport={{ once: true }}
           className="text-center mb-16"
         >
           <motion.div 
-            initial={{ opacity: 0, scale: 0.8 }}
+            initial={{ opacity: 0, scale: shouldReduceMotion ? 0.95 : 0.8 }}
             whileInView={{ opacity: 1, scale: 1 }}
-            transition={{ duration: 0.5 }}
+            transition={{ duration: shouldReduceMotion ? 0.3 : 0.5 }}
             viewport={{ once: true }}
             className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-blue-100 text-blue-700 mb-6"
           >
@@ -81,17 +88,19 @@ export function TeamHighlight() {
             {teamMembers.map((member, index) => (
               <motion.div
                 key={member.id}
-                initial={{ opacity: 0, y: 30 }}
+                initial={{ opacity: 0, y: animationY }}
                 whileInView={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.5, delay: index * 0.1 }}
+                transition={{ duration: shouldReduceMotion ? 0.3 : 0.5, delay: index * staggerDelay }}
                 viewport={{ once: true }}
-                whileHover={{ y: -10 }}
+                whileHover={!isMobile ? { y: -10 } : undefined}
                 className="group text-center"
               >
                 {/* Avatar */}
                 <div className="relative mb-5 mx-auto">
-                  {/* Glow effect */}
-                  <div className="absolute -inset-2 bg-gradient-to-br from-amber-400 to-orange-500 rounded-full opacity-0 group-hover:opacity-20 blur-xl transition-opacity duration-500" />
+                  {/* Glow effect - only on desktop */}
+                  {!isMobile && (
+                    <div className="absolute -inset-2 bg-gradient-to-br from-amber-400 to-orange-500 rounded-full opacity-0 group-hover:opacity-20 blur-xl transition-opacity duration-500" />
+                  )}
                   
                   {/* Image container */}
                   <div className="relative w-24 h-24 md:w-28 md:h-28 mx-auto">
@@ -116,7 +125,7 @@ export function TeamHighlight() {
                 </h3>
                 <p className="text-sm text-gray-500 mb-3">{member.role}</p>
                 
-                {/* Social Links */}
+                {/* Social Links - simplify animations on mobile */}
                 <div className="flex justify-center gap-3">
                   {member.github && (
                     <motion.a
@@ -124,7 +133,7 @@ export function TeamHighlight() {
                       target="_blank"
                       rel="noopener noreferrer"
                       className="p-2 rounded-lg bg-gray-100 text-gray-500 hover:bg-gray-900 hover:text-white transition-all"
-                      whileHover={{ scale: 1.1 }}
+                      whileHover={!isMobile ? { scale: 1.1 } : undefined}
                       whileTap={{ scale: 0.95 }}
                     >
                       <Github className="h-4 w-4" />
@@ -136,7 +145,7 @@ export function TeamHighlight() {
                       target="_blank"
                       rel="noopener noreferrer"
                       className="p-2 rounded-lg bg-gray-100 text-gray-500 hover:bg-blue-600 hover:text-white transition-all"
-                      whileHover={{ scale: 1.1 }}
+                      whileHover={!isMobile ? { scale: 1.1 } : undefined}
                       whileTap={{ scale: 0.95 }}
                     >
                       <Linkedin className="h-4 w-4" />
@@ -148,7 +157,7 @@ export function TeamHighlight() {
                       target="_blank"
                       rel="noopener noreferrer"
                       className="p-2 rounded-lg bg-gray-100 text-gray-500 hover:bg-sky-500 hover:text-white transition-all"
-                      whileHover={{ scale: 1.1 }}
+                      whileHover={!isMobile ? { scale: 1.1 } : undefined}
                       whileTap={{ scale: 0.95 }}
                     >
                       <Twitter className="h-4 w-4" />
@@ -160,7 +169,7 @@ export function TeamHighlight() {
                       target="_blank"
                       rel="noopener noreferrer"
                       className="p-2 rounded-lg bg-gray-100 text-gray-500 hover:bg-pink-500 hover:text-white transition-all"
-                      whileHover={{ scale: 1.1 }}
+                      whileHover={!isMobile ? { scale: 1.1 } : undefined}
                       whileTap={{ scale: 0.95 }}
                     >
                       <Instagram className="h-4 w-4" />
@@ -174,9 +183,9 @@ export function TeamHighlight() {
 
         {/* CTA */}
         <motion.div
-          initial={{ opacity: 0, y: 20 }}
+          initial={{ opacity: 0, y: shouldReduceMotion ? 10 : 20 }}
           whileInView={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.6, delay: 0.5 }}
+          transition={{ duration: animationDuration, delay: shouldReduceMotion ? 0.1 : 0.5 }}
           viewport={{ once: true }}
           className="text-center"
         >

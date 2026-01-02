@@ -5,15 +5,22 @@ import { Link } from 'react-router-dom';
 import { Code, Users, ArrowRight, Sparkles, Target, Brain } from 'lucide-react';
 import { api } from '@/lib/api';
 import type { Settings } from '@/lib/api';
+import { useMotionConfig } from '@/hooks/useMotionConfig';
 
 export function AboutPreview() {
   const [settings, setSettings] = useState<Settings | null>(null);
+  const { isMobile, shouldReduceMotion } = useMotionConfig();
 
   useEffect(() => {
     api.getSettings()
       .then(setSettings)
       .catch(console.error);
   }, []);
+
+  // Animation configs based on device
+  const animationDuration = shouldReduceMotion ? 0.3 : 0.6;
+  const animationY = shouldReduceMotion ? 15 : 30;
+  const staggerDelay = shouldReduceMotion ? 0.05 : 0.1;
 
   const features = [
     {
@@ -55,16 +62,16 @@ export function AboutPreview() {
       <div className="container mx-auto px-4 relative">
         {/* Section Header */}
         <motion.div
-          initial={{ opacity: 0, y: 30 }}
+          initial={{ opacity: 0, y: animationY }}
           whileInView={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.6 }}
+          transition={{ duration: animationDuration }}
           viewport={{ once: true }}
           className="text-center mb-16"
         >
           <motion.div 
-            initial={{ opacity: 0, scale: 0.8 }}
+            initial={{ opacity: 0, scale: shouldReduceMotion ? 0.95 : 0.8 }}
             whileInView={{ opacity: 1, scale: 1 }}
-            transition={{ duration: 0.5 }}
+            transition={{ duration: shouldReduceMotion ? 0.3 : 0.5 }}
             viewport={{ once: true }}
             className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-amber-100 text-amber-700 mb-6"
           >
@@ -89,11 +96,11 @@ export function AboutPreview() {
           {features.map((feature, index) => (
             <motion.div
               key={feature.title}
-              initial={{ opacity: 0, y: 30 }}
+              initial={{ opacity: 0, y: animationY }}
               whileInView={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.6, delay: index * 0.1 }}
+              transition={{ duration: animationDuration, delay: index * staggerDelay }}
               viewport={{ once: true }}
-              whileHover={{ y: -8, transition: { duration: 0.3 } }}
+              whileHover={!isMobile ? { y: -8, transition: { duration: 0.3 } } : undefined}
               className="group relative"
             >
               <div className="h-full p-8 rounded-2xl bg-white border border-gray-100 shadow-sm hover:shadow-xl transition-all duration-500 relative overflow-hidden">
@@ -113,14 +120,16 @@ export function AboutPreview() {
                   {feature.description}
                 </p>
 
-                {/* Hover Arrow */}
-                <motion.div 
-                  className="absolute bottom-6 right-6 opacity-0 group-hover:opacity-100 transition-opacity"
-                  initial={{ x: -10 }}
-                  whileHover={{ x: 0 }}
-                >
-                  <ArrowRight className="h-5 w-5 text-amber-500" />
-                </motion.div>
+                {/* Hover Arrow - only on desktop */}
+                {!isMobile && (
+                  <motion.div 
+                    className="absolute bottom-6 right-6 opacity-0 group-hover:opacity-100 transition-opacity"
+                    initial={{ x: -10 }}
+                    whileHover={{ x: 0 }}
+                  >
+                    <ArrowRight className="h-5 w-5 text-amber-500" />
+                  </motion.div>
+                )}
               </div>
             </motion.div>
           ))}
@@ -128,9 +137,9 @@ export function AboutPreview() {
 
         {/* Stats Row */}
         <motion.div
-          initial={{ opacity: 0, y: 30 }}
+          initial={{ opacity: 0, y: animationY }}
           whileInView={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.6, delay: 0.4 }}
+          transition={{ duration: animationDuration, delay: shouldReduceMotion ? 0.1 : 0.4 }}
           viewport={{ once: true }}
           className="bg-gradient-to-r from-amber-600 via-orange-600 to-amber-600 rounded-3xl p-8 md:p-12 mb-12"
         >
@@ -139,13 +148,12 @@ export function AboutPreview() {
               { value: '10+', label: 'Active Members' },
               { value: '3', label: 'Events Conducted' },
               { value: '5', label: 'Projects Built' },
-              // { value: '15+', label: 'Awards Won' },
             ].map((stat, index) => (
               <motion.div
                 key={stat.label}
-                initial={{ opacity: 0, scale: 0.8 }}
+                initial={{ opacity: 0, scale: shouldReduceMotion ? 0.95 : 0.8 }}
                 whileInView={{ opacity: 1, scale: 1 }}
-                transition={{ delay: 0.5 + index * 0.1 }}
+                transition={{ delay: (shouldReduceMotion ? 0.1 : 0.5) + index * staggerDelay }}
                 viewport={{ once: true }}
               >
                 <p className="text-4xl md:text-5xl font-bold text-white mb-2">{stat.value}</p>
@@ -157,9 +165,9 @@ export function AboutPreview() {
 
         {/* CTA */}
         <motion.div
-          initial={{ opacity: 0, y: 20 }}
+          initial={{ opacity: 0, y: shouldReduceMotion ? 10 : 20 }}
           whileInView={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.6, delay: 0.5 }}
+          transition={{ duration: animationDuration, delay: shouldReduceMotion ? 0.1 : 0.5 }}
           viewport={{ once: true }}
           className="text-center"
         >
