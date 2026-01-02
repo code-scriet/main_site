@@ -69,24 +69,38 @@ export default function EventsPage() {
   const [registrationSuccess, setRegistrationSuccess] = useState<string | null>(null);
   const [registrationError, setRegistrationError] = useState<string | null>(null);
   
+  const [registeredEventIds, setRegisteredEventIds] = useState<Set<string>>(new Set());
+  
   const { user, token } = useAuth();
   const navigate = useNavigate();
 
   useEffect(() => {
-    const fetchEvents = async () => {
+    const fetchData = async () => {
       try {
         setLoading(true);
         setError(null);
-        const data = await api.getEvents();
-        setEvents(data);
+        
+        // Fetch events
+        const eventsData = await api.getEvents();
+        setEvents(eventsData);
+        
+        // Fetch user registrations if logged in
+        if (token) {
+          try {
+            const registrations = await api.getMyRegistrations(token);
+            setRegisteredEventIds(new Set(registrations.map(r => r.eventId)));
+          } catch (err) {
+            console.error('Failed to fetch user registrations', err);
+          }
+        }
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Failed to load events');
       } finally {
         setLoading(false);
       }
     };
-    fetchEvents();
-  }, []);
+    fetchData();
+  }, [token]);
 
   const handleRegister = async (event: Event) => {
     const regStatus = getRegistrationStatus(event);
@@ -122,6 +136,10 @@ export default function EventsPage() {
       // Refresh events to update registration count
       const updatedEvents = await api.getEvents();
       setEvents(updatedEvents);
+
+      // Refresh user registrations
+      const registrations = await api.getMyRegistrations(token);
+      setRegisteredEventIds(new Set(registrations.map(r => r.eventId)));
       
       setTimeout(() => setRegistrationSuccess(null), 5000);
     } catch (err) {
@@ -308,7 +326,16 @@ export default function EventsPage() {
 
                         <div className="pt-2">
                           {event.status !== 'PAST' && regStatus.canRegister ? (
-                            user ? (
+                            registeredEventIds.has(event.id) ? (
+                              <Button 
+                                variant="secondary" 
+                                className="w-full bg-green-50 text-green-700 border border-green-200 opacity-100 cursor-default" 
+                                disabled
+                              >
+                                <CheckCircle className="h-4 w-4 mr-2" />
+                                Registered
+                              </Button>
+                            ) : user ? (
                               <Button 
                                 className="w-full bg-amber-600 hover:bg-amber-700" 
                                 onClick={() => handleRegister(event)}
