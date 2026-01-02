@@ -92,6 +92,39 @@ export default function SignInPage() {
     
     try {
       await loginWithEmail(email.trim(), password);
+      
+      // Check if user needs to complete profile (especially for pending event registration)
+      const pendingEventId = localStorage.getItem('pendingEventRegistration');
+      const token = localStorage.getItem('token');
+      
+      if (token) {
+        try {
+          const userData = await api.getProfile(token);
+          // If academic details are incomplete, redirect to profile
+          if (!userData.phone || !userData.course || !userData.branch || !userData.year) {
+            navigate('/dashboard/profile');
+            return;
+          }
+          
+          // If profile complete AND pending event, try to register now
+          if (pendingEventId) {
+            try {
+              await api.registerForEvent(pendingEventId, token);
+              localStorage.removeItem('pendingEventRegistration');
+              navigate('/dashboard/events');
+              return;
+            } catch {
+              // Failed to register, just go to events page
+              localStorage.removeItem('pendingEventRegistration');
+              navigate('/dashboard/events');
+              return;
+            }
+          }
+        } catch {
+          // Couldn't check profile, just go to dashboard
+        }
+      }
+      
       navigate('/dashboard');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Login failed');
@@ -120,7 +153,16 @@ export default function SignInPage() {
     
     try {
       await register(name.trim(), email.trim(), password);
-      navigate('/dashboard');
+      
+      // New user registration always means incomplete profile
+      // Redirect to profile page to complete academic details
+      const pendingEventId = localStorage.getItem('pendingEventRegistration');
+      if (pendingEventId) {
+        // If there's a pending event, must complete profile first
+        navigate('/dashboard/profile');
+      } else {
+        navigate('/dashboard');
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Registration failed');
     } finally {

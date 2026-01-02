@@ -144,10 +144,20 @@ export default function ProfilePage() {
       
       // Check for pending event registration
       const pendingEventId = localStorage.getItem('pendingEventRegistration');
+      console.log('Checking for pending event registration:', pendingEventId);
+      
       if (pendingEventId) {
         try {
+          // Use the latest token from localStorage to ensure it's fresh
+          const currentToken = localStorage.getItem('token');
+          if (!currentToken) {
+            throw new Error('No authentication token available');
+          }
+          
+          console.log('Attempting auto-registration for event:', pendingEventId);
+          
           // Attempt to register for the pending event
-          await api.registerForEvent(pendingEventId, token);
+          await api.registerForEvent(pendingEventId, currentToken);
           
           // Clear the pending registration
           localStorage.removeItem('pendingEventRegistration');
@@ -161,10 +171,14 @@ export default function ProfilePage() {
           return;
         } catch (regError) {
           console.error('Auto-registration failed:', regError);
-          // Keep the pending ID so they can try again, but let them know profile saved
+          // Clear the pending ID since we've attempted it
+          localStorage.removeItem('pendingEventRegistration');
+          
+          // Show appropriate message based on error
+          const errorMessage = regError instanceof Error ? regError.message : 'Unknown error';
           setMessage({ 
             type: 'success', 
-            text: 'Profile updated! However, we could not automatically register you for the event. Please go to Events to register manually.' 
+            text: `Profile updated! However, automatic event registration failed: ${errorMessage}. Please register manually from the Events page.` 
           });
         }
       } else {
