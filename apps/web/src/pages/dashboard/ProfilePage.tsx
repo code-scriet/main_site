@@ -91,7 +91,15 @@ export default function ProfilePage() {
   const [confirmPassword, setConfirmPassword] = useState('');
   const [changingPassword, setChangingPassword] = useState(false);
 
+  const [pendingEventId, setPendingEventId] = useState<string | null>(null);
+
   useEffect(() => {
+    // Check for pending event registration on mount
+    const pendingId = localStorage.getItem('pendingEventRegistration');
+    if (pendingId) {
+      setPendingEventId(pendingId);
+    }
+
     const fetchProfile = async () => {
       if (!token) return;
       try {
@@ -142,11 +150,11 @@ export default function ProfilePage() {
       // Refresh user context to update academic details
       await refreshUser();
       
-      // Check for pending event registration
-      const pendingEventId = localStorage.getItem('pendingEventRegistration');
-      console.log('Checking for pending event registration:', pendingEventId);
+      // Check for pending event registration (check state first, then storage as backup)
+      const eventIdToRegister = pendingEventId || localStorage.getItem('pendingEventRegistration');
+      console.log('Checking for pending event registration:', eventIdToRegister);
       
-      if (pendingEventId) {
+      if (eventIdToRegister) {
         try {
           // Use the latest token from localStorage to ensure it's fresh
           const currentToken = localStorage.getItem('token');
@@ -157,7 +165,7 @@ export default function ProfilePage() {
           console.log('Attempting auto-registration for event:', pendingEventId);
           
           // Attempt to register for the pending event
-          await api.registerForEvent(pendingEventId, currentToken);
+          await api.registerForEvent(eventIdToRegister, currentToken);
           
           // Clear the pending registration
           localStorage.removeItem('pendingEventRegistration');
@@ -280,6 +288,23 @@ export default function ProfilePage() {
                 <div>
                   <p className="font-semibold">Complete Your Academic Details</p>
                   <p className="text-sm mt-1">Please fill in your Phone Number, Course, Branch, and Year to access all features including event registration.</p>
+                </div>
+              </div>
+            </motion.div>
+          )}
+
+          {/* Pending Registration Banner */}
+          {pendingEventId && (
+            <motion.div
+              initial={{ opacity: 0, y: -10 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="mb-6 p-4 rounded-lg bg-blue-50 border border-blue-200 text-blue-800"
+            >
+              <div className="flex items-start gap-3">
+                <Calendar className="h-5 w-5 mt-0.5 flex-shrink-0" />
+                <div>
+                  <p className="font-semibold">Finish Your Event Registration</p>
+                  <p className="text-sm mt-1">You are almost there! Complete your profile below and click "Save Changes" to finish registering for the event.</p>
                 </div>
               </div>
             </motion.div>

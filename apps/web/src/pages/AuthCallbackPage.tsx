@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
+import { api } from '@/lib/api';
 import { useAuth } from '@/context/AuthContext';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5001/api';
@@ -115,6 +116,24 @@ export default function AuthCallbackPage() {
           if (!userData.phone || !userData.course || !userData.branch || !userData.year) {
             setStatus('Redirecting to complete your profile...');
             navigate('/dashboard/profile');
+            return;
+          }
+        }
+        
+        // Check for pending event registration
+        const pendingEventId = localStorage.getItem('pendingEventRegistration');
+        if (pendingEventId) {
+          setStatus('Completing event registration...');
+          try {
+            await api.registerForEvent(pendingEventId, token);
+            localStorage.removeItem('pendingEventRegistration');
+            navigate('/dashboard/events');
+            return;
+          } catch (err) {
+            console.error('Auto-registration failed in callback:', err);
+            // Even if it fails (e.g. already registered), redirect to events so they can see it
+            localStorage.removeItem('pendingEventRegistration'); 
+            navigate('/dashboard/events');
             return;
           }
         }
