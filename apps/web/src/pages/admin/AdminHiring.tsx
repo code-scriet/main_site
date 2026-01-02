@@ -25,6 +25,7 @@ import {
   Eye,
   Download
 } from 'lucide-react';
+import { formatDate } from '@/lib/dateUtils';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5001/api';
 
@@ -560,13 +561,7 @@ export default function AdminHiring() {
                 <div>
                   <label className="text-xs text-gray-500">Applied On</label>
                   <p className="font-medium">
-                    {new Date(selectedApplication.createdAt).toLocaleDateString('en-US', {
-                      year: 'numeric',
-                      month: 'long',
-                      day: 'numeric',
-                      hour: '2-digit',
-                      minute: '2-digit',
-                    })}
+                    {formatDate(selectedApplication.createdAt)}
                   </p>
                 </div>
               </div>

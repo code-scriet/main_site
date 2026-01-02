@@ -9,6 +9,7 @@ import { api } from '@/lib/api';
 import type { Announcement } from '@/lib/api';
 import { Bell, Loader2, AlertCircle, Plus, User, Clock, Edit2, Trash2, X, Save } from 'lucide-react';
 import { Link } from 'react-router-dom';
+import { formatDate } from '@/lib/dateUtils';
 
 const priorityColors = {
   URGENT: 'destructive',
@@ -282,13 +283,7 @@ export default function DashboardAnnouncements() {
                         )}
                         <span className="flex items-center gap-1">
                           <Clock className="h-4 w-4" />
-                          {new Date(announcement.createdAt).toLocaleDateString('en-US', {
-                            year: 'numeric',
-                            month: 'short',
-                            day: 'numeric',
-                            hour: '2-digit',
-                            minute: '2-digit',
-                          })}
+                          {formatDate(announcement.createdAt)}
                         </span>
                       </div>
                     </>

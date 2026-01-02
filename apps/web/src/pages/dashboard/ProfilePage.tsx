@@ -1,7 +1,9 @@
 import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { useAuth } from '@/context/AuthContext';
 import { api } from '@/lib/api';
+import { formatDate } from '@/lib/dateUtils';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -59,6 +61,8 @@ interface ProfileData {
 
 export default function ProfilePage() {
   const { token, refreshUser } = useAuth();
+  const navigate = useNavigate();
+  // const location = useLocation();
   const [profile, setProfile] = useState<ProfileData | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -138,7 +142,34 @@ export default function ProfilePage() {
       // Refresh user context to update academic details
       await refreshUser();
       
-      setMessage({ type: 'success', text: 'Profile updated successfully!' });
+      // Check for pending event registration
+      const pendingEventId = localStorage.getItem('pendingEventRegistration');
+      if (pendingEventId) {
+        try {
+          // Attempt to register for the pending event
+          await api.registerForEvent(pendingEventId, token);
+          
+          // Clear the pending registration
+          localStorage.removeItem('pendingEventRegistration');
+          
+          setMessage({ type: 'success', text: 'Profile updated and you have been registered for the event! Redirecting...' });
+          
+          // Redirect to dashboard events after a short delay
+          setTimeout(() => {
+            navigate('/dashboard/events');
+          }, 2000);
+          return;
+        } catch (regError) {
+          console.error('Auto-registration failed:', regError);
+          // Keep the pending ID so they can try again, but let them know profile saved
+          setMessage({ 
+            type: 'success', 
+            text: 'Profile updated! However, we could not automatically register you for the event. Please go to Events to register manually.' 
+          });
+        }
+      } else {
+        setMessage({ type: 'success', text: 'Profile updated successfully!' });
+      }
     } catch (error) {
       setMessage({ type: 'error', text: error instanceof Error ? error.message : 'Failed to update profile' });
     } finally {
@@ -284,7 +315,7 @@ export default function ProfilePage() {
                 <div>
                   <p className="text-xs text-gray-500">Joined</p>
                   <p className="text-sm font-medium text-gray-900">
-                    {profile?.createdAt ? new Date(profile.createdAt).toLocaleDateString() : 'N/A'}
+                    {formatDate(profile?.createdAt) || 'N/A'}
                   </p>
                 </div>
               </div>

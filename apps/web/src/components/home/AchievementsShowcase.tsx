@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Link } from 'react-router-dom';
 import { Trophy, ArrowRight, Loader2, Award, Star, Medal } from 'lucide-react';
 import { api, type Achievement } from '@/lib/api';
+import { formatDate } from '@/lib/dateUtils';
 
 export function AchievementsShowcase() {
   const [achievements, setAchievements] = useState<Achievement[]>([]);
@@ -159,10 +160,7 @@ export function AchievementsShowcase() {
                             {achievement.achievedBy}
                           </p>
                           <p className="text-xs text-gray-500">
-                            {new Date(achievement.date).toLocaleDateString('en-US', { 
-                              month: 'short', 
-                              year: 'numeric' 
-                            })}
+                            {formatDate(achievement.date)}
                           </p>
                         </div>
                       </div>

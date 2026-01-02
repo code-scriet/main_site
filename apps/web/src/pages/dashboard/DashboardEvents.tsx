@@ -98,7 +98,9 @@ export default function DashboardEvents() {
     
     // Check if academic details are complete - redirect to profile if not
     if (!hasCompleteAcademicDetails) {
-      navigate('/dashboard/profile');
+      // Save pending registration
+      localStorage.setItem('pendingEventRegistration', eventId);
+      navigate('/dashboard/profile', { state: { message: 'Please complete your profile to register for events' } });
       return;
     }
     

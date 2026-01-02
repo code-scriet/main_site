@@ -6,6 +6,7 @@ import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Code, Loader2, AlertCircle, Plus, Check, X, ExternalLink } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
+import { formatDate } from '@/lib/dateUtils';
 
 interface QOTD {
   id: string;
@@ -271,7 +272,7 @@ export default function CreateQOTD() {
                   <div className="flex-1">
                     <div className="flex items-center gap-2 mb-1">
                       <span className="text-sm text-gray-500">
-                        {new Date(qotd.date).toLocaleDateString()}
+                        {formatDate(qotd.date)}
                       </span>
                       <Badge variant={difficultyColors[qotd.difficulty]}>
                         {qotd.difficulty}
