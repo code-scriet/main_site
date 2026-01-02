@@ -111,7 +111,7 @@ export default function SignInPage() {
             try {
               await api.registerForEvent(pendingEventId, token);
               localStorage.removeItem('pendingEventRegistration');
-              navigate('/dashboard/events');
+              navigate('/dashboard'); // Success: Go to Dashboard
               return;
             } catch {
               // Failed to register, just go to events page

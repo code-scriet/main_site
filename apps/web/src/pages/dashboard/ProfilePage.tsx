@@ -170,11 +170,11 @@ export default function ProfilePage() {
           // Clear the pending registration
           localStorage.removeItem('pendingEventRegistration');
           
-          setMessage({ type: 'success', text: 'Profile updated and you have been registered for the event! Redirecting...' });
+          setMessage({ type: 'success', text: 'Profile updated and you have been registered for the event! Redirecting to dashboard...' });
           
-          // Redirect to dashboard events after a short delay
+          // Redirect to dashboard after a short delay
           setTimeout(() => {
-            navigate('/dashboard/events');
+            navigate('/dashboard');
           }, 2000);
           return;
         } catch (regError) {
@@ -185,9 +185,14 @@ export default function ProfilePage() {
           // Show appropriate message based on error
           const errorMessage = regError instanceof Error ? regError.message : 'Unknown error';
           setMessage({ 
-            type: 'success', 
-            text: `Profile updated! However, automatic event registration failed: ${errorMessage}. Please register manually from the Events page.` 
+            type: 'success',
+            text: `Profile updated! However, automatic event registration failed: ${errorMessage}. Redirecting to Events page so you can try manually.` 
           });
+          
+          // Redirect to events page after delay
+          setTimeout(() => {
+            navigate('/dashboard/events');
+          }, 3000);
         }
       } else {
         setMessage({ type: 'success', text: 'Profile updated successfully! Redirecting...' });

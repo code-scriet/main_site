@@ -127,11 +127,11 @@ export default function AuthCallbackPage() {
           try {
             await api.registerForEvent(pendingEventId, token);
             localStorage.removeItem('pendingEventRegistration');
-            navigate('/dashboard/events');
+            navigate('/dashboard'); // Success: Go to Dashboard
             return;
           } catch (err) {
             console.error('Auto-registration failed in callback:', err);
-            // Even if it fails (e.g. already registered), redirect to events so they can see it
+            // Failed: Go to Events page to try manually
             localStorage.removeItem('pendingEventRegistration'); 
             navigate('/dashboard/events');
             return;
