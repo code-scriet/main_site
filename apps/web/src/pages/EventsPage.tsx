@@ -9,6 +9,7 @@ import { Calendar, MapPin, Users, Loader2, Clock, AlertCircle, CheckCircle, LogI
 import { api, type Event } from '@/lib/api';
 import { useAuth } from '@/context/AuthContext';
 import { useNavigate } from 'react-router-dom';
+import { formatDate, formatTime } from '@/lib/dateUtils';
 
 type EventStatus = 'UPCOMING' | 'ONGOING' | 'PAST';
 
@@ -47,7 +48,7 @@ function getRegistrationStatus(event: Event): {
   if (regStart && now < regStart) {
     return { 
       status: 'not_started', 
-      message: `Registration opens ${regStart.toLocaleDateString()} at ${regStart.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`, 
+      message: `Registration opens ${formatDate(regStart)} at ${formatTime(regStart)}`, 
       canRegister: false 
     };
   }
@@ -270,8 +271,8 @@ export default function EventsPage() {
                           <div className="flex items-center gap-2">
                             <Calendar className="h-4 w-4" />
                             <span>
-                              {new Date(event.startDate).toLocaleDateString()}
-                              {event.endDate && ` - ${new Date(event.endDate).toLocaleDateString()}`}
+                              {formatDate(event.startDate)}
+                              {event.endDate && ` - ${formatDate(event.endDate)}`}
                             </span>
                           </div>
                           {event.location && (

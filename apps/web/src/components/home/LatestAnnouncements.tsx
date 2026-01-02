@@ -6,6 +6,7 @@ import { Link } from 'react-router-dom';
 import { Bell, Calendar, ArrowRight, Megaphone, AlertTriangle, Info, CheckCircle } from 'lucide-react';
 import { api } from '@/lib/api';
 import type { Announcement } from '@/lib/api';
+import { formatDate } from '@/lib/dateUtils';
 
 const priorityConfig = {
   LOW: { 
@@ -123,7 +124,7 @@ export function LatestAnnouncements() {
                   <div className="flex items-center justify-between pt-4 border-t border-gray-200/50">
                     <div className="flex items-center gap-1 text-xs text-gray-500">
                       <Calendar className="h-3 w-3" />
-                      {new Date(announcement.createdAt).toLocaleDateString()}
+                      {formatDate(announcement.createdAt)}
                     </div>
                     {announcement.creator && (
                       <p className="text-xs text-gray-500">

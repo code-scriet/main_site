@@ -6,6 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Bell, Calendar, AlertCircle, Info, AlertTriangle, Megaphone } from 'lucide-react';
 import { api } from '@/lib/api';
 import type { Announcement } from '@/lib/api';
+import { formatDate } from '@/lib/dateUtils';
 
 const priorityConfig = {
   LOW: { color: 'bg-gray-100 text-gray-700 border-gray-300', icon: Info },
@@ -176,7 +177,7 @@ export default function AnnouncementsPage() {
                         </div>
                         <div className="flex items-center gap-1 text-sm text-gray-500">
                           <Calendar className="h-4 w-4" />
-                          {new Date(announcement.createdAt).toLocaleDateString()}
+                          {formatDate(announcement.createdAt)}
                         </div>
                       </div>
                       <CardTitle className="text-xl text-amber-900 leading-tight">

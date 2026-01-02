@@ -10,6 +10,7 @@ import type { Registration, Announcement } from '@/lib/api';
 import { Calendar, Bell, Trophy, Code, ArrowRight, Loader2 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { QOTDWidget } from '@/components/dashboard/QOTDWidget';
+import { formatDate } from '@/lib/dateUtils';
 
 export default function DashboardOverview() {
   const { user, token } = useAuth();
@@ -205,7 +206,7 @@ export default function DashboardOverview() {
                       <div>
                         <p className="font-medium text-amber-900">{reg.event.title}</p>
                         <p className="text-sm text-gray-500">
-                          {new Date(reg.event.startDate).toLocaleDateString()}
+                          {formatDate(reg.event.startDate)}
                         </p>
                       </div>
                       <Badge variant={reg.event.status === 'UPCOMING' ? 'success' : 'warning'}>
@@ -254,7 +255,7 @@ export default function DashboardOverview() {
                     <div>
                       <p className="font-medium text-amber-900">{announcement.title}</p>
                       <p className="text-sm text-gray-500">
-                        {new Date(announcement.createdAt).toLocaleDateString()}
+                        {formatDate(announcement.createdAt)}
                       </p>
                     </div>
                     <Badge variant={

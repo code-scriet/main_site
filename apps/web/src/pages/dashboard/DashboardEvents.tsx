@@ -6,8 +6,9 @@ import { Button } from '@/components/ui/button';
 import { useAuth } from '@/context/AuthContext';
 import { api } from '@/lib/api';
 import type { Registration, Event } from '@/lib/api';
-import { Calendar, MapPin, Users, Clock, Loader2, AlertCircle, Plus, CheckCircle } from 'lucide-react';
+import { Calendar, MapPin, Users, Clock, Loader2, AlertCircle, Plus, CheckCircle, ChevronDown, ChevronUp, FileText } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
+import { formatDate, formatTime, formatDateTime } from '@/lib/dateUtils';
 
 // Helper to get registration status
 function getRegistrationStatus(event: Event): {
@@ -31,7 +32,7 @@ function getRegistrationStatus(event: Event): {
   if (regStart && now < regStart) {
     return { 
       status: 'not_started', 
-      message: `Opens ${regStart.toLocaleDateString()}`, 
+      message: `Opens ${formatDate(regStart)}`, 
       canRegister: false 
     };
   }
@@ -52,6 +53,7 @@ export default function DashboardEvents() {
   const [error, setError] = useState<string | null>(null);
   const [registeringId, setRegisteringId] = useState<string | null>(null);
   const [cancelingId, setCancelingId] = useState<string | null>(null);
+  const [expandedEventId, setExpandedEventId] = useState<string | null>(null);
 
   const isCoreMember = user?.role === 'CORE_MEMBER' || user?.role === 'ADMIN';
   
@@ -190,44 +192,134 @@ export default function DashboardEvents() {
                   initial={{ opacity: 0, y: 20 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ delay: index * 0.1 }}
-                  className="flex flex-col sm:flex-row sm:items-center justify-between p-4 rounded-lg border border-amber-200 bg-amber-50/50 hover:bg-amber-50 transition-colors gap-4"
+                  className="rounded-lg border border-amber-200 bg-amber-50/50 hover:bg-amber-50 transition-colors overflow-hidden"
                 >
-                  <div className="flex-1">
-                    <div className="flex items-center gap-2 mb-2">
-                      <h3 className="font-semibold text-amber-900">{reg.event.title}</h3>
-                      <Badge variant={
-                        reg.event.status === 'UPCOMING' ? 'success' :
-                        reg.event.status === 'ONGOING' ? 'warning' : 'secondary'
-                      }>
-                        {reg.event.status}
-                      </Badge>
-                    </div>
-                    <div className="flex flex-wrap gap-4 text-sm text-gray-600">
-                      <span className="flex items-center gap-1">
-                        <Clock className="h-4 w-4" />
-                        {new Date(reg.event.startDate).toLocaleDateString()}
-                      </span>
-                      {reg.event.location && (
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between p-4 gap-4">
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2 mb-2">
+                        <h3 className="font-semibold text-amber-900">{reg.event.title}</h3>
+                        <Badge variant={
+                          reg.event.status === 'UPCOMING' ? 'success' :
+                          reg.event.status === 'ONGOING' ? 'warning' : 'secondary'
+                        }>
+                          {reg.event.status}
+                        </Badge>
+                      </div>
+                      <div className="flex flex-wrap gap-4 text-sm text-gray-600">
                         <span className="flex items-center gap-1">
-                          <MapPin className="h-4 w-4" />
-                          {reg.event.location}
+                          <Clock className="h-4 w-4" />
+                          {formatDate(reg.event.startDate)} at {formatTime(reg.event.startDate)}
                         </span>
-                      )}
+                        {reg.event.location && (
+                          <span className="flex items-center gap-1">
+                            <MapPin className="h-4 w-4" />
+                            {reg.event.location}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setExpandedEventId(expandedEventId === reg.eventId ? null : reg.eventId)}
+                        className="text-amber-600 hover:text-amber-700 hover:bg-amber-100"
+                      >
+                        {expandedEventId === reg.eventId ? (
+                          <>
+                            <ChevronUp className="h-4 w-4 mr-1" />
+                            Hide Details
+                          </>
+                        ) : (
+                          <>
+                            <ChevronDown className="h-4 w-4 mr-1" />
+                            View Details
+                          </>
+                        )}
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleCancel(reg.eventId)}
+                        disabled={cancelingId === reg.eventId}
+                        className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                      >
+                        {cancelingId === reg.eventId ? (
+                          <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : (
+                          'Cancel'
+                        )}
+                      </Button>
                     </div>
                   </div>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => handleCancel(reg.eventId)}
-                    disabled={cancelingId === reg.eventId}
-                    className="text-red-600 hover:text-red-700 hover:bg-red-50"
-                  >
-                    {cancelingId === reg.eventId ? (
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                    ) : (
-                      'Cancel Registration'
-                    )}
-                  </Button>
+                  
+                  {/* Expanded Event Details */}
+                  {expandedEventId === reg.eventId && (
+                    <motion.div
+                      initial={{ opacity: 0, height: 0 }}
+                      animate={{ opacity: 1, height: 'auto' }}
+                      exit={{ opacity: 0, height: 0 }}
+                      className="border-t border-amber-200 bg-white p-4"
+                    >
+                      <div className="grid gap-4 sm:grid-cols-2">
+                        {/* Description */}
+                        <div className="sm:col-span-2">
+                          <div className="flex items-center gap-2 text-sm font-medium text-gray-700 mb-1">
+                            <FileText className="h-4 w-4 text-amber-600" />
+                            Description
+                          </div>
+                          <p className="text-sm text-gray-600">{reg.event.description || 'No description available'}</p>
+                        </div>
+                        
+                        {/* Event Type */}
+                        {reg.event.eventType && (
+                          <div>
+                            <div className="text-sm font-medium text-gray-700 mb-1">Event Type</div>
+                            <Badge variant="outline">{reg.event.eventType}</Badge>
+                          </div>
+                        )}
+                        
+                        {/* Venue */}
+                        {reg.event.venue && (
+                          <div>
+                            <div className="text-sm font-medium text-gray-700 mb-1">Venue</div>
+                            <p className="text-sm text-gray-600">{reg.event.venue}</p>
+                          </div>
+                        )}
+                        
+                        {/* Time Details */}
+                        <div>
+                          <div className="text-sm font-medium text-gray-700 mb-1">Start Time</div>
+                          <p className="text-sm text-gray-600">{formatDateTime(reg.event.startDate)}</p>
+                        </div>
+                        
+                        {reg.event.endDate && (
+                          <div>
+                            <div className="text-sm font-medium text-gray-700 mb-1">End Time</div>
+                            <p className="text-sm text-gray-600">{formatDateTime(reg.event.endDate)}</p>
+                          </div>
+                        )}
+                        
+                        {/* Capacity */}
+                        {reg.event.capacity && (
+                          <div>
+                            <div className="text-sm font-medium text-gray-700 mb-1">Capacity</div>
+                            <p className="text-sm text-gray-600">
+                              {reg.event._count?.registrations || 0} / {reg.event.capacity} registered
+                            </p>
+                          </div>
+                        )}
+                        
+                        {/* Prerequisites */}
+                        {reg.event.prerequisites && (
+                          <div className="sm:col-span-2">
+                            <div className="text-sm font-medium text-gray-700 mb-1">Prerequisites</div>
+                            <p className="text-sm text-gray-600">{reg.event.prerequisites}</p>
+                          </div>
+                        )}
+                      </div>
+                    </motion.div>
+                  )}
                 </motion.div>
               ))}
             </div>
@@ -271,7 +363,7 @@ export default function DashboardEvents() {
                     <div className="flex flex-wrap gap-3 text-sm text-gray-500 mb-3">
                       <span className="flex items-center gap-1">
                         <Clock className="h-4 w-4" />
-                        {new Date(event.startDate).toLocaleDateString()}
+                        {formatDate(event.startDate)}
                       </span>
                       {event.location && (
                         <span className="flex items-center gap-1">

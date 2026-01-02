@@ -8,6 +8,7 @@ import { api } from '@/lib/api';
 import { Calendar, Loader2, AlertCircle, ArrowLeft, Clock, MapPin, Users, Image, FileText } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '@/context/AuthContext';
+import { formatDateTimeLocal } from '@/lib/dateUtils';
 
 const eventTypes = [
   'Workshop',
@@ -19,14 +20,6 @@ const eventTypes = [
   'Social Event',
   'Other',
 ];
-
-// Helper to format datetime for input fields
-const formatDateTimeLocal = (dateString: string | undefined | null): string => {
-  if (!dateString) return '';
-  const date = new Date(dateString);
-  // Format as YYYY-MM-DDTHH:MM for datetime-local input
-  return date.toISOString().slice(0, 16);
-};
 
 export default function EditEvent() {
   const navigate = useNavigate();

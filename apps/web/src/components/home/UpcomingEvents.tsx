@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Link } from 'react-router-dom';
 import { Calendar, MapPin, ArrowRight, Loader2, Users, Clock } from 'lucide-react';
 import { api, type Event } from '@/lib/api';
+import { formatTime, getWeekdayShort, getMonthShort, getDayOfMonth } from '@/lib/dateUtils';
 
 function getRegistrationStatus(event: Event): {
   status: 'not_started' | 'open' | 'closed' | 'full' | 'past';
@@ -33,15 +34,6 @@ function getRegistrationStatus(event: Event): {
   }
 
   return { status: 'open', message: 'Register now', canRegister: true };
-}
-
-function formatTime(dateString: string): string {
-  const date = new Date(dateString);
-  return date.toLocaleTimeString('en-US', { 
-    hour: '2-digit', 
-    minute: '2-digit',
-    hour12: true 
-  });
 }
 
 export function UpcomingEvents() {
@@ -181,13 +173,13 @@ export function UpcomingEvents() {
                       <div className="absolute bottom-4 left-4">
                         <div className="bg-white rounded-xl px-4 py-2 shadow-lg">
                           <p className="text-xs text-gray-500 uppercase tracking-wider">
-                            {new Date(event.startDate).toLocaleDateString('en-US', { weekday: 'short' })}
+                            {getWeekdayShort(event.startDate)}
                           </p>
                           <p className="text-2xl font-bold text-gray-900">
-                            {new Date(event.startDate).getDate()}
+                            {getDayOfMonth(event.startDate)}
                           </p>
                           <p className="text-xs text-amber-600 font-medium">
-                            {new Date(event.startDate).toLocaleDateString('en-US', { month: 'short' })}
+                            {getMonthShort(event.startDate)}
                           </p>
                         </div>
                       </div>

@@ -6,6 +6,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Trophy, Calendar, Users, Loader2 } from 'lucide-react';
 import { api, type Achievement } from '@/lib/api';
+import { formatDate } from '@/lib/dateUtils';
 
 export default function AchievementsPage() {
   const [activeYear, setActiveYear] = useState('All');
@@ -166,7 +167,7 @@ export default function AchievementsPage() {
                         </div>
                         <div className="flex items-center gap-1 text-gray-400">
                           <Calendar className="h-4 w-4" />
-                          <span>{new Date(achievement.date).toLocaleDateString()}</span>
+                          <span>{formatDate(achievement.date)}</span>
                         </div>
                       </div>
                     </CardContent>

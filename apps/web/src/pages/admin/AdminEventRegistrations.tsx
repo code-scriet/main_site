@@ -8,6 +8,7 @@ import { Loader2, Calendar, Users, Search, Download, Mail, Trash2, Pencil, Phone
 import { useAuth } from '@/context/AuthContext';
 import { api } from '@/lib/api';
 import { Link } from 'react-router-dom';
+import { formatDate } from '@/lib/dateUtils';
 
 interface EventWithRegistrations {
   id: string;
@@ -240,7 +241,7 @@ export default function AdminEventRegistrations() {
                         {event.title}
                       </CardTitle>
                       <div className="flex items-center gap-4 text-sm text-gray-500">
-                        <span>{new Date(event.startDate).toLocaleDateString()}</span>
+                        <span>{formatDate(event.startDate)}</span>
                         {event.location && <span>• {event.location}</span>}
                         <Badge variant={event.status === 'UPCOMING' ? 'default' : 'secondary'}>
                           {event.status}
@@ -350,7 +351,7 @@ export default function AdminEventRegistrations() {
                                       </span>
                                     )}
                                     <span className="text-xs text-gray-400">
-                                      Registered: {new Date(registration.timestamp).toLocaleDateString()}
+                                      Registered: {formatDate(registration.timestamp)}
                                     </span>
                                   </div>
                                 </div>
