@@ -4,12 +4,16 @@ import { authMiddleware, optionalAuthMiddleware, getAuthUser } from '../middlewa
 import { requireRole } from '../middleware/role.js';
 import { auditLog } from '../utils/audit.js';
 import { EventStatus } from '@prisma/client';
+import { updateEventStatuses } from '../utils/eventStatus.js';
 
 export const eventsRouter = Router();
 
 // Get all events with filtering
 eventsRouter.get('/', optionalAuthMiddleware, async (req: Request, res: Response) => {
   try {
+    // Update statuses before fetching
+    await updateEventStatuses();
+
     const { status, search, limit = '10', offset = '0' } = req.query;
     const where: Record<string, unknown> = {};
 
@@ -61,6 +65,7 @@ eventsRouter.get('/', optionalAuthMiddleware, async (req: Request, res: Response
 
 eventsRouter.get('/upcoming', async (_req: Request, res: Response) => {
   try {
+    await updateEventStatuses();
     const events = await prisma.event.findMany({
       where: { status: 'UPCOMING', startDate: { gte: new Date() } },
       orderBy: { startDate: 'asc' },
@@ -75,6 +80,8 @@ eventsRouter.get('/upcoming', async (_req: Request, res: Response) => {
 
 eventsRouter.get('/:id', optionalAuthMiddleware, async (req: Request, res: Response) => {
   try {
+    // Ideally we update status for just this event, but the bulk utility is fast enough
+    await updateEventStatuses();
     const event = await prisma.event.findUnique({
       where: { id: req.params.id },
       include: { _count: { select: { registrations: true } } },
