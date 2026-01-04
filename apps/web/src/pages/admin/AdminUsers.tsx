@@ -7,7 +7,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { api } from '@/lib/api';
 import type { User } from '@/lib/api';
-import { Users, Loader2, AlertCircle, Shield, UserCheck, Crown, Trash2, Phone, GraduationCap, CheckCircle, XCircle, Edit, X, Eye, Calendar, Github, Linkedin, Twitter, Globe, Mail } from 'lucide-react';
+import { Users, Loader2, AlertCircle, Shield, UserCheck, Crown, Trash2, Phone, GraduationCap, CheckCircle, XCircle, Edit, X, Eye, Calendar, Github, Linkedin, Twitter, Globe, Mail, Download } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 
 // Course and branch options
@@ -88,6 +88,7 @@ export default function AdminUsers() {
   }
   const [viewingUser, setViewingUser] = useState<UserProfile | null>(null);
   const [loadingProfile, setLoadingProfile] = useState(false);
+  const [exporting, setExporting] = useState(false);
   
   const isSuperAdmin = currentUser?.email === import.meta.env.VITE_SUPER_ADMIN_EMAIL;
 
@@ -211,6 +212,30 @@ export default function AdminUsers() {
     }
   };
 
+  const handleExportUsers = async () => {
+    if (!token) return;
+    try {
+      setExporting(true);
+      const response = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:5001/api'}/users/export`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!response.ok) throw new Error('Export failed');
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `code_scriet_users_${new Date().toISOString().split('T')[0]}.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      a.remove();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to export users');
+    } finally {
+      setExporting(false);
+    }
+  };
+
   const availableBranches = editForm.course ? (BRANCH_OPTIONS[editForm.course] || []) : [];
 
   if (loading) {
@@ -224,9 +249,15 @@ export default function AdminUsers() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div>
-        <h1 className="text-2xl font-bold text-amber-900">User Management</h1>
-        <p className="text-gray-600">Manage user roles and permissions</p>
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold text-amber-900">User Management</h1>
+          <p className="text-gray-600">Manage user roles and permissions</p>
+        </div>
+        <Button onClick={handleExportUsers} disabled={exporting} className="bg-green-600 hover:bg-green-700">
+          {exporting ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Download className="h-4 w-4 mr-2" />}
+          Export to Excel
+        </Button>
       </div>
 
       {error && (

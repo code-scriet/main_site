@@ -278,6 +278,131 @@ usersRouter.get('/search', authMiddleware, requireRole('ADMIN'), async (req: Req
   }
 });
 
+// Export all users to Excel (admin)
+usersRouter.get('/export', authMiddleware, requireRole('ADMIN'), async (_req: Request, res: Response) => {
+  try {
+    const users = await prisma.user.findMany({
+      orderBy: { createdAt: 'desc' },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        role: true,
+        phone: true,
+        course: true,
+        branch: true,
+        year: true,
+        bio: true,
+        profileCompleted: true,
+        oauthProvider: true,
+        githubUrl: true,
+        linkedinUrl: true,
+        twitterUrl: true,
+        websiteUrl: true,
+        createdAt: true,
+        _count: { select: { registrations: true, qotdSubmissions: true } },
+      },
+    });
+
+    const ExcelJS = await import('exceljs');
+    const workbook = new ExcelJS.default.Workbook();
+    workbook.creator = 'code.scriet';
+    workbook.created = new Date();
+
+    const worksheet = workbook.addWorksheet('Users');
+
+    // Define columns
+    worksheet.columns = [
+      { header: 'S.No', key: 'sno', width: 8 },
+      { header: 'Name', key: 'name', width: 25 },
+      { header: 'Email', key: 'email', width: 35 },
+      { header: 'Role', key: 'role', width: 15 },
+      { header: 'Phone', key: 'phone', width: 15 },
+      { header: 'Course', key: 'course', width: 12 },
+      { header: 'Branch', key: 'branch', width: 15 },
+      { header: 'Year', key: 'year', width: 12 },
+      { header: 'Profile Complete', key: 'profileCompleted', width: 16 },
+      { header: 'Auth Method', key: 'authMethod', width: 14 },
+      { header: 'Events Registered', key: 'eventsRegistered', width: 18 },
+      { header: 'QOTD Submissions', key: 'qotdSubmissions', width: 18 },
+      { header: 'GitHub', key: 'github', width: 30 },
+      { header: 'LinkedIn', key: 'linkedin', width: 30 },
+      { header: 'Joined', key: 'joined', width: 22 },
+    ];
+
+    // Style header row
+    worksheet.getRow(1).font = { bold: true, color: { argb: 'FFFFFFFF' } };
+    worksheet.getRow(1).fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: 'FFD97706' }, // Amber color
+    };
+    worksheet.getRow(1).alignment = { horizontal: 'center', vertical: 'middle' };
+    worksheet.getRow(1).height = 25;
+
+    // Add data rows
+    users.forEach((user, index) => {
+      worksheet.addRow({
+        sno: index + 1,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        phone: user.phone || 'N/A',
+        course: user.course || 'N/A',
+        branch: user.branch || 'N/A',
+        year: user.year || 'N/A',
+        profileCompleted: user.profileCompleted ? 'Yes' : 'No',
+        authMethod: user.oauthProvider || 'Email/Password',
+        eventsRegistered: user._count.registrations,
+        qotdSubmissions: user._count.qotdSubmissions,
+        github: user.githubUrl || '',
+        linkedin: user.linkedinUrl || '',
+        joined: user.createdAt.toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }),
+      });
+    });
+
+    // Add alternating row colors
+    worksheet.eachRow((row, rowNumber) => {
+      if (rowNumber > 1) {
+        row.fill = {
+          type: 'pattern',
+          pattern: 'solid',
+          fgColor: { argb: rowNumber % 2 === 0 ? 'FFFEF3C7' : 'FFFFFFFF' },
+        };
+      }
+      row.border = {
+        top: { style: 'thin', color: { argb: 'FFE5E7EB' } },
+        bottom: { style: 'thin', color: { argb: 'FFE5E7EB' } },
+        left: { style: 'thin', color: { argb: 'FFE5E7EB' } },
+        right: { style: 'thin', color: { argb: 'FFE5E7EB' } },
+      };
+    });
+
+    // Add summary sheet
+    const summarySheet = workbook.addWorksheet('Summary');
+    summarySheet.addRow(['Total Users', users.length]);
+    summarySheet.addRow(['Admins', users.filter(u => u.role === 'ADMIN').length]);
+    summarySheet.addRow(['Core Members', users.filter(u => u.role === 'CORE_MEMBER').length]);
+    summarySheet.addRow(['Members', users.filter(u => u.role === 'USER').length]);
+    summarySheet.addRow(['Profiles Completed', users.filter(u => u.profileCompleted).length]);
+    summarySheet.addRow(['Export Date', new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })]);
+
+    summarySheet.getColumn(1).width = 20;
+    summarySheet.getColumn(1).font = { bold: true };
+    summarySheet.getColumn(2).width = 30;
+
+    // Send Excel file
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="code_scriet_users_${new Date().toISOString().split('T')[0]}.xlsx"`);
+
+    await workbook.xlsx.write(res);
+    res.end();
+  } catch (error) {
+    console.error('User export error:', error);
+    res.status(500).json({ success: false, error: { message: 'Failed to export users' } });
+  }
+});
+
 // Get all users (admin)
 usersRouter.get('/', authMiddleware, requireRole('ADMIN'), async (_req: Request, res: Response) => {
   try {
