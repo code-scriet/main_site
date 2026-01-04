@@ -256,6 +256,7 @@ export const api = {
     linkedinUrl?: string;
     twitterUrl?: string;
     websiteUrl?: string;
+    password?: string;
   }, token: string) =>
     request(`/users/${id}`, { method: 'PUT', body: JSON.stringify(data), token }),
   updateUserRole: (id: string, role: string, token: string) =>

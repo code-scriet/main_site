@@ -321,12 +321,27 @@ usersRouter.get('/:id', authMiddleware, requireRole('ADMIN'), async (req: Reques
         branch: true,
         year: true,
         profileCompleted: true,
+        oauthProvider: true,
         githubUrl: true,
         linkedinUrl: true,
         twitterUrl: true,
         websiteUrl: true,
         createdAt: true,
         _count: { select: { registrations: true, qotdSubmissions: true } },
+        registrations: {
+          include: {
+            event: {
+              select: {
+                id: true,
+                title: true,
+                startDate: true,
+                status: true,
+                imageUrl: true,
+              },
+            },
+          },
+          orderBy: { timestamp: 'desc' },
+        },
       },
     });
 
@@ -352,7 +367,7 @@ usersRouter.get('/:id', authMiddleware, requireRole('ADMIN'), async (req: Reques
 usersRouter.put('/:id', authMiddleware, requireRole('ADMIN'), async (req: Request, res: Response) => {
   try {
     const authUser = getAuthUser(req)!;
-    const { name, bio, phone, course, branch, year, avatarUrl, githubUrl, linkedinUrl, twitterUrl, websiteUrl } = req.body;
+    const { name, bio, phone, course, branch, year, avatarUrl, githubUrl, linkedinUrl, twitterUrl, websiteUrl, password } = req.body;
 
     const targetUser = await prisma.user.findUnique({
       where: { id: req.params.id },
@@ -378,6 +393,14 @@ usersRouter.put('/:id', authMiddleware, requireRole('ADMIN'), async (req: Reques
 
     const isProfileCompletion = phone && course && branch && year;
 
+    let hashedPassword: string | undefined;
+    if (password) {
+        if (password.length < 8) {
+             return res.status(400).json({ success: false, error: { message: 'Password must be at least 8 characters' } });
+        }
+        hashedPassword = await bcrypt.hash(password, 10);
+    }
+
     const user = await prisma.user.update({
       where: { id: req.params.id },
       data: {
@@ -393,6 +416,7 @@ usersRouter.put('/:id', authMiddleware, requireRole('ADMIN'), async (req: Reques
         ...(branch !== undefined && { branch }),
         ...(year !== undefined && { year }),
         ...(isProfileCompletion && { profileCompleted: true }),
+        ...(hashedPassword && { password: hashedPassword }),
       },
       select: {
         id: true,

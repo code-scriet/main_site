@@ -7,7 +7,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { api } from '@/lib/api';
 import type { User } from '@/lib/api';
-import { Users, Loader2, AlertCircle, Shield, UserCheck, Crown, Trash2, Phone, GraduationCap, CheckCircle, XCircle, Edit, X } from 'lucide-react';
+import { Users, Loader2, AlertCircle, Shield, UserCheck, Crown, Trash2, Phone, GraduationCap, CheckCircle, XCircle, Edit, X, Eye, Calendar, Github, Linkedin, Twitter, Globe, Mail } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 
 // Course and branch options
@@ -50,8 +50,44 @@ export default function AdminUsers() {
     course: '',
     branch: '',
     year: '',
+    password: '',
   });
   const [saving, setSaving] = useState(false);
+
+  // View profile modal state
+  interface UserProfile {
+    id: string;
+    name: string;
+    email: string;
+    role: string;
+    avatar?: string;
+    bio?: string;
+    phone?: string;
+    course?: string;
+    branch?: string;
+    year?: string;
+    profileCompleted?: boolean;
+    oauthProvider?: string;
+    githubUrl?: string;
+    linkedinUrl?: string;
+    twitterUrl?: string;
+    websiteUrl?: string;
+    createdAt?: string;
+    _count?: { registrations: number; qotdSubmissions: number };
+    registrations?: Array<{
+      id: string;
+      timestamp: string;
+      event: {
+        id: string;
+        title: string;
+        startDate: string;
+        status: string;
+        imageUrl?: string;
+      };
+    }>;
+  }
+  const [viewingUser, setViewingUser] = useState<UserProfile | null>(null);
+  const [loadingProfile, setLoadingProfile] = useState(false);
   
   const isSuperAdmin = currentUser?.email === import.meta.env.VITE_SUPER_ADMIN_EMAIL;
 
@@ -142,7 +178,21 @@ export default function AdminUsers() {
       course: user.course || '',
       branch: user.branch || '',
       year: user.year || '',
+      password: '',
     });
+  };
+
+  const handleViewProfile = async (userId: string) => {
+    if (!token) return;
+    try {
+      setLoadingProfile(true);
+      const data = await api.getUser(userId, token) as UserProfile;
+      setViewingUser(data);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load profile');
+    } finally {
+      setLoadingProfile(false);
+    }
   };
 
   const handleSaveEdit = async () => {
@@ -322,6 +372,18 @@ export default function AdminUsers() {
                         {updatingId === user.id && (
                           <Loader2 className="h-4 w-4 animate-spin text-amber-600" />
                         )}
+                        {/* View Profile button */}
+                        {(user.role !== 'ADMIN' || isSuperAdmin) && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => handleViewProfile(user.id)}
+                            className="h-9"
+                            title="View Full Profile"
+                          >
+                            {loadingProfile ? <Loader2 className="h-4 w-4 animate-spin" /> : <Eye className="h-4 w-4" />}
+                          </Button>
+                        )}
                         {/* Edit button - visible based on permissions */}
                         {(user.role !== 'ADMIN' || isSuperAdmin) && (
                           <Button
@@ -329,6 +391,7 @@ export default function AdminUsers() {
                             size="sm"
                             onClick={() => handleEditUser(user)}
                             className="h-9"
+                            title="Edit User"
                           >
                             <Edit className="h-4 w-4" />
                           </Button>
@@ -449,6 +512,20 @@ export default function AdminUsers() {
                   </select>
                 </div>
 
+                <div className="pt-2 border-t border-gray-100">
+                  <Label htmlFor="edit-password">New Password (Optional)</Label>
+                  <Input
+                    id="edit-password"
+                    type="password"
+                    value={editForm.password || ''}
+                    onChange={(e) => setEditForm({ ...editForm, password: e.target.value })}
+                    placeholder="Leave empty to keep current password"
+                  />
+                  <p className="text-xs text-gray-500 mt-1">
+                    Entering a value here will override the user's current password.
+                  </p>
+                </div>
+
                 <div className="flex justify-end gap-3 pt-4">
                   <Button variant="outline" onClick={() => setEditingUser(null)}>
                     Cancel
@@ -464,6 +541,160 @@ export default function AdminUsers() {
                     )}
                   </Button>
                 </div>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+
+        {/* View Profile Modal */}
+        {viewingUser && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
+            onClick={() => setViewingUser(null)}
+          >
+            <motion.div
+              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 20 }}
+              className="bg-white rounded-xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {/* Header with Avatar */}
+              <div className="bg-gradient-to-r from-amber-500 to-orange-500 p-6 rounded-t-xl">
+                <div className="flex items-center gap-4">
+                  <div className="h-20 w-20 rounded-full overflow-hidden bg-white/20 border-4 border-white/50 flex-shrink-0">
+                    {viewingUser.avatar ? (
+                      <img src={viewingUser.avatar} alt={viewingUser.name} className="w-full h-full object-cover" />
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center text-white font-bold text-3xl">
+                        {viewingUser.name.charAt(0)}
+                      </div>
+                    )}
+                  </div>
+                  <div className="text-white">
+                    <h2 className="text-2xl font-bold">{viewingUser.name}</h2>
+                    <p className="opacity-90 flex items-center gap-2">
+                      <Mail className="h-4 w-4" />
+                      {viewingUser.email}
+                    </p>
+                    <Badge className="mt-2 bg-white/20 text-white border-white/30">
+                      {viewingUser.role}
+                    </Badge>
+                  </div>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setViewingUser(null)}
+                    className="absolute top-4 right-4 text-white hover:bg-white/20"
+                  >
+                    <X className="h-5 w-5" />
+                  </Button>
+                </div>
+              </div>
+
+              <div className="p-6 space-y-6">
+                {/* Bio */}
+                {viewingUser.bio && (
+                  <div>
+                    <h3 className="text-sm font-semibold text-gray-500 uppercase mb-2">Bio</h3>
+                    <p className="text-gray-700">{viewingUser.bio}</p>
+                  </div>
+                )}
+
+                {/* Academic & Contact Info */}
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <h3 className="text-sm font-semibold text-gray-500 uppercase mb-2">Academic Info</h3>
+                    <div className="space-y-1 text-sm text-gray-700">
+                      <p><span className="font-medium">Course:</span> {viewingUser.course || 'N/A'}</p>
+                      <p><span className="font-medium">Branch:</span> {viewingUser.branch || 'N/A'}</p>
+                      <p><span className="font-medium">Year:</span> {viewingUser.year || 'N/A'}</p>
+                    </div>
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-semibold text-gray-500 uppercase mb-2">Contact</h3>
+                    <div className="space-y-1 text-sm text-gray-700">
+                      <p className="flex items-center gap-2"><Phone className="h-4 w-4" /> {viewingUser.phone || 'N/A'}</p>
+                      <p><span className="font-medium">Joined:</span> {viewingUser.createdAt ? new Date(viewingUser.createdAt).toLocaleDateString() : 'N/A'}</p>
+                      <p><span className="font-medium">Auth:</span> {viewingUser.oauthProvider || 'Email/Password'}</p>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Social Links */}
+                {(viewingUser.githubUrl || viewingUser.linkedinUrl || viewingUser.twitterUrl || viewingUser.websiteUrl) && (
+                  <div>
+                    <h3 className="text-sm font-semibold text-gray-500 uppercase mb-2">Social Links</h3>
+                    <div className="flex flex-wrap gap-2">
+                      {viewingUser.githubUrl && (
+                        <a href={viewingUser.githubUrl} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 px-3 py-1.5 bg-gray-100 rounded-full text-sm hover:bg-gray-200 transition">
+                          <Github className="h-4 w-4" /> GitHub
+                        </a>
+                      )}
+                      {viewingUser.linkedinUrl && (
+                        <a href={viewingUser.linkedinUrl} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 px-3 py-1.5 bg-blue-100 rounded-full text-sm text-blue-700 hover:bg-blue-200 transition">
+                          <Linkedin className="h-4 w-4" /> LinkedIn
+                        </a>
+                      )}
+                      {viewingUser.twitterUrl && (
+                        <a href={viewingUser.twitterUrl} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 px-3 py-1.5 bg-sky-100 rounded-full text-sm text-sky-700 hover:bg-sky-200 transition">
+                          <Twitter className="h-4 w-4" /> Twitter
+                        </a>
+                      )}
+                      {viewingUser.websiteUrl && (
+                        <a href={viewingUser.websiteUrl} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 px-3 py-1.5 bg-green-100 rounded-full text-sm text-green-700 hover:bg-green-200 transition">
+                          <Globe className="h-4 w-4" /> Website
+                        </a>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* Stats */}
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="bg-amber-50 p-4 rounded-lg text-center">
+                    <p className="text-3xl font-bold text-amber-600">{viewingUser._count?.registrations || 0}</p>
+                    <p className="text-sm text-gray-600">Events Registered</p>
+                  </div>
+                  <div className="bg-blue-50 p-4 rounded-lg text-center">
+                    <p className="text-3xl font-bold text-blue-600">{viewingUser._count?.qotdSubmissions || 0}</p>
+                    <p className="text-sm text-gray-600">QOTD Submissions</p>
+                  </div>
+                </div>
+
+                {/* Event Registrations */}
+                {viewingUser.registrations && viewingUser.registrations.length > 0 && (
+                  <div>
+                    <h3 className="text-sm font-semibold text-gray-500 uppercase mb-2">Event Registrations</h3>
+                    <div className="space-y-2 max-h-48 overflow-y-auto">
+                      {viewingUser.registrations.map(reg => (
+                        <div key={reg.id} className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
+                          <div className="h-10 w-10 rounded bg-amber-200 flex-shrink-0 overflow-hidden">
+                            {reg.event.imageUrl ? (
+                              <img src={reg.event.imageUrl} alt={reg.event.title} className="w-full h-full object-cover" />
+                            ) : (
+                              <div className="w-full h-full flex items-center justify-center">
+                                <Calendar className="h-5 w-5 text-amber-600" />
+                              </div>
+                            )}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="font-medium text-gray-900 truncate">{reg.event.title}</p>
+                            <p className="text-xs text-gray-500">
+                              {new Date(reg.event.startDate).toLocaleDateString()} • 
+                              <Badge variant={reg.event.status === 'PAST' ? 'secondary' : reg.event.status === 'ONGOING' ? 'warning' : 'default'} className="ml-1 text-xs">
+                                {reg.event.status}
+                              </Badge>
+                            </p>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             </motion.div>
           </motion.div>
