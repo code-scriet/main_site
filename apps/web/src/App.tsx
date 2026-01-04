@@ -2,6 +2,7 @@ import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { AuthProvider } from '@/context/AuthContext';
 import { SettingsProvider } from '@/context/SettingsContext';
+import { SocketProvider } from '@/context/SocketContext';
 
 // Pages
 import HomePage from '@/pages/HomePage';
@@ -48,10 +49,11 @@ const queryClient = new QueryClient({
 function App() {
   return (
     <QueryClientProvider client={queryClient}>
-      <AuthProvider>
-        <SettingsProvider>
-          <Router>
-          <Routes>
+      <SocketProvider>
+        <AuthProvider>
+          <SettingsProvider>
+            <Router>
+            <Routes>
             {/* Public Routes */}
             <Route path="/" element={<HomePage />} />
             <Route path="/about" element={<AboutPage />} />
@@ -97,6 +99,7 @@ function App() {
         </Router>
         </SettingsProvider>
       </AuthProvider>
+      </SocketProvider>
     </QueryClientProvider>
   );
 }

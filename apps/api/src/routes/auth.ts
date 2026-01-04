@@ -5,6 +5,7 @@ import bcrypt from 'bcryptjs';
 import { z } from 'zod';
 import { authMiddleware, getAuthUser } from '../middleware/auth.js';
 import { prisma } from '../lib/prisma.js';
+import { socketEvents } from '../utils/socket.js';
 
 export const authRouter = Router();
 
@@ -60,6 +61,10 @@ authRouter.post('/register', async (req: Request, res: Response) => {
     });
 
     const token = generateToken(user.id);
+    
+    // Emit socket event for real-time updates
+    socketEvents.userCreated(user.id);
+    
     res.status(201).json({ token, user: { id: user.id, name: user.name, email: user.email, role: user.role, avatar: user.avatar } });
   } catch (error) {
     console.error('Registration error:', error);
@@ -158,6 +163,12 @@ authRouter.post('/dev-login', async (req: Request, res: Response) => {
     }
 
     const token = generateToken(user.id);
+    
+    // For new dev users, emit socket event
+    if (!await prisma.user.findUnique({ where: { email } })) {
+      socketEvents.userCreated(user.id);
+    }
+    
     res.json({ token, user: { id: user.id, name: user.name, email: user.email, role: user.role } });
   } catch (error) {
     console.error('Dev login error:', error);

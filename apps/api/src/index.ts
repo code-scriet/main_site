@@ -4,6 +4,7 @@ import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
 import dotenv from 'dotenv';
 import passport from 'passport';
+import { createServer } from 'http';
 
 import { authRouter } from './routes/auth.js';
 import { eventsRouter } from './routes/events.js';
@@ -20,12 +21,17 @@ import { setupPassport } from './config/passport.js';
 import { requestLogger, logger } from './utils/logger.js';
 import { ApiResponse, ErrorCodes } from './utils/response.js';
 import { initializeDatabase } from './utils/init.js';
+import { initializeSocket } from './utils/socket.js';
 
 dotenv.config();
 
 const app = express();
+const httpServer = createServer(app);
 const PORT = process.env.PORT || 5001;
 const NODE_ENV = process.env.NODE_ENV || 'development';
+
+// Initialize Socket.io
+initializeSocket(httpServer);
 
 // Middleware
 
@@ -161,7 +167,7 @@ process.on('SIGINT', shutdown);
 // Initialize database (create admin and settings if needed)
 initializeDatabase()
   .then(() => {
-    app.listen(PORT, () => {
+    httpServer.listen(PORT, () => {
       logger.info(`🚀 Server running on http://localhost:${PORT}`, { environment: NODE_ENV });
     });
   })

@@ -9,6 +9,7 @@ import { api } from '@/lib/api';
 import type { User } from '@/lib/api';
 import { Users, Loader2, AlertCircle, Shield, UserCheck, Crown, Trash2, Phone, GraduationCap, CheckCircle, XCircle, Edit, X, Eye, Calendar, Github, Linkedin, Twitter, Globe, Mail, Download } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
+import { useSocketEvent } from '@/context/SocketContext';
 
 // Course and branch options
 const COURSES = ['BTech', 'BSC', 'BCA', 'MCA', 'MTech', 'MSC'] as const;
@@ -95,6 +96,20 @@ export default function AdminUsers() {
   useEffect(() => {
     loadUsers();
   }, []);
+
+  // Real-time updates via WebSocket
+  useSocketEvent('user:created', () => {
+    console.log('User created event received, refreshing...');
+    loadUsers();
+  });
+  useSocketEvent('user:updated', () => {
+    console.log('User updated event received, refreshing...');
+    loadUsers();
+  });
+  useSocketEvent('user:deleted', () => {
+    console.log('User deleted event received, refreshing...');
+    loadUsers();
+  });
 
   const loadUsers = async () => {
     if (!token) {

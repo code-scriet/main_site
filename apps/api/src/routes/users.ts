@@ -4,6 +4,7 @@ import { authMiddleware, getAuthUser } from '../middleware/auth.js';
 import { requireRole } from '../middleware/role.js';
 import { auditLog } from '../utils/audit.js';
 import bcrypt from 'bcryptjs';
+import { socketEvents } from '../utils/socket.js';
 
 export const usersRouter = Router();
 
@@ -563,6 +564,10 @@ usersRouter.put('/:id', authMiddleware, requireRole('ADMIN'), async (req: Reques
     });
 
     await auditLog(authUser.id, 'UPDATE', 'user', user.id, { updatedBy: 'admin' });
+    
+    // Emit socket event for real-time updates
+    socketEvents.userUpdated(user.id);
+    
     res.json({ success: true, data: user, message: 'User profile updated successfully' });
   } catch (error) {
     res.status(500).json({ success: false, error: { message: 'Failed to update user profile' } });
@@ -618,6 +623,10 @@ usersRouter.put('/:id/role', authMiddleware, requireRole('ADMIN'), async (req: R
     });
 
     await auditLog(authUser.id, 'UPDATE_ROLE', 'user', user.id, { newRole: role });
+    
+    // Emit socket event for real-time updates
+    socketEvents.userUpdated(user.id);
+    
     res.json({ success: true, data: user, message: 'User role updated successfully' });
   } catch (error) {
     res.status(500).json({ success: false, error: { message: 'Failed to update user role' } });
@@ -665,6 +674,10 @@ usersRouter.delete('/:id', authMiddleware, requireRole('ADMIN'), async (req: Req
 
     await prisma.user.delete({ where: { id: req.params.id } });
     await auditLog(authUser.id, 'DELETE', 'user', req.params.id);
+    
+    // Emit socket event for real-time updates
+    socketEvents.userDeleted(req.params.id);
+    
     res.json({ success: true, message: 'User deleted successfully' });
   } catch (error) {
     res.status(500).json({ success: false, error: { message: 'Failed to delete user' } });
