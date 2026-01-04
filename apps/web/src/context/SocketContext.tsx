@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
 import { io, Socket } from 'socket.io-client';
+import { toast } from 'sonner';
 
 interface SocketContextType {
   socket: Socket | null;
@@ -32,16 +33,20 @@ export function SocketProvider({ children }: { children: ReactNode }) {
     newSocket.on('connect', () => {
       console.log('Socket connected successfully:', newSocket.id);
       setIsConnected(true);
+      toast.success('Real-time connection established');
     });
 
     newSocket.on('connect_error', (err) => {
       console.error('Socket connection error:', err.message);
       setIsConnected(false);
+      // Only show error toast if we were previously connected or it's a persistent failure
+      if (isConnected) toast.error(`Connection lost: ${err.message}`);
     });
 
     newSocket.on('disconnect', () => {
       console.log('Socket disconnected');
       setIsConnected(false);
+      toast.warning('Real-time connection lost');
     });
 
     setSocket(newSocket);

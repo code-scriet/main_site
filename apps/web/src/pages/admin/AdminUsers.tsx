@@ -8,8 +8,10 @@ import { Label } from '@/components/ui/label';
 import { api } from '@/lib/api';
 import type { User } from '@/lib/api';
 import { Users, Loader2, AlertCircle, Shield, UserCheck, Crown, Trash2, Phone, GraduationCap, CheckCircle, XCircle, Edit, X, Eye, Calendar, Github, Linkedin, Twitter, Globe, Mail, Download } from 'lucide-react';
+
 import { useAuth } from '@/context/AuthContext';
 import { useSocketEvent } from '@/context/SocketContext';
+import { toast } from 'sonner';
 
 // Course and branch options
 const COURSES = ['BTech', 'BSC', 'BCA', 'MCA', 'MTech', 'MSC'] as const;
@@ -100,14 +102,17 @@ export default function AdminUsers() {
   // Real-time updates via WebSocket
   useSocketEvent('user:created', () => {
     console.log('User created event received, refreshing...');
+    toast.info('New user registered - refreshing list');
     loadUsers();
   });
   useSocketEvent('user:updated', () => {
     console.log('User updated event received, refreshing...');
+    toast.info('User updated - refreshing list');
     loadUsers();
   });
   useSocketEvent('user:deleted', () => {
     console.log('User deleted event received, refreshing...');
+    toast.info('User deleted - refreshing list');
     loadUsers();
   });
 
