@@ -49,12 +49,18 @@ export function getIO(): SocketIOServer | null {
 // Event emitters for different data types
 export const socketEvents = {
   userCreated: (userId: string) => {
+    if (!io) console.warn('Socket.io not initialized, cannot emit user:created');
+    else console.log('Emitting user:created', { userId });
     io?.emit('user:created', { userId });
   },
   userUpdated: (userId: string) => {
+    if (!io) console.warn('Socket.io not initialized, cannot emit user:updated');
+    else console.log('Emitting user:updated', { userId });
     io?.emit('user:updated', { userId });
   },
   userDeleted: (userId: string) => {
+    if (!io) console.warn('Socket.io not initialized, cannot emit user:deleted');
+    else console.log('Emitting user:deleted', { userId });
     io?.emit('user:deleted', { userId });
   },
   eventCreated: (eventId: string) => {

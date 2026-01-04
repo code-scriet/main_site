@@ -16,16 +16,27 @@ export function SocketProvider({ children }: { children: ReactNode }) {
   const [isConnected, setIsConnected] = useState(false);
 
   useEffect(() => {
-    const socketUrl = import.meta.env.VITE_API_URL?.replace('/api', '') || 'http://localhost:5001';
+    // robustly determine socket URL
+    let socketUrl = import.meta.env.VITE_API_URL || 'http://localhost:5001';
+    // Remove /api suffix if present to get the base URL
+    socketUrl = socketUrl.replace(/\/api\/?$/, '');
     
+    console.log('Connecting to Socket.io at:', socketUrl);
+
     const newSocket = io(socketUrl, {
       transports: ['websocket', 'polling'],
       autoConnect: true,
+      withCredentials: true,
     });
 
     newSocket.on('connect', () => {
-      console.log('Socket connected:', newSocket.id);
+      console.log('Socket connected successfully:', newSocket.id);
       setIsConnected(true);
+    });
+
+    newSocket.on('connect_error', (err) => {
+      console.error('Socket connection error:', err.message);
+      setIsConnected(false);
     });
 
     newSocket.on('disconnect', () => {
