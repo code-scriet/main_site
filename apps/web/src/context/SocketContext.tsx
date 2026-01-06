@@ -25,9 +25,11 @@ export function SocketProvider({ children }: { children: ReactNode }) {
     console.log('Connecting to Socket.io at:', socketUrl);
 
     const newSocket = io(socketUrl, {
-      transports: ['websocket', 'polling'],
+      transports: ['websocket'], // Force WebSocket to avoid polling sticky session issues
       autoConnect: true,
       withCredentials: true,
+      reconnectionAttempts: 10,
+      reconnectionDelay: 1000,
     });
 
     newSocket.on('connect', () => {
@@ -43,10 +45,10 @@ export function SocketProvider({ children }: { children: ReactNode }) {
       if (isConnected) toast.error(`Connection lost: ${err.message}`);
     });
 
-    newSocket.on('disconnect', () => {
-      console.log('Socket disconnected');
+    newSocket.on('disconnect', (reason) => {
+      console.log('Socket disconnected:', reason);
       setIsConnected(false);
-      toast.warning('Real-time connection lost');
+      toast.warning(`Real-time connection lost: ${reason}`);
     });
 
     setSocket(newSocket);
