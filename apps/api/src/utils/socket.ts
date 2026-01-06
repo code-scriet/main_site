@@ -34,6 +34,9 @@ export function initializeSocket(httpServer: HTTPServer) {
   io.on('connection', (socket) => {
     console.log('Client connected:', socket.id);
     
+    // Send a test ping to the client
+    socket.emit('ping', { message: 'Hello from server', time: new Date().toISOString() });
+    
     socket.on('disconnect', () => {
       console.log('Client disconnected:', socket.id);
     });
