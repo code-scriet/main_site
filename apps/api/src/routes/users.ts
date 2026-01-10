@@ -574,13 +574,13 @@ usersRouter.put('/:id', authMiddleware, requireRole('ADMIN'), async (req: Reques
   }
 });
 
-// Update user role (admin)
-usersRouter.put('/:id/role', authMiddleware, requireRole('ADMIN'), async (req: Request, res: Response) => {
+// Update user role (admin or core member for MEMBER role)
+usersRouter.put('/:id/role', authMiddleware, requireRole('CORE_MEMBER'), async (req: Request, res: Response) => {
   try {
     const authUser = getAuthUser(req)!;
     const { role } = req.body;
 
-    if (!['USER', 'CORE_MEMBER', 'ADMIN'].includes(role)) {
+    if (!['USER', 'MEMBER', 'CORE_MEMBER', 'ADMIN'].includes(role)) {
       return res.status(400).json({ success: false, error: { message: 'Invalid role' } });
     }
 
@@ -597,6 +597,19 @@ usersRouter.put('/:id/role', authMiddleware, requireRole('ADMIN'), async (req: R
     // Super admin protection: only super admin can modify admin roles
     const superAdminEmail = process.env.SUPER_ADMIN_EMAIL;
     const isSuperAdmin = authUser.email === superAdminEmail;
+    const isAdmin = authUser.role === 'ADMIN';
+    const isCoreMember = authUser.role === 'CORE_MEMBER';
+
+    // CORE_MEMBER can only assign/remove MEMBER role
+    if (isCoreMember && !isAdmin) {
+      // Core members can only change between USER and MEMBER
+      if (!['USER', 'MEMBER'].includes(role) || !['USER', 'MEMBER'].includes(targetUser.role)) {
+        return res.status(403).json({ 
+          success: false, 
+          error: { message: 'Core members can only assign or remove MEMBER role for regular users' } 
+        });
+      }
+    }
 
     // Check if this action involves admin role changes
     const involvesAdminRole = role === 'ADMIN' || targetUser.role === 'ADMIN';
@@ -605,6 +618,15 @@ usersRouter.put('/:id/role', authMiddleware, requireRole('ADMIN'), async (req: R
       return res.status(403).json({ 
         success: false, 
         error: { message: 'Only super admin can promote to or demote from admin role' } 
+      });
+    }
+
+    // Only ADMIN can assign CORE_MEMBER
+    const involvesCoreMemberRole = role === 'CORE_MEMBER' || targetUser.role === 'CORE_MEMBER';
+    if (involvesCoreMemberRole && !isAdmin) {
+      return res.status(403).json({ 
+        success: false, 
+        error: { message: 'Only admins can promote to or demote from core member role' } 
       });
     }
 

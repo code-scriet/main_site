@@ -27,12 +27,14 @@ const YEARS = ['1st Year', '2nd Year', '3rd Year', '4th Year'] as const;
 
 const roleColors = {
   USER: 'secondary',
+  MEMBER: 'success',
   CORE_MEMBER: 'warning',
   ADMIN: 'destructive',
 } as const;
 
 const roleIcons = {
   USER: UserCheck,
+  MEMBER: UserCheck,
   CORE_MEMBER: Shield,
   ADMIN: Crown,
 };
@@ -417,6 +419,7 @@ export default function AdminUsers() {
                           className="h-9 px-3 rounded-md border border-input bg-background text-sm disabled:opacity-50"
                         >
                           <option value="USER">User</option>
+                          <option value="MEMBER">Member</option>
                           <option value="CORE_MEMBER">Core Member</option>
                           <option value="ADMIN">Admin</option>
                         </select>

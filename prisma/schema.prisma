@@ -12,6 +12,7 @@ datasource db {
 enum Role {
   PUBLIC
   USER
+  MEMBER
   CORE_MEMBER
   ADMIN
 }

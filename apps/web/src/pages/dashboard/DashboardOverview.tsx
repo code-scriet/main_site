@@ -170,7 +170,7 @@ export default function DashboardOverview() {
                 </Button>
               </Link>
               
-              {/* Join the Team - only for regular users */}
+              {/* Join the Team - only for regular users (not MEMBER or higher) */}
               {user?.role === 'USER' && (
                 <div className="pt-3 mt-3 border-t border-gray-100">
                   {hiringStatus?.hasApplied ? (
@@ -200,10 +200,18 @@ export default function DashboardOverview() {
                     </div>
                   ) : (
                     <Link to="/join-us" className="block">
-                      <Button className="w-full justify-start bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600">
-                        <Users className="h-4 w-4 mr-3" />
-                        Join the Core Team
-                      </Button>
+                      <div className="p-4 rounded-lg bg-gradient-to-r from-amber-50 to-orange-50 border-2 border-amber-300 hover:border-amber-400 transition-all hover:shadow-md">
+                        <div className="flex items-center gap-3">
+                          <div className="bg-gradient-to-r from-amber-500 to-orange-500 p-3 rounded-lg">
+                            <Users className="h-6 w-6 text-white" />
+                          </div>
+                          <div className="flex-1">
+                            <p className="font-semibold text-amber-900">Join the Core Team!</p>
+                            <p className="text-sm text-gray-600">Apply to become a core member</p>
+                          </div>
+                          <ArrowRight className="h-5 w-5 text-amber-600" />
+                        </div>
+                      </div>
                     </Link>
                   )}
                 </div>
