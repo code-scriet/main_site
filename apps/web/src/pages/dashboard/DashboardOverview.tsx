@@ -206,8 +206,8 @@ export default function DashboardOverview() {
                             <Users className="h-6 w-6 text-white" />
                           </div>
                           <div className="flex-1">
-                            <p className="font-semibold text-amber-900">Join the Core Team!</p>
-                            <p className="text-sm text-gray-600">Apply to become a core member</p>
+                            <p className="font-semibold text-amber-900">Join the Team!</p>
+                            <p className="text-sm text-gray-600">Apply to become a member</p>
                           </div>
                           <ArrowRight className="h-5 w-5 text-amber-600" />
                         </div>
