@@ -320,4 +320,16 @@ export const api = {
       body: JSON.stringify({ newPassword }), 
       token 
     }),
+
+  // Hiring
+  getMyHiringApplication: (token: string) =>
+    request<{
+      hasApplied: boolean;
+      application?: {
+        id: string;
+        applyingRole: string;
+        status: string;
+        createdAt: string;
+      };
+    } | null>('/hiring/my-application', { token }),
 };

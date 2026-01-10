@@ -7,7 +7,7 @@ import { useAuth } from '@/context/AuthContext';
 import { useSettings } from '@/context/SettingsContext';
 import { api } from '@/lib/api';
 import type { Registration, Announcement } from '@/lib/api';
-import { Calendar, Bell, Trophy, Code, ArrowRight, Loader2 } from 'lucide-react';
+import { Calendar, Bell, Trophy, Code, ArrowRight, Loader2, Users, CheckCircle, Clock, XCircle } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { QOTDWidget } from '@/components/dashboard/QOTDWidget';
 import { formatDate } from '@/lib/dateUtils';
@@ -17,6 +17,10 @@ export default function DashboardOverview() {
   const { settings } = useSettings();
   const [registrations, setRegistrations] = useState<Registration[]>([]);
   const [announcements, setAnnouncements] = useState<Announcement[]>([]);
+  const [hiringStatus, setHiringStatus] = useState<{
+    hasApplied: boolean;
+    application?: { id: string; applyingRole: string; status: string; createdAt: string };
+  } | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -26,12 +30,14 @@ export default function DashboardOverview() {
         return;
       }
       try {
-        const [regs, anns] = await Promise.all([
+        const [regs, anns, hiring] = await Promise.all([
           api.getMyRegistrations(token).catch(() => []),
           api.getAnnouncements().catch(() => []),
+          api.getMyHiringApplication(token).catch(() => null),
         ]);
         setRegistrations(regs.slice(0, 3)); // Show only first 3
         setAnnouncements(anns.slice(0, 3)); // Show only first 3
+        setHiringStatus(hiring);
       } catch (error) {
         console.error('Failed to load dashboard data:', error);
       } finally {
@@ -163,6 +169,45 @@ export default function DashboardOverview() {
                   Explore All Events
                 </Button>
               </Link>
+              
+              {/* Join the Team - only for regular users */}
+              {user?.role === 'USER' && (
+                <div className="pt-3 mt-3 border-t border-gray-100">
+                  {hiringStatus?.hasApplied ? (
+                    <div className="p-3 rounded-lg bg-amber-50 border border-amber-200">
+                      <div className="flex items-center gap-2 mb-2">
+                        {hiringStatus.application?.status === 'PENDING' && (
+                          <Clock className="h-4 w-4 text-amber-600" />
+                        )}
+                        {hiringStatus.application?.status === 'APPROVED' && (
+                          <CheckCircle className="h-4 w-4 text-green-600" />
+                        )}
+                        {hiringStatus.application?.status === 'REJECTED' && (
+                          <XCircle className="h-4 w-4 text-red-600" />
+                        )}
+                        <span className="font-medium text-amber-900">Application Status</span>
+                      </div>
+                      <p className="text-sm text-gray-600">
+                        You applied for <strong>{hiringStatus.application?.applyingRole?.replace('_', ' ')}</strong>
+                      </p>
+                      <Badge 
+                        variant={hiringStatus.application?.status === 'APPROVED' ? 'success' : 
+                                hiringStatus.application?.status === 'REJECTED' ? 'destructive' : 'warning'}
+                        className="mt-2"
+                      >
+                        {hiringStatus.application?.status}
+                      </Badge>
+                    </div>
+                  ) : (
+                    <Link to="/join-us" className="block">
+                      <Button className="w-full justify-start bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600">
+                        <Users className="h-4 w-4 mr-3" />
+                        Join the Core Team
+                      </Button>
+                    </Link>
+                  )}
+                </div>
+              )}
             </CardContent>
           </Card>
         </motion.div>

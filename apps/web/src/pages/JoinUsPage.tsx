@@ -90,13 +90,14 @@ type FormStep = 'role-selection' | 'details' | 'auth-options' | 'success';
 export default function JoinUsPage() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const { user, token } = useAuth();
   
   const [providers, setProviders] = useState<AuthProviders | null>(null);
   const [loading, setLoading] = useState(true);
   const [formStep, setFormStep] = useState<FormStep>('role-selection');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [profileIncomplete, setProfileIncomplete] = useState(false);
   
   // Form fields
   const [selectedRole, setSelectedRole] = useState<string | null>(null);
@@ -107,13 +108,34 @@ export default function JoinUsPage() {
   const [year, setYear] = useState('');
   const [skills, setSkills] = useState('');
 
-  // Prefill user data if logged in
+  // Prefill user data if logged in - fetch full profile
   useEffect(() => {
-    if (user) {
-      setName(user.name || '');
-      setEmail(user.email || '');
-    }
-  }, [user]);
+    const loadProfile = async () => {
+      if (user && token) {
+        try {
+          const profile = await api.getProfile(token);
+          setName(profile.name || '');
+          setEmail(profile.email || '');
+          setPhone(profile.phone || '');
+          setDepartment(profile.branch || ''); // branch maps to department
+          setYear(profile.year || '');
+          
+          // Check if profile is complete enough for application
+          if (!profile.phone || !profile.branch || !profile.year) {
+            setProfileIncomplete(true);
+          }
+        } catch (err) {
+          // Fallback to basic user info
+          setName(user.name || '');
+          setEmail(user.email || '');
+        }
+      } else if (user) {
+        setName(user.name || '');
+        setEmail(user.email || '');
+      }
+    };
+    loadProfile();
+  }, [user, token]);
 
   // Check for redirect after OAuth
   useEffect(() => {
@@ -348,6 +370,33 @@ export default function JoinUsPage() {
                         >
                           <AlertCircle className="h-5 w-5 text-red-500 flex-shrink-0 mt-0.5" />
                           <p className="text-red-700">{error}</p>
+                        </motion.div>
+                      )}
+
+                      {profileIncomplete && user && (
+                        <motion.div
+                          initial={{ opacity: 0, y: -10 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          className="mb-6 p-4 bg-blue-50 border border-blue-200 rounded-lg"
+                        >
+                          <div className="flex items-start gap-3">
+                            <AlertCircle className="h-5 w-5 text-blue-500 flex-shrink-0 mt-0.5" />
+                            <div>
+                              <p className="text-blue-800 font-medium">Complete your profile for faster applications</p>
+                              <p className="text-blue-700 text-sm mt-1">
+                                Add your phone number, branch, and year to your profile to auto-fill future applications.
+                              </p>
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                className="mt-2 text-blue-600 border-blue-300 hover:bg-blue-100"
+                                onClick={() => navigate('/dashboard/profile')}
+                              >
+                                Complete Profile
+                              </Button>
+                            </div>
+                          </div>
                         </motion.div>
                       )}
 
