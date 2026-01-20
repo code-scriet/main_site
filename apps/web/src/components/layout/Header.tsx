@@ -8,7 +8,7 @@ import { useSettings } from '@/context/SettingsContext';
 export function Header() {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const { user, logout } = useAuth();
-  const { settings } = useSettings();
+  const { settings, loading: settingsLoading } = useSettings();
 
   const navigation = [
     { name: 'Home', href: '/' },
@@ -64,7 +64,7 @@ export function Header() {
                     Sign In
                   </Button>
                 </Link>
-                {settings?.hiringEnabled !== false && (
+                {!settingsLoading && settings?.hiringEnabled === true && (
                   <Link to="/join-us">
                     <Button size="sm">
                       Join Us
@@ -120,7 +120,7 @@ export function Header() {
                       Sign In
                     </Button>
                   </Link>
-                  {settings?.hiringEnabled !== false && (
+                  {!settingsLoading && settings?.hiringEnabled === true && (
                     <Link to="/join-us" onClick={() => setIsMenuOpen(false)}>
                       <Button className="w-full">
                         Join Us

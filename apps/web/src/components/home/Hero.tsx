@@ -4,8 +4,8 @@ import { Button } from '@/components/ui/button';
 import { Link } from 'react-router-dom';
 import { ArrowRight, Users, Calendar, Trophy, Sparkles, Terminal, Zap, LayoutDashboard } from 'lucide-react';
 import { api } from '@/lib/api';
-import type { Settings } from '@/lib/api';
 import { useAuth } from '@/context/AuthContext';
+import { useSettings } from '@/context/SettingsContext';
 import { useMotionConfig } from '@/hooks/useMotionConfig';
 
 // Animated typing text effect
@@ -164,9 +164,9 @@ function AnimatedCounter({ value, suffix = '' }: { value: number; suffix?: strin
 
 export function Hero() {
   const { user } = useAuth();
+  const { settings, loading: settingsLoading } = useSettings();
   const { isMobile, shouldReduceMotion } = useMotionConfig();
   const [stats, setStats] = useState({ members: 0, events: 0, achievements: 0 });
-  const [settings, setSettings] = useState<Settings | null>(null);
   const { scrollY } = useScroll();
   
   // Disable parallax on mobile for better performance
@@ -178,10 +178,6 @@ export function Hero() {
     api.getPublicStats()
       .then(setStats)
       .catch(() => setStats({ members: 10, events: 3, achievements: 5 }));
-    
-    api.getSettings()
-      .then(setSettings)
-      .catch(console.error);
   }, []);
 
   const containerVariants = {
@@ -348,7 +344,7 @@ export function Hero() {
             variants={itemVariants}
             className="flex flex-col sm:flex-row gap-4 justify-center items-center pt-4"
           >
-            {settings?.hiringEnabled !== false && (
+            {!settingsLoading && settings?.hiringEnabled === true && (
               <Link to="/join-us">
                 <Button 
                   size="lg" 

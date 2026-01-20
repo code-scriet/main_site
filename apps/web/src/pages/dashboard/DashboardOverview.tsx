@@ -14,7 +14,7 @@ import { formatDate } from '@/lib/dateUtils';
 
 export default function DashboardOverview() {
   const { user, token } = useAuth();
-  const { settings } = useSettings();
+  const { settings, loading: settingsLoading } = useSettings();
   const [registrations, setRegistrations] = useState<Registration[]>([]);
   const [announcements, setAnnouncements] = useState<Announcement[]>([]);
   const [hiringStatus, setHiringStatus] = useState<{
@@ -171,7 +171,7 @@ export default function DashboardOverview() {
               </Link>
               
               {/* Join the Team - only for regular users (not MEMBER or higher) */}
-              {user?.role === 'USER' && settings?.hiringEnabled !== false && (
+              {user?.role === 'USER' && !settingsLoading && settings?.hiringEnabled === true && (
                 <div className="pt-3 mt-3 border-t border-gray-100">
                   {hiringStatus?.hasApplied ? (
                     <div className="p-3 rounded-lg bg-amber-50 border border-amber-200">

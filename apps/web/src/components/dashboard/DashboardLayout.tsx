@@ -49,7 +49,7 @@ const getAdminNavItems = (hiringEnabled: boolean) => {
 export default function DashboardLayout() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const { user, logout } = useAuth();
-  const { settings } = useSettings();
+  const { settings, loading: settingsLoading } = useSettings();
   const location = useLocation();
   const navigate = useNavigate();
 
@@ -159,7 +159,7 @@ export default function DashboardLayout() {
                     Admin
                   </p>
                 </div>
-                {getAdminNavItems(settings?.hiringEnabled ?? true).map((item) => (
+                {getAdminNavItems(!settingsLoading && settings?.hiringEnabled === true).map((item) => (
                   <NavLink key={item.href} item={item} isActive={location.pathname === item.href} />
                 ))}
               </>
