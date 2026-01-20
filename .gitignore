@@ -1,12 +1,15 @@
 # Dependencies
 node_modules/
 .pnpm-store/
+.npm/
+.yarn/
 
 # Build outputs
 dist/
 build/
 .next/
 .vercel/
+.turbo/
 
 # Environment variables
 .env
@@ -18,7 +21,7 @@ build/
 # Database
 *.db
 *.db-journal
-.Deployment.md
+
 # Logs
 logs/
 *.log
@@ -26,21 +29,31 @@ npm-debug.log*
 pnpm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+lerna-debug.log*
 
 # OS files
 .DS_Store
 Thumbs.db
-
-# IDE
-.vscode/
-.idea/
+desktop.ini
 *.swp
 *.swo
 *~
 
+# IDE & Editors
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+.project
+.classpath
+.settings/
+*.iml
+.vs/
+
 # Test coverage
 coverage/
 .nyc_output/
+*.lcov
 
 # Prisma - keep migrations, ignore local db files
 prisma/*.db
@@ -50,4 +63,46 @@ prisma/*.db-journal
 .turbo/
 .cache/
 *.tsbuildinfo
+.eslintcache
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+*.bak
+*.backup
+*.old
+
+# Package manager lock files (optional - uncomment if needed)
+# package-lock.json
+# pnpm-lock.yaml
+# yarn.lock
+
+# Documentation artifacts (keep source, ignore builds)
+docs/build/
+
+# Backup files from editor auto-saves
+*~
+*.swp
+*.swo
+*.orig
+
+# Image thumbnails
+._*
+
+# Deployment specific
+.Deployment.md
+Dockerfile.backup
+*.backup.*
+
+# WhatsApp/Social media images accidentally committed
+# Exclude logo files from this rule
+WhatsApp*
+!**/logo.*
+!**/public/logo.*
+Screenshot*
+
+# Local development files
+.local/
+.history/
 
