@@ -171,7 +171,7 @@ export default function DashboardOverview() {
               </Link>
               
               {/* Join the Team - only for regular users (not MEMBER or higher) */}
-              {user?.role === 'USER' && (
+              {user?.role === 'USER' && settings?.hiringEnabled !== false && (
                 <div className="pt-3 mt-3 border-t border-gray-100">
                   {hiringStatus?.hasApplied ? (
                     <div className="p-3 rounded-lg bg-amber-50 border border-amber-200">

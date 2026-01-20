@@ -348,34 +348,36 @@ export function Hero() {
             variants={itemVariants}
             className="flex flex-col sm:flex-row gap-4 justify-center items-center pt-4"
           >
-            <Link to="/join-us">
-              <Button 
-                size="lg" 
-                className="relative overflow-hidden bg-gradient-to-r from-amber-500 to-orange-500 text-white hover:from-amber-400 hover:to-orange-400 shadow-xl shadow-amber-500/25 h-14 px-8 text-lg font-semibold group border-0"
-              >
-                <span className="relative z-10 flex items-center">
-                  Join Our Team
-                  {/* Arrow animation - disable on mobile */}
-                  {!shouldReduceMotion ? (
-                    <motion.span
-                      className="ml-2"
-                      animate={{ x: [0, 4, 0] }}
-                      transition={{ duration: 1.5, repeat: Infinity }}
-                    >
-                      <ArrowRight className="h-5 w-5" />
-                    </motion.span>
-                  ) : (
-                    <ArrowRight className="h-5 w-5 ml-2" />
-                  )}
-                </span>
-                <motion.div
-                  className="absolute inset-0 bg-gradient-to-r from-amber-400 to-orange-400"
-                  initial={{ x: '-100%' }}
-                  whileHover={!isMobile ? { x: 0 } : undefined}
-                  transition={{ duration: 0.3 }}
-                />
-              </Button>
-            </Link>
+            {settings?.hiringEnabled !== false && (
+              <Link to="/join-us">
+                <Button 
+                  size="lg" 
+                  className="relative overflow-hidden bg-gradient-to-r from-amber-500 to-orange-500 text-white hover:from-amber-400 hover:to-orange-400 shadow-xl shadow-amber-500/25 h-14 px-8 text-lg font-semibold group border-0"
+                >
+                  <span className="relative z-10 flex items-center">
+                    Join Our Team
+                    {/* Arrow animation - disable on mobile */}
+                    {!shouldReduceMotion ? (
+                      <motion.span
+                        className="ml-2"
+                        animate={{ x: [0, 4, 0] }}
+                        transition={{ duration: 1.5, repeat: Infinity }}
+                      >
+                        <ArrowRight className="h-5 w-5" />
+                      </motion.span>
+                    ) : (
+                      <ArrowRight className="h-5 w-5 ml-2" />
+                    )}
+                  </span>
+                  <motion.div
+                    className="absolute inset-0 bg-gradient-to-r from-amber-400 to-orange-400"
+                    initial={{ x: '-100%' }}
+                    whileHover={!isMobile ? { x: 0 } : undefined}
+                    transition={{ duration: 0.3 }}
+                  />
+                </Button>
+              </Link>
+            )}
             {user ? (
               <Link to="/dashboard">
                 <Button 

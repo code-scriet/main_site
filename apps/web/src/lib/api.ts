@@ -80,6 +80,7 @@ export interface Settings {
   showLeaderboard?: boolean;
   showQOTD?: boolean;
   showAchievements?: boolean;
+  hiringEnabled?: boolean;
   // Social Links
   githubUrl?: string;
   linkedinUrl?: string;

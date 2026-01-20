@@ -19,6 +19,7 @@ settingsRouter.get('/public', async (req: Request, res: Response) => {
         showLeaderboard: true,
         showQOTD: true,
         showAchievements: true,
+        hiringEnabled: true,
         announcementsEnabled: true,
         githubUrl: true,
         linkedinUrl: true,
@@ -40,6 +41,7 @@ settingsRouter.get('/public', async (req: Request, res: Response) => {
           showLeaderboard: false,
           showQOTD: true,
           showAchievements: true,
+          hiringEnabled: true,
           announcementsEnabled: true,
           githubUrl: null,
           linkedinUrl: null,
@@ -90,6 +92,7 @@ settingsRouter.put('/', authMiddleware, requireRole('ADMIN'), async (req: Reques
       showLeaderboard,
       showQOTD,
       showAchievements,
+      hiringEnabled,
       githubUrl,
       linkedinUrl,
       twitterUrl,
@@ -110,6 +113,7 @@ settingsRouter.put('/', authMiddleware, requireRole('ADMIN'), async (req: Reques
         ...(showLeaderboard !== undefined && { showLeaderboard }),
         ...(showQOTD !== undefined && { showQOTD }),
         ...(showAchievements !== undefined && { showAchievements }),
+        ...(hiringEnabled !== undefined && { hiringEnabled }),
         ...(githubUrl !== undefined && { githubUrl: githubUrl || null }),
         ...(linkedinUrl !== undefined && { linkedinUrl: linkedinUrl || null }),
         ...(twitterUrl !== undefined && { twitterUrl: twitterUrl || null }),
@@ -126,6 +130,7 @@ settingsRouter.put('/', authMiddleware, requireRole('ADMIN'), async (req: Reques
         ...(showLeaderboard !== undefined && { showLeaderboard }),
         ...(showQOTD !== undefined && { showQOTD }),
         ...(showAchievements !== undefined && { showAchievements }),
+        ...(hiringEnabled !== undefined && { hiringEnabled }),
         ...(githubUrl !== undefined && { githubUrl: githubUrl || null }),
         ...(linkedinUrl !== undefined && { linkedinUrl: linkedinUrl || null }),
         ...(twitterUrl !== undefined && { twitterUrl: twitterUrl || null }),
@@ -158,6 +163,7 @@ settingsRouter.patch('/:key', authMiddleware, requireRole('ADMIN'), async (req: 
       'showLeaderboard',
       'showQOTD',
       'showAchievements',
+      'hiringEnabled',
     ];
 
     if (!allowedKeys.includes(key)) {

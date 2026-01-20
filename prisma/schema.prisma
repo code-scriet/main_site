@@ -93,6 +93,7 @@ model Settings {
   showLeaderboard     Boolean  @default(false) @map("show_leaderboard")
   showQOTD            Boolean  @default(true) @map("show_qotd")
   showAchievements    Boolean  @default(true) @map("show_achievements")
+  hiringEnabled       Boolean  @default(true) @map("hiring_enabled")
   
   // Social Links
   githubUrl           String?  @map("github_url")

@@ -27,13 +27,24 @@ const coreMemberNavItems = [
   { name: 'Manage QOTD', href: '/dashboard/qotd', icon: Code },
 ];
 
-const adminNavItems = [
-  { name: 'User Management', href: '/admin/users', icon: Users },
-  { name: 'Team Management', href: '/admin/team', icon: Shield },
-  { name: 'Hiring Applications', href: '/admin/hiring', icon: UserPlus },
-  { name: 'Event Registrations', href: '/admin/event-registrations', icon: Calendar },
-  { name: 'Settings', href: '/admin/settings', icon: Settings },
-];
+// Admin nav items - Hiring will be conditionally added based on settings
+const getAdminNavItems = (hiringEnabled: boolean) => {
+  const items = [
+    { name: 'User Management', href: '/admin/users', icon: Users },
+    { name: 'Team Management', href: '/admin/team', icon: Shield },
+  ];
+  
+  if (hiringEnabled !== false) {
+    items.push({ name: 'Hiring Applications', href: '/admin/hiring', icon: UserPlus });
+  }
+  
+  items.push(
+    { name: 'Event Registrations', href: '/admin/event-registrations', icon: Calendar },
+    { name: 'Settings', href: '/admin/settings', icon: Settings }
+  );
+  
+  return items;
+};
 
 export default function DashboardLayout() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -148,7 +159,7 @@ export default function DashboardLayout() {
                     Admin
                   </p>
                 </div>
-                {adminNavItems.map((item) => (
+                {getAdminNavItems(settings?.hiringEnabled ?? true).map((item) => (
                   <NavLink key={item.href} item={item} isActive={location.pathname === item.href} />
                 ))}
               </>

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { api } from '@/lib/api';
 import { useAuth } from '@/context/AuthContext';
+import { useSettings } from '@/context/SettingsContext';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5001/api';
 
@@ -18,6 +19,7 @@ export default function AuthCallbackPage() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const { login } = useAuth();
+  const { settings } = useSettings();
   const [status, setStatus] = useState('Completing sign in...');
   const [error, setError] = useState<string | null>(null);
 
@@ -48,6 +50,12 @@ export default function AuthCallbackPage() {
           try {
             const hiringIntent: HiringIntent = JSON.parse(hiringIntentStr);
             localStorage.removeItem('hiring_intent');
+
+            // If hiring is disabled, skip the hiring flow
+            if (settings?.hiringEnabled === false) {
+              navigate('/dashboard');
+              return;
+            }
 
             // If we have a hiring intent, try to submit the application
             if (hiringIntent.role) {
@@ -81,7 +89,7 @@ export default function AuthCallbackPage() {
                 });
 
                 if (applicationResponse.ok) {
-                  // Redirect to join-us success
+                  // Redirect to join-us success (will redirect to home if hiring disabled)
                   navigate('/join-us?success=true');
                   return;
                 } else {
@@ -91,7 +99,7 @@ export default function AuthCallbackPage() {
                     navigate('/dashboard');
                     return;
                   }
-                  // Redirect to join-us page to complete the form
+                  // Redirect to join-us page to complete the form (will redirect to home if hiring disabled)
                   navigate(`/join-us?hiring_role=${hiringIntent.role}`);
                   return;
                 }

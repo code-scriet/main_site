@@ -25,6 +25,7 @@ import {
 import { api } from '@/lib/api';
 import type { AuthProviders } from '@/lib/api';
 import { useAuth } from '@/context/AuthContext';
+import { useSettings } from '@/context/SettingsContext';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5001/api';
 
@@ -91,6 +92,7 @@ export default function JoinUsPage() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const { user, token } = useAuth();
+  const { settings } = useSettings();
   
   const [providers, setProviders] = useState<AuthProviders | null>(null);
   const [loading, setLoading] = useState(true);
@@ -107,6 +109,13 @@ export default function JoinUsPage() {
   const [department, setDepartment] = useState('');
   const [year, setYear] = useState('');
   const [skills, setSkills] = useState('');
+
+  // Check if hiring is enabled
+  useEffect(() => {
+    if (settings && settings.hiringEnabled === false) {
+      navigate('/', { replace: true });
+    }
+  }, [settings, navigate]);
 
   // Prefill user data if logged in - fetch full profile
   useEffect(() => {

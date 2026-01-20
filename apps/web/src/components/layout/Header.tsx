@@ -3,10 +3,12 @@ import { Menu, X } from 'lucide-react';
 import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/context/AuthContext';
+import { useSettings } from '@/context/SettingsContext';
 
 export function Header() {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const { user, logout } = useAuth();
+  const { settings } = useSettings();
 
   const navigation = [
     { name: 'Home', href: '/' },
@@ -62,11 +64,13 @@ export function Header() {
                     Sign In
                   </Button>
                 </Link>
-                <Link to="/join-us">
-                  <Button size="sm">
-                    Join Us
-                  </Button>
-                </Link>
+                {settings?.hiringEnabled !== false && (
+                  <Link to="/join-us">
+                    <Button size="sm">
+                      Join Us
+                    </Button>
+                  </Link>
+                )}
               </>
             )}
           </div>
@@ -116,11 +120,13 @@ export function Header() {
                       Sign In
                     </Button>
                   </Link>
-                  <Link to="/join-us" onClick={() => setIsMenuOpen(false)}>
-                    <Button className="w-full">
-                      Join Us
-                    </Button>
-                  </Link>
+                  {settings?.hiringEnabled !== false && (
+                    <Link to="/join-us" onClick={() => setIsMenuOpen(false)}>
+                      <Button className="w-full">
+                        Join Us
+                      </Button>
+                    </Link>
+                  )}
                 </>
               )}
             </div>

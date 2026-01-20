@@ -20,6 +20,7 @@ const defaultSettings: Settings = {
   showLeaderboard: false,
   showQOTD: true,
   showAchievements: true,
+  hiringEnabled: true,
   githubUrl: '',
   linkedinUrl: '',
   twitterUrl: '',
