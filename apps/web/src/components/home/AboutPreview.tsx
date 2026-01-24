@@ -145,9 +145,9 @@ export function AboutPreview() {
         >
           <div className="grid grid-cols-2 md:grid-cols-4 gap-8 text-center">
             {[
-              { value: '10+', label: 'Active Members' },
+              { value: '500+', label: 'Active Members' },
               { value: '3', label: 'Events Conducted' },
-              { value: '5', label: 'Projects Built' },
+              { value: '10', label: 'Projects Built' },
             ].map((stat, index) => (
               <motion.div
                 key={stat.label}
