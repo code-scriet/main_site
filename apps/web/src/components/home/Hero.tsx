@@ -405,9 +405,9 @@ export function Hero() {
             className="grid grid-cols-1 sm:grid-cols-3 gap-6 max-w-3xl mx-auto pt-12"
           >
             {[
-              { icon: Users, label: 'Active Members', value: stats.members, color: 'from-amber-400 to-amber-500' },
-              { icon: Calendar, label: 'Events Hosted', value: stats.events, color: 'from-orange-400 to-orange-500' },
-              { icon: Trophy, label: 'Achievements', value: stats.achievements, color: 'from-yellow-400 to-amber-400' },
+              { icon: Users, label: 'Active Members', value: stats.members, displayValue: null, color: 'from-amber-400 to-amber-500' },
+              { icon: Calendar, label: 'Events Hosted', value: stats.events, displayValue: null, color: 'from-orange-400 to-orange-500' },
+              { icon: Trophy, label: 'Achievements', value: null, displayValue: 'Counting', color: 'from-yellow-400 to-amber-400' },
             ].map((stat) => (
               <motion.div
                 key={stat.label}
@@ -421,7 +421,7 @@ export function Hero() {
                     <stat.icon className="h-6 w-6 text-white" />
                   </div>
                   <p className="text-4xl font-bold text-white mb-1">
-                    <AnimatedCounter value={stat.value} suffix="+" />
+                    {stat.displayValue ? `${stat.displayValue} +` : <AnimatedCounter value={stat.value!} suffix="+" />}
                   </p>
                   <p className="text-white/60 text-sm">{stat.label}</p>
                 </div>
