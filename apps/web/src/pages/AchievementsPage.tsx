@@ -44,7 +44,7 @@ export default function AchievementsPage() {
   return (
     <Layout>
       <SEO 
-        title="Achievements"
+        title="Achievements & Momentum"
         description="Celebrating the accomplishments of code.scriet members - hackathon wins, competition victories, and outstanding achievements."
         url="/achievements"
         keywords="code.scriet achievements, SCRIET coding club awards, hackathon winners, programming achievements"
