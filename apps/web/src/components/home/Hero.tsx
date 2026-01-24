@@ -402,12 +402,11 @@ export function Hero() {
           {/* Stats */}
           <motion.div
             variants={itemVariants}
-            className="grid grid-cols-1 sm:grid-cols-3 gap-6 max-w-3xl mx-auto pt-12"
+            className="grid grid-cols-1 sm:grid-cols-2 gap-8 max-w-2xl mx-auto pt-12"
           >
             {[
               { icon: Users, label: 'Active Members', value: stats.members, displayValue: null, color: 'from-amber-400 to-amber-500' },
               { icon: Calendar, label: 'Events Hosted', value: stats.events, displayValue: null, color: 'from-orange-400 to-orange-500' },
-              { icon: Trophy, label: 'Achievements', value: stats.achievements, displayValue: 'counting', color: 'from-yellow-400 to-amber-400' },
             ].map((stat) => (
               <motion.div
                 key={stat.label}
