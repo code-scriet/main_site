@@ -177,7 +177,7 @@ export function Hero() {
   useEffect(() => {
     api.getPublicStats()
       .then(setStats)
-      .catch(() => setStats({ members: 10, events: 3, achievements: 5 }));
+      .catch(() => setStats({ members: 500, events: 3, achievements: 5 }));
   }, []);
 
   const containerVariants = {
