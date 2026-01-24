@@ -7,12 +7,14 @@ import { Button } from '@/components/ui/button';
 import { Trophy, Calendar, Users, Loader2, Rocket, Target, Zap, Award, TrendingUp, Globe, Handshake, ArrowRight } from 'lucide-react';
 import { api, type Achievement } from '@/lib/api';
 import { formatDate } from '@/lib/dateUtils';
+import { useSettings } from '@/context/SettingsContext';
 
 export default function AchievementsPage() {
   const [activeYear, setActiveYear] = useState('All');
   const [achievements, setAchievements] = useState<Achievement[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const { settings } = useSettings();
 
   useEffect(() => {
     const fetchAchievements = async () => {
@@ -254,9 +256,9 @@ export default function AchievementsPage() {
               <CardContent className="p-8">
                 <p className="text-lg text-gray-700 mb-2">Our mission is simple, borderline audacious:</p>
                 <p className="text-2xl font-bold text-amber-900 mb-2">
-                  "The most student-focused club on planet Earth."
+                  "Building an environment where curiosity becomes capability."
                 </p>
-                <p className="text-gray-700">And we're serious about earning that title.</p>
+                <p className="text-gray-700">And we're serious about making it happen.</p>
               </CardContent>
             </Card>
           </motion.div>
@@ -372,8 +374,14 @@ export default function AchievementsPage() {
                     <span className="font-semibold text-amber-900">We're moving.</span>
                     <span className="font-bold text-amber-900 text-xl">And we're just getting started.</span>
                   </div>
-                  <Button size="lg" className="mt-4 bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600">
-                    Get in Touch
+                  <Button 
+                    size="lg" 
+                    className="mt-4 bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600"
+                    asChild
+                  >
+                    <a href={`mailto:${settings?.clubEmail || 'contact@codescriet.com'}`}>
+                      Get in Touch
+                    </a>
                   </Button>
                 </div>
               </CardContent>
@@ -382,8 +390,8 @@ export default function AchievementsPage() {
         </div>
       </section>
 
-      {/* Filter Tabs */}
-      {years.length > 1 && (
+      {/* Filter Tabs - Only show when there are achievements */}
+      {achievements.length > 0 && years.length > 1 && (
         <section className="py-6 bg-amber-100 border-b border-amber-300">
           <div className="container mx-auto px-4">
             <h3 className="text-2xl font-bold text-amber-900 text-center mb-4">Member Achievements</h3>
@@ -403,8 +411,9 @@ export default function AchievementsPage() {
         </section>
       )}
 
-      {/* Achievements Grid */}
-      <section className="py-12 bg-amber-50 min-h-[60vh]">
+      {/* Achievements Grid - Only show when there are achievements */}
+      {achievements.length > 0 && (
+      <section className="py-12 bg-amber-50 min-h-[40vh]">
         <div className="container mx-auto px-4">
           {loading ? (
             <div className="flex justify-center items-center py-20">
@@ -417,12 +426,7 @@ export default function AchievementsPage() {
                 Try Again
               </Button>
             </div>
-          ) : filteredAchievements.length === 0 ? (
-            <div className="text-center py-20">
-              <Trophy className="h-16 w-16 text-amber-300 mx-auto mb-4" />
-              <p className="text-gray-500 text-lg">No achievements yet. Check back soon!</p>
-            </div>
-          ) : (
+          ) : filteredAchievements.length === 0 ? null : (
             <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-8">
               {filteredAchievements.map((achievement, index) => (
                 <motion.div
@@ -472,6 +476,7 @@ export default function AchievementsPage() {
           )}
         </div>
       </section>
+      )}
     </Layout>
   );
 }
