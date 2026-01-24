@@ -177,7 +177,7 @@ export function Hero() {
   useEffect(() => {
     api.getPublicStats()
       .then(setStats)
-      .catch(() => setStats({ members: 500, events: 3, achievements: counting }));
+      .catch(() => setStats({ members: 500, events: 3, achievements: 5 }));
   }, []);
 
   const containerVariants = {
@@ -407,7 +407,7 @@ export function Hero() {
             {[
               { icon: Users, label: 'Active Members', value: stats.members, displayValue: null, color: 'from-amber-400 to-amber-500' },
               { icon: Calendar, label: 'Events Hosted', value: stats.events, displayValue: null, color: 'from-orange-400 to-orange-500' },
-              { icon: Trophy, label: 'Achievements', value: null, displayValue: 'Counting', color: 'from-yellow-400 to-amber-400' },
+              { icon: Trophy, label: 'Achievements', value: stats.achievements, displayValue: null, color: 'from-yellow-400 to-amber-400' },
             ].map((stat) => (
               <motion.div
                 key={stat.label}
@@ -421,7 +421,7 @@ export function Hero() {
                     <stat.icon className="h-6 w-6 text-white" />
                   </div>
                   <p className="text-4xl font-bold text-white mb-1">
-                    {stat.displayValue ? `${stat.displayValue} +` : <AnimatedCounter value={stat.value!} suffix="+" />}
+                    <AnimatedCounter value={stat.value!} suffix="+" />
                   </p>
                   <p className="text-white/60 text-sm">{stat.label}</p>
                 </div>
