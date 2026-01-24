@@ -402,7 +402,7 @@ export function Hero() {
           {/* Stats */}
           <motion.div
             variants={itemVariants}
-            className="grid grid-cols-1 sm:grid-cols-2 gap-8 max-w-2xl mx-auto pt-12"
+            className="grid grid-cols-1 sm:grid-cols-2 gap-8 max-w-3xl mx-auto pt-12"
           >
             {[
               { icon: Users, label: 'Active Members', value: stats.members, displayValue: null, color: 'from-amber-400 to-amber-500' },
@@ -410,19 +410,19 @@ export function Hero() {
             ].map((stat) => (
               <motion.div
                 key={stat.label}
-                whileHover={!isMobile ? { scale: 1.05, y: -5 } : undefined}
+                whileHover={!isMobile ? { scale: 1.05, y: -8 } : undefined}
                 transition={{ type: 'spring', stiffness: 400 }}
                 className="group relative"
               >
-                <div className="absolute inset-0 bg-gradient-to-br from-white/10 to-white/5 rounded-2xl opacity-0 group-hover:opacity-100 transition-opacity blur-sm" />
-                <div className="relative bg-white/5 backdrop-blur-md border border-white/10 rounded-2xl p-6 transition-all duration-300 group-hover:bg-white/10 group-hover:border-white/20">
-                  <div className={`inline-flex p-3 rounded-xl bg-gradient-to-br ${stat.color} mb-4 shadow-lg`}>
-                    <stat.icon className="h-6 w-6 text-white" />
+                <div className="absolute inset-0 bg-gradient-to-br from-white/10 to-white/5 rounded-3xl opacity-0 group-hover:opacity-100 transition-opacity blur-xl" />
+                <div className="relative bg-white/5 backdrop-blur-md border border-white/10 rounded-3xl p-8 md:p-10 transition-all duration-300 group-hover:bg-white/10 group-hover:border-white/20">
+                  <div className={`inline-flex p-4 rounded-2xl bg-gradient-to-br ${stat.color} mb-6 shadow-2xl`}>
+                    <stat.icon className="h-8 w-8 text-white" />
                   </div>
-                  <p className="text-4xl font-bold text-white mb-1">
+                  <p className="text-5xl md:text-6xl font-bold text-white mb-2">
                     {stat.displayValue ? `${stat.displayValue}+` : <AnimatedCounter value={stat.value!} suffix="+" />}
                   </p>
-                  <p className="text-white/60 text-sm">{stat.label}</p>
+                  <p className="text-white/60 text-base">{stat.label}</p>
                 </div>
               </motion.div>
             ))}
