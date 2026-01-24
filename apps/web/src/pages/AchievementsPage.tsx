@@ -61,7 +61,7 @@ export default function AchievementsPage() {
             <div className="inline-flex h-20 w-20 items-center justify-center rounded-full bg-white/20 backdrop-blur-sm mb-6">
               <Trophy className="h-10 w-10 text-white" />
             </div>
-            <h1 className="text-5xl font-bold mb-4">Our Achievements & Momentum </h1>
+            <h1 className="text-5xl font-bold mb-4"> Achievements & Momentum </h1>
             <p className="text-xl text-amber-50 max-w-2xl mx-auto">
               Celebrating the success and accomplishments of our talented members
             </p>
