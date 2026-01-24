@@ -74,7 +74,7 @@ export default function AchievementsPage() {
               <p className="text-lg text-amber-50 mb-4">
                 Code.Scriet was founded with one belief:
               </p>
-              <blockquote className="text-xl italic text-white font-medium border-l-4 border-white pl-4 mb-4">
+              <blockquote className="text-xl italic text-white font-medium  pl-4 mb-4">
                 "Students don't need more clubs. They need ecosystems."
               </blockquote>
               <p className="text-amber-50">
