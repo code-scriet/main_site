@@ -265,7 +265,7 @@ export default function EventsPage() {
                         <div className="relative h-40 sm:h-48 overflow-hidden bg-gradient-to-br from-amber-200 to-orange-200">
                           {event.imageUrl ? (
                             <img
-                              src={processImageUrl(event.imageUrl, 'medium')}
+                              src={processImageUrl(event.imageUrl, 'card')}
                               alt={event.title}
                               className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
                             />

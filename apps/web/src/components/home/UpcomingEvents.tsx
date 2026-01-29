@@ -157,7 +157,7 @@ export function UpcomingEvents() {
                       <div className="relative h-56 overflow-hidden">
                         {event.imageUrl ? (
                           <img
-                            src={processImageUrl(event.imageUrl, 'medium')}
+                            src={processImageUrl(event.imageUrl, 'card')}
                             alt={event.title}
                             className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700"
                           />

@@ -4,7 +4,27 @@
  * Processes image URLs from various sources.
  * Supports direct URLs from Imgur, imgbb, Cloudinary, etc.
  * Also supports Google Drive share links (converts to direct URL).
+ * 
+ * Cloudinary transformations automatically handle aspect ratios:
+ * - cover: Wide images for hero/banner sections (16:9)
+ * - card: Card thumbnails (4:3 or square depending on context)
+ * - square: Perfect squares for avatars/profile pics
+ * - gallery: Gallery images with preserved aspect ratio
+ * - thumbnail/medium/large: General purpose with smart cropping
  */
+
+// Image preset types for different contexts
+export type ImagePreset = 
+  | 'thumbnail'   // Small preview, 4:3 aspect
+  | 'medium'      // Medium size, 4:3 aspect  
+  | 'large'       // Large, preserves aspect
+  | 'original'    // No resize, just optimize
+  | 'cover'       // Wide banner/hero (16:9)
+  | 'card'        // Card thumbnail (4:3)
+  | 'square'      // Square for avatars (1:1)
+  | 'gallery'     // Gallery images, fit within bounds
+  | 'event-cover' // Event page cover (2:1)
+  | 'team-avatar'; // Team member avatars (1:1, circular friendly)
 
 /**
  * Extracts the file ID from Google Drive URL formats
@@ -39,21 +59,69 @@ export function isGoogleDriveUrl(url: string): boolean {
 }
 
 /**
- * Adds Cloudinary transformations to optimize image size
+ * Adds Cloudinary transformations to optimize image size and handle aspect ratios
+ * Uses smart cropping (g_auto) to focus on the most important part of the image
  */
-function addCloudinaryTransformations(url: string, size?: 'thumbnail' | 'medium' | 'large' | 'original'): string {
+function addCloudinaryTransformations(url: string, preset?: ImagePreset): string {
   // Check if it's a Cloudinary URL
   if (!url.includes('cloudinary.com')) return url;
   
-  // Define transformations based on size
-  const transformations = {
-    thumbnail: 'c_fill,w_400,h_300,q_auto,f_auto',
-    medium: 'c_fill,w_800,h_600,q_auto,f_auto',
+  // Check if transformations are already applied (has transformation segment after /upload/)
+  const uploadIndex = url.indexOf('/upload/');
+  if (uploadIndex !== -1) {
+    const afterUpload = url.substring(uploadIndex + 8);
+    // If there's already a transformation (contains comma or starts with common transforms)
+    if (afterUpload.match(/^(c_|w_|h_|ar_|f_|q_|g_)/)) {
+      // Remove existing transformations and apply new ones
+      const versionMatch = afterUpload.match(/(v\d+\/)/);
+      if (versionMatch) {
+        const versionAndRest = afterUpload.substring(afterUpload.indexOf(versionMatch[0]));
+        url = url.substring(0, uploadIndex + 8) + versionAndRest;
+      }
+    }
+  }
+  
+  // Define transformations based on preset
+  // c_fill = crop to fill exact dimensions (may crop edges)
+  // c_fit = fit within dimensions (may have letterboxing)
+  // c_limit = limit to max dimensions, preserve aspect ratio
+  // c_pad = pad to exact dimensions with background
+  // g_auto = smart gravity (auto-detect focus point)
+  // f_auto = auto format (webp for supported browsers)
+  // q_auto = auto quality optimization
+  const transformations: Record<ImagePreset, string> = {
+    // Small preview with smart cropping, 4:3 aspect ratio
+    thumbnail: 'c_fill,g_auto,ar_4:3,w_400,q_auto,f_auto',
+    
+    // Medium size with smart cropping, 4:3 aspect ratio
+    medium: 'c_fill,g_auto,ar_4:3,w_800,q_auto,f_auto',
+    
+    // Large size, preserves original aspect ratio
     large: 'c_limit,w_1920,q_auto,f_auto',
-    original: 'q_auto,f_auto'
+    
+    // Original size, just optimize format and quality
+    original: 'q_auto,f_auto',
+    
+    // Wide banner/hero images (16:9 aspect ratio)
+    cover: 'c_fill,g_auto,ar_16:9,w_1920,q_auto,f_auto',
+    
+    // Card thumbnails (4:3 aspect ratio, medium width)
+    card: 'c_fill,g_auto,ar_4:3,w_600,q_auto,f_auto',
+    
+    // Square images for avatars (1:1 aspect ratio)
+    square: 'c_fill,g_auto,ar_1:1,w_400,q_auto,f_auto',
+    
+    // Gallery images - fit within bounds, preserve aspect
+    gallery: 'c_limit,w_1200,h_900,q_auto,f_auto',
+    
+    // Event page cover (wider 2:1 aspect ratio)
+    'event-cover': 'c_fill,g_auto,ar_2:1,w_1600,q_auto,f_auto',
+    
+    // Team member avatars (1:1, optimized for circular display)
+    'team-avatar': 'c_fill,g_auto:face,ar_1:1,w_300,q_auto,f_auto',
   };
   
-  const transform = transformations[size || 'medium'];
+  const transform = transformations[preset || 'medium'];
   
   // Split URL at /upload/ and insert transformation
   const parts = url.split('/upload/');
@@ -67,8 +135,11 @@ function addCloudinaryTransformations(url: string, size?: 'thumbnail' | 'medium'
 /**
  * Processes an image URL - converts Google Drive links to direct URLs,
  * adds Cloudinary transformations, or passes through other URLs unchanged
+ * 
+ * @param url - The image URL to process
+ * @param preset - The image preset for sizing/cropping (default: 'medium')
  */
-export function processImageUrl(url: string, size?: 'thumbnail' | 'medium' | 'large' | 'original'): string {
+export function processImageUrl(url: string, preset?: ImagePreset): string {
   if (!url) return '';
   
   // If it's a Google Drive URL, convert it
@@ -81,7 +152,7 @@ export function processImageUrl(url: string, size?: 'thumbnail' | 'medium' | 'la
   
   // Add Cloudinary transformations if applicable
   if (url.includes('cloudinary.com')) {
-    return addCloudinaryTransformations(url, size);
+    return addCloudinaryTransformations(url, preset);
   }
   
   // Return URL as-is for all other sources (Imgur, imgbb, etc.)
@@ -91,7 +162,7 @@ export function processImageUrl(url: string, size?: 'thumbnail' | 'medium' | 'la
 /**
  * Process an array of image URLs (for gallery)
  */
-export function processImageGallery(urls: string[] | unknown, size?: 'thumbnail' | 'medium' | 'large' | 'original'): string[] {
+export function processImageGallery(urls: string[] | unknown, preset?: ImagePreset): string[] {
   if (!urls) return [];
   
   // If it's a string (JSON), try to parse it
@@ -109,5 +180,5 @@ export function processImageGallery(urls: string[] | unknown, size?: 'thumbnail'
   // Process each URL
   return urls
     .filter((url): url is string => url && typeof url === 'string')
-    .map(url => processImageUrl(url, size));
+    .map(url => processImageUrl(url, preset));
 }

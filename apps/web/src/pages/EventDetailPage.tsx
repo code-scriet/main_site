@@ -109,8 +109,8 @@ function RenderMarkdownText({ text }: { text: string }) {
 function ImageGallery({ images }: { images: string[] }) {
   const [selectedImage, setSelectedImage] = useState<number | null>(null);
   
-  const processedImages = processImageGallery(images, 'large');
-  const thumbnails = processImageGallery(images, 'thumbnail');
+  const processedImages = processImageGallery(images, 'gallery');
+  const thumbnails = processImageGallery(images, 'square');
   
   if (!images || !images.length) {
     return (
@@ -260,7 +260,7 @@ function SpeakerCard({ speaker }: { speaker: Speaker }) {
       <div className="flex items-start gap-4 p-4">
         {speaker.image ? (
           <img
-            src={processImageUrl(speaker.image, 'thumbnail')}
+            src={processImageUrl(speaker.image, 'square')}
             alt={speaker.name}
             className="w-16 h-16 rounded-full object-cover shrink-0"
           />
@@ -415,7 +415,7 @@ export default function EventDetailPage() {
 
   const regStatus = getRegistrationStatus(event);
   const statusInfo = statusConfig[event.status];
-  const coverImage = event.imageUrl ? processImageUrl(event.imageUrl, 'large') : null;
+  const coverImage = event.imageUrl ? processImageUrl(event.imageUrl, 'event-cover') : null;
 
   return (
     <Layout>
