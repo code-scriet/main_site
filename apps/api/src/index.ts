@@ -17,6 +17,7 @@ import { usersRouter } from './routes/users.js';
 import { statsRouter } from './routes/stats.js';
 import { settingsRouter } from './routes/settings.js';
 import { hiringRouter } from './routes/hiring.js';
+import { uploadRouter } from './routes/upload.js';
 import { setupPassport } from './config/passport.js';
 import { requestLogger, logger } from './utils/logger.js';
 import { ApiResponse, ErrorCodes } from './utils/response.js';
@@ -97,6 +98,20 @@ const authLimiter = rateLimit({
 setupPassport(passport);
 app.use(passport.initialize());
 
+// Root endpoint
+app.get('/', (req, res) => {
+  res.json({
+    success: true,
+    message: 'CodeScriet API Server',
+    version: '1.0.0',
+    endpoints: {
+      health: '/health',
+      api: '/api',
+      docs: 'https://github.com/codescriet/club-platform',
+    },
+  });
+});
+
 // Health check with detailed status
 app.get('/health', (req, res) => {
   res.json({ 
@@ -124,6 +139,7 @@ app.use('/api/users', usersRouter);
 app.use('/api/stats', statsRouter);
 app.use('/api/settings', settingsRouter);
 app.use('/api/hiring', hiringRouter);
+app.use('/api/upload', uploadRouter);
 
 // 404 handler
 app.use((req, res) => {

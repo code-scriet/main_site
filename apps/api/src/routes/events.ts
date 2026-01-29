@@ -5,6 +5,7 @@ import { requireRole } from '../middleware/role.js';
 import { auditLog } from '../utils/audit.js';
 import { EventStatus } from '@prisma/client';
 import { updateEventStatuses } from '../utils/eventStatus.js';
+import { generateSlug, generateUniqueSlug } from '../utils/slug.js';
 
 export const eventsRouter = Router();
 
@@ -82,8 +83,16 @@ eventsRouter.get('/:id', optionalAuthMiddleware, async (req: Request, res: Respo
   try {
     // Ideally we update status for just this event, but the bulk utility is fast enough
     await updateEventStatuses();
-    const event = await prisma.event.findUnique({
-      where: { id: req.params.id },
+    
+    // Support both ID and slug lookup
+    const idOrSlug = req.params.id;
+    const event = await prisma.event.findFirst({
+      where: {
+        OR: [
+          { id: idOrSlug },
+          { slug: idOrSlug }
+        ]
+      },
       include: { _count: { select: { registrations: true } } },
     });
 
@@ -124,9 +133,15 @@ eventsRouter.post('/', authMiddleware, requireRole('CORE_MEMBER'), async (req: R
     const authUser = getAuthUser(req)!;
     const data = req.body;
 
+    // Generate slug from title
+    const baseSlug = generateSlug(data.title);
+    const existingSlugs = (await prisma.event.findMany({ select: { slug: true } })).map(e => e.slug);
+    const slug = generateUniqueSlug(baseSlug, existingSlugs);
+
     const event = await prisma.event.create({
       data: {
         title: data.title,
+        slug,
         description: data.description,
         startDate: new Date(data.startDate),
         endDate: data.endDate ? new Date(data.endDate) : null,
@@ -140,6 +155,19 @@ eventsRouter.post('/', authMiddleware, requireRole('CORE_MEMBER'), async (req: R
         imageUrl: data.imageUrl || null,
         status: data.status || 'UPCOMING',
         createdBy: authUser.id,
+        // Extended event fields
+        shortDescription: data.shortDescription || null,
+        agenda: data.agenda || null,
+        highlights: data.highlights || null,
+        learningOutcomes: data.learningOutcomes || null,
+        targetAudience: data.targetAudience || null,
+        speakers: data.speakers || null,
+        resources: data.resources || null,
+        faqs: data.faqs || null,
+        imageGallery: data.imageGallery || null,
+        videoUrl: data.videoUrl || null,
+        tags: data.tags || [],
+        featured: data.featured || false,
       },
     });
 
@@ -155,10 +183,23 @@ eventsRouter.put('/:id', authMiddleware, requireRole('CORE_MEMBER'), async (req:
     const authUser = getAuthUser(req)!;
     const data = req.body;
 
+    // If title changed, regenerate slug
+    let slugUpdate = {};
+    if (data.title) {
+      const baseSlug = generateSlug(data.title);
+      const existingSlugs = (await prisma.event.findMany({ 
+        where: { id: { not: req.params.id } },
+        select: { slug: true } 
+      })).map(e => e.slug);
+      const newSlug = generateUniqueSlug(baseSlug, existingSlugs);
+      slugUpdate = { slug: newSlug };
+    }
+
     const event = await prisma.event.update({
       where: { id: req.params.id },
       data: {
         ...(data.title && { title: data.title }),
+        ...slugUpdate,
         ...(data.description && { description: data.description }),
         ...(data.startDate && { startDate: new Date(data.startDate) }),
         ...(data.endDate !== undefined && { endDate: data.endDate ? new Date(data.endDate) : null }),
@@ -171,6 +212,19 @@ eventsRouter.put('/:id', authMiddleware, requireRole('CORE_MEMBER'), async (req:
         ...(data.capacity !== undefined && { capacity: data.capacity ? parseInt(data.capacity) : null }),
         ...(data.imageUrl !== undefined && { imageUrl: data.imageUrl }),
         ...(data.status && { status: data.status }),
+        // Extended event fields
+        ...(data.shortDescription !== undefined && { shortDescription: data.shortDescription }),
+        ...(data.agenda !== undefined && { agenda: data.agenda }),
+        ...(data.highlights !== undefined && { highlights: data.highlights }),
+        ...(data.learningOutcomes !== undefined && { learningOutcomes: data.learningOutcomes }),
+        ...(data.targetAudience !== undefined && { targetAudience: data.targetAudience }),
+        ...(data.speakers !== undefined && { speakers: data.speakers }),
+        ...(data.resources !== undefined && { resources: data.resources }),
+        ...(data.faqs !== undefined && { faqs: data.faqs }),
+        ...(data.imageGallery !== undefined && { imageGallery: data.imageGallery }),
+        ...(data.videoUrl !== undefined && { videoUrl: data.videoUrl }),
+        ...(data.tags !== undefined && { tags: data.tags }),
+        ...(data.featured !== undefined && { featured: data.featured }),
       },
     });
 
