@@ -20,12 +20,38 @@ registrationsRouter.post('/events/:eventId', authMiddleware, async (req: Request
       return res.status(404).json({ success: false, error: { message: 'Event not found' } });
     }
 
+    // Cannot register for past events
+    if (event.status === 'PAST') {
+      return res.status(400).json({ success: false, error: { message: 'Cannot register for a past event' } });
+    }
+
     const now = new Date();
     if (event.registrationStartDate && now < event.registrationStartDate) {
       return res.status(400).json({ success: false, error: { message: 'Registration has not started yet' } });
     }
 
-    if (event.registrationEndDate && now > event.registrationEndDate) {
+    // Check if registration has ended
+    // If allowLateRegistration is enabled, registration can extend past event start
+    // Otherwise, registration closes at either registrationEndDate or event start, whichever is earlier
+    const eventStart = new Date(event.startDate);
+    let registrationClosed = false;
+    
+    if (event.allowLateRegistration) {
+      // Late registration allowed: only check registrationEndDate
+      if (event.registrationEndDate && now > event.registrationEndDate) {
+        registrationClosed = true;
+      }
+    } else {
+      // Standard behavior: registration closes at registrationEndDate or event start
+      const effectiveEndDate = event.registrationEndDate 
+        ? new Date(event.registrationEndDate) 
+        : eventStart;
+      if (now > effectiveEndDate) {
+        registrationClosed = true;
+      }
+    }
+    
+    if (registrationClosed) {
       return res.status(400).json({ success: false, error: { message: 'Registration has ended' } });
     }
 

@@ -140,6 +140,7 @@ export interface Event {
   videoUrl?: string;
   tags?: string[];
   featured?: boolean;
+  allowLateRegistration?: boolean;
 }
 
 export interface Registration {

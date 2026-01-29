@@ -121,6 +121,7 @@ export default function EditEvent() {
     targetAudience: '',
     videoUrl: '',
     featured: false,
+    allowLateRegistration: false,
   });
   
   // Array fields
@@ -167,6 +168,7 @@ export default function EditEvent() {
         targetAudience: event.targetAudience || '',
         videoUrl: event.videoUrl || '',
         featured: event.featured || false,
+        allowLateRegistration: event.allowLateRegistration || false,
       });
       
       // Load array fields
@@ -284,7 +286,8 @@ export default function EditEvent() {
       return;
     }
 
-    if (regEndDate && regEndDate > startDate) {
+    // Only validate registration closing before event start if late registration is NOT allowed
+    if (!form.allowLateRegistration && regEndDate && regEndDate > startDate) {
       setError('Registration should close before or when the event starts');
       return;
     }
@@ -321,6 +324,7 @@ export default function EditEvent() {
         targetAudience: form.targetAudience.trim() || undefined,
         videoUrl: form.videoUrl.trim() || undefined,
         featured: form.featured,
+        allowLateRegistration: form.allowLateRegistration,
         // Array fields
         speakers: validSpeakers.length > 0 ? validSpeakers : undefined,
         resources: validResources.length > 0 ? validResources : undefined,
@@ -538,6 +542,29 @@ export default function EditEvent() {
                   onChange={handleChange}
                 />
               </div>
+            </div>
+            
+            {/* Late Registration Toggle */}
+            <div className="flex items-center justify-between rounded-lg border border-amber-200 bg-amber-100/50 p-4">
+              <div className="space-y-0.5">
+                <label htmlFor="allowLateRegistration" className="text-sm font-medium text-gray-700">
+                  Allow Late Registration
+                </label>
+                <p className="text-xs text-gray-500">
+                  Let users register even after the event has started
+                </p>
+              </div>
+              <label className="relative inline-flex cursor-pointer items-center">
+                <input
+                  type="checkbox"
+                  name="allowLateRegistration"
+                  id="allowLateRegistration"
+                  checked={form.allowLateRegistration}
+                  onChange={handleChange}
+                  className="peer sr-only"
+                />
+                <div className="peer h-6 w-11 rounded-full bg-gray-200 after:absolute after:left-[2px] after:top-[2px] after:h-5 after:w-5 after:rounded-full after:border after:border-gray-300 after:bg-white after:transition-all after:content-[''] peer-checked:bg-amber-500 peer-checked:after:translate-x-full peer-checked:after:border-white peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-amber-300"></div>
+              </label>
             </div>
           </CardContent>
         </Card>

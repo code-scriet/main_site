@@ -63,8 +63,22 @@ function getRegistrationStatus(event: Event): {
     };
   }
 
-  if (regEnd && now > regEnd) {
-    return { status: 'closed', message: 'Registration closed', canRegister: false };
+  // If late registration is allowed, check if we're still within the extended window
+  if (event.allowLateRegistration) {
+    // When late registration is allowed, registration stays open even during the event
+    // until the registration end date (which can be during/after event start)
+    if (regEnd && now > regEnd) {
+      return { status: 'closed', message: 'Registration closed', canRegister: false };
+    }
+    // Event is ONGOING but late registration is allowed
+    if (event.status === 'ONGOING') {
+      return { status: 'open', message: 'Late registration open', canRegister: true };
+    }
+  } else {
+    // Standard behavior: registration closes when reg end date passes
+    if (regEnd && now > regEnd) {
+      return { status: 'closed', message: 'Registration closed', canRegister: false };
+    }
   }
 
   return { status: 'open', message: 'Registration open', canRegister: true };

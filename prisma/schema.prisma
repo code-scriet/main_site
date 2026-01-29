@@ -121,6 +121,7 @@ model Event {
   // Registration timeline
   registrationStartDate DateTime?    @map("registration_start_date")
   registrationEndDate   DateTime?    @map("registration_end_date")
+  allowLateRegistration Boolean      @default(false) @map("allow_late_registration") // Allow registration after event starts
   
   // Event details
   location              String?

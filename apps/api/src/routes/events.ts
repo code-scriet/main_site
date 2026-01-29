@@ -168,6 +168,7 @@ eventsRouter.post('/', authMiddleware, requireRole('CORE_MEMBER'), async (req: R
         videoUrl: data.videoUrl || null,
         tags: data.tags || [],
         featured: data.featured || false,
+        allowLateRegistration: data.allowLateRegistration || false,
       },
     });
 
@@ -225,6 +226,7 @@ eventsRouter.put('/:id', authMiddleware, requireRole('CORE_MEMBER'), async (req:
         ...(data.videoUrl !== undefined && { videoUrl: data.videoUrl }),
         ...(data.tags !== undefined && { tags: data.tags }),
         ...(data.featured !== undefined && { featured: data.featured }),
+        ...(data.allowLateRegistration !== undefined && { allowLateRegistration: data.allowLateRegistration }),
       },
     });
 
