@@ -26,6 +26,7 @@ import CreateEvent from '@/pages/dashboard/CreateEvent';
 import CreateAnnouncement from '@/pages/dashboard/CreateAnnouncement';
 import CreateQOTD from '@/pages/dashboard/CreateQOTD';
 import ProfilePage from '@/pages/dashboard/ProfilePage';
+import ImageUploadTool from '@/pages/dashboard/ImageUploadTool';
 
 // Admin Pages
 import AdminUsers from '@/pages/admin/AdminUsers';
@@ -79,6 +80,7 @@ function App() {
                 <Route path="events/new" element={<CreateEvent />} />
                 <Route path="announcements/new" element={<CreateAnnouncement />} />
                 <Route path="qotd" element={<CreateQOTD />} />
+                <Route path="upload" element={<ImageUploadTool />} />
                 <Route path="profile" element={<ProfilePage />} />
               </Route>
             </Route>

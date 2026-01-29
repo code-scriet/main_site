@@ -488,11 +488,93 @@ export default function EventDetailPage() {
       </section>
 
       {/* Main Content */}
-      <section className="py-8 md:py-12 bg-amber-50">
+      <section className="py-6 sm:py-8 md:py-12 bg-amber-50">
         <div className="container mx-auto px-4">
-          <div className="grid lg:grid-cols-3 gap-8">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 lg:gap-8">
+            {/* Mobile: Registration Card First */}
+            <div className="lg:hidden">
+              <Card className="border-amber-200 shadow-lg">
+                <CardHeader className="bg-gradient-to-r from-amber-500 to-orange-500 text-white rounded-t-lg py-3">
+                  <CardTitle className="text-center text-lg">Register Now</CardTitle>
+                </CardHeader>
+                <CardContent className="p-4 space-y-3">
+                  {/* Registration Status */}
+                  <div className={`flex items-center gap-2 text-sm px-3 py-2 rounded-lg ${
+                    regStatus.status === 'open' ? 'bg-green-50 text-green-700 border border-green-200' :
+                    regStatus.status === 'not_started' ? 'bg-blue-50 text-blue-700 border border-blue-200' :
+                    'bg-gray-100 text-gray-600 border border-gray-200'
+                  }`}>
+                    <Clock className="h-4 w-4 shrink-0" />
+                    <span className="text-xs sm:text-sm">{regStatus.message}</span>
+                  </div>
+
+                  {/* Spots Remaining - inline on mobile */}
+                  {event.capacity && (
+                    <div className="flex items-center justify-between gap-4">
+                      <div className="flex items-center gap-2">
+                        <span className="text-xl font-bold text-amber-600">
+                          {Math.max(0, event.capacity - (event._count?.registrations || 0))}
+                        </span>
+                        <span className="text-sm text-gray-500">spots left</span>
+                      </div>
+                      <div className="flex-1 h-2 bg-gray-200 rounded-full overflow-hidden max-w-[120px]">
+                        <div 
+                          className="h-full bg-amber-500 transition-all"
+                          style={{ 
+                            width: `${Math.min(100, ((event._count?.registrations || 0) / event.capacity) * 100)}%` 
+                          }}
+                        />
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Register Button */}
+                  {event.status !== 'PAST' && regStatus.canRegister ? (
+                    isRegistered ? (
+                      <Button 
+                        variant="secondary" 
+                        className="w-full bg-green-50 text-green-700 border border-green-200 cursor-default" 
+                        disabled
+                      >
+                        <CheckCircle className="h-4 w-4 mr-2" />
+                        You're Registered!
+                      </Button>
+                    ) : user ? (
+                      <Button 
+                        className="w-full bg-amber-600 hover:bg-amber-700 text-white" 
+                        onClick={handleRegister}
+                        disabled={registering}
+                      >
+                        {registering ? (
+                          <>
+                            <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                            Registering...
+                          </>
+                        ) : (
+                          'Register for This Event'
+                        )}
+                      </Button>
+                    ) : (
+                      <Button 
+                        className="w-full" 
+                        variant="outline"
+                        onClick={() => navigate('/signin', { state: { from: `/events/${event.slug}` } })}
+                      >
+                        <LogIn className="h-4 w-4 mr-2" />
+                        Sign In to Register
+                      </Button>
+                    )
+                  ) : (
+                    <Button variant="outline" className="w-full" disabled>
+                      {event.status === 'PAST' ? 'Event Completed' : regStatus.message}
+                    </Button>
+                  )}
+                </CardContent>
+              </Card>
+            </div>
+
             {/* Left Column - Main Content */}
-            <div className="lg:col-span-2 space-y-8">
+            <div className="lg:col-span-2 space-y-6 lg:space-y-8">
               {/* Quick Info Bar */}
               <Card className="border-amber-200">
                 <CardContent className="p-3 sm:p-4">
@@ -712,8 +794,8 @@ export default function EventDetailPage() {
               )}
             </div>
 
-            {/* Right Column - Sticky Sidebar */}
-            <div className="lg:col-span-1">
+            {/* Right Column - Sticky Sidebar (Desktop only) */}
+            <div className="hidden lg:block lg:col-span-1">
               <div className="sticky top-24 space-y-6">
                 {/* Registration Card */}
                 <Card className="border-amber-200 shadow-lg">

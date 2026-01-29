@@ -18,6 +18,7 @@ import {
   Code,
   UserPlus,
   User,
+  Upload,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -25,6 +26,7 @@ const coreMemberNavItems = [
   { name: 'Create Event', href: '/dashboard/events/new', icon: Calendar },
   { name: 'Create Announcement', href: '/dashboard/announcements/new', icon: Bell },
   { name: 'Manage QOTD', href: '/dashboard/qotd', icon: Code },
+  { name: 'Upload Image', href: '/dashboard/upload', icon: Upload },
 ];
 
 // Admin nav items - Hiring will be conditionally added based on settings
