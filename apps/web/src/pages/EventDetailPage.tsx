@@ -415,7 +415,7 @@ export default function EventDetailPage() {
 
   const regStatus = getRegistrationStatus(event);
   const statusInfo = statusConfig[event.status];
-  const coverImage = event.imageUrl ? processImageUrl(event.imageUrl, 'original') : null;
+  const coverImage = event.imageUrl ? processImageUrl(event.imageUrl, 'large') : null;
 
   return (
     <Layout>

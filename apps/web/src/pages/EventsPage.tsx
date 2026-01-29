@@ -334,12 +334,12 @@ export default function EventsPage() {
                             <span>{regStatus.message}</span>
                           </div>
 
-                          <div className="pt-2 flex gap-2">
+                          <div className="pt-2 flex flex-col gap-2">
                             {event.status !== 'PAST' && regStatus.canRegister ? (
                               registeredEventIds.has(event.id) ? (
                                 <Button 
                                   variant="secondary" 
-                                  className="flex-1 bg-green-50 text-green-700 border border-green-200 opacity-100 cursor-default" 
+                                  className="w-full bg-green-50 text-green-700 border border-green-200 opacity-100 cursor-default" 
                                   disabled
                                   onClick={(e) => e.preventDefault()}
                                 >
@@ -348,7 +348,7 @@ export default function EventsPage() {
                                 </Button>
                               ) : user ? (
                                 <Button 
-                                  className="flex-1 bg-amber-600 hover:bg-amber-700" 
+                                  className="w-full bg-amber-600 hover:bg-amber-700" 
                                   onClick={(e) => {
                                     e.preventDefault();
                                     handleRegister(event);
@@ -366,7 +366,7 @@ export default function EventsPage() {
                                 </Button>
                               ) : (
                                 <Button 
-                                  className="flex-1" 
+                                  className="w-full" 
                                   variant="outline"
                                   onClick={(e) => {
                                     e.preventDefault();
@@ -378,19 +378,19 @@ export default function EventsPage() {
                                 </Button>
                               )
                             ) : event.status === 'ONGOING' ? (
-                              <Button variant="secondary" className="flex-1" disabled onClick={(e) => e.preventDefault()}>
+                              <Button variant="secondary" className="w-full" disabled onClick={(e) => e.preventDefault()}>
                                 Event in Progress
                               </Button>
                             ) : (
-                              <Button variant="outline" className="flex-1" disabled onClick={(e) => e.preventDefault()}>
+                              <Button variant="outline" className="w-full" disabled onClick={(e) => e.preventDefault()}>
                                 {regStatus.message}
                               </Button>
                             )}
                             <Button 
                               variant="outline" 
-                              className="shrink-0"
+                              className="w-full"
                             >
-                              View
+                              View Details
                               <ArrowRight className="h-4 w-4 ml-2" />
                             </Button>
                           </div>

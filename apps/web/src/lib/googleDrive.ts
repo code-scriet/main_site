@@ -39,10 +39,36 @@ export function isGoogleDriveUrl(url: string): boolean {
 }
 
 /**
- * Processes an image URL - converts Google Drive links to direct URLs,
- * passes through other URLs unchanged (Imgur, imgbb, Cloudinary, etc.)
+ * Adds Cloudinary transformations to optimize image size
  */
-export function processImageUrl(url: string, _size?: 'thumbnail' | 'medium' | 'large' | 'original'): string {
+function addCloudinaryTransformations(url: string, size?: 'thumbnail' | 'medium' | 'large' | 'original'): string {
+  // Check if it's a Cloudinary URL
+  if (!url.includes('cloudinary.com')) return url;
+  
+  // Define transformations based on size
+  const transformations = {
+    thumbnail: 'c_fill,w_400,h_300,q_auto,f_auto',
+    medium: 'c_fill,w_800,h_600,q_auto,f_auto',
+    large: 'c_limit,w_1920,q_auto,f_auto',
+    original: 'q_auto,f_auto'
+  };
+  
+  const transform = transformations[size || 'medium'];
+  
+  // Split URL at /upload/ and insert transformation
+  const parts = url.split('/upload/');
+  if (parts.length === 2) {
+    return `${parts[0]}/upload/${transform}/${parts[1]}`;
+  }
+  
+  return url;
+}
+
+/**
+ * Processes an image URL - converts Google Drive links to direct URLs,
+ * adds Cloudinary transformations, or passes through other URLs unchanged
+ */
+export function processImageUrl(url: string, size?: 'thumbnail' | 'medium' | 'large' | 'original'): string {
   if (!url) return '';
   
   // If it's a Google Drive URL, convert it
@@ -53,7 +79,12 @@ export function processImageUrl(url: string, _size?: 'thumbnail' | 'medium' | 'l
     }
   }
   
-  // Return URL as-is for all other sources (Imgur, imgbb, Cloudinary, etc.)
+  // Add Cloudinary transformations if applicable
+  if (url.includes('cloudinary.com')) {
+    return addCloudinaryTransformations(url, size);
+  }
+  
+  // Return URL as-is for all other sources (Imgur, imgbb, etc.)
   return url;
 }
 
