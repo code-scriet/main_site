@@ -3,6 +3,7 @@ import { Layout } from '@/components/layout/Layout';
 import { SEO } from '@/components/SEO';
 import { motion } from 'framer-motion';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Markdown } from '@/components/ui/markdown';
 import { Bell, Calendar, AlertCircle, Info, AlertTriangle, Megaphone } from 'lucide-react';
 import { api } from '@/lib/api';
 import type { Announcement } from '@/lib/api';
@@ -185,9 +186,9 @@ export default function AnnouncementsPage() {
                       </CardTitle>
                     </CardHeader>
                     <CardContent>
-                      <p className="text-gray-600 leading-relaxed whitespace-pre-wrap">
-                        {announcement.body}
-                      </p>
+                      <div className="text-gray-600 leading-relaxed line-clamp-4">
+                        <Markdown>{announcement.body}</Markdown>
+                      </div>
                       {announcement.creator && (
                         <div className="mt-4 pt-4 border-t border-amber-100">
                           <p className="text-sm text-gray-500">

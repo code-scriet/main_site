@@ -4,6 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Markdown } from '@/components/ui/markdown';
 import { useAuth } from '@/context/AuthContext';
 import { api } from '@/lib/api';
 import type { Announcement } from '@/lib/api';
@@ -273,7 +274,9 @@ export default function DashboardAnnouncements() {
                           )}
                         </div>
                       </div>
-                      <p className="text-gray-700 mb-4 whitespace-pre-line">{announcement.body}</p>
+                      <div className="text-gray-700 mb-4">
+                        <Markdown>{announcement.body}</Markdown>
+                      </div>
                       <div className="flex flex-wrap items-center gap-4 text-sm text-gray-500">
                         {announcement.creator && (
                           <span className="flex items-center gap-1">

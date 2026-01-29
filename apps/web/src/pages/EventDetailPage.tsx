@@ -6,6 +6,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Markdown } from '@/components/ui/markdown';
 import { 
   Calendar, MapPin, Users, Loader2, Clock, AlertCircle, CheckCircle, 
   LogIn, ArrowLeft, Target, BookOpen, User, ExternalLink, ChevronDown,
@@ -67,42 +68,6 @@ function getRegistrationStatus(event: Event): {
   }
 
   return { status: 'open', message: 'Registration open', canRegister: true };
-}
-
-// Markdown-like text renderer for descriptions
-function RenderMarkdownText({ text }: { text: string }) {
-  // Simple markdown rendering for line breaks and basic formatting
-  const lines = text.split('\n');
-  return (
-    <div className="space-y-2">
-      {lines.map((line, i) => {
-        if (line.startsWith('# ')) {
-          return <h3 key={i} className="text-lg font-bold text-gray-900 mt-4">{line.slice(2)}</h3>;
-        }
-        if (line.startsWith('## ')) {
-          return <h4 key={i} className="text-base font-semibold text-gray-800 mt-3">{line.slice(3)}</h4>;
-        }
-        if (line.startsWith('- ') || line.startsWith('* ')) {
-          return (
-            <li key={i} className="ml-4 text-gray-700 list-disc">
-              {line.slice(2)}
-            </li>
-          );
-        }
-        if (line.match(/^\d+\. /)) {
-          return (
-            <li key={i} className="ml-4 text-gray-700 list-decimal">
-              {line.replace(/^\d+\. /, '')}
-            </li>
-          );
-        }
-        if (line.trim() === '') {
-          return <br key={i} />;
-        }
-        return <p key={i} className="text-gray-700">{line}</p>;
-      })}
-    </div>
-  );
 }
 
 // Image Gallery Component with Lightbox
@@ -591,7 +556,7 @@ export default function EventDetailPage() {
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <RenderMarkdownText text={event.description} />
+                  <Markdown>{event.description}</Markdown>
                 </CardContent>
               </Card>
 
@@ -605,7 +570,7 @@ export default function EventDetailPage() {
                     </CardTitle>
                   </CardHeader>
                   <CardContent>
-                    <RenderMarkdownText text={event.highlights} />
+                    <Markdown>{event.highlights}</Markdown>
                   </CardContent>
                 </Card>
               )}
@@ -620,7 +585,7 @@ export default function EventDetailPage() {
                     </CardTitle>
                   </CardHeader>
                   <CardContent>
-                    <RenderMarkdownText text={event.agenda} />
+                    <Markdown>{event.agenda}</Markdown>
                   </CardContent>
                 </Card>
               )}
@@ -635,7 +600,7 @@ export default function EventDetailPage() {
                     </CardTitle>
                   </CardHeader>
                   <CardContent>
-                    <RenderMarkdownText text={event.learningOutcomes} />
+                    <Markdown>{event.learningOutcomes}</Markdown>
                   </CardContent>
                 </Card>
               )}

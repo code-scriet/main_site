@@ -6,25 +6,27 @@
  * Also supports Google Drive share links (converts to direct URL).
  * 
  * Cloudinary transformations automatically handle aspect ratios:
- * - cover: Wide images for hero/banner sections (16:9)
- * - card: Card thumbnails (4:3 or square depending on context)
+ * - cover: Wide images for hero/banner sections
+ * - card: Card thumbnails with center focus
  * - square: Perfect squares for avatars/profile pics
  * - gallery: Gallery images with preserved aspect ratio
  * - thumbnail/medium/large: General purpose with smart cropping
+ * - fit: Fit entire image within bounds (no cropping, may letterbox)
  */
 
 // Image preset types for different contexts
 export type ImagePreset = 
-  | 'thumbnail'   // Small preview, 4:3 aspect
-  | 'medium'      // Medium size, 4:3 aspect  
+  | 'thumbnail'   // Small preview, filled
+  | 'medium'      // Medium size, filled
   | 'large'       // Large, preserves aspect
   | 'original'    // No resize, just optimize
-  | 'cover'       // Wide banner/hero (16:9)
-  | 'card'        // Card thumbnail (4:3)
+  | 'cover'       // Wide banner/hero
+  | 'card'        // Card thumbnail, filled
   | 'square'      // Square for avatars (1:1)
   | 'gallery'     // Gallery images, fit within bounds
-  | 'event-cover' // Event page cover (2:1)
-  | 'team-avatar'; // Team member avatars (1:1, circular friendly)
+  | 'event-cover' // Event page cover, wide
+  | 'team-avatar' // Team member avatars (1:1, face detection)
+  | 'fit';        // Fit entire image, no crop (may letterbox)
 
 /**
  * Extracts the file ID from Google Drive URL formats
@@ -83,18 +85,22 @@ function addCloudinaryTransformations(url: string, preset?: ImagePreset): string
   
   // Define transformations based on preset
   // c_fill = crop to fill exact dimensions (may crop edges)
+  // c_lfill = limit fill - scales and crops to fill, focuses on center
   // c_fit = fit within dimensions (may have letterboxing)
   // c_limit = limit to max dimensions, preserve aspect ratio
   // c_pad = pad to exact dimensions with background
+  // c_scale = scale to exact dimensions (may distort)
   // g_auto = smart gravity (auto-detect focus point)
+  // g_center = center gravity
   // f_auto = auto format (webp for supported browsers)
   // q_auto = auto quality optimization
+  // b_auto = auto background color for padding
   const transformations: Record<ImagePreset, string> = {
-    // Small preview with smart cropping, 4:3 aspect ratio
-    thumbnail: 'c_fill,g_auto,ar_4:3,w_400,q_auto,f_auto',
+    // Small preview - fill container, auto-focus
+    thumbnail: 'c_fill,g_auto,w_400,h_300,q_auto,f_auto',
     
-    // Medium size with smart cropping, 4:3 aspect ratio
-    medium: 'c_fill,g_auto,ar_4:3,w_800,q_auto,f_auto',
+    // Medium size - fill container, auto-focus  
+    medium: 'c_fill,g_auto,w_800,h_600,q_auto,f_auto',
     
     // Large size, preserves original aspect ratio
     large: 'c_limit,w_1920,q_auto,f_auto',
@@ -102,23 +108,27 @@ function addCloudinaryTransformations(url: string, preset?: ImagePreset): string
     // Original size, just optimize format and quality
     original: 'q_auto,f_auto',
     
-    // Wide banner/hero images (16:9 aspect ratio)
-    cover: 'c_fill,g_auto,ar_16:9,w_1920,q_auto,f_auto',
+    // Wide banner/hero images - fill width, limit height, center focus
+    cover: 'c_fill,g_center,w_1920,h_600,q_auto,f_auto',
     
-    // Card thumbnails (4:3 aspect ratio, medium width)
-    card: 'c_fill,g_auto,ar_4:3,w_600,q_auto,f_auto',
+    // Card thumbnails - fill with center focus for consistent cards
+    card: 'c_fill,g_center,w_600,h_400,q_auto,f_auto',
     
-    // Square images for avatars (1:1 aspect ratio)
-    square: 'c_fill,g_auto,ar_1:1,w_400,q_auto,f_auto',
+    // Square images for avatars
+    square: 'c_fill,g_center,w_400,h_400,q_auto,f_auto',
     
     // Gallery images - fit within bounds, preserve aspect
     gallery: 'c_limit,w_1200,h_900,q_auto,f_auto',
     
-    // Event page cover (wider 2:1 aspect ratio)
-    'event-cover': 'c_fill,g_auto,ar_2:1,w_1600,q_auto,f_auto',
+    // Event page cover - wide hero with center focus
+    'event-cover': 'c_fill,g_center,w_1600,h_800,q_auto,f_auto',
     
-    // Team member avatars (1:1, optimized for circular display)
-    'team-avatar': 'c_fill,g_auto:face,ar_1:1,w_300,q_auto,f_auto',
+    // Team member avatars (face detection for people)
+    'team-avatar': 'c_fill,g_auto:face,w_300,h_300,q_auto,f_auto',
+    
+    // Fit entire image within bounds, no cropping (may have letterboxing)
+    // Useful for logos or images where you don't want any cropping
+    'fit': 'c_pad,b_auto,w_800,h_600,q_auto,f_auto',
   };
   
   const transform = transformations[preset || 'medium'];
