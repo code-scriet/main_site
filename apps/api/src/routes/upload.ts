@@ -84,6 +84,7 @@ uploadRouter.post(
           }
 
           // Return the Cloudinary URL
+          res.status(201);
           ApiResponse.success(res, {
             url: result.secure_url,
             publicId: result.public_id,
@@ -91,10 +92,7 @@ uploadRouter.post(
             height: result.height,
             format: result.format,
             uploadedBy: authUser.id,
-          }, {
-            message: 'Image uploaded successfully',
-            status: 201,
-          });
+          }, 'Image uploaded successfully');
         }
       );
 
@@ -135,7 +133,7 @@ uploadRouter.delete(
       const result = await cloudinary.uploader.destroy(publicId);
 
       if (result.result === 'ok') {
-        ApiResponse.success(res, { deleted: true }, { message: 'Image deleted successfully' });
+        ApiResponse.success(res, { deleted: true }, 'Image deleted successfully');
       } else {
         ApiResponse.error(res, {
           code: ErrorCodes.NOT_FOUND,
