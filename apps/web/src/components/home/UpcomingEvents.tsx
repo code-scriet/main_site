@@ -101,16 +101,16 @@ export function UpcomingEvents() {
               <span className="text-sm font-medium">Don't Miss Out</span>
             </motion.div>
             
-            <h2 className="text-4xl md:text-5xl font-bold text-gray-900 mb-3">
+            <h2 className="text-2xl sm:text-4xl md:text-5xl font-bold text-gray-900 mb-2 sm:mb-3">
               Upcoming{' '}
               <span className="text-transparent bg-clip-text bg-gradient-to-r from-orange-500 to-amber-600">
                 Events
               </span>
             </h2>
-            <p className="text-gray-600 text-lg">Join us for exciting workshops, hackathons, and learning sessions</p>
+            <p className="text-gray-600 text-sm sm:text-lg">Join us for exciting workshops, hackathons, and learning sessions</p>
           </div>
           
-          <Link to="/events">
+          <Link to="/events" className="hidden sm:block">
             <Button variant="outline" size="lg" className="group border-gray-300 hover:border-amber-500 hover:bg-amber-50">
               View All Events
               <ArrowRight className="ml-2 h-4 w-4 group-hover:translate-x-1 transition-transform" />
@@ -136,7 +136,7 @@ export function UpcomingEvents() {
             <p className="text-gray-500">Check back soon for exciting new events!</p>
           </motion.div>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6 lg:gap-8">
             {events.map((event, index) => {
               const regStatus = getRegistrationStatus(event);
               const isRegistered = registeredEventIds.has(event.id);

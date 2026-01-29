@@ -53,7 +53,7 @@ export default function AchievementsPage() {
       />
       
       {/* Hero Section */}
-      <section className="py-20 bg-gradient-to-br from-amber-400 via-orange-500 to-amber-900 text-white relative overflow-hidden">
+      <section className="py-12 sm:py-20 bg-gradient-to-br from-amber-400 via-orange-500 to-amber-900 text-white relative overflow-hidden">
         <div className="absolute inset-0 opacity-10">
           <div className="absolute top-20 left-20 w-64 h-64 bg-white rounded-full blur-3xl" />
           <div className="absolute bottom-20 right-20 w-80 h-80 bg-white rounded-full blur-3xl" />
@@ -65,19 +65,19 @@ export default function AchievementsPage() {
             transition={{ duration: 0.6 }}
             className="text-center max-w-4xl mx-auto"
           >
-            <div className="inline-flex h-20 w-20 items-center justify-center rounded-full bg-white/20 backdrop-blur-sm mb-6">
-              <Trophy className="h-10 w-10 text-white" />
+            <div className="inline-flex h-14 w-14 sm:h-20 sm:w-20 items-center justify-center rounded-full bg-white/20 backdrop-blur-sm mb-4 sm:mb-6">
+              <Trophy className="h-7 w-7 sm:h-10 sm:w-10 text-white" />
             </div>
-            <h1 className="text-5xl md:text-6xl font-bold mb-6">Achievements & Momentum</h1>
-            <p className="text-2xl text-amber-50 font-semibold mb-4">Code.Scriet — Built Different.</p>
-            <div className="max-w-2xl mx-auto">
-              <p className="text-lg text-amber-50 mb-4">
+            <h1 className="text-3xl sm:text-5xl md:text-6xl font-bold mb-4 sm:mb-6">Achievements & Momentum</h1>
+            <p className="text-lg sm:text-2xl text-amber-50 font-semibold mb-3 sm:mb-4">Code.Scriet — Built Different.</p>
+            <div className="max-w-2xl mx-auto px-2">
+              <p className="text-base sm:text-lg text-amber-50 mb-3 sm:mb-4">
                 Code.Scriet was founded with one belief:
               </p>
-              <blockquote className="text-xl italic text-white font-medium  pl-4 mb-4">
+              <blockquote className="text-base sm:text-xl italic text-white font-medium pl-3 sm:pl-4 mb-3 sm:mb-4">
                 "Students don't need more clubs. They need ecosystems."
               </blockquote>
-              <p className="text-amber-50">
+              <p className="text-sm sm:text-base text-amber-50">
                 In just three months, we've moved fast—building skills, confidence, leadership, and a culture that puts students first. Aggressively first.
               </p>
             </div>
@@ -86,17 +86,17 @@ export default function AchievementsPage() {
       </section>
 
       {/* Early Impact Stats */}
-      <section className="py-16 bg-white">
+      <section className="py-10 sm:py-16 bg-white">
         <div className="container mx-auto px-4">
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             whileInView={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.6 }}
             viewport={{ once: true }}
-            className="text-center mb-12"
+            className="text-center mb-8 sm:mb-12"
           >
-            <h2 className="text-4xl font-bold text-amber-900 mb-4">Early Impact, Real Momentum</h2>
-            <p className="text-gray-600 text-lg max-w-2xl mx-auto">
+            <h2 className="text-2xl sm:text-4xl font-bold text-amber-900 mb-3 sm:mb-4">Early Impact, Real Momentum</h2>
+            <p className="text-gray-600 text-base sm:text-lg max-w-2xl mx-auto px-2">
               We're young. But we're not idle.
             </p>
           </motion.div>

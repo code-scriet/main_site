@@ -77,8 +77,9 @@ export function Header() {
 
           {/* Mobile Menu Button */}
           <button
-            className="md:hidden p-2"
+            className="md:hidden p-2.5 rounded-lg hover:bg-amber-50 active:bg-amber-100 transition-colors touch-target"
             onClick={() => setIsMenuOpen(!isMenuOpen)}
+            aria-label={isMenuOpen ? 'Close menu' : 'Open menu'}
           >
             {isMenuOpen ? (
               <X className="h-6 w-6 text-gray-700" />
@@ -90,18 +91,18 @@ export function Header() {
 
         {/* Mobile Menu */}
         {isMenuOpen && (
-          <div className="md:hidden mt-4 pb-4 space-y-4">
+          <div className="md:hidden mt-4 pb-4 space-y-3">
             {navigation.map((item) => (
               <Link
                 key={item.name}
                 to={item.href}
-                className="block text-gray-700 hover:text-amber-600 transition-colors duration-200 font-medium"
+                className="block py-2.5 px-3 text-gray-700 hover:text-amber-600 hover:bg-amber-50 rounded-lg transition-colors duration-200 font-medium"
                 onClick={() => setIsMenuOpen(false)}
               >
                 {item.name}
               </Link>
             ))}
-            <div className="flex flex-col space-y-2 pt-4 border-t border-amber-200">
+            <div className="flex flex-col gap-2 pt-4 mt-2 border-t border-amber-200">
               {user ? (
                 <>
                   <Link to="/dashboard" onClick={() => setIsMenuOpen(false)}>

@@ -57,7 +57,7 @@ export function LatestAnnouncements() {
   const staggerDelay = shouldReduceMotion ? 0.05 : 0.1;
 
   return (
-    <section className="py-24 bg-white relative overflow-hidden">
+    <section className="py-16 sm:py-24 bg-white relative overflow-hidden">
       {/* Background Decoration */}
       <div className="absolute top-0 right-0 w-96 h-96 bg-amber-50 rounded-full blur-3xl translate-x-1/2 -translate-y-1/2 opacity-50" />
       
@@ -68,32 +68,32 @@ export function LatestAnnouncements() {
           whileInView={{ opacity: 1, y: 0 }}
           transition={{ duration: animationDuration }}
           viewport={{ once: true }}
-          className="text-center mb-12"
+          className="text-center mb-8 sm:mb-12"
         >
           <motion.div 
             initial={{ opacity: 0, scale: shouldReduceMotion ? 0.95 : 0.8 }}
             whileInView={{ opacity: 1, scale: 1 }}
             transition={{ duration: shouldReduceMotion ? 0.3 : 0.5 }}
             viewport={{ once: true }}
-            className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-purple-100 text-purple-700 mb-6"
+            className="inline-flex items-center gap-2 px-3 sm:px-4 py-1.5 sm:py-2 rounded-full bg-purple-100 text-purple-700 mb-4 sm:mb-6"
           >
             <Megaphone className="h-4 w-4" />
             <span className="text-sm font-medium">Stay Updated</span>
           </motion.div>
           
-          <h2 className="text-4xl md:text-5xl font-bold text-gray-900 mb-4">
+          <h2 className="text-2xl sm:text-4xl md:text-5xl font-bold text-gray-900 mb-3 sm:mb-4">
             Latest{' '}
             <span className="text-transparent bg-clip-text bg-gradient-to-r from-purple-600 to-violet-600">
               Announcements
             </span>
           </h2>
-          <p className="text-lg text-gray-600 max-w-2xl mx-auto">
+          <p className="text-base sm:text-lg text-gray-600 max-w-2xl mx-auto px-2">
             Stay informed with our latest updates, news, and important notices
           </p>
         </motion.div>
 
         {/* Announcements Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-10">
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 sm:gap-6 mb-8 sm:mb-10">
           {announcements.map((announcement, index) => {
             const config = priorityConfig[announcement.priority];
             const Icon = config.icon;

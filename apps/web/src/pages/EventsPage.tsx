@@ -249,7 +249,7 @@ export default function EventsPage() {
               </p>
             </div>
           ) : (
-            <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-8">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6 lg:gap-8">
               {filteredEvents.map((event, index) => {
                 const regStatus = getRegistrationStatus(event);
                 
@@ -262,7 +262,7 @@ export default function EventsPage() {
                   >
                     <Link to={`/events/${event.slug}`}>
                       <Card className="h-full overflow-hidden group hover:shadow-xl transition-all duration-300 cursor-pointer">
-                        <div className="relative h-48 overflow-hidden bg-gradient-to-br from-amber-200 to-orange-200">
+                        <div className="relative h-40 sm:h-48 overflow-hidden bg-gradient-to-br from-amber-200 to-orange-200">
                           {event.imageUrl ? (
                             <img
                               src={processImageUrl(event.imageUrl, 'medium')}

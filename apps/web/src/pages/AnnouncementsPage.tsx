@@ -70,22 +70,22 @@ export default function AnnouncementsPage() {
         url="/announcements"
         keywords="code.scriet announcements, SCRIET coding club news, club updates"
       />
-      <section className="py-20 bg-gradient-to-br from-amber-50 via-orange-50 to-amber-100 min-h-screen">
+      <section className="py-12 sm:py-20 bg-gradient-to-br from-amber-50 via-orange-50 to-amber-100 min-h-screen">
         <div className="container mx-auto px-4">
           {/* Header */}
           <motion.div
             initial={{ opacity: 0, y: -20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.6 }}
-            className="text-center mb-12"
+            className="text-center mb-8 sm:mb-12"
           >
-            <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-gradient-to-br from-amber-400 to-orange-500 mb-4">
-              <Megaphone className="h-8 w-8 text-white" />
+            <div className="inline-flex items-center justify-center w-12 h-12 sm:w-16 sm:h-16 rounded-full bg-gradient-to-br from-amber-400 to-orange-500 mb-3 sm:mb-4">
+              <Megaphone className="h-6 w-6 sm:h-8 sm:w-8 text-white" />
             </div>
-            <h1 className="text-4xl md:text-5xl lg:text-6xl font-bold text-amber-900 mb-4">
+            <h1 className="text-3xl sm:text-4xl md:text-5xl lg:text-6xl font-bold text-amber-900 mb-3 sm:mb-4">
               Announcements
             </h1>
-            <p className="text-lg text-gray-600 max-w-2xl mx-auto">
+            <p className="text-base sm:text-lg text-gray-600 max-w-2xl mx-auto px-2">
               Stay updated with the latest news, events, and important information from code.scriet
             </p>
           </motion.div>

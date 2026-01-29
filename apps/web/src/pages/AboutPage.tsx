@@ -35,7 +35,7 @@ export default function AboutPage() {
         keywords="about code.scriet, SCRIET coding club history, coding community, programming club mission"
       />
       {/* Hero Section */}
-      <section className="py-20 bg-gradient-to-br from-amber-400 via-orange-500 to-amber-900 text-white">
+      <section className="py-12 sm:py-20 bg-gradient-to-br from-amber-400 via-orange-500 to-amber-900 text-white">
         <div className="container mx-auto px-4">
           <motion.div
             initial={{ opacity: 0, y: 20 }}
@@ -43,8 +43,8 @@ export default function AboutPage() {
             transition={{ duration: 0.6 }}
             className="text-center max-w-4xl mx-auto"
           >
-            <h1 className="text-5xl md:text-6xl font-bold mb-6">About code.scriet</h1>
-            <p className="text-xl text-amber-50">
+            <h1 className="text-3xl sm:text-5xl md:text-6xl font-bold mb-4 sm:mb-6">About code.scriet</h1>
+            <p className="text-base sm:text-xl text-amber-50 px-2">
               Building tomorrow's problem solvers through community, collaboration, and continuous learning
             </p>
           </motion.div>

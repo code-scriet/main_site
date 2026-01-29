@@ -77,7 +77,7 @@ export default function TeamPage() {
             className="text-center"
           >
             <motion.h1 
-              className="text-5xl md:text-6xl font-bold mb-4"
+              className="text-3xl sm:text-5xl md:text-6xl font-bold mb-4"
               initial={{ opacity: 0, scale: 0.9 }}
               animate={{ opacity: 1, scale: 1 }}
               transition={{ duration: 0.6, delay: 0.2 }}
@@ -85,7 +85,7 @@ export default function TeamPage() {
               Our Team
             </motion.h1>
             <motion.p 
-              className="text-xl text-amber-50 max-w-2xl mx-auto"
+              className="text-base sm:text-xl text-amber-50 max-w-2xl mx-auto px-4"
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               transition={{ duration: 0.6, delay: 0.4 }}
@@ -98,10 +98,10 @@ export default function TeamPage() {
 
       {/* Filter Tabs */}
       {teams.length > 1 && (
-        <section className="py-8 bg-white/90 backdrop-blur-sm border-b border-amber-200 sticky top-[73px] z-40">
+        <section className="py-6 sm:py-8 bg-white/90 backdrop-blur-sm border-b border-amber-200 sticky top-[73px] z-40">
           <div className="container mx-auto px-4">
             <motion.div 
-              className="flex flex-wrap justify-center gap-3"
+              className="flex flex-wrap justify-center gap-2 sm:gap-3"
               initial={{ opacity: 0, y: -10 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.5 }}
@@ -116,7 +116,8 @@ export default function TeamPage() {
                   <Button
                     variant={activeTeam === team ? 'default' : 'outline'}
                     onClick={() => setActiveTeam(team)}
-                    className={`min-w-24 transition-all duration-300 ${
+                    size="sm"
+                    className={`min-w-16 sm:min-w-24 text-sm transition-all duration-300 ${
                       activeTeam === team 
                         ? 'shadow-lg shadow-amber-500/30 scale-105' 
                         : 'hover:scale-105 hover:shadow-md'
@@ -286,10 +287,10 @@ function MemberCard({
       whileHover={{ y: -6, transition: { duration: 0.3 } }}
       onHoverStart={() => setIsHovered(true)}
       onHoverEnd={() => setIsHovered(false)}
-      className="text-center w-40 md:w-48"
+      className="text-center w-36 sm:w-40 md:w-48"
     >
       {/* Card with glassmorphism effect - fixed height for consistency */}
-      <div className="relative p-5 rounded-2xl bg-white/70 backdrop-blur-sm border border-white/80 shadow-lg hover:shadow-2xl hover:shadow-amber-500/20 transition-all duration-700 group h-full min-h-[280px] md:min-h-[300px] flex flex-col">
+      <div className="relative p-3 sm:p-5 rounded-2xl bg-white/70 backdrop-blur-sm border border-white/80 shadow-lg hover:shadow-2xl hover:shadow-amber-500/20 transition-all duration-700 group h-full min-h-[250px] sm:min-h-[280px] md:min-h-[300px] flex flex-col">
         {/* Animated gradient border on hover */}
         <motion.div
           className="absolute inset-0 rounded-2xl opacity-0 group-hover:opacity-100 transition-opacity duration-500"

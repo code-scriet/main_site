@@ -97,7 +97,7 @@ export function CTASection() {
             whileInView={{ opacity: 1, y: 0 }}
             transition={{ duration: animationDuration, delay: shouldReduceMotion ? 0.1 : 0.3 }}
             viewport={{ once: true }}
-            className="text-4xl md:text-5xl lg:text-6xl font-bold text-white mb-6 leading-tight"
+            className="text-2xl sm:text-4xl md:text-5xl lg:text-6xl font-bold text-white mb-4 sm:mb-6 leading-tight px-2"
           >
             Ready to Level Up Your{' '}
             <span className="text-transparent bg-clip-text bg-gradient-to-r from-amber-400 to-orange-500">
@@ -111,7 +111,7 @@ export function CTASection() {
             whileInView={{ opacity: 1, y: 0 }}
             transition={{ duration: animationDuration, delay: shouldReduceMotion ? 0.15 : 0.4 }}
             viewport={{ once: true }}
-            className="text-lg md:text-xl text-white/70 mb-10 max-w-2xl mx-auto leading-relaxed"
+            className="text-base sm:text-lg md:text-xl text-white/70 mb-8 sm:mb-10 max-w-2xl mx-auto leading-relaxed px-2"
           >
             Join a vibrant community of passionate developers. Learn, build, compete, and grow together with code.scriet.
           </motion.p>
@@ -122,12 +122,12 @@ export function CTASection() {
             whileInView={{ opacity: 1, y: 0 }}
             transition={{ duration: animationDuration, delay: shouldReduceMotion ? 0.2 : 0.5 }}
             viewport={{ once: true }}
-            className="flex flex-col sm:flex-row gap-4 justify-center items-center"
+            className="flex flex-col sm:flex-row gap-3 sm:gap-4 justify-center items-stretch sm:items-center px-4 sm:px-0"
           >
-            <Link to="/signin">
+            <Link to="/signin" className="w-full sm:w-auto">
               <Button 
                 size="lg" 
-                className="relative overflow-hidden bg-gradient-to-r from-amber-500 to-orange-500 text-white hover:from-amber-400 hover:to-orange-400 shadow-xl shadow-amber-500/25 h-14 px-10 text-lg font-semibold group border-0"
+                className="relative overflow-hidden bg-gradient-to-r from-amber-500 to-orange-500 text-white hover:from-amber-400 hover:to-orange-400 shadow-xl shadow-amber-500/25 h-12 sm:h-14 px-6 sm:px-10 text-base sm:text-lg font-semibold group border-0 w-full sm:w-auto"
               >
                 <span className="relative z-10 flex items-center">
                   Join Now — It's Free
@@ -146,11 +146,11 @@ export function CTASection() {
                 </span>
               </Button>
             </Link>
-            <Link to="/about">
+            <Link to="/about" className="w-full sm:w-auto">
               <Button 
                 size="lg" 
                 variant="outline" 
-                className="border-2 border-white/20 text-white hover:bg-white/10 hover:border-white/40 h-14 px-10 text-lg backdrop-blur-sm bg-white/5"
+                className="border-2 border-white/20 text-white hover:bg-white/10 hover:border-white/40 h-12 sm:h-14 px-6 sm:px-10 text-base sm:text-lg backdrop-blur-sm bg-white/5 w-full sm:w-auto"
               >
                 Learn More
               </Button>

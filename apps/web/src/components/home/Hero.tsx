@@ -312,8 +312,8 @@ export function Hero() {
           </motion.div>
 
           {/* Main Heading */}
-          <motion.div variants={itemVariants} className="space-y-6">
-            <h1 className="text-5xl md:text-7xl lg:text-8xl font-bold tracking-tight">
+          <motion.div variants={itemVariants} className="space-y-4 md:space-y-6">
+            <h1 className="text-4xl sm:text-5xl md:text-7xl lg:text-8xl font-bold tracking-tight">
               <span className="text-transparent bg-clip-text bg-gradient-to-r from-amber-200 via-amber-400 to-orange-400">
                 code
               </span>
@@ -324,8 +324,8 @@ export function Hero() {
             </h1>
             
             {/* Typing Effect Subtitle */}
-            <div className="flex items-center justify-center gap-3 text-lg md:text-xl">
-              <Terminal className="h-5 w-5 text-amber-400" />
+            <div className="flex items-center justify-center gap-2 sm:gap-3 text-base sm:text-lg md:text-xl">
+              <Terminal className="h-4 w-4 sm:h-5 sm:w-5 text-amber-400" />
               <span className="text-white/60 font-mono">Learning</span>
               <TypingAnimation />
             </div>
@@ -334,7 +334,7 @@ export function Hero() {
           {/* Description */}
           <motion.p
             variants={itemVariants}
-            className="text-lg md:text-xl lg:text-2xl text-white/70 max-w-3xl mx-auto leading-relaxed"
+            className="text-base sm:text-lg md:text-xl lg:text-2xl text-white/70 max-w-3xl mx-auto leading-relaxed px-2"
           >
             {settings?.clubDescription || "Building tomorrow's problem solvers through collaborative learning and hands-on coding experiences."}
           </motion.p>
@@ -342,13 +342,13 @@ export function Hero() {
           {/* CTA Buttons */}
           <motion.div
             variants={itemVariants}
-            className="flex flex-col sm:flex-row gap-4 justify-center items-center pt-4"
+            className="flex flex-col sm:flex-row gap-3 sm:gap-4 justify-center items-stretch sm:items-center pt-4 px-4 sm:px-0"
           >
             {!settingsLoading && settings?.hiringEnabled === true && (
-              <Link to="/join-us">
+              <Link to="/join-us" className="w-full sm:w-auto">
                 <Button 
                   size="lg" 
-                  className="relative overflow-hidden bg-gradient-to-r from-amber-500 to-orange-500 text-white hover:from-amber-400 hover:to-orange-400 shadow-xl shadow-amber-500/25 h-14 px-8 text-lg font-semibold group border-0"
+                  className="relative overflow-hidden bg-gradient-to-r from-amber-500 to-orange-500 text-white hover:from-amber-400 hover:to-orange-400 shadow-xl shadow-amber-500/25 h-12 sm:h-14 px-6 sm:px-8 text-base font-semibold group border-0 w-full sm:w-auto"
                 >
                   <span className="relative z-10 flex items-center">
                     Join Our Team
@@ -375,22 +375,22 @@ export function Hero() {
               </Link>
             )}
             {user ? (
-              <Link to="/dashboard">
+              <Link to="/dashboard" className="w-full sm:w-auto">
                 <Button 
                   size="lg" 
                   variant="outline" 
-                  className="border-2 border-white/20 text-white hover:bg-white/10 hover:border-white/40 h-14 px-8 text-lg backdrop-blur-sm bg-white/5"
+                  className="border-2 border-white/20 text-white hover:bg-white/10 hover:border-white/40 h-12 sm:h-14 px-6 sm:px-8 text-base backdrop-blur-sm bg-white/5 w-full sm:w-auto"
                 >
                   <LayoutDashboard className="h-5 w-5 mr-2" />
                   Dashboard
                 </Button>
               </Link>
             ) : (
-              <Link to="/signin">
+              <Link to="/signin" className="w-full sm:w-auto">
                 <Button 
                   size="lg" 
                   variant="outline" 
-                  className="border-2 border-white/20 text-white hover:bg-white/10 hover:border-white/40 h-14 px-8 text-lg backdrop-blur-sm bg-white/5"
+                  className="border-2 border-white/20 text-white hover:bg-white/10 hover:border-white/40 h-12 sm:h-14 px-6 sm:px-8 text-base backdrop-blur-sm bg-white/5 w-full sm:w-auto"
                 >
                   <Users className="h-5 w-5 mr-2" />
                   Sign In / Register
@@ -402,7 +402,7 @@ export function Hero() {
           {/* Stats */}
           <motion.div
             variants={itemVariants}
-            className="grid grid-cols-1 sm:grid-cols-2 gap-8 max-w-3xl mx-auto pt-12"
+            className="grid grid-cols-2 gap-4 sm:gap-8 max-w-3xl mx-auto pt-8 sm:pt-12 px-2 sm:px-0"
           >
             {[
               { icon: Users, label: 'Active Members', value: stats.members, displayValue: null, color: 'from-amber-400 to-amber-500' },
@@ -414,15 +414,15 @@ export function Hero() {
                 transition={{ type: 'spring', stiffness: 400 }}
                 className="group relative"
               >
-                <div className="absolute inset-0 bg-gradient-to-br from-white/10 to-white/5 rounded-3xl opacity-0 group-hover:opacity-100 transition-opacity blur-xl" />
-                <div className="relative bg-white/5 backdrop-blur-md border border-white/10 rounded-3xl p-8 md:p-10 transition-all duration-300 group-hover:bg-white/10 group-hover:border-white/20">
-                  <div className={`inline-flex p-4 rounded-2xl bg-gradient-to-br ${stat.color} mb-6 shadow-2xl`}>
-                    <stat.icon className="h-8 w-8 text-white" />
+                <div className="absolute inset-0 bg-gradient-to-br from-white/10 to-white/5 rounded-2xl sm:rounded-3xl opacity-0 group-hover:opacity-100 transition-opacity blur-xl" />
+                <div className="relative bg-white/5 backdrop-blur-md border border-white/10 rounded-2xl sm:rounded-3xl p-4 sm:p-8 md:p-10 transition-all duration-300 group-hover:bg-white/10 group-hover:border-white/20">
+                  <div className={`inline-flex p-2.5 sm:p-4 rounded-xl sm:rounded-2xl bg-gradient-to-br ${stat.color} mb-3 sm:mb-6 shadow-2xl`}>
+                    <stat.icon className="h-5 w-5 sm:h-8 sm:w-8 text-white" />
                   </div>
-                  <p className="text-5xl md:text-6xl font-bold text-white mb-2">
+                  <p className="text-3xl sm:text-5xl md:text-6xl font-bold text-white mb-1 sm:mb-2">
                     {stat.displayValue ? `${stat.displayValue}+` : <AnimatedCounter value={stat.value!} suffix="+" />}
                   </p>
-                  <p className="text-white/60 text-base">{stat.label}</p>
+                  <p className="text-white/60 text-xs sm:text-base">{stat.label}</p>
                 </div>
               </motion.div>
             ))}

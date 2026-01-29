@@ -253,18 +253,18 @@ export default function JoinUsPage() {
         url="/join-us"
         keywords="join code.scriet, SCRIET coding club recruitment, coding club membership, become a member"
       />
-      <section className="min-h-screen py-12 bg-gradient-to-br from-amber-50 via-orange-50 to-amber-100">
+      <section className="min-h-screen py-8 sm:py-12 bg-gradient-to-br from-amber-50 via-orange-50 to-amber-100">
         <div className="container mx-auto px-4">
           {/* Header */}
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
-            className="text-center mb-12"
+            className="text-center mb-8 sm:mb-12"
           >
-            <h1 className="text-4xl md:text-5xl font-bold text-amber-900 mb-4">
+            <h1 className="text-2xl sm:text-4xl md:text-5xl font-bold text-amber-900 mb-3 sm:mb-4">
               Join the <span className="text-transparent bg-clip-text bg-gradient-to-r from-amber-600 to-orange-600">code.scriet</span> Team
             </h1>
-            <p className="text-lg text-gray-600 max-w-2xl mx-auto">
+            <p className="text-base sm:text-lg text-gray-600 max-w-2xl mx-auto px-2">
               Apply to become a core team member! We're looking for passionate individuals 
               who want to contribute to SCRIET's premier coding community.
             </p>
@@ -275,25 +275,25 @@ export default function JoinUsPage() {
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.1 }}
-            className="max-w-4xl mx-auto mb-12"
+            className="max-w-4xl mx-auto mb-8 sm:mb-12"
           >
-            <div className="grid md:grid-cols-3 gap-6">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 sm:gap-6">
               {processSteps.map((step, index) => (
                 <div key={step.title} className="relative">
                   <Card className="h-full bg-white/80 backdrop-blur-sm border-amber-200/50">
-                    <CardContent className="p-6 text-center">
-                      <div className="inline-flex items-center justify-center w-12 h-12 rounded-full bg-gradient-to-r from-amber-500 to-orange-500 text-white mb-4">
-                        <step.icon className="h-6 w-6" />
+                    <CardContent className="p-4 sm:p-6 text-center">
+                      <div className="inline-flex items-center justify-center w-10 h-10 sm:w-12 sm:h-12 rounded-full bg-gradient-to-r from-amber-500 to-orange-500 text-white mb-3 sm:mb-4">
+                        <step.icon className="h-5 w-5 sm:h-6 sm:w-6" />
                       </div>
-                      <div className="absolute -top-3 -left-3 w-8 h-8 rounded-full bg-amber-600 text-white flex items-center justify-center font-bold text-sm">
+                      <div className="absolute -top-2 -left-2 sm:-top-3 sm:-left-3 w-6 h-6 sm:w-8 sm:h-8 rounded-full bg-amber-600 text-white flex items-center justify-center font-bold text-xs sm:text-sm">
                         {index + 1}
                       </div>
-                      <h3 className="font-semibold text-gray-900 mb-2">{step.title}</h3>
-                      <p className="text-sm text-gray-600">{step.description}</p>
+                      <h3 className="font-semibold text-gray-900 mb-1 sm:mb-2 text-sm sm:text-base">{step.title}</h3>
+                      <p className="text-xs sm:text-sm text-gray-600">{step.description}</p>
                     </CardContent>
                   </Card>
                   {index < processSteps.length - 1 && (
-                    <div className="hidden md:block absolute top-1/2 -right-3 transform -translate-y-1/2 z-10">
+                    <div className="hidden sm:block absolute top-1/2 -right-3 transform -translate-y-1/2 z-10">
                       <ArrowRight className="h-6 w-6 text-amber-400" />
                     </div>
                   )}

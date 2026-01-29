@@ -79,14 +79,14 @@ export function AboutPreview() {
             <span className="text-sm font-medium">What We Offer</span>
           </motion.div>
           
-          <h2 className="text-4xl md:text-5xl lg:text-6xl font-bold text-gray-900 mb-6">
+          <h2 className="text-3xl sm:text-4xl md:text-5xl lg:text-6xl font-bold text-gray-900 mb-4 sm:mb-6 px-2">
             Grow Your{' '}
             <span className="text-transparent bg-clip-text bg-gradient-to-r from-amber-500 to-orange-600">
               Coding Skills
             </span>
           </h2>
           
-          <p className="text-lg md:text-xl text-gray-600 max-w-3xl mx-auto leading-relaxed">
+          <p className="text-base sm:text-lg md:text-xl text-gray-600 max-w-3xl mx-auto leading-relaxed px-2">
             {settings?.clubDescription || "code.scriet is a community of passionate coders dedicated to continuous learning, problem-solving, and building amazing things together."}
           </p>
         </motion.div>

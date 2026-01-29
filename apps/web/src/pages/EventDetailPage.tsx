@@ -497,25 +497,25 @@ export default function EventDetailPage() {
         </div>
 
         {/* Event Title Overlay */}
-        <div className="absolute bottom-0 left-0 right-0 p-6 md:p-8">
+        <div className="absolute bottom-0 left-0 right-0 p-4 sm:p-6 md:p-8">
           <div className="container mx-auto">
-            <div className="flex flex-wrap gap-2 mb-3">
+            <div className="flex flex-wrap gap-1.5 sm:gap-2 mb-2 sm:mb-3">
               <Badge className={statusInfo.color}>
                 {statusInfo.label}
               </Badge>
               {event.eventType && (
-                <Badge variant="outline" className="bg-white/90">
+                <Badge variant="outline" className="bg-white/90 text-xs sm:text-sm">
                   {event.eventType}
                 </Badge>
               )}
               {event.featured && (
-                <Badge className="bg-amber-500 text-white">
+                <Badge className="bg-amber-500 text-white text-xs sm:text-sm">
                   <Star className="h-3 w-3 mr-1" />
                   Featured
                 </Badge>
               )}
             </div>
-            <h1 className={`text-3xl md:text-4xl lg:text-5xl font-bold ${coverImage ? 'text-white' : 'text-white'}`}>
+            <h1 className={`text-2xl sm:text-3xl md:text-4xl lg:text-5xl font-bold ${coverImage ? 'text-white' : 'text-white'}`}>
               {event.title}
             </h1>
           </div>
@@ -530,49 +530,49 @@ export default function EventDetailPage() {
             <div className="lg:col-span-2 space-y-8">
               {/* Quick Info Bar */}
               <Card className="border-amber-200">
-                <CardContent className="p-4">
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                    <div className="flex items-center gap-3">
-                      <div className="w-12 h-12 bg-amber-100 rounded-lg flex flex-col items-center justify-center">
-                        <span className="text-xs text-amber-600 font-medium">{getMonthShort(event.startDate)}</span>
-                        <span className="text-lg font-bold text-amber-900">{getDayOfMonth(event.startDate)}</span>
+                <CardContent className="p-3 sm:p-4">
+                  <div className="grid grid-cols-2 gap-3 sm:gap-4 md:grid-cols-4">
+                    <div className="flex items-center gap-2 sm:gap-3">
+                      <div className="w-10 h-10 sm:w-12 sm:h-12 bg-amber-100 rounded-lg flex flex-col items-center justify-center">
+                        <span className="text-[10px] sm:text-xs text-amber-600 font-medium">{getMonthShort(event.startDate)}</span>
+                        <span className="text-sm sm:text-lg font-bold text-amber-900">{getDayOfMonth(event.startDate)}</span>
                       </div>
                       <div>
-                        <p className="text-sm text-gray-500">Date</p>
-                        <p className="font-medium text-gray-900">{getWeekdayShort(event.startDate)}</p>
+                        <p className="text-xs sm:text-sm text-gray-500">Date</p>
+                        <p className="text-sm sm:text-base font-medium text-gray-900">{getWeekdayShort(event.startDate)}</p>
                       </div>
                     </div>
                     
-                    <div className="flex items-center gap-3">
-                      <div className="w-12 h-12 bg-amber-100 rounded-lg flex items-center justify-center">
-                        <Clock className="h-5 w-5 text-amber-600" />
+                    <div className="flex items-center gap-2 sm:gap-3">
+                      <div className="w-10 h-10 sm:w-12 sm:h-12 bg-amber-100 rounded-lg flex items-center justify-center">
+                        <Clock className="h-4 w-4 sm:h-5 sm:w-5 text-amber-600" />
                       </div>
                       <div>
-                        <p className="text-sm text-gray-500">Time</p>
-                        <p className="font-medium text-gray-900">{formatTime(event.startDate)}</p>
+                        <p className="text-xs sm:text-sm text-gray-500">Time</p>
+                        <p className="text-sm sm:text-base font-medium text-gray-900">{formatTime(event.startDate)}</p>
                       </div>
                     </div>
                     
                     {event.location && (
-                      <div className="flex items-center gap-3">
-                        <div className="w-12 h-12 bg-amber-100 rounded-lg flex items-center justify-center">
-                          <MapPin className="h-5 w-5 text-amber-600" />
+                      <div className="flex items-center gap-2 sm:gap-3">
+                        <div className="w-10 h-10 sm:w-12 sm:h-12 bg-amber-100 rounded-lg flex items-center justify-center">
+                          <MapPin className="h-4 w-4 sm:h-5 sm:w-5 text-amber-600" />
                         </div>
                         <div>
-                          <p className="text-sm text-gray-500">Location</p>
-                          <p className="font-medium text-gray-900">{event.location}</p>
+                          <p className="text-xs sm:text-sm text-gray-500">Location</p>
+                          <p className="text-sm sm:text-base font-medium text-gray-900 line-clamp-1">{event.location}</p>
                         </div>
                       </div>
                     )}
                     
                     {event.capacity && (
-                      <div className="flex items-center gap-3">
-                        <div className="w-12 h-12 bg-amber-100 rounded-lg flex items-center justify-center">
-                          <Users className="h-5 w-5 text-amber-600" />
+                      <div className="flex items-center gap-2 sm:gap-3">
+                        <div className="w-10 h-10 sm:w-12 sm:h-12 bg-amber-100 rounded-lg flex items-center justify-center">
+                          <Users className="h-4 w-4 sm:h-5 sm:w-5 text-amber-600" />
                         </div>
                         <div>
-                          <p className="text-sm text-gray-500">Capacity</p>
-                          <p className="font-medium text-gray-900">
+                          <p className="text-xs sm:text-sm text-gray-500">Capacity</p>
+                          <p className="text-sm sm:text-base font-medium text-gray-900">
                             {event._count?.registrations || 0} / {event.capacity}
                           </p>
                         </div>

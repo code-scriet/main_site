@@ -31,7 +31,7 @@ export function TeamHighlight() {
   const staggerDelay = shouldReduceMotion ? 0.05 : 0.1;
 
   return (
-    <section className="py-24 bg-gradient-to-b from-white to-gray-50 relative overflow-hidden">
+    <section className="py-16 sm:py-24 bg-gradient-to-b from-white to-gray-50 relative overflow-hidden">
       {/* Background Decoration */}
       <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[800px] h-[800px] bg-gradient-radial from-amber-100/30 to-transparent rounded-full" />
       
@@ -42,26 +42,26 @@ export function TeamHighlight() {
           whileInView={{ opacity: 1, y: 0 }}
           transition={{ duration: animationDuration }}
           viewport={{ once: true }}
-          className="text-center mb-16"
+          className="text-center mb-8 sm:mb-12 lg:mb-16"
         >
           <motion.div 
             initial={{ opacity: 0, scale: shouldReduceMotion ? 0.95 : 0.8 }}
             whileInView={{ opacity: 1, scale: 1 }}
             transition={{ duration: shouldReduceMotion ? 0.3 : 0.5 }}
             viewport={{ once: true }}
-            className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-blue-100 text-blue-700 mb-6"
+            className="inline-flex items-center gap-2 px-3 sm:px-4 py-1.5 sm:py-2 rounded-full bg-blue-100 text-blue-700 mb-4 sm:mb-6"
           >
             <Users className="h-4 w-4" />
             <span className="text-sm font-medium">The Crew</span>
           </motion.div>
           
-          <h2 className="text-4xl md:text-5xl font-bold text-gray-900 mb-4">
+          <h2 className="text-2xl sm:text-4xl md:text-5xl font-bold text-gray-900 mb-3 sm:mb-4">
             Meet Our{' '}
             <span className="text-transparent bg-clip-text bg-gradient-to-r from-blue-600 to-cyan-600">
               Team
             </span>
           </h2>
-          <p className="text-lg text-gray-600 max-w-2xl mx-auto">
+          <p className="text-base sm:text-lg text-gray-600 max-w-2xl mx-auto px-2">
             The passionate individuals driving code.scriet forward and building an amazing community
           </p>
         </motion.div>
@@ -84,7 +84,7 @@ export function TeamHighlight() {
             <p className="text-gray-500">Stay tuned to meet our amazing team</p>
           </motion.div>
         ) : (
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-8 mb-12">
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 sm:gap-6 md:gap-8 mb-8 sm:mb-12">
             {teamMembers.map((member, index) => (
               <motion.div
                 key={member.id}

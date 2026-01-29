@@ -34,9 +34,32 @@
   
   body {
     @apply bg-amber-50 text-gray-800 font-sans;
+    -webkit-tap-highlight-color: transparent;
   }
   
   h1, h2, h3, h4, h5, h6 {
     @apply font-bold text-amber-900;
+  }
+}
+
+/* Mobile-friendly touch targets */
+@layer utilities {
+  .touch-target {
+    @apply min-h-[44px] min-w-[44px];
+  }
+  
+  /* Prevent text selection on buttons for mobile */
+  .no-select {
+    -webkit-user-select: none;
+    user-select: none;
+  }
+  
+  /* Safe area padding for notched devices */
+  .safe-area-pb {
+    padding-bottom: env(safe-area-inset-bottom, 0);
+  }
+  
+  .safe-area-pt {
+    padding-top: env(safe-area-inset-top, 0);
   }
 }

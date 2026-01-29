@@ -38,31 +38,31 @@ export function Footer() {
   ].filter(Boolean) as { name: string; icon: React.ComponentType<{ className?: string }>; href: string }[];
 
   return (
-    <footer className="bg-amber-950 text-amber-50">
-      <div className="container mx-auto px-4 py-12">
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+    <footer className="bg-amber-950 text-amber-50 safe-area-pb">
+      <div className="container mx-auto px-4 py-8 sm:py-12">
+        <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-3 gap-6 sm:gap-8">
           {/* Logo & Description */}
-          <div className="space-y-4">
-            <div className="flex items-center space-x-3">
-              <div className="h-12 w-12 rounded-lg bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center">
-                <span className="text-2xl font-bold text-white">CS</span>
+          <div className="space-y-3 sm:space-y-4 col-span-2 sm:col-span-2 md:col-span-1">
+            <div className="flex items-center space-x-2 sm:space-x-3">
+              <div className="h-10 w-10 sm:h-12 sm:w-12 rounded-lg bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center">
+                <span className="text-xl sm:text-2xl font-bold text-white">CS</span>
               </div>
-              <span className="text-xl font-bold">{settings?.clubName || 'code.scriet'}</span>
+              <span className="text-lg sm:text-xl font-bold">{settings?.clubName || 'code.scriet'}</span>
             </div>
-            <p className="text-amber-200 text-sm">
+            <p className="text-amber-200 text-xs sm:text-sm">
               {settings?.clubDescription || 'Building tomorrow\'s problem solvers through collaborative learning and hands-on coding experiences.'}
             </p>
           </div>
 
           {/* Quick Links */}
           <div>
-            <h3 className="text-lg font-semibold mb-4">Quick Links</h3>
-            <ul className="space-y-2">
+            <h3 className="text-base sm:text-lg font-semibold mb-3 sm:mb-4">Quick Links</h3>
+            <ul className="space-y-1.5 sm:space-y-2">
               {quickLinks.map((link) => (
                 <li key={link.name}>
                   <Link
                     to={link.href}
-                    className="text-amber-200 hover:text-amber-400 transition-colors duration-200"
+                    className="text-amber-200 hover:text-amber-400 transition-colors duration-200 text-sm"
                   >
                     {link.name}
                   </Link>
@@ -73,8 +73,8 @@ export function Footer() {
 
           {/* Social Links */}
           <div>
-            <h3 className="text-lg font-semibold mb-4">Connect With Us</h3>
-            <div className="flex flex-wrap gap-3">
+            <h3 className="text-base sm:text-lg font-semibold mb-3 sm:mb-4">Connect</h3>
+            <div className="flex flex-wrap gap-2 sm:gap-3">
               {socialLinks.map((social) => {
                 const Icon = social.icon;
                 return (
@@ -83,11 +83,11 @@ export function Footer() {
                     href={social.href}
                     target={social.name === 'Email' ? undefined : '_blank'}
                     rel={social.name === 'Email' ? undefined : 'noopener noreferrer'}
-                    className="p-2 rounded-lg bg-amber-900 hover:bg-amber-800 transition-colors duration-200"
+                    className="p-2 rounded-lg bg-amber-900 hover:bg-amber-800 transition-colors duration-200 touch-target"
                     aria-label={social.name}
                     title={social.name}
                   >
-                    <Icon className="h-5 w-5" />
+                    <Icon className="h-4 w-4 sm:h-5 sm:w-5" />
                   </a>
                 );
               })}
@@ -96,7 +96,7 @@ export function Footer() {
         </div>
 
         {/* Copyright */}
-        <div className="mt-8 pt-8 border-t border-amber-900 text-center text-amber-200 text-sm">
+        <div className="mt-6 sm:mt-8 pt-6 sm:pt-8 border-t border-amber-900 text-center text-amber-200 text-xs sm:text-sm">
           <p>&copy; {new Date().getFullYear()} {settings?.clubName || 'code.scriet'}. All rights reserved.</p>
         </div>
       </div>
