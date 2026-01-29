@@ -90,9 +90,29 @@ export interface Settings {
   updatedAt: string;
 }
 
+// Extended types for event details
+export interface Speaker {
+  name: string;
+  role: string;
+  bio?: string;
+  image?: string;
+}
+
+export interface Resource {
+  title: string;
+  url: string;
+  type?: 'pdf' | 'video' | 'link' | 'github' | 'slides' | 'other';
+}
+
+export interface FAQ {
+  question: string;
+  answer: string;
+}
+
 export interface Event {
   id: string;
   title: string;
+  slug: string; // URL-friendly version of title
   description: string;
   status: 'UPCOMING' | 'ONGOING' | 'PAST';
   startDate: string;
@@ -107,6 +127,19 @@ export interface Event {
   imageUrl?: string;
   createdBy: string;
   _count?: { registrations: number };
+  // Extended event fields
+  shortDescription?: string;
+  agenda?: string;
+  highlights?: string;
+  learningOutcomes?: string;
+  targetAudience?: string;
+  speakers?: Speaker[];
+  resources?: Resource[];
+  faqs?: FAQ[];
+  imageGallery?: string[];
+  videoUrl?: string;
+  tags?: string[];
+  featured?: boolean;
 }
 
 export interface Registration {

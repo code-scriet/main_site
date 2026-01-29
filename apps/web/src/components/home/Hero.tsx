@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { motion, useScroll, useTransform } from 'framer-motion';
 import { Button } from '@/components/ui/button';
 import { Link } from 'react-router-dom';
-import { ArrowRight, Users, Calendar, Trophy, Sparkles, Terminal, Zap, LayoutDashboard } from 'lucide-react';
+import { ArrowRight, Users, Calendar, Sparkles, Terminal, Zap, LayoutDashboard } from 'lucide-react';
 import { api } from '@/lib/api';
 import { useAuth } from '@/context/AuthContext';
 import { useSettings } from '@/context/SettingsContext';

@@ -27,6 +27,12 @@ services:
         sync: false
       - key: BACKEND_URL
         sync: false
+      - key: CLOUDINARY_CLOUD_NAME
+        sync: false
+      - key: CLOUDINARY_API_KEY
+        sync: false
+      - key: CLOUDINARY_API_SECRET
+        sync: false
 
   # Frontend Static Site
   - type: web

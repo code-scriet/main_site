@@ -110,6 +110,7 @@ model Settings {
 model Event {
   id                    String       @id @default(uuid())
   title                 String
+  slug                  String       @unique @default("") // URL-friendly version of title
   description           String       @db.Text
   status                EventStatus  @default(UPCOMING)
   
@@ -127,6 +128,24 @@ model Event {
   eventType             String?      @map("event_type") // Workshop, Hackathon, Meetup, etc.
   prerequisites         String?      @db.Text // What attendees should know/bring
   
+  // Extended event information
+  shortDescription      String?      @map("short_description") @db.VarChar(300) // Brief summary for cards
+  agenda                String?      @db.Text // Detailed schedule/agenda (Markdown supported)
+  highlights            String?      @db.Text // Key highlights/features of the event
+  learningOutcomes      String?      @map("learning_outcomes") @db.Text // What participants will learn
+  targetAudience        String?      @map("target_audience") // Who should attend
+  speakers              Json?        // Array of speaker objects: [{name, role, bio, image}]
+  resources             Json?        // Array of resource links: [{title, url, type}]
+  faqs                  Json?        // Array of FAQs: [{question, answer}]
+  
+  // Media
+  imageGallery          Json?        @map("image_gallery") // Array of Google Drive image URLs
+  videoUrl              String?      @map("video_url") // YouTube/Vimeo embed URL
+  
+  // Meta
+  tags                  String[]     @default([]) // Event tags for categorization
+  featured              Boolean      @default(false) // Featured event flag
+  
   capacity              Int?
   imageUrl              String?      @map("image_url")
   createdBy             String       @map("created_by")
@@ -136,6 +155,7 @@ model Event {
   registrations EventRegistration[]
   
   @@index([status, startDate])
+  @@index([featured])
   @@map("events")
 }
 

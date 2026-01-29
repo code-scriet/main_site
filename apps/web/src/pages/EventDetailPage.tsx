@@ -1,0 +1,935 @@
+import { useState, useEffect } from 'react';
+import { useParams, useNavigate } from 'react-router-dom';
+import { Layout } from '@/components/layout/Layout';
+import { SEO } from '@/components/SEO';
+import { motion, AnimatePresence } from 'framer-motion';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { 
+  Calendar, MapPin, Users, Loader2, Clock, AlertCircle, CheckCircle, 
+  LogIn, ArrowLeft, Target, BookOpen, User, ExternalLink, ChevronDown,
+  ChevronUp, Play, Image as ImageIcon, Link as LinkIcon, FileText,
+  Github, Presentation, Video, HelpCircle, Tag, Star, Share2, X
+} from 'lucide-react';
+import { api, type Event, type Speaker, type FAQ } from '@/lib/api';
+import { useAuth } from '@/context/AuthContext';
+import { formatDate, formatTime, formatDateTime, getWeekdayShort, getDayOfMonth, getMonthShort } from '@/lib/dateUtils';
+import { processImageUrl, processImageGallery } from '@/lib/googleDrive';
+
+type EventStatus = 'UPCOMING' | 'ONGOING' | 'PAST';
+
+const statusConfig: Record<EventStatus, { label: string; variant: 'success' | 'warning' | 'secondary'; color: string }> = {
+  UPCOMING: { label: 'Upcoming', variant: 'success', color: 'bg-green-100 text-green-800 border-green-200' },
+  ONGOING: { label: 'Happening Now', variant: 'warning', color: 'bg-amber-100 text-amber-800 border-amber-200' },
+  PAST: { label: 'Completed', variant: 'secondary', color: 'bg-gray-100 text-gray-600 border-gray-200' },
+};
+
+// Resource type icons
+const resourceIcons: Record<string, React.ReactNode> = {
+  pdf: <FileText className="h-4 w-4" />,
+  video: <Video className="h-4 w-4" />,
+  github: <Github className="h-4 w-4" />,
+  slides: <Presentation className="h-4 w-4" />,
+  link: <LinkIcon className="h-4 w-4" />,
+  other: <ExternalLink className="h-4 w-4" />,
+};
+
+// Helper to get registration status
+function getRegistrationStatus(event: Event): {
+  status: 'not_started' | 'open' | 'closed' | 'full' | 'past';
+  message: string;
+  canRegister: boolean;
+} {
+  const now = new Date();
+  const eventStart = new Date(event.startDate);
+  const regStart = event.registrationStartDate ? new Date(event.registrationStartDate) : null;
+  const regEnd = event.registrationEndDate ? new Date(event.registrationEndDate) : eventStart;
+
+  if (event.status === 'PAST') {
+    return { status: 'past', message: 'Event has ended', canRegister: false };
+  }
+
+  if (event.capacity && event._count && event._count.registrations >= event.capacity) {
+    return { status: 'full', message: 'Event is full', canRegister: false };
+  }
+
+  if (regStart && now < regStart) {
+    return { 
+      status: 'not_started', 
+      message: `Registration opens ${formatDate(regStart)} at ${formatTime(regStart)}`, 
+      canRegister: false 
+    };
+  }
+
+  if (regEnd && now > regEnd) {
+    return { status: 'closed', message: 'Registration closed', canRegister: false };
+  }
+
+  return { status: 'open', message: 'Registration open', canRegister: true };
+}
+
+// Markdown-like text renderer for descriptions
+function RenderMarkdownText({ text }: { text: string }) {
+  // Simple markdown rendering for line breaks and basic formatting
+  const lines = text.split('\n');
+  return (
+    <div className="space-y-2">
+      {lines.map((line, i) => {
+        if (line.startsWith('# ')) {
+          return <h3 key={i} className="text-lg font-bold text-gray-900 mt-4">{line.slice(2)}</h3>;
+        }
+        if (line.startsWith('## ')) {
+          return <h4 key={i} className="text-base font-semibold text-gray-800 mt-3">{line.slice(3)}</h4>;
+        }
+        if (line.startsWith('- ') || line.startsWith('* ')) {
+          return (
+            <li key={i} className="ml-4 text-gray-700 list-disc">
+              {line.slice(2)}
+            </li>
+          );
+        }
+        if (line.match(/^\d+\. /)) {
+          return (
+            <li key={i} className="ml-4 text-gray-700 list-decimal">
+              {line.replace(/^\d+\. /, '')}
+            </li>
+          );
+        }
+        if (line.trim() === '') {
+          return <br key={i} />;
+        }
+        return <p key={i} className="text-gray-700">{line}</p>;
+      })}
+    </div>
+  );
+}
+
+// Image Gallery Component with Lightbox
+function ImageGallery({ images }: { images: string[] }) {
+  const [selectedImage, setSelectedImage] = useState<number | null>(null);
+  
+  const processedImages = processImageGallery(images, 'large');
+  const thumbnails = processImageGallery(images, 'thumbnail');
+  
+  if (!images || !images.length) {
+    return (
+      <div className="text-center py-8 text-gray-500">
+        <ImageIcon className="h-12 w-12 mx-auto mb-2 text-gray-400" />
+        <p>No images in gallery</p>
+      </div>
+    );
+  }
+
+  return (
+    <>
+      {/* Gallery Grid */}
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+        {thumbnails.map((thumb, index) => (
+          <motion.div
+            key={index}
+            whileHover={{ scale: 1.02 }}
+            whileTap={{ scale: 0.98 }}
+            className="aspect-square rounded-lg overflow-hidden cursor-pointer shadow-md hover:shadow-xl transition-shadow"
+            onClick={() => setSelectedImage(index)}
+          >
+            <img
+              src={thumb}
+              alt={`Event image ${index + 1}`}
+              className="w-full h-full object-cover"
+              onError={(e) => {
+                // Fallback for broken images
+                (e.target as HTMLImageElement).src = 'https://via.placeholder.com/400?text=Image+Not+Found';
+              }}
+            />
+          </motion.div>
+        ))}
+      </div>
+
+      {/* Lightbox */}
+      <AnimatePresence>
+        {selectedImage !== null && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 bg-black/90 flex items-center justify-center p-4"
+            onClick={() => setSelectedImage(null)}
+          >
+            <button
+              className="absolute top-4 right-4 text-white hover:text-gray-300 z-10"
+              onClick={() => setSelectedImage(null)}
+            >
+              <X className="h-8 w-8" />
+            </button>
+            
+            {/* Navigation */}
+            <button
+              className="absolute left-4 text-white hover:text-gray-300 p-2 disabled:opacity-30"
+              disabled={selectedImage === 0}
+              onClick={(e) => {
+                e.stopPropagation();
+                setSelectedImage(prev => prev !== null ? prev - 1 : null);
+              }}
+            >
+              <ChevronDown className="h-8 w-8 rotate-90" />
+            </button>
+            
+            <motion.img
+              key={selectedImage}
+              initial={{ opacity: 0, scale: 0.9 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.9 }}
+              src={processedImages[selectedImage]}
+              alt={`Event image ${selectedImage + 1}`}
+              className="max-w-full max-h-[85vh] object-contain rounded-lg"
+              onClick={(e) => e.stopPropagation()}
+            />
+            
+            <button
+              className="absolute right-4 text-white hover:text-gray-300 p-2 disabled:opacity-30"
+              disabled={selectedImage === processedImages.length - 1}
+              onClick={(e) => {
+                e.stopPropagation();
+                setSelectedImage(prev => prev !== null ? prev + 1 : null);
+              }}
+            >
+              <ChevronDown className="h-8 w-8 -rotate-90" />
+            </button>
+            
+            {/* Image counter */}
+            <div className="absolute bottom-4 text-white text-sm">
+              {selectedImage + 1} / {processedImages.length}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </>
+  );
+}
+
+// FAQ Accordion Component
+function FAQSection({ faqs }: { faqs: FAQ[] }) {
+  const [openIndex, setOpenIndex] = useState<number | null>(null);
+  
+  if (!faqs.length) return null;
+
+  return (
+    <div className="space-y-3">
+      {faqs.map((faq, index) => (
+        <motion.div
+          key={index}
+          initial={false}
+          className="border border-amber-200 rounded-lg overflow-hidden"
+        >
+          <button
+            className="w-full px-4 py-3 flex items-center justify-between text-left bg-white hover:bg-amber-50 transition-colors"
+            onClick={() => setOpenIndex(openIndex === index ? null : index)}
+          >
+            <span className="font-medium text-gray-900">{faq.question}</span>
+            {openIndex === index ? (
+              <ChevronUp className="h-5 w-5 text-amber-600 shrink-0" />
+            ) : (
+              <ChevronDown className="h-5 w-5 text-amber-600 shrink-0" />
+            )}
+          </button>
+          <AnimatePresence>
+            {openIndex === index && (
+              <motion.div
+                initial={{ height: 0, opacity: 0 }}
+                animate={{ height: 'auto', opacity: 1 }}
+                exit={{ height: 0, opacity: 0 }}
+                transition={{ duration: 0.2 }}
+              >
+                <div className="px-4 py-3 bg-amber-50/50 text-gray-700 border-t border-amber-100">
+                  {faq.answer}
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </motion.div>
+      ))}
+    </div>
+  );
+}
+
+// Speaker Card Component
+function SpeakerCard({ speaker }: { speaker: Speaker }) {
+  return (
+    <Card className="overflow-hidden">
+      <div className="flex items-start gap-4 p-4">
+        {speaker.image ? (
+          <img
+            src={processImageUrl(speaker.image, 'thumbnail')}
+            alt={speaker.name}
+            className="w-16 h-16 rounded-full object-cover shrink-0"
+          />
+        ) : (
+          <div className="w-16 h-16 rounded-full bg-amber-100 flex items-center justify-center shrink-0">
+            <User className="h-8 w-8 text-amber-600" />
+          </div>
+        )}
+        <div className="min-w-0">
+          <h4 className="font-semibold text-gray-900">{speaker.name}</h4>
+          <p className="text-sm text-amber-600">{speaker.role}</p>
+          {speaker.bio && (
+            <p className="text-sm text-gray-600 mt-1 line-clamp-2">{speaker.bio}</p>
+          )}
+        </div>
+      </div>
+    </Card>
+  );
+}
+
+export default function EventDetailPage() {
+  const { id } = useParams<{ id: string }>();
+  const navigate = useNavigate();
+  const { user, token } = useAuth();
+  
+  const [event, setEvent] = useState<Event | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [registering, setRegistering] = useState(false);
+  const [isRegistered, setIsRegistered] = useState(false);
+  const [registrationSuccess, setRegistrationSuccess] = useState<string | null>(null);
+  const [registrationError, setRegistrationError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const fetchEvent = async () => {
+      if (!id) {
+        setError('Event not found');
+        setLoading(false);
+        return;
+      }
+
+      try {
+        setLoading(true);
+        setError(null);
+        const eventData = await api.getEvent(id);
+        setEvent(eventData);
+        
+        // Check if user is registered
+        if (token) {
+          try {
+            const registrations = await api.getMyRegistrations(token);
+            setIsRegistered(registrations.some(r => r.eventId === id));
+          } catch (err) {
+            console.error('Failed to fetch registrations', err);
+          }
+        }
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Failed to load event');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchEvent();
+  }, [id, token]);
+
+  const handleRegister = async () => {
+    if (!event) return;
+    
+    const regStatus = getRegistrationStatus(event);
+    
+    if (!regStatus.canRegister) {
+      setRegistrationError(regStatus.message);
+      setTimeout(() => setRegistrationError(null), 3000);
+      return;
+    }
+
+    if (!user || !token) {
+      localStorage.setItem('pendingEventRegistration', event.id);
+      navigate('/signin', { state: { from: `/events/${event.slug}`, message: 'Please sign in to register for events' } });
+      return;
+    }
+
+    if (!user.phone || !user.course || !user.branch || !user.year) {
+      localStorage.setItem('pendingEventRegistration', event.id);
+      navigate('/dashboard/profile', { state: { message: 'Please complete your profile to register for events' } });
+      return;
+    }
+
+    try {
+      setRegistering(true);
+      setRegistrationError(null);
+      await api.registerForEvent(event.id, token);
+      setRegistrationSuccess(`Successfully registered for "${event.title}"!`);
+      setIsRegistered(true);
+      
+      // Refresh event data
+      const updatedEvent = await api.getEvent(event.id);
+      setEvent(updatedEvent);
+      
+      setTimeout(() => setRegistrationSuccess(null), 5000);
+    } catch (err) {
+      setRegistrationError(err instanceof Error ? err.message : 'Failed to register');
+      setTimeout(() => setRegistrationError(null), 5000);
+    } finally {
+      setRegistering(false);
+    }
+  };
+
+  const handleShare = async () => {
+    const url = window.location.href;
+    if (navigator.share) {
+      try {
+        await navigator.share({
+          title: event?.title,
+          text: event?.shortDescription || event?.description.slice(0, 100),
+          url,
+        });
+      } catch (err) {
+        console.log('Share cancelled');
+      }
+    } else {
+      await navigator.clipboard.writeText(url);
+      // Could show a toast here
+    }
+  };
+
+  if (loading) {
+    return (
+      <Layout>
+        <div className="min-h-screen flex items-center justify-center">
+          <Loader2 className="h-8 w-8 animate-spin text-amber-600" />
+        </div>
+      </Layout>
+    );
+  }
+
+  if (error || !event) {
+    return (
+      <Layout>
+        <div className="min-h-screen flex flex-col items-center justify-center gap-4">
+          <AlertCircle className="h-12 w-12 text-red-500" />
+          <h2 className="text-xl font-semibold text-gray-900">{error || 'Event not found'}</h2>
+          <Button onClick={() => navigate('/events')} variant="outline">
+            <ArrowLeft className="h-4 w-4 mr-2" />
+            Back to Events
+          </Button>
+        </div>
+      </Layout>
+    );
+  }
+
+  const regStatus = getRegistrationStatus(event);
+  const statusInfo = statusConfig[event.status];
+  const coverImage = event.imageUrl ? processImageUrl(event.imageUrl, 'original') : null;
+
+  return (
+    <Layout>
+      <SEO 
+        title={event.title}
+        description={event.shortDescription || event.description.slice(0, 160)}
+        url={`/events/${event.slug}`}
+        keywords={`${event.title}, ${event.eventType || 'event'}, code.scriet, ${event.tags?.join(', ') || ''}`}
+      />
+
+      {/* Notifications */}
+      <AnimatePresence>
+        {(registrationSuccess || registrationError) && (
+          <motion.div
+            initial={{ opacity: 0, y: -20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -20 }}
+            className="fixed top-20 left-1/2 transform -translate-x-1/2 z-50 w-full max-w-md px-4"
+          >
+            <div className={`flex items-center gap-3 p-4 rounded-lg shadow-lg ${
+              registrationSuccess 
+                ? 'bg-green-50 border border-green-200 text-green-700' 
+                : 'bg-red-50 border border-red-200 text-red-700'
+            }`}>
+              {registrationSuccess ? (
+                <CheckCircle className="h-5 w-5 shrink-0" />
+              ) : (
+                <AlertCircle className="h-5 w-5 shrink-0" />
+              )}
+              <p className="text-sm font-medium">{registrationSuccess || registrationError}</p>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Hero Section with Cover Image */}
+      <section className="relative">
+        {coverImage ? (
+          <div className="h-[40vh] md:h-[50vh] relative">
+            <img
+              src={coverImage}
+              alt={event.title}
+              className="w-full h-full object-cover"
+              onError={(e) => {
+                // Hide the image and show gradient background instead
+                (e.target as HTMLImageElement).style.display = 'none';
+              }}
+            />
+            <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/40 to-transparent" />
+          </div>
+        ) : (
+          <div className="h-[30vh] bg-gradient-to-br from-amber-400 via-orange-500 to-amber-900" />
+        )}
+        
+        {/* Back Button */}
+        <div className="absolute top-4 left-4">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => navigate('/events')}
+            className="bg-white/90 backdrop-blur-sm hover:bg-white"
+          >
+            <ArrowLeft className="h-4 w-4 mr-2" />
+            All Events
+          </Button>
+        </div>
+
+        {/* Share Button */}
+        <div className="absolute top-4 right-4">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleShare}
+            className="bg-white/90 backdrop-blur-sm hover:bg-white"
+          >
+            <Share2 className="h-4 w-4 mr-2" />
+            Share
+          </Button>
+        </div>
+
+        {/* Event Title Overlay */}
+        <div className="absolute bottom-0 left-0 right-0 p-6 md:p-8">
+          <div className="container mx-auto">
+            <div className="flex flex-wrap gap-2 mb-3">
+              <Badge className={statusInfo.color}>
+                {statusInfo.label}
+              </Badge>
+              {event.eventType && (
+                <Badge variant="outline" className="bg-white/90">
+                  {event.eventType}
+                </Badge>
+              )}
+              {event.featured && (
+                <Badge className="bg-amber-500 text-white">
+                  <Star className="h-3 w-3 mr-1" />
+                  Featured
+                </Badge>
+              )}
+            </div>
+            <h1 className={`text-3xl md:text-4xl lg:text-5xl font-bold ${coverImage ? 'text-white' : 'text-white'}`}>
+              {event.title}
+            </h1>
+          </div>
+        </div>
+      </section>
+
+      {/* Main Content */}
+      <section className="py-8 md:py-12 bg-amber-50">
+        <div className="container mx-auto px-4">
+          <div className="grid lg:grid-cols-3 gap-8">
+            {/* Left Column - Main Content */}
+            <div className="lg:col-span-2 space-y-8">
+              {/* Quick Info Bar */}
+              <Card className="border-amber-200">
+                <CardContent className="p-4">
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                    <div className="flex items-center gap-3">
+                      <div className="w-12 h-12 bg-amber-100 rounded-lg flex flex-col items-center justify-center">
+                        <span className="text-xs text-amber-600 font-medium">{getMonthShort(event.startDate)}</span>
+                        <span className="text-lg font-bold text-amber-900">{getDayOfMonth(event.startDate)}</span>
+                      </div>
+                      <div>
+                        <p className="text-sm text-gray-500">Date</p>
+                        <p className="font-medium text-gray-900">{getWeekdayShort(event.startDate)}</p>
+                      </div>
+                    </div>
+                    
+                    <div className="flex items-center gap-3">
+                      <div className="w-12 h-12 bg-amber-100 rounded-lg flex items-center justify-center">
+                        <Clock className="h-5 w-5 text-amber-600" />
+                      </div>
+                      <div>
+                        <p className="text-sm text-gray-500">Time</p>
+                        <p className="font-medium text-gray-900">{formatTime(event.startDate)}</p>
+                      </div>
+                    </div>
+                    
+                    {event.location && (
+                      <div className="flex items-center gap-3">
+                        <div className="w-12 h-12 bg-amber-100 rounded-lg flex items-center justify-center">
+                          <MapPin className="h-5 w-5 text-amber-600" />
+                        </div>
+                        <div>
+                          <p className="text-sm text-gray-500">Location</p>
+                          <p className="font-medium text-gray-900">{event.location}</p>
+                        </div>
+                      </div>
+                    )}
+                    
+                    {event.capacity && (
+                      <div className="flex items-center gap-3">
+                        <div className="w-12 h-12 bg-amber-100 rounded-lg flex items-center justify-center">
+                          <Users className="h-5 w-5 text-amber-600" />
+                        </div>
+                        <div>
+                          <p className="text-sm text-gray-500">Capacity</p>
+                          <p className="font-medium text-gray-900">
+                            {event._count?.registrations || 0} / {event.capacity}
+                          </p>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* About This Event */}
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <BookOpen className="h-5 w-5 text-amber-600" />
+                    About This Event
+                  </CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <RenderMarkdownText text={event.description} />
+                </CardContent>
+              </Card>
+
+              {/* Event Highlights */}
+              {event.highlights && (
+                <Card className="border-amber-200 bg-gradient-to-br from-amber-50 to-orange-50">
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                      <Star className="h-5 w-5 text-amber-600" />
+                      Event Highlights
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <RenderMarkdownText text={event.highlights} />
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* Agenda / Schedule */}
+              {event.agenda && (
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                      <Calendar className="h-5 w-5 text-amber-600" />
+                      Agenda / Schedule
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <RenderMarkdownText text={event.agenda} />
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* What You'll Learn */}
+              {event.learningOutcomes && (
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                      <Target className="h-5 w-5 text-amber-600" />
+                      What You'll Learn
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <RenderMarkdownText text={event.learningOutcomes} />
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* Speakers */}
+              {event.speakers && event.speakers.length > 0 && (
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                      <User className="h-5 w-5 text-amber-600" />
+                      Speakers & Instructors
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="grid md:grid-cols-2 gap-4">
+                      {event.speakers.map((speaker, index) => (
+                        <SpeakerCard key={index} speaker={speaker} />
+                      ))}
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* Video Embed */}
+              {event.videoUrl && (
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                      <Play className="h-5 w-5 text-amber-600" />
+                      Event Video
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="aspect-video rounded-lg overflow-hidden bg-gray-100">
+                      <iframe
+                        src={event.videoUrl}
+                        title="Event video"
+                        className="w-full h-full"
+                        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                        allowFullScreen
+                      />
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* Image Gallery */}
+              {event.imageGallery && event.imageGallery.length > 0 && (
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                      <ImageIcon className="h-5 w-5 text-amber-600" />
+                      Event Gallery
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <ImageGallery images={event.imageGallery} />
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* Resources */}
+              {event.resources && event.resources.length > 0 && (
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                      <LinkIcon className="h-5 w-5 text-amber-600" />
+                      Resources & Materials
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="grid gap-3">
+                      {event.resources.map((resource, index) => (
+                        <a
+                          key={index}
+                          href={resource.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex items-center gap-3 p-3 rounded-lg border border-gray-200 hover:border-amber-300 hover:bg-amber-50 transition-colors"
+                        >
+                          <div className="w-10 h-10 bg-amber-100 rounded-lg flex items-center justify-center text-amber-600">
+                            {resourceIcons[resource.type || 'other']}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="font-medium text-gray-900">{resource.title}</p>
+                            <p className="text-sm text-gray-500 truncate">{resource.url}</p>
+                          </div>
+                          <ExternalLink className="h-4 w-4 text-gray-400 shrink-0" />
+                        </a>
+                      ))}
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* FAQs */}
+              {event.faqs && event.faqs.length > 0 && (
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                      <HelpCircle className="h-5 w-5 text-amber-600" />
+                      Frequently Asked Questions
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <FAQSection faqs={event.faqs} />
+                  </CardContent>
+                </Card>
+              )}
+            </div>
+
+            {/* Right Column - Sticky Sidebar */}
+            <div className="lg:col-span-1">
+              <div className="sticky top-24 space-y-6">
+                {/* Registration Card */}
+                <Card className="border-amber-200 shadow-lg">
+                  <CardHeader className="bg-gradient-to-r from-amber-500 to-orange-500 text-white rounded-t-lg">
+                    <CardTitle className="text-center">Register Now</CardTitle>
+                  </CardHeader>
+                  <CardContent className="p-6 space-y-4">
+                    {/* Registration Status */}
+                    <div className={`flex items-center gap-2 text-sm px-4 py-3 rounded-lg ${
+                      regStatus.status === 'open' ? 'bg-green-50 text-green-700 border border-green-200' :
+                      regStatus.status === 'not_started' ? 'bg-blue-50 text-blue-700 border border-blue-200' :
+                      'bg-gray-100 text-gray-600 border border-gray-200'
+                    }`}>
+                      <Clock className="h-4 w-4" />
+                      <span>{regStatus.message}</span>
+                    </div>
+
+                    {/* Spots Remaining */}
+                    {event.capacity && (
+                      <div className="text-center">
+                        <div className="text-2xl font-bold text-amber-600">
+                          {Math.max(0, event.capacity - (event._count?.registrations || 0))}
+                        </div>
+                        <p className="text-sm text-gray-500">spots remaining</p>
+                        <div className="mt-2 h-2 bg-gray-200 rounded-full overflow-hidden">
+                          <div 
+                            className="h-full bg-amber-500 transition-all"
+                            style={{ 
+                              width: `${Math.min(100, ((event._count?.registrations || 0) / event.capacity) * 100)}%` 
+                            }}
+                          />
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Register Button */}
+                    {event.status !== 'PAST' && regStatus.canRegister ? (
+                      isRegistered ? (
+                        <Button 
+                          variant="secondary" 
+                          className="w-full bg-green-50 text-green-700 border border-green-200 cursor-default" 
+                          disabled
+                        >
+                          <CheckCircle className="h-4 w-4 mr-2" />
+                          You're Registered!
+                        </Button>
+                      ) : user ? (
+                        <Button 
+                          className="w-full bg-amber-600 hover:bg-amber-700 text-white" 
+                          onClick={handleRegister}
+                          disabled={registering}
+                        >
+                          {registering ? (
+                            <>
+                              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                              Registering...
+                            </>
+                          ) : (
+                            'Register for This Event'
+                          )}
+                        </Button>
+                      ) : (
+                        <Button 
+                          className="w-full" 
+                          variant="outline"
+                          onClick={() => navigate('/signin', { state: { from: `/events/${event.slug}` } })}
+                        >
+                          <LogIn className="h-4 w-4 mr-2" />
+                          Sign In to Register
+                        </Button>
+                      )
+                    ) : (
+                      <Button variant="outline" className="w-full" disabled>
+                        {event.status === 'PAST' ? 'Event Completed' : regStatus.message}
+                      </Button>
+                    )}
+                  </CardContent>
+                </Card>
+
+                {/* Event Details Card */}
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-lg">Event Details</CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <div className="flex items-start gap-3">
+                      <Calendar className="h-5 w-5 text-amber-600 mt-0.5" />
+                      <div>
+                        <p className="font-medium text-gray-900">Date & Time</p>
+                        <p className="text-sm text-gray-600">
+                          {formatDateTime(event.startDate)}
+                          {event.endDate && (
+                            <>
+                              <br />
+                              to {formatDateTime(event.endDate)}
+                            </>
+                          )}
+                        </p>
+                      </div>
+                    </div>
+
+                    {event.location && (
+                      <div className="flex items-start gap-3">
+                        <MapPin className="h-5 w-5 text-amber-600 mt-0.5" />
+                        <div>
+                          <p className="font-medium text-gray-900">Location</p>
+                          <p className="text-sm text-gray-600">
+                            {event.location}
+                            {event.venue && <><br />{event.venue}</>}
+                          </p>
+                        </div>
+                      </div>
+                    )}
+
+                    {event.targetAudience && (
+                      <div className="flex items-start gap-3">
+                        <Users className="h-5 w-5 text-amber-600 mt-0.5" />
+                        <div>
+                          <p className="font-medium text-gray-900">Who Should Attend</p>
+                          <p className="text-sm text-gray-600">{event.targetAudience}</p>
+                        </div>
+                      </div>
+                    )}
+
+                    {event.prerequisites && (
+                      <div className="flex items-start gap-3">
+                        <AlertCircle className="h-5 w-5 text-amber-600 mt-0.5" />
+                        <div>
+                          <p className="font-medium text-gray-900">Prerequisites</p>
+                          <p className="text-sm text-gray-600">{event.prerequisites}</p>
+                        </div>
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+
+                {/* Tags */}
+                {event.tags && event.tags.length > 0 && (
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="text-lg flex items-center gap-2">
+                        <Tag className="h-4 w-4" />
+                        Tags
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="flex flex-wrap gap-2">
+                        {event.tags.map((tag, index) => (
+                          <Badge key={index} variant="outline" className="bg-amber-50">
+                            {tag}
+                          </Badge>
+                        ))}
+                      </div>
+                    </CardContent>
+                  </Card>
+                )}
+
+                {/* Registration Timeline */}
+                {(event.registrationStartDate || event.registrationEndDate) && (
+                  <Card className="bg-blue-50 border-blue-200">
+                    <CardContent className="p-4">
+                      <h4 className="font-medium text-blue-900 mb-2 flex items-center gap-2">
+                        <Clock className="h-4 w-4" />
+                        Registration Window
+                      </h4>
+                      <div className="text-sm text-blue-800 space-y-1">
+                        {event.registrationStartDate && (
+                          <p>Opens: {formatDateTime(event.registrationStartDate)}</p>
+                        )}
+                        {event.registrationEndDate && (
+                          <p>Closes: {formatDateTime(event.registrationEndDate)}</p>
+                        )}
+                      </div>
+                    </CardContent>
+                  </Card>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+    </Layout>
+  );
+}

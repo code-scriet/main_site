@@ -5,11 +5,12 @@ import { motion } from 'framer-motion';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Calendar, MapPin, Users, Loader2, Clock, AlertCircle, CheckCircle, LogIn } from 'lucide-react';
+import { Calendar, MapPin, Users, Loader2, Clock, AlertCircle, CheckCircle, LogIn, ArrowRight, Star } from 'lucide-react';
 import { api, type Event } from '@/lib/api';
 import { useAuth } from '@/context/AuthContext';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import { formatDate, formatTime } from '@/lib/dateUtils';
+import { processImageUrl } from '@/lib/googleDrive';
 
 type EventStatus = 'UPCOMING' | 'ONGOING' | 'PAST';
 
@@ -259,119 +260,143 @@ export default function EventsPage() {
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ duration: 0.6, delay: index * 0.1 }}
                   >
-                    <Card className="h-full overflow-hidden group hover:shadow-xl transition-all duration-300">
-                      <div className="relative h-48 overflow-hidden bg-gradient-to-br from-amber-200 to-orange-200">
-                        {event.imageUrl ? (
-                          <img
-                            src={event.imageUrl}
-                            alt={event.title}
-                            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
-                          />
-                        ) : (
-                          <div className="w-full h-full flex items-center justify-center">
-                            <Calendar className="h-16 w-16 text-amber-400" />
-                          </div>
-                        )}
-                        <div className="absolute top-4 left-4 flex gap-2">
-                          <Badge variant={statusBadgeVariant(event.status)}>
-                            {event.status}
-                          </Badge>
-                          {event.eventType && (
-                            <Badge variant="outline" className="bg-white/90">
-                              {event.eventType}
-                            </Badge>
-                          )}
-                        </div>
-                      </div>
-                      <CardHeader>
-                        <CardTitle className="line-clamp-1">{event.title}</CardTitle>
-                      </CardHeader>
-                      <CardContent className="space-y-4">
-                        <p className="text-gray-600 line-clamp-2">{event.description}</p>
-                        
-                        <div className="space-y-2 text-sm text-gray-500">
-                          <div className="flex items-center gap-2">
-                            <Calendar className="h-4 w-4" />
-                            <span>
-                              {formatDate(event.startDate)}
-                              {event.endDate && ` - ${formatDate(event.endDate)}`}
-                            </span>
-                          </div>
-                          {event.location && (
-                            <div className="flex items-center gap-2">
-                              <MapPin className="h-4 w-4" />
-                              <span>{event.location}{event.venue && ` • ${event.venue}`}</span>
+                    <Link to={`/events/${event.slug}`}>
+                      <Card className="h-full overflow-hidden group hover:shadow-xl transition-all duration-300 cursor-pointer">
+                        <div className="relative h-48 overflow-hidden bg-gradient-to-br from-amber-200 to-orange-200">
+                          {event.imageUrl ? (
+                            <img
+                              src={processImageUrl(event.imageUrl, 'medium')}
+                              alt={event.title}
+                              className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                            />
+                          ) : (
+                            <div className="w-full h-full flex items-center justify-center">
+                              <Calendar className="h-16 w-16 text-amber-400" />
                             </div>
                           )}
-                          {event.capacity && (
+                          <div className="absolute top-4 left-4 flex gap-2">
+                            <Badge variant={statusBadgeVariant(event.status)}>
+                              {event.status}
+                            </Badge>
+                            {event.eventType && (
+                              <Badge variant="outline" className="bg-white/90">
+                                {event.eventType}
+                              </Badge>
+                            )}
+                          </div>
+                          {event.featured && (
+                            <div className="absolute top-4 right-4">
+                              <Badge className="bg-amber-500 text-white">
+                                <Star className="h-3 w-3 mr-1" />
+                                Featured
+                              </Badge>
+                            </div>
+                          )}
+                        </div>
+                        <CardHeader>
+                          <CardTitle className="line-clamp-1 group-hover:text-amber-600 transition-colors">{event.title}</CardTitle>
+                        </CardHeader>
+                        <CardContent className="space-y-4">
+                          <p className="text-gray-600 line-clamp-2">{event.shortDescription || event.description}</p>
+                          
+                          <div className="space-y-2 text-sm text-gray-500">
                             <div className="flex items-center gap-2">
-                              <Users className="h-4 w-4" />
+                              <Calendar className="h-4 w-4" />
                               <span>
-                                {event._count?.registrations || 0} / {event.capacity} registered
+                                {formatDate(event.startDate)}
+                                {event.endDate && ` - ${formatDate(event.endDate)}`}
                               </span>
                             </div>
-                          )}
-                        </div>
+                            {event.location && (
+                              <div className="flex items-center gap-2">
+                                <MapPin className="h-4 w-4" />
+                                <span>{event.location}{event.venue && ` • ${event.venue}`}</span>
+                              </div>
+                            )}
+                            {event.capacity && (
+                              <div className="flex items-center gap-2">
+                                <Users className="h-4 w-4" />
+                                <span>
+                                  {event._count?.registrations || 0} / {event.capacity} registered
+                                </span>
+                              </div>
+                            )}
+                          </div>
 
-                        {/* Registration Status */}
-                        <div className={`flex items-center gap-2 text-sm px-3 py-2 rounded-lg ${
-                          regStatus.status === 'open' ? 'bg-green-50 text-green-700' :
-                          regStatus.status === 'not_started' ? 'bg-blue-50 text-blue-700' :
-                          regStatus.status === 'closed' || regStatus.status === 'full' ? 'bg-gray-100 text-gray-600' :
-                          'bg-gray-100 text-gray-600'
-                        }`}>
-                          <Clock className="h-4 w-4" />
-                          <span>{regStatus.message}</span>
-                        </div>
+                          {/* Registration Status */}
+                          <div className={`flex items-center gap-2 text-sm px-3 py-2 rounded-lg ${
+                            regStatus.status === 'open' ? 'bg-green-50 text-green-700' :
+                            regStatus.status === 'not_started' ? 'bg-blue-50 text-blue-700' :
+                            regStatus.status === 'closed' || regStatus.status === 'full' ? 'bg-gray-100 text-gray-600' :
+                            'bg-gray-100 text-gray-600'
+                          }`}>
+                            <Clock className="h-4 w-4" />
+                            <span>{regStatus.message}</span>
+                          </div>
 
-                        <div className="pt-2">
-                          {event.status !== 'PAST' && regStatus.canRegister ? (
-                            registeredEventIds.has(event.id) ? (
-                              <Button 
-                                variant="secondary" 
-                                className="w-full bg-green-50 text-green-700 border border-green-200 opacity-100 cursor-default" 
-                                disabled
-                              >
-                                <CheckCircle className="h-4 w-4 mr-2" />
-                                Registered
-                              </Button>
-                            ) : user ? (
-                              <Button 
-                                className="w-full bg-amber-600 hover:bg-amber-700" 
-                                onClick={() => handleRegister(event)}
-                                disabled={registering === event.id}
-                              >
-                                {registering === event.id ? (
-                                  <>
-                                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                                    Registering...
-                                  </>
-                                ) : (
-                                  'Register Now'
-                                )}
+                          <div className="pt-2 flex gap-2">
+                            {event.status !== 'PAST' && regStatus.canRegister ? (
+                              registeredEventIds.has(event.id) ? (
+                                <Button 
+                                  variant="secondary" 
+                                  className="flex-1 bg-green-50 text-green-700 border border-green-200 opacity-100 cursor-default" 
+                                  disabled
+                                  onClick={(e) => e.preventDefault()}
+                                >
+                                  <CheckCircle className="h-4 w-4 mr-2" />
+                                  Registered
+                                </Button>
+                              ) : user ? (
+                                <Button 
+                                  className="flex-1 bg-amber-600 hover:bg-amber-700" 
+                                  onClick={(e) => {
+                                    e.preventDefault();
+                                    handleRegister(event);
+                                  }}
+                                  disabled={registering === event.id}
+                                >
+                                  {registering === event.id ? (
+                                    <>
+                                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                                      Registering...
+                                    </>
+                                  ) : (
+                                    'Register Now'
+                                  )}
+                                </Button>
+                              ) : (
+                                <Button 
+                                  className="flex-1" 
+                                  variant="outline"
+                                  onClick={(e) => {
+                                    e.preventDefault();
+                                    navigate('/signin', { state: { from: '/events' } });
+                                  }}
+                                >
+                                  <LogIn className="h-4 w-4 mr-2" />
+                                  Sign In to Register
+                                </Button>
+                              )
+                            ) : event.status === 'ONGOING' ? (
+                              <Button variant="secondary" className="flex-1" disabled onClick={(e) => e.preventDefault()}>
+                                Event in Progress
                               </Button>
                             ) : (
-                              <Button 
-                                className="w-full" 
-                                variant="outline"
-                                onClick={() => navigate('/signin', { state: { from: '/events' } })}
-                              >
-                                <LogIn className="h-4 w-4 mr-2" />
-                                Sign In to Register
+                              <Button variant="outline" className="flex-1" disabled onClick={(e) => e.preventDefault()}>
+                                {regStatus.message}
                               </Button>
-                            )
-                          ) : event.status === 'ONGOING' ? (
-                            <Button variant="secondary" className="w-full" disabled>
-                              Event in Progress
+                            )}
+                            <Button 
+                              variant="outline" 
+                              className="shrink-0"
+                            >
+                              View
+                              <ArrowRight className="h-4 w-4 ml-2" />
                             </Button>
-                          ) : (
-                            <Button variant="outline" className="w-full" disabled>
-                              {regStatus.message}
-                            </Button>
-                          )}
-                        </div>
-                      </CardContent>
-                    </Card>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    </Link>
                   </motion.div>
                 );
               })}

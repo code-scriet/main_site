@@ -8,6 +8,7 @@ import { SocketProvider } from '@/context/SocketContext';
 import HomePage from '@/pages/HomePage';
 import AboutPage from '@/pages/AboutPage';
 import EventsPage from '@/pages/EventsPage';
+import EventDetailPage from '@/pages/EventDetailPage';
 import TeamPage from '@/pages/TeamPage';
 import AchievementsPage from '@/pages/AchievementsPage';
 import AnnouncementsPage from '@/pages/AnnouncementsPage';
@@ -58,6 +59,7 @@ function App() {
             <Route path="/" element={<HomePage />} />
             <Route path="/about" element={<AboutPage />} />
             <Route path="/events" element={<EventsPage />} />
+            <Route path="/events/:id" element={<EventDetailPage />} />
             <Route path="/announcements" element={<AnnouncementsPage />} />
             <Route path="/team" element={<TeamPage />} />
             <Route path="/achievements" element={<AchievementsPage />} />

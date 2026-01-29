@@ -6,6 +6,7 @@ import { Link } from 'react-router-dom';
 import { Calendar, MapPin, ArrowRight, Loader2, Users, Clock } from 'lucide-react';
 import { api, type Event } from '@/lib/api';
 import { formatTime, getWeekdayShort, getMonthShort, getDayOfMonth } from '@/lib/dateUtils';
+import { processImageUrl } from '@/lib/googleDrive';
 import { useMotionConfig } from '@/hooks/useMotionConfig';
 import { useAuth } from '@/context/AuthContext';
 
@@ -150,20 +151,21 @@ export function UpcomingEvents() {
                   whileHover={!isMobile ? { y: -8 } : undefined}
                   className="group"
                 >
-                  <div className="h-full bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden hover:shadow-xl transition-all duration-500">
-                    {/* Image Container */}
-                    <div className="relative h-56 overflow-hidden">
-                      {event.imageUrl ? (
-                        <img
-                          src={event.imageUrl}
-                          alt={event.title}
-                          className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700"
-                        />
-                      ) : (
-                        <div className="w-full h-full bg-gradient-to-br from-amber-400 via-orange-500 to-amber-600 flex items-center justify-center">
-                          <Calendar className="h-20 w-20 text-white/30" />
-                        </div>
-                      )}
+                  <Link to={`/events/${event.slug}`} className="block h-full">
+                    <div className="h-full bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden hover:shadow-xl transition-all duration-500">
+                      {/* Image Container */}
+                      <div className="relative h-56 overflow-hidden">
+                        {event.imageUrl ? (
+                          <img
+                            src={processImageUrl(event.imageUrl, 'medium')}
+                            alt={event.title}
+                            className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700"
+                          />
+                        ) : (
+                          <div className="w-full h-full bg-gradient-to-br from-amber-400 via-orange-500 to-amber-600 flex items-center justify-center">
+                            <Calendar className="h-20 w-20 text-white/30" />
+                          </div>
+                        )}
                       
                       {/* Overlay Gradient */}
                       <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent" />
@@ -213,7 +215,7 @@ export function UpcomingEvents() {
                         {event.title}
                       </h3>
                       <p className="text-gray-600 text-sm mb-4 line-clamp-2">
-                        {event.description}
+                        {event.shortDescription || event.description}
                       </p>
                       
                       {/* Meta Info */}
@@ -237,28 +239,26 @@ export function UpcomingEvents() {
                       </div>
                       
                       {/* CTA */}
-                      <Link to="/events">
-                        {isRegistered ? (
-                          <Button 
-                            className="w-full bg-green-50 text-green-700 hover:bg-green-100 border border-green-200"
-                          >
-                            Registered
-                          </Button>
-                        ) : (
-                          <Button 
-                            className={`w-full ${
-                              regStatus.canRegister 
-                                ? 'bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white'
-                                : 'bg-gray-100 text-gray-500'
-                            }`}
-                            disabled={!regStatus.canRegister}
-                          >
-                            {regStatus.canRegister ? 'View & Register' : regStatus.message}
-                          </Button>
-                        )}
-                      </Link>
+                      {isRegistered ? (
+                        <Button 
+                          className="w-full bg-green-50 text-green-700 hover:bg-green-100 border border-green-200"
+                        >
+                          Registered - View Details
+                        </Button>
+                      ) : (
+                        <Button 
+                          className={`w-full ${
+                            regStatus.canRegister 
+                              ? 'bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white'
+                              : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+                          }`}
+                        >
+                          {regStatus.canRegister ? 'View & Register' : 'View Details'}
+                        </Button>
+                      )}
                     </div>
                   </div>
+                  </Link>
                 </motion.div>
               );
             })}
