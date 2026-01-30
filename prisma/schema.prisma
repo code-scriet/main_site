@@ -102,6 +102,12 @@ model Settings {
   instagramUrl        String?  @map("instagram_url")
   discordUrl          String?  @map("discord_url")
   
+  // Email Template Customization (Markdown supported)
+  emailWelcomeBody    String?  @map("email_welcome_body") @db.Text
+  emailAnnouncementBody String? @map("email_announcement_body") @db.Text
+  emailEventBody      String?  @map("email_event_body") @db.Text
+  emailFooterText     String?  @map("email_footer_text")
+  
   updatedAt           DateTime @updatedAt @map("updated_at")
   
   @@map("settings")

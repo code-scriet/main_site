@@ -3,11 +3,12 @@ import { motion } from 'framer-motion';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Save, AlertCircle, CheckCircle, Globe, Mail, Shield, Loader2, RefreshCw, Share2 } from 'lucide-react';
+import { Save, AlertCircle, CheckCircle, Globe, Mail, Shield, Loader2, RefreshCw, Share2, FileText, Eye, Code } from 'lucide-react';
 import { api } from '@/lib/api';
 import type { Settings } from '@/lib/api';
 import { useAuth } from '@/context/AuthContext';
 import { useSettings } from '@/context/SettingsContext';
+import { Markdown } from '@/components/ui/markdown';
 
 export default function AdminSettings() {
   const { token } = useAuth();
@@ -34,8 +35,15 @@ export default function AdminSettings() {
     twitterUrl: '',
     instagramUrl: '',
     discordUrl: '',
+    emailWelcomeBody: '',
+    emailAnnouncementBody: '',
+    emailEventBody: '',
+    emailFooterText: '',
     updatedAt: new Date().toISOString(),
   });
+  
+  const [activeEmailTab, setActiveEmailTab] = useState<'welcome' | 'announcement' | 'event'>('welcome');
+  const [showPreview, setShowPreview] = useState(false);
 
   const fetchSettings = async () => {
     setLoading(true);
@@ -361,6 +369,199 @@ export default function AdminSettings() {
               placeholder="https://discord.gg/invite-code"
             />
             <p className="text-xs text-gray-500">Leave empty to hide Discord from the footer</p>
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Email Template Settings */}
+      <Card className="border-amber-100">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <FileText className="h-5 w-5 text-amber-600" />
+            Email Templates
+          </CardTitle>
+          <CardDescription>
+            Customize the content of automated emails. Use Markdown for formatting.
+            Leave empty to use default templates.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-6">
+          {/* Email Footer Text */}
+          <div className="space-y-2">
+            <label className="text-sm font-medium text-gray-700">Email Footer Text</label>
+            <Input
+              value={settings.emailFooterText || ''}
+              onChange={(e) => setSettings({ ...settings, emailFooterText: e.target.value })}
+              placeholder="Building the next generation of developers."
+            />
+            <p className="text-xs text-gray-500">Appears at the bottom of all emails</p>
+          </div>
+          
+          {/* Tab Navigation */}
+          <div className="flex gap-2 border-b border-gray-200">
+            <button
+              onClick={() => setActiveEmailTab('welcome')}
+              className={`px-4 py-2 text-sm font-medium transition-colors ${
+                activeEmailTab === 'welcome'
+                  ? 'border-b-2 border-amber-500 text-amber-600'
+                  : 'text-gray-500 hover:text-gray-700'
+              }`}
+            >
+              Welcome Email
+            </button>
+            <button
+              onClick={() => setActiveEmailTab('announcement')}
+              className={`px-4 py-2 text-sm font-medium transition-colors ${
+                activeEmailTab === 'announcement'
+                  ? 'border-b-2 border-amber-500 text-amber-600'
+                  : 'text-gray-500 hover:text-gray-700'
+              }`}
+            >
+              Announcement
+            </button>
+            <button
+              onClick={() => setActiveEmailTab('event')}
+              className={`px-4 py-2 text-sm font-medium transition-colors ${
+                activeEmailTab === 'event'
+                  ? 'border-b-2 border-amber-500 text-amber-600'
+                  : 'text-gray-500 hover:text-gray-700'
+              }`}
+            >
+              New Event
+            </button>
+          </div>
+          
+          {/* Preview Toggle */}
+          <div className="flex justify-end">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setShowPreview(!showPreview)}
+              className="gap-2"
+            >
+              {showPreview ? <Code className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+              {showPreview ? 'Edit' : 'Preview'}
+            </Button>
+          </div>
+          
+          {/* Welcome Email Template */}
+          {activeEmailTab === 'welcome' && (
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <label className="text-sm font-medium text-gray-700">Welcome Email Body</label>
+                <span className="text-xs text-gray-400">Variables: {'{{name}}'}</span>
+              </div>
+              {showPreview ? (
+                <div className="min-h-[200px] p-4 bg-gray-900 rounded-lg border border-gray-700">
+                  <Markdown>{settings.emailWelcomeBody || `Welcome to **code.scriet**! 🎉
+
+We're thrilled to have you join our community of builders and innovators.
+
+## What's waiting for you:
+- **Daily QOTD** — Sharpen your problem-solving skills
+- **Workshops & Events** — Hands-on learning experiences
+- **Leaderboard** — Compete and climb the ranks
+- **Community** — Connect with fellow developers
+
+> "The best time to start coding was yesterday. The next best time is now."
+
+See you on the dashboard! 💻`}</Markdown>
+                </div>
+              ) : (
+                <textarea
+                  value={settings.emailWelcomeBody || ''}
+                  onChange={(e) => setSettings({ ...settings, emailWelcomeBody: e.target.value })}
+                  className="w-full min-h-[200px] px-3 py-2 border border-gray-300 rounded-md bg-white text-sm font-mono focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent"
+                  placeholder={`Welcome to **code.scriet**! 🎉
+
+We're thrilled to have you join our community of builders and innovators.
+
+## What's waiting for you:
+- **Daily QOTD** — Sharpen your problem-solving skills
+- **Workshops & Events** — Hands-on learning experiences
+- **Leaderboard** — Compete and climb the ranks
+- **Community** — Connect with fellow developers
+
+> "The best time to start coding was yesterday. The next best time is now."
+
+See you on the dashboard! 💻`}
+                />
+              )}
+              <p className="text-xs text-gray-500">
+                Markdown supported. Leave empty for default template.
+              </p>
+            </div>
+          )}
+          
+          {/* Announcement Email Template */}
+          {activeEmailTab === 'announcement' && (
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <label className="text-sm font-medium text-gray-700">Announcement Email Intro</label>
+                <span className="text-xs text-gray-400">Added before announcement content</span>
+              </div>
+              {showPreview ? (
+                <div className="min-h-[150px] p-4 bg-gray-900 rounded-lg border border-gray-700">
+                  <Markdown>{settings.emailAnnouncementBody || `Hey there! 👋
+
+Here's the latest update from **code.scriet**:`}</Markdown>
+                </div>
+              ) : (
+                <textarea
+                  value={settings.emailAnnouncementBody || ''}
+                  onChange={(e) => setSettings({ ...settings, emailAnnouncementBody: e.target.value })}
+                  className="w-full min-h-[150px] px-3 py-2 border border-gray-300 rounded-md bg-white text-sm font-mono focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent"
+                  placeholder={`Hey there! 👋
+
+Here's the latest update from **code.scriet**:`}
+                />
+              )}
+              <p className="text-xs text-gray-500">
+                This intro text appears before the announcement content in emails.
+              </p>
+            </div>
+          )}
+          
+          {/* Event Email Template */}
+          {activeEmailTab === 'event' && (
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <label className="text-sm font-medium text-gray-700">New Event Email Intro</label>
+                <span className="text-xs text-gray-400">Added before event details</span>
+              </div>
+              {showPreview ? (
+                <div className="min-h-[150px] p-4 bg-gray-900 rounded-lg border border-gray-700">
+                  <Markdown>{settings.emailEventBody || `🎯 **New Event Alert!**
+
+We've got something exciting lined up for you:`}</Markdown>
+                </div>
+              ) : (
+                <textarea
+                  value={settings.emailEventBody || ''}
+                  onChange={(e) => setSettings({ ...settings, emailEventBody: e.target.value })}
+                  className="w-full min-h-[150px] px-3 py-2 border border-gray-300 rounded-md bg-white text-sm font-mono focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent"
+                  placeholder={`🎯 **New Event Alert!**
+
+We've got something exciting lined up for you:`}
+                />
+              )}
+              <p className="text-xs text-gray-500">
+                This intro text appears before event details in notification emails.
+              </p>
+            </div>
+          )}
+          
+          {/* Help Text */}
+          <div className="p-4 bg-amber-50 rounded-lg border border-amber-100">
+            <h4 className="text-sm font-medium text-amber-900 mb-2">Markdown Tips</h4>
+            <ul className="text-xs text-amber-700 space-y-1">
+              <li><code className="bg-amber-100 px-1 rounded">**bold**</code> → <strong>bold</strong></li>
+              <li><code className="bg-amber-100 px-1 rounded">*italic*</code> → <em>italic</em></li>
+              <li><code className="bg-amber-100 px-1 rounded">## Heading</code> → Creates a heading</li>
+              <li><code className="bg-amber-100 px-1 rounded">- item</code> → Creates a bullet list</li>
+              <li><code className="bg-amber-100 px-1 rounded">[link](url)</code> → Creates a link</li>
+              <li><code className="bg-amber-100 px-1 rounded">&gt; quote</code> → Creates a blockquote</li>
+            </ul>
           </div>
         </CardContent>
       </Card>

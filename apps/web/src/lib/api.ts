@@ -87,6 +87,11 @@ export interface Settings {
   twitterUrl?: string;
   instagramUrl?: string;
   discordUrl?: string;
+  // Email Template Customization
+  emailWelcomeBody?: string;
+  emailAnnouncementBody?: string;
+  emailEventBody?: string;
+  emailFooterText?: string;
   updatedAt: string;
 }
 
