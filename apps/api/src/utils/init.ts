@@ -122,6 +122,6 @@ export async function populateAnnouncementSlugs() {
 
     logger.info('✅ Announcement slugs populated');
   } catch (error) {
-    logger.error('❌ Failed to populate announcement slugs:', error);
+    logger.error('❌ Failed to populate announcement slugs:', error instanceof Error ? { message: error.message, stack: error.stack } : { error });
   }
 }
