@@ -365,77 +365,66 @@ const generateEmailTemplate = (content: {
 // ============================================
 
 export const EmailTemplates = {
-  // Welcome email for new members
+  // Welcome email for new members - PREMIUM DESIGN
   welcome: (name: string, clubName: string): EmailTemplate => ({
-    subject: `Welcome to ${clubName}! Your coding journey begins 🚀`,
+    subject: `${name}, welcome to ${clubName} 🔥`,
     html: generateEmailTemplate({
-      preheader: `Hey ${name}! Welcome to the code.scriet family.`,
-      badge: { text: 'Welcome', emoji: '🎉', gradient: 'linear-gradient(135deg, #a78bfa 0%, #8b5cf6 100%)' },
-      title: `Hey ${name}!`,
-      subtitle: `You're now part of an exclusive community of builders, innovators, and future tech leaders.`,
+      preheader: `You're in. Let's build something amazing together.`,
+      badge: { text: 'You\'re In!', emoji: '🚀', gradient: 'linear-gradient(135deg, #f59e0b 0%, #ea580c 50%, #dc2626 100%)' },
+      title: `Welcome to the Elite ${name}`,
+      subtitle: `You just joined 100+ developers building the future. Time to level up. 🎯`,
       body: `
-        <p style="margin: 0 0 20px; font-size: 16px; color: #e5e5e5; line-height: 1.7;">
-          Welcome to <strong style="color: #f59e0b;">code.scriet</strong> — where we believe in learning by doing, building real projects, and growing together.
+        <p style="margin: 0 0 28px; font-size: 16px; color: #e5e5e5; line-height: 1.8;">
+          You're not just joining a club. You're stepping into a <strong style="color: #f59e0b;">high-performance community</strong> where real developers solve real problems, ship real projects, and grow together.
         </p>
         
-        <p style="margin: 0 0 12px; font-size: 13px; color: #737373; text-transform: uppercase; letter-spacing: 1px; font-weight: 600;">What's waiting for you:</p>
+        <p style="margin: 0 0 20px; font-size: 14px; color: #a3a3a3; font-weight: 500; text-transform: uppercase; letter-spacing: 2px;">YOUR POWER-UPS</p>
         
-        <table style="width: 100%;" cellpadding="0" cellspacing="0" role="presentation">
+        <!-- Feature Grid -->
+        <table style="width: 100%; margin-bottom: 28px;" cellpadding="0" cellspacing="0" role="presentation">
           <tr>
-            <td style="padding: 12px 0; border-bottom: 1px solid rgba(255,255,255,0.05);">
-              <table cellpadding="0" cellspacing="0" role="presentation">
+            <td style="width: 50%; padding-right: 8px; padding-bottom: 12px; vertical-align: top;">
+              <table style="width: 100%; background: linear-gradient(135deg, rgba(245,158,11,0.12) 0%, rgba(234,88,12,0.08) 100%); border: 1px solid rgba(245,158,11,0.15); border-radius: 14px; padding: 16px;" cellpadding="0" cellspacing="0" role="presentation">
                 <tr>
-                  <td style="width: 32px; vertical-align: top;">
-                    <span style="color: #22c55e; font-size: 18px;">▹</span>
-                  </td>
                   <td>
-                    <span style="color: #fafafa; font-size: 15px; font-weight: 600;">Daily QOTD</span>
-                    <span style="color: #a3a3a3; font-size: 14px;"> — Sharpen your problem-solving skills</span>
+                    <div style="font-size: 28px; margin-bottom: 8px;">💡</div>
+                    <p style="margin: 0 0 4px; font-size: 14px; font-weight: 600; color: #fafafa;">Daily QOTD</p>
+                    <p style="margin: 0; font-size: 12px; color: #a3a3a3; line-height: 1.5;">Master algorithms &amp; data structures</p>
+                  </td>
+                </tr>
+              </table>
+            </td>
+            <td style="width: 50%; padding-left: 8px; padding-bottom: 12px; vertical-align: top;">
+              <table style="width: 100%; background: linear-gradient(135deg, rgba(34,197,94,0.12) 0%, rgba(22,163,74,0.08) 100%); border: 1px solid rgba(34,197,94,0.15); border-radius: 14px; padding: 16px;" cellpadding="0" cellspacing="0" role="presentation">
+                <tr>
+                  <td>
+                    <div style="font-size: 28px; margin-bottom: 8px;">🎯</div>
+                    <p style="margin: 0 0 4px; font-size: 14px; font-weight: 600; color: #fafafa;">Live Events</p>
+                    <p style="margin: 0; font-size: 12px; color: #a3a3a3; line-height: 1.5;">Workshops &amp; hackathons</p>
                   </td>
                 </tr>
               </table>
             </td>
           </tr>
           <tr>
-            <td style="padding: 12px 0; border-bottom: 1px solid rgba(255,255,255,0.05);">
-              <table cellpadding="0" cellspacing="0" role="presentation">
+            <td style="width: 50%; padding-right: 8px; padding-top: 0; vertical-align: top;">
+              <table style="width: 100%; background: linear-gradient(135deg, rgba(59,130,246,0.12) 0%, rgba(37,99,235,0.08) 100%); border: 1px solid rgba(59,130,246,0.15); border-radius: 14px; padding: 16px;" cellpadding="0" cellspacing="0" role="presentation">
                 <tr>
-                  <td style="width: 32px; vertical-align: top;">
-                    <span style="color: #22c55e; font-size: 18px;">▹</span>
-                  </td>
                   <td>
-                    <span style="color: #fafafa; font-size: 15px; font-weight: 600;">Workshops & Events</span>
-                    <span style="color: #a3a3a3; font-size: 14px;"> — Hands-on learning experiences</span>
+                    <div style="font-size: 28px; margin-bottom: 8px;">📊</div>
+                    <p style="margin: 0 0 4px; font-size: 14px; font-weight: 600; color: #fafafa;">Leaderboard</p>
+                    <p style="margin: 0; font-size: 12px; color: #a3a3a3; line-height: 1.5;">Climb the ranks</p>
                   </td>
                 </tr>
               </table>
             </td>
-          </tr>
-          <tr>
-            <td style="padding: 12px 0; border-bottom: 1px solid rgba(255,255,255,0.05);">
-              <table cellpadding="0" cellspacing="0" role="presentation">
+            <td style="width: 50%; padding-left: 8px; padding-top: 0; vertical-align: top;">
+              <table style="width: 100%; background: linear-gradient(135deg, rgba(168,85,247,0.12) 0%, rgba(147,51,234,0.08) 100%); border: 1px solid rgba(168,85,247,0.15); border-radius: 14px; padding: 16px;" cellpadding="0" cellspacing="0" role="presentation">
                 <tr>
-                  <td style="width: 32px; vertical-align: top;">
-                    <span style="color: #22c55e; font-size: 18px;">▹</span>
-                  </td>
                   <td>
-                    <span style="color: #fafafa; font-size: 15px; font-weight: 600;">Leaderboard</span>
-                    <span style="color: #a3a3a3; font-size: 14px;"> — Compete and climb the ranks</span>
-                  </td>
-                </tr>
-              </table>
-            </td>
-          </tr>
-          <tr>
-            <td style="padding: 12px 0;">
-              <table cellpadding="0" cellspacing="0" role="presentation">
-                <tr>
-                  <td style="width: 32px; vertical-align: top;">
-                    <span style="color: #22c55e; font-size: 18px;">▹</span>
-                  </td>
-                  <td>
-                    <span style="color: #fafafa; font-size: 15px; font-weight: 600;">Community</span>
-                    <span style="color: #a3a3a3; font-size: 14px;"> — Connect with like-minded developers</span>
+                    <div style="font-size: 28px; margin-bottom: 8px;">👥</div>
+                    <p style="margin: 0 0 4px; font-size: 14px; font-weight: 600; color: #fafafa;">Community</p>
+                    <p style="margin: 0; font-size: 12px; color: #a3a3a3; line-height: 1.5;">100+ builders</p>
                   </td>
                 </tr>
               </table>
@@ -443,16 +432,69 @@ export const EmailTemplates = {
           </tr>
         </table>
         
-        <div style="margin: 24px 0 0; padding: 16px 20px; background: rgba(245,158,11,0.1); border-radius: 12px; border: 1px solid rgba(245,158,11,0.2);">
-          <p style="margin: 0; font-size: 14px; color: #fcd34d; font-style: italic;">
-            "The best time to start coding was yesterday. The next best time is now." 💻
+        <!-- What Happens Next -->
+        <div style="margin: 28px 0; padding: 24px; background: linear-gradient(135deg, rgba(245,158,11,0.08) 0%, rgba(234,88,12,0.04) 100%); border: 1px solid rgba(245,158,11,0.2); border-radius: 16px;">
+          <p style="margin: 0 0 16px; font-size: 13px; text-transform: uppercase; letter-spacing: 2px; color: #f59e0b; font-weight: 600;">NEXT STEPS</p>
+          <table style="width: 100%;" cellpadding="0" cellspacing="0" role="presentation">
+            <tr>
+              <td style="padding: 12px 0; border-bottom: 1px solid rgba(255,255,255,0.05);">
+                <table cellpadding="0" cellspacing="0" role="presentation">
+                  <tr>
+                    <td style="width: 32px; padding-right: 12px; vertical-align: top;">
+                      <div style="width: 28px; height: 28px; background: linear-gradient(135deg, #f59e0b 0%, #ea580c 100%); border-radius: 50%; text-align: center; line-height: 28px; color: #000; font-weight: 700; font-size: 14px;">1</div>
+                    </td>
+                    <td style="vertical-align: middle;">
+                      <p style="margin: 0; color: #fafafa; font-size: 15px; font-weight: 500;">Complete your profile</p>
+                      <p style="margin: 4px 0 0; color: #a3a3a3; font-size: 13px;">Add your bio, social links, and skill set</p>
+                    </td>
+                  </tr>
+                </table>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding: 12px 0; border-bottom: 1px solid rgba(255,255,255,0.05);">
+                <table cellpadding="0" cellspacing="0" role="presentation">
+                  <tr>
+                    <td style="width: 32px; padding-right: 12px; vertical-align: top;">
+                      <div style="width: 28px; height: 28px; background: linear-gradient(135deg, #22c55e 0%, #16a34a 100%); border-radius: 50%; text-align: center; line-height: 28px; color: #000; font-weight: 700; font-size: 14px;">2</div>
+                    </td>
+                    <td style="vertical-align: middle;">
+                      <p style="margin: 0; color: #fafafa; font-size: 15px; font-weight: 500;">Solve today's QOTD</p>
+                      <p style="margin: 4px 0 0; color: #a3a3a3; font-size: 13px;">Sharpen your skills and climb the leaderboard</p>
+                    </td>
+                  </tr>
+                </table>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding: 12px 0;">
+                <table cellpadding="0" cellspacing="0" role="presentation">
+                  <tr>
+                    <td style="width: 32px; padding-right: 12px; vertical-align: top;">
+                      <div style="width: 28px; height: 28px; background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%); border-radius: 50%; text-align: center; line-height: 28px; color: #fff; font-weight: 700; font-size: 14px;">3</div>
+                    </td>
+                    <td style="vertical-align: middle;">
+                      <p style="margin: 0; color: #fafafa; font-size: 15px; font-weight: 500;">Register for an event</p>
+                      <p style="margin: 4px 0 0; color: #a3a3a3; font-size: 13px;">Meet the community and level up your skills</p>
+                    </td>
+                  </tr>
+                </table>
+              </td>
+            </tr>
+          </table>
+        </div>
+        
+        <!-- Premium Touch -->
+        <div style="margin: 28px 0 0; padding: 20px; background: linear-gradient(90deg, rgba(168,85,247,0.1) 0%, rgba(59,130,246,0.1) 100%); border-radius: 12px; border: 1px solid rgba(168,85,247,0.15); text-align: center;">
+          <p style="margin: 0; font-size: 13px; color: #c4b5fd; font-weight: 500;">
+            💪 <strong>Pro tip:</strong> The best learners are the ones who show up consistently. See you tomorrow?
           </p>
         </div>
       `,
-      cta: { text: 'Open Dashboard', url: `${SITE_URL}/dashboard` },
-      footer: 'Happy coding! — The code.scriet Team',
+      cta: { text: 'Launch Your Dashboard →', url: `${SITE_URL}/dashboard` },
+      footer: 'Welcome to the winning team. Let\'s build something extraordinary.',
     }),
-    text: `Welcome to ${clubName}, ${name}! We're thrilled to have you join us. Visit ${SITE_URL} to get started.`,
+    text: `Welcome to ${clubName}, ${name}! You're now part of a community of 100+ developers building amazing projects. Visit ${SITE_URL}/dashboard to get started.`,
   }),
 
   // Event registration confirmation
