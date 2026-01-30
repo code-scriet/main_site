@@ -154,11 +154,21 @@ export interface Registration {
 export interface Announcement {
   id: string;
   title: string;
+  slug: string;
   body: string;
+  shortDescription?: string | null;
   priority: 'LOW' | 'MEDIUM' | 'HIGH' | 'URGENT';
+  imageUrl?: string | null;
+  imageGallery?: string[] | null;
+  attachments?: { title: string; url: string; type?: string }[] | null;
+  links?: { title: string; url: string }[] | null;
+  tags?: string[];
+  featured: boolean;
+  pinned: boolean;
+  expiresAt?: string | null;
   createdBy: string;
   createdAt: string;
-  creator?: { name: string };
+  creator?: { id: string; name: string; avatar?: string };
 }
 
 export interface TeamMember {
@@ -226,10 +236,15 @@ export const api = {
     request<Registration[]>('/registrations/my', { token }),
   
   // Announcements
-  getAnnouncements: (priority?: string) => {
-    const params = priority ? `?priority=${priority}` : '';
-    return request<Announcement[]>(`/announcements${params}`);
+  getAnnouncements: (priority?: string, featured?: boolean) => {
+    const params = new URLSearchParams();
+    if (priority) params.set('priority', priority);
+    if (featured) params.set('featured', 'true');
+    const queryString = params.toString();
+    return request<Announcement[]>(`/announcements${queryString ? `?${queryString}` : ''}`);
   },
+  getAnnouncement: (idOrSlug: string) =>
+    request<Announcement>(`/announcements/${idOrSlug}`),
   createAnnouncement: (data: Partial<Announcement>, token: string) =>
     request<Announcement>('/announcements', { method: 'POST', body: JSON.stringify(data), token }),
   updateAnnouncement: (id: string, data: Partial<Announcement>, token: string) =>

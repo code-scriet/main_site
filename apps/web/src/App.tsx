@@ -20,6 +20,7 @@ const EventDetailPage = lazy(() => import('@/pages/EventDetailPage'));
 const TeamPage = lazy(() => import('@/pages/TeamPage'));
 const AchievementsPage = lazy(() => import('@/pages/AchievementsPage'));
 const AnnouncementsPage = lazy(() => import('@/pages/AnnouncementsPage'));
+const AnnouncementDetailPage = lazy(() => import('@/pages/AnnouncementDetailPage'));
 const SignInPage = lazy(() => import('@/pages/SignInPage'));
 const JoinUsPage = lazy(() => import('@/pages/JoinUsPage'));
 const AuthCallbackPage = lazy(() => import('@/pages/AuthCallbackPage'));
@@ -73,6 +74,7 @@ function App() {
                   <Route path="/events" element={<EventsPage />} />
                   <Route path="/events/:id" element={<EventDetailPage />} />
                   <Route path="/announcements" element={<AnnouncementsPage />} />
+                  <Route path="/announcements/:id" element={<AnnouncementDetailPage />} />
                   <Route path="/team" element={<TeamPage />} />
                   <Route path="/achievements" element={<AchievementsPage />} />
                   <Route path="/signin" element={<SignInPage />} />

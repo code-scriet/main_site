@@ -1,13 +1,15 @@
 import { useState, useEffect } from 'react';
+import { Link } from 'react-router-dom';
 import { Layout } from '@/components/layout/Layout';
 import { SEO } from '@/components/SEO';
 import { motion } from 'framer-motion';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Markdown } from '@/components/ui/markdown';
-import { Bell, Calendar, AlertCircle, Info, AlertTriangle, Megaphone } from 'lucide-react';
+import { Badge } from '@/components/ui/badge';
+import { Bell, Calendar, AlertCircle, Info, AlertTriangle, Megaphone, Pin, Star, ArrowRight, Image as ImageIcon } from 'lucide-react';
 import { api } from '@/lib/api';
 import type { Announcement } from '@/lib/api';
 import { formatDate } from '@/lib/dateUtils';
+import { processImageUrl } from '@/lib/imageUtils';
 
 const priorityConfig = {
   LOW: { color: 'bg-gray-100 text-gray-700 border-gray-300', icon: Info },
@@ -162,6 +164,8 @@ export default function AnnouncementsPage() {
             {filteredAnnouncements.map((announcement) => {
               const config = priorityConfig[announcement.priority];
               const Icon = config.icon;
+              const displayText = announcement.shortDescription || announcement.body;
+              const hasImage = !!announcement.imageUrl;
 
               return (
                 <motion.div
@@ -169,35 +173,103 @@ export default function AnnouncementsPage() {
                   variants={itemVariants}
                   whileHover={{ y: -5, transition: { duration: 0.2 } }}
                 >
-                  <Card className="h-full hover:shadow-xl transition-all duration-300 border-amber-200 bg-white/80 backdrop-blur-sm">
-                    <CardHeader className="space-y-3">
-                      <div className="flex items-start justify-between gap-2">
-                        <div className={`inline-flex items-center gap-2 px-3 py-1 rounded-full border ${config.color}`}>
-                          <Icon className="h-4 w-4" />
-                          <span className="text-xs font-semibold">{announcement.priority}</span>
-                        </div>
-                        <div className="flex items-center gap-1 text-sm text-gray-500">
-                          <Calendar className="h-4 w-4" />
-                          {formatDate(announcement.createdAt)}
-                        </div>
-                      </div>
-                      <CardTitle className="text-xl text-amber-900 leading-tight">
-                        {announcement.title}
-                      </CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                      <div className="text-gray-600 leading-relaxed line-clamp-4">
-                        <Markdown>{announcement.body}</Markdown>
-                      </div>
-                      {announcement.creator && (
-                        <div className="mt-4 pt-4 border-t border-amber-100">
-                          <p className="text-sm text-gray-500">
-                            Posted by <span className="font-medium text-amber-700">{announcement.creator.name}</span>
-                          </p>
+                  <Link to={`/announcements/${announcement.slug || announcement.id}`} className="block h-full">
+                    <Card className="h-full hover:shadow-xl transition-all duration-300 border-amber-200 bg-white/80 backdrop-blur-sm overflow-hidden group">
+                      {/* Image Header */}
+                      {hasImage && (
+                        <div className="relative h-40 overflow-hidden">
+                          <img
+                            src={processImageUrl(announcement.imageUrl!, 'card')}
+                            alt={announcement.title}
+                            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                            onError={(e) => {
+                              (e.target as HTMLImageElement).style.display = 'none';
+                            }}
+                          />
+                          <div className="absolute inset-0 bg-gradient-to-t from-black/40 to-transparent" />
+                          {/* Overlay badges */}
+                          <div className="absolute top-3 left-3 flex flex-wrap gap-1.5">
+                            {announcement.pinned && (
+                              <Badge className="bg-amber-500/90 text-white border-0 text-xs">
+                                <Pin className="h-3 w-3 mr-1" />
+                                Pinned
+                              </Badge>
+                            )}
+                            {announcement.featured && (
+                              <Badge className="bg-purple-500/90 text-white border-0 text-xs">
+                                <Star className="h-3 w-3 mr-1" />
+                                Featured
+                              </Badge>
+                            )}
+                          </div>
                         </div>
                       )}
-                    </CardContent>
-                  </Card>
+                      <CardHeader className="space-y-3">
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="flex flex-wrap gap-1.5">
+                            <div className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-xs font-semibold ${config.color}`}>
+                              <Icon className="h-3.5 w-3.5" />
+                              {announcement.priority}
+                            </div>
+                            {!hasImage && announcement.pinned && (
+                              <Badge className="bg-amber-100 text-amber-700 border-amber-300 text-xs">
+                                <Pin className="h-3 w-3 mr-1" />
+                                Pinned
+                              </Badge>
+                            )}
+                            {!hasImage && announcement.featured && (
+                              <Badge className="bg-purple-100 text-purple-700 border-purple-300 text-xs">
+                                <Star className="h-3 w-3 mr-1" />
+                                Featured
+                              </Badge>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-1 text-xs text-gray-500 shrink-0">
+                            <Calendar className="h-3.5 w-3.5" />
+                            {formatDate(announcement.createdAt)}
+                          </div>
+                        </div>
+                        <CardTitle className="text-lg sm:text-xl text-amber-900 leading-tight group-hover:text-amber-700 transition-colors line-clamp-2">
+                          {announcement.title}
+                        </CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        <p className="text-gray-600 text-sm leading-relaxed line-clamp-3">
+                          {displayText.replace(/[#*_`~\[\]]/g, '').slice(0, 150)}
+                          {displayText.length > 150 ? '...' : ''}
+                        </p>
+                        
+                        {/* Tags */}
+                        {announcement.tags && announcement.tags.length > 0 && (
+                          <div className="flex flex-wrap gap-1.5 mt-3">
+                            {announcement.tags.slice(0, 3).map((tag, idx) => (
+                              <span key={idx} className="text-xs bg-amber-50 text-amber-700 px-2 py-0.5 rounded-full">
+                                {tag}
+                              </span>
+                            ))}
+                            {announcement.tags.length > 3 && (
+                              <span className="text-xs text-gray-500">+{announcement.tags.length - 3} more</span>
+                            )}
+                          </div>
+                        )}
+                        
+                        {/* Footer */}
+                        <div className="mt-4 pt-3 border-t border-amber-100 flex items-center justify-between">
+                          {announcement.creator && (
+                            <p className="text-xs text-gray-500">
+                              By <span className="font-medium text-amber-700">{announcement.creator.name}</span>
+                            </p>
+                          )}
+                          <span className="text-xs text-amber-600 font-medium flex items-center gap-1 group-hover:gap-2 transition-all">
+                            Read more <ArrowRight className="h-3.5 w-3.5" />
+                          </span>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  </Link>
+                </motion.div>
+              );
+            })}
                 </motion.div>
               );
             })}

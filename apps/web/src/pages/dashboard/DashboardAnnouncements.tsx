@@ -8,7 +8,7 @@ import { Markdown } from '@/components/ui/markdown';
 import { useAuth } from '@/context/AuthContext';
 import { api } from '@/lib/api';
 import type { Announcement } from '@/lib/api';
-import { Bell, Loader2, AlertCircle, Plus, User, Clock, Edit2, Trash2, X, Save } from 'lucide-react';
+import { Bell, Loader2, AlertCircle, Plus, User, Clock, Edit2, Trash2, X, Save, Pin, Star, ExternalLink } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { formatDate } from '@/lib/dateUtils';
 
@@ -240,11 +240,30 @@ export default function DashboardAnnouncements() {
                     // View Mode
                     <>
                       <div className="flex items-start justify-between gap-4 mb-3">
-                        <h3 className="font-semibold text-amber-900">{announcement.title}</h3>
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <h3 className="font-semibold text-amber-900">{announcement.title}</h3>
+                          {announcement.pinned && (
+                            <Badge variant="outline" className="bg-amber-50 text-amber-700 border-amber-300">
+                              <Pin className="h-3 w-3 mr-1" />
+                              Pinned
+                            </Badge>
+                          )}
+                          {announcement.featured && (
+                            <Badge variant="outline" className="bg-purple-50 text-purple-700 border-purple-300">
+                              <Star className="h-3 w-3 mr-1" />
+                              Featured
+                            </Badge>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-2 shrink-0">
                           <Badge variant={priorityColors[announcement.priority]}>
                             {announcement.priority}
                           </Badge>
+                          <Link to={`/announcements/${announcement.slug || announcement.id}`} target="_blank">
+                            <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
+                              <ExternalLink className="h-4 w-4" />
+                            </Button>
+                          </Link>
                           {isCoreMember && (
                             <div className="flex gap-1">
                               <Button
@@ -274,9 +293,22 @@ export default function DashboardAnnouncements() {
                           )}
                         </div>
                       </div>
-                      <div className="text-gray-700 mb-4">
+                      {announcement.shortDescription && (
+                        <p className="text-sm text-gray-600 italic mb-2">{announcement.shortDescription}</p>
+                      )}
+                      <div className="text-gray-700 mb-4 line-clamp-3">
                         <Markdown>{announcement.body}</Markdown>
                       </div>
+                      {/* Tags */}
+                      {announcement.tags && announcement.tags.length > 0 && (
+                        <div className="flex flex-wrap gap-1.5 mb-3">
+                          {announcement.tags.map((tag, idx) => (
+                            <span key={idx} className="text-xs bg-white/50 text-gray-600 px-2 py-0.5 rounded-full border">
+                              {tag}
+                            </span>
+                          ))}
+                        </div>
+                      )}
                       <div className="flex flex-wrap items-center gap-4 text-sm text-gray-500">
                         {announcement.creator && (
                           <span className="flex items-center gap-1">
@@ -288,6 +320,12 @@ export default function DashboardAnnouncements() {
                           <Clock className="h-4 w-4" />
                           {formatDate(announcement.createdAt)}
                         </span>
+                        {announcement.imageUrl && (
+                          <span className="text-xs text-amber-600">Has cover image</span>
+                        )}
+                        {announcement.imageGallery && (announcement.imageGallery as string[]).length > 0 && (
+                          <span className="text-xs text-amber-600">{(announcement.imageGallery as string[]).length} gallery images</span>
+                        )}
                       </div>
                     </>
                   )}

@@ -1,6 +1,7 @@
 import { PrismaClient } from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
 import { logger } from './logger.js';
+import { generateSlug, generateUniqueSlug } from './slug.js';
 
 const prisma = new PrismaClient();
 
@@ -77,5 +78,48 @@ export async function initializeDatabase() {
   } catch (error) {
     logger.error('❌ Database initialization failed:', error instanceof Error ? { message: error.message, stack: error.stack } : { error });
     throw error;
+  }
+}
+
+/**
+ * Generate slugs for announcements that don't have them
+ * Run this during startup to handle existing data
+ */
+export async function populateAnnouncementSlugs() {
+  try {
+    // Find announcements without slugs (empty string)
+    const announcementsWithoutSlugs = await prisma.announcement.findMany({
+      where: { slug: '' },
+      select: { id: true, title: true }
+    });
+
+    if (announcementsWithoutSlugs.length === 0) {
+      return;
+    }
+
+    logger.info(`🔧 Generating slugs for ${announcementsWithoutSlugs.length} announcements...`);
+
+    // Get all existing slugs
+    const existingSlugs = (await prisma.announcement.findMany({
+      where: { slug: { not: '' } },
+      select: { slug: true }
+    })).map(a => a.slug);
+
+    // Update each announcement with a unique slug
+    for (const announcement of announcementsWithoutSlugs) {
+      const baseSlug = generateSlug(announcement.title);
+      const uniqueSlug = generateUniqueSlug(baseSlug, existingSlugs);
+      
+      await prisma.announcement.update({
+        where: { id: announcement.id },
+        data: { slug: uniqueSlug }
+      });
+      
+      existingSlugs.push(uniqueSlug);
+    }
+
+    logger.info('✅ Announcement slugs populated');
+  } catch (error) {
+    logger.error('❌ Failed to populate announcement slugs:', error);
   }
 }

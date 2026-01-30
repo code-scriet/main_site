@@ -3,22 +3,39 @@ import { prisma } from '../lib/prisma.js';
 import { authMiddleware, getAuthUser } from '../middleware/auth.js';
 import { requireRole } from '../middleware/role.js';
 import { auditLog } from '../utils/audit.js';
+import { generateSlug, generateUniqueSlug } from '../utils/slug.js';
 
 export const announcementsRouter = Router();
 
-// Get all announcements
+// Get all announcements (with pinned first, then by date)
 announcementsRouter.get('/', async (req: Request, res: Response) => {
   try {
-    const { limit = '10', offset = '0' } = req.query;
+    const { limit = '20', offset = '0', featured } = req.query;
+
+    const where: Record<string, unknown> = {};
+    
+    // Filter expired announcements
+    where.OR = [
+      { expiresAt: null },
+      { expiresAt: { gte: new Date() } }
+    ];
+    
+    if (featured === 'true') {
+      where.featured = true;
+    }
 
     const [announcements, total] = await Promise.all([
       prisma.announcement.findMany({
-        orderBy: { createdAt: 'desc' },
+        where,
+        orderBy: [
+          { pinned: 'desc' },
+          { createdAt: 'desc' }
+        ],
         take: parseInt(limit as string),
         skip: parseInt(offset as string),
         include: { creator: { select: { id: true, name: true, avatar: true } } },
       }),
-      prisma.announcement.count(),
+      prisma.announcement.count({ where }),
     ]);
 
     res.json({
@@ -31,13 +48,22 @@ announcementsRouter.get('/', async (req: Request, res: Response) => {
   }
 });
 
-// Get latest announcements
+// Get latest announcements (for homepage widget)
 announcementsRouter.get('/latest', async (req: Request, res: Response) => {
   try {
     const { limit = '5' } = req.query;
 
     const announcements = await prisma.announcement.findMany({
-      orderBy: { createdAt: 'desc' },
+      where: {
+        OR: [
+          { expiresAt: null },
+          { expiresAt: { gte: new Date() } }
+        ]
+      },
+      orderBy: [
+        { pinned: 'desc' },
+        { createdAt: 'desc' }
+      ],
       take: parseInt(limit as string),
       include: { creator: { select: { id: true, name: true, avatar: true } } },
     });
@@ -48,11 +74,18 @@ announcementsRouter.get('/latest', async (req: Request, res: Response) => {
   }
 });
 
-// Get announcement by ID
+// Get announcement by ID or slug
 announcementsRouter.get('/:id', async (req: Request, res: Response) => {
   try {
-    const announcement = await prisma.announcement.findUnique({
-      where: { id: req.params.id },
+    const idOrSlug = req.params.id;
+    
+    const announcement = await prisma.announcement.findFirst({
+      where: {
+        OR: [
+          { id: idOrSlug },
+          { slug: idOrSlug }
+        ]
+      },
       include: { creator: { select: { id: true, name: true, avatar: true } } },
     });
 
@@ -70,25 +103,41 @@ announcementsRouter.get('/:id', async (req: Request, res: Response) => {
 announcementsRouter.post('/', authMiddleware, requireRole('CORE_MEMBER'), async (req: Request, res: Response) => {
   try {
     const authUser = getAuthUser(req)!;
-    const { title, body, priority } = req.body;
+    const data = req.body;
 
-    if (!title || !body) {
+    if (!data.title || !data.body) {
       return res.status(400).json({ success: false, error: { message: 'Title and body are required' } });
     }
 
+    // Generate slug from title
+    const baseSlug = generateSlug(data.title);
+    const existingSlugs = (await prisma.announcement.findMany({ select: { slug: true } })).map(a => a.slug).filter(Boolean) as string[];
+    const slug = generateUniqueSlug(baseSlug, existingSlugs);
+
     const announcement = await prisma.announcement.create({
       data: {
-        title,
-        body,
-        priority: priority || 'MEDIUM',
+        title: data.title,
+        slug,
+        body: data.body,
+        shortDescription: data.shortDescription || null,
+        priority: data.priority || 'MEDIUM',
+        imageUrl: data.imageUrl || null,
+        imageGallery: data.imageGallery || null,
+        attachments: data.attachments || null,
+        links: data.links || null,
+        tags: data.tags || [],
+        featured: data.featured || false,
+        pinned: data.pinned || false,
+        expiresAt: data.expiresAt ? new Date(data.expiresAt) : null,
         createdBy: authUser.id,
       },
       include: { creator: { select: { id: true, name: true, avatar: true } } },
     });
 
-    await auditLog(authUser.id, 'CREATE', 'announcement', announcement.id, { title });
+    await auditLog(authUser.id, 'CREATE', 'announcement', announcement.id, { title: data.title });
     res.status(201).json({ success: true, data: announcement, message: 'Announcement created successfully' });
   } catch (error) {
+    console.error('Failed to create announcement:', error);
     res.status(500).json({ success: false, error: { message: 'Failed to create announcement' } });
   }
 });
@@ -97,14 +146,36 @@ announcementsRouter.post('/', authMiddleware, requireRole('CORE_MEMBER'), async 
 announcementsRouter.put('/:id', authMiddleware, requireRole('CORE_MEMBER'), async (req: Request, res: Response) => {
   try {
     const authUser = getAuthUser(req)!;
-    const { title, body, priority } = req.body;
+    const data = req.body;
+
+    // If title changed, regenerate slug
+    let slugUpdate = {};
+    if (data.title) {
+      const baseSlug = generateSlug(data.title);
+      const existingSlugs = (await prisma.announcement.findMany({ 
+        where: { id: { not: req.params.id } },
+        select: { slug: true } 
+      })).map(a => a.slug).filter(Boolean) as string[];
+      const newSlug = generateUniqueSlug(baseSlug, existingSlugs);
+      slugUpdate = { slug: newSlug };
+    }
 
     const announcement = await prisma.announcement.update({
       where: { id: req.params.id },
       data: {
-        ...(title && { title }),
-        ...(body && { body }),
-        ...(priority && { priority }),
+        ...(data.title && { title: data.title }),
+        ...slugUpdate,
+        ...(data.body && { body: data.body }),
+        ...(data.shortDescription !== undefined && { shortDescription: data.shortDescription }),
+        ...(data.priority && { priority: data.priority }),
+        ...(data.imageUrl !== undefined && { imageUrl: data.imageUrl }),
+        ...(data.imageGallery !== undefined && { imageGallery: data.imageGallery }),
+        ...(data.attachments !== undefined && { attachments: data.attachments }),
+        ...(data.links !== undefined && { links: data.links }),
+        ...(data.tags !== undefined && { tags: data.tags }),
+        ...(data.featured !== undefined && { featured: data.featured }),
+        ...(data.pinned !== undefined && { pinned: data.pinned }),
+        ...(data.expiresAt !== undefined && { expiresAt: data.expiresAt ? new Date(data.expiresAt) : null }),
       },
       include: { creator: { select: { id: true, name: true, avatar: true } } },
     });

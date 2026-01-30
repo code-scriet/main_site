@@ -21,7 +21,7 @@ import { uploadRouter } from './routes/upload.js';
 import { setupPassport } from './config/passport.js';
 import { requestLogger, logger } from './utils/logger.js';
 import { ApiResponse, ErrorCodes } from './utils/response.js';
-import { initializeDatabase } from './utils/init.js';
+import { initializeDatabase, populateAnnouncementSlugs } from './utils/init.js';
 import { initializeSocket } from './utils/socket.js';
 
 dotenv.config();
@@ -182,6 +182,7 @@ process.on('SIGINT', shutdown);
 
 // Initialize database (create admin and settings if needed)
 initializeDatabase()
+  .then(() => populateAnnouncementSlugs())
   .then(() => {
     httpServer.listen(PORT, () => {
       logger.info(`🚀 Server running on http://localhost:${PORT}`, { environment: NODE_ENV });

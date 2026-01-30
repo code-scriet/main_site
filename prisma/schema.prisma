@@ -175,17 +175,36 @@ model EventRegistration {
 }
 
 model Announcement {
-  id        String               @id @default(uuid())
-  title     String
-  body      String               @db.Text
-  priority  AnnouncementPriority @default(MEDIUM)
-  createdBy String               @map("created_by")
-  createdAt DateTime             @default(now()) @map("created_at")
-  updatedAt DateTime             @updatedAt @map("updated_at")
+  id               String               @id @default(uuid())
+  title            String
+  slug             String               @unique @default("") // URL-friendly version of title
+  body             String               @db.Text // Supports Markdown
+  shortDescription String?              @map("short_description") @db.VarChar(300) // Brief summary for cards
+  priority         AnnouncementPriority @default(MEDIUM)
+  
+  // Media
+  imageUrl         String?              @map("image_url") // Cover/banner image
+  imageGallery     Json?                @map("image_gallery") // Array of image URLs
+  
+  // Additional content
+  attachments      Json?                // Array of file attachments: [{title, url, type}]
+  links            Json?                // Array of related links: [{title, url}]
+  
+  // Meta
+  tags             String[]             @default([]) // Tags for categorization
+  featured         Boolean              @default(false) // Featured announcement flag
+  pinned           Boolean              @default(false) // Pin to top
+  expiresAt        DateTime?            @map("expires_at") // Optional expiry date
+  
+  createdBy        String               @map("created_by")
+  createdAt        DateTime             @default(now()) @map("created_at")
+  updatedAt        DateTime             @updatedAt @map("updated_at")
   
   creator User @relation(fields: [createdBy], references: [id])
   
   @@index([createdAt])
+  @@index([featured])
+  @@index([pinned])
   @@map("announcements")
 }
 

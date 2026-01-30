@@ -108,38 +108,40 @@ export function LatestAnnouncements() {
                 whileHover={!isMobile ? { y: -5 } : undefined}
                 className="group"
               >
-                <div className={`h-full p-6 rounded-2xl border-2 transition-all duration-300 hover:shadow-lg ${config.bg}`}>
-                  {/* Header */}
-                  <div className="flex items-start justify-between mb-4">
-                    <div className={`p-2 rounded-lg bg-white shadow-sm ${config.iconColor}`}>
-                      <Icon className="h-5 w-5" />
+                <Link to={`/announcements/${announcement.slug || announcement.id}`} className="block h-full">
+                  <div className={`h-full p-6 rounded-2xl border-2 transition-all duration-300 hover:shadow-lg ${config.bg}`}>
+                    {/* Header */}
+                    <div className="flex items-start justify-between mb-4">
+                      <div className={`p-2 rounded-lg bg-white shadow-sm ${config.iconColor}`}>
+                        <Icon className="h-5 w-5" />
+                      </div>
+                      <Badge className={config.badge}>
+                        {announcement.priority}
+                      </Badge>
                     </div>
-                    <Badge className={config.badge}>
-                      {announcement.priority}
-                    </Badge>
-                  </div>
                   
-                  {/* Content */}
-                  <h3 className="text-lg font-bold text-gray-900 mb-2 line-clamp-2 group-hover:text-purple-700 transition-colors">
-                    {announcement.title}
-                  </h3>
-                  <p className="text-gray-600 text-sm mb-4 line-clamp-3">
-                    {announcement.body}
-                  </p>
+                    {/* Content */}
+                    <h3 className="text-lg font-bold text-gray-900 mb-2 line-clamp-2 group-hover:text-purple-700 transition-colors">
+                      {announcement.title}
+                    </h3>
+                    <p className="text-gray-600 text-sm mb-4 line-clamp-3">
+                      {announcement.shortDescription || announcement.body.replace(/[#*_`~\[\]]/g, '').slice(0, 150)}
+                    </p>
                   
-                  {/* Footer */}
-                  <div className="flex items-center justify-between pt-4 border-t border-gray-200/50">
-                    <div className="flex items-center gap-1 text-xs text-gray-500">
-                      <Calendar className="h-3 w-3" />
-                      {formatDate(announcement.createdAt)}
+                    {/* Footer */}
+                    <div className="flex items-center justify-between pt-4 border-t border-gray-200/50">
+                      <div className="flex items-center gap-1 text-xs text-gray-500">
+                        <Calendar className="h-3 w-3" />
+                        {formatDate(announcement.createdAt)}
+                      </div>
+                      {announcement.creator && (
+                        <p className="text-xs text-gray-500">
+                          by <span className="font-medium text-gray-700">{announcement.creator.name}</span>
+                        </p>
+                      )}
                     </div>
-                    {announcement.creator && (
-                      <p className="text-xs text-gray-500">
-                        by <span className="font-medium text-gray-700">{announcement.creator.name}</span>
-                      </p>
-                    )}
                   </div>
-                </div>
+                </Link>
               </motion.div>
             );
           })}
