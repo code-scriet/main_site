@@ -99,11 +99,13 @@ export async function populateAnnouncementSlugs() {
 
     logger.info(`🔧 Generating slugs for ${announcementsWithoutSlugs.length} announcements...`);
 
-    // Get all existing slugs
-    const existingSlugs = (await prisma.announcement.findMany({
-      where: { slug: { not: '' } },
+    // Get all existing slugs (non-empty)
+    const allAnnouncements = await prisma.announcement.findMany({
       select: { slug: true }
-    })).map(a => a.slug);
+    });
+    const existingSlugs = allAnnouncements
+      .map(a => a.slug)
+      .filter(slug => slug !== '');
 
     // Update each announcement with a unique slug
     for (const announcement of announcementsWithoutSlugs) {
