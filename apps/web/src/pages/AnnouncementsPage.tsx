@@ -270,9 +270,6 @@ export default function AnnouncementsPage() {
                 </motion.div>
               );
             })}
-                </motion.div>
-              );
-            })}
           </motion.div>
           )}
         </div>
