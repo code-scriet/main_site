@@ -23,6 +23,10 @@ import { requestLogger, logger } from './utils/logger.js';
 import { ApiResponse, ErrorCodes } from './utils/response.js';
 import { initializeDatabase, populateAnnouncementSlugs } from './utils/init.js';
 import { initializeSocket } from './utils/socket.js';
+import { authMiddleware } from './middleware/auth.js';
+import { requireRole } from './middleware/role.js';
+import { emailService } from './utils/email.js';
+import { prisma } from './lib/prisma.js';
 
 dotenv.config();
 
@@ -151,7 +155,7 @@ app.use((req, res) => {
 });
 
 // Test email endpoint for debugging
-app.post('/api/test-email', authMiddleware, roleMiddleware(['ADMIN', 'SUPER_ADMIN']), async (req: express.Request, res: express.Response) => {
+app.post('/api/test-email', authMiddleware, requireRole('ADMIN'), async (req: express.Request, res: express.Response) => {
   try {
     const { email } = req.body;
     if (!email) {

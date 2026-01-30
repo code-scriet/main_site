@@ -496,48 +496,40 @@ export default function AdminSettings() {
           {/* Welcome Email Template */}
           {activeEmailTab === 'welcome' && (
             <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <label className="text-sm font-medium text-gray-700">Welcome Email Body</label>
-                <span className="text-xs text-gray-400">Variables: {'{{name}}'}</span>
+              <div className="flex flex-col gap-2">
+                <label className="text-sm font-medium text-gray-700">Custom Welcome Message (Optional)</label>
+                <p className="text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded-md px-3 py-2">
+                  💡 <strong>Note:</strong> This text will be added to the beginning of the premium welcome email (before the power-ups section). 
+                  Leave empty to use only the default premium template shown in your screenshot.
+                </p>
+                <span className="text-xs text-gray-400">Variables: {'{{name}}'} {'{{clubName}}'}</span>
               </div>
               {showPreview ? (
                 <div className="min-h-[200px] p-4 bg-gray-900 rounded-lg border border-gray-700">
-                  <Markdown>{settings.emailWelcomeBody || `Welcome to **code.scriet**! 🎉
+                  <Markdown>{settings.emailWelcomeBody || `*No custom message set. Using default premium template with:*
 
-We're thrilled to have you join our community of builders and innovators.
-
-## What's waiting for you:
-- **Daily QOTD** — Sharpen your problem-solving skills
-- **Workshops & Events** — Hands-on learning experiences
-- **Leaderboard** — Compete and climb the ranks
-- **Community** — Connect with fellow developers
-
-> "The best time to start coding was yesterday. The next best time is now."
-
-See you on the dashboard! 💻`}</Markdown>
+- Welcome message
+- 4 Power-up cards (QOTD, Events, Leaderboard, Community)  
+- Next Steps section with numbered actions
+- Pro tip box`}</Markdown>
                 </div>
               ) : (
                 <textarea
                   value={settings.emailWelcomeBody || ''}
                   onChange={(e) => setSettings({ ...settings, emailWelcomeBody: e.target.value })}
                   className="w-full min-h-[200px] px-3 py-2 border border-gray-300 rounded-md bg-white text-sm font-mono focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent"
-                  placeholder={`Welcome to **code.scriet**! 🎉
+                  placeholder={`Add a personalized intro message here (optional)...
 
-We're thrilled to have you join our community of builders and innovators.
+Example:
+Hey **{{name}}**, we're excited to have you! 🎉
 
-## What's waiting for you:
-- **Daily QOTD** — Sharpen your problem-solving skills
-- **Workshops & Events** — Hands-on learning experiences
-- **Leaderboard** — Compete and climb the ranks
-- **Community** — Connect with fellow developers
+Your journey with {{clubName}} starts now...
 
-> "The best time to start coding was yesterday. The next best time is now."
-
-See you on the dashboard! 💻`}
+(The premium template with power-ups and next steps will appear after this)`}
                 />
               )}
               <p className="text-xs text-gray-500">
-                Markdown supported. Leave empty for default template.
+                Custom text is added <strong>before</strong> the premium design. Leave empty to use default only.
               </p>
             </div>
           )}
@@ -545,9 +537,11 @@ See you on the dashboard! 💻`}
           {/* Announcement Email Template */}
           {activeEmailTab === 'announcement' && (
             <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <label className="text-sm font-medium text-gray-700">Announcement Email Intro</label>
-                <span className="text-xs text-gray-400">Added before announcement content</span>
+              <div className="flex flex-col gap-2">
+                <label className="text-sm font-medium text-gray-700">Custom Announcement Intro (Optional)</label>
+                <p className="text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded-md px-3 py-2">
+                  💡 <strong>Note:</strong> This intro appears before the actual announcement content in emails.
+                </p>
               </div>
               {showPreview ? (
                 <div className="min-h-[150px] p-4 bg-gray-900 rounded-lg border border-gray-700">
@@ -574,9 +568,11 @@ Here's the latest update from **code.scriet**:`}
           {/* Event Email Template */}
           {activeEmailTab === 'event' && (
             <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <label className="text-sm font-medium text-gray-700">New Event Email Intro</label>
-                <span className="text-xs text-gray-400">Added before event details</span>
+              <div className="flex flex-col gap-2">
+                <label className="text-sm font-medium text-gray-700">Custom Event Intro (Optional)</label>
+                <p className="text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded-md px-3 py-2">
+                  💡 <strong>Note:</strong> This intro appears before event details in notification emails.
+                </p>
               </div>
               {showPreview ? (
                 <div className="min-h-[150px] p-4 bg-gray-900 rounded-lg border border-gray-700">
