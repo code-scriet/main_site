@@ -15,6 +15,8 @@ export default defineConfig({
     outDir: 'dist',
     assetsDir: 'assets',
     emptyOutDir: true,
+    // Generate unique file names for cache busting
+    sourcemap: false,
     // Optimize chunk splitting for better caching
     rollupOptions: {
       output: {
