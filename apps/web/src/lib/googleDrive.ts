@@ -1,14 +1,13 @@
 /**
  * Image URL Utilities
  * 
- * Processes image URLs from various sources.
- * Supports direct URLs from Imgur, imgbb, Cloudinary, etc.
- * Also supports Google Drive share links (converts to direct URL).
+ * Processes image URLs with Cloudinary transformations for optimal display.
+ * Supports direct URLs from Cloudinary, Imgur, imgbb, etc.
  * 
  * Cloudinary transformations automatically handle aspect ratios:
- * - cover: Wide images for hero/banner sections
- * - card: Card thumbnails with center focus
- * - square: Perfect squares for avatars/profile pics
+ * - cover: Wide images for hero/banner sections (16:9)
+ * - card: Card thumbnails with center focus (16:9)
+ * - square: Perfect squares for avatars/profile pics (1:1)
  * - gallery: Gallery images with preserved aspect ratio
  * - thumbnail/medium/large: General purpose with smart cropping
  * - fit: Fit entire image within bounds (no cropping, may letterbox)
@@ -20,45 +19,13 @@ export type ImagePreset =
   | 'medium'      // Medium size, filled
   | 'large'       // Large, preserves aspect
   | 'original'    // No resize, just optimize
-  | 'cover'       // Wide banner/hero
-  | 'card'        // Card thumbnail, filled
+  | 'cover'       // Wide banner/hero (16:9)
+  | 'card'        // Card thumbnail, filled (16:9)
   | 'square'      // Square for avatars (1:1)
   | 'gallery'     // Gallery images, fit within bounds
-  | 'event-cover' // Event page cover, wide
+  | 'event-cover' // Event page cover, wide (16:9)
   | 'team-avatar' // Team member avatars (1:1, face detection)
   | 'fit';        // Fit entire image, no crop (may letterbox)
-
-/**
- * Extracts the file ID from Google Drive URL formats
- */
-export function extractGoogleDriveFileId(url: string): string | null {
-  if (!url) return null;
-  
-  // Check if it's a Google Drive URL
-  if (!url.includes('drive.google.com') && !url.includes('docs.google.com')) {
-    return null;
-  }
-  
-  // Pattern 1: /file/d/FILE_ID/
-  const filePattern = /\/file\/d\/([a-zA-Z0-9_-]+)/;
-  const fileMatch = url.match(filePattern);
-  if (fileMatch) return fileMatch[1];
-  
-  // Pattern 2: ?id=FILE_ID or &id=FILE_ID
-  const idPattern = /[?&]id=([a-zA-Z0-9_-]+)/;
-  const idMatch = url.match(idPattern);
-  if (idMatch) return idMatch[1];
-  
-  return null;
-}
-
-/**
- * Checks if a URL is a Google Drive URL
- */
-export function isGoogleDriveUrl(url: string): boolean {
-  if (!url) return false;
-  return url.includes('drive.google.com') || url.includes('docs.google.com');
-}
 
 /**
  * Adds Cloudinary transformations to optimize image size and handle aspect ratios
@@ -150,16 +117,15 @@ function addCloudinaryTransformations(url: string, preset?: ImagePreset): string
  * @param url - The image URL to process
  * @param preset - The image preset for sizing/cropping (default: 'medium')
  */
+/**
+ * Processes an image URL - adds Cloudinary transformations or returns URL unchanged
+ * 
+ * @param url - The image URL to process
+ * @param preset - The image preset for sizing/cropping (default: 'medium')
+ * @returns The processed image URL
+ */
 export function processImageUrl(url: string, preset?: ImagePreset): string {
   if (!url) return '';
-  
-  // If it's a Google Drive URL, convert it
-  if (isGoogleDriveUrl(url)) {
-    const fileId = extractGoogleDriveFileId(url);
-    if (fileId) {
-      return `https://drive.google.com/uc?export=view&id=${fileId}`;
-    }
-  }
   
   // Add Cloudinary transformations if applicable
   if (url.includes('cloudinary.com')) {
