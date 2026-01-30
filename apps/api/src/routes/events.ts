@@ -6,6 +6,8 @@ import { auditLog } from '../utils/audit.js';
 import { EventStatus } from '@prisma/client';
 import { updateEventStatuses } from '../utils/eventStatus.js';
 import { generateSlug, generateUniqueSlug } from '../utils/slug.js';
+import { emailService } from '../utils/email.js';
+import { logger } from '../utils/logger.js';
 
 export const eventsRouter = Router();
 
@@ -173,6 +175,10 @@ eventsRouter.post('/', authMiddleware, requireRole('CORE_MEMBER'), async (req: R
     });
 
     await auditLog(authUser.id, 'CREATE', 'event', event.id, { title: event.title });
+
+    // Send email notification to all users about new event (async, don't wait)
+    sendNewEventEmailsAsync(event);
+
     res.status(201).json({ success: true, data: event, message: 'Event created successfully' });
   } catch (error) {
     res.status(500).json({ success: false, error: { message: 'Failed to create event' } });
@@ -441,3 +447,89 @@ eventsRouter.get('/:id/registrations/export', authMiddleware, requireRole('CORE_
     res.status(500).json({ success: false, error: { message: 'Failed to export registrations' } });
   }
 });
+
+// ============================================
+// Email notification helpers
+// ============================================
+
+// Helper function to send new event emails asynchronously
+async function sendNewEventEmailsAsync(event: {
+  title: string;
+  description: string;
+  startDate: Date;
+  slug: string;
+  shortDescription?: string | null;
+  location?: string | null;
+  imageUrl?: string | null;
+  tags?: string[];
+  eventType?: string | null;
+}) {
+  try {
+    // Get all users with email
+    const users = await prisma.user.findMany({
+      where: { email: { not: '' } },
+      select: { email: true },
+    });
+
+    const emails = users.map(u => u.email).filter(Boolean) as string[];
+    
+    if (emails.length === 0) {
+      logger.info('No users to notify for new event');
+      return;
+    }
+
+    logger.info(`📧 Sending new event email to ${emails.length} users...`, { title: event.title });
+
+    await emailService.sendNewEventToAll(
+      emails,
+      event.title,
+      event.description,
+      event.startDate,
+      event.slug,
+      event.shortDescription || undefined,
+      event.location || undefined,
+      event.imageUrl || undefined,
+      event.tags || [],
+      event.eventType || undefined
+    );
+
+    logger.info(`✅ New event emails sent to ${emails.length} users`);
+  } catch (error) {
+    logger.error('Failed to send new event emails', {
+      error: error instanceof Error ? error.message : 'Unknown error',
+    });
+  }
+}
+
+// Helper function to send event registration confirmation email
+async function sendEventRegistrationEmailAsync(
+  userEmail: string,
+  userName: string,
+  event: {
+    title: string;
+    startDate: Date;
+    slug: string;
+    location?: string | null;
+    imageUrl?: string | null;
+  }
+) {
+  try {
+    logger.info(`📧 Sending event registration email to ${userEmail}...`);
+
+    await emailService.sendEventRegistration(
+      userEmail,
+      userName,
+      event.title,
+      event.startDate,
+      event.slug,
+      event.location || undefined,
+      event.imageUrl || undefined
+    );
+
+    logger.info(`✅ Event registration email sent to ${userEmail}`);
+  } catch (error) {
+    logger.error('Failed to send event registration email', {
+      error: error instanceof Error ? error.message : 'Unknown error',
+    });
+  }
+}

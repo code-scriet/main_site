@@ -2,6 +2,8 @@ import { Router, Request, Response } from 'express';
 import { prisma } from '../lib/prisma.js';
 import { authMiddleware, getAuthUser } from '../middleware/auth.js';
 import { auditLog } from '../utils/audit.js';
+import { emailService } from '../utils/email.js';
+import { logger } from '../utils/logger.js';
 
 export const registrationsRouter = Router();
 
@@ -69,10 +71,19 @@ registrationsRouter.post('/events/:eventId', authMiddleware, async (req: Request
 
     const registration = await prisma.eventRegistration.create({
       data: { userId: authUser.id, eventId },
-      include: { event: { select: { id: true, title: true, startDate: true } } },
+      include: { event: { select: { id: true, title: true, startDate: true, slug: true, location: true, imageUrl: true } } },
     });
 
     await auditLog(authUser.id, 'REGISTER', 'event', eventId, { eventTitle: event.title });
+
+    // Send registration confirmation email (async, don't wait)
+    if (authUser.email) {
+      sendRegistrationConfirmationEmail(
+        authUser.email,
+        authUser.name || 'Member',
+        registration.event
+      );
+    }
 
     res.status(201).json({
       success: true,
@@ -83,6 +94,31 @@ registrationsRouter.post('/events/:eventId', authMiddleware, async (req: Request
     res.status(500).json({ success: false, error: { message: 'Failed to register' } });
   }
 });
+
+// Helper to send registration confirmation email
+async function sendRegistrationConfirmationEmail(
+  email: string,
+  name: string,
+  event: { title: string; startDate: Date; slug: string; location?: string | null; imageUrl?: string | null }
+) {
+  try {
+    logger.info(`📧 Sending registration confirmation to ${email}...`);
+    await emailService.sendEventRegistration(
+      email,
+      name,
+      event.title,
+      event.startDate,
+      event.slug,
+      event.location || undefined,
+      event.imageUrl || undefined
+    );
+    logger.info(`✅ Registration confirmation sent to ${email}`);
+  } catch (error) {
+    logger.error('Failed to send registration email', {
+      error: error instanceof Error ? error.message : 'Unknown error',
+    });
+  }
+}
 
 // Unregister from an event
 registrationsRouter.delete('/events/:eventId', authMiddleware, async (req: Request, res: Response) => {

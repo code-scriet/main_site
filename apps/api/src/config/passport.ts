@@ -2,6 +2,8 @@ import { PassportStatic } from 'passport';
 import { Strategy as GoogleStrategy } from 'passport-google-oauth20';
 import { Strategy as GitHubStrategy } from 'passport-github2';
 import { prisma } from '../lib/prisma.js';
+import { emailService } from '../utils/email.js';
+import { logger } from '../utils/logger.js';
 
 export function setupPassport(passport: PassportStatic) {
   // Google OAuth Strategy
@@ -21,8 +23,10 @@ export function setupPassport(passport: PassportStatic) {
             }
 
             let user = await prisma.user.findUnique({ where: { email } });
+            let isNewUser = false;
 
             if (!user) {
+              isNewUser = true;
               user = await prisma.user.create({
                 data: {
                   name: profile.displayName || 'User',
@@ -31,6 +35,13 @@ export function setupPassport(passport: PassportStatic) {
                   oauthProvider: 'google',
                   oauthId: profile.id,
                 },
+              });
+            }
+
+            // Send welcome email to new users
+            if (isNewUser && email) {
+              emailService.sendWelcome(email, user.name).catch(err => {
+                logger.error('Failed to send welcome email', { error: err instanceof Error ? err.message : 'Unknown' });
               });
             }
 
@@ -58,8 +69,10 @@ export function setupPassport(passport: PassportStatic) {
             const email = profile.emails?.[0]?.value || `${profile.username}@github.local`;
 
             let user = await prisma.user.findUnique({ where: { email } });
+            let isNewUser = false;
 
             if (!user) {
+              isNewUser = true;
               user = await prisma.user.create({
                 data: {
                   name: profile.displayName || profile.username || 'User',
@@ -68,6 +81,13 @@ export function setupPassport(passport: PassportStatic) {
                   oauthProvider: 'github',
                   oauthId: profile.id,
                 },
+              });
+            }
+
+            // Send welcome email to new users (skip github.local emails)
+            if (isNewUser && email && !email.endsWith('@github.local')) {
+              emailService.sendWelcome(email, user.name).catch(err => {
+                logger.error('Failed to send welcome email', { error: err instanceof Error ? err.message : 'Unknown' });
               });
             }
 

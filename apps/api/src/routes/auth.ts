@@ -6,6 +6,8 @@ import { z } from 'zod';
 import { authMiddleware, getAuthUser } from '../middleware/auth.js';
 import { prisma } from '../lib/prisma.js';
 import { socketEvents } from '../utils/socket.js';
+import { emailService } from '../utils/email.js';
+import { logger } from '../utils/logger.js';
 
 export const authRouter = Router();
 
@@ -64,6 +66,13 @@ authRouter.post('/register', async (req: Request, res: Response) => {
     
     // Emit socket event for real-time updates
     socketEvents.userCreated(user.id);
+
+    // Send welcome email (async, don't wait)
+    if (user.email) {
+      emailService.sendWelcome(user.email, user.name).catch(err => {
+        logger.error('Failed to send welcome email', { error: err instanceof Error ? err.message : 'Unknown' });
+      });
+    }
     
     res.status(201).json({ token, user: { id: user.id, name: user.name, email: user.email, role: user.role, avatar: user.avatar } });
   } catch (error) {

@@ -4,6 +4,8 @@ import { authMiddleware, getAuthUser } from '../middleware/auth.js';
 import { requireRole } from '../middleware/role.js';
 import { auditLog } from '../utils/audit.js';
 import { generateSlug, generateUniqueSlug } from '../utils/slug.js';
+import { emailService } from '../utils/email.js';
+import { logger } from '../utils/logger.js';
 
 export const announcementsRouter = Router();
 
@@ -135,12 +137,61 @@ announcementsRouter.post('/', authMiddleware, requireRole('CORE_MEMBER'), async 
     });
 
     await auditLog(authUser.id, 'CREATE', 'announcement', announcement.id, { title: data.title });
+
+    // Send email notification to all users (async, don't wait)
+    sendAnnouncementEmailsAsync(announcement);
+
     res.status(201).json({ success: true, data: announcement, message: 'Announcement created successfully' });
   } catch (error) {
     console.error('Failed to create announcement:', error);
     res.status(500).json({ success: false, error: { message: 'Failed to create announcement' } });
   }
 });
+
+// Helper function to send announcement emails asynchronously
+async function sendAnnouncementEmailsAsync(announcement: {
+  title: string;
+  body: string;
+  priority: string;
+  slug: string | null;
+  shortDescription?: string | null;
+  imageUrl?: string | null;
+  tags?: string[];
+}) {
+  try {
+    // Get all users with email
+    const users = await prisma.user.findMany({
+      where: { email: { not: '' } },
+      select: { email: true },
+    });
+
+    const emails = users.map(u => u.email).filter(Boolean) as string[];
+    
+    if (emails.length === 0) {
+      logger.info('No users to notify for announcement');
+      return;
+    }
+
+    logger.info(`📧 Sending announcement email to ${emails.length} users...`, { title: announcement.title });
+
+    await emailService.sendAnnouncementToAll(
+      emails,
+      announcement.title,
+      announcement.body,
+      announcement.priority,
+      announcement.slug || '',
+      announcement.shortDescription || undefined,
+      announcement.imageUrl || undefined,
+      announcement.tags || []
+    );
+
+    logger.info(`✅ Announcement emails sent to ${emails.length} users`);
+  } catch (error) {
+    logger.error('Failed to send announcement emails', {
+      error: error instanceof Error ? error.message : 'Unknown error',
+    });
+  }
+}
 
 // Update announcement
 announcementsRouter.put('/:id', authMiddleware, requireRole('CORE_MEMBER'), async (req: Request, res: Response) => {
