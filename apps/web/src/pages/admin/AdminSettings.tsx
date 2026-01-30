@@ -50,6 +50,33 @@ export default function AdminSettings() {
     setError(null);
     try {
       const data = await api.getSettings();
+      
+      // Fetch email templates from the config file endpoint
+      if (token) {
+        try {
+          const response = await fetch(`${import.meta.env.VITE_API_URL}/settings/email-templates`, {
+            headers: {
+              'Authorization': `Bearer ${token}`,
+            },
+          });
+          if (response.ok) {
+            const emailData = await response.json();
+            if (emailData.success && emailData.data) {
+              setSettings({
+                ...data,
+                emailWelcomeBody: emailData.data.emailWelcomeBody || '',
+                emailAnnouncementBody: emailData.data.emailAnnouncementBody || '',
+                emailEventBody: emailData.data.emailEventBody || '',
+                emailFooterText: emailData.data.emailFooterText || '',
+              });
+              return;
+            }
+          }
+        } catch (err) {
+          console.error('Failed to fetch email templates:', err);
+        }
+      }
+      
       setSettings(data);
     } catch (err) {
       setError('Failed to load settings');
@@ -71,9 +98,31 @@ export default function AdminSettings() {
     setSaving(true);
     setError(null);
     try {
-      const { id, updatedAt, ...updateData } = settings;
+      const { id, updatedAt, emailWelcomeBody, emailAnnouncementBody, emailEventBody, emailFooterText, ...updateData } = settings;
+      
+      // Update regular settings
       const updated = await api.updateSettings(updateData, token);
-      setSettings(updated);
+      
+      // Update email templates to config file
+      const emailResponse = await fetch(`${import.meta.env.VITE_API_URL}/settings/email-templates`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify({
+          emailWelcomeBody,
+          emailAnnouncementBody,
+          emailEventBody,
+          emailFooterText,
+        }),
+      });
+      
+      if (!emailResponse.ok) {
+        throw new Error('Failed to update email templates');
+      }
+      
+      setSettings({ ...updated, emailWelcomeBody, emailAnnouncementBody, emailEventBody, emailFooterText });
       // Refresh global settings so all components get the update
       await refreshGlobalSettings();
       setSaved(true);

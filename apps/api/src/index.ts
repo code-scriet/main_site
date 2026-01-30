@@ -150,6 +150,42 @@ app.use((req, res) => {
   });
 });
 
+// Test email endpoint for debugging
+app.post('/api/test-email', authMiddleware, roleMiddleware(['ADMIN', 'SUPER_ADMIN']), async (req: express.Request, res: express.Response) => {
+  try {
+    const { email } = req.body;
+    if (!email) {
+      return ApiResponse.error(res, { code: ErrorCodes.VALIDATION_ERROR, message: 'Email address required' });
+    }
+
+    const settings = await prisma.settings.findFirst();
+    const success = await emailService.sendWelcome(
+      email,
+      req.user?.name || 'Test User',
+      settings?.clubName || 'code.scriet'
+    );
+
+    if (success) {
+      return ApiResponse.success(res, { 
+        message: 'Test email sent successfully', 
+        recipient: email,
+        tip: 'Check your inbox (and spam folder!)'
+      });
+    } else {
+      return ApiResponse.error(res, { 
+        code: ErrorCodes.INTERNAL_ERROR, 
+        message: 'Failed to send test email - check server logs' 
+      });
+    }
+  } catch (error) {
+    logger.error('Test email failed:', error);
+    return ApiResponse.error(res, { 
+      code: ErrorCodes.INTERNAL_ERROR, 
+      message: error instanceof Error ? error.message : 'Unknown error' 
+    });
+  }
+});
+
 // Global error handler
 app.use((err: Error, req: express.Request, res: express.Response, _next: express.NextFunction) => {
   logger.error('Unhandled error', { 

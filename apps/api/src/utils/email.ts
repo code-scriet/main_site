@@ -3,6 +3,7 @@
 
 import { marked } from 'marked';
 import { logger } from './logger.js';
+import { emailTemplateConfig } from '../config/email-templates.config.js';
 
 // Brevo API configuration
 const BREVO_API_URL = 'https://api.brevo.com/v3/smtp/email';
@@ -366,14 +367,11 @@ const generateEmailTemplate = (content: {
 
 export const EmailTemplates = {
   // Welcome email for new members - PREMIUM DESIGN
-  welcome: (name: string, clubName: string): EmailTemplate => ({
-    subject: `${name}, welcome to ${clubName} 🔥`,
-    html: generateEmailTemplate({
-      preheader: `You're in. Let's build something amazing together.`,
-      badge: { text: 'You\'re In!', emoji: '🚀', gradient: 'linear-gradient(135deg, #f59e0b 0%, #ea580c 50%, #dc2626 100%)' },
-      title: `Welcome to the Elite ${name}`,
-      subtitle: `You just joined 100+ developers building the future. Time to level up. 🎯`,
-      body: `
+  welcome: (name: string, clubName: string, customBody?: string, customFooter?: string): EmailTemplate => {
+    // If custom body provided, use it; otherwise use default premium template
+    const bodyContent = customBody 
+      ? markdownToEmailHtml(customBody.replace(/\{\{name\}\}/g, name).replace(/\{\{clubName\}\}/g, clubName))
+      : `
         <p style="margin: 0 0 28px; font-size: 16px; color: #e5e5e5; line-height: 1.8;">
           You're not just joining a club. You're stepping into a <strong style="color: #f59e0b;">high-performance community</strong> where real developers solve real problems, ship real projects, and grow together.
         </p>
@@ -490,12 +488,22 @@ export const EmailTemplates = {
             💪 <strong>Pro tip:</strong> The best learners are the ones who show up consistently. See you tomorrow?
           </p>
         </div>
-      `,
-      cta: { text: 'Launch Your Dashboard →', url: `${SITE_URL}/dashboard` },
-      footer: 'Welcome to the winning team. Let\'s build something extraordinary.',
-    }),
-    text: `Welcome to ${clubName}, ${name}! You're now part of a community of 100+ developers building amazing projects. Visit ${SITE_URL}/dashboard to get started.`,
-  }),
+      `;
+    
+    return {
+      subject: `${name}, welcome to ${clubName} 🔥`,
+      html: generateEmailTemplate({
+        preheader: `You're in. Let's build something amazing together.`,
+        badge: { text: 'You\'re In!', emoji: '🚀', gradient: 'linear-gradient(135deg, #f59e0b 0%, #ea580c 50%, #dc2626 100%)' },
+        title: `Welcome to the Elite ${name}`,
+        subtitle: `You just joined 100+ developers building the future. Time to level up. 🎯`,
+        body: bodyContent,
+        cta: { text: 'Launch Your Dashboard →', url: `${SITE_URL}/dashboard` },
+        footer: customFooter || 'Welcome to the winning team. Let\'s build something extraordinary.',
+      }),
+      text: `Welcome to ${clubName}, ${name}! You're now part of a community of 100+ developers building amazing projects. Visit ${SITE_URL}/dashboard to get started.`,
+    };
+  },
 
   // Event registration confirmation
   eventRegistration: (name: string, eventTitle: string, eventDate: Date, eventSlug: string, location?: string, imageUrl?: string): EmailTemplate => ({
@@ -529,7 +537,7 @@ export const EmailTemplates = {
   }),
 
   // New Announcement notification
-  newAnnouncement: (title: string, body: string, priority: string, slug: string, shortDescription?: string, imageUrl?: string, tags?: string[]): EmailTemplate => {
+  newAnnouncement: (title: string, body: string, priority: string, slug: string, shortDescription?: string, imageUrl?: string, tags?: string[], customIntro?: string, customFooter?: string): EmailTemplate => {
     const priorityConfig = {
       URGENT: { text: 'Urgent', emoji: '🚨', gradient: 'linear-gradient(135deg, #ef4444 0%, #dc2626 100%)' },
       HIGH: { text: 'Important', emoji: '⚡', gradient: 'linear-gradient(135deg, #f59e0b 0%, #ea580c 100%)' },
@@ -541,6 +549,11 @@ export const EmailTemplates = {
     // Convert markdown body to email HTML
     const htmlBody = markdownToEmailHtml(body.length > 800 ? body.substring(0, 800) + '...' : body);
     
+    // Add custom intro if provided
+    const finalBody = customIntro 
+      ? `<div style="margin-bottom: 20px;">${markdownToEmailHtml(customIntro)}</div>${htmlBody}`
+      : htmlBody;
+    
     return {
       subject: `${priority === 'URGENT' ? '🚨 ' : ''}${title}`,
       html: generateEmailTemplate({
@@ -549,41 +562,44 @@ export const EmailTemplates = {
         title: title,
         subtitle: shortDescription,
         heroImage: imageUrl,
-        body: htmlBody,
+        body: finalBody,
         tags: tags,
         cta: { text: 'Read More', url: `${SITE_URL}/announcements/${slug}` },
-        footer: 'Stay informed, stay ahead.',
+        footer: customFooter || 'Stay informed, stay ahead.',
       }),
       text: `[${priority}] ${title}\n\n${shortDescription || ''}\n\n${body}\n\nRead more: ${SITE_URL}/announcements/${slug}`,
     };
   },
 
   // New Event notification
-  newEvent: (title: string, description: string, startDate: Date, slug: string, shortDescription?: string, location?: string, imageUrl?: string, tags?: string[], eventType?: string): EmailTemplate => ({
-    subject: `🗓️ New Event: ${title}`,
-    html: generateEmailTemplate({
-      preheader: `${title} — ${startDate.toLocaleDateString('en-IN', { month: 'short', day: 'numeric' })} ${location ? `at ${location}` : ''}`,
-      badge: { text: eventType || 'New Event', emoji: '🎯', gradient: 'linear-gradient(135deg, #22c55e 0%, #16a34a 100%)' },
-      title: title,
-      subtitle: shortDescription || description.substring(0, 150),
-      heroImage: imageUrl,
-      infoCards: [
-        { icon: '📅', label: 'Date', value: startDate.toLocaleDateString('en-IN', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }) },
-        { icon: '⏰', label: 'Time', value: startDate.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true }) },
-        ...(location ? [{ icon: '📍', label: 'Location', value: location }] : []),
-      ],
-      body: `
-        <p style="margin: 0; font-size: 15px; color: #d4d4d4; line-height: 1.7;">
-          ${description.length > 400 ? description.substring(0, 400) + '...' : description}
-        </p>
-      `,
-      tags: tags,
-      cta: { text: 'Register Now', url: `${SITE_URL}/events/${slug}` },
-      secondaryCta: { text: 'View all events', url: `${SITE_URL}/events` },
-      footer: "Limited spots available — don't miss out! 🚀",
-    }),
-    text: `New Event: ${title}\n\nDate: ${startDate.toLocaleDateString()}\nTime: ${startDate.toLocaleTimeString()}\n${location ? `Location: ${location}\n` : ''}\n${description}\n\nRegister now: ${SITE_URL}/events/${slug}`,
-  }),
+  newEvent: (title: string, description: string, startDate: Date, slug: string, shortDescription?: string, location?: string, imageUrl?: string, tags?: string[], eventType?: string, customIntro?: string, customFooter?: string): EmailTemplate => {
+    // Add custom intro if provided
+    const bodyContent = customIntro
+      ? `<div style="margin-bottom: 16px;">${markdownToEmailHtml(customIntro)}</div><p style="margin: 0; font-size: 15px; color: #d4d4d4; line-height: 1.7;">${description.length > 400 ? description.substring(0, 400) + '...' : description}</p>`
+      : `<p style="margin: 0; font-size: 15px; color: #d4d4d4; line-height: 1.7;">${description.length > 400 ? description.substring(0, 400) + '...' : description}</p>`;
+    
+    return {
+      subject: `🗓️ New Event: ${title}`,
+      html: generateEmailTemplate({
+        preheader: `${title} — ${startDate.toLocaleDateString('en-IN', { month: 'short', day: 'numeric' })} ${location ? `at ${location}` : ''}`,
+        badge: { text: eventType || 'New Event', emoji: '🎯', gradient: 'linear-gradient(135deg, #22c55e 0%, #16a34a 100%)' },
+        title: title,
+        subtitle: shortDescription || description.substring(0, 150),
+        heroImage: imageUrl,
+        infoCards: [
+          { icon: '📅', label: 'Date', value: startDate.toLocaleDateString('en-IN', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }) },
+          { icon: '⏰', label: 'Time', value: startDate.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true }) },
+          ...(location ? [{ icon: '📍', label: 'Location', value: location }] : []),
+        ],
+        body: bodyContent,
+        tags: tags,
+        cta: { text: 'Register Now', url: `${SITE_URL}/events/${slug}` },
+        secondaryCta: { text: 'View all events', url: `${SITE_URL}/events` },
+        footer: customFooter || "Limited spots available — don't miss out! 🚀",
+      }),
+      text: `New Event: ${title}\n\nDate: ${startDate.toLocaleDateString()}\nTime: ${startDate.toLocaleTimeString()}\n${location ? `Location: ${location}\n` : ''}\n${description}\n\nRegister now: ${SITE_URL}/events/${slug}`,
+    };
+  },
 
   // Password reset
   passwordReset: (name: string, resetLink: string): EmailTemplate => ({
@@ -729,6 +745,13 @@ class EmailService {
 
       if (!response.ok) {
         const errorText = await response.text();
+        logger.error('❌ Brevo API error response:', {
+          status: response.status,
+          statusText: response.statusText,
+          body: errorText,
+          sender: this.fromEmail,
+          recipients: recipients.map(r => r.email),
+        });
         throw new Error(`Brevo API error: ${response.status} - ${errorText}`);
       }
 
@@ -736,7 +759,9 @@ class EmailService {
       logger.info('📧 Email sent successfully via Brevo', {
         messageId: result.messageId,
         recipients: recipients.length,
+        recipientEmails: recipients.map(r => r.email),
         subject: options.subject,
+        sender: this.fromEmail,
       });
       return true;
     } catch (error) {
@@ -776,7 +801,12 @@ class EmailService {
 
   // Convenience methods
   async sendWelcome(email: string, name: string, clubName: string = 'code.scriet'): Promise<boolean> {
-    const template = EmailTemplates.welcome(name, clubName);
+    const template = EmailTemplates.welcome(
+      name,
+      clubName,
+      emailTemplateConfig.welcomeBody || undefined,
+      emailTemplateConfig.footerText || undefined
+    );
     return this.send({ to: email, ...template });
   }
 
@@ -786,12 +816,34 @@ class EmailService {
   }
 
   async sendAnnouncementToAll(emails: string[], title: string, body: string, priority: string, slug: string, shortDescription?: string, imageUrl?: string, tags?: string[]): Promise<boolean> {
-    const template = EmailTemplates.newAnnouncement(title, body, priority, slug, shortDescription, imageUrl, tags);
+    const template = EmailTemplates.newAnnouncement(
+      title,
+      body,
+      priority,
+      slug,
+      shortDescription,
+      imageUrl,
+      tags,
+      emailTemplateConfig.announcementIntro || undefined,
+      emailTemplateConfig.footerText || undefined
+    );
     return this.sendBulk(emails, template.subject, template.html, template.text);
   }
 
   async sendNewEventToAll(emails: string[], title: string, description: string, startDate: Date, slug: string, shortDescription?: string, location?: string, imageUrl?: string, tags?: string[], eventType?: string): Promise<boolean> {
-    const template = EmailTemplates.newEvent(title, description, startDate, slug, shortDescription, location, imageUrl, tags, eventType);
+    const template = EmailTemplates.newEvent(
+      title,
+      description,
+      startDate,
+      slug,
+      shortDescription,
+      location,
+      imageUrl,
+      tags,
+      eventType,
+      emailTemplateConfig.eventIntro || undefined,
+      emailTemplateConfig.footerText || undefined
+    );
     return this.sendBulk(emails, template.subject, template.html, template.text);
   }
 
