@@ -5,7 +5,7 @@ import { SEO } from '@/components/SEO';
 import { motion } from 'framer-motion';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Bell, Calendar, AlertCircle, Info, AlertTriangle, Megaphone, Pin, Star, ArrowRight, Image as ImageIcon } from 'lucide-react';
+import { Bell, Calendar, AlertCircle, Info, AlertTriangle, Megaphone, Pin, Star, ArrowRight } from 'lucide-react';
 import { api } from '@/lib/api';
 import type { Announcement } from '@/lib/api';
 import { formatDate } from '@/lib/dateUtils';
