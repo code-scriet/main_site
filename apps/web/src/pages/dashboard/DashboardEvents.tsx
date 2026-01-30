@@ -6,9 +6,11 @@ import { Button } from '@/components/ui/button';
 import { useAuth } from '@/context/AuthContext';
 import { api } from '@/lib/api';
 import type { Registration, Event } from '@/lib/api';
-import { Calendar, MapPin, Users, Clock, Loader2, AlertCircle, Plus, CheckCircle, ChevronDown, ChevronUp, FileText } from 'lucide-react';
+import { Calendar, MapPin, Clock, Loader2, AlertCircle, Plus, ChevronDown, ChevronUp, FileText } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
 import { formatDate, formatTime, formatDateTime } from '@/lib/dateUtils';
+import EventCard from '@/components/home/EventCard';
+import { Markdown } from '@/components/ui/markdown';
 
 // Helper to get registration status
 function getRegistrationStatus(event: Event): {
@@ -270,7 +272,9 @@ export default function DashboardEvents() {
                             <FileText className="h-4 w-4 text-amber-600" />
                             Description
                           </div>
-                          <p className="text-sm text-gray-600">{reg.event.description || 'No description available'}</p>
+                          <div className="text-sm text-gray-600 prose prose-sm max-w-none">
+                            <Markdown>{reg.event.description || 'No description available'}</Markdown>
+                          </div>
                         </div>
                         
                         {/* Event Type */}
@@ -343,75 +347,20 @@ export default function DashboardEvents() {
               <p className="text-sm mt-1">Check back later for new events!</p>
             </div>
           ) : (
-            <div className="grid gap-4 md:grid-cols-2">
+            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
               {availableEvents.map((event, index) => {
                 const regStatus = getRegistrationStatus(event);
                 
                 return (
-                  <motion.div
+                  <EventCard
                     key={event.id}
-                    initial={{ opacity: 0, y: 20 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: index * 0.1 }}
-                    className="p-4 rounded-lg border border-amber-200 hover:shadow-md transition-all"
-                  >
-                    <div className="flex items-start justify-between mb-3">
-                      <h3 className="font-semibold text-amber-900">{event.title}</h3>
-                      <Badge variant={event.status === 'UPCOMING' ? 'success' : 'warning'}>
-                        {event.status}
-                      </Badge>
-                    </div>
-                    <p className="text-sm text-gray-600 mb-3 line-clamp-2">{event.description}</p>
-                    <div className="flex flex-wrap gap-3 text-sm text-gray-500 mb-3">
-                      <span className="flex items-center gap-1">
-                        <Clock className="h-4 w-4" />
-                        {formatDate(event.startDate)}
-                      </span>
-                      {event.location && (
-                        <span className="flex items-center gap-1">
-                          <MapPin className="h-4 w-4" />
-                          {event.location}
-                        </span>
-                      )}
-                      {event.capacity && (
-                        <span className="flex items-center gap-1">
-                          <Users className="h-4 w-4" />
-                          {event._count?.registrations || 0}/{event.capacity}
-                        </span>
-                      )}
-                    </div>
-                    
-                    {/* Registration Status Badge */}
-                    <div className={`flex items-center gap-2 text-xs px-2 py-1 rounded mb-3 ${
-                      regStatus.status === 'open' ? 'bg-green-50 text-green-700' :
-                      regStatus.status === 'not_started' ? 'bg-blue-50 text-blue-700' :
-                      'bg-gray-100 text-gray-600'
-                    }`}>
-                      {regStatus.status === 'open' ? (
-                        <CheckCircle className="h-3 w-3" />
-                      ) : (
-                        <Clock className="h-3 w-3" />
-                      )}
-                      <span>{regStatus.message}</span>
-                    </div>
-                    
-                    <Button
-                      className="w-full"
-                      onClick={() => handleRegister(event.id)}
-                      disabled={registeringId === event.id || !regStatus.canRegister}
-                    >
-                      {registeringId === event.id ? (
-                        <>
-                          <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                          Registering...
-                        </>
-                      ) : !regStatus.canRegister ? (
-                        regStatus.message
-                      ) : (
-                        'Register Now'
-                      )}
-                    </Button>
-                  </motion.div>
+                    event={event}
+                    index={index}
+                    registrationStatus={regStatus}
+                    onRegister={() => handleRegister(event.id)}
+                    registering={registeringId === event.id}
+                    showActions={true}
+                  />
                 );
               })}
             </div>

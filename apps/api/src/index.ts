@@ -162,10 +162,11 @@ app.post('/api/test-email', authMiddleware, requireRole('ADMIN'), async (req: ex
       return ApiResponse.error(res, { code: ErrorCodes.VALIDATION_ERROR, message: 'Email address required' });
     }
 
+    const user = req.user as { id: string; name: string; email: string } | undefined;
     const settings = await prisma.settings.findFirst();
     const success = await emailService.sendWelcome(
       email,
-      req.user?.name || 'Test User',
+      user?.name || 'Test User',
       settings?.clubName || 'code.scriet'
     );
 
@@ -182,7 +183,7 @@ app.post('/api/test-email', authMiddleware, requireRole('ADMIN'), async (req: ex
       });
     }
   } catch (error) {
-    logger.error('Test email failed:', error);
+    logger.error('Test email failed:', { error: error instanceof Error ? error.message : String(error) });
     return ApiResponse.error(res, { 
       code: ErrorCodes.INTERNAL_ERROR, 
       message: error instanceof Error ? error.message : 'Unknown error' 

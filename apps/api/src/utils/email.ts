@@ -573,10 +573,13 @@ export const EmailTemplates = {
 
   // New Event notification
   newEvent: (title: string, description: string, startDate: Date, slug: string, shortDescription?: string, location?: string, imageUrl?: string, tags?: string[], eventType?: string, customIntro?: string, customFooter?: string): EmailTemplate => {
+    // Convert description markdown to HTML
+    const descriptionHtml = markdownToEmailHtml(description.length > 600 ? description.substring(0, 600) + '...' : description);
+    
     // Add custom intro if provided
     const bodyContent = customIntro
-      ? `<div style="margin-bottom: 16px;">${markdownToEmailHtml(customIntro)}</div><p style="margin: 0; font-size: 15px; color: #d4d4d4; line-height: 1.7;">${description.length > 400 ? description.substring(0, 400) + '...' : description}</p>`
-      : `<p style="margin: 0; font-size: 15px; color: #d4d4d4; line-height: 1.7;">${description.length > 400 ? description.substring(0, 400) + '...' : description}</p>`;
+      ? `<div style="margin-bottom: 16px;">${markdownToEmailHtml(customIntro)}</div>${descriptionHtml}`
+      : descriptionHtml;
     
     return {
       subject: `🗓️ New Event: ${title}`,
