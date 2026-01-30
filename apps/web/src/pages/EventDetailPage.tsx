@@ -433,7 +433,7 @@ export default function EventDetailPage() {
       {/* Hero Section with Cover Image */}
       <section className="relative">
         {coverImage ? (
-          <div className="h-[40vh] md:h-[50vh] relative">
+          <div className="relative w-full" style={{ aspectRatio: '3/2', maxHeight: '60vh' }}>
             <img
               src={coverImage}
               alt={event.title}

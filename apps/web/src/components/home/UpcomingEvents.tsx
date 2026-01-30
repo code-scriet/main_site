@@ -153,8 +153,8 @@ export function UpcomingEvents() {
                 >
                   <Link to={`/events/${event.slug}`} className="block h-full">
                     <div className="h-full bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden hover:shadow-xl transition-all duration-500">
-                      {/* Image Container */}
-                      <div className="relative h-56 overflow-hidden">
+                      {/* Image Container - 3:2 aspect ratio */}
+                      <div className="relative overflow-hidden" style={{ aspectRatio: '3/2' }}>
                         {event.imageUrl ? (
                           <img
                             src={processImageUrl(event.imageUrl, 'card')}

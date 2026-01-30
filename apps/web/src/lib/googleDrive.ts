@@ -108,10 +108,10 @@ function addCloudinaryTransformations(url: string, preset?: ImagePreset): string
     // Original size, just optimize format and quality
     original: 'q_auto,f_auto',
     
-    // Wide banner/hero images - fill width, limit height, center focus
-    cover: 'c_fill,g_center,w_1920,h_600,q_auto,f_auto',
+    // Wide banner/hero images - 3:2 ratio to match posters, center focus
+    cover: 'c_fill,g_center,w_1600,h_1067,q_auto,f_auto',
     
-    // Card thumbnails - fill with center focus for consistent cards
+    // Card thumbnails - 3:2 ratio to match posters, center focus
     card: 'c_fill,g_center,w_600,h_400,q_auto,f_auto',
     
     // Square images for avatars
@@ -120,8 +120,9 @@ function addCloudinaryTransformations(url: string, preset?: ImagePreset): string
     // Gallery images - fit within bounds, preserve aspect
     gallery: 'c_limit,w_1200,h_900,q_auto,f_auto',
     
-    // Event page cover - wide hero with center focus
-    'event-cover': 'c_fill,g_center,w_1600,h_800,q_auto,f_auto',
+    // Event page cover - 3:2 ratio to match standard poster dimensions
+    // Posters should be 1600x1067 (3:2 ratio) for best results
+    'event-cover': 'c_fill,g_center,w_1600,h_1067,q_auto,f_auto',
     
     // Team member avatars (face detection for people)
     'team-avatar': 'c_fill,g_auto:face,w_300,h_300,q_auto,f_auto',

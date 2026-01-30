@@ -262,7 +262,7 @@ export default function EventsPage() {
                   >
                     <Link to={`/events/${event.slug}`}>
                       <Card className="h-full overflow-hidden group hover:shadow-xl transition-all duration-300 cursor-pointer">
-                        <div className="relative h-40 sm:h-48 overflow-hidden bg-gradient-to-br from-amber-200 to-orange-200">
+                        <div className="relative overflow-hidden bg-gradient-to-br from-amber-200 to-orange-200" style={{ aspectRatio: '3/2' }}>
                           {event.imageUrl ? (
                             <img
                               src={processImageUrl(event.imageUrl, 'card')}
