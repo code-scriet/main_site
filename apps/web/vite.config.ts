@@ -15,5 +15,29 @@ export default defineConfig({
     outDir: 'dist',
     assetsDir: 'assets',
     emptyOutDir: true,
+    // Optimize chunk splitting for better caching
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          // Vendor chunks - rarely change, cache longer
+          'vendor-react': ['react', 'react-dom', 'react-router-dom'],
+          'vendor-ui': ['framer-motion', '@tanstack/react-query'],
+          // Feature chunks
+          'markdown': ['react-markdown', 'remark-gfm', 'rehype-highlight', 'rehype-raw'],
+        },
+      },
+    },
+    // Smaller chunks load faster
+    chunkSizeWarningLimit: 500,
+    // Use esbuild for faster minification (default)
+    minify: 'esbuild',
+  },
+  // Optimize dependencies
+  optimizeDeps: {
+    include: ['react', 'react-dom', 'react-router-dom', 'framer-motion'],
+  },
+  // Drop console in production
+  esbuild: {
+    drop: ['console', 'debugger'],
   },
 })

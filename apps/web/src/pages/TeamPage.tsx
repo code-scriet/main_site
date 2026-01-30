@@ -328,6 +328,7 @@ function MemberCard({
                 <img
                   src={member.imageUrl || `https://api.dicebear.com/7.x/avataaars/svg?seed=${member.name}`}
                   alt={member.name}
+                  loading="lazy"
                   className="w-full h-full object-cover rounded-full transition-transform duration-500 group-hover:scale-110"
                 />
               </div>

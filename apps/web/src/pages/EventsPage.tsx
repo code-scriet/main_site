@@ -10,7 +10,7 @@ import { api, type Event } from '@/lib/api';
 import { useAuth } from '@/context/AuthContext';
 import { useNavigate, Link } from 'react-router-dom';
 import { formatDate, formatTime } from '@/lib/dateUtils';
-import { processImageUrl } from '@/lib/googleDrive';
+import { processImageUrl } from '@/lib/imageUtils';
 
 type EventStatus = 'UPCOMING' | 'ONGOING' | 'PAST';
 
@@ -267,6 +267,7 @@ export default function EventsPage() {
                             <img
                               src={processImageUrl(event.imageUrl, 'card')}
                               alt={event.title}
+                              loading="lazy"
                               className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
                             />
                           ) : (

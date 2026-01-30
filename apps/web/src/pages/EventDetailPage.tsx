@@ -16,7 +16,7 @@ import {
 import { api, type Event, type Speaker, type FAQ } from '@/lib/api';
 import { useAuth } from '@/context/AuthContext';
 import { formatDate, formatTime, formatDateTime, getWeekdayShort, getDayOfMonth, getMonthShort } from '@/lib/dateUtils';
-import { processImageUrl, processImageGallery } from '@/lib/googleDrive';
+import { processImageUrl, processImageGallery } from '@/lib/imageUtils';
 
 type EventStatus = 'UPCOMING' | 'ONGOING' | 'PAST';
 

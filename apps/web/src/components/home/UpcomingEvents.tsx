@@ -6,7 +6,7 @@ import { Link } from 'react-router-dom';
 import { Calendar, MapPin, ArrowRight, Loader2, Users, Clock } from 'lucide-react';
 import { api, type Event } from '@/lib/api';
 import { formatTime, getWeekdayShort, getMonthShort, getDayOfMonth } from '@/lib/dateUtils';
-import { processImageUrl } from '@/lib/googleDrive';
+import { processImageUrl } from '@/lib/imageUtils';
 import { useMotionConfig } from '@/hooks/useMotionConfig';
 import { useAuth } from '@/context/AuthContext';
 
@@ -159,6 +159,7 @@ export function UpcomingEvents() {
                           <img
                             src={processImageUrl(event.imageUrl, 'card')}
                             alt={event.title}
+                            loading="lazy"
                             className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700"
                           />
                         ) : (
