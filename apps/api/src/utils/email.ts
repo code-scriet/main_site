@@ -10,6 +10,7 @@ const BREVO_API_URL = 'https://api.brevo.com/v3/smtp/email';
 const BREVO_API_KEY = process.env.BREVO_API_KEY || '';
 const EMAIL_FROM = process.env.EMAIL_FROM || 'code.scriet@codescriet.dev';
 const EMAIL_FROM_NAME = process.env.EMAIL_FROM_NAME || 'code.scriet';
+const EMAIL_REPLY_TO = process.env.EMAIL_REPLY_TO || 'tech_admin@codescriet.dev';
 
 // Production URL for all email links
 const SITE_URL = 'https://codescriet.dev';
@@ -261,6 +262,15 @@ const generateEmailTemplate = (content: {
                   </td>
                 </tr>
               </table>
+              
+              <!-- Support Contact -->
+              <div style="margin: 0 auto 20px; padding: 16px 24px; background: #0f0f10; border: 1px solid #1f2937; border-radius: 10px; max-width: 400px;">
+                <p style="margin: 0 0 6px; font-size: 11px; color: #6b7280; text-transform: uppercase; letter-spacing: 1px; font-weight: 600;">Need Assistance?</p>
+                <p style="margin: 0; font-size: 13px; color: #9ca3af; line-height: 1.5;">
+                  For any queries or issues, reach out to our tech team at<br>
+                  <a href="mailto:${EMAIL_REPLY_TO}" style="color: #fbbf24; text-decoration: none; font-weight: 600;">${EMAIL_REPLY_TO}</a>
+                </p>
+              </div>
               
               <p style="margin: 0; font-size: 11px; color: #4b5563; line-height: 1.7;">
                 © 2026 code.scriet · SCRIET, CCS University<br>
@@ -616,11 +626,13 @@ class EmailService {
   private apiKey: string;
   private fromEmail: string;
   private fromName: string;
+  private replyToEmail: string;
 
   constructor() {
     this.apiKey = BREVO_API_KEY;
     this.fromEmail = EMAIL_FROM;
     this.fromName = EMAIL_FROM_NAME;
+    this.replyToEmail = EMAIL_REPLY_TO;
     this.configured = !!this.apiKey;
     
     if (this.configured) {
@@ -646,6 +658,7 @@ class EmailService {
 
       const payload = {
         sender: { name: this.fromName, email: this.fromEmail },
+        replyTo: { email: this.replyToEmail, name: 'code.scriet Support' },
         to: recipients,
         subject: options.subject,
         htmlContent: options.html,
