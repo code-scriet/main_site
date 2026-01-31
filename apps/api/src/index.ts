@@ -27,6 +27,7 @@ import { authMiddleware } from './middleware/auth.js';
 import { requireRole } from './middleware/role.js';
 import { emailService } from './utils/email.js';
 import { prisma } from './lib/prisma.js';
+import { startReminderScheduler, stopReminderScheduler } from './utils/scheduler.js';
 
 dotenv.config();
 
@@ -215,6 +216,7 @@ app.use((err: Error, req: express.Request, res: express.Response, _next: express
 // Graceful shutdown
 const shutdown = () => {
   logger.info('Shutting down gracefully...');
+  stopReminderScheduler();
   process.exit(0);
 };
 
@@ -225,6 +227,9 @@ process.on('SIGINT', shutdown);
 initializeDatabase()
   .then(() => populateAnnouncementSlugs())
   .then(() => {
+    // Start the event reminder scheduler
+    startReminderScheduler();
+    
     httpServer.listen(PORT, () => {
       logger.info(`🚀 Server running on http://localhost:${PORT}`, { environment: NODE_ENV });
     });
