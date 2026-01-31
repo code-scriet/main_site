@@ -1,5 +1,6 @@
 import { Server as SocketIOServer } from 'socket.io';
 import { Server as HTTPServer } from 'http';
+import { logger } from './logger.js';
 
 let io: SocketIOServer | null = null;
 
@@ -32,13 +33,13 @@ export function initializeSocket(httpServer: HTTPServer) {
   });
 
   io.on('connection', (socket) => {
-    console.log('Client connected:', socket.id);
+    logger.debug('Client connected', { socketId: socket.id });
     
     // Send a test ping to the client
     socket.emit('ping', { message: 'Hello from server', time: new Date().toISOString() });
     
     socket.on('disconnect', () => {
-      console.log('Client disconnected:', socket.id);
+      logger.debug('Client disconnected', { socketId: socket.id });
     });
   });
 
@@ -52,33 +53,18 @@ export function getIO(): SocketIOServer | null {
 // Event emitters for different data types
 export const socketEvents = {
   userCreated: (userId: string) => {
-    if (!io) console.warn('Socket.io not initialized, cannot emit user:created');
-    else console.log('Emitting user:created', { userId });
+    if (!io) logger.warn('Socket.io not initialized, cannot emit user:created');
+    else logger.debug('Emitting user:created', { userId });
     io?.emit('user:created', { userId });
   },
   userUpdated: (userId: string) => {
-    if (!io) console.warn('Socket.io not initialized, cannot emit user:updated');
-    else console.log('Emitting user:updated', { userId });
+    if (!io) logger.warn('Socket.io not initialized, cannot emit user:updated');
+    else logger.debug('Emitting user:updated', { userId });
     io?.emit('user:updated', { userId });
   },
   userDeleted: (userId: string) => {
-    if (!io) console.warn('Socket.io not initialized, cannot emit user:deleted');
-    else console.log('Emitting user:deleted', { userId });
+    if (!io) logger.warn('Socket.io not initialized, cannot emit user:deleted');
+    else logger.debug('Emitting user:deleted', { userId });
     io?.emit('user:deleted', { userId });
-  },
-  eventCreated: (eventId: string) => {
-    io?.emit('event:created', { eventId });
-  },
-  eventUpdated: (eventId: string) => {
-    io?.emit('event:updated', { eventId });
-  },
-  eventDeleted: (eventId: string) => {
-    io?.emit('event:deleted', { eventId });
-  },
-  registrationCreated: (eventId: string, userId: string) => {
-    io?.emit('registration:created', { eventId, userId });
-  },
-  registrationDeleted: (eventId: string, userId: string) => {
-    io?.emit('registration:deleted', { eventId, userId });
   },
 };

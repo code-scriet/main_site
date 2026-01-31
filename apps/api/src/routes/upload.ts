@@ -4,6 +4,7 @@ import { cloudinary, isCloudinaryConfigured } from '../config/cloudinary.js';
 import { authMiddleware, getAuthUser } from '../middleware/auth.js';
 import { requireRole } from '../middleware/role.js';
 import { ApiResponse, ErrorCodes } from '../utils/response.js';
+import { logger } from '../utils/logger.js';
 
 export const uploadRouter = Router();
 
@@ -67,7 +68,7 @@ uploadRouter.post(
         },
         (error, result) => {
           if (error) {
-            console.error('Cloudinary upload error:', error);
+            logger.error('Cloudinary upload error:', { error: error instanceof Error ? error.message : String(error) });
             return ApiResponse.error(res, {
               code: ErrorCodes.INTERNAL_ERROR,
               message: 'Failed to upload image',
@@ -99,7 +100,7 @@ uploadRouter.post(
       // Pipe the file buffer to Cloudinary
       uploadStream.end(req.file.buffer);
     } catch (error) {
-      console.error('Upload error:', error);
+      logger.error('Upload error:', { error: error instanceof Error ? error.message : String(error) });
       ApiResponse.error(res, {
         code: ErrorCodes.INTERNAL_ERROR,
         message: error instanceof Error ? error.message : 'Failed to upload image',
@@ -142,7 +143,7 @@ uploadRouter.delete(
         });
       }
     } catch (error) {
-      console.error('Delete error:', error);
+      logger.error('Delete error:', { error: error instanceof Error ? error.message : String(error) });
       ApiResponse.error(res, {
         code: ErrorCodes.INTERNAL_ERROR,
         message: 'Failed to delete image',

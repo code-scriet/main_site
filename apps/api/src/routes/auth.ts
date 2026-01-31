@@ -76,7 +76,7 @@ authRouter.post('/register', async (req: Request, res: Response) => {
     
     res.status(201).json({ token, user: { id: user.id, name: user.name, email: user.email, role: user.role, avatar: user.avatar } });
   } catch (error) {
-    console.error('Registration error:', error);
+    logger.error('Registration error:', { error: error instanceof Error ? error.message : String(error) });
     res.status(500).json({ error: 'Registration failed' });
   }
 });
@@ -110,7 +110,7 @@ authRouter.post('/login', async (req: Request, res: Response) => {
     const token = generateToken(user.id);
     res.json({ token, user: { id: user.id, name: user.name, email: user.email, role: user.role, avatar: user.avatar } });
   } catch (error) {
-    console.error('Login error:', error);
+    logger.error('Login error:', { error: error instanceof Error ? error.message : String(error) });
     res.status(500).json({ error: 'Login failed' });
   }
 });
@@ -180,7 +180,7 @@ authRouter.post('/dev-login', async (req: Request, res: Response) => {
     
     res.json({ token, user: { id: user.id, name: user.name, email: user.email, role: user.role } });
   } catch (error) {
-    console.error('Dev login error:', error);
+    logger.error('Dev login error:', { error: error instanceof Error ? error.message : String(error) });
     res.status(500).json({ error: 'Login failed' });
   }
 });

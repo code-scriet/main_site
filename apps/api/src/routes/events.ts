@@ -443,7 +443,7 @@ eventsRouter.get('/:id/registrations/export', authMiddleware, requireRole('CORE_
     await workbook.xlsx.write(res);
     res.end();
   } catch (error) {
-    console.error('Export error:', error);
+    logger.error('Export error:', { error: error instanceof Error ? error.message : String(error) });
     res.status(500).json({ success: false, error: { message: 'Failed to export registrations' } });
   }
 });

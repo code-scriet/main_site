@@ -143,7 +143,7 @@ announcementsRouter.post('/', authMiddleware, requireRole('CORE_MEMBER'), async 
 
     res.status(201).json({ success: true, data: announcement, message: 'Announcement created successfully' });
   } catch (error) {
-    console.error('Failed to create announcement:', error);
+    logger.error('Failed to create announcement:', { error: error instanceof Error ? error.message : String(error) });
     res.status(500).json({ success: false, error: { message: 'Failed to create announcement' } });
   }
 });

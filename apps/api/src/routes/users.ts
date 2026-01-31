@@ -3,6 +3,7 @@ import { prisma } from '../lib/prisma.js';
 import { authMiddleware, getAuthUser } from '../middleware/auth.js';
 import { requireRole } from '../middleware/role.js';
 import { auditLog } from '../utils/audit.js';
+import { logger } from '../utils/logger.js';
 import bcrypt from 'bcryptjs';
 import { socketEvents } from '../utils/socket.js';
 
@@ -399,7 +400,7 @@ usersRouter.get('/export', authMiddleware, requireRole('ADMIN'), async (_req: Re
     await workbook.xlsx.write(res);
     res.end();
   } catch (error) {
-    console.error('User export error:', error);
+    logger.error('User export error:', { error: error instanceof Error ? error.message : String(error) });
     res.status(500).json({ success: false, error: { message: 'Failed to export users' } });
   }
 });

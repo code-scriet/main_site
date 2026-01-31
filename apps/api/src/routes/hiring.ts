@@ -7,6 +7,7 @@ import { requireRole } from '../middleware/role.js';
 import { auditLog } from '../utils/audit.js';
 import { ApiResponse } from '../utils/response.js';
 import { emailService } from '../utils/email.js';
+import { logger } from '../utils/logger.js';
 
 export const hiringRouter = Router();
 
@@ -92,7 +93,7 @@ hiringRouter.post('/apply', optionalAuthMiddleware, async (req: Request, res: Re
       },
     });
   } catch (error) {
-    console.error('Hiring application error:', error);
+    logger.error('Hiring application error:', { error: error instanceof Error ? error.message : String(error) });
     return ApiResponse.internal(res, 'Failed to submit application');
   }
 });
@@ -147,7 +148,7 @@ hiringRouter.get('/applications', authMiddleware, requireRole('ADMIN'), async (r
       totalPages,
     });
   } catch (error) {
-    console.error('Get applications error:', error);
+    logger.error('Get applications error:', { error: error instanceof Error ? error.message : String(error) });
     return ApiResponse.internal(res, 'Failed to fetch applications');
   }
 });
@@ -172,7 +173,7 @@ hiringRouter.get('/applications/:id', authMiddleware, requireRole('ADMIN'), asyn
 
     return ApiResponse.success(res, application);
   } catch (error) {
-    console.error('Get application error:', error);
+    logger.error('Get application error:', { error: error instanceof Error ? error.message : String(error) });
     return ApiResponse.internal(res, 'Failed to fetch application');
   }
 });
@@ -206,7 +207,7 @@ hiringRouter.patch('/applications/:id/status', authMiddleware, requireRole('ADMI
       application,
     });
   } catch (error) {
-    console.error('Update application status error:', error);
+    logger.error('Update application status error:', { error: error instanceof Error ? error.message : String(error) });
     return ApiResponse.internal(res, 'Failed to update application status');
   }
 });
@@ -227,7 +228,7 @@ hiringRouter.delete('/applications/:id', authMiddleware, requireRole('ADMIN'), a
 
     return ApiResponse.success(res, { message: 'Application deleted successfully' });
   } catch (error) {
-    console.error('Delete application error:', error);
+    logger.error('Delete application error:', { error: error instanceof Error ? error.message : String(error) });
     return ApiResponse.internal(res, 'Failed to delete application');
   }
 });
@@ -264,7 +265,7 @@ hiringRouter.get('/my-application', authMiddleware, async (req: Request, res: Re
       },
     });
   } catch (error) {
-    console.error('Get my application error:', error);
+    logger.error('Get my application error:', { error: error instanceof Error ? error.message : String(error) });
     return ApiResponse.internal(res, 'Failed to fetch application');
   }
 });
@@ -296,7 +297,7 @@ hiringRouter.get('/stats', authMiddleware, requireRole('ADMIN'), async (req: Req
       }, {} as Record<string, number>),
     });
   } catch (error) {
-    console.error('Get hiring stats error:', error);
+    logger.error('Get hiring stats error:', { error: error instanceof Error ? error.message : String(error) });
     return ApiResponse.internal(res, 'Failed to fetch hiring statistics');
   }
 });
@@ -389,7 +390,7 @@ hiringRouter.get('/export', authMiddleware, requireRole('ADMIN'), async (req: Re
       });
     }
   } catch (error) {
-    console.error('Export applications error:', error);
+    logger.error('Export applications error:', { error: error instanceof Error ? error.message : String(error) });
     return ApiResponse.internal(res, 'Failed to export applications');
   }
 });

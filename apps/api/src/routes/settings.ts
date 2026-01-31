@@ -3,6 +3,7 @@ import { prisma } from '../lib/prisma.js';
 import { authMiddleware, getAuthUser } from '../middleware/auth.js';
 import { requireRole } from '../middleware/role.js';
 import { auditLog } from '../utils/audit.js';
+import { logger } from '../utils/logger.js';
 import fs from 'fs/promises';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -238,7 +239,7 @@ settingsRouter.get('/email-templates', authMiddleware, requireRole('ADMIN'), asy
       },
     });
   } catch (error) {
-    console.error('Failed to read email templates:', error);
+    logger.error('Failed to read email templates:', { error: error instanceof Error ? error.message : String(error) });
     res.status(500).json({ success: false, error: { message: 'Failed to read email templates' } });
   }
 });
@@ -284,7 +285,7 @@ export const emailTemplateConfig = {
       message: 'Email templates updated successfully. Changes will take effect immediately.',
     });
   } catch (error) {
-    console.error('Failed to update email templates:', error);
+    logger.error('Failed to update email templates:', { error: error instanceof Error ? error.message : String(error) });
     res.status(500).json({ success: false, error: { message: 'Failed to update email templates' } });
   }
 });

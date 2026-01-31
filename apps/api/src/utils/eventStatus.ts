@@ -1,5 +1,6 @@
 import { prisma } from '../lib/prisma.js';
 import { EventStatus } from '@prisma/client';
+import { logger } from './logger.js';
 
 /**
  * Updates the status of events based on their start and end dates.
@@ -52,7 +53,7 @@ export async function updateEventStatuses() {
     })
 
   } catch (error) {
-    console.error('Failed to update event statuses:', error);
+    logger.error('Failed to update event statuses:', { error: error instanceof Error ? error.message : String(error) });
     // Non-blocking error, we don't want to crash the request
   }
 }
