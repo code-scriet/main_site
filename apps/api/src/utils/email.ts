@@ -10,6 +10,7 @@ const BREVO_API_URL = 'https://api.brevo.com/v3/smtp/email';
 const BREVO_API_KEY = process.env.BREVO_API_KEY || '';
 const EMAIL_FROM = process.env.EMAIL_FROM || 'code.scriet@codescriet.dev';
 const EMAIL_FROM_NAME = process.env.EMAIL_FROM_NAME || 'code.scriet';
+const EMAIL_REPLY_TO = process.env.EMAIL_REPLY_TO || '';
 
 // Production URL for all email links
 const SITE_URL = 'https://codescriet.dev';
@@ -25,6 +26,8 @@ interface EmailOptions {
   subject: string;
   html: string;
   text?: string;
+  replyTo?: string | { email: string; name?: string };
+  headers?: Record<string, string>;
 }
 
 interface EmailTemplate {
@@ -109,6 +112,7 @@ const generateEmailTemplate = (content: {
   infoCards?: Array<{ icon: string; label: string; value: string }>;
   tags?: string[];
   footer?: string;
+  transactional?: boolean;
 }) => {
   const infoCardsHtml = content.infoCards?.map(card => `
     <tr>
@@ -313,6 +317,7 @@ const generateEmailTemplate = (content: {
               <td style="padding: 32px 40px 40px; text-align: center;">
                 
                 <!-- Quick Links -->
+                ${content.transactional ? '' : `
                 <table style="width: 100%; margin-bottom: 24px;" cellpadding="0" cellspacing="0" role="presentation">
                   <tr>
                     <td align="center">
@@ -322,6 +327,7 @@ const generateEmailTemplate = (content: {
                     </td>
                   </tr>
                 </table>
+                `}
                 
                 <!-- Branding -->
                 <p style="margin: 0 0 6px; font-family: 'SF Mono', 'Consolas', monospace; font-size: 16px; background: linear-gradient(135deg, #fbbf24 0%, #f59e0b 50%, #ea580c 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; font-weight: 700;">
@@ -339,6 +345,7 @@ const generateEmailTemplate = (content: {
           </table>
           
           <!-- Legal Footer -->
+          ${content.transactional ? '' : `
           <table style="width: 100%; max-width: 600px;" cellpadding="0" cellspacing="0" role="presentation">
             <tr>
               <td style="padding: 28px 20px; text-align: center;">
@@ -350,6 +357,7 @@ const generateEmailTemplate = (content: {
               </td>
             </tr>
           </table>
+          `}
           
         </td>
       </tr>
@@ -497,6 +505,7 @@ export const EmailTemplates = {
         badge: { text: 'You\'re In!', emoji: '🚀', gradient: 'linear-gradient(135deg, #f59e0b 0%, #ea580c 50%, #dc2626 100%)' },
         title: `Welcome to the Elite ${name}`,
         subtitle: `You just joined 100+ developers building the future. Time to level up. 🎯`,
+        transactional: true,
         body: bodyContent,
         cta: { text: 'Launch Your Dashboard →', url: `${SITE_URL}/dashboard` },
         footer: customFooter || 'Welcome to the winning team. Let\'s build something extraordinary.',
@@ -513,6 +522,7 @@ export const EmailTemplates = {
       badge: { text: 'Registered', emoji: '✓', gradient: 'linear-gradient(135deg, #22c55e 0%, #16a34a 100%)' },
       title: `You're in!`,
       subtitle: `Your registration for "${eventTitle}" has been confirmed.`,
+      transactional: true,
       heroImage: imageUrl,
       infoCards: [
         { icon: '📅', label: 'Date', value: eventDate.toLocaleDateString('en-IN', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }) },
@@ -612,6 +622,7 @@ export const EmailTemplates = {
       badge: { text: 'Security', emoji: '🔐', gradient: 'linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%)' },
       title: 'Password Reset',
       subtitle: `Hey ${name}, we received a request to reset your password.`,
+      transactional: true,
       body: `
         <p style="margin: 0 0 20px; font-size: 15px; color: #e5e5e5; line-height: 1.6;">
           Click the button below to create a new password. This link expires in <strong style="color: #fafafa;">1 hour</strong>.
@@ -637,6 +648,7 @@ export const EmailTemplates = {
       badge: { text: 'Reminder', emoji: '⏰', gradient: 'linear-gradient(135deg, #eab308 0%, #ca8a04 100%)' },
       title: `It's almost time!`,
       subtitle: `"${eventTitle}" is happening tomorrow.`,
+      transactional: true,
       infoCards: [
         { icon: '📅', label: 'Date', value: eventDate.toLocaleDateString('en-IN', { weekday: 'long', month: 'long', day: 'numeric' }) },
         { icon: '⏰', label: 'Time', value: eventDate.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true }) },
@@ -725,7 +737,11 @@ class EmailService {
         ? options.to.map(email => ({ email }))
         : [{ email: options.to }];
 
-      const payload = {
+      const resolvedReplyTo = options.replyTo
+        ? (typeof options.replyTo === 'string' ? { email: options.replyTo } : options.replyTo)
+        : (EMAIL_REPLY_TO ? { email: EMAIL_REPLY_TO } : undefined);
+
+      const payload: Record<string, unknown> = {
         sender: {
           name: this.fromName,
           email: this.fromEmail,
@@ -735,6 +751,14 @@ class EmailService {
         htmlContent: options.html,
         textContent: options.text || htmlToPlainText(options.html),
       };
+
+      if (resolvedReplyTo) {
+        payload.replyTo = resolvedReplyTo;
+      }
+
+      if (options.headers) {
+        payload.headers = options.headers;
+      }
 
       const response = await fetch(BREVO_API_URL, {
         method: 'POST',
