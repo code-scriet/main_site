@@ -149,17 +149,17 @@ export function startReminderScheduler(): void {
     sendEventReminders();
   }, 10000); // Wait 10 seconds after startup
   
-  // Then run every hour
+  // Then run every 6 hours (4 times a day is efficient)
   reminderInterval = setInterval(() => {
     sendEventReminders();
-  }, 60 * 60 * 1000); // Every hour
+  }, 6 * 60 * 60 * 1000); // Every 6 hours
   
-  // Clean up old reminders every 6 hours
+  // Clean up old reminders every 24 hours
   cleanupInterval = setInterval(() => {
     cleanupOldReminders();
-  }, 6 * 60 * 60 * 1000);
+  }, 24 * 60 * 60 * 1000);
   
-  logger.info('🔔 Event reminder scheduler started (checks every hour)');
+  logger.info('🔔 Event reminder scheduler started (checks every 6 hours)');
 }
 
 /**

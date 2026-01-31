@@ -6,6 +6,7 @@ import { authMiddleware, getAuthUser, optionalAuthMiddleware } from '../middlewa
 import { requireRole } from '../middleware/role.js';
 import { auditLog } from '../utils/audit.js';
 import { ApiResponse } from '../utils/response.js';
+import { emailService } from '../utils/email.js';
 
 export const hiringRouter = Router();
 
@@ -69,6 +70,9 @@ hiringRouter.post('/apply', optionalAuthMiddleware, async (req: Request, res: Re
         userId,
       },
     });
+
+    // Send confirmation email
+    await emailService.sendHiringApplication(email, name, applyingRole);
 
     // Log the application
     if (userId) {

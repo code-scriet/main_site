@@ -10,7 +10,6 @@ const BREVO_API_URL = 'https://api.brevo.com/v3/smtp/email';
 const BREVO_API_KEY = process.env.BREVO_API_KEY || '';
 const EMAIL_FROM = process.env.EMAIL_FROM || 'code.scriet@codescriet.dev';
 const EMAIL_FROM_NAME = process.env.EMAIL_FROM_NAME || 'code.scriet';
-const EMAIL_REPLY_TO = process.env.EMAIL_REPLY_TO || '';
 
 // Production URL for all email links
 const SITE_URL = 'https://codescriet.dev';
@@ -26,8 +25,6 @@ interface EmailOptions {
   subject: string;
   html: string;
   text?: string;
-  replyTo?: string | { email: string; name?: string };
-  headers?: Record<string, string>;
 }
 
 interface EmailTemplate {
@@ -46,43 +43,24 @@ interface BrevoRecipient {
 // ============================================
 
 function markdownToEmailHtml(markdown: string): string {
-  // Convert markdown to HTML
   const rawHtml = marked.parse(markdown, { async: false }) as string;
   
-  // Style the HTML for emails with inline styles
   return rawHtml
-    // Paragraphs
-    .replace(/<p>/g, '<p style="margin: 0 0 16px 0; font-size: 15px; color: #e5e5e5; line-height: 1.7;">')
-    // Headers
-    .replace(/<h1>/g, '<h1 style="margin: 24px 0 12px 0; font-size: 24px; font-weight: 700; color: #fafafa;">')
-    .replace(/<h2>/g, '<h2 style="margin: 20px 0 10px 0; font-size: 20px; font-weight: 600; color: #fafafa;">')
-    .replace(/<h3>/g, '<h3 style="margin: 16px 0 8px 0; font-size: 18px; font-weight: 600; color: #fafafa;">')
-    // Lists
-    .replace(/<ul>/g, '<ul style="margin: 0 0 16px 0; padding-left: 20px; color: #e5e5e5;">')
-    .replace(/<ol>/g, '<ol style="margin: 0 0 16px 0; padding-left: 20px; color: #e5e5e5;">')
+    .replace(/<p>/g, '<p style="margin: 0 0 16px 0; font-size: 15px; color: #d1d5db; line-height: 1.7;">')
+    .replace(/<h1>/g, '<h1 style="margin: 24px 0 12px 0; font-size: 24px; font-weight: 700; color: #f9fafb;">')
+    .replace(/<h2>/g, '<h2 style="margin: 20px 0 10px 0; font-size: 20px; font-weight: 600; color: #f9fafb;">')
+    .replace(/<h3>/g, '<h3 style="margin: 16px 0 8px 0; font-size: 18px; font-weight: 600; color: #f9fafb;">')
+    .replace(/<ul>/g, '<ul style="margin: 0 0 16px 0; padding-left: 20px; color: #d1d5db;">')
+    .replace(/<ol>/g, '<ol style="margin: 0 0 16px 0; padding-left: 20px; color: #d1d5db;">')
     .replace(/<li>/g, '<li style="margin: 6px 0; line-height: 1.6;">')
-    // Links
-    .replace(/<a /g, '<a style="color: #f59e0b; text-decoration: underline;" ')
-    // Strong/Bold
-    .replace(/<strong>/g, '<strong style="color: #fafafa; font-weight: 600;">')
-    // Emphasis/Italic
-    .replace(/<em>/g, '<em style="color: #d4d4d4;">')
-    // Code blocks
-    .replace(/<pre>/g, '<pre style="margin: 16px 0; padding: 16px; background-color: #1a1a1a; border-radius: 8px; overflow-x: auto; border: 1px solid #333;">')
-    .replace(/<code>/g, '<code style="font-family: \'SF Mono\', \'Fira Code\', \'Courier New\', monospace; font-size: 13px; color: #22c55e;">')
-    // Inline code (not in pre)
-    .replace(/(<code style="[^"]*">)(?![^<]*<\/pre>)/g, '<code style="font-family: \'SF Mono\', monospace; font-size: 13px; padding: 2px 6px; background-color: #262626; border-radius: 4px; color: #f59e0b;">')
-    // Blockquotes
-    .replace(/<blockquote>/g, '<blockquote style="margin: 16px 0; padding: 12px 20px; border-left: 4px solid #f59e0b; background-color: #1f1f1f; color: #a3a3a3; font-style: italic;">')
-    // Horizontal rules
-    .replace(/<hr>/g, '<hr style="margin: 24px 0; border: none; height: 1px; background: linear-gradient(to right, transparent, #404040, transparent);">')
-    // Tables
-    .replace(/<table>/g, '<table style="width: 100%; margin: 16px 0; border-collapse: collapse;">')
-    .replace(/<th>/g, '<th style="padding: 10px 12px; background-color: #1f1f1f; border: 1px solid #333; color: #fafafa; font-weight: 600; text-align: left;">')
-    .replace(/<td>/g, '<td style="padding: 10px 12px; border: 1px solid #333; color: #d4d4d4;">');
+    .replace(/<a /g, '<a style="color: #fbbf24; text-decoration: underline;" ')
+    .replace(/<strong>/g, '<strong style="color: #f9fafb; font-weight: 600;">')
+    .replace(/<em>/g, '<em style="color: #e5e7eb;">')
+    .replace(/<pre>/g, '<pre style="margin: 16px 0; padding: 16px; background-color: #111827; border-radius: 8px; overflow-x: auto; border: 1px solid #374151;">')
+    .replace(/<code>/g, '<code style="font-family: \'JetBrains Mono\', \'Fira Code\', monospace; font-size: 13px; color: #34d399;">')
+    .replace(/<blockquote>/g, '<blockquote style="margin: 16px 0; padding: 12px 20px; border-left: 4px solid #fbbf24; background-color: #1f2937; color: #9ca3af; font-style: italic;">');
 }
 
-// Strip HTML tags for plain text version
 function htmlToPlainText(html: string): string {
   return html
     .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
@@ -96,13 +74,14 @@ function htmlToPlainText(html: string): string {
 }
 
 // ============================================
-// Clean, High-Contrast Email Template
-// Optimized for Primary inbox delivery
+// Premium Email Template
+// Stunning, Professional Design
 // ============================================
 
 const generateEmailTemplate = (content: {
   preheader?: string;
-  badge?: { text: string; emoji?: string; color: string };
+  accentColor?: string;
+  badge?: { text: string; icon?: string };
   title: string;
   subtitle?: string;
   heroImage?: string;
@@ -110,29 +89,26 @@ const generateEmailTemplate = (content: {
   cta?: { text: string; url: string };
   secondaryCta?: { text: string; url: string };
   infoCards?: Array<{ icon: string; label: string; value: string }>;
-  tags?: string[];
   footer?: string;
 }) => {
+  const accent = content.accentColor || '#fbbf24';
+  
   const infoCardsHtml = content.infoCards?.map(card => `
     <tr>
-      <td style="padding: 12px 16px; border-bottom: 1px solid #2a2a2a;">
+      <td style="padding: 16px 20px; border-bottom: 1px solid #1f2937;">
         <table cellpadding="0" cellspacing="0" role="presentation" style="width: 100%;">
           <tr>
-            <td style="width: 40px; vertical-align: middle;">
-              <div style="width: 36px; height: 36px; background-color: #1f1f1f; border-radius: 8px; text-align: center; line-height: 36px; font-size: 18px;">${card.icon}</div>
+            <td style="width: 48px; vertical-align: middle;">
+              <div style="width: 44px; height: 44px; background: linear-gradient(135deg, ${accent}20, ${accent}10); border: 1px solid ${accent}30; border-radius: 12px; text-align: center; line-height: 44px; font-size: 20px;">${card.icon}</div>
             </td>
-            <td style="vertical-align: middle; padding-left: 12px;">
-              <span style="display: block; font-size: 11px; color: #888888; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 2px;">${card.label}</span>
-              <span style="font-size: 15px; color: #ffffff; font-weight: 600;">${card.value}</span>
+            <td style="vertical-align: middle; padding-left: 16px;">
+              <div style="font-size: 11px; color: #6b7280; text-transform: uppercase; letter-spacing: 1px; font-weight: 500; margin-bottom: 4px;">${card.label}</div>
+              <div style="font-size: 16px; color: #f9fafb; font-weight: 600;">${card.value}</div>
             </td>
           </tr>
         </table>
       </td>
     </tr>
-  `).join('') || '';
-
-  const tagsHtml = content.tags?.map(tag => `
-    <span style="display: inline-block; margin: 3px 4px 3px 0; padding: 4px 10px; background-color: #262626; color: #f59e0b; font-size: 11px; border-radius: 4px; font-weight: 500;">#${tag}</span>
   `).join('') || '';
 
   return `
@@ -142,129 +118,153 @@ const generateEmailTemplate = (content: {
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="dark">
+  <meta name="supported-color-schemes" content="dark">
   <title>code.scriet</title>
 </head>
-<body style="margin: 0; padding: 0; background-color: #0a0a0a; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif;">
-  ${content.preheader ? `<div style="display: none; max-height: 0; overflow: hidden;">${content.preheader}</div>` : ''}
+<body style="margin: 0; padding: 0; background-color: #030712; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; -webkit-font-smoothing: antialiased;">
+  ${content.preheader ? `<div style="display: none; max-height: 0; overflow: hidden; color: #030712;">${content.preheader}${'‌'.repeat(100)}</div>` : ''}
   
-  <table width="100%" cellpadding="0" cellspacing="0" style="background-color: #0a0a0a;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background-color: #030712; min-height: 100vh;">
     <tr>
-      <td align="center" style="padding: 40px 16px;">
+      <td align="center" style="padding: 48px 24px;">
         
         <!-- Main Container -->
-        <table width="100%" cellpadding="0" cellspacing="0" style="max-width: 560px; background-color: #121212; border-radius: 12px; overflow: hidden;">
+        <table width="100%" cellpadding="0" cellspacing="0" style="max-width: 600px;">
           
-          <!-- Header -->
+          <!-- Logo Header -->
           <tr>
-            <td style="padding: 32px 32px 24px; text-align: center; border-bottom: 1px solid #1f1f1f;">
-              <div style="font-family: 'Courier New', monospace; font-size: 22px; font-weight: bold; color: #f59e0b; margin-bottom: 4px;">
-                &lt;code.scriet/&gt;
-              </div>
-              <div style="font-size: 11px; color: #666666; text-transform: uppercase; letter-spacing: 2px;">
+            <td style="padding-bottom: 32px; text-align: center;">
+              <table cellpadding="0" cellspacing="0" style="margin: 0 auto;">
+                <tr>
+                  <td style="padding: 16px 28px; background: linear-gradient(135deg, #111827 0%, #0f172a 100%); border: 1px solid #1f2937; border-radius: 16px;">
+                    <div style="font-family: 'SF Mono', 'Fira Code', 'Consolas', monospace; font-size: 24px; font-weight: 800; color: #fbbf24; letter-spacing: -0.5px;">
+                      &lt;code.scriet/&gt;
+                    </div>
+                  </td>
+                </tr>
+              </table>
+              <div style="margin-top: 12px; font-size: 12px; color: #4b5563; text-transform: uppercase; letter-spacing: 3px; font-weight: 500;">
                 SCRIET Coding Club
               </div>
             </td>
           </tr>
           
-          ${content.heroImage ? `
-          <!-- Hero Image -->
+          <!-- Card Container -->
           <tr>
-            <td style="padding: 0;">
-              <img src="${content.heroImage}" alt="" style="width: 100%; height: auto; display: block;" />
-            </td>
-          </tr>
-          ` : ''}
-          
-          <!-- Content -->
-          <tr>
-            <td style="padding: 32px;">
-              
-              ${content.badge ? `
-              <!-- Badge -->
-              <div style="margin-bottom: 20px;">
-                <span style="display: inline-block; padding: 6px 14px; background-color: ${content.badge.color}; color: #000000; font-size: 12px; font-weight: 700; border-radius: 4px; text-transform: uppercase; letter-spacing: 1px;">
-                  ${content.badge.emoji ? content.badge.emoji + ' ' : ''}${content.badge.text}
-                </span>
-              </div>
-              ` : ''}
-              
-              <!-- Title -->
-              <h1 style="margin: 0 0 12px; font-size: 26px; font-weight: 700; color: #ffffff; line-height: 1.3;">
-                ${content.title}
-              </h1>
-              
-              ${content.subtitle ? `
-              <p style="margin: 0 0 24px; font-size: 16px; color: #a0a0a0; line-height: 1.5;">
-                ${content.subtitle}
-              </p>
-              ` : ''}
-              
-              ${content.infoCards && content.infoCards.length > 0 ? `
-              <!-- Info Cards -->
-              <table width="100%" cellpadding="0" cellspacing="0" style="margin: 24px 0; background-color: #1a1a1a; border-radius: 8px; overflow: hidden;">
-                ${infoCardsHtml}
-              </table>
-              ` : ''}
-              
-              <!-- Body -->
-              <div style="color: #d0d0d0; font-size: 15px; line-height: 1.7;">
-                ${content.body}
-              </div>
-              
-              ${content.tags && content.tags.length > 0 ? `
-              <div style="margin-top: 20px;">
-                ${tagsHtml}
-              </div>
-              ` : ''}
-              
-              ${content.cta ? `
-              <!-- CTA Button -->
-              <table width="100%" cellpadding="0" cellspacing="0" style="margin-top: 28px;">
+            <td>
+              <table width="100%" cellpadding="0" cellspacing="0" style="background: linear-gradient(180deg, #111827 0%, #0d1117 100%); border: 1px solid #1f2937; border-radius: 24px; overflow: hidden; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);">
+                
+                <!-- Accent Line -->
                 <tr>
-                  <td>
-                    <a href="${content.cta.url}" style="display: inline-block; padding: 14px 32px; background-color: #f59e0b; color: #000000; font-size: 14px; font-weight: 700; text-decoration: none; border-radius: 6px;">
-                      ${content.cta.text}
-                    </a>
+                  <td style="height: 4px; background: linear-gradient(90deg, ${accent}, #f59e0b, ${accent});"></td>
+                </tr>
+                
+                ${content.heroImage ? `
+                <!-- Hero Image -->
+                <tr>
+                  <td style="padding: 0;">
+                    <img src="${content.heroImage}" alt="" style="width: 100%; height: auto; display: block; max-height: 220px; object-fit: cover;" />
                   </td>
                 </tr>
+                ` : ''}
+                
+                <!-- Content -->
+                <tr>
+                  <td style="padding: 40px 36px;">
+                    
+                    ${content.badge ? `
+                    <!-- Badge -->
+                    <table cellpadding="0" cellspacing="0" style="margin-bottom: 24px;">
+                      <tr>
+                        <td style="padding: 8px 16px; background: linear-gradient(135deg, ${accent}25, ${accent}15); border: 1px solid ${accent}40; border-radius: 100px;">
+                          <span style="font-size: 12px; font-weight: 600; color: ${accent}; text-transform: uppercase; letter-spacing: 1px;">
+                            ${content.badge.icon ? content.badge.icon + '  ' : ''}${content.badge.text}
+                          </span>
+                        </td>
+                      </tr>
+                    </table>
+                    ` : ''}
+                    
+                    <!-- Title -->
+                    <h1 style="margin: 0 0 16px; font-size: 28px; font-weight: 800; color: #f9fafb; line-height: 1.25; letter-spacing: -0.5px;">
+                      ${content.title}
+                    </h1>
+                    
+                    ${content.subtitle ? `
+                    <p style="margin: 0 0 28px; font-size: 16px; color: #9ca3af; line-height: 1.6;">
+                      ${content.subtitle}
+                    </p>
+                    ` : ''}
+                    
+                    ${content.infoCards && content.infoCards.length > 0 ? `
+                    <!-- Info Cards -->
+                    <table width="100%" cellpadding="0" cellspacing="0" style="margin: 28px 0; background-color: #0f172a; border: 1px solid #1e293b; border-radius: 16px; overflow: hidden;">
+                      ${infoCardsHtml}
+                    </table>
+                    ` : ''}
+                    
+                    <!-- Body Content -->
+                    <div style="margin: 24px 0; padding: 28px; background: linear-gradient(135deg, #1f293780, #0f172a80); border: 1px solid #1e293b; border-radius: 16px;">
+                      ${content.body}
+                    </div>
+                    
+                    ${content.cta ? `
+                    <!-- CTA Button -->
+                    <table cellpadding="0" cellspacing="0" style="margin-top: 32px;">
+                      <tr>
+                        <td>
+                          <a href="${content.cta.url}" style="display: inline-block; padding: 16px 36px; background: linear-gradient(135deg, ${accent}, #f59e0b); color: #000000; font-size: 14px; font-weight: 700; text-decoration: none; border-radius: 12px; text-transform: uppercase; letter-spacing: 0.5px; box-shadow: 0 4px 14px ${accent}40;">
+                            ${content.cta.text}
+                          </a>
+                        </td>
+                      </tr>
+                    </table>
+                    ` : ''}
+                    
+                    ${content.secondaryCta ? `
+                    <p style="margin: 20px 0 0;">
+                      <a href="${content.secondaryCta.url}" style="color: #9ca3af; font-size: 14px; text-decoration: none; font-weight: 500;">
+                        ${content.secondaryCta.text} →
+                      </a>
+                    </p>
+                    ` : ''}
+                    
+                  </td>
+                </tr>
+                
               </table>
-              ` : ''}
-              
-              ${content.secondaryCta ? `
-              <p style="margin: 16px 0 0;">
-                <a href="${content.secondaryCta.url}" style="color: #f59e0b; font-size: 14px; text-decoration: underline;">
-                  ${content.secondaryCta.text}
-                </a>
-              </p>
-              ` : ''}
-              
             </td>
           </tr>
           
           <!-- Footer -->
           <tr>
-            <td style="padding: 24px 32px; background-color: #0f0f0f; border-top: 1px solid #1f1f1f;">
+            <td style="padding: 36px 24px; text-align: center;">
               ${content.footer ? `
-              <p style="margin: 0 0 16px; font-size: 13px; color: #888888; text-align: center;">
+              <p style="margin: 0 0 20px; font-size: 14px; color: #6b7280; line-height: 1.6;">
                 ${content.footer}
               </p>
               ` : ''}
               
-              <table width="100%" cellpadding="0" cellspacing="0">
+              <!-- Social/Links -->
+              <table cellpadding="0" cellspacing="0" style="margin: 0 auto 24px;">
                 <tr>
-                  <td align="center">
-                    <a href="${SITE_URL}" style="color: #666666; font-size: 12px; text-decoration: none; margin: 0 8px;">Website</a>
-                    <span style="color: #333333;">|</span>
-                    <a href="${SITE_URL}/events" style="color: #666666; font-size: 12px; text-decoration: none; margin: 0 8px;">Events</a>
-                    <span style="color: #333333;">|</span>
-                    <a href="${SITE_URL}/dashboard" style="color: #666666; font-size: 12px; text-decoration: none; margin: 0 8px;">Dashboard</a>
+                  <td style="padding: 0 12px;">
+                    <a href="${SITE_URL}" style="color: #4b5563; font-size: 13px; text-decoration: none; font-weight: 500;">Website</a>
+                  </td>
+                  <td style="color: #374151;">•</td>
+                  <td style="padding: 0 12px;">
+                    <a href="${SITE_URL}/events" style="color: #4b5563; font-size: 13px; text-decoration: none; font-weight: 500;">Events</a>
+                  </td>
+                  <td style="color: #374151;">•</td>
+                  <td style="padding: 0 12px;">
+                    <a href="${SITE_URL}/dashboard" style="color: #4b5563; font-size: 13px; text-decoration: none; font-weight: 500;">Dashboard</a>
                   </td>
                 </tr>
               </table>
               
-              <p style="margin: 16px 0 0; font-size: 11px; color: #555555; text-align: center;">
+              <p style="margin: 0; font-size: 12px; color: #374151; line-height: 1.6;">
                 SCRIET, CCS University, Meerut<br>
-                This is a transactional email from code.scriet.
+                <span style="color: #4b5563;">This is an automated message from code.scriet</span>
               </p>
             </td>
           </tr>
@@ -284,157 +284,104 @@ const generateEmailTemplate = (content: {
 // ============================================
 
 export const EmailTemplates = {
-  // Welcome email for new members - PREMIUM DESIGN
+  // Welcome email for new members
   welcome: (name: string, clubName: string, customBody?: string, customFooter?: string): EmailTemplate => {
-    // If custom body provided, use it; otherwise use default premium template
     const bodyContent = customBody 
       ? markdownToEmailHtml(customBody.replace(/\{\{name\}\}/g, name).replace(/\{\{clubName\}\}/g, clubName))
       : `
-        <p style="margin: 0 0 24px; font-size: 15px; color: #e0e0e0; line-height: 1.7;">
-          You're now part of a community of developers who are building real projects, solving real problems, and growing together.
+        <p style="margin: 0 0 20px; font-size: 16px; color: #e5e7eb; line-height: 1.7;">
+          Welcome to <strong style="color: #fbbf24;">${clubName}</strong>! You've just joined a community of passionate developers who are building real projects, learning together, and pushing the boundaries of what's possible.
         </p>
         
-        <p style="margin: 0 0 16px; font-size: 13px; color: #f59e0b; font-weight: 600; text-transform: uppercase; letter-spacing: 1px;">What you get:</p>
+        <div style="margin: 24px 0; padding: 20px 24px; background: linear-gradient(135deg, #fbbf2415, #f59e0b10); border-left: 3px solid #fbbf24; border-radius: 0 12px 12px 0;">
+          <p style="margin: 0 0 12px; font-size: 13px; color: #fbbf24; font-weight: 600; text-transform: uppercase; letter-spacing: 1px;">What's waiting for you</p>
+          <ul style="margin: 0; padding-left: 20px; color: #d1d5db; font-size: 15px; line-height: 1.8;">
+            <li><strong style="color: #f9fafb;">Daily QOTD</strong> — Sharpen your problem-solving skills</li>
+            <li><strong style="color: #f9fafb;">Live Events</strong> — Workshops, hackathons, and tech talks</li>
+            <li><strong style="color: #f9fafb;">Leaderboard</strong> — Compete and track your progress</li>
+            <li><strong style="color: #f9fafb;">Community</strong> — Connect with 100+ developers</li>
+          </ul>
+        </div>
         
-        <table style="width: 100%; margin-bottom: 24px;" cellpadding="0" cellspacing="0">
-          <tr>
-            <td style="padding: 12px 0; border-bottom: 1px solid #2a2a2a;">
-              <table cellpadding="0" cellspacing="0">
-                <tr>
-                  <td style="width: 32px; font-size: 18px;">💡</td>
-                  <td>
-                    <strong style="color: #ffffff;">Daily QOTD</strong>
-                    <span style="color: #a0a0a0;"> — Master algorithms & data structures</span>
-                  </td>
-                </tr>
-              </table>
-            </td>
-          </tr>
-          <tr>
-            <td style="padding: 12px 0; border-bottom: 1px solid #2a2a2a;">
-              <table cellpadding="0" cellspacing="0">
-                <tr>
-                  <td style="width: 32px; font-size: 18px;">🎯</td>
-                  <td>
-                    <strong style="color: #ffffff;">Live Events</strong>
-                    <span style="color: #a0a0a0;"> — Workshops & hackathons</span>
-                  </td>
-                </tr>
-              </table>
-            </td>
-          </tr>
-          <tr>
-            <td style="padding: 12px 0; border-bottom: 1px solid #2a2a2a;">
-              <table cellpadding="0" cellspacing="0">
-                <tr>
-                  <td style="width: 32px; font-size: 18px;">📊</td>
-                  <td>
-                    <strong style="color: #ffffff;">Leaderboard</strong>
-                    <span style="color: #a0a0a0;"> — Track your progress</span>
-                  </td>
-                </tr>
-              </table>
-            </td>
-          </tr>
-          <tr>
-            <td style="padding: 12px 0;">
-              <table cellpadding="0" cellspacing="0">
-                <tr>
-                  <td style="width: 32px; font-size: 18px;">👥</td>
-                  <td>
-                    <strong style="color: #ffffff;">Community</strong>
-                    <span style="color: #a0a0a0;"> — Connect with 100+ builders</span>
-                  </td>
-                </tr>
-              </table>
-            </td>
-          </tr>
-        </table>
-        
-        <p style="margin: 0 0 16px; font-size: 13px; color: #f59e0b; font-weight: 600; text-transform: uppercase; letter-spacing: 1px;">Get started:</p>
-        
-        <ol style="margin: 0 0 24px; padding-left: 20px; color: #d0d0d0; font-size: 15px; line-height: 2;">
-          <li><strong style="color: #ffffff;">Complete your profile</strong> — Add your bio and skills</li>
-          <li><strong style="color: #ffffff;">Solve today's QOTD</strong> — Start climbing the leaderboard</li>
-          <li><strong style="color: #ffffff;">Register for an event</strong> — Meet the community</li>
-        </ol>
+        <p style="margin: 0; font-size: 15px; color: #9ca3af; line-height: 1.7;">
+          Your first step? Complete your profile and explore upcoming events. We're excited to have you on board!
+        </p>
       `;
     
     return {
-      subject: `${name}, welcome to ${clubName}`,
+      subject: `Welcome to ${clubName}, ${name}!`,
       html: generateEmailTemplate({
-        preheader: `You're in. Let's build something amazing together.`,
-        badge: { text: 'You\'re In!', emoji: '🚀', color: '#f59e0b' },
-        title: `Welcome, ${name}!`,
-        subtitle: `You just joined 100+ developers building the future.`,
+        preheader: `You're now part of the ${clubName} community. Let's build something amazing.`,
+        accentColor: '#fbbf24',
+        badge: { text: 'Welcome', icon: '👋' },
+        title: `Hey ${name}, you're in!`,
+        subtitle: `You've successfully joined ${clubName}. Time to start your journey.`,
         body: bodyContent,
-        cta: { text: 'Go to Dashboard', url: `${SITE_URL}/dashboard` },
-        footer: customFooter || 'Welcome to the team.',
+        cta: { text: 'Explore Your Dashboard', url: `${SITE_URL}/dashboard` },
+        footer: customFooter || 'Welcome to the team. Let\'s build the future together.',
       }),
-      text: `Welcome to ${clubName}, ${name}! You're now part of a community of 100+ developers building amazing projects. Visit ${SITE_URL}/dashboard to get started.`,
+      text: `Welcome to ${clubName}, ${name}! You're now part of our developer community. Visit ${SITE_URL}/dashboard to get started.`,
     };
   },
 
   // Event registration confirmation
   eventRegistration: (name: string, eventTitle: string, eventDate: Date, eventSlug: string, location?: string, imageUrl?: string): EmailTemplate => ({
-    subject: `Registered: ${eventTitle}`,
+    subject: `You're registered for ${eventTitle}`,
     html: generateEmailTemplate({
-      preheader: `Your spot for ${eventTitle} is confirmed!`,
-      badge: { text: 'Registered', emoji: '✓', color: '#22c55e' },
-      title: `You're in!`,
-      subtitle: `Your registration for "${eventTitle}" has been confirmed.`,
+      preheader: `Your registration for ${eventTitle} is confirmed!`,
+      accentColor: '#22c55e',
+      badge: { text: 'Confirmed', icon: '✓' },
+      title: `You're all set, ${name}!`,
+      subtitle: `Your spot for "${eventTitle}" has been reserved.`,
       heroImage: imageUrl,
       infoCards: [
         { icon: '📅', label: 'Date', value: eventDate.toLocaleDateString('en-IN', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }) },
         { icon: '⏰', label: 'Time', value: eventDate.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true }) },
-        ...(location ? [{ icon: '📍', label: 'Location', value: location }] : []),
+        ...(location ? [{ icon: '📍', label: 'Venue', value: location }] : []),
       ],
       body: `
-        <p style="margin: 0 0 16px; font-size: 15px; color: #e5e5e5; line-height: 1.6;">
-          Hey <strong style="color: #f59e0b;">${name}</strong>, great choice! We can't wait to see you there.
+        <p style="margin: 0 0 16px; font-size: 15px; color: #d1d5db; line-height: 1.7;">
+          We're excited to have you join us! Make sure to mark your calendar and arrive a few minutes early.
         </p>
         
-        <div style="padding: 14px 18px; background-color: #1a2e1a; border-radius: 8px;">
-          <p style="margin: 0; font-size: 13px; color: #86efac;">
-            Add this to your calendar and arrive 5-10 minutes early!
+        <div style="padding: 16px 20px; background: linear-gradient(135deg, #22c55e15, #16a34a10); border-left: 3px solid #22c55e; border-radius: 0 12px 12px 0;">
+          <p style="margin: 0; font-size: 14px; color: #86efac;">
+            <strong>Pro tip:</strong> Add this event to your calendar so you don't miss it!
           </p>
         </div>
       `,
-      cta: { text: 'View Event', url: `${SITE_URL}/events/${eventSlug}` },
-      footer: 'See you there!',
+      cta: { text: 'View Event Details', url: `${SITE_URL}/events/${eventSlug}` },
+      footer: 'See you at the event!',
     }),
-    text: `Hi ${name}, you're registered for ${eventTitle} on ${eventDate.toLocaleDateString()}. See you there!`,
+    text: `Hi ${name}, your registration for ${eventTitle} on ${eventDate.toLocaleDateString()} is confirmed!`,
   }),
 
   // New Announcement notification
   newAnnouncement: (title: string, body: string, priority: string, slug: string, shortDescription?: string, imageUrl?: string, tags?: string[], customIntro?: string, customFooter?: string): EmailTemplate => {
     const priorityConfig = {
-      URGENT: { text: 'Urgent', emoji: '🚨', color: '#ef4444' },
-      HIGH: { text: 'Important', emoji: '⚡', color: '#f59e0b' },
-      MEDIUM: { text: 'Announcement', emoji: '📢', color: '#3b82f6' },
-      LOW: { text: 'Update', emoji: '📌', color: '#6b7280' },
+      URGENT: { text: 'Urgent Update', icon: '🚨', color: '#ef4444' },
+      HIGH: { text: 'Important', icon: '⚡', color: '#f59e0b' },
+      MEDIUM: { text: 'Announcement', icon: '📢', color: '#3b82f6' },
+      LOW: { text: 'Update', icon: '📌', color: '#6b7280' },
     };
     const config = priorityConfig[priority as keyof typeof priorityConfig] || priorityConfig.MEDIUM;
     
-    // Convert markdown body to email HTML
     const htmlBody = markdownToEmailHtml(body.length > 800 ? body.substring(0, 800) + '...' : body);
-    
-    // Add custom intro if provided
     const finalBody = customIntro 
       ? `<div style="margin-bottom: 20px;">${markdownToEmailHtml(customIntro)}</div>${htmlBody}`
       : htmlBody;
     
     return {
-      subject: `${priority === 'URGENT' ? '🚨 ' : ''}${title}`,
+      subject: priority === 'URGENT' ? `[URGENT] ${title}` : title,
       html: generateEmailTemplate({
-        preheader: shortDescription || `New announcement from code.scriet: ${title}`,
-        badge: config,
+        preheader: shortDescription || `New announcement from code.scriet`,
+        accentColor: config.color,
+        badge: { text: config.text, icon: config.icon },
         title: title,
         subtitle: shortDescription,
         heroImage: imageUrl,
         body: finalBody,
-        tags: tags,
-        cta: { text: 'Read More', url: `${SITE_URL}/announcements/${slug}` },
+        cta: { text: 'Read Full Announcement', url: `${SITE_URL}/announcements/${slug}` },
         footer: customFooter || 'Stay informed, stay ahead.',
       }),
       text: `[${priority}] ${title}\n\n${shortDescription || ''}\n\n${body}\n\nRead more: ${SITE_URL}/announcements/${slug}`,
@@ -443,10 +390,7 @@ export const EmailTemplates = {
 
   // New Event notification
   newEvent: (title: string, description: string, startDate: Date, slug: string, shortDescription?: string, location?: string, imageUrl?: string, tags?: string[], eventType?: string, customIntro?: string, customFooter?: string): EmailTemplate => {
-    // Convert description markdown to HTML
     const descriptionHtml = markdownToEmailHtml(description.length > 600 ? description.substring(0, 600) + '...' : description);
-    
-    // Add custom intro if provided
     const bodyContent = customIntro
       ? `<div style="margin-bottom: 16px;">${markdownToEmailHtml(customIntro)}</div>${descriptionHtml}`
       : descriptionHtml;
@@ -454,46 +398,47 @@ export const EmailTemplates = {
     return {
       subject: `New Event: ${title}`,
       html: generateEmailTemplate({
-        preheader: `${title} — ${startDate.toLocaleDateString('en-IN', { month: 'short', day: 'numeric' })} ${location ? `at ${location}` : ''}`,
-        badge: { text: eventType || 'New Event', emoji: '🎯', color: '#22c55e' },
+        preheader: `${title} — ${startDate.toLocaleDateString('en-IN', { month: 'short', day: 'numeric' })}`,
+        accentColor: '#22c55e',
+        badge: { text: eventType || 'New Event', icon: '🎯' },
         title: title,
         subtitle: shortDescription || description.substring(0, 150),
         heroImage: imageUrl,
         infoCards: [
           { icon: '📅', label: 'Date', value: startDate.toLocaleDateString('en-IN', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }) },
           { icon: '⏰', label: 'Time', value: startDate.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true }) },
-          ...(location ? [{ icon: '📍', label: 'Location', value: location }] : []),
+          ...(location ? [{ icon: '📍', label: 'Venue', value: location }] : []),
         ],
         body: bodyContent,
-        tags: tags,
         cta: { text: 'Register Now', url: `${SITE_URL}/events/${slug}` },
         secondaryCta: { text: 'View all events', url: `${SITE_URL}/events` },
-        footer: customFooter || "Limited spots available.",
+        footer: customFooter || 'Limited spots available. Register early!',
       }),
-      text: `New Event: ${title}\n\nDate: ${startDate.toLocaleDateString()}\nTime: ${startDate.toLocaleTimeString()}\n${location ? `Location: ${location}\n` : ''}\n${description}\n\nRegister now: ${SITE_URL}/events/${slug}`,
+      text: `New Event: ${title}\n\nDate: ${startDate.toLocaleDateString()}\nTime: ${startDate.toLocaleTimeString()}\n${location ? `Location: ${location}\n` : ''}\n${description}\n\nRegister: ${SITE_URL}/events/${slug}`,
     };
   },
 
   // Password reset
   passwordReset: (name: string, resetLink: string): EmailTemplate => ({
-    subject: 'Reset your password',
+    subject: 'Reset your code.scriet password',
     html: generateEmailTemplate({
-      preheader: 'Password reset requested for your code.scriet account',
-      badge: { text: 'Security', emoji: '🔐', color: '#3b82f6' },
-      title: 'Password Reset',
+      preheader: 'Password reset requested for your account',
+      accentColor: '#3b82f6',
+      badge: { text: 'Security', icon: '🔐' },
+      title: 'Password Reset Request',
       subtitle: `Hey ${name}, we received a request to reset your password.`,
       body: `
-        <p style="margin: 0 0 20px; font-size: 15px; color: #e5e5e5; line-height: 1.6;">
-          Click the button below to create a new password. This link expires in <strong style="color: #ffffff;">1 hour</strong>.
+        <p style="margin: 0 0 20px; font-size: 15px; color: #d1d5db; line-height: 1.7;">
+          Click the button below to create a new password. This link will expire in <strong style="color: #f9fafb;">1 hour</strong> for security reasons.
         </p>
         
-        <div style="padding: 14px 18px; background-color: #2a1a1a; border-radius: 8px;">
-          <p style="margin: 0; font-size: 13px; color: #fca5a5;">
-            <strong>Didn't request this?</strong> Ignore this email — your password won't change.
+        <div style="padding: 16px 20px; background: linear-gradient(135deg, #ef444415, #dc262610); border-left: 3px solid #ef4444; border-radius: 0 12px 12px 0;">
+          <p style="margin: 0; font-size: 14px; color: #fca5a5;">
+            <strong>Didn't request this?</strong> You can safely ignore this email. Your password will remain unchanged.
           </p>
         </div>
       `,
-      cta: { text: 'Reset Password', url: resetLink },
+      cta: { text: 'Reset My Password', url: resetLink },
       footer: 'Keep your account secure.',
     }),
     text: `Hi ${name}, click this link to reset your password: ${resetLink}. This link expires in 1 hour.`,
@@ -503,26 +448,33 @@ export const EmailTemplates = {
   eventReminder: (name: string, eventTitle: string, eventDate: Date, eventSlug: string): EmailTemplate => ({
     subject: `Reminder: ${eventTitle} is tomorrow`,
     html: generateEmailTemplate({
-      preheader: `Reminder: ${eventTitle} is happening tomorrow!`,
-      badge: { text: 'Reminder', emoji: '⏰', color: '#eab308' },
+      preheader: `Don't forget: ${eventTitle} is happening tomorrow!`,
+      accentColor: '#eab308',
+      badge: { text: 'Reminder', icon: '⏰' },
       title: `${eventTitle} is tomorrow!`,
-      subtitle: `Don't forget about your registered event.`,
+      subtitle: `Hey ${name}, your registered event is coming up soon.`,
       infoCards: [
         { icon: '📅', label: 'Date', value: eventDate.toLocaleDateString('en-IN', { weekday: 'long', month: 'long', day: 'numeric' }) },
         { icon: '⏰', label: 'Time', value: eventDate.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true }) },
       ],
       body: `
-        <p style="margin: 0 0 16px; font-size: 15px; color: #e5e5e5; line-height: 1.6;">
-          Hey <strong style="color: #f59e0b;">${name}</strong>, just a friendly reminder about your upcoming event!
+        <p style="margin: 0 0 16px; font-size: 15px; color: #d1d5db; line-height: 1.7;">
+          Just a friendly reminder that the event you registered for is happening tomorrow. Make sure to:
         </p>
         
-        <div style="padding: 14px 18px; background-color: #1a2e1a; border-radius: 8px;">
-          <p style="margin: 0; font-size: 13px; color: #86efac;">
-            Review any prerequisites and arrive a few minutes early.
+        <ul style="margin: 0 0 16px; padding-left: 20px; color: #d1d5db; font-size: 15px; line-height: 1.8;">
+          <li>Review any prerequisites or materials</li>
+          <li>Plan to arrive 5-10 minutes early</li>
+          <li>Bring your laptop if needed</li>
+        </ul>
+        
+        <div style="padding: 16px 20px; background: linear-gradient(135deg, #22c55e15, #16a34a10); border-left: 3px solid #22c55e; border-radius: 0 12px 12px 0;">
+          <p style="margin: 0; font-size: 14px; color: #86efac;">
+            We're looking forward to seeing you there!
           </p>
         </div>
       `,
-      cta: { text: 'View Event', url: `${SITE_URL}/events/${eventSlug}` },
+      cta: { text: 'View Event Details', url: `${SITE_URL}/events/${eventSlug}` },
       footer: 'See you tomorrow!',
     }),
     text: `Hi ${name}, reminder: ${eventTitle} is tomorrow at ${eventDate.toLocaleTimeString()}!`,
@@ -530,31 +482,82 @@ export const EmailTemplates = {
 
   // Registration opens notification
   registrationOpens: (eventTitle: string, startDate: Date, slug: string, shortDescription?: string, imageUrl?: string): EmailTemplate => ({
-    subject: `Registration Open: ${eventTitle}`,
+    subject: `Registration Now Open: ${eventTitle}`,
     html: generateEmailTemplate({
       preheader: `Registration is now open for ${eventTitle}!`,
-      badge: { text: 'Registration Open', emoji: '🎫', color: '#22c55e' },
-      title: 'Registration Open!',
-      subtitle: `Secure your spot for "${eventTitle}"`,
+      accentColor: '#22c55e',
+      badge: { text: 'Registration Open', icon: '🎫' },
+      title: 'Registrations are Open!',
+      subtitle: `Be among the first to secure your spot for "${eventTitle}"`,
       heroImage: imageUrl,
       infoCards: [
         { icon: '📅', label: 'Event Date', value: startDate.toLocaleDateString('en-IN', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }) },
         { icon: '⏰', label: 'Time', value: startDate.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true }) },
       ],
       body: `
-        ${shortDescription ? `<p style="margin: 0 0 16px; font-size: 15px; color: #e5e5e5; line-height: 1.6;">${shortDescription}</p>` : ''}
+        ${shortDescription ? `<p style="margin: 0 0 16px; font-size: 15px; color: #d1d5db; line-height: 1.7;">${shortDescription}</p>` : ''}
         
-        <div style="padding: 14px 18px; background-color: #2a2010; border-radius: 8px;">
-          <p style="margin: 0; font-size: 13px; color: #fcd34d;">
-            Spots are limited and fill up fast.
+        <div style="padding: 16px 20px; background: linear-gradient(135deg, #fbbf2415, #f59e0b10); border-left: 3px solid #fbbf24; border-radius: 0 12px 12px 0;">
+          <p style="margin: 0; font-size: 14px; color: #fcd34d;">
+            <strong>Spots are limited!</strong> Register early to secure your place.
           </p>
         </div>
       `,
       cta: { text: 'Register Now', url: `${SITE_URL}/events/${slug}` },
-      footer: "Don't miss out!",
+      footer: 'Don\'t miss this opportunity!',
     }),
-    text: `Registration is now open for ${eventTitle}!\n\nDate: ${startDate.toLocaleDateString()}\n\nRegister now: ${SITE_URL}/events/${slug}`,
+    text: `Registration is now open for ${eventTitle}! Date: ${startDate.toLocaleDateString()}. Register: ${SITE_URL}/events/${slug}`,
   }),
+
+  // Hiring application confirmation
+  hiringApplication: (name: string, email: string, applyingRole: string): EmailTemplate => {
+    const roleNames: Record<string, string> = {
+      TECHNICAL: 'Technical Team',
+      DESIGNING: 'Design Team',
+      VIDEO_EDITING: 'Video Editing Team',
+      MANAGEMENT: 'Management Team',
+    };
+    const roleName = roleNames[applyingRole] || applyingRole;
+    
+    return {
+      subject: `Application Received — ${roleName}`,
+      html: generateEmailTemplate({
+        preheader: `We've received your application for the ${roleName}`,
+        accentColor: '#8b5cf6',
+        badge: { text: 'Application Received', icon: '📨' },
+        title: `Thanks for applying, ${name}!`,
+        subtitle: `Your application for the ${roleName} has been successfully submitted.`,
+        body: `
+          <p style="margin: 0 0 20px; font-size: 15px; color: #d1d5db; line-height: 1.7;">
+            We're thrilled that you're interested in joining <strong style="color: #fbbf24;">code.scriet</strong>! Your application is now under review by our team.
+          </p>
+          
+          <div style="margin: 24px 0; padding: 24px; background: linear-gradient(135deg, #8b5cf615, #7c3aed10); border: 1px solid #8b5cf630; border-radius: 16px;">
+            <p style="margin: 0 0 12px; font-size: 13px; color: #a78bfa; font-weight: 600; text-transform: uppercase; letter-spacing: 1px;">What happens next</p>
+            <ol style="margin: 0; padding-left: 20px; color: #d1d5db; font-size: 15px; line-height: 2;">
+              <li>You'll be added to our <strong style="color: #f9fafb;">recruitment portal</strong></li>
+              <li>Our team will review your application</li>
+              <li>If shortlisted, you'll receive an <strong style="color: #f9fafb;">interview invitation</strong></li>
+            </ol>
+          </div>
+          
+          <div style="padding: 20px 24px; background: linear-gradient(135deg, #fbbf2415, #f59e0b10); border-left: 3px solid #fbbf24; border-radius: 0 12px 12px 0;">
+            <p style="margin: 0 0 8px; font-size: 14px; color: #fbbf24; font-weight: 600;">Important:</p>
+            <p style="margin: 0; font-size: 14px; color: #fcd34d; line-height: 1.6;">
+              Please check your email <strong>at least once a day</strong> — including your <strong>Spam</strong>, <strong>Promotions</strong>, and other folders. All updates about your application will be sent to <strong>${email}</strong>.
+            </p>
+          </div>
+          
+          <p style="margin: 24px 0 0; font-size: 15px; color: #9ca3af; line-height: 1.7;">
+            We appreciate your interest in joining our team. Good luck with your application!
+          </p>
+        `,
+        cta: { text: 'Visit Our Website', url: SITE_URL },
+        footer: 'Best of luck from the code.scriet team!',
+      }),
+      text: `Hi ${name}, thanks for applying to the ${roleName}! Your application has been received. You'll be added to our recruitment portal and will receive updates at ${email}. Please check your email (including spam/promotions) at least once a day.`,
+    };
+  },
 };
 
 // ============================================
@@ -580,7 +583,6 @@ class EmailService {
     }
   }
 
-  // Send email via Brevo API
   async send(options: EmailOptions): Promise<boolean> {
     if (!this.configured) {
       logger.debug('Email service not configured, skipping email', { 
@@ -596,10 +598,7 @@ class EmailService {
         : [{ email: options.to }];
 
       const payload = {
-        sender: {
-          name: this.fromName,
-          email: this.fromEmail,
-        },
+        sender: { name: this.fromName, email: this.fromEmail },
         to: recipients,
         subject: options.subject,
         htmlContent: options.html,
@@ -618,44 +617,30 @@ class EmailService {
 
       if (!response.ok) {
         const errorText = await response.text();
-        logger.error('❌ Brevo API error response:', {
-          status: response.status,
-          statusText: response.statusText,
-          body: errorText,
-          sender: this.fromEmail,
-          recipients: recipients.map(r => r.email),
-        });
-        throw new Error(`Brevo API error: ${response.status} - ${errorText}`);
+        logger.error('❌ Brevo API error:', { status: response.status, body: errorText });
+        throw new Error(`Brevo API error: ${response.status}`);
       }
 
       const result = await response.json();
-      logger.info('📧 Email sent successfully via Brevo', {
+      logger.info('📧 Email sent via Brevo', {
         messageId: result.messageId,
         recipients: recipients.length,
-        recipientEmails: recipients.map(r => r.email),
         subject: options.subject,
-        sender: this.fromEmail,
       });
       return true;
     } catch (error) {
-      logger.error('❌ Failed to send email via Brevo', {
-        to: Array.isArray(options.to) ? options.to.length + ' recipients' : options.to,
-        subject: options.subject,
+      logger.error('❌ Failed to send email', {
         error: error instanceof Error ? error.message : 'Unknown error',
       });
       return false;
     }
   }
 
-  // Send to multiple recipients in batches
   async sendBulk(emails: string[], subject: string, html: string, text?: string): Promise<boolean> {
-    if (!this.configured || emails.length === 0) {
-      return false;
-    }
+    if (!this.configured || emails.length === 0) return false;
 
     const BATCH_SIZE = 50;
     const batches: string[][] = [];
-    
     for (let i = 0; i < emails.length; i += BATCH_SIZE) {
       batches.push(emails.slice(i, i + BATCH_SIZE));
     }
@@ -674,12 +659,7 @@ class EmailService {
 
   // Convenience methods
   async sendWelcome(email: string, name: string, clubName: string = 'code.scriet'): Promise<boolean> {
-    const template = EmailTemplates.welcome(
-      name,
-      clubName,
-      emailTemplateConfig.welcomeBody || undefined,
-      emailTemplateConfig.footerText || undefined
-    );
+    const template = EmailTemplates.welcome(name, clubName, emailTemplateConfig.welcomeBody, emailTemplateConfig.footerText);
     return this.send({ to: email, ...template });
   }
 
@@ -689,34 +669,12 @@ class EmailService {
   }
 
   async sendAnnouncementToAll(emails: string[], title: string, body: string, priority: string, slug: string, shortDescription?: string, imageUrl?: string, tags?: string[]): Promise<boolean> {
-    const template = EmailTemplates.newAnnouncement(
-      title,
-      body,
-      priority,
-      slug,
-      shortDescription,
-      imageUrl,
-      tags,
-      emailTemplateConfig.announcementIntro || undefined,
-      emailTemplateConfig.footerText || undefined
-    );
+    const template = EmailTemplates.newAnnouncement(title, body, priority, slug, shortDescription, imageUrl, tags, emailTemplateConfig.announcementIntro, emailTemplateConfig.footerText);
     return this.sendBulk(emails, template.subject, template.html, template.text);
   }
 
   async sendNewEventToAll(emails: string[], title: string, description: string, startDate: Date, slug: string, shortDescription?: string, location?: string, imageUrl?: string, tags?: string[], eventType?: string): Promise<boolean> {
-    const template = EmailTemplates.newEvent(
-      title,
-      description,
-      startDate,
-      slug,
-      shortDescription,
-      location,
-      imageUrl,
-      tags,
-      eventType,
-      emailTemplateConfig.eventIntro || undefined,
-      emailTemplateConfig.footerText || undefined
-    );
+    const template = EmailTemplates.newEvent(title, description, startDate, slug, shortDescription, location, imageUrl, tags, eventType, emailTemplateConfig.eventIntro, emailTemplateConfig.footerText);
     return this.sendBulk(emails, template.subject, template.html, template.text);
   }
 
@@ -733,6 +691,11 @@ class EmailService {
   async sendRegistrationOpens(emails: string[], eventTitle: string, startDate: Date, slug: string, shortDescription?: string, imageUrl?: string): Promise<boolean> {
     const template = EmailTemplates.registrationOpens(eventTitle, startDate, slug, shortDescription, imageUrl);
     return this.sendBulk(emails, template.subject, template.html, template.text);
+  }
+
+  async sendHiringApplication(email: string, name: string, applyingRole: string): Promise<boolean> {
+    const template = EmailTemplates.hiringApplication(name, email, applyingRole);
+    return this.send({ to: email, ...template });
   }
 
   isConfigured(): boolean {
