@@ -1,7 +1,9 @@
 # Code.Scriet Club Platform - AI Reference Guide
 
-**Last Updated:** January 20, 2026  
+**Last Updated:** February 1, 2026  
 **Purpose:** Quick reference for AI assistants to understand the project without scanning the entire codebase.
+
+> 📋 **See Also:** [SUGGESTIONS.md](./SUGGESTIONS.md) for feature roadmap and enhancement ideas.
 
 ---
 
@@ -407,16 +409,23 @@ npm run db:seed          # Seed database
 
 ---
 
-## 🎯 Future Enhancements (Not Implemented)
+## 🎯 Future Enhancements
 
-- Dark mode toggle
-- Email notifications (Nodemailer/SendGrid)
-- Resume file uploads
-- Advanced leaderboard with points system
-- Event capacity management UI
-- Bulk user operations
-- Advanced analytics dashboard
-- Multi-language support (i18n)
+**See [SUGGESTIONS.md](./SUGGESTIONS.md) for full feature roadmap.**
+
+**Top Priorities:**
+- Tech Blog Platform (multi-service architecture)
+- Project Showcase Gallery
+- Certificate Generation System
+- Advanced Analytics Dashboard
+- Push Notifications
+- 2FA Authentication
+
+**Completed Recently:**
+- ✅ Email notifications (Brevo integration)
+- ✅ Hiring/recruitment system
+- ✅ Real-time updates (Socket.io)
+- ✅ Event reminder scheduler
 
 ---
 
