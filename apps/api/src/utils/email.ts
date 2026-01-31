@@ -143,8 +143,8 @@ const generateEmailTemplate = (content: {
                   </td>
                 </tr>
               </table>
-              <div style="margin-top: 12px; font-size: 12px; color: #4b5563; text-transform: uppercase; letter-spacing: 3px; font-weight: 500;">
-                SCRIET Coding Club
+              <div style="margin-top: 12px; font-size: 11px; color: #6b7280; text-transform: uppercase; letter-spacing: 4px; font-weight: 600;">
+                Where Code Meets Excellence
               </div>
             </td>
           </tr>
@@ -262,9 +262,9 @@ const generateEmailTemplate = (content: {
                 </tr>
               </table>
               
-              <p style="margin: 0; font-size: 12px; color: #374151; line-height: 1.6;">
-                SCRIET, CCS University, Meerut<br>
-                <span style="color: #4b5563;">This is an automated message from code.scriet</span>
+              <p style="margin: 0; font-size: 11px; color: #4b5563; line-height: 1.7;">
+                © 2026 code.scriet · SCRIET, CCS University<br>
+                <span style="color: #374151;">Building tomorrow's tech leaders, one commit at a time.</span>
               </p>
             </td>
           </tr>
@@ -289,50 +289,74 @@ export const EmailTemplates = {
     const bodyContent = customBody 
       ? markdownToEmailHtml(customBody.replace(/\{\{name\}\}/g, name).replace(/\{\{clubName\}\}/g, clubName))
       : `
-        <p style="margin: 0 0 20px; font-size: 16px; color: #e5e7eb; line-height: 1.7;">
-          Welcome to <strong style="color: #fbbf24;">${clubName}</strong>! You've just joined a community of passionate developers who are building real projects, learning together, and pushing the boundaries of what's possible.
+        <p style="margin: 0 0 20px; font-size: 16px; color: #e5e7eb; line-height: 1.8;">
+          You've just joined an exclusive community of <strong style="color: #fbbf24;">ambitious developers</strong> who refuse to settle for ordinary. At ${clubName}, we don't just write code—we craft solutions that matter.
         </p>
         
-        <div style="margin: 24px 0; padding: 20px 24px; background: linear-gradient(135deg, #fbbf2415, #f59e0b10); border-left: 3px solid #fbbf24; border-radius: 0 12px 12px 0;">
-          <p style="margin: 0 0 12px; font-size: 13px; color: #fbbf24; font-weight: 600; text-transform: uppercase; letter-spacing: 1px;">What's waiting for you</p>
-          <ul style="margin: 0; padding-left: 20px; color: #d1d5db; font-size: 15px; line-height: 1.8;">
-            <li><strong style="color: #f9fafb;">Daily QOTD</strong> — Sharpen your problem-solving skills</li>
-            <li><strong style="color: #f9fafb;">Live Events</strong> — Workshops, hackathons, and tech talks</li>
-            <li><strong style="color: #f9fafb;">Leaderboard</strong> — Compete and track your progress</li>
-            <li><strong style="color: #f9fafb;">Community</strong> — Connect with 100+ developers</li>
-          </ul>
+        <div style="margin: 24px 0; padding: 24px; background: linear-gradient(135deg, #18181b, #0f0f10); border: 1px solid #27272a; border-radius: 12px;">
+          <p style="margin: 0 0 16px; font-size: 12px; color: #fbbf24; font-weight: 700; text-transform: uppercase; letter-spacing: 2px;">Your Elite Membership Includes</p>
+          <table cellpadding="0" cellspacing="0" width="100%">
+            <tr>
+              <td style="padding: 10px 0; border-bottom: 1px solid #27272a;">
+                <span style="color: #fbbf24; font-size: 16px;">⚡</span>
+                <span style="color: #f9fafb; font-weight: 600; margin-left: 12px;">Daily Challenges</span>
+                <span style="color: #71717a; font-size: 13px; margin-left: 8px;">— Competitive coding that sharpens your edge</span>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding: 10px 0; border-bottom: 1px solid #27272a;">
+                <span style="color: #fbbf24; font-size: 16px;">🎯</span>
+                <span style="color: #f9fafb; font-weight: 600; margin-left: 12px;">Exclusive Events</span>
+                <span style="color: #71717a; font-size: 13px; margin-left: 8px;">— Hackathons, workshops, tech talks</span>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding: 10px 0; border-bottom: 1px solid #27272a;">
+                <span style="color: #fbbf24; font-size: 16px;">🏆</span>
+                <span style="color: #f9fafb; font-weight: 600; margin-left: 12px;">Leaderboard Rankings</span>
+                <span style="color: #71717a; font-size: 13px; margin-left: 8px;">— Prove your skills, earn recognition</span>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding: 10px 0;">
+                <span style="color: #fbbf24; font-size: 16px;">🤝</span>
+                <span style="color: #f9fafb; font-weight: 600; margin-left: 12px;">Elite Network</span>
+                <span style="color: #71717a; font-size: 13px; margin-left: 8px;">— Connect with top developers</span>
+              </td>
+            </tr>
+          </table>
         </div>
         
-        <p style="margin: 0; font-size: 15px; color: #9ca3af; line-height: 1.7;">
-          Your first step? Complete your profile and explore upcoming events. We're excited to have you on board!
+        <p style="margin: 0; font-size: 15px; color: #a1a1aa; line-height: 1.7;">
+          The best developers never stop learning. Your journey to excellence starts now.
         </p>
       `;
     
     return {
-      subject: `Welcome to ${clubName}, ${name}!`,
+      subject: `Welcome to the Elite, ${name} · ${clubName}`,
       html: generateEmailTemplate({
-        preheader: `You're now part of the ${clubName} community. Let's build something amazing.`,
+        preheader: `Your ${clubName} membership is now active. Let's build something legendary.`,
         accentColor: '#fbbf24',
-        badge: { text: 'Welcome', icon: '👋' },
-        title: `Hey ${name}, you're in!`,
-        subtitle: `You've successfully joined ${clubName}. Time to start your journey.`,
+        badge: { text: 'Membership Activated', icon: '✦' },
+        title: `Welcome to the Inner Circle, ${name}`,
+        subtitle: `You've been granted access to ${clubName}. Not everyone makes it here.`,
         body: bodyContent,
-        cta: { text: 'Explore Your Dashboard', url: `${SITE_URL}/dashboard` },
-        footer: customFooter || 'Welcome to the team. Let\'s build the future together.',
+        cta: { text: 'Access Your Dashboard', url: `${SITE_URL}/dashboard` },
+        footer: customFooter || 'Excellence is not a destination. It\'s a continuous journey.',
       }),
-      text: `Welcome to ${clubName}, ${name}! You're now part of our developer community. Visit ${SITE_URL}/dashboard to get started.`,
+      text: `Welcome to ${clubName}, ${name}! You're now part of our elite developer community. Visit ${SITE_URL}/dashboard to begin.`,
     };
   },
 
   // Event registration confirmation
   eventRegistration: (name: string, eventTitle: string, eventDate: Date, eventSlug: string, location?: string, imageUrl?: string): EmailTemplate => ({
-    subject: `You're registered for ${eventTitle}`,
+    subject: `Confirmed · ${eventTitle}`,
     html: generateEmailTemplate({
-      preheader: `Your registration for ${eventTitle} is confirmed!`,
-      accentColor: '#22c55e',
-      badge: { text: 'Confirmed', icon: '✓' },
-      title: `You're all set, ${name}!`,
-      subtitle: `Your spot for "${eventTitle}" has been reserved.`,
+      preheader: `Your seat is secured for ${eventTitle}. See you there.`,
+      accentColor: '#10b981',
+      badge: { text: 'Registration Confirmed', icon: '✓' },
+      title: `You're In, ${name}`,
+      subtitle: `Your exclusive spot for "${eventTitle}" has been secured.`,
       heroImage: imageUrl,
       infoCards: [
         { icon: '📅', label: 'Date', value: eventDate.toLocaleDateString('en-IN', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }) },
@@ -341,17 +365,17 @@ export const EmailTemplates = {
       ],
       body: `
         <p style="margin: 0 0 16px; font-size: 15px; color: #d1d5db; line-height: 1.7;">
-          We're excited to have you join us! Make sure to mark your calendar and arrive a few minutes early.
+          Your commitment to growth sets you apart. We've reserved your seat—now it's time to show up and level up.
         </p>
         
-        <div style="padding: 16px 20px; background: linear-gradient(135deg, #22c55e15, #16a34a10); border-left: 3px solid #22c55e; border-radius: 0 12px 12px 0;">
-          <p style="margin: 0; font-size: 14px; color: #86efac;">
-            <strong>Pro tip:</strong> Add this event to your calendar so you don't miss it!
+        <div style="padding: 16px 20px; background: linear-gradient(135deg, #10b98115, #05966910); border-left: 3px solid #10b981; border-radius: 0 12px 12px 0;">
+          <p style="margin: 0; font-size: 14px; color: #6ee7b7;">
+            <strong>Insider tip:</strong> Arrive 10 minutes early. The best connections happen before the session starts.
           </p>
         </div>
       `,
       cta: { text: 'View Event Details', url: `${SITE_URL}/events/${eventSlug}` },
-      footer: 'See you at the event!',
+      footer: 'The future belongs to those who prepare for it.',
     }),
     text: `Hi ${name}, your registration for ${eventTitle} on ${eventDate.toLocaleDateString()} is confirmed!`,
   }),
@@ -359,10 +383,10 @@ export const EmailTemplates = {
   // New Announcement notification
   newAnnouncement: (title: string, body: string, priority: string, slug: string, shortDescription?: string, imageUrl?: string, tags?: string[], customIntro?: string, customFooter?: string): EmailTemplate => {
     const priorityConfig = {
-      URGENT: { text: 'Urgent Update', icon: '🚨', color: '#ef4444' },
-      HIGH: { text: 'Important', icon: '⚡', color: '#f59e0b' },
-      MEDIUM: { text: 'Announcement', icon: '📢', color: '#3b82f6' },
-      LOW: { text: 'Update', icon: '📌', color: '#6b7280' },
+      URGENT: { text: 'Critical Alert', icon: '🚨', color: '#ef4444' },
+      HIGH: { text: 'Priority Notice', icon: '⚡', color: '#f59e0b' },
+      MEDIUM: { text: 'Announcement', icon: '📢', color: '#d97706' },
+      LOW: { text: 'Update', icon: '📌', color: '#71717a' },
     };
     const config = priorityConfig[priority as keyof typeof priorityConfig] || priorityConfig.MEDIUM;
     
@@ -396,11 +420,11 @@ export const EmailTemplates = {
       : descriptionHtml;
     
     return {
-      subject: `New Event: ${title}`,
+      subject: `[Event] ${title} · code.scriet`,
       html: generateEmailTemplate({
-        preheader: `${title} — ${startDate.toLocaleDateString('en-IN', { month: 'short', day: 'numeric' })}`,
-        accentColor: '#22c55e',
-        badge: { text: eventType || 'New Event', icon: '🎯' },
+        preheader: `${title} — An exclusive opportunity you don't want to miss.`,
+        accentColor: '#10b981',
+        badge: { text: eventType || 'Exclusive Event', icon: '◆' },
         title: title,
         subtitle: shortDescription || description.substring(0, 150),
         heroImage: imageUrl,
@@ -410,9 +434,9 @@ export const EmailTemplates = {
           ...(location ? [{ icon: '📍', label: 'Venue', value: location }] : []),
         ],
         body: bodyContent,
-        cta: { text: 'Register Now', url: `${SITE_URL}/events/${slug}` },
-        secondaryCta: { text: 'View all events', url: `${SITE_URL}/events` },
-        footer: customFooter || 'Limited spots available. Register early!',
+        cta: { text: 'Secure Your Spot', url: `${SITE_URL}/events/${slug}` },
+        secondaryCta: { text: 'Browse all events', url: `${SITE_URL}/events` },
+        footer: customFooter || 'Elite opportunities don\'t wait. Neither should you.',
       }),
       text: `New Event: ${title}\n\nDate: ${startDate.toLocaleDateString()}\nTime: ${startDate.toLocaleTimeString()}\n${location ? `Location: ${location}\n` : ''}\n${description}\n\nRegister: ${SITE_URL}/events/${slug}`,
     };
@@ -420,75 +444,76 @@ export const EmailTemplates = {
 
   // Password reset
   passwordReset: (name: string, resetLink: string): EmailTemplate => ({
-    subject: 'Reset your code.scriet password',
+    subject: 'Security Alert · Password Reset Requested',
     html: generateEmailTemplate({
-      preheader: 'Password reset requested for your account',
+      preheader: 'A password reset was requested for your code.scriet account',
       accentColor: '#f97316',
-      badge: { text: 'Security', icon: '🔐' },
-      title: 'Password Reset Request',
-      subtitle: `Hey ${name}, we received a request to reset your password.`,
+      badge: { text: 'Security Alert', icon: '🔒' },
+      title: 'Password Reset Requested',
+      subtitle: `${name}, someone requested a password reset for your account.`,
       body: `
-        <p style="margin: 0 0 20px; font-size: 15px; color: #d1d5db; line-height: 1.7;">
-          Click the button below to create a new password. This link will expire in <strong style="color: #f9fafb;">1 hour</strong> for security reasons.
+        <p style="margin: 0 0 20px; font-size: 15px; color: #d1d5db; line-height: 1.8;">
+          Use the secure button below to create a new password. For your protection, this link expires in <strong style="color: #fbbf24;">60 minutes</strong>.
         </p>
         
-        <div style="padding: 16px 20px; background: linear-gradient(135deg, #ef444415, #dc262610); border-left: 3px solid #ef4444; border-radius: 0 12px 12px 0;">
-          <p style="margin: 0; font-size: 14px; color: #fca5a5;">
-            <strong>Didn't request this?</strong> You can safely ignore this email. Your password will remain unchanged.
+        <div style="padding: 20px; background: #18181b; border: 1px solid #ef444430; border-radius: 10px;">
+          <p style="margin: 0 0 8px; font-size: 12px; color: #ef4444; font-weight: 700; text-transform: uppercase; letter-spacing: 1px;">🛡️ Security Notice</p>
+          <p style="margin: 0; font-size: 14px; color: #fca5a5; line-height: 1.6;">
+            If you didn't request this reset, your account is still secure—simply ignore this email. No changes will be made.
           </p>
         </div>
       `,
-      cta: { text: 'Reset My Password', url: resetLink },
-      footer: 'Keep your account secure.',
+      cta: { text: 'Reset Password Securely', url: resetLink },
+      footer: 'Your security is our priority.',
     }),
     text: `Hi ${name}, click this link to reset your password: ${resetLink}. This link expires in 1 hour.`,
   }),
 
   // Event reminder
   eventReminder: (name: string, eventTitle: string, eventDate: Date, eventSlug: string): EmailTemplate => ({
-    subject: `Reminder: ${eventTitle} is tomorrow`,
+    subject: `Tomorrow · ${eventTitle}`,
     html: generateEmailTemplate({
-      preheader: `Don't forget: ${eventTitle} is happening tomorrow!`,
-      accentColor: '#f43f5e',
-      badge: { text: 'Reminder', icon: '⏰' },
-      title: `${eventTitle} is tomorrow!`,
-      subtitle: `Hey ${name}, your registered event is coming up soon.`,
+      preheader: `${eventTitle} is happening tomorrow. Are you ready?`,
+      accentColor: '#fbbf24',
+      badge: { text: 'Happening Tomorrow', icon: '⚡' },
+      title: `${name}, Tomorrow's the Day`,
+      subtitle: `"${eventTitle}" kicks off in less than 24 hours.`,
       infoCards: [
         { icon: '📅', label: 'Date', value: eventDate.toLocaleDateString('en-IN', { weekday: 'long', month: 'long', day: 'numeric' }) },
         { icon: '⏰', label: 'Time', value: eventDate.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true }) },
       ],
       body: `
         <p style="margin: 0 0 16px; font-size: 15px; color: #d1d5db; line-height: 1.7;">
-          Just a friendly reminder that the event you registered for is happening tomorrow. Make sure to:
+          The countdown is on. Here's how to make the most of tomorrow:
         </p>
         
-        <ul style="margin: 0 0 16px; padding-left: 20px; color: #d1d5db; font-size: 15px; line-height: 1.8;">
-          <li>Review any prerequisites or materials</li>
-          <li>Plan to arrive 5-10 minutes early</li>
-          <li>Bring your laptop if needed</li>
-        </ul>
-        
-        <div style="padding: 16px 20px; background: linear-gradient(135deg, #22c55e15, #16a34a10); border-left: 3px solid #22c55e; border-radius: 0 12px 12px 0;">
-          <p style="margin: 0; font-size: 14px; color: #86efac;">
-            We're looking forward to seeing you there!
-          </p>
+        <div style="margin: 16px 0; padding: 16px 20px; background: #18181b; border: 1px solid #27272a; border-radius: 10px;">
+          <table cellpadding="0" cellspacing="0" width="100%">
+            <tr><td style="padding: 8px 0; color: #a1a1aa; font-size: 14px;"><span style="color: #fbbf24; margin-right: 10px;">01</span> Review any shared materials or prerequisites</td></tr>
+            <tr><td style="padding: 8px 0; color: #a1a1aa; font-size: 14px;"><span style="color: #fbbf24; margin-right: 10px;">02</span> Arrive 10 minutes early for networking</td></tr>
+            <tr><td style="padding: 8px 0; color: #a1a1aa; font-size: 14px;"><span style="color: #fbbf24; margin-right: 10px;">03</span> Bring your laptop, notebook, and curiosity</td></tr>
+          </table>
         </div>
+        
+        <p style="margin: 16px 0 0; font-size: 14px; color: #71717a; font-style: italic;">
+          "The only way to do great work is to love what you do." — Steve Jobs
+        </p>
       `,
       cta: { text: 'View Event Details', url: `${SITE_URL}/events/${eventSlug}` },
-      footer: 'See you tomorrow!',
+      footer: 'Prepared minds seize the best opportunities.',
     }),
     text: `Hi ${name}, reminder: ${eventTitle} is tomorrow at ${eventDate.toLocaleTimeString()}!`,
   }),
 
   // Registration opens notification
   registrationOpens: (eventTitle: string, startDate: Date, slug: string, shortDescription?: string, imageUrl?: string): EmailTemplate => ({
-    subject: `Registration Now Open: ${eventTitle}`,
+    subject: `Now Open · ${eventTitle}`,
     html: generateEmailTemplate({
-      preheader: `Registration is now open for ${eventTitle}!`,
-      accentColor: '#0ea5e9',
-      badge: { text: 'Registration Open', icon: '🎫' },
-      title: 'Registrations are Open!',
-      subtitle: `Be among the first to secure your spot for "${eventTitle}"`,
+      preheader: `Early access registration is now open for ${eventTitle}`,
+      accentColor: '#10b981',
+      badge: { text: 'Now Accepting Registrations', icon: '◆' },
+      title: 'Registration is Live',
+      subtitle: `"${eventTitle}" is now accepting participants. Secure your spot before it fills up.`,
       heroImage: imageUrl,
       infoCards: [
         { icon: '📅', label: 'Event Date', value: startDate.toLocaleDateString('en-IN', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }) },
@@ -499,12 +524,12 @@ export const EmailTemplates = {
         
         <div style="padding: 16px 20px; background: linear-gradient(135deg, #fbbf2415, #f59e0b10); border-left: 3px solid #fbbf24; border-radius: 0 12px 12px 0;">
           <p style="margin: 0; font-size: 14px; color: #fcd34d;">
-            <strong>Spots are limited!</strong> Register early to secure your place.
+            <strong>Limited capacity.</strong> Our events fill up fast—act now to guarantee your seat.
           </p>
         </div>
       `,
       cta: { text: 'Register Now', url: `${SITE_URL}/events/${slug}` },
-      footer: 'Don\'t miss this opportunity!',
+      footer: 'First movers get the advantage. Always.',
     }),
     text: `Registration is now open for ${eventTitle}! Date: ${startDate.toLocaleDateString()}. Register: ${SITE_URL}/events/${slug}`,
   }),
@@ -512,48 +537,63 @@ export const EmailTemplates = {
   // Hiring application confirmation
   hiringApplication: (name: string, email: string, applyingRole: string): EmailTemplate => {
     const roleNames: Record<string, string> = {
-      TECHNICAL: 'Technical Team',
-      DESIGNING: 'Design Team',
-      VIDEO_EDITING: 'Video Editing Team',
-      MANAGEMENT: 'Management Team',
+      TECHNICAL: 'Technical Division',
+      DESIGNING: 'Design Division',
+      VIDEO_EDITING: 'Media Production Division',
+      MANAGEMENT: 'Operations & Management',
     };
     const roleName = roleNames[applyingRole] || applyingRole;
     
     return {
-      subject: `Application Received — ${roleName}`,
+      subject: `Application Received · ${roleName} · code.scriet`,
       html: generateEmailTemplate({
-        preheader: `We've received your application for the ${roleName}`,
-        accentColor: '#06b6d4',
-        badge: { text: 'Application Received', icon: '📨' },
-        title: `Thanks for applying, ${name}!`,
-        subtitle: `Your application for the ${roleName} has been successfully submitted.`,
+        preheader: `Your application for ${roleName} is now being reviewed by our selection committee.`,
+        accentColor: '#f472b6',
+        badge: { text: 'Application Under Review', icon: '◈' },
+        title: `We've Received Your Application, ${name}`,
+        subtitle: `Your candidacy for the ${roleName} is now in our system.`,
         body: `
-          <p style="margin: 0 0 20px; font-size: 15px; color: #d1d5db; line-height: 1.7;">
-            We're thrilled that you're interested in joining <strong style="color: #fbbf24;">code.scriet</strong>! Your application is now under review by our team.
+          <p style="margin: 0 0 20px; font-size: 15px; color: #d1d5db; line-height: 1.8;">
+            Thank you for expressing interest in joining <strong style="color: #fbbf24;">code.scriet</strong>. We receive applications from many talented individuals, and yours is now being carefully reviewed by our selection committee.
           </p>
           
-          <div style="margin: 20px 0; padding: 20px; background: linear-gradient(135deg, #06b6d415, #0891b210); border: 1px solid #06b6d430; border-radius: 12px;">
-            <p style="margin: 0 0 12px; font-size: 13px; color: #22d3ee; font-weight: 600; text-transform: uppercase; letter-spacing: 1px;">What happens next</p>
-            <ol style="margin: 0; padding-left: 20px; color: #d1d5db; font-size: 15px; line-height: 2;">
-              <li>You'll be added to our <strong style="color: #f9fafb;">recruitment portal</strong></li>
-              <li>Our team will review your application</li>
-              <li>If shortlisted, you'll receive an <strong style="color: #f9fafb;">interview invitation</strong></li>
-            </ol>
+          <div style="margin: 20px 0; padding: 24px; background: #18181b; border: 1px solid #27272a; border-radius: 12px;">
+            <p style="margin: 0 0 16px; font-size: 12px; color: #f472b6; font-weight: 700; text-transform: uppercase; letter-spacing: 2px;">Selection Process</p>
+            <table cellpadding="0" cellspacing="0" width="100%">
+              <tr>
+                <td style="padding: 12px 0; border-bottom: 1px solid #27272a;">
+                  <span style="display: inline-block; width: 28px; height: 28px; background: linear-gradient(135deg, #f472b6, #ec4899); border-radius: 50%; text-align: center; line-height: 28px; color: #000; font-weight: 700; font-size: 12px;">1</span>
+                  <span style="color: #f9fafb; font-weight: 500; margin-left: 14px;">Added to Recruitment Portal</span>
+                </td>
+              </tr>
+              <tr>
+                <td style="padding: 12px 0; border-bottom: 1px solid #27272a;">
+                  <span style="display: inline-block; width: 28px; height: 28px; background: #27272a; border-radius: 50%; text-align: center; line-height: 28px; color: #71717a; font-weight: 700; font-size: 12px;">2</span>
+                  <span style="color: #a1a1aa; margin-left: 14px;">Application Review by Division Leads</span>
+                </td>
+              </tr>
+              <tr>
+                <td style="padding: 12px 0;">
+                  <span style="display: inline-block; width: 28px; height: 28px; background: #27272a; border-radius: 50%; text-align: center; line-height: 28px; color: #71717a; font-weight: 700; font-size: 12px;">3</span>
+                  <span style="color: #a1a1aa; margin-left: 14px;">Interview Invitation (if shortlisted)</span>
+                </td>
+              </tr>
+            </table>
           </div>
           
-          <div style="padding: 20px 24px; background: linear-gradient(135deg, #fbbf2415, #f59e0b10); border-left: 3px solid #fbbf24; border-radius: 0 12px 12px 0;">
-            <p style="margin: 0 0 8px; font-size: 14px; color: #fbbf24; font-weight: 600;">Important:</p>
-            <p style="margin: 0; font-size: 14px; color: #fcd34d; line-height: 1.6;">
-              Please check your email <strong>at least once a day</strong> — including your <strong>Spam</strong>, <strong>Promotions</strong>, and other folders. All updates about your application will be sent to <strong>${email}</strong>.
+          <div style="padding: 20px; background: linear-gradient(135deg, #fbbf2410, #f59e0b08); border: 1px solid #fbbf2430; border-radius: 10px;">
+            <p style="margin: 0 0 8px; font-size: 13px; color: #fbbf24; font-weight: 700; text-transform: uppercase; letter-spacing: 1px;">⚠ Critical Notice</p>
+            <p style="margin: 0; font-size: 14px; color: #fcd34d; line-height: 1.7;">
+              Monitor your inbox <strong>daily</strong>—including <strong>Spam</strong> and <strong>Promotions</strong> folders. All recruitment communications will be sent to <strong style="color: #fff;">${email}</strong>. Missing an email could mean missing your opportunity.
             </p>
           </div>
           
-          <p style="margin: 24px 0 0; font-size: 15px; color: #9ca3af; line-height: 1.7;">
-            We appreciate your interest in joining our team. Good luck with your application!
+          <p style="margin: 24px 0 0; font-size: 14px; color: #71717a; line-height: 1.7; font-style: italic;">
+            "We don't just look for skills. We look for potential, hunger, and the drive to build something meaningful."
           </p>
         `,
-        cta: { text: 'Visit Our Website', url: SITE_URL },
-        footer: 'Best of luck from the code.scriet team!',
+        cta: { text: 'Explore code.scriet', url: SITE_URL },
+        footer: 'May the code be with you.',
       }),
       text: `Hi ${name}, thanks for applying to the ${roleName}! Your application has been received. You'll be added to our recruitment portal and will receive updates at ${email}. Please check your email (including spam/promotions) at least once a day.`,
     };
