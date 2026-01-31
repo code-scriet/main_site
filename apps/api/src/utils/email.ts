@@ -126,7 +126,7 @@ const generateEmailTemplate = (content: {
   
   <table width="100%" cellpadding="0" cellspacing="0" style="background-color: #030712; min-height: 100vh;">
     <tr>
-      <td align="center" style="padding: 48px 24px;">
+      <td align="center" style="padding: 32px 16px;">
         
         <!-- Main Container -->
         <table width="100%" cellpadding="0" cellspacing="0" style="max-width: 600px;">
@@ -170,7 +170,7 @@ const generateEmailTemplate = (content: {
                 
                 <!-- Content -->
                 <tr>
-                  <td style="padding: 40px 36px;">
+                  <td style="padding: 32px 24px;">
                     
                     ${content.badge ? `
                     <!-- Badge -->
@@ -204,16 +204,16 @@ const generateEmailTemplate = (content: {
                     ` : ''}
                     
                     <!-- Body Content -->
-                    <div style="margin: 24px 0; padding: 28px; background: linear-gradient(135deg, #1f293780, #0f172a80); border: 1px solid #1e293b; border-radius: 16px;">
+                    <div style="margin: 20px 0; padding: 20px; background: linear-gradient(135deg, #1f293780, #0f172a80); border: 1px solid #1e293b; border-radius: 12px;">
                       ${content.body}
                     </div>
                     
                     ${content.cta ? `
                     <!-- CTA Button -->
-                    <table cellpadding="0" cellspacing="0" style="margin-top: 32px;">
+                    <table cellpadding="0" cellspacing="0" width="100%" style="margin-top: 28px;">
                       <tr>
-                        <td>
-                          <a href="${content.cta.url}" style="display: inline-block; padding: 16px 36px; background: linear-gradient(135deg, ${accent}, #f59e0b); color: #000000; font-size: 14px; font-weight: 700; text-decoration: none; border-radius: 12px; text-transform: uppercase; letter-spacing: 0.5px; box-shadow: 0 4px 14px ${accent}40;">
+                        <td align="center">
+                          <a href="${content.cta.url}" style="display: inline-block; padding: 16px 48px; background: linear-gradient(135deg, ${accent}, ${accent}dd); color: #000000; font-size: 14px; font-weight: 700; text-decoration: none; border-radius: 10px; text-transform: uppercase; letter-spacing: 0.5px; box-shadow: 0 4px 14px ${accent}40;">
                             ${content.cta.text}
                           </a>
                         </td>
@@ -423,7 +423,7 @@ export const EmailTemplates = {
     subject: 'Reset your code.scriet password',
     html: generateEmailTemplate({
       preheader: 'Password reset requested for your account',
-      accentColor: '#3b82f6',
+      accentColor: '#f97316',
       badge: { text: 'Security', icon: '🔐' },
       title: 'Password Reset Request',
       subtitle: `Hey ${name}, we received a request to reset your password.`,
@@ -449,7 +449,7 @@ export const EmailTemplates = {
     subject: `Reminder: ${eventTitle} is tomorrow`,
     html: generateEmailTemplate({
       preheader: `Don't forget: ${eventTitle} is happening tomorrow!`,
-      accentColor: '#eab308',
+      accentColor: '#f43f5e',
       badge: { text: 'Reminder', icon: '⏰' },
       title: `${eventTitle} is tomorrow!`,
       subtitle: `Hey ${name}, your registered event is coming up soon.`,
@@ -485,7 +485,7 @@ export const EmailTemplates = {
     subject: `Registration Now Open: ${eventTitle}`,
     html: generateEmailTemplate({
       preheader: `Registration is now open for ${eventTitle}!`,
-      accentColor: '#22c55e',
+      accentColor: '#0ea5e9',
       badge: { text: 'Registration Open', icon: '🎫' },
       title: 'Registrations are Open!',
       subtitle: `Be among the first to secure your spot for "${eventTitle}"`,
@@ -523,7 +523,7 @@ export const EmailTemplates = {
       subject: `Application Received — ${roleName}`,
       html: generateEmailTemplate({
         preheader: `We've received your application for the ${roleName}`,
-        accentColor: '#8b5cf6',
+        accentColor: '#06b6d4',
         badge: { text: 'Application Received', icon: '📨' },
         title: `Thanks for applying, ${name}!`,
         subtitle: `Your application for the ${roleName} has been successfully submitted.`,
@@ -532,8 +532,8 @@ export const EmailTemplates = {
             We're thrilled that you're interested in joining <strong style="color: #fbbf24;">code.scriet</strong>! Your application is now under review by our team.
           </p>
           
-          <div style="margin: 24px 0; padding: 24px; background: linear-gradient(135deg, #8b5cf615, #7c3aed10); border: 1px solid #8b5cf630; border-radius: 16px;">
-            <p style="margin: 0 0 12px; font-size: 13px; color: #a78bfa; font-weight: 600; text-transform: uppercase; letter-spacing: 1px;">What happens next</p>
+          <div style="margin: 20px 0; padding: 20px; background: linear-gradient(135deg, #06b6d415, #0891b210); border: 1px solid #06b6d430; border-radius: 12px;">
+            <p style="margin: 0 0 12px; font-size: 13px; color: #22d3ee; font-weight: 600; text-transform: uppercase; letter-spacing: 1px;">What happens next</p>
             <ol style="margin: 0; padding-left: 20px; color: #d1d5db; font-size: 15px; line-height: 2;">
               <li>You'll be added to our <strong style="color: #f9fafb;">recruitment portal</strong></li>
               <li>Our team will review your application</li>
