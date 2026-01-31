@@ -81,8 +81,8 @@ const processSteps = [
   },
   {
     icon: MessageSquare,
-    title: 'Join WhatsApp Group',
-    description: 'Check the announcements section for the WhatsApp group link for further communication.',
+    title: 'Attend Your Interview',
+    description: 'You\'ll receive Google Meet link for your interview via email and recruitment portal announcements.',
   },
 ];
 
@@ -508,9 +508,9 @@ export default function JoinUsPage() {
                             <Mail className="h-4 w-4" /> What happens next?
                           </h4>
                           <ul className="text-sm text-amber-800 space-y-1">
-                            <li>• You'll receive login credentials from <strong>code.scriet</strong> at your email</li>
-                            <li>• Login to the recruitment portal and select your interview slot</li>
-                            <li>• Join our WhatsApp group (link in announcements) for updates</li>
+                            <li>• Login credentials will be sent in batches (may take some time)</li>
+                            <li>• Check the <strong>Updates</strong> section in the recruitment portal for credentials</li>
+                            <li>• You'll receive G Meet link for interview via email & portal announcements</li>
                           </ul>
                         </div>
 
@@ -610,10 +610,10 @@ export default function JoinUsPage() {
                       <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 text-left mb-6">
                         <h4 className="font-semibold text-amber-900 mb-3">Next Steps:</h4>
                         <ol className="text-sm text-amber-800 space-y-2 list-decimal list-inside">
-                          <li>Check your email (<strong>{email}</strong>) for login credentials</li>
+                          <li>Login credentials will be sent in batches (check <strong>Updates</strong> section)</li>
                           <li>Login to the recruitment portal using those credentials</li>
                           <li>Select your preferred interview slot</li>
-                          <li>Join the WhatsApp group from the announcements section</li>
+                          <li>Receive G Meet link for interview via email & portal announcements</li>
                         </ol>
                       </div>
 

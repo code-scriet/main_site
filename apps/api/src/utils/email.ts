@@ -575,10 +575,17 @@ export const EmailTemplates = {
               <tr>
                 <td style="padding: 12px 0;">
                   <span style="display: inline-block; width: 28px; height: 28px; background: #27272a; border-radius: 50%; text-align: center; line-height: 28px; color: #71717a; font-weight: 700; font-size: 12px;">3</span>
-                  <span style="color: #a1a1aa; margin-left: 14px;">Interview Invitation (if shortlisted)</span>
+                  <span style="color: #a1a1aa; margin-left: 14px;">Google Meet Interview Link via Email & Portal</span>
                 </td>
               </tr>
             </table>
+          </div>
+          
+          <div style="margin: 20px 0; padding: 16px 20px; background: #0f0f10; border: 1px solid #27272a; border-radius: 10px;">
+            <p style="margin: 0 0 8px; font-size: 12px; color: #71717a; font-weight: 600; text-transform: uppercase; letter-spacing: 1px;">📦 Regarding Login Credentials</p>
+            <p style="margin: 0; font-size: 14px; color: #a1a1aa; line-height: 1.6;">
+              Login credentials are sent in <strong style="color: #f9fafb;">batches</strong> and may take some time. Once available, they will appear in the <strong style="color: #fbbf24;">Updates</strong> section of the recruitment portal and will be emailed to you.
+            </p>
           </div>
           
           <div style="padding: 20px; background: linear-gradient(135deg, #fbbf2410, #f59e0b08); border: 1px solid #fbbf2430; border-radius: 10px;">
