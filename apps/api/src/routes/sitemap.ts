@@ -8,6 +8,10 @@ export const sitemapRouter = express.Router();
  * GET /sitemap.xml (served at root level for Google)
  */
 sitemapRouter.get('/', async (req: Request, res: Response) => {
+  // CORS headers for Google and other bots
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+  
   try {
     const baseUrl = process.env.FRONTEND_URL || 'https://codescriet.dev';
 
@@ -125,7 +129,11 @@ sitemapRouter.get('/', async (req: Request, res: Response) => {
     res.send(xml);
   } catch (error) {
     console.error('Sitemap generation error:', error);
-    res.status(500).send('<?xml version="1.0" encoding="UTF-8"?><error>Failed to generate sitemap</error>');
+    res.status(500);
+    res.setHeader('Content-Type', 'application/xml; charset=utf-8');
+    // Return fallback sitemap with static pages only
+    const fallback = '<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n<url><loc>https://codescriet.dev</loc><priority>1.0</priority></url>\n<url><loc>https://codescriet.dev/events</loc><priority>0.9</priority></url>\n<url><loc>https://codescriet.dev/achievements</loc><priority>0.9</priority></url>\n<url><loc>https://codescriet.dev/announcements</loc><priority>0.8</priority></url>\n</urlset>';
+    res.send(fallback);
   }
 });
 
@@ -134,6 +142,7 @@ sitemapRouter.get('/', async (req: Request, res: Response) => {
  * GET /robots.txt
  */
 sitemapRouter.get('/robots', (req: Request, res: Response) => {
+  res.setHeader('Access-Control-Allow-Origin', '*');
   const baseUrl = process.env.FRONTEND_URL || 'https://codescriet.dev';
   const apiUrl = process.env.API_URL || 'https://api.codescriet.dev';
   
