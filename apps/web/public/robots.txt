@@ -20,8 +20,9 @@ Disallow: /signin
 Disallow: /signup
 
 # Dynamic sitemap hosted on API server
-# Contains all events, achievements, and announcements
-Sitemap: https://api.codescriet.dev/sitemap.xml
+# CHANGE THIS to your actual Render URL (check render.com dashboard)
+# Example: https://codescriet-api.onrender.com/sitemap.xml
+Sitemap: https://codescriet-api.onrender.com/sitemap.xml
 
 # Crawl-delay for polite crawling
 Crawl-delay: 1
