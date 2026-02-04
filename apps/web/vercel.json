@@ -3,6 +3,10 @@
   "outputDirectory": "dist",
   "framework": "vite",
   "rewrites": [
+    { 
+      "source": "/sitemap.xml", 
+      "destination": "https://codescriet-api.onrender.com/sitemap.xml" 
+    },
     { "source": "/(.*)", "destination": "/index.html" }
   ],
   "headers": [

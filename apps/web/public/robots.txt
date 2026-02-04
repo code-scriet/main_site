@@ -19,10 +19,8 @@ Disallow: /profile
 Disallow: /signin
 Disallow: /signup
 
-# Dynamic sitemap hosted on API server
-# CHANGE THIS to your actual Render URL (check render.com dashboard)
-# Example: https://codescriet-api.onrender.com/sitemap.xml
-Sitemap: https://codescriet-api.onrender.com/sitemap.xml
+# Dynamic sitemap hosted on API server but proxied through frontend
+Sitemap: https://codescriet.dev/sitemap.xml
 
 # Crawl-delay for polite crawling
 Crawl-delay: 1
