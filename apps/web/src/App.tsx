@@ -19,6 +19,7 @@ const EventsPage = lazy(() => import('@/pages/EventsPage'));
 const EventDetailPage = lazy(() => import('@/pages/EventDetailPage'));
 const TeamPage = lazy(() => import('@/pages/TeamPage'));
 const AchievementsPage = lazy(() => import('@/pages/AchievementsPage'));
+const AchievementDetailPage = lazy(() => import('@/pages/AchievementDetailPage'));
 const AnnouncementsPage = lazy(() => import('@/pages/AnnouncementsPage'));
 const AnnouncementDetailPage = lazy(() => import('@/pages/AnnouncementDetailPage'));
 const SignInPage = lazy(() => import('@/pages/SignInPage'));
@@ -40,6 +41,7 @@ const ImageUploadTool = lazy(() => import('@/pages/dashboard/ImageUploadTool'));
 // Admin Pages - lazy loaded
 const AdminUsers = lazy(() => import('@/pages/admin/AdminUsers'));
 const AdminTeam = lazy(() => import('@/pages/admin/AdminTeam'));
+const AdminAchievements = lazy(() => import('@/pages/admin/AdminAchievements'));
 const AdminSettings = lazy(() => import('@/pages/admin/AdminSettings'));
 const AdminEventRegistrations = lazy(() => import('@/pages/admin/AdminEventRegistrations'));
 const EditEvent = lazy(() => import('@/pages/admin/EditEvent'));
@@ -77,6 +79,7 @@ function App() {
                   <Route path="/announcements/:id" element={<AnnouncementDetailPage />} />
                   <Route path="/team" element={<TeamPage />} />
                   <Route path="/achievements" element={<AchievementsPage />} />
+                  <Route path="/achievements/:id" element={<AchievementDetailPage />} />
                   <Route path="/signin" element={<SignInPage />} />
                   <Route path="/signup" element={<SignInPage />} />
                   <Route path="/join-us" element={<JoinUsPage />} />
@@ -102,6 +105,7 @@ function App() {
                     <Route path="/admin" element={<DashboardLayout />}>
                       <Route path="users" element={<AdminUsers />} />
                       <Route path="team" element={<AdminTeam />} />
+                      <Route path="achievements" element={<AdminAchievements />} />
                       <Route path="event-registrations" element={<AdminEventRegistrations />} />
                       <Route path="events/:id/edit" element={<EditEvent />} />
                       <Route path="hiring" element={<AdminHiring />} />

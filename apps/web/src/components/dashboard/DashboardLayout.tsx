@@ -34,6 +34,7 @@ const getAdminNavItems = (hiringEnabled: boolean) => {
   const items = [
     { name: 'User Management', href: '/admin/users', icon: Users },
     { name: 'Team Management', href: '/admin/team', icon: Shield },
+    { name: 'Achievements', href: '/admin/achievements', icon: Trophy },
   ];
   
   if (hiringEnabled !== false) {

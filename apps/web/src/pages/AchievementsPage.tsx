@@ -1,13 +1,129 @@
 import { useState, useEffect } from 'react';
+import { Link } from 'react-router-dom';
 import { Layout } from '@/components/layout/Layout';
 import { SEO } from '@/components/SEO';
 import { motion } from 'framer-motion';
 import { Card, CardContent } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Trophy, Calendar, Users, Loader2, Rocket, Target, Zap, Award, TrendingUp, Globe, Handshake, ArrowRight } from 'lucide-react';
+import { 
+  Trophy, Calendar, Users, Loader2, 
+  Award, ChevronRight, Image as ImageIcon, Handshake
+} from 'lucide-react';
 import { api, type Achievement } from '@/lib/api';
 import { formatDate } from '@/lib/dateUtils';
+import { processImageUrl } from '@/lib/imageUtils';
 import { useSettings } from '@/context/SettingsContext';
+
+// Achievement Card Component with optimized Cloudinary images
+function AchievementCard({ achievement, index }: { achievement: Achievement; index: number }) {
+  // Use 'card' preset for optimal card thumbnail (640x360, 16:9)
+  const coverImage = achievement.imageUrl ? processImageUrl(achievement.imageUrl, 'card') : null;
+  const hasGallery = achievement.imageGallery && achievement.imageGallery.length > 0;
+  
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 20 }}
+      whileInView={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.5, delay: index * 0.1 }}
+      viewport={{ once: true }}
+    >
+      <Link to={`/achievements/${achievement.slug || achievement.id}`}>
+        <Card className="h-full overflow-hidden group hover:shadow-xl transition-all duration-300 cursor-pointer border-amber-200 hover:border-amber-400 bg-white">
+          {/* Image Container with aspect ratio maintained */}
+          <div className="relative aspect-video overflow-hidden bg-gradient-to-br from-amber-100 to-orange-100">
+            {coverImage ? (
+              <img
+                src={coverImage}
+                alt={achievement.title}
+                className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                loading="lazy"
+              />
+            ) : (
+              <div className="w-full h-full flex items-center justify-center">
+                <Trophy className="h-16 w-16 text-amber-300" />
+              </div>
+            )}
+            
+            {/* Gradient overlay for text readability */}
+            <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/20 to-transparent" />
+            
+            {/* Featured Badge */}
+            {achievement.featured && (
+              <div className="absolute top-3 left-3">
+                <Badge className="bg-gradient-to-r from-amber-500 to-orange-500 text-white border-0 shadow-lg">
+                  <Award className="h-3 w-3 mr-1" />
+                  Featured
+                </Badge>
+              </div>
+            )}
+            
+            {/* Gallery Indicator */}
+            {hasGallery && (
+              <div className="absolute top-3 right-3">
+                <div className="bg-black/60 backdrop-blur-sm px-2.5 py-1.5 rounded-lg flex items-center gap-1.5 text-white text-xs font-medium shadow-lg">
+                  <ImageIcon className="h-3.5 w-3.5" />
+                  <span>{achievement.imageGallery!.length}+ Photos</span>
+                </div>
+              </div>
+            )}
+            
+            {/* Title overlay at bottom */}
+            <div className="absolute bottom-0 left-0 right-0 p-4">
+              {achievement.eventName && (
+                <p className="text-amber-200 text-xs font-semibold mb-1 uppercase tracking-wide">
+                  {achievement.eventName}
+                </p>
+              )}
+              <h3 className="text-white font-bold text-lg leading-tight line-clamp-2 drop-shadow-lg">
+                {achievement.title}
+              </h3>
+            </div>
+          </div>
+          
+          <CardContent className="p-4">
+            <p className="text-gray-600 text-sm line-clamp-2 mb-3 min-h-[2.5rem]">
+              {achievement.shortDescription || achievement.description}
+            </p>
+            
+            <div className="flex items-center justify-between text-sm mb-3">
+              <div className="flex items-center gap-1.5 text-amber-700">
+                <Users className="h-4 w-4 flex-shrink-0" />
+                <span className="line-clamp-1 font-medium">{achievement.achievedBy}</span>
+              </div>
+              <div className="flex items-center gap-1.5 text-gray-500">
+                <Calendar className="h-4 w-4 flex-shrink-0" />
+                <span className="text-xs">{formatDate(achievement.date)}</span>
+              </div>
+            </div>
+            
+            {/* Tags */}
+            {achievement.tags && achievement.tags.length > 0 && (
+              <div className="flex flex-wrap gap-1.5 mb-3">
+                {achievement.tags.slice(0, 3).map((tag, i) => (
+                  <Badge key={i} variant="outline" className="text-xs border-amber-200 text-amber-700 bg-amber-50">
+                    {tag}
+                  </Badge>
+                ))}
+                {achievement.tags.length > 3 && (
+                  <Badge variant="outline" className="text-xs border-gray-200 text-gray-500">
+                    +{achievement.tags.length - 3}
+                  </Badge>
+                )}
+              </div>
+            )}
+            
+            {/* View Details CTA */}
+            <div className="flex items-center text-amber-600 text-sm font-semibold group-hover:text-amber-700 pt-2 border-t border-amber-100">
+              <span>View Details</span>
+              <ChevronRight className="h-4 w-4 ml-1 group-hover:translate-x-1 transition-transform" />
+            </div>
+          </CardContent>
+        </Card>
+      </Link>
+    </motion.div>
+  );
+}
 
 export default function AchievementsPage() {
   const [activeYear, setActiveYear] = useState('All');
@@ -43,315 +159,205 @@ export default function AchievementsPage() {
     ? achievements
     : achievements.filter(a => new Date(a.date).getFullYear().toString() === activeYear);
 
+  // Separate featured and regular achievements
+  const featuredAchievements = filteredAchievements.filter(a => a.featured);
+  const regularAchievements = filteredAchievements.filter(a => !a.featured);
+
   return (
     <Layout>
       <SEO 
-        title="Achievements & Momentum"
-        description="Code.Scriet — Built Different. In just three months, we've empowered 300+ students, hosted 3 high-engagement events, and built a culture that puts students first."
+        title="Achievements"
+        description="Discover Code.Scriet's journey of empowering students through technology. From workshops to hackathons, see how we're building a culture of innovation and growth."
         url="/achievements"
-        keywords="code.scriet achievements, SCRIET coding club awards, student empowerment, coding community impact"
+        keywords="code.scriet achievements, SCRIET coding club awards, student empowerment, coding community impact, hackathon wins"
       />
       
-      {/* Hero Section */}
-      <section className="py-12 sm:py-20 bg-gradient-to-br from-amber-400 via-orange-500 to-amber-900 text-white relative overflow-hidden">
+      {/* Hero Section - Clean and Focused */}
+      <section className="py-16 sm:py-24 bg-gradient-to-br from-amber-400 via-orange-500 to-amber-600 text-white relative overflow-hidden">
         <div className="absolute inset-0 opacity-10">
-          <div className="absolute top-20 left-20 w-64 h-64 bg-white rounded-full blur-3xl" />
-          <div className="absolute bottom-20 right-20 w-80 h-80 bg-white rounded-full blur-3xl" />
+          <div className="absolute top-10 left-10 w-72 h-72 bg-white rounded-full blur-3xl animate-pulse" />
+          <div className="absolute bottom-10 right-10 w-96 h-96 bg-white rounded-full blur-3xl animate-pulse" style={{ animationDelay: '1s' }} />
         </div>
+        
         <div className="container mx-auto px-4 relative">
           <motion.div
-            initial={{ opacity: 0, y: 20 }}
+            initial={{ opacity: 0, y: 30 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.6 }}
+            transition={{ duration: 0.7 }}
             className="text-center max-w-4xl mx-auto"
           >
-            <div className="inline-flex h-14 w-14 sm:h-20 sm:w-20 items-center justify-center rounded-full bg-white/20 backdrop-blur-sm mb-4 sm:mb-6">
-              <Trophy className="h-7 w-7 sm:h-10 sm:w-10 text-white" />
+            <motion.div 
+              initial={{ scale: 0 }}
+              animate={{ scale: 1 }}
+              transition={{ duration: 0.5, delay: 0.2 }}
+              className="inline-flex h-20 w-20 items-center justify-center rounded-full bg-white/20 backdrop-blur-sm mb-6 shadow-2xl"
+            >
+              <Trophy className="h-10 w-10 text-white" />
+            </motion.div>
+            
+            <h1 className="text-4xl sm:text-5xl md:text-6xl font-bold mb-4 tracking-tight">
+              Our Achievements
+            </h1>
+            
+            <p className="text-xl sm:text-2xl text-amber-50 font-medium mb-6">
+              Celebrating milestones that define our journey
+            </p>
+            
+            <p className="text-base sm:text-lg text-amber-100 max-w-2xl mx-auto leading-relaxed">
+              Every achievement here represents countless hours of learning, collaboration, 
+              and the unwavering spirit of our community. These aren't just trophies—they're 
+              stories of growth.
+            </p>
+          </motion.div>
+        </div>
+      </section>
+
+      {/* Achievement Cards Section */}
+      <section className="py-16 sm:py-20 bg-amber-50">
+        <div className="container mx-auto px-4">
+          {/* Section Header */}
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.6 }}
+            viewport={{ once: true }}
+            className="text-center mb-10"
+          >
+            <Badge className="bg-amber-100 text-amber-700 border-amber-200 mb-4">
+              <Trophy className="h-3 w-3 mr-1" />
+              Our Milestones
+            </Badge>
+            <h2 className="text-3xl sm:text-4xl font-bold text-gray-900 mb-4">
+              What We've Achieved
+            </h2>
+            <p className="text-gray-600 text-lg max-w-2xl mx-auto">
+              Click on any achievement to explore the full story, photos, and details
+            </p>
+          </motion.div>
+
+          {/* Year Filter Tabs */}
+          {achievements.length > 0 && years.length > 1 && (
+            <div className="flex flex-wrap justify-center gap-2 mb-10">
+              {years.map((year) => (
+                <Button
+                  key={year}
+                  variant={activeYear === year ? 'default' : 'outline'}
+                  onClick={() => setActiveYear(year)}
+                  className={activeYear === year 
+                    ? 'bg-amber-500 hover:bg-amber-600 shadow-lg' 
+                    : 'border-amber-300 text-amber-700 hover:bg-amber-100'
+                  }
+                  size="sm"
+                >
+                  {year}
+                </Button>
+              ))}
             </div>
-            <h1 className="text-3xl sm:text-5xl md:text-6xl font-bold mb-4 sm:mb-6">Achievements & Momentum</h1>
-            <p className="text-lg sm:text-2xl text-amber-50 font-semibold mb-3 sm:mb-4">Code.Scriet — Built Different.</p>
-            <div className="max-w-2xl mx-auto px-2">
-              <p className="text-base sm:text-lg text-amber-50 mb-3 sm:mb-4">
-                Code.Scriet was founded with one belief:
-              </p>
-              <blockquote className="text-base sm:text-xl italic text-white font-medium pl-3 sm:pl-4 mb-3 sm:mb-4">
-                "Students don't need more clubs. They need ecosystems."
-              </blockquote>
-              <p className="text-sm sm:text-base text-amber-50">
-                In just three months, we've moved fast—building skills, confidence, leadership, and a culture that puts students first. Aggressively first.
-              </p>
+          )}
+
+          {/* Content */}
+          {loading ? (
+            <div className="flex flex-col items-center justify-center py-20">
+              <Loader2 className="h-10 w-10 animate-spin text-amber-500 mb-4" />
+              <p className="text-gray-500">Loading achievements...</p>
             </div>
-          </motion.div>
-        </div>
-      </section>
-
-      {/* Early Impact Stats */}
-      <section className="py-10 sm:py-16 bg-white">
-        <div className="container mx-auto px-4">
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.6 }}
-            viewport={{ once: true }}
-            className="text-center mb-8 sm:mb-12"
-          >
-            <h2 className="text-2xl sm:text-4xl font-bold text-amber-900 mb-3 sm:mb-4">Early Impact, Real Momentum</h2>
-            <p className="text-gray-600 text-base sm:text-lg max-w-2xl mx-auto px-2">
-              We're young. But we're not idle.
-            </p>
-          </motion.div>
-
-          <div className="grid md:grid-cols-2 lg:grid-cols-5 gap-6 max-w-6xl mx-auto">
-            {[
-              { icon: Zap, value: '3', label: 'Months since inception', subtext: 'Continuous on-ground activity' },
-              { icon: Users, value: '300+', label: 'Students empowered', subtext: 'Hands-on learning & mentorship' },
-              { icon: Rocket, value: '3', label: 'High-engagement events', subtext: 'Focused on practical growth' },
-              { icon: Target, value: '1', label: 'Foundational workshop', subtext: 'Git & GitHub mastery' },
-              { icon: Award, value: '1', label: 'Media mention secured', subtext: 'Public recognition achieved' },
-            ].map((stat, index) => (
-              <motion.div
-                key={stat.label}
-                initial={{ opacity: 0, y: 20 }}
-                whileInView={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.6, delay: index * 0.1 }}
-                viewport={{ once: true }}
-              >
-                <Card className="h-full text-center hover:shadow-lg transition-all duration-300 border-amber-200">
-                  <CardContent className="p-6">
-                    <div className="inline-flex h-14 w-14 items-center justify-center rounded-full bg-gradient-to-br from-amber-400 to-orange-500 mb-4">
-                      <stat.icon className="h-7 w-7 text-white" />
+          ) : error ? (
+            <div className="text-center py-20">
+              <div className="inline-flex h-20 w-20 items-center justify-center rounded-full bg-red-100 mb-6">
+                <Trophy className="h-10 w-10 text-red-400" />
+              </div>
+              <p className="text-red-500 mb-4 text-lg">{error}</p>
+              <Button onClick={() => window.location.reload()} className="bg-amber-500 hover:bg-amber-600">
+                Try Again
+              </Button>
+            </div>
+          ) : filteredAchievements.length === 0 ? (
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              className="text-center py-20"
+            >
+              <div className="inline-flex items-center justify-center w-24 h-24 rounded-full bg-amber-100 mb-6">
+                <Trophy className="h-12 w-12 text-amber-400" />
+              </div>
+              <h3 className="text-2xl font-semibold text-gray-900 mb-3">No achievements yet</h3>
+              <p className="text-gray-500 text-lg">
+                We're working on amazing things. Check back soon!
+              </p>
+            </motion.div>
+          ) : (
+            <>
+              {/* Featured Achievements */}
+              {featuredAchievements.length > 0 && (
+                <div className="mb-16">
+                  <motion.div
+                    initial={{ opacity: 0, y: 20 }}
+                    whileInView={{ opacity: 1, y: 0 }}
+                    transition={{ duration: 0.6 }}
+                    viewport={{ once: true }}
+                    className="text-center mb-8"
+                  >
+                    <div className="inline-flex items-center gap-2 bg-gradient-to-r from-amber-500 to-orange-500 text-white px-4 py-2 rounded-full shadow-lg mb-4">
+                      <Award className="h-4 w-4" />
+                      <span className="font-semibold">Featured Achievements</span>
                     </div>
-                    <p className="text-4xl font-bold text-amber-600 mb-2">{stat.value}</p>
-                    <p className="text-gray-900 font-semibold mb-1">{stat.label}</p>
-                    <p className="text-gray-500 text-sm">{stat.subtext}</p>
-                  </CardContent>
-                </Card>
-              </motion.div>
-            ))}
-          </div>
-
-          <motion.div
-            initial={{ opacity: 0 }}
-            whileInView={{ opacity: 1 }}
-            transition={{ duration: 0.6, delay: 0.5 }}
-            viewport={{ once: true }}
-            className="text-center mt-8"
-          >
-            <p className="text-xl font-semibold text-amber-900">Not experiments. Execution.</p>
-          </motion.div>
-        </div>
-      </section>
-
-      {/* What We've Built */}
-      <section className="py-16 bg-amber-50">
-        <div className="container mx-auto px-4">
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.6 }}
-            viewport={{ once: true }}
-            className="text-center mb-12"
-          >
-            <h2 className="text-4xl font-bold text-amber-900 mb-4">What We've Actually Built on Campus</h2>
-            <p className="text-gray-600 text-xl max-w-2xl mx-auto mb-2">
-              Code.Scriet isn't "just tech."
-            </p>
-            <p className="text-amber-700 text-2xl font-bold">
-              It's a student-development engine.
-            </p>
-          </motion.div>
-
-          <div className="grid md:grid-cols-2 gap-6 max-w-4xl mx-auto">
-            {[
-              { icon: Target, title: 'Practical Real-World Skills', description: 'Introduced early in students\' academic journeys' },
-              { icon: Zap, title: 'Learning by Doing Culture', description: 'Active participation, not passive listening' },
-              { icon: TrendingUp, title: 'Curiosity to Confidence', description: 'Especially for those with zero prior exposure' },
-              { icon: Users, title: 'Growing Network', description: 'Learners, leaders, and collaborators united' },
-            ].map((item, index) => (
-              <motion.div
-                key={item.title}
-                initial={{ opacity: 0, x: index % 2 === 0 ? -20 : 20 }}
-                whileInView={{ opacity: 1, x: 0 }}
-                transition={{ duration: 0.6, delay: index * 0.1 }}
-                viewport={{ once: true }}
-              >
-                <Card className="h-full hover:shadow-lg transition-all duration-300">
-                  <CardContent className="p-6">
-                    <div className="flex items-start gap-4">
-                      <div className="flex-shrink-0 h-12 w-12 rounded-full bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center">
-                        <item.icon className="h-6 w-6 text-white" />
-                      </div>
-                      <div>
-                        <h3 className="text-lg font-semibold text-amber-900 mb-2">{item.title}</h3>
-                        <p className="text-gray-600">{item.description}</p>
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              </motion.div>
-            ))}
-          </div>
-
-          <motion.div
-            initial={{ opacity: 0 }}
-            whileInView={{ opacity: 1 }}
-            transition={{ duration: 0.6, delay: 0.4 }}
-            viewport={{ once: true }}
-            className="text-center mt-8"
-          >
-            <p className="text-lg text-gray-600 italic">This is groundwork. The kind that lasts.</p>
-          </motion.div>
-        </div>
-      </section>
-
-      {/* Why We're Different */}
-      <section className="py-16 bg-white">
-        <div className="container mx-auto px-4">
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.6 }}
-            viewport={{ once: true }}
-            className="text-center mb-12"
-          >
-            <h2 className="text-4xl font-bold text-amber-900 mb-6">Why Code.Scriet Is Different</h2>
-            <blockquote className="text-2xl text-gray-700 max-w-3xl mx-auto mb-8">
-              <p className="mb-2">Most clubs organize events.</p>
-              <p className="text-amber-700 font-bold">We design trajectories.</p>
-            </blockquote>
-          </motion.div>
-
-          <div className="grid md:grid-cols-2 gap-6 max-w-4xl mx-auto mb-12">
-            {[
-              { title: 'Tech as a Tool', description: 'Not the end goal—empowering people is' },
-              { title: 'Holistic Focus', description: 'Skills, mindset, leadership, and collaboration' },
-              { title: 'Systems Over Shortcuts', description: 'Building depth before chasing scale' },
-              { title: 'Campus to Global', description: 'Built to grow from local to international' },
-            ].map((item, index) => (
-              <motion.div
-                key={item.title}
-                initial={{ opacity: 0, y: 20 }}
-                whileInView={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.6, delay: index * 0.1 }}
-                viewport={{ once: true }}
-                className="flex items-start gap-3 p-4 rounded-lg bg-amber-50 border border-amber-200"
-              >
-                <ArrowRight className="h-5 w-5 text-amber-600 flex-shrink-0 mt-1" />
-                <div>
-                  <h3 className="font-semibold text-amber-900 mb-1">{item.title}</h3>
-                  <p className="text-gray-600 text-sm">{item.description}</p>
+                    <h3 className="text-2xl font-bold text-gray-900">Our Proudest Moments</h3>
+                  </motion.div>
+                  
+                  <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-8">
+                    {featuredAchievements.map((achievement, index) => (
+                      <AchievementCard key={achievement.id} achievement={achievement} index={index} />
+                    ))}
+                  </div>
                 </div>
-              </motion.div>
-            ))}
-          </div>
+              )}
 
-          <motion.div
-            initial={{ opacity: 0, scale: 0.95 }}
-            whileInView={{ opacity: 1, scale: 1 }}
-            transition={{ duration: 0.6 }}
-            viewport={{ once: true }}
-            className="text-center"
-          >
-            <Card className="inline-block bg-gradient-to-br from-amber-100 to-orange-100 border-amber-300">
-              <CardContent className="p-8">
-                <p className="text-lg text-gray-700 mb-2">Our mission is simple, borderline audacious:</p>
-                <p className="text-2xl font-bold text-amber-900 mb-2">
-                  "Building an environment where curiosity becomes capability."
-                </p>
-                <p className="text-gray-700">And we're serious about making it happen.</p>
-              </CardContent>
-            </Card>
-          </motion.div>
+              {/* All/Regular Achievements */}
+              {regularAchievements.length > 0 && (
+                <div>
+                  {featuredAchievements.length > 0 && (
+                    <motion.div
+                      initial={{ opacity: 0, y: 20 }}
+                      whileInView={{ opacity: 1, y: 0 }}
+                      transition={{ duration: 0.6 }}
+                      viewport={{ once: true }}
+                      className="text-center mb-8"
+                    >
+                      <h3 className="text-2xl font-bold text-gray-900">All Achievements</h3>
+                      <p className="text-gray-600 mt-2">Every milestone matters in our journey</p>
+                    </motion.div>
+                  )}
+                  
+                  <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-8">
+                    {regularAchievements.map((achievement, index) => (
+                      <AchievementCard key={achievement.id} achievement={achievement} index={index} />
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Show all if nothing is featured */}
+              {featuredAchievements.length === 0 && regularAchievements.length === 0 && filteredAchievements.length > 0 && (
+                <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-8">
+                  {filteredAchievements.map((achievement, index) => (
+                    <AchievementCard key={achievement.id} achievement={achievement} index={index} />
+                  ))}
+                </div>
+              )}
+            </>
+          )}
         </div>
       </section>
 
-      {/* Momentum Philosophy */}
-      <section className="py-16 bg-gradient-to-br from-amber-900 to-amber-950 text-white">
-        <div className="container mx-auto px-4">
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.6 }}
-            viewport={{ once: true }}
-            className="text-center max-w-3xl mx-auto"
-          >
-            <h2 className="text-4xl font-bold mb-6">Momentum Over Milestones</h2>
-            <p className="text-xl text-amber-100 mb-6">
-              We don't believe achievements are endpoints. They're signals.
-            </p>
-            <div className="p-6 bg-amber-900/50 rounded-xl backdrop-blur-sm border border-amber-700">
-              <p className="text-lg text-amber-50">
-                In our first phase, we've proven one thing clearly:
-              </p>
-              <p className="text-2xl font-bold text-white mt-2">
-                When given the right environment, students rise fast.
-              </p>
-            </div>
-          </motion.div>
+      {/* CTA Section - Premium Design */}
+      <section className="py-20 sm:py-28 bg-gradient-to-br from-amber-50 via-orange-50 to-amber-100 relative overflow-hidden">
+        {/* Background decorative elements */}
+        <div className="absolute inset-0 opacity-30">
+          <div className="absolute top-0 left-1/4 w-96 h-96 bg-amber-300 rounded-full blur-3xl" />
+          <div className="absolute bottom-0 right-1/4 w-96 h-96 bg-orange-300 rounded-full blur-3xl" />
         </div>
-      </section>
-
-      {/* What's Next */}
-      <section className="py-16 bg-white">
-        <div className="container mx-auto px-4">
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.6 }}
-            viewport={{ once: true }}
-            className="text-center mb-12"
-          >
-            <div className="inline-flex h-16 w-16 items-center justify-center rounded-full bg-gradient-to-br from-amber-400 to-orange-500 mb-4">
-              <Rocket className="h-8 w-8 text-white" />
-            </div>
-            <h2 className="text-4xl font-bold text-amber-900 mb-4">What's Next</h2>
-            <p className="text-gray-600 text-lg">The next chapter is already in motion</p>
-          </motion.div>
-
-          <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6 max-w-6xl mx-auto">
-            {[
-              { icon: Target, title: 'Structured Learning Tracks', description: 'Moving beyond single workshops to comprehensive pathways' },
-              { icon: Users, title: 'Cross-Campus Collaboration', description: 'Partnering with other clubs and institutions' },
-              { icon: Globe, title: 'National-Level Initiatives', description: 'Expanding our reach and impact' },
-              { icon: Handshake, title: 'Strategic Partnerships', description: 'Accelerating scale and creating opportunities' },
-            ].map((item, index) => (
-              <motion.div
-                key={item.title}
-                initial={{ opacity: 0, y: 20 }}
-                whileInView={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.6, delay: index * 0.1 }}
-                viewport={{ once: true }}
-              >
-                <Card className="h-full text-center hover:shadow-lg transition-all duration-300 border-amber-200">
-                  <CardContent className="p-6">
-                    <div className="inline-flex h-14 w-14 items-center justify-center rounded-full bg-amber-100 mb-4">
-                      <item.icon className="h-7 w-7 text-amber-600" />
-                    </div>
-                    <h3 className="text-lg font-semibold text-amber-900 mb-2">{item.title}</h3>
-                    <p className="text-gray-600 text-sm">{item.description}</p>
-                  </CardContent>
-                </Card>
-              </motion.div>
-            ))}
-          </div>
-
-          <motion.div
-            initial={{ opacity: 0 }}
-            whileInView={{ opacity: 1 }}
-            transition={{ duration: 0.6, delay: 0.4 }}
-            viewport={{ once: true }}
-            className="text-center mt-8"
-          >
-            <p className="text-lg text-gray-700">
-              We're not asking for belief. <span className="font-bold text-amber-900">We're offering alignment.</span>
-            </p>
-          </motion.div>
-        </div>
-      </section>
-
-      {/* Invitation/CTA */}
-      <section className="py-16 bg-gradient-to-br from-amber-50 to-orange-50">
-        <div className="container mx-auto px-4">
+        
+        <div className="container mx-auto px-4 relative">
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             whileInView={{ opacity: 1, y: 0 }}
@@ -359,24 +365,40 @@ export default function AchievementsPage() {
             viewport={{ once: true }}
             className="max-w-4xl mx-auto"
           >
-            <Card className="border-amber-300 bg-white/80 backdrop-blur-sm">
-              <CardContent className="p-8 md:p-12 text-center">
-                <div className="inline-flex h-16 w-16 items-center justify-center rounded-full bg-gradient-to-br from-amber-400 to-orange-500 mb-6">
-                  <Handshake className="h-8 w-8 text-white" />
-                </div>
-                <h2 className="text-3xl font-bold text-amber-900 mb-4">Open to Collaboration</h2>
-                <p className="text-lg text-gray-700 mb-6">
-                  If you're an organization, sponsor, or club that believes in <span className="font-bold text-amber-900">building people before brands</span>—Code.Scriet is open to collaboration.
-                </p>
-                <div className="flex flex-col items-center gap-4">
-                  <div className="flex flex-col md:flex-row items-center gap-4 text-lg text-gray-700">
-                    <span className="font-semibold text-amber-900">We're early.</span>
-                    <span className="font-semibold text-amber-900">We're moving.</span>
-                    <span className="font-bold text-amber-900 text-xl">And we're just getting started.</span>
+            <Card className="bg-white/80 backdrop-blur-xl border-amber-200/50 shadow-2xl overflow-hidden">
+              <CardContent className="p-12 sm:p-16 text-center">
+                {/* Icon with glow effect */}
+                <div className="relative inline-block mb-8">
+                  <div className="absolute inset-0 bg-gradient-to-br from-amber-400 to-orange-500 rounded-full blur-xl opacity-50" />
+                  <div className="relative inline-flex h-20 w-20 items-center justify-center rounded-full bg-gradient-to-br from-amber-400 to-orange-500 shadow-xl">
+                    <Handshake className="h-10 w-10 text-white" />
                   </div>
+                </div>
+                
+                <h2 className="text-3xl sm:text-4xl md:text-5xl font-bold text-gray-900 mb-6 leading-tight">
+                  Want to Be Part of the Journey?
+                </h2>
+                
+                <p className="text-gray-700 text-lg sm:text-xl mb-10 max-w-2xl mx-auto leading-relaxed">
+                  Whether you're a student looking to grow, an organization seeking collaboration, 
+                  or someone who believes in building people—we'd love to connect.
+                </p>
+                
+                <div className="flex flex-col sm:flex-row gap-4 justify-center items-center">
                   <Button 
                     size="lg" 
-                    className="mt-4 bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600"
+                    className="bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 shadow-xl hover:shadow-2xl transition-all duration-300 text-lg px-8 py-6 h-auto"
+                    asChild
+                  >
+                    <Link to="/events">
+                      <Calendar className="h-5 w-5 mr-2" />
+                      Explore Events
+                    </Link>
+                  </Button>
+                  <Button 
+                    size="lg" 
+                    variant="outline" 
+                    className="border-2 border-amber-400 text-amber-700 hover:bg-amber-50 hover:border-amber-500 shadow-lg hover:shadow-xl transition-all duration-300 text-lg px-8 py-6 h-auto"
                     asChild
                   >
                     <a href={`mailto:${settings?.clubEmail || 'contact@codescriet.com'}`}>
@@ -384,99 +406,18 @@ export default function AchievementsPage() {
                     </a>
                   </Button>
                 </div>
+                
+                {/* Decorative bottom accent */}
+                <div className="mt-10 pt-8 border-t border-amber-200">
+                  <p className="text-sm text-gray-600 font-medium">
+                    Join <span className="text-amber-700 font-bold">300+</span> students already building the future
+                  </p>
+                </div>
               </CardContent>
             </Card>
           </motion.div>
         </div>
       </section>
-
-      {/* Filter Tabs - Only show when there are achievements */}
-      {achievements.length > 0 && years.length > 1 && (
-        <section className="py-6 bg-amber-100 border-b border-amber-300">
-          <div className="container mx-auto px-4">
-            <h3 className="text-2xl font-bold text-amber-900 text-center mb-4">Member Achievements</h3>
-            <div className="flex flex-wrap justify-center gap-2">
-              {years.map((year) => (
-                <Button
-                  key={year}
-                  variant={activeYear === year ? 'default' : 'outline'}
-                  onClick={() => setActiveYear(year)}
-                  className="min-w-20"
-                >
-                  {year}
-                </Button>
-              ))}
-            </div>
-          </div>
-        </section>
-      )}
-
-      {/* Achievements Grid - Only show when there are achievements */}
-      {achievements.length > 0 && (
-      <section className="py-12 bg-amber-50 min-h-[40vh]">
-        <div className="container mx-auto px-4">
-          {loading ? (
-            <div className="flex justify-center items-center py-20">
-              <Loader2 className="h-8 w-8 animate-spin text-amber-600" />
-            </div>
-          ) : error ? (
-            <div className="text-center py-20">
-              <p className="text-red-500">{error}</p>
-              <Button onClick={() => window.location.reload()} className="mt-4">
-                Try Again
-              </Button>
-            </div>
-          ) : filteredAchievements.length === 0 ? null : (
-            <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-8">
-              {filteredAchievements.map((achievement, index) => (
-                <motion.div
-                  key={achievement.id}
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ duration: 0.6, delay: index * 0.1 }}
-                >
-                  <Card className="h-full overflow-hidden group hover:shadow-xl transition-all duration-300">
-                    <div className="relative h-48 overflow-hidden bg-gradient-to-br from-amber-200 to-orange-200">
-                      {achievement.imageUrl ? (
-                        <img
-                          src={achievement.imageUrl}
-                          alt={achievement.title}
-                          className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"
-                        />
-                      ) : (
-                        <div className="w-full h-full flex items-center justify-center">
-                          <Trophy className="h-16 w-16 text-amber-400" />
-                        </div>
-                      )}
-                      <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent" />
-                      <div className="absolute bottom-4 left-4 right-4">
-                        {achievement.eventName && (
-                          <p className="text-amber-200 text-xs font-medium">{achievement.eventName}</p>
-                        )}
-                        <h3 className="text-white font-bold line-clamp-2">{achievement.title}</h3>
-                      </div>
-                    </div>
-                    <CardContent className="p-4">
-                      <p className="text-gray-600 text-sm line-clamp-3 mb-3">{achievement.description}</p>
-                      <div className="flex items-center gap-4 text-sm">
-                        <div className="flex items-center gap-1 text-amber-600">
-                          <Users className="h-4 w-4" />
-                          <span>{achievement.achievedBy}</span>
-                        </div>
-                        <div className="flex items-center gap-1 text-gray-400">
-                          <Calendar className="h-4 w-4" />
-                          <span>{formatDate(achievement.date)}</span>
-                        </div>
-                      </div>
-                    </CardContent>
-                  </Card>
-                </motion.div>
-              ))}
-            </div>
-          )}
-        </div>
-      </section>
-      )}
     </Layout>
   );
 }

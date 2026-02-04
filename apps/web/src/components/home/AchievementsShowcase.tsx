@@ -2,9 +2,10 @@ import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { Button } from '@/components/ui/button';
 import { Link } from 'react-router-dom';
-import { Trophy, ArrowRight, Loader2, Award, Star, Medal } from 'lucide-react';
+import { Trophy, ArrowRight, Loader2, Award, Star, Medal, ChevronRight, Image as ImageIcon } from 'lucide-react';
 import { api, type Achievement } from '@/lib/api';
 import { formatDate } from '@/lib/dateUtils';
+import { processImageUrl } from '@/lib/imageUtils';
 import { useMotionConfig } from '@/hooks/useMotionConfig';
 
 export function AchievementsShowcase() {
@@ -114,12 +115,13 @@ export function AchievementsShowcase() {
                 whileHover={!isMobile ? { y: -8, scale: 1.02 } : undefined}
                 className="group"
               >
-                <div className="h-full bg-white rounded-2xl shadow-lg overflow-hidden border border-amber-100 hover:shadow-2xl transition-all duration-500">
+                <Link to={`/achievements/${achievement.slug || achievement.id}`}>
+                <div className="h-full bg-white rounded-2xl shadow-lg overflow-hidden border border-amber-100 hover:shadow-2xl hover:border-amber-300 transition-all duration-500 cursor-pointer">
                   {/* Image */}
                   <div className="relative h-44 overflow-hidden">
                     {achievement.imageUrl ? (
                       <img
-                        src={achievement.imageUrl}
+                        src={processImageUrl(achievement.imageUrl, 'thumbnail')}
                         alt={achievement.title}
                         className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700"
                       />
@@ -132,7 +134,27 @@ export function AchievementsShowcase() {
                     {/* Overlay */}
                     <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/20 to-transparent" />
                     
+                    {/* Featured badge or Gallery indicator */}
+                    {achievement.featured ? (
+                      <div className="absolute top-4 left-4">
+                        <div className="px-2 py-1 bg-amber-500 rounded-full text-white text-xs font-medium flex items-center gap-1">
+                          <Award className="h-3 w-3" />
+                          Featured
+                        </div>
+                      </div>
+                    ) : null}
+                    
+                    {achievement.imageGallery && achievement.imageGallery.length > 0 && (
+                      <div className="absolute top-4 right-4">
+                        <div className="bg-black/50 backdrop-blur-sm px-2 py-1 rounded-md flex items-center gap-1 text-white text-xs">
+                          <ImageIcon className="h-3 w-3" />
+                          <span>{achievement.imageGallery.length}</span>
+                        </div>
+                      </div>
+                    )}
+                    
                     {/* Medal Icon - disable hover animation on mobile */}
+                    {!achievement.featured && !(achievement.imageGallery && achievement.imageGallery.length > 0) && (
                     <motion.div 
                       className="absolute top-4 right-4"
                       whileHover={!isMobile ? { rotate: 15, scale: 1.1 } : undefined}
@@ -141,6 +163,7 @@ export function AchievementsShowcase() {
                         <Medal className="h-5 w-5 text-amber-600" />
                       </div>
                     </motion.div>
+                    )}
                     
                     {/* Title Overlay */}
                     <div className="absolute bottom-0 left-0 right-0 p-4">
@@ -154,10 +177,10 @@ export function AchievementsShowcase() {
                   {/* Content */}
                   <div className="p-5">
                     <p className="text-gray-600 text-sm mb-4 line-clamp-2">
-                      {achievement.description}
+                      {achievement.shortDescription || achievement.description}
                     </p>
                     
-                    <div className="flex items-center justify-between">
+                    <div className="flex items-center justify-between mb-3">
                       <div className="flex items-center gap-2">
                         <div className="w-8 h-8 rounded-full bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center text-white text-xs font-bold">
                           {achievement.achievedBy?.charAt(0) || '?'}
@@ -173,8 +196,15 @@ export function AchievementsShowcase() {
                       </div>
                       <Star className="h-5 w-5 text-amber-500" />
                     </div>
+                    
+                    {/* View Details CTA */}
+                    <div className="flex items-center text-amber-600 text-sm font-medium group-hover:text-amber-700">
+                      <span>View Details</span>
+                      <ChevronRight className="h-4 w-4 ml-1 group-hover:translate-x-1 transition-transform" />
+                    </div>
                   </div>
                 </div>
+                </Link>
               </motion.div>
             ))}
           </div>

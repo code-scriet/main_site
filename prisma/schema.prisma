@@ -1,5 +1,3 @@
-// prisma/schema.prisma
-
 generator client {
   provider = "prisma-client-js"
 }
@@ -9,12 +7,246 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+model User {
+  id                 String              @id @default(uuid())
+  name               String
+  email              String              @unique
+  avatar             String?
+  oauthProvider      String?             @map("oauth_provider")
+  oauthId            String?             @map("oauth_id")
+  role               Role                @default(USER)
+  createdAt          DateTime            @default(now()) @map("created_at")
+  updatedAt          DateTime            @updatedAt @map("updated_at")
+  password           String?
+  bio                String?
+  githubUrl          String?             @map("github_url")
+  linkedinUrl        String?             @map("linkedin_url")
+  twitterUrl         String?             @map("twitter_url")
+  websiteUrl         String?             @map("website_url")
+  branch             String?
+  course             String?
+  phone              String?
+  profileCompleted   Boolean             @default(false) @map("profile_completed")
+  year               String?
+  announcements      Announcement[]
+  registrations      EventRegistration[]
+  hiringApplications HiringApplication[]
+  qotdSubmissions    QOTDSubmission[]
+
+  @@index([email])
+  @@map("users")
+}
+
+model Settings {
+  id                    String   @id @default("default")
+  clubName              String   @default("code.scriet") @map("club_name")
+  clubEmail             String   @default("contact@codescriet.com") @map("club_email")
+  clubDescription       String   @default("Building tomorrow's problem solvers through collaborative learning and hands-on coding experiences.") @map("club_description")
+  registrationOpen      Boolean  @default(true) @map("registration_open")
+  maxEventsPerUser      Int      @default(5) @map("max_events_per_user")
+  announcementsEnabled  Boolean  @default(true) @map("announcements_enabled")
+  updatedAt             DateTime @updatedAt @map("updated_at")
+  showAchievements      Boolean  @default(true) @map("show_achievements")
+  showLeaderboard       Boolean  @default(false) @map("show_leaderboard")
+  showQOTD              Boolean  @default(true) @map("show_qotd")
+  discordUrl            String?  @map("discord_url")
+  githubUrl             String?  @map("github_url")
+  instagramUrl          String?  @map("instagram_url")
+  linkedinUrl           String?  @map("linkedin_url")
+  twitterUrl            String?  @map("twitter_url")
+  hiringEnabled         Boolean  @default(true) @map("hiring_enabled")
+  emailAnnouncementBody String?  @map("email_announcement_body")
+  emailEventBody        String?  @map("email_event_body")
+  emailFooterText       String?  @map("email_footer_text")
+  emailWelcomeBody      String?  @map("email_welcome_body")
+  show_tech_blogs       Boolean  @default(true)
+
+  @@map("settings")
+}
+
+model Event {
+  id                    String              @id @default(uuid())
+  title                 String
+  description           String
+  status                EventStatus         @default(UPCOMING)
+  startDate             DateTime            @map("start_date")
+  endDate               DateTime?           @map("end_date")
+  location              String?
+  capacity              Int?
+  imageUrl              String?             @map("image_url")
+  createdBy             String              @map("created_by")
+  createdAt             DateTime            @default(now()) @map("created_at")
+  updatedAt             DateTime            @updatedAt @map("updated_at")
+  eventType             String?             @map("event_type")
+  prerequisites         String?
+  registrationEndDate   DateTime?           @map("registration_end_date")
+  registrationStartDate DateTime?           @map("registration_start_date")
+  venue                 String?
+  agenda                String?
+  faqs                  Json?
+  featured              Boolean             @default(false)
+  highlights            String?
+  imageGallery          Json?               @map("image_gallery")
+  learningOutcomes      String?             @map("learning_outcomes")
+  resources             Json?
+  shortDescription      String?             @map("short_description") @db.VarChar(300)
+  speakers              Json?
+  tags                  String[]            @default([])
+  targetAudience        String?             @map("target_audience")
+  videoUrl              String?             @map("video_url")
+  slug                  String              @unique @default("")
+  allowLateRegistration Boolean             @default(false) @map("allow_late_registration")
+  registrations         EventRegistration[]
+
+  @@index([status, startDate])
+  @@index([featured])
+  @@map("events")
+}
+
+model EventRegistration {
+  id        String   @id @default(uuid())
+  userId    String   @map("user_id")
+  eventId   String   @map("event_id")
+  timestamp DateTime @default(now())
+  event     Event    @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, eventId])
+  @@index([eventId])
+  @@map("event_registrations")
+}
+
+model Announcement {
+  id               String               @id @default(uuid())
+  title            String
+  body             String
+  priority         AnnouncementPriority @default(MEDIUM)
+  createdBy        String               @map("created_by")
+  createdAt        DateTime             @default(now()) @map("created_at")
+  updatedAt        DateTime             @updatedAt @map("updated_at")
+  attachments      Json?
+  expiresAt        DateTime?            @map("expires_at")
+  featured         Boolean              @default(false)
+  imageGallery     Json?                @map("image_gallery")
+  imageUrl         String?              @map("image_url")
+  links            Json?
+  pinned           Boolean              @default(false)
+  shortDescription String?              @map("short_description") @db.VarChar(300)
+  slug             String               @unique @default("")
+  tags             String[]             @default([])
+  creator          User                 @relation(fields: [createdBy], references: [id])
+
+  @@index([createdAt])
+  @@index([featured])
+  @@index([pinned])
+  @@map("announcements")
+}
+
+model TeamMember {
+  id        String   @id @default(uuid())
+  name      String
+  role      String
+  team      String
+  imageUrl  String   @map("image_url")
+  github    String?
+  linkedin  String?
+  twitter   String?
+  order     Int      @default(0)
+  createdAt DateTime @default(now()) @map("created_at")
+  instagram String?
+
+  @@index([team, order])
+  @@map("team_members")
+}
+
+model Achievement {
+  id               String   @id @default(uuid())
+  title            String
+  slug             String   @unique @default("")
+  description      String
+  content          String?  @db.Text
+  shortDescription String?  @map("short_description") @db.VarChar(300)
+  eventName        String?  @map("event_name")
+  achievedBy       String   @map("achieved_by")
+  imageUrl         String?  @map("image_url")
+  imageGallery     Json?    @map("image_gallery")
+  date             DateTime
+  tags             String[] @default([])
+  featured         Boolean  @default(false)
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @default(now()) @updatedAt @map("updated_at")
+
+  @@index([date])
+  @@index([featured])
+  @@index([slug])
+  @@map("achievements")
+}
+
+model QOTD {
+  id          String           @id @default(uuid())
+  date        DateTime         @unique
+  question    String
+  problemLink String           @map("problem_link")
+  difficulty  String
+  createdAt   DateTime         @default(now()) @map("created_at")
+  submissions QOTDSubmission[]
+
+  @@index([date])
+  @@map("qotd")
+}
+
+model QOTDSubmission {
+  id        String   @id @default(uuid())
+  userId    String   @map("user_id")
+  qotdId    String   @map("qotd_id")
+  timestamp DateTime @default(now())
+  qotd      QOTD     @relation(fields: [qotdId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, qotdId])
+  @@index([qotdId])
+  @@map("qotd_submissions")
+}
+
+model AuditLog {
+  id        String   @id @default(uuid())
+  userId    String   @map("user_id")
+  action    String
+  entity    String
+  entityId  String?  @map("entity_id")
+  metadata  Json?
+  timestamp DateTime @default(now())
+
+  @@index([userId, timestamp])
+  @@map("audit_logs")
+}
+
+model HiringApplication {
+  id           String            @id @default(uuid())
+  name         String
+  email        String            @unique
+  phone        String?
+  department   String
+  year         String
+  skills       String?
+  applyingRole ApplyingRole      @map("applying_role")
+  status       ApplicationStatus @default(PENDING)
+  userId       String?           @map("user_id")
+  createdAt    DateTime          @default(now()) @map("created_at")
+  updatedAt    DateTime          @updatedAt @map("updated_at")
+  user         User?             @relation(fields: [userId], references: [id])
+
+  @@index([status])
+  @@index([applyingRole])
+  @@map("hiring_applications")
+}
+
 enum Role {
   PUBLIC
   USER
-  MEMBER
   CORE_MEMBER
   ADMIN
+  MEMBER
 }
 
 enum EventStatus {
@@ -42,268 +274,4 @@ enum ApplicationStatus {
   INTERVIEW_SCHEDULED
   SELECTED
   REJECTED
-}
-
-model User {
-  id            String    @id @default(uuid())
-  name          String
-  email         String    @unique
-  password      String?   // For email/password auth (hashed with bcrypt)
-  avatar        String?
-  bio           String?   @db.Text
-  oauthProvider String?   @map("oauth_provider")
-  oauthId       String?   @map("oauth_id")
-  role          Role      @default(USER)
-  
-  // Academic & Contact Details (Required for profile completion)
-  phone         String?
-  course        String?   // BTech, BSC, etc.
-  branch        String?   // CSE, IT, ECE, etc.
-  year          String?   // 1st Year, 2nd Year, etc.
-  profileCompleted Boolean @default(false) @map("profile_completed")
-  
-  // Social links
-  githubUrl     String?   @map("github_url")
-  linkedinUrl   String?   @map("linkedin_url")
-  twitterUrl    String?   @map("twitter_url")
-  websiteUrl    String?   @map("website_url")
-  
-  createdAt     DateTime  @default(now()) @map("created_at")
-  updatedAt     DateTime  @updatedAt @map("updated_at")
-  
-  registrations EventRegistration[]
-  announcements Announcement[]
-  qotdSubmissions QOTDSubmission[]
-  hiringApplications HiringApplication[]
-  
-  @@index([email])
-  @@map("users")
-}
-
-model Settings {
-  id                  String   @id @default("default")
-  clubName            String   @default("code.scriet") @map("club_name")
-  clubEmail           String   @default("contact@codescriet.com") @map("club_email")
-  clubDescription     String   @default("Building tomorrow's problem solvers through collaborative learning and hands-on coding experiences.") @map("club_description") @db.Text
-  registrationOpen    Boolean  @default(true) @map("registration_open")
-  maxEventsPerUser    Int      @default(5) @map("max_events_per_user")
-  announcementsEnabled Boolean @default(true) @map("announcements_enabled")
-  
-  // Feature Toggles
-  showLeaderboard     Boolean  @default(false) @map("show_leaderboard")
-  showQOTD            Boolean  @default(true) @map("show_qotd")
-  showAchievements    Boolean  @default(true) @map("show_achievements")
-  hiringEnabled       Boolean  @default(true) @map("hiring_enabled")
-  
-  // Social Links
-  githubUrl           String?  @map("github_url")
-  linkedinUrl         String?  @map("linkedin_url")
-  twitterUrl          String?  @map("twitter_url")
-  instagramUrl        String?  @map("instagram_url")
-  discordUrl          String?  @map("discord_url")
-  
-  // Email Template Customization (Markdown supported)
-  emailWelcomeBody    String?  @map("email_welcome_body") @db.Text
-  emailAnnouncementBody String? @map("email_announcement_body") @db.Text
-  emailEventBody      String?  @map("email_event_body") @db.Text
-  emailFooterText     String?  @map("email_footer_text")
-  
-  updatedAt           DateTime @updatedAt @map("updated_at")
-  
-  @@map("settings")
-}
-
-model Event {
-  id                    String       @id @default(uuid())
-  title                 String
-  slug                  String       @unique @default("") // URL-friendly version of title
-  description           String       @db.Text
-  status                EventStatus  @default(UPCOMING)
-  
-  // Event dates
-  startDate             DateTime     @map("start_date")
-  endDate               DateTime?    @map("end_date")
-  
-  // Registration timeline
-  registrationStartDate DateTime?    @map("registration_start_date")
-  registrationEndDate   DateTime?    @map("registration_end_date")
-  allowLateRegistration Boolean      @default(false) @map("allow_late_registration") // Allow registration after event starts
-  
-  // Event details
-  location              String?
-  venue                 String?      // Specific venue/room
-  eventType             String?      @map("event_type") // Workshop, Hackathon, Meetup, etc.
-  prerequisites         String?      @db.Text // What attendees should know/bring
-  
-  // Extended event information
-  shortDescription      String?      @map("short_description") @db.VarChar(300) // Brief summary for cards
-  agenda                String?      @db.Text // Detailed schedule/agenda (Markdown supported)
-  highlights            String?      @db.Text // Key highlights/features of the event
-  learningOutcomes      String?      @map("learning_outcomes") @db.Text // What participants will learn
-  targetAudience        String?      @map("target_audience") // Who should attend
-  speakers              Json?        // Array of speaker objects: [{name, role, bio, image}]
-  resources             Json?        // Array of resource links: [{title, url, type}]
-  faqs                  Json?        // Array of FAQs: [{question, answer}]
-  
-  // Media
-  imageGallery          Json?        @map("image_gallery") // Array of Google Drive image URLs
-  videoUrl              String?      @map("video_url") // YouTube/Vimeo embed URL
-  
-  // Meta
-  tags                  String[]     @default([]) // Event tags for categorization
-  featured              Boolean      @default(false) // Featured event flag
-  
-  capacity              Int?
-  imageUrl              String?      @map("image_url")
-  createdBy             String       @map("created_by")
-  createdAt             DateTime     @default(now()) @map("created_at")
-  updatedAt             DateTime     @updatedAt @map("updated_at")
-  
-  registrations EventRegistration[]
-  
-  @@index([status, startDate])
-  @@index([featured])
-  @@map("events")
-}
-
-model EventRegistration {
-  id        String   @id @default(uuid())
-  userId    String   @map("user_id")
-  eventId   String   @map("event_id")
-  timestamp DateTime @default(now())
-  
-  user  User  @relation(fields: [userId], references: [id], onDelete: Cascade)
-  event Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
-  
-  @@unique([userId, eventId])
-  @@index([eventId])
-  @@map("event_registrations")
-}
-
-model Announcement {
-  id               String               @id @default(uuid())
-  title            String
-  slug             String               @unique @default("") // URL-friendly version of title
-  body             String               @db.Text // Supports Markdown
-  shortDescription String?              @map("short_description") @db.VarChar(300) // Brief summary for cards
-  priority         AnnouncementPriority @default(MEDIUM)
-  
-  // Media
-  imageUrl         String?              @map("image_url") // Cover/banner image
-  imageGallery     Json?                @map("image_gallery") // Array of image URLs
-  
-  // Additional content
-  attachments      Json?                // Array of file attachments: [{title, url, type}]
-  links            Json?                // Array of related links: [{title, url}]
-  
-  // Meta
-  tags             String[]             @default([]) // Tags for categorization
-  featured         Boolean              @default(false) // Featured announcement flag
-  pinned           Boolean              @default(false) // Pin to top
-  expiresAt        DateTime?            @map("expires_at") // Optional expiry date
-  
-  createdBy        String               @map("created_by")
-  createdAt        DateTime             @default(now()) @map("created_at")
-  updatedAt        DateTime             @updatedAt @map("updated_at")
-  
-  creator User @relation(fields: [createdBy], references: [id])
-  
-  @@index([createdAt])
-  @@index([featured])
-  @@index([pinned])
-  @@map("announcements")
-}
-
-model TeamMember {
-  id        String   @id @default(uuid())
-  name      String
-  role      String
-  team      String
-  imageUrl  String   @map("image_url")
-  github    String?
-  linkedin  String?
-  twitter   String?
-  instagram String?
-  order     Int      @default(0)
-  createdAt DateTime @default(now()) @map("created_at")
-  
-  @@index([team, order])
-  @@map("team_members")
-}
-
-model Achievement {
-  id          String   @id @default(uuid())
-  title       String
-  description String   @db.Text
-  eventName   String?  @map("event_name")
-  achievedBy  String   @map("achieved_by")
-  imageUrl    String?  @map("image_url")
-  date        DateTime
-  createdAt   DateTime @default(now()) @map("created_at")
-  
-  @@index([date])
-  @@map("achievements")
-}
-
-model QOTD {
-  id          String   @id @default(uuid())
-  date        DateTime @unique
-  question    String   @db.Text
-  problemLink String   @map("problem_link")
-  difficulty  String
-  createdAt   DateTime @default(now()) @map("created_at")
-  
-  submissions QOTDSubmission[]
-  
-  @@index([date])
-  @@map("qotd")
-}
-
-model QOTDSubmission {
-  id        String   @id @default(uuid())
-  userId    String   @map("user_id")
-  qotdId    String   @map("qotd_id")
-  timestamp DateTime @default(now())
-  
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-  qotd QOTD @relation(fields: [qotdId], references: [id], onDelete: Cascade)
-  
-  @@unique([userId, qotdId])
-  @@index([qotdId])
-  @@map("qotd_submissions")
-}
-
-model AuditLog {
-  id        String   @id @default(uuid())
-  userId    String   @map("user_id")
-  action    String
-  entity    String
-  entityId  String?  @map("entity_id")
-  metadata  Json?
-  timestamp DateTime @default(now())
-  
-  @@index([userId, timestamp])
-  @@map("audit_logs")
-}
-
-model HiringApplication {
-  id              String            @id @default(uuid())
-  name            String
-  email           String            @unique
-  phone           String?
-  department      String
-  year            String
-  skills          String?           @db.Text
-  applyingRole    ApplyingRole      @map("applying_role")
-  status          ApplicationStatus @default(PENDING)
-  userId          String?           @map("user_id")
-  
-  createdAt       DateTime          @default(now()) @map("created_at")
-  updatedAt       DateTime          @updatedAt @map("updated_at")
-  
-  user            User?             @relation(fields: [userId], references: [id], onDelete: SetNull)
-  
-  @@index([status])
-  @@index([applyingRole])
-  @@map("hiring_applications")
 }

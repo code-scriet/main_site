@@ -192,11 +192,19 @@ export interface TeamMember {
 export interface Achievement {
   id: string;
   title: string;
+  slug: string;
   description: string;
+  content?: string;
+  shortDescription?: string;
   eventName?: string;
   achievedBy: string;
   date: string;
   imageUrl?: string;
+  imageGallery?: string[];
+  tags?: string[];
+  featured?: boolean;
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 export const api = {
@@ -270,12 +278,26 @@ export const api = {
     request(`/team/${id}`, { method: 'DELETE', token }),
   
   // Achievements
-  getAchievements: (year?: string) => {
-    const params = year ? `?year=${year}` : '';
-    return request<Achievement[]>(`/achievements${params}`);
+  getAchievements: (options?: { year?: string; featured?: boolean; limit?: number }) => {
+    const params = new URLSearchParams();
+    if (options?.year) params.append('year', options.year);
+    if (options?.featured) params.append('featured', 'true');
+    if (options?.limit) params.append('limit', options.limit.toString());
+    const query = params.toString() ? `?${params.toString()}` : '';
+    return request<Achievement[]>(`/achievements${query}`);
   },
+  getFeaturedAchievements: (limit?: number) => {
+    const params = limit ? `?limit=${limit}` : '';
+    return request<Achievement[]>(`/achievements/featured${params}`);
+  },
+  getAchievement: (idOrSlug: string) =>
+    request<Achievement>(`/achievements/${idOrSlug}`),
   createAchievement: (data: Partial<Achievement>, token: string) =>
     request<Achievement>('/achievements', { method: 'POST', body: JSON.stringify(data), token }),
+  updateAchievement: (id: string, data: Partial<Achievement>, token: string) =>
+    request<Achievement>(`/achievements/${id}`, { method: 'PUT', body: JSON.stringify(data), token }),
+  deleteAchievement: (id: string, token: string) =>
+    request(`/achievements/${id}`, { method: 'DELETE', token }),
   
   // QOTD
   getTodayQOTD: () => request('/qotd/today'),
