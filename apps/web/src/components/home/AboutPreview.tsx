@@ -143,11 +143,11 @@ export function AboutPreview() {
           viewport={{ once: true }}
           className="bg-gradient-to-r from-amber-600 via-orange-600 to-amber-600 rounded-3xl p-8 md:p-12 mb-12"
         >
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-8 text-center">
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-8 text-center">
             {[
               { value: '500+', label: 'Active Members' },
               { value: '3', label: 'Events Conducted' },
-              { value: '10', label: 'Projects Built' },
+              { value: '7+', label: 'Projects Built' },
             ].map((stat, index) => (
               <motion.div
                 key={stat.label}
