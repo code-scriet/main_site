@@ -6,16 +6,16 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Markdown } from '@/components/ui/markdown';
+import { Markdown, InlineMarkdown } from '@/components/ui/markdown';
 import { 
   Trophy, Calendar, Users, Loader2, ArrowLeft, Tag, Share2, X,
-  ChevronLeft, ChevronRight, Image as ImageIcon
+  ChevronLeft, ChevronRight, Image as ImageIcon, Sparkles, Award, Star, ExternalLink
 } from 'lucide-react';
 import { api, type Achievement } from '@/lib/api';
 import { formatDate } from '@/lib/dateUtils';
 import { processImageUrl, processImageGallery } from '@/lib/imageUtils';
 
-// Image Gallery Component with Lightbox
+// Premium Image Gallery Component with Lightbox
 function ImageGallery({ images }: { images: string[] }) {
   const [selectedImage, setSelectedImage] = useState<number | null>(null);
   
@@ -24,91 +24,138 @@ function ImageGallery({ images }: { images: string[] }) {
   
   if (!images || !images.length) {
     return (
-      <div className="text-center py-8 text-gray-500">
-        <ImageIcon className="h-12 w-12 mx-auto mb-2 text-gray-400" />
-        <p>No images in gallery</p>
+      <div className="text-center py-12 bg-gradient-to-br from-amber-50 to-orange-50 rounded-2xl border border-amber-100">
+        <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-amber-100 mb-4">
+          <ImageIcon className="h-8 w-8 text-amber-400" />
+        </div>
+        <p className="text-gray-500 font-medium">No images in gallery</p>
       </div>
     );
   }
 
   return (
     <>
-      {/* Gallery Grid */}
+      {/* Premium Gallery Grid */}
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
         {thumbnails.map((thumb, index) => (
           <motion.div
             key={index}
-            whileHover={{ scale: 1.02 }}
+            initial={{ opacity: 0, scale: 0.9 }}
+            animate={{ opacity: 1, scale: 1 }}
+            transition={{ duration: 0.3, delay: index * 0.05 }}
+            whileHover={{ scale: 1.03, y: -4 }}
             whileTap={{ scale: 0.98 }}
-            className="aspect-square rounded-lg overflow-hidden cursor-pointer shadow-md hover:shadow-xl transition-shadow"
+            className="aspect-square rounded-2xl overflow-hidden cursor-pointer shadow-lg hover:shadow-2xl transition-all duration-300 relative group"
             onClick={() => setSelectedImage(index)}
           >
             <img
               src={thumb}
-              alt={`Achievement image ${index + 1}`}
+              alt={`Gallery image ${index + 1}`}
               className="w-full h-full object-cover"
               onError={(e) => {
                 (e.target as HTMLImageElement).src = 'https://via.placeholder.com/400?text=Image+Not+Found';
               }}
             />
+            {/* Hover overlay */}
+            <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-black/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex items-end justify-center pb-4">
+              <span className="text-white text-sm font-medium flex items-center gap-1">
+                <ExternalLink className="h-4 w-4" />
+                View
+              </span>
+            </div>
+            {/* Image number badge */}
+            <div className="absolute top-2 right-2 w-6 h-6 rounded-full bg-black/50 backdrop-blur-sm flex items-center justify-center">
+              <span className="text-white text-xs font-bold">{index + 1}</span>
+            </div>
           </motion.div>
         ))}
       </div>
 
-      {/* Lightbox */}
+      {/* Premium Lightbox */}
       <AnimatePresence>
         {selectedImage !== null && (
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 z-50 bg-black/90 flex items-center justify-center p-4"
+            className="fixed inset-0 z-50 bg-black/95 backdrop-blur-sm flex items-center justify-center p-4"
             onClick={() => setSelectedImage(null)}
           >
-            <button
-              className="absolute top-4 right-4 text-white hover:text-gray-300 z-10"
+            {/* Close button */}
+            <motion.button
+              initial={{ opacity: 0, scale: 0.8 }}
+              animate={{ opacity: 1, scale: 1 }}
+              className="absolute top-4 right-4 text-white/80 hover:text-white z-20 p-2 rounded-full bg-white/10 hover:bg-white/20 backdrop-blur-sm transition-all"
               onClick={() => setSelectedImage(null)}
             >
-              <X className="h-8 w-8" />
-            </button>
+              <X className="h-6 w-6" />
+            </motion.button>
             
-            {/* Navigation */}
-            <button
-              className="absolute left-4 text-white hover:text-gray-300 p-2 disabled:opacity-30"
+            {/* Navigation - Previous */}
+            <motion.button
+              initial={{ opacity: 0, x: -20 }}
+              animate={{ opacity: 1, x: 0 }}
+              className="absolute left-4 text-white/80 hover:text-white p-3 rounded-full bg-white/10 hover:bg-white/20 backdrop-blur-sm transition-all disabled:opacity-30 disabled:cursor-not-allowed z-20"
               disabled={selectedImage === 0}
               onClick={(e) => {
                 e.stopPropagation();
                 setSelectedImage(prev => prev !== null ? prev - 1 : null);
               }}
             >
-              <ChevronLeft className="h-8 w-8" />
-            </button>
+              <ChevronLeft className="h-6 w-6" />
+            </motion.button>
             
+            {/* Main Image */}
             <motion.img
               key={selectedImage}
               initial={{ opacity: 0, scale: 0.9 }}
               animate={{ opacity: 1, scale: 1 }}
               exit={{ opacity: 0, scale: 0.9 }}
+              transition={{ duration: 0.2 }}
               src={processedImages[selectedImage]}
-              alt={`Achievement image ${selectedImage + 1}`}
-              className="max-w-full max-h-[85vh] object-contain rounded-lg"
+              alt={`Gallery image ${selectedImage + 1}`}
+              className="max-w-full max-h-[85vh] object-contain rounded-xl shadow-2xl"
               onClick={(e) => e.stopPropagation()}
             />
             
-            <button
-              className="absolute right-4 text-white hover:text-gray-300 p-2 disabled:opacity-30"
+            {/* Navigation - Next */}
+            <motion.button
+              initial={{ opacity: 0, x: 20 }}
+              animate={{ opacity: 1, x: 0 }}
+              className="absolute right-4 text-white/80 hover:text-white p-3 rounded-full bg-white/10 hover:bg-white/20 backdrop-blur-sm transition-all disabled:opacity-30 disabled:cursor-not-allowed z-20"
               disabled={selectedImage === processedImages.length - 1}
               onClick={(e) => {
                 e.stopPropagation();
                 setSelectedImage(prev => prev !== null ? prev + 1 : null);
               }}
             >
-              <ChevronRight className="h-8 w-8" />
-            </button>
+              <ChevronRight className="h-6 w-6" />
+            </motion.button>
             
             {/* Image counter */}
-            <div className="absolute bottom-4 text-white text-sm">
-              {selectedImage + 1} / {processedImages.length}
+            <div className="absolute bottom-6 left-1/2 -translate-x-1/2 px-4 py-2 rounded-full bg-white/10 backdrop-blur-sm">
+              <span className="text-white text-sm font-medium">
+                {selectedImage + 1} / {processedImages.length}
+              </span>
+            </div>
+            
+            {/* Thumbnail strip */}
+            <div className="absolute bottom-16 left-1/2 -translate-x-1/2 flex gap-2 max-w-[80vw] overflow-x-auto p-2">
+              {thumbnails.slice(0, 8).map((thumb, index) => (
+                <motion.button
+                  key={index}
+                  whileHover={{ scale: 1.1 }}
+                  className={`w-12 h-12 rounded-lg overflow-hidden flex-shrink-0 border-2 transition-all ${
+                    index === selectedImage ? 'border-amber-400 shadow-lg shadow-amber-400/30' : 'border-transparent opacity-60 hover:opacity-100'
+                  }`}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setSelectedImage(index);
+                  }}
+                >
+                  <img src={thumb} alt="" className="w-full h-full object-cover" />
+                </motion.button>
+              ))}
             </div>
           </motion.div>
         )}
@@ -162,8 +209,16 @@ export default function AchievementDetailPage() {
   if (loading) {
     return (
       <Layout>
-        <div className="min-h-screen flex items-center justify-center bg-amber-50">
-          <Loader2 className="h-12 w-12 animate-spin text-amber-600" />
+        <div className="min-h-screen flex flex-col items-center justify-center bg-gradient-to-br from-amber-50 via-orange-50 to-amber-100">
+          <motion.div
+            animate={{ rotate: 360 }}
+            transition={{ duration: 2, repeat: Infinity, ease: "linear" }}
+            className="mb-4"
+          >
+            <Trophy className="h-12 w-12 text-amber-500" />
+          </motion.div>
+          <Loader2 className="h-8 w-8 animate-spin text-amber-600 mb-4" />
+          <p className="text-gray-600 font-medium">Loading achievement...</p>
         </div>
       </Layout>
     );
@@ -172,11 +227,21 @@ export default function AchievementDetailPage() {
   if (error || !achievement) {
     return (
       <Layout>
-        <div className="min-h-screen flex flex-col items-center justify-center bg-amber-50 p-4">
-          <Trophy className="h-16 w-16 text-amber-400 mb-4" />
-          <h1 className="text-2xl font-bold text-gray-900 mb-2">Achievement Not Found</h1>
-          <p className="text-gray-600 mb-6">{error || 'The achievement you are looking for does not exist.'}</p>
-          <Button onClick={() => navigate('/achievements')}>
+        <div className="min-h-screen flex flex-col items-center justify-center bg-gradient-to-br from-amber-50 via-orange-50 to-amber-100 p-4">
+          <motion.div
+            initial={{ scale: 0 }}
+            animate={{ scale: 1 }}
+            transition={{ type: "spring", duration: 0.5 }}
+            className="inline-flex items-center justify-center w-24 h-24 rounded-full bg-amber-100 mb-6"
+          >
+            <Trophy className="h-12 w-12 text-amber-400" />
+          </motion.div>
+          <h1 className="text-3xl font-bold text-gray-900 mb-3">Achievement Not Found</h1>
+          <p className="text-gray-600 mb-8 text-center max-w-md">{error || 'The achievement you are looking for does not exist or has been removed.'}</p>
+          <Button 
+            onClick={() => navigate('/achievements')}
+            className="bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600"
+          >
             <ArrowLeft className="h-4 w-4 mr-2" />
             Back to Achievements
           </Button>
@@ -198,113 +263,217 @@ export default function AchievementDetailPage() {
         keywords={`${achievement.title}, code.scriet achievement, ${achievement.eventName || ''}, ${achievement.tags?.join(', ') || ''}`}
       />
 
-      {/* Hero Section */}
-      <section className="relative">
-        {/* Cover Image */}
+      {/* Premium Hero Section */}
+      <section className="relative min-h-[50vh] md:min-h-[60vh]">
+        {/* Cover Image with premium overlays */}
         {coverImage ? (
-          <div className="h-64 sm:h-80 md:h-96 relative overflow-hidden">
+          <div className="absolute inset-0 overflow-hidden">
             <img
               src={coverImage}
               alt={achievement.title}
               className="w-full h-full object-cover"
             />
-            <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/40 to-transparent" />
+            {/* Multi-layer premium gradient */}
+            <div className="absolute inset-0 bg-gradient-to-t from-black via-black/50 to-black/20" />
+            <div className="absolute inset-0 bg-gradient-to-br from-amber-900/30 to-orange-900/30 mix-blend-multiply" />
+            {/* Noise texture overlay */}
+            <div className="absolute inset-0 opacity-[0.015] bg-[url('data:image/svg+xml,%3Csvg viewBox=%220 0 200 200%22 xmlns=%22http://www.w3.org/2000/svg%22%3E%3Cfilter id=%22noise%22%3E%3CfeTurbulence type=%22fractalNoise%22 baseFrequency=%220.65%22 numOctaves=%223%22 stitchTiles=%22stitch%22/%3E%3C/filter%3E%3Crect width=%22100%25%22 height=%22100%25%22 filter=%22url(%23noise)%22/%3E%3C/svg%3E')]" />
           </div>
         ) : (
-          <div className="h-64 sm:h-80 bg-gradient-to-br from-amber-400 via-orange-500 to-amber-600 relative">
-            <div className="absolute inset-0 flex items-center justify-center">
-              <Trophy className="h-24 w-24 text-white/30" />
+          <div className="absolute inset-0 bg-gradient-to-br from-amber-400 via-orange-500 to-amber-600 overflow-hidden">
+            {/* Decorative elements */}
+            <div className="absolute inset-0">
+              <div className="absolute top-20 left-20 w-72 h-72 bg-white/10 rounded-full blur-3xl" />
+              <div className="absolute bottom-20 right-20 w-96 h-96 bg-white/10 rounded-full blur-3xl" />
+              <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2">
+                <Trophy className="h-48 w-48 text-white/10" />
+              </div>
             </div>
-            <div className="absolute inset-0 bg-gradient-to-t from-black/50 to-transparent" />
+            <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-black/20 to-transparent" />
           </div>
         )}
 
-        {/* Back Button */}
-        <div className="absolute top-4 left-4 z-10">
+        {/* Back Button - Glassmorphism */}
+        <motion.div 
+          initial={{ opacity: 0, x: -20 }}
+          animate={{ opacity: 1, x: 0 }}
+          className="absolute top-6 left-6 z-20"
+        >
           <Button
             variant="ghost"
             size="sm"
             onClick={() => navigate('/achievements')}
-            className="bg-white/90 hover:bg-white text-gray-900 backdrop-blur-sm"
+            className="bg-white/90 hover:bg-white text-gray-900 backdrop-blur-md shadow-lg border border-white/20"
           >
             <ArrowLeft className="h-4 w-4 mr-2" />
             Back
           </Button>
-        </div>
+        </motion.div>
 
-        {/* Share Button */}
-        <div className="absolute top-4 right-4 z-10">
+        {/* Share Button - Glassmorphism */}
+        <motion.div 
+          initial={{ opacity: 0, x: 20 }}
+          animate={{ opacity: 1, x: 0 }}
+          className="absolute top-6 right-6 z-20"
+        >
           <Button
             variant="ghost"
             size="sm"
             onClick={handleShare}
-            className="bg-white/90 hover:bg-white text-gray-900 backdrop-blur-sm"
+            className="bg-white/90 hover:bg-white text-gray-900 backdrop-blur-md shadow-lg border border-white/20"
           >
             <Share2 className="h-4 w-4 mr-2" />
             Share
           </Button>
-        </div>
+        </motion.div>
 
-        {/* Title Overlay */}
-        <div className="absolute bottom-0 left-0 right-0 p-4 sm:p-6 md:p-8">
-          <div className="container mx-auto">
-            {achievement.eventName && (
-              <Badge variant="secondary" className="mb-2 bg-amber-500 text-white border-0">
-                {achievement.eventName}
-              </Badge>
+        {/* Hero Content */}
+        <div className="absolute bottom-0 left-0 right-0 p-6 sm:p-8 md:p-12 z-10">
+          <div className="container mx-auto max-w-5xl">
+            {/* Featured Badge */}
+            {achievement.featured && (
+              <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.1 }}
+                className="mb-4"
+              >
+                <span className="inline-flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-amber-500 to-orange-500 rounded-full shadow-lg shadow-amber-500/30">
+                  <Sparkles className="h-4 w-4 text-white" />
+                  <span className="text-white text-sm font-bold tracking-wide">FEATURED ACHIEVEMENT</span>
+                </span>
+              </motion.div>
             )}
-            <h1 className="text-2xl sm:text-3xl md:text-4xl lg:text-5xl font-bold text-white mb-2">
+            
+            {/* Event Name */}
+            {achievement.eventName && (
+              <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.15 }}
+              >
+                <Badge className="mb-3 bg-white/20 text-white border-white/30 backdrop-blur-sm text-sm px-4 py-1">
+                  <Award className="h-3.5 w-3.5 mr-1.5" />
+                  {achievement.eventName}
+                </Badge>
+              </motion.div>
+            )}
+            
+            {/* Title */}
+            <motion.h1 
+              initial={{ opacity: 0, y: 30 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.2, duration: 0.6 }}
+              className="text-3xl sm:text-4xl md:text-5xl lg:text-6xl font-bold text-white mb-6 leading-tight drop-shadow-2xl"
+            >
               {achievement.title}
-            </h1>
-            <div className="flex flex-wrap items-center gap-4 text-white/90 text-sm sm:text-base">
-              <div className="flex items-center gap-1">
-                <Users className="h-4 w-4" />
-                <span>{achievement.achievedBy}</span>
+            </motion.h1>
+            
+            {/* Meta info */}
+            <motion.div 
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.3 }}
+              className="flex flex-wrap items-center gap-6 text-white/90"
+            >
+              <div className="flex items-center gap-3 bg-white/10 backdrop-blur-sm px-4 py-2 rounded-full">
+                <div className="w-10 h-10 rounded-full bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center text-white font-bold shadow-lg">
+                  {achievement.achievedBy?.charAt(0) || '?'}
+                </div>
+                <div>
+                  <p className="font-semibold">{achievement.achievedBy}</p>
+                  <p className="text-xs text-white/70">Achiever</p>
+                </div>
               </div>
-              <div className="flex items-center gap-1">
-                <Calendar className="h-4 w-4" />
-                <span>{formatDate(achievement.date)}</span>
+              <div className="flex items-center gap-2 bg-white/10 backdrop-blur-sm px-4 py-2 rounded-full">
+                <Calendar className="h-5 w-5 text-amber-300" />
+                <span className="font-medium">{formatDate(achievement.date)}</span>
               </div>
-            </div>
+              {hasGallery && (
+                <div className="flex items-center gap-2 bg-white/10 backdrop-blur-sm px-4 py-2 rounded-full">
+                  <ImageIcon className="h-5 w-5 text-amber-300" />
+                  <span className="font-medium">{achievement.imageGallery!.length} Photos</span>
+                </div>
+              )}
+            </motion.div>
           </div>
         </div>
       </section>
 
-      {/* Content Section */}
-      <section className="py-8 sm:py-12 bg-amber-50">
-        <div className="container mx-auto px-4">
+      {/* Premium Content Section */}
+      <section className="py-12 sm:py-16 bg-gradient-to-b from-amber-50 to-white relative overflow-hidden">
+        {/* Decorative background */}
+        <div className="absolute top-0 left-0 w-96 h-96 bg-amber-200/30 rounded-full blur-3xl -translate-x-1/2 -translate-y-1/2" />
+        <div className="absolute bottom-0 right-0 w-96 h-96 bg-orange-200/30 rounded-full blur-3xl translate-x-1/2 translate-y-1/2" />
+        
+        <div className="container mx-auto px-4 relative">
           <div className="max-w-4xl mx-auto">
             {/* Tags */}
             {achievement.tags && achievement.tags.length > 0 && (
               <motion.div
                 initial={{ opacity: 0, y: 10 }}
                 animate={{ opacity: 1, y: 0 }}
-                className="flex flex-wrap gap-2 mb-6"
+                className="flex flex-wrap gap-2 mb-8"
               >
                 {achievement.tags.map((tag, index) => (
-                  <Badge key={index} variant="outline" className="bg-white border-amber-300 text-amber-700">
-                    <Tag className="h-3 w-3 mr-1" />
-                    {tag}
-                  </Badge>
+                  <motion.span 
+                    key={index}
+                    initial={{ opacity: 0, scale: 0.8 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    transition={{ delay: index * 0.05 }}
+                    className="inline-flex items-center gap-1.5 px-4 py-2 rounded-full bg-white border border-amber-200 text-amber-700 shadow-sm hover:shadow-md hover:border-amber-300 transition-all"
+                  >
+                    <Tag className="h-3.5 w-3.5" />
+                    <span className="font-medium text-sm">{tag}</span>
+                  </motion.span>
                 ))}
               </motion.div>
             )}
 
-            {/* Description Card */}
+            {/* Short Description Card - with Markdown */}
+            {achievement.shortDescription && (
+              <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.1 }}
+              >
+                <Card className="mb-8 border-amber-200/50 bg-white/80 backdrop-blur-sm shadow-xl overflow-hidden">
+                  <div className="h-1 bg-gradient-to-r from-amber-400 via-orange-500 to-amber-400" />
+                  <CardContent className="p-6 sm:p-8">
+                    <div className="flex items-start gap-4">
+                      <div className="flex-shrink-0 w-12 h-12 rounded-2xl bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center shadow-lg">
+                        <Star className="h-6 w-6 text-white" />
+                      </div>
+                      <div className="flex-1">
+                        <h2 className="text-lg font-bold text-gray-900 mb-2">Highlights</h2>
+                        <div className="text-gray-700 text-lg leading-relaxed">
+                          <InlineMarkdown>{achievement.shortDescription}</InlineMarkdown>
+                        </div>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              </motion.div>
+            )}
+
+            {/* Main Description Card - with Markdown */}
             <motion.div
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: 0.1 }}
+              transition={{ delay: 0.15 }}
             >
-              <Card className="mb-8 border-amber-200">
-                <CardContent className="p-6">
-                  <h2 className="text-xl font-semibold text-amber-900 mb-4 flex items-center gap-2">
-                    <Trophy className="h-5 w-5 text-amber-600" />
-                    About This Achievement
-                  </h2>
-                  <p className="text-gray-700 text-lg leading-relaxed">
-                    {achievement.description}
-                  </p>
+              <Card className="mb-8 border-amber-200/50 bg-white/80 backdrop-blur-sm shadow-xl overflow-hidden">
+                <div className="h-1 bg-gradient-to-r from-amber-400 via-orange-500 to-amber-400" />
+                <CardContent className="p-6 sm:p-8">
+                  <div className="flex items-center gap-3 mb-6">
+                    <div className="flex-shrink-0 w-12 h-12 rounded-2xl bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center shadow-lg">
+                      <Trophy className="h-6 w-6 text-white" />
+                    </div>
+                    <h2 className="text-xl font-bold text-gray-900">About This Achievement</h2>
+                  </div>
+                  <div className="text-gray-700 text-lg leading-relaxed">
+                    <Markdown>{achievement.description}</Markdown>
+                  </div>
                 </CardContent>
               </Card>
             </motion.div>
@@ -316,49 +485,54 @@ export default function AchievementDetailPage() {
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: 0.2 }}
               >
-                <Card className="mb-8 border-amber-200">
-                  <CardContent className="p-6">
-                    <div className="prose prose-amber max-w-none">
-                      <Markdown>{achievement.content}</Markdown>
-                    </div>
+                <Card className="mb-8 border-amber-200/50 bg-white/80 backdrop-blur-sm shadow-xl overflow-hidden">
+                  <div className="h-1 bg-gradient-to-r from-amber-400 via-orange-500 to-amber-400" />
+                  <CardContent className="p-6 sm:p-8">
+                    <Markdown>{achievement.content}</Markdown>
                   </CardContent>
                 </Card>
               </motion.div>
             )}
 
-            {/* Image Gallery */}
+            {/* Premium Image Gallery */}
             {hasGallery && (
               <motion.div
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.3 }}
+                transition={{ delay: 0.25 }}
               >
-                <Card className="mb-8 border-amber-200">
-                  <CardContent className="p-6">
-                    <h2 className="text-xl font-semibold text-amber-900 mb-4 flex items-center gap-2">
-                      <ImageIcon className="h-5 w-5 text-amber-600" />
-                      Photo Gallery
-                    </h2>
+                <Card className="mb-8 border-amber-200/50 bg-white/80 backdrop-blur-sm shadow-xl overflow-hidden">
+                  <div className="h-1 bg-gradient-to-r from-amber-400 via-orange-500 to-amber-400" />
+                  <CardContent className="p-6 sm:p-8">
+                    <div className="flex items-center gap-3 mb-6">
+                      <div className="flex-shrink-0 w-12 h-12 rounded-2xl bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center shadow-lg">
+                        <ImageIcon className="h-6 w-6 text-white" />
+                      </div>
+                      <div>
+                        <h2 className="text-xl font-bold text-gray-900">Photo Gallery</h2>
+                        <p className="text-gray-500 text-sm">{achievement.imageGallery!.length} photos from this achievement</p>
+                      </div>
+                    </div>
                     <ImageGallery images={achievement.imageGallery!} />
                   </CardContent>
                 </Card>
               </motion.div>
             )}
 
-            {/* Navigation */}
+            {/* Navigation CTA */}
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
-              transition={{ delay: 0.4 }}
-              className="flex justify-center"
+              transition={{ delay: 0.3 }}
+              className="flex justify-center pt-8"
             >
               <Button
                 size="lg"
-                className="bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600"
+                className="bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 shadow-xl shadow-amber-500/20 px-8"
                 asChild
               >
                 <Link to="/achievements">
-                  <Trophy className="h-4 w-4 mr-2" />
+                  <Trophy className="h-5 w-5 mr-2" />
                   View All Achievements
                 </Link>
               </Button>

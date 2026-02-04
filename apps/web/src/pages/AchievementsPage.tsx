@@ -6,120 +6,162 @@ import { motion } from 'framer-motion';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { InlineMarkdown } from '@/components/ui/markdown';
 import { 
   Trophy, Calendar, Users, Loader2, 
-  Award, ChevronRight, Image as ImageIcon, Handshake
+  Award, ChevronRight, Image as ImageIcon, Handshake, Sparkles, Star
 } from 'lucide-react';
 import { api, type Achievement } from '@/lib/api';
 import { formatDate } from '@/lib/dateUtils';
 import { processImageUrl } from '@/lib/imageUtils';
 import { useSettings } from '@/context/SettingsContext';
 
-// Achievement Card Component with optimized Cloudinary images
+// Premium Achievement Card Component with glassmorphism and elegant design
 function AchievementCard({ achievement, index }: { achievement: Achievement; index: number }) {
-  // Use 'card' preset for optimal card thumbnail (640x360, 16:9)
   const coverImage = achievement.imageUrl ? processImageUrl(achievement.imageUrl, 'card') : null;
   const hasGallery = achievement.imageGallery && achievement.imageGallery.length > 0;
   
   return (
     <motion.div
-      initial={{ opacity: 0, y: 20 }}
+      initial={{ opacity: 0, y: 30 }}
       whileInView={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.5, delay: index * 0.1 }}
+      transition={{ duration: 0.6, delay: index * 0.1, ease: [0.22, 1, 0.36, 1] }}
       viewport={{ once: true }}
+      whileHover={{ y: -8 }}
+      className="group h-full"
     >
-      <Link to={`/achievements/${achievement.slug || achievement.id}`}>
-        <Card className="h-full overflow-hidden group hover:shadow-xl transition-all duration-300 cursor-pointer border-amber-200 hover:border-amber-400 bg-white">
-          {/* Image Container with aspect ratio maintained */}
-          <div className="relative aspect-video overflow-hidden bg-gradient-to-br from-amber-100 to-orange-100">
+      <Link to={`/achievements/${achievement.slug || achievement.id}`} className="block h-full">
+        <div className="relative h-full bg-white rounded-3xl overflow-hidden shadow-lg hover:shadow-2xl transition-all duration-500 border border-amber-100/50">
+          {/* Decorative gradient border effect */}
+          <div className="absolute inset-0 rounded-3xl bg-gradient-to-br from-amber-400/20 via-transparent to-orange-400/20 opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none" />
+          
+          {/* Image Container */}
+          <div className="relative aspect-[4/3] overflow-hidden">
             {coverImage ? (
-              <img
-                src={coverImage}
-                alt={achievement.title}
-                className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
-                loading="lazy"
-              />
+              <>
+                <img
+                  src={coverImage}
+                  alt={achievement.title}
+                  className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700 ease-out"
+                  loading="lazy"
+                />
+                {/* Premium multi-layer gradient overlay */}
+                <div className="absolute inset-0 bg-gradient-to-t from-black via-black/40 to-transparent opacity-70" />
+                <div className="absolute inset-0 bg-gradient-to-br from-amber-600/20 to-orange-600/20 mix-blend-overlay" />
+              </>
             ) : (
-              <div className="w-full h-full flex items-center justify-center">
-                <Trophy className="h-16 w-16 text-amber-300" />
+              <div className="w-full h-full bg-gradient-to-br from-amber-400 via-orange-500 to-amber-600 flex items-center justify-center relative">
+                <div className="absolute inset-0 opacity-30">
+                  <div className="absolute top-4 left-4 w-20 h-20 bg-white/20 rounded-full blur-2xl" />
+                  <div className="absolute bottom-4 right-4 w-32 h-32 bg-white/20 rounded-full blur-2xl" />
+                </div>
+                <Trophy className="h-20 w-20 text-white/40" />
+                <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent" />
               </div>
             )}
             
-            {/* Gradient overlay for text readability */}
-            <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/20 to-transparent" />
-            
-            {/* Featured Badge */}
+            {/* Featured Badge - Premium style */}
             {achievement.featured && (
-              <div className="absolute top-3 left-3">
-                <Badge className="bg-gradient-to-r from-amber-500 to-orange-500 text-white border-0 shadow-lg">
-                  <Award className="h-3 w-3 mr-1" />
-                  Featured
-                </Badge>
-              </div>
+              <motion.div 
+                initial={{ opacity: 0, x: -20 }}
+                animate={{ opacity: 1, x: 0 }}
+                className="absolute top-4 left-4 z-10"
+              >
+                <div className="flex items-center gap-1.5 px-3 py-1.5 bg-gradient-to-r from-amber-500 to-orange-500 rounded-full shadow-lg shadow-amber-500/30">
+                  <Sparkles className="h-3.5 w-3.5 text-white" />
+                  <span className="text-white text-xs font-bold tracking-wide">FEATURED</span>
+                </div>
+              </motion.div>
             )}
             
-            {/* Gallery Indicator */}
+            {/* Gallery Indicator - Glassmorphism style */}
             {hasGallery && (
-              <div className="absolute top-3 right-3">
-                <div className="bg-black/60 backdrop-blur-sm px-2.5 py-1.5 rounded-lg flex items-center gap-1.5 text-white text-xs font-medium shadow-lg">
-                  <ImageIcon className="h-3.5 w-3.5" />
-                  <span>{achievement.imageGallery!.length}+ Photos</span>
+              <div className="absolute top-4 right-4 z-10">
+                <div className="flex items-center gap-1.5 px-3 py-1.5 bg-white/20 backdrop-blur-md rounded-full border border-white/30 shadow-lg">
+                  <ImageIcon className="h-3.5 w-3.5 text-white" />
+                  <span className="text-white text-xs font-semibold">{achievement.imageGallery!.length}</span>
                 </div>
               </div>
             )}
             
-            {/* Title overlay at bottom */}
-            <div className="absolute bottom-0 left-0 right-0 p-4">
+            {/* Title overlay with elegant typography */}
+            <div className="absolute bottom-0 left-0 right-0 p-5">
               {achievement.eventName && (
-                <p className="text-amber-200 text-xs font-semibold mb-1 uppercase tracking-wide">
-                  {achievement.eventName}
-                </p>
+                <div className="flex items-center gap-2 mb-2">
+                  <div className="h-px flex-1 bg-gradient-to-r from-amber-400/80 to-transparent" />
+                  <span className="text-amber-300 text-xs font-bold uppercase tracking-widest">
+                    {achievement.eventName}
+                  </span>
+                  <div className="h-px flex-1 bg-gradient-to-l from-amber-400/80 to-transparent" />
+                </div>
               )}
-              <h3 className="text-white font-bold text-lg leading-tight line-clamp-2 drop-shadow-lg">
+              <h3 className="text-white font-bold text-xl leading-tight line-clamp-2 drop-shadow-2xl">
                 {achievement.title}
               </h3>
             </div>
           </div>
           
-          <CardContent className="p-4">
-            <p className="text-gray-600 text-sm line-clamp-2 mb-3 min-h-[2.5rem]">
-              {achievement.shortDescription || achievement.description}
-            </p>
+          <CardContent className="p-5 relative">
+            {/* Subtle top accent line */}
+            <div className="absolute top-0 left-5 right-5 h-px bg-gradient-to-r from-transparent via-amber-300/50 to-transparent" />
             
-            <div className="flex items-center justify-between text-sm mb-3">
-              <div className="flex items-center gap-1.5 text-amber-700">
-                <Users className="h-4 w-4 flex-shrink-0" />
-                <span className="line-clamp-1 font-medium">{achievement.achievedBy}</span>
-              </div>
-              <div className="flex items-center gap-1.5 text-gray-500">
-                <Calendar className="h-4 w-4 flex-shrink-0" />
-                <span className="text-xs">{formatDate(achievement.date)}</span>
-              </div>
+            {/* Description with markdown support */}
+            <div className="text-gray-600 text-sm line-clamp-2 mb-4 min-h-[2.5rem] leading-relaxed">
+              <InlineMarkdown>{achievement.shortDescription || achievement.description}</InlineMarkdown>
             </div>
             
-            {/* Tags */}
+            {/* Achiever info with premium avatar */}
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-3">
+                <div className="relative">
+                  <div className="w-10 h-10 rounded-full bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center text-white font-bold text-sm shadow-lg shadow-amber-500/20">
+                    {achievement.achievedBy?.charAt(0) || '?'}
+                  </div>
+                  <div className="absolute -bottom-1 -right-1 w-4 h-4 bg-green-500 rounded-full border-2 border-white flex items-center justify-center">
+                    <Star className="h-2 w-2 text-white" />
+                  </div>
+                </div>
+                <div>
+                  <p className="text-sm font-semibold text-gray-900 line-clamp-1">{achievement.achievedBy}</p>
+                  <div className="flex items-center gap-1 text-gray-500">
+                    <Calendar className="h-3 w-3" />
+                    <span className="text-xs">{formatDate(achievement.date)}</span>
+                  </div>
+                </div>
+              </div>
+              <Trophy className="h-5 w-5 text-amber-400" />
+            </div>
+            
+            {/* Tags with premium styling */}
             {achievement.tags && achievement.tags.length > 0 && (
-              <div className="flex flex-wrap gap-1.5 mb-3">
+              <div className="flex flex-wrap gap-2 mb-4">
                 {achievement.tags.slice(0, 3).map((tag, i) => (
-                  <Badge key={i} variant="outline" className="text-xs border-amber-200 text-amber-700 bg-amber-50">
+                  <span 
+                    key={i} 
+                    className="inline-flex items-center px-2.5 py-1 text-xs font-medium rounded-full bg-gradient-to-r from-amber-50 to-orange-50 text-amber-700 border border-amber-200/50"
+                  >
                     {tag}
-                  </Badge>
+                  </span>
                 ))}
                 {achievement.tags.length > 3 && (
-                  <Badge variant="outline" className="text-xs border-gray-200 text-gray-500">
+                  <span className="inline-flex items-center px-2.5 py-1 text-xs font-medium rounded-full bg-gray-100 text-gray-500">
                     +{achievement.tags.length - 3}
-                  </Badge>
+                  </span>
                 )}
               </div>
             )}
             
-            {/* View Details CTA */}
-            <div className="flex items-center text-amber-600 text-sm font-semibold group-hover:text-amber-700 pt-2 border-t border-amber-100">
-              <span>View Details</span>
-              <ChevronRight className="h-4 w-4 ml-1 group-hover:translate-x-1 transition-transform" />
+            {/* Premium CTA */}
+            <div className="flex items-center justify-between pt-4 border-t border-amber-100/50">
+              <span className="text-sm font-semibold text-amber-600 group-hover:text-amber-700 transition-colors">
+                Explore Achievement
+              </span>
+              <div className="flex items-center justify-center w-8 h-8 rounded-full bg-amber-100 group-hover:bg-amber-500 transition-all duration-300">
+                <ChevronRight className="h-4 w-4 text-amber-600 group-hover:text-white group-hover:translate-x-0.5 transition-all duration-300" />
+              </div>
             </div>
           </CardContent>
-        </Card>
+        </div>
       </Link>
     </motion.div>
   );

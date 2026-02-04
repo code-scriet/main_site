@@ -9,6 +9,69 @@ interface MarkdownProps {
 }
 
 /**
+ * InlineMarkdown component for rendering markdown in single-line contexts
+ * like card descriptions, short descriptions, etc.
+ * Strips block-level elements and renders inline content only.
+ */
+export function InlineMarkdown({ children, className = '' }: MarkdownProps) {
+  const inlineComponents: Components = {
+    // Convert paragraphs to spans for inline rendering
+    p: ({ children }) => <span>{children}</span>,
+    // Strong/Bold
+    strong: ({ children }) => (
+      <strong className="font-semibold text-gray-800">{children}</strong>
+    ),
+    // Emphasis/Italic
+    em: ({ children }) => (
+      <em className="italic">{children}</em>
+    ),
+    // Strikethrough
+    del: ({ children }) => (
+      <del className="line-through text-gray-500">{children}</del>
+    ),
+    // Links
+    a: ({ href, children }) => (
+      <a
+        href={href}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="text-amber-600 hover:text-amber-700 underline underline-offset-2"
+      >
+        {children}
+      </a>
+    ),
+    // Inline code
+    code: ({ children }) => (
+      <code className="bg-amber-100/50 text-amber-700 px-1 py-0.5 rounded text-sm font-mono">
+        {children}
+      </code>
+    ),
+    // Block elements converted to inline
+    ul: ({ children }) => <span>{children}</span>,
+    ol: ({ children }) => <span>{children}</span>,
+    li: ({ children }) => <span>{children} </span>,
+    blockquote: ({ children }) => <span className="italic text-gray-600">"{children}"</span>,
+    h1: ({ children }) => <span className="font-bold">{children}</span>,
+    h2: ({ children }) => <span className="font-bold">{children}</span>,
+    h3: ({ children }) => <span className="font-semibold">{children}</span>,
+    h4: ({ children }) => <span className="font-semibold">{children}</span>,
+    h5: ({ children }) => <span className="font-medium">{children}</span>,
+    h6: ({ children }) => <span className="font-medium">{children}</span>,
+  };
+
+  return (
+    <span className={className}>
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
+        components={inlineComponents}
+      >
+        {children}
+      </ReactMarkdown>
+    </span>
+  );
+}
+
+/**
  * Markdown component with full GFM (GitHub Flavored Markdown) support
  * Supports: tables, strikethrough, task lists, autolinks, code blocks, etc.
  */
@@ -206,4 +269,5 @@ export function Markdown({ children, className = '' }: MarkdownProps) {
   );
 }
 
+export { InlineMarkdown };
 export default Markdown;
