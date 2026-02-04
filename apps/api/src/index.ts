@@ -18,6 +18,7 @@ import { statsRouter } from './routes/stats.js';
 import { settingsRouter } from './routes/settings.js';
 import { hiringRouter } from './routes/hiring.js';
 import { uploadRouter } from './routes/upload.js';
+import { sitemapRouter } from './routes/sitemap.js';
 import { setupPassport } from './config/passport.js';
 import { requestLogger, logger } from './utils/logger.js';
 import { ApiResponse, ErrorCodes } from './utils/response.js';
@@ -131,6 +132,10 @@ app.get('/health', (req, res) => {
 app.get('/ping', (req, res) => {
   res.status(200).send('pong');
 });
+
+// Sitemap and SEO routes (no rate limiting, cached responses)
+app.use('/api/sitemap.xml', sitemapRouter);
+app.use('/api/robots.txt', sitemapRouter);
 
 // API Routes
 app.use('/api/auth', authLimiter, authRouter);

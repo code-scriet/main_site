@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { Layout } from '@/components/layout/Layout';
 import { SEO } from '@/components/SEO';
+import { AchievementSchema, BreadcrumbSchema } from '@/components/ui/schema';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -272,6 +273,24 @@ export default function AchievementDetailPage() {
         url={`/achievements/${achievement.slug || achievement.id}`}
         image={achievement.imageUrl}
         keywords={`${achievement.title}, code.scriet achievement, ${achievement.eventName || ''}, ${achievement.tags?.join(', ') || ''}`}
+      />
+      
+      {/* Schema markup for SEO */}
+      <AchievementSchema
+        title={achievement.title}
+        description={achievement.shortDescription || achievement.description}
+        image={achievement.imageUrl || 'https://codescriet.dev/logo.png'}
+        datePublished={achievement.createdAt}
+        dateModified={achievement.updatedAt || achievement.createdAt}
+        slug={achievement.slug || achievement.id}
+      />
+      
+      <BreadcrumbSchema
+        items={[
+          { name: 'Home', url: 'https://codescriet.dev' },
+          { name: 'Achievements', url: 'https://codescriet.dev/achievements' },
+          { name: achievement.title, url: `https://codescriet.dev/achievements/${achievement.slug || achievement.id}` },
+        ]}
       />
 
       {/* Premium Hero Section */}

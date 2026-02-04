@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Layout } from '@/components/layout/Layout';
 import { SEO } from '@/components/SEO';
+import { EventSchema, BreadcrumbSchema, FAQPageSchema } from '@/components/ui/schema';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -404,6 +405,34 @@ export default function EventDetailPage() {
         url={`/events/${event.slug}`}
         keywords={`${event.title}, ${event.eventType || 'event'}, code.scriet, ${event.tags?.join(', ') || ''}`}
       />
+
+      {/* Schema markup for SEO */}
+      <EventSchema
+        name={event.title}
+        description={event.shortDescription || event.description}
+        startDate={event.startDate}
+        endDate={event.endDate}
+        eventImage={event.imageUrl || 'https://codescriet.dev/logo.png'}
+        slug={event.slug}
+      />
+      
+      <BreadcrumbSchema
+        items={[
+          { name: 'Home', url: 'https://codescriet.dev' },
+          { name: 'Events', url: 'https://codescriet.dev/events' },
+          { name: event.title, url: `https://codescriet.dev/events/${event.slug}` },
+        ]}
+      />
+      
+      {/* FAQ Schema if FAQs exist */}
+      {event.faqs && event.faqs.length > 0 && (
+        <FAQPageSchema
+          items={event.faqs.map(faq => ({
+            question: faq.question,
+            answer: faq.answer,
+          }))}
+        />
+      )}
 
       {/* Notifications */}
       <AnimatePresence>
