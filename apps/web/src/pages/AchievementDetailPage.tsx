@@ -18,9 +18,14 @@ import { processImageUrl, processImageGallery } from '@/lib/imageUtils';
 // Premium Image Gallery Component with Lightbox
 function ImageGallery({ images }: { images: string[] }) {
   const [selectedImage, setSelectedImage] = useState<number | null>(null);
+  const [loadedImages, setLoadedImages] = useState<Set<number>>(new Set());
   
   const processedImages = processImageGallery(images, 'gallery');
   const thumbnails = processImageGallery(images, 'square');
+  
+  const handleImageLoad = (index: number) => {
+    setLoadedImages(prev => new Set([...prev, index]));
+  };
   
   if (!images || !images.length) {
     return (
@@ -36,7 +41,7 @@ function ImageGallery({ images }: { images: string[] }) {
   return (
     <>
       {/* Premium Gallery Grid */}
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
         {thumbnails.map((thumb, index) => (
           <motion.div
             key={index}
@@ -45,15 +50,21 @@ function ImageGallery({ images }: { images: string[] }) {
             transition={{ duration: 0.3, delay: index * 0.05 }}
             whileHover={{ scale: 1.03, y: -4 }}
             whileTap={{ scale: 0.98 }}
-            className="aspect-square rounded-2xl overflow-hidden cursor-pointer shadow-lg hover:shadow-2xl transition-all duration-300 relative group"
+            className="aspect-square rounded-2xl overflow-hidden cursor-pointer shadow-lg hover:shadow-2xl transition-all duration-300 relative group bg-gradient-to-br from-amber-100 to-orange-100"
             onClick={() => setSelectedImage(index)}
           >
+            {/* Loading skeleton */}
+            {!loadedImages.has(index) && (
+              <div className="absolute inset-0 bg-gradient-to-br from-amber-200/50 via-orange-200/50 to-amber-200/50 animate-pulse" />
+            )}
             <img
               src={thumb}
               alt={`Gallery image ${index + 1}`}
               className="w-full h-full object-cover"
+              onLoad={() => handleImageLoad(index)}
               onError={(e) => {
                 (e.target as HTMLImageElement).src = 'https://via.placeholder.com/400?text=Image+Not+Found';
+                handleImageLoad(index);
               }}
             />
             {/* Hover overlay */}
@@ -521,18 +532,18 @@ export default function AchievementDetailPage() {
 
             {/* Navigation CTA */}
             <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 0.3 }}
-              className="flex justify-center pt-8"
+              className="flex justify-center pt-12"
             >
               <Button
                 size="lg"
-                className="bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 shadow-xl shadow-amber-500/20 px-8"
+                className="bg-gradient-to-r from-amber-500 via-orange-500 to-amber-500 hover:from-amber-600 hover:via-orange-600 hover:to-amber-600 shadow-2xl shadow-amber-500/40 px-10 h-16 text-lg font-bold rounded-full hover:scale-105 transition-all duration-300"
                 asChild
               >
-                <Link to="/achievements">
-                  <Trophy className="h-5 w-5 mr-2" />
+                <Link to="/achievements" className="flex items-center gap-2">
+                  <Trophy className="h-6 w-6" />
                   View All Achievements
                 </Link>
               </Button>
