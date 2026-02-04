@@ -258,3 +258,92 @@ export function ImageObjectSchema({
 
   return <SchemaMarkup schema={schema} />;
 }
+
+/**
+ * Announcement/Blog schema for announcement pages
+ * Shows up in Google with rich snippets
+ */
+export function AnnouncementSchema({
+  title,
+  description,
+  image,
+  datePublished,
+  dateModified,
+  author = 'CodeScriet',
+  url,
+  slug,
+}: {
+  title: string;
+  description: string;
+  image?: string;
+  datePublished?: string;
+  dateModified?: string;
+  author?: string;
+  url?: string;
+  slug?: string;
+}) {
+  const articleUrl = url || `https://codescriet.dev/announcements/${slug}`;
+  const publishDate = datePublished || new Date().toISOString();
+  const modifiedDate = dateModified || new Date().toISOString();
+
+  const schema = {
+    '@context': 'https://schema.org',
+    '@type': 'BlogPosting',
+    headline: title,
+    description,
+    image: image || 'https://codescriet.dev/logo.png',
+    datePublished: publishDate,
+    dateModified: modifiedDate,
+    author: {
+      '@type': 'Organization',
+      name: author,
+      url: 'https://codescriet.dev',
+    },
+    publisher: {
+      '@type': 'Organization',
+      name: 'CodeScriet',
+      logo: {
+        '@type': 'ImageObject',
+        url: 'https://codescriet.dev/logo.png',
+      },
+    },
+    mainEntityOfPage: {
+      '@type': 'WebPage',
+      '@id': articleUrl,
+    },
+  };
+
+  return <SchemaMarkup schema={schema} />;
+}
+
+/**
+ * WebSite schema for the main site
+ * Helps Google understand site structure and enables sitelinks search box
+ */
+export function WebSiteSchema({
+  name = 'CodeScriet',
+  url = 'https://codescriet.dev',
+  description = 'CodeScriet - The Official Coding Club of SCRIET, CCS University',
+}: {
+  name?: string;
+  url?: string;
+  description?: string;
+}) {
+  const schema = {
+    '@context': 'https://schema.org',
+    '@type': 'WebSite',
+    name,
+    url,
+    description,
+    potentialAction: {
+      '@type': 'SearchAction',
+      target: {
+        '@type': 'EntryPoint',
+        urlTemplate: `${url}/events?search={search_term_string}`,
+      },
+      'query-input': 'required name=search_term_string',
+    },
+  };
+
+  return <SchemaMarkup schema={schema} />;
+}

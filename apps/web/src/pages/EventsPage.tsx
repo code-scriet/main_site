@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Layout } from '@/components/layout/Layout';
 import { SEO } from '@/components/SEO';
+import { BreadcrumbSchema } from '@/components/ui/schema';
 import { motion } from 'framer-motion';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -169,6 +170,12 @@ export default function EventsPage() {
         description="Discover upcoming workshops, hackathons, and coding events by code.scriet - SCRIET's coding club. Register and participate in exciting tech events."
         url="/events"
         keywords="code.scriet events, SCRIET hackathons, coding workshops, programming events, tech events"
+      />
+      <BreadcrumbSchema
+        items={[
+          { name: 'Home', url: 'https://codescriet.dev' },
+          { name: 'Events', url: 'https://codescriet.dev/events' },
+        ]}
       />
       {/* Hero Section */}
       <section className="py-16 bg-gradient-to-br from-amber-400 via-orange-500 to-amber-900 text-white">

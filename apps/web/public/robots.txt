@@ -1,13 +1,27 @@
-# robots.txt for code.scriet
+# robots.txt for codescriet.dev
 # https://www.robotstxt.org/robotstxt.html
 
 User-agent: *
 Allow: /
+Allow: /events/
+Allow: /achievements/
+Allow: /announcements/
+Allow: /team
+Allow: /about
 
 # Disallow admin and dashboard areas from indexing
+Disallow: /admin
 Disallow: /admin/
+Disallow: /dashboard
 Disallow: /dashboard/
 Disallow: /auth/
+Disallow: /profile
+Disallow: /signin
+Disallow: /signup
 
-# Sitemap location
-Sitemap: https://codescriet.dev/sitemap.xml
+# Dynamic sitemap hosted on API server
+# Contains all events, achievements, and announcements
+Sitemap: https://api.codescriet.dev/sitemap.xml
+
+# Crawl-delay for polite crawling
+Crawl-delay: 1

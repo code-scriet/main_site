@@ -9,29 +9,29 @@ This guide explains how to optimize your events, achievements, and pages for sea
 
 ### 1.1 Update Your Sitemap
 The site now generates a dynamic XML sitemap automatically:
-- **Location**: `https://codescriet.dev/api/sitemap.xml`
-- **What it does**: Tells Google about all your events and achievements
+- **Location**: `https://api.codescriet.dev/sitemap.xml` (served from API server)
+- **What it does**: Tells Google about all your events, achievements, AND announcements
 - **Refresh rate**: Updated every hour automatically
 - **Action required**: None! It's automatic.
 
 Verify it's working:
 ```bash
 # Visit in your browser
-https://codescriet.dev/api/sitemap.xml
+https://api.codescriet.dev/sitemap.xml
 ```
 
 ### 1.2 Check Robots.txt
-- **Location**: `https://codescriet.dev/api/robots.txt`
+- **Location**: `https://codescriet.dev/robots.txt` (static file on frontend)
 - **What it does**: Tells search engines what to index and what to skip
 - **Current rules**:
   - ✅ Index all public pages
   - ✅ Skip admin and API endpoints
-  - ✅ Points to dynamic sitemap
+  - ✅ Points to dynamic sitemap on API server
 
 ### 1.3 Submit to Google
 1. Go to [Google Search Console](https://search.google.com/search-console)
 2. Add your site domain (`codescriet.dev`)
-3. Upload sitemap URL: `https://codescriet.dev/api/sitemap.xml`
+3. Upload sitemap URL: `https://api.codescriet.dev/sitemap.xml`
 4. Request indexing for key pages
 
 ---

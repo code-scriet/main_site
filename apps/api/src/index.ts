@@ -133,9 +133,10 @@ app.get('/ping', (req, res) => {
   res.status(200).send('pong');
 });
 
-// Sitemap and SEO routes (no rate limiting, cached responses)
-app.use('/api/sitemap.xml', sitemapRouter);
-app.use('/api/robots.txt', sitemapRouter);
+// Sitemap and SEO routes at ROOT level (no rate limiting, for Google bots)
+// These are served at api.codescriet.dev/sitemap.xml and api.codescriet.dev/robots.txt
+app.use('/sitemap.xml', sitemapRouter);
+app.use('/robots.txt', sitemapRouter);
 
 // API Routes
 app.use('/api/auth', authLimiter, authRouter);

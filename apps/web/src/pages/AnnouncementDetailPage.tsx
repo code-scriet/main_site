@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Layout } from '@/components/layout/Layout';
 import { SEO } from '@/components/SEO';
+import { AnnouncementSchema, BreadcrumbSchema } from '@/components/ui/schema';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -238,6 +239,24 @@ export default function AnnouncementDetailPage() {
         url={`/announcements/${announcement.slug}`}
         image={announcement.imageUrl || undefined}
         keywords={tags.length > 0 ? tags.join(', ') : 'announcement, code.scriet, SCRIET'}
+      />
+      
+      {/* Schema markup for SEO */}
+      <AnnouncementSchema
+        title={announcement.title}
+        description={announcement.shortDescription || announcement.body.slice(0, 160)}
+        image={announcement.imageUrl || undefined}
+        datePublished={announcement.createdAt}
+        dateModified={announcement.createdAt}
+        slug={announcement.slug}
+      />
+      
+      <BreadcrumbSchema
+        items={[
+          { name: 'Home', url: 'https://codescriet.dev' },
+          { name: 'Announcements', url: 'https://codescriet.dev/announcements' },
+          { name: announcement.title, url: `https://codescriet.dev/announcements/${announcement.slug}` },
+        ]}
       />
       
       <article className="min-h-screen bg-gradient-to-br from-amber-50 via-orange-50 to-amber-100">

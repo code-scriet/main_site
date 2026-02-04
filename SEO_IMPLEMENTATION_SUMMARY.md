@@ -6,36 +6,46 @@ All three SEO optimization features have been successfully implemented and deplo
 
 ### 1. Dynamic Sitemap Generator ✅
 - **File**: `apps/api/src/routes/sitemap.ts`
-- **Endpoints**:
-  - `GET /api/sitemap.xml` - Dynamic XML sitemap
-  - `GET /api/robots.txt` - Robots.txt with sitemap reference
+- **Endpoints** (served from API server):
+  - `GET /sitemap.xml` - Dynamic XML sitemap with all content
+  - `GET /robots.txt` - Dynamic robots.txt
 - **Features**:
-  - Automatically includes all events and achievements
+  - Automatically includes all **events**, **achievements**, AND **announcements**
   - Prioritizes featured content (0.85 vs 0.70)
   - Includes last modified dates
   - Cached for 1 hour (sitemap) and 1 day (robots.txt)
   - Supports 10,000+ URLs out of the box
 
+**IMPORTANT**: The sitemap is served from the API server, NOT the frontend:
+- **Sitemap URL**: `https://api.codescriet.dev/sitemap.xml`
+- **Robots URL**: The frontend robots.txt points to the API sitemap
+
 **How to Use:**
 1. Go to [Google Search Console](https://search.google.com/search-console)
 2. Add property for `codescriet.dev`
-3. Submit sitemap: `https://codescriet.dev/api/sitemap.xml`
+3. Submit sitemap: `https://api.codescriet.dev/sitemap.xml`
 4. Request indexing for key pages
 
 ### 2. JSON-LD Schema Markup ✅
 - **File**: `apps/web/src/components/ui/schema.tsx`
-- **6 Schema Components**:
+- **8 Schema Components**:
   - `OrganizationSchema` - Homepage (brand recognition)
+  - `WebSiteSchema` - Homepage (enables sitelinks search box)
   - `EventSchema` - Event detail pages (rich results in Google)
   - `AchievementSchema` - Achievement pages (better ranking)
-  - `BreadcrumbSchema` - Navigation breadcrumbs
+  - `AnnouncementSchema` - Announcement pages (blog post schema)
+  - `BreadcrumbSchema` - Navigation breadcrumbs on all pages
   - `FAQPageSchema` - FAQ rich results
   - `ImageObjectSchema` - Individual image SEO
 
 **Implementations**:
-- ✅ Homepage: `OrganizationSchema`
+- ✅ Homepage: `OrganizationSchema` + `WebSiteSchema`
+- ✅ Events Listing: `BreadcrumbSchema`
 - ✅ Event Detail Page: `EventSchema` + `BreadcrumbSchema` + `FAQPageSchema`
+- ✅ Achievements Listing: `BreadcrumbSchema`
 - ✅ Achievement Detail Page: `AchievementSchema` + `BreadcrumbSchema`
+- ✅ Announcements Listing: `BreadcrumbSchema`
+- ✅ Announcement Detail Page: `AnnouncementSchema` + `BreadcrumbSchema`
 
 **Impact**: Shows structured data in Google search results, improves CTR
 
@@ -198,8 +208,8 @@ Build Status: ✅ Passing
 ## Quick Reference
 
 ### Endpoints
-- **Sitemap**: `https://codescriet.dev/api/sitemap.xml`
-- **Robots**: `https://codescriet.dev/api/robots.txt`
+- **Sitemap**: `https://api.codescriet.dev/sitemap.xml` ← Submit this to Google
+- **Robots**: `https://codescriet.dev/robots.txt` (points to API sitemap)
 
 ### Documentation
 - **Admin Guide**: `/SEO_GUIDE.md` (open in VS Code)

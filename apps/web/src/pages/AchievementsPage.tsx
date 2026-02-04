@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { Layout } from '@/components/layout/Layout';
 import { SEO } from '@/components/SEO';
+import { BreadcrumbSchema } from '@/components/ui/schema';
 import { motion } from 'framer-motion';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -212,6 +213,12 @@ export default function AchievementsPage() {
         description="Discover Code.Scriet's journey of empowering students through technology. From workshops to hackathons, see how we're building a culture of innovation and growth."
         url="/achievements"
         keywords="code.scriet achievements, SCRIET coding club awards, student empowerment, coding community impact, hackathon wins"
+      />
+      <BreadcrumbSchema
+        items={[
+          { name: 'Home', url: 'https://codescriet.dev' },
+          { name: 'Achievements', url: 'https://codescriet.dev/achievements' },
+        ]}
       />
       
       {/* Hero Section - Clean and Focused */}
