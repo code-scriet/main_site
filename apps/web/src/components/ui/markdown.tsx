@@ -269,5 +269,5 @@ export function Markdown({ children, className = '' }: MarkdownProps) {
   );
 }
 
-export { InlineMarkdown };
+export { Markdown, InlineMarkdown };
 export default Markdown;
