@@ -8,7 +8,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { InlineMarkdown } from '@/components/ui/markdown';
 import { 
-  Trophy, Calendar, Users, Loader2, 
+  Trophy, Calendar, Loader2, 
   Award, ChevronRight, Image as ImageIcon, Handshake, Sparkles, Star
 } from 'lucide-react';
 import { api, type Achievement } from '@/lib/api';
