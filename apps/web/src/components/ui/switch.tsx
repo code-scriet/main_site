@@ -1,5 +1,3 @@
-import * as React from 'react';
-
 interface SwitchProps {
   id?: string;
   checked?: boolean;
