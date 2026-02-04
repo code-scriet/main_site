@@ -268,6 +268,3 @@ export function Markdown({ children, className = '' }: MarkdownProps) {
     </div>
   );
 }
-
-export { Markdown, InlineMarkdown };
-export default Markdown;
