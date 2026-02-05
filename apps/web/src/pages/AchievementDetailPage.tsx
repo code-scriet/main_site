@@ -754,10 +754,10 @@ export default function AchievementDetailPage() {
       </section>
 
       {/* PREMIUM CONTENT SECTION */}
-      <section className="py-14 sm:py-20 bg-gradient-to-b from-gray-50/50 via-white to-gray-50/30 relative overflow-hidden">
+      <section className="py-14 sm:py-20 bg-gradient-to-br from-amber-50 via-orange-50/30 to-amber-50/50 relative overflow-hidden">
         {/* Decorative Elements */}
-        <div className="absolute top-0 left-0 w-[600px] h-[600px] bg-amber-100/20 rounded-full blur-[140px] -translate-x-1/2 -translate-y-1/2" />
-        <div className="absolute bottom-0 right-0 w-[600px] h-[600px] bg-blue-100/15 rounded-full blur-[140px] translate-x-1/2 translate-y-1/2" />
+        <div className="absolute top-0 left-0 w-[600px] h-[600px] bg-amber-200/20 rounded-full blur-[140px] -translate-x-1/2 -translate-y-1/2" />
+        <div className="absolute bottom-0 right-0 w-[600px] h-[600px] bg-orange-200/15 rounded-full blur-[140px] translate-x-1/2 translate-y-1/2" />
         
         <div className="container mx-auto px-4 relative">
           <div className="max-w-5xl mx-auto">
@@ -775,7 +775,7 @@ export default function AchievementDetailPage() {
                     animate={{ opacity: 1, scale: 1 }}
                     transition={{ delay: index * 0.05 }}
                     whileHover={{ scale: 1.05, y: -2 }}
-                    className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-gradient-to-r from-white to-gray-50 border border-gray-200 text-gray-700 shadow-sm hover:shadow-xl hover:border-amber-300 transition-all cursor-default"
+                    className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-gradient-to-br from-amber-50 to-orange-50 border border-amber-200 text-amber-700 shadow-sm hover:shadow-lg hover:border-amber-300 transition-all cursor-default"
                   >
                     <Tag className="h-4 w-4" />
                     <span className="font-semibold text-sm">{tag}</span>
@@ -792,8 +792,7 @@ export default function AchievementDetailPage() {
                 transition={{ delay: 0.1 }}
                 whileHover={{ y: -4, scale: 1.01 }}
               >
-                <Card className="mb-10 border border-gray-200 bg-gradient-to-br from-white via-gray-50/50 to-white shadow-lg hover:shadow-2xl overflow-hidden transition-all duration-300 group">
-                  <div className="h-1 bg-gradient-to-r from-amber-400 via-orange-400 to-pink-400" />
+                <Card className="mb-10 border border-amber-200 bg-gradient-to-br from-amber-50 to-orange-50 shadow-lg hover:shadow-2xl overflow-hidden transition-all duration-300 group">
                   <CardContent className="p-6 sm:p-7">
                     <div className="flex items-start gap-4">
                       <motion.div 
@@ -804,7 +803,7 @@ export default function AchievementDetailPage() {
                         <Star className="h-6 w-6 text-white" />
                       </motion.div>
                       <div className="flex-1">
-                        <h2 className="text-sm font-bold text-gray-500 mb-2 uppercase tracking-wider">Highlights</h2>
+                        <h2 className="text-sm font-bold text-amber-700 mb-2 uppercase tracking-wider">Highlights</h2>
                         <div className="text-gray-800 text-lg sm:text-xl font-medium leading-relaxed">
                           <InlineMarkdown>{achievement.shortDescription}</InlineMarkdown>
                         </div>
@@ -822,8 +821,7 @@ export default function AchievementDetailPage() {
               transition={{ delay: 0.15 }}
               whileHover={{ y: -4, scale: 1.01 }}
             >
-              <Card className="mb-10 border border-gray-200 bg-gradient-to-br from-white via-gray-50/50 to-white shadow-lg hover:shadow-2xl overflow-hidden transition-all duration-300 group">
-                <div className="h-1 bg-gradient-to-r from-amber-400 via-orange-400 to-pink-400" />
+              <Card className="mb-10 border border-amber-200 bg-gradient-to-br from-amber-50 to-orange-50 shadow-lg hover:shadow-2xl overflow-hidden transition-all duration-300 group">
                 <CardContent className="p-6 sm:p-7">
                   <div className="flex items-center gap-4 mb-6">
                     <motion.div
@@ -834,11 +832,11 @@ export default function AchievementDetailPage() {
                       <Sparkles className="h-6 w-6 text-white" />
                     </motion.div>
                     <div>
-                      <h2 className="text-xl font-bold text-gray-900 font-display">Impact & Outcome</h2>
-                      <p className="text-gray-500 text-sm">What we built, learned, and delivered for our community.</p>
+                      <h2 className="text-xl font-bold text-amber-900 font-display">Impact & Outcome</h2>
+                      <p className="text-amber-700 text-sm">What we built, learned, and delivered for our community.</p>
                     </div>
                   </div>
-                  <div className="text-gray-700 text-base leading-relaxed prose prose-gray max-w-none">
+                  <div className="text-gray-700 text-base leading-relaxed prose prose-amber max-w-none">
                     <Markdown>{achievement.description}</Markdown>
                   </div>
                 </CardContent>
@@ -853,10 +851,9 @@ export default function AchievementDetailPage() {
                 transition={{ delay: 0.2 }}
                 whileHover={{ y: -4, scale: 1.01 }}
               >
-                <Card className="mb-10 border border-gray-200 bg-gradient-to-br from-white via-gray-50/50 to-white shadow-lg hover:shadow-2xl overflow-hidden transition-all duration-300 group">
-                  <div className="h-1 bg-gradient-to-r from-amber-400 via-orange-400 to-pink-400" />
+                <Card className="mb-10 border border-amber-200 bg-gradient-to-br from-amber-50 to-orange-50 shadow-lg hover:shadow-2xl overflow-hidden transition-all duration-300 group">
                   <CardContent className="p-6 sm:p-7">
-                    <div className="prose prose-base prose-gray max-w-none">
+                    <div className="prose prose-base prose-amber max-w-none">
                       <Markdown>{achievement.content}</Markdown>
                     </div>
                   </CardContent>
@@ -872,8 +869,7 @@ export default function AchievementDetailPage() {
                 transition={{ delay: 0.25 }}
                 whileHover={{ y: -4, scale: 1.01 }}
               >
-                <Card className="mb-10 border border-gray-200 bg-gradient-to-br from-white via-gray-50/50 to-white shadow-lg hover:shadow-2xl overflow-hidden transition-all duration-300 group">
-                  <div className="h-1 bg-gradient-to-r from-amber-400 via-orange-400 to-pink-400" />
+                <Card className="mb-10 border border-amber-200 bg-gradient-to-br from-amber-50 to-orange-50 shadow-lg hover:shadow-2xl overflow-hidden transition-all duration-300 group">
                   <CardContent className="p-6 sm:p-7">
                     <div className="flex items-center gap-4 mb-6">
                       <motion.div
@@ -884,8 +880,8 @@ export default function AchievementDetailPage() {
                         <ImageIcon className="h-6 w-6 text-white" />
                       </motion.div>
                       <div>
-                        <h2 className="text-xl font-bold text-gray-900">Photo Gallery</h2>
-                        <p className="text-gray-500 text-sm">{achievement.imageGallery!.length} photos capturing this milestone</p>
+                        <h2 className="text-xl font-bold text-amber-900">Photo Gallery</h2>
+                        <p className="text-amber-700 text-sm">{achievement.imageGallery!.length} photos capturing this milestone</p>
                       </div>
                     </div>
                     <CinematicGallery images={achievement.imageGallery!} />

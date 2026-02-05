@@ -279,7 +279,7 @@ export default function AchievementsPage() {
       />
       
       {/* REFINED HERO - Compact two-column layout */}
-      <section className="relative py-20 sm:py-24 overflow-hidden bg-gradient-to-br from-amber-400 via-orange-500 to-amber-900">
+      <section className="relative py-16 sm:py-20 overflow-hidden bg-gradient-to-br from-amber-50 via-orange-50/50 to-amber-100/50">
         {/* Background texture */}
         <div className="absolute inset-0 opacity-20">
           <div 
@@ -306,7 +306,7 @@ export default function AchievementsPage() {
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.6, delay: 0.2 }}
               >
-                <Badge className="bg-white/20 backdrop-blur-sm border-white/30 text-white px-4 py-2 shadow-lg">
+                <Badge className="bg-amber-100 border-amber-200 text-amber-700 px-4 py-2 shadow-lg">
                   <Sparkles className="h-4 w-4 mr-2" />
                   Our Journey
                 </Badge>
@@ -318,10 +318,10 @@ export default function AchievementsPage() {
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.6, delay: 0.3 }}
               >
-                <h1 className="text-4xl sm:text-5xl lg:text-6xl font-black text-white leading-tight drop-shadow-lg">
+                <h1 className="text-4xl sm:text-5xl lg:text-6xl font-black text-gray-900 leading-tight">
                   Learning
                   <br />
-                  <span className="text-slate-900">
+                  <span className="text-transparent bg-clip-text bg-gradient-to-r from-amber-600 to-orange-600">
                     Through Doing
                   </span>
                 </h1>
@@ -332,7 +332,7 @@ export default function AchievementsPage() {
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.6, delay: 0.4 }}
-                className="text-lg text-white/90 leading-relaxed drop-shadow"
+                className="text-lg text-gray-700 leading-relaxed"
               >
                 These aren't just milestones—they're proof of what happens when students commit 
                 to learning together. Every workshop taught, every project built, every problem 
@@ -344,7 +344,7 @@ export default function AchievementsPage() {
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.6, delay: 0.5 }}
-                className="flex items-center gap-2 text-slate-900 font-bold drop-shadow"
+                className="flex items-center gap-2 text-amber-700 font-bold"
               >
                 <Target className="h-5 w-5" />
                 <span>Growth over glory</span>
@@ -363,25 +363,26 @@ export default function AchievementsPage() {
                 initial={{ opacity: 0, scale: 0.8 }}
                 animate={{ opacity: 1, scale: 1 }}
                 transition={{ duration: 0.6, delay: 0.4 }}
+                whileHover={{ y: -4, scale: 1.02 }}
                 className="col-span-2 relative group"
               >
-                <div className="relative bg-white/90 backdrop-blur-sm rounded-2xl p-8 shadow-2xl border border-white/50 hover:shadow-amber-900/20 transition-shadow">
-                  <div className="flex items-start justify-between mb-4">
-                    <div className="p-3 rounded-xl bg-amber-100 border border-amber-200">
-                      <Trophy className="h-8 w-8 text-amber-600" />
+                <div className="relative bg-white backdrop-blur-sm rounded-2xl p-6 shadow-xl border border-amber-100 hover:shadow-2xl transition-all duration-300">
+                  <div className="flex items-start justify-between mb-3">
+                    <div className="p-3 rounded-xl bg-gradient-to-br from-amber-50 to-orange-50 border border-amber-200">
+                      <Trophy className="h-7 w-7 text-amber-600" />
                     </div>
                     <motion.div
                       animate={{ rotate: [0, 5, -5, 0] }}
                       transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
                     >
-                      <Zap className="h-6 w-6 text-orange-500" />
+                      <Zap className="h-5 w-5 text-orange-500" />
                     </motion.div>
                   </div>
-                  <div className="text-5xl font-black text-slate-900 mb-2">
+                  <div className="text-4xl font-black text-gray-900 mb-1">
                     {achievements.length || "0"}
                   </div>
-                  <div className="text-amber-700 font-bold">Milestones</div>
-                  <div className="text-sm text-slate-600 mt-1">Learning moments captured</div>
+                  <div className="text-amber-700 font-bold text-sm">Milestones</div>
+                  <div className="text-xs text-gray-600 mt-1">Learning moments captured</div>
                 </div>
               </motion.div>
               
@@ -390,16 +391,17 @@ export default function AchievementsPage() {
                 initial={{ opacity: 0, scale: 0.8 }}
                 animate={{ opacity: 1, scale: 1 }}
                 transition={{ duration: 0.6, delay: 0.5 }}
+                whileHover={{ y: -4, scale: 1.05 }}
                 className="relative group"
               >
-                <div className="bg-white/90 backdrop-blur-sm rounded-2xl p-6 shadow-xl border border-white/50 h-full hover:shadow-2xl transition-shadow">
-                  <div className="p-2.5 rounded-xl bg-amber-100 border border-amber-200 w-fit mb-4">
-                    <Star className="h-6 w-6 text-amber-600" />
+                <div className="bg-white backdrop-blur-sm rounded-2xl p-5 shadow-lg border border-amber-100 h-full hover:shadow-xl transition-all duration-300">
+                  <div className="p-2.5 rounded-xl bg-gradient-to-br from-amber-50 to-orange-50 border border-amber-200 w-fit mb-3">
+                    <Star className="h-5 w-5 text-amber-600" />
                   </div>
-                  <div className="text-3xl font-black text-slate-900 mb-1">
+                  <div className="text-3xl font-black text-gray-900 mb-1">
                     {featuredAchievements.length || "0"}
                   </div>
-                  <div className="text-sm text-amber-700 font-bold">Featured</div>
+                  <div className="text-xs text-amber-700 font-bold">Featured</div>
                 </div>
               </motion.div>
               
@@ -408,14 +410,15 @@ export default function AchievementsPage() {
                 initial={{ opacity: 0, scale: 0.8 }}
                 animate={{ opacity: 1, scale: 1 }}
                 transition={{ duration: 0.6, delay: 0.6 }}
+                whileHover={{ y: -4, scale: 1.05 }}
                 className="relative group"
               >
-                <div className="bg-white/90 backdrop-blur-sm rounded-2xl p-6 shadow-xl border border-white/50 h-full hover:shadow-2xl transition-shadow">
-                  <div className="p-2.5 rounded-xl bg-orange-100 border border-orange-200 w-fit mb-4">
-                    <Users className="h-6 w-6 text-orange-600" />
+                <div className="bg-white backdrop-blur-sm rounded-2xl p-5 shadow-lg border border-amber-100 h-full hover:shadow-xl transition-all duration-300">
+                  <div className="p-2.5 rounded-xl bg-gradient-to-br from-orange-50 to-amber-50 border border-orange-200 w-fit mb-3">
+                    <Users className="h-5 w-5 text-orange-600" />
                   </div>
-                  <div className="text-3xl font-black text-slate-900 mb-1">300+</div>
-                  <div className="text-sm text-amber-700 font-bold">Members</div>
+                  <div className="text-3xl font-black text-gray-900 mb-1">300+</div>
+                  <div className="text-xs text-amber-700 font-bold">Members</div>
                 </div>
               </motion.div>
             </motion.div>
@@ -424,7 +427,7 @@ export default function AchievementsPage() {
       </section>
 
       {/* ACHIEVEMENT CARDS SECTION */}
-      <section className="py-20 sm:py-28 bg-gradient-to-b from-amber-50 via-white to-amber-50/30">
+      <section className="py-16 sm:py-20 bg-gradient-to-b from-white via-amber-50/30 to-white">
         <div className="container mx-auto px-4">
           {/* Section Header */}
           <motion.div
@@ -593,7 +596,7 @@ export default function AchievementsPage() {
       </section>
 
       {/* CTA SECTION - Collaboration & Partnership */}
-      <section className="py-24 sm:py-32 bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 relative overflow-hidden">
+      <section className="py-20 sm:py-24 bg-gradient-to-br from-amber-900 via-amber-800 to-orange-900 relative overflow-hidden">
         {/* Subtle texture */}
         <div className="absolute inset-0 opacity-10">
           <div 
@@ -619,9 +622,9 @@ export default function AchievementsPage() {
                 whileInView={{ scale: 1 }}
                 transition={{ type: "spring", duration: 0.6 }}
                 viewport={{ once: true }}
-                className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-amber-500/20 border border-amber-400/30 mb-6"
+                className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-amber-400/20 border border-amber-400/30 mb-6"
               >
-                <Users className="h-8 w-8 text-amber-400" />
+                <Users className="h-8 w-8 text-amber-300" />
               </motion.div>
               
               <h2 className="text-3xl sm:text-4xl md:text-5xl font-black text-white mb-6 leading-tight">
@@ -635,18 +638,26 @@ export default function AchievementsPage() {
             </div>
             
             <div className="grid md:grid-cols-2 gap-6 mb-10">
-              <div className="bg-white/5 backdrop-blur-sm rounded-2xl p-6 border border-white/10">
-                <h3 className="text-xl font-bold text-white mb-2">For Sponsors</h3>
-                <p className="text-gray-400 text-sm leading-relaxed">
+              <motion.div 
+                whileHover={{ y: -4, scale: 1.02 }}
+                transition={{ duration: 0.3 }}
+                className="bg-amber-950/30 backdrop-blur-sm rounded-2xl p-5 border border-amber-700/30 hover:border-amber-600/50 transition-all duration-300"
+              >
+                <h3 className="text-lg font-bold text-white mb-2">For Sponsors</h3>
+                <p className="text-amber-200 text-sm leading-relaxed">
                   Support student development through workshop sponsorships, event partnerships, or resource contributions.
                 </p>
-              </div>
-              <div className="bg-white/5 backdrop-blur-sm rounded-2xl p-6 border border-white/10">
-                <h3 className="text-xl font-bold text-white mb-2">For Organizations</h3>
-                <p className="text-gray-400 text-sm leading-relaxed">
+              </motion.div>
+              <motion.div 
+                whileHover={{ y: -4, scale: 1.02 }}
+                transition={{ duration: 0.3 }}
+                className="bg-amber-950/30 backdrop-blur-sm rounded-2xl p-5 border border-amber-700/30 hover:border-amber-600/50 transition-all duration-300"
+              >
+                <h3 className="text-lg font-bold text-white mb-2">For Organizations</h3>
+                <p className="text-amber-200 text-sm leading-relaxed">
                   Collaborate on projects, host technical sessions, or provide mentorship opportunities for our members.
                 </p>
-              </div>
+              </motion.div>
             </div>
             
             <div className="text-center">
