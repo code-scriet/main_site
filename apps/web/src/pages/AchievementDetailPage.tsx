@@ -382,7 +382,7 @@ function CinematicGallery({ images }: { images: string[] }) {
               initial={{ opacity: 0, y: 30 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: 30 }}
-              className="absolute bottom-6 left-1/2 -translate-x-1/2 flex items-center gap-4 px-6 py-3 rounded-2xl bg-black/60 backdrop-blur-xl border border-white/10 z-50"
+              className="absolute bottom-6 left-1/2 -translate-x-1/2 flex items-center gap-4 px-5 py-3 rounded-2xl bg-white/10 backdrop-blur-2xl border border-white/10 shadow-2xl shadow-black/30 z-50"
             >
               {/* Zoom Controls */}
               <div className="flex items-center gap-2">
@@ -416,7 +416,7 @@ function CinematicGallery({ images }: { images: string[] }) {
               <div className="w-px h-6 bg-white/20" />
 
               {/* Thumbnail Strip */}
-              <div className="flex items-center gap-2 max-w-[50vw] overflow-x-auto scrollbar-hide">
+              <div className="flex items-center gap-2 max-w-[52vw] overflow-x-auto scrollbar-hide rounded-xl px-2 py-1 bg-white/5 border border-white/10">
                 {thumbnails.slice(0, 10).map((thumb, index) => (
                   <motion.button
                     key={index}
@@ -427,10 +427,10 @@ function CinematicGallery({ images }: { images: string[] }) {
                       setSelectedImage(index);
                       setZoomLevel(1);
                     }}
-                    className={`w-12 h-12 rounded-lg overflow-hidden flex-shrink-0 transition-all duration-300 ${
+                    className={`w-11 h-11 rounded-xl overflow-hidden flex-shrink-0 transition-all duration-300 ${
                       index === selectedImage 
-                        ? 'ring-2 ring-amber-400 shadow-lg shadow-amber-400/30 scale-110' 
-                        : 'opacity-60 hover:opacity-100'
+                        ? 'ring-2 ring-amber-400/80 shadow-lg shadow-amber-400/30 scale-105 bg-white/10' 
+                        : 'opacity-60 hover:opacity-100 hover:ring-1 hover:ring-white/30'
                     }`}
                   >
                     <img src={thumb} alt="" className="w-full h-full object-cover" />
@@ -819,9 +819,12 @@ export default function AchievementDetailPage() {
                 <CardContent className="p-8 sm:p-10">
                   <div className="flex items-center gap-4 mb-8">
                     <div className="flex-shrink-0 w-14 h-14 rounded-2xl bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center shadow-lg shadow-amber-500/30">
-                      <Trophy className="h-7 w-7 text-white" />
+                      <Sparkles className="h-7 w-7 text-white" />
                     </div>
-                    <h2 className="text-2xl font-bold text-gray-900">About This Achievement</h2>
+                    <div>
+                      <h2 className="text-2xl font-bold text-gray-900 font-display">Impact & Outcome</h2>
+                      <p className="text-gray-500 text-sm">What we built, learned, and delivered for our community.</p>
+                    </div>
                   </div>
                   <div className="text-gray-700 text-lg leading-relaxed prose prose-amber max-w-none">
                     <Markdown>{achievement.description}</Markdown>
