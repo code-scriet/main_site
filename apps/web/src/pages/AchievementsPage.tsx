@@ -1,112 +1,157 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { Layout } from '@/components/layout/Layout';
 import { SEO } from '@/components/SEO';
 import { BreadcrumbSchema } from '@/components/ui/schema';
-import { motion } from 'framer-motion';
-import { Card, CardContent } from '@/components/ui/card';
+import { motion, useScroll, useTransform, useInView } from 'framer-motion';
+import { CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { InlineMarkdown } from '@/components/ui/markdown';
 import { 
   Trophy, Calendar, Loader2, 
-  Award, ChevronRight, Image as ImageIcon, Handshake, Sparkles, Star
+  Award, ChevronRight, Image as ImageIcon, Handshake, Sparkles, Star,
+  Zap, TrendingUp, Target, Users, Medal
 } from 'lucide-react';
 import { api, type Achievement } from '@/lib/api';
 import { formatDate } from '@/lib/dateUtils';
 import { processImageUrl } from '@/lib/imageUtils';
 import { useSettings } from '@/context/SettingsContext';
 
-// Premium Achievement Card Component with glassmorphism and elegant design
-function AchievementCard({ achievement, index }: { achievement: Achievement; index: number }) {
+// ============================================
+// PREMIUM ACHIEVEMENT CARD
+// Elegant glassmorphism with hover effects
+// ============================================
+
+function AchievementCard({ achievement, index, featured = false }: { 
+  achievement: Achievement; 
+  index: number;
+  featured?: boolean;
+}) {
   const coverImage = achievement.imageUrl ? processImageUrl(achievement.imageUrl, 'card') : null;
   const hasGallery = achievement.imageGallery && achievement.imageGallery.length > 0;
+  const cardRef = useRef(null);
+  const isInView = useInView(cardRef, { once: true, margin: "-50px" });
   
   return (
     <motion.div
-      initial={{ opacity: 0, y: 30 }}
-      whileInView={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.6, delay: index * 0.1, ease: [0.22, 1, 0.36, 1] }}
-      viewport={{ once: true }}
-      whileHover={{ y: -8 }}
-      className="group h-full"
+      ref={cardRef}
+      initial={{ opacity: 0, y: 50 }}
+      animate={isInView ? { opacity: 1, y: 0 } : { opacity: 0, y: 50 }}
+      transition={{ 
+        duration: 0.6, 
+        delay: index * 0.1, 
+        ease: [0.22, 1, 0.36, 1] 
+      }}
+      whileHover={{ y: -12, transition: { duration: 0.3 } }}
+      className={`group h-full ${featured ? 'md:col-span-2 lg:col-span-1' : ''}`}
     >
       <Link to={`/achievements/${achievement.slug || achievement.id}`} className="block h-full">
         <div className="relative h-full bg-white rounded-3xl overflow-hidden shadow-lg hover:shadow-2xl transition-all duration-500 border border-amber-100/50">
-          {/* Decorative gradient border effect */}
-          <div className="absolute inset-0 rounded-3xl bg-gradient-to-br from-amber-400/20 via-transparent to-orange-400/20 opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none" />
+          {/* Animated gradient border on hover */}
+          <div className="absolute inset-0 rounded-3xl opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none">
+            <div className="absolute inset-[-2px] rounded-3xl bg-gradient-to-r from-amber-400 via-orange-500 to-amber-400 blur-sm" />
+          </div>
+          <div className="absolute inset-[1px] bg-white rounded-3xl" />
           
           {/* Image Container */}
           <div className="relative aspect-[4/3] overflow-hidden">
             {coverImage ? (
               <>
-                <img
+                <motion.img
                   src={coverImage}
                   alt={achievement.title}
-                  className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700 ease-out"
+                  className="w-full h-full object-cover"
                   loading="lazy"
+                  whileHover={{ scale: 1.1 }}
+                  transition={{ duration: 0.6 }}
                 />
                 {/* Premium multi-layer gradient overlay */}
                 <div className="absolute inset-0 bg-gradient-to-t from-black via-black/40 to-transparent opacity-70" />
                 <div className="absolute inset-0 bg-gradient-to-br from-amber-600/20 to-orange-600/20 mix-blend-overlay" />
               </>
             ) : (
-              <div className="w-full h-full bg-gradient-to-br from-amber-400 via-orange-500 to-amber-600 flex items-center justify-center relative">
-                <div className="absolute inset-0 opacity-30">
-                  <div className="absolute top-4 left-4 w-20 h-20 bg-white/20 rounded-full blur-2xl" />
-                  <div className="absolute bottom-4 right-4 w-32 h-32 bg-white/20 rounded-full blur-2xl" />
-                </div>
-                <Trophy className="h-20 w-20 text-white/40" />
+              <div className="w-full h-full bg-gradient-to-br from-amber-400 via-orange-500 to-amber-600 flex items-center justify-center relative overflow-hidden">
+                {/* Animated background orbs */}
+                <motion.div 
+                  animate={{ 
+                    x: [0, 20, 0], 
+                    y: [0, -20, 0],
+                    scale: [1, 1.2, 1]
+                  }}
+                  transition={{ duration: 8, repeat: Infinity }}
+                  className="absolute top-4 left-4 w-24 h-24 bg-white/20 rounded-full blur-2xl" 
+                />
+                <motion.div 
+                  animate={{ 
+                    x: [0, -20, 0], 
+                    y: [0, 20, 0],
+                    scale: [1, 1.1, 1]
+                  }}
+                  transition={{ duration: 6, repeat: Infinity, delay: 1 }}
+                  className="absolute bottom-4 right-4 w-32 h-32 bg-white/20 rounded-full blur-2xl" 
+                />
+                <Trophy className="h-20 w-20 text-white/40 relative z-10" />
                 <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent" />
               </div>
             )}
             
-            {/* Featured Badge - Premium style */}
+            {/* Featured Badge - Premium glass style */}
             {achievement.featured && (
               <motion.div 
-                initial={{ opacity: 0, x: -20 }}
-                animate={{ opacity: 1, x: 0 }}
+                initial={{ opacity: 0, x: -20, scale: 0.8 }}
+                animate={{ opacity: 1, x: 0, scale: 1 }}
+                transition={{ delay: 0.2, type: "spring" }}
                 className="absolute top-4 left-4 z-10"
               >
-                <div className="flex items-center gap-1.5 px-3 py-1.5 bg-gradient-to-r from-amber-500 to-orange-500 rounded-full shadow-lg shadow-amber-500/30">
-                  <Sparkles className="h-3.5 w-3.5 text-white" />
-                  <span className="text-white text-xs font-bold tracking-wide">FEATURED</span>
+                <div className="flex items-center gap-1.5 px-4 py-2 bg-gradient-to-r from-amber-500 to-orange-500 rounded-full shadow-lg shadow-amber-500/40 backdrop-blur-sm">
+                  <Sparkles className="h-4 w-4 text-white animate-pulse" />
+                  <span className="text-white text-xs font-bold tracking-wider">FEATURED</span>
                 </div>
               </motion.div>
             )}
             
-            {/* Gallery Indicator - Glassmorphism style */}
+            {/* Gallery Indicator */}
             {hasGallery && (
               <div className="absolute top-4 right-4 z-10">
-                <div className="flex items-center gap-1.5 px-3 py-1.5 bg-white/20 backdrop-blur-md rounded-full border border-white/30 shadow-lg">
+                <div className="flex items-center gap-1.5 px-3 py-1.5 bg-black/40 backdrop-blur-md rounded-full border border-white/20 shadow-lg">
                   <ImageIcon className="h-3.5 w-3.5 text-white" />
                   <span className="text-white text-xs font-semibold">{achievement.imageGallery!.length}</span>
                 </div>
               </div>
             )}
             
-            {/* Title overlay with elegant typography */}
-            <div className="absolute bottom-0 left-0 right-0 p-5">
+            {/* Title overlay */}
+            <div className="absolute bottom-0 left-0 right-0 p-5 z-10">
               {achievement.eventName && (
-                <div className="flex items-center gap-2 mb-2">
+                <motion.div 
+                  initial={{ opacity: 0, y: 10 }}
+                  whileInView={{ opacity: 1, y: 0 }}
+                  className="flex items-center gap-2 mb-2"
+                >
                   <div className="h-px flex-1 bg-gradient-to-r from-amber-400/80 to-transparent" />
                   <span className="text-amber-300 text-xs font-bold uppercase tracking-widest">
                     {achievement.eventName}
                   </span>
                   <div className="h-px flex-1 bg-gradient-to-l from-amber-400/80 to-transparent" />
-                </div>
+                </motion.div>
               )}
-              <h3 className="text-white font-bold text-xl leading-tight line-clamp-2 drop-shadow-2xl">
+              <h3 className="text-white font-bold text-xl leading-tight line-clamp-2 drop-shadow-2xl group-hover:text-amber-100 transition-colors">
                 {achievement.title}
               </h3>
             </div>
+
+            {/* Hover shine effect */}
+            <div className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-500">
+              <div className="absolute inset-0 bg-gradient-to-tr from-transparent via-white/10 to-transparent translate-x-[-100%] group-hover:translate-x-[100%] transition-transform duration-1000" />
+            </div>
           </div>
           
-          <CardContent className="p-5 relative">
+          <CardContent className="p-5 relative bg-white">
             {/* Subtle top accent line */}
             <div className="absolute top-0 left-5 right-5 h-px bg-gradient-to-r from-transparent via-amber-300/50 to-transparent" />
             
-            {/* Description with markdown support */}
+            {/* Description */}
             <div className="text-gray-600 text-sm line-clamp-2 mb-4 min-h-[2.5rem] leading-relaxed">
               <InlineMarkdown>{achievement.shortDescription || achievement.description}</InlineMarkdown>
             </div>
@@ -115,10 +160,10 @@ function AchievementCard({ achievement, index }: { achievement: Achievement; ind
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center gap-3">
                 <div className="relative">
-                  <div className="w-10 h-10 rounded-full bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center text-white font-bold text-sm shadow-lg shadow-amber-500/20">
+                  <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center text-white font-bold text-sm shadow-lg shadow-amber-500/20 group-hover:shadow-amber-500/40 transition-shadow">
                     {achievement.achievedBy?.charAt(0) || '?'}
                   </div>
-                  <div className="absolute -bottom-1 -right-1 w-4 h-4 bg-green-500 rounded-full border-2 border-white flex items-center justify-center">
+                  <div className="absolute -bottom-1 -right-1 w-4 h-4 bg-gradient-to-br from-green-400 to-emerald-500 rounded-full border-2 border-white flex items-center justify-center shadow-sm">
                     <Star className="h-2 w-2 text-white" />
                   </div>
                 </div>
@@ -130,22 +175,27 @@ function AchievementCard({ achievement, index }: { achievement: Achievement; ind
                   </div>
                 </div>
               </div>
-              <Trophy className="h-5 w-5 text-amber-400" />
+              <motion.div 
+                whileHover={{ rotate: 12, scale: 1.1 }}
+                className="p-2 rounded-xl bg-amber-50 group-hover:bg-amber-100 transition-colors"
+              >
+                <Trophy className="h-5 w-5 text-amber-500" />
+              </motion.div>
             </div>
             
-            {/* Tags with premium styling */}
+            {/* Tags */}
             {achievement.tags && achievement.tags.length > 0 && (
               <div className="flex flex-wrap gap-2 mb-4">
                 {achievement.tags.slice(0, 3).map((tag, i) => (
                   <span 
                     key={i} 
-                    className="inline-flex items-center px-2.5 py-1 text-xs font-medium rounded-full bg-gradient-to-r from-amber-50 to-orange-50 text-amber-700 border border-amber-200/50"
+                    className="inline-flex items-center px-2.5 py-1 text-xs font-medium rounded-lg bg-gradient-to-r from-amber-50 to-orange-50 text-amber-700 border border-amber-200/50"
                   >
                     {tag}
                   </span>
                 ))}
                 {achievement.tags.length > 3 && (
-                  <span className="inline-flex items-center px-2.5 py-1 text-xs font-medium rounded-full bg-gray-100 text-gray-500">
+                  <span className="inline-flex items-center px-2.5 py-1 text-xs font-medium rounded-lg bg-gray-100 text-gray-500">
                     +{achievement.tags.length - 3}
                   </span>
                 )}
@@ -157,9 +207,12 @@ function AchievementCard({ achievement, index }: { achievement: Achievement; ind
               <span className="text-sm font-semibold text-amber-600 group-hover:text-amber-700 transition-colors">
                 Explore Achievement
               </span>
-              <div className="flex items-center justify-center w-8 h-8 rounded-full bg-amber-100 group-hover:bg-amber-500 transition-all duration-300">
-                <ChevronRight className="h-4 w-4 text-amber-600 group-hover:text-white group-hover:translate-x-0.5 transition-all duration-300" />
-              </div>
+              <motion.div 
+                whileHover={{ x: 4 }}
+                className="flex items-center justify-center w-9 h-9 rounded-xl bg-amber-100 group-hover:bg-gradient-to-br group-hover:from-amber-500 group-hover:to-orange-500 transition-all duration-300"
+              >
+                <ChevronRight className="h-5 w-5 text-amber-600 group-hover:text-white transition-colors duration-300" />
+              </motion.div>
             </div>
           </CardContent>
         </div>
@@ -168,12 +221,63 @@ function AchievementCard({ achievement, index }: { achievement: Achievement; ind
   );
 }
 
+// ============================================
+// STATS COUNTER COMPONENT
+// ============================================
+
+function StatCard({ icon: Icon, value, label, delay }: { 
+  icon: React.ElementType; 
+  value: string | number; 
+  label: string;
+  delay: number;
+}) {
+  const ref = useRef(null);
+  const isInView = useInView(ref, { once: true });
+
+  return (
+    <motion.div
+      ref={ref}
+      initial={{ opacity: 0, y: 20, scale: 0.9 }}
+      animate={isInView ? { opacity: 1, y: 0, scale: 1 } : {}}
+      transition={{ duration: 0.5, delay }}
+      className="text-center"
+    >
+      <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-white/20 backdrop-blur-sm mb-3 shadow-lg">
+        <Icon className="h-7 w-7 text-white" />
+      </div>
+      <motion.div 
+        initial={{ scale: 0.5 }}
+        animate={isInView ? { scale: 1 } : {}}
+        transition={{ duration: 0.3, delay: delay + 0.2, type: "spring" }}
+        className="text-4xl md:text-5xl font-black text-white mb-1"
+      >
+        {value}
+      </motion.div>
+      <div className="text-amber-100 text-sm font-medium">{label}</div>
+    </motion.div>
+  );
+}
+
+// ============================================
+// MAIN PAGE COMPONENT
+// ============================================
+
 export default function AchievementsPage() {
   const [activeYear, setActiveYear] = useState('All');
   const [achievements, setAchievements] = useState<Achievement[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const { settings } = useSettings();
+  const heroRef = useRef(null);
+  
+  const { scrollYProgress } = useScroll({
+    target: heroRef,
+    offset: ["start start", "end start"]
+  });
+  
+  const heroOpacity = useTransform(scrollYProgress, [0, 1], [1, 0]);
+  const heroScale = useTransform(scrollYProgress, [0, 1], [1, 1.1]);
+  const heroY = useTransform(scrollYProgress, [0, 1], [0, 100]);
 
   useEffect(() => {
     const fetchAchievements = async () => {
@@ -221,48 +325,147 @@ export default function AchievementsPage() {
         ]}
       />
       
-      {/* Hero Section - Clean and Focused */}
-      <section className="py-16 sm:py-24 bg-gradient-to-br from-amber-400 via-orange-500 to-amber-600 text-white relative overflow-hidden">
-        <div className="absolute inset-0 opacity-10">
-          <div className="absolute top-10 left-10 w-72 h-72 bg-white rounded-full blur-3xl animate-pulse" />
-          <div className="absolute bottom-10 right-10 w-96 h-96 bg-white rounded-full blur-3xl animate-pulse" style={{ animationDelay: '1s' }} />
-        </div>
+      {/* PREMIUM HERO SECTION with Parallax */}
+      <section ref={heroRef} className="relative min-h-[70vh] md:min-h-[80vh] flex items-center overflow-hidden">
+        {/* Animated Background */}
+        <motion.div 
+          style={{ scale: heroScale, y: heroY }}
+          className="absolute inset-0 bg-gradient-to-br from-amber-400 via-orange-500 to-amber-600"
+        >
+          {/* Animated Orbs */}
+          <motion.div 
+            animate={{ 
+              x: [0, 100, 0], 
+              y: [0, -50, 0],
+              scale: [1, 1.2, 1]
+            }}
+            transition={{ duration: 20, repeat: Infinity, ease: "linear" }}
+            className="absolute top-10 left-10 w-96 h-96 bg-white/10 rounded-full blur-3xl" 
+          />
+          <motion.div 
+            animate={{ 
+              x: [0, -100, 0], 
+              y: [0, 50, 0],
+              scale: [1, 1.3, 1]
+            }}
+            transition={{ duration: 25, repeat: Infinity, ease: "linear", delay: 5 }}
+            className="absolute bottom-10 right-10 w-[500px] h-[500px] bg-white/10 rounded-full blur-3xl" 
+          />
+          <motion.div 
+            animate={{ 
+              x: [0, 50, 0], 
+              y: [0, 100, 0]
+            }}
+            transition={{ duration: 15, repeat: Infinity, ease: "linear", delay: 2 }}
+            className="absolute top-1/2 left-1/3 w-72 h-72 bg-orange-300/20 rounded-full blur-3xl" 
+          />
+          
+          {/* Grid pattern overlay */}
+          <div className="absolute inset-0 opacity-10 bg-[url('data:image/svg+xml,%3Csvg width=%2260%22 height=%2260%22 viewBox=%220 0 60 60%22 xmlns=%22http://www.w3.org/2000/svg%22%3E%3Cg fill=%22none%22 fill-rule=%22evenodd%22%3E%3Cg fill=%22%23ffffff%22 fill-opacity=%221%22%3E%3Cpath d=%22M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z%22/%3E%3C/g%3E%3C/g%3E%3C/svg%3E')]" />
+        </motion.div>
         
-        <div className="container mx-auto px-4 relative">
-          <motion.div
-            initial={{ opacity: 0, y: 30 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.7 }}
-            className="text-center max-w-4xl mx-auto"
-          >
+        {/* Hero Content */}
+        <motion.div 
+          style={{ opacity: heroOpacity }}
+          className="container mx-auto px-4 relative z-10"
+        >
+          <div className="text-center max-w-5xl mx-auto">
+            {/* Floating Trophy Icon */}
             <motion.div 
-              initial={{ scale: 0 }}
-              animate={{ scale: 1 }}
-              transition={{ duration: 0.5, delay: 0.2 }}
-              className="inline-flex h-20 w-20 items-center justify-center rounded-full bg-white/20 backdrop-blur-sm mb-6 shadow-2xl"
+              initial={{ scale: 0, rotate: -180 }}
+              animate={{ scale: 1, rotate: 0 }}
+              transition={{ duration: 0.8, type: "spring", delay: 0.2 }}
+              className="relative inline-block mb-8"
             >
-              <Trophy className="h-10 w-10 text-white" />
+              <motion.div 
+                animate={{ 
+                  boxShadow: [
+                    "0 0 0 0 rgba(255,255,255,0.4)",
+                    "0 0 0 20px rgba(255,255,255,0)",
+                    "0 0 0 0 rgba(255,255,255,0)"
+                  ]
+                }}
+                transition={{ duration: 2, repeat: Infinity }}
+                className="inline-flex h-24 w-24 items-center justify-center rounded-3xl bg-white/20 backdrop-blur-md border border-white/30 shadow-2xl"
+              >
+                <Trophy className="h-12 w-12 text-white" />
+              </motion.div>
             </motion.div>
             
-            <h1 className="text-4xl sm:text-5xl md:text-6xl font-bold mb-4 tracking-tight">
-              Our Achievements
-            </h1>
+            {/* Main Heading */}
+            <motion.h1 
+              initial={{ opacity: 0, y: 30 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.8, delay: 0.3 }}
+              className="text-5xl sm:text-6xl md:text-7xl lg:text-8xl font-black text-white mb-6 tracking-tight"
+            >
+              Our{' '}
+              <span className="relative">
+                <span className="relative z-10">Achievements</span>
+                <motion.span 
+                  initial={{ scaleX: 0 }}
+                  animate={{ scaleX: 1 }}
+                  transition={{ duration: 0.8, delay: 0.8 }}
+                  className="absolute bottom-2 left-0 right-0 h-4 bg-white/30 -z-0 origin-left"
+                />
+              </span>
+            </motion.h1>
             
-            <p className="text-xl sm:text-2xl text-amber-50 font-medium mb-6">
+            {/* Subtitle */}
+            <motion.p 
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.8, delay: 0.5 }}
+              className="text-xl sm:text-2xl md:text-3xl text-amber-50 font-medium mb-4"
+            >
               Celebrating milestones that define our journey
-            </p>
+            </motion.p>
             
-            <p className="text-base sm:text-lg text-amber-100 max-w-2xl mx-auto leading-relaxed">
+            <motion.p 
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.8, delay: 0.6 }}
+              className="text-base sm:text-lg text-amber-100/80 max-w-2xl mx-auto leading-relaxed mb-12"
+            >
               Every achievement here represents countless hours of learning, collaboration, 
               and the unwavering spirit of our community. These aren't just trophies—they're 
               stories of growth.
-            </p>
-          </motion.div>
-        </div>
+            </motion.p>
+
+            {/* Stats Row */}
+            <motion.div 
+              initial={{ opacity: 0, y: 30 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.8, delay: 0.7 }}
+              className="grid grid-cols-2 md:grid-cols-4 gap-6 md:gap-8 max-w-3xl mx-auto"
+            >
+              <StatCard icon={Trophy} value={achievements.length || "0"} label="Achievements" delay={0.8} />
+              <StatCard icon={Medal} value={featuredAchievements.length || "0"} label="Featured" delay={0.9} />
+              <StatCard icon={Users} value="300+" label="Members" delay={1.0} />
+              <StatCard icon={TrendingUp} value="50+" label="Events" delay={1.1} />
+            </motion.div>
+          </div>
+        </motion.div>
+
+        {/* Scroll Indicator */}
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1, y: [0, 10, 0] }}
+          transition={{ delay: 1.5, y: { duration: 2, repeat: Infinity } }}
+          className="absolute bottom-8 left-1/2 -translate-x-1/2"
+        >
+          <div className="w-6 h-10 rounded-full border-2 border-white/40 flex items-start justify-center p-2">
+            <motion.div 
+              animate={{ y: [0, 12, 0] }}
+              transition={{ duration: 1.5, repeat: Infinity }}
+              className="w-1.5 h-3 rounded-full bg-white/80" 
+            />
+          </div>
+        </motion.div>
       </section>
 
-      {/* Achievement Cards Section */}
-      <section className="py-16 sm:py-20 bg-amber-50">
+      {/* ACHIEVEMENT CARDS SECTION */}
+      <section className="py-20 sm:py-28 bg-gradient-to-b from-amber-50 via-white to-amber-50/30">
         <div className="container mx-auto px-4">
           {/* Section Header */}
           <motion.div
@@ -270,14 +473,17 @@ export default function AchievementsPage() {
             whileInView={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.6 }}
             viewport={{ once: true }}
-            className="text-center mb-10"
+            className="text-center mb-12"
           >
-            <Badge className="bg-amber-100 text-amber-700 border-amber-200 mb-4">
-              <Trophy className="h-3 w-3 mr-1" />
+            <Badge className="bg-gradient-to-r from-amber-100 to-orange-100 text-amber-700 border-amber-200 mb-4 px-4 py-2">
+              <Award className="h-4 w-4 mr-2" />
               Our Milestones
             </Badge>
-            <h2 className="text-3xl sm:text-4xl font-bold text-gray-900 mb-4">
-              What We've Achieved
+            <h2 className="text-4xl sm:text-5xl font-black text-gray-900 mb-4">
+              What We've{' '}
+              <span className="text-transparent bg-clip-text bg-gradient-to-r from-amber-500 to-orange-500">
+                Achieved
+              </span>
             </h2>
             <p className="text-gray-600 text-lg max-w-2xl mx-auto">
               Click on any achievement to explore the full story, photos, and details
@@ -286,51 +492,75 @@ export default function AchievementsPage() {
 
           {/* Year Filter Tabs */}
           {achievements.length > 0 && years.length > 1 && (
-            <div className="flex flex-wrap justify-center gap-2 mb-10">
-              {years.map((year) => (
-                <Button
+            <motion.div 
+              initial={{ opacity: 0, y: 20 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.6 }}
+              viewport={{ once: true }}
+              className="flex flex-wrap justify-center gap-2 mb-12"
+            >
+              {years.map((year, index) => (
+                <motion.div
                   key={year}
-                  variant={activeYear === year ? 'default' : 'outline'}
-                  onClick={() => setActiveYear(year)}
-                  className={activeYear === year 
-                    ? 'bg-amber-500 hover:bg-amber-600 shadow-lg' 
-                    : 'border-amber-300 text-amber-700 hover:bg-amber-100'
-                  }
-                  size="sm"
+                  initial={{ opacity: 0, scale: 0.8 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  transition={{ delay: index * 0.05 }}
                 >
-                  {year}
-                </Button>
+                  <Button
+                    variant={activeYear === year ? 'default' : 'outline'}
+                    onClick={() => setActiveYear(year)}
+                    className={`rounded-xl transition-all duration-300 ${
+                      activeYear === year 
+                        ? 'bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 shadow-lg shadow-amber-500/30 border-0' 
+                        : 'border-amber-300 text-amber-700 hover:bg-amber-50 hover:border-amber-400'
+                    }`}
+                    size="sm"
+                  >
+                    {year}
+                  </Button>
+                </motion.div>
               ))}
-            </div>
+            </motion.div>
           )}
 
           {/* Content */}
           {loading ? (
-            <div className="flex flex-col items-center justify-center py-20">
+            <div className="flex flex-col items-center justify-center py-24">
+              <motion.div
+                animate={{ rotate: 360 }}
+                transition={{ duration: 2, repeat: Infinity, ease: "linear" }}
+                className="mb-6"
+              >
+                <Trophy className="h-16 w-16 text-amber-400" />
+              </motion.div>
               <Loader2 className="h-10 w-10 animate-spin text-amber-500 mb-4" />
-              <p className="text-gray-500">Loading achievements...</p>
+              <p className="text-gray-500 text-lg">Loading achievements...</p>
             </div>
           ) : error ? (
-            <div className="text-center py-20">
-              <div className="inline-flex h-20 w-20 items-center justify-center rounded-full bg-red-100 mb-6">
-                <Trophy className="h-10 w-10 text-red-400" />
-              </div>
+            <div className="text-center py-24">
+              <motion.div 
+                initial={{ scale: 0 }}
+                animate={{ scale: 1 }}
+                className="inline-flex h-24 w-24 items-center justify-center rounded-3xl bg-red-100 mb-6"
+              >
+                <Trophy className="h-12 w-12 text-red-400" />
+              </motion.div>
               <p className="text-red-500 mb-4 text-lg">{error}</p>
-              <Button onClick={() => window.location.reload()} className="bg-amber-500 hover:bg-amber-600">
+              <Button onClick={() => window.location.reload()} className="bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600">
                 Try Again
               </Button>
             </div>
           ) : filteredAchievements.length === 0 ? (
             <motion.div 
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              className="text-center py-20"
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="text-center py-24"
             >
-              <div className="inline-flex items-center justify-center w-24 h-24 rounded-full bg-amber-100 mb-6">
-                <Trophy className="h-12 w-12 text-amber-400" />
+              <div className="inline-flex items-center justify-center w-28 h-28 rounded-3xl bg-gradient-to-br from-amber-100 to-orange-100 mb-6 shadow-xl">
+                <Trophy className="h-14 w-14 text-amber-400" />
               </div>
-              <h3 className="text-2xl font-semibold text-gray-900 mb-3">No achievements yet</h3>
-              <p className="text-gray-500 text-lg">
+              <h3 className="text-3xl font-bold text-gray-900 mb-3">No achievements yet</h3>
+              <p className="text-gray-500 text-lg max-w-md mx-auto">
                 We're working on amazing things. Check back soon!
               </p>
             </motion.div>
@@ -338,24 +568,29 @@ export default function AchievementsPage() {
             <>
               {/* Featured Achievements */}
               {featuredAchievements.length > 0 && (
-                <div className="mb-16">
+                <div className="mb-20">
                   <motion.div
                     initial={{ opacity: 0, y: 20 }}
                     whileInView={{ opacity: 1, y: 0 }}
                     transition={{ duration: 0.6 }}
                     viewport={{ once: true }}
-                    className="text-center mb-8"
+                    className="text-center mb-10"
                   >
-                    <div className="inline-flex items-center gap-2 bg-gradient-to-r from-amber-500 to-orange-500 text-white px-4 py-2 rounded-full shadow-lg mb-4">
-                      <Award className="h-4 w-4" />
-                      <span className="font-semibold">Featured Achievements</span>
+                    <div className="inline-flex items-center gap-2 bg-gradient-to-r from-amber-500 to-orange-500 text-white px-6 py-3 rounded-2xl shadow-xl shadow-amber-500/30 mb-4">
+                      <Sparkles className="h-5 w-5 animate-pulse" />
+                      <span className="font-bold text-lg">Featured Achievements</span>
                     </div>
-                    <h3 className="text-2xl font-bold text-gray-900">Our Proudest Moments</h3>
+                    <h3 className="text-3xl font-bold text-gray-900">Our Proudest Moments</h3>
                   </motion.div>
                   
                   <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-8">
                     {featuredAchievements.map((achievement, index) => (
-                      <AchievementCard key={achievement.id} achievement={achievement} index={index} />
+                      <AchievementCard 
+                        key={achievement.id} 
+                        achievement={achievement} 
+                        index={index} 
+                        featured 
+                      />
                     ))}
                   </div>
                 </div>
@@ -370,10 +605,10 @@ export default function AchievementsPage() {
                       whileInView={{ opacity: 1, y: 0 }}
                       transition={{ duration: 0.6 }}
                       viewport={{ once: true }}
-                      className="text-center mb-8"
+                      className="text-center mb-10"
                     >
-                      <h3 className="text-2xl font-bold text-gray-900">All Achievements</h3>
-                      <p className="text-gray-600 mt-2">Every milestone matters in our journey</p>
+                      <h3 className="text-3xl font-bold text-gray-900">All Achievements</h3>
+                      <p className="text-gray-600 mt-2 text-lg">Every milestone matters in our journey</p>
                     </motion.div>
                   )}
                   
@@ -398,72 +633,104 @@ export default function AchievementsPage() {
         </div>
       </section>
 
-      {/* CTA Section - Premium Design */}
-      <section className="py-20 sm:py-28 bg-gradient-to-br from-amber-50 via-orange-50 to-amber-100 relative overflow-hidden">
-        {/* Background decorative elements */}
-        <div className="absolute inset-0 opacity-30">
-          <div className="absolute top-0 left-1/4 w-96 h-96 bg-amber-300 rounded-full blur-3xl" />
-          <div className="absolute bottom-0 right-1/4 w-96 h-96 bg-orange-300 rounded-full blur-3xl" />
+      {/* CTA SECTION - Premium Design */}
+      <section className="py-24 sm:py-32 bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 relative overflow-hidden">
+        {/* Animated background elements */}
+        <div className="absolute inset-0">
+          <motion.div 
+            animate={{ 
+              x: [0, 50, 0], 
+              y: [0, -30, 0],
+              opacity: [0.3, 0.5, 0.3]
+            }}
+            transition={{ duration: 10, repeat: Infinity }}
+            className="absolute top-20 left-1/4 w-96 h-96 bg-amber-500/20 rounded-full blur-3xl" 
+          />
+          <motion.div 
+            animate={{ 
+              x: [0, -50, 0], 
+              y: [0, 30, 0],
+              opacity: [0.2, 0.4, 0.2]
+            }}
+            transition={{ duration: 12, repeat: Infinity, delay: 2 }}
+            className="absolute bottom-20 right-1/4 w-[500px] h-[500px] bg-orange-500/20 rounded-full blur-3xl" 
+          />
         </div>
         
-        <div className="container mx-auto px-4 relative">
+        <div className="container mx-auto px-4 relative z-10">
           <motion.div
-            initial={{ opacity: 0, y: 20 }}
+            initial={{ opacity: 0, y: 30 }}
             whileInView={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.6 }}
+            transition={{ duration: 0.8 }}
             viewport={{ once: true }}
-            className="max-w-4xl mx-auto"
+            className="max-w-4xl mx-auto text-center"
           >
-            <Card className="bg-white/80 backdrop-blur-xl border-amber-200/50 shadow-2xl overflow-hidden">
-              <CardContent className="p-12 sm:p-16 text-center">
-                {/* Icon with glow effect */}
-                <div className="relative inline-block mb-8">
-                  <div className="absolute inset-0 bg-gradient-to-br from-amber-400 to-orange-500 rounded-full blur-xl opacity-50" />
-                  <div className="relative inline-flex h-20 w-20 items-center justify-center rounded-full bg-gradient-to-br from-amber-400 to-orange-500 shadow-xl">
-                    <Handshake className="h-10 w-10 text-white" />
-                  </div>
-                </div>
-                
-                <h2 className="text-3xl sm:text-4xl md:text-5xl font-bold text-gray-900 mb-6 leading-tight">
-                  Want to Be Part of the Journey?
-                </h2>
-                
-                <p className="text-gray-700 text-lg sm:text-xl mb-10 max-w-2xl mx-auto leading-relaxed">
-                  Whether you're a student looking to grow, an organization seeking collaboration, 
-                  or someone who believes in building people—we'd love to connect.
-                </p>
-                
-                <div className="flex flex-col sm:flex-row gap-4 justify-center items-center">
-                  <Button 
-                    size="lg" 
-                    className="bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 shadow-xl hover:shadow-2xl transition-all duration-300 text-lg px-8 py-6 h-auto"
-                    asChild
-                  >
-                    <Link to="/events">
-                      <Calendar className="h-5 w-5 mr-2" />
-                      Explore Events
-                    </Link>
-                  </Button>
-                  <Button 
-                    size="lg" 
-                    variant="outline" 
-                    className="border-2 border-amber-400 text-amber-700 hover:bg-amber-50 hover:border-amber-500 shadow-lg hover:shadow-xl transition-all duration-300 text-lg px-8 py-6 h-auto"
-                    asChild
-                  >
-                    <a href={`mailto:${settings?.clubEmail || 'contact@codescriet.com'}`}>
-                      Get in Touch
-                    </a>
-                  </Button>
-                </div>
-                
-                {/* Decorative bottom accent */}
-                <div className="mt-10 pt-8 border-t border-amber-200">
-                  <p className="text-sm text-gray-600 font-medium">
-                    Join <span className="text-amber-700 font-bold">300+</span> students already building the future
-                  </p>
-                </div>
-              </CardContent>
-            </Card>
+            {/* Icon with glow effect */}
+            <motion.div 
+              initial={{ scale: 0 }}
+              whileInView={{ scale: 1 }}
+              transition={{ type: "spring", duration: 0.8 }}
+              viewport={{ once: true }}
+              className="relative inline-block mb-8"
+            >
+              <div className="absolute inset-0 bg-gradient-to-br from-amber-400 to-orange-500 rounded-3xl blur-2xl opacity-60" />
+              <div className="relative inline-flex h-24 w-24 items-center justify-center rounded-3xl bg-gradient-to-br from-amber-400 to-orange-500 shadow-2xl">
+                <Handshake className="h-12 w-12 text-white" />
+              </div>
+            </motion.div>
+            
+            <h2 className="text-4xl sm:text-5xl md:text-6xl font-black text-white mb-6 leading-tight">
+              Want to Be Part of{' '}
+              <span className="text-transparent bg-clip-text bg-gradient-to-r from-amber-400 to-orange-400">
+                the Journey?
+              </span>
+            </h2>
+            
+            <p className="text-gray-300 text-lg sm:text-xl mb-10 max-w-2xl mx-auto leading-relaxed">
+              Whether you're a student looking to grow, an organization seeking collaboration, 
+              or someone who believes in building people—we'd love to connect.
+            </p>
+            
+            <div className="flex flex-col sm:flex-row gap-4 justify-center items-center">
+              <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
+                <Button 
+                  size="lg" 
+                  className="bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 shadow-2xl shadow-amber-500/40 text-lg px-10 py-7 h-auto rounded-2xl font-bold"
+                  asChild
+                >
+                  <Link to="/events">
+                    <Zap className="h-5 w-5 mr-2" />
+                    Explore Events
+                  </Link>
+                </Button>
+              </motion.div>
+              <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
+                <Button 
+                  size="lg" 
+                  variant="outline" 
+                  className="border-2 border-amber-400/50 text-amber-400 hover:bg-amber-400/10 hover:border-amber-400 text-lg px-10 py-7 h-auto rounded-2xl font-bold"
+                  asChild
+                >
+                  <a href={`mailto:${settings?.clubEmail || 'contact@codescriet.com'}`}>
+                    <Target className="h-5 w-5 mr-2" />
+                    Get in Touch
+                  </a>
+                </Button>
+              </motion.div>
+            </div>
+            
+            {/* Bottom tagline */}
+            <motion.div 
+              initial={{ opacity: 0 }}
+              whileInView={{ opacity: 1 }}
+              transition={{ delay: 0.5 }}
+              viewport={{ once: true }}
+              className="mt-16 pt-8 border-t border-white/10"
+            >
+              <p className="text-gray-400 text-sm font-medium">
+                Join <span className="text-amber-400 font-bold">300+</span> students already building the future
+              </p>
+            </motion.div>
           </motion.div>
         </div>
       </section>
