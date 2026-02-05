@@ -313,7 +313,7 @@ export function Hero() {
 
           {/* Main Heading */}
           <motion.div variants={itemVariants} className="space-y-4 md:space-y-6">
-            <h1 className="text-4xl sm:text-5xl md:text-7xl lg:text-8xl font-bold tracking-tight">
+            <h1 className="text-4xl sm:text-5xl md:text-7xl lg:text-8xl font-bold tracking-tight font-display">
               <span className="text-transparent bg-clip-text bg-gradient-to-r from-amber-200 via-amber-400 to-orange-400">
                 code
               </span>
