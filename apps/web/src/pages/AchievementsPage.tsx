@@ -323,10 +323,10 @@ export default function AchievementsPage() {
                 transition={{ duration: 0.6, delay: 0.3 }}
               >
                 <h1 className="text-4xl sm:text-5xl lg:text-6xl font-black text-white leading-tight">
-                  Excellence
+                  Learning
                   <br />
                   <span className="text-transparent bg-clip-text bg-gradient-to-r from-amber-400 via-orange-400 to-amber-500">
-                    in Every Pursuit
+                    Through Doing
                   </span>
                 </h1>
               </motion.div>
@@ -338,9 +338,9 @@ export default function AchievementsPage() {
                 transition={{ duration: 0.6, delay: 0.4 }}
                 className="text-lg text-gray-300 leading-relaxed"
               >
-                From hackathon victories to community impact, each achievement represents our 
-                commitment to pushing boundaries and inspiring growth. These are stories of 
-                determination, teamwork, and innovation.
+                These aren't just milestones—they're proof of what happens when students commit 
+                to learning together. Every workshop taught, every project built, every problem 
+                solved represents our collective growth as builders and thinkers.
               </motion.p>
               
               {/* Tagline */}
@@ -351,7 +351,7 @@ export default function AchievementsPage() {
                 className="flex items-center gap-2 text-amber-400 font-semibold"
               >
                 <Target className="h-5 w-5" />
-                <span>Impact, not trophies</span>
+                <span>Growth over glory</span>
               </motion.div>
             </motion.div>
             
@@ -385,8 +385,8 @@ export default function AchievementsPage() {
                   <div className="text-5xl font-black text-white mb-2">
                     {achievements.length || "0"}
                   </div>
-                  <div className="text-amber-300 font-semibold">Total Achievements</div>
-                  <div className="text-sm text-gray-400 mt-1">Across all competitions</div>
+                  <div className="text-amber-300 font-semibold">Milestones</div>
+                  <div className="text-sm text-gray-400 mt-1">Learning moments captured</div>
                 </div>
               </motion.div>
               
@@ -597,29 +597,10 @@ export default function AchievementsPage() {
         </div>
       </section>
 
-      {/* CTA SECTION - Premium Design */}
-      <section className="py-24 sm:py-32 bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 relative overflow-hidden">
-        {/* Animated background elements */}
-        <div className="absolute inset-0">
-          <motion.div 
-            animate={{ 
-              x: [0, 50, 0], 
-              y: [0, -30, 0],
-              opacity: [0.3, 0.5, 0.3]
-            }}
-            transition={{ duration: 10, repeat: Infinity }}
-            className="absolute top-20 left-1/4 w-96 h-96 bg-amber-500/20 rounded-full blur-3xl" 
-          />
-          <motion.div 
-            animate={{ 
-              x: [0, -50, 0], 
-              y: [0, 30, 0],
-              opacity: [0.2, 0.4, 0.2]
-            }}
-            transition={{ duration: 12, repeat: Infinity, delay: 2 }}
-            className="absolute bottom-20 right-1/4 w-[500px] h-[500px] bg-orange-500/20 rounded-full blur-3xl" 
-          />
-        </div>
+      {/* CTA SECTION - Authentic club call to action */}
+      <section className="py-24 sm:py-32 bg-slate-950 relative overflow-hidden">
+        {/* Subtle texture */}
+        <div className="absolute inset-0 noise-bg opacity-20" />
         
         <div className="container mx-auto px-4 relative z-10">
           <motion.div
@@ -627,74 +608,45 @@ export default function AchievementsPage() {
             whileInView={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.8 }}
             viewport={{ once: true }}
-            className="max-w-4xl mx-auto text-center"
+            className="max-w-4xl mx-auto"
           >
-            {/* Icon with glow effect */}
-            <motion.div 
-              initial={{ scale: 0 }}
-              whileInView={{ scale: 1 }}
-              transition={{ type: "spring", duration: 0.8 }}
-              viewport={{ once: true }}
-              className="relative inline-block mb-8"
-            >
-              <div className="absolute inset-0 bg-gradient-to-br from-amber-400 to-orange-500 rounded-3xl blur-2xl opacity-60" />
-              <div className="relative inline-flex h-24 w-24 items-center justify-center rounded-3xl bg-gradient-to-br from-amber-400 to-orange-500 shadow-2xl">
-                <Users className="h-12 w-12 text-white" />
-              </div>
-            </motion.div>
-            
-            <h2 className="text-4xl sm:text-5xl md:text-6xl font-black text-white mb-6 leading-tight">
-              Want to Be Part of{' '}
-              <span className="text-transparent bg-clip-text bg-gradient-to-r from-amber-400 to-orange-400">
-                the Journey?
-              </span>
-            </h2>
-            
-            <p className="text-gray-300 text-lg sm:text-xl mb-10 max-w-2xl mx-auto leading-relaxed">
-              Whether you're a student looking to grow, an organization seeking collaboration, 
-              or someone who believes in building people—we'd love to connect.
-            </p>
-            
-            <div className="flex flex-col sm:flex-row gap-4 justify-center items-center">
-              <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
+            <div className="glass-dark rounded-3xl p-12 md:p-16 backdrop-blur-xl border border-white/10">
+              <h2 className="text-3xl sm:text-4xl md:text-5xl font-black text-white mb-6 leading-tight">
+                Ready to start
+                <br />
+                <span className="text-transparent bg-clip-text bg-gradient-to-r from-amber-400 to-orange-400">
+                  learning by building?
+                </span>
+              </h2>
+              
+              <p className="text-gray-300 text-lg mb-8 leading-relaxed">
+                We believe the best way to learn is by doing. Join our workshops, contribute to 
+                projects, and grow alongside fellow builders who share your curiosity.
+              </p>
+              
+              <div className="flex flex-col sm:flex-row gap-4">
                 <Button 
                   size="lg" 
-                  className="bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 shadow-2xl shadow-amber-500/40 text-lg px-10 py-7 h-auto rounded-2xl font-bold"
+                  className="bg-white text-slate-900 hover:bg-gray-100 text-base px-8 py-6 h-auto rounded-xl font-bold"
                   asChild
                 >
                   <Link to="/events">
-                    <Zap className="h-5 w-5 mr-2" />
-                    Explore Events
+                    See Upcoming Workshops
+                    <ChevronRight className="h-5 w-5 ml-2" />
                   </Link>
                 </Button>
-              </motion.div>
-              <motion.div whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.95 }}>
                 <Button 
                   size="lg" 
                   variant="outline" 
-                  className="border-2 border-amber-400/50 text-amber-400 hover:bg-amber-400/10 hover:border-amber-400 text-lg px-10 py-7 h-auto rounded-2xl font-bold"
+                  className="border-2 border-white/20 text-gray-300 hover:bg-white/5 hover:border-white/40 text-base px-8 py-6 h-auto rounded-xl font-semibold"
                   asChild
                 >
                   <a href={`mailto:${settings?.clubEmail || 'contact@codescriet.com'}`}>
-                    <Target className="h-5 w-5 mr-2" />
-                    Get in Touch
+                    Contact Us
                   </a>
                 </Button>
-              </motion.div>
+              </div>
             </div>
-            
-            {/* Bottom tagline */}
-            <motion.div 
-              initial={{ opacity: 0 }}
-              whileInView={{ opacity: 1 }}
-              transition={{ delay: 0.5 }}
-              viewport={{ once: true }}
-              className="mt-16 pt-8 border-t border-white/10"
-            >
-              <p className="text-gray-400 text-sm font-medium">
-                Join <span className="text-amber-400 font-bold">300+</span> students already building the future
-              </p>
-            </motion.div>
           </motion.div>
         </div>
       </section>
