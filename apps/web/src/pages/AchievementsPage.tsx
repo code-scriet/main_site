@@ -279,21 +279,17 @@ export default function AchievementsPage() {
       />
       
       {/* REFINED HERO - Compact two-column layout */}
-      <section className="relative py-20 sm:py-24 overflow-hidden bg-gradient-to-br from-slate-900 via-slate-800 to-amber-950">
+      <section className="relative py-20 sm:py-24 overflow-hidden bg-gradient-to-br from-amber-400 via-orange-500 to-amber-900">
         {/* Background texture */}
-        <div className="absolute inset-0 opacity-30">
+        <div className="absolute inset-0 opacity-20">
           <div 
-            className="absolute inset-0 noise-bg"
+            className="absolute inset-0"
             style={{
-              backgroundImage: `linear-gradient(rgba(255,255,255,0.03) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.03) 1px, transparent 1px)`,
-              backgroundSize: '40px 40px',
+              backgroundImage: `linear-gradient(rgba(255,255,255,0.1) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.1) 1px, transparent 1px)`,
+              backgroundSize: '50px 50px',
             }}
           />
         </div>
-        
-        {/* Subtle glow accents */}
-        <div className="absolute top-0 left-1/4 w-96 h-96 bg-amber-500/10 rounded-full blur-[120px] pointer-events-none" />
-        <div className="absolute bottom-0 right-1/4 w-80 h-80 bg-orange-600/10 rounded-full blur-[100px] pointer-events-none" />
         
         <div className="container mx-auto px-4 relative z-10">
           <div className="grid lg:grid-cols-2 gap-12 lg:gap-16 items-center max-w-7xl mx-auto">
@@ -310,9 +306,9 @@ export default function AchievementsPage() {
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.6, delay: 0.2 }}
               >
-                <Badge className="bg-white/10 backdrop-blur-sm border-amber-400/30 text-amber-300 px-4 py-2">
+                <Badge className="bg-white/20 backdrop-blur-sm border-white/30 text-white px-4 py-2 shadow-lg">
                   <Sparkles className="h-4 w-4 mr-2" />
-                  Hall of Excellence
+                  Our Journey
                 </Badge>
               </motion.div>
               
@@ -322,10 +318,10 @@ export default function AchievementsPage() {
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.6, delay: 0.3 }}
               >
-                <h1 className="text-4xl sm:text-5xl lg:text-6xl font-black text-white leading-tight">
+                <h1 className="text-4xl sm:text-5xl lg:text-6xl font-black text-white leading-tight drop-shadow-lg">
                   Learning
                   <br />
-                  <span className="text-transparent bg-clip-text bg-gradient-to-r from-amber-400 via-orange-400 to-amber-500">
+                  <span className="text-slate-900">
                     Through Doing
                   </span>
                 </h1>
@@ -336,7 +332,7 @@ export default function AchievementsPage() {
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.6, delay: 0.4 }}
-                className="text-lg text-gray-300 leading-relaxed"
+                className="text-lg text-white/90 leading-relaxed drop-shadow"
               >
                 These aren't just milestones—they're proof of what happens when students commit 
                 to learning together. Every workshop taught, every project built, every problem 
@@ -348,7 +344,7 @@ export default function AchievementsPage() {
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.6, delay: 0.5 }}
-                className="flex items-center gap-2 text-amber-400 font-semibold"
+                className="flex items-center gap-2 text-slate-900 font-bold drop-shadow"
               >
                 <Target className="h-5 w-5" />
                 <span>Growth over glory</span>
@@ -369,24 +365,23 @@ export default function AchievementsPage() {
                 transition={{ duration: 0.6, delay: 0.4 }}
                 className="col-span-2 relative group"
               >
-                <div className="absolute -inset-0.5 bg-gradient-to-r from-amber-500 to-orange-500 rounded-2xl opacity-50 group-hover:opacity-75 blur transition-opacity" />
-                <div className="relative glass-dark rounded-2xl p-8 backdrop-blur-xl border border-white/10">
+                <div className="relative bg-white/90 backdrop-blur-sm rounded-2xl p-8 shadow-2xl border border-white/50 hover:shadow-amber-900/20 transition-shadow">
                   <div className="flex items-start justify-between mb-4">
-                    <div className="p-3 rounded-xl bg-gradient-to-br from-amber-500/20 to-orange-500/20 border border-amber-400/30">
-                      <Trophy className="h-8 w-8 text-amber-400" />
+                    <div className="p-3 rounded-xl bg-amber-100 border border-amber-200">
+                      <Trophy className="h-8 w-8 text-amber-600" />
                     </div>
                     <motion.div
                       animate={{ rotate: [0, 5, -5, 0] }}
                       transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
                     >
-                      <Zap className="h-6 w-6 text-amber-400" />
+                      <Zap className="h-6 w-6 text-orange-500" />
                     </motion.div>
                   </div>
-                  <div className="text-5xl font-black text-white mb-2">
+                  <div className="text-5xl font-black text-slate-900 mb-2">
                     {achievements.length || "0"}
                   </div>
-                  <div className="text-amber-300 font-semibold">Milestones</div>
-                  <div className="text-sm text-gray-400 mt-1">Learning moments captured</div>
+                  <div className="text-amber-700 font-bold">Milestones</div>
+                  <div className="text-sm text-slate-600 mt-1">Learning moments captured</div>
                 </div>
               </motion.div>
               
@@ -397,14 +392,14 @@ export default function AchievementsPage() {
                 transition={{ duration: 0.6, delay: 0.5 }}
                 className="relative group"
               >
-                <div className="glass-dark rounded-2xl p-6 backdrop-blur-xl border border-white/10 h-full hover:border-amber-400/30 transition-colors">
-                  <div className="p-2.5 rounded-xl bg-amber-500/10 border border-amber-400/20 w-fit mb-4">
-                    <Star className="h-6 w-6 text-amber-400" />
+                <div className="bg-white/90 backdrop-blur-sm rounded-2xl p-6 shadow-xl border border-white/50 h-full hover:shadow-2xl transition-shadow">
+                  <div className="p-2.5 rounded-xl bg-amber-100 border border-amber-200 w-fit mb-4">
+                    <Star className="h-6 w-6 text-amber-600" />
                   </div>
-                  <div className="text-3xl font-black text-white mb-1">
+                  <div className="text-3xl font-black text-slate-900 mb-1">
                     {featuredAchievements.length || "0"}
                   </div>
-                  <div className="text-sm text-amber-300 font-semibold">Featured</div>
+                  <div className="text-sm text-amber-700 font-bold">Featured</div>
                 </div>
               </motion.div>
               
@@ -415,12 +410,12 @@ export default function AchievementsPage() {
                 transition={{ duration: 0.6, delay: 0.6 }}
                 className="relative group"
               >
-                <div className="glass-dark rounded-2xl p-6 backdrop-blur-xl border border-white/10 h-full hover:border-amber-400/30 transition-colors">
-                  <div className="p-2.5 rounded-xl bg-orange-500/10 border border-orange-400/20 w-fit mb-4">
-                    <Users className="h-6 w-6 text-orange-400" />
+                <div className="bg-white/90 backdrop-blur-sm rounded-2xl p-6 shadow-xl border border-white/50 h-full hover:shadow-2xl transition-shadow">
+                  <div className="p-2.5 rounded-xl bg-orange-100 border border-orange-200 w-fit mb-4">
+                    <Users className="h-6 w-6 text-orange-600" />
                   </div>
-                  <div className="text-3xl font-black text-white mb-1">300+</div>
-                  <div className="text-sm text-amber-300 font-semibold">Members</div>
+                  <div className="text-3xl font-black text-slate-900 mb-1">300+</div>
+                  <div className="text-sm text-amber-700 font-bold">Members</div>
                 </div>
               </motion.div>
             </motion.div>
@@ -597,10 +592,18 @@ export default function AchievementsPage() {
         </div>
       </section>
 
-      {/* CTA SECTION - Authentic club call to action */}
-      <section className="py-24 sm:py-32 bg-slate-950 relative overflow-hidden">
+      {/* CTA SECTION - Collaboration & Partnership */}
+      <section className="py-24 sm:py-32 bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 relative overflow-hidden">
         {/* Subtle texture */}
-        <div className="absolute inset-0 noise-bg opacity-20" />
+        <div className="absolute inset-0 opacity-10">
+          <div 
+            className="absolute inset-0"
+            style={{
+              backgroundImage: `linear-gradient(rgba(251,191,36,0.1) 1px, transparent 1px), linear-gradient(90deg, rgba(251,191,36,0.1) 1px, transparent 1px)`,
+              backgroundSize: '40px 40px',
+            }}
+          />
+        </div>
         
         <div className="container mx-auto px-4 relative z-10">
           <motion.div
@@ -608,44 +611,55 @@ export default function AchievementsPage() {
             whileInView={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.8 }}
             viewport={{ once: true }}
-            className="max-w-4xl mx-auto"
+            className="max-w-5xl mx-auto"
           >
-            <div className="glass-dark rounded-3xl p-12 md:p-16 backdrop-blur-xl border border-white/10">
+            <div className="text-center mb-12">
+              <motion.div
+                initial={{ scale: 0 }}
+                whileInView={{ scale: 1 }}
+                transition={{ type: "spring", duration: 0.6 }}
+                viewport={{ once: true }}
+                className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-amber-500/20 border border-amber-400/30 mb-6"
+              >
+                <Users className="h-8 w-8 text-amber-400" />
+              </motion.div>
+              
               <h2 className="text-3xl sm:text-4xl md:text-5xl font-black text-white mb-6 leading-tight">
-                Ready to start
-                <br />
-                <span className="text-transparent bg-clip-text bg-gradient-to-r from-amber-400 to-orange-400">
-                  learning by building?
-                </span>
+                Partner With Us
               </h2>
               
-              <p className="text-gray-300 text-lg mb-8 leading-relaxed">
-                We believe the best way to learn is by doing. Join our workshops, contribute to 
-                projects, and grow alongside fellow builders who share your curiosity.
+              <p className="text-gray-300 text-lg max-w-3xl mx-auto leading-relaxed mb-10">
+                Looking to sponsor events, collaborate on projects, or support our community? 
+                We're always open to partnerships that help students learn and grow. Let's build something meaningful together.
               </p>
-              
-              <div className="flex flex-col sm:flex-row gap-4">
-                <Button 
-                  size="lg" 
-                  className="bg-white text-slate-900 hover:bg-gray-100 text-base px-8 py-6 h-auto rounded-xl font-bold"
-                  asChild
-                >
-                  <Link to="/events">
-                    See Upcoming Workshops
-                    <ChevronRight className="h-5 w-5 ml-2" />
-                  </Link>
-                </Button>
-                <Button 
-                  size="lg" 
-                  variant="outline" 
-                  className="border-2 border-white/20 text-gray-300 hover:bg-white/5 hover:border-white/40 text-base px-8 py-6 h-auto rounded-xl font-semibold"
-                  asChild
-                >
-                  <a href={`mailto:${settings?.clubEmail || 'contact@codescriet.com'}`}>
-                    Contact Us
-                  </a>
-                </Button>
+            </div>
+            
+            <div className="grid md:grid-cols-2 gap-6 mb-10">
+              <div className="bg-white/5 backdrop-blur-sm rounded-2xl p-6 border border-white/10">
+                <h3 className="text-xl font-bold text-white mb-2">For Sponsors</h3>
+                <p className="text-gray-400 text-sm leading-relaxed">
+                  Support student development through workshop sponsorships, event partnerships, or resource contributions.
+                </p>
               </div>
+              <div className="bg-white/5 backdrop-blur-sm rounded-2xl p-6 border border-white/10">
+                <h3 className="text-xl font-bold text-white mb-2">For Organizations</h3>
+                <p className="text-gray-400 text-sm leading-relaxed">
+                  Collaborate on projects, host technical sessions, or provide mentorship opportunities for our members.
+                </p>
+              </div>
+            </div>
+            
+            <div className="text-center">
+              <Button 
+                size="lg" 
+                className="bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white text-base px-10 py-6 h-auto rounded-xl font-bold shadow-lg shadow-amber-500/20"
+                asChild
+              >
+                <a href={`mailto:${settings?.clubEmail || 'contact@codescriet.com'}`}>
+                  Get in Touch
+                  <ChevronRight className="h-5 w-5 ml-2" />
+                </a>
+              </Button>
             </div>
           </motion.div>
         </div>
