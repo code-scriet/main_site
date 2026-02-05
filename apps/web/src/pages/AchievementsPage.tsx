@@ -3,15 +3,15 @@ import { Link } from 'react-router-dom';
 import { Layout } from '@/components/layout/Layout';
 import { SEO } from '@/components/SEO';
 import { BreadcrumbSchema } from '@/components/ui/schema';
-import { motion, useScroll, useTransform, useInView } from 'framer-motion';
+import { motion, useInView } from 'framer-motion';
 import { CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { InlineMarkdown } from '@/components/ui/markdown';
 import { 
   Trophy, Calendar, Loader2, 
-  Award, ChevronRight, Image as ImageIcon, Handshake, Sparkles, Star,
-  Zap, TrendingUp, Target, Users, Medal
+  Award, ChevronRight, Image as ImageIcon, Sparkles, Star,
+  Zap, Target, Users
 } from 'lucide-react';
 import { api, type Achievement } from '@/lib/api';
 import { formatDate } from '@/lib/dateUtils';
@@ -222,49 +222,6 @@ function AchievementCard({ achievement, index, featured = false }: {
 }
 
 // ============================================
-// STATS COUNTER COMPONENT
-// ============================================
-
-function StatCard({ icon: Icon, value, label, delay }: { 
-  icon: React.ElementType; 
-  value: string | number; 
-  label: string;
-  delay: number;
-}) {
-  const ref = useRef(null);
-  const isInView = useInView(ref, { once: true });
-
-  return (
-    <motion.div
-      ref={ref}
-      initial={{ opacity: 0, y: 20, scale: 0.9 }}
-      animate={isInView ? { opacity: 1, y: 0, scale: 1 } : {}}
-      transition={{ duration: 0.5, delay }}
-      className="group"
-    >
-      <div className="text-center relative">
-        {/* Glass card background with gradient border */}
-        <div className="relative inline-block">
-          <div className="absolute -inset-1 bg-gradient-to-r from-amber-500/50 to-orange-500/50 rounded-2xl opacity-0 group-hover:opacity-100 blur transition-opacity duration-300" />
-          <div className="relative inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-white/10 backdrop-blur-md border border-white/20 mb-3 shadow-xl">
-            <Icon className="h-8 w-8 text-amber-400" />
-          </div>
-        </div>
-        <motion.div 
-          initial={{ scale: 0.5 }}
-          animate={isInView ? { scale: 1 } : {}}
-          transition={{ duration: 0.3, delay: delay + 0.2, type: "spring" }}
-          className="text-4xl md:text-5xl font-black text-white mb-1"
-        >
-          {value}
-        </motion.div>
-        <div className="text-amber-200 text-sm font-medium">{label}</div>
-      </div>
-    </motion.div>
-  );
-}
-
-// ============================================
 // MAIN PAGE COMPONENT
 // ============================================
 
@@ -274,16 +231,6 @@ export default function AchievementsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const { settings } = useSettings();
-  const heroRef = useRef(null);
-  
-  const { scrollYProgress } = useScroll({
-    target: heroRef,
-    offset: ["start start", "end start"]
-  });
-  
-  const heroOpacity = useTransform(scrollYProgress, [0, 1], [1, 0]);
-  const heroScale = useTransform(scrollYProgress, [0, 1], [1, 1.1]);
-  const heroY = useTransform(scrollYProgress, [0, 1], [0, 100]);
 
   useEffect(() => {
     const fetchAchievements = async () => {
@@ -331,147 +278,154 @@ export default function AchievementsPage() {
         ]}
       />
       
-      {/* PREMIUM HERO SECTION with Parallax */}
-      <section ref={heroRef} className="relative min-h-[70vh] md:min-h-[80vh] flex items-center overflow-hidden">
-        {/* Animated Background - Dark Slate/Amber theme */}
-        <motion.div 
-          style={{ scale: heroScale, y: heroY }}
-          className="absolute inset-0 bg-gradient-to-br from-slate-950 via-amber-950 to-orange-950"
-        >
-          {/* Mesh Gradient Overlay */}
-          <div className="absolute inset-0">
-            <div className="absolute inset-0 bg-[radial-gradient(ellipse_80%_80%_at_50%_-20%,rgba(251,191,36,0.3),rgba(255,255,255,0))]" />
-            <div className="absolute inset-0 bg-[radial-gradient(ellipse_60%_60%_at_0%_100%,rgba(234,88,12,0.2),rgba(255,255,255,0))]" />
-            <div className="absolute inset-0 bg-[radial-gradient(ellipse_50%_50%_at_100%_50%,rgba(251,146,60,0.15),rgba(255,255,255,0))]" />
-          </div>
-
-          {/* Grid Pattern */}
+      {/* REFINED HERO - Compact two-column layout */}
+      <section className="relative py-20 sm:py-24 overflow-hidden bg-gradient-to-br from-slate-900 via-slate-800 to-amber-950">
+        {/* Background texture */}
+        <div className="absolute inset-0 opacity-30">
           <div 
-            className="absolute inset-0 opacity-[0.02]"
+            className="absolute inset-0 noise-bg"
             style={{
-              backgroundImage: `linear-gradient(rgba(255,255,255,0.1) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.1) 1px, transparent 1px)`,
-              backgroundSize: '60px 60px',
+              backgroundImage: `linear-gradient(rgba(255,255,255,0.03) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.03) 1px, transparent 1px)`,
+              backgroundSize: '40px 40px',
             }}
           />
-
-          {/* Subtle Animated Orbs */}
-          <motion.div 
-            animate={{ 
-              scale: [1, 1.2, 1],
-              opacity: [0.2, 0.3, 0.2]
-            }}
-            transition={{ duration: 8, repeat: Infinity, ease: "easeInOut" }}
-            className="absolute top-20 left-20 w-72 h-72 bg-amber-500/20 rounded-full blur-[100px]" 
-          />
-          <motion.div 
-            animate={{ 
-              scale: [1, 1.1, 1],
-              opacity: [0.15, 0.25, 0.15]
-            }}
-            transition={{ duration: 10, repeat: Infinity, ease: "easeInOut", delay: 2 }}
-            className="absolute bottom-20 right-20 w-96 h-96 bg-orange-600/20 rounded-full blur-[120px]" 
-          />
-        </motion.div>
+        </div>
         
-        {/* Hero Content */}
-        <motion.div 
-          style={{ opacity: heroOpacity }}
-          className="container mx-auto px-4 relative z-10"
-        >
-          <div className="text-center max-w-5xl mx-auto">
-            {/* Floating Trophy Icon */}
-            <motion.div 
-              initial={{ scale: 0, rotate: -180 }}
-              animate={{ scale: 1, rotate: 0 }}
-              transition={{ duration: 0.8, type: "spring", delay: 0.2 }}
-              className="relative inline-block mb-8"
+        {/* Subtle glow accents */}
+        <div className="absolute top-0 left-1/4 w-96 h-96 bg-amber-500/10 rounded-full blur-[120px] pointer-events-none" />
+        <div className="absolute bottom-0 right-1/4 w-80 h-80 bg-orange-600/10 rounded-full blur-[100px] pointer-events-none" />
+        
+        <div className="container mx-auto px-4 relative z-10">
+          <div className="grid lg:grid-cols-2 gap-12 lg:gap-16 items-center max-w-7xl mx-auto">
+            {/* Left Column - Content */}
+            <motion.div
+              initial={{ opacity: 0, x: -50 }}
+              animate={{ opacity: 1, x: 0 }}
+              transition={{ duration: 0.8 }}
+              className="space-y-6"
             >
-              <div className="absolute -inset-4 bg-gradient-to-r from-amber-500/30 via-orange-500/30 to-amber-500/30 rounded-3xl blur-2xl" />
-              <motion.div 
-                animate={{ 
-                  boxShadow: [
-                    "0 0 0 0 rgba(251,191,36,0.4)",
-                    "0 0 0 20px rgba(251,191,36,0)",
-                    "0 0 0 0 rgba(251,191,36,0)"
-                  ]
-                }}
-                transition={{ duration: 2, repeat: Infinity }}
-                className="relative inline-flex h-24 w-24 items-center justify-center rounded-3xl bg-white/10 backdrop-blur-md border border-white/20 shadow-2xl"
+              {/* Badge */}
+              <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.6, delay: 0.2 }}
               >
-                <Trophy className="h-12 w-12 text-amber-400" />
+                <Badge className="bg-white/10 backdrop-blur-sm border-amber-400/30 text-amber-300 px-4 py-2">
+                  <Sparkles className="h-4 w-4 mr-2" />
+                  Hall of Excellence
+                </Badge>
+              </motion.div>
+              
+              {/* Heading */}
+              <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.6, delay: 0.3 }}
+              >
+                <h1 className="text-4xl sm:text-5xl lg:text-6xl font-black text-white leading-tight">
+                  Excellence
+                  <br />
+                  <span className="text-transparent bg-clip-text bg-gradient-to-r from-amber-400 via-orange-400 to-amber-500">
+                    in Every Pursuit
+                  </span>
+                </h1>
+              </motion.div>
+              
+              {/* Description */}
+              <motion.p
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.6, delay: 0.4 }}
+                className="text-lg text-gray-300 leading-relaxed"
+              >
+                From hackathon victories to community impact, each achievement represents our 
+                commitment to pushing boundaries and inspiring growth. These are stories of 
+                determination, teamwork, and innovation.
+              </motion.p>
+              
+              {/* Tagline */}
+              <motion.div
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.6, delay: 0.5 }}
+                className="flex items-center gap-2 text-amber-400 font-semibold"
+              >
+                <Target className="h-5 w-5" />
+                <span>Impact, not trophies</span>
               </motion.div>
             </motion.div>
             
-            {/* Main Heading */}
-            <motion.h1 
-              initial={{ opacity: 0, y: 30 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.8, delay: 0.3 }}
-              className="text-5xl sm:text-6xl md:text-7xl lg:text-8xl font-black text-white mb-6 tracking-tight"
+            {/* Right Column - Stats Grid */}
+            <motion.div
+              initial={{ opacity: 0, x: 50 }}
+              animate={{ opacity: 1, x: 0 }}
+              transition={{ duration: 0.8, delay: 0.2 }}
+              className="grid grid-cols-2 gap-4 sm:gap-6"
             >
-              Our{' '}
-              <span className="relative">
-                <span className="relative z-10">Achievements</span>
-                <motion.span 
-                  initial={{ scaleX: 0 }}
-                  animate={{ scaleX: 1 }}
-                  transition={{ duration: 0.8, delay: 0.8 }}
-                  className="absolute bottom-2 left-0 right-0 h-4 bg-white/30 -z-0 origin-left"
-                />
-              </span>
-            </motion.h1>
-            
-            {/* Subtitle */}
-            <motion.p 
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.8, delay: 0.5 }}
-              className="text-xl sm:text-2xl md:text-3xl text-amber-200 font-medium mb-4"
-            >
-              Celebrating milestones that define our journey
-            </motion.p>
-            
-            <motion.p 
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.8, delay: 0.6 }}
-              className="text-base sm:text-lg text-gray-300 max-w-2xl mx-auto leading-relaxed mb-12"
-            >
-              Every achievement here represents countless hours of learning, collaboration, 
-              and the unwavering spirit of our community. These aren't just trophies—they're 
-              stories of growth.
-            </motion.p>
-
-            {/* Stats Row */}
-            <motion.div 
-              initial={{ opacity: 0, y: 30 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.8, delay: 0.7 }}
-              className="grid grid-cols-2 md:grid-cols-4 gap-6 md:gap-8 max-w-3xl mx-auto"
-            >
-              <StatCard icon={Trophy} value={achievements.length || "0"} label="Achievements" delay={0.8} />
-              <StatCard icon={Medal} value={featuredAchievements.length || "0"} label="Featured" delay={0.9} />
-              <StatCard icon={Users} value="300+" label="Members" delay={1.0} />
-              <StatCard icon={TrendingUp} value="50+" label="Events" delay={1.1} />
+              {/* Large stat card - Total Achievements */}
+              <motion.div
+                initial={{ opacity: 0, scale: 0.8 }}
+                animate={{ opacity: 1, scale: 1 }}
+                transition={{ duration: 0.6, delay: 0.4 }}
+                className="col-span-2 relative group"
+              >
+                <div className="absolute -inset-0.5 bg-gradient-to-r from-amber-500 to-orange-500 rounded-2xl opacity-50 group-hover:opacity-75 blur transition-opacity" />
+                <div className="relative glass-dark rounded-2xl p-8 backdrop-blur-xl border border-white/10">
+                  <div className="flex items-start justify-between mb-4">
+                    <div className="p-3 rounded-xl bg-gradient-to-br from-amber-500/20 to-orange-500/20 border border-amber-400/30">
+                      <Trophy className="h-8 w-8 text-amber-400" />
+                    </div>
+                    <motion.div
+                      animate={{ rotate: [0, 5, -5, 0] }}
+                      transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
+                    >
+                      <Zap className="h-6 w-6 text-amber-400" />
+                    </motion.div>
+                  </div>
+                  <div className="text-5xl font-black text-white mb-2">
+                    {achievements.length || "0"}
+                  </div>
+                  <div className="text-amber-300 font-semibold">Total Achievements</div>
+                  <div className="text-sm text-gray-400 mt-1">Across all competitions</div>
+                </div>
+              </motion.div>
+              
+              {/* Featured */}
+              <motion.div
+                initial={{ opacity: 0, scale: 0.8 }}
+                animate={{ opacity: 1, scale: 1 }}
+                transition={{ duration: 0.6, delay: 0.5 }}
+                className="relative group"
+              >
+                <div className="glass-dark rounded-2xl p-6 backdrop-blur-xl border border-white/10 h-full hover:border-amber-400/30 transition-colors">
+                  <div className="p-2.5 rounded-xl bg-amber-500/10 border border-amber-400/20 w-fit mb-4">
+                    <Star className="h-6 w-6 text-amber-400" />
+                  </div>
+                  <div className="text-3xl font-black text-white mb-1">
+                    {featuredAchievements.length || "0"}
+                  </div>
+                  <div className="text-sm text-amber-300 font-semibold">Featured</div>
+                </div>
+              </motion.div>
+              
+              {/* Members Impacted */}
+              <motion.div
+                initial={{ opacity: 0, scale: 0.8 }}
+                animate={{ opacity: 1, scale: 1 }}
+                transition={{ duration: 0.6, delay: 0.6 }}
+                className="relative group"
+              >
+                <div className="glass-dark rounded-2xl p-6 backdrop-blur-xl border border-white/10 h-full hover:border-amber-400/30 transition-colors">
+                  <div className="p-2.5 rounded-xl bg-orange-500/10 border border-orange-400/20 w-fit mb-4">
+                    <Users className="h-6 w-6 text-orange-400" />
+                  </div>
+                  <div className="text-3xl font-black text-white mb-1">300+</div>
+                  <div className="text-sm text-amber-300 font-semibold">Members</div>
+                </div>
+              </motion.div>
             </motion.div>
           </div>
-        </motion.div>
-
-        {/* Scroll Indicator */}
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1, y: [0, 10, 0] }}
-          transition={{ delay: 1.5, y: { duration: 2, repeat: Infinity } }}
-          className="absolute bottom-8 left-1/2 -translate-x-1/2"
-        >
-          <div className="w-6 h-10 rounded-full border-2 border-amber-400/40 flex items-start justify-center p-2">
-            <motion.div 
-              animate={{ y: [0, 12, 0] }}
-              transition={{ duration: 1.5, repeat: Infinity }}
-              className="w-1.5 h-3 rounded-full bg-amber-400/80" 
-            />
-          </div>
-        </motion.div>
+        </div>
       </section>
 
       {/* ACHIEVEMENT CARDS SECTION */}
@@ -685,7 +639,7 @@ export default function AchievementsPage() {
             >
               <div className="absolute inset-0 bg-gradient-to-br from-amber-400 to-orange-500 rounded-3xl blur-2xl opacity-60" />
               <div className="relative inline-flex h-24 w-24 items-center justify-center rounded-3xl bg-gradient-to-br from-amber-400 to-orange-500 shadow-2xl">
-                <Handshake className="h-12 w-12 text-white" />
+                <Users className="h-12 w-12 text-white" />
               </div>
             </motion.div>
             
