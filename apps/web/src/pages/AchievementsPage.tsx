@@ -240,20 +240,26 @@ function StatCard({ icon: Icon, value, label, delay }: {
       initial={{ opacity: 0, y: 20, scale: 0.9 }}
       animate={isInView ? { opacity: 1, y: 0, scale: 1 } : {}}
       transition={{ duration: 0.5, delay }}
-      className="text-center"
+      className="group"
     >
-      <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-white/20 backdrop-blur-sm mb-3 shadow-lg">
-        <Icon className="h-7 w-7 text-white" />
+      <div className="text-center relative">
+        {/* Glass card background with gradient border */}
+        <div className="relative inline-block">
+          <div className="absolute -inset-1 bg-gradient-to-r from-amber-500/50 to-orange-500/50 rounded-2xl opacity-0 group-hover:opacity-100 blur transition-opacity duration-300" />
+          <div className="relative inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-white/10 backdrop-blur-md border border-white/20 mb-3 shadow-xl">
+            <Icon className="h-8 w-8 text-amber-400" />
+          </div>
+        </div>
+        <motion.div 
+          initial={{ scale: 0.5 }}
+          animate={isInView ? { scale: 1 } : {}}
+          transition={{ duration: 0.3, delay: delay + 0.2, type: "spring" }}
+          className="text-4xl md:text-5xl font-black text-white mb-1"
+        >
+          {value}
+        </motion.div>
+        <div className="text-amber-200 text-sm font-medium">{label}</div>
       </div>
-      <motion.div 
-        initial={{ scale: 0.5 }}
-        animate={isInView ? { scale: 1 } : {}}
-        transition={{ duration: 0.3, delay: delay + 0.2, type: "spring" }}
-        className="text-4xl md:text-5xl font-black text-white mb-1"
-      >
-        {value}
-      </motion.div>
-      <div className="text-amber-100 text-sm font-medium">{label}</div>
     </motion.div>
   );
 }
@@ -327,41 +333,44 @@ export default function AchievementsPage() {
       
       {/* PREMIUM HERO SECTION with Parallax */}
       <section ref={heroRef} className="relative min-h-[70vh] md:min-h-[80vh] flex items-center overflow-hidden">
-        {/* Animated Background */}
+        {/* Animated Background - Dark Slate/Amber theme */}
         <motion.div 
           style={{ scale: heroScale, y: heroY }}
-          className="absolute inset-0 bg-gradient-to-br from-amber-400 via-orange-500 to-amber-600"
+          className="absolute inset-0 bg-gradient-to-br from-slate-950 via-amber-950 to-orange-950"
         >
-          {/* Animated Orbs */}
+          {/* Mesh Gradient Overlay */}
+          <div className="absolute inset-0">
+            <div className="absolute inset-0 bg-[radial-gradient(ellipse_80%_80%_at_50%_-20%,rgba(251,191,36,0.3),rgba(255,255,255,0))]" />
+            <div className="absolute inset-0 bg-[radial-gradient(ellipse_60%_60%_at_0%_100%,rgba(234,88,12,0.2),rgba(255,255,255,0))]" />
+            <div className="absolute inset-0 bg-[radial-gradient(ellipse_50%_50%_at_100%_50%,rgba(251,146,60,0.15),rgba(255,255,255,0))]" />
+          </div>
+
+          {/* Grid Pattern */}
+          <div 
+            className="absolute inset-0 opacity-[0.02]"
+            style={{
+              backgroundImage: `linear-gradient(rgba(255,255,255,0.1) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.1) 1px, transparent 1px)`,
+              backgroundSize: '60px 60px',
+            }}
+          />
+
+          {/* Subtle Animated Orbs */}
           <motion.div 
             animate={{ 
-              x: [0, 100, 0], 
-              y: [0, -50, 0],
-              scale: [1, 1.2, 1]
+              scale: [1, 1.2, 1],
+              opacity: [0.2, 0.3, 0.2]
             }}
-            transition={{ duration: 20, repeat: Infinity, ease: "linear" }}
-            className="absolute top-10 left-10 w-96 h-96 bg-white/10 rounded-full blur-3xl" 
+            transition={{ duration: 8, repeat: Infinity, ease: "easeInOut" }}
+            className="absolute top-20 left-20 w-72 h-72 bg-amber-500/20 rounded-full blur-[100px]" 
           />
           <motion.div 
             animate={{ 
-              x: [0, -100, 0], 
-              y: [0, 50, 0],
-              scale: [1, 1.3, 1]
+              scale: [1, 1.1, 1],
+              opacity: [0.15, 0.25, 0.15]
             }}
-            transition={{ duration: 25, repeat: Infinity, ease: "linear", delay: 5 }}
-            className="absolute bottom-10 right-10 w-[500px] h-[500px] bg-white/10 rounded-full blur-3xl" 
+            transition={{ duration: 10, repeat: Infinity, ease: "easeInOut", delay: 2 }}
+            className="absolute bottom-20 right-20 w-96 h-96 bg-orange-600/20 rounded-full blur-[120px]" 
           />
-          <motion.div 
-            animate={{ 
-              x: [0, 50, 0], 
-              y: [0, 100, 0]
-            }}
-            transition={{ duration: 15, repeat: Infinity, ease: "linear", delay: 2 }}
-            className="absolute top-1/2 left-1/3 w-72 h-72 bg-orange-300/20 rounded-full blur-3xl" 
-          />
-          
-          {/* Grid pattern overlay */}
-          <div className="absolute inset-0 opacity-10 bg-[url('data:image/svg+xml,%3Csvg width=%2260%22 height=%2260%22 viewBox=%220 0 60 60%22 xmlns=%22http://www.w3.org/2000/svg%22%3E%3Cg fill=%22none%22 fill-rule=%22evenodd%22%3E%3Cg fill=%22%23ffffff%22 fill-opacity=%221%22%3E%3Cpath d=%22M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z%22/%3E%3C/g%3E%3C/g%3E%3C/svg%3E')]" />
         </motion.div>
         
         {/* Hero Content */}
@@ -377,18 +386,19 @@ export default function AchievementsPage() {
               transition={{ duration: 0.8, type: "spring", delay: 0.2 }}
               className="relative inline-block mb-8"
             >
+              <div className="absolute -inset-4 bg-gradient-to-r from-amber-500/30 via-orange-500/30 to-amber-500/30 rounded-3xl blur-2xl" />
               <motion.div 
                 animate={{ 
                   boxShadow: [
-                    "0 0 0 0 rgba(255,255,255,0.4)",
-                    "0 0 0 20px rgba(255,255,255,0)",
-                    "0 0 0 0 rgba(255,255,255,0)"
+                    "0 0 0 0 rgba(251,191,36,0.4)",
+                    "0 0 0 20px rgba(251,191,36,0)",
+                    "0 0 0 0 rgba(251,191,36,0)"
                   ]
                 }}
                 transition={{ duration: 2, repeat: Infinity }}
-                className="inline-flex h-24 w-24 items-center justify-center rounded-3xl bg-white/20 backdrop-blur-md border border-white/30 shadow-2xl"
+                className="relative inline-flex h-24 w-24 items-center justify-center rounded-3xl bg-white/10 backdrop-blur-md border border-white/20 shadow-2xl"
               >
-                <Trophy className="h-12 w-12 text-white" />
+                <Trophy className="h-12 w-12 text-amber-400" />
               </motion.div>
             </motion.div>
             
@@ -416,7 +426,7 @@ export default function AchievementsPage() {
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.8, delay: 0.5 }}
-              className="text-xl sm:text-2xl md:text-3xl text-amber-50 font-medium mb-4"
+              className="text-xl sm:text-2xl md:text-3xl text-amber-200 font-medium mb-4"
             >
               Celebrating milestones that define our journey
             </motion.p>
@@ -425,7 +435,7 @@ export default function AchievementsPage() {
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.8, delay: 0.6 }}
-              className="text-base sm:text-lg text-amber-100/80 max-w-2xl mx-auto leading-relaxed mb-12"
+              className="text-base sm:text-lg text-gray-300 max-w-2xl mx-auto leading-relaxed mb-12"
             >
               Every achievement here represents countless hours of learning, collaboration, 
               and the unwavering spirit of our community. These aren't just trophies—they're 
@@ -454,11 +464,11 @@ export default function AchievementsPage() {
           transition={{ delay: 1.5, y: { duration: 2, repeat: Infinity } }}
           className="absolute bottom-8 left-1/2 -translate-x-1/2"
         >
-          <div className="w-6 h-10 rounded-full border-2 border-white/40 flex items-start justify-center p-2">
+          <div className="w-6 h-10 rounded-full border-2 border-amber-400/40 flex items-start justify-center p-2">
             <motion.div 
               animate={{ y: [0, 12, 0] }}
               transition={{ duration: 1.5, repeat: Infinity }}
-              className="w-1.5 h-3 rounded-full bg-white/80" 
+              className="w-1.5 h-3 rounded-full bg-amber-400/80" 
             />
           </div>
         </motion.div>
