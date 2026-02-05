@@ -191,14 +191,44 @@ hiringRouter.patch('/applications/:id/status', authMiddleware, requireRole('ADMI
 
     const { status } = validation.data;
 
+    // Get application before update to check previous status
+    const existingApplication = await prisma.hiringApplication.findUnique({
+      where: { id },
+    });
+
+    if (!existingApplication) {
+      return ApiResponse.notFound(res, 'Application not found');
+    }
+
     const application = await prisma.hiringApplication.update({
       where: { id },
       data: { status },
     });
 
+    // Send notification email if status changed to SELECTED or REJECTED
+    if (existingApplication.status !== status) {
+      if (status === 'SELECTED') {
+        await emailService.sendHiringSelected(
+          application.email,
+          application.name,
+          application.applyingRole
+        );
+        logger.info('📧 Hiring selection email sent', { email: application.email, name: application.name });
+      } else if (status === 'REJECTED') {
+        await emailService.sendHiringRejected(
+          application.email,
+          application.name,
+          application.applyingRole
+        );
+        logger.info('📧 Hiring rejection email sent', { email: application.email, name: application.name });
+      }
+    }
+
     if (authUser) {
       await auditLog(authUser.id, 'HIRING_STATUS_UPDATED', 'HiringApplication', id, {
+        previousStatus: existingApplication.status,
         newStatus: status,
+        emailSent: status === 'SELECTED' || status === 'REJECTED',
       });
     }
 

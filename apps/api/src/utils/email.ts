@@ -615,6 +615,146 @@ export const EmailTemplates = {
       text: `Hi ${name}, thanks for applying to the ${roleName}! Your application has been received. You'll be added to our recruitment portal and will receive updates at ${email}. Please check your email (including spam/promotions) at least once a day.`,
     };
   },
+
+  // Hiring application SELECTED
+  hiringSelected: (name: string, applyingRole: string): EmailTemplate => {
+    const roleNames: Record<string, string> = {
+      TECHNICAL: 'Technical Division',
+      DESIGNING: 'Design Division',
+      VIDEO_EDITING: 'Media Production Division',
+      MANAGEMENT: 'Operations & Management',
+    };
+    const roleName = roleNames[applyingRole] || applyingRole;
+    
+    return {
+      subject: `🎉 Congratulations! You're Now Part of code.scriet · ${roleName}`,
+      html: generateEmailTemplate({
+        preheader: `Welcome to the team! You've been selected to join ${roleName} at code.scriet.`,
+        accentColor: '#10b981',
+        badge: { text: 'Selection Confirmed', icon: '🏆' },
+        title: `Congratulations, ${name}!`,
+        subtitle: `You've been officially selected to join the ${roleName} at code.scriet. Welcome to the family!`,
+        body: `
+          <p style="margin: 0 0 20px; font-size: 16px; color: #e5e7eb; line-height: 1.8;">
+            After careful review, we're thrilled to inform you that <strong style="color: #10b981;">you've made it!</strong> Your skills, passion, and potential stood out among many talented applicants. This is just the beginning of an incredible journey.
+          </p>
+          
+          <div style="margin: 24px 0; padding: 24px; background: linear-gradient(135deg, #10b98115, #05966910); border: 1px solid #10b98140; border-radius: 12px;">
+            <p style="margin: 0 0 16px; font-size: 12px; color: #10b981; font-weight: 700; text-transform: uppercase; letter-spacing: 2px;">🚀 What Happens Next</p>
+            <table cellpadding="0" cellspacing="0" width="100%">
+              <tr>
+                <td style="padding: 12px 0; border-bottom: 1px solid #10b98130;">
+                  <span style="display: inline-block; width: 28px; height: 28px; background: linear-gradient(135deg, #10b981, #059669); border-radius: 50%; text-align: center; line-height: 28px; color: #000; font-weight: 700; font-size: 12px;">1</span>
+                  <span style="color: #f9fafb; font-weight: 500; margin-left: 14px;">WhatsApp Group</span>
+                  <span style="color: #71717a; font-size: 13px; display: block; margin-left: 42px;">You'll be added to our official team WhatsApp groups shortly</span>
+                </td>
+              </tr>
+              <tr>
+                <td style="padding: 12px 0; border-bottom: 1px solid #10b98130;">
+                  <span style="display: inline-block; width: 28px; height: 28px; background: linear-gradient(135deg, #10b981, #059669); border-radius: 50%; text-align: center; line-height: 28px; color: #000; font-weight: 700; font-size: 12px;">2</span>
+                  <span style="color: #f9fafb; font-weight: 500; margin-left: 14px;">Website Profile</span>
+                  <span style="color: #71717a; font-size: 13px; display: block; margin-left: 42px;">Your profile will be featured on our team page</span>
+                </td>
+              </tr>
+              <tr>
+                <td style="padding: 12px 0;">
+                  <span style="display: inline-block; width: 28px; height: 28px; background: linear-gradient(135deg, #10b981, #059669); border-radius: 50%; text-align: center; line-height: 28px; color: #000; font-weight: 700; font-size: 12px;">3</span>
+                  <span style="color: #f9fafb; font-weight: 500; margin-left: 14px;">Join Discord</span>
+                  <span style="color: #71717a; font-size: 13px; display: block; margin-left: 42px;">Head to our website and join the Discord community for all updates</span>
+                </td>
+              </tr>
+            </table>
+          </div>
+          
+          <div style="padding: 20px; background: linear-gradient(135deg, #fbbf2415, #f59e0b10); border: 1px solid #fbbf2440; border-radius: 10px;">
+            <p style="margin: 0 0 8px; font-size: 13px; color: #fbbf24; font-weight: 700; text-transform: uppercase; letter-spacing: 1px;">💡 Important</p>
+            <p style="margin: 0; font-size: 14px; color: #fcd34d; line-height: 1.7;">
+              Make sure to <strong>join our Discord server</strong> through the website—it's where all the action happens. Team meetings, project discussions, and announcements all flow through Discord.
+            </p>
+          </div>
+          
+          <p style="margin: 24px 0 0; font-size: 15px; color: #a1a1aa; line-height: 1.7;">
+            We can't wait to see the amazing things you'll build with us. Welcome aboard, <strong style="color: #10b981;">${name}</strong>! 🎉
+          </p>
+        `,
+        cta: { text: 'Visit code.scriet & Join Discord', url: SITE_URL },
+        footer: 'The best is yet to come. Let\'s build something legendary together.',
+      }),
+      text: `Congratulations ${name}! You've been selected to join the ${roleName} at code.scriet! You'll be added to our WhatsApp groups and website soon. Please visit ${SITE_URL} and join our Discord server for all updates and team communications. Welcome to the team!`,
+    };
+  },
+
+  // Hiring application REJECTED
+  hiringRejected: (name: string, applyingRole: string): EmailTemplate => {
+    const roleNames: Record<string, string> = {
+      TECHNICAL: 'Technical Division',
+      DESIGNING: 'Design Division',
+      VIDEO_EDITING: 'Media Production Division',
+      MANAGEMENT: 'Operations & Management',
+    };
+    const roleName = roleNames[applyingRole] || applyingRole;
+    
+    return {
+      subject: `Application Update · ${roleName} · code.scriet`,
+      html: generateEmailTemplate({
+        preheader: `An update regarding your application to the ${roleName} at code.scriet`,
+        accentColor: '#6b7280',
+        badge: { text: 'Application Update', icon: '📋' },
+        title: `Thank You for Applying, ${name}`,
+        subtitle: `We appreciate your interest in joining the ${roleName} at code.scriet.`,
+        body: `
+          <p style="margin: 0 0 20px; font-size: 16px; color: #e5e7eb; line-height: 1.8;">
+            After carefully reviewing all applications, we regret to inform you that we won't be moving forward with your application for the <strong style="color: #f9fafb;">${roleName}</strong> at this time.
+          </p>
+          
+          <p style="margin: 0 0 20px; font-size: 15px; color: #d1d5db; line-height: 1.8;">
+            This decision was not easy—we received many strong applications, and the competition was fierce. Please don't let this discourage you. Every successful developer has faced setbacks, and what matters is how you respond.
+          </p>
+          
+          <div style="margin: 24px 0; padding: 24px; background: linear-gradient(135deg, #18181b, #0f0f10); border: 1px solid #27272a; border-radius: 12px;">
+            <p style="margin: 0 0 16px; font-size: 12px; color: #fbbf24; font-weight: 700; text-transform: uppercase; letter-spacing: 2px;">💪 Our Recommendation</p>
+            <table cellpadding="0" cellspacing="0" width="100%">
+              <tr>
+                <td style="padding: 10px 0; border-bottom: 1px solid #27272a;">
+                  <span style="color: #fbbf24; font-size: 16px;">📚</span>
+                  <span style="color: #f9fafb; font-weight: 500; margin-left: 12px;">Strengthen Your Fundamentals</span>
+                  <span style="color: #71717a; font-size: 13px; display: block; margin-left: 34px; margin-top: 4px;">Focus on core concepts—they're the foundation of everything</span>
+                </td>
+              </tr>
+              <tr>
+                <td style="padding: 10px 0; border-bottom: 1px solid #27272a;">
+                  <span style="color: #fbbf24; font-size: 16px;">🛠️</span>
+                  <span style="color: #f9fafb; font-weight: 500; margin-left: 12px;">Build Real Projects</span>
+                  <span style="color: #71717a; font-size: 13px; display: block; margin-left: 34px; margin-top: 4px;">Nothing beats hands-on experience with actual applications</span>
+                </td>
+              </tr>
+              <tr>
+                <td style="padding: 10px 0;">
+                  <span style="color: #fbbf24; font-size: 16px;">🔄</span>
+                  <span style="color: #f9fafb; font-weight: 500; margin-left: 12px;">Apply Again When Ready</span>
+                  <span style="color: #71717a; font-size: 13px; display: block; margin-left: 34px; margin-top: 4px;">Our doors are always open—come back stronger in the next round</span>
+                </td>
+              </tr>
+            </table>
+          </div>
+          
+          <div style="padding: 16px 20px; background: linear-gradient(135deg, #10b98115, #05966910); border-left: 3px solid #10b981; border-radius: 0 12px 12px 0;">
+            <p style="margin: 0; font-size: 14px; color: #6ee7b7; line-height: 1.7;">
+              <strong>Remember:</strong> This isn't a "no"—it's a "not yet." When you feel ready, we'd love to see you apply again. Growth is a journey, and we believe in second chances.
+            </p>
+          </div>
+          
+          <p style="margin: 24px 0 0; font-size: 14px; color: #71717a; line-height: 1.7; font-style: italic;">
+            "Success is not final, failure is not fatal: it is the courage to continue that counts." — Winston Churchill
+          </p>
+        `,
+        cta: { text: 'Explore code.scriet Events', url: `${SITE_URL}/events` },
+        secondaryCta: { text: 'Join our public events and keep learning', url: `${SITE_URL}/events` },
+        footer: 'Keep coding, keep growing. We hope to see you again.',
+      }),
+      text: `Hi ${name}, thank you for applying to the ${roleName} at code.scriet. After careful review, we won't be moving forward with your application at this time. We encourage you to work on strengthening your fundamentals and building projects. When you feel ready, we'd love to see you apply again in the next recruitment round. Keep learning and growing!`,
+    };
+  },
 };
 
 // ============================================
@@ -755,6 +895,16 @@ class EmailService {
 
   async sendHiringApplication(email: string, name: string, applyingRole: string): Promise<boolean> {
     const template = EmailTemplates.hiringApplication(name, email, applyingRole);
+    return this.send({ to: email, ...template });
+  }
+
+  async sendHiringSelected(email: string, name: string, applyingRole: string): Promise<boolean> {
+    const template = EmailTemplates.hiringSelected(name, applyingRole);
+    return this.send({ to: email, ...template });
+  }
+
+  async sendHiringRejected(email: string, name: string, applyingRole: string): Promise<boolean> {
+    const template = EmailTemplates.hiringRejected(name, applyingRole);
     return this.send({ to: email, ...template });
   }
 
