@@ -45,7 +45,7 @@ interface BrevoRecipient {
 
 function markdownToEmailHtml(markdown: string): string {
   const rawHtml = marked.parse(markdown, { async: false }) as string;
-  
+
   return rawHtml
     .replace(/<p>/g, '<p style="margin: 0 0 16px 0; font-size: 15px; color: #d1d5db; line-height: 1.7;">')
     .replace(/<h1>/g, '<h1 style="margin: 24px 0 12px 0; font-size: 24px; font-weight: 700; color: #f9fafb;">')
@@ -93,7 +93,7 @@ const generateEmailTemplate = (content: {
   footer?: string;
 }) => {
   const accent = content.accentColor || '#fbbf24';
-  
+
   const infoCardsHtml = content.infoCards?.map(card => `
     <tr>
       <td style="padding: 16px 20px; border-bottom: 1px solid #1f2937;">
@@ -296,7 +296,7 @@ const generateEmailTemplate = (content: {
 export const EmailTemplates = {
   // Welcome email for new members
   welcome: (name: string, clubName: string, customBody?: string, customFooter?: string): EmailTemplate => {
-    const bodyContent = customBody 
+    const bodyContent = customBody
       ? markdownToEmailHtml(customBody.replace(/\{\{name\}\}/g, name).replace(/\{\{clubName\}\}/g, clubName))
       : `
         <p style="margin: 0 0 20px; font-size: 16px; color: #e5e7eb; line-height: 1.8;">
@@ -341,7 +341,7 @@ export const EmailTemplates = {
           The best developers never stop learning. Your journey to excellence starts now.
         </p>
       `;
-    
+
     return {
       subject: `Welcome to the Elite, ${name} · ${clubName}`,
       html: generateEmailTemplate({
@@ -369,8 +369,8 @@ export const EmailTemplates = {
       subtitle: `Your exclusive spot for "${eventTitle}" has been secured.`,
       heroImage: imageUrl,
       infoCards: [
-        { icon: '📅', label: 'Date', value: eventDate.toLocaleDateString('en-IN', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }) },
-        { icon: '⏰', label: 'Time', value: eventDate.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true }) },
+        { icon: '📅', label: 'Date', value: eventDate.toLocaleDateString('en-IN', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', timeZone: 'Asia/Kolkata' }) },
+        { icon: '⏰', label: 'Time', value: eventDate.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true, timeZone: 'Asia/Kolkata' }) },
         ...(location ? [{ icon: '📍', label: 'Venue', value: location }] : []),
       ],
       body: `
@@ -399,12 +399,12 @@ export const EmailTemplates = {
       LOW: { text: 'Update', icon: '📌', color: '#71717a' },
     };
     const config = priorityConfig[priority as keyof typeof priorityConfig] || priorityConfig.MEDIUM;
-    
+
     const htmlBody = markdownToEmailHtml(body.length > 800 ? body.substring(0, 800) + '...' : body);
-    const finalBody = customIntro 
+    const finalBody = customIntro
       ? `<div style="margin-bottom: 20px;">${markdownToEmailHtml(customIntro)}</div>${htmlBody}`
       : htmlBody;
-    
+
     return {
       subject: priority === 'URGENT' ? `[URGENT] ${title}` : title,
       html: generateEmailTemplate({
@@ -428,7 +428,7 @@ export const EmailTemplates = {
     const bodyContent = customIntro
       ? `<div style="margin-bottom: 16px;">${markdownToEmailHtml(customIntro)}</div>${descriptionHtml}`
       : descriptionHtml;
-    
+
     return {
       subject: `[Event] ${title} · code.scriet`,
       html: generateEmailTemplate({
@@ -439,8 +439,8 @@ export const EmailTemplates = {
         subtitle: shortDescription || description.substring(0, 150),
         heroImage: imageUrl,
         infoCards: [
-          { icon: '📅', label: 'Date', value: startDate.toLocaleDateString('en-IN', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }) },
-          { icon: '⏰', label: 'Time', value: startDate.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true }) },
+          { icon: '📅', label: 'Date', value: startDate.toLocaleDateString('en-IN', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', timeZone: 'Asia/Kolkata' }) },
+          { icon: '⏰', label: 'Time', value: startDate.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true, timeZone: 'Asia/Kolkata' }) },
           ...(location ? [{ icon: '📍', label: 'Venue', value: location }] : []),
         ],
         body: bodyContent,
@@ -489,8 +489,8 @@ export const EmailTemplates = {
       title: `${name}, Tomorrow's the Day`,
       subtitle: `"${eventTitle}" kicks off in less than 24 hours.`,
       infoCards: [
-        { icon: '📅', label: 'Date', value: eventDate.toLocaleDateString('en-IN', { weekday: 'long', month: 'long', day: 'numeric' }) },
-        { icon: '⏰', label: 'Time', value: eventDate.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true }) },
+        { icon: '📅', label: 'Date', value: eventDate.toLocaleDateString('en-IN', { weekday: 'long', month: 'long', day: 'numeric', timeZone: 'Asia/Kolkata' }) },
+        { icon: '⏰', label: 'Time', value: eventDate.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true, timeZone: 'Asia/Kolkata' }) },
       ],
       body: `
         <p style="margin: 0 0 16px; font-size: 15px; color: #d1d5db; line-height: 1.7;">
@@ -526,8 +526,8 @@ export const EmailTemplates = {
       subtitle: `"${eventTitle}" is now accepting participants. Secure your spot before it fills up.`,
       heroImage: imageUrl,
       infoCards: [
-        { icon: '📅', label: 'Event Date', value: startDate.toLocaleDateString('en-IN', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' }) },
-        { icon: '⏰', label: 'Time', value: startDate.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true }) },
+        { icon: '📅', label: 'Event Date', value: startDate.toLocaleDateString('en-IN', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', timeZone: 'Asia/Kolkata' }) },
+        { icon: '⏰', label: 'Time', value: startDate.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true, timeZone: 'Asia/Kolkata' }) },
       ],
       body: `
         ${shortDescription ? `<p style="margin: 0 0 16px; font-size: 15px; color: #d1d5db; line-height: 1.7;">${shortDescription}</p>` : ''}
@@ -553,7 +553,7 @@ export const EmailTemplates = {
       MANAGEMENT: 'Operations & Management',
     };
     const roleName = roleNames[applyingRole] || applyingRole;
-    
+
     return {
       subject: `Application Received · ${roleName} · code.scriet`,
       html: generateEmailTemplate({
@@ -625,7 +625,7 @@ export const EmailTemplates = {
       MANAGEMENT: 'Operations & Management',
     };
     const roleName = roleNames[applyingRole] || applyingRole;
-    
+
     return {
       subject: `🎉 Congratulations! You're Now Part of code.scriet · ${roleName}`,
       html: generateEmailTemplate({
@@ -693,7 +693,7 @@ export const EmailTemplates = {
       MANAGEMENT: 'Operations & Management',
     };
     const roleName = roleNames[applyingRole] || applyingRole;
-    
+
     return {
       subject: `Application Update · ${roleName} · code.scriet`,
       html: generateEmailTemplate({
@@ -774,7 +774,7 @@ class EmailService {
     this.fromName = EMAIL_FROM_NAME;
     this.replyToEmail = EMAIL_REPLY_TO;
     this.configured = !!this.apiKey;
-    
+
     if (this.configured) {
       logger.info('📧 Brevo email service configured successfully');
     } else {
@@ -784,9 +784,9 @@ class EmailService {
 
   async send(options: EmailOptions): Promise<boolean> {
     if (!this.configured) {
-      logger.debug('Email service not configured, skipping email', { 
+      logger.debug('Email service not configured, skipping email', {
         to: Array.isArray(options.to) ? options.to.length + ' recipients' : options.to,
-        subject: options.subject 
+        subject: options.subject
       });
       return false;
     }
