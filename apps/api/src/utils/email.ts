@@ -23,6 +23,7 @@ marked.setOptions({
 
 interface EmailOptions {
   to: string | string[];
+  bcc?: string | string[];
   subject: string;
   html: string;
   text?: string;
@@ -786,6 +787,7 @@ class EmailService {
     if (!this.configured) {
       logger.debug('Email service not configured, skipping email', {
         to: Array.isArray(options.to) ? options.to.length + ' recipients' : options.to,
+        bcc: Array.isArray(options.bcc) ? options.bcc.length + ' bcc recipients' : options.bcc,
         subject: options.subject
       });
       return false;
@@ -796,10 +798,15 @@ class EmailService {
         ? options.to.map(email => ({ email }))
         : [{ email: options.to }];
 
+      const bccRecipients: BrevoRecipient[] = options.bcc
+        ? (Array.isArray(options.bcc) ? options.bcc : [options.bcc]).map(email => ({ email }))
+        : [];
+
       const payload = {
         sender: { name: this.fromName, email: this.fromEmail },
         replyTo: { email: this.replyToEmail, name: 'code.scriet Support' },
         to: recipients,
+        ...(bccRecipients.length > 0 ? { bcc: bccRecipients } : {}),
         subject: options.subject,
         htmlContent: options.html,
         textContent: options.text || htmlToPlainText(options.html),
@@ -825,6 +832,7 @@ class EmailService {
       logger.info('📧 Email sent via Brevo', {
         messageId: result.messageId,
         recipients: recipients.length,
+        bccRecipients: bccRecipients.length,
         subject: options.subject,
       });
       return true;
@@ -839,7 +847,7 @@ class EmailService {
   async sendBulk(emails: string[], subject: string, html: string, text?: string): Promise<boolean> {
     if (!this.configured || emails.length === 0) return false;
 
-    const BATCH_SIZE = 50;
+    const BATCH_SIZE = 1000;
     const batches: string[][] = [];
     for (let i = 0; i < emails.length; i += BATCH_SIZE) {
       batches.push(emails.slice(i, i + BATCH_SIZE));
@@ -849,12 +857,66 @@ class EmailService {
 
     let allSuccessful = true;
     for (const batch of batches) {
-      const success = await this.send({ to: batch, subject, html, text });
+      const success = await this.sendBatchMessageVersions(batch, subject, html, text);
       if (!success) allSuccessful = false;
       await new Promise(resolve => setTimeout(resolve, 100));
     }
 
     return allSuccessful;
+  }
+
+  private async sendBatchMessageVersions(
+    emails: string[],
+    subject: string,
+    html: string,
+    text?: string
+  ): Promise<boolean> {
+    if (!this.configured || emails.length === 0) return false;
+
+    try {
+      const messageVersions = emails.map(email => ({
+        to: [{ email }],
+      }));
+
+      const payload = {
+        sender: { name: this.fromName, email: this.fromEmail },
+        replyTo: { email: this.replyToEmail, name: 'code.scriet Support' },
+        subject,
+        htmlContent: html,
+        textContent: text || htmlToPlainText(html),
+        messageVersions,
+      };
+
+      const response = await fetch(BREVO_API_URL, {
+        method: 'POST',
+        headers: {
+          'Accept': 'application/json',
+          'Content-Type': 'application/json',
+          'api-key': this.apiKey,
+        },
+        body: JSON.stringify(payload),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        logger.error('❌ Brevo batch API error:', { status: response.status, body: errorText });
+        throw new Error(`Brevo batch API error: ${response.status}`);
+      }
+
+      const result = await response.json();
+      const messageCount = Array.isArray(result.messageIds) ? result.messageIds.length : 0;
+      logger.info('📧 Batch email sent via Brevo', {
+        recipients: emails.length,
+        messageIds: messageCount,
+        subject,
+      });
+      return true;
+    } catch (error) {
+      logger.error('❌ Failed to send batch email', {
+        error: error instanceof Error ? error.message : 'Unknown error',
+      });
+      return false;
+    }
   }
 
   // Convenience methods
