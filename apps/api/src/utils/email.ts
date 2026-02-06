@@ -387,7 +387,7 @@ export const EmailTemplates = {
       cta: { text: 'View Event Details', url: `${SITE_URL}/events/${eventSlug}` },
       footer: 'The future belongs to those who prepare for it.',
     }),
-    text: `Hi ${name}, your registration for ${eventTitle} on ${eventDate.toLocaleDateString()} is confirmed!`,
+    text: `Hi ${name}, your registration for ${eventTitle} on ${eventDate.toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata' })} is confirmed!`,
   }),
 
   // New Announcement notification
@@ -448,7 +448,7 @@ export const EmailTemplates = {
         secondaryCta: { text: 'Browse all events', url: `${SITE_URL}/events` },
         footer: customFooter || 'Elite opportunities don\'t wait. Neither should you.',
       }),
-      text: `New Event: ${title}\n\nDate: ${startDate.toLocaleDateString()}\nTime: ${startDate.toLocaleTimeString()}\n${location ? `Location: ${location}\n` : ''}\n${description}\n\nRegister: ${SITE_URL}/events/${slug}`,
+      text: `New Event: ${title}\n\nDate: ${startDate.toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata' })}\nTime: ${startDate.toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata' })}\n${location ? `Location: ${location}\n` : ''}\n${description}\n\nRegister: ${SITE_URL}/events/${slug}`,
     };
   },
 
@@ -512,7 +512,7 @@ export const EmailTemplates = {
       cta: { text: 'View Event Details', url: `${SITE_URL}/events/${eventSlug}` },
       footer: 'Prepared minds seize the best opportunities.',
     }),
-    text: `Hi ${name}, reminder: ${eventTitle} is tomorrow at ${eventDate.toLocaleTimeString()}!`,
+    text: `Hi ${name}, reminder: ${eventTitle} is tomorrow at ${eventDate.toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata' })}!`,
   }),
 
   // Registration opens notification
@@ -541,7 +541,7 @@ export const EmailTemplates = {
       cta: { text: 'Register Now', url: `${SITE_URL}/events/${slug}` },
       footer: 'First movers get the advantage. Always.',
     }),
-    text: `Registration is now open for ${eventTitle}! Date: ${startDate.toLocaleDateString()}. Register: ${SITE_URL}/events/${slug}`,
+    text: `Registration is now open for ${eventTitle}! Date: ${startDate.toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata' })}. Register: ${SITE_URL}/events/${slug}`,
   }),
 
   // Hiring application confirmation
