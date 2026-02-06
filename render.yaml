@@ -5,13 +5,15 @@ services:
     name: codescriet-api
     runtime: node
     plan: free
-    buildCommand: npm install --include=dev && npx prisma generate --schema=./prisma/schema.prisma && npm run build --workspace=apps/api
-    startCommand: npx prisma migrate deploy --schema=./prisma/schema.prisma && npm run start --workspace=apps/api
+    buildCommand: npm install --include=dev && npx prisma generate --schema=./prisma/schema.prisma && npx prisma migrate deploy --schema=./prisma/schema.prisma && npm run build --workspace=apps/api
+    startCommand: npm run start --workspace=apps/api
     healthCheckPath: /ping
     envVars:
       - key: NODE_ENV
         value: production
       - key: DATABASE_URL
+        sync: false
+      - key: DIRECT_URL
         sync: false
       - key: JWT_SECRET
         sync: false
