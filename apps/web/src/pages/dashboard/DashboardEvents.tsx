@@ -39,7 +39,14 @@ function getRegistrationStatus(event: Event): {
     };
   }
 
-  if (regEnd && now > regEnd) {
+  if (event.allowLateRegistration) {
+    if (regEnd && now > regEnd) {
+      return { status: 'closed', message: 'Registration closed', canRegister: false };
+    }
+    if (event.status === 'ONGOING') {
+      return { status: 'open', message: 'Late registration open', canRegister: true };
+    }
+  } else if (regEnd && now > regEnd) {
     return { status: 'closed', message: 'Registration closed', canRegister: false };
   }
 

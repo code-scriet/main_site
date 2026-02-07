@@ -2,8 +2,26 @@ import { Router, Request, Response } from 'express';
 import { prisma } from '../lib/prisma.js';
 import { authMiddleware, getAuthUser } from '../middleware/auth.js';
 import { requireRole } from '../middleware/role.js';
+import { calculateConsecutiveDailyStreak } from '../utils/dateStreak.js';
 
 export const statsRouter = Router();
+
+type DailyAggregateRow = {
+  day: Date | string;
+  total_count: bigint | number | string;
+};
+
+const toNumericCount = (value: bigint | number | string): number =>
+  typeof value === 'bigint' ? Number(value) : Number(value);
+
+const mapDailyAggregateRows = (rows: DailyAggregateRow[]) =>
+  rows.map((row) => {
+    const day = row.day instanceof Date ? row.day : new Date(row.day);
+    return {
+      date: day.toISOString().split('T')[0],
+      count: toNumericCount(row.total_count),
+    };
+  });
 
 // Get public stats
 statsRouter.get('/', async (_req: Request, res: Response) => {
@@ -84,39 +102,29 @@ statsRouter.get('/me', authMiddleware, async (req: Request, res: Response) => {
   try {
     const authUser = getAuthUser(req)!;
 
-    const [registrationCount, qotdSubmissionCount, registrations] = await Promise.all([
+    const [registrationCount, qotdSubmissionCount, registrations, submissions] = await Promise.all([
       prisma.eventRegistration.count({ where: { userId: authUser.id } }),
       prisma.qOTDSubmission.count({ where: { userId: authUser.id } }),
       prisma.eventRegistration.findMany({
         where: { userId: authUser.id },
         take: 5,
         orderBy: { timestamp: 'desc' },
-        include: { event: { select: { id: true, title: true, startDate: true } } },
+        select: {
+          id: true,
+          timestamp: true,
+          event: { select: { title: true, startDate: true } },
+        },
+      }),
+      prisma.qOTDSubmission.findMany({
+        where: { userId: authUser.id },
+        select: { qotd: { select: { date: true } } },
       }),
     ]);
 
-    const submissions = await prisma.qOTDSubmission.findMany({
-      where: { userId: authUser.id },
-      include: { qotd: true },
-      orderBy: { timestamp: 'desc' },
-    });
-
-    let streak = 0;
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-
-    for (let i = 0; i < submissions.length; i++) {
-      const submissionDate = new Date(submissions[i].qotd.date);
-      submissionDate.setHours(0, 0, 0, 0);
-      const expectedDate = new Date(today);
-      expectedDate.setDate(today.getDate() - i);
-
-      if (submissionDate.getTime() === expectedDate.getTime()) {
-        streak++;
-      } else {
-        break;
-      }
-    }
+    const streak = calculateConsecutiveDailyStreak(
+      submissions.map((submission) => submission.qotd.date),
+      new Date()
+    );
 
     res.json({
       success: true,
@@ -124,11 +132,11 @@ statsRouter.get('/me', authMiddleware, async (req: Request, res: Response) => {
         eventsRegistered: registrationCount,
         qotdSubmissions: qotdSubmissionCount,
         qotdStreak: streak,
-        recentRegistrations: registrations.map((r) => ({
-          id: r.id,
-          eventTitle: r.event.title,
-          eventDate: r.event.startDate,
-          registeredAt: r.timestamp,
+        recentRegistrations: registrations.map((registration) => ({
+          id: registration.id,
+          eventTitle: registration.event.title,
+          eventDate: registration.event.startDate,
+          registeredAt: registration.timestamp,
         })),
       },
     });
@@ -143,20 +151,15 @@ statsRouter.get('/events/trends', authMiddleware, requireRole('ADMIN'), async (_
     const thirtyDaysAgo = new Date();
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
 
-    const registrations = await prisma.eventRegistration.findMany({
-      where: { timestamp: { gte: thirtyDaysAgo } },
-      select: { timestamp: true },
-      orderBy: { timestamp: 'asc' },
-    });
+    const registrations = await prisma.$queryRaw<DailyAggregateRow[]>`
+      SELECT date_trunc('day', "timestamp") AS day, COUNT(*)::bigint AS total_count
+      FROM "event_registrations"
+      WHERE "timestamp" >= ${thirtyDaysAgo}
+      GROUP BY 1
+      ORDER BY 1 ASC
+    `;
 
-    const dailyCounts: Record<string, number> = {};
-    registrations.forEach((r) => {
-      const day = r.timestamp.toISOString().split('T')[0];
-      dailyCounts[day] = (dailyCounts[day] || 0) + 1;
-    });
-
-    const trends = Object.entries(dailyCounts).map(([date, count]) => ({ date, count }));
-    res.json({ success: true, data: trends });
+    res.json({ success: true, data: mapDailyAggregateRows(registrations) });
   } catch (error) {
     res.status(500).json({ success: false, error: { message: 'Failed to fetch trends' } });
   }
@@ -168,20 +171,15 @@ statsRouter.get('/qotd/trends', authMiddleware, requireRole('ADMIN'), async (_re
     const thirtyDaysAgo = new Date();
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
 
-    const submissions = await prisma.qOTDSubmission.findMany({
-      where: { timestamp: { gte: thirtyDaysAgo } },
-      select: { timestamp: true },
-      orderBy: { timestamp: 'asc' },
-    });
+    const submissions = await prisma.$queryRaw<DailyAggregateRow[]>`
+      SELECT date_trunc('day', "timestamp") AS day, COUNT(*)::bigint AS total_count
+      FROM "qotd_submissions"
+      WHERE "timestamp" >= ${thirtyDaysAgo}
+      GROUP BY 1
+      ORDER BY 1 ASC
+    `;
 
-    const dailyCounts: Record<string, number> = {};
-    submissions.forEach((s) => {
-      const day = s.timestamp.toISOString().split('T')[0];
-      dailyCounts[day] = (dailyCounts[day] || 0) + 1;
-    });
-
-    const trends = Object.entries(dailyCounts).map(([date, count]) => ({ date, count }));
-    res.json({ success: true, data: trends });
+    res.json({ success: true, data: mapDailyAggregateRows(submissions) });
   } catch (error) {
     res.status(500).json({ success: false, error: { message: 'Failed to fetch QOTD trends' } });
   }

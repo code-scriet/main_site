@@ -3,7 +3,7 @@ import { prisma } from '../lib/prisma.js';
 import { authMiddleware, getAuthUser } from '../middleware/auth.js';
 import { requireRole } from '../middleware/role.js';
 import { auditLog } from '../utils/audit.js';
-import { generateSlug } from '../utils/slug.js';
+import { generateSlug, generateUniqueSlug } from '../utils/slug.js';
 
 export const achievementsRouter = Router();
 
@@ -119,17 +119,14 @@ achievementsRouter.post('/', authMiddleware, requireRole('CORE_MEMBER'), async (
     }
 
     // Generate unique slug
-    const baseSlug = generateSlug(title);
-    const existingSlugs = (await prisma.achievement.findMany({
-      select: { slug: true },
-    })).map(a => a.slug);
-    
-    let slug = baseSlug;
-    let counter = 1;
-    while (existingSlugs.includes(slug)) {
-      slug = `${baseSlug}-${counter}`;
-      counter++;
-    }
+    const baseSlug = generateSlug(title) || 'achievement';
+    const existingSlugs = (
+      await prisma.achievement.findMany({
+        where: { slug: { startsWith: baseSlug } },
+        select: { slug: true },
+      })
+    ).map((achievement) => achievement.slug);
+    const slug = generateUniqueSlug(baseSlug, existingSlugs);
 
     const achievement = await prisma.achievement.create({
       data: {
@@ -179,18 +176,17 @@ achievementsRouter.put('/:id', authMiddleware, requireRole('CORE_MEMBER'), async
     if (title) {
       updateData.title = title;
       // Regenerate slug if title changed
-      const baseSlug = generateSlug(title);
-      const existingSlugs = (await prisma.achievement.findMany({
-        where: { id: { not: req.params.id } },
-        select: { slug: true },
-      })).map(a => a.slug);
-      
-      let slug = baseSlug;
-      let counter = 1;
-      while (existingSlugs.includes(slug)) {
-        slug = `${baseSlug}-${counter}`;
-        counter++;
-      }
+      const baseSlug = generateSlug(title) || 'achievement';
+      const existingSlugs = (
+        await prisma.achievement.findMany({
+          where: {
+            id: { not: req.params.id },
+            slug: { startsWith: baseSlug },
+          },
+          select: { slug: true },
+        })
+      ).map((achievement) => achievement.slug);
+      const slug = generateUniqueSlug(baseSlug, existingSlugs);
       updateData.slug = slug;
     }
 

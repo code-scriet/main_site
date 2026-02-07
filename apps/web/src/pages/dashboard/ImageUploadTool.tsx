@@ -8,6 +8,7 @@ import {
   ExternalLink, AlertCircle
 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
+import { extractApiErrorMessage } from '@/lib/error';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5001/api';
 
@@ -63,10 +64,10 @@ export default function ImageUploadTool() {
         body: formData,
       });
 
-      const data = await response.json();
+      const data = await response.json().catch(() => null);
 
       if (!response.ok) {
-        throw new Error(data.error || 'Upload failed');
+        throw new Error(extractApiErrorMessage(data, 'Upload failed'));
       }
 
       setUploadedImage({

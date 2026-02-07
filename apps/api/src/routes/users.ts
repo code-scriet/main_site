@@ -6,6 +6,7 @@ import { auditLog } from '../utils/audit.js';
 import { logger } from '../utils/logger.js';
 import bcrypt from 'bcryptjs';
 import { socketEvents } from '../utils/socket.js';
+import { calculateConsecutiveDailyStreak } from '../utils/dateStreak.js';
 
 export const usersRouter = Router();
 
@@ -215,38 +216,44 @@ usersRouter.get('/me/qotd-stats', authMiddleware, async (req: Request, res: Resp
   try {
     const authUser = getAuthUser(req)!;
 
-    const submissions = await prisma.qOTDSubmission.findMany({
-      where: { userId: authUser.id },
-      include: { qotd: true },
-      orderBy: { timestamp: 'desc' },
-    });
+    const [totalSubmissions, streakSubmissions, recentSubmissions] = await Promise.all([
+      prisma.qOTDSubmission.count({
+        where: { userId: authUser.id },
+      }),
+      prisma.qOTDSubmission.findMany({
+        where: { userId: authUser.id },
+        select: { qotd: { select: { date: true } } },
+      }),
+      prisma.qOTDSubmission.findMany({
+        where: { userId: authUser.id },
+        orderBy: { timestamp: 'desc' },
+        take: 10,
+        select: {
+          timestamp: true,
+          qotd: {
+            select: {
+              date: true,
+              difficulty: true,
+            },
+          },
+        },
+      }),
+    ]);
 
-    let streak = 0;
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-
-    for (let i = 0; i < submissions.length; i++) {
-      const submissionDate = new Date(submissions[i].qotd.date);
-      submissionDate.setHours(0, 0, 0, 0);
-      const expectedDate = new Date(today);
-      expectedDate.setDate(today.getDate() - i);
-
-      if (submissionDate.getTime() === expectedDate.getTime()) {
-        streak++;
-      } else {
-        break;
-      }
-    }
+    const streak = calculateConsecutiveDailyStreak(
+      streakSubmissions.map((submission) => submission.qotd.date),
+      new Date()
+    );
 
     res.json({
       success: true,
       data: {
-        totalSubmissions: submissions.length,
+        totalSubmissions,
         currentStreak: streak,
-        recentSubmissions: submissions.slice(0, 10).map((s) => ({
-          date: s.qotd.date,
-          difficulty: s.qotd.difficulty,
-          timestamp: s.timestamp,
+        recentSubmissions: recentSubmissions.map((submission) => ({
+          date: submission.qotd.date,
+          difficulty: submission.qotd.difficulty,
+          timestamp: submission.timestamp,
         })),
       },
     });

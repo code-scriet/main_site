@@ -33,8 +33,9 @@ export function generateSlug(text: string): string {
 export function generateUniqueSlug(baseSlug: string, existingSlugs: string[]): string {
   let slug = baseSlug;
   let counter = 1;
+  const usedSlugs = new Set(existingSlugs.filter(Boolean));
 
-  while (existingSlugs.includes(slug)) {
+  while (usedSlugs.has(slug)) {
     slug = `${baseSlug}-${counter}`;
     counter++;
   }

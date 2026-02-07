@@ -19,11 +19,15 @@ export default function AuthCallbackPage() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const { login } = useAuth();
-  const { settings } = useSettings();
+  const { settings, loading: settingsLoading } = useSettings();
   const [status, setStatus] = useState('Completing sign in...');
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    if (settingsLoading) {
+      return;
+    }
+
     const processCallback = async () => {
       try {
         const token = searchParams.get('token');
@@ -149,7 +153,7 @@ export default function AuthCallbackPage() {
     };
 
     processCallback();
-  }, [searchParams, navigate, login]);
+  }, [searchParams, navigate, login, settingsLoading, settings?.hiringEnabled]);
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-amber-50 via-orange-50 to-amber-100">

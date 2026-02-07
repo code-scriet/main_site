@@ -18,7 +18,7 @@ eventsRouter.get('/', optionalAuthMiddleware, async (req: Request, res: Response
     // Update statuses before fetching
     await updateEventStatuses();
 
-    const { status, search, limit = '10', offset = '0' } = req.query;
+    const { status, search, limit, offset } = req.query;
     const where: Record<string, unknown> = {};
 
     if (status && ['UPCOMING', 'ONGOING', 'PAST'].includes(status as string)) {
@@ -32,35 +32,64 @@ eventsRouter.get('/', optionalAuthMiddleware, async (req: Request, res: Response
       ];
     }
 
+    const limitValue = typeof limit === 'string' ? Number.parseInt(limit, 10) : undefined;
+    const offsetValue = typeof offset === 'string' ? Number.parseInt(offset, 10) : 0;
+
+    if (
+      limit !== undefined &&
+      (!Number.isInteger(limitValue) || (limitValue as number) <= 0)
+    ) {
+      return res.status(400).json({
+        success: false,
+        error: { message: 'limit must be a positive integer' },
+      });
+    }
+
+    if (
+      offset !== undefined &&
+      (!Number.isInteger(offsetValue) || offsetValue < 0)
+    ) {
+      return res.status(400).json({
+        success: false,
+        error: { message: 'offset must be a non-negative integer' },
+      });
+    }
+
+    const queryOptions: Prisma.EventFindManyArgs = {
+      where,
+      orderBy: { startDate: 'desc' },
+      include: { _count: { select: { registrations: true } } },
+      ...(limitValue ? { take: limitValue, skip: offsetValue } : {}),
+    };
+
     const [events, total] = await Promise.all([
-      prisma.event.findMany({
-        where,
-        orderBy: { startDate: 'desc' },
-        take: parseInt(limit as string),
-        skip: parseInt(offset as string),
-        include: { _count: { select: { registrations: true } } },
-      }),
+      prisma.event.findMany(queryOptions),
       prisma.event.count({ where }),
     ]);
 
     const authUser = getAuthUser(req);
-    const eventsWithRegistration = await Promise.all(
-      events.map(async (event) => {
-        let isRegistered = false;
-        if (authUser) {
-          const registration = await prisma.eventRegistration.findUnique({
-            where: { userId_eventId: { userId: authUser.id, eventId: event.id } },
-          });
-          isRegistered = !!registration;
-        }
-        return { ...event, isRegistered };
-      })
-    );
+    let registeredEventIds = new Set<string>();
+
+    if (authUser && events.length > 0) {
+      const registrations = await prisma.eventRegistration.findMany({
+        where: {
+          userId: authUser.id,
+          eventId: { in: events.map((event) => event.id) },
+        },
+        select: { eventId: true },
+      });
+      registeredEventIds = new Set(registrations.map((registration) => registration.eventId));
+    }
+
+    const eventsWithRegistration = events.map((event) => ({
+      ...event,
+      isRegistered: authUser ? registeredEventIds.has(event.id) : false,
+    }));
 
     res.json({
       success: true,
       data: eventsWithRegistration,
-      pagination: { total, limit: parseInt(limit as string), offset: parseInt(offset as string) },
+      pagination: { total, limit: limitValue ?? total, offset: limitValue ? offsetValue : 0 },
     });
   } catch (error) {
     res.status(500).json({ success: false, error: { message: 'Failed to fetch events' } });
@@ -147,8 +176,13 @@ eventsRouter.post('/', authMiddleware, requireRole('CORE_MEMBER'), async (req: R
     }
 
     // Generate slug from title
-    const baseSlug = generateSlug(data.title);
-    const existingSlugs = (await prisma.event.findMany({ select: { slug: true } })).map(e => e.slug);
+    const baseSlug = generateSlug(data.title) || 'event';
+    const existingSlugs = (
+      await prisma.event.findMany({
+        where: { slug: { startsWith: baseSlug } },
+        select: { slug: true },
+      })
+    ).map((event) => event.slug);
     const slug = generateUniqueSlug(baseSlug, existingSlugs);
 
     const event = await prisma.event.create({
@@ -208,11 +242,16 @@ eventsRouter.put('/:id', authMiddleware, requireRole('CORE_MEMBER'), async (req:
     // If title changed, regenerate slug
     let slugUpdate = {};
     if (data.title) {
-      const baseSlug = generateSlug(data.title);
-      const existingSlugs = (await prisma.event.findMany({ 
-        where: { id: { not: req.params.id } },
-        select: { slug: true } 
-      })).map(e => e.slug);
+      const baseSlug = generateSlug(data.title) || 'event';
+      const existingSlugs = (
+        await prisma.event.findMany({
+          where: {
+            id: { not: req.params.id },
+            slug: { startsWith: baseSlug },
+          },
+          select: { slug: true },
+        })
+      ).map((event) => event.slug);
       const newSlug = generateUniqueSlug(baseSlug, existingSlugs);
       slugUpdate = { slug: newSlug };
     }

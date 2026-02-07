@@ -6,6 +6,23 @@ import { auditLog } from '../utils/audit.js';
 
 export const qotdRouter = Router();
 
+const parsePaginationNumber = (
+  input: unknown,
+  fallback: number,
+  { min, max }: { min: number; max: number }
+): number | null => {
+  if (input === undefined) {
+    return fallback;
+  }
+
+  const parsed = Number.parseInt(String(input), 10);
+  if (!Number.isInteger(parsed) || parsed < min || parsed > max) {
+    return null;
+  }
+
+  return parsed;
+};
+
 // Get today's QOTD
 qotdRouter.get('/today', optionalAuthMiddleware, async (req: Request, res: Response) => {
   try {
@@ -38,14 +55,23 @@ qotdRouter.get('/today', optionalAuthMiddleware, async (req: Request, res: Respo
 // Get QOTD history
 qotdRouter.get('/history', async (req: Request, res: Response) => {
   try {
-    const { limit = '10', offset = '0' } = req.query;
+    const limit = parsePaginationNumber(req.query.limit, 10, { min: 1, max: 100 });
+    const offset = parsePaginationNumber(req.query.offset, 0, { min: 0, max: 1000000 });
+
+    if (limit === null) {
+      return res.status(400).json({ success: false, error: { message: 'limit must be an integer between 1 and 100' } });
+    }
+
+    if (offset === null) {
+      return res.status(400).json({ success: false, error: { message: 'offset must be a non-negative integer' } });
+    }
 
     const [qotds, total] = await Promise.all([
       prisma.qOTD.findMany({
         where: { date: { lte: new Date() } },
         orderBy: { date: 'desc' },
-        take: parseInt(limit as string),
-        skip: parseInt(offset as string),
+        take: limit,
+        skip: offset,
         include: { _count: { select: { submissions: true } } },
       }),
       prisma.qOTD.count({ where: { date: { lte: new Date() } } }),
@@ -54,7 +80,7 @@ qotdRouter.get('/history', async (req: Request, res: Response) => {
     res.json({
       success: true,
       data: qotds,
-      pagination: { total, limit: parseInt(limit as string), offset: parseInt(offset as string) },
+      pagination: { total, limit, offset },
     });
   } catch (error) {
     res.status(500).json({ success: false, error: { message: 'Failed to fetch QOTD history' } });
@@ -120,13 +146,16 @@ qotdRouter.post('/:id/submit', authMiddleware, async (req: Request, res: Respons
 // Get leaderboard
 qotdRouter.get('/stats/leaderboard', async (req: Request, res: Response) => {
   try {
-    const { limit = '10' } = req.query;
+    const limit = parsePaginationNumber(req.query.limit, 10, { min: 1, max: 100 });
+    if (limit === null) {
+      return res.status(400).json({ success: false, error: { message: 'limit must be an integer between 1 and 100' } });
+    }
 
     const submissions = await prisma.qOTDSubmission.groupBy({
       by: ['userId'],
       _count: { id: true },
       orderBy: { _count: { id: 'desc' } },
-      take: parseInt(limit as string),
+      take: limit,
     });
 
     const userIds = submissions.map((s) => s.userId);
@@ -134,9 +163,10 @@ qotdRouter.get('/stats/leaderboard', async (req: Request, res: Response) => {
       where: { id: { in: userIds } },
       select: { id: true, name: true, avatar: true },
     });
+    const usersById = new Map(users.map((user) => [user.id, user]));
 
     const leaderboard = submissions.map((s) => {
-      const user = users.find((u) => u.id === s.userId);
+      const user = usersById.get(s.userId);
       return { user: user || { id: s.userId, name: 'Unknown', avatar: null }, submissions: s._count.id };
     });
 

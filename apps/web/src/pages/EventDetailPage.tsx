@@ -345,7 +345,7 @@ export default function EventDetailPage() {
   const { id } = useParams<{ id: string }>();
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
-  const { user, token } = useAuth();
+  const { user, token, isLoading: authLoading } = useAuth();
   
   const [event, setEvent] = useState<Event | null>(null);
   const [loading, setLoading] = useState(true);
@@ -442,6 +442,10 @@ export default function EventDetailPage() {
 
   const handleRegister = async () => {
     if (!event) return;
+
+    if (authLoading) {
+      return;
+    }
     
     const regStatus = getRegistrationStatus(event);
     
@@ -472,7 +476,7 @@ export default function EventDetailPage() {
   };
 
   useEffect(() => {
-    if (!event || isRegistered || autoRegisterTriggered) {
+    if (!event || isRegistered || autoRegisterTriggered || authLoading) {
       return;
     }
     if (searchParams.get('register') !== '1') {
@@ -485,7 +489,7 @@ export default function EventDetailPage() {
 
     setAutoRegisterTriggered(true);
     handleRegister();
-  }, [event, isRegistered, autoRegisterTriggered, searchParams, setSearchParams]);
+  }, [event, isRegistered, autoRegisterTriggered, searchParams, setSearchParams, authLoading, handleRegister]);
 
   const handleRegistrationFieldChange = (fieldId: string, value: string) => {
     setRegistrationFieldValues((prev) => ({ ...prev, [fieldId]: value }));
@@ -536,7 +540,7 @@ export default function EventDetailPage() {
           text: event?.shortDescription || event?.description.slice(0, 100),
           url,
         });
-      } catch (err) {
+      } catch {
         console.log('Share cancelled');
       }
     } else {

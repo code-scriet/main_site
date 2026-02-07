@@ -38,7 +38,6 @@ model User {
   hiringApplications HiringApplication[]
   qotdSubmissions    QOTDSubmission[]
 
-  @@index([email])
   @@map("users")
 }
 
@@ -105,6 +104,7 @@ model Event {
   registrations         EventRegistration[]
 
   @@index([status, startDate])
+  @@index([startDate])
   @@index([featured])
   @@map("events")
 }
@@ -120,6 +120,8 @@ model EventRegistration {
 
   @@unique([userId, eventId])
   @@index([eventId])
+  @@index([userId, timestamp])
+  @@index([timestamp])
   @@map("event_registrations")
 }
 
@@ -146,6 +148,7 @@ model Announcement {
   @@index([createdAt])
   @@index([featured])
   @@index([pinned])
+  @@index([expiresAt])
   @@map("announcements")
 }
 
@@ -185,7 +188,6 @@ model Achievement {
 
   @@index([date])
   @@index([featured])
-  @@index([slug])
   @@map("achievements")
 }
 
@@ -198,7 +200,6 @@ model QOTD {
   createdAt   DateTime         @default(now()) @map("created_at")
   submissions QOTDSubmission[]
 
-  @@index([date])
   @@map("qotd")
 }
 
@@ -212,6 +213,8 @@ model QOTDSubmission {
 
   @@unique([userId, qotdId])
   @@index([qotdId])
+  @@index([userId, timestamp])
+  @@index([timestamp])
   @@map("qotd_submissions")
 }
 
@@ -243,8 +246,8 @@ model HiringApplication {
   updatedAt    DateTime          @updatedAt @map("updated_at")
   user         User?             @relation(fields: [userId], references: [id])
 
-  @@index([status])
-  @@index([applyingRole])
+  @@index([status, createdAt])
+  @@index([applyingRole, createdAt])
   @@map("hiring_applications")
 }
 

@@ -112,8 +112,13 @@ announcementsRouter.post('/', authMiddleware, requireRole('CORE_MEMBER'), async 
     }
 
     // Generate slug from title
-    const baseSlug = generateSlug(data.title);
-    const existingSlugs = (await prisma.announcement.findMany({ select: { slug: true } })).map(a => a.slug).filter(Boolean) as string[];
+    const baseSlug = generateSlug(data.title) || 'announcement';
+    const existingSlugs = (
+      await prisma.announcement.findMany({
+        where: { slug: { startsWith: baseSlug } },
+        select: { slug: true },
+      })
+    ).map((announcement) => announcement.slug).filter(Boolean) as string[];
     const slug = generateUniqueSlug(baseSlug, existingSlugs);
 
     const announcement = await prisma.announcement.create({
@@ -202,11 +207,16 @@ announcementsRouter.put('/:id', authMiddleware, requireRole('CORE_MEMBER'), asyn
     // If title changed, regenerate slug
     let slugUpdate = {};
     if (data.title) {
-      const baseSlug = generateSlug(data.title);
-      const existingSlugs = (await prisma.announcement.findMany({ 
-        where: { id: { not: req.params.id } },
-        select: { slug: true } 
-      })).map(a => a.slug).filter(Boolean) as string[];
+      const baseSlug = generateSlug(data.title) || 'announcement';
+      const existingSlugs = (
+        await prisma.announcement.findMany({
+          where: {
+            id: { not: req.params.id },
+            slug: { startsWith: baseSlug },
+          },
+          select: { slug: true },
+        })
+      ).map((announcement) => announcement.slug).filter(Boolean) as string[];
       const newSlug = generateUniqueSlug(baseSlug, existingSlugs);
       slugUpdate = { slug: newSlug };
     }

@@ -30,6 +30,23 @@ const updateStatusSchema = z.object({
   status: z.enum(applicationStatuses),
 });
 
+const parsePaginationNumber = (
+  input: unknown,
+  fallback: number,
+  { min, max }: { min: number; max: number }
+): number | null => {
+  if (input === undefined) {
+    return fallback;
+  }
+
+  const parsed = Number.parseInt(String(input), 10);
+  if (!Number.isInteger(parsed) || parsed < min || parsed > max) {
+    return null;
+  }
+
+  return parsed;
+};
+
 // Submit a new hiring application (public or authenticated)
 hiringRouter.post('/apply', optionalAuthMiddleware, async (req: Request, res: Response) => {
   try {
@@ -113,11 +130,19 @@ hiringRouter.post('/apply', optionalAuthMiddleware, async (req: Request, res: Re
 // Get all applications (Admin only)
 hiringRouter.get('/applications', authMiddleware, requireRole('ADMIN'), async (req: Request, res: Response) => {
   try {
-    const page = parseInt(req.query.page as string) || 1;
-    const limit = parseInt(req.query.limit as string) || 20;
+    const page = parsePaginationNumber(req.query.page, 1, { min: 1, max: 1000000 });
+    const limit = parsePaginationNumber(req.query.limit, 20, { min: 1, max: 100 });
     const status = req.query.status as string;
     const role = req.query.role as string;
     const search = req.query.search as string;
+
+    if (page === null) {
+      return ApiResponse.badRequest(res, 'page must be a positive integer');
+    }
+
+    if (limit === null) {
+      return ApiResponse.badRequest(res, 'limit must be an integer between 1 and 100');
+    }
 
     const where: any = {};
     
