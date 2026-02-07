@@ -294,7 +294,7 @@ export default function AboutPage() {
                 <p className="text-sm font-semibold tracking-wide text-amber-700 uppercase mb-2">
                   Teacher Incharge
                 </p>
-                <h3 className="text-2xl font-bold text-gray-900">Er. Pravin Pavar Sir</h3>
+                <h3 className="text-2xl font-bold text-gray-900">Er. Pravin Panwar Sir</h3>
               </CardContent>
             </Card>
           </motion.div>
