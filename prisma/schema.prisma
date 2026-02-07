@@ -86,6 +86,7 @@ model Event {
   prerequisites         String?
   registrationEndDate   DateTime?           @map("registration_end_date")
   registrationStartDate DateTime?           @map("registration_start_date")
+  registrationFields    Json?               @map("registration_fields")
   venue                 String?
   agenda                String?
   faqs                  Json?
@@ -109,12 +110,13 @@ model Event {
 }
 
 model EventRegistration {
-  id        String   @id @default(uuid())
-  userId    String   @map("user_id")
-  eventId   String   @map("event_id")
-  timestamp DateTime @default(now())
-  event     Event    @relation(fields: [eventId], references: [id], onDelete: Cascade)
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id                   String   @id @default(uuid())
+  userId               String   @map("user_id")
+  eventId              String   @map("event_id")
+  timestamp            DateTime @default(now())
+  customFieldResponses Json?    @map("custom_field_responses")
+  event                Event    @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  user                 User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([userId, eventId])
   @@index([eventId])
@@ -269,8 +271,9 @@ enum AnnouncementPriority {
 
 enum ApplyingRole {
   TECHNICAL
+  DSA_CHAMPS
   DESIGNING
-  VIDEO_EDITING
+  SOCIAL_MEDIA
   MANAGEMENT
 }
 

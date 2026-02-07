@@ -106,19 +106,11 @@ export default function SignInPage() {
             return;
           }
           
-          // If profile complete AND pending event, try to register now
+          // If profile is complete and an event is pending, continue registration on event detail page
           if (pendingEventId) {
-            try {
-              await api.registerForEvent(pendingEventId, token);
-              localStorage.removeItem('pendingEventRegistration');
-              navigate('/dashboard'); // Success: Go to Dashboard
-              return;
-            } catch {
-              // Failed to register, just go to events page
-              localStorage.removeItem('pendingEventRegistration');
-              navigate('/dashboard/events');
-              return;
-            }
+            localStorage.removeItem('pendingEventRegistration');
+            navigate(`/events/${pendingEventId}?register=1`);
+            return;
           }
         } catch {
           // Couldn't check profile, just go to dashboard

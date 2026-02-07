@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { Layout } from '@/components/layout/Layout';
 import { SEO } from '@/components/SEO';
 import { EventSchema, BreadcrumbSchema, FAQPageSchema } from '@/components/ui/schema';
@@ -7,6 +7,8 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
 import { Markdown } from '@/components/ui/markdown';
 import { 
   Calendar, MapPin, Users, Loader2, Clock, AlertCircle, CheckCircle, 
@@ -14,7 +16,14 @@ import {
   ChevronUp, Play, Image as ImageIcon, Link as LinkIcon, FileText,
   Github, Presentation, Video, HelpCircle, Tag, Star, Share2, X
 } from 'lucide-react';
-import { api, type Event, type Speaker, type FAQ } from '@/lib/api';
+import {
+  api,
+  type Event,
+  type Speaker,
+  type FAQ,
+  type EventRegistrationField,
+  type RegistrationAdditionalFieldInput,
+} from '@/lib/api';
 import { useAuth } from '@/context/AuthContext';
 import { formatDate, formatTime, formatDateTime, getWeekdayShort, getDayOfMonth, getMonthShort } from '@/lib/dateUtils';
 import { processImageUrl, processImageGallery } from '@/lib/imageUtils';
@@ -83,6 +92,77 @@ function getRegistrationStatus(event: Event): {
   }
 
   return { status: 'open', message: 'Registration open', canRegister: true };
+}
+
+function validateCustomFieldValue(field: EventRegistrationField, value: string): string | null {
+  const trimmed = value.trim();
+
+  if (field.required && !trimmed) {
+    return `${field.label} is required`;
+  }
+
+  if (!trimmed) {
+    return null;
+  }
+
+  if (field.minLength !== undefined && trimmed.length < field.minLength) {
+    return `${field.label} must be at least ${field.minLength} characters`;
+  }
+
+  if (field.maxLength !== undefined && trimmed.length > field.maxLength) {
+    return `${field.label} must be at most ${field.maxLength} characters`;
+  }
+
+  if (field.type === 'NUMBER') {
+    const numeric = Number(trimmed);
+    if (!Number.isFinite(numeric)) {
+      return `${field.label} must be a valid number`;
+    }
+    if (field.min !== undefined && numeric < field.min) {
+      return `${field.label} must be >= ${field.min}`;
+    }
+    if (field.max !== undefined && numeric > field.max) {
+      return `${field.label} must be <= ${field.max}`;
+    }
+  }
+
+  if (field.type === 'EMAIL') {
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(trimmed)) {
+      return `${field.label} must be a valid email address`;
+    }
+  }
+
+  if (field.type === 'PHONE') {
+    const phoneRegex = /^[0-9+\-\s()]{7,20}$/;
+    if (!phoneRegex.test(trimmed)) {
+      return `${field.label} must be a valid phone number`;
+    }
+  }
+
+  if (field.type === 'URL') {
+    try {
+      const url = new URL(trimmed);
+      if (!['http:', 'https:'].includes(url.protocol)) {
+        return `${field.label} must be a valid URL`;
+      }
+    } catch {
+      return `${field.label} must be a valid URL`;
+    }
+  }
+
+  if (field.pattern) {
+    try {
+      const regex = new RegExp(field.pattern);
+      if (!regex.test(trimmed)) {
+        return `${field.label} does not match required format`;
+      }
+    } catch {
+      return `${field.label} has an invalid validation pattern`;
+    }
+  }
+
+  return null;
 }
 
 // Image Gallery Component with Lightbox
@@ -263,6 +343,7 @@ function SpeakerCard({ speaker }: { speaker: Speaker }) {
 
 export default function EventDetailPage() {
   const { id } = useParams<{ id: string }>();
+  const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
   const { user, token } = useAuth();
   
@@ -273,6 +354,11 @@ export default function EventDetailPage() {
   const [isRegistered, setIsRegistered] = useState(false);
   const [registrationSuccess, setRegistrationSuccess] = useState<string | null>(null);
   const [registrationError, setRegistrationError] = useState<string | null>(null);
+  const [showRegistrationFormPopup, setShowRegistrationFormPopup] = useState(false);
+  const [registrationFieldValues, setRegistrationFieldValues] = useState<Record<string, string>>({});
+  const [registrationFieldErrors, setRegistrationFieldErrors] = useState<Record<string, string>>({});
+  const [registrationFormError, setRegistrationFormError] = useState<string | null>(null);
+  const [autoRegisterTriggered, setAutoRegisterTriggered] = useState(false);
 
   useEffect(() => {
     const fetchEvent = async () => {
@@ -283,6 +369,7 @@ export default function EventDetailPage() {
       }
 
       try {
+        setAutoRegisterTriggered(false);
         setLoading(true);
         setError(null);
         const eventData = await api.getEvent(id);
@@ -307,6 +394,52 @@ export default function EventDetailPage() {
     fetchEvent();
   }, [id, token]);
 
+  const performRegistration = async (additionalFields?: RegistrationAdditionalFieldInput[]) => {
+    if (!event || !token) {
+      return;
+    }
+
+    try {
+      setRegistering(true);
+      setRegistrationError(null);
+      setRegistrationFormError(null);
+
+      await api.registerForEvent(event.id, token, additionalFields);
+      setRegistrationSuccess(`Successfully registered for "${event.title}"!`);
+      setIsRegistered(true);
+      setShowRegistrationFormPopup(false);
+
+      // Refresh event data
+      const updatedEvent = await api.getEvent(event.id);
+      setEvent(updatedEvent);
+
+      setTimeout(() => setRegistrationSuccess(null), 5000);
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Failed to register';
+      setRegistrationError(errorMessage);
+      setRegistrationFormError(errorMessage);
+      setTimeout(() => setRegistrationError(null), 5000);
+    } finally {
+      setRegistering(false);
+    }
+  };
+
+  const openRegistrationFormPopup = () => {
+    if (!event?.registrationFields || event.registrationFields.length === 0) {
+      return;
+    }
+
+    const initialValues: Record<string, string> = {};
+    event.registrationFields.forEach((field) => {
+      initialValues[field.id] = '';
+    });
+
+    setRegistrationFieldValues(initialValues);
+    setRegistrationFieldErrors({});
+    setRegistrationFormError(null);
+    setShowRegistrationFormPopup(true);
+  };
+
   const handleRegister = async () => {
     if (!event) return;
     
@@ -326,28 +459,72 @@ export default function EventDetailPage() {
 
     if (!user.phone || !user.course || !user.branch || !user.year) {
       localStorage.setItem('pendingEventRegistration', event.id);
-      navigate('/dashboard/profile', { state: { message: 'Please complete your profile to register for events' } });
+      navigate('/dashboard/profile', { state: { message: 'Please complete your profile to register for events', pendingEventId: event.id } });
       return;
     }
 
-    try {
-      setRegistering(true);
-      setRegistrationError(null);
-      await api.registerForEvent(event.id, token);
-      setRegistrationSuccess(`Successfully registered for "${event.title}"!`);
-      setIsRegistered(true);
-      
-      // Refresh event data
-      const updatedEvent = await api.getEvent(event.id);
-      setEvent(updatedEvent);
-      
-      setTimeout(() => setRegistrationSuccess(null), 5000);
-    } catch (err) {
-      setRegistrationError(err instanceof Error ? err.message : 'Failed to register');
-      setTimeout(() => setRegistrationError(null), 5000);
-    } finally {
-      setRegistering(false);
+    if (event.registrationFields && event.registrationFields.length > 0) {
+      openRegistrationFormPopup();
+      return;
     }
+
+    await performRegistration();
+  };
+
+  useEffect(() => {
+    if (!event || isRegistered || autoRegisterTriggered) {
+      return;
+    }
+    if (searchParams.get('register') !== '1') {
+      return;
+    }
+
+    const nextParams = new URLSearchParams(searchParams);
+    nextParams.delete('register');
+    setSearchParams(nextParams, { replace: true });
+
+    setAutoRegisterTriggered(true);
+    handleRegister();
+  }, [event, isRegistered, autoRegisterTriggered, searchParams, setSearchParams]);
+
+  const handleRegistrationFieldChange = (fieldId: string, value: string) => {
+    setRegistrationFieldValues((prev) => ({ ...prev, [fieldId]: value }));
+    setRegistrationFieldErrors((prev) => {
+      if (!prev[fieldId]) return prev;
+      const updated = { ...prev };
+      delete updated[fieldId];
+      return updated;
+    });
+  };
+
+  const handleRegistrationFormSubmit = async () => {
+    if (!event?.registrationFields || event.registrationFields.length === 0) {
+      await performRegistration();
+      return;
+    }
+
+    const fieldErrors: Record<string, string> = {};
+    for (const field of event.registrationFields) {
+      const value = registrationFieldValues[field.id] || '';
+      const errorMessage = validateCustomFieldValue(field, value);
+      if (errorMessage) {
+        fieldErrors[field.id] = errorMessage;
+      }
+    }
+
+    if (Object.keys(fieldErrors).length > 0) {
+      setRegistrationFieldErrors(fieldErrors);
+      return;
+    }
+
+    const additionalFields: RegistrationAdditionalFieldInput[] = event.registrationFields
+      .map((field) => ({
+        fieldId: field.id,
+        value: (registrationFieldValues[field.id] || '').trim(),
+      }))
+      .filter((entry) => entry.value.length > 0);
+
+    await performRegistration(additionalFields);
   };
 
   const handleShare = async () => {
@@ -455,6 +632,118 @@ export default function EventDetailPage() {
               )}
               <p className="text-sm font-medium">{registrationSuccess || registrationError}</p>
             </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {showRegistrationFormPopup && event?.registrationFields && event.registrationFields.length > 0 && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[70] bg-black/60 p-4 sm:p-6 flex items-center justify-center"
+          >
+            <motion.div
+              initial={{ opacity: 0, y: 20, scale: 0.98 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 20, scale: 0.98 }}
+              className="w-full max-w-2xl bg-white rounded-xl shadow-2xl border border-amber-200 max-h-[90vh] overflow-y-auto"
+            >
+              <div className="p-5 sm:p-6 border-b border-amber-100 flex items-start justify-between gap-4">
+                <div>
+                  <h3 className="text-xl font-bold text-amber-900">Complete Registration</h3>
+                  <p className="text-sm text-gray-600 mt-1">
+                    Fill the additional details required for <strong>{event.title}</strong>.
+                  </p>
+                </div>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setShowRegistrationFormPopup(false)}
+                >
+                  <X className="h-4 w-4" />
+                </Button>
+              </div>
+
+              <div className="p-5 sm:p-6 space-y-4">
+                {registrationFormError && (
+                  <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+                    {registrationFormError}
+                  </div>
+                )}
+
+                {event.registrationFields.map((field) => (
+                  <div key={field.id} className="space-y-2">
+                    <label className="text-sm font-medium text-gray-800">
+                      {field.label}
+                      {field.required && <span className="text-red-500 ml-1">*</span>}
+                    </label>
+
+                    {field.type === 'TEXTAREA' ? (
+                      <Textarea
+                        value={registrationFieldValues[field.id] || ''}
+                        onChange={(e) => handleRegistrationFieldChange(field.id, e.target.value)}
+                        placeholder={field.placeholder || `Enter ${field.label}`}
+                        rows={4}
+                      />
+                    ) : (
+                      <Input
+                        type={
+                          field.type === 'NUMBER'
+                            ? 'number'
+                            : field.type === 'EMAIL'
+                            ? 'email'
+                            : field.type === 'URL'
+                            ? 'url'
+                            : field.type === 'PHONE'
+                            ? 'tel'
+                            : 'text'
+                        }
+                        value={registrationFieldValues[field.id] || ''}
+                        onChange={(e) => handleRegistrationFieldChange(field.id, e.target.value)}
+                        placeholder={field.placeholder || `Enter ${field.label}`}
+                        min={field.min}
+                        max={field.max}
+                        minLength={field.minLength}
+                        maxLength={field.maxLength}
+                      />
+                    )}
+
+                    {registrationFieldErrors[field.id] && (
+                      <p className="text-xs text-red-600">{registrationFieldErrors[field.id]}</p>
+                    )}
+                  </div>
+                ))}
+              </div>
+
+              <div className="p-5 sm:p-6 border-t border-amber-100 flex flex-col sm:flex-row gap-3 sm:justify-end">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setShowRegistrationFormPopup(false)}
+                  disabled={registering}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="button"
+                  className="bg-amber-600 hover:bg-amber-700 text-white"
+                  onClick={handleRegistrationFormSubmit}
+                  disabled={registering}
+                >
+                  {registering ? (
+                    <>
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                      Registering...
+                    </>
+                  ) : (
+                    'Done & Register'
+                  )}
+                </Button>
+              </div>
+            </motion.div>
           </motion.div>
         )}
       </AnimatePresence>
@@ -601,7 +890,7 @@ export default function EventDetailPage() {
                       <Button 
                         className="w-full" 
                         variant="outline"
-                        onClick={() => navigate('/signin', { state: { from: `/events/${event.slug}` } })}
+                        onClick={handleRegister}
                       >
                         <LogIn className="h-4 w-4 mr-2" />
                         Sign In to Register
@@ -904,7 +1193,7 @@ export default function EventDetailPage() {
                         <Button 
                           className="w-full" 
                           variant="outline"
-                          onClick={() => navigate('/signin', { state: { from: `/events/${event.slug}` } })}
+                          onClick={handleRegister}
                         >
                           <LogIn className="h-4 w-4 mr-2" />
                           Sign In to Register
@@ -1020,6 +1309,7 @@ export default function EventDetailPage() {
           </div>
         </div>
       </section>
+
     </Layout>
   );
 }

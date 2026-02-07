@@ -14,7 +14,8 @@ import {
   CheckCircle2,
   Users,
   Palette,
-  Video,
+  Megaphone,
+  Trophy,
   Briefcase,
   ArrowRight,
   Mail,
@@ -24,6 +25,7 @@ import {
 } from 'lucide-react';
 import { api } from '@/lib/api';
 import type { AuthProviders } from '@/lib/api';
+import { extractApiErrorMessage } from '@/lib/error';
 import { useAuth } from '@/context/AuthContext';
 import { useSettings } from '@/context/SettingsContext';
 
@@ -40,6 +42,15 @@ const teamRoles = [
     borderColor: 'border-blue-200',
   },
   {
+    id: 'DSA_CHAMPS',
+    name: 'DSA Champs Team',
+    icon: Trophy,
+    description: 'Lead DSA practice, contest preparation, and interview-focused problem solving for the community.',
+    color: 'from-emerald-500 to-teal-500',
+    bgColor: 'bg-emerald-50',
+    borderColor: 'border-emerald-200',
+  },
+  {
     id: 'DESIGNING',
     name: 'Designing Team',
     icon: Palette,
@@ -49,13 +60,13 @@ const teamRoles = [
     borderColor: 'border-purple-200',
   },
   {
-    id: 'VIDEO_EDITING',
-    name: 'Video Editing Team',
-    icon: Video,
-    description: 'Produce engaging video content, tutorials, event highlights, and promotional videos.',
-    color: 'from-red-500 to-orange-500',
-    bgColor: 'bg-red-50',
-    borderColor: 'border-red-200',
+    id: 'SOCIAL_MEDIA',
+    name: 'Social Media Team',
+    icon: Megaphone,
+    description: 'Plan and create social content, reels, announcements, and promotional campaigns for club activities.',
+    color: 'from-rose-500 to-orange-500',
+    bgColor: 'bg-rose-50',
+    borderColor: 'border-rose-200',
   },
   {
     id: 'MANAGEMENT',
@@ -204,10 +215,10 @@ export default function JoinUsPage() {
         }),
       });
 
-      const data = await response.json();
+      const data = await response.json().catch(() => null);
 
       if (!response.ok) {
-        throw new Error(data.error || 'Failed to submit application');
+        throw new Error(extractApiErrorMessage(data, 'Failed to submit application'));
       }
 
       setFormStep('success');

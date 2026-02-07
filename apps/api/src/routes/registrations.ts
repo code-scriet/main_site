@@ -1,9 +1,11 @@
 import { Router, Request, Response } from 'express';
+import { Prisma } from '@prisma/client';
 import { prisma } from '../lib/prisma.js';
 import { authMiddleware, getAuthUser } from '../middleware/auth.js';
 import { auditLog } from '../utils/audit.js';
 import { emailService } from '../utils/email.js';
 import { logger } from '../utils/logger.js';
+import { sanitizeEventRegistrationFields, validateRegistrationFieldSubmissions } from '../utils/eventRegistrationFields.js';
 
 export const registrationsRouter = Router();
 
@@ -12,6 +14,7 @@ registrationsRouter.post('/events/:eventId', authMiddleware, async (req: Request
   try {
     const authUser = getAuthUser(req)!;
     const { eventId } = req.params;
+    const { additionalFields } = req.body ?? {};
 
     const event = await prisma.event.findUnique({
       where: { id: eventId },
@@ -69,8 +72,38 @@ registrationsRouter.post('/events/:eventId', authMiddleware, async (req: Request
       return res.status(400).json({ success: false, error: { message: 'Already registered for this event' } });
     }
 
+    let customFieldResponses: Prisma.InputJsonValue | undefined;
+    try {
+      const registrationFields = sanitizeEventRegistrationFields(event.registrationFields);
+      if (registrationFields.length > 0) {
+        const validation = validateRegistrationFieldSubmissions(registrationFields, additionalFields);
+        if (validation.errors.length > 0) {
+          return res.status(400).json({
+            success: false,
+            error: {
+              message: 'Additional registration details required',
+              details: validation.errors,
+            },
+            data: {
+              requiredFields: registrationFields,
+            },
+          });
+        }
+        customFieldResponses = validation.responses.length > 0
+          ? (validation.responses as unknown as Prisma.InputJsonValue)
+          : undefined;
+      }
+    } catch (validationError) {
+      return res.status(400).json({
+        success: false,
+        error: {
+          message: validationError instanceof Error ? validationError.message : 'Invalid registration fields',
+        },
+      });
+    }
+
     const registration = await prisma.eventRegistration.create({
-      data: { userId: authUser.id, eventId },
+      data: { userId: authUser.id, eventId, customFieldResponses },
       include: { event: { select: { id: true, title: true, startDate: true, slug: true, location: true, imageUrl: true } } },
     });
 

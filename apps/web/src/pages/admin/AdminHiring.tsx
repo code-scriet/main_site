@@ -15,7 +15,8 @@ import {
   XCircle,
   Calendar,
   Palette,
-  Video,
+  Megaphone,
+  Trophy,
   Briefcase,
   ChevronDown,
   Mail,
@@ -66,10 +67,15 @@ const roleConfig = {
     icon: Palette,
     color: 'bg-purple-100 text-purple-700 border-purple-200',
   },
-  VIDEO_EDITING: {
-    label: 'Video Editing',
-    icon: Video,
-    color: 'bg-red-100 text-red-700 border-red-200',
+  SOCIAL_MEDIA: {
+    label: 'Social Media',
+    icon: Megaphone,
+    color: 'bg-rose-100 text-rose-700 border-rose-200',
+  },
+  DSA_CHAMPS: {
+    label: 'DSA Champs',
+    icon: Trophy,
+    color: 'bg-emerald-100 text-emerald-700 border-emerald-200',
   },
   MANAGEMENT: {
     label: 'Management',
@@ -77,6 +83,15 @@ const roleConfig = {
     color: 'bg-amber-100 text-amber-700 border-amber-200',
   },
 };
+
+const roleFilterTabs = [
+  { value: '', label: 'All' },
+  { value: 'TECHNICAL', label: 'Technical' },
+  { value: 'DSA_CHAMPS', label: 'DSA Champs' },
+  { value: 'SOCIAL_MEDIA', label: 'Social Media' },
+  { value: 'DESIGNING', label: 'Designing' },
+  { value: 'MANAGEMENT', label: 'Management' },
+];
 
 const statusConfig = {
   PENDING: {
@@ -373,8 +388,9 @@ export default function AdminHiring() {
                 >
                   <option value="">All Roles</option>
                   <option value="TECHNICAL">Technical</option>
+                  <option value="DSA_CHAMPS">DSA Champs</option>
                   <option value="DESIGNING">Designing</option>
-                  <option value="VIDEO_EDITING">Video Editing</option>
+                  <option value="SOCIAL_MEDIA">Social Media</option>
                   <option value="MANAGEMENT">Management</option>
                 </select>
                 <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400 pointer-events-none" />
@@ -394,6 +410,19 @@ export default function AdminHiring() {
                 )}
               </Button>
             </div>
+          </div>
+          <div className="mt-4 flex flex-wrap gap-2">
+            {roleFilterTabs.map((tab) => (
+              <Button
+                key={tab.label}
+                type="button"
+                variant={roleFilter === tab.value ? 'default' : 'outline'}
+                className={roleFilter === tab.value ? 'bg-amber-600 hover:bg-amber-700 text-white' : ''}
+                onClick={() => setRoleFilter(tab.value)}
+              >
+                {tab.label}
+              </Button>
+            ))}
           </div>
         </CardContent>
       </Card>

@@ -5,7 +5,14 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
-import { api, type Speaker, type Resource, type FAQ } from '@/lib/api';
+import {
+  api,
+  type Speaker,
+  type Resource,
+  type FAQ,
+  type EventRegistrationField,
+  type EventRegistrationFieldType,
+} from '@/lib/api';
 import { 
   Calendar, Loader2, AlertCircle, ArrowLeft, Clock, MapPin, Users, 
   Image, FileText, Plus, X, Star, Target, User, Link as LinkIcon,
@@ -34,6 +41,23 @@ const resourceTypes = [
   { value: 'link', label: 'External Link' },
   { value: 'other', label: 'Other' },
 ];
+
+const registrationFieldTypes: Array<{ value: EventRegistrationFieldType; label: string }> = [
+  { value: 'TEXT', label: 'Text' },
+  { value: 'TEXTAREA', label: 'Long Text' },
+  { value: 'NUMBER', label: 'Number' },
+  { value: 'EMAIL', label: 'Email' },
+  { value: 'PHONE', label: 'Phone' },
+  { value: 'URL', label: 'URL' },
+];
+
+const createNewRegistrationField = (): EventRegistrationField => ({
+  id: `field_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+  label: '',
+  type: 'TEXT',
+  required: true,
+  placeholder: '',
+});
 
 // Collapsible Section Component
 function CollapsibleSection({ 
@@ -130,6 +154,7 @@ export default function EditEvent() {
   const [faqs, setFaqs] = useState<FAQ[]>([]);
   const [imageGallery, setImageGallery] = useState<string[]>([]);
   const [tags, setTags] = useState<string[]>([]);
+  const [registrationFields, setRegistrationFields] = useState<EventRegistrationField[]>([]);
   const [newTag, setNewTag] = useState('');
 
   useEffect(() => {
@@ -177,6 +202,7 @@ export default function EditEvent() {
       setFaqs(event.faqs || []);
       setImageGallery(event.imageGallery || []);
       setTags(event.tags || []);
+      setRegistrationFields(event.registrationFields || []);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load event');
     } finally {
@@ -257,6 +283,24 @@ export default function EditEvent() {
     setTags(prev => prev.filter((_, i) => i !== index));
   };
 
+  // Dynamic registration fields management
+  const addRegistrationField = () => {
+    setRegistrationFields((prev) => [...prev, createNewRegistrationField()]);
+  };
+
+  const updateRegistrationField = (
+    index: number,
+    patch: Partial<EventRegistrationField>
+  ) => {
+    setRegistrationFields((prev) =>
+      prev.map((field, i) => (i === index ? { ...field, ...patch } : field))
+    );
+  };
+
+  const removeRegistrationField = (index: number) => {
+    setRegistrationFields((prev) => prev.filter((_, i) => i !== index));
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
@@ -301,6 +345,14 @@ export default function EditEvent() {
       const validResources = resources.filter(r => r.title.trim() && r.url.trim());
       const validFaqs = faqs.filter(f => f.question.trim() && f.answer.trim());
       const validGallery = imageGallery.filter(url => url.trim());
+      const normalizedRegistrationFields = registrationFields
+        .map((field) => ({
+          ...field,
+          label: field.label.trim(),
+          placeholder: field.placeholder?.trim() || undefined,
+          pattern: field.pattern?.trim() || undefined,
+        }))
+        .filter((field) => field.label.length > 0);
       
       await api.updateEvent(id, {
         title: form.title.trim(),
@@ -331,6 +383,7 @@ export default function EditEvent() {
         faqs: validFaqs.length > 0 ? validFaqs : undefined,
         imageGallery: validGallery.length > 0 ? validGallery : undefined,
         tags: tags.length > 0 ? tags : undefined,
+        registrationFields: normalizedRegistrationFields.length > 0 ? normalizedRegistrationFields : [],
       }, token);
 
       navigate('/admin/event-registrations');
@@ -566,6 +619,165 @@ export default function EditEvent() {
                 <div className="peer h-6 w-11 rounded-full bg-gray-200 after:absolute after:left-[2px] after:top-[2px] after:h-5 after:w-5 after:rounded-full after:border after:border-gray-300 after:bg-white after:transition-all after:content-[''] peer-checked:bg-amber-500 peer-checked:after:translate-x-full peer-checked:after:border-white peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-amber-300"></div>
               </label>
             </div>
+          </CardContent>
+        </Card>
+
+        {/* Extra Registration Fields */}
+        <Card className="border-amber-200">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <FileText className="h-5 w-5 text-amber-600" />
+              Extra Registration Fields
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {registrationFields.length === 0 ? (
+              <div className="rounded-lg border border-dashed border-amber-300 bg-amber-50/60 p-4 text-sm text-amber-800">
+                No extra fields configured. Users can register directly.
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {registrationFields.map((field, index) => (
+                  <div key={field.id} className="rounded-lg border border-amber-200 p-4 space-y-4 bg-amber-50/30">
+                    <div className="flex items-center justify-between">
+                      <p className="text-sm font-semibold text-amber-900">Field {index + 1}</p>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => removeRegistrationField(index)}
+                        className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                      >
+                        <Trash2 className="h-4 w-4 mr-1" />
+                        Remove
+                      </Button>
+                    </div>
+
+                    <div className="grid gap-4 sm:grid-cols-3">
+                      <div className="sm:col-span-2 space-y-2">
+                        <label className="text-sm font-medium text-gray-700">
+                          Field Name <span className="text-red-500">*</span>
+                        </label>
+                        <Input
+                          value={field.label}
+                          onChange={(e) => updateRegistrationField(index, { label: e.target.value })}
+                          placeholder="e.g., GitHub Profile URL"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <label className="text-sm font-medium text-gray-700">Type</label>
+                        <select
+                          value={field.type}
+                          onChange={(e) =>
+                            updateRegistrationField(index, { type: e.target.value as EventRegistrationFieldType })
+                          }
+                          className="w-full h-10 px-3 border border-input rounded-md bg-background text-sm focus:outline-none focus:ring-2 focus:ring-amber-500"
+                        >
+                          {registrationFieldTypes.map((typeOption) => (
+                            <option key={typeOption.value} value={typeOption.value}>
+                              {typeOption.label}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium text-gray-700">Placeholder</label>
+                      <Input
+                        value={field.placeholder || ''}
+                        onChange={(e) => updateRegistrationField(index, { placeholder: e.target.value })}
+                        placeholder="Hint shown in the popup input"
+                      />
+                    </div>
+
+                    <div className="grid gap-4 sm:grid-cols-2">
+                      <div className="space-y-2">
+                        <label className="text-sm font-medium text-gray-700">Min Length</label>
+                        <Input
+                          type="number"
+                          min={0}
+                          value={field.minLength ?? ''}
+                          onChange={(e) =>
+                            updateRegistrationField(index, {
+                              minLength: e.target.value ? parseInt(e.target.value, 10) : undefined,
+                            })
+                          }
+                          placeholder="Optional"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <label className="text-sm font-medium text-gray-700">Max Length</label>
+                        <Input
+                          type="number"
+                          min={1}
+                          value={field.maxLength ?? ''}
+                          onChange={(e) =>
+                            updateRegistrationField(index, {
+                              maxLength: e.target.value ? parseInt(e.target.value, 10) : undefined,
+                            })
+                          }
+                          placeholder="Optional"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="grid gap-4 sm:grid-cols-2">
+                      <div className="space-y-2">
+                        <label className="text-sm font-medium text-gray-700">Min Value (for number fields)</label>
+                        <Input
+                          type="number"
+                          value={field.min ?? ''}
+                          onChange={(e) =>
+                            updateRegistrationField(index, {
+                              min: e.target.value ? Number(e.target.value) : undefined,
+                            })
+                          }
+                          placeholder="Optional"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <label className="text-sm font-medium text-gray-700">Max Value (for number fields)</label>
+                        <Input
+                          type="number"
+                          value={field.max ?? ''}
+                          onChange={(e) =>
+                            updateRegistrationField(index, {
+                              max: e.target.value ? Number(e.target.value) : undefined,
+                            })
+                          }
+                          placeholder="Optional"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium text-gray-700">Regex Pattern (optional)</label>
+                      <Input
+                        value={field.pattern || ''}
+                        onChange={(e) => updateRegistrationField(index, { pattern: e.target.value })}
+                        placeholder="e.g., ^https://"
+                      />
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        checked={field.required}
+                        onChange={(e) => updateRegistrationField(index, { required: e.target.checked })}
+                        className="w-4 h-4 rounded text-amber-600 focus:ring-amber-500"
+                      />
+                      <span className="text-sm font-medium text-gray-700">Required field</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <Button type="button" variant="outline" onClick={addRegistrationField} className="w-full">
+              <Plus className="h-4 w-4 mr-2" />
+              Add Extra Registration Field
+            </Button>
           </CardContent>
         </Card>
 

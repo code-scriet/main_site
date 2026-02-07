@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { api } from '@/lib/api';
+import { extractApiErrorMessage } from '@/lib/error';
 import { useAuth } from '@/context/AuthContext';
 import { useSettings } from '@/context/SettingsContext';
 
@@ -93,9 +93,10 @@ export default function AuthCallbackPage() {
                   navigate('/join-us?success=true');
                   return;
                 } else {
-                  const errorData = await applicationResponse.json();
+                  const errorData = await applicationResponse.json().catch(() => null);
+                  const errorMessage = extractApiErrorMessage(errorData, 'Failed to submit application');
                   // If application already exists or other error, redirect to complete form
-                  if (errorData.error?.includes('already exists')) {
+                  if (errorMessage.toLowerCase().includes('already exists')) {
                     navigate('/dashboard');
                     return;
                   }
@@ -132,19 +133,10 @@ export default function AuthCallbackPage() {
         // Check for pending event registration
         const pendingEventId = localStorage.getItem('pendingEventRegistration');
         if (pendingEventId) {
-          setStatus('Completing event registration...');
-          try {
-            await api.registerForEvent(pendingEventId, token);
-            localStorage.removeItem('pendingEventRegistration');
-            navigate('/dashboard'); // Success: Go to Dashboard
-            return;
-          } catch (err) {
-            console.error('Auto-registration failed in callback:', err);
-            // Failed: Go to Events page to try manually
-            localStorage.removeItem('pendingEventRegistration'); 
-            navigate('/dashboard/events');
-            return;
-          }
+          setStatus('Redirecting to event registration...');
+          localStorage.removeItem('pendingEventRegistration');
+          navigate(`/events/${pendingEventId}?register=1`);
+          return;
         }
         
         setStatus('Redirecting to dashboard...');

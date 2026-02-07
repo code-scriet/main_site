@@ -11,7 +11,7 @@ import { logger } from '../utils/logger.js';
 
 export const hiringRouter = Router();
 
-const applyingRoles = ['TECHNICAL', 'DESIGNING', 'VIDEO_EDITING', 'MANAGEMENT'] as const;
+const applyingRoles = ['TECHNICAL', 'DSA_CHAMPS', 'DESIGNING', 'SOCIAL_MEDIA', 'MANAGEMENT'] as const;
 const applicationStatuses = ['PENDING', 'INTERVIEW_SCHEDULED', 'SELECTED', 'REJECTED'] as const;
 
 const hiringApplicationSchema = z.object({
@@ -94,6 +94,18 @@ hiringRouter.post('/apply', optionalAuthMiddleware, async (req: Request, res: Re
     });
   } catch (error) {
     logger.error('Hiring application error:', { error: error instanceof Error ? error.message : String(error) });
+
+    // Helpful error when backend enum is outdated (migration not applied)
+    if (
+      error instanceof Error &&
+      (error.message.includes('ApplyingRole') || error.message.includes('invalid input value for enum'))
+    ) {
+      return ApiResponse.badRequest(
+        res,
+        'Hiring roles are out of date on server. Please run the latest database migrations and try again.'
+      );
+    }
+
     return ApiResponse.internal(res, 'Failed to submit application');
   }
 });

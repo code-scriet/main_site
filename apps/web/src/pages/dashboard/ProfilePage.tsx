@@ -161,48 +161,17 @@ export default function ProfilePage() {
       
       // Check for pending event registration (check state first, then storage as backup)
       const eventIdToRegister = pendingEventId || localStorage.getItem('pendingEventRegistration');
-      console.log('Checking for pending event registration:', eventIdToRegister);
       
       if (eventIdToRegister) {
-        try {
-          // Use the latest token from localStorage to ensure it's fresh
-          const currentToken = localStorage.getItem('token');
-          if (!currentToken) {
-            throw new Error('No authentication token available');
-          }
-          
-          console.log('Attempting auto-registration for event:', pendingEventId);
-          
-          // Attempt to register for the pending event
-          await api.registerForEvent(eventIdToRegister, currentToken);
-          
-          // Clear the pending registration
-          localStorage.removeItem('pendingEventRegistration');
-          
-          setMessage({ type: 'success', text: 'Profile updated and you have been registered for the event! Redirecting to dashboard...' });
-          
-          // Redirect to dashboard after a short delay
-          setTimeout(() => {
-            navigate('/dashboard');
-          }, 2000);
-          return;
-        } catch (regError) {
-          console.error('Auto-registration failed:', regError);
-          // Clear the pending ID since we've attempted it
-          localStorage.removeItem('pendingEventRegistration');
-          
-          // Show appropriate message based on error
-          const errorMessage = regError instanceof Error ? regError.message : 'Unknown error';
-          setMessage({ 
-            type: 'success',
-            text: `Profile updated! However, automatic event registration failed: ${errorMessage}. Redirecting to Events page so you can try manually.` 
-          });
-          
-          // Redirect to events page after delay
-          setTimeout(() => {
-            navigate('/dashboard/events');
-          }, 3000);
-        }
+        localStorage.removeItem('pendingEventRegistration');
+        setMessage({
+          type: 'success',
+          text: 'Profile updated! Redirecting you to complete event registration.',
+        });
+        setTimeout(() => {
+          navigate(`/events/${eventIdToRegister}?register=1`);
+        }, 1000);
+        return;
       } else {
         setMessage({ type: 'success', text: 'Profile updated successfully! Redirecting...' });
         // Redirect to dashboard after a short delay

@@ -3,11 +3,12 @@ import { prisma } from '../lib/prisma.js';
 import { authMiddleware, optionalAuthMiddleware, getAuthUser } from '../middleware/auth.js';
 import { requireRole } from '../middleware/role.js';
 import { auditLog } from '../utils/audit.js';
-import { EventStatus } from '@prisma/client';
+import { EventStatus, Prisma } from '@prisma/client';
 import { updateEventStatuses } from '../utils/eventStatus.js';
 import { generateSlug, generateUniqueSlug } from '../utils/slug.js';
 import { emailService } from '../utils/email.js';
 import { logger } from '../utils/logger.js';
+import { sanitizeEventRegistrationFields } from '../utils/eventRegistrationFields.js';
 
 export const eventsRouter = Router();
 
@@ -134,6 +135,16 @@ eventsRouter.post('/', authMiddleware, requireRole('CORE_MEMBER'), async (req: R
   try {
     const authUser = getAuthUser(req)!;
     const data = req.body;
+    let registrationFields;
+
+    try {
+      registrationFields = sanitizeEventRegistrationFields(data.registrationFields);
+    } catch (validationError) {
+      return res.status(400).json({
+        success: false,
+        error: { message: validationError instanceof Error ? validationError.message : 'Invalid registration fields' },
+      });
+    }
 
     // Generate slug from title
     const baseSlug = generateSlug(data.title);
@@ -171,6 +182,9 @@ eventsRouter.post('/', authMiddleware, requireRole('CORE_MEMBER'), async (req: R
         tags: data.tags || [],
         featured: data.featured || false,
         allowLateRegistration: data.allowLateRegistration || false,
+        registrationFields: registrationFields.length > 0
+          ? (registrationFields as unknown as Prisma.InputJsonValue)
+          : undefined,
       },
     });
 
@@ -189,6 +203,7 @@ eventsRouter.put('/:id', authMiddleware, requireRole('CORE_MEMBER'), async (req:
   try {
     const authUser = getAuthUser(req)!;
     const data = req.body;
+    let registrationFieldsUpdate = {};
 
     // If title changed, regenerate slug
     let slugUpdate = {};
@@ -200,6 +215,22 @@ eventsRouter.put('/:id', authMiddleware, requireRole('CORE_MEMBER'), async (req:
       })).map(e => e.slug);
       const newSlug = generateUniqueSlug(baseSlug, existingSlugs);
       slugUpdate = { slug: newSlug };
+    }
+
+    if (data.registrationFields !== undefined) {
+      try {
+        const registrationFields = sanitizeEventRegistrationFields(data.registrationFields);
+        registrationFieldsUpdate = {
+          registrationFields: registrationFields.length > 0
+            ? (registrationFields as unknown as Prisma.InputJsonValue)
+            : Prisma.JsonNull,
+        };
+      } catch (validationError) {
+        return res.status(400).json({
+          success: false,
+          error: { message: validationError instanceof Error ? validationError.message : 'Invalid registration fields' },
+        });
+      }
     }
 
     const event = await prisma.event.update({
@@ -233,6 +264,7 @@ eventsRouter.put('/:id', authMiddleware, requireRole('CORE_MEMBER'), async (req:
         ...(data.tags !== undefined && { tags: data.tags }),
         ...(data.featured !== undefined && { featured: data.featured }),
         ...(data.allowLateRegistration !== undefined && { allowLateRegistration: data.allowLateRegistration }),
+        ...registrationFieldsUpdate,
       },
     });
 
@@ -339,14 +371,68 @@ eventsRouter.get('/:id/registrations/export', authMiddleware, requireRole('CORE_
       return res.status(404).json({ success: false, error: { message: 'Event not found' } });
     }
 
+    const registrationFields = sanitizeEventRegistrationFields(event.registrationFields);
+
+    const getResponseMap = (responses: unknown): Map<string, string> => {
+      const map = new Map<string, string>();
+      if (!Array.isArray(responses)) {
+        return map;
+      }
+      for (const item of responses) {
+        if (!item || typeof item !== 'object') {
+          continue;
+        }
+        const parsed = item as { fieldId?: unknown; value?: unknown };
+        if (typeof parsed.fieldId !== 'string' || !parsed.fieldId) {
+          continue;
+        }
+        map.set(parsed.fieldId, parsed.value === undefined || parsed.value === null ? '' : String(parsed.value));
+      }
+      return map;
+    };
+
+    const escapeCsv = (value: unknown): string => {
+      const stringValue = value === undefined || value === null ? '' : String(value);
+      return `"${stringValue.replace(/"/g, '""')}"`;
+    };
+
     // For CSV format (backwards compatible)
     if (format === 'csv') {
-      const csv = [
-        'S.No,Name,Email,Phone,Course,Branch,Year,Role,Registered At,Account Created',
-        ...event.registrations.map((r, i) => 
-          `${i + 1},"${r.user.name}","${r.user.email}","${r.user.phone || ''}","${r.user.course || ''}","${r.user.branch || ''}","${r.user.year || ''}","${r.user.role}","${r.timestamp.toISOString()}","${r.user.createdAt.toISOString()}"`
-        ),
-      ].join('\n');
+      const header = [
+        'S.No',
+        'Name',
+        'Email',
+        'Phone',
+        'Course',
+        'Branch',
+        'Year',
+        'Role',
+        'Registered At',
+        'Account Created',
+        ...registrationFields.map((field) => field.label),
+      ];
+
+      const rows = event.registrations.map((registration, index) => {
+        const responseMap = getResponseMap(registration.customFieldResponses);
+        return [
+          index + 1,
+          registration.user.name,
+          registration.user.email,
+          registration.user.phone || '',
+          registration.user.course || '',
+          registration.user.branch || '',
+          registration.user.year || '',
+          registration.user.role,
+          registration.timestamp.toISOString(),
+          registration.user.createdAt.toISOString(),
+          ...registrationFields.map((field) => responseMap.get(field.id) || ''),
+        ];
+      });
+
+      const csv = [header, ...rows]
+        .map((row) => row.map(escapeCsv).join(','))
+        .join('\n');
+
       res.setHeader('Content-Type', 'text/csv');
       res.setHeader('Content-Disposition', `attachment; filename="${event.title.replace(/[^a-z0-9]/gi, '_')}_registrations.csv"`);
       return res.send(csv);
@@ -360,7 +446,7 @@ eventsRouter.get('/:id/registrations/export', authMiddleware, requireRole('CORE_
 
     const worksheet = workbook.addWorksheet('Registrations');
 
-    // Define columns with new fields
+    // Define columns with dynamic custom field columns
     worksheet.columns = [
       { header: 'S.No', key: 'sno', width: 8 },
       { header: 'Name', key: 'name', width: 25 },
@@ -374,6 +460,11 @@ eventsRouter.get('/:id/registrations/export', authMiddleware, requireRole('CORE_
       { header: 'Account Created', key: 'accountCreated', width: 22 },
       { header: 'GitHub', key: 'github', width: 25 },
       { header: 'LinkedIn', key: 'linkedin', width: 25 },
+      ...registrationFields.map((field) => ({
+        header: field.label,
+        key: `custom_${field.id}`,
+        width: Math.max(18, Math.min(45, field.label.length + 10)),
+      })),
     ];
 
     // Style header row
@@ -388,7 +479,8 @@ eventsRouter.get('/:id/registrations/export', authMiddleware, requireRole('CORE_
 
     // Add data rows
     event.registrations.forEach((reg, index) => {
-      worksheet.addRow({
+      const responseMap = getResponseMap(reg.customFieldResponses);
+      const rowData: Record<string, unknown> = {
         sno: index + 1,
         name: reg.user.name,
         email: reg.user.email,
@@ -401,7 +493,13 @@ eventsRouter.get('/:id/registrations/export', authMiddleware, requireRole('CORE_
         accountCreated: reg.user.createdAt.toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }),
         github: reg.user.githubUrl || '',
         linkedin: reg.user.linkedinUrl || '',
+      };
+
+      registrationFields.forEach((field) => {
+        rowData[`custom_${field.id}`] = responseMap.get(field.id) || '';
       });
+
+      worksheet.addRow(rowData);
     });
 
     // Add alternating row colors

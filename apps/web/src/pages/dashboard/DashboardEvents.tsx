@@ -92,7 +92,7 @@ export default function DashboardEvents() {
     }
   };
 
-  const handleRegister = async (eventId: string) => {
+  const handleRegister = async (event: Event) => {
     if (!token) {
       setError('Please log in to register for events');
       return;
@@ -101,16 +101,21 @@ export default function DashboardEvents() {
     // Check if academic details are complete - redirect to profile if not
     if (!hasCompleteAcademicDetails) {
       // Save pending registration
-      localStorage.setItem('pendingEventRegistration', eventId);
-      navigate('/dashboard/profile', { state: { message: 'Please complete your profile to register for events' } });
+      localStorage.setItem('pendingEventRegistration', event.id);
+      navigate('/dashboard/profile', { state: { message: 'Please complete your profile to register for events', pendingEventId: event.id } });
+      return;
+    }
+
+    if (event.registrationFields && event.registrationFields.length > 0) {
+      navigate(`/events/${event.slug || event.id}?register=1`);
       return;
     }
     
     try {
-      console.log('Registering for event:', eventId);
-      setRegisteringId(eventId);
+      console.log('Registering for event:', event.id);
+      setRegisteringId(event.id);
       setError(null);
-      await api.registerForEvent(eventId, token);
+      await api.registerForEvent(event.id, token);
       console.log('Registration successful');
       await loadData();
     } catch (err) {
@@ -357,7 +362,7 @@ export default function DashboardEvents() {
                     event={event}
                     index={index}
                     registrationStatus={regStatus}
-                    onRegister={() => handleRegister(event.id)}
+                    onRegister={() => handleRegister(event)}
                     registering={registeringId === event.id}
                     showActions={true}
                   />

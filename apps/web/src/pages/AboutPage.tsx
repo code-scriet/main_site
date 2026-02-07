@@ -5,7 +5,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { 
   Target, Eye, Rocket, Code, Users, Trophy, 
-  Heart, BookOpen, Globe, Handshake, Check 
+  Heart, BookOpen, Globe, Handshake, Check, GraduationCap
 } from 'lucide-react';
 
 export default function AboutPage() {
@@ -279,6 +279,25 @@ export default function AboutPage() {
               </Card>
             </motion.div>
           </div>
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.6, delay: 0.1 }}
+            viewport={{ once: true }}
+            className="max-w-5xl mx-auto mt-8"
+          >
+            <Card className="bg-white border-amber-200 shadow-sm">
+              <CardContent className="p-6 sm:p-8 text-center">
+                <div className="inline-flex h-14 w-14 items-center justify-center rounded-full bg-amber-100 mb-4">
+                  <GraduationCap className="h-7 w-7 text-amber-700" />
+                </div>
+                <p className="text-sm font-semibold tracking-wide text-amber-700 uppercase mb-2">
+                  Teacher Incharge
+                </p>
+                <h3 className="text-2xl font-bold text-gray-900">Er. Pravin Pavar Sir</h3>
+              </CardContent>
+            </Card>
+          </motion.div>
         </div>
       </section>
 

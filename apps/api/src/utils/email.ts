@@ -549,8 +549,9 @@ export const EmailTemplates = {
   hiringApplication: (name: string, email: string, applyingRole: string): EmailTemplate => {
     const roleNames: Record<string, string> = {
       TECHNICAL: 'Technical Division',
+      DSA_CHAMPS: 'DSA Champs Division',
       DESIGNING: 'Design Division',
-      VIDEO_EDITING: 'Media Production Division',
+      SOCIAL_MEDIA: 'Social Media Division',
       MANAGEMENT: 'Operations & Management',
     };
     const roleName = roleNames[applyingRole] || applyingRole;
@@ -621,8 +622,9 @@ export const EmailTemplates = {
   hiringSelected: (name: string, applyingRole: string): EmailTemplate => {
     const roleNames: Record<string, string> = {
       TECHNICAL: 'Technical Division',
+      DSA_CHAMPS: 'DSA Champs Division',
       DESIGNING: 'Design Division',
-      VIDEO_EDITING: 'Media Production Division',
+      SOCIAL_MEDIA: 'Social Media Division',
       MANAGEMENT: 'Operations & Management',
     };
     const roleName = roleNames[applyingRole] || applyingRole;
@@ -689,8 +691,9 @@ export const EmailTemplates = {
   hiringRejected: (name: string, applyingRole: string): EmailTemplate => {
     const roleNames: Record<string, string> = {
       TECHNICAL: 'Technical Division',
+      DSA_CHAMPS: 'DSA Champs Division',
       DESIGNING: 'Design Division',
-      VIDEO_EDITING: 'Media Production Division',
+      SOCIAL_MEDIA: 'Social Media Division',
       MANAGEMENT: 'Operations & Management',
     };
     const roleName = roleNames[applyingRole] || applyingRole;

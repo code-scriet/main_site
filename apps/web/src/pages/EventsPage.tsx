@@ -129,6 +129,11 @@ export default function EventsPage() {
       return;
     }
 
+    if (event.registrationFields && event.registrationFields.length > 0) {
+      navigate(`/events/${event.slug || event.id}?register=1`);
+      return;
+    }
+
     try {
       setRegistering(event.id);
       setRegistrationError(null);

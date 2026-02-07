@@ -114,6 +114,32 @@ export interface FAQ {
   answer: string;
 }
 
+export type EventRegistrationFieldType =
+  | 'TEXT'
+  | 'TEXTAREA'
+  | 'NUMBER'
+  | 'EMAIL'
+  | 'PHONE'
+  | 'URL';
+
+export interface EventRegistrationField {
+  id: string;
+  label: string;
+  type: EventRegistrationFieldType;
+  required: boolean;
+  placeholder?: string;
+  minLength?: number;
+  maxLength?: number;
+  min?: number;
+  max?: number;
+  pattern?: string;
+}
+
+export interface RegistrationAdditionalFieldInput {
+  fieldId: string;
+  value: string;
+}
+
 export interface Event {
   id: string;
   title: string;
@@ -146,6 +172,7 @@ export interface Event {
   tags?: string[];
   featured?: boolean;
   allowLateRegistration?: boolean;
+  registrationFields?: EventRegistrationField[];
 }
 
 export interface Registration {
@@ -153,6 +180,11 @@ export interface Registration {
   userId: string;
   eventId: string;
   timestamp: string;
+  customFieldResponses?: Array<{
+    fieldId: string;
+    label: string;
+    value: string;
+  }>;
   event: Event;
 }
 
@@ -241,8 +273,18 @@ export const api = {
     request(`/events/${id}`, { method: 'DELETE', token }),
   
   // Registrations
-  registerForEvent: (eventId: string, token: string) =>
-    request<Registration>(`/registrations/events/${eventId}`, { method: 'POST', token }),
+  registerForEvent: (
+    eventId: string,
+    token: string,
+    additionalFields?: RegistrationAdditionalFieldInput[]
+  ) =>
+    request<Registration>(`/registrations/events/${eventId}`, {
+      method: 'POST',
+      body: JSON.stringify({
+        ...(additionalFields ? { additionalFields } : {}),
+      }),
+      token,
+    }),
   cancelRegistration: (eventId: string, token: string) =>
     request(`/registrations/events/${eventId}`, { method: 'DELETE', token }),
   getMyRegistrations: (token: string) =>
