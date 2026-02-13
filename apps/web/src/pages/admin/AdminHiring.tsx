@@ -29,6 +29,7 @@ import {
 import { formatDate } from '@/lib/dateUtils';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5001/api';
+const MAX_APPLICATIONS_LIMIT = 100; // Maximum allowed by backend API
 
 interface HiringApplication {
   id: string;
@@ -146,7 +147,7 @@ export default function AdminHiring() {
       const params = new URLSearchParams();
       if (statusFilter) params.append('status', statusFilter);
       if (roleFilter) params.append('role', roleFilter);
-      params.append('limit', '100');
+      params.append('limit', String(MAX_APPLICATIONS_LIMIT));
 
       const [applicationsRes, statsRes] = await Promise.all([
         fetch(`${API_URL}/hiring/applications?${params}`, {
