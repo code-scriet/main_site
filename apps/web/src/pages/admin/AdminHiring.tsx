@@ -146,6 +146,7 @@ export default function AdminHiring() {
       const params = new URLSearchParams();
       if (statusFilter) params.append('status', statusFilter);
       if (roleFilter) params.append('role', roleFilter);
+      params.append('limit', '100');
 
       const [applicationsRes, statsRes] = await Promise.all([
         fetch(`${API_URL}/hiring/applications?${params}`, {
