@@ -3,7 +3,58 @@
 
 import { marked } from 'marked';
 import { logger } from './logger.js';
-import { emailTemplateConfig } from '../config/email-templates.config.js';
+import { prisma } from '../lib/prisma.js';
+
+// Email template config cache
+interface EmailTemplateConfig {
+  welcomeBody: string;
+  announcementIntro: string;
+  eventIntro: string;
+  footerText: string;
+}
+
+let emailTemplateConfigCache: EmailTemplateConfig | null = null;
+let lastConfigFetch = 0;
+const CONFIG_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+
+async function getEmailTemplateConfig(): Promise<EmailTemplateConfig> {
+  const now = Date.now();
+  if (emailTemplateConfigCache && (now - lastConfigFetch) < CONFIG_CACHE_TTL) {
+    return emailTemplateConfigCache;
+  }
+  
+  try {
+    const settings = await prisma.settings.findUnique({
+      where: { id: 'default' },
+      select: {
+        emailWelcomeBody: true,
+        emailAnnouncementBody: true,
+        emailEventBody: true,
+        emailFooterText: true,
+      },
+    });
+    
+    emailTemplateConfigCache = {
+      welcomeBody: settings?.emailWelcomeBody || '',
+      announcementIntro: settings?.emailAnnouncementBody || '',
+      eventIntro: settings?.emailEventBody || '',
+      footerText: settings?.emailFooterText || '',
+    };
+    lastConfigFetch = now;
+    return emailTemplateConfigCache;
+  } catch (error) {
+    logger.error('Failed to fetch email template config from database', {
+      error: error instanceof Error ? error.message : String(error)
+    });
+    // Return empty defaults
+    return {
+      welcomeBody: '',
+      announcementIntro: '',
+      eventIntro: '',
+      footerText: '',
+    };
+  }
+}
 
 // Brevo API configuration
 const BREVO_API_URL = 'https://api.brevo.com/v3/smtp/email';
@@ -924,7 +975,8 @@ class EmailService {
 
   // Convenience methods
   async sendWelcome(email: string, name: string, clubName: string = 'code.scriet'): Promise<boolean> {
-    const template = EmailTemplates.welcome(name, clubName, emailTemplateConfig.welcomeBody, emailTemplateConfig.footerText);
+    const config = await getEmailTemplateConfig();
+    const template = EmailTemplates.welcome(name, clubName, config.welcomeBody, config.footerText);
     return this.send({ to: email, ...template });
   }
 
@@ -934,12 +986,14 @@ class EmailService {
   }
 
   async sendAnnouncementToAll(emails: string[], title: string, body: string, priority: string, slug: string, shortDescription?: string, imageUrl?: string, tags?: string[]): Promise<boolean> {
-    const template = EmailTemplates.newAnnouncement(title, body, priority, slug, shortDescription, imageUrl, tags, emailTemplateConfig.announcementIntro, emailTemplateConfig.footerText);
+    const config = await getEmailTemplateConfig();
+    const template = EmailTemplates.newAnnouncement(title, body, priority, slug, shortDescription, imageUrl, tags, config.announcementIntro, config.footerText);
     return this.sendBulk(emails, template.subject, template.html, template.text);
   }
 
   async sendNewEventToAll(emails: string[], title: string, description: string, startDate: Date, slug: string, shortDescription?: string, location?: string, imageUrl?: string, tags?: string[], eventType?: string): Promise<boolean> {
-    const template = EmailTemplates.newEvent(title, description, startDate, slug, shortDescription, location, imageUrl, tags, eventType, emailTemplateConfig.eventIntro, emailTemplateConfig.footerText);
+    const config = await getEmailTemplateConfig();
+    const template = EmailTemplates.newEvent(title, description, startDate, slug, shortDescription, location, imageUrl, tags, eventType, config.eventIntro, config.footerText);
     return this.sendBulk(emails, template.subject, template.html, template.text);
   }
 

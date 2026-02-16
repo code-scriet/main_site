@@ -15,9 +15,10 @@ async function sendEventReminders(): Promise<void> {
   try {
     const now = new Date();
     
-    // Find events starting in the next 20-28 hours (window to catch events)
-    const minTime = new Date(now.getTime() + 20 * 60 * 60 * 1000);
-    const maxTime = new Date(now.getTime() + 28 * 60 * 60 * 1000);
+    // Find events starting in the next 10-32 hours (wider window to catch events in all timezones)
+    // The sentReminders Set prevents duplicate sends
+    const minTime = new Date(now.getTime() + 10 * 60 * 60 * 1000);
+    const maxTime = new Date(now.getTime() + 32 * 60 * 60 * 1000);
     
     logger.info('🔔 Checking for events needing reminders...', {
       checkWindow: `${minTime.toISOString()} to ${maxTime.toISOString()}`

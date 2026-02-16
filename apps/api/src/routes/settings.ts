@@ -4,12 +4,6 @@ import { authMiddleware, getAuthUser } from '../middleware/auth.js';
 import { requireRole } from '../middleware/role.js';
 import { auditLog } from '../utils/audit.js';
 import { logger } from '../utils/logger.js';
-import fs from 'fs/promises';
-import path from 'path';
-import { fileURLToPath } from 'url';
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
 
 export const settingsRouter = Router();
 
@@ -220,22 +214,23 @@ settingsRouter.post('/reset', authMiddleware, requireRole('ADMIN'), async (req: 
 // Get email template configuration
 settingsRouter.get('/email-templates', authMiddleware, requireRole('ADMIN'), async (req: Request, res: Response) => {
   try {
-    const configPath = path.join(__dirname, '../config/email-templates.config.ts');
-    const configContent = await fs.readFile(configPath, 'utf-8');
-    
-    // Parse the config file to extract values
-    const welcomeBodyMatch = configContent.match(/welcomeBody:\s*'([^']*)'/s) || configContent.match(/welcomeBody:\s*"([^"]*)"/s);
-    const announcementIntroMatch = configContent.match(/announcementIntro:\s*'([^']*)'/s) || configContent.match(/announcementIntro:\s*"([^"]*)"/s);
-    const eventIntroMatch = configContent.match(/eventIntro:\s*'([^']*)'/s) || configContent.match(/eventIntro:\s*"([^"]*)"/s);
-    const footerTextMatch = configContent.match(/footerText:\s*'([^']*)'/s) || configContent.match(/footerText:\s*"([^"]*)"/s);
+    const settings = await prisma.settings.findUnique({
+      where: { id: 'default' },
+      select: {
+        emailWelcomeBody: true,
+        emailAnnouncementBody: true,
+        emailEventBody: true,
+        emailFooterText: true,
+      },
+    });
     
     res.json({
       success: true,
       data: {
-        emailWelcomeBody: welcomeBodyMatch ? welcomeBodyMatch[1] : '',
-        emailAnnouncementBody: announcementIntroMatch ? announcementIntroMatch[1] : '',
-        emailEventBody: eventIntroMatch ? eventIntroMatch[1] : '',
-        emailFooterText: footerTextMatch ? footerTextMatch[1] : '',
+        emailWelcomeBody: settings?.emailWelcomeBody || '',
+        emailAnnouncementBody: settings?.emailAnnouncementBody || '',
+        emailEventBody: settings?.emailEventBody || '',
+        emailFooterText: settings?.emailFooterText || '',
       },
     });
   } catch (error) {
@@ -250,30 +245,15 @@ settingsRouter.patch('/email-templates', authMiddleware, requireRole('ADMIN'), a
     const authUser = getAuthUser(req)!;
     const { emailWelcomeBody, emailAnnouncementBody, emailEventBody, emailFooterText } = req.body;
     
-    // Escape strings for TypeScript file
-    const escape = (str: string = '') => str.replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/\n/g, '\\n');
-    
-    const configContent = `// Email template customizations
-// This file is auto-updated by the admin dashboard
-
-export const emailTemplateConfig = {
-  // Custom welcome email body (markdown supported)
-  // Variables: {{name}}, {{clubName}}
-  welcomeBody: '${escape(emailWelcomeBody || '')}',
-  
-  // Custom announcement email intro (markdown supported)
-  announcementIntro: '${escape(emailAnnouncementBody || '')}',
-  
-  // Custom event email intro (markdown supported)
-  eventIntro: '${escape(emailEventBody || '')}',
-  
-  // Custom footer text for all emails
-  footerText: '${escape(emailFooterText || '')}',
-};
-`;
-    
-    const configPath = path.join(__dirname, '../config/email-templates.config.ts');
-    await fs.writeFile(configPath, configContent, 'utf-8');
+    await prisma.settings.update({
+      where: { id: 'default' },
+      data: {
+        emailWelcomeBody: emailWelcomeBody || '',
+        emailAnnouncementBody: emailAnnouncementBody || '',
+        emailEventBody: emailEventBody || '',
+        emailFooterText: emailFooterText || '',
+      },
+    });
     
     await auditLog(authUser.id, 'UPDATE', 'email-templates', 'config', {
       updated: { emailWelcomeBody, emailAnnouncementBody, emailEventBody, emailFooterText },
