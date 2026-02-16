@@ -3,65 +3,76 @@
  * Uses Indian locale (en-IN) and Asia/Kolkata timezone
  */
 
+const IST_TIMEZONE = 'Asia/Kolkata';
+const LOCALE = 'en-IN';
+
 /**
  * Format a date for datetime-local input field
- * Returns format: YYYY-MM-DDTHH:MM in local timezone
+ * Returns format: YYYY-MM-DDTHH:MM in IST timezone
  */
 export function formatDateTimeLocal(dateString: string | Date | undefined | null): string {
   if (!dateString) return '';
   const date = new Date(dateString);
   
-  // Get local date components
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const day = String(date.getDate()).padStart(2, '0');
-  const hours = String(date.getHours()).padStart(2, '0');
-  const minutes = String(date.getMinutes()).padStart(2, '0');
+  // Get IST date components
+  const formatter = new Intl.DateTimeFormat(LOCALE, {
+    timeZone: IST_TIMEZONE,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  });
   
-  return `${year}-${month}-${day}T${hours}:${minutes}`;
+  const parts = formatter.formatToParts(date);
+  const getPart = (type: string) => parts.find(p => p.type === type)?.value || '';
+  
+  return `${getPart('year')}-${getPart('month')}-${getPart('day')}T${getPart('hour')}:${getPart('minute')}`;
 }
 
 /**
- * Format a date as DD/MM/YYYY
+ * Format a date as DD/MM/YYYY in IST
  */
 export function formatDate(dateString: string | Date | undefined | null): string {
   if (!dateString) return '';
   const date = new Date(dateString);
   
-  const day = String(date.getDate()).padStart(2, '0');
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const year = date.getFullYear();
-  
-  return `${day}/${month}/${year}`;
+  return date.toLocaleDateString(LOCALE, {
+    timeZone: IST_TIMEZONE,
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+  });
 }
 
 /**
- * Format a date as DD/MM/YYYY HH:MM AM/PM
+ * Format a date as DD/MM/YYYY HH:MM AM/PM in IST
  */
 export function formatDateTime(dateString: string | Date | undefined | null): string {
   if (!dateString) return '';
   const date = new Date(dateString);
   
-  const day = String(date.getDate()).padStart(2, '0');
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const year = date.getFullYear();
-  
-  const hours = date.getHours();
-  const minutes = String(date.getMinutes()).padStart(2, '0');
-  const ampm = hours >= 12 ? 'PM' : 'AM';
-  const displayHours = hours % 12 || 12;
-  
-  return `${day}/${month}/${year} ${displayHours}:${minutes} ${ampm}`;
+  return date.toLocaleString(LOCALE, {
+    timeZone: IST_TIMEZONE,
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: true,
+  });
 }
 
 /**
- * Format time as HH:MM AM/PM
+ * Format time as HH:MM AM/PM in IST
  */
 export function formatTime(dateString: string | Date | undefined | null): string {
   if (!dateString) return '';
   const date = new Date(dateString);
   
-  return date.toLocaleTimeString('en-US', { 
+  return date.toLocaleTimeString(LOCALE, { 
+    timeZone: IST_TIMEZONE,
     hour: '2-digit', 
     minute: '2-digit',
     hour12: true 
@@ -69,28 +80,38 @@ export function formatTime(dateString: string | Date | undefined | null): string
 }
 
 /**
- * Get short weekday name (e.g., "Mon", "Tue")
+ * Get short weekday name (e.g., "Mon", "Tue") in IST
  */
 export function getWeekdayShort(dateString: string | Date | undefined | null): string {
   if (!dateString) return '';
   const date = new Date(dateString);
-  return date.toLocaleDateString('en-US', { weekday: 'short' });
+  return date.toLocaleDateString(LOCALE, { 
+    timeZone: IST_TIMEZONE,
+    weekday: 'short' 
+  });
 }
 
 /**
- * Get short month name (e.g., "Jan", "Feb")
+ * Get short month name (e.g., "Jan", "Feb") in IST
  */
 export function getMonthShort(dateString: string | Date | undefined | null): string {
   if (!dateString) return '';
   const date = new Date(dateString);
-  return date.toLocaleDateString('en-US', { month: 'short' });
+  return date.toLocaleDateString(LOCALE, { 
+    timeZone: IST_TIMEZONE,
+    month: 'short' 
+  });
 }
 
 /**
- * Get day of month
+ * Get day of month in IST
  */
 export function getDayOfMonth(dateString: string | Date | undefined | null): number | null {
   if (!dateString) return null;
   const date = new Date(dateString);
-  return date.getDate();
+  const day = date.toLocaleDateString(LOCALE, {
+    timeZone: IST_TIMEZONE,
+    day: 'numeric',
+  });
+  return parseInt(day, 10);
 }

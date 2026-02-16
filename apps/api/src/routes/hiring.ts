@@ -408,7 +408,8 @@ hiringRouter.get('/export', authMiddleware, requireRole('ADMIN'), async (req: Re
       'Skills': app.skills || 'Not provided',
       'Applying Role': app.applyingRole,
       'Status': app.status,
-      'Applied On': new Date(app.createdAt).toLocaleString('en-US', {
+      'Applied On': new Date(app.createdAt).toLocaleString('en-IN', {
+        timeZone: 'Asia/Kolkata',
         year: 'numeric',
         month: 'long',
         day: 'numeric',

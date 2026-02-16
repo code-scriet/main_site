@@ -64,10 +64,10 @@ export function QOTDWidget({ token }: QOTDWidgetProps) {
         // API returns { success: true, data: { currentStreak, totalSubmissions, recentSubmissions } }
         const data = result.data || result;
         setStreak(data.currentStreak || 0);
-        // Check if there's a submission for today
-        const today = new Date().toISOString().split('T')[0];
+        // Check if there's a submission for today (in IST)
+        const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' }); // YYYY-MM-DD format
         const hasSubmittedToday = data.recentSubmissions?.some((s: any) => {
-          const subDate = new Date(s.date).toISOString().split('T')[0];
+          const subDate = new Date(s.date).toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
           return subDate === today;
         });
         setSubmitted(hasSubmittedToday || false);

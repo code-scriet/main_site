@@ -672,7 +672,7 @@ export default function AdminUsers() {
                     <h3 className="text-sm font-semibold text-gray-500 uppercase mb-2">Contact</h3>
                     <div className="space-y-1 text-sm text-gray-700">
                       <p className="flex items-center gap-2"><Phone className="h-4 w-4" /> {viewingUser.phone || 'N/A'}</p>
-                      <p><span className="font-medium">Joined:</span> {viewingUser.createdAt ? new Date(viewingUser.createdAt).toLocaleDateString() : 'N/A'}</p>
+                      <p><span className="font-medium">Joined:</span> {viewingUser.createdAt ? new Date(viewingUser.createdAt).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata' }) : 'N/A'}</p>
                       <p><span className="font-medium">Auth:</span> {viewingUser.oauthProvider || 'Email/Password'}</p>
                     </div>
                   </div>
@@ -738,7 +738,7 @@ export default function AdminUsers() {
                           <div className="flex-1 min-w-0">
                             <p className="font-medium text-gray-900 truncate">{reg.event.title}</p>
                             <p className="text-xs text-gray-500">
-                              {new Date(reg.event.startDate).toLocaleDateString()} • 
+                              {new Date(reg.event.startDate).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata' })} • 
                               <Badge variant={reg.event.status === 'PAST' ? 'secondary' : reg.event.status === 'ONGOING' ? 'warning' : 'default'} className="ml-1 text-xs">
                                 {reg.event.status}
                               </Badge>

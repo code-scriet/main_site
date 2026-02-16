@@ -634,7 +634,7 @@ We've got something exciting lined up for you:`}
       {/* Last Updated */}
       {settings.updatedAt && (
         <p className="text-xs text-gray-400 text-right">
-          Last updated: {new Date(settings.updatedAt).toLocaleString()}
+          Last updated: {new Date(settings.updatedAt).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })}
         </p>
       )}
     </div>

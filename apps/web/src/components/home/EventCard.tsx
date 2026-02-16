@@ -38,6 +38,7 @@ const statusBadgeVariant = (status: string) => {
 
 const formatDate = (dateString: string) => {
   return new Date(dateString).toLocaleDateString('en-IN', {
+    timeZone: 'Asia/Kolkata',
     month: 'short',
     day: 'numeric',
     year: 'numeric'

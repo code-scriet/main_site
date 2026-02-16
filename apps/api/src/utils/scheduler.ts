@@ -21,7 +21,7 @@ async function sendEventReminders(): Promise<void> {
     const maxTime = new Date(now.getTime() + 32 * 60 * 60 * 1000);
     
     logger.info('🔔 Checking for events needing reminders...', {
-      checkWindow: `${minTime.toISOString()} to ${maxTime.toISOString()}`
+      checkWindow: `${minTime.toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })} to ${maxTime.toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })} IST`
     });
     
     // Get events happening tomorrow
