@@ -1,6 +1,5 @@
 import { PrismaClient } from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
-import { execSync } from 'child_process';
 import { logger } from './logger.js';
 import { generateSlug, generateUniqueSlug } from './slug.js';
 
@@ -10,30 +9,21 @@ export async function initializeDatabase() {
   try {
     logger.info('🔧 Initializing database...');
 
-    // Handle failed migrations before any database operations
+    // Fix failed migrations directly in the database
     try {
-      logger.info('📊 Checking and resolving failed migrations...');
-      execSync('npx prisma migrate resolve --rolled-back 20260220003000_harden_email_and_network_query_indexes 2>&1 || true', {
-        stdio: 'pipe',
-        cwd: process.cwd(),
-      });
-      logger.info('✅ Migration resolution attempt completed');
+      logger.info('📊 Checking for failed migrations...');
+      // Delete the failed migration record so migrate deploy can retry or skip it
+      const deleted = await prisma.$executeRaw`
+        DELETE FROM "_prisma_migrations" 
+        WHERE migration_name = '20260220003000_harden_email_and_network_query_indexes'
+        AND rolled_back_at IS NULL
+        AND finished_at IS NULL
+      `;
+      if (deleted > 0) {
+        logger.info('✅ Removed failed migration record');
+      }
     } catch (migError) {
-      logger.warn('⚠️ Migration resolution warning', { error: migError instanceof Error ? migError.message : String(migError) });
-      // Don't fail startup if migration resolve fails
-    }
-
-    // Deploy any pending migrations
-    try {
-      logger.info('📊 Deploying pending migrations...');
-      execSync('npx prisma migrate deploy 2>&1 || true', {
-        stdio: 'pipe',
-        cwd: process.cwd(),
-      });
-      logger.info('✅ Migrations deployed successfully');
-    } catch (deployError) {
-      logger.warn('⚠️ Migration deployment warning', { error: deployError instanceof Error ? deployError.message : String(deployError) });
-      // Don't fail startup if deploy fails
+      logger.warn('⚠️ Migration cleanup warning', { error: migError instanceof Error ? migError.message : String(migError) });
     }
 
     // Get super admin credentials from environment variables
