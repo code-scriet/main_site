@@ -6,7 +6,7 @@ services:
     runtime: node
     plan: free
     buildCommand: npm install --include=dev && npx prisma generate --schema=./prisma/schema.prisma && npm run build --workspace=apps/api
-    startCommand: chmod +x scripts/migrate-deploy.sh && ./scripts/migrate-deploy.sh && npm run start --workspace=apps/api
+    startCommand: npx prisma migrate resolve --rolled-back 20260220003000_harden_email_and_network_query_indexes --schema=./prisma/schema.prisma || true && npx prisma migrate deploy --schema=./prisma/schema.prisma && npm run start --workspace=apps/api
     healthCheckPath: /ping
     envVars:
       - key: NODE_ENV

@@ -1,18 +1,13 @@
 #!/bin/bash
-set -e
 
 echo "🔄 Running database migrations..."
 
 # Set connection pool timeout for migrations
 export PRISMA_CLIENT_ENGINE_TYPE="binary"
 
-# First, check if there are any failed migrations that need to be resolved
-echo "📋 Checking for failed migrations..."
-if npx prisma migrate status --schema=./prisma/schema.prisma 2>&1 | grep -q "failed"; then
-  echo "⚠️  Found failed migrations, attempting to resolve..."
-  # Mark the specific failed migration as rolled back
-  npx prisma migrate resolve --rolled-back 20260220003000_harden_email_and_network_query_indexes --schema=./prisma/schema.prisma 2>/dev/null || true
-fi
+# Always try to resolve the known failed migration first (safe to run even if not needed)
+echo "📋 Resolving any known failed migrations..."
+npx prisma migrate resolve --rolled-back 20260220003000_harden_email_and_network_query_indexes --schema=./prisma/schema.prisma 2>&1 || echo "Migration resolve skipped (may already be resolved)"
 
 # Retry logic for migration
 MAX_RETRIES=3
