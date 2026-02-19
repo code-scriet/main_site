@@ -7,6 +7,7 @@ import { UpcomingEvents } from '@/components/home/UpcomingEvents';
 import { LatestAnnouncements } from '@/components/home/LatestAnnouncements';
 import { AchievementsShowcase } from '@/components/home/AchievementsShowcase';
 import { TeamHighlight } from '@/components/home/TeamHighlight';
+import { NetworkHighlight } from '@/components/home/NetworkHighlight';
 import { CTASection } from '@/components/home/CTASection';
 
 export default function HomePage() {
@@ -24,6 +25,7 @@ export default function HomePage() {
       <LatestAnnouncements />
       <AchievementsShowcase />
       <TeamHighlight />
+      <NetworkHighlight />
       <CTASection />
     </Layout>
   );

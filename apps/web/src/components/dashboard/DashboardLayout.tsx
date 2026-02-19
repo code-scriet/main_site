@@ -29,8 +29,8 @@ const coreMemberNavItems = [
   { name: 'Upload Image', href: '/dashboard/upload', icon: Upload },
 ];
 
-// Admin nav items - Hiring will be conditionally added based on settings
-const getAdminNavItems = (hiringEnabled: boolean) => {
+// Admin nav items - Hiring and Network will be conditionally added based on settings
+const getAdminNavItems = (hiringEnabled: boolean, showNetwork: boolean) => {
   const items = [
     { name: 'User Management', href: '/admin/users', icon: Users },
     { name: 'Team Management', href: '/admin/team', icon: Shield },
@@ -39,6 +39,10 @@ const getAdminNavItems = (hiringEnabled: boolean) => {
   
   if (hiringEnabled !== false) {
     items.push({ name: 'Hiring Applications', href: '/admin/hiring', icon: UserPlus });
+  }
+  
+  if (showNetwork !== false) {
+    items.push({ name: 'Network Management', href: '/admin/network', icon: Users });
   }
   
   items.push(
@@ -162,7 +166,10 @@ export default function DashboardLayout() {
                     Admin
                   </p>
                 </div>
-                {getAdminNavItems(!settingsLoading && settings?.hiringEnabled === true).map((item) => (
+                {getAdminNavItems(
+                  !settingsLoading && settings?.hiringEnabled === true,
+                  !settingsLoading && settings?.showNetwork !== false
+                ).map((item) => (
                   <NavLink key={item.href} item={item} isActive={location.pathname === item.href} />
                 ))}
               </>

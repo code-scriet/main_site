@@ -1,4 +1,6 @@
 import { Router, Request, Response } from 'express';
+import { Prisma } from '@prisma/client';
+import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
 import { authMiddleware, getAuthUser } from '../middleware/auth.js';
 import { requireRole } from '../middleware/role.js';
@@ -6,13 +8,71 @@ import { auditLog } from '../utils/audit.js';
 import { generateSlug, generateUniqueSlug } from '../utils/slug.js';
 import { emailService } from '../utils/email.js';
 import { logger } from '../utils/logger.js';
+import { parsePaginationNumber } from '../utils/pagination.js';
 
 export const announcementsRouter = Router();
+
+const optionalUrl = z.union([z.string().url('Must be a valid URL'), z.literal(''), z.null()]).optional();
+
+const announcementLinkSchema = z.object({
+  title: z.string().trim().min(1).max(120),
+  url: z.string().url('Link URL must be valid'),
+});
+
+const announcementAttachmentSchema = z.object({
+  title: z.string().trim().min(1).max(120),
+  url: z.string().url('Attachment URL must be valid'),
+  type: z.string().trim().max(40).optional(),
+});
+
+const createAnnouncementSchema = z.object({
+  title: z.string().trim().min(3).max(180),
+  body: z.string().trim().min(10).max(20000),
+  shortDescription: z.string().trim().max(320).optional().nullable(),
+  priority: z.enum(['LOW', 'MEDIUM', 'HIGH', 'URGENT']).optional(),
+  imageUrl: optionalUrl,
+  imageGallery: z.array(z.string().url('Image URL must be valid')).max(20).optional().nullable(),
+  attachments: z.array(announcementAttachmentSchema).max(20).optional().nullable(),
+  links: z.array(announcementLinkSchema).max(20).optional().nullable(),
+  tags: z.array(z.string().trim().min(1).max(40)).max(20).optional(),
+  featured: z.boolean().optional(),
+  pinned: z.boolean().optional(),
+  expiresAt: z.coerce.date().optional().nullable(),
+});
+
+const updateAnnouncementSchema = createAnnouncementSchema.partial().refine(
+  (data) => Object.keys(data).length > 0,
+  { message: 'At least one field is required' }
+);
+
+const normalizeOptionalText = (value: string | null | undefined): string | null => {
+  if (value === undefined || value === null) return null;
+  const trimmed = value.trim();
+  return trimmed ? trimmed : null;
+};
+
+const toNullableJsonValue = (
+  value: unknown
+): Prisma.InputJsonValue | Prisma.NullableJsonNullValueInput | undefined => {
+  if (value === undefined) return undefined;
+  if (value === null) return Prisma.DbNull;
+  return value as Prisma.InputJsonValue;
+};
 
 // Get all announcements (with pinned first, then by date)
 announcementsRouter.get('/', async (req: Request, res: Response) => {
   try {
-    const { limit = '20', offset = '0', featured } = req.query;
+    const { featured } = req.query;
+    const limit = parsePaginationNumber(req.query.limit, 20, { min: 1, max: 100 });
+    const offset = parsePaginationNumber(req.query.offset, 0, { min: 0, max: 1000000 });
+
+    if (limit === null) {
+      return res.status(400).json({ success: false, error: { message: 'limit must be an integer between 1 and 100' } });
+    }
+
+    if (offset === null) {
+      return res.status(400).json({ success: false, error: { message: 'offset must be a non-negative integer' } });
+    }
 
     const where: Record<string, unknown> = {};
     
@@ -33,8 +93,8 @@ announcementsRouter.get('/', async (req: Request, res: Response) => {
           { pinned: 'desc' },
           { createdAt: 'desc' }
         ],
-        take: parseInt(limit as string),
-        skip: parseInt(offset as string),
+        take: limit,
+        skip: offset,
         include: { creator: { select: { id: true, name: true, avatar: true } } },
       }),
       prisma.announcement.count({ where }),
@@ -43,7 +103,7 @@ announcementsRouter.get('/', async (req: Request, res: Response) => {
     res.json({
       success: true,
       data: announcements,
-      pagination: { total, limit: parseInt(limit as string), offset: parseInt(offset as string) },
+      pagination: { total, limit, offset },
     });
   } catch (error) {
     res.status(500).json({ success: false, error: { message: 'Failed to fetch announcements' } });
@@ -53,7 +113,11 @@ announcementsRouter.get('/', async (req: Request, res: Response) => {
 // Get latest announcements (for homepage widget)
 announcementsRouter.get('/latest', async (req: Request, res: Response) => {
   try {
-    const { limit = '5' } = req.query;
+    const limit = parsePaginationNumber(req.query.limit, 5, { min: 1, max: 50 });
+
+    if (limit === null) {
+      return res.status(400).json({ success: false, error: { message: 'limit must be an integer between 1 and 50' } });
+    }
 
     const announcements = await prisma.announcement.findMany({
       where: {
@@ -66,7 +130,7 @@ announcementsRouter.get('/latest', async (req: Request, res: Response) => {
         { pinned: 'desc' },
         { createdAt: 'desc' }
       ],
-      take: parseInt(limit as string),
+      take: limit,
       include: { creator: { select: { id: true, name: true, avatar: true } } },
     });
 
@@ -105,11 +169,11 @@ announcementsRouter.get('/:id', async (req: Request, res: Response) => {
 announcementsRouter.post('/', authMiddleware, requireRole('CORE_MEMBER'), async (req: Request, res: Response) => {
   try {
     const authUser = getAuthUser(req)!;
-    const data = req.body;
-
-    if (!data.title || !data.body) {
-      return res.status(400).json({ success: false, error: { message: 'Title and body are required' } });
+    const parsed = createAnnouncementSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ success: false, error: { message: parsed.error.errors[0]?.message || 'Invalid announcement payload' } });
     }
+    const data = parsed.data;
 
     // Generate slug from title
     const baseSlug = generateSlug(data.title) || 'announcement';
@@ -126,12 +190,12 @@ announcementsRouter.post('/', authMiddleware, requireRole('CORE_MEMBER'), async 
         title: data.title,
         slug,
         body: data.body,
-        shortDescription: data.shortDescription || null,
+        shortDescription: normalizeOptionalText(data.shortDescription),
         priority: data.priority || 'MEDIUM',
-        imageUrl: data.imageUrl || null,
-        imageGallery: data.imageGallery || null,
-        attachments: data.attachments || null,
-        links: data.links || null,
+        imageUrl: normalizeOptionalText(data.imageUrl),
+        imageGallery: toNullableJsonValue(data.imageGallery),
+        attachments: toNullableJsonValue(data.attachments),
+        links: toNullableJsonValue(data.links),
         tags: data.tags || [],
         featured: data.featured || false,
         pinned: data.pinned || false,
@@ -164,9 +228,12 @@ async function sendAnnouncementEmailsAsync(announcement: {
   tags?: string[];
 }) {
   try {
-    // Get all users with email
+    // Get all users with email, excluding NETWORK role users (they should never receive bulk emails)
     const users = await prisma.user.findMany({
-      where: { email: { not: '' } },
+      where: { 
+        email: { not: '' },
+        role: { not: 'NETWORK' },
+      },
       select: { email: true },
     });
 
@@ -202,7 +269,11 @@ async function sendAnnouncementEmailsAsync(announcement: {
 announcementsRouter.put('/:id', authMiddleware, requireRole('CORE_MEMBER'), async (req: Request, res: Response) => {
   try {
     const authUser = getAuthUser(req)!;
-    const data = req.body;
+    const parsed = updateAnnouncementSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ success: false, error: { message: parsed.error.errors[0]?.message || 'Invalid announcement payload' } });
+    }
+    const data = parsed.data;
 
     // If title changed, regenerate slug
     let slugUpdate = {};
@@ -226,17 +297,17 @@ announcementsRouter.put('/:id', authMiddleware, requireRole('CORE_MEMBER'), asyn
       data: {
         ...(data.title && { title: data.title }),
         ...slugUpdate,
-        ...(data.body && { body: data.body }),
-        ...(data.shortDescription !== undefined && { shortDescription: data.shortDescription }),
+        ...(data.body !== undefined && { body: data.body }),
+        ...(data.shortDescription !== undefined && { shortDescription: normalizeOptionalText(data.shortDescription) }),
         ...(data.priority && { priority: data.priority }),
-        ...(data.imageUrl !== undefined && { imageUrl: data.imageUrl }),
-        ...(data.imageGallery !== undefined && { imageGallery: data.imageGallery }),
-        ...(data.attachments !== undefined && { attachments: data.attachments }),
-        ...(data.links !== undefined && { links: data.links }),
+        ...(data.imageUrl !== undefined && { imageUrl: normalizeOptionalText(data.imageUrl) }),
+        ...(data.imageGallery !== undefined && { imageGallery: toNullableJsonValue(data.imageGallery) }),
+        ...(data.attachments !== undefined && { attachments: toNullableJsonValue(data.attachments) }),
+        ...(data.links !== undefined && { links: toNullableJsonValue(data.links) }),
         ...(data.tags !== undefined && { tags: data.tags }),
         ...(data.featured !== undefined && { featured: data.featured }),
         ...(data.pinned !== undefined && { pinned: data.pinned }),
-        ...(data.expiresAt !== undefined && { expiresAt: data.expiresAt ? new Date(data.expiresAt) : null }),
+        ...(data.expiresAt !== undefined && { expiresAt: data.expiresAt || null }),
       },
       include: { creator: { select: { id: true, name: true, avatar: true } } },
     });

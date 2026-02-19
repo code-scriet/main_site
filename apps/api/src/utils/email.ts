@@ -17,6 +17,11 @@ let emailTemplateConfigCache: EmailTemplateConfig | null = null;
 let lastConfigFetch = 0;
 const CONFIG_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 
+export function invalidateEmailTemplateConfigCache(): void {
+  emailTemplateConfigCache = null;
+  lastConfigFetch = 0;
+}
+
 async function getEmailTemplateConfig(): Promise<EmailTemplateConfig> {
   const now = Date.now();
   if (emailTemplateConfigCache && (now - lastConfigFetch) < CONFIG_CACHE_TTL) {
@@ -1024,6 +1029,205 @@ class EmailService {
 
   async sendHiringRejected(email: string, name: string, applyingRole: string): Promise<boolean> {
     const template = EmailTemplates.hiringRejected(name, applyingRole);
+    return this.send({ to: email, ...template });
+  }
+
+  // Network-specific emails (for NETWORK role users only)
+  
+  // Sent when someone creates/submits their network profile for review
+  async sendNetworkWelcome(email: string, name: string, designation: string, company: string, connectionType: string): Promise<boolean> {
+    // Format connection type for display
+    const connectionLabels: Record<string, string> = {
+      GUEST_SPEAKER: 'Guest Speaker',
+      GMEET_SESSION: 'GMeet Session Host',
+      EVENT_JUDGE: 'Event Judge',
+      MENTOR: 'Mentor',
+      INDUSTRY_PARTNER: 'Industry Partner',
+      ALUMNI: 'Alumni',
+      OTHER: 'Network Partner',
+    };
+    const roleLabel = connectionLabels[connectionType] || 'Network Partner';
+    
+    const template = {
+      subject: `🙏 Thank You for Joining Our Network · code.scriet`,
+      html: generateEmailTemplate({
+        preheader: `Thank you for being part of the code.scriet network, ${name}!`,
+        accentColor: '#f59e0b',
+        badge: { text: roleLabel, icon: '✨' },
+        title: `Thank You, ${name}!`,
+        subtitle: `We're honored to have you in our network.`,
+        body: `
+          <p style="margin: 0 0 20px; font-size: 16px; color: #e5e7eb; line-height: 1.8;">
+            Thank you for being part of the <strong style="color: #fbbf24;">code.scriet</strong> network! Your contribution as a <strong style="color: #10b981;">${roleLabel}</strong> helps inspire and guide the next generation of tech professionals.
+          </p>
+          
+          <div style="padding: 20px; background: linear-gradient(135deg, #f59e0b15, #ea580c10); border: 1px solid #f59e0b30; border-radius: 12px; margin: 20px 0;">
+            <p style="margin: 0 0 12px; font-size: 14px; color: #fbbf24; font-weight: 600; text-transform: uppercase; letter-spacing: 1px;">Your Profile</p>
+            <p style="margin: 0; font-size: 18px; color: #ffffff; font-weight: 600;">${designation}</p>
+            <p style="margin: 4px 0 0; font-size: 14px; color: #a1a1aa;">${company}</p>
+          </div>
+          
+          <p style="margin: 0 0 20px; font-size: 15px; color: #d1d5db; line-height: 1.7;">
+            <strong>What happens next?</strong><br/>
+            Our team will review your profile within 24-48 hours. Once verified, your profile will be live on our Network page and you'll receive a confirmation email with your unique profile link.
+          </p>
+          
+          <div style="padding: 20px; background: linear-gradient(135deg, #10b98115, #0ea5e910); border-left: 3px solid #06b6d4; border-radius: 0 12px 12px 0; margin: 20px 0;">
+            <p style="margin: 0 0 12px; font-size: 14px; color: #22d3ee; font-weight: 600;">🤝 Help Our Students Grow</p>
+            <p style="margin: 0; font-size: 14px; color: #d1d5db; line-height: 1.7;">
+              We'd be grateful if you could share any <strong style="color: #ffffff;">internship, job opportunities, or mentorship programs</strong> with our talented students. Your support can make a significant difference in their careers!
+            </p>
+          </div>
+          
+          <div style="padding: 16px 20px; background: #18181b; border: 1px solid #27272a; border-radius: 12px; margin: 20px 0;">
+            <p style="margin: 0; font-size: 14px; color: #a1a1aa; line-height: 1.6;">
+              💡 <strong style="color: #ffffff;">Tip:</strong> After verification, you can share your profile with your network to showcase your involvement with code.scriet.
+            </p>
+          </div>
+        `,
+        cta: { text: 'Learn More About Us', url: `${SITE_URL}/about` },
+        footer: 'Thank you for believing in our mission.',
+      }),
+      text: `Hi ${name}, thank you for joining the code.scriet network as a ${roleLabel}! Your profile as ${designation} at ${company} is pending review. We'll notify you once it's verified.`,
+    };
+    return this.send({ to: email, ...template });
+  }
+
+  // Sent when admin verifies the profile
+  async sendNetworkVerified(email: string, name: string, designation: string, company: string, profileId: string): Promise<boolean> {
+    const profileUrl = `${SITE_URL}/network/${profileId}`;
+    const template = {
+      subject: `✅ Your Network Profile is Now Live · code.scriet`,
+      html: generateEmailTemplate({
+        preheader: `Your professional profile has been verified and is now visible on code.scriet`,
+        accentColor: '#10b981',
+        badge: { text: 'Profile Verified', icon: '✓' },
+        title: `Welcome to Our Network, ${name}!`,
+        subtitle: `Your profile as ${designation} at ${company} is now live.`,
+        body: `
+          <p style="margin: 0 0 20px; font-size: 16px; color: #e5e7eb; line-height: 1.8;">
+            Thank you for connecting with <strong style="color: #fbbf24;">code.scriet</strong>! Your professional profile has been reviewed and approved by our team.
+          </p>
+          
+          <p style="margin: 0 0 20px; font-size: 15px; color: #d1d5db; line-height: 1.7;">
+            Your profile is now visible on our Network page, showcasing your connection with our community. This helps inspire students and demonstrates the valuable industry connections our club has built.
+          </p>
+          
+          <div style="padding: 16px 20px; background: linear-gradient(135deg, #10b98115, #05966910); border-left: 3px solid #10b981; border-radius: 0 12px 12px 0; margin: 20px 0;">
+            <p style="margin: 0; font-size: 14px; color: #6ee7b7; line-height: 1.7;">
+              <strong>Your public profile:</strong> Share your profile link with your network to showcase your involvement with the next generation of tech professionals.
+            </p>
+          </div>
+        `,
+        cta: { text: 'View Your Profile', url: profileUrl },
+        footer: 'Thank you for being part of our journey.',
+      }),
+      text: `Hi ${name}, your profile as ${designation} at ${company} has been verified and is now live on code.scriet! View it here: ${profileUrl}`,
+    };
+    return this.send({ to: email, ...template });
+  }
+
+  async sendNetworkRejected(email: string, name: string, reason?: string): Promise<boolean> {
+    const template = {
+      subject: `Update on Your Network Profile · code.scriet`,
+      html: generateEmailTemplate({
+        preheader: `An update regarding your network profile submission`,
+        accentColor: '#f59e0b',
+        badge: { text: 'Profile Status Update', icon: '○' },
+        title: `Hi ${name}`,
+        subtitle: `We've reviewed your network profile submission.`,
+        body: `
+          <p style="margin: 0 0 20px; font-size: 15px; color: #d1d5db; line-height: 1.8;">
+            Thank you for your interest in joining the <strong style="color: #fbbf24;">code.scriet</strong> network. After reviewing your submission, we're unable to verify your profile at this time.
+          </p>
+          
+          ${reason ? `
+          <div style="padding: 16px 20px; background: #18181b; border: 1px solid #27272a; border-radius: 12px; margin: 20px 0;">
+            <p style="margin: 0 0 8px; font-size: 12px; color: #f59e0b; font-weight: 700; text-transform: uppercase; letter-spacing: 1px;">Feedback</p>
+            <p style="margin: 0; font-size: 14px; color: #a1a1aa; line-height: 1.6;">${reason}</p>
+          </div>
+          ` : ''}
+          
+          <p style="margin: 0 0 20px; font-size: 15px; color: #d1d5db; line-height: 1.7;">
+            If you believe this was in error or would like to provide additional information, please feel free to reach out to us.
+          </p>
+        `,
+        cta: { text: 'Contact Us', url: `${SITE_URL}/about` },
+        footer: 'We appreciate your understanding.',
+      }),
+      text: `Hi ${name}, we've reviewed your network profile submission. Unfortunately, we're unable to verify it at this time.${reason ? ` Feedback: ${reason}` : ''} If you have questions, please contact us.`,
+    };
+    return this.send({ to: email, ...template });
+  }
+
+  // Special email for Alumni with WhatsApp group invitation (only if verified)
+  async sendAlumniWelcome(email: string, name: string, designation: string, company: string, isVerified: boolean = false, passoutYear?: number, branch?: string): Promise<boolean> {
+    const whatsappInviteLink = isVerified ? (process.env.INVITE_LINK_WH || '') : '';
+    const alumniInfo = passoutYear ? `Class of ${passoutYear}${branch ? ` · ${branch}` : ''}` : '';
+    
+    const template = {
+      subject: isVerified ? `✅ Your Alumni Profile is Now Live · code.scriet` : `🎓 Welcome Back, Alumni! · code.scriet`,
+      html: generateEmailTemplate({
+        preheader: isVerified ? `Your alumni profile has been verified and is now live!` : `Thank you for reconnecting with code.scriet, ${name}!`,
+        accentColor: '#f43f5e',
+        badge: { text: isVerified ? 'Profile Verified' : 'Alumni Network', icon: isVerified ? '✓' : '🎓' },
+        title: isVerified ? `Welcome to Our Network, ${name}!` : `Welcome Back, ${name}!`,
+        subtitle: isVerified ? `Your profile as ${designation} at ${company} is now live.` : (alumniInfo || `We're honored to have you in our alumni network.`),
+        body: `
+          <p style="margin: 0 0 20px; font-size: 16px; color: #e5e7eb; line-height: 1.8;">
+            Thank you for reconnecting with <strong style="color: #fbbf24;">code.scriet</strong>! ${isVerified ? 'Your alumni profile has been reviewed and approved by our team.' : "As an alumni, you're a vital part of our growing community, and we're thrilled to have you back."}
+          </p>
+          
+          <div style="padding: 20px; background: linear-gradient(135deg, #f43f5e15, #ec489915); border: 1px solid #f43f5e30; border-radius: 12px; margin: 20px 0;">
+            <p style="margin: 0 0 12px; font-size: 14px; color: #fb7185; font-weight: 600; text-transform: uppercase; letter-spacing: 1px;">Your Profile</p>
+            <p style="margin: 0; font-size: 18px; color: #ffffff; font-weight: 600;">${designation}</p>
+            <p style="margin: 4px 0 0; font-size: 14px; color: #a1a1aa;">${company}</p>
+            ${alumniInfo ? `<p style="margin: 8px 0 0; font-size: 13px; color: #fb7185;">${alumniInfo}</p>` : ''}
+          </div>
+          
+          ${!isVerified ? `
+          <p style="margin: 0 0 20px; font-size: 15px; color: #d1d5db; line-height: 1.7;">
+            <strong>What happens next?</strong><br/>
+            Our team will review your profile within 24-48 hours. Once verified, your profile will be live on our Network page and you'll receive a confirmation email with your unique profile link and WhatsApp group invitation.
+          </p>
+          ` : `
+          <p style="margin: 0 0 20px; font-size: 15px; color: #d1d5db; line-height: 1.7;">
+            Your profile is now visible on our Network page, showcasing your journey and connection with our community. This helps inspire current students and demonstrates the success of our alumni!
+          </p>
+          `}
+          
+          <div style="padding: 20px; background: linear-gradient(135deg, #10b98115, #0ea5e910); border-left: 3px solid #06b6d4; border-radius: 0 12px 12px 0; margin: 20px 0;">
+            <p style="margin: 0 0 12px; font-size: 14px; color: #22d3ee; font-weight: 600;">🤝 Help Our Students Grow</p>
+            <p style="margin: 0; font-size: 14px; color: #d1d5db; line-height: 1.7;">
+              We'd be grateful if you could share any <strong style="color: #ffffff;">internship, job opportunities, or mentorship programs</strong> from your company or network with our talented students. Your support can make a significant impact on their careers!
+            </p>
+          </div>
+          
+          ${whatsappInviteLink ? `
+          <div style="padding: 24px; background: linear-gradient(135deg, #25D36620, #128C7E15); border: 2px solid #25D366; border-radius: 12px; margin: 20px 0; text-align: center;">
+            <p style="margin: 0 0 8px; font-size: 16px; color: #25D366; font-weight: 700;">🎉 Join Our Alumni Community!</p>
+            <p style="margin: 0 0 20px; font-size: 14px; color: #d1d5db; line-height: 1.6;">
+              Connect with fellow alumni, stay updated on opportunities, and share your experiences in our exclusive <strong style="color: #ffffff;">Alumni WhatsApp Group</strong>.
+            </p>
+            <a href="${whatsappInviteLink}" target="_blank" style="display: inline-block; padding: 14px 32px; background: #25D366; color: #ffffff; font-size: 15px; font-weight: 700; text-decoration: none; border-radius: 10px; box-shadow: 0 4px 12px rgba(37, 211, 102, 0.3);">
+              Join WhatsApp Group →
+            </a>
+          </div>
+          ` : ''}
+          
+          ${!isVerified ? `
+          <div style="padding: 16px 20px; background: #18181b; border: 1px solid #27272a; border-radius: 12px; margin: 20px 0;">
+            <p style="margin: 0; font-size: 14px; color: #a1a1aa; line-height: 1.6;">
+              💡 <strong style="color: #ffffff;">Tip:</strong> After verification, you'll get access to our Alumni WhatsApp Group and can share your profile to showcase your journey!
+            </p>
+          </div>
+          ` : ''}
+        `,
+        cta: { text: 'Learn More About Us', url: `${SITE_URL}/about` },
+        footer: 'Thank you for being part of our story.',
+      }),
+      text: `Hi ${name}, thank you for reconnecting with code.scriet as an alumni! Your profile as ${designation} at ${company} is pending review. We'll notify you once it's verified.${whatsappInviteLink ? ` Join our Alumni WhatsApp Group: ${whatsappInviteLink}` : ''}`,
+    };
     return this.send({ to: email, ...template });
   }
 

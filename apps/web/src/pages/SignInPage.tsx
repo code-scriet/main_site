@@ -47,6 +47,12 @@ export default function SignInPage() {
     }
   }, [user, authLoading, navigate]);
 
+  // Defensive cleanup: normal sign-in page should never carry network intent.
+  useEffect(() => {
+    localStorage.removeItem('network_intent');
+    localStorage.removeItem('network_onboarding_type');
+  }, []);
+
   // Check for error in URL
   useEffect(() => {
     const urlError = searchParams.get('error');
@@ -72,11 +78,15 @@ export default function SignInPage() {
 
   const handleGoogleSignIn = () => {
     setError(null);
+    localStorage.removeItem('network_intent');
+    localStorage.removeItem('network_onboarding_type');
     window.location.href = `${API_URL}/auth/google`;
   };
 
   const handleGithubSignIn = () => {
     setError(null);
+    localStorage.removeItem('network_intent');
+    localStorage.removeItem('network_onboarding_type');
     window.location.href = `${API_URL}/auth/github`;
   };
 

@@ -1,23 +1,122 @@
 import { Router, Request, Response } from 'express';
+import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
 import { authMiddleware, optionalAuthMiddleware, getAuthUser } from '../middleware/auth.js';
 import { requireRole } from '../middleware/role.js';
 import { auditLog } from '../utils/audit.js';
 import { EventStatus, Prisma } from '@prisma/client';
-import { updateEventStatuses } from '../utils/eventStatus.js';
 import { generateSlug, generateUniqueSlug } from '../utils/slug.js';
 import { emailService } from '../utils/email.js';
 import { logger } from '../utils/logger.js';
 import { sanitizeEventRegistrationFields } from '../utils/eventRegistrationFields.js';
+import { getRegistrationStatus } from '../utils/registrationStatus.js';
 
 export const eventsRouter = Router();
+
+const optionalUrl = z.union([z.string().url('Must be a valid URL'), z.literal('')]).optional().nullable();
+
+type EventValidationInput = {
+  startDate: Date;
+  endDate?: Date | null;
+  registrationStartDate?: Date | null;
+  registrationEndDate?: Date | null;
+  allowLateRegistration?: boolean;
+};
+
+const validateEventTimeline = ({ startDate, endDate, registrationStartDate, registrationEndDate, allowLateRegistration = false }: EventValidationInput): string | null => {
+  if (endDate && endDate < startDate) {
+    return 'endDate cannot be before startDate';
+  }
+
+  if (registrationStartDate && registrationEndDate && registrationStartDate > registrationEndDate) {
+    return 'registrationStartDate cannot be after registrationEndDate';
+  }
+
+  const eventEnd = endDate ?? startDate;
+  if (registrationStartDate && registrationStartDate > eventEnd) {
+    return 'registrationStartDate cannot be after event end date';
+  }
+
+  if (registrationEndDate) {
+    const maxRegistrationEnd = allowLateRegistration ? eventEnd : startDate;
+    if (registrationEndDate > maxRegistrationEnd) {
+      return allowLateRegistration
+        ? 'registrationEndDate cannot be after event end date when late registration is enabled'
+        : 'registrationEndDate cannot be after event start date when late registration is disabled';
+    }
+  }
+
+  return null;
+};
+
+const eventSchemaBase = z.object({
+  title: z.string().trim().min(3).max(200),
+  description: z.string().trim().min(10).max(20000),
+  startDate: z.coerce.date(),
+  endDate: z.coerce.date().optional().nullable(),
+  registrationStartDate: z.coerce.date().optional().nullable(),
+  registrationEndDate: z.coerce.date().optional().nullable(),
+  location: z.string().trim().max(300).optional().nullable(),
+  venue: z.string().trim().max(300).optional().nullable(),
+  eventType: z.string().trim().max(80).optional().nullable(),
+  prerequisites: z.string().max(5000).optional().nullable(),
+  capacity: z.coerce.number().int().min(1).max(100000).optional().nullable(),
+  imageUrl: optionalUrl,
+  status: z.enum(['UPCOMING', 'ONGOING', 'PAST']).optional(),
+  shortDescription: z.string().trim().max(300).optional().nullable(),
+  agenda: z.string().max(15000).optional().nullable(),
+  highlights: z.string().max(15000).optional().nullable(),
+  learningOutcomes: z.string().max(15000).optional().nullable(),
+  targetAudience: z.string().max(5000).optional().nullable(),
+  speakers: z.array(z.any()).max(100).optional().nullable(),
+  resources: z.array(z.any()).max(100).optional().nullable(),
+  faqs: z.array(z.any()).max(100).optional().nullable(),
+  imageGallery: z.array(z.string().url('Image URL must be valid')).max(50).optional().nullable(),
+  videoUrl: optionalUrl,
+  tags: z.array(z.string().trim().min(1).max(40)).max(40).optional(),
+  featured: z.boolean().optional(),
+  allowLateRegistration: z.boolean().optional(),
+  registrationFields: z.unknown().optional(),
+});
+
+const createEventSchema = eventSchemaBase.superRefine((value, ctx) => {
+  const timelineError = validateEventTimeline(value);
+  if (timelineError) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: timelineError,
+    });
+  }
+});
+
+const updateEventSchema = eventSchemaBase.partial().refine(
+  (data) => Object.keys(data).length > 0,
+  { message: 'At least one field is required' }
+);
+
+const normalizeOptionalText = (value: string | null | undefined): string | null => {
+  if (value === undefined || value === null) {
+    return null;
+  }
+  const trimmed = value.trim();
+  return trimmed ? trimmed : null;
+};
+
+const toNullableJsonValue = (
+  value: unknown
+): Prisma.InputJsonValue | Prisma.NullableJsonNullValueInput | undefined => {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (value === null) {
+    return Prisma.DbNull;
+  }
+  return value as Prisma.InputJsonValue;
+};
 
 // Get all events with filtering
 eventsRouter.get('/', optionalAuthMiddleware, async (req: Request, res: Response) => {
   try {
-    // Update statuses before fetching
-    await updateEventStatuses();
-
     const { status, search, limit, offset } = req.query;
     const where: Record<string, unknown> = {};
 
@@ -98,7 +197,6 @@ eventsRouter.get('/', optionalAuthMiddleware, async (req: Request, res: Response
 
 eventsRouter.get('/upcoming', async (_req: Request, res: Response) => {
   try {
-    await updateEventStatuses();
     const events = await prisma.event.findMany({
       where: { status: 'UPCOMING', startDate: { gte: new Date() } },
       orderBy: { startDate: 'asc' },
@@ -113,9 +211,6 @@ eventsRouter.get('/upcoming', async (_req: Request, res: Response) => {
 
 eventsRouter.get('/:id', optionalAuthMiddleware, async (req: Request, res: Response) => {
   try {
-    // Ideally we update status for just this event, but the bulk utility is fast enough
-    await updateEventStatuses();
-    
     // Support both ID and slug lookup
     const idOrSlug = req.params.id;
     const event = await prisma.event.findFirst({
@@ -137,19 +232,22 @@ eventsRouter.get('/:id', optionalAuthMiddleware, async (req: Request, res: Respo
     if (authUser) {
       const registration = await prisma.eventRegistration.findUnique({
         where: { userId_eventId: { userId: authUser.id, eventId: event.id } },
+        select: { id: true },
       });
       isRegistered = !!registration;
     }
 
-    const now = new Date();
-    let registrationStatus = 'open';
-    if (event.registrationStartDate && now < event.registrationStartDate) {
-      registrationStatus = 'not_started';
-    } else if (event.registrationEndDate && now > event.registrationEndDate) {
-      registrationStatus = 'closed';
-    } else if (event.capacity && event._count.registrations >= event.capacity) {
-      registrationStatus = 'full';
-    }
+    const registrationStatus = getRegistrationStatus(
+      {
+        startDate: event.startDate,
+        endDate: event.endDate,
+        registrationStartDate: event.registrationStartDate,
+        registrationEndDate: event.registrationEndDate,
+        allowLateRegistration: event.allowLateRegistration,
+        capacity: event.capacity,
+      },
+      event._count.registrations
+    );
 
     res.json({
       success: true,
@@ -163,7 +261,14 @@ eventsRouter.get('/:id', optionalAuthMiddleware, async (req: Request, res: Respo
 eventsRouter.post('/', authMiddleware, requireRole('CORE_MEMBER'), async (req: Request, res: Response) => {
   try {
     const authUser = getAuthUser(req)!;
-    const data = req.body;
+    const parsed = createEventSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({
+        success: false,
+        error: { message: parsed.error.errors[0]?.message || 'Invalid event payload' },
+      });
+    }
+    const data = parsed.data;
     let registrationFields;
 
     try {
@@ -190,29 +295,29 @@ eventsRouter.post('/', authMiddleware, requireRole('CORE_MEMBER'), async (req: R
         title: data.title,
         slug,
         description: data.description,
-        startDate: new Date(data.startDate),
-        endDate: data.endDate ? new Date(data.endDate) : null,
-        registrationStartDate: data.registrationStartDate ? new Date(data.registrationStartDate) : null,
-        registrationEndDate: data.registrationEndDate ? new Date(data.registrationEndDate) : null,
-        location: data.location || null,
-        venue: data.venue || null,
-        eventType: data.eventType || null,
-        prerequisites: data.prerequisites || null,
-        capacity: data.capacity ? parseInt(data.capacity) : null,
-        imageUrl: data.imageUrl || null,
+        startDate: data.startDate,
+        endDate: data.endDate || null,
+        registrationStartDate: data.registrationStartDate || null,
+        registrationEndDate: data.registrationEndDate || null,
+        location: normalizeOptionalText(data.location),
+        venue: normalizeOptionalText(data.venue),
+        eventType: normalizeOptionalText(data.eventType),
+        prerequisites: normalizeOptionalText(data.prerequisites),
+        capacity: data.capacity || null,
+        imageUrl: normalizeOptionalText(data.imageUrl),
         status: data.status || 'UPCOMING',
         createdBy: authUser.id,
         // Extended event fields
-        shortDescription: data.shortDescription || null,
-        agenda: data.agenda || null,
-        highlights: data.highlights || null,
-        learningOutcomes: data.learningOutcomes || null,
-        targetAudience: data.targetAudience || null,
-        speakers: data.speakers || null,
-        resources: data.resources || null,
-        faqs: data.faqs || null,
-        imageGallery: data.imageGallery || null,
-        videoUrl: data.videoUrl || null,
+        shortDescription: normalizeOptionalText(data.shortDescription),
+        agenda: normalizeOptionalText(data.agenda),
+        highlights: normalizeOptionalText(data.highlights),
+        learningOutcomes: normalizeOptionalText(data.learningOutcomes),
+        targetAudience: normalizeOptionalText(data.targetAudience),
+        speakers: toNullableJsonValue(data.speakers),
+        resources: toNullableJsonValue(data.resources),
+        faqs: toNullableJsonValue(data.faqs),
+        imageGallery: toNullableJsonValue(data.imageGallery),
+        videoUrl: normalizeOptionalText(data.videoUrl),
         tags: data.tags || [],
         featured: data.featured || false,
         allowLateRegistration: data.allowLateRegistration || false,
@@ -236,7 +341,43 @@ eventsRouter.post('/', authMiddleware, requireRole('CORE_MEMBER'), async (req: R
 eventsRouter.put('/:id', authMiddleware, requireRole('CORE_MEMBER'), async (req: Request, res: Response) => {
   try {
     const authUser = getAuthUser(req)!;
-    const data = req.body;
+    const parsed = updateEventSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({
+        success: false,
+        error: { message: parsed.error.errors[0]?.message || 'Invalid event payload' },
+      });
+    }
+    const data = parsed.data;
+
+    const existingEvent = await prisma.event.findUnique({
+      where: { id: req.params.id },
+      select: {
+        id: true,
+        startDate: true,
+        endDate: true,
+        registrationStartDate: true,
+        registrationEndDate: true,
+        allowLateRegistration: true,
+      },
+    });
+
+    if (!existingEvent) {
+      return res.status(404).json({ success: false, error: { message: 'Event not found' } });
+    }
+
+    const timelineError = validateEventTimeline({
+      startDate: data.startDate ?? existingEvent.startDate,
+      endDate: data.endDate ?? existingEvent.endDate,
+      registrationStartDate: data.registrationStartDate ?? existingEvent.registrationStartDate,
+      registrationEndDate: data.registrationEndDate ?? existingEvent.registrationEndDate,
+      allowLateRegistration: data.allowLateRegistration ?? existingEvent.allowLateRegistration,
+    });
+
+    if (timelineError) {
+      return res.status(400).json({ success: false, error: { message: timelineError } });
+    }
+
     let registrationFieldsUpdate = {};
 
     // If title changed, regenerate slug
@@ -277,29 +418,29 @@ eventsRouter.put('/:id', authMiddleware, requireRole('CORE_MEMBER'), async (req:
       data: {
         ...(data.title && { title: data.title }),
         ...slugUpdate,
-        ...(data.description && { description: data.description }),
-        ...(data.startDate && { startDate: new Date(data.startDate) }),
-        ...(data.endDate !== undefined && { endDate: data.endDate ? new Date(data.endDate) : null }),
-        ...(data.registrationStartDate !== undefined && { registrationStartDate: data.registrationStartDate ? new Date(data.registrationStartDate) : null }),
-        ...(data.registrationEndDate !== undefined && { registrationEndDate: data.registrationEndDate ? new Date(data.registrationEndDate) : null }),
-        ...(data.location !== undefined && { location: data.location }),
-        ...(data.venue !== undefined && { venue: data.venue }),
-        ...(data.eventType !== undefined && { eventType: data.eventType }),
-        ...(data.prerequisites !== undefined && { prerequisites: data.prerequisites }),
-        ...(data.capacity !== undefined && { capacity: data.capacity ? parseInt(data.capacity) : null }),
-        ...(data.imageUrl !== undefined && { imageUrl: data.imageUrl }),
+        ...(data.description !== undefined && { description: data.description }),
+        ...(data.startDate !== undefined && { startDate: data.startDate }),
+        ...(data.endDate !== undefined && { endDate: data.endDate || null }),
+        ...(data.registrationStartDate !== undefined && { registrationStartDate: data.registrationStartDate || null }),
+        ...(data.registrationEndDate !== undefined && { registrationEndDate: data.registrationEndDate || null }),
+        ...(data.location !== undefined && { location: normalizeOptionalText(data.location) }),
+        ...(data.venue !== undefined && { venue: normalizeOptionalText(data.venue) }),
+        ...(data.eventType !== undefined && { eventType: normalizeOptionalText(data.eventType) }),
+        ...(data.prerequisites !== undefined && { prerequisites: normalizeOptionalText(data.prerequisites) }),
+        ...(data.capacity !== undefined && { capacity: data.capacity || null }),
+        ...(data.imageUrl !== undefined && { imageUrl: normalizeOptionalText(data.imageUrl) }),
         ...(data.status && { status: data.status }),
         // Extended event fields
-        ...(data.shortDescription !== undefined && { shortDescription: data.shortDescription }),
-        ...(data.agenda !== undefined && { agenda: data.agenda }),
-        ...(data.highlights !== undefined && { highlights: data.highlights }),
-        ...(data.learningOutcomes !== undefined && { learningOutcomes: data.learningOutcomes }),
-        ...(data.targetAudience !== undefined && { targetAudience: data.targetAudience }),
-        ...(data.speakers !== undefined && { speakers: data.speakers }),
-        ...(data.resources !== undefined && { resources: data.resources }),
-        ...(data.faqs !== undefined && { faqs: data.faqs }),
-        ...(data.imageGallery !== undefined && { imageGallery: data.imageGallery }),
-        ...(data.videoUrl !== undefined && { videoUrl: data.videoUrl }),
+        ...(data.shortDescription !== undefined && { shortDescription: normalizeOptionalText(data.shortDescription) }),
+        ...(data.agenda !== undefined && { agenda: normalizeOptionalText(data.agenda) }),
+        ...(data.highlights !== undefined && { highlights: normalizeOptionalText(data.highlights) }),
+        ...(data.learningOutcomes !== undefined && { learningOutcomes: normalizeOptionalText(data.learningOutcomes) }),
+        ...(data.targetAudience !== undefined && { targetAudience: normalizeOptionalText(data.targetAudience) }),
+        ...(data.speakers !== undefined && { speakers: toNullableJsonValue(data.speakers) }),
+        ...(data.resources !== undefined && { resources: toNullableJsonValue(data.resources) }),
+        ...(data.faqs !== undefined && { faqs: toNullableJsonValue(data.faqs) }),
+        ...(data.imageGallery !== undefined && { imageGallery: toNullableJsonValue(data.imageGallery) }),
+        ...(data.videoUrl !== undefined && { videoUrl: normalizeOptionalText(data.videoUrl) }),
         ...(data.tags !== undefined && { tags: data.tags }),
         ...(data.featured !== undefined && { featured: data.featured }),
         ...(data.allowLateRegistration !== undefined && { allowLateRegistration: data.allowLateRegistration }),
@@ -329,20 +470,25 @@ eventsRouter.get('/:id/registrations', authMiddleware, requireRole('CORE_MEMBER'
   try {
     const registrations = await prisma.eventRegistration.findMany({
       where: { eventId: req.params.id },
-      include: { 
-        user: { 
-          select: { 
-            id: true, 
-            name: true, 
-            email: true, 
+      select: {
+        id: true,
+        userId: true,
+        eventId: true,
+        timestamp: true,
+        customFieldResponses: true,
+        user: {
+          select: {
+            id: true,
+            name: true,
+            email: true,
             avatar: true,
             phone: true,
             course: true,
             branch: true,
             year: true,
             role: true
-          } 
-        } 
+          }
+        }
       },
       orderBy: { timestamp: 'asc' },
     });
@@ -359,6 +505,7 @@ eventsRouter.delete('/:eventId/registrations/:registrationId', authMiddleware, r
     
     const registration = await prisma.eventRegistration.findFirst({
       where: { id: registrationId, eventId },
+      select: { id: true },
     });
     
     if (!registration) {
@@ -380,7 +527,12 @@ eventsRouter.get('/:id/registrations/export', authMiddleware, requireRole('CORE_
       where: { id: req.params.id },
       include: {
         registrations: {
-          include: {
+          select: {
+            id: true,
+            userId: true,
+            eventId: true,
+            timestamp: true,
+            customFieldResponses: true,
             user: {
               select: {
                 id: true,
@@ -390,13 +542,9 @@ eventsRouter.get('/:id/registrations/export', authMiddleware, requireRole('CORE_
                 course: true,
                 branch: true,
                 year: true,
-                avatar: true,
                 role: true,
-                oauthProvider: true,
                 githubUrl: true,
                 linkedinUrl: true,
-                twitterUrl: true,
-                websiteUrl: true,
                 createdAt: true,
               },
             },
@@ -602,9 +750,12 @@ async function sendNewEventEmailsAsync(event: {
   eventType?: string | null;
 }) {
   try {
-    // Get all users with email
+    // Get all users with email, excluding NETWORK role users (they should never receive bulk emails)
     const users = await prisma.user.findMany({
-      where: { email: { not: '' } },
+      where: { 
+        email: { not: '' },
+        role: { not: 'NETWORK' },
+      },
       select: { email: true },
     });
 

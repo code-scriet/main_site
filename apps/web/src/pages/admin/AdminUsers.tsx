@@ -7,7 +7,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { api } from '@/lib/api';
 import type { User } from '@/lib/api';
-import { Users, Loader2, AlertCircle, Shield, UserCheck, Crown, Trash2, Phone, GraduationCap, CheckCircle, XCircle, Edit, X, Eye, Calendar, Github, Linkedin, Twitter, Globe, Mail, Download } from 'lucide-react';
+import { Users, Loader2, AlertCircle, Shield, UserCheck, Crown, Trash2, Phone, GraduationCap, CheckCircle, XCircle, Edit, X, Eye, Calendar, Github, Linkedin, Twitter, Globe, Mail, Download, Search } from 'lucide-react';
 
 import { useAuth } from '@/context/AuthContext';
 import { useSocketEvent } from '@/context/SocketContext';
@@ -94,6 +94,8 @@ export default function AdminUsers() {
   const [viewingUser, setViewingUser] = useState<UserProfile | null>(null);
   const [loadingProfile, setLoadingProfile] = useState(false);
   const [exporting, setExporting] = useState(false);
+  const [search, setSearch] = useState('');
+  const [roleFilter, setRoleFilter] = useState<'ALL' | 'USER' | 'MEMBER' | 'CORE_MEMBER' | 'ADMIN'>('ALL');
   
   const isSuperAdmin = currentUser?.email === import.meta.env.VITE_SUPER_ADMIN_EMAIL;
 
@@ -258,6 +260,22 @@ export default function AdminUsers() {
     }
   };
 
+  const filteredUsers = users.filter((user) => {
+    if (roleFilter !== 'ALL' && user.role !== roleFilter) return false;
+    if (search.trim()) {
+      const q = search.toLowerCase();
+      return (
+        user.name.toLowerCase().includes(q) ||
+        user.email.toLowerCase().includes(q) ||
+        (user.phone || '').toLowerCase().includes(q) ||
+        (user.course || '').toLowerCase().includes(q) ||
+        (user.branch || '').toLowerCase().includes(q) ||
+        (user.year || '').toLowerCase().includes(q)
+      );
+    }
+    return true;
+  });
+
   const availableBranches = editForm.course ? (BRANCH_OPTIONS[editForm.course] || []) : [];
 
   if (loading) {
@@ -336,6 +354,35 @@ export default function AdminUsers() {
         </Card>
       </div>
 
+      {/* Filters & Search */}
+      <div className="flex flex-col sm:flex-row gap-4">
+        <div className="flex gap-2 flex-wrap">
+          {(['ALL', 'USER', 'MEMBER', 'CORE_MEMBER', 'ADMIN'] as const).map((role) => (
+            <Button
+              key={role}
+              variant={roleFilter === role ? 'default' : 'outline'}
+              size="sm"
+              onClick={() => setRoleFilter(role)}
+            >
+              {role === 'ALL'
+                ? 'All'
+                : role === 'CORE_MEMBER'
+                  ? 'Core Member'
+                  : role.charAt(0) + role.slice(1).toLowerCase()}
+            </Button>
+          ))}
+        </div>
+        <div className="relative flex-1 max-w-xs">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+          <Input
+            placeholder="Search by name, email, phone..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="pl-10"
+          />
+        </div>
+      </div>
+
       {/* User List */}
       <Card>
         <CardHeader>
@@ -343,17 +390,19 @@ export default function AdminUsers() {
             <Users className="h-5 w-5 text-amber-600" />
             All Users
           </CardTitle>
-          <CardDescription>{users.length} total users</CardDescription>
+          <CardDescription>
+            Showing {filteredUsers.length} of {users.length} users
+          </CardDescription>
         </CardHeader>
         <CardContent>
-          {users.length === 0 ? (
+          {filteredUsers.length === 0 ? (
             <div className="text-center py-8 text-gray-500">
               <Users className="h-12 w-12 mx-auto mb-4 text-gray-300" />
-              <p>No users found.</p>
+              <p>No users found {search && 'matching your search'}.</p>
             </div>
           ) : (
             <div className="space-y-3">
-              {users.map((user, index) => {
+              {filteredUsers.map((user, index) => {
                 const RoleIcon = roleIcons[user.role as keyof typeof roleIcons] || UserCheck;
                 return (
                   <motion.div

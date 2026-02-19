@@ -1,4 +1,5 @@
 import { Router, Request, Response } from 'express';
+import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
 import { authMiddleware, getAuthUser } from '../middleware/auth.js';
 import { requireRole } from '../middleware/role.js';
@@ -9,6 +10,47 @@ import { socketEvents } from '../utils/socket.js';
 import { calculateConsecutiveDailyStreak } from '../utils/dateStreak.js';
 
 export const usersRouter = Router();
+
+const optionalUrl = z.union([z.string().url('Must be a valid URL'), z.literal('')]).optional();
+
+const profileUpdateSchema = z.object({
+  name: z.string().trim().min(1).max(100).optional(),
+  bio: z.string().max(3000).optional().nullable(),
+  avatarUrl: z.string().url('Avatar URL must be valid').optional().or(z.literal('')),
+  githubUrl: optionalUrl,
+  linkedinUrl: optionalUrl,
+  twitterUrl: optionalUrl,
+  websiteUrl: optionalUrl,
+  phone: z.string().trim().max(30).optional().nullable(),
+  course: z.string().trim().max(100).optional().nullable(),
+  branch: z.string().trim().max(100).optional().nullable(),
+  year: z.string().trim().max(30).optional().nullable(),
+});
+
+const adminProfileUpdateSchema = profileUpdateSchema.extend({
+  password: z.string().min(8).max(128).optional(),
+});
+
+const roleUpdateSchema = z.object({
+  role: z.enum(['USER', 'MEMBER', 'CORE_MEMBER', 'ADMIN']),
+});
+
+const addPasswordSchema = z.object({
+  newPassword: z.string().min(8).max(128),
+});
+
+const changePasswordSchema = z.object({
+  currentPassword: z.string().min(1),
+  newPassword: z.string().min(8).max(128),
+});
+
+const normalizeOptionalText = (value: string | null | undefined): string | null => {
+  if (value === null || value === undefined) {
+    return null;
+  }
+  const trimmed = value.trim();
+  return trimmed ? trimmed : null;
+};
 
 // Get current user profile
 usersRouter.get('/me', authMiddleware, async (req: Request, res: Response) => {
@@ -62,26 +104,46 @@ usersRouter.get('/me', authMiddleware, async (req: Request, res: Response) => {
 usersRouter.put('/me', authMiddleware, async (req: Request, res: Response) => {
   try {
     const authUser = getAuthUser(req)!;
-    const { name, bio, avatarUrl, githubUrl, linkedinUrl, twitterUrl, websiteUrl, phone, course, branch, year } = req.body;
+    const parsed = profileUpdateSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({
+        success: false,
+        error: { message: parsed.error.errors[0]?.message || 'Invalid profile update payload' },
+      });
+    }
 
-    // Check if this is a profile completion (all required fields provided)
-    const isProfileCompletion = phone && course && branch && year;
+    const { name, bio, avatarUrl, githubUrl, linkedinUrl, twitterUrl, websiteUrl, phone, course, branch, year } = parsed.data;
+
+    const existing = await prisma.user.findUnique({
+      where: { id: authUser.id },
+      select: { phone: true, course: true, branch: true, year: true },
+    });
+
+    if (!existing) {
+      return res.status(404).json({ success: false, error: { message: 'User not found' } });
+    }
+
+    const nextPhone = normalizeOptionalText(phone === undefined ? existing.phone : phone);
+    const nextCourse = normalizeOptionalText(course === undefined ? existing.course : course);
+    const nextBranch = normalizeOptionalText(branch === undefined ? existing.branch : branch);
+    const nextYear = normalizeOptionalText(year === undefined ? existing.year : year);
+    const isProfileCompletion = Boolean(nextPhone && nextCourse && nextBranch && nextYear);
 
     const user = await prisma.user.update({
       where: { id: authUser.id },
       data: {
-        ...(name && { name }),
-        ...(bio !== undefined && { bio }),
-        ...(avatarUrl !== undefined && { avatar: avatarUrl }),
-        ...(githubUrl !== undefined && { githubUrl }),
-        ...(linkedinUrl !== undefined && { linkedinUrl }),
-        ...(twitterUrl !== undefined && { twitterUrl }),
-        ...(websiteUrl !== undefined && { websiteUrl }),
-        ...(phone !== undefined && { phone }),
-        ...(course !== undefined && { course }),
-        ...(branch !== undefined && { branch }),
-        ...(year !== undefined && { year }),
-        ...(isProfileCompletion && { profileCompleted: true }),
+        ...(name !== undefined && { name: name.trim() }),
+        ...(bio !== undefined && { bio: normalizeOptionalText(bio) }),
+        ...(avatarUrl !== undefined && { avatar: normalizeOptionalText(avatarUrl) }),
+        ...(githubUrl !== undefined && { githubUrl: normalizeOptionalText(githubUrl) }),
+        ...(linkedinUrl !== undefined && { linkedinUrl: normalizeOptionalText(linkedinUrl) }),
+        ...(twitterUrl !== undefined && { twitterUrl: normalizeOptionalText(twitterUrl) }),
+        ...(websiteUrl !== undefined && { websiteUrl: normalizeOptionalText(websiteUrl) }),
+        ...(phone !== undefined && { phone: nextPhone }),
+        ...(course !== undefined && { course: nextCourse }),
+        ...(branch !== undefined && { branch: nextBranch }),
+        ...(year !== undefined && { year: nextYear }),
+        profileCompleted: isProfileCompletion,
       },
       select: {
         id: true,
@@ -113,15 +175,11 @@ usersRouter.put('/me', authMiddleware, async (req: Request, res: Response) => {
 usersRouter.post('/me/add-password', authMiddleware, async (req: Request, res: Response) => {
   try {
     const authUser = getAuthUser(req)!;
-    const { newPassword } = req.body;
-
-    if (!newPassword) {
-      return res.status(400).json({ success: false, error: { message: 'New password is required' } });
+    const parsed = addPasswordSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ success: false, error: { message: parsed.error.errors[0]?.message || 'Invalid password payload' } });
     }
-
-    if (newPassword.length < 8) {
-      return res.status(400).json({ success: false, error: { message: 'Password must be at least 8 characters' } });
-    }
+    const { newPassword } = parsed.data;
 
     const user = await prisma.user.findUnique({
       where: { id: authUser.id },
@@ -153,15 +211,11 @@ usersRouter.post('/me/add-password', authMiddleware, async (req: Request, res: R
 usersRouter.post('/me/change-password', authMiddleware, async (req: Request, res: Response) => {
   try {
     const authUser = getAuthUser(req)!;
-    const { currentPassword, newPassword } = req.body;
-
-    if (!currentPassword || !newPassword) {
-      return res.status(400).json({ success: false, error: { message: 'Current password and new password are required' } });
+    const parsed = changePasswordSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ success: false, error: { message: parsed.error.errors[0]?.message || 'Invalid password payload' } });
     }
-
-    if (newPassword.length < 8) {
-      return res.status(400).json({ success: false, error: { message: 'New password must be at least 8 characters' } });
-    }
+    const { currentPassword, newPassword } = parsed.data;
 
     const user = await prisma.user.findUnique({
       where: { id: authUser.id },
@@ -181,7 +235,7 @@ usersRouter.post('/me/change-password', authMiddleware, async (req: Request, res
       return res.status(401).json({ success: false, error: { message: 'Current password is incorrect' } });
     }
 
-    const hashedPassword = await bcrypt.hash(newPassword, 10);
+    const hashedPassword = await bcrypt.hash(newPassword, 12);
     await prisma.user.update({
       where: { id: authUser.id },
       data: { password: hashedPassword },
@@ -201,7 +255,14 @@ usersRouter.get('/me/registrations', authMiddleware, async (req: Request, res: R
 
     const registrations = await prisma.eventRegistration.findMany({
       where: { userId: authUser.id },
-      include: { event: { select: { id: true, title: true, startDate: true, location: true, imageUrl: true } } },
+      select: {
+        id: true,
+        userId: true,
+        eventId: true,
+        timestamp: true,
+        customFieldResponses: true,
+        event: { select: { id: true, title: true, startDate: true, location: true, imageUrl: true } },
+      },
       orderBy: { timestamp: 'desc' },
     });
 
@@ -265,13 +326,17 @@ usersRouter.get('/me/qotd-stats', authMiddleware, async (req: Request, res: Resp
 // Search users (admin)
 usersRouter.get('/search', authMiddleware, requireRole('ADMIN'), async (req: Request, res: Response) => {
   try {
-    const query = req.query.q as string;
+    const query = typeof req.query.q === 'string' ? req.query.q.trim() : '';
     if (!query || query.length < 2) {
       return res.json({ success: true, data: [] });
+    }
+    if (query.length > 120) {
+      return res.status(400).json({ success: false, error: { message: 'Search query must be 120 characters or fewer' } });
     }
 
     const users = await prisma.user.findMany({
       where: {
+        role: { not: 'NETWORK' },
         OR: [
           { name: { contains: query, mode: 'insensitive' } },
           { email: { contains: query, mode: 'insensitive' } },
@@ -291,6 +356,7 @@ usersRouter.get('/search', authMiddleware, requireRole('ADMIN'), async (req: Req
 usersRouter.get('/export', authMiddleware, requireRole('ADMIN'), async (_req: Request, res: Response) => {
   try {
     const users = await prisma.user.findMany({
+      where: { role: { not: 'NETWORK' } },
       orderBy: { createdAt: 'desc' },
       select: {
         id: true,
@@ -416,6 +482,7 @@ usersRouter.get('/export', authMiddleware, requireRole('ADMIN'), async (_req: Re
 usersRouter.get('/', authMiddleware, requireRole('ADMIN'), async (_req: Request, res: Response) => {
   try {
     const users = await prisma.user.findMany({
+      where: { role: { not: 'NETWORK' } },
       orderBy: { createdAt: 'desc' },
       select: { 
         id: true, 
@@ -463,7 +530,12 @@ usersRouter.get('/:id', authMiddleware, requireRole('ADMIN'), async (req: Reques
         createdAt: true,
         _count: { select: { registrations: true, qotdSubmissions: true } },
         registrations: {
-          include: {
+          select: {
+            id: true,
+            userId: true,
+            eventId: true,
+            timestamp: true,
+            customFieldResponses: true,
             event: {
               select: {
                 id: true,
@@ -481,6 +553,13 @@ usersRouter.get('/:id', authMiddleware, requireRole('ADMIN'), async (req: Reques
 
     if (!targetUser) {
       return res.status(404).json({ success: false, error: { message: 'User not found' } });
+    }
+
+    if (targetUser.role === 'NETWORK') {
+      return res.status(404).json({
+        success: false,
+        error: { message: 'Network profiles are managed in Network Management' },
+      });
     }
 
     // Check permissions: Super admin can see everyone, other admins cannot see other admins
@@ -501,15 +580,43 @@ usersRouter.get('/:id', authMiddleware, requireRole('ADMIN'), async (req: Reques
 usersRouter.put('/:id', authMiddleware, requireRole('ADMIN'), async (req: Request, res: Response) => {
   try {
     const authUser = getAuthUser(req)!;
-    const { name, bio, phone, course, branch, year, avatarUrl, githubUrl, linkedinUrl, twitterUrl, websiteUrl, password } = req.body;
+    const parsed = adminProfileUpdateSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({
+        success: false,
+        error: { message: parsed.error.errors[0]?.message || 'Invalid user update payload' },
+      });
+    }
+
+    const {
+      name,
+      bio,
+      phone,
+      course,
+      branch,
+      year,
+      avatarUrl,
+      githubUrl,
+      linkedinUrl,
+      twitterUrl,
+      websiteUrl,
+      password,
+    } = parsed.data;
 
     const targetUser = await prisma.user.findUnique({
       where: { id: req.params.id },
-      select: { id: true, role: true, email: true },
+      select: { id: true, role: true, email: true, phone: true, course: true, branch: true, year: true },
     });
 
     if (!targetUser) {
       return res.status(404).json({ success: false, error: { message: 'User not found' } });
+    }
+
+    if (targetUser.role === 'NETWORK') {
+      return res.status(404).json({
+        success: false,
+        error: { message: 'Network profiles are managed in Network Management' },
+      });
     }
 
     // Check permissions: Super admin can edit everyone, other admins cannot edit other admins
@@ -525,31 +632,32 @@ usersRouter.put('/:id', authMiddleware, requireRole('ADMIN'), async (req: Reques
       return res.status(403).json({ success: false, error: { message: 'Cannot modify super admin' } });
     }
 
-    const isProfileCompletion = phone && course && branch && year;
+    const nextPhone = normalizeOptionalText(phone === undefined ? targetUser.phone : phone);
+    const nextCourse = normalizeOptionalText(course === undefined ? targetUser.course : course);
+    const nextBranch = normalizeOptionalText(branch === undefined ? targetUser.branch : branch);
+    const nextYear = normalizeOptionalText(year === undefined ? targetUser.year : year);
+    const isProfileCompletion = Boolean(nextPhone && nextCourse && nextBranch && nextYear);
 
     let hashedPassword: string | undefined;
     if (password) {
-        if (password.length < 8) {
-             return res.status(400).json({ success: false, error: { message: 'Password must be at least 8 characters' } });
-        }
-        hashedPassword = await bcrypt.hash(password, 10);
+        hashedPassword = await bcrypt.hash(password, 12);
     }
 
     const user = await prisma.user.update({
       where: { id: req.params.id },
       data: {
-        ...(name && { name }),
-        ...(bio !== undefined && { bio }),
-        ...(avatarUrl !== undefined && { avatar: avatarUrl }),
-        ...(githubUrl !== undefined && { githubUrl }),
-        ...(linkedinUrl !== undefined && { linkedinUrl }),
-        ...(twitterUrl !== undefined && { twitterUrl }),
-        ...(websiteUrl !== undefined && { websiteUrl }),
-        ...(phone !== undefined && { phone }),
-        ...(course !== undefined && { course }),
-        ...(branch !== undefined && { branch }),
-        ...(year !== undefined && { year }),
-        ...(isProfileCompletion && { profileCompleted: true }),
+        ...(name !== undefined && { name: name.trim() }),
+        ...(bio !== undefined && { bio: normalizeOptionalText(bio) }),
+        ...(avatarUrl !== undefined && { avatar: normalizeOptionalText(avatarUrl) }),
+        ...(githubUrl !== undefined && { githubUrl: normalizeOptionalText(githubUrl) }),
+        ...(linkedinUrl !== undefined && { linkedinUrl: normalizeOptionalText(linkedinUrl) }),
+        ...(twitterUrl !== undefined && { twitterUrl: normalizeOptionalText(twitterUrl) }),
+        ...(websiteUrl !== undefined && { websiteUrl: normalizeOptionalText(websiteUrl) }),
+        ...(phone !== undefined && { phone: nextPhone }),
+        ...(course !== undefined && { course: nextCourse }),
+        ...(branch !== undefined && { branch: nextBranch }),
+        ...(year !== undefined && { year: nextYear }),
+        profileCompleted: isProfileCompletion,
         ...(hashedPassword && { password: hashedPassword }),
       },
       select: {
@@ -586,11 +694,11 @@ usersRouter.put('/:id', authMiddleware, requireRole('ADMIN'), async (req: Reques
 usersRouter.put('/:id/role', authMiddleware, requireRole('CORE_MEMBER'), async (req: Request, res: Response) => {
   try {
     const authUser = getAuthUser(req)!;
-    const { role } = req.body;
-
-    if (!['USER', 'MEMBER', 'CORE_MEMBER', 'ADMIN'].includes(role)) {
-      return res.status(400).json({ success: false, error: { message: 'Invalid role' } });
+    const parsed = roleUpdateSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ success: false, error: { message: parsed.error.errors[0]?.message || 'Invalid role' } });
     }
+    const { role } = parsed.data;
 
     // Get target user to check their current role
     const targetUser = await prisma.user.findUnique({
@@ -600,6 +708,13 @@ usersRouter.put('/:id/role', authMiddleware, requireRole('CORE_MEMBER'), async (
 
     if (!targetUser) {
       return res.status(404).json({ success: false, error: { message: 'User not found' } });
+    }
+
+    if (targetUser.role === 'NETWORK') {
+      return res.status(404).json({
+        success: false,
+        error: { message: 'Network profiles are managed in Network Management' },
+      });
     }
 
     // Super admin protection: only super admin can modify admin roles
@@ -680,6 +795,13 @@ usersRouter.delete('/:id', authMiddleware, requireRole('ADMIN'), async (req: Req
 
     if (!targetUser) {
       return res.status(404).json({ success: false, error: { message: 'User not found' } });
+    }
+
+    if (targetUser.role === 'NETWORK') {
+      return res.status(404).json({
+        success: false,
+        error: { message: 'Network profiles are managed in Network Management' },
+      });
     }
 
     // Super admin protection

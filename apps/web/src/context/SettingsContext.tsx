@@ -21,6 +21,7 @@ const defaultSettings: Settings = {
   showQOTD: true,
   showAchievements: true,
   hiringEnabled: true,
+  showNetwork: true,
   githubUrl: '',
   linkedinUrl: '',
   twitterUrl: '',

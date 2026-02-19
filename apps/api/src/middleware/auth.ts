@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction, RequestHandler } from 'express';
 import jwt from 'jsonwebtoken';
 import { prisma } from '../lib/prisma.js';
+import { AccessTokenPayload, getJwtSecret } from '../utils/jwt.js';
 
 // Custom user type for authenticated requests
 export interface AuthUser {
@@ -48,12 +49,19 @@ const authMiddlewareImpl = async (
     }
 
     const token = authHeader.substring(7);
-    const secret = process.env.JWT_SECRET || 'secret';
+    const decoded = jwt.verify(token, getJwtSecret()) as Partial<AccessTokenPayload>;
+    const userId = typeof decoded.userId === 'string'
+      ? decoded.userId
+      : typeof decoded.id === 'string'
+        ? decoded.id
+        : null;
 
-    const decoded = jwt.verify(token, secret) as { userId: string };
+    if (!userId) {
+      return res.status(401).json({ error: 'Invalid token payload' });
+    }
     
     const user = await prisma.user.findUnique({
-      where: { id: decoded.userId },
+      where: { id: userId },
       select: {
         id: true,
         name: true,
@@ -96,12 +104,19 @@ const optionalAuthMiddlewareImpl = async (
     }
 
     const token = authHeader.substring(7);
-    const secret = process.env.JWT_SECRET || 'secret';
+    const decoded = jwt.verify(token, getJwtSecret()) as Partial<AccessTokenPayload>;
+    const userId = typeof decoded.userId === 'string'
+      ? decoded.userId
+      : typeof decoded.id === 'string'
+        ? decoded.id
+        : null;
 
-    const decoded = jwt.verify(token, secret) as { userId: string };
+    if (!userId) {
+      return next();
+    }
     
     const user = await prisma.user.findUnique({
-      where: { id: decoded.userId },
+      where: { id: userId },
       select: {
         id: true,
         name: true,

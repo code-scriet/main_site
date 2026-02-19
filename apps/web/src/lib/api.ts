@@ -1,3 +1,4 @@
+import { extractApiErrorMessage } from '@/lib/error';
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5001/api';
 
 interface RequestOptions extends RequestInit {
@@ -22,24 +23,8 @@ async function request<T>(endpoint: string, options: RequestOptions = {}): Promi
   });
 
   if (!response.ok) {
-    const errorData = await response.json().catch(() => ({ message: 'An error occurred' }));
-    // Handle Zod validation errors (array format)
-    if (Array.isArray(errorData.error)) {
-      const messages = errorData.error.map((e: { message?: string; path?: string[] }) => 
-        e.message || 'Validation error'
-      ).join(', ');
-      throw new Error(messages);
-    }
-    // Handle string error messages
-    let message: string;
-    if (typeof errorData.error === 'string') {
-      message = errorData.error;
-    } else if (errorData.error?.message) {
-      // Handle object error: { error: { message: "..." } }
-      message = errorData.error.message;
-    } else {
-      message = errorData.message || `HTTP error! status: ${response.status}`;
-    }
+    const errorData = await response.json().catch(() => null);
+    const message = extractApiErrorMessage(errorData, `Request failed (${response.status})`);
     throw new Error(message);
   }
 
@@ -81,6 +66,7 @@ export interface Settings {
   showQOTD?: boolean;
   showAchievements?: boolean;
   hiringEnabled?: boolean;
+  showNetwork?: boolean;
   // Social Links
   githubUrl?: string;
   linkedinUrl?: string;
@@ -237,6 +223,104 @@ export interface Achievement {
   featured?: boolean;
   createdAt?: string;
   updatedAt?: string;
+}
+
+// Network types
+export type NetworkConnectionType =
+  | 'GUEST_SPEAKER'
+  | 'GMEET_SESSION'
+  | 'EVENT_JUDGE'
+  | 'MENTOR'
+  | 'INDUSTRY_PARTNER'
+  | 'ALUMNI'
+  | 'OTHER';
+
+export type NetworkStatus = 'PENDING' | 'VERIFIED' | 'REJECTED';
+
+// Event participation entry - events the network member attended/hosted
+export interface NetworkEvent {
+  title: string;
+  date: string;
+  description?: string;
+  type?: string; // 'GMeet Session', 'In-Person Talk', etc.
+  link?: string;
+}
+
+export interface NetworkProfile {
+  id: string;
+  userId?: string;
+  slug?: string;
+  fullName: string;
+  designation: string;
+  company: string;
+  industry: string;
+  bio?: string;
+  profilePhoto?: string;
+  phone?: string;
+  linkedinUsername?: string;
+  twitterUsername?: string;
+  githubUsername?: string;
+  personalWebsite?: string;
+  connectionType: NetworkConnectionType;
+  connectionNote?: string;
+  connectedSince?: number;
+  // Alumni-specific fields
+  passoutYear?: number;
+  degree?: string;
+  branch?: string;
+  rollNumber?: string;
+  achievements?: string;
+  currentLocation?: string;
+  // Admin fields
+  adminNotes?: string;
+  events?: NetworkEvent[];
+  isFeatured?: boolean;
+  status: NetworkStatus;
+  isPublic: boolean;
+  displayOrder?: number;
+  verifiedAt?: string;
+  verifiedBy?: string;
+  rejectionReason?: string;
+  createdAt: string;
+  updatedAt?: string;
+  user?: {
+    id: string;
+    email: string;
+    name: string;
+  };
+}
+
+export interface NetworkProfileInput {
+  fullName: string;
+  designation: string;
+  company: string;
+  industry: string;
+  bio?: string;
+  profilePhoto?: string;
+  phone?: string;
+  linkedinUsername?: string;
+  twitterUsername?: string;
+  githubUsername?: string;
+  personalWebsite?: string;
+  connectionType: NetworkConnectionType;
+  connectionNote?: string;
+  connectedSince?: number;
+  // Alumni-specific fields
+  passoutYear?: number;
+  degree?: string;
+  branch?: string;
+  rollNumber?: string;
+  achievements?: string;
+  currentLocation?: string;
+}
+
+export interface PendingNetworkUser {
+  id: string;
+  name: string;
+  email: string;
+  avatar?: string;
+  oauthProvider?: string;
+  createdAt: string;
 }
 
 export const api = {
@@ -451,4 +535,85 @@ export const api = {
         createdAt: string;
       };
     } | null>('/hiring/my-application', { token }),
+
+  // Network (public)
+  getNetworkProfiles: (filters?: { industry?: string; connectionType?: string; search?: string }) => {
+    const params = new URLSearchParams();
+    if (filters?.industry) params.append('industry', filters.industry);
+    if (filters?.connectionType) params.append('connectionType', filters.connectionType);
+    if (filters?.search) params.append('search', filters.search);
+    const query = params.toString() ? `?${params.toString()}` : '';
+    return request<{
+      profiles: NetworkProfile[];
+      filters: { industries: string[]; connectionTypes: NetworkConnectionType[] };
+      total: number;
+    }>(`/network${query}`);
+  },
+  getNetworkProfile: (idOrSlug: string) => request<NetworkProfile>(`/network/${idOrSlug}`),
+
+  // Network (authenticated - NETWORK role user)
+  joinNetwork: (token: string) =>
+    request<{ success: boolean; message: string; newRole: string }>('/network/join', {
+      method: 'POST',
+      token,
+    }),
+  getMyNetworkProfile: (token: string) =>
+    request<{ data: NetworkProfile | null; hasProfile: boolean }>('/network/profile/me', { token }),
+  createNetworkProfile: (data: NetworkProfileInput, token: string) =>
+    request<NetworkProfile>('/network/profile', {
+      method: 'POST',
+      body: JSON.stringify(data),
+      token,
+    }),
+  updateNetworkProfile: (data: Partial<NetworkProfileInput>, token: string) =>
+    request<NetworkProfile>('/network/profile', {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+      token,
+    }),
+
+  // Network (admin)
+  getNetworkPending: (token: string) =>
+    request<NetworkProfile[]>('/network/admin/pending', { token }),
+  getNetworkAll: (token: string, status?: NetworkStatus) => {
+    const params = status ? `?status=${status}` : '';
+    return request<{
+      profiles: NetworkProfile[];
+      counts: { PENDING: number; VERIFIED: number; REJECTED: number };
+      total: number;
+    }>(`/network/admin/all${params}`, { token });
+  },
+  getNetworkPendingUsers: (token: string) =>
+    request<{ users: PendingNetworkUser[]; total: number }>('/network/admin/pending-users', { token }),
+  revertPendingNetworkUser: (userId: string, token: string) =>
+    request<{ id: string; role: string; name: string; email: string }>(
+      `/network/admin/pending-users/${userId}/revert`,
+      { method: 'PATCH', token }
+    ),
+  deletePendingNetworkUser: (userId: string, token: string) =>
+    request<{ message: string }>(`/network/admin/pending-users/${userId}`, {
+      method: 'DELETE',
+      token,
+    }),
+  verifyNetworkProfile: (id: string, token: string) =>
+    request<NetworkProfile>(`/network/admin/${id}/verify`, { method: 'PATCH', token }),
+  rejectNetworkProfile: (id: string, reason: string, token: string) =>
+    request<NetworkProfile>(`/network/admin/${id}/reject`, {
+      method: 'PATCH',
+      body: JSON.stringify({ reason }),
+      token,
+    }),
+  updateNetworkProfileAdmin: (id: string, data: Partial<NetworkProfile>, token: string) =>
+    request<NetworkProfile>(`/network/admin/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+      token,
+    }),
+  deleteNetworkProfile: (id: string, token: string) =>
+    request(`/network/admin/${id}`, { method: 'DELETE', token }),
+  getNetworkStats: (token: string) =>
+    request<{ totalVerified: number; totalPending: number; thisMonth: number }>(
+      '/network/admin/stats',
+      { token }
+    ),
 };

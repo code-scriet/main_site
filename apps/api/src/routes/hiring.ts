@@ -1,6 +1,6 @@
 import { Router, Request, Response } from 'express';
+import { Prisma } from '@prisma/client';
 import { z } from 'zod';
-import * as XLSX from 'xlsx';
 import { prisma } from '../lib/prisma.js';
 import { authMiddleware, getAuthUser, optionalAuthMiddleware } from '../middleware/auth.js';
 import { requireRole } from '../middleware/role.js';
@@ -8,6 +8,7 @@ import { auditLog } from '../utils/audit.js';
 import { ApiResponse } from '../utils/response.js';
 import { emailService } from '../utils/email.js';
 import { logger } from '../utils/logger.js';
+import { parsePaginationNumber } from '../utils/pagination.js';
 
 export const hiringRouter = Router();
 
@@ -16,7 +17,7 @@ const applicationStatuses = ['PENDING', 'INTERVIEW_SCHEDULED', 'SELECTED', 'REJE
 
 const hiringApplicationSchema = z.object({
   name: z.string().min(2, 'Name must be at least 2 characters'),
-  email: z.string().email('Invalid email address'),
+  email: z.string().email('Invalid email address').transform((value) => value.trim().toLowerCase()),
   phone: z.string().optional(),
   department: z.string().min(2, 'Department is required'),
   year: z.string().min(1, 'Year is required'),
@@ -30,21 +31,25 @@ const updateStatusSchema = z.object({
   status: z.enum(applicationStatuses),
 });
 
-const parsePaginationNumber = (
-  input: unknown,
-  fallback: number,
-  { min, max }: { min: number; max: number }
-): number | null => {
-  if (input === undefined) {
-    return fallback;
-  }
+const sendHiringStatusEmailAsync = (
+  status: 'SELECTED' | 'REJECTED',
+  payload: { email: string; name: string; applyingRole: (typeof applyingRoles)[number] }
+) => {
+  const promise = status === 'SELECTED'
+    ? emailService.sendHiringSelected(payload.email, payload.name, payload.applyingRole)
+    : emailService.sendHiringRejected(payload.email, payload.name, payload.applyingRole);
 
-  const parsed = Number.parseInt(String(input), 10);
-  if (!Number.isInteger(parsed) || parsed < min || parsed > max) {
-    return null;
-  }
-
-  return parsed;
+  promise
+    .then(() => {
+      logger.info('Hiring status email sent', { email: payload.email, status });
+    })
+    .catch((error) => {
+      logger.error('Failed to send hiring status email', {
+        email: payload.email,
+        status,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    });
 };
 
 // Submit a new hiring application (public or authenticated)
@@ -58,8 +63,10 @@ hiringRouter.post('/apply', optionalAuthMiddleware, async (req: Request, res: Re
     const { name, email, phone, department, year, skills, applyingRole } = validation.data;
 
     // Check if application already exists
-    const existingApplication = await prisma.hiringApplication.findUnique({
-      where: { email },
+    const existingApplication = await prisma.hiringApplication.findFirst({
+      where: {
+        email: { equals: email, mode: 'insensitive' },
+      },
     });
 
     if (existingApplication) {
@@ -89,8 +96,13 @@ hiringRouter.post('/apply', optionalAuthMiddleware, async (req: Request, res: Re
       },
     });
 
-    // Send confirmation email
-    await emailService.sendHiringApplication(email, name, applyingRole);
+    // Send confirmation email asynchronously so application creation never fails due to email provider issues.
+    emailService.sendHiringApplication(email, name, applyingRole).catch((error) => {
+      logger.error('Failed to send hiring application email', {
+        email,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    });
 
     // Log the application
     if (userId) {
@@ -111,6 +123,10 @@ hiringRouter.post('/apply', optionalAuthMiddleware, async (req: Request, res: Re
     });
   } catch (error) {
     logger.error('Hiring application error:', { error: error instanceof Error ? error.message : String(error) });
+
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+      return ApiResponse.conflict(res, 'An application with this email already exists');
+    }
 
     // Helpful error when backend enum is outdated (migration not applied)
     if (
@@ -242,22 +258,20 @@ hiringRouter.patch('/applications/:id/status', authMiddleware, requireRole('ADMI
       data: { status },
     });
 
-    // Send notification email if status changed to SELECTED or REJECTED
+    // Send notification email in background if status changed to SELECTED or REJECTED.
     if (existingApplication.status !== status) {
       if (status === 'SELECTED') {
-        await emailService.sendHiringSelected(
-          application.email,
-          application.name,
-          application.applyingRole
-        );
-        logger.info('📧 Hiring selection email sent', { email: application.email, name: application.name });
+        sendHiringStatusEmailAsync('SELECTED', {
+          email: application.email,
+          name: application.name,
+          applyingRole: application.applyingRole,
+        });
       } else if (status === 'REJECTED') {
-        await emailService.sendHiringRejected(
-          application.email,
-          application.name,
-          application.applyingRole
-        );
-        logger.info('📧 Hiring rejection email sent', { email: application.email, name: application.name });
+        sendHiringStatusEmailAsync('REJECTED', {
+          email: application.email,
+          name: application.name,
+          applyingRole: application.applyingRole,
+        });
       }
     }
 
@@ -313,17 +327,18 @@ hiringRouter.get('/my-application', authMiddleware, async (req: Request, res: Re
       where: {
         OR: [
           { userId: authUser.id },
-          { email: authUser.email },
+          { email: { equals: authUser.email, mode: 'insensitive' } },
         ],
       },
     });
 
     if (!application) {
-      return ApiResponse.success(res, { hasApplication: false });
+      return ApiResponse.success(res, { hasApplication: false, hasApplied: false });
     }
 
     return ApiResponse.success(res, {
       hasApplication: true,
+      hasApplied: true,
       application: {
         id: application.id,
         applyingRole: application.applyingRole,
@@ -397,46 +412,83 @@ hiringRouter.get('/export', authMiddleware, requireRole('ADMIN'), async (req: Re
       },
     });
 
-    // Format data for Excel
-    const excelData = applications.map((app: any) => ({
-      'Application ID': app.id,
-      'Name': app.name,
-      'Email': app.email,
-      'Phone': app.phone || 'Not provided',
-      'Department': app.department,
-      'Year': app.year,
-      'Skills': app.skills || 'Not provided',
-      'Applying Role': app.applyingRole,
-      'Status': app.status,
-      'Applied On': new Date(app.createdAt).toLocaleString('en-IN', {
-        timeZone: 'Asia/Kolkata',
-        year: 'numeric',
-        month: 'long',
-        day: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit',
-      }),
-      'User Account': app.user ? 'Yes' : 'No',
-    }));
+    // Build workbook with exceljs (safer than xlsx package)
+    const ExcelJS = await import('exceljs');
+    const workbook = new ExcelJS.default.Workbook();
+    workbook.creator = 'code.scriet';
+    workbook.created = new Date();
 
-    // Create workbook and worksheet
-    const worksheet = XLSX.utils.json_to_sheet(excelData);
-    const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook, worksheet, 'Applications');
+    const worksheet = workbook.addWorksheet('Applications');
+    worksheet.columns = [
+      { header: 'Application ID', key: 'applicationId', width: 40 },
+      { header: 'Name', key: 'name', width: 24 },
+      { header: 'Email', key: 'email', width: 34 },
+      { header: 'Phone', key: 'phone', width: 18 },
+      { header: 'Department', key: 'department', width: 20 },
+      { header: 'Year', key: 'year', width: 12 },
+      { header: 'Skills', key: 'skills', width: 42 },
+      { header: 'Applying Role', key: 'applyingRole', width: 18 },
+      { header: 'Status', key: 'status', width: 22 },
+      { header: 'Applied On', key: 'appliedOn', width: 28 },
+      { header: 'User Account', key: 'userAccount', width: 14 },
+    ];
 
-    // Auto-size columns
-    const maxWidth = 50;
-    const columnWidths = Object.keys(excelData[0] || {}).map((key) => {
-      const maxLength = Math.max(
-        key.length,
-        ...excelData.map((row: any) => String(row[key as keyof typeof row]).length)
-      );
-      return { wch: Math.min(maxLength + 2, maxWidth) };
+    applications.forEach((app) => {
+      worksheet.addRow({
+        applicationId: app.id,
+        name: app.name,
+        email: app.email,
+        phone: app.phone || 'Not provided',
+        department: app.department,
+        year: app.year,
+        skills: app.skills || 'Not provided',
+        applyingRole: app.applyingRole,
+        status: app.status,
+        appliedOn: new Date(app.createdAt).toLocaleString('en-IN', {
+          timeZone: 'Asia/Kolkata',
+          year: 'numeric',
+          month: 'long',
+          day: 'numeric',
+          hour: '2-digit',
+          minute: '2-digit',
+        }),
+        userAccount: app.user ? 'Yes' : 'No',
+      });
     });
-    worksheet['!cols'] = columnWidths;
 
-    // Generate Excel file buffer
-    const buffer = XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' });
+    worksheet.getRow(1).font = { bold: true, color: { argb: 'FFFFFFFF' } };
+    worksheet.getRow(1).fill = {
+      type: 'pattern',
+      pattern: 'solid',
+      fgColor: { argb: 'FFD97706' },
+    };
+
+    worksheet.eachRow((row, rowNumber) => {
+      if (rowNumber > 1) {
+        row.fill = {
+          type: 'pattern',
+          pattern: 'solid',
+          fgColor: { argb: rowNumber % 2 === 0 ? 'FFFEF3C7' : 'FFFFFFFF' },
+        };
+      }
+      row.border = {
+        top: { style: 'thin', color: { argb: 'FFE5E7EB' } },
+        bottom: { style: 'thin', color: { argb: 'FFE5E7EB' } },
+        left: { style: 'thin', color: { argb: 'FFE5E7EB' } },
+        right: { style: 'thin', color: { argb: 'FFE5E7EB' } },
+      };
+    });
+
+    const summary = workbook.addWorksheet('Summary');
+    summary.addRow(['Generated At', new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })]);
+    summary.addRow(['Total Applications', applications.length]);
+    summary.addRow(['Status Filter', typeof status === 'string' ? status : 'All']);
+    summary.addRow(['Role Filter', typeof role === 'string' ? role : 'All']);
+    summary.getColumn(1).width = 20;
+    summary.getColumn(2).width = 30;
+    summary.getColumn(1).font = { bold: true };
+
+    const buffer = await workbook.xlsx.writeBuffer();
 
     // Generate filename with filters
     let filename = 'hiring_applications';
@@ -447,7 +499,7 @@ hiringRouter.get('/export', authMiddleware, requireRole('ADMIN'), async (req: Re
     // Set headers and send file
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
-    res.send(buffer);
+    res.send(Buffer.from(buffer));
 
     // Log audit
     const user = getAuthUser(req);
@@ -457,6 +509,8 @@ hiringRouter.get('/export', authMiddleware, requireRole('ADMIN'), async (req: Re
         count: applications.length,
       });
     }
+
+    return;
   } catch (error) {
     logger.error('Export applications error:', { error: error instanceof Error ? error.message : String(error) });
     return ApiResponse.internal(res, 'Failed to export applications');

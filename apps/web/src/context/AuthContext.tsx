@@ -16,7 +16,7 @@ interface AuthContextType {
   token: string | null;
   isLoading: boolean;
   error: string | null;
-  login: (token: string) => Promise<void>;
+  login: (token: string) => Promise<ExtendedUser>;
   loginWithEmail: (email: string, password: string) => Promise<void>;
   register: (name: string, email: string, password: string) => Promise<void>;
   devLogin: (email: string, name?: string) => Promise<void>;
@@ -65,7 +65,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     }
   }, [fetchUser]);
 
-  const login = async (newToken: string) => {
+  const login = async (newToken: string): Promise<ExtendedUser> => {
     setIsLoading(true);
     setError(null);
     try {
@@ -74,6 +74,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       const userData = await fetchUser(newToken);
       if (userData) {
         setUser(userData);
+        return userData;
       } else {
         throw new Error('Failed to get user data');
       }
@@ -140,6 +141,8 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
   const logout = () => {
     localStorage.removeItem('token');
+    localStorage.removeItem('network_intent');
+    localStorage.removeItem('network_onboarding_type');
     setToken(null);
     setUser(null);
     setError(null);

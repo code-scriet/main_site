@@ -1,6 +1,5 @@
 import { Router, Request, Response } from 'express';
 import passport from 'passport';
-import jwt from 'jsonwebtoken';
 import bcrypt from 'bcryptjs';
 import { z } from 'zod';
 import { authMiddleware, getAuthUser } from '../middleware/auth.js';
@@ -8,31 +7,87 @@ import { prisma } from '../lib/prisma.js';
 import { socketEvents } from '../utils/socket.js';
 import { emailService } from '../utils/email.js';
 import { logger } from '../utils/logger.js';
+import { signAccessToken } from '../utils/jwt.js';
 
 export const authRouter = Router();
 
-const generateToken = (userId: string): string => {
-  const secret = process.env.JWT_SECRET || 'secret';
-  const expiresIn = (process.env.JWT_EXPIRES_IN || '7d') as jwt.SignOptions['expiresIn'];
-  return jwt.sign({ userId }, secret, { expiresIn });
+const isDevLoginEnabled = (): boolean => process.env.NODE_ENV === 'development' && process.env.ENABLE_DEV_AUTH === 'true';
+
+const getFrontendUrl = (): string => process.env.FRONTEND_URL || 'http://localhost:5173';
+
+const buildAuthCallbackUrl = (token: string, intent?: string, networkType?: string): string => {
+  const callbackUrl = new URL('/auth/callback', getFrontendUrl());
+  let hash = `token=${encodeURIComponent(token)}`;
+  if (intent) hash += `&intent=${encodeURIComponent(intent)}`;
+  if (networkType) hash += `&network_type=${encodeURIComponent(networkType)}`;
+  callbackUrl.hash = hash;
+  return callbackUrl.toString();
+};
+
+// Parse a single cookie from the raw Cookie header
+const getCookie = (req: Request, name: string): string | undefined => {
+  const cookies = req.headers.cookie;
+  if (!cookies) return undefined;
+  const match = cookies.split(';').find(c => c.trim().startsWith(`${name}=`));
+  return match ? decodeURIComponent(match.split('=').slice(1).join('=').trim()) : undefined;
+};
+
+const generateToken = (user: { id: string; email: string; role: string }): string =>
+  signAccessToken({
+    userId: user.id,
+    id: user.id,
+    email: user.email,
+    role: user.role,
+  });
+
+const normalizeNetworkType = (value: string | undefined): 'professional' | 'alumni' | undefined => (
+  value === 'professional' || value === 'alumni' ? value : undefined
+);
+
+const demoteOrphanNetworkUser = async <T extends { id: string; role: string }>(user: T): Promise<T> => {
+  if (user.role !== 'NETWORK') {
+    return user;
+  }
+
+  const profile = await prisma.networkProfile.findUnique({
+    where: { userId: user.id },
+    select: { id: true },
+  });
+
+  if (profile) {
+    return user;
+  }
+
+  await prisma.user.update({
+    where: { id: user.id },
+    data: { role: 'USER' },
+  });
+
+  logger.warn('Demoted NETWORK user without profile to USER', { userId: user.id });
+  return { ...user, role: 'USER' };
 };
 
 const registerSchema = z.object({
   name: z.string().min(2),
-  email: z.string().email(),
+  email: z.string().email().transform((value) => value.trim().toLowerCase()),
   password: z.string().min(6),
 });
 
 const loginSchema = z.object({
-  email: z.string().email(),
+  email: z.string().email().transform((value) => value.trim().toLowerCase()),
   password: z.string().min(1),
+});
+
+const devLoginSchema = z.object({
+  email: z.string().email().transform((value) => value.trim().toLowerCase()),
+  name: z.string().trim().min(1).max(100).optional(),
 });
 
 authRouter.get('/providers', (_req: Request, res: Response) => {
   res.json({
     google: !!(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_ID !== 'your_google_client_id'),
     github: !!(process.env.GITHUB_CLIENT_ID && process.env.GITHUB_CLIENT_ID !== 'your_github_client_id'),
-    devLogin: process.env.NODE_ENV !== 'production',
+    devLogin: isDevLoginEnabled(),
     emailPassword: true,
   });
 });
@@ -45,7 +100,10 @@ authRouter.post('/register', async (req: Request, res: Response) => {
     }
 
     const { name, email, password } = validation.data;
-    const existingUser = await prisma.user.findUnique({ where: { email } });
+    const existingUser = await prisma.user.findFirst({
+      where: { email: { equals: email, mode: 'insensitive' } },
+      select: { id: true },
+    });
     if (existingUser) {
       return res.status(400).json({ error: 'An account with this email already exists' });
     }
@@ -58,11 +116,11 @@ authRouter.post('/register', async (req: Request, res: Response) => {
         password: hashedPassword,
         oauthProvider: 'email',
         oauthId: `email_${Date.now()}`,
-        role: email === process.env.SUPER_ADMIN_EMAIL ? 'ADMIN' : 'USER',
+        role: 'USER',
       },
     });
 
-    const token = generateToken(user.id);
+    const token = generateToken(user);
     
     // Emit socket event for real-time updates
     socketEvents.userCreated(user.id);
@@ -89,25 +147,26 @@ authRouter.post('/login', async (req: Request, res: Response) => {
     }
 
     const { email, password } = validation.data;
-    const user = await prisma.user.findUnique({ 
-      where: { email },
+    const fetchedUser = await prisma.user.findFirst({ 
+      where: { email: { equals: email, mode: 'insensitive' } },
       select: { id: true, name: true, email: true, password: true, role: true, avatar: true, oauthProvider: true },
     });
     
-    if (!user) {
+    if (!fetchedUser) {
       return res.status(401).json({ error: 'Invalid email or password' });
     }
 
-    if (!user.password) {
+    if (!fetchedUser.password) {
       return res.status(401).json({ error: 'This account uses OAuth sign-in only. Please sign in with OAuth or add a password first.' });
     }
 
-    const isValid = await bcrypt.compare(password, user.password);
+    const isValid = await bcrypt.compare(password, fetchedUser.password);
     if (!isValid) {
       return res.status(401).json({ error: 'Invalid email or password' });
     }
 
-    const token = generateToken(user.id);
+    const user = await demoteOrphanNetworkUser(fetchedUser);
+    const token = generateToken(user);
     res.json({ token, user: { id: user.id, name: user.name, email: user.email, role: user.role, avatar: user.avatar } });
   } catch (error) {
     logger.error('Login error:', { error: error instanceof Error ? error.message : String(error) });
@@ -117,64 +176,206 @@ authRouter.post('/login', async (req: Request, res: Response) => {
 
 authRouter.get('/google', (req: Request, res: Response, next) => {
   if (!process.env.GOOGLE_CLIENT_ID || process.env.GOOGLE_CLIENT_ID === 'your_google_client_id') {
-    return res.redirect(`${process.env.FRONTEND_URL}/signin?error=google_not_configured`);
+    return res.redirect(`${getFrontendUrl()}/signin?error=google_not_configured`);
   }
+
+  // Store network intent in a short-lived cookie for retrieval in callback
+  const intent = req.query.intent as string;
+  const networkType = normalizeNetworkType(req.query.type as string | undefined); // 'professional' or 'alumni'
+  if (intent === 'network') {
+    res.cookie('oauth_intent', 'network', {
+      maxAge: 5 * 60 * 1000, // 5 minutes
+      httpOnly: true,
+      sameSite: 'lax',
+      secure: process.env.NODE_ENV === 'production',
+    });
+    if (networkType) {
+      res.cookie('network_type', networkType, {
+        maxAge: 5 * 60 * 1000,
+        httpOnly: true,
+        sameSite: 'lax',
+        secure: process.env.NODE_ENV === 'production',
+      });
+    }
+  } else {
+    res.clearCookie('oauth_intent');
+    res.clearCookie('network_type');
+  }
+
   passport.authenticate('google', { scope: ['profile', 'email'] })(req, res, next);
 });
 
 authRouter.get('/google/callback',
-  passport.authenticate('google', { session: false, failureRedirect: `${process.env.FRONTEND_URL}/signin?error=google_auth_failed` }),
-  (req: Request, res: Response) => {
-    const user = req.user as { id: string };
-    const token = generateToken(user.id);
-    res.redirect(`${process.env.FRONTEND_URL}/auth/callback?token=${token}`);
+  passport.authenticate('google', { session: false, failureRedirect: `${getFrontendUrl()}/signin?error=google_auth_failed` }),
+  async (req: Request, res: Response) => {
+    try {
+      const passportUser = req.user as { id?: string } | undefined;
+      if (!passportUser?.id) {
+        return res.redirect(`${getFrontendUrl()}/signin?error=google_auth_failed`);
+      }
+
+      let user = await prisma.user.findUnique({
+        where: { id: passportUser.id },
+        select: { id: true, email: true, role: true },
+      });
+
+      if (!user) {
+        return res.redirect(`${getFrontendUrl()}/signin?error=google_auth_failed`);
+      }
+
+      // Check for network intent from cookie
+      const intent = getCookie(req, 'oauth_intent');
+      const networkType = normalizeNetworkType(getCookie(req, 'network_type'));
+      res.clearCookie('oauth_intent');
+      res.clearCookie('network_type');
+
+      const isNetworkIntent = intent === 'network';
+
+      // Safety net: if an account has NETWORK role but no profile and this is a normal sign-in,
+      // normalize back to USER so regular users stay on the standard auth flow.
+      if (!isNetworkIntent) {
+        user = await demoteOrphanNetworkUser(user);
+      }
+
+      // For network intent, upgrade USER/PUBLIC to NETWORK role
+      // Higher-privileged users (MEMBER, ADMIN, etc.) keep their role
+      const isNetworkUpgrade = isNetworkIntent && (user.role === 'USER' || user.role === 'PUBLIC');
+      if (isNetworkUpgrade) {
+        await prisma.user.update({
+          where: { id: user.id },
+          data: { role: 'NETWORK' },
+        });
+        user.role = 'NETWORK';
+      }
+
+      const token = generateToken(user);
+      const shouldPassNetworkIntent = isNetworkIntent;
+      return res.redirect(buildAuthCallbackUrl(token, shouldPassNetworkIntent ? 'network' : undefined, shouldPassNetworkIntent ? networkType : undefined));
+    } catch (error) {
+      logger.error('Google callback error:', { error: error instanceof Error ? error.message : String(error) });
+      return res.redirect(`${getFrontendUrl()}/signin?error=google_auth_failed`);
+    }
   }
 );
 
 authRouter.get('/github', (req: Request, res: Response, next) => {
   if (!process.env.GITHUB_CLIENT_ID || process.env.GITHUB_CLIENT_ID === 'your_github_client_id') {
-    return res.redirect(`${process.env.FRONTEND_URL}/signin?error=github_not_configured`);
+    return res.redirect(`${getFrontendUrl()}/signin?error=github_not_configured`);
   }
+
+  // Store network intent in a short-lived cookie for retrieval in callback
+  const intent = req.query.intent as string;
+  const networkType = normalizeNetworkType(req.query.type as string | undefined);
+  if (intent === 'network') {
+    res.cookie('oauth_intent', 'network', {
+      maxAge: 5 * 60 * 1000,
+      httpOnly: true,
+      sameSite: 'lax',
+      secure: process.env.NODE_ENV === 'production',
+    });
+    if (networkType) {
+      res.cookie('network_type', networkType, {
+        maxAge: 5 * 60 * 1000,
+        httpOnly: true,
+        sameSite: 'lax',
+        secure: process.env.NODE_ENV === 'production',
+      });
+    }
+  } else {
+    res.clearCookie('oauth_intent');
+    res.clearCookie('network_type');
+  }
+
   passport.authenticate('github', { scope: ['user:email'] })(req, res, next);
 });
 
 authRouter.get('/github/callback',
-  passport.authenticate('github', { session: false, failureRedirect: `${process.env.FRONTEND_URL}/signin?error=github_auth_failed` }),
-  (req: Request, res: Response) => {
-    const user = req.user as { id: string };
-    const token = generateToken(user.id);
-    res.redirect(`${process.env.FRONTEND_URL}/auth/callback?token=${token}`);
+  passport.authenticate('github', { session: false, failureRedirect: `${getFrontendUrl()}/signin?error=github_auth_failed` }),
+  async (req: Request, res: Response) => {
+    try {
+      const passportUser = req.user as { id?: string } | undefined;
+      if (!passportUser?.id) {
+        return res.redirect(`${getFrontendUrl()}/signin?error=github_auth_failed`);
+      }
+
+      let user = await prisma.user.findUnique({
+        where: { id: passportUser.id },
+        select: { id: true, email: true, role: true },
+      });
+
+      if (!user) {
+        return res.redirect(`${getFrontendUrl()}/signin?error=github_auth_failed`);
+      }
+
+      // Check for network intent from cookie
+      const intent = getCookie(req, 'oauth_intent');
+      const networkType = normalizeNetworkType(getCookie(req, 'network_type'));
+      res.clearCookie('oauth_intent');
+      res.clearCookie('network_type');
+
+      const isNetworkIntent = intent === 'network';
+
+      // Safety net: if an account has NETWORK role but no profile and this is a normal sign-in,
+      // normalize back to USER so regular users stay on the standard auth flow.
+      if (!isNetworkIntent) {
+        user = await demoteOrphanNetworkUser(user);
+      }
+
+      // For network intent, upgrade USER/PUBLIC to NETWORK role
+      // Higher-privileged users (MEMBER, ADMIN, etc.) keep their role
+      const isNetworkUpgrade = isNetworkIntent && (user.role === 'USER' || user.role === 'PUBLIC');
+      if (isNetworkUpgrade) {
+        await prisma.user.update({
+          where: { id: user.id },
+          data: { role: 'NETWORK' },
+        });
+        user.role = 'NETWORK';
+      }
+
+      const token = generateToken(user);
+      const shouldPassNetworkIntent = isNetworkIntent;
+      return res.redirect(buildAuthCallbackUrl(token, shouldPassNetworkIntent ? 'network' : undefined, shouldPassNetworkIntent ? networkType : undefined));
+    } catch (error) {
+      logger.error('GitHub callback error:', { error: error instanceof Error ? error.message : String(error) });
+      return res.redirect(`${getFrontendUrl()}/signin?error=github_auth_failed`);
+    }
   }
 );
 
 authRouter.post('/dev-login', async (req: Request, res: Response) => {
-  if (process.env.NODE_ENV === 'production') {
-    return res.status(403).json({ error: 'Development login not available in production' });
+  if (!isDevLoginEnabled()) {
+    return res.status(403).json({ error: 'Development login is disabled' });
   }
 
-  const { email, name } = req.body;
-  if (!email) {
-    return res.status(400).json({ error: 'Email is required' });
+  const validation = devLoginSchema.safeParse(req.body);
+  if (!validation.success) {
+    return res.status(400).json({ error: validation.error.errors[0].message });
   }
+
+  const { email, name } = validation.data;
 
   try {
-    let user = await prisma.user.findUnique({ where: { email } });
+    let user = await prisma.user.findFirst({ where: { email: { equals: email, mode: 'insensitive' } } });
+    let isNewUser = false;
+
     if (!user) {
+      isNewUser = true;
       user = await prisma.user.create({
         data: {
           name: name || email.split('@')[0],
           email,
           oauthProvider: 'dev',
           oauthId: `dev_${Date.now()}`,
-          role: email === process.env.SUPER_ADMIN_EMAIL ? 'ADMIN' : 'USER',
+          role: 'USER',
         },
       });
     }
 
-    const token = generateToken(user.id);
+    user = await demoteOrphanNetworkUser(user);
+    const token = generateToken(user);
     
     // For new dev users, emit socket event
-    if (!await prisma.user.findUnique({ where: { email } })) {
+    if (isNewUser) {
       socketEvents.userCreated(user.id);
     }
     
@@ -187,7 +388,7 @@ authRouter.post('/dev-login', async (req: Request, res: Response) => {
 
 authRouter.get('/me', authMiddleware, (req: Request, res: Response) => {
   const authUser = getAuthUser(req);
-  res.json(authUser);
+  res.json({ success: true, data: authUser });
 });
 
 authRouter.post('/logout', (_req: Request, res: Response) => {

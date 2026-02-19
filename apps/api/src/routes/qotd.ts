@@ -1,27 +1,28 @@
 import { Router, Request, Response } from 'express';
+import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
 import { authMiddleware, optionalAuthMiddleware, getAuthUser } from '../middleware/auth.js';
 import { requireRole } from '../middleware/role.js';
 import { auditLog } from '../utils/audit.js';
+import { parsePaginationNumber } from '../utils/pagination.js';
 
 export const qotdRouter = Router();
 
-const parsePaginationNumber = (
-  input: unknown,
-  fallback: number,
-  { min, max }: { min: number; max: number }
-): number | null => {
-  if (input === undefined) {
-    return fallback;
-  }
+const createQotdSchema = z.object({
+  question: z.string().trim().min(5).max(2000),
+  difficulty: z.string().trim().min(1).max(40),
+  problemLink: z.string().url('problemLink must be a valid URL'),
+  date: z.coerce.date(),
+});
 
-  const parsed = Number.parseInt(String(input), 10);
-  if (!Number.isInteger(parsed) || parsed < min || parsed > max) {
-    return null;
-  }
-
-  return parsed;
-};
+const updateQotdSchema = z.object({
+  question: z.string().trim().min(5).max(2000).optional(),
+  difficulty: z.string().trim().min(1).max(40).optional(),
+  problemLink: z.string().url('problemLink must be a valid URL').optional(),
+  date: z.coerce.date().optional(),
+}).refine((value) => Object.keys(value).length > 0, {
+  message: 'At least one field must be provided',
+});
 
 // Get today's QOTD
 qotdRouter.get('/today', optionalAuthMiddleware, async (req: Request, res: Response) => {
@@ -180,14 +181,14 @@ qotdRouter.get('/stats/leaderboard', async (req: Request, res: Response) => {
 qotdRouter.post('/', authMiddleware, requireRole('CORE_MEMBER'), async (req: Request, res: Response) => {
   try {
     const authUser = getAuthUser(req)!;
-    const { question, difficulty, problemLink, date } = req.body;
-
-    if (!question || !difficulty || !date || !problemLink) {
-      return res.status(400).json({ success: false, error: { message: 'Question, difficulty, problemLink, and date are required' } });
+    const parsed = createQotdSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ success: false, error: { message: parsed.error.errors[0]?.message || 'Invalid QOTD payload' } });
     }
+    const { question, difficulty, problemLink, date } = parsed.data;
 
     const qotd = await prisma.qOTD.create({
-      data: { question, difficulty, problemLink, date: new Date(date) },
+      data: { question, difficulty, problemLink, date },
     });
 
     await auditLog(authUser.id, 'CREATE', 'qotd', qotd.id, { question: qotd.question });
@@ -201,15 +202,19 @@ qotdRouter.post('/', authMiddleware, requireRole('CORE_MEMBER'), async (req: Req
 qotdRouter.put('/:id', authMiddleware, requireRole('CORE_MEMBER'), async (req: Request, res: Response) => {
   try {
     const authUser = getAuthUser(req)!;
-    const { question, difficulty, problemLink, date } = req.body;
+    const parsed = updateQotdSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ success: false, error: { message: parsed.error.errors[0]?.message || 'Invalid QOTD payload' } });
+    }
+    const { question, difficulty, problemLink, date } = parsed.data;
 
     const qotd = await prisma.qOTD.update({
       where: { id: req.params.id },
       data: {
-        ...(question && { question }),
-        ...(difficulty && { difficulty }),
+        ...(question !== undefined && { question }),
+        ...(difficulty !== undefined && { difficulty }),
         ...(problemLink !== undefined && { problemLink }),
-        ...(date && { date: new Date(date) }),
+        ...(date !== undefined && { date }),
       },
     });
 

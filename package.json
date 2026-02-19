@@ -32,6 +32,9 @@
   "dependencies": {
     "@prisma/client": "^5.8.0"
   },
+  "overrides": {
+    "qs": "6.15.0"
+  },
   "prisma": {
     "seed": "tsx prisma/seed.ts"
   }

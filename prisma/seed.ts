@@ -9,11 +9,23 @@ const prisma = new PrismaClient();
 async function main() {
   console.log('🌱 Starting database seed...');
 
-  // Get super admin credentials from environment variables
-  // Defaults are used for development only
-  const superAdminEmail = process.env.SUPER_ADMIN_EMAIL || 'developer.aary@gmail.com';
-  const superAdminPassword = process.env.SUPER_ADMIN_PASSWORD || 'Dk261135@';
-  const superAdminName = process.env.SUPER_ADMIN_NAME || 'Super Admin';
+  const defaultEmail = 'admin@example.com';
+  const defaultPassword = 'change_this_password';
+
+  const superAdminEmail = (process.env.SUPER_ADMIN_EMAIL || defaultEmail).trim().toLowerCase();
+  const superAdminPassword = process.env.SUPER_ADMIN_PASSWORD || defaultPassword;
+  const superAdminName = (process.env.SUPER_ADMIN_NAME || 'Super Admin').trim();
+
+  if (!superAdminEmail || !superAdminPassword) {
+    throw new Error('SUPER_ADMIN_EMAIL and SUPER_ADMIN_PASSWORD must be provided');
+  }
+
+  if (
+    process.env.NODE_ENV === 'production' &&
+    (superAdminEmail === defaultEmail || superAdminPassword === defaultPassword)
+  ) {
+    throw new Error('Production seed requires non-default SUPER_ADMIN_EMAIL and SUPER_ADMIN_PASSWORD');
+  }
 
   // Hash the password for storage
   const hashedPassword = await bcrypt.hash(superAdminPassword, 12);
@@ -49,7 +61,9 @@ async function main() {
 
   console.log('✅ Database seeded successfully!');
   console.log('📧 Super Admin created with email:', superAdminEmail);
-  console.log('🔑 Password:', process.env.NODE_ENV === 'production' ? '***hidden***' : superAdminPassword);
+  if (superAdminPassword === defaultPassword) {
+    console.warn('⚠️  Using default super admin password. Set SUPER_ADMIN_PASSWORD before running in shared environments.');
+  }
   console.log('\n🎯 Admin can now login and add events, teams, and other content through the admin panel.');
   console.log({
     admin: {

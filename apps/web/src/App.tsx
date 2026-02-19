@@ -25,6 +25,11 @@ const AnnouncementDetailPage = lazy(() => import('@/pages/AnnouncementDetailPage
 const SignInPage = lazy(() => import('@/pages/SignInPage'));
 const JoinUsPage = lazy(() => import('@/pages/JoinUsPage'));
 const AuthCallbackPage = lazy(() => import('@/pages/AuthCallbackPage'));
+const NetworkPage = lazy(() => import('@/pages/NetworkPage'));
+const NetworkOnboarding = lazy(() => import('@/pages/network/NetworkOnboarding'));
+const NetworkStatusPage = lazy(() => import('@/pages/network/NetworkStatusPage'));
+const NetworkProfilePage = lazy(() => import('@/pages/network/NetworkProfilePage'));
+const JoinOurNetworkPage = lazy(() => import('@/pages/JoinOurNetworkPage'));
 
 // Dashboard - lazy loaded
 const DashboardLayout = lazy(() => import('@/components/dashboard/DashboardLayout'));
@@ -46,6 +51,7 @@ const AdminSettings = lazy(() => import('@/pages/admin/AdminSettings'));
 const AdminEventRegistrations = lazy(() => import('@/pages/admin/AdminEventRegistrations'));
 const EditEvent = lazy(() => import('@/pages/admin/EditEvent'));
 const AdminHiring = lazy(() => import('@/pages/admin/AdminHiring'));
+const AdminNetwork = lazy(() => import('@/pages/admin/AdminNetwork'));
 
 // Auth Components - keep synchronous for faster auth checks
 import { ProtectedRoute } from '@/components/auth/ProtectedRoute';
@@ -84,6 +90,11 @@ function App() {
                   <Route path="/signup" element={<SignInPage />} />
                   <Route path="/join-us" element={<JoinUsPage />} />
                   <Route path="/auth/callback" element={<AuthCallbackPage />} />
+                  <Route path="/network" element={<NetworkPage />} />
+                  <Route path="/network/onboarding" element={<NetworkOnboarding />} />
+                  <Route path="/network/status" element={<NetworkStatusPage />} />
+                  <Route path="/network/:slug" element={<NetworkProfilePage />} />
+                  <Route path="/join-our-network" element={<JoinOurNetworkPage />} />
 
                   {/* Protected User Routes */}
                   <Route element={<ProtectedRoute minRole="USER" />}>
@@ -109,6 +120,7 @@ function App() {
                       <Route path="event-registrations" element={<AdminEventRegistrations />} />
                       <Route path="events/:id/edit" element={<EditEvent />} />
                       <Route path="hiring" element={<AdminHiring />} />
+                      <Route path="network" element={<AdminNetwork />} />
                       <Route path="settings" element={<AdminSettings />} />
                     </Route>
                   </Route>

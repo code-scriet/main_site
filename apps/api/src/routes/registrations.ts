@@ -6,8 +6,29 @@ import { auditLog } from '../utils/audit.js';
 import { emailService } from '../utils/email.js';
 import { logger } from '../utils/logger.js';
 import { sanitizeEventRegistrationFields, validateRegistrationFieldSubmissions } from '../utils/eventRegistrationFields.js';
+import { getRegistrationStatus } from '../utils/registrationStatus.js';
 
 export const registrationsRouter = Router();
+
+class RegistrationHttpError extends Error {
+  status: number;
+  responseBody: Record<string, unknown>;
+
+  constructor(status: number, responseBody: Record<string, unknown>) {
+    const message = responseBody.error && typeof responseBody.error === 'object'
+      ? String((responseBody.error as { message?: unknown }).message || 'Registration failed')
+      : 'Registration failed';
+    super(message);
+    this.status = status;
+    this.responseBody = responseBody;
+  }
+}
+
+const REGISTRATION_TRANSACTION_RETRIES = 3;
+
+const isSchemaDriftError = (error: unknown): boolean => (
+  error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2022'
+);
 
 // Register for an event
 registrationsRouter.post('/events/:eventId', authMiddleware, async (req: Request, res: Response) => {
@@ -16,114 +37,181 @@ registrationsRouter.post('/events/:eventId', authMiddleware, async (req: Request
     const { eventId } = req.params;
     const { additionalFields } = req.body ?? {};
 
-    const event = await prisma.event.findUnique({
-      where: { id: eventId },
-      include: { _count: { select: { registrations: true } } },
-    });
+    let registration:
+      | {
+          id: string;
+          userId: string;
+          eventId: string;
+          timestamp: Date;
+          customFieldResponses: Prisma.JsonValue | null;
+          event: {
+            id: string;
+            title: string;
+            startDate: Date;
+            slug: string;
+            location: string | null;
+            imageUrl: string | null;
+          };
+        }
+      | null = null;
+    let eventTitle = '';
 
-    if (!event) {
-      return res.status(404).json({ success: false, error: { message: 'Event not found' } });
-    }
+    for (let attempt = 0; attempt < REGISTRATION_TRANSACTION_RETRIES; attempt += 1) {
+      try {
+        const result = await prisma.$transaction(async (tx) => {
+          const event = await tx.event.findUnique({
+            where: { id: eventId },
+            include: { _count: { select: { registrations: true } } },
+          });
 
-    // Cannot register for past events
-    if (event.status === 'PAST') {
-      return res.status(400).json({ success: false, error: { message: 'Cannot register for a past event' } });
-    }
+          if (!event) {
+            throw new RegistrationHttpError(404, { success: false, error: { message: 'Event not found' } });
+          }
 
-    const now = new Date();
-    if (event.registrationStartDate && now < event.registrationStartDate) {
-      return res.status(400).json({ success: false, error: { message: 'Registration has not started yet' } });
-    }
+          const now = new Date();
+          const effectiveEventEnd = event.endDate ?? event.startDate;
+          if (effectiveEventEnd < now) {
+            throw new RegistrationHttpError(400, { success: false, error: { message: 'Cannot register for a past event' } });
+          }
 
-    // Check if registration has ended
-    // If allowLateRegistration is enabled, registration can extend past event start
-    // Otherwise, registration closes at either registrationEndDate or event start, whichever is earlier
-    const eventStart = new Date(event.startDate);
-    let registrationClosed = false;
-    
-    if (event.allowLateRegistration) {
-      // Late registration allowed: only check registrationEndDate
-      if (event.registrationEndDate && now > event.registrationEndDate) {
-        registrationClosed = true;
-      }
-    } else {
-      // Standard behavior: registration closes at registrationEndDate or event start
-      const effectiveEndDate = event.registrationEndDate 
-        ? new Date(event.registrationEndDate) 
-        : eventStart;
-      if (now > effectiveEndDate) {
-        registrationClosed = true;
-      }
-    }
-    
-    if (registrationClosed) {
-      return res.status(400).json({ success: false, error: { message: 'Registration has ended' } });
-    }
+          if (event.registrationStartDate && now < event.registrationStartDate) {
+            throw new RegistrationHttpError(400, { success: false, error: { message: 'Registration has not started yet' } });
+          }
 
-    if (event.capacity && event._count.registrations >= event.capacity) {
-      return res.status(400).json({ success: false, error: { message: 'Event is full' } });
-    }
-
-    const existing = await prisma.eventRegistration.findUnique({
-      where: { userId_eventId: { userId: authUser.id, eventId } },
-    });
-
-    if (existing) {
-      return res.status(400).json({ success: false, error: { message: 'Already registered for this event' } });
-    }
-
-    let customFieldResponses: Prisma.InputJsonValue | undefined;
-    try {
-      const registrationFields = sanitizeEventRegistrationFields(event.registrationFields);
-      if (registrationFields.length > 0) {
-        const validation = validateRegistrationFieldSubmissions(registrationFields, additionalFields);
-        if (validation.errors.length > 0) {
-          return res.status(400).json({
-            success: false,
-            error: {
-              message: 'Additional registration details required',
-              details: validation.errors,
+          const registrationStatus = getRegistrationStatus(
+            {
+              startDate: event.startDate,
+              endDate: event.endDate,
+              registrationStartDate: event.registrationStartDate,
+              registrationEndDate: event.registrationEndDate,
+              allowLateRegistration: event.allowLateRegistration,
+              capacity: event.capacity,
             },
-            data: {
-              requiredFields: registrationFields,
+            event._count.registrations,
+            now
+          );
+
+          if (registrationStatus === 'closed') {
+            throw new RegistrationHttpError(400, { success: false, error: { message: 'Registration has ended' } });
+          }
+
+          if (registrationStatus === 'full') {
+            throw new RegistrationHttpError(400, { success: false, error: { message: 'Event is full' } });
+          }
+
+          const existing = await tx.eventRegistration.findUnique({
+            where: { userId_eventId: { userId: authUser.id, eventId } },
+            select: { id: true },
+          });
+
+          if (existing) {
+            throw new RegistrationHttpError(400, { success: false, error: { message: 'Already registered for this event' } });
+          }
+
+          let customFieldResponses: Prisma.InputJsonValue | undefined;
+          try {
+            const registrationFields = sanitizeEventRegistrationFields(event.registrationFields);
+            if (registrationFields.length > 0) {
+              const validation = validateRegistrationFieldSubmissions(registrationFields, additionalFields);
+              if (validation.errors.length > 0) {
+                throw new RegistrationHttpError(400, {
+                  success: false,
+                  error: {
+                    message: 'Additional registration details required',
+                    details: validation.errors,
+                  },
+                  data: {
+                    requiredFields: registrationFields,
+                  },
+                });
+              }
+              customFieldResponses = validation.responses.length > 0
+                ? (validation.responses as unknown as Prisma.InputJsonValue)
+                : undefined;
+            }
+          } catch (validationError) {
+            if (validationError instanceof RegistrationHttpError) {
+              throw validationError;
+            }
+            throw new RegistrationHttpError(400, {
+              success: false,
+              error: {
+                message: validationError instanceof Error ? validationError.message : 'Invalid registration fields',
+              },
+            });
+          }
+
+          const createdRegistration = await tx.eventRegistration.create({
+            data: { userId: authUser.id, eventId, customFieldResponses },
+            select: {
+              id: true,
+              userId: true,
+              eventId: true,
+              timestamp: true,
+              customFieldResponses: true,
+              event: { select: { id: true, title: true, startDate: true, slug: true, location: true, imageUrl: true } },
             },
           });
+
+          return { createdRegistration, eventTitle: event.title };
+        }, {
+          isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+        });
+
+        registration = result.createdRegistration;
+        eventTitle = result.eventTitle;
+        break;
+      } catch (error) {
+        if (error instanceof RegistrationHttpError) {
+          return res.status(error.status).json(error.responseBody);
         }
-        customFieldResponses = validation.responses.length > 0
-          ? (validation.responses as unknown as Prisma.InputJsonValue)
-          : undefined;
+
+        if (
+          error instanceof Prisma.PrismaClientKnownRequestError &&
+          error.code === 'P2002'
+        ) {
+          return res.status(400).json({ success: false, error: { message: 'Already registered for this event' } });
+        }
+
+        if (
+          error instanceof Prisma.PrismaClientKnownRequestError &&
+          error.code === 'P2034' &&
+          attempt < REGISTRATION_TRANSACTION_RETRIES - 1
+        ) {
+          continue;
+        }
+
+        throw error;
       }
-    } catch (validationError) {
-      return res.status(400).json({
-        success: false,
-        error: {
-          message: validationError instanceof Error ? validationError.message : 'Invalid registration fields',
-        },
-      });
     }
 
-    const registration = await prisma.eventRegistration.create({
-      data: { userId: authUser.id, eventId, customFieldResponses },
-      include: { event: { select: { id: true, title: true, startDate: true, slug: true, location: true, imageUrl: true } } },
-    });
+    if (!registration) {
+      return res.status(409).json({ success: false, error: { message: 'Please try again. The event registration just changed.' } });
+    }
 
-    await auditLog(authUser.id, 'REGISTER', 'event', eventId, { eventTitle: event.title });
+    await auditLog(authUser.id, 'REGISTER', 'event', eventId, { eventTitle });
 
     // Send registration confirmation email (async, don't wait)
     if (authUser.email) {
       sendRegistrationConfirmationEmail(
         authUser.email,
         authUser.name || 'Member',
-        registration.event
+        registration.event,
       );
     }
 
     res.status(201).json({
       success: true,
       data: registration,
-      message: `Successfully registered for ${event.title}`,
+      message: `Successfully registered for ${eventTitle}`,
     });
   } catch (error) {
+    if (isSchemaDriftError(error)) {
+      return res.status(500).json({
+        success: false,
+        error: { message: 'Database schema is out of date. Please apply latest migrations and retry.' },
+      });
+    }
     res.status(500).json({ success: false, error: { message: 'Failed to register' } });
   }
 });
@@ -161,7 +249,13 @@ registrationsRouter.delete('/events/:eventId', authMiddleware, async (req: Reque
 
     const registration = await prisma.eventRegistration.findUnique({
       where: { userId_eventId: { userId: authUser.id, eventId } },
-      include: { event: { select: { id: true, title: true, startDate: true } } },
+      select: {
+        id: true,
+        userId: true,
+        eventId: true,
+        timestamp: true,
+        event: { select: { id: true, title: true, startDate: true } },
+      },
     });
 
     if (!registration) {
@@ -180,6 +274,12 @@ registrationsRouter.delete('/events/:eventId', authMiddleware, async (req: Reque
 
     res.json({ success: true, message: `Successfully unregistered from ${registration.event.title}` });
   } catch (error) {
+    if (isSchemaDriftError(error)) {
+      return res.status(500).json({
+        success: false,
+        error: { message: 'Database schema is out of date. Please apply latest migrations and retry.' },
+      });
+    }
     res.status(500).json({ success: false, error: { message: 'Failed to unregister' } });
   }
 });
@@ -191,7 +291,12 @@ registrationsRouter.get('/my', authMiddleware, async (req: Request, res: Respons
 
     const registrations = await prisma.eventRegistration.findMany({
       where: { userId: authUser.id },
-      include: {
+      select: {
+        id: true,
+        userId: true,
+        eventId: true,
+        timestamp: true,
+        customFieldResponses: true,
         event: {
           select: {
             id: true,
@@ -211,6 +316,12 @@ registrationsRouter.get('/my', authMiddleware, async (req: Request, res: Respons
 
     res.json({ success: true, data: registrations });
   } catch (error) {
+    if (isSchemaDriftError(error)) {
+      return res.status(500).json({
+        success: false,
+        error: { message: 'Database schema is out of date. Please apply latest migrations and retry.' },
+      });
+    }
     res.status(500).json({ success: false, error: { message: 'Failed to fetch registrations' } });
   }
 });
@@ -223,6 +334,7 @@ registrationsRouter.get('/events/:eventId/status', authMiddleware, async (req: R
 
     const registration = await prisma.eventRegistration.findUnique({
       where: { userId_eventId: { userId: authUser.id, eventId } },
+      select: { timestamp: true },
     });
 
     res.json({
@@ -230,6 +342,12 @@ registrationsRouter.get('/events/:eventId/status', authMiddleware, async (req: R
       data: { isRegistered: !!registration, registeredAt: registration?.timestamp || null },
     });
   } catch (error) {
+    if (isSchemaDriftError(error)) {
+      return res.status(500).json({
+        success: false,
+        error: { message: 'Database schema is out of date. Please apply latest migrations and retry.' },
+      });
+    }
     res.status(500).json({ success: false, error: { message: 'Failed to check status' } });
   }
 });

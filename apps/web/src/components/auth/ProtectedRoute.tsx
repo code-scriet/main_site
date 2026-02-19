@@ -4,8 +4,10 @@ import { useAuth } from '@/context/AuthContext';
 const roleHierarchy: Record<string, number> = {
   PUBLIC: 0,
   USER: 1,
-  CORE_MEMBER: 2,
-  ADMIN: 3,
+  NETWORK: 1,
+  MEMBER: 2,
+  CORE_MEMBER: 3,
+  ADMIN: 4,
 };
 
 interface ProtectedRouteProps {
@@ -28,6 +30,11 @@ export function ProtectedRoute({ minRole = 'USER' }: ProtectedRouteProps) {
 
   if (!user) {
     return <Navigate to="/signin" replace />;
+  }
+
+  // NETWORK users should never access /dashboard routes — redirect to network status
+  if (user.role === 'NETWORK') {
+    return <Navigate to="/network/status" replace />;
   }
 
   const userLevel = roleHierarchy[user.role] || 0;

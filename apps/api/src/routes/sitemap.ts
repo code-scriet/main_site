@@ -1,13 +1,15 @@
 import express, { Request, Response } from 'express';
 import { prisma } from '../lib/prisma.js';
+import { logger } from '../utils/logger.js';
 
 export const sitemapRouter = express.Router();
+export const robotsRouter = express.Router();
 
 /**
  * Generate dynamic sitemap.xml with all events, achievements, and announcements
  * GET /sitemap.xml (served at root level for Google)
  */
-sitemapRouter.get('/', async (req: Request, res: Response) => {
+sitemapRouter.get('/', async (_req: Request, res: Response) => {
   // CORS headers for Google and other bots
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
@@ -128,7 +130,9 @@ sitemapRouter.get('/', async (req: Request, res: Response) => {
     res.setHeader('X-Robots-Tag', 'noindex'); // Don't index the sitemap itself
     res.send(xml);
   } catch (error) {
-    console.error('Sitemap generation error:', error);
+    logger.error('Sitemap generation error', {
+      error: error instanceof Error ? error.message : String(error),
+    });
     res.status(500);
     res.setHeader('Content-Type', 'application/xml; charset=utf-8');
     // Return fallback sitemap with static pages only
@@ -139,11 +143,10 @@ sitemapRouter.get('/', async (req: Request, res: Response) => {
 
 /**
  * Generate robots.txt
- * GET /robots.txt
+ * GET /robots.txt (mounted at root)
  */
-sitemapRouter.get('/robots', (req: Request, res: Response) => {
+robotsRouter.get('/', (_req: Request, res: Response) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
-  const baseUrl = process.env.FRONTEND_URL || 'https://codescriet.dev';
   const apiUrl = process.env.API_URL || 'https://api.codescriet.dev';
   
   let robots = '# robots.txt for codescriet.dev\n';

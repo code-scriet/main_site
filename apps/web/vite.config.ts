@@ -25,7 +25,7 @@ export default defineConfig({
           'vendor-react': ['react', 'react-dom', 'react-router-dom'],
           'vendor-ui': ['framer-motion', '@tanstack/react-query'],
           // Feature chunks
-          'markdown': ['react-markdown', 'remark-gfm', 'rehype-highlight', 'rehype-raw'],
+          'markdown': ['react-markdown', 'remark-gfm', 'rehype-highlight'],
         },
       },
     },

@@ -1,11 +1,47 @@
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import rehypeRaw from 'rehype-raw';
 import type { Components } from 'react-markdown';
 
 interface MarkdownProps {
   children: string;
   className?: string;
+}
+
+const SAFE_LINK_PROTOCOLS = new Set(['http:', 'https:', 'mailto:', 'tel:']);
+const SAFE_IMAGE_PROTOCOLS = new Set(['http:', 'https:']);
+const URL_BASE = 'https://codescriet.dev';
+
+function sanitizeUrl(raw: string | undefined, allowedProtocols: Set<string>): string | null {
+  if (!raw) {
+    return null;
+  }
+
+  const value = raw.trim();
+  if (!value) {
+    return null;
+  }
+
+  if (value.startsWith('#') || value.startsWith('/')) {
+    return value;
+  }
+
+  try {
+    const parsed = new URL(value, URL_BASE);
+    if (!allowedProtocols.has(parsed.protocol)) {
+      return null;
+    }
+    return parsed.toString();
+  } catch {
+    return null;
+  }
+}
+
+function getSafeLinkHref(raw: string | undefined): string | null {
+  return sanitizeUrl(raw, SAFE_LINK_PROTOCOLS);
+}
+
+function getSafeImageSrc(raw: string | undefined): string | null {
+  return sanitizeUrl(raw, SAFE_IMAGE_PROTOCOLS);
 }
 
 /**
@@ -30,16 +66,23 @@ export function InlineMarkdown({ children, className = '' }: MarkdownProps) {
       <del className="line-through text-gray-500">{children}</del>
     ),
     // Links
-    a: ({ href, children }) => (
-      <a
-        href={href}
-        target="_blank"
-        rel="noopener noreferrer"
-        className="text-amber-600 hover:text-amber-700 underline underline-offset-2"
-      >
-        {children}
-      </a>
-    ),
+    a: ({ href, children }) => {
+      const safeHref = getSafeLinkHref(href);
+      if (!safeHref) {
+        return <span className="text-gray-500">{children}</span>;
+      }
+      const external = safeHref.startsWith('http://') || safeHref.startsWith('https://');
+      return (
+        <a
+          href={safeHref}
+          target={external ? '_blank' : undefined}
+          rel={external ? 'noopener noreferrer' : undefined}
+          className="text-amber-600 hover:text-amber-700 underline underline-offset-2"
+        >
+          {children}
+        </a>
+      );
+    },
     // Inline code
     code: ({ children }) => (
       <code className="bg-amber-100/50 text-amber-700 px-1 py-0.5 rounded text-sm font-mono">
@@ -132,16 +175,23 @@ export function Markdown({ children, className = '' }: MarkdownProps) {
     ),
 
     // Links
-    a: ({ href, children }) => (
-      <a
-        href={href}
-        target="_blank"
-        rel="noopener noreferrer"
-        className="text-amber-600 hover:text-amber-700 underline underline-offset-2 transition-colors"
-      >
-        {children}
-      </a>
-    ),
+    a: ({ href, children }) => {
+      const safeHref = getSafeLinkHref(href);
+      if (!safeHref) {
+        return <span className="text-gray-500">{children}</span>;
+      }
+      const external = safeHref.startsWith('http://') || safeHref.startsWith('https://');
+      return (
+        <a
+          href={safeHref}
+          target={external ? '_blank' : undefined}
+          rel={external ? 'noopener noreferrer' : undefined}
+          className="text-amber-600 hover:text-amber-700 underline underline-offset-2 transition-colors"
+        >
+          {children}
+        </a>
+      );
+    },
 
     // Unordered Lists
     ul: ({ children }) => (
@@ -230,14 +280,20 @@ export function Markdown({ children, className = '' }: MarkdownProps) {
     ),
 
     // Images
-    img: ({ src, alt }) => (
-      <img
-        src={src}
-        alt={alt || ''}
-        className="rounded-lg max-w-full h-auto my-4 shadow-md"
-        loading="lazy"
-      />
-    ),
+    img: ({ src, alt }) => {
+      const safeSrc = getSafeImageSrc(src);
+      if (!safeSrc) {
+        return null;
+      }
+      return (
+        <img
+          src={safeSrc}
+          alt={alt || ''}
+          className="rounded-lg max-w-full h-auto my-4 shadow-md"
+          loading="lazy"
+        />
+      );
+    },
 
     // Task List Items (GFM) - handled via input checkbox
     input: ({ type, checked, disabled }) => {
@@ -260,7 +316,6 @@ export function Markdown({ children, className = '' }: MarkdownProps) {
     <div className={`prose prose-amber max-w-none ${className}`}>
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
-        rehypePlugins={[rehypeRaw]}
         components={components}
       >
         {children}

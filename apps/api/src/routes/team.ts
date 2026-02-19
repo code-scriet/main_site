@@ -1,10 +1,50 @@
 import { Router, Request, Response } from 'express';
+import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
 import { authMiddleware, getAuthUser } from '../middleware/auth.js';
 import { requireRole } from '../middleware/role.js';
 import { auditLog } from '../utils/audit.js';
 
 export const teamRouter = Router();
+
+const optionalSocialUrl = z
+  .union([z.string().url('Must be a valid URL'), z.literal('')])
+  .optional();
+
+const createTeamMemberSchema = z.object({
+  name: z.string().trim().min(1).max(100),
+  role: z.string().trim().min(1).max(100),
+  team: z.string().trim().min(1).max(100),
+  imageUrl: z.string().url('Image URL must be a valid URL'),
+  github: optionalSocialUrl,
+  linkedin: optionalSocialUrl,
+  twitter: optionalSocialUrl,
+  instagram: optionalSocialUrl,
+  order: z.coerce.number().int().min(0).max(10000).optional(),
+});
+
+const updateTeamMemberSchema = createTeamMemberSchema
+  .partial()
+  .refine((data) => Object.keys(data).length > 0, {
+    message: 'At least one field is required',
+  });
+
+const reorderSchema = z.object({
+  members: z.array(
+    z.object({
+      id: z.string().min(1),
+      order: z.coerce.number().int().min(0).max(10000),
+    })
+  ).max(500),
+});
+
+const normalizeOptionalText = (value?: string): string | null => {
+  if (value === undefined) {
+    return null;
+  }
+  const trimmed = value.trim();
+  return trimmed ? trimmed : null;
+};
 
 // Get all team members
 teamRouter.get('/', async (req: Request, res: Response) => {
@@ -21,6 +61,23 @@ teamRouter.get('/', async (req: Request, res: Response) => {
     res.json({ success: true, data: teamMembers });
   } catch (error) {
     res.status(500).json({ success: false, error: { message: 'Failed to fetch team members' } });
+  }
+});
+
+// Get team groups/types
+teamRouter.get('/meta/teams', async (_req: Request, res: Response) => {
+  try {
+    const teams = await prisma.teamMember.groupBy({
+      by: ['team'],
+      _count: { id: true },
+    });
+
+    res.json({
+      success: true,
+      data: teams.map((t) => ({ team: t.team, count: t._count.id })),
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, error: { message: 'Failed to fetch teams' } });
   }
 });
 
@@ -41,46 +98,30 @@ teamRouter.get('/:id', async (req: Request, res: Response) => {
   }
 });
 
-// Get team groups/types
-teamRouter.get('/meta/teams', async (req: Request, res: Response) => {
-  try {
-    const teams = await prisma.teamMember.groupBy({
-      by: ['team'],
-      _count: { id: true },
-    });
-
-    res.json({
-      success: true,
-      data: teams.map((t) => ({ team: t.team, count: t._count.id })),
-    });
-  } catch (error) {
-    res.status(500).json({ success: false, error: { message: 'Failed to fetch teams' } });
-  }
-});
-
 // Create team member
 teamRouter.post('/', authMiddleware, requireRole('ADMIN'), async (req: Request, res: Response) => {
   try {
     const authUser = getAuthUser(req)!;
-    const { name, role, team, imageUrl, github, linkedin, twitter, instagram, order } = req.body;
-
-    if (!name || !role || !team || !imageUrl) {
+    const parsed = createTeamMemberSchema.safeParse(req.body);
+    if (!parsed.success) {
       return res.status(400).json({
         success: false,
-        error: { message: 'Name, role, team, and imageUrl are required' },
+        error: { message: parsed.error.errors[0]?.message || 'Invalid input' },
       });
     }
 
+    const { name, role, team, imageUrl, github, linkedin, twitter, instagram, order } = parsed.data;
+
     const teamMember = await prisma.teamMember.create({
       data: {
-        name,
-        role,
-        team,
+        name: name.trim(),
+        role: role.trim(),
+        team: team.trim(),
         imageUrl,
-        github: github || null,
-        linkedin: linkedin || null,
-        twitter: twitter || null,
-        instagram: instagram || null,
+        github: normalizeOptionalText(github),
+        linkedin: normalizeOptionalText(linkedin),
+        twitter: normalizeOptionalText(twitter),
+        instagram: normalizeOptionalText(instagram),
         order: order || 0,
       },
     });
@@ -96,19 +137,27 @@ teamRouter.post('/', authMiddleware, requireRole('ADMIN'), async (req: Request, 
 teamRouter.put('/:id', authMiddleware, requireRole('ADMIN'), async (req: Request, res: Response) => {
   try {
     const authUser = getAuthUser(req)!;
-    const { name, role, team, imageUrl, github, linkedin, twitter, instagram, order } = req.body;
+    const parsed = updateTeamMemberSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({
+        success: false,
+        error: { message: parsed.error.errors[0]?.message || 'Invalid input' },
+      });
+    }
+
+    const { name, role, team, imageUrl, github, linkedin, twitter, instagram, order } = parsed.data;
 
     const teamMember = await prisma.teamMember.update({
       where: { id: req.params.id },
       data: {
-        ...(name && { name }),
-        ...(role && { role }),
-        ...(team && { team }),
+        ...(name !== undefined && { name: name.trim() }),
+        ...(role !== undefined && { role: role.trim() }),
+        ...(team !== undefined && { team: team.trim() }),
         ...(imageUrl && { imageUrl }),
-        ...(github !== undefined && { github }),
-        ...(linkedin !== undefined && { linkedin }),
-        ...(twitter !== undefined && { twitter }),
-        ...(instagram !== undefined && { instagram }),
+        ...(github !== undefined && { github: normalizeOptionalText(github) }),
+        ...(linkedin !== undefined && { linkedin: normalizeOptionalText(linkedin) }),
+        ...(twitter !== undefined && { twitter: normalizeOptionalText(twitter) }),
+        ...(instagram !== undefined && { instagram: normalizeOptionalText(instagram) }),
         ...(order !== undefined && { order }),
       },
     });
@@ -124,14 +173,14 @@ teamRouter.put('/:id', authMiddleware, requireRole('ADMIN'), async (req: Request
 teamRouter.patch('/reorder', authMiddleware, requireRole('ADMIN'), async (req: Request, res: Response) => {
   try {
     const authUser = getAuthUser(req)!;
-    const { members } = req.body; // Array of { id, order }
-
-    if (!Array.isArray(members)) {
+    const parsed = reorderSchema.safeParse(req.body);
+    if (!parsed.success) {
       return res.status(400).json({ success: false, error: { message: 'Members array is required' } });
     }
+    const { members } = parsed.data;
 
     await prisma.$transaction(
-      members.map(({ id, order }: { id: string; order: number }) =>
+      members.map(({ id, order }) =>
         prisma.teamMember.update({ where: { id }, data: { order } })
       )
     );

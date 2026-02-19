@@ -37,6 +37,7 @@ model User {
   registrations      EventRegistration[]
   hiringApplications HiringApplication[]
   qotdSubmissions    QOTDSubmission[]
+  networkProfile     NetworkProfile?
 
   @@map("users")
 }
@@ -62,8 +63,11 @@ model Settings {
   emailAnnouncementBody String?  @map("email_announcement_body")
   emailEventBody        String?  @map("email_event_body")
   emailFooterText       String?  @map("email_footer_text")
-  emailWelcomeBody      String?  @map("email_welcome_body")
-  show_tech_blogs       Boolean  @default(true)
+  emailWelcomeBody          String?  @map("email_welcome_body")
+  show_tech_blogs           Boolean  @default(true)
+  showNetwork               Boolean  @default(true) @map("show_network")
+  emailNetworkVerifiedBody  String?  @map("email_network_verified_body")
+  emailNetworkRejectedBody  String?  @map("email_network_rejected_body")
 
   @@map("settings")
 }
@@ -115,6 +119,7 @@ model EventRegistration {
   eventId              String   @map("event_id")
   timestamp            DateTime @default(now())
   customFieldResponses Json?    @map("custom_field_responses")
+  reminderSentAt       DateTime? @map("reminder_sent_at")
   event                Event    @relation(fields: [eventId], references: [id], onDelete: Cascade)
   user                 User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -122,6 +127,7 @@ model EventRegistration {
   @@index([eventId])
   @@index([userId, timestamp])
   @@index([timestamp])
+  @@index([reminderSentAt])
   @@map("event_registrations")
 }
 
@@ -257,6 +263,7 @@ enum Role {
   CORE_MEMBER
   ADMIN
   MEMBER
+  NETWORK
 }
 
 enum EventStatus {
@@ -284,5 +291,90 @@ enum ApplicationStatus {
   PENDING
   INTERVIEW_SCHEDULED
   SELECTED
+  REJECTED
+}
+
+// Network Feature - Industry Professionals & Alumni
+model NetworkProfile {
+  id               String                @id @default(cuid())
+  userId           String                @unique @map("user_id")
+  user             User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // URL slug (name-XXXX format for unique public URLs)
+  slug             String?               @unique
+
+  // Professional details
+  fullName         String                @map("full_name")
+  designation      String                // e.g. "CEO", "Senior Engineer"
+  company          String
+  industry         String                // e.g. "FinTech", "EdTech", "Product"
+  bio              String?               @db.Text
+  profilePhoto     String?               @map("profile_photo")
+  phone            String?               // Private — only for admin contact
+
+  // Social/professional links
+  linkedinUsername String?               @map("linkedin_username")
+  twitterUsername  String?               @map("twitter_username")
+  githubUsername   String?               @map("github_username")
+  personalWebsite  String?               @map("personal_website")
+
+  // Connection context
+  connectionType   NetworkConnectionType @map("connection_type")
+  connectionNote   String?               @db.Text @map("connection_note")
+  connectedSince   Int?                  @map("connected_since") // Year they first connected
+
+  // Alumni-specific fields (only relevant when connectionType is ALUMNI)
+  passoutYear      Int?                  @map("passout_year")    // Graduation year
+  degree           String?               // e.g. "B.Tech", "M.Tech", "MCA"
+  branch           String?               // e.g. "Computer Science", "Electronics"
+  rollNumber       String?               @map("roll_number")     // Optional college roll
+  achievements     String?               @db.Text               // Notable achievements
+  currentLocation  String?               @map("current_location") // City, Country
+
+  // Admin-managed rich content (markdown)
+  adminNotes       String?               @db.Text @map("admin_notes")
+
+  // Event participation history (JSON array of events they attended/hosted)
+  // Format: [{ title: string, date: string, description?: string, type?: string, link?: string }]
+  events           Json?                 @default("[]")
+
+  // Featured flag for homepage showcase
+  isFeatured       Boolean               @default(false) @map("is_featured")
+
+  // Verification
+  status           NetworkStatus         @default(PENDING)
+  verifiedAt       DateTime?             @map("verified_at")
+  verifiedBy       String?               @map("verified_by")
+  rejectionReason  String?               @map("rejection_reason")
+
+  // Visibility
+  isPublic         Boolean               @default(true) @map("is_public")
+  displayOrder     Int                   @default(0) @map("display_order")
+
+  createdAt        DateTime              @default(now()) @map("created_at")
+  updatedAt        DateTime              @updatedAt @map("updated_at")
+
+  @@index([status, createdAt])
+  @@index([connectionType])
+  @@index([industry])
+  @@index([displayOrder])
+  @@index([isFeatured])
+  @@index([passoutYear])
+  @@map("network_profiles")
+}
+
+enum NetworkConnectionType {
+  GUEST_SPEAKER
+  GMEET_SESSION
+  EVENT_JUDGE
+  MENTOR
+  INDUSTRY_PARTNER
+  ALUMNI
+  OTHER
+}
+
+enum NetworkStatus {
+  PENDING
+  VERIFIED
   REJECTED
 }

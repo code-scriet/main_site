@@ -13,8 +13,8 @@ Use this checklist to verify the setup is working correctly.
 
 - [ ] `.env` file exists in project root
 - [ ] `DATABASE_URL` configured with valid PostgreSQL connection
-- [ ] `SUPER_ADMIN_EMAIL` set (or using default: developer.aary@gmail.com)
-- [ ] `SUPER_ADMIN_PASSWORD` set (or using default: Dk261135@)
+- [ ] `SUPER_ADMIN_EMAIL` set (or using default: admin@example.com)
+- [ ] `SUPER_ADMIN_PASSWORD` set (or using default: change_this_password)
 - [ ] `JWT_SECRET` configured
 - [ ] `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` configured
 - [ ] OAuth redirect URIs configured in Google Console
@@ -57,8 +57,8 @@ Verify:
 1. [ ] Open http://localhost:5173
 2. [ ] Click "Sign In" or navigate to login
 3. [ ] Use OAuth or direct login with:
-   - Email: developer.aary@gmail.com (or your configured email)
-   - Password: Dk261135@ (or your configured password)
+   - Email: admin@example.com (or your configured email)
+   - Password: change_this_password (or your configured password)
 4. [ ] Successfully logged in as admin
 5. [ ] Can access admin dashboard
 6. [ ] Dashboard shows no pre-populated data

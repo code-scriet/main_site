@@ -5,13 +5,16 @@ import { prisma } from '../lib/prisma.js';
 import { emailService } from './email.js';
 import { logger } from './logger.js';
 
-// Track sent reminders to avoid duplicates (in production, use database)
-const sentReminders = new Set<string>();
+let reminderColumnAvailable = true;
 
 /**
  * Check for events happening in the next 24 hours and send reminders
  */
 async function sendEventReminders(): Promise<void> {
+  if (!reminderColumnAvailable) {
+    return;
+  }
+
   try {
     const now = new Date();
     
@@ -24,125 +27,125 @@ async function sendEventReminders(): Promise<void> {
       checkWindow: `${minTime.toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })} to ${maxTime.toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })} IST`
     });
     
-    // Get events happening tomorrow
-    const upcomingEvents = await prisma.event.findMany({
+    const pendingRegistrations = await prisma.eventRegistration.findMany({
       where: {
-        startDate: {
-          gte: minTime,
-          lte: maxTime,
+        reminderSentAt: null,
+        event: {
+          startDate: {
+            gte: minTime,
+            lte: maxTime,
+          },
+          status: 'UPCOMING',
         },
-        status: 'UPCOMING',
+        // Exclude NETWORK role users from reminders
+        user: {
+          role: { not: 'NETWORK' },
+        },
       },
-      include: {
-        registrations: {
-          include: {
-            user: {
-              select: {
-                id: true,
-                email: true,
-                name: true,
-              },
-            },
+      select: {
+        id: true,
+        event: {
+          select: {
+            id: true,
+            title: true,
+            startDate: true,
+            slug: true,
+          },
+        },
+        user: {
+          select: {
+            id: true,
+            email: true,
+            name: true,
           },
         },
       },
     });
     
-    if (upcomingEvents.length === 0) {
+    if (pendingRegistrations.length === 0) {
       logger.info('📭 No events needing reminders at this time');
       return;
     }
     
-    logger.info(`📬 Found ${upcomingEvents.length} event(s) needing reminders`);
+    logger.info(`📬 Found ${pendingRegistrations.length} registration(s) needing reminders`);
     
-    for (const event of upcomingEvents) {
-      // All registrations are considered confirmed
-      const registeredUsers = event.registrations;
-      
-      if (registeredUsers.length === 0) {
-        logger.info(`⏭️ Skipping "${event.title}" - no registrations`);
+    for (const registration of pendingRegistrations) {
+      const reservationTimestamp = new Date();
+      const reservation = await prisma.eventRegistration.updateMany({
+        where: {
+          id: registration.id,
+          reminderSentAt: null,
+        },
+        data: {
+          reminderSentAt: reservationTimestamp,
+        },
+      });
+
+      if (reservation.count === 0) {
         continue;
       }
-      
-      logger.info(`📧 Sending reminders for "${event.title}" to ${registeredUsers.length} users`);
-      
-      for (const registration of registeredUsers) {
-        const reminderKey = `${event.id}-${registration.userId}`;
+
+      try {
+        const success = await emailService.sendEventReminder(
+          registration.user.email,
+          registration.user.name,
+          registration.event.title,
+          registration.event.startDate,
+          registration.event.slug
+        );
         
-        // Skip if already sent
-        if (sentReminders.has(reminderKey)) {
-          continue;
-        }
-        
-        try {
-          const success = await emailService.sendEventReminder(
-            registration.user.email,
-            registration.user.name,
-            event.title,
-            event.startDate,
-            event.slug
-          );
-          
-          if (success) {
-            sentReminders.add(reminderKey);
-            logger.info(`✅ Reminder sent to ${registration.user.email} for "${event.title}"`);
-          }
-          
-          // Small delay between emails to avoid rate limits
-          await new Promise(resolve => setTimeout(resolve, 200));
-        } catch (error) {
-          logger.error(`❌ Failed to send reminder to ${registration.user.email}`, {
-            error: error instanceof Error ? error.message : String(error)
+        if (success) {
+          logger.info(`✅ Reminder sent to ${registration.user.email} for "${registration.event.title}"`);
+        } else {
+          await prisma.eventRegistration.updateMany({
+            where: {
+              id: registration.id,
+              reminderSentAt: reservationTimestamp,
+            },
+            data: {
+              reminderSentAt: null,
+            },
           });
         }
+        
+        // Small delay between emails to avoid rate limits
+        await new Promise(resolve => setTimeout(resolve, 200));
+      } catch (error) {
+        await prisma.eventRegistration.updateMany({
+          where: {
+            id: registration.id,
+            reminderSentAt: reservationTimestamp,
+          },
+          data: {
+            reminderSentAt: null,
+          },
+        });
+
+        logger.error(`❌ Failed to send reminder to ${registration.user.email}`, {
+          error: error instanceof Error ? error.message : String(error)
+        });
       }
     }
     
     logger.info('✅ Event reminder check complete');
   } catch (error) {
+    if (error instanceof Error && error.message.includes('reminder_sent_at')) {
+      reminderColumnAvailable = false;
+      logger.warn('Reminder scheduler disabled: reminder_sent_at column is missing. Run latest migrations to re-enable reminders.');
+      return;
+    }
+
     logger.error('❌ Error in sendEventReminders:', {
       error: error instanceof Error ? error.message : String(error)
     });
   }
 }
 
-/**
- * Clean up old reminder records (events that have passed)
- */
-async function cleanupOldReminders(): Promise<void> {
-  try {
-    const now = new Date();
-    
-    // Get IDs of past events
-    const pastEvents = await prisma.event.findMany({
-      where: {
-        startDate: { lt: now },
-      },
-      select: { id: true },
-    });
-    
-    const pastEventIds = new Set(pastEvents.map(e => e.id));
-    
-    // Remove reminders for past events
-    for (const key of sentReminders) {
-      const eventId = key.split('-')[0];
-      if (pastEventIds.has(eventId)) {
-        sentReminders.delete(key);
-      }
-    }
-  } catch (error) {
-    logger.error('Error cleaning up reminders:', { 
-      error: error instanceof Error ? error.message : String(error) 
-    });
-  }
-}
-
 let reminderInterval: NodeJS.Timeout | null = null;
-let cleanupInterval: NodeJS.Timeout | null = null;
 
 /**
  * Start the reminder scheduler
- * Checks every hour for events needing reminders
+ * Checks every 6 hours for events needing reminders
  */
 export function startReminderScheduler(): void {
   // Run immediately on startup
@@ -155,11 +158,6 @@ export function startReminderScheduler(): void {
     sendEventReminders();
   }, 6 * 60 * 60 * 1000); // Every 6 hours
   
-  // Clean up old reminders every 24 hours
-  cleanupInterval = setInterval(() => {
-    cleanupOldReminders();
-  }, 24 * 60 * 60 * 1000);
-  
   logger.info('🔔 Event reminder scheduler started (checks every 6 hours)');
 }
 
@@ -171,10 +169,6 @@ export function stopReminderScheduler(): void {
     clearInterval(reminderInterval);
     reminderInterval = null;
   }
-  if (cleanupInterval) {
-    clearInterval(cleanupInterval);
-    cleanupInterval = null;
-  }
   logger.info('🔕 Event reminder scheduler stopped');
 }
 
@@ -182,6 +176,10 @@ export function stopReminderScheduler(): void {
  * Manually trigger reminder check (for testing/admin)
  */
 export async function triggerReminderCheck(): Promise<{ sent: number; events: string[] }> {
+  if (!reminderColumnAvailable) {
+    return { sent: 0, events: [] };
+  }
+
   const events: string[] = [];
   let sent = 0;
   
@@ -190,33 +188,102 @@ export async function triggerReminderCheck(): Promise<{ sent: number; events: st
     const minTime = new Date(now.getTime() + 20 * 60 * 60 * 1000);
     const maxTime = new Date(now.getTime() + 28 * 60 * 60 * 1000);
     
-    const upcomingEvents = await prisma.event.findMany({
+    const pendingRegistrations = await prisma.eventRegistration.findMany({
       where: {
-        startDate: { gte: minTime, lte: maxTime },
-        status: 'UPCOMING',
+        reminderSentAt: null,
+        event: {
+          startDate: { gte: minTime, lte: maxTime },
+          status: 'UPCOMING',
+        },
+        // Exclude NETWORK role users from reminders
+        user: {
+          role: { not: 'NETWORK' },
+        },
       },
-      include: {
-        registrations: {
-          include: { user: { select: { email: true, name: true } } },
+      select: {
+        id: true,
+        event: {
+          select: {
+            id: true,
+            title: true,
+            startDate: true,
+            slug: true,
+          },
+        },
+        user: {
+          select: {
+            email: true,
+            name: true,
+          },
         },
       },
     });
     
-    for (const event of upcomingEvents) {
-      events.push(event.title);
-      for (const reg of event.registrations) {
+    for (const reg of pendingRegistrations) {
+      if (!events.includes(reg.event.title)) {
+        events.push(reg.event.title);
+      }
+
+      const reservationTimestamp = new Date();
+      const reservation = await prisma.eventRegistration.updateMany({
+        where: {
+          id: reg.id,
+          reminderSentAt: null,
+        },
+        data: {
+          reminderSentAt: reservationTimestamp,
+        },
+      });
+
+      if (reservation.count === 0) {
+        continue;
+      }
+
+      try {
         const success = await emailService.sendEventReminder(
           reg.user.email,
           reg.user.name,
-          event.title,
-          event.startDate,
-          event.slug
+          reg.event.title,
+          reg.event.startDate,
+          reg.event.slug
         );
         if (success) sent++;
+        if (!success) {
+          await prisma.eventRegistration.updateMany({
+            where: {
+              id: reg.id,
+              reminderSentAt: reservationTimestamp,
+            },
+            data: {
+              reminderSentAt: null,
+            },
+          });
+        }
         await new Promise(resolve => setTimeout(resolve, 200));
+      } catch (sendError) {
+        await prisma.eventRegistration.updateMany({
+          where: {
+            id: reg.id,
+            reminderSentAt: reservationTimestamp,
+          },
+          data: {
+            reminderSentAt: null,
+          },
+        });
+        logger.error('Error sending manual reminder', {
+          error: sendError instanceof Error ? sendError.message : String(sendError),
+          eventId: reg.event.id,
+          registrationId: reg.id,
+        });
       }
     }
   } catch (error) {
+    if (error instanceof Error && error.message.includes('reminder_sent_at')) {
+      reminderColumnAvailable = false;
+      logger.warn('Manual reminder check skipped: reminder_sent_at column is missing. Run latest migrations.');
+      return { sent: 0, events: [] };
+    }
+
     logger.error('Error in manual reminder trigger:', { 
       error: error instanceof Error ? error.message : String(error) 
     });

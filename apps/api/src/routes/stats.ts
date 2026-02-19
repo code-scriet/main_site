@@ -23,8 +23,7 @@ const mapDailyAggregateRows = (rows: DailyAggregateRow[]) =>
     };
   });
 
-// Get public stats
-statsRouter.get('/', async (_req: Request, res: Response) => {
+const sendPublicStats = async (res: Response) => {
   try {
     const [userCount, eventCount, upcomingEventCount, teamMemberCount, achievementCount] = await Promise.all([
       prisma.user.count(),
@@ -36,11 +35,28 @@ statsRouter.get('/', async (_req: Request, res: Response) => {
 
     res.json({
       success: true,
-      data: { users: userCount, events: eventCount, upcomingEvents: upcomingEventCount, teamMembers: teamMemberCount, achievements: achievementCount },
+      data: {
+        users: userCount,
+        members: userCount,
+        events: eventCount,
+        upcomingEvents: upcomingEventCount,
+        teamMembers: teamMemberCount,
+        achievements: achievementCount,
+      },
     });
   } catch (error) {
     res.status(500).json({ success: false, error: { message: 'Failed to fetch stats' } });
   }
+};
+
+// Get public stats
+statsRouter.get('/', async (_req: Request, res: Response) => {
+  await sendPublicStats(res);
+});
+
+// Backwards-compatible alias used by frontend
+statsRouter.get('/public', async (_req: Request, res: Response) => {
+  await sendPublicStats(res);
 });
 
 // Get dashboard stats (admin)

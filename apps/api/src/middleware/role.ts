@@ -1,13 +1,15 @@
 import { Request, Response, NextFunction, RequestHandler } from 'express';
-import { AuthRequest, getAuthUser } from './auth.js';
+import { getAuthUser } from './auth.js';
 
-type Role = 'PUBLIC' | 'USER' | 'CORE_MEMBER' | 'ADMIN';
+type Role = 'PUBLIC' | 'USER' | 'NETWORK' | 'MEMBER' | 'CORE_MEMBER' | 'ADMIN';
 
 const roleHierarchy: Record<Role, number> = {
   PUBLIC: 0,
   USER: 1,
-  CORE_MEMBER: 2,
-  ADMIN: 3,
+  NETWORK: 1,
+  MEMBER: 2,
+  CORE_MEMBER: 3,
+  ADMIN: 4,
 };
 
 export const hasPermission = (userRole: string, requiredRole: Role): boolean => {

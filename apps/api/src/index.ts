@@ -18,24 +18,47 @@ import { statsRouter } from './routes/stats.js';
 import { settingsRouter } from './routes/settings.js';
 import { hiringRouter } from './routes/hiring.js';
 import { uploadRouter } from './routes/upload.js';
-import { sitemapRouter } from './routes/sitemap.js';
+import { sitemapRouter, robotsRouter } from './routes/sitemap.js';
+import { networkRouter } from './routes/network.js';
 import { setupPassport } from './config/passport.js';
 import { requestLogger, logger } from './utils/logger.js';
 import { ApiResponse, ErrorCodes } from './utils/response.js';
 import { initializeDatabase, populateAnnouncementSlugs } from './utils/init.js';
 import { initializeSocket } from './utils/socket.js';
-import { authMiddleware } from './middleware/auth.js';
+import { authMiddleware, getAuthUser } from './middleware/auth.js';
 import { requireRole } from './middleware/role.js';
 import { emailService } from './utils/email.js';
 import { prisma } from './lib/prisma.js';
 import { startReminderScheduler, stopReminderScheduler } from './utils/scheduler.js';
+import { getJwtSecret } from './utils/jwt.js';
+import { updateEventStatuses } from './utils/eventStatus.js';
 
 dotenv.config();
 
 const app = express();
 const httpServer = createServer(app);
 const PORT = process.env.PORT || 5001;
-const NODE_ENV = process.env.NODE_ENV || 'development';
+const NODE_ENV = process.env.NODE_ENV === 'development' ? 'development' : 'production';
+
+// Fail fast if auth secret is insecure/missing
+getJwtSecret();
+
+let eventStatusInterval: NodeJS.Timeout | null = null;
+
+const startEventStatusScheduler = () => {
+  // Run once on startup and then periodically.
+  void updateEventStatuses();
+  eventStatusInterval = setInterval(() => {
+    void updateEventStatuses();
+  }, 5 * 60 * 1000);
+};
+
+const stopEventStatusScheduler = () => {
+  if (eventStatusInterval) {
+    clearInterval(eventStatusInterval);
+    eventStatusInterval = null;
+  }
+};
 
 // Initialize Socket.io
 initializeSocket(httpServer);
@@ -54,8 +77,11 @@ app.use(cors({
     // Allow requests with no origin (mobile apps, Postman, etc.)
     if (!origin) return callback(null, true);
     
-    // Allow localhost on any port for development
-    if (origin.startsWith('http://localhost:')) {
+    // Allow localhost only in development
+    if (
+      NODE_ENV === 'development' &&
+      (origin.startsWith('http://localhost:') || origin.startsWith('http://127.0.0.1:'))
+    ) {
       return callback(null, true);
     }
     
@@ -136,7 +162,7 @@ app.get('/ping', (req, res) => {
 // Sitemap and SEO routes at ROOT level (no rate limiting, for Google bots)
 // These are served at api.codescriet.dev/sitemap.xml and api.codescriet.dev/robots.txt
 app.use('/sitemap.xml', sitemapRouter);
-app.use('/robots.txt', sitemapRouter);
+app.use('/robots.txt', robotsRouter);
 
 // API Routes
 app.use('/api/auth', authLimiter, authRouter);
@@ -151,15 +177,7 @@ app.use('/api/stats', statsRouter);
 app.use('/api/settings', settingsRouter);
 app.use('/api/hiring', hiringRouter);
 app.use('/api/upload', uploadRouter);
-
-// 404 handler
-app.use((req, res) => {
-  ApiResponse.error(res, {
-    code: ErrorCodes.NOT_FOUND,
-    message: `Route ${req.method} ${req.path} not found`,
-    status: 404,
-  });
-});
+app.use('/api/network', networkRouter);
 
 // Test email endpoint for debugging
 app.post('/api/test-email', authMiddleware, requireRole('ADMIN'), async (req: express.Request, res: express.Response) => {
@@ -169,7 +187,7 @@ app.post('/api/test-email', authMiddleware, requireRole('ADMIN'), async (req: ex
       return ApiResponse.error(res, { code: ErrorCodes.VALIDATION_ERROR, message: 'Email address required' });
     }
 
-    const user = req.user as { id: string; name: string; email: string } | undefined;
+    const user = getAuthUser(req);
     const settings = await prisma.settings.findFirst();
     const success = await emailService.sendWelcome(
       email,
@@ -198,6 +216,15 @@ app.post('/api/test-email', authMiddleware, requireRole('ADMIN'), async (req: ex
   }
 });
 
+// 404 handler
+app.use((req, res) => {
+  ApiResponse.error(res, {
+    code: ErrorCodes.NOT_FOUND,
+    message: `Route ${req.method} ${req.path} not found`,
+    status: 404,
+  });
+});
+
 // Global error handler
 app.use((err: Error, req: express.Request, res: express.Response, _next: express.NextFunction) => {
   logger.error('Unhandled error', { 
@@ -222,6 +249,7 @@ app.use((err: Error, req: express.Request, res: express.Response, _next: express
 // Graceful shutdown
 const shutdown = () => {
   logger.info('Shutting down gracefully...');
+  stopEventStatusScheduler();
   stopReminderScheduler();
   process.exit(0);
 };
@@ -234,6 +262,7 @@ initializeDatabase()
   .then(() => populateAnnouncementSlugs())
   .then(() => {
     // Start the event reminder scheduler
+    startEventStatusScheduler();
     startReminderScheduler();
     
     httpServer.listen(PORT, () => {

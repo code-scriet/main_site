@@ -17,8 +17,8 @@ The club_site project has been updated to remove all hardcoded/sample data and i
 **After:**
 - Creates ONLY a super admin user
 - Super admin credentials from environment variables:
-  - `SUPER_ADMIN_EMAIL` (default: developer.aary@gmail.com)
-  - `SUPER_ADMIN_PASSWORD` (default: Dk261135@)
+  - `SUPER_ADMIN_EMAIL` (default: admin@example.com)
+  - `SUPER_ADMIN_PASSWORD` (default: change_this_password)
   - `SUPER_ADMIN_NAME` (default: Super Admin)
 - Uses crypto for password hashing
 - Clean slate - admin adds all content via dashboard
@@ -26,8 +26,8 @@ The club_site project has been updated to remove all hardcoded/sample data and i
 ### 2. Environment Configuration (.env.example)
 **Added:**
 ```env
-SUPER_ADMIN_EMAIL=developer.aary@gmail.com
-SUPER_ADMIN_PASSWORD=Dk261135@
+SUPER_ADMIN_EMAIL=admin@example.com
+SUPER_ADMIN_PASSWORD=change_this_password
 SUPER_ADMIN_NAME=Super Admin
 ```
 

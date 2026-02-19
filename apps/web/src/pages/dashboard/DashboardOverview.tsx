@@ -19,6 +19,7 @@ export default function DashboardOverview() {
   const [announcements, setAnnouncements] = useState<Announcement[]>([]);
   const [hiringStatus, setHiringStatus] = useState<{
     hasApplied: boolean;
+    hasApplication?: boolean;
     application?: { id: string; applyingRole: string; status: string; createdAt: string };
   } | null>(null);
   const [loading, setLoading] = useState(true);
@@ -173,13 +174,13 @@ export default function DashboardOverview() {
               {/* Join the Team - only for regular users (not MEMBER or higher) */}
               {user?.role === 'USER' && !settingsLoading && settings?.hiringEnabled === true && (
                 <div className="pt-3 mt-3 border-t border-gray-100">
-                  {hiringStatus?.hasApplied ? (
+                  {(hiringStatus?.hasApplied || hiringStatus?.hasApplication) ? (
                     <div className="p-3 rounded-lg bg-amber-50 border border-amber-200">
                       <div className="flex items-center gap-2 mb-2">
                         {hiringStatus.application?.status === 'PENDING' && (
                           <Clock className="h-4 w-4 text-amber-600" />
                         )}
-                        {hiringStatus.application?.status === 'APPROVED' && (
+                        {(hiringStatus.application?.status === 'SELECTED' || hiringStatus.application?.status === 'APPROVED') && (
                           <CheckCircle className="h-4 w-4 text-green-600" />
                         )}
                         {hiringStatus.application?.status === 'REJECTED' && (
@@ -191,7 +192,7 @@ export default function DashboardOverview() {
                         You applied for <strong>{hiringStatus.application?.applyingRole?.replace('_', ' ')}</strong>
                       </p>
                       <Badge 
-                        variant={hiringStatus.application?.status === 'APPROVED' ? 'success' : 
+                        variant={hiringStatus.application?.status === 'SELECTED' || hiringStatus.application?.status === 'APPROVED' ? 'success' : 
                                 hiringStatus.application?.status === 'REJECTED' ? 'destructive' : 'warning'}
                         className="mt-2"
                       >

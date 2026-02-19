@@ -15,6 +15,15 @@ interface HiringIntent {
   skills?: string;
 }
 
+interface NetworkIntent {
+  intent: 'network';
+  type?: 'professional' | 'alumni';
+}
+
+const normalizeNetworkType = (value: string | null | undefined): 'professional' | 'alumni' | undefined => (
+  value === 'professional' || value === 'alumni' ? value : undefined
+);
+
 export default function AuthCallbackPage() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
@@ -30,7 +39,10 @@ export default function AuthCallbackPage() {
 
     const processCallback = async () => {
       try {
-        const token = searchParams.get('token');
+        const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ''));
+        const tokenFromHash = hashParams.get('token');
+        const tokenFromQuery = searchParams.get('token');
+        const token = tokenFromHash || tokenFromQuery;
         const errorParam = searchParams.get('error');
 
         if (errorParam) {
@@ -45,8 +57,11 @@ export default function AuthCallbackPage() {
           return;
         }
 
-        // First, login the user
-        await login(token);
+        // Remove sensitive token from URL as soon as we have it.
+        window.history.replaceState({}, document.title, `${window.location.pathname}`);
+
+        // First, login the user and reuse this user payload to avoid extra /auth/me calls.
+        const loggedInUser = await login(token);
 
         // Check if there's a hiring intent stored
         const hiringIntentStr = localStorage.getItem('hiring_intent');
@@ -64,50 +79,40 @@ export default function AuthCallbackPage() {
             // If we have a hiring intent, try to submit the application
             if (hiringIntent.role) {
               setStatus('Submitting your application...');
-              
-              // Fetch user info with the new token
-              const meResponse = await fetch(`${API_URL}/auth/me`, {
-                headers: { Authorization: `Bearer ${token}` },
-              });
-              
-              if (meResponse.ok) {
-                const result = await meResponse.json();
-                const userData = result.data || result;
-                
-                // Submit the hiring application
-                const applicationResponse = await fetch(`${API_URL}/hiring/apply`, {
-                  method: 'POST',
-                  headers: {
-                    'Content-Type': 'application/json',
-                    Authorization: `Bearer ${token}`,
-                  },
-                  body: JSON.stringify({
-                    name: hiringIntent.name || userData.name,
-                    email: userData.email,
-                    phone: hiringIntent.phone,
-                    department: hiringIntent.department || 'Not specified',
-                    year: hiringIntent.year || 'Not specified',
-                    skills: hiringIntent.skills,
-                    applyingRole: hiringIntent.role,
-                  }),
-                });
 
-                if (applicationResponse.ok) {
-                  // Redirect to join-us success (will redirect to home if hiring disabled)
-                  navigate('/join-us?success=true');
-                  return;
-                } else {
-                  const errorData = await applicationResponse.json().catch(() => null);
-                  const errorMessage = extractApiErrorMessage(errorData, 'Failed to submit application');
-                  // If application already exists or other error, redirect to complete form
-                  if (errorMessage.toLowerCase().includes('already exists')) {
-                    navigate('/dashboard');
-                    return;
-                  }
-                  // Redirect to join-us page to complete the form (will redirect to home if hiring disabled)
-                  navigate(`/join-us?hiring_role=${hiringIntent.role}`);
+              // Submit the hiring application
+              const applicationResponse = await fetch(`${API_URL}/hiring/apply`, {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                  Authorization: `Bearer ${token}`,
+                },
+                body: JSON.stringify({
+                  name: hiringIntent.name || loggedInUser.name,
+                  email: loggedInUser.email,
+                  phone: hiringIntent.phone,
+                  department: hiringIntent.department || 'Not specified',
+                  year: hiringIntent.year || 'Not specified',
+                  skills: hiringIntent.skills,
+                  applyingRole: hiringIntent.role,
+                }),
+              });
+
+              if (applicationResponse.ok) {
+                // Redirect to join-us success (will redirect to home if hiring disabled)
+                navigate('/join-us?success=true');
+                return;
+              } else {
+                const errorData = await applicationResponse.json().catch(() => null);
+                const errorMessage = extractApiErrorMessage(errorData, 'Failed to submit application');
+                // If application already exists or other error, redirect to complete form
+                if (errorMessage.toLowerCase().includes('already exists')) {
+                  navigate('/dashboard');
                   return;
                 }
+                // Redirect to join-us page to complete the form (will redirect to home if hiring disabled)
+                navigate(`/join-us?hiring_role=${hiringIntent.role}`);
+                return;
               }
             }
           } catch (err) {
@@ -115,23 +120,96 @@ export default function AuthCallbackPage() {
           }
         }
 
-        // Default: Check if profile is complete, redirect accordingly
+        // Check for network intent from URL hash/query (set by backend) or localStorage
+        const intentFromHash = hashParams.get('intent') || searchParams.get('intent');
+        const networkTypeFromHash = normalizeNetworkType(
+          hashParams.get('network_type') || searchParams.get('network_type')
+        );
+        const networkTypeFromStorage = normalizeNetworkType(localStorage.getItem('network_onboarding_type'));
+        const networkIntentStr = localStorage.getItem('network_intent');
+        let parsedNetworkIntent: NetworkIntent | null = null;
+        if (networkIntentStr) {
+          try {
+            const parsed = JSON.parse(networkIntentStr) as Partial<NetworkIntent>;
+            if (parsed.intent === 'network') {
+              parsedNetworkIntent = {
+                intent: 'network',
+                type: normalizeNetworkType(parsed.type),
+              };
+            }
+          } catch {
+            parsedNetworkIntent = null;
+          } finally {
+            localStorage.removeItem('network_intent');
+          }
+        }
+
+        // Network routing must be driven by backend callback intent only.
+        // Local storage is used as a fallback for type, never as the source of intent.
+        const isNetworkIntent = intentFromHash === 'network';
+        const resolvedNetworkType =
+          networkTypeFromHash ||
+          parsedNetworkIntent?.type ||
+          networkTypeFromStorage;
+
+        if (isNetworkIntent && settings?.showNetwork !== false) {
+          // For network users, skip academic profile check and redirect to onboarding
+          setStatus('Redirecting to network onboarding...');
+          if (resolvedNetworkType) {
+            localStorage.setItem('network_onboarding_type', resolvedNetworkType);
+          }
+          const onboardingUrl = resolvedNetworkType
+            ? `/network/onboarding?type=${encodeURIComponent(resolvedNetworkType)}`
+            : '/network/onboarding';
+          navigate(onboardingUrl);
+          return;
+        }
+
+        // Determine role and profile completion from logged-in user payload
         setStatus('Checking profile...');
-        const meResponse = await fetch(`${API_URL}/auth/me`, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
         
-        if (meResponse.ok) {
-          const result = await meResponse.json();
-          const userData = result.data || result;
-          
-          // Check if academic details are filled
-          if (!userData.phone || !userData.course || !userData.branch || !userData.year) {
-            setStatus('Redirecting to complete your profile...');
-            const pendingEventId = localStorage.getItem('pendingEventRegistration');
-            navigate('/dashboard/profile', { state: { pendingEventId } });
+        // NETWORK role users should never see dashboard — route to network pages
+        if (loggedInUser.role === 'NETWORK') {
+          if (settings?.showNetwork === false) {
+            navigate('/');
             return;
           }
+          if (resolvedNetworkType) {
+            localStorage.setItem('network_onboarding_type', resolvedNetworkType);
+          }
+          // Check if they already have a network profile
+          try {
+            const profileRes = await fetch(`${API_URL}/network/profile/me`, {
+              headers: { Authorization: `Bearer ${token}` },
+            });
+            if (profileRes.ok) {
+              navigate('/network/status');
+            } else {
+              const onboardingUrl = resolvedNetworkType
+                ? `/network/onboarding?type=${encodeURIComponent(resolvedNetworkType)}`
+                : '/network/onboarding';
+              navigate(onboardingUrl);
+            }
+          } catch {
+            const onboardingUrl = resolvedNetworkType
+              ? `/network/onboarding?type=${encodeURIComponent(resolvedNetworkType)}`
+              : '/network/onboarding';
+            navigate(onboardingUrl);
+          }
+          return;
+        }
+
+        if (!isNetworkIntent) {
+          localStorage.removeItem('network_onboarding_type');
+          localStorage.removeItem('network_intent');
+        }
+        
+        // Regular users: Check if academic details are filled
+        if (!loggedInUser.phone || !loggedInUser.course || !loggedInUser.branch || !loggedInUser.year) {
+          setStatus('Redirecting to complete your profile...');
+          const pendingEventId = localStorage.getItem('pendingEventRegistration');
+          navigate('/dashboard/profile', { state: { pendingEventId } });
+          return;
         }
         
         // Check for pending event registration
@@ -153,7 +231,7 @@ export default function AuthCallbackPage() {
     };
 
     processCallback();
-  }, [searchParams, navigate, login, settingsLoading, settings?.hiringEnabled]);
+  }, [searchParams, navigate, login, settingsLoading, settings?.hiringEnabled, settings?.showNetwork]);
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-amber-50 via-orange-50 to-amber-100">
