@@ -140,6 +140,11 @@ export function UpcomingEvents() {
             {events.map((event, index) => {
               const regStatus = getRegistrationStatus(event);
               const isRegistered = registeredEventIds.has(event.id);
+              // Add ?register=1 if registration is open and event has custom fields
+              const hasCustomFields = event.registrationFields && event.registrationFields.length > 0;
+              const eventUrl = regStatus.canRegister && hasCustomFields && !isRegistered
+                ? `/events/${event.slug}?register=1`
+                : `/events/${event.slug}`;
               
               return (
                 <motion.div
@@ -151,7 +156,7 @@ export function UpcomingEvents() {
                   whileHover={!isMobile ? { y: -8 } : undefined}
                   className="group"
                 >
-                  <Link to={`/events/${event.slug}`} className="block h-full">
+                  <Link to={eventUrl} className="block h-full">
                     <div className="h-full bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden hover:shadow-xl transition-all duration-500">
                       {/* Image Container - 16:9 aspect ratio for wide posters */}
                       <div className="relative overflow-hidden" style={{ aspectRatio: '16/9' }}>
