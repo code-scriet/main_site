@@ -19,7 +19,7 @@ export async function initializeDatabase() {
       });
       logger.info('✅ Migration resolution attempt completed');
     } catch (migError) {
-      logger.warn('⚠️ Migration resolution warning:', migError instanceof Error ? migError.message : String(migError));
+      logger.warn('⚠️ Migration resolution warning', { error: migError instanceof Error ? migError.message : String(migError) });
       // Don't fail startup if migration resolve fails
     }
 
@@ -32,7 +32,7 @@ export async function initializeDatabase() {
       });
       logger.info('✅ Migrations deployed successfully');
     } catch (deployError) {
-      logger.warn('⚠️ Migration deployment warning:', deployError instanceof Error ? deployError.message : String(deployError));
+      logger.warn('⚠️ Migration deployment warning', { error: deployError instanceof Error ? deployError.message : String(deployError) });
       // Don't fail startup if deploy fails
     }
 
