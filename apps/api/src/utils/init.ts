@@ -1,5 +1,6 @@
 import { PrismaClient } from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
+import { execSync } from 'child_process';
 import { logger } from './logger.js';
 import { generateSlug, generateUniqueSlug } from './slug.js';
 
@@ -8,6 +9,32 @@ const prisma = new PrismaClient();
 export async function initializeDatabase() {
   try {
     logger.info('🔧 Initializing database...');
+
+    // Handle failed migrations before any database operations
+    try {
+      logger.info('📊 Checking and resolving failed migrations...');
+      execSync('npx prisma migrate resolve --rolled-back 20260220003000_harden_email_and_network_query_indexes 2>&1 || true', {
+        stdio: 'pipe',
+        cwd: process.cwd(),
+      });
+      logger.info('✅ Migration resolution attempt completed');
+    } catch (migError) {
+      logger.warn('⚠️ Migration resolution warning:', migError instanceof Error ? migError.message : String(migError));
+      // Don't fail startup if migration resolve fails
+    }
+
+    // Deploy any pending migrations
+    try {
+      logger.info('📊 Deploying pending migrations...');
+      execSync('npx prisma migrate deploy 2>&1 || true', {
+        stdio: 'pipe',
+        cwd: process.cwd(),
+      });
+      logger.info('✅ Migrations deployed successfully');
+    } catch (deployError) {
+      logger.warn('⚠️ Migration deployment warning:', deployError instanceof Error ? deployError.message : String(deployError));
+      // Don't fail startup if deploy fails
+    }
 
     // Get super admin credentials from environment variables
     const superAdminEmail = process.env.SUPER_ADMIN_EMAIL;
