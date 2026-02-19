@@ -12,11 +12,28 @@ const INSECURE_DEFAULT_SECRETS = new Set([
   'your_super_secret_key_change_this_in_production',
 ]);
 
+const JWT_SECRET_ENV_CANDIDATES = [
+  'JWT_SECRET',
+  'JWT_SECRET_KEY',
+  'AUTH_JWT_SECRET',
+  'AUTH_SECRET',
+] as const;
+
 const DEV_FALLBACK_SECRET = 'dev_local_jwt_secret_change_me_before_production';
 let hasWarnedAboutDevSecret = false;
 
+const getConfiguredJwtSecret = (): string | undefined => {
+  for (const key of JWT_SECRET_ENV_CANDIDATES) {
+    const value = process.env[key]?.trim();
+    if (value) {
+      return value;
+    }
+  }
+  return undefined;
+};
+
 export const getJwtSecret = (): string => {
-  const secret = process.env.JWT_SECRET?.trim();
+  const secret = getConfiguredJwtSecret();
   const looksPlaceholder = Boolean(secret && secret.toLowerCase().includes('replace_with'));
   const isInsecure = !secret || INSECURE_DEFAULT_SECRETS.has(secret) || looksPlaceholder;
 
@@ -25,12 +42,16 @@ export const getJwtSecret = (): string => {
   }
 
   if (process.env.NODE_ENV === 'production') {
-    throw new Error('JWT_SECRET must be configured with a non-default value');
+    throw new Error(
+      `JWT secret must be configured with a non-default value using one of: ${JWT_SECRET_ENV_CANDIDATES.join(', ')}`
+    );
   }
 
   if (!hasWarnedAboutDevSecret) {
     hasWarnedAboutDevSecret = true;
-    console.warn('⚠️ Using development JWT fallback secret. Set JWT_SECRET in your environment.');
+    console.warn(
+      `⚠️ Using development JWT fallback secret. Set one of ${JWT_SECRET_ENV_CANDIDATES.join(', ')} in your environment.`
+    );
   }
 
   return DEV_FALLBACK_SECRET;
