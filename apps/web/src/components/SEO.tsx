@@ -11,9 +11,10 @@ interface SEOProps {
 }
 
 const BASE_URL = 'https://codescriet.dev';
-const DEFAULT_TITLE = 'code.scriet | Official Coding Club of SCRIET';
-const DEFAULT_DESCRIPTION = 'code.scriet - The Official Coding Club of SCRIET. Join our community of passionate coders for DSA, competitive programming, web development, and more.';
+const DEFAULT_TITLE = 'code.scriet | Official Coding Club of SCRIET, CCS University';
+const DEFAULT_DESCRIPTION = 'code.scriet (codescriet) is the Official Coding Club of SCRIET, CCS University Meerut. Join India\'s most active college coding community for DSA, competitive programming, hackathons, web development, and tech events.';
 const DEFAULT_IMAGE = `${BASE_URL}/logo.jpeg`;
+const DEFAULT_KEYWORDS = 'code, codescriet, code scriet, scriet, SCRIET coding club, CCS University, programming club, DSA, competitive programming, hackathons';
 
 /**
  * SEO Component - Updates document head meta tags dynamically
@@ -22,7 +23,7 @@ const DEFAULT_IMAGE = `${BASE_URL}/logo.jpeg`;
 export function SEO({
   title,
   description = DEFAULT_DESCRIPTION,
-  keywords,
+  keywords = DEFAULT_KEYWORDS,
   image = DEFAULT_IMAGE,
   url,
   type = 'website',
@@ -70,10 +71,7 @@ export function SEO({
     // Update basic meta tags
     updateMetaTag('meta[name="title"]', 'content', fullTitle);
     updateMetaTag('meta[name="description"]', 'content', description);
-    
-    if (keywords) {
-      updateMetaTag('meta[name="keywords"]', 'content', keywords);
-    }
+    updateMetaTag('meta[name="keywords"]', 'content', keywords);
 
     // Update robots meta
     updateMetaTag('meta[name="robots"]', 'content', noIndex ? 'noindex, nofollow' : 'index, follow');

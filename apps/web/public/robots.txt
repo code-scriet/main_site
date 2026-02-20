@@ -1,13 +1,20 @@
 # robots.txt for codescriet.dev
 # https://www.robotstxt.org/robotstxt.html
 
+# Allow all major search engines
 User-agent: *
 Allow: /
+Allow: /events
 Allow: /events/
+Allow: /achievements
 Allow: /achievements/
+Allow: /announcements
 Allow: /announcements/
 Allow: /team
 Allow: /about
+Allow: /network
+Allow: /network/
+Allow: /join-us
 
 # Disallow admin and dashboard areas from indexing
 Disallow: /admin
@@ -18,9 +25,18 @@ Disallow: /auth/
 Disallow: /profile
 Disallow: /signin
 Disallow: /signup
+Disallow: /join-our-network
+Disallow: /network/status
 
-# Dynamic sitemap hosted on API server but proxied through frontend
-Sitemap: https://codescriet.dev/sitemap.xml
+# Specific rules for Google
+User-agent: Googlebot
+Allow: /
+Crawl-delay: 0
 
-# Crawl-delay for polite crawling
+# Specific rules for Bing
+User-agent: Bingbot
+Allow: /
 Crawl-delay: 1
+
+# Sitemap location
+Sitemap: https://codescriet.dev/sitemap.xml
