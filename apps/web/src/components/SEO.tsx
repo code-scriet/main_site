@@ -11,10 +11,10 @@ interface SEOProps {
 }
 
 const BASE_URL = 'https://codescriet.dev';
-const DEFAULT_TITLE = 'code.scriet | Official Coding Club of SCRIET, CCS University';
-const DEFAULT_DESCRIPTION = 'code.scriet (codescriet) is the Official Coding Club of SCRIET, CCS University Meerut. Join India\'s most active college coding community for DSA, competitive programming, hackathons, web development, and tech events.';
+const DEFAULT_TITLE = 'codescriet - Official Coding Club of SCRIET';
+const DEFAULT_DESCRIPTION = 'codescriet (code.scriet, code scriet) - The Official Coding Club of SCRIET, CCS University Meerut. Join codescriet for DSA, competitive programming, hackathons, web development, and tech events.';
 const DEFAULT_IMAGE = `${BASE_URL}/logo.jpeg`;
-const DEFAULT_KEYWORDS = 'code, codescriet, code scriet, scriet, SCRIET coding club, CCS University, programming club, DSA, competitive programming, hackathons';
+const DEFAULT_KEYWORDS = 'codescriet, code scriet, code.scriet, codescriet club, scriet coding club, SCRIET, coding club meerut, CCS University, DSA, competitive programming, hackathons';
 
 /**
  * SEO Component - Updates document head meta tags dynamically
@@ -29,7 +29,7 @@ export function SEO({
   type = 'website',
   noIndex = false,
 }: SEOProps) {
-  const fullTitle = title ? `${title} | code.scriet` : DEFAULT_TITLE;
+  const fullTitle = title ? `${title} | codescriet` : DEFAULT_TITLE;
   const fullUrl = url ? `${BASE_URL}${url}` : BASE_URL;
 
   useEffect(() => {
