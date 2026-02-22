@@ -70,11 +70,11 @@ export function NetworkHighlight() {
   const professionalsCount = profiles.length - alumniCount;
 
   return (
-    <section className="relative overflow-hidden bg-gradient-to-b from-gray-50/30 via-gray-100/40 to-gray-50/60 py-20 sm:py-28 border-t border-gray-100/50">
+    <section className="relative overflow-hidden border-t border-gray-100/50 bg-gradient-to-b from-gray-50/30 via-gray-100/40 to-gray-50/60 py-16 sm:py-24 lg:py-28">
       {/* Background Effects */}
       <div className="pointer-events-none absolute inset-0">
-        <div className="absolute -top-40 -right-40 h-[500px] w-[500px] rounded-full bg-amber-100/30 blur-[100px]" />
-        <div className="absolute -bottom-40 -left-40 h-[400px] w-[400px] rounded-full bg-orange-100/30 blur-[100px]" />
+        <div className="absolute -right-24 -top-24 h-[280px] w-[280px] rounded-full bg-amber-100/25 blur-[64px] sm:-right-40 sm:-top-40 sm:h-[500px] sm:w-[500px] sm:blur-[100px]" />
+        <div className="absolute -bottom-24 -left-24 h-[240px] w-[240px] rounded-full bg-orange-100/25 blur-[64px] sm:-bottom-40 sm:-left-40 sm:h-[400px] sm:w-[400px] sm:blur-[100px]" />
       </div>
       
       {/* Subtle Pattern */}
@@ -89,7 +89,7 @@ export function NetworkHighlight() {
         }}
       />
 
-      <div className="container relative z-10 mx-auto px-4">
+      <div className="container relative z-10 mx-auto max-w-6xl px-4 sm:px-6 lg:px-8">
         {/* Section Header */}
         <motion.div
           initial={{ opacity: 0, y: shouldReduceMotion ? 10 : 20 }}
@@ -121,7 +121,7 @@ export function NetworkHighlight() {
 
           {/* Stats */}
           {(alumniCount > 0 || professionalsCount > 0) && (
-            <div className="mt-8 flex items-center justify-center gap-6">
+            <div className="mt-8 flex flex-wrap items-center justify-center gap-3 sm:gap-6">
               {professionalsCount > 0 && (
                 <div className="flex items-center gap-2.5 rounded-full border border-amber-200 bg-gradient-to-r from-amber-50 to-orange-50 px-4 py-2 shadow-sm">
                   <Briefcase className="h-4 w-4 text-amber-600" />

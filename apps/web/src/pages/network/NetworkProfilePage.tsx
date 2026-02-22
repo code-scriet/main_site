@@ -35,6 +35,7 @@ import {
   Crown,
 } from 'lucide-react';
 import { api, type NetworkConnectionType, type NetworkEvent, type NetworkProfile } from '@/lib/api';
+import { useMotionConfig } from '@/hooks/useMotionConfig';
 
 const connectionTypeLabels: Record<NetworkConnectionType, string> = {
   GUEST_SPEAKER: 'Guest Speaker',
@@ -79,11 +80,39 @@ const fallbackContributionCopy = (isAlumni: boolean) =>
     ? 'An alumnus supporting students through guidance, real-world perspective, and encouragement.'
     : 'A professional collaborator helping students with practical exposure, mentorship, and opportunities.';
 
+type HeroParticle = {
+  id: number;
+  x: number;
+  y: number;
+  scale: number;
+  duration: number;
+  delay: number;
+};
+
+const seededUnit = (seed: number) => {
+  const value = Math.sin(seed * 12.9898) * 43758.5453;
+  return value - Math.floor(value);
+};
+
+const buildHeroParticles = (count: number): HeroParticle[] =>
+  Array.from({ length: count }, (_, index) => {
+    const seed = index + 1;
+    return {
+      id: index,
+      x: seededUnit(seed) * 100,
+      y: seededUnit(seed * 1.41) * 100,
+      scale: (seededUnit(seed * 2.07) * 0.7) + 0.35,
+      duration: (seededUnit(seed * 2.97) * 3.5) + 2.2,
+      delay: seededUnit(seed * 3.83) * 2.5,
+    };
+  });
+
 export default function NetworkProfilePage() {
   const { slug } = useParams<{ slug: string }>();
   const { user } = useAuth();
   const navigate = useNavigate();
   const prefersReducedMotion = useReducedMotion();
+  const { isMobile } = useMotionConfig();
 
   const [profile, setProfile] = useState<NetworkProfile | null>(null);
   const [loading, setLoading] = useState(true);
@@ -142,6 +171,11 @@ export default function NetworkProfilePage() {
     if (!profile?.events || !Array.isArray(profile.events)) return [];
     return profile.events as NetworkEvent[];
   }, [profile?.events]);
+
+  const heroParticles = useMemo(
+    () => buildHeroParticles(isMobile ? 7 : 14),
+    [isMobile]
+  );
 
   const socialLinks = useMemo<SocialLink[]>(() => {
     if (!profile) return [];
@@ -279,21 +313,30 @@ export default function NetworkProfilePage() {
 
       <div className="relative min-h-screen bg-white">
         {/* ═══════════════════════ HERO ═══════════════════════ */}
-        <section className={`relative overflow-hidden bg-gradient-to-br ${profileTheme.hero} pb-28 pt-6 text-white sm:pt-8`}>
+        <section className={`relative overflow-hidden bg-gradient-to-br ${profileTheme.hero} pb-24 pt-10 text-white sm:pb-28 sm:pt-12`}>
           {/* Animated particles */}
           <div className="pointer-events-none absolute inset-0 overflow-hidden">
-            {[...Array(14)].map((_, i) => (
+            {heroParticles.map((particle) => (
               <motion.div
-                key={i}
+                key={particle.id}
                 className="absolute h-1.5 w-1.5 rounded-full bg-white/25"
-                initial={{ x: `${Math.random() * 100}%`, y: `${Math.random() * 100}%`, scale: Math.random() * 0.6 + 0.4 }}
-                animate={prefersReducedMotion ? undefined : { y: [null, '-120%'], opacity: [0, 0.8, 0] }}
-                transition={{ duration: Math.random() * 3 + 2, repeat: Infinity, delay: Math.random() * 3 }}
+                style={{ left: `${particle.x}%`, top: `${particle.y}%`, scale: particle.scale }}
+                animate={
+                  prefersReducedMotion
+                    ? { opacity: 0.2 }
+                    : { y: [0, isMobile ? -48 : -120], opacity: [0, 0.8, 0] }
+                }
+                transition={{
+                  duration: isMobile ? particle.duration + 1.8 : particle.duration,
+                  repeat: prefersReducedMotion ? 0 : Infinity,
+                  delay: particle.delay,
+                  ease: 'linear',
+                }}
               />
             ))}
             {/* Soft blobs */}
-            <div className="absolute -left-24 top-0 h-64 w-64 rounded-full bg-white/5 blur-3xl" />
-            <div className="absolute -right-24 bottom-0 h-80 w-80 rounded-full bg-white/5 blur-3xl" />
+            <div className="absolute -left-16 top-0 h-40 w-40 rounded-full bg-white/5 blur-2xl sm:-left-24 sm:h-64 sm:w-64 sm:blur-3xl" />
+            <div className="absolute -right-16 bottom-0 h-52 w-52 rounded-full bg-white/5 blur-2xl sm:-right-24 sm:h-80 sm:w-80 sm:blur-3xl" />
           </div>
 
           {/* Nav bar */}
@@ -334,7 +377,7 @@ export default function NetworkProfilePage() {
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.5 }}
-              className="flex flex-col items-center text-center"
+              className="performance-surface flex flex-col items-center text-center"
             >
               {/* Profile photo with amber ring */}
               <div className="relative">
@@ -429,13 +472,13 @@ export default function NetworkProfilePage() {
         </section>
 
         {/* ═══════════════════════ CONTENT ═══════════════════════ */}
-        <section className="relative -mt-4 pb-16 pt-4">
+        <section className="relative -mt-2 pb-14 pt-6 sm:-mt-4 sm:pb-16 sm:pt-8">
           <div className="container mx-auto max-w-6xl px-4 sm:px-6 lg:px-8">
 
             {/* Floating ambient blobs */}
             <div className="pointer-events-none absolute inset-0 overflow-hidden">
-              <div className="absolute -right-20 top-24 h-80 w-80 rounded-full bg-amber-100/40 blur-3xl" />
-              <div className="absolute -left-20 top-96 h-64 w-64 rounded-full bg-orange-100/30 blur-3xl" />
+              <div className="absolute -right-14 top-24 h-48 w-48 rounded-full bg-amber-100/35 blur-2xl sm:-right-20 sm:h-80 sm:w-80 sm:blur-3xl" />
+              <div className="absolute -left-14 top-96 h-40 w-40 rounded-full bg-orange-100/30 blur-2xl sm:-left-20 sm:h-64 sm:w-64 sm:blur-3xl" />
             </div>
 
             <div className="relative grid grid-cols-1 gap-6 xl:grid-cols-[1.65fr_1fr] xl:gap-8">
@@ -448,7 +491,7 @@ export default function NetworkProfilePage() {
                   initial={{ opacity: 0, y: 14 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ delay: 0.1 }}
-                  className="relative overflow-hidden rounded-2xl bg-white border border-amber-100 p-6 shadow-sm sm:p-8"
+                  className="performance-surface relative overflow-hidden rounded-2xl bg-white border border-amber-100 p-6 shadow-sm sm:p-8"
                 >
                   {/* Decorative quotation mark */}
                   <div className="pointer-events-none absolute right-4 top-2 text-8xl font-serif leading-none text-amber-100 select-none sm:text-9xl">"</div>
@@ -466,7 +509,7 @@ export default function NetworkProfilePage() {
                   initial={{ opacity: 0, y: 14 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ delay: 0.16 }}
-                  className="relative overflow-hidden rounded-2xl border border-amber-200 bg-amber-50/30 p-6 shadow-sm sm:p-8"
+                  className="performance-surface relative overflow-hidden rounded-2xl border border-amber-200 bg-amber-50/30 p-6 shadow-sm sm:p-8"
                 >
                   {/* thick left accent bar */}
                   <div className="absolute inset-y-0 left-0 w-1 rounded-l-2xl bg-gradient-to-b from-amber-400 to-orange-500" />

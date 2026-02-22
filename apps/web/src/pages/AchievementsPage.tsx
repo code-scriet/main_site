@@ -17,16 +17,25 @@ import { api, type Achievement } from '@/lib/api';
 import { formatDate } from '@/lib/dateUtils';
 import { processImageUrl } from '@/lib/imageUtils';
 import { useSettings } from '@/context/SettingsContext';
+import { useMotionConfig } from '@/hooks/useMotionConfig';
 
 // ============================================
 // PREMIUM ACHIEVEMENT CARD
 // Elegant glassmorphism with hover effects
 // ============================================
 
-function AchievementCard({ achievement, index, featured = false }: { 
+function AchievementCard({
+  achievement,
+  index,
+  featured = false,
+  isMobile,
+  shouldReduceMotion,
+}: {
   achievement: Achievement; 
   index: number;
   featured?: boolean;
+  isMobile: boolean;
+  shouldReduceMotion: boolean;
 }) {
   const coverImage = achievement.imageUrl ? processImageUrl(achievement.imageUrl, 'card') : null;
   const hasGallery = achievement.imageGallery && achievement.imageGallery.length > 0;
@@ -39,11 +48,11 @@ function AchievementCard({ achievement, index, featured = false }: {
       initial={{ opacity: 0, y: 50 }}
       animate={isInView ? { opacity: 1, y: 0 } : { opacity: 0, y: 50 }}
       transition={{ 
-        duration: 0.6, 
+        duration: shouldReduceMotion ? 0.35 : 0.6, 
         delay: index * 0.1, 
         ease: [0.22, 1, 0.36, 1] 
       }}
-      whileHover={{ y: -12, transition: { duration: 0.3 } }}
+      whileHover={isMobile ? undefined : { y: -12, transition: { duration: 0.3 } }}
       className={`group h-full ${featured ? 'md:col-span-2 lg:col-span-1' : ''}`}
     >
       <Link to={`/achievements/${achievement.slug || achievement.id}`} className="block h-full">
@@ -63,7 +72,7 @@ function AchievementCard({ achievement, index, featured = false }: {
                   alt={achievement.title}
                   className="w-full h-full object-cover"
                   loading="lazy"
-                  whileHover={{ scale: 1.1 }}
+                  whileHover={isMobile ? undefined : { scale: 1.1 }}
                   transition={{ duration: 0.6 }}
                 />
                 {/* Premium multi-layer gradient overlay */}
@@ -74,22 +83,34 @@ function AchievementCard({ achievement, index, featured = false }: {
               <div className="w-full h-full bg-gradient-to-br from-amber-400 via-orange-500 to-amber-600 flex items-center justify-center relative overflow-hidden">
                 {/* Animated background orbs */}
                 <motion.div 
-                  animate={{ 
-                    x: [0, 20, 0], 
-                    y: [0, -20, 0],
-                    scale: [1, 1.2, 1]
-                  }}
-                  transition={{ duration: 8, repeat: Infinity }}
-                  className="absolute top-4 left-4 w-24 h-24 bg-white/20 rounded-full blur-2xl" 
+                  animate={
+                    shouldReduceMotion
+                      ? { opacity: [0.3, 0.45, 0.3] }
+                      : {
+                          x: [0, 20, 0],
+                          y: [0, -20, 0],
+                          scale: [1, 1.2, 1],
+                        }
+                  }
+                  transition={{ duration: shouldReduceMotion ? 6 : 8, repeat: Infinity }}
+                  className={`absolute top-4 left-4 rounded-full bg-white/20 ${
+                    isMobile ? 'h-16 w-16 blur-xl' : 'h-24 w-24 blur-2xl'
+                  }`} 
                 />
                 <motion.div 
-                  animate={{ 
-                    x: [0, -20, 0], 
-                    y: [0, 20, 0],
-                    scale: [1, 1.1, 1]
-                  }}
-                  transition={{ duration: 6, repeat: Infinity, delay: 1 }}
-                  className="absolute bottom-4 right-4 w-32 h-32 bg-white/20 rounded-full blur-2xl" 
+                  animate={
+                    shouldReduceMotion
+                      ? { opacity: [0.25, 0.35, 0.25] }
+                      : {
+                          x: [0, -20, 0],
+                          y: [0, 20, 0],
+                          scale: [1, 1.1, 1],
+                        }
+                  }
+                  transition={{ duration: shouldReduceMotion ? 5 : 6, repeat: Infinity, delay: 1 }}
+                  className={`absolute bottom-4 right-4 rounded-full bg-white/20 ${
+                    isMobile ? 'h-20 w-20 blur-xl' : 'h-32 w-32 blur-2xl'
+                  }`} 
                 />
                 <Trophy className="h-20 w-20 text-white/40 relative z-10" />
                 <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent" />
@@ -176,7 +197,7 @@ function AchievementCard({ achievement, index, featured = false }: {
                 </div>
               </div>
               <motion.div 
-                whileHover={{ rotate: 12, scale: 1.1 }}
+                whileHover={isMobile ? undefined : { rotate: 12, scale: 1.1 }}
                 className="p-2 rounded-xl bg-amber-50 group-hover:bg-amber-100 transition-colors"
               >
                 <Trophy className="h-5 w-5 text-amber-500" />
@@ -208,7 +229,7 @@ function AchievementCard({ achievement, index, featured = false }: {
                 Explore Achievement
               </span>
               <motion.div 
-                whileHover={{ x: 4 }}
+                whileHover={isMobile ? undefined : { x: 4 }}
                 className="flex items-center justify-center w-9 h-9 rounded-xl bg-amber-100 group-hover:bg-gradient-to-br group-hover:from-amber-500 group-hover:to-orange-500 transition-all duration-300"
               >
                 <ChevronRight className="h-5 w-5 text-amber-600 group-hover:text-white transition-colors duration-300" />
@@ -231,6 +252,7 @@ export default function AchievementsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const { settings } = useSettings();
+  const { isMobile, shouldReduceMotion } = useMotionConfig();
 
   useEffect(() => {
     const fetchAchievements = async () => {
@@ -279,7 +301,7 @@ export default function AchievementsPage() {
       />
       
       {/* REFINED HERO - Compact two-column layout */}
-      <section className="relative py-16 sm:py-20 overflow-hidden bg-gradient-to-br from-amber-50 via-orange-50/50 to-amber-100/50">
+      <section className="relative overflow-hidden bg-gradient-to-br from-amber-50 via-orange-50/50 to-amber-100/50 py-14 sm:py-20">
         {/* Background texture */}
         <div className="absolute inset-0 opacity-20">
           <div 
@@ -363,7 +385,7 @@ export default function AchievementsPage() {
                 initial={{ opacity: 0, scale: 0.8 }}
                 animate={{ opacity: 1, scale: 1 }}
                 transition={{ duration: 0.6, delay: 0.4 }}
-                whileHover={{ y: -4, scale: 1.02 }}
+                whileHover={isMobile ? undefined : { y: -4, scale: 1.02 }}
                 className="col-span-2 relative group"
               >
                 <div className="relative bg-white backdrop-blur-sm rounded-2xl p-6 shadow-xl border border-amber-100 hover:shadow-2xl transition-all duration-300">
@@ -372,8 +394,8 @@ export default function AchievementsPage() {
                       <Trophy className="h-7 w-7 text-amber-600" />
                     </div>
                     <motion.div
-                      animate={{ rotate: [0, 5, -5, 0] }}
-                      transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
+                      animate={shouldReduceMotion ? undefined : { rotate: [0, 5, -5, 0] }}
+                      transition={shouldReduceMotion ? undefined : { duration: 2, repeat: Infinity, ease: "easeInOut" }}
                     >
                       <Zap className="h-5 w-5 text-orange-500" />
                     </motion.div>
@@ -391,7 +413,7 @@ export default function AchievementsPage() {
                 initial={{ opacity: 0, scale: 0.8 }}
                 animate={{ opacity: 1, scale: 1 }}
                 transition={{ duration: 0.6, delay: 0.5 }}
-                whileHover={{ y: -4, scale: 1.05 }}
+                whileHover={isMobile ? undefined : { y: -4, scale: 1.05 }}
                 className="relative group"
               >
                 <div className="bg-white backdrop-blur-sm rounded-2xl p-5 shadow-lg border border-amber-100 h-full hover:shadow-xl transition-all duration-300">
@@ -410,7 +432,7 @@ export default function AchievementsPage() {
                 initial={{ opacity: 0, scale: 0.8 }}
                 animate={{ opacity: 1, scale: 1 }}
                 transition={{ duration: 0.6, delay: 0.6 }}
-                whileHover={{ y: -4, scale: 1.05 }}
+                whileHover={isMobile ? undefined : { y: -4, scale: 1.05 }}
                 className="relative group"
               >
                 <div className="bg-white backdrop-blur-sm rounded-2xl p-5 shadow-lg border border-amber-100 h-full hover:shadow-xl transition-all duration-300">
@@ -551,7 +573,9 @@ export default function AchievementsPage() {
                         key={achievement.id} 
                         achievement={achievement} 
                         index={index} 
-                        featured 
+                        featured
+                        isMobile={isMobile}
+                        shouldReduceMotion={shouldReduceMotion}
                       />
                     ))}
                   </div>
@@ -576,7 +600,13 @@ export default function AchievementsPage() {
                   
                   <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-8">
                     {regularAchievements.map((achievement, index) => (
-                      <AchievementCard key={achievement.id} achievement={achievement} index={index} />
+                      <AchievementCard
+                        key={achievement.id}
+                        achievement={achievement}
+                        index={index}
+                        isMobile={isMobile}
+                        shouldReduceMotion={shouldReduceMotion}
+                      />
                     ))}
                   </div>
                 </div>
@@ -586,7 +616,13 @@ export default function AchievementsPage() {
               {featuredAchievements.length === 0 && regularAchievements.length === 0 && filteredAchievements.length > 0 && (
                 <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-8">
                   {filteredAchievements.map((achievement, index) => (
-                    <AchievementCard key={achievement.id} achievement={achievement} index={index} />
+                    <AchievementCard
+                      key={achievement.id}
+                      achievement={achievement}
+                      index={index}
+                      isMobile={isMobile}
+                      shouldReduceMotion={shouldReduceMotion}
+                    />
                   ))}
                 </div>
               )}
@@ -639,7 +675,7 @@ export default function AchievementsPage() {
             
             <div className="grid md:grid-cols-2 gap-6 mb-10">
               <motion.div 
-                whileHover={{ y: -4, scale: 1.02 }}
+                whileHover={isMobile ? undefined : { y: -4, scale: 1.02 }}
                 transition={{ duration: 0.3 }}
                 className="bg-amber-950/30 backdrop-blur-sm rounded-2xl p-5 border border-amber-700/30 hover:border-amber-600/50 transition-all duration-300"
               >
@@ -649,7 +685,7 @@ export default function AchievementsPage() {
                 </p>
               </motion.div>
               <motion.div 
-                whileHover={{ y: -4, scale: 1.02 }}
+                whileHover={isMobile ? undefined : { y: -4, scale: 1.02 }}
                 transition={{ duration: 0.3 }}
                 className="bg-amber-950/30 backdrop-blur-sm rounded-2xl p-5 border border-amber-700/30 hover:border-amber-600/50 transition-all duration-300"
               >

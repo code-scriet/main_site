@@ -698,7 +698,7 @@ export default function AdminUsers() {
                 </div>
               </div>
 
-              <div className="p-6 space-y-6">
+              <div className="p-4 sm:p-6 space-y-6">
                 {/* Bio */}
                 {viewingUser.bio && (
                   <div>
@@ -708,7 +708,7 @@ export default function AdminUsers() {
                 )}
 
                 {/* Academic & Contact Info */}
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                     <h3 className="text-sm font-semibold text-gray-500 uppercase mb-2">Academic Info</h3>
                     <div className="space-y-1 text-sm text-gray-700">
@@ -757,7 +757,7 @@ export default function AdminUsers() {
                 )}
 
                 {/* Stats */}
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div className="bg-amber-50 p-4 rounded-lg text-center">
                     <p className="text-3xl font-bold text-amber-600">{viewingUser._count?.registrations || 0}</p>
                     <p className="text-sm text-gray-600">Events Registered</p>

@@ -17,6 +17,7 @@ import {
 import { useSettings } from '@/context/SettingsContext';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '@/context/AuthContext';
+import { useMotionConfig } from '@/hooks/useMotionConfig';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5001/api';
 
@@ -88,6 +89,7 @@ export default function JoinOurNetworkPage() {
   const { user } = useAuth();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
+  const { isMobile, shouldReduceMotion } = useMotionConfig();
   const networkType: 'professional' | 'alumni' = searchParams.get('type') === 'alumni' ? 'alumni' : 'professional';
 
   const persistNetworkIntent = (type: 'professional' | 'alumni') => {
@@ -127,11 +129,19 @@ export default function JoinOurNetworkPage() {
       />
 
       {/* Hero Section */}
-      <section className="relative min-h-[90vh] flex items-center overflow-hidden bg-slate-950 py-20 sm:py-28">
+      <section className="relative min-h-[80vh] sm:min-h-[90vh] flex items-start sm:items-center overflow-x-hidden bg-slate-950 py-16 sm:py-28">
         {/* Ambient Background Effects */}
         <div className="pointer-events-none absolute inset-0">
-          <div className="absolute -left-40 top-0 h-[600px] w-[600px] rounded-full bg-amber-500/10 blur-[120px]" />
-          <div className="absolute -right-40 bottom-0 h-[500px] w-[500px] rounded-full bg-orange-500/10 blur-[100px]" />
+          <div
+            className={`absolute rounded-full bg-amber-500/10 ${
+              isMobile ? '-left-24 -top-8 h-[280px] w-[280px] blur-[64px]' : '-left-40 top-0 h-[600px] w-[600px] blur-[120px]'
+            }`}
+          />
+          <div
+            className={`absolute rounded-full bg-orange-500/10 ${
+              isMobile ? '-right-20 bottom-0 h-[240px] w-[240px] blur-[64px]' : '-right-40 bottom-0 h-[500px] w-[500px] blur-[100px]'
+            }`}
+          />
         </div>
 
         {/* Grid Pattern */}
@@ -148,15 +158,19 @@ export default function JoinOurNetworkPage() {
 
         {/* Floating Elements */}
         <div className="absolute left-1/4 top-1/4 h-2 w-2 rounded-full bg-amber-400 opacity-40 animate-pulse" />
-        <div className="absolute right-1/3 top-1/3 h-1.5 w-1.5 rounded-full bg-orange-400 opacity-50 animate-pulse" style={{ animationDelay: '1s' }} />
-        <div className="absolute left-1/3 bottom-1/3 h-2.5 w-2.5 rounded-full bg-fuchsia-400 opacity-30 animate-pulse" style={{ animationDelay: '2s' }} />
+        {!isMobile && (
+          <>
+            <div className="absolute right-1/3 top-1/3 h-1.5 w-1.5 rounded-full bg-orange-400 opacity-50 animate-pulse" style={{ animationDelay: '1s' }} />
+            <div className="absolute left-1/3 bottom-1/3 h-2.5 w-2.5 rounded-full bg-fuchsia-400 opacity-30 animate-pulse" style={{ animationDelay: '2s' }} />
+          </>
+        )}
 
         <div className="container relative z-10 mx-auto px-4">
           <motion.div
             className="mx-auto max-w-3xl text-center"
             initial={{ opacity: 0, y: 30 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.6 }}
+            transition={{ duration: shouldReduceMotion ? 0.35 : 0.6 }}
           >
             <motion.div
               className="mb-6 inline-flex items-center gap-2.5 rounded-full border border-amber-400/20 bg-amber-500/10 px-4 py-2 backdrop-blur-sm"
@@ -179,7 +193,7 @@ export default function JoinOurNetworkPage() {
               Network
             </h1>
 
-            <p className="mx-auto mb-10 max-w-2xl text-lg leading-relaxed text-slate-400 sm:text-xl">
+            <p className="mx-auto mb-10 max-w-2xl text-base leading-relaxed text-slate-400 sm:text-xl">
               Are you an industry professional, mentor, alumnus, or guest speaker? 
               Connect with our community and help shape the next generation of tech leaders.
             </p>
@@ -225,7 +239,11 @@ export default function JoinOurNetworkPage() {
       <section className="relative overflow-hidden bg-slate-900 py-20">
         {/* Subtle gradient */}
         <div className="pointer-events-none absolute inset-0">
-          <div className="absolute right-0 top-0 h-[400px] w-[400px] rounded-full bg-amber-500/5 blur-[100px]" />
+          <div
+            className={`absolute right-0 top-0 rounded-full bg-amber-500/5 ${
+              isMobile ? 'h-[200px] w-[200px] blur-[56px]' : 'h-[400px] w-[400px] blur-[100px]'
+            }`}
+          />
         </div>
 
         <div className="container relative z-10 mx-auto px-4">
@@ -245,7 +263,7 @@ export default function JoinOurNetworkPage() {
             {benefits.map((benefit, index) => (
               <motion.div
                 key={benefit.title}
-                className="group relative overflow-hidden rounded-2xl border border-white/10 bg-white/5 p-6 backdrop-blur-sm transition-all duration-300 hover:border-white/20 hover:bg-white/[0.08]"
+                className="performance-surface group relative overflow-hidden rounded-2xl border border-white/10 bg-white/5 p-6 backdrop-blur-sm transition-all duration-300 hover:border-white/20 hover:bg-white/[0.08]"
                 initial={{ opacity: 0, y: 20 }}
                 whileInView={{ opacity: 1, y: 0 }}
                 viewport={{ once: true }}
@@ -268,7 +286,11 @@ export default function JoinOurNetworkPage() {
       {/* Who Can Join */}
       <section className="relative overflow-hidden bg-slate-950 py-20">
         <div className="pointer-events-none absolute inset-0">
-          <div className="absolute -left-40 bottom-0 h-[300px] w-[300px] rounded-full bg-amber-500/10 blur-[80px]" />
+          <div
+            className={`absolute -left-40 bottom-0 rounded-full bg-amber-500/10 ${
+              isMobile ? 'h-[180px] w-[180px] blur-[56px]' : 'h-[300px] w-[300px] blur-[80px]'
+            }`}
+          />
         </div>
 
         <div className="container relative z-10 mx-auto px-4">
@@ -353,7 +375,11 @@ export default function JoinOurNetworkPage() {
       <section className="relative overflow-hidden bg-slate-950 py-20">
         {/* Ambient glow */}
         <div className="pointer-events-none absolute inset-0">
-          <div className="absolute left-1/2 top-0 h-[300px] w-[600px] -translate-x-1/2 rounded-full bg-gradient-to-r from-amber-500/20 via-orange-500/10 to-amber-500/20 blur-[100px]" />
+          <div
+            className={`absolute left-1/2 top-0 -translate-x-1/2 rounded-full bg-gradient-to-r from-amber-500/20 via-orange-500/10 to-amber-500/20 ${
+              isMobile ? 'h-[180px] w-[320px] blur-[64px]' : 'h-[300px] w-[600px] blur-[100px]'
+            }`}
+          />
         </div>
 
         <div className="container relative z-10 mx-auto px-4 text-center">

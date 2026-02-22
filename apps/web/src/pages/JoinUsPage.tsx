@@ -381,7 +381,7 @@ export default function JoinUsPage() {
                         Fill in your details below. An interview will be scheduled after review.
                       </CardDescription>
                     </CardHeader>
-                    <CardContent className="p-8">
+                    <CardContent className="p-4 sm:p-8">
                       {error && (
                         <motion.div
                           initial={{ opacity: 0, y: -10 }}
@@ -525,7 +525,7 @@ export default function JoinUsPage() {
                           </ul>
                         </div>
 
-                        <div className="flex gap-4 pt-4">
+                        <div className="flex flex-col gap-3 pt-4 sm:flex-row sm:gap-4">
                           <Button
                             type="button"
                             variant="outline"
@@ -563,7 +563,7 @@ export default function JoinUsPage() {
                           <p className="text-center text-sm text-gray-500 mb-4">
                             Or quickly fill your details using
                           </p>
-                          <div className="flex gap-4 justify-center">
+                          <div className="flex flex-wrap gap-3 justify-center">
                             {providers.google && (
                               <Button
                                 type="button"
@@ -602,7 +602,7 @@ export default function JoinUsPage() {
                   className="max-w-lg mx-auto"
                 >
                   <Card className="bg-white/90 backdrop-blur-sm shadow-xl border-green-200">
-                    <CardContent className="p-8 text-center">
+                    <CardContent className="p-4 sm:p-8 text-center">
                       <motion.div
                         initial={{ scale: 0 }}
                         animate={{ scale: 1 }}
@@ -628,7 +628,7 @@ export default function JoinUsPage() {
                         </ol>
                       </div>
 
-                      <div className="flex gap-4">
+                      <div className="flex flex-col gap-3 sm:flex-row sm:gap-4">
                         <Button
                           variant="outline"
                           className="flex-1"

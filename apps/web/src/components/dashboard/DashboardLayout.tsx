@@ -193,7 +193,7 @@ export default function DashboardLayout() {
       {/* Main Content */}
       <div className="lg:pl-64">
         {/* Top Bar */}
-        <header className="sticky top-0 z-30 bg-white border-b border-amber-200 h-16 flex items-center px-4">
+        <header className="sticky top-0 z-30 bg-white border-b border-amber-200 h-16 flex items-center px-3 sm:px-4">
           <button
             onClick={() => setSidebarOpen(true)}
             className="lg:hidden p-2 hover:bg-amber-100 rounded-lg mr-4"
@@ -202,14 +202,14 @@ export default function DashboardLayout() {
           </button>
 
           {/* Breadcrumb */}
-          <div className="flex items-center text-sm text-gray-500">
+          <div className="flex min-w-0 items-center text-sm text-gray-500">
             <Link to="/dashboard" className="hover:text-amber-600">
               Dashboard
             </Link>
             {location.pathname !== '/dashboard' && (
               <>
                 <ChevronRight className="h-4 w-4 mx-1" />
-                <span className="text-amber-900 font-medium">
+                <span className="truncate text-amber-900 font-medium">
                   {location.pathname.split('/').pop()?.replace(/-/g, ' ').replace(/^\w/, c => c.toUpperCase())}
                 </span>
               </>

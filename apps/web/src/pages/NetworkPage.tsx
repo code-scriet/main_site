@@ -33,6 +33,7 @@ import { api, type NetworkProfile, type NetworkConnectionType } from '@/lib/api'
 import { useSettings } from '@/context/SettingsContext';
 import { useAuth } from '@/context/AuthContext';
 import { useNavigate, Link } from 'react-router-dom';
+import { useMotionConfig } from '@/hooks/useMotionConfig';
 
 const connectionTypeLabels: Record<NetworkConnectionType, string> = {
   GUEST_SPEAKER: 'Guest Speaker',
@@ -152,6 +153,7 @@ export default function NetworkPage() {
   const { user, token, refreshUser } = useAuth();
   const navigate = useNavigate();
   const prefersReducedMotion = useReducedMotion();
+  const { isMobile, shouldReduceMotion } = useMotionConfig();
 
   const [profiles, setProfiles] = useState<NetworkProfile[]>([]);
   const [industries, setIndustries] = useState<string[]>([]);
@@ -311,8 +313,8 @@ export default function NetworkPage() {
       <div className="relative min-h-screen bg-gradient-to-b from-white via-gray-50/30 to-gray-50/50">
         {/* Subtle background decoration */}
         <div className="pointer-events-none absolute inset-0 overflow-hidden">
-          <div className="absolute -right-40 -top-40 h-[600px] w-[600px] rounded-full bg-amber-50 blur-[120px]" />
-          <div className="absolute -left-40 top-[500px] h-[400px] w-[400px] rounded-full bg-orange-50/60 blur-[100px]" />
+          <div className="absolute -right-24 -top-24 h-[260px] w-[260px] rounded-full bg-amber-50 blur-[64px] sm:-right-40 sm:-top-40 sm:h-[600px] sm:w-[600px] sm:blur-[120px]" />
+          <div className="absolute -left-24 top-[420px] h-[220px] w-[220px] rounded-full bg-orange-50/60 blur-[64px] sm:-left-40 sm:top-[500px] sm:h-[400px] sm:w-[400px] sm:blur-[100px]" />
         </div>
 
         {/* ══════════ HERO — light, clean ══════════ */}
@@ -490,7 +492,7 @@ export default function NetworkPage() {
           </div>
         </section>
 
-        <section className="sticky top-[73px] z-40 border-y border-gray-100 bg-white/95 py-4 backdrop-blur-xl">
+        <section className="sticky top-under-header z-40 border-y border-gray-100 bg-white/95 py-4 backdrop-blur-xl">
           <div className="container mx-auto max-w-6xl px-4 sm:px-6 lg:px-8">
             <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
               <div className="flex w-full flex-col gap-3 sm:flex-row sm:items-center lg:max-w-3xl">
@@ -544,7 +546,7 @@ export default function NetworkPage() {
                 </div>
               </div>
 
-              <div className="flex flex-wrap items-center gap-2">
+              <div className="no-scrollbar flex flex-nowrap items-center gap-2 overflow-x-auto pb-1 sm:flex-wrap sm:overflow-visible sm:pb-0">
                 {categoryFilters.map((filter) => (
                   <Button
                     key={filter.key}
@@ -552,15 +554,15 @@ export default function NetworkPage() {
                     onClick={() => setCategoryFilter(filter.key)}
                     className={
                       categoryFilter === filter.key
-                        ? 'h-9 bg-slate-900 text-white hover:bg-slate-800'
-                        : 'h-9 border-gray-200 bg-white text-gray-600 hover:bg-gray-50'
+                        ? 'h-9 shrink-0 bg-slate-900 text-white hover:bg-slate-800'
+                        : 'h-9 shrink-0 border-gray-200 bg-white text-gray-600 hover:bg-gray-50'
                     }
                   >
                     {filter.label}
                   </Button>
                 ))}
                 {hasActiveFilters && (
-                  <Button variant="ghost" onClick={clearFilters} className="h-9 gap-1 text-gray-500 hover:text-gray-700 hover:bg-gray-100">
+                  <Button variant="ghost" onClick={clearFilters} className="h-9 shrink-0 gap-1 text-gray-500 hover:text-gray-700 hover:bg-gray-100">
                     <X className="h-4 w-4" />
                     Clear
                   </Button>
@@ -654,7 +656,14 @@ export default function NetworkPage() {
 
                   <div className="grid gap-5 md:grid-cols-2 lg:grid-cols-3">
                     {featuredProfiles.slice(0, 3).map((profile, index) => (
-                      <FeaturedCard key={profile.id} profile={profile} index={index} />
+                      <FeaturedCard
+                        key={profile.id}
+                        profile={profile}
+                        index={index}
+                        isMobile={isMobile}
+                        shouldReduceMotion={shouldReduceMotion}
+                        prefersReducedMotion={prefersReducedMotion}
+                      />
                     ))}
                   </div>
                 </div>
@@ -682,7 +691,15 @@ export default function NetworkPage() {
                   ) : (
                     <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
                       {industryProfessionals.map((profile, index) => (
-                        <MemberCard key={profile.id} profile={profile} index={index} tone="professional" />
+                        <MemberCard
+                          key={profile.id}
+                          profile={profile}
+                          index={index}
+                          tone="professional"
+                          isMobile={isMobile}
+                          shouldReduceMotion={shouldReduceMotion}
+                          prefersReducedMotion={prefersReducedMotion}
+                        />
                       ))}
                     </div>
                   )}
@@ -711,7 +728,15 @@ export default function NetworkPage() {
                   ) : (
                     <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
                       {alumni.map((profile, index) => (
-                        <MemberCard key={profile.id} profile={profile} index={index} tone="alumni" />
+                        <MemberCard
+                          key={profile.id}
+                          profile={profile}
+                          index={index}
+                          tone="alumni"
+                          isMobile={isMobile}
+                          shouldReduceMotion={shouldReduceMotion}
+                          prefersReducedMotion={prefersReducedMotion}
+                        />
                       ))}
                     </div>
                   )}
@@ -804,7 +829,7 @@ function SectionHeader({
       viewport={{ once: true }}
       className="mb-7"
     >
-      <div className="mb-3 flex items-center gap-3">
+      <div className="mb-3 flex flex-wrap items-center gap-3">
         <span className={`inline-flex rounded-xl bg-gradient-to-br p-2.5 text-white ${iconClassName}`}>
           <Icon className="h-5 w-5" />
         </span>
@@ -847,9 +872,20 @@ function EmptyState({
   );
 }
 
-function FeaturedCard({ profile, index }: { profile: NetworkProfile; index: number }) {
+function FeaturedCard({
+  profile,
+  index,
+  isMobile,
+  shouldReduceMotion,
+  prefersReducedMotion,
+}: {
+  profile: NetworkProfile;
+  index: number;
+  isMobile: boolean;
+  shouldReduceMotion: boolean;
+  prefersReducedMotion: boolean | null;
+}) {
   const navigate = useNavigate();
-  const prefersReducedMotion = useReducedMotion();
   const [isHovered, setIsHovered] = useState(false);
   const TypeIcon = connectionTypeIcons[profile.connectionType];
   const socials = profileSocialLinks(profile);
@@ -864,10 +900,14 @@ function FeaturedCard({ profile, index }: { profile: NetworkProfile; index: numb
 
   return (
     <motion.article
-      initial={{ opacity: 0, y: 30, scale: 0.95 }}
+      initial={{ opacity: 0, y: isMobile ? 14 : 30, scale: isMobile ? 1 : 0.95 }}
       whileInView={{ opacity: 1, y: 0, scale: 1 }}
-      viewport={{ once: true }}
-      transition={{ delay: index * 0.1, duration: 0.7, ease: [0.22, 1, 0.36, 1] }}
+      viewport={{ once: true, amount: 0.2 }}
+      transition={{
+        delay: isMobile ? (index % 4) * 0.04 : index * 0.1,
+        duration: shouldReduceMotion ? 0.35 : 0.7,
+        ease: [0.22, 1, 0.36, 1],
+      }}
       whileHover={prefersReducedMotion ? undefined : { y: -10 }}
       onHoverStart={() => setIsHovered(true)}
       onHoverEnd={() => setIsHovered(false)}
@@ -879,7 +919,11 @@ function FeaturedCard({ profile, index }: { profile: NetworkProfile; index: numb
         onClick={openProfile}
         onKeyDown={onCardKeyDown}
         aria-label={`View ${profile.fullName} profile`}
-        className="relative flex h-full cursor-pointer flex-col overflow-hidden rounded-3xl bg-white/70 backdrop-blur-sm border border-white/80 shadow-lg hover:shadow-2xl hover:shadow-amber-500/20 transition-all duration-700 p-6 min-h-[420px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400"
+        className={`performance-surface relative flex h-full cursor-pointer flex-col overflow-hidden rounded-3xl border p-6 transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 ${
+          isMobile
+            ? 'min-h-[360px] border-gray-200 bg-white shadow-md'
+            : 'min-h-[420px] border-white/80 bg-white/70 shadow-lg backdrop-blur-sm hover:shadow-2xl hover:shadow-amber-500/20'
+        }`}
       >
         {/* Animated gradient border on hover */}
         <motion.div
@@ -888,10 +932,10 @@ function FeaturedCard({ profile, index }: { profile: NetworkProfile; index: numb
             background: 'linear-gradient(135deg, rgba(251,191,36,0.3), rgba(249,115,22,0.3), rgba(251,191,36,0.3))',
             backgroundSize: '200% 200%',
           }}
-          animate={isHovered ? {
+          animate={!isMobile && isHovered ? {
             backgroundPosition: ['0% 50%', '100% 50%', '0% 50%']
           } : {}}
-          transition={{ duration: 3, repeat: Infinity, ease: "linear" }}
+          transition={{ duration: shouldReduceMotion ? 4.5 : 3, repeat: Infinity, ease: "linear" }}
         />
 
         {/* Featured badge */}
@@ -910,8 +954,8 @@ function FeaturedCard({ profile, index }: { profile: NetworkProfile; index: numb
         {/* Avatar container with animated ring */}
         <div className="relative mb-5 z-10 flex-shrink-0">
           <motion.div
-            className="w-48 h-48 mx-auto rounded-full overflow-hidden relative"
-            whileHover={{ scale: 1.05 }}
+            className="mx-auto h-36 w-36 overflow-hidden rounded-full relative sm:h-40 sm:w-40 md:h-48 md:w-48"
+            whileHover={isMobile ? undefined : { scale: 1.05 }}
             transition={{ duration: 0.3 }}
           >
             {/* Animated ring */}
@@ -922,10 +966,10 @@ function FeaturedCard({ profile, index }: { profile: NetworkProfile; index: numb
                 backgroundSize: '200% 200%',
                 padding: '4px',
               }}
-              animate={isHovered ? {
+              animate={!isMobile && isHovered ? {
                 backgroundPosition: ['0% 50%', '100% 50%', '0% 50%'],
               } : {}}
-              transition={{ duration: 2, repeat: Infinity, ease: "linear" }}
+              transition={{ duration: shouldReduceMotion ? 3.5 : 2, repeat: Infinity, ease: "linear" }}
             >
               <div className="w-full h-full rounded-full bg-white p-1">
                 <img
@@ -940,7 +984,7 @@ function FeaturedCard({ profile, index }: { profile: NetworkProfile; index: numb
             <motion.div
               className="absolute inset-0 rounded-full bg-amber-400/40 blur-xl -z-10"
               initial={{ opacity: 0, scale: 0.8 }}
-              animate={isHovered ? { opacity: 1, scale: 1.3 } : { opacity: 0, scale: 0.8 }}
+              animate={!isMobile && isHovered ? { opacity: 1, scale: 1.3 } : { opacity: 0, scale: 0.8 }}
               transition={{ duration: 0.4 }}
             />
           </motion.div>
@@ -993,7 +1037,7 @@ function FeaturedCard({ profile, index }: { profile: NetworkProfile; index: numb
         >
           <SocialRow socials={socials} />
           <motion.div
-            whileHover={{ x: 4, scale: 1.05 }}
+            whileHover={isMobile ? undefined : { x: 4, scale: 1.05 }}
             className="ml-auto flex items-center gap-1 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 px-3 py-2 text-white shadow-md"
           >
             <span className="text-xs font-bold">View</span>
@@ -1009,13 +1053,18 @@ function MemberCard({
   profile,
   index,
   tone,
+  isMobile,
+  shouldReduceMotion,
+  prefersReducedMotion,
 }: {
   profile: NetworkProfile;
   index: number;
   tone: 'professional' | 'alumni';
+  isMobile: boolean;
+  shouldReduceMotion: boolean;
+  prefersReducedMotion: boolean | null;
 }) {
   const navigate = useNavigate();
-  const prefersReducedMotion = useReducedMotion();
   const [isHovered, setIsHovered] = useState(false);
   const TypeIcon = connectionTypeIcons[profile.connectionType];
   const socials = profileSocialLinks(profile);
@@ -1040,10 +1089,14 @@ function MemberCard({
 
   return (
     <motion.article
-      initial={{ opacity: 0, y: 25, scale: 0.95 }}
+      initial={{ opacity: 0, y: isMobile ? 12 : 25, scale: isMobile ? 1 : 0.95 }}
       whileInView={{ opacity: 1, y: 0, scale: 1 }}
-      viewport={{ once: true }}
-      transition={{ delay: (index % 8) * 0.08, duration: 0.6, ease: [0.22, 1, 0.36, 1] }}
+      viewport={{ once: true, amount: 0.2 }}
+      transition={{
+        delay: isMobile ? (index % 4) * 0.03 : (index % 8) * 0.08,
+        duration: shouldReduceMotion ? 0.32 : 0.6,
+        ease: [0.22, 1, 0.36, 1],
+      }}
       whileHover={prefersReducedMotion ? undefined : { y: -8 }}
       onHoverStart={() => setIsHovered(true)}
       onHoverEnd={() => setIsHovered(false)}
@@ -1055,7 +1108,11 @@ function MemberCard({
         onClick={openProfile}
         onKeyDown={onCardKeyDown}
         aria-label={`View ${profile.fullName} profile`}
-        className="relative flex h-full cursor-pointer flex-col overflow-hidden rounded-2xl bg-white/70 backdrop-blur-sm border border-white/80 shadow-lg hover:shadow-2xl hover:shadow-amber-500/20 transition-all duration-700 p-5 min-h-[360px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400"
+        className={`performance-surface relative flex h-full cursor-pointer flex-col overflow-hidden rounded-2xl border p-5 transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 ${
+          isMobile
+            ? 'min-h-[330px] border-gray-200 bg-white shadow-md'
+            : 'min-h-[360px] border-white/80 bg-white/70 shadow-lg backdrop-blur-sm hover:shadow-2xl hover:shadow-amber-500/20'
+        }`}
       >
         {/* Animated gradient border on hover */}
         <motion.div
@@ -1064,17 +1121,17 @@ function MemberCard({
             background: 'linear-gradient(135deg, rgba(251,191,36,0.3), rgba(249,115,22,0.3), rgba(251,191,36,0.3))',
             backgroundSize: '200% 200%',
           }}
-          animate={isHovered ? {
+          animate={!isMobile && isHovered ? {
             backgroundPosition: ['0% 50%', '100% 50%', '0% 50%']
           } : {}}
-          transition={{ duration: 3, repeat: Infinity, ease: "linear" }}
+          transition={{ duration: shouldReduceMotion ? 4.5 : 3, repeat: Infinity, ease: "linear" }}
         />
 
         {/* Avatar container with animated ring */}
         <div className="relative mb-4 z-10 flex-shrink-0">
           <motion.div
-            className="w-40 h-40 mx-auto rounded-full overflow-hidden relative"
-            whileHover={{ scale: 1.05 }}
+            className="mx-auto h-28 w-28 overflow-hidden rounded-full relative sm:h-32 sm:w-32 md:h-40 md:w-40"
+            whileHover={isMobile ? undefined : { scale: 1.05 }}
             transition={{ duration: 0.3 }}
           >
             {/* Animated ring */}
@@ -1085,10 +1142,10 @@ function MemberCard({
                 backgroundSize: '200% 200%',
                 padding: '3px',
               }}
-              animate={isHovered ? {
+              animate={!isMobile && isHovered ? {
                 backgroundPosition: ['0% 50%', '100% 50%', '0% 50%'],
               } : {}}
-              transition={{ duration: 2, repeat: Infinity, ease: "linear" }}
+              transition={{ duration: shouldReduceMotion ? 3.5 : 2, repeat: Infinity, ease: "linear" }}
             >
               <div className="w-full h-full rounded-full bg-white p-0.5">
                 <img
@@ -1103,7 +1160,7 @@ function MemberCard({
             <motion.div
               className="absolute inset-0 rounded-full bg-amber-400/40 blur-xl -z-10"
               initial={{ opacity: 0, scale: 0.8 }}
-              animate={isHovered ? { opacity: 1, scale: 1.3 } : { opacity: 0, scale: 0.8 }}
+              animate={!isMobile && isHovered ? { opacity: 1, scale: 1.3 } : { opacity: 0, scale: 0.8 }}
               transition={{ duration: 0.4 }}
             />
           </motion.div>
@@ -1162,7 +1219,7 @@ function MemberCard({
         >
           <SocialRow socials={socials} />
           <motion.div
-            whileHover={{ x: 3, scale: 1.05 }}
+            whileHover={isMobile ? undefined : { x: 3, scale: 1.05 }}
             className="ml-auto flex items-center gap-0.5 rounded-lg bg-gradient-to-r from-amber-500 to-orange-500 px-2.5 py-1.5 text-white shadow-md"
           >
             <span className="text-xs font-bold">View</span>

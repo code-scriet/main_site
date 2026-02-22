@@ -622,7 +622,7 @@ export default function EventDetailPage() {
             initial={{ opacity: 0, y: -20 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -20 }}
-            className="fixed top-20 left-1/2 transform -translate-x-1/2 z-50 w-full max-w-md px-4"
+            className="fixed top-under-header-gap left-1/2 transform -translate-x-1/2 z-50 w-full max-w-md px-4"
           >
             <div className={`flex items-center gap-3 p-4 rounded-lg shadow-lg ${
               registrationSuccess 
@@ -799,7 +799,7 @@ export default function EventDetailPage() {
 
         {/* Event Title Overlay */}
         <div className="absolute bottom-0 left-0 right-0 p-4 sm:p-6 md:p-8">
-          <div className="container mx-auto">
+          <div className="container mx-auto px-4">
             <div className="flex flex-wrap gap-1.5 sm:gap-2 mb-2 sm:mb-3">
               <Badge className={statusInfo.color}>
                 {statusInfo.label}
@@ -1132,7 +1132,7 @@ export default function EventDetailPage() {
 
             {/* Right Column - Sticky Sidebar (Desktop only) */}
             <div className="hidden lg:block lg:col-span-1">
-              <div className="sticky top-24 space-y-6">
+              <div className="sticky top-[calc(var(--site-header-height)+1rem)] space-y-6">
                 {/* Registration Card */}
                 <Card className="border-amber-200 shadow-lg">
                   <CardHeader className="bg-gradient-to-r from-amber-500 to-orange-500 text-white rounded-t-lg">

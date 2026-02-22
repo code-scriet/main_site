@@ -190,7 +190,7 @@ export default function EventsPage() {
         ]}
       />
       {/* Hero Section */}
-      <section className="py-16 bg-gradient-to-br from-amber-400 via-orange-500 to-amber-900 text-white">
+      <section className="py-14 sm:py-16 bg-gradient-to-br from-amber-400 via-orange-500 to-amber-900 text-white">
         <div className="container mx-auto px-4">
           <motion.div
             initial={{ opacity: 0, y: 20 }}
@@ -198,8 +198,8 @@ export default function EventsPage() {
             transition={{ duration: 0.6 }}
             className="text-center"
           >
-            <h1 className="text-5xl font-bold mb-4">Events</h1>
-            <p className="text-xl text-amber-50 max-w-2xl mx-auto">
+            <h1 className="text-3xl sm:text-5xl font-bold mb-4">Events</h1>
+            <p className="text-base sm:text-xl text-amber-50 max-w-2xl mx-auto">
               Join us for workshops, hackathons, and learning sessions
             </p>
           </motion.div>
@@ -208,7 +208,7 @@ export default function EventsPage() {
 
       {/* Success/Error Notifications */}
       {(registrationSuccess || registrationError) && (
-        <div className="fixed top-20 left-1/2 transform -translate-x-1/2 z-50 w-full max-w-md px-4">
+        <div className="fixed top-under-header-gap left-1/2 transform -translate-x-1/2 z-50 w-full max-w-md px-4">
           <motion.div
             initial={{ opacity: 0, y: -20 }}
             animate={{ opacity: 1, y: 0 }}
@@ -230,15 +230,15 @@ export default function EventsPage() {
       )}
 
       {/* Filter Tabs */}
-      <section className="py-8 bg-white border-b border-amber-200 sticky top-[73px] z-40">
+      <section className="py-6 sm:py-8 bg-white border-b border-amber-200 sticky top-under-header z-40">
         <div className="container mx-auto px-4">
-          <div className="flex flex-wrap justify-center gap-2">
+          <div className="no-scrollbar flex flex-nowrap items-center justify-start gap-2 overflow-x-auto pb-1 sm:flex-wrap sm:justify-center sm:overflow-visible sm:pb-0">
             {tabs.map((tab) => (
               <Button
                 key={tab.key}
                 variant={activeTab === tab.key ? 'default' : 'outline'}
                 onClick={() => setActiveTab(tab.key as EventStatus | 'ALL')}
-                className="min-w-24"
+                className="min-w-24 shrink-0"
               >
                 {tab.label}
               </Button>

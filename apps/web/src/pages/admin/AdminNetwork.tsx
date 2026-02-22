@@ -353,7 +353,7 @@ export default function AdminNetwork() {
   };
 
   return (
-    <div className="p-6 max-w-7xl mx-auto">
+    <div className="p-4 sm:p-6 max-w-7xl mx-auto">
         {/* Header */}
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
           <div>
@@ -682,7 +682,7 @@ export default function AdminNetwork() {
 
                 <div className="space-y-4 py-4">
                   {/* Basic Info */}
-                  <div className="grid grid-cols-2 gap-4 text-sm">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
                     <div>
                       <p className="text-gray-500">Email</p>
                       <p className="font-medium">{viewProfile.user?.email}</p>
@@ -1122,7 +1122,7 @@ export default function AdminNetwork() {
                             >
                               <Trash2 className="h-3 w-3" />
                             </Button>
-                            <div className="grid grid-cols-2 gap-3 pr-8">
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pr-8">
                               <div className="col-span-2 sm:col-span-1">
                                 <Label className="text-xs">Event Title *</Label>
                                 <Input

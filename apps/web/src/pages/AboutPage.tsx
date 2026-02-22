@@ -7,8 +7,11 @@ import {
   Target, Eye, Rocket, Code, Users, Trophy, 
   Heart, BookOpen, Globe, Handshake, Check, GraduationCap
 } from 'lucide-react';
+import { useMotionConfig } from '@/hooks/useMotionConfig';
 
 export default function AboutPage() {
+  const { isMobile, shouldReduceMotion } = useMotionConfig();
+
   return (
     <Layout>
       <SEO 
@@ -19,17 +22,26 @@ export default function AboutPage() {
       />
       
       {/* Hero Section */}
-      <section className="py-16 sm:py-24 bg-gradient-to-br from-amber-400 via-orange-500 to-amber-600 text-white relative overflow-hidden">
+      <section className="py-14 sm:py-24 bg-gradient-to-br from-amber-400 via-orange-500 to-amber-600 text-white relative overflow-hidden">
         <div className="absolute inset-0 opacity-10">
-          <div className="absolute top-10 left-10 w-72 h-72 bg-white rounded-full blur-3xl animate-pulse" />
-          <div className="absolute bottom-10 right-10 w-96 h-96 bg-white rounded-full blur-3xl animate-pulse" style={{ animationDelay: '1s' }} />
+          <div
+            className={`absolute top-10 left-10 rounded-full bg-white animate-pulse ${
+              isMobile ? 'h-40 w-40 blur-2xl' : 'h-72 w-72 blur-3xl'
+            }`}
+          />
+          <div
+            className={`absolute bottom-10 right-10 rounded-full bg-white animate-pulse ${
+              isMobile ? 'h-56 w-56 blur-2xl' : 'h-96 w-96 blur-3xl'
+            }`}
+            style={{ animationDelay: '1s' }}
+          />
         </div>
         
         <div className="container mx-auto px-4 relative">
           <motion.div
             initial={{ opacity: 0, y: 30 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.7 }}
+            transition={{ duration: shouldReduceMotion ? 0.35 : 0.7 }}
             className="text-center max-w-4xl mx-auto"
           >
             <motion.div 
@@ -45,7 +57,7 @@ export default function AboutPage() {
               About code.scriet
             </h1>
             
-            <p className="text-xl sm:text-2xl text-amber-50 font-medium mb-6">
+            <p className="text-base sm:text-2xl text-amber-50 font-medium mb-6">
               Building tomorrow's problem solvers through community, collaboration, and continuous learning
             </p>
           </motion.div>
@@ -71,14 +83,14 @@ export default function AboutPage() {
               <h2 className="text-3xl sm:text-4xl font-bold text-gray-900 mb-4">
                 Achievements & Momentum
               </h2>
-              <p className="text-xl text-amber-700 font-semibold mb-3">
+              <p className="text-lg sm:text-xl text-amber-700 font-semibold mb-3">
                 Code.Scriet — Built Different.
               </p>
               <div className="max-w-3xl mx-auto space-y-4">
                 <p className="text-gray-700 text-lg">
                   Code.Scriet was founded with one belief:
                 </p>
-                <blockquote className="text-2xl text-gray-900 font-medium italic border-l-4 border-amber-500 pl-6 py-2">
+                <blockquote className="text-xl sm:text-2xl text-gray-900 font-medium italic border-l-4 border-amber-500 pl-6 py-2">
                   "Students don't need more clubs. They need ecosystems."
                 </blockquote>
                 <p className="text-gray-600 text-base">

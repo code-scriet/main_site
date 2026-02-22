@@ -1,40 +1,45 @@
-import { useState, useEffect } from 'react';
+import { useSyncExternalStore } from 'react';
+
+const MOBILE_QUERY = '(max-width: 767px)';
+const REDUCED_MOTION_QUERY = '(prefers-reduced-motion: reduce)';
+
+const subscribeToMediaQuery = (query: string, onStoreChange: () => void) => {
+  if (typeof window === 'undefined') {
+    return () => undefined;
+  }
+
+  const mediaQuery = window.matchMedia(query);
+  const listener = () => onStoreChange();
+
+  mediaQuery.addEventListener('change', listener);
+  return () => mediaQuery.removeEventListener('change', listener);
+};
+
+const getMediaQuerySnapshot = (query: string) => {
+  if (typeof window === 'undefined') {
+    return false;
+  }
+  return window.matchMedia(query).matches;
+};
+
+const getServerSnapshot = () => false;
 
 /**
  * Custom hook to detect mobile viewport and reduced motion preferences.
  * Use this to conditionally simplify animations for better mobile performance.
  */
 export function useMotionConfig() {
-  const [isMobile, setIsMobile] = useState(false);
-  const [prefersReducedMotion, setPrefersReducedMotion] = useState(false);
+  const isMobile = useSyncExternalStore(
+    (onStoreChange) => subscribeToMediaQuery(MOBILE_QUERY, onStoreChange),
+    () => getMediaQuerySnapshot(MOBILE_QUERY),
+    getServerSnapshot
+  );
 
-  useEffect(() => {
-    // Check for mobile viewport
-    const checkMobile = () => {
-      setIsMobile(window.innerWidth < 768);
-    };
-
-    // Check for reduced motion preference
-    const motionQuery = window.matchMedia('(prefers-reduced-motion: reduce)');
-    setPrefersReducedMotion(motionQuery.matches);
-
-    // Initial check
-    checkMobile();
-
-    // Listen for viewport changes
-    window.addEventListener('resize', checkMobile);
-    
-    // Listen for motion preference changes
-    const handleMotionChange = (e: MediaQueryListEvent) => {
-      setPrefersReducedMotion(e.matches);
-    };
-    motionQuery.addEventListener('change', handleMotionChange);
-
-    return () => {
-      window.removeEventListener('resize', checkMobile);
-      motionQuery.removeEventListener('change', handleMotionChange);
-    };
-  }, []);
+  const prefersReducedMotion = useSyncExternalStore(
+    (onStoreChange) => subscribeToMediaQuery(REDUCED_MOTION_QUERY, onStoreChange),
+    () => getMediaQuerySnapshot(REDUCED_MOTION_QUERY),
+    getServerSnapshot
+  );
 
   // Combine both conditions
   const shouldReduceMotion = isMobile || prefersReducedMotion;

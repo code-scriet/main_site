@@ -24,6 +24,8 @@
     --input: 25 35% 91%;
     --ring: 38 100% 57%;
     --radius: 0.5rem;
+    --site-header-height: 80px;
+    --site-header-offset: calc(var(--site-header-height) + 8px);
   }
 }
 
@@ -38,6 +40,13 @@
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     text-rendering: optimizeLegibility;
+    overflow-x: hidden;
+  }
+
+  html,
+  body,
+  #root {
+    max-width: 100%;
   }
   
   h1, h2, h3, h4, h5, h6 {
@@ -139,5 +148,48 @@
   
   .glass-dark {
     @apply bg-black/30 backdrop-blur-xl border border-white/10;
+  }
+
+  .no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+
+  .performance-surface {
+    transform: translateZ(0);
+    backface-visibility: hidden;
+    will-change: transform, opacity;
+  }
+
+  .top-under-header {
+    top: var(--site-header-height);
+  }
+
+  .top-under-header-gap {
+    top: var(--site-header-offset);
+  }
+}
+
+@media (max-width: 767px), ((hover: none) and (pointer: coarse)) {
+  .animate-pulse {
+    animation-duration: 3s;
+  }
+
+  .animate-ping {
+    animation-duration: 1.8s;
+  }
+
+  .backdrop-blur,
+  .backdrop-blur-sm,
+  .backdrop-blur-md,
+  .backdrop-blur-lg,
+  .backdrop-blur-xl,
+  .backdrop-blur-2xl,
+  .backdrop-blur-3xl {
+    --tw-backdrop-blur: blur(8px) !important;
   }
 }

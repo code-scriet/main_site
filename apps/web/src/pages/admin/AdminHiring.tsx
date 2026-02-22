@@ -433,7 +433,7 @@ export default function AdminHiring() {
       <div className="grid gap-4">
         {filteredApplications.length === 0 ? (
           <Card>
-            <CardContent className="p-8 text-center">
+            <CardContent className="p-6 text-center">
               <Users className="h-12 w-12 mx-auto text-gray-300 mb-4" />
               <p className="text-gray-500">No applications found</p>
             </CardContent>
@@ -529,7 +529,7 @@ export default function AdminHiring() {
             animate={{ opacity: 1, scale: 1 }}
             className="bg-white rounded-xl shadow-xl max-w-lg w-full max-h-[90vh] overflow-y-auto"
           >
-            <div className="p-6">
+            <div className="p-4 sm:p-6">
               <div className="flex items-start justify-between mb-6">
                 <div>
                   <h2 className="text-xl font-bold text-gray-900">{selectedApplication.name}</h2>
@@ -545,7 +545,7 @@ export default function AdminHiring() {
               </div>
 
               <div className="space-y-4">
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                     <label className="text-xs text-gray-500">Phone</label>
                     <p className="font-medium">{selectedApplication.phone || 'Not provided'}</p>

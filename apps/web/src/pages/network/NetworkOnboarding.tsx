@@ -45,6 +45,7 @@ import {
 } from 'lucide-react';
 import { Layout } from '@/components/layout/Layout';
 import { SEO } from '@/components/SEO';
+import { useMotionConfig } from '@/hooks/useMotionConfig';
 
 const connectionTypes: { value: NetworkConnectionType; label: string; description: string }[] = [
   { value: 'GUEST_SPEAKER', label: 'Guest Speaker', description: 'Delivered a talk or session' },
@@ -182,6 +183,7 @@ const cleanUsername = (value?: string): string | undefined => {
 export default function NetworkOnboarding() {
   const { user, token, isLoading: authLoading } = useAuth();
   const { settings, loading: settingsLoading } = useSettings();
+  const { isMobile, shouldReduceMotion } = useMotionConfig();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
 
@@ -435,17 +437,25 @@ export default function NetworkOnboarding() {
         url="/network/onboarding"
       />
 
-      <div className="relative min-h-screen bg-[#f4f6fb] px-4 py-10 sm:py-12">
+      <div className="relative min-h-screen bg-[#f4f6fb] px-4 py-8 sm:py-12">
         <div className="pointer-events-none absolute inset-0 overflow-hidden">
-          <div className="absolute -right-20 top-0 h-[340px] w-[340px] rounded-full bg-amber-300/20 blur-3xl" />
-          <div className="absolute -left-16 top-80 h-[320px] w-[320px] rounded-full bg-cyan-300/20 blur-3xl" />
+          <div
+            className={`absolute -right-20 top-0 rounded-full bg-amber-300/20 ${
+              isMobile ? 'h-[220px] w-[220px] blur-2xl' : 'h-[340px] w-[340px] blur-3xl'
+            }`}
+          />
+          <div
+            className={`absolute -left-16 top-80 rounded-full bg-cyan-300/20 ${
+              isMobile ? 'h-[200px] w-[200px] blur-2xl' : 'h-[320px] w-[320px] blur-3xl'
+            }`}
+          />
         </div>
 
         <div className="relative mx-auto max-w-6xl">
           <motion.div
             initial={{ opacity: 0, y: 18 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.5 }}
+            transition={{ duration: shouldReduceMotion ? 0.3 : 0.5 }}
             className="mb-6 rounded-3xl border border-white/60 bg-white/92 p-6 shadow-xl backdrop-blur sm:p-7"
           >
             <div className="mb-3 flex flex-wrap items-center gap-2">
