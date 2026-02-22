@@ -130,7 +130,7 @@ export function TeamHighlight() {
                 <div className="flex justify-center gap-3">
                   {member.github && (
                     <motion.a
-                      href={`https://github.com/${member.github}`}
+                      href={member.github.startsWith('http') ? member.github : `https://github.com/${member.github}`}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="p-2 rounded-lg bg-gray-100 text-gray-500 hover:bg-gray-900 hover:text-white transition-all"
@@ -142,7 +142,7 @@ export function TeamHighlight() {
                   )}
                   {member.linkedin && (
                     <motion.a
-                      href={`https://linkedin.com/in/${member.linkedin}`}
+                      href={member.linkedin.startsWith('http') ? member.linkedin : `https://linkedin.com/in/${member.linkedin}`}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="p-2 rounded-lg bg-gray-100 text-gray-500 hover:bg-blue-600 hover:text-white transition-all"
@@ -154,7 +154,7 @@ export function TeamHighlight() {
                   )}
                   {member.twitter && (
                     <motion.a
-                      href={`https://twitter.com/${member.twitter}`}
+                      href={member.twitter.startsWith('http') ? member.twitter : `https://twitter.com/${member.twitter}`}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="p-2 rounded-lg bg-gray-100 text-gray-500 hover:bg-sky-500 hover:text-white transition-all"
@@ -166,7 +166,7 @@ export function TeamHighlight() {
                   )}
                   {member.instagram && (
                     <motion.a
-                      href={`https://instagram.com/${member.instagram}`}
+                      href={member.instagram.startsWith('http') ? member.instagram : `https://instagram.com/${member.instagram}`}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="p-2 rounded-lg bg-gray-100 text-gray-500 hover:bg-pink-500 hover:text-white transition-all"

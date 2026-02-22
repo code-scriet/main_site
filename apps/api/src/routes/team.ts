@@ -8,7 +8,7 @@ import { auditLog } from '../utils/audit.js';
 export const teamRouter = Router();
 
 const optionalSocialUrl = z
-  .union([z.string().url('Must be a valid URL'), z.literal('')])
+  .union([z.string(), z.literal('')])
   .optional();
 
 const createTeamMemberSchema = z.object({

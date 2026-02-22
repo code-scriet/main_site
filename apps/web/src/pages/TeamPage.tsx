@@ -441,7 +441,7 @@ function MemberCard({
         >
           {member.github && (
             <SocialLink 
-              href={`https://github.com/${member.github}`}
+              href={member.github.startsWith('http') ? member.github : `https://github.com/${member.github}`}
               icon={<Github className="h-4 w-4" />}
               hoverColor="hover:text-gray-800 hover:bg-gray-100"
               delay={0}
@@ -450,7 +450,7 @@ function MemberCard({
           )}
           {member.linkedin && (
             <SocialLink 
-              href={`https://linkedin.com/in/${member.linkedin}`}
+              href={member.linkedin.startsWith('http') ? member.linkedin : `https://linkedin.com/in/${member.linkedin}`}
               icon={<Linkedin className="h-4 w-4" />}
               hoverColor="hover:text-blue-600 hover:bg-blue-50"
               delay={0.05}
@@ -459,7 +459,7 @@ function MemberCard({
           )}
           {member.twitter && (
             <SocialLink 
-              href={`https://twitter.com/${member.twitter}`}
+              href={member.twitter.startsWith('http') ? member.twitter : `https://twitter.com/${member.twitter}`}
               icon={<Twitter className="h-4 w-4" />}
               hoverColor="hover:text-sky-500 hover:bg-sky-50"
               delay={0.1}
@@ -468,7 +468,7 @@ function MemberCard({
           )}
           {member.instagram && (
             <SocialLink 
-              href={`https://instagram.com/${member.instagram}`}
+              href={member.instagram.startsWith('http') ? member.instagram : `https://instagram.com/${member.instagram}`}
               icon={<Instagram className="h-4 w-4" />}
               hoverColor="hover:text-pink-500 hover:bg-pink-50"
               delay={0.15}
