@@ -19,6 +19,7 @@ import {
   UserPlus,
   User,
   Upload,
+  ClipboardList,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -47,6 +48,7 @@ const getAdminNavItems = (hiringEnabled: boolean, showNetwork: boolean) => {
   
   items.push(
     { name: 'Event Registrations', href: '/admin/event-registrations', icon: Calendar },
+    { name: 'Audit Log', href: '/admin/audit-log', icon: ClipboardList },
     { name: 'Settings', href: '/admin/settings', icon: Settings }
   );
   

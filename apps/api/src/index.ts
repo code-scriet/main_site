@@ -20,6 +20,7 @@ import { hiringRouter } from './routes/hiring.js';
 import { uploadRouter } from './routes/upload.js';
 import { sitemapRouter, robotsRouter } from './routes/sitemap.js';
 import { networkRouter } from './routes/network.js';
+import { auditRouter } from './routes/audit.js';
 import { setupPassport } from './config/passport.js';
 import { requestLogger, logger } from './utils/logger.js';
 import { ApiResponse, ErrorCodes } from './utils/response.js';
@@ -178,6 +179,7 @@ app.use('/api/settings', settingsRouter);
 app.use('/api/hiring', hiringRouter);
 app.use('/api/upload', uploadRouter);
 app.use('/api/network', networkRouter);
+app.use('/api/audit-logs', auditRouter);
 
 // Test email endpoint for debugging
 app.post('/api/test-email', authMiddleware, requireRole('ADMIN'), async (req: express.Request, res: express.Response) => {

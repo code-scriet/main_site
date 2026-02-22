@@ -323,6 +323,17 @@ export interface PendingNetworkUser {
   createdAt: string;
 }
 
+export interface AuditLogEntry {
+  id: string;
+  userId: string;
+  action: string;
+  entity: string;
+  entityId?: string | null;
+  metadata?: Record<string, unknown> | null;
+  timestamp: string;
+  user: { id: string; name: string; email: string; avatar?: string | null };
+}
+
 export const api = {
   // Auth
   getProviders: () => request<AuthProviders>('/auth/providers'),
@@ -616,4 +627,28 @@ export const api = {
       '/network/admin/stats',
       { token }
     ),
+
+  // Audit Logs (admin)
+  getAuditLogs: (token: string, filters?: {
+    page?: number;
+    limit?: number;
+    entity?: string;
+    action?: string;
+    userId?: string;
+    search?: string;
+  }) => {
+    const params = new URLSearchParams();
+    if (filters?.page) params.append('page', filters.page.toString());
+    if (filters?.limit) params.append('limit', filters.limit.toString());
+    if (filters?.entity) params.append('entity', filters.entity);
+    if (filters?.action) params.append('action', filters.action);
+    if (filters?.userId) params.append('userId', filters.userId);
+    if (filters?.search) params.append('search', filters.search);
+    const query = params.toString() ? `?${params.toString()}` : '';
+    return request<{
+      logs: AuditLogEntry[];
+      pagination: { page: number; limit: number; total: number; totalPages: number };
+      filters: { entities: string[]; actions: string[] };
+    }>(`/audit-logs${query}`, { token });
+  },
 };
