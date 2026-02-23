@@ -1,0 +1,10 @@
+-- AlterEnum
+ALTER TYPE "Role" ADD VALUE 'PRESIDENT';
+
+-- AlterTable
+ALTER TABLE "settings" ADD COLUMN IF NOT EXISTS "hiring_designing" BOOLEAN NOT NULL DEFAULT true;
+ALTER TABLE "settings" ADD COLUMN IF NOT EXISTS "hiring_dsa_champs" BOOLEAN NOT NULL DEFAULT true;
+ALTER TABLE "settings" ADD COLUMN IF NOT EXISTS "hiring_management" BOOLEAN NOT NULL DEFAULT true;
+ALTER TABLE "settings" ADD COLUMN IF NOT EXISTS "hiring_social_media" BOOLEAN NOT NULL DEFAULT true;
+ALTER TABLE "settings" ADD COLUMN IF NOT EXISTS "hiring_technical" BOOLEAN NOT NULL DEFAULT true;
+ALTER TABLE "settings" ADD COLUMN IF NOT EXISTS "mailing_enabled" BOOLEAN NOT NULL DEFAULT true;

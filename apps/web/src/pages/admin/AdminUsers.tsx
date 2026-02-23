@@ -99,7 +99,7 @@ export default function AdminUsers() {
   const [search, setSearch] = useState('');
   const [roleFilter, setRoleFilter] = useState<'ALL' | 'USER' | 'MEMBER' | 'CORE_MEMBER' | 'ADMIN' | 'PRESIDENT'>('ALL');
   
-  const isSuperAdmin = currentUser?.email === import.meta.env.VITE_SUPER_ADMIN_EMAIL;
+  const isSuperAdmin = currentUser?.isSuperAdmin === true;
 
   useEffect(() => {
     loadUsers();
