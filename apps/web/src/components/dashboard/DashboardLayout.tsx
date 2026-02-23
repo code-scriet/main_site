@@ -20,6 +20,7 @@ import {
   User,
   Upload,
   ClipboardList,
+  Mail,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -31,7 +32,7 @@ const coreMemberNavItems = [
 ];
 
 // Admin nav items - Hiring and Network will be conditionally added based on settings
-const getAdminNavItems = (hiringEnabled: boolean, showNetwork: boolean, isSuperAdmin?: boolean) => {
+const getAdminNavItems = (hiringEnabled: boolean, showNetwork: boolean, isSuperAdmin?: boolean, isPresident?: boolean) => {
   const items = [
     { name: 'User Management', href: '/admin/users', icon: Users },
     { name: 'Team Management', href: '/admin/team', icon: Shield },
@@ -46,12 +47,13 @@ const getAdminNavItems = (hiringEnabled: boolean, showNetwork: boolean, isSuperA
     items.push({ name: 'Network Management', href: '/admin/network', icon: Users });
   }
   
-  if (isSuperAdmin) {
+  if (isSuperAdmin || isPresident) {
     items.push({ name: 'Audit Log', href: '/admin/audit-log', icon: ClipboardList });
   }
   
   items.push(
     { name: 'Event Registrations', href: '/admin/event-registrations', icon: Calendar },
+    { name: 'Send Mail', href: '/admin/mail', icon: Mail },
     { name: 'Settings', href: '/admin/settings', icon: Settings }
   );
   
@@ -76,8 +78,8 @@ export default function DashboardLayout() {
     }
   }, [needsProfileCompletion, isOnProfilePage, navigate]);
 
-  const isCoreMember = user?.role === 'CORE_MEMBER' || user?.role === 'ADMIN';
-  const isAdmin = user?.role === 'ADMIN';
+  const isCoreMember = user?.role === 'CORE_MEMBER' || user?.role === 'ADMIN' || user?.role === 'PRESIDENT';
+  const isAdmin = user?.role === 'ADMIN' || user?.role === 'PRESIDENT';
 
   // Build user nav items based on settings
   const userNavItems = [
@@ -174,7 +176,8 @@ export default function DashboardLayout() {
                 {getAdminNavItems(
                   !settingsLoading && settings?.hiringEnabled === true,
                   !settingsLoading && settings?.showNetwork !== false,
-                  user?.isSuperAdmin
+                  user?.isSuperAdmin,
+                  user?.role === 'PRESIDENT',
                 ).map((item) => (
                   <NavLink key={item.href} item={item} isActive={location.pathname === item.href} />
                 ))}

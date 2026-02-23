@@ -8,13 +8,16 @@ export const auditRouter = Router();
 // Get audit logs (super admin only) — paginated with optional filters
 auditRouter.get('/', authMiddleware, requireRole('ADMIN'), async (req: Request, res: Response) => {
   try {
-    // Only the super admin (created during DB initialization) can view audit logs
+    // Only the super admin and presidents can view audit logs
     const authUser = getAuthUser(req)!;
     const superAdminEmail = process.env.SUPER_ADMIN_EMAIL;
-    if (!superAdminEmail || authUser.email !== superAdminEmail) {
+    const isSuperAdmin = superAdminEmail && authUser.email === superAdminEmail;
+    const isPresident = authUser.role === 'PRESIDENT';
+
+    if (!isSuperAdmin && !isPresident) {
       return res.status(403).json({
         success: false,
-        error: { message: 'Only the super admin can view audit logs' },
+        error: { message: 'Only the super admin or president can view audit logs' },
       });
     }
 

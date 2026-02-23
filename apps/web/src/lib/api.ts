@@ -66,7 +66,13 @@ export interface Settings {
   showQOTD?: boolean;
   showAchievements?: boolean;
   hiringEnabled?: boolean;
+  hiringTechnical?: boolean;
+  hiringDsaChamps?: boolean;
+  hiringDesigning?: boolean;
+  hiringSocialMedia?: boolean;
+  hiringManagement?: boolean;
   showNetwork?: boolean;
+  mailingEnabled?: boolean;
   // Social Links
   githubUrl?: string;
   linkedinUrl?: string;

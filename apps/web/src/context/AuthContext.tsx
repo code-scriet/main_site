@@ -10,6 +10,7 @@ interface ExtendedUser extends User {
   branch?: string;
   year?: string;
   isSuperAdmin?: boolean;
+  isPresident?: boolean;
 }
 
 interface AuthContextType {

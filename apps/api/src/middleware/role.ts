@@ -1,7 +1,7 @@
 import { Request, Response, NextFunction, RequestHandler } from 'express';
 import { getAuthUser } from './auth.js';
 
-type Role = 'PUBLIC' | 'USER' | 'NETWORK' | 'MEMBER' | 'CORE_MEMBER' | 'ADMIN';
+type Role = 'PUBLIC' | 'USER' | 'NETWORK' | 'MEMBER' | 'CORE_MEMBER' | 'ADMIN' | 'PRESIDENT';
 
 const roleHierarchy: Record<Role, number> = {
   PUBLIC: 0,
@@ -10,6 +10,7 @@ const roleHierarchy: Record<Role, number> = {
   MEMBER: 2,
   CORE_MEMBER: 3,
   ADMIN: 4,
+  PRESIDENT: 4,
 };
 
 export const hasPermission = (userRole: string, requiredRole: Role): boolean => {

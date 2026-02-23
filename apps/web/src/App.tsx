@@ -53,6 +53,7 @@ const EditEvent = lazy(() => import('@/pages/admin/EditEvent'));
 const AdminHiring = lazy(() => import('@/pages/admin/AdminHiring'));
 const AdminNetwork = lazy(() => import('@/pages/admin/AdminNetwork'));
 const AdminAuditLog = lazy(() => import('@/pages/admin/AdminAuditLog'));
+const AdminMail = lazy(() => import('@/pages/admin/AdminMail'));
 
 // Auth Components - keep synchronous for faster auth checks
 import { ProtectedRoute } from '@/components/auth/ProtectedRoute';
@@ -124,6 +125,7 @@ function App() {
                       <Route path="network" element={<AdminNetwork />} />
                       <Route path="settings" element={<AdminSettings />} />
                       <Route path="audit-log" element={<AdminAuditLog />} />
+                      <Route path="mail" element={<AdminMail />} />
                     </Route>
                   </Route>
 

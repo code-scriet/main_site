@@ -11,8 +11,11 @@ import { useSettings } from '@/context/SettingsContext';
 import { Markdown } from '@/components/ui/markdown';
 
 export default function AdminSettings() {
-  const { token } = useAuth();
+  const { token, user } = useAuth();
   const { refreshSettings: refreshGlobalSettings } = useSettings();
+
+  // Only Super Admin or President can modify settings
+  const canEdit = user?.role === 'PRESIDENT' || user?.email === import.meta.env.VITE_SUPER_ADMIN_EMAIL;
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -30,7 +33,13 @@ export default function AdminSettings() {
     showQOTD: true,
     showAchievements: true,
     hiringEnabled: true,
+    hiringTechnical: true,
+    hiringDsaChamps: true,
+    hiringDesigning: true,
+    hiringSocialMedia: true,
+    hiringManagement: true,
     showNetwork: true,
+    mailingEnabled: true,
     githubUrl: '',
     linkedinUrl: '',
     twitterUrl: '',
@@ -362,6 +371,35 @@ export default function AdminSettings() {
               <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-amber-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-amber-500"></div>
             </label>
           </div>
+          {/* Per-team hiring toggles */}
+          {settings.hiringEnabled && (
+            <div className="ml-4 mt-2 space-y-2 border-l-2 border-amber-200 pl-4">
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Team-specific Hiring</p>
+              {[
+                { key: 'hiringTechnical' as const, label: 'Technical Team', desc: 'Enable hiring for Technical division' },
+                { key: 'hiringDsaChamps' as const, label: 'DSA Champs', desc: 'Enable hiring for DSA Champs division' },
+                { key: 'hiringDesigning' as const, label: 'Design Team', desc: 'Enable hiring for Design division' },
+                { key: 'hiringSocialMedia' as const, label: 'Social Media', desc: 'Enable hiring for Social Media division' },
+                { key: 'hiringManagement' as const, label: 'Management', desc: 'Enable hiring for Management division' },
+              ].map(({ key, label, desc }) => (
+                <div key={key} className="flex items-center justify-between p-3 bg-white rounded-lg border border-amber-100">
+                  <div>
+                    <p className="text-sm font-medium text-amber-900">{label}</p>
+                    <p className="text-xs text-gray-400">{desc}</p>
+                  </div>
+                  <label className="relative inline-flex items-center cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={settings[key] ?? true}
+                      onChange={(e) => setSettings({ ...settings, [key]: e.target.checked })}
+                      className="sr-only peer"
+                    />
+                    <div className="w-9 h-5 bg-gray-200 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-amber-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-amber-500"></div>
+                  </label>
+                </div>
+              ))}
+            </div>
+          )}
           <div className="flex items-center justify-between p-4 bg-amber-50 rounded-lg">
             <div>
               <p className="font-medium text-amber-900">Network</p>
@@ -372,6 +410,21 @@ export default function AdminSettings() {
                 type="checkbox"
                 checked={settings.showNetwork ?? true}
                 onChange={(e) => setSettings({ ...settings, showNetwork: e.target.checked })}
+                className="sr-only peer"
+              />
+              <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-amber-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-amber-500"></div>
+            </label>
+          </div>
+          <div className="flex items-center justify-between p-4 bg-amber-50 rounded-lg">
+            <div>
+              <p className="font-medium text-amber-900">Mailing System</p>
+              <p className="text-sm text-gray-500">Enable the admin email composer to send emails to users</p>
+            </div>
+            <label className="relative inline-flex items-center cursor-pointer">
+              <input
+                type="checkbox"
+                checked={settings.mailingEnabled ?? true}
+                onChange={(e) => setSettings({ ...settings, mailingEnabled: e.target.checked })}
                 className="sr-only peer"
               />
               <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-amber-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-amber-500"></div>
@@ -632,8 +685,8 @@ We've got something exciting lined up for you:`}
         <Button variant="outline" onClick={fetchSettings} disabled={saving}>
           Reset
         </Button>
-        <Button onClick={handleSave} disabled={saving} className="min-w-[140px] bg-amber-600 hover:bg-amber-700">
-          {saving ? (
+        <Button onClick={handleSave} disabled={saving || !canEdit} className="min-w-[140px] bg-amber-600 hover:bg-amber-700">
+          {!canEdit ? 'Read-only' : saving ? (
             <>
               <Loader2 className="h-4 w-4 mr-2 animate-spin" />
               Saving...

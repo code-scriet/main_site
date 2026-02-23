@@ -69,6 +69,16 @@ model Settings {
   emailNetworkVerifiedBody  String?  @map("email_network_verified_body")
   emailNetworkRejectedBody  String?  @map("email_network_rejected_body")
 
+  // Per-team hiring toggles (only apply when hiringEnabled is true)
+  hiringTechnical           Boolean  @default(true) @map("hiring_technical")
+  hiringDsaChamps           Boolean  @default(true) @map("hiring_dsa_champs")
+  hiringDesigning           Boolean  @default(true) @map("hiring_designing")
+  hiringSocialMedia         Boolean  @default(true) @map("hiring_social_media")
+  hiringManagement          Boolean  @default(true) @map("hiring_management")
+
+  // Mailing system toggle
+  mailingEnabled            Boolean  @default(true) @map("mailing_enabled")
+
   @@map("settings")
 }
 
@@ -262,6 +272,7 @@ enum Role {
   USER
   CORE_MEMBER
   ADMIN
+  PRESIDENT
   MEMBER
   NETWORK
 }

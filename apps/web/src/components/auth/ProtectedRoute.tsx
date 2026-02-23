@@ -8,6 +8,7 @@ const roleHierarchy: Record<string, number> = {
   MEMBER: 2,
   CORE_MEMBER: 3,
   ADMIN: 4,
+  PRESIDENT: 4,
 };
 
 interface ProtectedRouteProps {

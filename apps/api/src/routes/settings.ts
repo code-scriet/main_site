@@ -22,7 +22,13 @@ const updateSettingsSchema = z.object({
   showQOTD: z.boolean().optional(),
   showAchievements: z.boolean().optional(),
   hiringEnabled: z.boolean().optional(),
+  hiringTechnical: z.boolean().optional(),
+  hiringDsaChamps: z.boolean().optional(),
+  hiringDesigning: z.boolean().optional(),
+  hiringSocialMedia: z.boolean().optional(),
+  hiringManagement: z.boolean().optional(),
   showNetwork: z.boolean().optional(),
+  mailingEnabled: z.boolean().optional(),
   githubUrl: optionalUrl,
   linkedinUrl: optionalUrl,
   twitterUrl: optionalUrl,
@@ -51,7 +57,13 @@ settingsRouter.get('/public', async (req: Request, res: Response) => {
         showQOTD: true,
         showAchievements: true,
         hiringEnabled: true,
+        hiringTechnical: true,
+        hiringDsaChamps: true,
+        hiringDesigning: true,
+        hiringSocialMedia: true,
+        hiringManagement: true,
         showNetwork: true,
+        mailingEnabled: true,
         announcementsEnabled: true,
         githubUrl: true,
         linkedinUrl: true,
@@ -74,7 +86,13 @@ settingsRouter.get('/public', async (req: Request, res: Response) => {
           showQOTD: true,
           showAchievements: true,
           hiringEnabled: true,
+          hiringTechnical: true,
+          hiringDsaChamps: true,
+          hiringDesigning: true,
+          hiringSocialMedia: true,
+          hiringManagement: true,
           showNetwork: true,
+          mailingEnabled: true,
           announcementsEnabled: true,
           githubUrl: null,
           linkedinUrl: null,
@@ -115,6 +133,18 @@ settingsRouter.get('/', authMiddleware, requireRole('ADMIN'), async (req: Reques
 settingsRouter.put('/', authMiddleware, requireRole('ADMIN'), async (req: Request, res: Response) => {
   try {
     const authUser = getAuthUser(req)!;
+
+    // Only Super Admin or President can modify settings
+    const superAdminEmail = process.env.SUPER_ADMIN_EMAIL;
+    const isSuperAdmin = superAdminEmail && authUser.email === superAdminEmail;
+    const isPresident = authUser.role === 'PRESIDENT';
+    if (!isSuperAdmin && !isPresident) {
+      return res.status(403).json({
+        success: false,
+        error: { message: 'Only the super admin or president can modify settings' },
+      });
+    }
+
     const parsed = updateSettingsSchema.safeParse(req.body);
     if (!parsed.success) {
       return res.status(400).json({
@@ -134,7 +164,13 @@ settingsRouter.put('/', authMiddleware, requireRole('ADMIN'), async (req: Reques
       showQOTD,
       showAchievements,
       hiringEnabled,
+      hiringTechnical,
+      hiringDsaChamps,
+      hiringDesigning,
+      hiringSocialMedia,
+      hiringManagement,
       showNetwork,
+      mailingEnabled,
       githubUrl,
       linkedinUrl,
       twitterUrl,
@@ -156,7 +192,13 @@ settingsRouter.put('/', authMiddleware, requireRole('ADMIN'), async (req: Reques
         ...(showQOTD !== undefined && { showQOTD }),
         ...(showAchievements !== undefined && { showAchievements }),
         ...(hiringEnabled !== undefined && { hiringEnabled }),
+        ...(hiringTechnical !== undefined && { hiringTechnical }),
+        ...(hiringDsaChamps !== undefined && { hiringDsaChamps }),
+        ...(hiringDesigning !== undefined && { hiringDesigning }),
+        ...(hiringSocialMedia !== undefined && { hiringSocialMedia }),
+        ...(hiringManagement !== undefined && { hiringManagement }),
         ...(showNetwork !== undefined && { showNetwork }),
+        ...(mailingEnabled !== undefined && { mailingEnabled }),
         ...(githubUrl !== undefined && { githubUrl: githubUrl || null }),
         ...(linkedinUrl !== undefined && { linkedinUrl: linkedinUrl || null }),
         ...(twitterUrl !== undefined && { twitterUrl: twitterUrl || null }),
@@ -174,7 +216,13 @@ settingsRouter.put('/', authMiddleware, requireRole('ADMIN'), async (req: Reques
         ...(showQOTD !== undefined && { showQOTD }),
         ...(showAchievements !== undefined && { showAchievements }),
         ...(hiringEnabled !== undefined && { hiringEnabled }),
+        ...(hiringTechnical !== undefined && { hiringTechnical }),
+        ...(hiringDsaChamps !== undefined && { hiringDsaChamps }),
+        ...(hiringDesigning !== undefined && { hiringDesigning }),
+        ...(hiringSocialMedia !== undefined && { hiringSocialMedia }),
+        ...(hiringManagement !== undefined && { hiringManagement }),
         ...(showNetwork !== undefined && { showNetwork }),
+        ...(mailingEnabled !== undefined && { mailingEnabled }),
         ...(githubUrl !== undefined && { githubUrl: githubUrl || null }),
         ...(linkedinUrl !== undefined && { linkedinUrl: linkedinUrl || null }),
         ...(twitterUrl !== undefined && { twitterUrl: twitterUrl || null }),
@@ -194,6 +242,18 @@ settingsRouter.put('/', authMiddleware, requireRole('ADMIN'), async (req: Reques
 settingsRouter.patch('/:key', authMiddleware, requireRole('ADMIN'), async (req: Request, res: Response) => {
   try {
     const authUser = getAuthUser(req)!;
+
+    // Only Super Admin or President can modify settings
+    const superAdminEmail = process.env.SUPER_ADMIN_EMAIL;
+    const isSuperAdmin = superAdminEmail && authUser.email === superAdminEmail;
+    const isPresident = authUser.role === 'PRESIDENT';
+    if (!isSuperAdmin && !isPresident) {
+      return res.status(403).json({
+        success: false,
+        error: { message: 'Only the super admin or president can modify settings' },
+      });
+    }
+
     const { key } = req.params;
     const { value } = req.body;
 
@@ -208,7 +268,13 @@ settingsRouter.patch('/:key', authMiddleware, requireRole('ADMIN'), async (req: 
       'showQOTD',
       'showAchievements',
       'hiringEnabled',
+      'hiringTechnical',
+      'hiringDsaChamps',
+      'hiringDesigning',
+      'hiringSocialMedia',
+      'hiringManagement',
       'showNetwork',
+      'mailingEnabled',
       'githubUrl',
       'linkedinUrl',
       'twitterUrl',
@@ -231,7 +297,13 @@ settingsRouter.patch('/:key', authMiddleware, requireRole('ADMIN'), async (req: 
       'showQOTD',
       'showAchievements',
       'hiringEnabled',
+      'hiringTechnical',
+      'hiringDsaChamps',
+      'hiringDesigning',
+      'hiringSocialMedia',
+      'hiringManagement',
       'showNetwork',
+      'mailingEnabled',
     ]);
     const urlKeys = new Set([
       'githubUrl',
@@ -303,6 +375,15 @@ settingsRouter.post('/reset', authMiddleware, requireRole('ADMIN'), async (req: 
   try {
     const authUser = getAuthUser(req)!;
 
+    // Only Super Admin or President can reset settings
+    const superAdminEmail = process.env.SUPER_ADMIN_EMAIL;
+    if (authUser.email !== superAdminEmail && authUser.role !== 'PRESIDENT') {
+      return res.status(403).json({
+        success: false,
+        error: { message: 'Only the super admin or president can reset settings' },
+      });
+    }
+
     await prisma.settings.delete({ where: { id: 'default' } }).catch(() => {});
 
     const settings = await prisma.settings.create({
@@ -348,6 +429,16 @@ settingsRouter.get('/email-templates', authMiddleware, requireRole('ADMIN'), asy
 settingsRouter.patch('/email-templates', authMiddleware, requireRole('ADMIN'), async (req: Request, res: Response) => {
   try {
     const authUser = getAuthUser(req)!;
+
+    // Only Super Admin or President can update email templates
+    const superAdminEmail = process.env.SUPER_ADMIN_EMAIL;
+    if (authUser.email !== superAdminEmail && authUser.role !== 'PRESIDENT') {
+      return res.status(403).json({
+        success: false,
+        error: { message: 'Only the super admin or president can update email templates' },
+      });
+    }
+
     const parsed = updateEmailTemplatesSchema.safeParse(req.body);
     if (!parsed.success) {
       return res.status(400).json({

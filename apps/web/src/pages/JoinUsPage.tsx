@@ -256,6 +256,19 @@ export default function JoinUsPage() {
     );
   }
 
+  // Filter team roles based on per-team hiring settings
+  const filteredTeamRoles = teamRoles.filter((role) => {
+    if (!settings) return true;
+    const map: Record<string, boolean | undefined> = {
+      TECHNICAL: settings.hiringTechnical,
+      DSA_CHAMPS: settings.hiringDsaChamps,
+      DESIGNING: settings.hiringDesigning,
+      SOCIAL_MEDIA: settings.hiringSocialMedia,
+      MANAGEMENT: settings.hiringManagement,
+    };
+    return map[role.id] !== false;
+  });
+
   return (
     <Layout>
       <SEO 
@@ -327,7 +340,7 @@ export default function JoinUsPage() {
                     Which team would you like to join?
                   </h2>
                   <div className="grid md:grid-cols-2 gap-6">
-                    {teamRoles.map((role) => (
+                    {filteredTeamRoles.map((role) => (
                       <motion.div
                         key={role.id}
                         whileHover={{ scale: 1.02 }}

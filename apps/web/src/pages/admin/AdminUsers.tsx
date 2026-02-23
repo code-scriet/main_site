@@ -30,6 +30,7 @@ const roleColors = {
   MEMBER: 'success',
   CORE_MEMBER: 'warning',
   ADMIN: 'destructive',
+  PRESIDENT: 'destructive',
 } as const;
 
 const roleIcons = {
@@ -37,6 +38,7 @@ const roleIcons = {
   MEMBER: UserCheck,
   CORE_MEMBER: Shield,
   ADMIN: Crown,
+  PRESIDENT: Crown,
 };
 
 export default function AdminUsers() {
@@ -95,7 +97,7 @@ export default function AdminUsers() {
   const [loadingProfile, setLoadingProfile] = useState(false);
   const [exporting, setExporting] = useState(false);
   const [search, setSearch] = useState('');
-  const [roleFilter, setRoleFilter] = useState<'ALL' | 'USER' | 'MEMBER' | 'CORE_MEMBER' | 'ADMIN'>('ALL');
+  const [roleFilter, setRoleFilter] = useState<'ALL' | 'USER' | 'MEMBER' | 'CORE_MEMBER' | 'ADMIN' | 'PRESIDENT'>('ALL');
   
   const isSuperAdmin = currentUser?.email === import.meta.env.VITE_SUPER_ADMIN_EMAIL;
 
@@ -357,7 +359,7 @@ export default function AdminUsers() {
       {/* Filters & Search */}
       <div className="flex flex-col sm:flex-row gap-4">
         <div className="flex gap-2 flex-wrap">
-          {(['ALL', 'USER', 'MEMBER', 'CORE_MEMBER', 'ADMIN'] as const).map((role) => (
+          {(['ALL', 'USER', 'MEMBER', 'CORE_MEMBER', 'ADMIN', 'PRESIDENT'] as const).map((role) => (
             <Button
               key={role}
               variant={roleFilter === role ? 'default' : 'outline'}
@@ -470,7 +472,8 @@ export default function AdminUsers() {
                           <option value="USER">User</option>
                           <option value="MEMBER">Member</option>
                           <option value="CORE_MEMBER">Core Member</option>
-                          <option value="ADMIN">Admin</option>
+                          {isSuperAdmin && <option value="PRESIDENT">President</option>}
+                          {isSuperAdmin && <option value="ADMIN">Admin</option>}
                         </select>
                         {updatingId === user.id && (
                           <Loader2 className="h-4 w-4 animate-spin text-amber-600" />

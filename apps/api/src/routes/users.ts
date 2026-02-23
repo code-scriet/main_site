@@ -566,8 +566,8 @@ usersRouter.get('/:id', authMiddleware, requireRole('ADMIN'), async (req: Reques
     const superAdminEmail = process.env.SUPER_ADMIN_EMAIL;
     const isSuperAdmin = authUser.email === superAdminEmail;
     
-    if (targetUser.role === 'ADMIN' && !isSuperAdmin) {
-      return res.status(403).json({ success: false, error: { message: 'You cannot view other admin profiles' } });
+    if ((targetUser.role === 'ADMIN' || targetUser.role === 'PRESIDENT') && !isSuperAdmin) {
+      return res.status(403).json({ success: false, error: { message: 'You cannot view other admin/president profiles' } });
     }
 
     res.json({ success: true, data: targetUser });
@@ -623,8 +623,8 @@ usersRouter.put('/:id', authMiddleware, requireRole('ADMIN'), async (req: Reques
     const superAdminEmail = process.env.SUPER_ADMIN_EMAIL;
     const isSuperAdmin = authUser.email === superAdminEmail;
     
-    if (targetUser.role === 'ADMIN' && !isSuperAdmin) {
-      return res.status(403).json({ success: false, error: { message: 'You cannot edit other admin profiles' } });
+    if ((targetUser.role === 'ADMIN' || targetUser.role === 'PRESIDENT') && !isSuperAdmin) {
+      return res.status(403).json({ success: false, error: { message: 'You cannot edit other admin/president profiles' } });
     }
 
     // Prevent editing super admin unless you are super admin
@@ -720,7 +720,7 @@ usersRouter.put('/:id/role', authMiddleware, requireRole('CORE_MEMBER'), async (
     // Super admin protection: only super admin can modify admin roles
     const superAdminEmail = process.env.SUPER_ADMIN_EMAIL;
     const isSuperAdmin = authUser.email === superAdminEmail;
-    const isAdmin = authUser.role === 'ADMIN';
+    const isAdmin = authUser.role === 'ADMIN' || authUser.role === 'PRESIDENT';
     const isCoreMember = authUser.role === 'CORE_MEMBER';
 
     // CORE_MEMBER can only assign/remove MEMBER role
@@ -734,13 +734,13 @@ usersRouter.put('/:id/role', authMiddleware, requireRole('CORE_MEMBER'), async (
       }
     }
 
-    // Check if this action involves admin role changes
-    const involvesAdminRole = role === 'ADMIN' || targetUser.role === 'ADMIN';
+    // Check if this action involves admin/president role changes
+    const involvesAdminRole = ['ADMIN', 'PRESIDENT'].includes(role) || ['ADMIN', 'PRESIDENT'].includes(targetUser.role);
 
     if (involvesAdminRole && !isSuperAdmin) {
       return res.status(403).json({ 
         success: false, 
-        error: { message: 'Only super admin can promote to or demote from admin role' } 
+        error: { message: 'Only super admin can promote to or demote from admin/president role' } 
       });
     }
 
