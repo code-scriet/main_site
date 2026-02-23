@@ -69,7 +69,7 @@ const statusIcons: Record<NetworkStatus, typeof Clock> = {
 type NetworkCategoryFilter = 'ANY' | 'PROFESSIONAL' | 'ALUMNI';
 
 export default function AdminNetwork() {
-  const { token, user } = useAuth();
+  const { token } = useAuth();
   const [profiles, setProfiles] = useState<NetworkProfile[]>([]);
   const [pendingUsers, setPendingUsers] = useState<PendingNetworkUser[]>([]);
   const [counts, setCounts] = useState({ PENDING: 0, VERIFIED: 0, REJECTED: 0 });
@@ -530,8 +530,6 @@ export default function AdminNetwork() {
                       <div className="text-xs text-gray-500">
                         Joined {new Date(pendingUser.createdAt).toLocaleDateString()}
                       </div>
-                      {user?.isSuperAdmin && (
-                        <>
                           <Button
                             size="sm"
                             variant="outline"
@@ -548,8 +546,6 @@ export default function AdminNetwork() {
                           >
                             Delete
                           </Button>
-                        </>
-                      )}
                     </div>
                   </div>
                 ))}
@@ -632,8 +628,6 @@ export default function AdminNetwork() {
                             >
                               <Eye className="h-4 w-4 mr-1" /> View
                             </Button>
-                            {user?.isSuperAdmin && (
-                              <>
                                 <Button
                                   variant="outline"
                                   size="sm"
@@ -668,8 +662,6 @@ export default function AdminNetwork() {
                                 >
                                   <Trash2 className="h-4 w-4" />
                                 </Button>
-                              </>
-                            )}
                           </div>
                         </div>
                       </CardContent>
@@ -842,8 +834,6 @@ export default function AdminNetwork() {
                 </div>
 
                 <DialogFooter className="flex gap-2 w-full flex-wrap justify-end">
-                  {user?.isSuperAdmin && (
-                    <>
                       <Button
                         variant="outline"
                         onClick={() => openEditDialog(viewProfile)}
@@ -871,8 +861,6 @@ export default function AdminNetwork() {
                           </Button>
                         </>
                       )}
-                    </>
-                  )}
                   <Button variant="outline" onClick={() => setViewProfile(null)}>
                     Close
                   </Button>

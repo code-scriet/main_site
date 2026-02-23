@@ -31,7 +31,7 @@ const coreMemberNavItems = [
 ];
 
 // Admin nav items - Hiring and Network will be conditionally added based on settings
-const getAdminNavItems = (hiringEnabled: boolean, showNetwork: boolean) => {
+const getAdminNavItems = (hiringEnabled: boolean, showNetwork: boolean, isSuperAdmin?: boolean) => {
   const items = [
     { name: 'User Management', href: '/admin/users', icon: Users },
     { name: 'Team Management', href: '/admin/team', icon: Shield },
@@ -46,9 +46,12 @@ const getAdminNavItems = (hiringEnabled: boolean, showNetwork: boolean) => {
     items.push({ name: 'Network Management', href: '/admin/network', icon: Users });
   }
   
+  if (isSuperAdmin) {
+    items.push({ name: 'Audit Log', href: '/admin/audit-log', icon: ClipboardList });
+  }
+  
   items.push(
     { name: 'Event Registrations', href: '/admin/event-registrations', icon: Calendar },
-    { name: 'Audit Log', href: '/admin/audit-log', icon: ClipboardList },
     { name: 'Settings', href: '/admin/settings', icon: Settings }
   );
   
@@ -170,7 +173,8 @@ export default function DashboardLayout() {
                 </div>
                 {getAdminNavItems(
                   !settingsLoading && settings?.hiringEnabled === true,
-                  !settingsLoading && settings?.showNetwork !== false
+                  !settingsLoading && settings?.showNetwork !== false,
+                  user?.isSuperAdmin
                 ).map((item) => (
                   <NavLink key={item.href} item={item} isActive={location.pathname === item.href} />
                 ))}
@@ -221,24 +225,7 @@ export default function DashboardLayout() {
 
         {/* Page Content */}
         <main className="p-4 sm:p-6">
-          {user?.role === 'ADMIN' && !user?.isSuperAdmin && location.pathname.startsWith('/admin') && (
-            <div className="mb-6 rounded-md bg-blue-50 p-4 border border-blue-200">
-              <div className="flex">
-                <div className="flex-shrink-0">
-                  <Shield className="h-5 w-5 text-blue-400" aria-hidden="true" />
-                </div>
-                <div className="ml-3">
-                  <h3 className="text-sm font-medium text-blue-800">Read-Only Administrative Access</h3>
-                  <div className="mt-2 text-sm text-blue-700">
-                    <p>
-                      You are viewing this area with standard admin privileges. For security purposes, 
-                      only the Super Admin has the ability to modify, delete, or add records from the dashboard.
-                    </p>
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
+
           <Outlet />
         </main>
       </div>

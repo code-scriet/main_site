@@ -29,13 +29,6 @@ export const requireRole = (minRole: Role): RequestHandler => {
       return res.status(403).json({ error: 'Insufficient permissions' });
     }
 
-    // Restrict all non-GET admin actions to Super Admin
-    if (minRole === 'ADMIN' && req.method !== 'GET') {
-      const superAdminEmail = process.env.SUPER_ADMIN_EMAIL;
-      if (!superAdminEmail || authUser.email !== superAdminEmail) {
-        return res.status(403).json({ error: 'Only the Super Admin can perform this action' });
-      }
-    }
 
     next();
   }) as RequestHandler;
