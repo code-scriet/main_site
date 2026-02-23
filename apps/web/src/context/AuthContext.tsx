@@ -9,6 +9,7 @@ interface ExtendedUser extends User {
   course?: string;
   branch?: string;
   year?: string;
+  isSuperAdmin?: boolean;
 }
 
 interface AuthContextType {

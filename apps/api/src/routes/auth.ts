@@ -44,6 +44,11 @@ const normalizeNetworkType = (value: string | undefined): 'professional' | 'alum
   value === 'professional' || value === 'alumni' ? value : undefined
 );
 
+const withSuperAdmin = <T extends { email: string }>(user: T) => ({
+  ...user,
+  isSuperAdmin: !!process.env.SUPER_ADMIN_EMAIL && user.email === process.env.SUPER_ADMIN_EMAIL,
+});
+
 const demoteOrphanNetworkUser = async <T extends { id: string; role: string }>(user: T): Promise<T> => {
   if (user.role !== 'NETWORK') {
     return user;
@@ -132,7 +137,7 @@ authRouter.post('/register', async (req: Request, res: Response) => {
       });
     }
     
-    res.status(201).json({ token, user: { id: user.id, name: user.name, email: user.email, role: user.role, avatar: user.avatar } });
+    res.status(201).json({ token, user: withSuperAdmin({ id: user.id, name: user.name, email: user.email, role: user.role, avatar: user.avatar }) });
   } catch (error) {
     logger.error('Registration error:', { error: error instanceof Error ? error.message : String(error) });
     res.status(500).json({ error: 'Registration failed' });
@@ -167,7 +172,7 @@ authRouter.post('/login', async (req: Request, res: Response) => {
 
     const user = await demoteOrphanNetworkUser(fetchedUser);
     const token = generateToken(user);
-    res.json({ token, user: { id: user.id, name: user.name, email: user.email, role: user.role, avatar: user.avatar } });
+    res.json({ token, user: withSuperAdmin({ id: user.id, name: user.name, email: user.email, role: user.role, avatar: user.avatar }) });
   } catch (error) {
     logger.error('Login error:', { error: error instanceof Error ? error.message : String(error) });
     res.status(500).json({ error: 'Login failed' });
@@ -379,7 +384,7 @@ authRouter.post('/dev-login', async (req: Request, res: Response) => {
       socketEvents.userCreated(user.id);
     }
     
-    res.json({ token, user: { id: user.id, name: user.name, email: user.email, role: user.role } });
+    res.json({ token, user: withSuperAdmin({ id: user.id, name: user.name, email: user.email, role: user.role }) });
   } catch (error) {
     logger.error('Dev login error:', { error: error instanceof Error ? error.message : String(error) });
     res.status(500).json({ error: 'Login failed' });
@@ -388,7 +393,7 @@ authRouter.post('/dev-login', async (req: Request, res: Response) => {
 
 authRouter.get('/me', authMiddleware, (req: Request, res: Response) => {
   const authUser = getAuthUser(req);
-  res.json({ success: true, data: authUser });
+  res.json({ success: true, data: authUser ? withSuperAdmin(authUser) : authUser });
 });
 
 authRouter.post('/logout', (_req: Request, res: Response) => {

@@ -221,6 +221,24 @@ export default function DashboardLayout() {
 
         {/* Page Content */}
         <main className="p-4 sm:p-6">
+          {user?.role === 'ADMIN' && !user?.isSuperAdmin && location.pathname.startsWith('/admin') && (
+            <div className="mb-6 rounded-md bg-blue-50 p-4 border border-blue-200">
+              <div className="flex">
+                <div className="flex-shrink-0">
+                  <Shield className="h-5 w-5 text-blue-400" aria-hidden="true" />
+                </div>
+                <div className="ml-3">
+                  <h3 className="text-sm font-medium text-blue-800">Read-Only Administrative Access</h3>
+                  <div className="mt-2 text-sm text-blue-700">
+                    <p>
+                      You are viewing this area with standard admin privileges. For security purposes, 
+                      only the Super Admin has the ability to modify, delete, or add records from the dashboard.
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
           <Outlet />
         </main>
       </div>

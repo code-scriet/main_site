@@ -69,7 +69,7 @@ const statusIcons: Record<NetworkStatus, typeof Clock> = {
 type NetworkCategoryFilter = 'ANY' | 'PROFESSIONAL' | 'ALUMNI';
 
 export default function AdminNetwork() {
-  const { token } = useAuth();
+  const { token, user } = useAuth();
   const [profiles, setProfiles] = useState<NetworkProfile[]>([]);
   const [pendingUsers, setPendingUsers] = useState<PendingNetworkUser[]>([]);
   const [counts, setCounts] = useState({ PENDING: 0, VERIFIED: 0, REJECTED: 0 });
@@ -230,6 +230,7 @@ export default function AdminNetwork() {
       connectedSince: profile.connectedSince?.toString() || '',
       displayOrder: (profile.displayOrder ?? 0).toString(),
       adminNotes: profile.adminNotes || '',
+      connectionType: profile.connectionType || '',
     });
     // Initialize events from profile
     const events = (profile.events as NetworkEvent[] | null) || [];
@@ -247,6 +248,7 @@ export default function AdminNetwork() {
         'fullName', 'designation', 'company', 'industry', 'bio',
         'profilePhoto', 'phone', 'linkedinUsername', 'twitterUsername',
         'githubUsername', 'personalWebsite', 'connectionNote', 'adminNotes',
+        'connectionType'
       ];
       for (const field of fields) {
         if (editForm[field] !== undefined) {
@@ -492,35 +494,39 @@ export default function AdminNetwork() {
                 </Badge>
               </div>
               <div className="space-y-2">
-                {pendingUsers.map((user) => (
+                {pendingUsers.map((pendingUser) => (
                   <div
-                    key={user.id}
+                    key={pendingUser.id}
                     className="flex flex-col gap-2 rounded-md border border-amber-200 bg-white px-3 py-2 text-sm sm:flex-row sm:items-center sm:justify-between"
                   >
                     <div className="min-w-0">
-                      <div className="font-medium text-gray-900">{user.name}</div>
-                      <div className="truncate text-gray-600">{user.email}</div>
+                      <div className="font-medium text-gray-900">{pendingUser.name}</div>
+                      <div className="truncate text-gray-600">{pendingUser.email}</div>
                     </div>
                     <div className="flex items-center gap-2 self-start sm:self-auto">
                       <div className="text-xs text-gray-500">
-                        Joined {new Date(user.createdAt).toLocaleDateString()}
+                        Joined {new Date(pendingUser.createdAt).toLocaleDateString()}
                       </div>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => handleRevertPendingUser(user)}
-                        disabled={actionLoading}
-                      >
-                        Move to Users
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="destructive"
-                        onClick={() => handleDeletePendingUser(user)}
-                        disabled={actionLoading}
-                      >
-                        Delete
-                      </Button>
+                      {user?.isSuperAdmin && (
+                        <>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => handleRevertPendingUser(pendingUser)}
+                            disabled={actionLoading}
+                          >
+                            Move to Users
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="destructive"
+                            onClick={() => handleDeletePendingUser(pendingUser)}
+                            disabled={actionLoading}
+                          >
+                            Delete
+                          </Button>
+                        </>
+                      )}
                     </div>
                   </div>
                 ))}
@@ -603,40 +609,44 @@ export default function AdminNetwork() {
                             >
                               <Eye className="h-4 w-4 mr-1" /> View
                             </Button>
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => openEditDialog(profile)}
-                            >
-                              <Pencil className="h-4 w-4 mr-1" /> Edit
-                            </Button>
-                            {profile.status === 'PENDING' && (
+                            {user?.isSuperAdmin && (
                               <>
                                 <Button
+                                  variant="outline"
                                   size="sm"
-                                  className="bg-green-600 hover:bg-green-700"
-                                  onClick={() => handleVerify(profile)}
-                                  disabled={actionLoading}
+                                  onClick={() => openEditDialog(profile)}
                                 >
-                                  <CheckCircle2 className="h-4 w-4 mr-1" /> Verify
+                                  <Pencil className="h-4 w-4 mr-1" /> Edit
                                 </Button>
+                                {profile.status === 'PENDING' && (
+                                  <>
+                                    <Button
+                                      size="sm"
+                                      className="bg-green-600 hover:bg-green-700"
+                                      onClick={() => handleVerify(profile)}
+                                      disabled={actionLoading}
+                                    >
+                                      <CheckCircle2 className="h-4 w-4 mr-1" /> Verify
+                                    </Button>
+                                    <Button
+                                      variant="destructive"
+                                      size="sm"
+                                      onClick={() => setRejectDialog({ profile })}
+                                    >
+                                      <XCircle className="h-4 w-4 mr-1" /> Reject
+                                    </Button>
+                                  </>
+                                )}
                                 <Button
-                                  variant="destructive"
-                                  size="sm"
-                                  onClick={() => setRejectDialog({ profile })}
+                                  variant="ghost"
+                                  size="icon"
+                                  className="text-red-500 hover:text-red-700 hover:bg-red-50"
+                                  onClick={() => setDeleteDialog(profile)}
                                 >
-                                  <XCircle className="h-4 w-4 mr-1" /> Reject
+                                  <Trash2 className="h-4 w-4" />
                                 </Button>
                               </>
                             )}
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="text-red-500 hover:text-red-700 hover:bg-red-50"
-                              onClick={() => setDeleteDialog(profile)}
-                            >
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
                           </div>
                         </div>
                       </CardContent>
@@ -808,32 +818,36 @@ export default function AdminNetwork() {
                   )}
                 </div>
 
-                <DialogFooter className="flex gap-2">
-                  <Button
-                    variant="outline"
-                    onClick={() => openEditDialog(viewProfile)}
-                  >
-                    <Pencil className="h-4 w-4 mr-1" /> Edit Profile
-                  </Button>
-                  {viewProfile.status === 'PENDING' && (
+                <DialogFooter className="flex gap-2 w-full flex-wrap justify-end">
+                  {user?.isSuperAdmin && (
                     <>
                       <Button
-                        className="bg-green-600 hover:bg-green-700"
-                        onClick={() => handleVerify(viewProfile)}
-                        disabled={actionLoading}
+                        variant="outline"
+                        onClick={() => openEditDialog(viewProfile)}
                       >
-                        {actionLoading && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-                        <CheckCircle2 className="h-4 w-4 mr-1" /> Verify
+                        <Pencil className="h-4 w-4 mr-1" /> Edit Profile
                       </Button>
-                      <Button
-                        variant="destructive"
-                        onClick={() => {
-                          setViewProfile(null);
-                          setRejectDialog({ profile: viewProfile });
-                        }}
-                      >
-                        <XCircle className="h-4 w-4 mr-1" /> Reject
-                      </Button>
+                      {viewProfile.status === 'PENDING' && (
+                        <>
+                          <Button
+                            className="bg-green-600 hover:bg-green-700"
+                            onClick={() => handleVerify(viewProfile)}
+                            disabled={actionLoading}
+                          >
+                            {actionLoading && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+                            <CheckCircle2 className="h-4 w-4 mr-1" /> Verify
+                          </Button>
+                          <Button
+                            variant="destructive"
+                            onClick={() => {
+                              setViewProfile(null);
+                              setRejectDialog({ profile: viewProfile });
+                            }}
+                          >
+                            <XCircle className="h-4 w-4 mr-1" /> Reject
+                          </Button>
+                        </>
+                      )}
                     </>
                   )}
                   <Button variant="outline" onClick={() => setViewProfile(null)}>
@@ -943,6 +957,20 @@ export default function AdminNetwork() {
                         onChange={(e) => setEditForm({ ...editForm, industry: e.target.value })}
                       />
                     </div>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <Label>Connection Type</Label>
+                    <select
+                      value={editForm.connectionType || ''}
+                      onChange={(e) => setEditForm({ ...editForm, connectionType: e.target.value })}
+                      className="flex h-10 w-full rounded-md border border-slate-300 bg-transparent px-3 py-2 text-sm placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-400 focus:border-transparent disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      <option value="">Select Connection Type</option>
+                      {Object.entries(connectionTypeLabels).map(([key, label]) => (
+                        <option key={key} value={key}>{label}</option>
+                      ))}
+                    </select>
                   </div>
 
                   {/* Phone */}
