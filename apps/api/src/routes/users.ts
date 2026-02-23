@@ -32,7 +32,7 @@ const adminProfileUpdateSchema = profileUpdateSchema.extend({
 });
 
 const roleUpdateSchema = z.object({
-  role: z.enum(['USER', 'MEMBER', 'CORE_MEMBER', 'ADMIN']),
+  role: z.enum(['USER', 'MEMBER', 'CORE_MEMBER', 'ADMIN', 'PRESIDENT']),
 });
 
 const addPasswordSchema = z.object({

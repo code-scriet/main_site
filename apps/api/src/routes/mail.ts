@@ -167,36 +167,14 @@ mailRouter.post('/send', authMiddleware, requireRole('ADMIN'), async (req: Reque
       });
     }
 
-    // Build email using the premium template
-    const template = EmailTemplates.newAnnouncement(
-      subject,
-      safeBody,
-      'MEDIUM',
-      '',
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-    );
-
-    // For HTML body type, inject the sanitized HTML directly instead of markdown-rendered content
-    let finalHtml = template.html;
-    if (bodyType === 'html') {
-      // Replace the body content placeholder with the sanitized raw HTML
-      finalHtml = template.html.replace(
-        /<!--BODY_START-->[\s\S]*?<!--BODY_END-->/,
-        `<!--BODY_START-->${safeBody}<!--BODY_END-->`,
-      );
-      // Fallback: if no placeholder markers, the template renders as-is (markdown already passed)
-    }
+    // Build email using the general-purpose admin template
+    const template = EmailTemplates.adminMail(subject, safeBody, bodyType);
 
     const success = await emailService.sendBulk(
       recipientEmails,
       template.subject,
-      finalHtml,
-      // Plain text strip tags for text fallback
-      bodyType === 'html' ? sanitizeHtml(safeBody, { allowedTags: [] }) : template.text,
+      template.html,
+      template.text,
     );
 
     await auditLog(authUser.id, 'SEND_EMAIL', 'mail', undefined, {

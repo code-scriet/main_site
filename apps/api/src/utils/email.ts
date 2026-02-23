@@ -815,6 +815,25 @@ export const EmailTemplates = {
       text: `Hi ${name}, thank you for applying to the ${roleName} at code.scriet. After careful review, we won't be moving forward with your application at this time. We encourage you to work on strengthening your fundamentals and building projects. When you feel ready, we'd love to see you apply again in the next recruitment round. Keep learning and growing!`,
     };
   },
+
+  // General-purpose admin mail (info sharing, invitations, updates, etc.)
+  adminMail: (subject: string, body: string, bodyType: 'markdown' | 'html' = 'markdown'): EmailTemplate => {
+    const htmlBody = bodyType === 'html' ? body : markdownToEmailHtml(body);
+    const plainText = htmlToPlainText(htmlBody);
+
+    return {
+      subject,
+      html: generateEmailTemplate({
+        preheader: subject,
+        accentColor: '#d97706',
+        badge: { text: 'code.scriet', icon: '✉️' },
+        title: subject,
+        body: htmlBody,
+        footer: 'Sent by code.scriet team',
+      }),
+      text: plainText,
+    };
+  },
 };
 
 // ============================================
