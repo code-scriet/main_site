@@ -231,6 +231,12 @@ export default function AdminNetwork() {
       displayOrder: (profile.displayOrder ?? 0).toString(),
       adminNotes: profile.adminNotes || '',
       connectionType: profile.connectionType || '',
+      passoutYear: profile.passoutYear?.toString() || '',
+      degree: profile.degree || '',
+      branch: profile.branch || '',
+      rollNumber: profile.rollNumber || '',
+      achievements: profile.achievements || '',
+      currentLocation: profile.currentLocation || '',
     });
     // Initialize events from profile
     const events = (profile.events as NetworkEvent[] | null) || [];
@@ -248,7 +254,7 @@ export default function AdminNetwork() {
         'fullName', 'designation', 'company', 'industry', 'bio',
         'profilePhoto', 'phone', 'linkedinUsername', 'twitterUsername',
         'githubUsername', 'personalWebsite', 'connectionNote', 'adminNotes',
-        'connectionType'
+        'connectionType', 'degree', 'branch', 'rollNumber', 'achievements', 'currentLocation'
       ];
       for (const field of fields) {
         if (editForm[field] !== undefined) {
@@ -257,6 +263,12 @@ export default function AdminNetwork() {
       }
       if (editForm.connectedSince) {
         updates.connectedSince = parseInt(editForm.connectedSince);
+      }
+      if (editForm.passoutYear) {
+        const parsedYear = parseInt(editForm.passoutYear, 10);
+        updates.passoutYear = Number.isFinite(parsedYear) ? parsedYear : null;
+      } else {
+        updates.passoutYear = null;
       }
       if (editForm.displayOrder !== undefined) {
         const parsedDisplayOrder = parseInt(editForm.displayOrder, 10);
@@ -972,6 +984,65 @@ export default function AdminNetwork() {
                       ))}
                     </select>
                   </div>
+
+                  {/* Alumni Fields */}
+                  {editForm.connectionType === 'ALUMNI' && (
+                    <div className="p-4 bg-amber-50/50 rounded-lg border border-amber-100 space-y-4">
+                      <h4 className="font-semibold text-amber-900 text-sm">Alumni Details</h4>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div className="space-y-1.5">
+                          <Label>Passout Year</Label>
+                          <Input
+                            type="number"
+                            value={editForm.passoutYear || ''}
+                            onChange={(e) => setEditForm({ ...editForm, passoutYear: e.target.value })}
+                            placeholder="e.g. 2024"
+                          />
+                        </div>
+                        <div className="space-y-1.5">
+                          <Label>Current Location</Label>
+                          <Input
+                            value={editForm.currentLocation || ''}
+                            onChange={(e) => setEditForm({ ...editForm, currentLocation: e.target.value })}
+                            placeholder="e.g. Bangalore, India"
+                          />
+                        </div>
+                        <div className="space-y-1.5">
+                          <Label>Degree</Label>
+                          <Input
+                            value={editForm.degree || ''}
+                            onChange={(e) => setEditForm({ ...editForm, degree: e.target.value })}
+                            placeholder="e.g. B.Tech"
+                          />
+                        </div>
+                        <div className="space-y-1.5">
+                          <Label>Branch</Label>
+                          <Input
+                            value={editForm.branch || ''}
+                            onChange={(e) => setEditForm({ ...editForm, branch: e.target.value })}
+                            placeholder="e.g. Computer Science"
+                          />
+                        </div>
+                        <div className="space-y-1.5">
+                          <Label>College Roll Number</Label>
+                          <Input
+                            value={editForm.rollNumber || ''}
+                            onChange={(e) => setEditForm({ ...editForm, rollNumber: e.target.value })}
+                            placeholder="Optional"
+                          />
+                        </div>
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label>Achievements / Highlights</Label>
+                        <Textarea
+                          value={editForm.achievements || ''}
+                          onChange={(e) => setEditForm({ ...editForm, achievements: e.target.value })}
+                          placeholder="Notable college achievements..."
+                          rows={2}
+                        />
+                      </div>
+                    </div>
+                  )}
 
                   {/* Phone */}
                   <div className="space-y-1.5">
