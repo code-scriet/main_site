@@ -11,11 +11,8 @@ import { useSettings } from '@/context/SettingsContext';
 import { Markdown } from '@/components/ui/markdown';
 
 export default function AdminSettings() {
-  const { token, user } = useAuth();
+  const { token } = useAuth();
   const { refreshSettings: refreshGlobalSettings } = useSettings();
-
-  // Only Super Admin or President can modify settings
-  const canEdit = user?.role === 'PRESIDENT' || user?.email === import.meta.env.VITE_SUPER_ADMIN_EMAIL;
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -685,8 +682,8 @@ We've got something exciting lined up for you:`}
         <Button variant="outline" onClick={fetchSettings} disabled={saving}>
           Reset
         </Button>
-        <Button onClick={handleSave} disabled={saving || !canEdit} className="min-w-[140px] bg-amber-600 hover:bg-amber-700">
-          {!canEdit ? 'Read-only' : saving ? (
+        <Button onClick={handleSave} disabled={saving} className="min-w-[140px] bg-amber-600 hover:bg-amber-700">
+          {saving ? (
             <>
               <Loader2 className="h-4 w-4 mr-2 animate-spin" />
               Saving...
