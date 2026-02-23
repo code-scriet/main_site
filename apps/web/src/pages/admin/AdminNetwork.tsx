@@ -250,15 +250,26 @@ export default function AdminNetwork() {
     setEditSaving(true);
     try {
       const updates: Record<string, any> = {};
-      const fields = [
+      const stringFields = [
         'fullName', 'designation', 'company', 'industry', 'bio',
         'profilePhoto', 'phone', 'linkedinUsername', 'twitterUsername',
         'githubUsername', 'personalWebsite', 'connectionNote', 'adminNotes',
         'connectionType', 'degree', 'branch', 'rollNumber', 'achievements', 'currentLocation'
       ];
-      for (const field of fields) {
+      
+      const nullableFields = new Set([
+        'bio', 'profilePhoto', 'phone', 'linkedinUsername', 'twitterUsername',
+        'githubUsername', 'personalWebsite', 'connectionNote', 'adminNotes',
+        'degree', 'branch', 'rollNumber', 'achievements', 'currentLocation'
+      ]);
+
+      for (const field of stringFields) {
         if (editForm[field] !== undefined) {
-          updates[field] = editForm[field] || null;
+          if (editForm[field] === '' && nullableFields.has(field)) {
+            updates[field] = null;
+          } else {
+            updates[field] = editForm[field];
+          }
         }
       }
       if (editForm.connectedSince) {

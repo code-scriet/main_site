@@ -236,7 +236,7 @@ export default function AdminTeam() {
                     <option value="Content">Content</option>
                     <option value="Design">Design</option>
                     <option value="Admin">Admin</option>
-                    <option value="Outreach">Outreach</option>
+                    <option value="DSA">DSA</option>
                   </select>
                 </div>
                 <div className="space-y-2">

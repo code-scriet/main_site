@@ -48,7 +48,7 @@ const createProfileSchema = z.object({
   designation: z.string().min(2).max(100),
   company: z.string().min(1).max(100),
   industry: z.string().min(1).max(50),
-  bio: z.string().max(2000).optional(),
+  bio: z.string().max(2000).optional().nullable(),
   profilePhoto: z.string().url().optional().nullable(),
   phone: z.string().max(20).optional().nullable(),
   linkedinUsername: z.string().max(100).optional().nullable(),
