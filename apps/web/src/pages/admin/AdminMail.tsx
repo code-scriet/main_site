@@ -19,6 +19,8 @@ import {
   FileText,
   UserPlus,
   Hash,
+  AtSign,
+  Plus,
 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { Markdown } from '@/components/ui/markdown';
@@ -61,6 +63,9 @@ export default function AdminMail() {
   const [selectedRecipients, setSelectedRecipients] = useState<Recipient[]>([]);
   const [searching, setSearching] = useState(false);
   const [hasSearched, setHasSearched] = useState(false);
+
+  // --- Manual email input ---
+  const [manualEmail, setManualEmail] = useState('');
 
   // Refs to avoid stale closures
   const selectedRef = useRef(selectedRecipients);
@@ -146,6 +151,24 @@ export default function AdminMail() {
     setSearchQuery('');
     setSearchResults([]);
     setHasSearched(false);
+    setManualEmail('');
+  };
+
+  const addManualEmail = () => {
+    const email = manualEmail.trim().toLowerCase();
+    if (!email) return;
+    // Basic email validation
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      setError('Please enter a valid email address');
+      return;
+    }
+    if (selectedRecipients.some(r => r.email === email)) {
+      setError('This email is already added');
+      return;
+    }
+    setSelectedRecipients(prev => [...prev, { id: `manual-${Date.now()}`, name: email, email }]);
+    setManualEmail('');
+    setError(null);
   };
 
   // --- Send handler ---
@@ -280,7 +303,44 @@ export default function AdminMail() {
 
           {/* ── Specific Recipients Search ── */}
           {audience === 'specific' && (
-            <div className="mt-4 space-y-3">
+            <div className="mt-4 space-y-4">
+              {/* Manual email input */}
+              <div className="space-y-2">
+                <label className="text-xs font-medium text-gray-500 flex items-center gap-1">
+                  <AtSign className="h-3 w-3" />
+                  Add email manually
+                </label>
+                <div className="flex gap-2">
+                  <div className="relative flex-1">
+                    <AtSign className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+                    <Input
+                      value={manualEmail}
+                      onChange={e => setManualEmail(e.target.value)}
+                      onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addManualEmail(); } }}
+                      placeholder="someone@example.com"
+                      className="pl-10"
+                      type="email"
+                    />
+                  </div>
+                  <Button
+                    onClick={addManualEmail}
+                    disabled={!manualEmail.trim()}
+                    variant="outline"
+                    className="border-amber-300 text-amber-700 hover:bg-amber-50 shrink-0"
+                  >
+                    <Plus className="h-4 w-4 mr-1" />
+                    Add
+                  </Button>
+                </div>
+              </div>
+
+              {/* Divider */}
+              <div className="flex items-center gap-3">
+                <div className="flex-1 h-px bg-gray-200" />
+                <span className="text-xs text-gray-400 font-medium">or search registered members</span>
+                <div className="flex-1 h-px bg-gray-200" />
+              </div>
+
               {/* Search type toggle */}
               <div className="flex items-center gap-2">
                 <span className="text-xs font-medium text-gray-500">Search in:</span>
