@@ -351,9 +351,11 @@ export default function TeamMemberProfilePage() {
 
               {/* Bio tagline */}
               {member.bio?.trim() && (
-                <p className="mx-auto mt-4 max-w-xl rounded-xl border border-white/10 bg-white/5 px-5 py-3 text-sm leading-relaxed text-amber-50/85 backdrop-blur-sm sm:text-base line-clamp-2">
-                  {member.bio}
-                </p>
+                <div className="mx-auto mt-4 max-w-2xl overflow-hidden rounded-xl border border-white/10 bg-white/5 px-5 py-3 backdrop-blur-sm">
+                  <div className="prose prose-sm prose-invert prose-p:my-0 prose-p:leading-relaxed prose-strong:text-amber-200 prose-a:text-amber-300 max-w-none text-amber-50/85 line-clamp-3 sm:prose-base">
+                    <RichContent allowHtml>{member.bio}</RichContent>
+                  </div>
+                </div>
               )}
 
               {/* Social Links */}
