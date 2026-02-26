@@ -329,9 +329,9 @@ export default function TeamMemberProfilePage() {
               className="flex flex-col items-center text-center"
             >
               {/* Profile Photo */}
-              <div className="relative">
-                <div className="absolute -inset-3 rounded-full bg-gradient-to-br from-amber-400/40 to-orange-500/40 blur-lg" />
-                <div className="relative h-32 w-32 overflow-hidden rounded-full border-4 border-amber-400/50 shadow-2xl shadow-amber-900/50 ring-4 ring-amber-500/20 sm:h-40 sm:w-40">
+              <div className="relative mt-4">
+                <div className="absolute -inset-4 rounded-full bg-gradient-to-br from-amber-400/40 to-orange-500/40 blur-xl" />
+                <div className="relative h-40 w-40 overflow-hidden rounded-full border-4 border-amber-400/50 shadow-2xl shadow-amber-900/50 ring-4 ring-amber-500/20 sm:h-48 sm:w-48">
                   <img
                     src={profilePhotoFor(member)}
                     alt={member.name}
@@ -369,7 +369,7 @@ export default function TeamMemberProfilePage() {
                       y: { duration: 6, repeat: Infinity, ease: 'easeInOut' },
                       scale: { type: 'spring', stiffness: 400, damping: 25 }
                     }}
-                    className="relative overflow-hidden rounded-3xl border border-white/[0.04] bg-white/[0.02] p-8 sm:p-10 backdrop-blur-2xl shadow-[0_8px_32px_rgba(0,0,0,0.1)] ring-1 ring-white/[0.02] transition-colors duration-500 hover:bg-white/[0.04] hover:border-white/[0.08] hover:shadow-[0_16px_48px_rgba(251,191,36,0.05)] cursor-default"
+                    className="relative overflow-hidden rounded-3xl border border-white/[0.04] bg-white/[0.02] px-6 py-6 sm:px-10 sm:py-8 backdrop-blur-2xl shadow-[0_8px_32px_rgba(0,0,0,0.1)] ring-1 ring-white/[0.02] transition-colors duration-500 hover:bg-white/[0.04] hover:border-white/[0.08] hover:shadow-[0_16px_48px_rgba(251,191,36,0.05)] cursor-default"
                   >
                     {/* Sweeping Hover Shine Effect */}
                     <div className="absolute inset-0 -translate-x-[150%] skew-x-[30deg] bg-gradient-to-r from-transparent via-white/[0.03] to-transparent transition-transform duration-1000 ease-out group-hover:translate-x-[200%]" />
@@ -380,8 +380,8 @@ export default function TeamMemberProfilePage() {
                     {/* Background Icon Watermark */}
                     <Quote className="absolute -top-6 -left-6 h-32 w-32 text-amber-50/[0.02] -rotate-12 transform-gpu transition-transform duration-700 group-hover:scale-110 group-hover:-rotate-6" />
                     
-                    {/* Content (Brighter text, stronger drop shadow) */}
-                    <div className="prose prose-base sm:prose-lg prose-invert relative z-10 mx-auto text-center prose-p:leading-relaxed prose-p:my-2 tracking-wide text-white font-medium drop-shadow-[0_1px_2px_rgba(0,0,0,0.8)] prose-strong:text-white prose-strong:font-bold prose-strong:drop-shadow-[0_2px_4px_rgba(0,0,0,0.9)] prose-a:text-amber-400 prose-a:underline hover:prose-a:text-amber-300 transition-colors [&_*]:!text-white [&_strong]:!text-white [&_a]:!text-amber-400">
+                    {/* Content (Brighter text, stronger drop shadow, elegant sizing) */}
+                    <div className="prose prose-base prose-invert relative z-10 mx-auto text-center prose-p:leading-relaxed prose-p:my-1 tracking-wide text-white font-medium drop-shadow-[0_1px_2px_rgba(0,0,0,0.8)] prose-strong:text-white prose-strong:font-bold prose-strong:drop-shadow-[0_2px_4px_rgba(0,0,0,0.9)] prose-a:text-amber-400 prose-a:underline hover:prose-a:text-amber-300 transition-colors [&_*]:!text-white [&_strong]:!text-white [&_a]:!text-amber-400">
                       <RichContent allowHtml>{member.bio}</RichContent>
                     </div>
                   </motion.div>
