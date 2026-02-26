@@ -351,10 +351,12 @@ export default function TeamMemberProfilePage() {
 
               {/* Bio tagline */}
               {member.bio?.trim() && (
-                <div className="mx-auto mt-5 w-full max-w-4xl rounded-2xl border border-white/10 bg-black/20 px-6 py-4 shadow-xl backdrop-blur-md">
-                  <div className="prose prose-sm sm:prose-base prose-invert prose-p:my-1 prose-p:leading-relaxed prose-strong:text-white prose-strong:font-bold prose-a:text-amber-300 prose-a:underline max-w-none text-white/95 drop-shadow-sm [&_*]:!text-white/95 [&_strong]:!text-white">
+                <div className="mx-auto mt-7 max-w-3xl px-4 relative z-10">
+                  <div className="mx-auto h-px w-20 bg-gradient-to-r from-transparent via-amber-200/30 to-transparent mb-6" />
+                  <div className="prose prose-base sm:prose-lg prose-invert text-center mx-auto prose-p:my-2 prose-p:leading-relaxed text-slate-200/90 drop-shadow-md font-medium tracking-wide prose-strong:text-white prose-strong:font-semibold prose-a:text-amber-400 prose-a:underline hover:prose-a:text-amber-300 [&_*]:!text-slate-200/90 [&_strong]:!text-white [&_a]:!text-amber-400">
                     <RichContent allowHtml>{member.bio}</RichContent>
                   </div>
+                  <div className="mx-auto h-px w-20 bg-gradient-to-r from-transparent via-amber-200/30 to-transparent mt-6 mb-2" />
                 </div>
               )}
 
