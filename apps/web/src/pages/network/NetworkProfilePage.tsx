@@ -36,6 +36,7 @@ import {
   Lightbulb,
   BookOpen,
   Wrench,
+  Quote,
 } from 'lucide-react';
 import { api, type NetworkConnectionType, type NetworkEvent, type NetworkProfile } from '@/lib/api';
 import { useMotionConfig } from '@/hooks/useMotionConfig';
@@ -451,12 +452,24 @@ export default function NetworkProfilePage() {
 
               {/* Bio tagline */}
               {profile.bio?.trim() && (
-                <div className="mx-auto mt-6 max-w-3xl px-4 relative z-10">
-                  <div className="mx-auto h-px w-20 bg-gradient-to-r from-transparent via-amber-200/30 to-transparent mb-6" />
-                  <div className="prose prose-base sm:prose-lg prose-invert text-center mx-auto prose-p:my-2 prose-p:leading-relaxed text-slate-200/90 drop-shadow-md font-medium tracking-wide prose-strong:text-white prose-strong:font-semibold prose-a:text-amber-400 prose-a:underline hover:prose-a:text-amber-300 [&_*]:!text-slate-200/90 [&_strong]:!text-white [&_a]:!text-amber-400">
-                    <RichContent allowHtml>{profile.bio}</RichContent>
+                <div className="mx-auto mt-8 w-full max-w-4xl px-4 sm:px-0 relative z-10 group">
+                  {/* Decorative Glow Behind Card - Appears on hover */}
+                  <div className="absolute -inset-1 bg-gradient-to-r from-amber-500/0 via-amber-500/10 to-amber-500/0 blur-xl opacity-0 group-hover:opacity-100 transition duration-1000" />
+                  
+                  {/* Glass Card Container */}
+                  <div className="relative overflow-hidden rounded-3xl border border-white/[0.08] bg-white/[0.03] p-8 sm:p-10 backdrop-blur-3xl shadow-[0_8px_32px_rgba(0,0,0,0.2)] ring-1 ring-white/[0.05] transition-all duration-500 hover:bg-white/[0.04] hover:border-white/[0.12]">
+                    
+                    {/* Top subtle gradient border */}
+                    <div className="absolute top-0 inset-x-0 h-px bg-gradient-to-r from-transparent via-white/20 to-transparent" />
+                    
+                    {/* Background Icon Watermark */}
+                    <Quote className="absolute -top-6 -left-6 h-32 w-32 text-white/[0.03] -rotate-12 transform-gpu" />
+                    
+                    {/* Content */}
+                    <div className="prose prose-base sm:prose-lg prose-invert relative z-10 mx-auto text-center prose-p:leading-relaxed prose-p:my-2 tracking-wide text-slate-300/90 font-medium drop-shadow-md prose-strong:text-white prose-strong:font-semibold prose-a:text-amber-400 prose-a:underline hover:prose-a:text-amber-300 transition-colors [&_*]:!text-slate-300/90 [&_strong]:!text-white [&_a]:!text-amber-400">
+                      <RichContent allowHtml>{profile.bio}</RichContent>
+                    </div>
                   </div>
-                  <div className="mx-auto h-px w-20 bg-gradient-to-r from-transparent via-amber-200/30 to-transparent mt-6 mb-2" />
                 </div>
               )}
 
