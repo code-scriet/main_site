@@ -1,4 +1,5 @@
 import { useMemo, useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Layout } from '@/components/layout/Layout';
 import { SEO } from '@/components/SEO';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -331,7 +332,25 @@ function MemberCard({
   shouldReduceMotion: boolean;
 }) {
   const [isHovered, setIsHovered] = useState(false);
+  const navigate = useNavigate();
   const interactiveHover = !isMobile && !prefersReducedMotion;
+
+  // Only allow navigation if the member has a slug (linked to a user)
+  const hasProfile = !!member.slug;
+  const profileUrl = hasProfile ? `/team/${member.slug}` : '';
+
+  const handleCardClick = () => {
+    if (hasProfile) {
+      navigate(profileUrl);
+    }
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (hasProfile && (e.key === 'Enter' || e.key === ' ')) {
+      e.preventDefault();
+      navigate(profileUrl);
+    }
+  };
 
   return (
     <motion.div
@@ -341,7 +360,7 @@ function MemberCard({
       transition={{ 
         duration: shouldReduceMotion ? 0.35 : 0.8, 
         delay: delay,
-        ease: [0.22, 1, 0.36, 1] // Smooth ease-out curve
+        ease: [0.22, 1, 0.36, 1]
       }}
       whileHover={interactiveHover ? { y: -6, transition: { duration: 0.3 } } : undefined}
       onHoverStart={interactiveHover ? () => setIsHovered(true) : undefined}
@@ -350,7 +369,14 @@ function MemberCard({
     >
       {/* Card with glassmorphism effect - fixed height for consistency */}
       <div
-        className={`relative group h-full min-h-[230px] sm:min-h-[280px] md:min-h-[300px] rounded-2xl border p-3 sm:p-5 flex flex-col transition-all duration-700 ${
+        role={hasProfile ? 'link' : undefined}
+        tabIndex={hasProfile ? 0 : undefined}
+        onClick={handleCardClick}
+        onKeyDown={hasProfile ? handleKeyDown : undefined}
+        aria-label={hasProfile ? `View ${member.name}'s profile` : member.name}
+        className={`relative group h-full min-h-[230px] sm:min-h-[280px] md:min-h-[300px] rounded-2xl border p-3 sm:p-5 flex flex-col transition-all duration-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2 ${
+          hasProfile ? 'cursor-pointer' : 'cursor-default'
+        } ${
           isMobile
             ? 'bg-white border-white/90 shadow-md'
             : 'bg-white/70 backdrop-blur-sm border-white/80 shadow-lg hover:shadow-2xl hover:shadow-amber-500/20'

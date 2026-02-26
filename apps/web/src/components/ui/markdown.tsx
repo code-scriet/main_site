@@ -1,10 +1,20 @@
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import rehypeRaw from 'rehype-raw';
+import DOMPurify from 'dompurify';
 import type { Components } from 'react-markdown';
+import { useMemo } from 'react';
 
 interface MarkdownProps {
   children: string;
   className?: string;
+}
+
+interface RichContentProps {
+  children: string;
+  className?: string;
+  /** Allow raw HTML to be rendered (content will be sanitized) */
+  allowHtml?: boolean;
 }
 
 const SAFE_LINK_PROTOCOLS = new Set(['http:', 'https:', 'mailto:', 'tel:']);
@@ -319,6 +329,265 @@ export function Markdown({ children, className = '' }: MarkdownProps) {
         components={components}
       >
         {children}
+      </ReactMarkdown>
+    </div>
+  );
+}
+
+/**
+ * Configure DOMPurify with safe defaults
+ */
+const configureDOMPurify = () => {
+  // Return config object for DOMPurify.sanitize
+  return {
+    ALLOWED_TAGS: [
+      // Text formatting
+      'p', 'br', 'span', 'div',
+      'strong', 'b', 'em', 'i', 'u', 's', 'strike', 'del', 'ins', 'mark',
+      'sup', 'sub', 'small',
+      // Headings
+      'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
+      // Lists
+      'ul', 'ol', 'li',
+      // Links and media
+      'a', 'img',
+      // Blockquote and code
+      'blockquote', 'pre', 'code',
+      // Tables
+      'table', 'thead', 'tbody', 'tr', 'th', 'td',
+      // Horizontal rule
+      'hr',
+      // Details/summary
+      'details', 'summary',
+    ],
+    ALLOWED_ATTR: [
+      'class', 'id', 'style',
+      'href', 'target', 'rel', 'title',
+      'src', 'alt', 'width', 'height', 'loading',
+      'colspan', 'rowspan',
+    ],
+    FORBID_TAGS: ['script', 'style', 'iframe', 'form', 'input', 'button', 'object', 'embed', 'svg', 'math'],
+    FORBID_ATTR: ['onerror', 'onload', 'onclick', 'onmouseover', 'onfocus', 'onblur'],
+    KEEP_CONTENT: true,
+  };
+};
+
+/**
+ * RichContent component for rendering Markdown with optional HTML support
+ * Uses DOMPurify for client-side sanitization as a second layer of defense.
+ * Server should sanitize content before storing.
+ */
+export function RichContent({ children, className = '', allowHtml = false }: RichContentProps) {
+  // Sanitize content on the client side as an additional security layer
+  const sanitizedContent = useMemo(() => {
+    if (!children) return '';
+    if (!allowHtml) return children;
+    
+    // Sanitize HTML content with DOMPurify
+    return DOMPurify.sanitize(children, configureDOMPurify());
+  }, [children, allowHtml]);
+
+  const components: Components = {
+    // Headings
+    h1: ({ children }) => (
+      <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 mt-8 mb-4 first:mt-0 pb-2 border-b border-gray-200">
+        {children}
+      </h1>
+    ),
+    h2: ({ children }) => (
+      <h2 className="text-xl sm:text-2xl font-bold text-gray-900 mt-6 mb-3 first:mt-0">
+        {children}
+      </h2>
+    ),
+    h3: ({ children }) => (
+      <h3 className="text-lg sm:text-xl font-semibold text-gray-800 mt-5 mb-2">
+        {children}
+      </h3>
+    ),
+    h4: ({ children }) => (
+      <h4 className="text-base sm:text-lg font-semibold text-gray-800 mt-4 mb-2">
+        {children}
+      </h4>
+    ),
+    h5: ({ children }) => (
+      <h5 className="text-sm sm:text-base font-semibold text-gray-800 mt-3 mb-1">
+        {children}
+      </h5>
+    ),
+    h6: ({ children }) => (
+      <h6 className="text-sm font-semibold text-gray-700 mt-2 mb-1">
+        {children}
+      </h6>
+    ),
+
+    // Paragraphs
+    p: ({ children }) => (
+      <p className="text-gray-700 leading-relaxed mb-4 last:mb-0">
+        {children}
+      </p>
+    ),
+
+    // Strong/Bold
+    strong: ({ children }) => (
+      <strong className="font-semibold text-gray-900">{children}</strong>
+    ),
+
+    // Emphasis/Italic
+    em: ({ children }) => (
+      <em className="italic text-gray-800">{children}</em>
+    ),
+
+    // Strikethrough
+    del: ({ children }) => (
+      <del className="line-through text-gray-500">{children}</del>
+    ),
+
+    // Links
+    a: ({ href, children }) => {
+      const safeHref = getSafeLinkHref(href);
+      if (!safeHref) {
+        return <span className="text-gray-500">{children}</span>;
+      }
+      const external = safeHref.startsWith('http://') || safeHref.startsWith('https://');
+      return (
+        <a
+          href={safeHref}
+          target={external ? '_blank' : undefined}
+          rel={external ? 'noopener noreferrer' : undefined}
+          className="text-amber-600 hover:text-amber-700 underline underline-offset-2 transition-colors"
+        >
+          {children}
+        </a>
+      );
+    },
+
+    // Unordered Lists
+    ul: ({ children }) => (
+      <ul className="list-disc list-outside ml-6 mb-4 space-y-1.5 text-gray-700">
+        {children}
+      </ul>
+    ),
+
+    // Ordered Lists
+    ol: ({ children }) => (
+      <ol className="list-decimal list-outside ml-6 mb-4 space-y-1.5 text-gray-700">
+        {children}
+      </ol>
+    ),
+
+    // List Items
+    li: ({ children }) => (
+      <li className="leading-relaxed pl-1">{children}</li>
+    ),
+
+    // Blockquotes
+    blockquote: ({ children }) => (
+      <blockquote className="border-l-4 border-amber-400 bg-amber-50/50 pl-4 py-3 my-4 italic text-gray-700 rounded-r-lg">
+        {children}
+      </blockquote>
+    ),
+
+    // Inline Code
+    code: ({ className, children, ...props }) => {
+      const isCodeBlock = className?.includes('language-');
+      
+      if (isCodeBlock) {
+        return (
+          <code
+            className={`block bg-gray-900 text-gray-100 p-4 rounded-lg overflow-x-auto text-sm font-mono ${className || ''}`}
+            {...props}
+          >
+            {children}
+          </code>
+        );
+      }
+      
+      return (
+        <code className="bg-gray-100 text-amber-700 px-1.5 py-0.5 rounded text-sm font-mono">
+          {children}
+        </code>
+      );
+    },
+
+    // Code Blocks (pre)
+    pre: ({ children }) => (
+      <pre className="mb-4 overflow-x-auto rounded-lg">
+        {children}
+      </pre>
+    ),
+
+    // Tables
+    table: ({ children }) => (
+      <div className="overflow-x-auto mb-4">
+        <table className="min-w-full divide-y divide-gray-200 border border-gray-200 rounded-lg overflow-hidden">
+          {children}
+        </table>
+      </div>
+    ),
+    thead: ({ children }) => (
+      <thead className="bg-amber-50">{children}</thead>
+    ),
+    tbody: ({ children }) => (
+      <tbody className="divide-y divide-gray-200 bg-white">{children}</tbody>
+    ),
+    tr: ({ children }) => (
+      <tr className="hover:bg-gray-50 transition-colors">{children}</tr>
+    ),
+    th: ({ children }) => (
+      <th className="px-4 py-3 text-left text-sm font-semibold text-gray-900">
+        {children}
+      </th>
+    ),
+    td: ({ children }) => (
+      <td className="px-4 py-3 text-sm text-gray-700">{children}</td>
+    ),
+
+    // Horizontal Rule
+    hr: () => (
+      <hr className="my-6 border-t border-gray-200" />
+    ),
+
+    // Images
+    img: ({ src, alt }) => {
+      const safeSrc = getSafeImageSrc(src);
+      if (!safeSrc) {
+        return null;
+      }
+      return (
+        <img
+          src={safeSrc}
+          alt={alt || ''}
+          className="rounded-lg max-w-full h-auto my-4 shadow-md"
+          loading="lazy"
+        />
+      );
+    },
+
+    // Task List Items
+    input: ({ type, checked, disabled }) => {
+      if (type === 'checkbox') {
+        return (
+          <input
+            type="checkbox"
+            checked={checked}
+            disabled={disabled}
+            className="mr-2 h-4 w-4 rounded border-gray-300 text-amber-600 focus:ring-amber-500"
+            readOnly
+          />
+        );
+      }
+      return <input type={type} />;
+    },
+  };
+
+  return (
+    <div className={`prose prose-amber max-w-none ${className}`}>
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
+        rehypePlugins={allowHtml ? [rehypeRaw] : []}
+        components={components}
+      >
+        {sanitizedContent}
       </ReactMarkdown>
     </div>
   );

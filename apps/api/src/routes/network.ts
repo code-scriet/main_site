@@ -8,8 +8,26 @@ import { auditLog } from '../utils/audit.js';
 import { logger } from '../utils/logger.js';
 import { emailService } from '../utils/email.js';
 import { parsePaginationNumber } from '../utils/pagination.js';
+import { sanitizeHtml, sanitizeUrl } from '../utils/sanitize.js';
 
 export const networkRouter = Router();
+
+// Rich content fields that support HTML/Markdown
+const RICH_CONTENT_FIELDS = ['bio', 'connectionNote', 'achievements', 'adminNotes', 'vision', 'story', 'expertise'];
+
+// Sanitize rich content in profile data
+const sanitizeProfileContent = (data: Record<string, unknown>): Record<string, unknown> => {
+  const result: Record<string, unknown> = { ...data };
+  for (const field of RICH_CONTENT_FIELDS) {
+    if (typeof result[field] === 'string') {
+      result[field] = sanitizeHtml(result[field] as string);
+    }
+  }
+  if (typeof result.personalWebsite === 'string') {
+    result.personalWebsite = sanitizeUrl(result.personalWebsite as string) || null;
+  }
+  return result;
+};
 
 const networkConnectionTypes = [
   'GUEST_SPEAKER',
@@ -73,6 +91,10 @@ const createProfileSchema = z.object({
   rollNumber: z.string().max(50).optional().nullable(),
   achievements: z.string().max(2000).optional().nullable(),
   currentLocation: z.string().max(100).optional().nullable(),
+  // Rich profile content fields
+  vision: z.string().max(5000).optional().nullable(),
+  story: z.string().max(5000).optional().nullable(),
+  expertise: z.string().max(3000).optional().nullable(),
 });
 
 const updateProfileSchema = createProfileSchema.partial();
@@ -241,6 +263,10 @@ networkRouter.get('/', async (req: Request, res: Response) => {
           branch: true,
           currentLocation: true,
           achievements: true,
+          // Rich profile content
+          vision: true,
+          story: true,
+          expertise: true,
           isFeatured: true,
           createdAt: true,
         },
@@ -310,6 +336,10 @@ networkRouter.get('/:idOrSlug', async (req: Request, res: Response) => {
         branch: true,
         achievements: true,
         currentLocation: true,
+        // Rich profile content
+        vision: true,
+        story: true,
+        expertise: true,
         events: true,
         isFeatured: true,
         createdAt: true,
@@ -381,6 +411,9 @@ networkRouter.post('/profile', authMiddleware, async (req: Request, res: Respons
 
     const slug = generateSlug(parsed.data.fullName);
 
+    // Sanitize rich content fields
+    const sanitizedData = sanitizeProfileContent(parsed.data as Record<string, unknown>);
+
     // Fetch user to get Google profile photo if not provided
     const user = await prisma.user.findUnique({ 
       where: { id: authUser.id }, 
@@ -391,11 +424,11 @@ networkRouter.post('/profile', authMiddleware, async (req: Request, res: Respons
       data: {
         userId: authUser.id,
         slug,
-        ...parsed.data,
+        ...sanitizedData,
         // Use Google profile picture if profilePhoto not provided
         profilePhoto: parsed.data.profilePhoto || user?.avatar || undefined,
         status: 'PENDING',
-      },
+      } as any,
     });
 
     // Send thank you email for joining the network
@@ -465,7 +498,9 @@ networkRouter.patch('/profile', authMiddleware, async (req: Request, res: Respon
 
     // Update data without resetting verification status
     // Once verified, profiles stay verified even after updates
-    const updateData: any = { ...parsed.data };
+    // Sanitize rich content fields
+    const sanitizedData = sanitizeProfileContent(parsed.data as Record<string, unknown>);
+    const updateData: any = { ...sanitizedData };
 
     const profile = await prisma.networkProfile.update({
       where: { userId: authUser.id },
@@ -1270,12 +1305,15 @@ networkRouter.patch('/admin/:id', authMiddleware, requireRole('ADMIN'), async (r
       });
     }
 
-    const { events, ...updateData } = parsed.data;
+    const { events, ...updateFields } = parsed.data;
+
+    // Sanitize rich content fields
+    const sanitizedData = sanitizeProfileContent(updateFields as Record<string, unknown>);
 
     const updated = await prisma.networkProfile.update({
       where: { id },
       data: {
-        ...updateData,
+        ...sanitizedData,
         ...(events !== undefined ? { events: toNullableJsonValue(events) } : {}),
       },
     });

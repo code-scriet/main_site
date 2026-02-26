@@ -1,12 +1,20 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { motion } from 'framer-motion';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Shield, Loader2, AlertCircle, Plus, Trash2, UserPlus, Edit2, X, Check } from 'lucide-react';
+import { Textarea } from '@/components/ui/textarea';
+import { Shield, Loader2, AlertCircle, Plus, Trash2, UserPlus, Edit2, X, Check, Link2, Unlink, ChevronDown, ChevronUp, Search, User } from 'lucide-react';
 import { api, type TeamMember } from '@/lib/api';
 import { useAuth } from '@/context/AuthContext';
+
+interface UserSearchResult {
+  id: string;
+  name: string;
+  email: string;
+  avatar?: string;
+}
 
 export default function AdminTeam() {
   const { token } = useAuth();
@@ -17,6 +25,12 @@ export default function AdminTeam() {
   const [success, setSuccess] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [expandedProfileId, setExpandedProfileId] = useState<string | null>(null);
+  const [userSearchQuery, setUserSearchQuery] = useState('');
+  const [userSearchResults, setUserSearchResults] = useState<UserSearchResult[]>([]);
+  const [searchingUsers, setSearchingUsers] = useState(false);
+  const [linkingUserId, setLinkingUserId] = useState<string | null>(null);
+  const [linkedUserInfo, setLinkedUserInfo] = useState<UserSearchResult | null>(null);
   const [form, setForm] = useState({
     name: '',
     role: '',
@@ -27,8 +41,15 @@ export default function AdminTeam() {
     twitter: '',
     instagram: '',
     order: 0,
+    // Profile content fields
+    slug: '',
+    bio: '',
+    vision: '',
+    story: '',
+    expertise: '',
+    achievements: '',
+    website: '',
   });
-
   useEffect(() => {
     loadTeam();
   }, []);
@@ -56,25 +77,57 @@ export default function AdminTeam() {
       twitter: '',
       instagram: '',
       order: 0,
+      slug: '',
+      bio: '',
+      vision: '',
+      story: '',
+      expertise: '',
+      achievements: '',
+      website: '',
     });
     setEditingId(null);
     setShowForm(false);
+    setLinkingUserId(null);
+    setLinkedUserInfo(null);
+    setUserSearchQuery('');
+    setUserSearchResults([]);
   };
 
   const handleEdit = (member: TeamMember) => {
+    const synced = member._syncedFrom || {};
+    
     setForm({
       name: member.name,
       role: member.role,
       team: member.team,
-      imageUrl: member.imageUrl || '',
-      linkedin: member.linkedin || '',
-      github: member.github || '',
-      twitter: member.twitter || '',
-      instagram: member.instagram || '',
+      imageUrl: synced.imageUrl === 'user' ? '' : (member.imageUrl || ''),
+      linkedin: synced.linkedin === 'user' ? '' : (member.linkedin || ''),
+      github: synced.github === 'user' ? '' : (member.github || ''),
+      twitter: synced.twitter === 'user' ? '' : (member.twitter || ''),
+      instagram: synced.instagram === 'user' ? '' : (member.instagram || ''),
       order: member.order || 0,
+      slug: synced.slug === 'user' ? '' : (member.slug || ''),
+      bio: synced.bio === 'user' ? '' : (member.bio || ''),
+      vision: synced.vision === 'user' ? '' : (member.vision || ''),
+      story: synced.story === 'user' ? '' : (member.story || ''),
+      expertise: synced.expertise === 'user' ? '' : (member.expertise || ''),
+      achievements: synced.achievements === 'user' ? '' : (member.achievements || ''),
+      website: synced.website === 'user' ? '' : (member.website || ''),
     });
+    
     setEditingId(member.id);
     setShowForm(true);
+    setLinkingUserId(member.userId || null);
+    // Store user info if linked (will show name/email in the UI)
+    if (member.userId && (member as any).user) {
+      setLinkedUserInfo((member as any).user);
+    } else if (member.userId) {
+      setLinkedUserInfo({ id: member.userId, name: 'Linked User', email: '' });
+    } else {
+      setLinkedUserInfo(null);
+    }
+    setUserSearchQuery('');
+    setUserSearchResults([]);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -102,11 +155,19 @@ export default function AdminTeam() {
         role: form.role.trim(),
         team: form.team,
         imageUrl,
-        linkedin: form.linkedin.trim() || undefined,
-        github: form.github.trim() || undefined,
-        twitter: form.twitter.trim() || undefined,
-        instagram: form.instagram.trim() || undefined,
+        linkedin: form.linkedin.trim(),
+        github: form.github.trim(),
+        twitter: form.twitter.trim(),
+        instagram: form.instagram.trim(),
         order: form.order,
+        slug: form.slug.trim(),
+        bio: form.bio.trim(),
+        vision: form.vision.trim(),
+        story: form.story.trim(),
+        expertise: form.expertise.trim(),
+        achievements: form.achievements.trim(),
+        website: form.website.trim(),
+        userId: linkingUserId || undefined,
       };
 
       if (editingId) {
@@ -141,6 +202,90 @@ export default function AdminTeam() {
       setTimeout(() => setSuccess(null), 3000);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to delete member');
+    }
+  };
+
+  // Search users for linking
+  const searchUsers = async (query: string) => {
+    if (!token || query.length < 2) {
+      setUserSearchResults([]);
+      return;
+    }
+    try {
+      setSearchingUsers(true);
+      const response = await api.searchUsers(query, token);
+      setUserSearchResults(response.users || []);
+    } catch {
+      setUserSearchResults([]);
+    } finally {
+      setSearchingUsers(false);
+    }
+  };
+
+  // Debounced user search
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (userSearchQuery.length >= 2) {
+        searchUsers(userSearchQuery);
+      } else {
+        setUserSearchResults([]);
+      }
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [userSearchQuery, token]);
+
+  // Link team member to user
+  const handleLinkUser = async (memberId: string, userId: string) => {
+    if (!token) return;
+    try {
+      setSaving(true);
+      await api.linkTeamMemberToUser(memberId, userId, token);
+      
+      // Fetch full user to populate empty form fields if we're currently editing
+      if (editingId === memberId) {
+        try {
+          const fullUser = await api.getUser(userId, token) as any;
+          setForm(prev => ({
+            ...prev,
+            name: prev.name.trim() === '' ? fullUser.name : prev.name,
+            imageUrl: prev.imageUrl.trim() === '' ? (fullUser.avatar || '') : prev.imageUrl,
+            linkedin: prev.linkedin.trim() === '' ? (fullUser.linkedinUrl || '') : prev.linkedin,
+            github: prev.github.trim() === '' ? (fullUser.githubUrl || '') : prev.github,
+            twitter: prev.twitter.trim() === '' ? (fullUser.twitterUrl || '') : prev.twitter,
+            bio: prev.bio.trim() === '' ? (fullUser.bio || '') : prev.bio,
+            website: prev.website.trim() === '' ? (fullUser.websiteUrl || '') : prev.website,
+          }));
+          setLinkedUserInfo(fullUser);
+          setLinkingUserId(userId);
+        } catch (e) {}
+      }
+      
+      setSuccess('Team member linked to user account');
+      await loadTeam();
+      setUserSearchQuery('');
+      setUserSearchResults([]);
+      setTimeout(() => setSuccess(null), 3000);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to link user');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // Unlink team member from user
+  const handleUnlinkUser = async (memberId: string) => {
+    if (!token) return;
+    if (!window.confirm('Are you sure you want to unlink this user?')) return;
+    try {
+      setSaving(true);
+      await api.linkTeamMemberToUser(memberId, null as unknown as string, token);
+      setSuccess('Team member unlinked from user account');
+      await loadTeam();
+      setTimeout(() => setSuccess(null), 3000);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to unlink user');
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -256,7 +401,7 @@ export default function AdminTeam() {
                   onChange={(e) => setForm({ ...form, imageUrl: e.target.value })}
                   placeholder="Leave empty for auto-generated avatar"
                 />
-                <p className="text-xs text-gray-500">Leave empty to auto-generate an avatar</p>
+                <p className="text-xs text-gray-500">Leave empty to auto-generate an avatar or link user to copy their avatar</p>
               </div>
               <div className="grid gap-4 sm:grid-cols-4">
                 <div className="space-y-2">
@@ -292,6 +437,203 @@ export default function AdminTeam() {
                   />
                 </div>
               </div>
+
+              {/* User Linking Section */}
+              <div className="space-y-2 p-4 rounded-lg border border-amber-200 bg-amber-50/50">
+                <label className="text-sm font-medium flex items-center gap-2">
+                  <Link2 className="h-4 w-4" />
+                  Link to User Account
+                </label>
+                {linkingUserId ? (
+                  <div className="flex items-center gap-3 p-3 rounded-lg bg-white border border-amber-200">
+                    <div className="h-8 w-8 rounded-full overflow-hidden bg-amber-200 flex-shrink-0">
+                      <img
+                        src={linkedUserInfo?.avatar || `https://api.dicebear.com/7.x/initials/svg?seed=${linkedUserInfo?.name || 'U'}`}
+                        alt={linkedUserInfo?.name || 'Linked User'}
+                        className="w-full h-full object-cover"
+                      />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium truncate">{linkedUserInfo?.name || 'Linked User'}</p>
+                      {linkedUserInfo?.email && (
+                        <p className="text-xs text-gray-500 truncate">{linkedUserInfo.email}</p>
+                      )}
+                    </div>
+                      <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        if (editingId) {
+                          handleUnlinkUser(editingId);
+                        }
+                        
+                        // Clear form fields that match the linked user exactly
+                        if (linkedUserInfo) {
+                          const u = linkedUserInfo as any;
+                          setForm(prev => ({
+                            ...prev,
+                            name: prev.name === u.name ? '' : prev.name,
+                            imageUrl: prev.imageUrl === (u.avatar || '') ? '' : prev.imageUrl,
+                            linkedin: prev.linkedin === (u.linkedinUrl || '') ? '' : prev.linkedin,
+                            github: prev.github === (u.githubUrl || '') ? '' : prev.github,
+                            twitter: prev.twitter === (u.twitterUrl || '') ? '' : prev.twitter,
+                            bio: prev.bio === (u.bio || '') ? '' : prev.bio,
+                            website: prev.website === (u.websiteUrl || '') ? '' : prev.website,
+                          }));
+                        }
+
+                        setLinkingUserId(null);
+                        setLinkedUserInfo(null);
+                      }}
+                      className="text-red-600 hover:text-red-700"
+                    >
+                      <Unlink className="h-4 w-4 mr-1" />
+                      Unlink
+                    </Button>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    <div className="relative">
+                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+                      <Input
+                        placeholder="Search users by name or email..."
+                        value={userSearchQuery}
+                        onChange={(e) => setUserSearchQuery(e.target.value)}
+                        className="pl-10"
+                      />
+                    </div>
+                    {searchingUsers && (
+                      <p className="text-xs text-gray-500">Searching...</p>
+                    )}
+                    {userSearchResults.length > 0 && (
+                      <div className="space-y-1 max-h-40 overflow-y-auto">
+                        {userSearchResults.map((user) => (
+                          <button
+                            key={user.id}
+                            type="button"
+                            onClick={async () => {
+                              if (editingId) {
+                                handleLinkUser(editingId, user.id);
+                              } else {
+                                // For new members, store the selection locally and fill form inputs
+                                setLinkingUserId(user.id);
+                                setLinkedUserInfo(user);
+                                setUserSearchQuery('');
+                                setUserSearchResults([]);
+                                
+                                try {
+                                  if (!token) return;
+                                  const fullUser = await api.getUser(user.id, token) as any;
+                                  setForm(prev => ({
+                                    ...prev,
+                                    name: prev.name.trim() === '' ? fullUser.name : prev.name,
+                                    imageUrl: prev.imageUrl.trim() === '' ? (fullUser.avatar || '') : prev.imageUrl,
+                                    linkedin: prev.linkedin.trim() === '' ? (fullUser.linkedinUrl || '') : prev.linkedin,
+                                    github: prev.github.trim() === '' ? (fullUser.githubUrl || '') : prev.github,
+                                    twitter: prev.twitter.trim() === '' ? (fullUser.twitterUrl || '') : prev.twitter,
+                                    bio: prev.bio.trim() === '' ? (fullUser.bio || '') : prev.bio,
+                                    website: prev.website.trim() === '' ? (fullUser.websiteUrl || '') : prev.website,
+                                  }));
+                                } catch (err) {
+                                  console.error("Failed to fetch full user info", err);
+                                }
+                              }
+                            }}
+                            className="w-full flex items-center gap-3 p-2 rounded-lg hover:bg-amber-100 transition-colors text-left"
+                          >
+                            <div className="h-8 w-8 rounded-full overflow-hidden bg-amber-200 flex-shrink-0">
+                              <img
+                                src={user.avatar || `https://api.dicebear.com/7.x/initials/svg?seed=${user.name}`}
+                                alt={user.name}
+                                className="w-full h-full object-cover"
+                              />
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-medium truncate">{user.name}</p>
+                              <p className="text-xs text-gray-500 truncate">{user.email}</p>
+                            </div>
+                            <Link2 className="h-4 w-4 text-amber-600" />
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+                <p className="text-xs text-gray-500">Link this team member to a registered user account for profile sync and edit permissions</p>
+              </div>
+
+              {/* Profile Content Section */}
+              <div className="space-y-4 p-4 rounded-lg border border-gray-200 bg-gray-50/50">
+                <div className="flex items-center justify-between">
+                  <label className="text-sm font-medium">Profile Content (Optional)</label>
+                  <Badge variant="secondary">Rich Text/Markdown</Badge>
+                </div>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium text-gray-600">URL Slug</label>
+                    <Input
+                      value={form.slug}
+                      onChange={(e) => setForm({ ...form, slug: e.target.value })}
+                      placeholder="Auto-generated from name"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-sm font-medium text-gray-600">Website</label>
+                    <Input
+                      value={form.website}
+                      onChange={(e) => setForm({ ...form, website: e.target.value })}
+                      placeholder="https://..."
+                    />
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <label className="text-sm font-medium text-gray-600">Bio</label>
+                  <Textarea
+                    value={form.bio}
+                    onChange={(e) => setForm({ ...form, bio: e.target.value })}
+                    placeholder="A short bio about this team member..."
+                    rows={2}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-sm font-medium text-gray-600">Vision</label>
+                  <Textarea
+                    value={form.vision}
+                    onChange={(e) => setForm({ ...form, vision: e.target.value })}
+                    placeholder="Personal or professional vision statement..."
+                    rows={2}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-sm font-medium text-gray-600">Story</label>
+                  <Textarea
+                    value={form.story}
+                    onChange={(e) => setForm({ ...form, story: e.target.value })}
+                    placeholder="Background, journey, how they joined..."
+                    rows={3}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-sm font-medium text-gray-600">Expertise</label>
+                  <Textarea
+                    value={form.expertise}
+                    onChange={(e) => setForm({ ...form, expertise: e.target.value })}
+                    placeholder="Skills, technologies, areas of focus..."
+                    rows={2}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-sm font-medium text-gray-600">Achievements</label>
+                  <Textarea
+                    value={form.achievements}
+                    onChange={(e) => setForm({ ...form, achievements: e.target.value })}
+                    placeholder="Notable accomplishments..."
+                    rows={2}
+                  />
+                </div>
+              </div>
+
               <div className="flex gap-3">
                 <Button type="submit" disabled={saving}>
                   {saving && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
@@ -334,17 +676,34 @@ export default function AdminTeam() {
                 >
                   <div className="flex justify-between items-start">
                     <div className="flex items-center gap-3">
-                      <div className="h-12 w-12 rounded-full overflow-hidden bg-amber-200 flex-shrink-0">
+                      <div className="h-12 w-12 rounded-full overflow-hidden bg-amber-200 flex-shrink-0 relative">
                         <img 
                           src={member.imageUrl || `https://api.dicebear.com/7.x/avataaars/svg?seed=${member.name}`} 
                           alt={member.name} 
                           className="w-full h-full object-cover" 
                         />
+                        {member.userId && (
+                          <div className="absolute -bottom-0.5 -right-0.5 h-4 w-4 rounded-full bg-green-500 border-2 border-white flex items-center justify-center">
+                            <Link2 className="h-2 w-2 text-white" />
+                          </div>
+                        )}
                       </div>
                       <div>
                         <p className="font-medium text-amber-900">{member.name}</p>
                         <p className="text-sm text-gray-600">{member.role}</p>
-                        <Badge variant="secondary" className="mt-1">{member.team}</Badge>
+                        <div className="flex items-center gap-1.5 mt-1">
+                          <Badge variant="secondary">{member.team}</Badge>
+                          {member.slug && (
+                            <a
+                              href={`/team/${member.slug}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-xs text-amber-600 hover:underline"
+                            >
+                              View Profile
+                            </a>
+                          )}
+                        </div>
                       </div>
                     </div>
                     <div className="flex gap-1">

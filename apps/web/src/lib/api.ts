@@ -211,6 +211,29 @@ export interface TeamMember {
   twitter?: string;
   instagram?: string;
   order?: number;
+  // New profile fields
+  userId?: string;
+  slug?: string;
+  bio?: string;
+  vision?: string;
+  story?: string;
+  expertise?: string;
+  achievements?: string;
+  website?: string;
+  // Linked user data (merged from user)
+  user?: {
+    id: string;
+    name: string;
+    email: string;
+    avatar?: string;
+    bio?: string;
+    githubUrl?: string;
+    linkedinUrl?: string;
+    twitterUrl?: string;
+    websiteUrl?: string;
+  };
+  // Sync metadata
+  _syncedFrom?: Record<string, 'user' | 'team'>;
 }
 
 export interface Achievement {
@@ -277,6 +300,10 @@ export interface NetworkProfile {
   rollNumber?: string;
   achievements?: string;
   currentLocation?: string;
+  // Rich profile content fields
+  vision?: string;
+  story?: string;
+  expertise?: string;
   // Admin fields
   adminNotes?: string;
   events?: NetworkEvent[];
@@ -413,10 +440,30 @@ export const api = {
     const params = team ? `?team=${team}` : '';
     return request<TeamMember[]>(`/team${params}`);
   },
+  getTeamMember: (id: string) =>
+    request<TeamMember>(`/team/${id}`),
+  getTeamMemberBySlug: (slug: string) =>
+    request<TeamMember>(`/team/slug/${slug}`),
   createTeamMember: (data: Partial<TeamMember>, token: string) =>
     request<TeamMember>('/team', { method: 'POST', body: JSON.stringify(data), token }),
   updateTeamMember: (id: string, data: Partial<TeamMember>, token: string) =>
     request<TeamMember>(`/team/${id}`, { method: 'PUT', body: JSON.stringify(data), token }),
+  updateTeamMemberProfile: (id: string, data: { bio?: string; vision?: string; story?: string; expertise?: string; achievements?: string; website?: string; github?: string; linkedin?: string; twitter?: string; instagram?: string }, token: string) =>
+    request<TeamMember>(`/team/${id}/profile`, { method: 'PUT', body: JSON.stringify(data), token }),
+  linkTeamMemberToUser: (id: string, userId: string | null, token: string) =>
+    request<TeamMember>(`/team/${id}/link-user`, { method: 'PATCH', body: JSON.stringify({ userId }), token }),
+  getMyTeamProfile: (token: string) =>
+    request<TeamMember | null>(`/team/me`, { token }),
+  
+  // User search (admin)
+  searchUsers: async (query: string, token: string) => {
+    const res = await request<Array<{ id: string; name: string; email: string; avatar?: string; role?: string }>>(
+      `/users/search?q=${encodeURIComponent(query)}`,
+      { token }
+    );
+    return { users: Array.isArray(res) ? res : (res as any).data || [] };
+  },
+
   deleteTeamMember: (id: string, token: string) =>
     request(`/team/${id}`, { method: 'DELETE', token }),
   

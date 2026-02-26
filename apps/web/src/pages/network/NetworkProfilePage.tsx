@@ -3,7 +3,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 import { motion, useReducedMotion } from 'framer-motion';
 import { Layout } from '@/components/layout/Layout';
 import { SEO } from '@/components/SEO';
-import { Markdown } from '@/components/ui/markdown';
+import { RichContent } from '@/components/ui/markdown';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/context/AuthContext';
 import {
@@ -33,6 +33,9 @@ import {
   MessageSquare,
   Handshake,
   Crown,
+  Lightbulb,
+  BookOpen,
+  Wrench,
 } from 'lucide-react';
 import { api, type NetworkConnectionType, type NetworkEvent, type NetworkProfile } from '@/lib/api';
 import { useMotionConfig } from '@/hooks/useMotionConfig';
@@ -319,7 +322,7 @@ export default function NetworkProfilePage() {
             {heroParticles.map((particle) => (
               <motion.div
                 key={particle.id}
-                className="absolute h-1.5 w-1.5 rounded-full bg-white/25"
+                className="absolute h-1.5 w-1.5 rounded-full bg-amber-400/25"
                 style={{ left: `${particle.x}%`, top: `${particle.y}%`, scale: particle.scale }}
                 animate={
                   prefersReducedMotion
@@ -335,8 +338,9 @@ export default function NetworkProfilePage() {
               />
             ))}
             {/* Soft blobs */}
-            <div className="absolute -left-16 top-0 h-40 w-40 rounded-full bg-white/5 blur-2xl sm:-left-24 sm:h-64 sm:w-64 sm:blur-3xl" />
-            <div className="absolute -right-16 bottom-0 h-52 w-52 rounded-full bg-white/5 blur-2xl sm:-right-24 sm:h-80 sm:w-80 sm:blur-3xl" />
+            <div className="absolute -left-16 top-0 h-40 w-40 rounded-full bg-amber-500/8 blur-2xl sm:-left-24 sm:h-64 sm:w-64 sm:blur-3xl" />
+            <div className="absolute -right-16 bottom-0 h-52 w-52 rounded-full bg-orange-500/8 blur-2xl sm:-right-24 sm:h-80 sm:w-80 sm:blur-3xl" />
+            <div className="absolute left-1/2 top-1/3 h-56 w-56 -translate-x-1/2 rounded-full bg-amber-600/5 blur-3xl" />
           </div>
 
           {/* Nav bar */}
@@ -381,12 +385,12 @@ export default function NetworkProfilePage() {
             >
               {/* Profile photo with amber ring */}
               <div className="relative">
-                <div className="absolute -inset-1.5 rounded-full bg-white/30 blur-md" />
-                <div className="relative h-28 w-28 overflow-hidden rounded-full border-4 border-white shadow-2xl ring-4 ring-amber-300/60 sm:h-36 sm:w-36">
+                <div className="absolute -inset-3 rounded-full bg-gradient-to-br from-amber-400/30 to-orange-500/30 blur-lg" />
+                <div className="relative h-28 w-28 overflow-hidden rounded-full border-4 border-amber-400/50 shadow-2xl shadow-amber-900/40 ring-4 ring-amber-500/20 sm:h-36 sm:w-36">
                   <img
                     src={profilePhotoFor(profile, profileTheme.avatarColor)}
                     alt={profile.fullName}
-                    className="h-full w-full object-cover"
+                    className="h-full w-full object-cover bg-slate-800"
                   />
                 </div>
                 {profile.isFeatured && (
@@ -410,8 +414,8 @@ export default function NetworkProfilePage() {
               </div>
 
               {/* Name + role */}
-              <h1 className="mt-3 text-3xl font-bold leading-tight tracking-tight sm:text-4xl">{profile.fullName}</h1>
-              <p className="mt-1.5 text-base text-white/75 sm:text-lg">
+              <h1 className="mt-3 text-3xl font-bold leading-tight tracking-tight text-white drop-shadow-lg sm:text-4xl">{profile.fullName}</h1>
+              <p className="mt-1.5 text-base text-amber-100/90 sm:text-lg">
                 <span className="font-semibold">{profile.designation}</span>
                 {profile.company && (
                   <>
@@ -422,7 +426,7 @@ export default function NetworkProfilePage() {
               </p>
 
               {/* Metadata row */}
-              <div className="mt-3 flex flex-wrap items-center justify-center gap-x-5 gap-y-1.5 text-sm text-white/55">
+              <div className="mt-3 flex flex-wrap items-center justify-center gap-x-5 gap-y-1.5 text-sm text-amber-200/60">
                 {isAlumni && profile.passoutYear && (
                   <span className="flex items-center gap-1.5">
                     <GraduationCap className="h-4 w-4" />
@@ -486,23 +490,87 @@ export default function NetworkProfilePage() {
               {/* ── LEFT COLUMN ── */}
               <div className="space-y-6">
 
-                {/* About */}
-                <motion.div
-                  initial={{ opacity: 0, y: 14 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: 0.1 }}
-                  className="performance-surface relative overflow-hidden rounded-2xl bg-white border border-amber-100 p-6 shadow-sm sm:p-8"
-                >
-                  {/* Decorative quotation mark */}
-                  <div className="pointer-events-none absolute right-4 top-2 text-8xl font-serif leading-none text-amber-100 select-none sm:text-9xl">"</div>
-                  <h2 className="relative mb-4 flex items-center gap-2.5 text-xl font-bold text-gray-900">
-                    <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-gradient-to-br from-amber-400 to-orange-500 shadow-sm">
-                      <Sparkles className="h-4 w-4 text-white" />
-                    </span>
-                    About
-                  </h2>
-                  <p className="relative whitespace-pre-line leading-relaxed text-gray-600">{aboutSummary}</p>
-                </motion.div>
+                {/* Vision Section */}
+                {profile.vision && (
+                  <motion.div
+                    initial={{ opacity: 0, y: 14 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: 0.08 }}
+                    className="performance-surface relative overflow-hidden rounded-2xl bg-gradient-to-br from-amber-50 to-orange-50 border border-amber-200 p-6 shadow-sm sm:p-8"
+                  >
+                    <div className="absolute inset-y-0 left-0 w-1 rounded-l-2xl bg-gradient-to-b from-amber-400 to-orange-500" />
+                    <h2 className="relative mb-4 flex items-center gap-2.5 text-xl font-bold text-gray-900">
+                      <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-gradient-to-br from-amber-400 to-orange-500 shadow-sm">
+                        <Lightbulb className="h-4 w-4 text-white" />
+                      </span>
+                      Vision
+                    </h2>
+                    <div className="prose prose-sm max-w-none prose-amber sm:prose-base prose-headings:text-gray-900 prose-p:text-gray-700 prose-a:text-amber-600">
+                      <RichContent allowHtml>{profile.vision}</RichContent>
+                    </div>
+                  </motion.div>
+                )}
+
+                {/* Story Section */}
+                {profile.story && (
+                  <motion.div
+                    initial={{ opacity: 0, y: 14 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: 0.1 }}
+                    className="performance-surface relative overflow-hidden rounded-2xl bg-white border border-amber-100 p-6 shadow-sm sm:p-8"
+                  >
+                    <div className="pointer-events-none absolute right-4 top-2 text-8xl font-serif leading-none text-amber-100 select-none sm:text-9xl">"</div>
+                    <h2 className="relative mb-4 flex items-center gap-2.5 text-xl font-bold text-gray-900">
+                      <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-gradient-to-br from-amber-400 to-orange-500 shadow-sm">
+                        <BookOpen className="h-4 w-4 text-white" />
+                      </span>
+                      My Story
+                    </h2>
+                    <div className="prose prose-sm max-w-none prose-amber sm:prose-base prose-headings:text-gray-900 prose-p:text-gray-600 prose-a:text-amber-600">
+                      <RichContent allowHtml>{profile.story}</RichContent>
+                    </div>
+                  </motion.div>
+                )}
+
+                {/* About - Only shown if no story */}
+                {!profile.story && (
+                  <motion.div
+                    initial={{ opacity: 0, y: 14 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: 0.1 }}
+                    className="performance-surface relative overflow-hidden rounded-2xl bg-white border border-amber-100 p-6 shadow-sm sm:p-8"
+                  >
+                    {/* Decorative quotation mark */}
+                    <div className="pointer-events-none absolute right-4 top-2 text-8xl font-serif leading-none text-amber-100 select-none sm:text-9xl">"</div>
+                    <h2 className="relative mb-4 flex items-center gap-2.5 text-xl font-bold text-gray-900">
+                      <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-gradient-to-br from-amber-400 to-orange-500 shadow-sm">
+                        <Sparkles className="h-4 w-4 text-white" />
+                      </span>
+                      About
+                    </h2>
+                    <p className="relative whitespace-pre-line leading-relaxed text-gray-600">{aboutSummary}</p>
+                  </motion.div>
+                )}
+
+                {/* Expertise Section - New */}
+                {profile.expertise && (
+                  <motion.div
+                    initial={{ opacity: 0, y: 14 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: 0.14 }}
+                    className="performance-surface relative overflow-hidden rounded-2xl bg-white border border-amber-100 p-6 shadow-sm sm:p-8"
+                  >
+                    <h2 className="relative mb-4 flex items-center gap-2.5 text-xl font-bold text-gray-900">
+                      <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-gradient-to-br from-amber-400 to-orange-500 shadow-sm">
+                        <Wrench className="h-4 w-4 text-white" />
+                      </span>
+                      Expertise
+                    </h2>
+                    <div className="prose prose-sm max-w-none prose-amber sm:prose-base prose-headings:text-gray-900 prose-p:text-gray-600 prose-a:text-amber-600">
+                      <RichContent allowHtml>{profile.expertise}</RichContent>
+                    </div>
+                  </motion.div>
+                )}
 
                 {/* Community Contribution */}
                 <motion.div
@@ -538,7 +606,7 @@ export default function NetworkProfilePage() {
                     </h2>
                     {profile.adminNotes ? (
                       <div className="prose prose-sm max-w-none prose-amber sm:prose-base">
-                        <Markdown>{profile.adminNotes}</Markdown>
+                        <RichContent allowHtml>{profile.adminNotes}</RichContent>
                       </div>
                     ) : (
                       <p className="whitespace-pre-line leading-relaxed text-gray-600">{profile.achievements}</p>
@@ -619,7 +687,7 @@ export default function NetworkProfilePage() {
                   <div className="divide-y divide-gray-50">
                     {snapshotRows.map((row) => (
                       <div key={row.label} className="flex items-center gap-3 px-5 py-3.5">
-                        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-gray-100 text-stone-500">
+                        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-amber-100 text-amber-600">
                           <row.icon className="h-4 w-4" />
                         </div>
                         <div className="min-w-0">

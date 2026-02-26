@@ -38,6 +38,7 @@ model User {
   hiringApplications HiringApplication[]
   qotdSubmissions    QOTDSubmission[]
   networkProfile     NetworkProfile?
+  teamMember         TeamMember?
 
   @@map("users")
 }
@@ -169,19 +170,32 @@ model Announcement {
 }
 
 model TeamMember {
-  id        String   @id @default(uuid())
-  name      String
-  role      String
-  team      String
-  imageUrl  String   @map("image_url")
-  github    String?
-  linkedin  String?
-  twitter   String?
-  order     Int      @default(0)
-  createdAt DateTime @default(now()) @map("created_at")
-  instagram String?
+  id           String   @id @default(uuid())
+  name         String
+  role         String
+  team         String
+  imageUrl     String   @map("image_url")
+  github       String?
+  linkedin     String?
+  twitter      String?
+  order        Int      @default(0)
+  createdAt    DateTime @default(now()) @map("created_at")
+  instagram    String?
+  // Link to User account
+  userId       String?  @unique @map("user_id")
+  user         User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  // URL-friendly slug for profile page
+  slug         String?  @unique
+  // Rich content fields for personal page
+  bio          String?  @db.Text
+  vision       String?  @db.Text
+  story        String?  @db.Text
+  expertise    String?  @db.Text
+  achievements String?  @db.Text
+  website      String?
 
   @@index([team, order])
+  @@index([slug])
   @@map("team_members")
 }
 
@@ -341,6 +355,11 @@ model NetworkProfile {
   rollNumber       String?               @map("roll_number")     // Optional college roll
   achievements     String?               @db.Text               // Notable achievements
   currentLocation  String?               @map("current_location") // City, Country
+
+  // Rich personal profile fields (supports Markdown/HTML)
+  vision           String?               @db.Text  // Personal/professional vision
+  story            String?               @db.Text  // Background/journey story
+  expertise        String?               @db.Text  // Skills and expertise areas
 
   // Admin-managed rich content (markdown)
   adminNotes       String?               @db.Text @map("admin_notes")

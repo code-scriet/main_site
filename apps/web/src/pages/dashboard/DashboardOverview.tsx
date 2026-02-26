@@ -7,7 +7,7 @@ import { useAuth } from '@/context/AuthContext';
 import { useSettings } from '@/context/SettingsContext';
 import { api } from '@/lib/api';
 import type { Registration, Announcement } from '@/lib/api';
-import { Calendar, Bell, Trophy, Code, ArrowRight, Loader2, Users, CheckCircle, Clock, XCircle } from 'lucide-react';
+import { Calendar, Bell, Trophy, Code, ArrowRight, Loader2, Users, CheckCircle, Clock, XCircle, UserCircle } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { QOTDWidget } from '@/components/dashboard/QOTDWidget';
 import { formatDate } from '@/lib/dateUtils';
@@ -22,6 +22,8 @@ export default function DashboardOverview() {
     hasApplication?: boolean;
     application?: { id: string; applyingRole: string; status: string; createdAt: string };
   } | null>(null);
+  const [isTeamMember, setIsTeamMember] = useState(false);
+  const [teamMemberId, setTeamMemberId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -31,14 +33,19 @@ export default function DashboardOverview() {
         return;
       }
       try {
-        const [regs, anns, hiring] = await Promise.all([
+        const [regs, anns, hiring, myTeamProfile] = await Promise.all([
           api.getMyRegistrations(token).catch(() => []),
           api.getAnnouncements().catch(() => []),
           api.getMyHiringApplication(token).catch(() => null),
+          api.getMyTeamProfile(token).catch(() => null),
         ]);
         setRegistrations(regs.slice(0, 3)); // Show only first 3
         setAnnouncements(anns.slice(0, 3)); // Show only first 3
         setHiringStatus(hiring);
+        setIsTeamMember(!!myTeamProfile);
+        if (myTeamProfile && (myTeamProfile as any).id) {
+          setTeamMemberId((myTeamProfile as any).id);
+        }
       } catch (error) {
         console.error('Failed to load dashboard data:', error);
       } finally {
@@ -170,9 +177,15 @@ export default function DashboardOverview() {
                   Explore All Events
                 </Button>
               </Link>
+              <Link to={isTeamMember && teamMemberId ? `/dashboard/team/${teamMemberId}/edit` : '/dashboard/profile'} className="block">
+                <Button variant="outline" className="w-full justify-start">
+                  <UserCircle className="h-4 w-4 mr-3" />
+                  {isTeamMember ? 'Edit Team Profile' : 'Edit My Profile'}
+                </Button>
+              </Link>
               
-              {/* Join the Team - only for regular users (not MEMBER or higher) */}
-              {user?.role === 'USER' && !settingsLoading && settings?.hiringEnabled === true && (
+              {/* Join the Team - only for users who are NOT already a team member */}
+              {!isTeamMember && (user?.role === 'USER' || user?.role === 'MEMBER') && !settingsLoading && settings?.hiringEnabled === true && (
                 <div className="pt-3 mt-3 border-t border-gray-100">
                   {(hiringStatus?.hasApplied || hiringStatus?.hasApplication) ? (
                     <div className="p-3 rounded-lg bg-amber-50 border border-amber-200">
@@ -208,7 +221,7 @@ export default function DashboardOverview() {
                           </div>
                           <div className="flex-1">
                             <p className="font-semibold text-amber-900">Join the Team!</p>
-                            <p className="text-sm text-gray-600">Apply to become a member</p>
+                            <p className="text-sm text-gray-600">Apply to become a core member</p>
                           </div>
                           <ArrowRight className="h-5 w-5 text-amber-600" />
                         </div>

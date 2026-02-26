@@ -8,6 +8,7 @@ import { logger } from '../utils/logger.js';
 import bcrypt from 'bcryptjs';
 import { socketEvents } from '../utils/socket.js';
 import { calculateConsecutiveDailyStreak } from '../utils/dateStreak.js';
+import { syncUserToTeamMember, syncUserToNetworkProfile } from '../utils/profileSync.js';
 
 export const usersRouter = Router();
 
@@ -163,6 +164,8 @@ usersRouter.put('/me', authMiddleware, async (req: Request, res: Response) => {
         websiteUrl: true,
       },
     });
+
+    await auditLog(authUser.id, 'UPDATE', 'user', authUser.id, { fields: Object.keys(req.body) });
 
     await auditLog(authUser.id, 'UPDATE', 'user', authUser.id, { fields: Object.keys(req.body) });
     res.json({ success: true, data: user, message: 'Profile updated successfully' });
