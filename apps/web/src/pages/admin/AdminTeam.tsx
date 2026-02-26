@@ -1,11 +1,11 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
-import { Shield, Loader2, AlertCircle, Plus, Trash2, UserPlus, Edit2, X, Check, Link2, Unlink, ChevronDown, ChevronUp, Search, User } from 'lucide-react';
+import { Shield, Loader2, AlertCircle, Plus, Trash2, UserPlus, Edit2, X, Check, Link2, Unlink, Search } from 'lucide-react';
 import { api, type TeamMember } from '@/lib/api';
 import { useAuth } from '@/context/AuthContext';
 
@@ -25,7 +25,7 @@ export default function AdminTeam() {
   const [success, setSuccess] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [expandedProfileId, setExpandedProfileId] = useState<string | null>(null);
+
   const [userSearchQuery, setUserSearchQuery] = useState('');
   const [userSearchResults, setUserSearchResults] = useState<UserSearchResult[]>([]);
   const [searchingUsers, setSearchingUsers] = useState(false);
