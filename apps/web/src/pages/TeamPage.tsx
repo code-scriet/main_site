@@ -502,6 +502,23 @@ function MemberCard({
             />
           )}
         </motion.div>
+
+        {/* "Get to know" CTA - only for members with a profile */}
+        {hasProfile && (
+          <motion.div
+            className="relative z-10 mt-3"
+            initial={{ opacity: isMobile ? 0.85 : 0 }}
+            animate={interactiveHover && isHovered ? { opacity: 1, y: 0 } : { opacity: isMobile ? 0.85 : 0, y: isMobile ? 0 : 4 }}
+            transition={{ duration: 0.3 }}
+          >
+            <span className="inline-flex items-center gap-1 rounded-full bg-gradient-to-r from-amber-500 to-orange-500 px-3 py-1 text-[11px] font-semibold text-white shadow-sm shadow-amber-500/30">
+              Get to know
+              <svg className="h-3 w-3" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M2 6h8M6 2l4 4-4 4" strokeLinecap="round" strokeLinejoin="round"/>
+              </svg>
+            </span>
+          </motion.div>
+        )}
       </div>
     </motion.div>
   );
