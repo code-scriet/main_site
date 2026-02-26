@@ -353,29 +353,35 @@ export default function TeamMemberProfilePage() {
               {/* Bio tagline */}
               {member.bio?.trim() && (
                 <motion.div 
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ duration: 0.8, delay: 0.3, ease: [0.21, 0.47, 0.32, 0.98] }}
-                  className="mx-auto mt-8 w-full max-w-4xl px-4 sm:px-0 relative z-10 group"
+                  initial={{ opacity: 0, y: 30, scale: 0.95, filter: 'blur(8px)' }}
+                  animate={{ opacity: 1, y: 0, scale: 1, filter: 'blur(0px)' }}
+                  transition={{ duration: 1.2, delay: 0.2, type: 'spring', bounce: 0.4 }}
+                  className="mx-auto mt-8 w-full max-w-4xl px-4 sm:px-0 relative z-10 group perspective-[1000px]"
                 >
                   {/* Decorative Glow Behind Card - Appears on hover */}
-                  <div className="absolute -inset-1 bg-gradient-to-r from-amber-500/0 via-amber-500/10 to-amber-500/0 blur-xl opacity-0 group-hover:opacity-100 transition duration-1000" />
+                  <div className="absolute -inset-1 bg-gradient-to-r from-amber-500/0 via-amber-500/20 to-amber-500/0 blur-2xl opacity-0 group-hover:opacity-100 transition duration-1000" />
                   
-                  {/* Glass Card Container */}
+                  {/* Glass Card Container (Darker glass for better text contrast) */}
                   <motion.div 
-                    animate={{ y: [0, -6, 0] }}
-                    transition={{ duration: 6, repeat: Infinity, ease: 'easeInOut' }}
-                    className="relative overflow-hidden rounded-3xl border border-white/[0.08] bg-white/[0.03] p-8 sm:p-10 backdrop-blur-3xl shadow-[0_8px_32px_rgba(0,0,0,0.2)] ring-1 ring-white/[0.05] transition-all duration-500 hover:bg-white/[0.04] hover:border-white/[0.12]"
+                    animate={{ y: [0, -4, 0] }}
+                    whileHover={{ scale: 1.015, y: -6 }}
+                    transition={{ 
+                      y: { duration: 6, repeat: Infinity, ease: 'easeInOut' },
+                      scale: { type: 'spring', stiffness: 400, damping: 25 }
+                    }}
+                    className="relative overflow-hidden rounded-3xl border border-white/[0.1] bg-black/40 p-8 sm:p-10 backdrop-blur-3xl shadow-[0_8px_32px_rgba(0,0,0,0.5)] ring-1 ring-white/[0.05] transition-colors duration-500 hover:bg-black/50 hover:border-white/[0.2] hover:shadow-[0_16px_48px_rgba(251,191,36,0.1)] cursor-default"
                   >
+                    {/* Sweeping Hover Shine Effect */}
+                    <div className="absolute inset-0 -translate-x-[150%] skew-x-[30deg] bg-gradient-to-r from-transparent via-white/[0.05] to-transparent transition-transform duration-1000 ease-out group-hover:translate-x-[200%]" />
                     
                     {/* Top subtle gradient border */}
-                    <div className="absolute top-0 inset-x-0 h-px bg-gradient-to-r from-transparent via-white/20 to-transparent" />
+                    <div className="absolute top-0 inset-x-0 h-px bg-gradient-to-r from-transparent via-amber-200/40 to-transparent opacity-60 group-hover:opacity-100 transition-opacity duration-500" />
                     
-                    {/* Background Icon Watermark */}
-                    <Quote className="absolute -top-6 -left-6 h-32 w-32 text-white/[0.03] -rotate-12 transform-gpu" />
+                    {/* Background Icon Watermark (Subtler so it doesn't fight text) */}
+                    <Quote className="absolute -top-6 -left-6 h-32 w-32 text-white/[0.02] -rotate-12 transform-gpu transition-transform duration-700 group-hover:scale-110 group-hover:-rotate-6" />
                     
-                    {/* Content */}
-                    <div className="prose prose-base sm:prose-lg prose-invert relative z-10 mx-auto text-center prose-p:leading-relaxed prose-p:my-2 tracking-wide text-slate-300/90 font-medium drop-shadow-md prose-strong:text-white prose-strong:font-semibold prose-a:text-amber-400 prose-a:underline hover:prose-a:text-amber-300 transition-colors [&_*]:!text-slate-300/90 [&_strong]:!text-white [&_a]:!text-amber-400">
+                    {/* Content (Brighter text, stronger drop shadow) */}
+                    <div className="prose prose-base sm:prose-lg prose-invert relative z-10 mx-auto text-center prose-p:leading-relaxed prose-p:my-2 tracking-wide text-white/95 font-medium drop-shadow-[0_2px_4px_rgba(0,0,0,0.8)] prose-strong:text-white prose-strong:font-bold prose-strong:drop-shadow-[0_2px_4px_rgba(0,0,0,0.9)] prose-a:text-amber-400 prose-a:underline hover:prose-a:text-amber-300 transition-colors [&_*]:!text-white/95 [&_strong]:!text-white [&_a]:!text-amber-400">
                       <RichContent allowHtml>{member.bio}</RichContent>
                     </div>
                   </motion.div>
