@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import { useNavigate, useParams, Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -34,9 +34,11 @@ import {
 
 export default function EditNetworkProfile() {
   const navigate = useNavigate();
+  const { id } = useParams<{ id: string }>();
   const { user, token } = useAuth();
 
   const [profile, setProfile] = useState<NetworkProfile | null>(null);
+  const [isOwner, setIsOwner] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [success, setSuccess] = useState<string | null>(null);
@@ -65,52 +67,74 @@ export default function EditNetworkProfile() {
 
   const isAdmin = user && ['ADMIN', 'PRESIDENT'].includes(user.role);
 
+  const populateForm = (data: NetworkProfile) => {
+    setProfile(data);
+    setForm({
+      fullName: data.fullName || '',
+      designation: data.designation || '',
+      company: data.company || '',
+      industry: data.industry || '',
+      bio: data.bio || '',
+      vision: data.vision || '',
+      story: data.story || '',
+      expertise: data.expertise || '',
+      achievements: data.achievements || '',
+      connectionNote: data.connectionNote || '',
+      currentLocation: data.currentLocation || '',
+      passoutYear: data.passoutYear ? String(data.passoutYear) : '',
+      degree: data.degree || '',
+      branch: data.branch || '',
+      linkedinUsername: data.linkedinUsername || '',
+      twitterUsername: data.twitterUsername || '',
+      githubUsername: data.githubUsername || '',
+      personalWebsite: data.personalWebsite || '',
+    });
+  };
+
   useEffect(() => {
-    if (!token) return;
+    if (!token || !user) return;
 
     const fetchProfile = async () => {
       try {
         setLoading(true);
+
+        // Strategy 1: If we have a slug/id param, fetch that profile (admin editing someone else's)
+        if (id) {
+          const result = await api.getNetworkProfile(id);
+          const data = (result as any)?.data || result;
+          if (data && data.id) {
+            populateForm(data);
+            setIsOwner(data.userId === user.id);
+            return;
+          }
+        }
+
+        // Strategy 2: Fetch my own profile
         const result = await api.getMyNetworkProfile(token);
         const data = result?.data || null;
 
-        if (!data) {
-          // No network profile — redirect to onboarding
-          navigate('/network/onboarding');
+        if (data) {
+          populateForm(data);
+          setIsOwner(true);
           return;
         }
 
-        setProfile(data);
-
-        setForm({
-          fullName: data.fullName || '',
-          designation: data.designation || '',
-          company: data.company || '',
-          industry: data.industry || '',
-          bio: data.bio || '',
-          vision: data.vision || '',
-          story: data.story || '',
-          expertise: data.expertise || '',
-          achievements: data.achievements || '',
-          connectionNote: data.connectionNote || '',
-          currentLocation: data.currentLocation || '',
-          passoutYear: data.passoutYear ? String(data.passoutYear) : '',
-          degree: data.degree || '',
-          branch: data.branch || '',
-          linkedinUsername: data.linkedinUsername || '',
-          twitterUsername: data.twitterUsername || '',
-          githubUsername: data.githubUsername || '',
-          personalWebsite: data.personalWebsite || '',
-        });
+        // No profile found at all
+        if (!isAdmin) {
+          navigate('/network/onboarding');
+        } else {
+          setError('Could not find the network profile to edit.');
+        }
       } catch {
-        setError('Failed to load your network profile');
+        setError('Failed to load the network profile.');
       } finally {
         setLoading(false);
       }
     };
 
     fetchProfile();
-  }, [token, navigate]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token, id, user?.id]);
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -121,20 +145,24 @@ export default function EditNetworkProfile() {
       setError(null);
 
       const payload: Record<string, unknown> = { ...form };
-      // Convert passoutYear to number
       if (form.passoutYear) {
         payload.passoutYear = parseInt(form.passoutYear, 10) || null;
       } else {
         payload.passoutYear = null;
       }
-      // Remove empty strings for optional fields
       for (const key of Object.keys(payload)) {
         if (payload[key] === '') {
           payload[key] = null;
         }
       }
 
-      await api.updateNetworkProfile(payload as any, token);
+      // Use admin endpoint if admin editing someone else's profile, owner endpoint otherwise
+      if (isOwner) {
+        await api.updateNetworkProfile(payload as any, token);
+      } else if (isAdmin && profile.id) {
+        await api.updateNetworkProfileAdmin(profile.id, payload as any, token);
+      }
+
       setSuccess('Profile updated successfully!');
       setTimeout(() => setSuccess(null), 3000);
     } catch (err) {
@@ -182,7 +210,7 @@ export default function EditNetworkProfile() {
             Edit Profile
             <Badge variant="secondary" className="text-xs">{profile.fullName}</Badge>
           </h1>
-          <p className="text-sm text-gray-500 mt-1">Update your network profile visible to visitors</p>
+          <p className="text-sm text-gray-500 mt-1">Update the network profile visible to visitors</p>
         </div>
         <div className="flex items-center gap-2">
           {profile.slug && (
@@ -203,14 +231,14 @@ export default function EditNetworkProfile() {
         className="flex items-center gap-3 p-3 rounded-xl border border-amber-200 bg-gradient-to-r from-amber-50 to-orange-50"
       >
         <div className="flex h-10 w-10 items-center justify-center rounded-full bg-amber-100 flex-shrink-0">
-          {isAdmin ? <Shield className="h-5 w-5 text-amber-600" /> : <User className="h-5 w-5 text-amber-600" />}
+          {isAdmin && !isOwner ? <Shield className="h-5 w-5 text-amber-600" /> : <User className="h-5 w-5 text-amber-600" />}
         </div>
         <div>
           <p className="text-sm font-medium text-amber-900">
-            {isAdmin ? 'Admin Access' : 'Profile Owner'}
+            {isAdmin && !isOwner ? 'Admin Access' : 'Profile Owner'}
           </p>
           <p className="text-xs text-amber-700/70">
-            {isAdmin ? 'You can edit this profile as an administrator.' : 'You are editing your own network profile.'}
+            {isAdmin && !isOwner ? 'You are editing this profile as an administrator.' : 'You are editing your own network profile.'}
           </p>
         </div>
       </motion.div>

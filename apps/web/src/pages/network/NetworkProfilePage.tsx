@@ -368,7 +368,7 @@ export default function NetworkProfilePage() {
                 {canEdit && (
                   <Button
                     size="sm"
-                    onClick={() => navigate('/dashboard/network/edit')}
+                    onClick={() => navigate(`/dashboard/network/edit/${profile?.slug || profile?.id}`)}
                     className="gap-2 bg-white text-amber-600 hover:bg-amber-50"
                   >
                     <Edit3 className="h-4 w-4" />
@@ -448,6 +448,15 @@ export default function NetworkProfilePage() {
                   </span>
                 )}
               </div>
+
+              {/* Bio tagline */}
+              {profile.bio?.trim() && (
+                <div className="mx-auto mt-5 max-w-2xl rounded-xl border border-white/15 bg-white/10 px-5 py-3 backdrop-blur-md">
+                  <div className="prose prose-xs sm:prose-sm prose-invert prose-p:my-0.5 prose-p:leading-snug prose-strong:text-white prose-strong:font-bold prose-a:text-amber-300 prose-a:underline max-w-none text-white/90 [&_*]:!text-white/90 [&_strong]:!text-white">
+                    <RichContent allowHtml>{profile.bio}</RichContent>
+                  </div>
+                </div>
+              )}
 
               {/* Social links */}
               {socialLinks.length > 0 && (
@@ -766,7 +775,7 @@ export default function NetworkProfilePage() {
                       {isProfileOwner ? 'Keep it updated so visitors see the latest info.' : 'You can edit this profile as an administrator.'}
                     </p>
                     <Button
-                      onClick={() => navigate('/dashboard/network/edit')}
+                      onClick={() => navigate(`/dashboard/network/edit/${profile?.slug || profile?.id}`)}
                       className="w-full bg-emerald-600 text-white hover:bg-emerald-700"
                     >
                       <Edit3 className="mr-2 h-4 w-4" />

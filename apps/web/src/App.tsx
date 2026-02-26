@@ -115,7 +115,7 @@ function App() {
                       <Route path="upload" element={<ImageUploadTool />} />
                       <Route path="profile" element={<ProfilePage />} />
                       <Route path="team/:id/edit" element={<EditTeamProfile />} />
-                      <Route path="network/edit" element={<EditNetworkProfile />} />
+                      <Route path="network/edit/:id?" element={<EditNetworkProfile />} />
                     </Route>
                   </Route>
 
