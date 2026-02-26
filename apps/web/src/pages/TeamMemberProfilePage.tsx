@@ -349,6 +349,13 @@ export default function TeamMemberProfilePage() {
               <h1 className="mt-4 text-3xl font-bold leading-tight tracking-tight text-white drop-shadow-lg sm:text-4xl">{member.name}</h1>
               <p className="mt-2 text-lg font-medium text-amber-100 sm:text-xl">{member.role}</p>
 
+              {/* Bio tagline */}
+              {member.bio?.trim() && (
+                <p className="mx-auto mt-4 max-w-xl rounded-xl border border-white/10 bg-white/5 px-5 py-3 text-sm leading-relaxed text-amber-50/85 backdrop-blur-sm sm:text-base line-clamp-2">
+                  {member.bio}
+                </p>
+              )}
+
               {/* Social Links */}
               {socialLinks.length > 0 && (
                 <div className="mt-6 flex flex-wrap justify-center gap-2.5">
