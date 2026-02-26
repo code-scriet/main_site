@@ -44,6 +44,7 @@ const CreateQOTD = lazy(() => import('@/pages/dashboard/CreateQOTD'));
 const ProfilePage = lazy(() => import('@/pages/dashboard/ProfilePage'));
 const ImageUploadTool = lazy(() => import('@/pages/dashboard/ImageUploadTool'));
 const EditTeamProfile = lazy(() => import('@/pages/dashboard/EditTeamProfile'));
+const EditNetworkProfile = lazy(() => import('@/pages/dashboard/EditNetworkProfile'));
 
 // Admin Pages - lazy loaded
 const AdminUsers = lazy(() => import('@/pages/admin/AdminUsers'));
@@ -114,6 +115,7 @@ function App() {
                       <Route path="upload" element={<ImageUploadTool />} />
                       <Route path="profile" element={<ProfilePage />} />
                       <Route path="team/:id/edit" element={<EditTeamProfile />} />
+                      <Route path="network/edit" element={<EditNetworkProfile />} />
                     </Route>
                   </Route>
 

@@ -124,6 +124,8 @@ export default function NetworkProfilePage() {
 
   const isNetworkMember = user?.role === 'NETWORK';
   const isProfileOwner = isNetworkMember && profile?.userId === user?.id;
+  const isAdmin = user && ['ADMIN', 'PRESIDENT'].includes(user.role);
+  const canEdit = isProfileOwner || isAdmin;
 
   useEffect(() => {
     if (!slug) return;
@@ -363,10 +365,10 @@ export default function NetworkProfilePage() {
                   {copied ? <Check className="h-4 w-4" /> : <Share2 className="h-4 w-4" />}
                   <span className="hidden sm:inline">{copied ? 'Copied' : 'Share'}</span>
                 </Button>
-                {isProfileOwner && (
+                {canEdit && (
                   <Button
                     size="sm"
-                    onClick={() => navigate('/network/onboarding')}
+                    onClick={() => navigate('/dashboard/network/edit')}
                     className="gap-2 bg-white text-amber-600 hover:bg-amber-50"
                   >
                     <Edit3 className="h-4 w-4" />
@@ -750,21 +752,25 @@ export default function NetworkProfilePage() {
                 </motion.div>
 
                 {/* Profile owner edit */}
-                {isProfileOwner && (
+                {canEdit && (
                   <motion.div
                     initial={{ opacity: 0, y: 14 }}
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ delay: 0.3 }}
                     className="rounded-2xl border border-emerald-200 bg-emerald-50 p-5 sm:p-6"
                   >
-                    <p className="mb-1 text-sm font-semibold text-emerald-700">You own this profile</p>
-                    <p className="mb-4 text-xs text-emerald-600/80">Keep it updated so visitors see the latest info.</p>
+                    <p className="mb-1 text-sm font-semibold text-emerald-700">
+                      {isProfileOwner ? 'You own this profile' : 'Admin Access'}
+                    </p>
+                    <p className="mb-4 text-xs text-emerald-600/80">
+                      {isProfileOwner ? 'Keep it updated so visitors see the latest info.' : 'You can edit this profile as an administrator.'}
+                    </p>
                     <Button
-                      onClick={() => navigate('/network/onboarding')}
+                      onClick={() => navigate('/dashboard/network/edit')}
                       className="w-full bg-emerald-600 text-white hover:bg-emerald-700"
                     >
                       <Edit3 className="mr-2 h-4 w-4" />
-                      Edit Your Profile
+                      Edit Profile
                     </Button>
                   </motion.div>
                 )}
