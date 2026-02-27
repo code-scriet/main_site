@@ -247,7 +247,7 @@ export default function AdminTeam() {
         if (linkedMember?.slug) {
           setForm(prev => ({
             ...prev,
-            slug: prev.slug.trim() === '' ? linkedMember.slug : prev.slug,
+            slug: prev.slug.trim() === '' ? (linkedMember.slug ?? '') : prev.slug,
           }));
         }
         
