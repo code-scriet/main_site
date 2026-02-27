@@ -330,12 +330,21 @@ teamRouter.put('/:id', authMiddleware, requireRole('ADMIN'), async (req: Request
     // Sanitize rich content fields
     const sanitizedData = sanitizeRichContent({ bio, vision, story, expertise, achievements, website });
 
-    // Auto-generate slug when linking a user if no slug exists and none provided
+    // Auto-generate slug if the member has (or is getting) a linked user but no slug is provided
     let resolvedSlug: string | null | undefined = slug;
-    if (userId && slug === undefined) {
-      const existing = await prisma.teamMember.findUnique({ where: { id: req.params.id }, select: { slug: true, name: true } });
-      if (existing && !existing.slug) {
-        resolvedSlug = generateSlug(name ?? existing.name);
+    const hasSlugValue = slug !== undefined && slug !== null && slug.trim() !== '';
+    if (!hasSlugValue) {
+      const existing = await prisma.teamMember.findUnique({ where: { id: req.params.id }, select: { slug: true, name: true, userId: true } });
+      const effectiveUserId = userId !== undefined ? userId : existing?.userId;
+      if (effectiveUserId && existing && !existing.slug) {
+        // Member is linked to a user but has no slug — auto-generate one
+        resolvedSlug = generateSlug(name?.trim() ?? existing.name);
+      } else if (effectiveUserId && existing?.slug && slug === undefined) {
+        // Member already has a slug, don't touch it (slug wasn't in the request)
+        resolvedSlug = undefined;
+      } else if (effectiveUserId && existing?.slug && !hasSlugValue) {
+        // Empty slug sent but member has a linked user — keep existing slug
+        resolvedSlug = undefined;
       }
     }
 

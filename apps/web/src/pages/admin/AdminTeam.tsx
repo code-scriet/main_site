@@ -239,10 +239,18 @@ export default function AdminTeam() {
     if (!token) return;
     try {
       setSaving(true);
-      await api.linkTeamMemberToUser(memberId, userId, token);
+      const linkedMember = await api.linkTeamMemberToUser(memberId, userId, token);
       
       // Fetch full user to populate empty form fields if we're currently editing
       if (editingId === memberId) {
+        // Update slug from the API response (backend auto-generates it)
+        if (linkedMember?.slug) {
+          setForm(prev => ({
+            ...prev,
+            slug: prev.slug.trim() === '' ? linkedMember.slug : prev.slug,
+          }));
+        }
+        
         try {
           const fullUser = await api.getUser(userId, token) as any;
           setForm(prev => ({
