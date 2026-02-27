@@ -330,6 +330,15 @@ teamRouter.put('/:id', authMiddleware, requireRole('ADMIN'), async (req: Request
     // Sanitize rich content fields
     const sanitizedData = sanitizeRichContent({ bio, vision, story, expertise, achievements, website });
 
+    // Auto-generate slug when linking a user if no slug exists and none provided
+    let resolvedSlug: string | null | undefined = slug;
+    if (userId && slug === undefined) {
+      const existing = await prisma.teamMember.findUnique({ where: { id: req.params.id }, select: { slug: true, name: true } });
+      if (existing && !existing.slug) {
+        resolvedSlug = generateSlug(name ?? existing.name);
+      }
+    }
+
     const teamMember = await prisma.teamMember.update({
       where: { id: req.params.id },
       data: {
@@ -343,7 +352,7 @@ teamRouter.put('/:id', authMiddleware, requireRole('ADMIN'), async (req: Request
         ...(instagram !== undefined && { instagram: normalizeOptionalText(instagram) }),
         ...(order !== undefined && { order }),
         ...(userId !== undefined && { userId: userId || null }),
-        ...(slug !== undefined && { slug: slug || null }),
+        ...(resolvedSlug !== undefined && { slug: resolvedSlug || null }),
         ...(bio !== undefined && { bio: sanitizedData.bio as string | null }),
         ...(vision !== undefined && { vision: sanitizedData.vision as string | null }),
         ...(story !== undefined && { story: sanitizedData.story as string | null }),
@@ -458,9 +467,18 @@ teamRouter.patch('/:id/link-user', authMiddleware, requireRole('ADMIN'), async (
       }
     }
 
+    // If linking a user, auto-generate slug if team member doesn't have one
+    const updateData: Record<string, unknown> = { userId: userId || null };
+    if (userId) {
+      const existing = await prisma.teamMember.findUnique({ where: { id }, select: { slug: true, name: true } });
+      if (existing && !existing.slug) {
+        updateData.slug = generateSlug(existing.name);
+      }
+    }
+
     const teamMember = await prisma.teamMember.update({
       where: { id },
-      data: { userId: userId || null },
+      data: updateData,
       include: {
         user: {
           select: {
