@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { Button } from '@/components/ui/button';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { Github, Linkedin, Twitter, Instagram, ArrowRight, Users, Loader2 } from 'lucide-react';
 import { api, type TeamMember } from '@/lib/api';
 import { useMotionConfig } from '@/hooks/useMotionConfig';
@@ -10,6 +10,7 @@ export function TeamHighlight() {
   const [teamMembers, setTeamMembers] = useState<TeamMember[]>([]);
   const [loading, setLoading] = useState(true);
   const { isMobile, shouldReduceMotion } = useMotionConfig();
+  const navigate = useNavigate();
 
   useEffect(() => {
     const fetchTeam = async () => {
@@ -85,7 +86,11 @@ export function TeamHighlight() {
           </motion.div>
         ) : (
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 sm:gap-6 md:gap-8 mb-8 sm:mb-12">
-            {teamMembers.map((member, index) => (
+            {teamMembers.map((member, index) => {
+                const hasProfile = !!member.slug;
+                const profileUrl = hasProfile ? `/team/${member.slug}` : '';
+
+                return (
               <motion.div
                 key={member.id}
                 initial={{ opacity: 0, y: animationY }}
@@ -93,10 +98,20 @@ export function TeamHighlight() {
                 transition={{ duration: shouldReduceMotion ? 0.3 : 0.5, delay: index * staggerDelay }}
                 viewport={{ once: true }}
                 whileHover={!isMobile ? { y: -10 } : undefined}
-                className="group text-center"
+                role={hasProfile ? 'link' : undefined}
+                tabIndex={hasProfile ? 0 : undefined}
+                onClick={hasProfile ? () => navigate(profileUrl) : undefined}
+                onKeyDown={hasProfile ? (e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    navigate(profileUrl);
+                  }
+                } : undefined}
+                aria-label={hasProfile ? `View ${member.name}'s profile` : member.name}
+                className={`group h-full rounded-2xl border border-gray-200/70 bg-white/70 p-3 sm:p-4 text-center shadow-sm transition-all duration-300 ${hasProfile ? 'cursor-pointer hover:border-amber-300 hover:shadow-md' : 'cursor-default'}`}
               >
                 {/* Avatar */}
-                <div className="relative mb-5 mx-auto">
+                <div className="relative mb-4 mx-auto">
                   {/* Glow effect - only on desktop */}
                   {!isMobile && (
                     <div className="absolute -inset-2 bg-gradient-to-br from-amber-400 to-orange-500 rounded-full opacity-0 group-hover:opacity-20 blur-xl transition-opacity duration-500" />
@@ -121,18 +136,19 @@ export function TeamHighlight() {
                 </div>
                 
                 {/* Info */}
-                <h3 className="font-semibold text-gray-900 mb-1 group-hover:text-amber-600 transition-colors">
+                <h3 className="font-semibold text-gray-900 mb-1 min-h-[2.5rem] flex items-center justify-center line-clamp-2 group-hover:text-amber-600 transition-colors">
                   {member.name}
                 </h3>
-                <p className="text-sm text-gray-500 mb-3">{member.role}</p>
+                <p className="text-sm text-gray-500 mb-3 min-h-[1.25rem] line-clamp-1">{member.role}</p>
                 
                 {/* Social Links - simplify animations on mobile */}
-                <div className="flex justify-center gap-3">
+                <div className="flex justify-center gap-3 mt-auto pt-2 min-h-[40px]">
                   {member.github && (
                     <motion.a
                       href={member.github.startsWith('http') ? member.github : `https://github.com/${member.github}`}
                       target="_blank"
                       rel="noopener noreferrer"
+                      onClick={(e) => e.stopPropagation()}
                       className="p-2 rounded-lg bg-gray-100 text-gray-500 hover:bg-gray-900 hover:text-white transition-all"
                       whileHover={!isMobile ? { scale: 1.1 } : undefined}
                       whileTap={{ scale: 0.95 }}
@@ -145,6 +161,7 @@ export function TeamHighlight() {
                       href={member.linkedin.startsWith('http') ? member.linkedin : `https://linkedin.com/in/${member.linkedin}`}
                       target="_blank"
                       rel="noopener noreferrer"
+                      onClick={(e) => e.stopPropagation()}
                       className="p-2 rounded-lg bg-gray-100 text-gray-500 hover:bg-blue-600 hover:text-white transition-all"
                       whileHover={!isMobile ? { scale: 1.1 } : undefined}
                       whileTap={{ scale: 0.95 }}
@@ -157,6 +174,7 @@ export function TeamHighlight() {
                       href={member.twitter.startsWith('http') ? member.twitter : `https://twitter.com/${member.twitter}`}
                       target="_blank"
                       rel="noopener noreferrer"
+                      onClick={(e) => e.stopPropagation()}
                       className="p-2 rounded-lg bg-gray-100 text-gray-500 hover:bg-sky-500 hover:text-white transition-all"
                       whileHover={!isMobile ? { scale: 1.1 } : undefined}
                       whileTap={{ scale: 0.95 }}
@@ -169,6 +187,7 @@ export function TeamHighlight() {
                       href={member.instagram.startsWith('http') ? member.instagram : `https://instagram.com/${member.instagram}`}
                       target="_blank"
                       rel="noopener noreferrer"
+                      onClick={(e) => e.stopPropagation()}
                       className="p-2 rounded-lg bg-gray-100 text-gray-500 hover:bg-pink-500 hover:text-white transition-all"
                       whileHover={!isMobile ? { scale: 1.1 } : undefined}
                       whileTap={{ scale: 0.95 }}
@@ -178,7 +197,8 @@ export function TeamHighlight() {
                   )}
                 </div>
               </motion.div>
-            ))}
+                );
+              })}
           </div>
         )}
 

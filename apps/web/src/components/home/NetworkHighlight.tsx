@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import {
   ArrowRight,
   Loader2,
@@ -43,6 +43,7 @@ export function NetworkHighlight() {
   const [profiles, setProfiles] = useState<NetworkProfile[]>([]);
   const [loading, setLoading] = useState(true);
   const { isMobile, shouldReduceMotion } = useMotionConfig();
+  const navigate = useNavigate();
 
   useEffect(() => {
     const fetchProfiles = async () => {
@@ -168,6 +169,7 @@ export function NetworkHighlight() {
             {profiles.map((profile, index) => {
               const typeStyle = connectionTypeColors[profile.connectionType];
               const isAlumni = profile.connectionType === 'ALUMNI';
+              const profileUrl = `/network/${profile.slug || profile.id}`;
 
               return (
                 <motion.div
@@ -177,6 +179,16 @@ export function NetworkHighlight() {
                   transition={{ duration: shouldReduceMotion ? 0.3 : 0.5, delay: index * staggerDelay }}
                   viewport={{ once: true }}
                   whileHover={!isMobile ? { y: -6 } : undefined}
+                  role="link"
+                  tabIndex={0}
+                  onClick={() => navigate(profileUrl)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      navigate(profileUrl);
+                    }
+                  }}
+                  aria-label={`View ${profile.fullName}'s profile`}
                   className={`group relative overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm transition-all duration-300 hover:border-amber-300 hover:shadow-lg hover:shadow-amber-500/20`}
                 >
                   {/* Hover glow effect */}
@@ -227,11 +239,9 @@ export function NetworkHighlight() {
 
                       {/* Info */}
                       <div className="min-w-0 flex-1">
-                        <Link to={`/network/${profile.slug || profile.id}`}>
-                          <h3 className={`truncate font-semibold text-gray-900 transition-colors ${isAlumni ? 'group-hover:text-amber-600' : 'group-hover:text-amber-600'}`}>
-                            {profile.fullName}
-                          </h3>
-                        </Link>
+                        <h3 className={`truncate font-semibold text-gray-900 transition-colors ${isAlumni ? 'group-hover:text-amber-600' : 'group-hover:text-amber-600'}`}>
+                          {profile.fullName}
+                        </h3>
                         <p className="flex items-center gap-1.5 truncate text-sm text-gray-700">
                           <Briefcase className="h-3 w-3 text-gray-400" />
                           {profile.designation}
@@ -266,6 +276,7 @@ export function NetworkHighlight() {
                             href={`https://linkedin.com/in/${profile.linkedinUsername}`}
                             target="_blank"
                             rel="noopener noreferrer"
+                            onClick={(e) => e.stopPropagation()}
                             className="rounded-lg border border-gray-200 bg-white p-1.5 text-gray-500 shadow-sm transition-all hover:border-blue-300 hover:bg-blue-50 hover:text-blue-600"
                           >
                             <Linkedin className="h-3.5 w-3.5" />
@@ -276,6 +287,7 @@ export function NetworkHighlight() {
                             href={`https://github.com/${profile.githubUsername}`}
                             target="_blank"
                             rel="noopener noreferrer"
+                            onClick={(e) => e.stopPropagation()}
                             className="rounded-lg border border-gray-200 bg-white p-1.5 text-gray-500 shadow-sm transition-all hover:border-gray-300 hover:bg-gray-50 hover:text-gray-900"
                           >
                             <Github className="h-3.5 w-3.5" />
@@ -286,6 +298,7 @@ export function NetworkHighlight() {
                             href={profile.personalWebsite}
                             target="_blank"
                             rel="noopener noreferrer"
+                            onClick={(e) => e.stopPropagation()}
                             className="rounded-lg border border-gray-200 bg-white p-1.5 text-gray-500 shadow-sm transition-all hover:border-emerald-300 hover:bg-emerald-50 hover:text-emerald-600"
                           >
                             <Globe className="h-3.5 w-3.5" />
@@ -293,7 +306,8 @@ export function NetworkHighlight() {
                         )}
                       </div>
                       <Link
-                        to={`/network/${profile.slug || profile.id}`}
+                        to={profileUrl}
+                        onClick={(e) => e.stopPropagation()}
                         className={`flex items-center gap-1 text-xs font-medium transition-colors ${
                           isAlumni
                             ? 'text-amber-600 hover:text-amber-700'

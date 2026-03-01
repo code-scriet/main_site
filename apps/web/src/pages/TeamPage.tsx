@@ -300,7 +300,7 @@ function TeamGrid({
   };
 
   return (
-    <div className="mx-auto flex max-w-5xl flex-wrap justify-center gap-5 md:gap-8">
+    <div className="mx-auto grid max-w-5xl grid-cols-2 gap-4 sm:gap-5 md:grid-cols-3 md:gap-8 lg:grid-cols-4">
       {members.map((member, index) => (
         <MemberCard 
           key={member.id} 
@@ -365,7 +365,7 @@ function MemberCard({
       whileHover={interactiveHover ? { y: -6, transition: { duration: 0.3 } } : undefined}
       onHoverStart={interactiveHover ? () => setIsHovered(true) : undefined}
       onHoverEnd={() => setIsHovered(false)}
-      className="w-full max-w-[220px] text-center sm:w-40 md:w-48"
+      className="w-full max-w-[220px] justify-self-center text-center"
     >
       {/* Card with glassmorphism effect - fixed height for consistency */}
       <div
@@ -458,13 +458,14 @@ function MemberCard({
           </motion.p>
         </div>
         
-        {/* Social links - always at bottom */}
-        <motion.div 
-          className="flex justify-center gap-3 relative z-10 mt-auto pt-2"
-          initial={{ opacity: isMobile ? 1 : 0.75 }}
-          animate={interactiveHover && isHovered ? { opacity: 1 } : { opacity: isMobile ? 1 : 0.75 }}
-          transition={{ duration: 0.4 }}
-        >
+        {/* Footer area - consistent height to keep all cards aligned */}
+        <div className="relative z-10 mt-auto pt-2 min-h-[58px]">
+          <motion.div 
+            className="flex justify-center gap-3"
+            initial={{ opacity: isMobile ? 1 : 0.75 }}
+            animate={interactiveHover && isHovered ? { opacity: 1 } : { opacity: isMobile ? 1 : 0.75 }}
+            transition={{ duration: 0.4 }}
+          >
           {member.github && (
             <SocialLink 
               href={member.github.startsWith('http') ? member.github : `https://github.com/${member.github}`}
@@ -501,24 +502,35 @@ function MemberCard({
               isMobile={isMobile}
             />
           )}
-        </motion.div>
+          </motion.div>
 
-        {/* "Get to know" CTA - only for members with a profile */}
-        {hasProfile && (
+          {/* "Get to know" CTA slot keeps bottom alignment consistent across cards */}
           <motion.div
-            className="relative z-10 mt-3"
+            className="mt-3 h-[22px]"
             initial={{ opacity: isMobile ? 0.85 : 0 }}
-            animate={interactiveHover && isHovered ? { opacity: 1, y: 0 } : { opacity: isMobile ? 0.85 : 0, y: isMobile ? 0 : 4 }}
+            animate={
+              hasProfile
+                ? (interactiveHover && isHovered
+                    ? { opacity: 1, y: 0 }
+                    : { opacity: isMobile ? 0.85 : 0, y: isMobile ? 0 : 4 })
+                : { opacity: 0, y: 0 }
+            }
             transition={{ duration: 0.3 }}
           >
-            <span className="inline-flex items-center gap-1 rounded-full bg-gradient-to-r from-amber-500 to-orange-500 px-3 py-1 text-[11px] font-semibold text-white shadow-sm shadow-amber-500/30">
-              Get to know
-              <svg className="h-3 w-3" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2">
-                <path d="M2 6h8M6 2l4 4-4 4" strokeLinecap="round" strokeLinejoin="round"/>
-              </svg>
-            </span>
+            {hasProfile ? (
+              <span className="inline-flex items-center gap-1 rounded-full bg-gradient-to-r from-amber-500 to-orange-500 px-3 py-1 text-[11px] font-semibold text-white shadow-sm shadow-amber-500/30">
+                Get to know
+                <svg className="h-3 w-3" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M2 6h8M6 2l4 4-4 4" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
+              </span>
+            ) : (
+              <span className="invisible inline-flex items-center gap-1 rounded-full px-3 py-1 text-[11px] font-semibold">
+                Get to know
+              </span>
+            )}
           </motion.div>
-        )}
+        </div>
       </div>
     </motion.div>
   );
@@ -542,6 +554,8 @@ function SocialLink({
       href={href}
       target="_blank"
       rel="noopener noreferrer"
+      onClick={(e) => e.stopPropagation()}
+      onKeyDown={(e) => e.stopPropagation()}
       className={`p-2 rounded-full text-gray-400 transition-all duration-300 ${hoverColor}`}
       whileHover={isMobile ? undefined : { scale: 1.2, rotate: 5 }}
       whileTap={{ scale: 0.9 }}
