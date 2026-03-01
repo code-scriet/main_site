@@ -85,7 +85,10 @@ export function TeamHighlight() {
             <p className="text-gray-500">Stay tuned to meet our amazing team</p>
           </motion.div>
         ) : (
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 sm:gap-6 md:gap-8 mb-8 sm:mb-12">
+          <div className="relative mb-8 sm:mb-12">
+            {/* Subtle bottom shade-out — visible on all screens, slightly stronger on mobile */}
+            <div className="pointer-events-none absolute bottom-0 left-0 right-0 h-28 sm:h-20 bg-gradient-to-t from-gray-50 via-gray-50/60 to-transparent z-10" />
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 sm:gap-6 md:gap-8">
             {teamMembers.map((member, index) => {
                 const hasProfile = !!member.slug;
                 const profileUrl = hasProfile ? `/team/${member.slug}` : '';
@@ -199,6 +202,7 @@ export function TeamHighlight() {
               </motion.div>
                 );
               })}
+          </div>
           </div>
         )}
 
