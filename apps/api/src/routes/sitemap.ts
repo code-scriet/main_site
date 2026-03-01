@@ -17,44 +17,48 @@ sitemapRouter.get('/', async (_req: Request, res: Response) => {
   try {
     const baseUrl = process.env.FRONTEND_URL || 'https://codescriet.dev';
 
-    // Fetch all events with slugs
-    const events = await prisma.event.findMany({
-      select: {
-        slug: true,
-        title: true,
-        updatedAt: true,
-        featured: true,
-      },
-      orderBy: {
-        updatedAt: 'desc',
-      },
-    });
-
-    // Fetch all achievements with slugs
-    const achievements = await prisma.achievement.findMany({
-      select: {
-        slug: true,
-        title: true,
-        updatedAt: true,
-        featured: true,
-      },
-      orderBy: {
-        updatedAt: 'desc',
-      },
-    });
-
-    // Fetch all announcements with slugs
-    const announcements = await prisma.announcement.findMany({
-      select: {
-        slug: true,
-        title: true,
-        updatedAt: true,
-        priority: true,
-      },
-      orderBy: {
-        updatedAt: 'desc',
-      },
-    });
+    const [events, achievements, announcements, teamMembers, networkProfiles] = await Promise.all([
+      prisma.event.findMany({
+        select: {
+          slug: true,
+          updatedAt: true,
+          featured: true,
+        },
+        orderBy: {
+          updatedAt: 'desc',
+        },
+      }),
+      prisma.achievement.findMany({
+        select: {
+          slug: true,
+          updatedAt: true,
+          featured: true,
+        },
+        orderBy: {
+          updatedAt: 'desc',
+        },
+      }),
+      prisma.announcement.findMany({
+        select: {
+          slug: true,
+          updatedAt: true,
+          priority: true,
+        },
+        orderBy: {
+          updatedAt: 'desc',
+        },
+      }),
+      prisma.teamMember.findMany({
+        where: { slug: { not: null } },
+        select: { slug: true, createdAt: true },
+        orderBy: [{ order: 'asc' }, { createdAt: 'asc' }],
+      }),
+      prisma.networkProfile.findMany({
+        where: { status: 'VERIFIED', isPublic: true, slug: { not: null } },
+        select: { slug: true, updatedAt: true, isFeatured: true },
+        orderBy: [{ isFeatured: 'desc' }, { displayOrder: 'asc' }, { createdAt: 'desc' }],
+      }),
+    ]);
 
     // Build static pages with priority
     const staticPages = [
@@ -62,9 +66,11 @@ sitemapRouter.get('/', async (_req: Request, res: Response) => {
       { path: '/events', priority: '0.9', changefreq: 'daily' },
       { path: '/achievements', priority: '0.9', changefreq: 'daily' },
       { path: '/announcements', priority: '0.8', changefreq: 'daily' },
+      { path: '/network', priority: '0.8', changefreq: 'daily' },
       { path: '/team', priority: '0.7', changefreq: 'monthly' },
       { path: '/about', priority: '0.7', changefreq: 'monthly' },
       { path: '/join-us', priority: '0.8', changefreq: 'weekly' },
+      { path: '/join-our-network', priority: '0.7', changefreq: 'weekly' },
     ];
 
     const today = new Date().toISOString().split('T')[0];
@@ -122,6 +128,29 @@ sitemapRouter.get('/', async (_req: Request, res: Response) => {
       xml += '  </url>\n';
     }
 
+    for (const member of teamMembers) {
+      if (!member.slug) continue;
+      const lastmod = member.createdAt.toISOString().split('T')[0];
+      xml += '  <url>\n';
+      xml += `    <loc>${baseUrl}/team/${member.slug}</loc>\n`;
+      xml += `    <lastmod>${lastmod}</lastmod>\n`;
+      xml += '    <changefreq>monthly</changefreq>\n';
+      xml += '    <priority>0.65</priority>\n';
+      xml += '  </url>\n';
+    }
+
+    for (const profile of networkProfiles) {
+      if (!profile.slug) continue;
+      const lastmod = profile.updatedAt.toISOString().split('T')[0];
+      const priority = profile.isFeatured ? '0.75' : '0.6';
+      xml += '  <url>\n';
+      xml += `    <loc>${baseUrl}/network/${profile.slug}</loc>\n`;
+      xml += `    <lastmod>${lastmod}</lastmod>\n`;
+      xml += '    <changefreq>monthly</changefreq>\n';
+      xml += `    <priority>${priority}</priority>\n`;
+      xml += '  </url>\n';
+    }
+
     xml += '</urlset>';
 
     // Return as XML with proper headers
@@ -136,7 +165,7 @@ sitemapRouter.get('/', async (_req: Request, res: Response) => {
     res.status(500);
     res.setHeader('Content-Type', 'application/xml; charset=utf-8');
     // Return fallback sitemap with static pages only
-    const fallback = '<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n<url><loc>https://codescriet.dev</loc><priority>1.0</priority></url>\n<url><loc>https://codescriet.dev/events</loc><priority>0.9</priority></url>\n<url><loc>https://codescriet.dev/achievements</loc><priority>0.9</priority></url>\n<url><loc>https://codescriet.dev/announcements</loc><priority>0.8</priority></url>\n</urlset>';
+    const fallback = '<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n<url><loc>https://codescriet.dev</loc><priority>1.0</priority></url>\n<url><loc>https://codescriet.dev/events</loc><priority>0.9</priority></url>\n<url><loc>https://codescriet.dev/achievements</loc><priority>0.9</priority></url>\n<url><loc>https://codescriet.dev/announcements</loc><priority>0.8</priority></url>\n<url><loc>https://codescriet.dev/team</loc><priority>0.7</priority></url>\n<url><loc>https://codescriet.dev/network</loc><priority>0.8</priority></url>\n</urlset>';
     res.send(fallback);
   }
 });
@@ -147,7 +176,7 @@ sitemapRouter.get('/', async (_req: Request, res: Response) => {
  */
 robotsRouter.get('/', (_req: Request, res: Response) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
-  const apiUrl = process.env.API_URL || 'https://api.codescriet.dev';
+  const frontendUrl = process.env.FRONTEND_URL || 'https://codescriet.dev';
   
   let robots = '# robots.txt for codescriet.dev\n';
   robots += '# Updated: ' + new Date().toISOString().split('T')[0] + '\n\n';
@@ -157,7 +186,9 @@ robotsRouter.get('/', (_req: Request, res: Response) => {
   robots += 'Allow: /achievements/\n';
   robots += 'Allow: /announcements/\n';
   robots += 'Allow: /team\n';
+  robots += 'Allow: /network\n';
   robots += 'Allow: /about\n';
+  robots += 'Allow: /join-us\n';
   robots += '\n';
   robots += '# Disallow admin and auth areas\n';
   robots += 'Disallow: /admin\n';
@@ -168,7 +199,7 @@ robotsRouter.get('/', (_req: Request, res: Response) => {
   robots += 'Disallow: /signup\n';
   robots += '\n';
   robots += '# Sitemap\n';
-  robots += `Sitemap: ${apiUrl}/sitemap.xml\n`;
+  robots += `Sitemap: ${frontendUrl}/sitemap.xml\n`;
   robots += '\n';
   robots += '# Crawl-delay for polite crawling\n';
   robots += 'Crawl-delay: 1\n';

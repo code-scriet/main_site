@@ -2,6 +2,7 @@ import { useMemo, useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Layout } from '@/components/layout/Layout';
 import { SEO } from '@/components/SEO';
+import { BreadcrumbSchema } from '@/components/ui/schema';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Button } from '@/components/ui/button';
 import { Github, Linkedin, Twitter, Instagram, Loader2 } from 'lucide-react';
@@ -69,6 +70,12 @@ export default function TeamPage() {
         description="Meet the passionate team behind code.scriet - the talented individuals driving SCRIET's premier coding community forward."
         url="/team"
         keywords="code.scriet team, SCRIET coding club members, coding club leadership"
+      />
+      <BreadcrumbSchema
+        items={[
+          { name: 'Home', url: 'https://codescriet.dev' },
+          { name: 'Team', url: 'https://codescriet.dev/team' },
+        ]}
       />
       {/* Hero Section */}
       <section className="py-14 sm:py-16 bg-gradient-to-br from-amber-400 via-orange-500 to-amber-900 text-white relative overflow-hidden">

@@ -3,6 +3,7 @@ import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { AuthProvider } from '@/context/AuthContext';
 import { SettingsProvider } from '@/context/SettingsContext';
+import { SEO } from '@/components/SEO';
 
 // Loading fallback component
 const PageLoader = () => (
@@ -147,6 +148,7 @@ function App() {
 function NotFound() {
   return (
     <div className="min-h-screen flex items-center justify-center bg-amber-50">
+      <SEO title="Page Not Found" noIndex={true} />
       <div className="text-center">
         <h1 className="text-6xl font-bold text-amber-600 mb-4">404</h1>
         <p className="text-xl text-gray-600 mb-8">Page not found</p>

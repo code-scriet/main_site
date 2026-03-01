@@ -1,6 +1,5 @@
 import { Layout } from '@/components/layout/Layout';
 import { SEO } from '@/components/SEO';
-import { OrganizationSchema, WebSiteSchema } from '@/components/ui/schema';
 import { Hero } from '@/components/home/Hero';
 import { AboutPreview } from '@/components/home/AboutPreview';
 import { UpcomingEvents } from '@/components/home/UpcomingEvents';
@@ -17,8 +16,6 @@ export default function HomePage() {
         url="/"
         keywords="code.scriet, codescriet, code scriet, SCRIET coding club, DSA club, programming club, competitive programming, web development"
       />
-      <OrganizationSchema />
-      <WebSiteSchema />
       <Hero />
       <AboutPreview />
       <UpcomingEvents />

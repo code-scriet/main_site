@@ -372,7 +372,7 @@ export default function NetworkOnboarding() {
   if (submitSuccess) {
     return (
       <Layout>
-        <SEO title="Profile Submitted" url="/network/onboarding" />
+        <SEO title="Profile Submitted" url="/network/onboarding" noIndex={true} />
         <div className="min-h-screen flex items-center justify-center px-4 py-16">
           <motion.div
             initial={{ opacity: 0, scale: 0.9 }}
@@ -435,6 +435,7 @@ export default function NetworkOnboarding() {
         title="Network Onboarding"
         description="Submit your professional profile to join the code.scriet network."
         url="/network/onboarding"
+        noIndex={true}
       />
 
       <div className="relative min-h-screen bg-[#f4f6fb] px-4 py-8 sm:py-12">

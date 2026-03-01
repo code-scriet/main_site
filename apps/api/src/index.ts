@@ -25,7 +25,7 @@ import { mailRouter } from './routes/mail.js';
 import { setupPassport } from './config/passport.js';
 import { requestLogger, logger } from './utils/logger.js';
 import { ApiResponse, ErrorCodes } from './utils/response.js';
-import { initializeDatabase, populateAnnouncementSlugs } from './utils/init.js';
+import { initializeDatabase, populateAnnouncementSlugs, populateProfileSlugs } from './utils/init.js';
 import { initializeSocket } from './utils/socket.js';
 import { authMiddleware, getAuthUser } from './middleware/auth.js';
 import { requireRole } from './middleware/role.js';
@@ -264,6 +264,7 @@ process.on('SIGINT', shutdown);
 // Initialize database (create admin and settings if needed)
 initializeDatabase()
   .then(() => populateAnnouncementSlugs())
+  .then(() => populateProfileSlugs())
   .then(() => {
     // Start the event reminder scheduler
     startEventStatusScheduler();

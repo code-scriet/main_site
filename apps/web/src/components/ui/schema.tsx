@@ -32,9 +32,8 @@ export function OrganizationSchema({
   url = 'https://codescriet.dev',
   description = 'CodeScriet - The Official Coding Club of SCRIET',
   sameAs = [
-    'https://twitter.com/codescriet',
-    'https://instagram.com/codescriet',
-    'https://github.com/codescriet',
+    'https://www.instagram.com/code.scriet/',
+    'https://www.linkedin.com/company/codescriet/',
   ],
 }: {
   name?: string;
@@ -55,6 +54,52 @@ export function OrganizationSchema({
       '@type': 'ContactPoint',
       contactType: 'General',
       email: 'contact@codescriet.dev',
+    },
+  };
+
+  return <SchemaMarkup schema={schema} />;
+}
+
+/**
+ * ProfilePage + Person schema for Team and Network profile detail pages.
+ * Improves person-name discoverability in search.
+ */
+export function ProfilePageSchema({
+  profileUrl,
+  personName,
+  description,
+  image,
+  jobTitle,
+  affiliation = 'codescriet',
+  sameAs = [],
+  breadcrumbName,
+}: {
+  profileUrl: string;
+  personName: string;
+  description: string;
+  image?: string;
+  jobTitle?: string;
+  affiliation?: string;
+  sameAs?: string[];
+  breadcrumbName?: string;
+}) {
+  const schema = {
+    '@context': 'https://schema.org',
+    '@type': 'ProfilePage',
+    url: profileUrl,
+    name: breadcrumbName || `${personName} | ${affiliation}`,
+    mainEntity: {
+      '@type': 'Person',
+      name: personName,
+      description,
+      ...(image ? { image } : {}),
+      ...(jobTitle ? { jobTitle } : {}),
+      worksFor: {
+        '@type': 'Organization',
+        name: affiliation,
+        url: 'https://codescriet.dev',
+      },
+      ...(sameAs.length > 0 ? { sameAs } : {}),
     },
   };
 

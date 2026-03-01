@@ -30,7 +30,17 @@ export function SEO({
   noIndex = false,
 }: SEOProps) {
   const fullTitle = title ? `${title} | codescriet` : DEFAULT_TITLE;
-  const fullUrl = url ? `${BASE_URL}${url}` : BASE_URL;
+  const fullUrl = (() => {
+    if (url) {
+      return url.startsWith('http') ? url : `${BASE_URL}${url}`;
+    }
+
+    if (typeof window !== 'undefined') {
+      return `${BASE_URL}${window.location.pathname}`;
+    }
+
+    return BASE_URL;
+  })();
 
   useEffect(() => {
     // Update document title
@@ -87,10 +97,10 @@ export function SEO({
     updateMetaTag('meta[property="og:type"]', 'content', type);
 
     // Update Twitter tags
-    updateMetaTag('meta[property="twitter:title"]', 'content', fullTitle);
-    updateMetaTag('meta[property="twitter:description"]', 'content', description);
-    updateMetaTag('meta[property="twitter:url"]', 'content', fullUrl);
-    updateMetaTag('meta[property="twitter:image"]', 'content', image);
+    updateMetaTag('meta[name="twitter:title"]', 'content', fullTitle);
+    updateMetaTag('meta[name="twitter:description"]', 'content', description);
+    updateMetaTag('meta[name="twitter:url"]', 'content', fullUrl);
+    updateMetaTag('meta[name="twitter:image"]', 'content', image);
 
     // Cleanup function to reset to defaults when component unmounts
     return () => {

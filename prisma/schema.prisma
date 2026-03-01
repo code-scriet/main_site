@@ -190,6 +190,8 @@ model TeamMember {
   user         User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
   // URL-friendly slug for profile page
   slug         String?  @unique
+  // Legacy slugs kept for backward-compatible URL resolution
+  legacySlugs  String[] @default([]) @map("legacy_slugs")
   // Rich content fields for personal page
   bio          String?  @db.Text
   vision       String?  @db.Text
@@ -333,6 +335,8 @@ model NetworkProfile {
 
   // URL slug (name-XXXX format for unique public URLs)
   slug             String?               @unique
+  // Legacy slugs kept for backward-compatible URL resolution
+  legacySlugs      String[]              @default([]) @map("legacy_slugs")
 
   // Professional details
   fullName         String                @map("full_name")

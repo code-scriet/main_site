@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 import { motion, useReducedMotion } from 'framer-motion';
 import { Layout } from '@/components/layout/Layout';
 import { SEO } from '@/components/SEO';
+import { BreadcrumbSchema, ProfilePageSchema } from '@/components/ui/schema';
 import { RichContent } from '@/components/ui/markdown';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -115,7 +116,11 @@ export default function TeamMemberProfilePage() {
         setLoading(true);
         setNotFound(false);
         const result = await api.getTeamMemberBySlug(slug);
-        setMember(result as TeamMemberProfile);
+        const data = result as TeamMemberProfile;
+        if (data.slug && slug !== data.slug) {
+          navigate(`/team/${data.slug}`, { replace: true });
+        }
+        setMember(data);
       } catch {
         setNotFound(true);
       } finally {
@@ -124,7 +129,7 @@ export default function TeamMemberProfilePage() {
     };
 
     fetchMember();
-  }, [slug]);
+  }, [slug, navigate]);
 
   const handleShare = async () => {
     const url = window.location.href;
@@ -219,7 +224,7 @@ export default function TeamMemberProfilePage() {
   if (notFound || !member) {
     return (
       <Layout>
-        <SEO title="Team Member Not Found" />
+        <SEO title="Team Member Not Found" url={slug ? `/team/${slug}` : '/team'} noIndex={true} />
         <div className="flex min-h-[72vh] items-center justify-center px-4">
           <div className="max-w-md text-center">
             <div className="mx-auto mb-6 flex h-20 w-20 items-center justify-center rounded-full bg-slate-100">
@@ -254,9 +259,32 @@ export default function TeamMemberProfilePage() {
   return (
     <Layout>
       <SEO
-        title={`${member.name} | ${member.role} - code.scriet Team`}
-        description={member.bio || `${member.name} is a ${member.role} on the ${member.team} team at code.scriet.`}
+        title={`${member.name} | ${member.role} | codescriet Team`}
+        description={member.bio || `${member.name} is a ${member.role} on the ${member.team} team at codescriet (code.scriet), SCRIET's coding club.`}
         url={profilePath}
+      />
+      <ProfilePageSchema
+        profileUrl={profileLink}
+        personName={member.name}
+        description={member.bio || `${member.name} contributes as ${member.role} on the ${member.team} team at codescriet.`}
+        image={member.imageUrl || undefined}
+        jobTitle={member.role}
+        affiliation="codescriet"
+        sameAs={[
+          member.github?.startsWith('http') ? member.github : member.github ? `https://github.com/${member.github}` : null,
+          member.linkedin?.startsWith('http') ? member.linkedin : member.linkedin ? `https://linkedin.com/in/${member.linkedin}` : null,
+          member.twitter?.startsWith('http') ? member.twitter : member.twitter ? `https://twitter.com/${member.twitter}` : null,
+          member.website || null,
+          member.instagram?.startsWith('http') ? member.instagram : member.instagram ? `https://instagram.com/${member.instagram}` : null,
+        ].filter((value): value is string => Boolean(value))}
+        breadcrumbName={`${member.name} | Team`}
+      />
+      <BreadcrumbSchema
+        items={[
+          { name: 'Home', url: 'https://codescriet.dev' },
+          { name: 'Team', url: 'https://codescriet.dev/team' },
+          { name: member.name, url: profileLink },
+        ]}
       />
 
       <div className="relative min-h-screen bg-white">

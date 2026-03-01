@@ -142,3 +142,78 @@ export async function populateAnnouncementSlugs() {
     logger.error('❌ Failed to populate announcement slugs:', error instanceof Error ? { message: error.message, stack: error.stack } : { error });
   }
 }
+
+const normalizeLegacySlugs = (legacySlugs: string[] | null | undefined, previousSlug: string | null | undefined, canonicalSlug: string): string[] => {
+  const next = new Set((legacySlugs ?? []).filter(Boolean));
+  const normalizedPrevious = previousSlug?.trim();
+  if (normalizedPrevious && normalizedPrevious !== canonicalSlug) {
+    next.add(normalizedPrevious);
+  }
+  next.delete(canonicalSlug);
+  return Array.from(next);
+};
+
+export async function populateProfileSlugs() {
+  try {
+    const teamMembers = await prisma.teamMember.findMany({
+      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+      select: { id: true, name: true, slug: true, legacySlugs: true },
+    });
+
+    const usedTeamSlugs = new Set<string>();
+    let updatedTeamCount = 0;
+
+    for (const member of teamMembers) {
+      const baseSlug = generateSlug(member.name) || 'team-member';
+      const canonicalSlug = generateUniqueSlug(baseSlug, Array.from(usedTeamSlugs));
+      usedTeamSlugs.add(canonicalSlug);
+
+      const legacySlugs = normalizeLegacySlugs(member.legacySlugs, member.slug, canonicalSlug);
+      const hasLegacyChanged = JSON.stringify(legacySlugs) !== JSON.stringify(member.legacySlugs ?? []);
+      const hasCanonicalChanged = member.slug !== canonicalSlug;
+
+      if (hasCanonicalChanged || hasLegacyChanged) {
+        await prisma.teamMember.update({
+          where: { id: member.id },
+          data: { slug: canonicalSlug, legacySlugs },
+        });
+        updatedTeamCount += 1;
+      }
+    }
+
+    const networkProfiles = await prisma.networkProfile.findMany({
+      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+      select: { id: true, fullName: true, slug: true, legacySlugs: true },
+    });
+
+    const usedNetworkSlugs = new Set<string>();
+    let updatedNetworkCount = 0;
+
+    for (const profile of networkProfiles) {
+      const baseSlug = generateSlug(profile.fullName) || 'network-profile';
+      const canonicalSlug = generateUniqueSlug(baseSlug, Array.from(usedNetworkSlugs));
+      usedNetworkSlugs.add(canonicalSlug);
+
+      const legacySlugs = normalizeLegacySlugs(profile.legacySlugs, profile.slug, canonicalSlug);
+      const hasLegacyChanged = JSON.stringify(legacySlugs) !== JSON.stringify(profile.legacySlugs ?? []);
+      const hasCanonicalChanged = profile.slug !== canonicalSlug;
+
+      if (hasCanonicalChanged || hasLegacyChanged) {
+        await prisma.networkProfile.update({
+          where: { id: profile.id },
+          data: { slug: canonicalSlug, legacySlugs },
+        });
+        updatedNetworkCount += 1;
+      }
+    }
+
+    if (updatedTeamCount > 0 || updatedNetworkCount > 0) {
+      logger.info('✅ Profile slugs normalized', {
+        teamMembersUpdated: updatedTeamCount,
+        networkProfilesUpdated: updatedNetworkCount,
+      });
+    }
+  } catch (error) {
+    logger.error('❌ Failed to normalize profile slugs:', error instanceof Error ? { message: error.message, stack: error.stack } : { error });
+  }
+}

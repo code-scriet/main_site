@@ -90,7 +90,7 @@ export default function NetworkStatusPage() {
   if (!hasProfile || !profile) {
     return (
       <Layout>
-        <SEO title="Network Status" />
+        <SEO title="Network Status" url="/network/status" noIndex={true} />
         <section className="min-h-[60vh] flex items-center justify-center bg-gradient-to-br from-amber-50 via-orange-50 to-amber-100 py-20">
           <motion.div
             className="max-w-md mx-auto text-center bg-white p-8 rounded-2xl shadow-lg border border-amber-100"
@@ -152,7 +152,7 @@ export default function NetworkStatusPage() {
 
   return (
     <Layout>
-      <SEO title="Network Status" />
+      <SEO title="Network Status" url="/network/status" noIndex={true} />
 
       <section className="min-h-[60vh] bg-gradient-to-br from-amber-50 via-orange-50 to-amber-100 py-16 sm:py-20">
         <div className="container mx-auto px-4">

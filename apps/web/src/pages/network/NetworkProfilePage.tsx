@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 import { motion, useReducedMotion } from 'framer-motion';
 import { Layout } from '@/components/layout/Layout';
 import { SEO } from '@/components/SEO';
+import { BreadcrumbSchema, ProfilePageSchema } from '@/components/ui/schema';
 import { RichContent } from '@/components/ui/markdown';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/context/AuthContext';
@@ -137,7 +138,11 @@ export default function NetworkProfilePage() {
         setNotFound(false);
         const result = await api.getNetworkProfile(slug);
         const data = (result as { data?: NetworkProfile })?.data || result;
-        setProfile(data as NetworkProfile);
+        const profileData = data as NetworkProfile;
+        if (profileData.slug && slug !== profileData.slug) {
+          navigate(`/network/${profileData.slug}`, { replace: true });
+        }
+        setProfile(profileData);
       } catch {
         setNotFound(true);
       } finally {
@@ -146,7 +151,7 @@ export default function NetworkProfilePage() {
     };
 
     fetchProfile();
-  }, [slug]);
+  }, [slug, navigate]);
 
   const handleShare = async () => {
     const url = window.location.href;
@@ -238,7 +243,7 @@ export default function NetworkProfilePage() {
   if (notFound || !profile) {
     return (
       <Layout>
-        <SEO title="Profile Not Found" />
+        <SEO title="Profile Not Found" url={slug ? `/network/${slug}` : '/network'} noIndex={true} />
         <div className="flex min-h-[72vh] items-center justify-center px-4">
           <div className="max-w-md text-center">
             <div className="mx-auto mb-6 flex h-20 w-20 items-center justify-center rounded-full bg-slate-100">
@@ -312,9 +317,31 @@ export default function NetworkProfilePage() {
         title={profileTitle}
         description={
           profile.bio ||
-          `${profile.fullName} is part of the code.scriet ${isAlumni ? 'alumni' : 'professional'} network as a ${profile.designation} at ${profile.company}.`
+          `${profile.fullName} is part of the codescriet ${isAlumni ? 'alumni' : 'professional'} network as a ${profile.designation} at ${profile.company}.`
         }
         url={profilePath}
+      />
+      <ProfilePageSchema
+        profileUrl={profileLink}
+        personName={profile.fullName}
+        description={aboutSummary}
+        image={profile.profilePhoto || undefined}
+        jobTitle={profile.designation}
+        affiliation="codescriet"
+        sameAs={[
+          profile.linkedinUsername ? `https://linkedin.com/in/${profile.linkedinUsername}` : null,
+          profile.twitterUsername ? `https://twitter.com/${profile.twitterUsername}` : null,
+          profile.githubUsername ? `https://github.com/${profile.githubUsername}` : null,
+          profile.personalWebsite || null,
+        ].filter((value): value is string => Boolean(value))}
+        breadcrumbName={`${profile.fullName} | Network`}
+      />
+      <BreadcrumbSchema
+        items={[
+          { name: 'Home', url: 'https://codescriet.dev' },
+          { name: 'Network', url: 'https://codescriet.dev/network' },
+          { name: profile.fullName, url: profileLink },
+        ]}
       />
 
       <div className="relative min-h-screen bg-white">

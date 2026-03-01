@@ -203,7 +203,7 @@ export default function AnnouncementDetailPage() {
   if (error || !announcement) {
     return (
       <Layout>
-        <SEO title="Announcement Not Found" description="The requested announcement could not be found." />
+        <SEO title="Announcement Not Found" description="The requested announcement could not be found." noIndex={true} />
         <section className="min-h-screen bg-gradient-to-br from-amber-50 via-orange-50 to-amber-100 py-12 sm:py-20">
           <div className="container mx-auto px-4">
             <div className="max-w-xl mx-auto text-center py-20">

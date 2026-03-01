@@ -25,8 +25,8 @@ Disallow: /auth/
 Disallow: /profile
 Disallow: /signin
 Disallow: /signup
-Disallow: /join-our-network
 Disallow: /network/status
+Disallow: /network/onboarding
 
 # Specific rules for Google
 User-agent: Googlebot

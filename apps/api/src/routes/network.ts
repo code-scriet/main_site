@@ -9,6 +9,7 @@ import { logger } from '../utils/logger.js';
 import { emailService } from '../utils/email.js';
 import { parsePaginationNumber } from '../utils/pagination.js';
 import { sanitizeHtml, sanitizeUrl } from '../utils/sanitize.js';
+import { generateSlug, generateUniqueSlug } from '../utils/slug.js';
 
 export const networkRouter = Router();
 const CUID_REGEX = /^c[a-z0-9]{24}$/;
@@ -48,17 +49,33 @@ const isNetworkConnectionType = (value: string): value is (typeof networkConnect
 const isNetworkStatus = (value: string): value is (typeof networkStatuses)[number] =>
   networkStatuses.includes(value as (typeof networkStatuses)[number]);
 
-// Generate a URL-friendly slug from a name with a random 4-digit suffix
-const generateSlug = (name: string): string => {
-  const base = name
-    .toLowerCase()
-    .trim()
-    .replace(/[^a-z0-9\s-]/g, '')
-    .replace(/\s+/g, '-')
-    .replace(/-+/g, '-')
-    .substring(0, 40);
-  const suffix = Math.floor(1000 + Math.random() * 9000); // 4-digit random
-  return `${base}-${suffix}`;
+const toCleanSlugBase = (raw: string): string => generateSlug(raw) || 'network-profile';
+
+const resolveUniqueNetworkSlug = async (raw: string, excludeId?: string): Promise<string> => {
+  const baseSlug = toCleanSlugBase(raw);
+  const existingSlugs = (
+    await prisma.networkProfile.findMany({
+      where: {
+        ...(excludeId ? { id: { not: excludeId } } : {}),
+        slug: { startsWith: baseSlug },
+      },
+      select: { slug: true },
+    })
+  )
+    .map((profile) => profile.slug)
+    .filter((slug): slug is string => Boolean(slug));
+
+  return generateUniqueSlug(baseSlug, existingSlugs);
+};
+
+const appendLegacySlug = (legacySlugs: string[] | null | undefined, previousSlug: string | null | undefined, nextSlug: string): string[] => {
+  const next = new Set((legacySlugs ?? []).filter(Boolean));
+  const normalizedPrevious = previousSlug?.trim();
+  if (normalizedPrevious && normalizedPrevious !== nextSlug) {
+    next.add(normalizedPrevious);
+  }
+  next.delete(nextSlug);
+  return Array.from(next);
 };
 
 // Validation schemas
@@ -333,23 +350,18 @@ networkRouter.get('/:idOrSlug', async (req: Request, res: Response) => {
       createdAt: true,
     } satisfies Prisma.NetworkProfileSelect;
 
-    const profile = CUID_REGEX.test(idOrSlug)
-      ? (await prisma.networkProfile.findFirst({
-          where: { id: idOrSlug, status: 'VERIFIED', isPublic: true },
-          select: publicSelect,
-        })) ??
-        (await prisma.networkProfile.findFirst({
-          where: { slug: idOrSlug, status: 'VERIFIED', isPublic: true },
-          select: publicSelect,
-        }))
-      : (await prisma.networkProfile.findFirst({
-          where: { slug: idOrSlug, status: 'VERIFIED', isPublic: true },
-          select: publicSelect,
-        })) ??
-        (await prisma.networkProfile.findFirst({
-          where: { id: idOrSlug, status: 'VERIFIED', isPublic: true },
-          select: publicSelect,
-        }));
+    const profile = await prisma.networkProfile.findFirst({
+      where: {
+        status: 'VERIFIED',
+        isPublic: true,
+        OR: [
+          { slug: idOrSlug },
+          { legacySlugs: { has: idOrSlug } },
+          ...(CUID_REGEX.test(idOrSlug) ? [{ id: idOrSlug }] : []),
+        ],
+      },
+      select: publicSelect,
+    });
 
     if (!profile) {
       return res.status(404).json({ success: false, error: { message: 'Profile not found' } });
@@ -414,7 +426,7 @@ networkRouter.post('/profile', authMiddleware, async (req: Request, res: Respons
       });
     }
 
-    const slug = generateSlug(parsed.data.fullName);
+    const slug = await resolveUniqueNetworkSlug(parsed.data.fullName);
 
     // Sanitize rich content fields
     const sanitizedData = sanitizeProfileContent(parsed.data as Record<string, unknown>);
@@ -429,6 +441,7 @@ networkRouter.post('/profile', authMiddleware, async (req: Request, res: Respons
       data: {
         userId: authUser.id,
         slug,
+        legacySlugs: [],
         ...sanitizedData,
         // Use Google profile picture if profilePhoto not provided
         profilePhoto: parsed.data.profilePhoto || user?.avatar || undefined,
@@ -501,11 +514,15 @@ networkRouter.patch('/profile', authMiddleware, async (req: Request, res: Respon
       });
     }
 
-    // Update data without resetting verification status
-    // Once verified, profiles stay verified even after updates
-    // Sanitize rich content fields
+    // Update data without resetting verification status.
+    // Once verified, profiles stay verified even after updates.
     const sanitizedData = sanitizeProfileContent(parsed.data as Record<string, unknown>);
     const updateData: any = { ...sanitizedData };
+    if (typeof parsed.data.fullName === 'string' && parsed.data.fullName.trim() && parsed.data.fullName.trim() !== existing.fullName) {
+      const canonicalSlug = await resolveUniqueNetworkSlug(parsed.data.fullName, existing.id);
+      updateData.slug = canonicalSlug;
+      updateData.legacySlugs = appendLegacySlug(existing.legacySlugs, existing.slug, canonicalSlug);
+    }
 
     const profile = await prisma.networkProfile.update({
       where: { userId: authUser.id },
@@ -1169,8 +1186,8 @@ networkRouter.patch('/admin/:id/verify', authMiddleware, requireRole('ADMIN'), a
       return res.status(404).json({ success: false, error: { message: 'Profile not found' } });
     }
 
-    // Generate slug if missing (for profiles created before slug feature)
-    const slug = profile.slug || generateSlug(profile.fullName);
+    const slug = await resolveUniqueNetworkSlug(profile.fullName, profile.id);
+    const legacySlugs = appendLegacySlug(profile.legacySlugs, profile.slug, slug);
 
     const updated = await prisma.networkProfile.update({
       where: { id },
@@ -1179,7 +1196,8 @@ networkRouter.patch('/admin/:id/verify', authMiddleware, requireRole('ADMIN'), a
         verifiedAt: new Date(),
         verifiedBy: authUser.id,
         rejectionReason: null,
-        slug, // Ensure slug is set
+        slug,
+        legacySlugs,
       },
     });
 
@@ -1314,13 +1332,20 @@ networkRouter.patch('/admin/:id', authMiddleware, requireRole('ADMIN'), async (r
 
     // Sanitize rich content fields
     const sanitizedData = sanitizeProfileContent(updateFields as Record<string, unknown>);
+    const updateData: any = {
+      ...sanitizedData,
+      ...(events !== undefined ? { events: toNullableJsonValue(events) } : {}),
+    };
+
+    if (typeof parsed.data.fullName === 'string' && parsed.data.fullName.trim() && parsed.data.fullName.trim() !== existing.fullName) {
+      const canonicalSlug = await resolveUniqueNetworkSlug(parsed.data.fullName, existing.id);
+      updateData.slug = canonicalSlug;
+      updateData.legacySlugs = appendLegacySlug(existing.legacySlugs, existing.slug, canonicalSlug);
+    }
 
     const updated = await prisma.networkProfile.update({
       where: { id },
-      data: {
-        ...sanitizedData,
-        ...(events !== undefined ? { events: toNullableJsonValue(events) } : {}),
-      },
+      data: updateData,
     });
 
     await auditLog(authUser.id, 'NETWORK_PROFILE_UPDATED', 'NetworkProfile', id, {

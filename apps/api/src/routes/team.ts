@@ -7,6 +7,7 @@ import { auditLog } from '../utils/audit.js';
 import { sanitizeHtml, sanitizeUrl } from '../utils/sanitize.js';
 import { logger } from '../utils/logger.js';
 import { syncUserToTeamMember } from '../utils/profileSync.js';
+import { generateSlug, generateUniqueSlug } from '../utils/slug.js';
 
 export const teamRouter = Router();
 
@@ -58,17 +59,47 @@ const normalizeOptionalText = (value?: string): string | null => {
   return trimmed ? trimmed : null;
 };
 
-// Generate slug from name
-const generateSlug = (name: string): string => {
-  const base = name
-    .toLowerCase()
-    .trim()
-    .replace(/[^a-z0-9\s-]/g, '')
-    .replace(/\s+/g, '-')
-    .replace(/-+/g, '-')
-    .substring(0, 50);
-  const suffix = Math.random().toString(36).substring(2, 6);
-  return `${base}-${suffix}`;
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+const teamMemberUserSelect = {
+  id: true,
+  name: true,
+  email: true,
+  avatar: true,
+  bio: true,
+  githubUrl: true,
+  linkedinUrl: true,
+  twitterUrl: true,
+  websiteUrl: true,
+} as const;
+
+const toCleanSlugBase = (raw: string): string => generateSlug(raw) || 'team-member';
+
+const resolveUniqueTeamSlug = async (raw: string, excludeId?: string): Promise<string> => {
+  const baseSlug = toCleanSlugBase(raw);
+  const existingSlugs = (
+    await prisma.teamMember.findMany({
+      where: {
+        ...(excludeId ? { id: { not: excludeId } } : {}),
+        slug: { startsWith: baseSlug },
+      },
+      select: { slug: true },
+    })
+  )
+    .map((member) => member.slug)
+    .filter((slug): slug is string => Boolean(slug));
+
+  return generateUniqueSlug(baseSlug, existingSlugs);
+};
+
+const appendLegacySlug = (legacySlugs: string[] | null | undefined, previousSlug: string | null | undefined, nextSlug: string): string[] => {
+  const next = new Set((legacySlugs ?? []).filter(Boolean));
+  const normalizedPrevious = previousSlug?.trim();
+  if (normalizedPrevious && normalizedPrevious !== nextSlug) {
+    next.add(normalizedPrevious);
+  }
+  next.delete(nextSlug);
+  return Array.from(next);
 };
 
 // Rich content fields that support HTML
@@ -234,24 +265,32 @@ teamRouter.get('/meta/teams', async (_req: Request, res: Response) => {
 // Get team member by ID
 teamRouter.get('/:id', async (req: Request, res: Response) => {
   try {
-    const teamMember = await prisma.teamMember.findUnique({
-      where: { id: req.params.id },
-      include: {
-        user: {
-          select: {
-            id: true,
-            name: true,
-            email: true,
-            avatar: true,
-            bio: true,
-            githubUrl: true,
-            linkedinUrl: true,
-            twitterUrl: true,
-            websiteUrl: true,
-          },
-        },
-      },
-    });
+    const idOrSlug = req.params.id;
+    const teamMember = UUID_REGEX.test(idOrSlug)
+      ? (await prisma.teamMember.findUnique({
+          where: { id: idOrSlug },
+          include: { user: { select: teamMemberUserSelect } },
+        })) ??
+        (await prisma.teamMember.findUnique({
+          where: { slug: idOrSlug },
+          include: { user: { select: teamMemberUserSelect } },
+        })) ??
+        (await prisma.teamMember.findFirst({
+          where: { legacySlugs: { has: idOrSlug } },
+          include: { user: { select: teamMemberUserSelect } },
+        }))
+      : (await prisma.teamMember.findUnique({
+          where: { slug: idOrSlug },
+          include: { user: { select: teamMemberUserSelect } },
+        })) ??
+        (await prisma.teamMember.findFirst({
+          where: { legacySlugs: { has: idOrSlug } },
+          include: { user: { select: teamMemberUserSelect } },
+        })) ??
+        (await prisma.teamMember.findUnique({
+          where: { id: idOrSlug },
+          include: { user: { select: teamMemberUserSelect } },
+        }));
 
     if (!teamMember) {
       return res.status(404).json({ success: false, error: { message: 'Team member not found' } });
@@ -266,24 +305,32 @@ teamRouter.get('/:id', async (req: Request, res: Response) => {
 // Get team member by slug (public profile page)
 teamRouter.get('/slug/:slug', async (req: Request, res: Response) => {
   try {
-    const teamMember = await prisma.teamMember.findUnique({
-      where: { slug: req.params.slug },
-      include: {
-        user: {
-          select: {
-            id: true,
-            name: true,
-            email: true,
-            avatar: true,
-            bio: true,
-            githubUrl: true,
-            linkedinUrl: true,
-            twitterUrl: true,
-            websiteUrl: true,
-          },
-        },
-      },
-    });
+    const slugOrId = req.params.slug;
+    const teamMember = UUID_REGEX.test(slugOrId)
+      ? (await prisma.teamMember.findUnique({
+          where: { id: slugOrId },
+          include: { user: { select: teamMemberUserSelect } },
+        })) ??
+        (await prisma.teamMember.findUnique({
+          where: { slug: slugOrId },
+          include: { user: { select: teamMemberUserSelect } },
+        })) ??
+        (await prisma.teamMember.findFirst({
+          where: { legacySlugs: { has: slugOrId } },
+          include: { user: { select: teamMemberUserSelect } },
+        }))
+      : (await prisma.teamMember.findUnique({
+          where: { slug: slugOrId },
+          include: { user: { select: teamMemberUserSelect } },
+        })) ??
+        (await prisma.teamMember.findFirst({
+          where: { legacySlugs: { has: slugOrId } },
+          include: { user: { select: teamMemberUserSelect } },
+        })) ??
+        (await prisma.teamMember.findUnique({
+          where: { id: slugOrId },
+          include: { user: { select: teamMemberUserSelect } },
+        }));
 
     if (!teamMember) {
       return res.status(404).json({ success: false, error: { message: 'Team member not found' } });
@@ -310,8 +357,8 @@ teamRouter.post('/', authMiddleware, requireRole('ADMIN'), async (req: Request, 
 
     const { name, role, team, imageUrl, github, linkedin, twitter, instagram, order, userId, bio, vision, story, expertise, achievements, website } = parsed.data;
 
-    // Generate slug if not provided
-    const slug = parsed.data.slug || generateSlug(name);
+    const slugSource = parsed.data.slug?.trim() ? parsed.data.slug : name;
+    const slug = await resolveUniqueTeamSlug(slugSource);
 
     // Sanitize rich content fields
     const sanitizedData = sanitizeRichContent({ bio, vision, story, expertise, achievements, website });
@@ -328,6 +375,7 @@ teamRouter.post('/', authMiddleware, requireRole('ADMIN'), async (req: Request, 
         instagram: normalizeOptionalText(instagram),
         order: order || 0,
         slug,
+        legacySlugs: [],
         userId: userId || null,
         bio: sanitizedData.bio as string | null,
         vision: sanitizedData.vision as string | null,
@@ -363,22 +411,35 @@ teamRouter.put('/:id', authMiddleware, requireRole('ADMIN'), async (req: Request
     // Sanitize rich content fields
     const sanitizedData = sanitizeRichContent({ bio, vision, story, expertise, achievements, website });
 
-    // Auto-generate slug if the member has (or is getting) a linked user but no slug is provided
-    let resolvedSlug: string | null | undefined = slug;
-    const hasSlugValue = slug !== undefined && slug !== null && slug.trim() !== '';
-    if (!hasSlugValue) {
-      const existing = await prisma.teamMember.findUnique({ where: { id: req.params.id }, select: { slug: true, name: true, userId: true } });
-      const effectiveUserId = userId !== undefined ? userId : existing?.userId;
-      if (effectiveUserId && existing && !existing.slug) {
-        // Member is linked to a user but has no slug — auto-generate one
-        resolvedSlug = generateSlug(name?.trim() ?? existing.name);
-      } else if (effectiveUserId && existing?.slug && slug === undefined) {
-        // Member already has a slug, don't touch it (slug wasn't in the request)
-        resolvedSlug = undefined;
-      } else if (effectiveUserId && existing?.slug && !hasSlugValue) {
-        // Empty slug sent but member has a linked user — keep existing slug
-        resolvedSlug = undefined;
-      }
+    const existing = await prisma.teamMember.findUnique({
+      where: { id: req.params.id },
+      select: { id: true, name: true, slug: true, legacySlugs: true },
+    });
+
+    if (!existing) {
+      return res.status(404).json({ success: false, error: { message: 'Team member not found' } });
+    }
+
+    let slugUpdate: { slug: string; legacySlugs: string[] } | undefined;
+    const explicitSlug = typeof slug === 'string' ? slug.trim() : '';
+    const normalizedName = name?.trim();
+    const shouldRegenerateFromName =
+      normalizedName !== undefined &&
+      normalizedName.length > 0 &&
+      normalizedName !== existing.name;
+    const slugSource =
+      explicitSlug.length > 0
+        ? explicitSlug
+        : shouldRegenerateFromName
+          ? normalizedName
+          : undefined;
+
+    if (slugSource) {
+      const canonicalSlug = await resolveUniqueTeamSlug(slugSource, req.params.id);
+      slugUpdate = {
+        slug: canonicalSlug,
+        legacySlugs: appendLegacySlug(existing.legacySlugs, existing.slug, canonicalSlug),
+      };
     }
 
     const teamMember = await prisma.teamMember.update({
@@ -394,7 +455,7 @@ teamRouter.put('/:id', authMiddleware, requireRole('ADMIN'), async (req: Request
         ...(instagram !== undefined && { instagram: normalizeOptionalText(instagram) }),
         ...(order !== undefined && { order }),
         ...(userId !== undefined && { userId: userId || null }),
-        ...(resolvedSlug !== undefined && { slug: resolvedSlug || null }),
+        ...(slugUpdate && slugUpdate),
         ...(bio !== undefined && { bio: sanitizedData.bio as string | null }),
         ...(vision !== undefined && { vision: sanitizedData.vision as string | null }),
         ...(story !== undefined && { story: sanitizedData.story as string | null }),
@@ -512,9 +573,11 @@ teamRouter.patch('/:id/link-user', authMiddleware, requireRole('ADMIN'), async (
     // If linking a user, auto-generate slug if team member doesn't have one
     const updateData: Record<string, unknown> = { userId: userId || null };
     if (userId) {
-      const existing = await prisma.teamMember.findUnique({ where: { id }, select: { slug: true, name: true } });
+      const existing = await prisma.teamMember.findUnique({ where: { id }, select: { slug: true, name: true, legacySlugs: true } });
       if (existing && !existing.slug) {
-        updateData.slug = generateSlug(existing.name);
+        const canonicalSlug = await resolveUniqueTeamSlug(existing.name, id);
+        updateData.slug = canonicalSlug;
+        updateData.legacySlugs = appendLegacySlug(existing.legacySlugs, existing.slug, canonicalSlug);
       }
     }
 

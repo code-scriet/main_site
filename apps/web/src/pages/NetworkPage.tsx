@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo, useCallback, type KeyboardEvent } from 'react';
 import { Layout } from '@/components/layout/Layout';
 import { SEO } from '@/components/SEO';
+import { BreadcrumbSchema } from '@/components/ui/schema';
 import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -308,6 +309,12 @@ export default function NetworkPage() {
         description="Connect with industry professionals, mentors, and alumni who support the code.scriet community."
         url="/network"
         keywords="code.scriet network, alumni network, professional mentors, student guidance, technical club"
+      />
+      <BreadcrumbSchema
+        items={[
+          { name: 'Home', url: 'https://codescriet.dev' },
+          { name: 'Network', url: 'https://codescriet.dev/network' },
+        ]}
       />
 
       <div className="relative min-h-screen bg-gradient-to-b from-white via-gray-50/30 to-gray-50/50">

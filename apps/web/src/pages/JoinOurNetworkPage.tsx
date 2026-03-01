@@ -126,6 +126,7 @@ export default function JoinOurNetworkPage() {
       <SEO
         title="Join Our Network"
         description="Connect with code.scriet as an industry professional, mentor, or alumni. Get featured on our network page."
+        url="/join-our-network"
       />
 
       {/* Hero Section */}
