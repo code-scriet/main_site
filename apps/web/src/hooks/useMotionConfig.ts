@@ -72,8 +72,12 @@ export function useMotionConfig() {
     getServerSnapshot
   );
 
-  // Combine both conditions
+  // Combine both conditions for entrance animations
   const shouldReduceMotion = isMobile || prefersReducedMotion;
+
+  // Only disable parallax/scroll-effects for explicit OS-level reduced-motion preference
+  // Mobile devices still get lightweight scroll fading
+  const disableParallax = prefersReducedMotion;
 
   const variants = useMemo(() => ({
     // Fade in from below - simplified on mobile
@@ -96,6 +100,7 @@ export function useMotionConfig() {
     isMobile,
     prefersReducedMotion,
     shouldReduceMotion,
+    disableParallax,
     variants,
   };
 }

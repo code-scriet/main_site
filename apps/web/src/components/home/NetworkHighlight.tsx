@@ -80,14 +80,14 @@ export function NetworkHighlight() {
           initial={{ opacity: 0, y: shouldReduceMotion ? 10 : 20 }}
           whileInView={{ opacity: 1, y: 0 }}
           transition={{ duration: animationDuration }}
-          viewport={{ once: true }}
+          viewport={{ once: true, margin: '-50px' }}
           className="mb-12 text-center lg:mb-16"
         >
           <motion.div
             initial={{ opacity: 0, scale: shouldReduceMotion ? 0.95 : 0.8 }}
             whileInView={{ opacity: 1, scale: 1 }}
             transition={{ duration: shouldReduceMotion ? 0.3 : 0.5 }}
-            viewport={{ once: true }}
+            viewport={{ once: true, margin: '-50px' }}
             className="mb-6 inline-flex items-center gap-2.5 rounded-full border border-amber-200 bg-gradient-to-r from-amber-50 to-orange-50 px-4 py-2 shadow-sm"
           >
             <Users2 className="h-4 w-4 text-amber-600" />
@@ -161,7 +161,7 @@ export function NetworkHighlight() {
                   initial={{ opacity: 0, y: animationY }}
                   whileInView={{ opacity: 1, y: 0 }}
                   transition={{ duration: shouldReduceMotion ? 0.3 : 0.5, delay: index * staggerDelay }}
-                  viewport={{ once: true }}
+                  viewport={{ once: true, margin: '-50px' }}
                   whileHover={!isMobile ? { y: -6 } : undefined}
                   role="link"
                   tabIndex={0}
@@ -314,7 +314,7 @@ export function NetworkHighlight() {
           initial={{ opacity: 0, y: shouldReduceMotion ? 10 : 20 }}
           whileInView={{ opacity: 1, y: 0 }}
           transition={{ duration: animationDuration, delay: shouldReduceMotion ? 0.1 : 0.5 }}
-          viewport={{ once: true }}
+          viewport={{ once: true, margin: '-50px' }}
           className="text-center"
         >
           <Link to="/network">

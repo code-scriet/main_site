@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useRef, useMemo, useCallback, memo } from 'react';
 import { motion, useScroll, useTransform } from 'framer-motion';
 import { Button } from '@/components/ui/button';
 import { Link } from 'react-router-dom';
@@ -8,7 +8,7 @@ import { useSettings } from '@/context/SettingsContext';
 import { useMotionConfig } from '@/hooks/useMotionConfig';
 import { useHomePageData } from '@/hooks/useHomePageData';
 
-// Animated typing text effect
+// Animated typing text effect — uses ref mutation instead of setState to avoid re-renders
 const typingPhrases = [
   'Data Structures',
   'Algorithms', 
@@ -18,37 +18,53 @@ const typingPhrases = [
   'System Design',
 ];
 
-function TypingAnimation() {
-  const [currentPhraseIndex, setCurrentPhraseIndex] = useState(0);
-  const [displayText, setDisplayText] = useState('');
-  const [isDeleting, setIsDeleting] = useState(false);
+const TypingAnimation = memo(function TypingAnimation() {
+  const spanRef = useRef<HTMLSpanElement>(null);
 
   useEffect(() => {
-    const currentPhrase = typingPhrases[currentPhraseIndex];
-    
-    const timeout = setTimeout(() => {
+    let phraseIndex = 0;
+    let charIndex = 0;
+    let isDeleting = false;
+    let timeoutId: ReturnType<typeof setTimeout>;
+
+    const tick = () => {
+      const phrase = typingPhrases[phraseIndex];
+
       if (!isDeleting) {
-        if (displayText.length < currentPhrase.length) {
-          setDisplayText(currentPhrase.slice(0, displayText.length + 1));
+        if (charIndex < phrase.length) {
+          charIndex++;
+          timeoutId = setTimeout(tick, 100);
         } else {
-          setTimeout(() => setIsDeleting(true), 2000);
+          timeoutId = setTimeout(() => {
+            isDeleting = true;
+            tick();
+          }, 2000);
+          return;
         }
       } else {
-        if (displayText.length > 0) {
-          setDisplayText(displayText.slice(0, -1));
+        if (charIndex > 0) {
+          charIndex--;
+          timeoutId = setTimeout(tick, 50);
         } else {
-          setIsDeleting(false);
-          setCurrentPhraseIndex((prev) => (prev + 1) % typingPhrases.length);
+          isDeleting = false;
+          phraseIndex = (phraseIndex + 1) % typingPhrases.length;
+          timeoutId = setTimeout(tick, 100);
+          return;
         }
       }
-    }, isDeleting ? 50 : 100);
 
-    return () => clearTimeout(timeout);
-  }, [displayText, isDeleting, currentPhraseIndex]);
+      if (spanRef.current) {
+        spanRef.current.textContent = phrase.slice(0, charIndex);
+      }
+    };
+
+    tick();
+    return () => clearTimeout(timeoutId);
+  }, []);
 
   return (
     <span className="text-amber-300">
-      {displayText}
+      <span ref={spanRef} />
       <motion.span
         animate={{ opacity: [1, 0] }}
         transition={{ duration: 0.5, repeat: Infinity }}
@@ -56,7 +72,7 @@ function TypingAnimation() {
       />
     </span>
   );
-}
+});
 
 // Floating particles - optimized for mobile
 type ParticleSpec = {
@@ -73,7 +89,7 @@ const seededUnit = (seed: number) => {
   return value - Math.floor(value);
 };
 
-function Particles({ isMobile, disableAnimation }: { isMobile: boolean; disableAnimation: boolean }) {
+const Particles = memo(function Particles({ isMobile, disableAnimation }: { isMobile: boolean; disableAnimation: boolean }) {
   const particleCount = isMobile ? 14 : 40;
   const particles = useMemo<ParticleSpec[]>(() => {
     return Array.from({ length: particleCount }, (_, index) => {
@@ -124,23 +140,23 @@ function Particles({ isMobile, disableAnimation }: { isMobile: boolean; disableA
       ))}
     </div>
   );
-}
+});
 
 // Animated code lines in background
-function CodeBackground() {
-  const codeLines = [
-    'function solve(n) {',
-    '  if (n <= 1) return n;',
-    '  return solve(n-1) + solve(n-2);',
-    '}',
-    '',
-    'class Graph {',
-    '  constructor() {',
-    '    this.adj = new Map();',
-    '  }',
-    '}',
-  ];
+const codeLines = [
+  'function solve(n) {',
+  '  if (n <= 1) return n;',
+  '  return solve(n-1) + solve(n-2);',
+  '}',
+  '',
+  'class Graph {',
+  '  constructor() {',
+  '    this.adj = new Map();',
+  '  }',
+  '}',
+];
 
+const CodeBackground = memo(function CodeBackground() {
   return (
     <div className="absolute right-0 top-1/2 -translate-y-1/2 hidden lg:block opacity-10 font-mono text-sm text-amber-200 pointer-events-none">
       {codeLines.map((line, i) => (
@@ -156,47 +172,74 @@ function CodeBackground() {
       ))}
     </div>
   );
-}
+});
 
-// Stat counter with animation
-function AnimatedCounter({ value, suffix = '' }: { value: number; suffix?: string }) {
-  const [count, setCount] = useState(0);
+// Stat counter with animation — uses ref mutation instead of setState for perf
+const AnimatedCounter = memo(function AnimatedCounter({ value, suffix = '' }: { value: number; suffix?: string }) {
+  const spanRef = useRef<HTMLSpanElement>(null);
 
   useEffect(() => {
-    if (value === 0) return;
-    
+    if (value === 0 || !spanRef.current) return;
+
     const duration = 2000;
-    const steps = 60;
-    const increment = value / steps;
-    let current = 0;
-    
-    const timer = setInterval(() => {
-      current += increment;
-      if (current >= value) {
-        setCount(value);
-        clearInterval(timer);
-      } else {
-        setCount(Math.floor(current));
+    let start: number | null = null;
+    let rafId: number;
+
+    const step = (timestamp: number) => {
+      if (!start) start = timestamp;
+      const elapsed = timestamp - start;
+      const progress = Math.min(elapsed / duration, 1);
+      const current = Math.floor(progress * value);
+
+      if (spanRef.current) {
+        spanRef.current.textContent = `${current}${suffix}`;
       }
-    }, duration / steps);
 
-    return () => clearInterval(timer);
-  }, [value]);
+      if (progress < 1) {
+        rafId = requestAnimationFrame(step);
+      } else if (spanRef.current) {
+        spanRef.current.textContent = `${value}${suffix}`;
+      }
+    };
 
-  return <span>{count > 0 ? `${count}${suffix}` : '...'}</span>;
-}
+    rafId = requestAnimationFrame(step);
+    return () => cancelAnimationFrame(rafId);
+  }, [value, suffix]);
+
+  return <span ref={spanRef}>...</span>;
+});
+
+// Stats config — hoisted out of render
+const statsConfig = [
+  { icon: Users, label: 'Active Members', valueKey: 'members' as const, color: 'from-amber-400 to-amber-500' },
+  { icon: Calendar, label: 'Events Hosted', valueKey: 'events' as const, color: 'from-orange-400 to-orange-500' },
+];
 
 export function Hero() {
   const { user } = useAuth();
   const { settings, loading: settingsLoading } = useSettings();
   const { data: homeData } = useHomePageData();
-  const { isMobile, shouldReduceMotion, prefersReducedMotion } = useMotionConfig();
+  const { isMobile, shouldReduceMotion, prefersReducedMotion, disableParallax } = useMotionConfig();
   const { scrollY } = useScroll();
   
-  // Disable parallax on mobile for better performance
-  const opacity = useTransform(scrollY, [0, 400], shouldReduceMotion ? [1, 1] : [1, 0]);
-  const scale = useTransform(scrollY, [0, 400], shouldReduceMotion ? [1, 1] : [1, 0.95]);
-  const y = useTransform(scrollY, [0, 400], shouldReduceMotion ? [0, 0] : [0, 100]);
+  // Mobile: lightweight fade (opacity only, no y-parallax) over a shorter range
+  // Desktop: full parallax with opacity, scale, and y offset
+  const opacity = useTransform(
+    scrollY,
+    isMobile ? [0, 300] : [0, 400],
+    disableParallax ? [1, 1] : [1, 0]
+  );
+  const scale = useTransform(
+    scrollY,
+    isMobile ? [0, 300] : [0, 400],
+    disableParallax ? [1, 1] : isMobile ? [1, 0.97] : [1, 0.95]
+  );
+  const y = useTransform(
+    scrollY,
+    [0, 400],
+    disableParallax || isMobile ? [0, 0] : [0, 100]
+  );
+
   const stats = homeData?.stats ?? { members: 500, events: 3, achievements: 5 };
   const resolvedDescription =
     homeData?.settings?.clubDescription ||
@@ -205,7 +248,7 @@ export function Hero() {
   const hiringEnabled = homeData?.settings?.hiringEnabled ?? settings?.hiringEnabled;
   const canRenderHiringCta = Boolean(homeData) || !settingsLoading;
 
-  const containerVariants = {
+  const containerVariants = useMemo(() => ({
     hidden: { opacity: 0 },
     visible: {
       opacity: 1,
@@ -214,16 +257,20 @@ export function Hero() {
         delayChildren: shouldReduceMotion ? 0.1 : 0.3 
       },
     },
-  };
+  }), [shouldReduceMotion]);
 
-  const itemVariants = {
+  const itemVariants = useMemo(() => ({
     hidden: { opacity: 0, y: shouldReduceMotion ? 15 : 40 },
     visible: { 
       opacity: 1, 
       y: 0, 
       transition: { duration: shouldReduceMotion ? 0.3 : 0.8 } 
     },
-  };
+  }), [shouldReduceMotion]);
+
+  const handleScrollDown = useCallback(() => {
+    window.scrollTo({ top: window.innerHeight, behavior: 'smooth' });
+  }, []);
 
   return (
     <section className="relative min-h-[calc(100vh-var(--site-header-height))] flex items-start md:items-center justify-center overflow-x-hidden pt-6 sm:pt-8 md:pt-0 pb-14 sm:pb-20">
@@ -284,10 +331,10 @@ export function Hero() {
         </>
       )}
 
-      {/* Main Content */}
+      {/* Main Content — GPU-promoted for smooth scroll fading */}
       <motion.div 
-        style={shouldReduceMotion ? {} : { opacity, scale, y }}
-        className="container mx-auto px-4 relative z-10 py-2 sm:py-4 md:py-8"
+        style={disableParallax ? {} : { opacity, scale, y }}
+        className="container mx-auto px-4 relative z-10 py-2 sm:py-4 md:py-8 will-change-[transform,opacity]"
       >
         <motion.div
           variants={containerVariants}
@@ -437,10 +484,7 @@ export function Hero() {
             variants={itemVariants}
             className="grid grid-cols-2 gap-3 sm:gap-8 max-w-3xl mx-auto pt-6 sm:pt-10 md:pt-12 px-2 sm:px-0"
           >
-            {[
-              { icon: Users, label: 'Active Members', value: stats.members, displayValue: null, color: 'from-amber-400 to-amber-500' },
-              { icon: Calendar, label: 'Events Hosted', value: stats.events, displayValue: null, color: 'from-orange-400 to-orange-500' },
-            ].map((stat) => (
+            {statsConfig.map((stat) => (
               <motion.div
                 key={stat.label}
                 whileHover={!isMobile ? { scale: 1.05, y: -8 } : undefined}
@@ -453,7 +497,7 @@ export function Hero() {
                     <stat.icon className="h-5 w-5 sm:h-8 sm:w-8 text-white" />
                   </div>
                   <p className="text-3xl sm:text-5xl md:text-6xl font-bold text-white mb-1 sm:mb-2">
-                    {stat.displayValue ? `${stat.displayValue}+` : <AnimatedCounter value={stat.value!} suffix="+" />}
+                    <AnimatedCounter value={stats[stat.valueKey]} suffix="+" />
                   </p>
                   <p className="text-white/60 text-xs sm:text-base">{stat.label}</p>
                 </div>
@@ -474,7 +518,7 @@ export function Hero() {
           animate={!prefersReducedMotion ? { y: isMobile ? [0, 4, 0] : [0, 8, 0] } : {}}
           transition={{ duration: isMobile ? 2.4 : 2, repeat: Infinity, ease: 'easeInOut' }}
           className="flex flex-col items-center gap-2 cursor-pointer"
-          onClick={() => window.scrollTo({ top: window.innerHeight, behavior: 'smooth' })}
+          onClick={handleScrollDown}
         >
           <span className="text-white/40 text-xs uppercase tracking-widest font-medium">Scroll</span>
           <div className="w-6 h-10 border-2 border-white/20 rounded-full flex items-start justify-center p-2">

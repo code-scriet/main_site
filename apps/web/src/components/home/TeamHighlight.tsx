@@ -27,14 +27,14 @@ export function TeamHighlight() {
           initial={{ opacity: 0, y: shouldReduceMotion ? 10 : 20 }}
           whileInView={{ opacity: 1, y: 0 }}
           transition={{ duration: animationDuration }}
-          viewport={{ once: true }}
+          viewport={{ once: true, margin: '-50px' }}
           className="text-center mb-8 sm:mb-12 lg:mb-16"
         >
           <motion.div 
             initial={{ opacity: 0, scale: shouldReduceMotion ? 0.95 : 0.8 }}
             whileInView={{ opacity: 1, scale: 1 }}
             transition={{ duration: shouldReduceMotion ? 0.3 : 0.5 }}
-            viewport={{ once: true }}
+            viewport={{ once: true, margin: '-50px' }}
             className="inline-flex items-center gap-2 px-3 sm:px-4 py-1.5 sm:py-2 rounded-full bg-blue-100 text-blue-700 mb-4 sm:mb-6"
           >
             <Users className="h-4 w-4" />
@@ -84,7 +84,7 @@ export function TeamHighlight() {
                 initial={{ opacity: 0, y: animationY }}
                 whileInView={{ opacity: 1, y: 0 }}
                 transition={{ duration: shouldReduceMotion ? 0.3 : 0.5, delay: index * staggerDelay }}
-                viewport={{ once: true }}
+                viewport={{ once: true, margin: '-50px' }}
                 whileHover={!isMobile ? { y: -10 } : undefined}
                 role={hasProfile ? 'link' : undefined}
                 tabIndex={hasProfile ? 0 : undefined}
@@ -196,7 +196,7 @@ export function TeamHighlight() {
           initial={{ opacity: 0, y: shouldReduceMotion ? 10 : 20 }}
           whileInView={{ opacity: 1, y: 0 }}
           transition={{ duration: animationDuration, delay: shouldReduceMotion ? 0.1 : 0.5 }}
-          viewport={{ once: true }}
+          viewport={{ once: true, margin: '-50px' }}
           className="text-center"
         >
           <Link to="/team">

@@ -27,19 +27,14 @@ export function AchievementsShowcase() {
       <div className="absolute top-20 left-10 w-64 h-64 bg-amber-200/50 rounded-full blur-3xl" />
       <div className="absolute bottom-20 right-10 w-80 h-80 bg-orange-200/50 rounded-full blur-3xl" />
       
-      {/* Trophy Pattern - reduce on mobile */}
-      <div className="absolute inset-0 opacity-[0.03]">
-        {[...Array(isMobile ? 8 : 20)].map((_, i) => (
-          <Trophy 
-            key={i} 
-            className="absolute h-8 w-8 text-amber-900"
-            style={{
-              left: `${(i % 5) * 25 + 5}%`,
-              top: `${Math.floor(i / 5) * 25 + 10}%`,
-            }}
-          />
-        ))}
-      </div>
+      {/* Trophy Pattern — single CSS background instead of many DOM nodes */}
+      <div
+        className="absolute inset-0 opacity-[0.03]"
+        style={{
+          backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='%2378350f' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9H4.5a2.5 2.5 0 0 1 0-5H6'/%3E%3Cpath d='M18 9h1.5a2.5 2.5 0 0 0 0-5H18'/%3E%3Cpath d='M4 22h16'/%3E%3Cpath d='M10 14.66V17c0 .55-.47.98-.97 1.21C7.85 18.75 7 20.24 7 22'/%3E%3Cpath d='M14 14.66V17c0 .55.47.98.97 1.21C16.15 18.75 17 20.24 17 22'/%3E%3Cpath d='M18 2H6v7a6 6 0 0 0 12 0V2Z'/%3E%3C/svg%3E")`,
+          backgroundSize: '80px 80px',
+        }}
+      />
       
       <div className="container mx-auto px-4 relative">
         {/* Section Header */}
@@ -54,7 +49,7 @@ export function AchievementsShowcase() {
             initial={{ opacity: 0, scale: shouldReduceMotion ? 0.95 : 0.8 }}
             whileInView={{ opacity: 1, scale: 1 }}
             transition={{ duration: shouldReduceMotion ? 0.3 : 0.5 }}
-            viewport={{ once: true }}
+            viewport={{ once: true, margin: '-50px' }}
             className="inline-flex items-center gap-2 px-3 sm:px-4 py-1.5 sm:py-2 rounded-full bg-amber-200 text-amber-800 mb-4 sm:mb-6"
           >
             <Award className="h-4 w-4" />
@@ -97,7 +92,7 @@ export function AchievementsShowcase() {
                 initial={{ opacity: 0, y: animationY }}
                 whileInView={{ opacity: 1, y: 0 }}
                 transition={{ duration: animationDuration, delay: index * staggerDelay, ease: [0.22, 1, 0.36, 1] }}
-                viewport={{ once: true }}
+                viewport={{ once: true, margin: '-50px' }}
                 whileHover={!isMobile ? { y: -10, scale: 1.02 } : undefined}
                 className="group h-full"
               >
@@ -222,7 +217,7 @@ export function AchievementsShowcase() {
           initial={{ opacity: 0, y: shouldReduceMotion ? 10 : 20 }}
           whileInView={{ opacity: 1, y: 0 }}
           transition={{ duration: animationDuration, delay: shouldReduceMotion ? 0.1 : 0.5 }}
-          viewport={{ once: true }}
+          viewport={{ once: true, margin: '-50px' }}
           className="text-center"
         >
           <Link to="/achievements">

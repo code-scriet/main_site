@@ -192,4 +192,22 @@
   .backdrop-blur-3xl {
     --tw-backdrop-blur: blur(8px) !important;
   }
+
+  /* Cap heavy box-shadow blurs on mobile to reduce GPU paint cost */
+  .blur-3xl {
+    --tw-blur: blur(16px) !important;
+  }
+
+  /* Limit layout recalculation scope for scrolled home sections */
+  main > section {
+    contain: layout style paint;
+  }
 }
+
+/* GPU-promoted layer — use on scroll-animated elements */
+.gpu-layer {
+  transform: translateZ(0);
+  will-change: transform, opacity;
+  backface-visibility: hidden;
+}
+

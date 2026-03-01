@@ -84,7 +84,7 @@ export function CTASection() {
             initial={{ opacity: 0, scale: shouldReduceMotion ? 0.95 : 0.8 }}
             whileInView={{ opacity: 1, scale: 1 }}
             transition={{ duration: shouldReduceMotion ? 0.3 : 0.5, delay: shouldReduceMotion ? 0.05 : 0.2 }}
-            viewport={{ once: true }}
+            viewport={{ once: true, margin: '-50px' }}
             className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-amber-500/20 border border-amber-500/30 mb-8"
           >
             <Sparkles className="h-4 w-4 text-amber-400" />
@@ -96,7 +96,7 @@ export function CTASection() {
             initial={{ opacity: 0, y: shouldReduceMotion ? 10 : 20 }}
             whileInView={{ opacity: 1, y: 0 }}
             transition={{ duration: animationDuration, delay: shouldReduceMotion ? 0.1 : 0.3 }}
-            viewport={{ once: true }}
+            viewport={{ once: true, margin: '-50px' }}
             className="text-2xl sm:text-4xl md:text-5xl lg:text-6xl font-bold text-white mb-4 sm:mb-6 leading-tight px-2"
           >
             Ready to Level Up Your{' '}
@@ -110,7 +110,7 @@ export function CTASection() {
             initial={{ opacity: 0, y: shouldReduceMotion ? 10 : 20 }}
             whileInView={{ opacity: 1, y: 0 }}
             transition={{ duration: animationDuration, delay: shouldReduceMotion ? 0.15 : 0.4 }}
-            viewport={{ once: true }}
+            viewport={{ once: true, margin: '-50px' }}
             className="text-base sm:text-lg md:text-xl text-white/70 mb-8 sm:mb-10 max-w-2xl mx-auto leading-relaxed px-2"
           >
             Join a vibrant community of passionate developers. Learn, build, compete, and grow together with code.scriet.
@@ -121,7 +121,7 @@ export function CTASection() {
             initial={{ opacity: 0, y: shouldReduceMotion ? 10 : 20 }}
             whileInView={{ opacity: 1, y: 0 }}
             transition={{ duration: animationDuration, delay: shouldReduceMotion ? 0.2 : 0.5 }}
-            viewport={{ once: true }}
+            viewport={{ once: true, margin: '-50px' }}
             className="flex flex-col sm:flex-row gap-3 sm:gap-4 justify-center items-stretch sm:items-center px-4 sm:px-0"
           >
             <Link to="/signin" className="w-full sm:w-auto">
@@ -162,7 +162,7 @@ export function CTASection() {
             initial={{ opacity: 0 }}
             whileInView={{ opacity: 1 }}
             transition={{ duration: animationDuration, delay: shouldReduceMotion ? 0.25 : 0.7 }}
-            viewport={{ once: true }}
+            viewport={{ once: true, margin: '-50px' }}
             className="mt-12 flex flex-wrap justify-center items-center gap-6 text-white/50 text-sm"
           >
             <div className="flex items-center gap-2">

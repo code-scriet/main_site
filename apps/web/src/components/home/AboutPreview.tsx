@@ -6,6 +6,43 @@ import { useMotionConfig } from '@/hooks/useMotionConfig';
 import { useSettings } from '@/context/SettingsContext';
 import { useHomePageData } from '@/hooks/useHomePageData';
 
+const features = [
+  {
+    icon: Brain,
+    title: 'Master DSA',
+    description: 'Deep dive into Data Structures and Algorithms with structured learning paths.',
+    accent: '#8B5CF6',
+    accentLight: 'rgba(139, 92, 246, 0.1)',
+  },
+  {
+    icon: Code,
+    title: 'Build Projects',
+    description: 'Apply your skills by working on real-world projects and collaborations.',
+    accent: '#F59E0B',
+    accentLight: 'rgba(245, 158, 11, 0.1)',
+  },
+  {
+    icon: Target,
+    title: 'Compete & Win',
+    description: 'Participate in coding competitions and hackathons for prizes.',
+    accent: '#10B981',
+    accentLight: 'rgba(16, 185, 129, 0.1)',
+  },
+  {
+    icon: Users,
+    title: 'Network',
+    description: 'Connect with mentors, peers, and industry professionals.',
+    accent: '#3B82F6',
+    accentLight: 'rgba(59, 130, 246, 0.1)',
+  },
+];
+
+const aboutStats = [
+  { value: '500+', label: 'Members' },
+  { value: '3', label: 'Events' },
+  { value: '7+', label: 'Projects' },
+];
+
 export function AboutPreview() {
   const { settings } = useSettings();
   const { data: homeData } = useHomePageData();
@@ -19,37 +56,6 @@ export function AboutPreview() {
   const animationDuration = shouldReduceMotion ? 0.3 : 0.6;
   const animationY = shouldReduceMotion ? 15 : 30;
   const staggerDelay = shouldReduceMotion ? 0.05 : 0.1;
-
-  const features = [
-    {
-      icon: Brain,
-      title: 'Master DSA',
-      description: 'Deep dive into Data Structures and Algorithms with structured learning paths.',
-      accent: '#8B5CF6',
-      accentLight: 'rgba(139, 92, 246, 0.1)',
-    },
-    {
-      icon: Code,
-      title: 'Build Projects',
-      description: 'Apply your skills by working on real-world projects and collaborations.',
-      accent: '#F59E0B',
-      accentLight: 'rgba(245, 158, 11, 0.1)',
-    },
-    {
-      icon: Target,
-      title: 'Compete & Win',
-      description: 'Participate in coding competitions and hackathons for prizes.',
-      accent: '#10B981',
-      accentLight: 'rgba(16, 185, 129, 0.1)',
-    },
-    {
-      icon: Users,
-      title: 'Network',
-      description: 'Connect with mentors, peers, and industry professionals.',
-      accent: '#3B82F6',
-      accentLight: 'rgba(59, 130, 246, 0.1)',
-    },
-  ];
 
   return (
     <section className="py-20 sm:py-28 bg-gradient-to-b from-white via-amber-50/30 to-white relative overflow-hidden">
@@ -69,14 +75,14 @@ export function AboutPreview() {
           initial={{ opacity: 0, y: animationY }}
           whileInView={{ opacity: 1, y: 0 }}
           transition={{ duration: animationDuration }}
-          viewport={{ once: true }}
+          viewport={{ once: true, margin: '-50px' }}
           className="text-center mb-14 sm:mb-20"
         >
           <motion.div 
             initial={{ opacity: 0, scale: shouldReduceMotion ? 0.95 : 0.8 }}
             whileInView={{ opacity: 1, scale: 1 }}
             transition={{ duration: shouldReduceMotion ? 0.3 : 0.5 }}
-            viewport={{ once: true }}
+            viewport={{ once: true, margin: '-50px' }}
             className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-amber-100/80 text-amber-700 mb-6 border border-amber-200/50"
           >
             <Sparkles className="h-4 w-4" />
@@ -112,7 +118,7 @@ export function AboutPreview() {
               initial={{ opacity: 0, y: animationY }}
               whileInView={{ opacity: 1, y: 0 }}
               transition={{ duration: animationDuration, delay: index * staggerDelay }}
-              viewport={{ once: true }}
+              viewport={{ once: true, margin: '-50px' }}
               whileHover={!isMobile ? { y: -6, transition: { duration: 0.25 } } : undefined}
               className="group relative"
             >
@@ -154,7 +160,7 @@ export function AboutPreview() {
           initial={{ opacity: 0, y: animationY }}
           whileInView={{ opacity: 1, y: 0 }}
           transition={{ duration: animationDuration, delay: shouldReduceMotion ? 0.1 : 0.4 }}
-          viewport={{ once: true }}
+          viewport={{ once: true, margin: '-50px' }}
           className="relative rounded-2xl sm:rounded-3xl overflow-hidden mb-14"
         >
           {/* Gradient background with subtle texture */}
@@ -165,17 +171,13 @@ export function AboutPreview() {
           
           <div className="relative p-8 sm:p-10 md:p-12">
             <div className="grid grid-cols-3 gap-6 sm:gap-8 text-center">
-              {[
-                { value: '500+', label: 'Members' },
-                { value: '3', label: 'Events' },
-                { value: '7+', label: 'Projects' },
-              ].map((stat, index) => (
+              {aboutStats.map((stat, index) => (
                 <motion.div
                   key={stat.label}
                   initial={{ opacity: 0, y: 10 }}
                   whileInView={{ opacity: 1, y: 0 }}
                   transition={{ delay: (shouldReduceMotion ? 0.1 : 0.5) + index * staggerDelay }}
-                  viewport={{ once: true }}
+                  viewport={{ once: true, margin: '-50px' }}
                   className="relative"
                 >
                   {/* Divider between stats */}
@@ -195,7 +197,7 @@ export function AboutPreview() {
           initial={{ opacity: 0, y: shouldReduceMotion ? 10 : 20 }}
           whileInView={{ opacity: 1, y: 0 }}
           transition={{ duration: animationDuration, delay: shouldReduceMotion ? 0.1 : 0.5 }}
-          viewport={{ once: true }}
+          viewport={{ once: true, margin: '-50px' }}
           className="text-center"
         >
           <Link to="/about">

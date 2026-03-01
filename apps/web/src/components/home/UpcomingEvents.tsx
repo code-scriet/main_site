@@ -98,7 +98,7 @@ export function UpcomingEvents() {
               initial={{ opacity: 0, scale: shouldReduceMotion ? 0.95 : 0.8 }}
               whileInView={{ opacity: 1, scale: 1 }}
               transition={{ duration: shouldReduceMotion ? 0.3 : 0.5 }}
-              viewport={{ once: true }}
+              viewport={{ once: true, margin: '-50px' }}
               className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-orange-100 text-orange-700 mb-4"
             >
               <Calendar className="h-4 w-4" />
@@ -156,7 +156,7 @@ export function UpcomingEvents() {
                   initial={{ opacity: 0, y: animationY }}
                   whileInView={{ opacity: 1, y: 0 }}
                   transition={{ duration: animationDuration, delay: index * staggerDelay }}
-                  viewport={{ once: true }}
+                  viewport={{ once: true, margin: '-50px' }}
                   whileHover={!isMobile ? { y: -8 } : undefined}
                   className="group"
                 >

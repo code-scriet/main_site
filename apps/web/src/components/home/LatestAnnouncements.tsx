@@ -58,14 +58,14 @@ export function LatestAnnouncements() {
           initial={{ opacity: 0, y: shouldReduceMotion ? 10 : 20 }}
           whileInView={{ opacity: 1, y: 0 }}
           transition={{ duration: animationDuration }}
-          viewport={{ once: true }}
+          viewport={{ once: true, margin: '-50px' }}
           className="text-center mb-8 sm:mb-12"
         >
           <motion.div 
             initial={{ opacity: 0, scale: shouldReduceMotion ? 0.95 : 0.8 }}
             whileInView={{ opacity: 1, scale: 1 }}
             transition={{ duration: shouldReduceMotion ? 0.3 : 0.5 }}
-            viewport={{ once: true }}
+            viewport={{ once: true, margin: '-50px' }}
             className="inline-flex items-center gap-2 px-3 sm:px-4 py-1.5 sm:py-2 rounded-full bg-purple-100 text-purple-700 mb-4 sm:mb-6"
           >
             <Megaphone className="h-4 w-4" />
@@ -95,7 +95,7 @@ export function LatestAnnouncements() {
                 initial={{ opacity: 0, y: animationY }}
                 whileInView={{ opacity: 1, y: 0 }}
                 transition={{ duration: animationDuration, delay: index * staggerDelay }}
-                viewport={{ once: true }}
+                viewport={{ once: true, margin: '-50px' }}
                 whileHover={!isMobile ? { y: -5 } : undefined}
                 className="group"
               >
@@ -143,7 +143,7 @@ export function LatestAnnouncements() {
           initial={{ opacity: 0, y: shouldReduceMotion ? 10 : 20 }}
           whileInView={{ opacity: 1, y: 0 }}
           transition={{ duration: animationDuration, delay: shouldReduceMotion ? 0.1 : 0.4 }}
-          viewport={{ once: true }}
+          viewport={{ once: true, margin: '-50px' }}
           className="text-center"
         >
           <Link to="/announcements">
