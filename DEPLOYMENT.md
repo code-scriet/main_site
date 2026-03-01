@@ -37,7 +37,7 @@
      ```
    - **Start Command**: 
      ```bash
-     npx prisma migrate deploy --schema=./prisma/schema.prisma && npm run start --workspace=apps/api
+     npx prisma migrate resolve --rolled-back 20260220003000_harden_email_and_network_query_indexes --schema=./prisma/schema.prisma || true && npx prisma migrate deploy --schema=./prisma/schema.prisma && npm run start --workspace=apps/api
      ```
    - **Plan**: Free
 
@@ -208,7 +208,7 @@ Should load your homepage.
 ### Database connection issues
 - Verify Neon database is active
 - Check connection string includes `?sslmode=require`
-- Run migrations: `npx prisma migrate deploy`
+- Run migrations safely: `npx prisma migrate resolve --rolled-back 20260220003000_harden_email_and_network_query_indexes --schema=./prisma/schema.prisma || true && npx prisma migrate deploy --schema=./prisma/schema.prisma`
 
 ---
 

@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
 import type { ReactNode } from 'react';
 import { api } from '@/lib/api';
 import type { User } from '@/lib/api';
@@ -67,7 +67,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     }
   }, [fetchUser]);
 
-  const login = async (newToken: string): Promise<ExtendedUser> => {
+  const login = useCallback(async (newToken: string): Promise<ExtendedUser> => {
     setIsLoading(true);
     setError(null);
     try {
@@ -88,9 +88,9 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [fetchUser]);
 
-  const loginWithEmail = async (email: string, password: string) => {
+  const loginWithEmail = useCallback(async (email: string, password: string) => {
     setIsLoading(true);
     setError(null);
     try {
@@ -105,9 +105,9 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, []);
 
-  const register = async (name: string, email: string, password: string) => {
+  const register = useCallback(async (name: string, email: string, password: string) => {
     setIsLoading(true);
     setError(null);
     try {
@@ -122,9 +122,9 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, []);
 
-  const devLogin = async (email: string, name?: string) => {
+  const devLogin = useCallback(async (email: string, name?: string) => {
     setIsLoading(true);
     setError(null);
     try {
@@ -139,21 +139,38 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, []);
 
-  const logout = () => {
+  const logout = useCallback(() => {
     localStorage.removeItem('token');
     localStorage.removeItem('network_intent');
     localStorage.removeItem('network_onboarding_type');
     setToken(null);
     setUser(null);
     setError(null);
-  };
+  }, []);
 
-  const clearError = () => setError(null);
+  const clearError = useCallback(() => setError(null), []);
+
+  const value = useMemo(
+    () => ({
+      user,
+      token,
+      isLoading,
+      error,
+      login,
+      loginWithEmail,
+      register,
+      devLogin,
+      logout,
+      clearError,
+      refreshUser,
+    }),
+    [user, token, isLoading, error, login, loginWithEmail, register, devLogin, logout, clearError, refreshUser]
+  );
 
   return (
-    <AuthContext.Provider value={{ user, token, isLoading, error, login, loginWithEmail, register, devLogin, logout, clearError, refreshUser }}>
+    <AuthContext.Provider value={value}>
       {children}
     </AuthContext.Provider>
   );

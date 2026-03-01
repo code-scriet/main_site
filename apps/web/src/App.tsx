@@ -3,7 +3,6 @@ import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { AuthProvider } from '@/context/AuthContext';
 import { SettingsProvider } from '@/context/SettingsContext';
-import { SocketProvider } from '@/context/SocketContext';
 
 // Loading fallback component
 const PageLoader = () => (
@@ -47,7 +46,7 @@ const EditTeamProfile = lazy(() => import('@/pages/dashboard/EditTeamProfile'));
 const EditNetworkProfile = lazy(() => import('@/pages/dashboard/EditNetworkProfile'));
 
 // Admin Pages - lazy loaded
-const AdminUsers = lazy(() => import('@/pages/admin/AdminUsers'));
+const AdminUsersRealtime = lazy(() => import('@/pages/admin/AdminUsersRealtime'));
 const AdminTeam = lazy(() => import('@/pages/admin/AdminTeam'));
 const AdminAchievements = lazy(() => import('@/pages/admin/AdminAchievements'));
 const AdminSettings = lazy(() => import('@/pages/admin/AdminSettings'));
@@ -75,12 +74,11 @@ const queryClient = new QueryClient({
 function App() {
   return (
     <QueryClientProvider client={queryClient}>
-      <SocketProvider>
-        <AuthProvider>
-          <SettingsProvider>
-            <Router>
-              <Suspense fallback={<PageLoader />}>
-                <Routes>
+      <AuthProvider>
+        <SettingsProvider>
+          <Router>
+            <Suspense fallback={<PageLoader />}>
+              <Routes>
                   {/* Public Routes */}
                   <Route path="/" element={<HomePage />} />
                   <Route path="/about" element={<AboutPage />} />
@@ -122,7 +120,7 @@ function App() {
                   {/* Protected Admin Routes */}
                   <Route element={<ProtectedRoute minRole="ADMIN" />}>
                     <Route path="/admin" element={<DashboardLayout />}>
-                      <Route path="users" element={<AdminUsers />} />
+                      <Route path="users" element={<AdminUsersRealtime />} />
                       <Route path="team" element={<AdminTeam />} />
                       <Route path="achievements" element={<AdminAchievements />} />
                       <Route path="event-registrations" element={<AdminEventRegistrations />} />
@@ -137,12 +135,11 @@ function App() {
 
                   {/* 404 */}
                   <Route path="*" element={<NotFound />} />
-                </Routes>
-              </Suspense>
-            </Router>
-          </SettingsProvider>
-        </AuthProvider>
-      </SocketProvider>
+              </Routes>
+            </Suspense>
+          </Router>
+        </SettingsProvider>
+      </AuthProvider>
     </QueryClientProvider>
   );
 }

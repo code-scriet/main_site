@@ -1,12 +1,12 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { motion, useScroll, useTransform } from 'framer-motion';
 import { Button } from '@/components/ui/button';
 import { Link } from 'react-router-dom';
 import { ArrowRight, Users, Calendar, Sparkles, Terminal, Zap, LayoutDashboard } from 'lucide-react';
-import { api } from '@/lib/api';
 import { useAuth } from '@/context/AuthContext';
 import { useSettings } from '@/context/SettingsContext';
 import { useMotionConfig } from '@/hooks/useMotionConfig';
+import { useHomePageData } from '@/hooks/useHomePageData';
 
 // Animated typing text effect
 const typingPhrases = [
@@ -189,20 +189,21 @@ function AnimatedCounter({ value, suffix = '' }: { value: number; suffix?: strin
 export function Hero() {
   const { user } = useAuth();
   const { settings, loading: settingsLoading } = useSettings();
+  const { data: homeData } = useHomePageData();
   const { isMobile, shouldReduceMotion, prefersReducedMotion } = useMotionConfig();
-  const [stats, setStats] = useState({ members: 0, events: 0, achievements: 0 });
   const { scrollY } = useScroll();
   
   // Disable parallax on mobile for better performance
   const opacity = useTransform(scrollY, [0, 400], shouldReduceMotion ? [1, 1] : [1, 0]);
   const scale = useTransform(scrollY, [0, 400], shouldReduceMotion ? [1, 1] : [1, 0.95]);
   const y = useTransform(scrollY, [0, 400], shouldReduceMotion ? [0, 0] : [0, 100]);
-
-  useEffect(() => {
-    api.getPublicStats()
-      .then(setStats)
-      .catch(() => setStats({ members: 500, events: 3, achievements: 5 }));
-  }, []);
+  const stats = homeData?.stats ?? { members: 500, events: 3, achievements: 5 };
+  const resolvedDescription =
+    homeData?.settings?.clubDescription ||
+    settings?.clubDescription ||
+    "Building tomorrow's problem solvers through collaborative learning and hands-on coding experiences.";
+  const hiringEnabled = homeData?.settings?.hiringEnabled ?? settings?.hiringEnabled;
+  const canRenderHiringCta = Boolean(homeData) || !settingsLoading;
 
   const containerVariants = {
     hidden: { opacity: 0 },
@@ -368,7 +369,7 @@ export function Hero() {
             variants={itemVariants}
             className="text-base sm:text-lg md:text-xl lg:text-2xl text-white/70 max-w-3xl mx-auto leading-relaxed px-2"
           >
-            {settings?.clubDescription || "Building tomorrow's problem solvers through collaborative learning and hands-on coding experiences."}
+            {resolvedDescription}
           </motion.p>
 
           {/* CTA Buttons */}
@@ -376,7 +377,7 @@ export function Hero() {
             variants={itemVariants}
             className="flex flex-col sm:flex-row gap-3 sm:gap-4 justify-center items-stretch sm:items-center pt-4 px-4 sm:px-0"
           >
-            {!settingsLoading && settings?.hiringEnabled === true && (
+            {canRenderHiringCta && hiringEnabled === true && (
               <Link to="/join-us" className="w-full sm:w-auto">
                 <Button 
                   size="lg" 

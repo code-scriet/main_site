@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
+import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { io, Socket } from 'socket.io-client';
 import { toast } from 'sonner';
 
@@ -12,54 +12,66 @@ const SocketContext = createContext<SocketContextType>({
   isConnected: false,
 });
 
+function createSocket(): Socket | null {
+  if (typeof window === 'undefined') {
+    return null;
+  }
+
+  let socketUrl = import.meta.env.VITE_API_URL || 'http://localhost:5001';
+  socketUrl = socketUrl.replace(/\/api\/?$/, '');
+
+  return io(socketUrl, {
+    transports: ['websocket'], // Force WebSocket to avoid polling sticky session issues
+    autoConnect: true,
+    withCredentials: true,
+    reconnectionAttempts: 6,
+    reconnectionDelay: 1000,
+  });
+}
+
 export function SocketProvider({ children }: { children: ReactNode }) {
-  const [socket, setSocket] = useState<Socket | null>(null);
+  const [socket] = useState<Socket | null>(createSocket);
   const [isConnected, setIsConnected] = useState(false);
 
   useEffect(() => {
-    // robustly determine socket URL
-    let socketUrl = import.meta.env.VITE_API_URL || 'http://localhost:5001';
-    // Remove /api suffix if present to get the base URL
-    socketUrl = socketUrl.replace(/\/api\/?$/, '');
-    
-    console.log('Connecting to Socket.io at:', socketUrl);
+    if (!socket) {
+      return () => undefined;
+    }
 
-    const newSocket = io(socketUrl, {
-      transports: ['websocket'], // Force WebSocket to avoid polling sticky session issues
-      autoConnect: true,
-      withCredentials: true,
-      reconnectionAttempts: 10,
-      reconnectionDelay: 1000,
-    });
+    let hadSuccessfulConnection = false;
 
-    newSocket.on('connect', () => {
-      console.log('Socket connected successfully:', newSocket.id);
+    socket.on('connect', () => {
       setIsConnected(true);
-      toast.success('Real-time connection established');
+      if (!hadSuccessfulConnection) {
+        toast.success('Real-time connection established');
+      }
+      hadSuccessfulConnection = true;
     });
 
-    newSocket.on('connect_error', (err) => {
-      console.error('Socket connection error:', err.message);
+    socket.on('connect_error', (err) => {
       setIsConnected(false);
-      // Only show error toast if we were previously connected or it's a persistent failure
-      if (isConnected) toast.error(`Connection lost: ${err.message}`);
+      if (hadSuccessfulConnection) {
+        toast.error(`Connection lost: ${err.message}`);
+      }
     });
 
-    newSocket.on('disconnect', (reason) => {
-      console.log('Socket disconnected:', reason);
+    socket.on('disconnect', (reason) => {
       setIsConnected(false);
-      toast.warning(`Real-time connection lost: ${reason}`);
+      if (hadSuccessfulConnection) {
+        toast.warning(`Real-time connection lost: ${reason}`);
+      }
     });
-
-    setSocket(newSocket);
 
     return () => {
-      newSocket.close();
+      socket.removeAllListeners();
+      socket.close();
     };
-  }, []);
+  }, [socket]);
+
+  const value = useMemo(() => ({ socket, isConnected }), [socket, isConnected]);
 
   return (
-    <SocketContext.Provider value={{ socket, isConnected }}>
+    <SocketContext.Provider value={value}>
       {children}
     </SocketContext.Provider>
   );

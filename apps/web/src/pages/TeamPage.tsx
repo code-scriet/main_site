@@ -44,7 +44,7 @@ export default function TeamPage() {
       try {
         setLoading(true);
         setError(null);
-        const data = await api.getTeam();
+        const data = await api.getTeam(undefined, { compact: true });
         setTeamMembers(data);
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Failed to load team');

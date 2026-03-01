@@ -38,7 +38,7 @@ const ALLOWED_ATTR = [
 ];
 
 // Allowed URL schemes
-const ALLOWED_URI_REGEXP = /^(?:(?:https?|mailto|tel):|[^a-z]|[a-z+.\-]+(?:[^a-z+.\-:]|$))/i;
+const ALLOWED_URI_REGEXP = /^(?:(?:https?|mailto|tel):|[^a-z]|[a-z+.-]+(?:[^a-z+.-:]|$))/i;
 
 /**
  * Sanitizes HTML content to prevent XSS attacks

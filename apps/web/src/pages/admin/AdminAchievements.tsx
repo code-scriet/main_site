@@ -45,7 +45,7 @@ export default function AdminAchievements() {
   const loadAchievements = async () => {
     try {
       setLoading(true);
-      const data = await api.getAchievements();
+      const data = await api.getAchievements({ includeContent: true });
       setAchievements(data);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load achievements');

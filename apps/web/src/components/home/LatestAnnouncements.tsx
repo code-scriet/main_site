@@ -1,13 +1,11 @@
-import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Link } from 'react-router-dom';
 import { Bell, Calendar, ArrowRight, Megaphone, AlertTriangle, Info, CheckCircle } from 'lucide-react';
-import { api } from '@/lib/api';
-import type { Announcement } from '@/lib/api';
 import { formatDate } from '@/lib/dateUtils';
 import { useMotionConfig } from '@/hooks/useMotionConfig';
+import { useHomePageData } from '@/hooks/useHomePageData';
 
 const priorityConfig = {
   LOW: { 
@@ -37,18 +35,11 @@ const priorityConfig = {
 };
 
 export function LatestAnnouncements() {
-  const [announcements, setAnnouncements] = useState<Announcement[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { data: homeData, isLoading } = useHomePageData();
+  const announcements = homeData?.latestAnnouncements ?? [];
   const { isMobile, shouldReduceMotion } = useMotionConfig();
 
-  useEffect(() => {
-    api.getAnnouncements()
-      .then((data) => setAnnouncements(data.slice(0, 3)))
-      .catch(console.error)
-      .finally(() => setLoading(false));
-  }, []);
-
-  if (loading) return null;
+  if (isLoading) return null;
   if (announcements.length === 0) return null;
 
   // Animation configs based on device

@@ -7,11 +7,28 @@ interface RequestOptions extends RequestInit {
 
 async function request<T>(endpoint: string, options: RequestOptions = {}): Promise<T> {
   const { token, ...fetchOptions } = options;
-  
+  const method = (fetchOptions.method ?? 'GET').toUpperCase();
+  const hasRequestBody =
+    fetchOptions.body !== undefined &&
+    fetchOptions.body !== null &&
+    method !== 'GET' &&
+    method !== 'HEAD';
+
   const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
     ...(fetchOptions.headers as Record<string, string>),
   };
+
+  const hasHeader = (name: string) =>
+    Object.keys(headers).some((headerName) => headerName.toLowerCase() === name.toLowerCase());
+
+  // Avoid forcing JSON content-type on GET/HEAD requests because that triggers CORS preflight.
+  if (hasRequestBody && !hasHeader('Content-Type')) {
+    headers['Content-Type'] = 'application/json';
+  }
+
+  if (!hasHeader('Accept')) {
+    headers.Accept = 'application/json';
+  }
 
   if (token) {
     headers.Authorization = `Bearer ${token}`;
@@ -367,6 +384,97 @@ export interface AuditLogEntry {
   user: { id: string; name: string; email: string; avatar?: string | null };
 }
 
+export interface HomeEventPreview {
+  id: string;
+  title: string;
+  slug: string;
+  description: string;
+  shortDescription?: string | null;
+  status: 'UPCOMING' | 'ONGOING' | 'PAST';
+  startDate: string;
+  endDate?: string | null;
+  registrationStartDate?: string | null;
+  registrationEndDate?: string | null;
+  location?: string | null;
+  eventType?: string | null;
+  capacity?: number | null;
+  imageUrl?: string | null;
+  registrationFields?: EventRegistrationField[] | null;
+  _count?: { registrations: number };
+}
+
+export interface HomeAnnouncementPreview {
+  id: string;
+  title: string;
+  slug?: string | null;
+  body: string;
+  shortDescription?: string | null;
+  priority: 'LOW' | 'MEDIUM' | 'HIGH' | 'URGENT';
+  createdAt: string;
+  creator?: { id: string; name: string; avatar?: string | null } | null;
+}
+
+export interface HomeAchievementPreview {
+  id: string;
+  title: string;
+  slug: string;
+  description: string;
+  shortDescription?: string | null;
+  eventName?: string | null;
+  achievedBy: string;
+  imageUrl?: string | null;
+  imageGallery?: string[] | null;
+  date: string;
+  featured?: boolean;
+}
+
+export interface HomeTeamPreview {
+  id: string;
+  name: string;
+  role: string;
+  slug?: string | null;
+  imageUrl: string;
+  github?: string | null;
+  linkedin?: string | null;
+  twitter?: string | null;
+  instagram?: string | null;
+}
+
+export interface HomeNetworkPreview {
+  id: string;
+  slug?: string | null;
+  fullName: string;
+  designation: string;
+  company: string;
+  industry: string;
+  profilePhoto?: string | null;
+  linkedinUsername?: string | null;
+  githubUsername?: string | null;
+  personalWebsite?: string | null;
+  connectionType: NetworkConnectionType;
+  passoutYear?: number | null;
+  branch?: string | null;
+  isFeatured?: boolean;
+}
+
+export interface HomePageData {
+  stats: {
+    members: number;
+    events: number;
+    achievements: number;
+  };
+  settings: {
+    clubDescription?: string | null;
+    hiringEnabled?: boolean;
+    showNetwork?: boolean;
+  };
+  upcomingEvents: HomeEventPreview[];
+  latestAnnouncements: HomeAnnouncementPreview[];
+  featuredAchievements: HomeAchievementPreview[];
+  teamHighlights: HomeTeamPreview[];
+  networkHighlights: HomeNetworkPreview[];
+}
+
 export const api = {
   // Auth
   getProviders: () => request<AuthProviders>('/auth/providers'),
@@ -436,9 +544,12 @@ export const api = {
     request(`/announcements/${id}`, { method: 'DELETE', token }),
   
   // Team
-  getTeam: (team?: string) => {
-    const params = team ? `?team=${team}` : '';
-    return request<TeamMember[]>(`/team${params}`);
+  getTeam: (team?: string, options?: { compact?: boolean }) => {
+    const params = new URLSearchParams();
+    if (team) params.set('team', team);
+    if (options?.compact) params.set('compact', 'true');
+    const query = params.toString();
+    return request<TeamMember[]>(`/team${query ? `?${query}` : ''}`);
   },
   getTeamMember: (id: string) =>
     request<TeamMember>(`/team/${id}`),
@@ -468,11 +579,12 @@ export const api = {
     request(`/team/${id}`, { method: 'DELETE', token }),
   
   // Achievements
-  getAchievements: (options?: { year?: string; featured?: boolean; limit?: number }) => {
+  getAchievements: (options?: { year?: string; featured?: boolean; limit?: number; includeContent?: boolean }) => {
     const params = new URLSearchParams();
     if (options?.year) params.append('year', options.year);
     if (options?.featured) params.append('featured', 'true');
     if (options?.limit) params.append('limit', options.limit.toString());
+    if (options?.includeContent) params.append('includeContent', 'true');
     const query = params.toString() ? `?${params.toString()}` : '';
     return request<Achievement[]>(`/achievements${query}`);
   },
@@ -506,6 +618,7 @@ export const api = {
   
   // Stats
   getPublicStats: () => request<{ members: number; events: number; achievements: number }>('/stats/public'),
+  getHomePageData: () => request<HomePageData>('/stats/home'),
   getDashboardStats: (token: string) => request('/stats/dashboard', { token }),
   
   // Users (Admin)

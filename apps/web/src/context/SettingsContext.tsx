@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useEffect, type ReactNode } from 'react';
+import { createContext, useContext, useState, useEffect, useCallback, useMemo, type ReactNode } from 'react';
 import { api } from '@/lib/api';
 import type { Settings } from '@/lib/api';
 
@@ -42,7 +42,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const refreshSettings = async () => {
+  const refreshSettings = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
@@ -56,14 +56,19 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     } finally {
       setLoading(false);
     }
-  };
-
-  useEffect(() => {
-    refreshSettings();
   }, []);
 
+  useEffect(() => {
+    void refreshSettings();
+  }, [refreshSettings]);
+
+  const value = useMemo(
+    () => ({ settings, loading, error, refreshSettings }),
+    [settings, loading, error, refreshSettings]
+  );
+
   return (
-    <SettingsContext.Provider value={{ settings, loading, error, refreshSettings }}>
+    <SettingsContext.Provider value={value}>
       {children}
     </SettingsContext.Provider>
   );

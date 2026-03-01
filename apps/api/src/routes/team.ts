@@ -89,11 +89,11 @@ const sanitizeRichContent = (data: Record<string, unknown>): Record<string, unkn
 };
 
 // Merge team member data with linked user data (team member fields take priority)
-const mergeWithUserData = (teamMember: any): any => {
+const mergeWithUserData = (teamMember: any, includeSyncMetadata = true): any => {
   if (!teamMember.user) return teamMember;
 
   const user = teamMember.user;
-  return {
+  const merged: Record<string, unknown> = {
     ...teamMember,
     // Merged fields - team member data takes priority
     imageUrl: teamMember.imageUrl || user.avatar,
@@ -102,46 +102,79 @@ const mergeWithUserData = (teamMember: any): any => {
     linkedin: teamMember.linkedin || user.linkedinUrl,
     twitter: teamMember.twitter || user.twitterUrl,
     website: teamMember.website || user.websiteUrl,
-    // Add sync metadata
-    _syncedFrom: {
+  };
+
+  if (includeSyncMetadata) {
+    merged._syncedFrom = {
       imageUrl: !teamMember.imageUrl && user.avatar ? 'user' : 'team',
       bio: !teamMember.bio && user.bio ? 'user' : 'team',
       github: !teamMember.github && user.githubUrl ? 'user' : 'team',
       linkedin: !teamMember.linkedin && user.linkedinUrl ? 'user' : 'team',
       twitter: !teamMember.twitter && user.twitterUrl ? 'user' : 'team',
       website: !teamMember.website && user.websiteUrl ? 'user' : 'team',
-    },
-  };
+    };
+  }
+
+  return merged;
 };
 
 // Get all team members
 teamRouter.get('/', async (req: Request, res: Response) => {
   try {
-    const { team } = req.query;
+    const { team, compact } = req.query;
 
     const where = team ? { team: team as string } : {};
+    const isCompact = compact === 'true';
 
-    const teamMembers = await prisma.teamMember.findMany({
-      where,
-      include: {
-        user: {
+    const teamMembers = isCompact
+      ? await prisma.teamMember.findMany({
+          where,
           select: {
             id: true,
             name: true,
-            email: true,
-            avatar: true,
-            bio: true,
-            githubUrl: true,
-            linkedinUrl: true,
-            twitterUrl: true,
-            websiteUrl: true,
+            role: true,
+            team: true,
+            imageUrl: true,
+            github: true,
+            linkedin: true,
+            twitter: true,
+            instagram: true,
+            order: true,
+            slug: true,
+            userId: true,
+            user: {
+              select: {
+                avatar: true,
+                githubUrl: true,
+                linkedinUrl: true,
+                twitterUrl: true,
+                websiteUrl: true,
+              },
+            },
           },
-        },
-      },
-      orderBy: [{ order: 'asc' }, { createdAt: 'asc' }],
-    });
+          orderBy: [{ order: 'asc' }, { createdAt: 'asc' }],
+        })
+      : await prisma.teamMember.findMany({
+          where,
+          include: {
+            user: {
+              select: {
+                id: true,
+                name: true,
+                email: true,
+                avatar: true,
+                bio: true,
+                githubUrl: true,
+                linkedinUrl: true,
+                twitterUrl: true,
+                websiteUrl: true,
+              },
+            },
+          },
+          orderBy: [{ order: 'asc' }, { createdAt: 'asc' }],
+        });
 
-    res.json({ success: true, data: teamMembers.map(mergeWithUserData) });
+    res.json({ success: true, data: teamMembers.map((member) => mergeWithUserData(member, !isCompact)) });
   } catch (error) {
     res.status(500).json({ success: false, error: { message: 'Failed to fetch team members' } });
   }

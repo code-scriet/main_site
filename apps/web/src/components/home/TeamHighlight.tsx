@@ -1,30 +1,15 @@
-import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { Button } from '@/components/ui/button';
 import { Link, useNavigate } from 'react-router-dom';
 import { Github, Linkedin, Twitter, Instagram, ArrowRight, Users, Loader2 } from 'lucide-react';
-import { api, type TeamMember } from '@/lib/api';
 import { useMotionConfig } from '@/hooks/useMotionConfig';
+import { useHomePageData } from '@/hooks/useHomePageData';
 
 export function TeamHighlight() {
-  const [teamMembers, setTeamMembers] = useState<TeamMember[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { data: homeData, isLoading } = useHomePageData();
+  const teamMembers = homeData?.teamHighlights ?? [];
   const { isMobile, shouldReduceMotion } = useMotionConfig();
   const navigate = useNavigate();
-
-  useEffect(() => {
-    const fetchTeam = async () => {
-      try {
-        const data = await api.getTeam();
-        setTeamMembers(data.slice(0, 6));
-      } catch (err) {
-        console.error('Failed to fetch team:', err);
-      } finally {
-        setLoading(false);
-      }
-    };
-    fetchTeam();
-  }, []);
 
   // Animation configs based on device
   const animationDuration = shouldReduceMotion ? 0.3 : 0.6;
@@ -68,7 +53,7 @@ export function TeamHighlight() {
         </motion.div>
 
         {/* Team Grid */}
-        {loading ? (
+        {isLoading ? (
           <div className="flex justify-center py-16">
             <Loader2 className="h-10 w-10 animate-spin text-amber-600" />
           </div>

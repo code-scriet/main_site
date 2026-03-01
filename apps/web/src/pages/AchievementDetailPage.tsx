@@ -7,7 +7,8 @@ import { motion, AnimatePresence, type PanInfo } from 'framer-motion';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Markdown, InlineMarkdown } from '@/components/ui/markdown';
+import { Markdown } from '@/components/ui/markdown';
+import { InlineMarkdown } from '@/components/ui/inline-markdown';
 import { 
   Trophy, Calendar, Loader2, ArrowLeft, Tag, Share2, X,
   ChevronLeft, ChevronRight, Image as ImageIcon, Sparkles, Award, Star,

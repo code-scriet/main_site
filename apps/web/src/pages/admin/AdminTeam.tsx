@@ -265,7 +265,9 @@ export default function AdminTeam() {
           }));
           setLinkedUserInfo(fullUser);
           setLinkingUserId(userId);
-        } catch (e) {}
+        } catch {
+          // Linking succeeded; user-prefill data is optional and may fail independently.
+        }
       }
       
       setSuccess('Team member linked to user account');

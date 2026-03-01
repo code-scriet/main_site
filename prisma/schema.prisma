@@ -41,6 +41,7 @@ model User {
   teamMember         TeamMember?
 
   @@map("users")
+  @@index([role, createdAt(sort: Desc)], map: "users_role_created_at_desc_idx")
 }
 
 model Settings {
@@ -136,6 +137,7 @@ model EventRegistration {
 
   @@unique([userId, eventId])
   @@index([eventId])
+  @@index([eventId, timestamp(sort: Desc)], map: "event_registrations_event_id_timestamp_desc_idx")
   @@index([userId, timestamp])
   @@index([timestamp])
   @@index([reminderSentAt])
@@ -166,6 +168,8 @@ model Announcement {
   @@index([featured])
   @@index([pinned])
   @@index([expiresAt])
+  @@index([pinned(sort: Desc), createdAt(sort: Desc)], map: "announcements_pinned_created_at_desc_idx")
+  @@index([expiresAt, pinned(sort: Desc), createdAt(sort: Desc)], map: "announcements_expires_pinned_created_idx")
   @@map("announcements")
 }
 
@@ -195,7 +199,8 @@ model TeamMember {
   website      String?
 
   @@index([team, order])
-  @@index([slug])
+  @@index([team, order, createdAt], map: "team_members_team_order_created_at_idx")
+  @@index([order, createdAt], map: "team_members_order_created_at_idx")
   @@map("team_members")
 }
 
@@ -218,6 +223,7 @@ model Achievement {
 
   @@index([date])
   @@index([featured])
+  @@index([featured, date(sort: Desc)], map: "achievements_featured_date_desc_idx")
   @@map("achievements")
 }
 
@@ -390,6 +396,8 @@ model NetworkProfile {
   @@index([displayOrder])
   @@index([isFeatured])
   @@index([passoutYear])
+  @@index([status, isPublic, isFeatured(sort: Desc), displayOrder, createdAt(sort: Desc)], map: "network_profiles_public_feed_idx")
+  @@index([status, isPublic, industry], map: "network_profiles_status_public_industry_idx")
   @@map("network_profiles")
 }
 

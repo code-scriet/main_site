@@ -10,6 +10,7 @@ import { parsePaginationNumber } from '../utils/pagination.js';
 import { logger } from '../utils/logger.js';
 
 export const achievementsRouter = Router();
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 const optionalUrl = z.union([z.string().url('Must be a valid URL'), z.literal(''), z.null()]).optional();
 
@@ -49,7 +50,7 @@ const toNullableJsonValue = (
 // Get all achievements
 achievementsRouter.get('/', async (req: Request, res: Response) => {
   try {
-    const { featured, year } = req.query;
+    const { featured, year, includeContent } = req.query;
     const limit = parsePaginationNumber(req.query.limit, 50, { min: 1, max: 100 });
     const offset = parsePaginationNumber(req.query.offset, 0, { min: 0, max: 1000000 });
 
@@ -78,15 +79,35 @@ achievementsRouter.get('/', async (req: Request, res: Response) => {
       };
     }
 
-    const [achievements, total] = await Promise.all([
-      prisma.achievement.findMany({
-        where,
-        orderBy: { date: 'desc' },
-        take: limit,
-        skip: offset,
-      }),
-      prisma.achievement.count({ where }),
-    ]);
+    const shouldIncludeContent = includeContent === 'true';
+
+    const listSelect = {
+      id: true,
+      title: true,
+      slug: true,
+      description: true,
+      shortDescription: true,
+      eventName: true,
+      achievedBy: true,
+      imageUrl: true,
+      imageGallery: true,
+      date: true,
+      tags: true,
+      featured: true,
+      createdAt: true,
+      updatedAt: true,
+      ...(shouldIncludeContent ? { content: true } : {}),
+    } satisfies Prisma.AchievementSelect;
+
+    const achievements = await prisma.achievement.findMany({
+      where,
+      orderBy: { date: 'desc' },
+      take: limit,
+      skip: offset,
+      select: listSelect,
+    });
+    const shouldCount = !(offset === 0 && achievements.length < limit);
+    const total = shouldCount ? await prisma.achievement.count({ where }) : achievements.length;
 
     res.json({
       success: true,
@@ -110,6 +131,22 @@ achievementsRouter.get('/latest', async (req: Request, res: Response) => {
     const achievements = await prisma.achievement.findMany({
       orderBy: { date: 'desc' },
       take: limit,
+      select: {
+        id: true,
+        title: true,
+        slug: true,
+        description: true,
+        shortDescription: true,
+        eventName: true,
+        achievedBy: true,
+        imageUrl: true,
+        imageGallery: true,
+        date: true,
+        tags: true,
+        featured: true,
+        createdAt: true,
+        updatedAt: true,
+      },
     });
 
     res.json({ success: true, data: achievements });
@@ -131,6 +168,22 @@ achievementsRouter.get('/featured', async (req: Request, res: Response) => {
       where: { featured: true },
       orderBy: { date: 'desc' },
       take: limit,
+      select: {
+        id: true,
+        title: true,
+        slug: true,
+        description: true,
+        shortDescription: true,
+        eventName: true,
+        achievedBy: true,
+        imageUrl: true,
+        imageGallery: true,
+        date: true,
+        tags: true,
+        featured: true,
+        createdAt: true,
+        updatedAt: true,
+      },
     });
 
     res.json({ success: true, data: achievements });
@@ -143,17 +196,12 @@ achievementsRouter.get('/featured', async (req: Request, res: Response) => {
 achievementsRouter.get('/:idOrSlug', async (req: Request, res: Response) => {
   try {
     const { idOrSlug } = req.params;
-    
-    // Try to find by slug first, then by ID
-    let achievement = await prisma.achievement.findUnique({
-      where: { slug: idOrSlug },
-    });
-    
-    if (!achievement) {
-      achievement = await prisma.achievement.findUnique({
-        where: { id: idOrSlug },
-      });
-    }
+
+    const achievement = UUID_REGEX.test(idOrSlug)
+      ? (await prisma.achievement.findUnique({ where: { id: idOrSlug } })) ??
+        (await prisma.achievement.findUnique({ where: { slug: idOrSlug } }))
+      : (await prisma.achievement.findUnique({ where: { slug: idOrSlug } })) ??
+        (await prisma.achievement.findUnique({ where: { id: idOrSlug } }));
 
     if (!achievement) {
       return res.status(404).json({ success: false, error: { message: 'Achievement not found' } });

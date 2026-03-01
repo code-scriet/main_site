@@ -1,21 +1,19 @@
-import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { Button } from '@/components/ui/button';
 import { Link } from 'react-router-dom';
 import { Code, Users, ArrowRight, Sparkles, Target, Brain } from 'lucide-react';
-import { api } from '@/lib/api';
-import type { Settings } from '@/lib/api';
 import { useMotionConfig } from '@/hooks/useMotionConfig';
+import { useSettings } from '@/context/SettingsContext';
+import { useHomePageData } from '@/hooks/useHomePageData';
 
 export function AboutPreview() {
-  const [settings, setSettings] = useState<Settings | null>(null);
+  const { settings } = useSettings();
+  const { data: homeData } = useHomePageData();
   const { isMobile, shouldReduceMotion } = useMotionConfig();
-
-  useEffect(() => {
-    api.getSettings()
-      .then(setSettings)
-      .catch(console.error);
-  }, []);
+  const clubDescription =
+    homeData?.settings?.clubDescription ||
+    settings?.clubDescription ||
+    'code.scriet is a community of passionate coders dedicated to continuous learning, problem-solving, and building amazing things together.';
 
   // Animation configs based on device
   const animationDuration = shouldReduceMotion ? 0.3 : 0.6;
@@ -102,7 +100,7 @@ export function AboutPreview() {
           </h2>
           
           <p className="text-base sm:text-lg md:text-xl text-gray-600 max-w-3xl mx-auto leading-relaxed px-2">
-            {settings?.clubDescription || "code.scriet is a community of passionate coders dedicated to continuous learning, problem-solving, and building amazing things together."}
+            {clubDescription}
           </p>
         </motion.div>
 

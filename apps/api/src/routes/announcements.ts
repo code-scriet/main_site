@@ -11,6 +11,7 @@ import { logger } from '../utils/logger.js';
 import { parsePaginationNumber } from '../utils/pagination.js';
 
 export const announcementsRouter = Router();
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 const optionalUrl = z.union([z.string().url('Must be a valid URL'), z.literal(''), z.null()]).optional();
 
@@ -86,19 +87,36 @@ announcementsRouter.get('/', async (req: Request, res: Response) => {
       where.featured = true;
     }
 
-    const [announcements, total] = await Promise.all([
-      prisma.announcement.findMany({
-        where,
-        orderBy: [
-          { pinned: 'desc' },
-          { createdAt: 'desc' }
-        ],
-        take: limit,
-        skip: offset,
-        include: { creator: { select: { id: true, name: true, avatar: true } } },
-      }),
-      prisma.announcement.count({ where }),
-    ]);
+    const listSelect = {
+      id: true,
+      title: true,
+      slug: true,
+      body: true,
+      shortDescription: true,
+      priority: true,
+      imageUrl: true,
+      imageGallery: true,
+      tags: true,
+      featured: true,
+      pinned: true,
+      expiresAt: true,
+      createdBy: true,
+      createdAt: true,
+      creator: { select: { id: true, name: true, avatar: true } },
+    } satisfies Prisma.AnnouncementSelect;
+
+    const announcements = await prisma.announcement.findMany({
+      where,
+      orderBy: [
+        { pinned: 'desc' },
+        { createdAt: 'desc' }
+      ],
+      take: limit,
+      skip: offset,
+      select: listSelect,
+    });
+    const shouldCount = !(offset === 0 && announcements.length < limit);
+    const total = shouldCount ? await prisma.announcement.count({ where }) : announcements.length;
 
     res.json({
       success: true,
@@ -131,7 +149,22 @@ announcementsRouter.get('/latest', async (req: Request, res: Response) => {
         { createdAt: 'desc' }
       ],
       take: limit,
-      include: { creator: { select: { id: true, name: true, avatar: true } } },
+      select: {
+        id: true,
+        title: true,
+        slug: true,
+        body: true,
+        shortDescription: true,
+        priority: true,
+        imageUrl: true,
+        imageGallery: true,
+        tags: true,
+        featured: true,
+        pinned: true,
+        createdBy: true,
+        createdAt: true,
+        creator: { select: { id: true, name: true, avatar: true } },
+      },
     });
 
     res.json({ success: true, data: announcements });
@@ -144,16 +177,12 @@ announcementsRouter.get('/latest', async (req: Request, res: Response) => {
 announcementsRouter.get('/:id', async (req: Request, res: Response) => {
   try {
     const idOrSlug = req.params.id;
-    
-    const announcement = await prisma.announcement.findFirst({
-      where: {
-        OR: [
-          { id: idOrSlug },
-          { slug: idOrSlug }
-        ]
-      },
-      include: { creator: { select: { id: true, name: true, avatar: true } } },
-    });
+    const includeOptions = { creator: { select: { id: true, name: true, avatar: true } } } as const;
+    const announcement = UUID_REGEX.test(idOrSlug)
+      ? (await prisma.announcement.findUnique({ where: { id: idOrSlug }, include: includeOptions })) ??
+        (await prisma.announcement.findUnique({ where: { slug: idOrSlug }, include: includeOptions }))
+      : (await prisma.announcement.findUnique({ where: { slug: idOrSlug }, include: includeOptions })) ??
+        (await prisma.announcement.findUnique({ where: { id: idOrSlug }, include: includeOptions }));
 
     if (!announcement) {
       return res.status(404).json({ success: false, error: { message: 'Announcement not found' } });

@@ -166,8 +166,6 @@ usersRouter.put('/me', authMiddleware, async (req: Request, res: Response) => {
     });
 
     await auditLog(authUser.id, 'UPDATE', 'user', authUser.id, { fields: Object.keys(req.body) });
-
-    await auditLog(authUser.id, 'UPDATE', 'user', authUser.id, { fields: Object.keys(req.body) });
     res.json({ success: true, data: user, message: 'Profile updated successfully' });
   } catch (error) {
     res.status(500).json({ success: false, error: { message: 'Failed to update profile' } });

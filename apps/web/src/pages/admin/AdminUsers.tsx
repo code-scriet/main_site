@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -101,28 +101,7 @@ export default function AdminUsers() {
   
   const isSuperAdmin = currentUser?.isSuperAdmin === true;
 
-  useEffect(() => {
-    loadUsers();
-  }, []);
-
-  // Real-time updates via WebSocket
-  useSocketEvent('user:created', () => {
-    console.log('User created event received, refreshing...');
-    toast.info('New user registered - refreshing list');
-    loadUsers();
-  });
-  useSocketEvent('user:updated', () => {
-    console.log('User updated event received, refreshing...');
-    toast.info('User updated - refreshing list');
-    loadUsers();
-  });
-  useSocketEvent('user:deleted', () => {
-    console.log('User deleted event received, refreshing...');
-    toast.info('User deleted - refreshing list');
-    loadUsers();
-  });
-
-  const loadUsers = async () => {
+  const loadUsers = useCallback(async () => {
     if (!token) {
       setError('Authentication required');
       setLoading(false);
@@ -138,7 +117,31 @@ export default function AdminUsers() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [token]);
+
+  useEffect(() => {
+    void loadUsers();
+  }, [loadUsers]);
+
+  const handleSocketUserCreated = useCallback(() => {
+    toast.info('New user registered - refreshing list');
+    void loadUsers();
+  }, [loadUsers]);
+
+  const handleSocketUserUpdated = useCallback(() => {
+    toast.info('User updated - refreshing list');
+    void loadUsers();
+  }, [loadUsers]);
+
+  const handleSocketUserDeleted = useCallback(() => {
+    toast.info('User deleted - refreshing list');
+    void loadUsers();
+  }, [loadUsers]);
+
+  // Real-time updates via WebSocket
+  useSocketEvent('user:created', handleSocketUserCreated);
+  useSocketEvent('user:updated', handleSocketUserUpdated);
+  useSocketEvent('user:deleted', handleSocketUserDeleted);
 
   const handleRoleChange = async (userId: string, newRole: string) => {
     if (!token) {

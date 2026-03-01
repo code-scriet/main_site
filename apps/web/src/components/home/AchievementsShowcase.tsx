@@ -1,32 +1,17 @@
-import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { Button } from '@/components/ui/button';
 import { Link } from 'react-router-dom';
 import { Trophy, ArrowRight, Loader2, Award, Star, Medal, ChevronRight, Image as ImageIcon, Sparkles, Calendar } from 'lucide-react';
-import { api, type Achievement } from '@/lib/api';
 import { formatDate } from '@/lib/dateUtils';
 import { processImageUrl } from '@/lib/imageUtils';
 import { useMotionConfig } from '@/hooks/useMotionConfig';
-import { InlineMarkdown } from '@/components/ui/markdown';
+import { useHomePageData } from '@/hooks/useHomePageData';
+import { InlineMarkdown } from '@/components/ui/inline-markdown';
 
 export function AchievementsShowcase() {
-  const [achievements, setAchievements] = useState<Achievement[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { data: homeData, isLoading } = useHomePageData();
+  const achievements = homeData?.featuredAchievements ?? [];
   const { isMobile, shouldReduceMotion } = useMotionConfig();
-
-  useEffect(() => {
-    const fetchAchievements = async () => {
-      try {
-        const data = await api.getAchievements();
-        setAchievements(data.slice(0, 4));
-      } catch (err) {
-        console.error('Failed to fetch achievements:', err);
-      } finally {
-        setLoading(false);
-      }
-    };
-    fetchAchievements();
-  }, []);
 
   // Animation configs based on device
   const animationDuration = shouldReduceMotion ? 0.3 : 0.6;
@@ -88,7 +73,7 @@ export function AchievementsShowcase() {
         </motion.div>
 
         {/* Achievements Grid */}
-        {loading ? (
+        {isLoading ? (
           <div className="flex justify-center py-16">
             <Loader2 className="h-10 w-10 animate-spin text-amber-600" />
           </div>

@@ -7,7 +7,7 @@ import { motion, useInView } from 'framer-motion';
 import { CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { InlineMarkdown } from '@/components/ui/markdown';
+import { InlineMarkdown } from '@/components/ui/inline-markdown';
 import { 
   Trophy, Calendar, Loader2, 
   Award, ChevronRight, Image as ImageIcon, Sparkles, Star,

@@ -12,6 +12,7 @@ import { sanitizeEventRegistrationFields } from '../utils/eventRegistrationField
 import { getRegistrationStatus } from '../utils/registrationStatus.js';
 
 export const eventsRouter = Router();
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 const optionalUrl = z.union([z.string().url('Must be a valid URL'), z.literal('')]).optional().nullable();
 
@@ -154,17 +155,45 @@ eventsRouter.get('/', optionalAuthMiddleware, async (req: Request, res: Response
       });
     }
 
+    const eventListSelect = {
+      id: true,
+      title: true,
+      slug: true,
+      description: true,
+      status: true,
+      startDate: true,
+      endDate: true,
+      registrationStartDate: true,
+      registrationEndDate: true,
+      location: true,
+      venue: true,
+      eventType: true,
+      prerequisites: true,
+      capacity: true,
+      imageUrl: true,
+      shortDescription: true,
+      featured: true,
+      allowLateRegistration: true,
+      registrationFields: true,
+      _count: { select: { registrations: true } },
+    } satisfies Prisma.EventSelect;
+
     const queryOptions: Prisma.EventFindManyArgs = {
       where,
       orderBy: { startDate: 'desc' },
-      include: { _count: { select: { registrations: true } } },
+      select: eventListSelect,
       ...(limitValue ? { take: limitValue, skip: offsetValue } : {}),
     };
 
-    const [events, total] = await Promise.all([
-      prisma.event.findMany(queryOptions),
-      prisma.event.count({ where }),
-    ]);
+    const events = await prisma.event.findMany(queryOptions);
+    const shouldCount =
+      Boolean(limitValue) &&
+      !(offsetValue === 0 && events.length < (limitValue as number));
+    const total = shouldCount
+      ? await prisma.event.count({ where })
+      : limitValue
+        ? events.length + offsetValue
+        : events.length;
 
     const authUser = getAuthUser(req);
     let registeredEventIds = new Set<string>();
@@ -213,15 +242,12 @@ eventsRouter.get('/:id', optionalAuthMiddleware, async (req: Request, res: Respo
   try {
     // Support both ID and slug lookup
     const idOrSlug = req.params.id;
-    const event = await prisma.event.findFirst({
-      where: {
-        OR: [
-          { id: idOrSlug },
-          { slug: idOrSlug }
-        ]
-      },
-      include: { _count: { select: { registrations: true } } },
-    });
+    const includeOptions = { _count: { select: { registrations: true } } } as const;
+    const event = UUID_REGEX.test(idOrSlug)
+      ? (await prisma.event.findUnique({ where: { id: idOrSlug }, include: includeOptions })) ??
+        (await prisma.event.findUnique({ where: { slug: idOrSlug }, include: includeOptions }))
+      : (await prisma.event.findUnique({ where: { slug: idOrSlug }, include: includeOptions })) ??
+        (await prisma.event.findUnique({ where: { id: idOrSlug }, include: includeOptions }));
 
     if (!event) {
       return res.status(404).json({ success: false, error: { message: 'Event not found' } });

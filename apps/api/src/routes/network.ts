@@ -11,6 +11,7 @@ import { parsePaginationNumber } from '../utils/pagination.js';
 import { sanitizeHtml, sanitizeUrl } from '../utils/sanitize.js';
 
 export const networkRouter = Router();
+const CUID_REGEX = /^c[a-z0-9]{24}$/;
 
 // Rich content fields that support HTML/Markdown
 const RICH_CONTENT_FIELDS = ['bio', 'connectionNote', 'achievements', 'adminNotes', 'vision', 'story', 'expertise'];
@@ -236,7 +237,7 @@ networkRouter.get('/', async (req: Request, res: Response) => {
       ];
     }
 
-    const [profiles, total, industryRows, connectionTypeRows] = await Promise.all([
+    const [profiles, industryRows, connectionTypeRows] = await Promise.all([
       prisma.networkProfile.findMany({
         where,
         orderBy: [{ isFeatured: 'desc' }, { displayOrder: 'asc' }, { createdAt: 'desc' }],
@@ -262,16 +263,10 @@ networkRouter.get('/', async (req: Request, res: Response) => {
           degree: true,
           branch: true,
           currentLocation: true,
-          achievements: true,
-          // Rich profile content
-          vision: true,
-          story: true,
-          expertise: true,
           isFeatured: true,
           createdAt: true,
         },
       }),
-      prisma.networkProfile.count({ where }),
       prisma.networkProfile.findMany({
         where: basePublicWhere,
         select: { industry: true },
@@ -284,6 +279,8 @@ networkRouter.get('/', async (req: Request, res: Response) => {
         distinct: ['connectionType'],
       }),
     ]);
+    const shouldCount = !(offset === 0 && profiles.length < limit);
+    const total = shouldCount ? await prisma.networkProfile.count({ where }) : profiles.length;
 
     const industries = industryRows.map((row) => row.industry).filter(Boolean);
     const connectionTypes = connectionTypeRows.map((row) => row.connectionType);
@@ -307,44 +304,52 @@ networkRouter.get('/', async (req: Request, res: Response) => {
 networkRouter.get('/:idOrSlug', async (req: Request, res: Response) => {
   try {
     const { idOrSlug } = req.params;
+    const publicSelect = {
+      id: true,
+      slug: true,
+      fullName: true,
+      designation: true,
+      company: true,
+      industry: true,
+      bio: true,
+      profilePhoto: true,
+      linkedinUsername: true,
+      twitterUsername: true,
+      githubUsername: true,
+      personalWebsite: true,
+      connectionType: true,
+      connectionNote: true,
+      connectedSince: true,
+      passoutYear: true,
+      degree: true,
+      branch: true,
+      achievements: true,
+      currentLocation: true,
+      vision: true,
+      story: true,
+      expertise: true,
+      events: true,
+      isFeatured: true,
+      createdAt: true,
+    } satisfies Prisma.NetworkProfileSelect;
 
-    const profile = await prisma.networkProfile.findFirst({
-      where: {
-        OR: [{ slug: idOrSlug }, { id: idOrSlug }],
-        status: 'VERIFIED',
-        isPublic: true,
-      },
-      select: {
-        id: true,
-        slug: true,
-        fullName: true,
-        designation: true,
-        company: true,
-        industry: true,
-        bio: true,
-        profilePhoto: true,
-        linkedinUsername: true,
-        twitterUsername: true,
-        githubUsername: true,
-        personalWebsite: true,
-        connectionType: true,
-        connectionNote: true,
-        connectedSince: true,
-        // Alumni-specific fields
-        passoutYear: true,
-        degree: true,
-        branch: true,
-        achievements: true,
-        currentLocation: true,
-        // Rich profile content
-        vision: true,
-        story: true,
-        expertise: true,
-        events: true,
-        isFeatured: true,
-        createdAt: true,
-      },
-    });
+    const profile = CUID_REGEX.test(idOrSlug)
+      ? (await prisma.networkProfile.findFirst({
+          where: { id: idOrSlug, status: 'VERIFIED', isPublic: true },
+          select: publicSelect,
+        })) ??
+        (await prisma.networkProfile.findFirst({
+          where: { slug: idOrSlug, status: 'VERIFIED', isPublic: true },
+          select: publicSelect,
+        }))
+      : (await prisma.networkProfile.findFirst({
+          where: { slug: idOrSlug, status: 'VERIFIED', isPublic: true },
+          select: publicSelect,
+        })) ??
+        (await prisma.networkProfile.findFirst({
+          where: { id: idOrSlug, status: 'VERIFIED', isPublic: true },
+          select: publicSelect,
+        }));
 
     if (!profile) {
       return res.status(404).json({ success: false, error: { message: 'Profile not found' } });

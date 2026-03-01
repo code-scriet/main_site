@@ -4,13 +4,16 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Link } from 'react-router-dom';
 import { Calendar, MapPin, ArrowRight, Loader2, Users, Clock } from 'lucide-react';
-import { api, type Event } from '@/lib/api';
+import { api, type HomeEventPreview } from '@/lib/api';
 import { formatTime, getWeekdayShort, getMonthShort, getDayOfMonth } from '@/lib/dateUtils';
 import { processImageUrl } from '@/lib/imageUtils';
 import { useMotionConfig } from '@/hooks/useMotionConfig';
 import { useAuth } from '@/context/AuthContext';
+import { useHomePageData } from '@/hooks/useHomePageData';
 
-function getRegistrationStatus(event: Event): {
+const EMPTY_REGISTERED_IDS = new Set<string>();
+
+function getRegistrationStatus(event: HomeEventPreview): {
   status: 'not_started' | 'open' | 'closed' | 'full' | 'past';
   message: string;
   canRegister: boolean;
@@ -40,34 +43,35 @@ function getRegistrationStatus(event: Event): {
 }
 
 export function UpcomingEvents() {
-  const [events, setEvents] = useState<Event[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { data: homeData, isLoading } = useHomePageData();
+  const events = homeData?.upcomingEvents ?? [];
   const { isMobile, shouldReduceMotion } = useMotionConfig();
   const { token } = useAuth();
-  const [registeredEventIds, setRegisteredEventIds] = useState<Set<string>>(new Set());
+  const [registeredEventIds, setRegisteredEventIds] = useState<Set<string>>(EMPTY_REGISTERED_IDS);
+  const visibleRegisteredEventIds = token ? registeredEventIds : EMPTY_REGISTERED_IDS;
 
   useEffect(() => {
-    const fetchEvents = async () => {
-      try {
-        const data = await api.getEvents('UPCOMING');
-        setEvents(data.slice(0, 3));
-        
-        // Fetch user registrations if logged in
-        if (token) {
-          try {
-            const registrations = await api.getMyRegistrations(token);
-            setRegisteredEventIds(new Set(registrations.map(r => r.eventId)));
-          } catch (err) {
-            console.error('Failed to fetch user registrations', err);
-          }
-        }
-      } catch (err) {
-        console.error('Failed to fetch events:', err);
-      } finally {
-        setLoading(false);
-      }
+    let isMounted = true;
+
+    if (!token) {
+      return () => {
+        isMounted = false;
+      };
+    }
+
+    api.getMyRegistrations(token)
+      .then((registrations) => {
+        if (!isMounted) return;
+        setRegisteredEventIds(new Set(registrations.map((registration) => registration.eventId)));
+      })
+      .catch(() => {
+        if (!isMounted) return;
+        setRegisteredEventIds(new Set());
+      });
+
+    return () => {
+      isMounted = false;
     };
-    fetchEvents();
   }, [token]);
 
   // Animation configs based on device
@@ -119,7 +123,7 @@ export function UpcomingEvents() {
         </motion.div>
 
         {/* Events Grid */}
-        {loading ? (
+        {isLoading ? (
           <div className="flex justify-center py-20">
             <Loader2 className="h-10 w-10 animate-spin text-amber-600" />
           </div>
@@ -139,7 +143,7 @@ export function UpcomingEvents() {
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6 lg:gap-8">
             {events.map((event, index) => {
               const regStatus = getRegistrationStatus(event);
-              const isRegistered = registeredEventIds.has(event.id);
+              const isRegistered = visibleRegisteredEventIds.has(event.id);
               // Add ?register=1 if registration is open and event has custom fields
               const hasCustomFields = event.registrationFields && event.registrationFields.length > 0;
               const eventUrl = regStatus.canRegister && hasCustomFields && !isRegistered

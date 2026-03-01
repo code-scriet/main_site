@@ -1,4 +1,3 @@
-import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -16,8 +15,9 @@ import {
   Sparkles,
   ChevronRight,
 } from 'lucide-react';
-import { api, type NetworkProfile, type NetworkConnectionType } from '@/lib/api';
+import { type NetworkConnectionType } from '@/lib/api';
 import { useMotionConfig } from '@/hooks/useMotionConfig';
+import { useHomePageData } from '@/hooks/useHomePageData';
 
 const connectionTypeLabels: Record<NetworkConnectionType, string> = {
   GUEST_SPEAKER: 'Speaker',
@@ -40,26 +40,10 @@ const connectionTypeColors: Record<NetworkConnectionType, { bg: string; text: st
 };
 
 export function NetworkHighlight() {
-  const [profiles, setProfiles] = useState<NetworkProfile[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { data: homeData, isLoading } = useHomePageData();
+  const profiles = homeData?.networkHighlights ?? [];
   const { isMobile, shouldReduceMotion } = useMotionConfig();
   const navigate = useNavigate();
-
-  useEffect(() => {
-    const fetchProfiles = async () => {
-      try {
-        const response = await api.getNetworkProfiles();
-        // Public endpoint already returns verified/public profiles sorted for display.
-        const filtered = response.profiles.slice(0, 6);
-        setProfiles(filtered);
-      } catch (err) {
-        console.error('Failed to fetch network profiles:', err);
-      } finally {
-        setLoading(false);
-      }
-    };
-    fetchProfiles();
-  }, []);
 
   // Animation configs based on device
   const animationDuration = shouldReduceMotion ? 0.3 : 0.6;
@@ -144,7 +128,7 @@ export function NetworkHighlight() {
         </motion.div>
 
         {/* Network Grid */}
-        {loading ? (
+        {isLoading ? (
           <div className="flex flex-col items-center justify-center py-20">
             <div className="relative">
               <div className="absolute inset-0 rounded-full bg-amber-200/40 blur-xl" />
