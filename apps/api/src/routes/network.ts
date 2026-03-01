@@ -6,6 +6,7 @@ import { authMiddleware, getAuthUser } from '../middleware/auth.js';
 import { requireRole } from '../middleware/role.js';
 import { auditLog } from '../utils/audit.js';
 import { logger } from '../utils/logger.js';
+import { submitUrl } from '../utils/indexnow.js';
 import { emailService } from '../utils/email.js';
 import { parsePaginationNumber } from '../utils/pagination.js';
 import { sanitizeHtml, sanitizeUrl } from '../utils/sanitize.js';
@@ -1235,6 +1236,9 @@ networkRouter.patch('/admin/:id/verify', authMiddleware, requireRole('ADMIN'), a
     });
 
     logger.info('Network profile verified', { profileId: id, adminId: authUser.id });
+
+    // Notify search engines about the newly public network profile
+    if (updated.slug) submitUrl(`/network/${updated.slug}`);
 
     res.json({
       success: true,

@@ -8,6 +8,7 @@ import { auditLog } from '../utils/audit.js';
 import { generateSlug, generateUniqueSlug } from '../utils/slug.js';
 import { parsePaginationNumber } from '../utils/pagination.js';
 import { logger } from '../utils/logger.js';
+import { submitUrl } from '../utils/indexnow.js';
 
 export const achievementsRouter = Router();
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -254,6 +255,10 @@ achievementsRouter.post('/', authMiddleware, requireRole('CORE_MEMBER'), async (
     });
 
     await auditLog(authUser.id, 'CREATE', 'achievement', achievement.id, { title });
+
+    // Notify search engines about the new achievement page
+    submitUrl(`/achievements/${achievement.slug}`);
+
     res.status(201).json({ success: true, data: achievement, message: 'Achievement created successfully' });
   } catch (error) {
     logger.error('Create achievement error', {
@@ -313,6 +318,10 @@ achievementsRouter.put('/:id', authMiddleware, requireRole('CORE_MEMBER'), async
     });
 
     await auditLog(authUser.id, 'UPDATE', 'achievement', achievement.id);
+
+    // Notify search engines about the updated achievement page
+    if (achievement.slug) submitUrl(`/achievements/${achievement.slug}`);
+
     res.json({ success: true, data: achievement, message: 'Achievement updated successfully' });
   } catch (error) {
     logger.error('Update achievement error', {

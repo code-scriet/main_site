@@ -1,7 +1,9 @@
 import express, { Request, Response } from 'express';
 import { prisma } from '../lib/prisma.js';
 import { logger } from '../utils/logger.js';
+import { submitAllUrls } from '../utils/indexnow.js';
 
+const INDEXNOW_KEY = '7e55c45349934674ab69e23e318c47c0';
 export const sitemapRouter = express.Router();
 export const robotsRouter = express.Router();
 
@@ -49,8 +51,7 @@ sitemapRouter.get('/', async (_req: Request, res: Response) => {
         },
       }),
       prisma.teamMember.findMany({
-        where: { slug: { not: null } },
-        select: { slug: true, createdAt: true },
+        select: { id: true, slug: true, createdAt: true },
         orderBy: [{ order: 'asc' }, { createdAt: 'asc' }],
       }),
       prisma.networkProfile.findMany({
@@ -129,10 +130,11 @@ sitemapRouter.get('/', async (_req: Request, res: Response) => {
     }
 
     for (const member of teamMembers) {
-      if (!member.slug) continue;
+      const profileSlugOrId = member.slug || member.id;
+      if (!profileSlugOrId) continue;
       const lastmod = member.createdAt.toISOString().split('T')[0];
       xml += '  <url>\n';
-      xml += `    <loc>${baseUrl}/team/${member.slug}</loc>\n`;
+      xml += `    <loc>${baseUrl}/team/${profileSlugOrId}</loc>\n`;
       xml += `    <lastmod>${lastmod}</lastmod>\n`;
       xml += '    <changefreq>monthly</changefreq>\n';
       xml += '    <priority>0.65</priority>\n';
@@ -207,4 +209,52 @@ robotsRouter.get('/', (_req: Request, res: Response) => {
   res.setHeader('Content-Type', 'text/plain; charset=utf-8');
   res.setHeader('Cache-Control', 'public, max-age=86400');
   res.send(robots);
+});
+
+// ============================================
+// IndexNow Router
+// ============================================
+export const indexNowRouter = express.Router();
+
+/**
+ * Serve the IndexNow key verification file
+ * GET /7e55c45349934674ab69e23e318c47c0.txt
+ */
+indexNowRouter.get(`/${INDEXNOW_KEY}.txt`, (_req: Request, res: Response) => {
+  res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+  res.setHeader('Cache-Control', 'public, max-age=86400');
+  res.send(INDEXNOW_KEY);
+});
+
+/**
+ * Submit all indexable URLs to IndexNow (admin-only)
+ * POST /api/indexnow/submit-all
+ */
+indexNowRouter.post('/submit-all', async (_req: Request, res: Response) => {
+  try {
+    const result = await submitAllUrls();
+
+    logger.info('[IndexNow] Admin triggered bulk submission', {
+      submitted: result.submitted,
+      status: result.status,
+    });
+
+    res.json({
+      success: true,
+      data: {
+        submitted: result.submitted,
+        status: result.status,
+        urls: result.urls,
+      },
+      message: `${result.submitted} URLs submitted to IndexNow`,
+    });
+  } catch (error) {
+    logger.error('[IndexNow] Bulk submission failed', {
+      error: error instanceof Error ? error.message : String(error),
+    });
+    res.status(500).json({
+      success: false,
+      error: { message: 'Failed to submit URLs to IndexNow' },
+    });
+  }
 });

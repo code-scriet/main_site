@@ -8,6 +8,7 @@ import { auditLog } from '../utils/audit.js';
 import { generateSlug, generateUniqueSlug } from '../utils/slug.js';
 import { emailService } from '../utils/email.js';
 import { logger } from '../utils/logger.js';
+import { submitUrl } from '../utils/indexnow.js';
 import { parsePaginationNumber } from '../utils/pagination.js';
 
 export const announcementsRouter = Router();
@@ -236,6 +237,9 @@ announcementsRouter.post('/', authMiddleware, requireRole('CORE_MEMBER'), async 
 
     await auditLog(authUser.id, 'CREATE', 'announcement', announcement.id, { title: data.title });
 
+    // Notify search engines about the new announcement page
+    if (announcement.slug) submitUrl(`/announcements/${announcement.slug}`);
+
     // Send email notification to all users (async, don't wait)
     sendAnnouncementEmailsAsync(announcement);
 
@@ -342,6 +346,10 @@ announcementsRouter.put('/:id', authMiddleware, requireRole('CORE_MEMBER'), asyn
     });
 
     await auditLog(authUser.id, 'UPDATE', 'announcement', announcement.id);
+
+    // Notify search engines about the updated announcement page
+    if (announcement.slug) submitUrl(`/announcements/${announcement.slug}`);
+
     res.json({ success: true, data: announcement, message: 'Announcement updated successfully' });
   } catch (error) {
     res.status(500).json({ success: false, error: { message: 'Failed to update announcement' } });

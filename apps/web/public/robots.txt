@@ -40,3 +40,6 @@ Crawl-delay: 1
 
 # Sitemap location
 Sitemap: https://codescriet.dev/sitemap.xml
+
+# IndexNow key file
+# https://www.indexnow.org/

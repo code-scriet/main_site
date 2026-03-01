@@ -6,6 +6,7 @@ import { requireRole } from '../middleware/role.js';
 import { auditLog } from '../utils/audit.js';
 import { sanitizeHtml, sanitizeUrl } from '../utils/sanitize.js';
 import { logger } from '../utils/logger.js';
+import { submitUrl } from '../utils/indexnow.js';
 import { syncUserToTeamMember } from '../utils/profileSync.js';
 import { generateSlug, generateUniqueSlug } from '../utils/slug.js';
 
@@ -387,6 +388,10 @@ teamRouter.post('/', authMiddleware, requireRole('ADMIN'), async (req: Request, 
     });
 
     await auditLog(authUser.id, 'CREATE', 'team_member', teamMember.id, { name, role, team });
+
+    // Notify search engines about the new team member page
+    if (teamMember.slug) submitUrl(`/team/${teamMember.slug}`);
+
     res.status(201).json({ success: true, data: teamMember, message: 'Team member added successfully' });
   } catch (error) {
     logger.error('Failed to create team member', { error });
@@ -466,6 +471,10 @@ teamRouter.put('/:id', authMiddleware, requireRole('ADMIN'), async (req: Request
     });
 
     await auditLog(authUser.id, 'UPDATE', 'team_member', teamMember.id);
+
+    // Notify search engines about the updated team member page
+    if (teamMember.slug) submitUrl(`/team/${teamMember.slug}`);
+
     res.json({ success: true, data: teamMember, message: 'Team member updated successfully' });
   } catch (error) {
     logger.error('Failed to update team member', { error });
@@ -536,6 +545,10 @@ teamRouter.put('/:id/profile', authMiddleware, async (req: Request, res: Respons
     });
 
     await auditLog(authUser.id, 'UPDATE', 'team_member_profile', teamMember.id);
+
+    // Notify search engines about the updated team member page
+    if (teamMember.slug) submitUrl(`/team/${teamMember.slug}`);
+
     res.json({ success: true, data: teamMember, message: 'Profile updated successfully' });
   } catch (error) {
     logger.error('Failed to update team member profile', { error });

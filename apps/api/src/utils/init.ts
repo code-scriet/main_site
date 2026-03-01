@@ -155,6 +155,16 @@ const normalizeLegacySlugs = (legacySlugs: string[] | null | undefined, previous
 
 export async function populateProfileSlugs() {
   try {
+    const missingTeamSlugsBefore = await prisma.teamMember.count({
+      where: {
+        OR: [{ slug: null }, { slug: '' }],
+      },
+    });
+    logger.info('🔎 Team slug normalization status', {
+      stage: 'before',
+      missingTeamSlugs: missingTeamSlugsBefore,
+    });
+
     const teamMembers = await prisma.teamMember.findMany({
       orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
       select: { id: true, name: true, slug: true, legacySlugs: true },
@@ -180,6 +190,16 @@ export async function populateProfileSlugs() {
         updatedTeamCount += 1;
       }
     }
+
+    const missingTeamSlugsAfter = await prisma.teamMember.count({
+      where: {
+        OR: [{ slug: null }, { slug: '' }],
+      },
+    });
+    logger.info('🔎 Team slug normalization status', {
+      stage: 'after',
+      missingTeamSlugs: missingTeamSlugsAfter,
+    });
 
     const networkProfiles = await prisma.networkProfile.findMany({
       orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],

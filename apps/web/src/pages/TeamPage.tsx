@@ -1,5 +1,5 @@
 import { useMemo, useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { Layout } from '@/components/layout/Layout';
 import { SEO } from '@/components/SEO';
 import { BreadcrumbSchema } from '@/components/ui/schema';
@@ -347,9 +347,9 @@ function MemberCard({
   const navigate = useNavigate();
   const interactiveHover = !isMobile && !prefersReducedMotion;
 
-  // Only allow navigation if the member has a slug (linked to a user)
-  const hasProfile = !!member.slug;
-  const profileUrl = hasProfile ? `/team/${member.slug}` : '';
+  const profileSlugOrId = member.slug || member.id;
+  const hasProfile = Boolean(profileSlugOrId);
+  const profileUrl = hasProfile ? `/team/${profileSlugOrId}` : '';
 
   const handleCardClick = () => {
     if (hasProfile) {
@@ -468,6 +468,11 @@ function MemberCard({
           >
             {member.role}
           </motion.p>
+          {hasProfile && (
+            <Link to={profileUrl} className="sr-only">
+              View {member.name}'s profile
+            </Link>
+          )}
         </div>
         
         {/* Footer area - consistent height to keep all cards aligned */}

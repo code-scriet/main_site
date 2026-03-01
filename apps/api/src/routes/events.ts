@@ -8,6 +8,7 @@ import { EventStatus, Prisma } from '@prisma/client';
 import { generateSlug, generateUniqueSlug } from '../utils/slug.js';
 import { emailService } from '../utils/email.js';
 import { logger } from '../utils/logger.js';
+import { submitUrl } from '../utils/indexnow.js';
 import { sanitizeEventRegistrationFields } from '../utils/eventRegistrationFields.js';
 import { getRegistrationStatus } from '../utils/registrationStatus.js';
 
@@ -355,6 +356,9 @@ eventsRouter.post('/', authMiddleware, requireRole('CORE_MEMBER'), async (req: R
 
     await auditLog(authUser.id, 'CREATE', 'event', event.id, { title: event.title });
 
+    // Notify search engines about the new event page
+    submitUrl(`/events/${event.slug}`);
+
     // Send email notification to all users about new event (async, don't wait)
     sendNewEventEmailsAsync(event);
 
@@ -475,6 +479,10 @@ eventsRouter.put('/:id', authMiddleware, requireRole('CORE_MEMBER'), async (req:
     });
 
     await auditLog(authUser.id, 'UPDATE', 'event', event.id);
+
+    // Notify search engines about the updated event page
+    if (event.slug) submitUrl(`/events/${event.slug}`);
+
     res.json({ success: true, data: event, message: 'Event updated successfully' });
   } catch (error) {
     res.status(500).json({ success: false, error: { message: 'Failed to update event' } });

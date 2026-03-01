@@ -18,7 +18,7 @@ import { statsRouter } from './routes/stats.js';
 import { settingsRouter } from './routes/settings.js';
 import { hiringRouter } from './routes/hiring.js';
 import { uploadRouter } from './routes/upload.js';
-import { sitemapRouter, robotsRouter } from './routes/sitemap.js';
+import { sitemapRouter, robotsRouter, indexNowRouter } from './routes/sitemap.js';
 import { networkRouter } from './routes/network.js';
 import { auditRouter } from './routes/audit.js';
 import { mailRouter } from './routes/mail.js';
@@ -165,6 +165,7 @@ app.get('/ping', (req, res) => {
 // These are served at api.codescriet.dev/sitemap.xml and api.codescriet.dev/robots.txt
 app.use('/sitemap.xml', sitemapRouter);
 app.use('/robots.txt', robotsRouter);
+app.use('/', indexNowRouter); // Serves key file at /<key>.txt
 
 // API Routes
 app.use('/api/auth', authLimiter, authRouter);
@@ -182,6 +183,7 @@ app.use('/api/upload', uploadRouter);
 app.use('/api/network', networkRouter);
 app.use('/api/audit-logs', auditRouter);
 app.use('/api/mail', mailRouter);
+app.use('/api/indexnow', authMiddleware, requireRole('ADMIN'), indexNowRouter);
 
 // Test email endpoint for debugging
 app.post('/api/test-email', authMiddleware, requireRole('ADMIN'), async (req: express.Request, res: express.Response) => {

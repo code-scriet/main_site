@@ -3,7 +3,7 @@ import { motion } from 'framer-motion';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Save, AlertCircle, CheckCircle, Globe, Mail, Shield, Loader2, RefreshCw, Share2, FileText, Eye, Code } from 'lucide-react';
+import { Save, AlertCircle, CheckCircle, Globe, Mail, Shield, Loader2, RefreshCw, Share2, FileText, Eye, Code, Search } from 'lucide-react';
 import { api } from '@/lib/api';
 import type { Settings } from '@/lib/api';
 import { useAuth } from '@/context/AuthContext';
@@ -51,6 +51,8 @@ export default function AdminSettings() {
   
   const [activeEmailTab, setActiveEmailTab] = useState<'welcome' | 'announcement' | 'event'>('welcome');
   const [showPreview, setShowPreview] = useState(false);
+  const [indexNowSubmitting, setIndexNowSubmitting] = useState(false);
+  const [indexNowResult, setIndexNowResult] = useState<{ count: number; error?: string } | null>(null);
 
   const fetchSettings = async () => {
     setLoading(true);
@@ -678,6 +680,73 @@ We've got something exciting lined up for you:`}
       </Card>
 
       {/* Save Button */}
+
+      {/* SEO — IndexNow */}
+      <Card className="border-amber-100">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Search className="h-5 w-5 text-amber-600" />
+            IndexNow — Search Engine Indexing
+          </CardTitle>
+          <CardDescription>
+            Instantly notify Bing, Yandex and Google about all your pages so they get indexed faster.
+            New content is submitted automatically when created or updated.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex items-center gap-4 flex-wrap">
+            <Button
+              variant="outline"
+              className="gap-2"
+              disabled={indexNowSubmitting}
+              onClick={async () => {
+                if (!token) return;
+                setIndexNowSubmitting(true);
+                setIndexNowResult(null);
+                try {
+                  const res = await fetch(`${import.meta.env.VITE_API_URL}/indexnow/submit-all`, {
+                    method: 'POST',
+                    headers: { Authorization: `Bearer ${token}` },
+                  });
+                  const data = await res.json();
+                  if (data.success) {
+                    setIndexNowResult({ count: data.data.submitted });
+                  } else {
+                    setIndexNowResult({ count: 0, error: data.error?.message || 'Submission failed' });
+                  }
+                } catch {
+                  setIndexNowResult({ count: 0, error: 'Network error' });
+                } finally {
+                  setIndexNowSubmitting(false);
+                }
+              }}
+            >
+              {indexNowSubmitting ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Globe className="h-4 w-4" />
+              )}
+              Submit All URLs to IndexNow
+            </Button>
+            {indexNowResult && !indexNowResult.error && (
+              <span className="text-sm text-green-600 flex items-center gap-1">
+                <CheckCircle className="h-4 w-4" />
+                {indexNowResult.count} URLs submitted
+              </span>
+            )}
+            {indexNowResult?.error && (
+              <span className="text-sm text-red-600 flex items-center gap-1">
+                <AlertCircle className="h-4 w-4" />
+                {indexNowResult.error}
+              </span>
+            )}
+          </div>
+          <p className="text-xs text-gray-500">
+            Individual pages are submitted automatically when events, achievements, announcements, team members, or network profiles are created/updated.
+          </p>
+        </CardContent>
+      </Card>
+
       <div className="flex justify-end gap-4">
         <Button variant="outline" onClick={fetchSettings} disabled={saving}>
           Reset
