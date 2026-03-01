@@ -284,23 +284,28 @@ function TeamGrid({
 }) {
   const totalMembers = members.length;
   
-  // Calculate animation delay based on position from center (slower animation)
+  // On mobile: simple sequential stagger top-to-bottom (2 per row)
+  // On desktop: center-out spread animation
   const getAnimationDelay = (index: number) => {
+    if (isMobile) {
+      // Stagger by row (2 per row), fast
+      return shouldReduceMotion ? index * 0.04 : index * 0.07;
+    }
     const centerIndex = (totalMembers - 1) / 2;
     const distanceFromCenter = Math.abs(index - centerIndex);
     return shouldReduceMotion ? distanceFromCenter * 0.08 + 0.05 : distanceFromCenter * 0.2 + 0.1;
   };
 
-  // Calculate horizontal offset for center-out animation (reduced offset)
+  // Calculate horizontal offset for center-out animation (desktop only)
   const getInitialX = (index: number) => {
     if (isMobile) return 0;
     const centerIndex = (totalMembers - 1) / 2;
     const position = index - centerIndex;
-    return position > 0 ? 40 : position < 0 ? -40 : 0; // Less dramatic horizontal offset
+    return position > 0 ? 40 : position < 0 ? -40 : 0;
   };
 
   return (
-    <div className="mx-auto grid max-w-5xl grid-cols-2 gap-4 sm:gap-5 md:grid-cols-3 md:gap-8 lg:grid-cols-4">
+    <div className="mx-auto flex max-w-5xl flex-wrap justify-center gap-4 md:gap-8">
       {members.map((member, index) => (
         <MemberCard 
           key={member.id} 
@@ -354,18 +359,18 @@ function MemberCard({
 
   return (
     <motion.div
-      initial={{ opacity: 0, x: initialX, y: 20, scale: 0.95 }}
+      initial={{ opacity: 0, x: initialX, y: isMobile ? 16 : 20, scale: isMobile ? 0.97 : 0.95 }}
       whileInView={{ opacity: 1, x: 0, y: 0, scale: 1 }}
-      viewport={{ once: true, margin: "-50px" }}
+      viewport={{ once: true, margin: isMobile ? '0px' : '-50px' }}
       transition={{ 
-        duration: shouldReduceMotion ? 0.35 : 0.8, 
+        duration: shouldReduceMotion ? 0.25 : isMobile ? 0.45 : 0.8, 
         delay: delay,
-        ease: [0.22, 1, 0.36, 1]
+        ease: isMobile ? [0.25, 0.46, 0.45, 0.94] : [0.22, 1, 0.36, 1]
       }}
       whileHover={interactiveHover ? { y: -6, transition: { duration: 0.3 } } : undefined}
       onHoverStart={interactiveHover ? () => setIsHovered(true) : undefined}
       onHoverEnd={() => setIsHovered(false)}
-      className="w-full max-w-[220px] justify-self-center text-center"
+      className="w-[calc(50%-8px)] max-w-[180px] sm:w-40 md:w-44 lg:max-w-[220px] text-center"
     >
       {/* Card with glassmorphism effect - fixed height for consistency */}
       <div
@@ -374,7 +379,7 @@ function MemberCard({
         onClick={handleCardClick}
         onKeyDown={hasProfile ? handleKeyDown : undefined}
         aria-label={hasProfile ? `View ${member.name}'s profile` : member.name}
-        className={`relative group h-full min-h-[230px] sm:min-h-[280px] md:min-h-[300px] rounded-2xl border p-3 sm:p-5 flex flex-col transition-all duration-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2 ${
+        className={`relative group h-full min-h-[200px] sm:min-h-[260px] md:min-h-[300px] rounded-2xl border p-3 sm:p-5 flex flex-col transition-all duration-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2 ${
           hasProfile ? 'cursor-pointer' : 'cursor-default'
         } ${
           isMobile
@@ -398,9 +403,9 @@ function MemberCard({
         )}
         
         {/* Avatar container */}
-        <div className="relative mb-5 z-10 flex-shrink-0">
+        <div className="relative mb-3 sm:mb-5 z-10 flex-shrink-0">
           <motion.div 
-            className="mx-auto h-20 w-20 overflow-hidden rounded-full relative sm:h-24 sm:w-24 md:h-28 md:w-28"
+            className="mx-auto h-16 w-16 overflow-hidden rounded-full relative sm:h-24 sm:w-24 md:h-28 md:w-28"
             whileHover={interactiveHover ? { scale: 1.05 } : undefined}
             transition={{ duration: 0.3 }}
           >
@@ -442,7 +447,7 @@ function MemberCard({
         {/* Member info - flex-grow to push icons to bottom */}
         <div className="flex-grow flex flex-col justify-center">
           <motion.h3 
-            className="font-bold text-amber-900 text-base md:text-lg mb-1 relative z-10 line-clamp-2 min-h-[2.5rem] flex items-center justify-center"
+            className="font-bold text-amber-900 text-sm sm:text-base md:text-lg mb-1 relative z-10 line-clamp-2 min-h-[2rem] sm:min-h-[2.5rem] flex items-center justify-center"
             animate={interactiveHover && isHovered ? { scale: 1.02 } : { scale: 1 }}
             transition={{ duration: 0.3 }}
           >
@@ -459,7 +464,7 @@ function MemberCard({
         </div>
         
         {/* Footer area - consistent height to keep all cards aligned */}
-        <div className="relative z-10 mt-auto pt-2 min-h-[58px]">
+        <div className={`relative z-10 mt-auto pt-2 ${isMobile ? '' : 'min-h-[58px]'}`}>
           <motion.div 
             className="flex justify-center gap-3"
             initial={{ opacity: isMobile ? 1 : 0.75 }}
@@ -505,31 +510,32 @@ function MemberCard({
           </motion.div>
 
           {/* "Get to know" CTA slot keeps bottom alignment consistent across cards */}
-          <motion.div
-            className="mt-3 h-[22px]"
-            initial={{ opacity: isMobile ? 0.85 : 0 }}
-            animate={
-              hasProfile
-                ? (interactiveHover && isHovered
-                    ? { opacity: 1, y: 0 }
-                    : { opacity: isMobile ? 0.85 : 0, y: isMobile ? 0 : 4 })
-                : { opacity: 0, y: 0 }
-            }
-            transition={{ duration: 0.3 }}
-          >
-            {hasProfile ? (
-              <span className="inline-flex items-center gap-1 rounded-full bg-gradient-to-r from-amber-500 to-orange-500 px-3 py-1 text-[11px] font-semibold text-white shadow-sm shadow-amber-500/30">
-                Get to know
-                <svg className="h-3 w-3" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2">
-                  <path d="M2 6h8M6 2l4 4-4 4" strokeLinecap="round" strokeLinejoin="round"/>
-                </svg>
-              </span>
-            ) : (
-              <span className="invisible inline-flex items-center gap-1 rounded-full px-3 py-1 text-[11px] font-semibold">
-                Get to know
-              </span>
-            )}
-          </motion.div>
+          {/* CTA: hidden on mobile (whole card is tappable), hover-reveal on desktop */}
+          {!isMobile && (
+            <motion.div
+              className="mt-3 h-[22px]"
+              initial={{ opacity: 0 }}
+              animate={
+                hasProfile && interactiveHover && isHovered
+                  ? { opacity: 1, y: 0 }
+                  : { opacity: 0, y: 4 }
+              }
+              transition={{ duration: 0.3 }}
+            >
+              {hasProfile ? (
+                <span className="inline-flex items-center gap-1 rounded-full bg-gradient-to-r from-amber-500 to-orange-500 px-3 py-1 text-[11px] font-semibold text-white shadow-sm shadow-amber-500/30">
+                  Get to know
+                  <svg className="h-3 w-3" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M2 6h8M6 2l4 4-4 4" strokeLinecap="round" strokeLinejoin="round"/>
+                  </svg>
+                </span>
+              ) : (
+                <span className="invisible inline-flex items-center gap-1 rounded-full px-3 py-1 text-[11px] font-semibold">
+                  Get to know
+                </span>
+              )}
+            </motion.div>
+          )}
         </div>
       </div>
     </motion.div>
