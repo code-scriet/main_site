@@ -21,6 +21,7 @@ import {
   Upload,
   ClipboardList,
   Mail,
+  Zap,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -28,6 +29,7 @@ const coreMemberNavItems = [
   { name: 'Create Event', href: '/dashboard/events/new', icon: Calendar },
   { name: 'Create Announcement', href: '/dashboard/announcements/new', icon: Bell },
   { name: 'Manage QOTD', href: '/dashboard/qotd', icon: Code },
+  { name: 'Quiz Manager', href: '/dashboard/quiz', icon: Zap },
   { name: 'Upload Image', href: '/dashboard/upload', icon: Upload },
 ];
 
@@ -86,6 +88,7 @@ export default function DashboardLayout() {
     { name: 'Overview', href: '/dashboard', icon: Home },
     { name: 'My Events', href: '/dashboard/events', icon: Calendar },
     { name: 'Announcements', href: '/dashboard/announcements', icon: Bell },
+    { name: 'Live Quiz', href: '/quiz', icon: Zap },
     // Only show leaderboard if enabled in settings
     ...(settings?.showLeaderboard !== false ? [{ name: 'Leaderboard', href: '/dashboard/leaderboard', icon: Trophy }] : []),
     { name: 'My Profile', href: '/dashboard/profile', icon: User },

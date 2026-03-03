@@ -7,9 +7,10 @@ import { useAuth } from '@/context/AuthContext';
 import { useSettings } from '@/context/SettingsContext';
 import { api } from '@/lib/api';
 import type { Registration, Announcement } from '@/lib/api';
-import { Calendar, Bell, Trophy, Code, ArrowRight, Loader2, Users, CheckCircle, Clock, XCircle, UserCircle } from 'lucide-react';
+import { Calendar, Bell, Trophy, Code, ArrowRight, Loader2, Users, CheckCircle, Clock, XCircle, UserCircle, Zap } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { QOTDWidget } from '@/components/dashboard/QOTDWidget';
+import { QuizDashboardWidget } from '@/components/dashboard/QuizDashboardWidget';
 import { formatDate } from '@/lib/dateUtils';
 
 export default function DashboardOverview() {
@@ -177,6 +178,12 @@ export default function DashboardOverview() {
                   Explore All Events
                 </Button>
               </Link>
+              <Link to="/quiz" className="block">
+                <Button variant="outline" className="w-full justify-start text-amber-700">
+                  <Zap className="h-4 w-4 mr-3" />
+                  Live Quizzes
+                </Button>
+              </Link>
               <Link to={isTeamMember && teamMemberId ? `/dashboard/team/${teamMemberId}/edit` : '/dashboard/profile'} className="block">
                 <Button variant="outline" className="w-full justify-start">
                   <UserCircle className="h-4 w-4 mr-3" />
@@ -285,6 +292,15 @@ export default function DashboardOverview() {
               )}
             </CardContent>
           </Card>
+        </motion.div>
+
+        {/* My Quizzes */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.4, delay: 0.45 }}
+        >
+          <QuizDashboardWidget token={token || ''} />
         </motion.div>
       </div>
 

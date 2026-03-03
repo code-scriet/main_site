@@ -45,6 +45,7 @@ const ProfilePage = lazy(() => import('@/pages/dashboard/ProfilePage'));
 const ImageUploadTool = lazy(() => import('@/pages/dashboard/ImageUploadTool'));
 const EditTeamProfile = lazy(() => import('@/pages/dashboard/EditTeamProfile'));
 const EditNetworkProfile = lazy(() => import('@/pages/dashboard/EditNetworkProfile'));
+const QuizManager = lazy(() => import('@/pages/dashboard/QuizManager'));
 
 // Admin Pages - lazy loaded
 const AdminUsersRealtime = lazy(() => import('@/pages/admin/AdminUsersRealtime'));
@@ -57,6 +58,13 @@ const AdminHiring = lazy(() => import('@/pages/admin/AdminHiring'));
 const AdminNetwork = lazy(() => import('@/pages/admin/AdminNetwork'));
 const AdminAuditLog = lazy(() => import('@/pages/admin/AdminAuditLog'));
 const AdminMail = lazy(() => import('@/pages/admin/AdminMail'));
+
+// Quiz Pages - lazy loaded
+const ActiveQuizList = lazy(() => import('@/pages/quiz/ActiveQuizList'));
+const QuizPage = lazy(() => import('@/pages/quiz/QuizPage'));
+const QuizResultsPage = lazy(() => import('@/pages/quiz/QuizResultsPage'));
+const AdminQuizCreator = lazy(() => import('@/pages/quiz/AdminQuizCreator'));
+const QuizJoinPage = lazy(() => import('@/pages/quiz/QuizJoinPage'));
 
 // Auth Components - keep synchronous for faster auth checks
 import { ProtectedRoute } from '@/components/auth/ProtectedRoute';
@@ -101,8 +109,14 @@ function App() {
                   <Route path="/network/:slug" element={<NetworkProfilePage />} />
                   <Route path="/join-our-network" element={<JoinOurNetworkPage />} />
 
+                  {/* Quiz Routes (public listing, auth for participation) */}
+                  <Route path="/quiz" element={<ActiveQuizList />} />
+                  <Route path="/quiz/join" element={<QuizJoinPage />} />
+
                   {/* Protected User Routes */}
                   <Route element={<ProtectedRoute minRole="USER" />}>
+                    <Route path="/quiz/:quizId" element={<QuizPage />} />
+                    <Route path="/quiz/:quizId/results" element={<QuizResultsPage />} />
                     <Route path="/dashboard" element={<DashboardLayout />}>
                       <Route index element={<DashboardOverview />} />
                       <Route path="events" element={<DashboardEvents />} />
@@ -111,11 +125,13 @@ function App() {
                       <Route path="events/new" element={<CreateEvent />} />
                       <Route path="announcements/new" element={<CreateAnnouncement />} />
                       <Route path="qotd" element={<CreateQOTD />} />
+                      <Route path="quiz" element={<QuizManager />} />
                       <Route path="upload" element={<ImageUploadTool />} />
                       <Route path="profile" element={<ProfilePage />} />
                       <Route path="team/:id/edit" element={<EditTeamProfile />} />
                       <Route path="network/edit/:id?" element={<EditNetworkProfile />} />
                     </Route>
+                    <Route path="/quiz/create" element={<AdminQuizCreator />} />
                   </Route>
 
                   {/* Protected Admin Routes */}

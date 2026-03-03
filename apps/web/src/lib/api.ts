@@ -817,4 +817,26 @@ export const api = {
       filters: { entities: string[]; actions: string[] };
     }>(`/audit-logs${query}`, { token });
   },
+
+  // Quiz
+  getMyQuizDashboard: (token: string) =>
+    request<{
+      liveQuizzes: Array<{
+        id: string;
+        title: string;
+        status: string;
+        questionCount: number;
+        participantCount: number;
+      }>;
+      history: Array<{
+        quizId: string;
+        title: string;
+        endedAt: string | null;
+        questionCount: number;
+        finalScore: number;
+        finalRank: number | null;
+        correctCount: number;
+        totalParticipants: number;
+      }>;
+    }>('/quiz/my-dashboard', { token }),
 };

@@ -1,0 +1,737 @@
+/**
+ * QuizResultsPage — rich analytics + leaderboard for finished quizzes.
+ * Fetched via REST from /api/quiz/:quizId/results.
+ */
+
+import { useEffect, useState, useCallback } from 'react';
+import { useParams, Link } from 'react-router-dom';
+import { motion, AnimatePresence } from 'framer-motion';
+import { useAuth } from '@/context/AuthContext';
+import { Layout } from '@/components/layout/Layout';
+import { QuizLeaderboard } from './QuizLeaderboard';
+import { QuizAnswerDistribution } from './QuizAnswerDistribution';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import { Card, CardContent } from '@/components/ui/card';
+import {
+  Loader2, Trophy, ArrowLeft, BookOpen, Clock, Users, LayoutDashboard,
+  Download, ChevronDown, ChevronUp, Target, Zap, TrendingUp, BarChart3,
+  Star, AlertTriangle, CheckCircle2, Timer, Brain,
+} from 'lucide-react';
+import { cn } from '@/lib/utils';
+import type { LeaderboardEntry } from '@/lib/quizStore';
+
+/* ── Types ── */
+
+interface QuestionAnalytic {
+  id: string;
+  position: number;
+  questionText: string;
+  questionType: string;
+  options: string[] | null;
+  correctAnswer: string | null;
+  timeLimitSeconds: number;
+  points: number;
+  totalAnswers: number;
+  correctCount: number;
+  accuracy: number;
+  avgAnswerTimeMs: number;
+  answerDistribution: Record<string, number>;
+  avgRating: number | null;
+  mostCommonWrongAnswer: string | null;
+  unansweredCount: number;
+}
+
+interface Insights {
+  totalParticipants: number;
+  avgScore: number;
+  maxPossibleScore: number;
+  avgAccuracy: number;
+  hardestQuestion: { position: number; questionText: string; accuracy: number } | null;
+  easiestQuestion: { position: number; questionText: string; accuracy: number } | null;
+  fastestQuestion: { position: number; avgTimeMs: number } | null;
+  slowestQuestion: { position: number; avgTimeMs: number } | null;
+  durationMs: number | null;
+}
+
+interface QuizResult {
+  quiz: {
+    id: string;
+    title: string;
+    description: string | null;
+    questionCount: number;
+    status: string;
+    createdAt: string;
+    finishedAt: string | null;
+    startedAt: string | null;
+    endedAt: string | null;
+    durationMs: number | null;
+  };
+  leaderboard: (LeaderboardEntry & { questionsAnswered?: number; joinedMidQuiz?: boolean })[];
+  myResult: {
+    rank: number | null;
+    score: number;
+    correctCount: number;
+    totalAnswerTimeMs: number;
+    questionsAnswered?: number;
+  } | null;
+  questionAnalytics: QuestionAnalytic[];
+  insights: Insights;
+  isCreator: boolean;
+}
+
+/* ── Accuracy bar helper ── */
+function AccuracyBar({ accuracy, className }: { accuracy: number; className?: string }) {
+  const color =
+    accuracy >= 80 ? 'bg-green-500' :
+    accuracy >= 50 ? 'bg-amber-500' :
+    'bg-red-500';
+  return (
+    <div className={cn('w-full h-2 bg-amber-100 rounded-full overflow-hidden', className)}>
+      <motion.div
+        initial={{ width: 0 }}
+        animate={{ width: `${accuracy}%` }}
+        transition={{ duration: 0.6, ease: 'easeOut' }}
+        className={cn('h-full rounded-full', color)}
+      />
+    </div>
+  );
+}
+
+/* ── Section tabs ── */
+type Tab = 'overview' | 'questions' | 'leaderboard';
+
+export default function QuizResultsPage() {
+  const { quizId } = useParams<{ quizId: string }>();
+  const { user } = useAuth();
+  const [result, setResult] = useState<QuizResult | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [activeTab, setActiveTab] = useState<Tab>('overview');
+  const [expandedQ, setExpandedQ] = useState<string | null>(null);
+  const [exporting, setExporting] = useState(false);
+
+  useEffect(() => {
+    fetchResults();
+  }, [quizId]);
+
+  const fetchResults = async () => {
+    try {
+      const token = localStorage.getItem('token');
+      const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:5001/api';
+      const res = await fetch(`${apiUrl}/quiz/${quizId}/results`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      const data = await res.json();
+      if (!data.success) throw new Error(data.error?.message || 'Failed to load results');
+      setResult(data.data);
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleExport = useCallback(async () => {
+    if (!quizId) return;
+    setExporting(true);
+    try {
+      const token = localStorage.getItem('token');
+      const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:5001/api';
+      const res = await fetch(`${apiUrl}/quiz/${quizId}/export`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      if (!res.ok) throw new Error('Export failed');
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `quiz_results.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch {
+      // silently fail
+    } finally {
+      setExporting(false);
+    }
+  }, [quizId]);
+
+  if (loading) {
+    return (
+      <Layout>
+        <div className="min-h-[70vh] flex items-center justify-center bg-gradient-to-br from-amber-50 via-orange-50 to-amber-100">
+          <Loader2 className="h-8 w-8 text-amber-500 animate-spin" />
+        </div>
+      </Layout>
+    );
+  }
+
+  if (error || !result) {
+    return (
+      <Layout>
+        <div className="min-h-[70vh] flex items-center justify-center bg-gradient-to-br from-amber-50 via-orange-50 to-amber-100">
+          <Card className="border-amber-200/60 shadow-md max-w-md w-full mx-4">
+            <CardContent className="p-6 text-center space-y-4">
+              <p className="text-red-600 font-medium">{error || 'Results not found'}</p>
+              <div className="flex items-center justify-center gap-3">
+                <Button asChild variant="outline" className="border-amber-300 text-amber-700 hover:bg-amber-50">
+                  <Link to="/dashboard">
+                    <LayoutDashboard className="h-4 w-4 mr-2" />
+                    Dashboard
+                  </Link>
+                </Button>
+                <Button asChild variant="outline" className="border-amber-300 text-amber-700 hover:bg-amber-50">
+                  <Link to="/quiz">
+                    <ArrowLeft className="h-4 w-4 mr-2" />
+                    Quizzes
+                  </Link>
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      </Layout>
+    );
+  }
+
+  const { quiz, leaderboard, myResult, questionAnalytics, insights, isCreator } = result;
+  const tabs: { key: Tab; label: string; icon: React.ReactNode }[] = [
+    { key: 'overview', label: 'Overview', icon: <BarChart3 className="h-4 w-4" /> },
+    { key: 'questions', label: 'Questions', icon: <Brain className="h-4 w-4" /> },
+    { key: 'leaderboard', label: 'Leaderboard', icon: <Trophy className="h-4 w-4" /> },
+  ];
+
+  const scoredQuestions = questionAnalytics.filter(
+    (q) => q.questionType !== 'POLL' && q.questionType !== 'RATING',
+  );
+
+  return (
+    <Layout>
+      <div className="min-h-screen bg-gradient-to-br from-amber-50 via-orange-50 to-amber-100">
+        {/* Hero header */}
+        <div className="bg-white/80 backdrop-blur-sm border-b border-amber-200/60">
+          <div className="max-w-5xl mx-auto px-4 py-6">
+            <div className="mb-4 flex items-center gap-2 flex-wrap">
+              <Button asChild variant="ghost" size="sm" className="text-amber-700 hover:bg-amber-50">
+                <Link to="/dashboard">
+                  <LayoutDashboard className="h-4 w-4 mr-1" />
+                  Dashboard
+                </Link>
+              </Button>
+              <Button asChild variant="ghost" size="sm" className="text-amber-700 hover:bg-amber-50">
+                <Link to="/quiz">
+                  <ArrowLeft className="h-4 w-4 mr-1" />
+                  Quizzes
+                </Link>
+              </Button>
+              {isCreator && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="ml-auto border-amber-300 text-amber-700 hover:bg-amber-50"
+                  onClick={handleExport}
+                  disabled={exporting}
+                >
+                  {exporting ? (
+                    <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+                  ) : (
+                    <Download className="h-4 w-4 mr-1" />
+                  )}
+                  Export Excel
+                </Button>
+              )}
+            </div>
+            <h1 className="text-2xl font-bold text-amber-900 font-display">{quiz.title}</h1>
+            {quiz.description && <p className="text-amber-700/60 mt-1">{quiz.description}</p>}
+            <div className="flex items-center gap-4 mt-3 text-xs font-medium text-amber-700/50 flex-wrap">
+              <span className="flex items-center gap-1">
+                <BookOpen className="h-3.5 w-3.5" />
+                {quiz.questionCount} questions
+              </span>
+              <span className="flex items-center gap-1">
+                <Users className="h-3.5 w-3.5" />
+                {insights.totalParticipants} participants
+              </span>
+              {insights.durationMs && (
+                <span className="flex items-center gap-1">
+                  <Clock className="h-3.5 w-3.5" />
+                  {Math.floor(insights.durationMs / 60000)}m {Math.floor((insights.durationMs % 60000) / 1000)}s
+                </span>
+              )}
+              {quiz.finishedAt && (
+                <span className="flex items-center gap-1">
+                  <Clock className="h-3.5 w-3.5" />
+                  {new Date(quiz.finishedAt).toLocaleDateString()}
+                </span>
+              )}
+              <Badge variant="outline" className="border-amber-300 text-amber-700 bg-amber-50 text-[10px]">
+                {quiz.status}
+              </Badge>
+            </div>
+          </div>
+        </div>
+
+        <div className="max-w-5xl mx-auto px-4 py-8 space-y-6">
+          {/* Winner hero card */}
+          {leaderboard[0] && (
+            <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }}>
+              <Card className="border-amber-300/60 shadow-lg overflow-hidden">
+                <div className="bg-gradient-to-r from-amber-100 via-orange-100 to-amber-100 p-6 sm:p-8 text-center">
+                  <Trophy className="h-10 w-10 mx-auto text-amber-500 mb-2" />
+                  <h2 className="text-2xl font-bold text-amber-900 font-display">
+                    {leaderboard[0].displayName}
+                  </h2>
+                  <p className="text-amber-700/70 font-medium">Winner with {leaderboard[0].score} points</p>
+                </div>
+              </Card>
+            </motion.div>
+          )}
+
+          {/* My result */}
+          {myResult && (
+            <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}>
+              <Card className="border-amber-200/60 shadow-md">
+                <CardContent className="p-5 text-center">
+                  <p className="text-xs font-semibold text-amber-700/50 uppercase tracking-wide mb-1">Your Result</p>
+                  <p className="text-3xl font-black text-amber-900 tabular-nums font-display">
+                    #{myResult.rank ?? '—'}
+                  </p>
+                  <div className="flex items-center justify-center gap-5 mt-3 text-sm text-amber-700/60 font-medium flex-wrap">
+                    <span className="tabular-nums">{myResult.score} pts</span>
+                    <span className="w-px h-4 bg-amber-200" />
+                    <span className="tabular-nums">{myResult.correctCount}/{quiz.questionCount} correct</span>
+                    <span className="w-px h-4 bg-amber-200" />
+                    <span className="tabular-nums">{(myResult.totalAnswerTimeMs / 1000).toFixed(1)}s</span>
+                  </div>
+                </CardContent>
+              </Card>
+            </motion.div>
+          )}
+
+          {/* Section tabs */}
+          <div className="flex items-center gap-1 bg-white/60 backdrop-blur-sm rounded-xl border border-amber-200/60 p-1">
+            {tabs.map((t) => (
+              <button
+                key={t.key}
+                onClick={() => setActiveTab(t.key)}
+                className={cn(
+                  'flex-1 flex items-center justify-center gap-2 px-3 py-2.5 text-sm font-semibold rounded-lg transition-all',
+                  activeTab === t.key
+                    ? 'bg-gradient-to-r from-orange-500 to-amber-600 text-white shadow-md'
+                    : 'text-amber-700/60 hover:text-amber-800 hover:bg-amber-50',
+                )}
+              >
+                {t.icon}
+                <span className="hidden sm:inline">{t.label}</span>
+              </button>
+            ))}
+          </div>
+
+          <AnimatePresence mode="wait">
+            {/* ── OVERVIEW TAB ── */}
+            {activeTab === 'overview' && (
+              <motion.div
+                key="overview"
+                initial={{ opacity: 0, y: 12 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -12 }}
+                transition={{ duration: 0.2 }}
+                className="space-y-6"
+              >
+                {/* Stat cards */}
+                <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+                  <Card className="border-amber-200/60 shadow-sm">
+                    <CardContent className="p-4 text-center">
+                      <Users className="h-5 w-5 mx-auto text-amber-500 mb-1" />
+                      <p className="text-2xl font-black text-amber-900 tabular-nums font-display">
+                        {insights.totalParticipants}
+                      </p>
+                      <p className="text-[11px] font-medium text-amber-700/50 uppercase tracking-wide">Participants</p>
+                    </CardContent>
+                  </Card>
+                  <Card className="border-amber-200/60 shadow-sm">
+                    <CardContent className="p-4 text-center">
+                      <TrendingUp className="h-5 w-5 mx-auto text-amber-500 mb-1" />
+                      <p className="text-2xl font-black text-amber-900 tabular-nums font-display">
+                        {insights.avgScore}<span className="text-sm font-medium text-amber-700/40">/{insights.maxPossibleScore}</span>
+                      </p>
+                      <p className="text-[11px] font-medium text-amber-700/50 uppercase tracking-wide">Avg Score</p>
+                    </CardContent>
+                  </Card>
+                  <Card className="border-amber-200/60 shadow-sm">
+                    <CardContent className="p-4 text-center">
+                      <Target className="h-5 w-5 mx-auto text-amber-500 mb-1" />
+                      <p className="text-2xl font-black text-amber-900 tabular-nums font-display">
+                        {insights.avgAccuracy}%
+                      </p>
+                      <p className="text-[11px] font-medium text-amber-700/50 uppercase tracking-wide">Avg Accuracy</p>
+                    </CardContent>
+                  </Card>
+                  <Card className="border-amber-200/60 shadow-sm">
+                    <CardContent className="p-4 text-center">
+                      <Timer className="h-5 w-5 mx-auto text-amber-500 mb-1" />
+                      <p className="text-2xl font-black text-amber-900 tabular-nums font-display">
+                        {insights.durationMs
+                          ? `${Math.floor(insights.durationMs / 60000)}:${String(Math.floor((insights.durationMs % 60000) / 1000)).padStart(2, '0')}`
+                          : '—'}
+                      </p>
+                      <p className="text-[11px] font-medium text-amber-700/50 uppercase tracking-wide">Duration</p>
+                    </CardContent>
+                  </Card>
+                </div>
+
+                {/* Insight cards */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  {insights.hardestQuestion && (
+                    <Card className="border-red-200/60 bg-red-50/30 shadow-sm">
+                      <CardContent className="p-4">
+                        <div className="flex items-start gap-3">
+                          <div className="flex-shrink-0 w-9 h-9 rounded-lg bg-red-100 flex items-center justify-center">
+                            <AlertTriangle className="h-4.5 w-4.5 text-red-500" />
+                          </div>
+                          <div className="min-w-0">
+                            <p className="text-[11px] font-semibold text-red-600/70 uppercase tracking-wide mb-0.5">
+                              Hardest Question
+                            </p>
+                            <p className="text-sm font-bold text-red-900 leading-tight truncate">
+                              Q{insights.hardestQuestion.position}: {insights.hardestQuestion.questionText}
+                            </p>
+                            <p className="text-xs text-red-600/60 font-medium mt-0.5">
+                              Only {insights.hardestQuestion.accuracy}% got it right
+                            </p>
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  )}
+                  {insights.easiestQuestion && (
+                    <Card className="border-green-200/60 bg-green-50/30 shadow-sm">
+                      <CardContent className="p-4">
+                        <div className="flex items-start gap-3">
+                          <div className="flex-shrink-0 w-9 h-9 rounded-lg bg-green-100 flex items-center justify-center">
+                            <CheckCircle2 className="h-4.5 w-4.5 text-green-500" />
+                          </div>
+                          <div className="min-w-0">
+                            <p className="text-[11px] font-semibold text-green-600/70 uppercase tracking-wide mb-0.5">
+                              Easiest Question
+                            </p>
+                            <p className="text-sm font-bold text-green-900 leading-tight truncate">
+                              Q{insights.easiestQuestion.position}: {insights.easiestQuestion.questionText}
+                            </p>
+                            <p className="text-xs text-green-600/60 font-medium mt-0.5">
+                              {insights.easiestQuestion.accuracy}% accuracy
+                            </p>
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  )}
+                  {insights.fastestQuestion && (
+                    <Card className="border-blue-200/60 bg-blue-50/30 shadow-sm">
+                      <CardContent className="p-4">
+                        <div className="flex items-start gap-3">
+                          <div className="flex-shrink-0 w-9 h-9 rounded-lg bg-blue-100 flex items-center justify-center">
+                            <Zap className="h-4.5 w-4.5 text-blue-500" />
+                          </div>
+                          <div className="min-w-0">
+                            <p className="text-[11px] font-semibold text-blue-600/70 uppercase tracking-wide mb-0.5">
+                              Fastest Answered
+                            </p>
+                            <p className="text-sm font-bold text-blue-900">
+                              Question {insights.fastestQuestion.position}
+                            </p>
+                            <p className="text-xs text-blue-600/60 font-medium mt-0.5">
+                              Avg {(insights.fastestQuestion.avgTimeMs / 1000).toFixed(1)}s per answer
+                            </p>
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  )}
+                  {insights.slowestQuestion && (
+                    <Card className="border-purple-200/60 bg-purple-50/30 shadow-sm">
+                      <CardContent className="p-4">
+                        <div className="flex items-start gap-3">
+                          <div className="flex-shrink-0 w-9 h-9 rounded-lg bg-purple-100 flex items-center justify-center">
+                            <Timer className="h-4.5 w-4.5 text-purple-500" />
+                          </div>
+                          <div className="min-w-0">
+                            <p className="text-[11px] font-semibold text-purple-600/70 uppercase tracking-wide mb-0.5">
+                              Slowest Answered
+                            </p>
+                            <p className="text-sm font-bold text-purple-900">
+                              Question {insights.slowestQuestion.position}
+                            </p>
+                            <p className="text-xs text-purple-600/60 font-medium mt-0.5">
+                              Avg {(insights.slowestQuestion.avgTimeMs / 1000).toFixed(1)}s per answer
+                            </p>
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  )}
+                </div>
+
+                {/* Quick accuracy overview per question */}
+                {scoredQuestions.length > 0 && (
+                  <Card className="border-amber-200/60 shadow-sm">
+                    <CardContent className="p-5 space-y-3">
+                      <h3 className="text-sm font-bold text-amber-900 font-display">
+                        Accuracy by Question
+                      </h3>
+                      <div className="space-y-2.5">
+                        {scoredQuestions.map((q) => (
+                          <div key={q.id} className="flex items-center gap-3">
+                            <span className="text-xs font-bold text-amber-700 w-7 text-right tabular-nums">
+                              Q{q.position + 1}
+                            </span>
+                            <div className="flex-1">
+                              <AccuracyBar accuracy={q.accuracy} />
+                            </div>
+                            <span className={cn(
+                              'text-xs font-bold tabular-nums w-10 text-right',
+                              q.accuracy >= 80 ? 'text-green-600' :
+                              q.accuracy >= 50 ? 'text-amber-600' :
+                              'text-red-600',
+                            )}>
+                              {q.accuracy}%
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </CardContent>
+                  </Card>
+                )}
+              </motion.div>
+            )}
+
+            {/* ── QUESTIONS TAB ── */}
+            {activeTab === 'questions' && (
+              <motion.div
+                key="questions"
+                initial={{ opacity: 0, y: 12 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -12 }}
+                transition={{ duration: 0.2 }}
+                className="space-y-3"
+              >
+                {questionAnalytics.map((q) => {
+                  const isExpanded = expandedQ === q.id;
+                  const isPollRating = q.questionType === 'POLL' || q.questionType === 'RATING';
+                  return (
+                    <Card key={q.id} className="border-amber-200/60 shadow-sm overflow-hidden">
+                      <button
+                        onClick={() => setExpandedQ(isExpanded ? null : q.id)}
+                        className="w-full text-left p-4 flex items-start gap-3 hover:bg-amber-50/50 transition-colors"
+                      >
+                        {/* Question number */}
+                        <div className={cn(
+                          'flex-shrink-0 w-8 h-8 rounded-lg flex items-center justify-center text-xs font-black text-white',
+                          isPollRating
+                            ? 'bg-gradient-to-br from-violet-500 to-purple-600'
+                            : q.accuracy >= 80
+                              ? 'bg-gradient-to-br from-green-500 to-emerald-600'
+                              : q.accuracy >= 50
+                                ? 'bg-gradient-to-br from-amber-500 to-orange-600'
+                                : 'bg-gradient-to-br from-red-500 to-rose-600',
+                        )}>
+                          {q.position + 1}
+                        </div>
+
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-semibold text-amber-900 leading-snug line-clamp-2">
+                            {q.questionText}
+                          </p>
+                          <div className="flex items-center gap-3 mt-1.5 flex-wrap">
+                            <Badge variant="outline" className="border-amber-200 text-amber-600 text-[10px] py-0 px-1.5">
+                              {q.questionType}
+                            </Badge>
+                            {!isPollRating && (
+                              <span className={cn(
+                                'text-xs font-bold tabular-nums',
+                                q.accuracy >= 80 ? 'text-green-600' :
+                                q.accuracy >= 50 ? 'text-amber-600' :
+                                'text-red-600',
+                              )}>
+                                {q.accuracy}% correct
+                              </span>
+                            )}
+                            {q.questionType === 'RATING' && q.avgRating !== null && (
+                              <span className="text-xs font-bold text-amber-600 flex items-center gap-0.5">
+                                <Star className="h-3 w-3 fill-amber-400 text-amber-400" />
+                                {q.avgRating}
+                              </span>
+                            )}
+                            <span className="text-[11px] text-amber-700/40 font-medium tabular-nums">
+                              {q.totalAnswers} answers
+                            </span>
+                            {q.avgAnswerTimeMs > 0 && (
+                              <span className="text-[11px] text-amber-700/40 font-medium tabular-nums">
+                                {(q.avgAnswerTimeMs / 1000).toFixed(1)}s avg
+                              </span>
+                            )}
+                          </div>
+                        </div>
+
+                        <div className="flex-shrink-0 text-amber-500 mt-1">
+                          {isExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                        </div>
+                      </button>
+
+                      <AnimatePresence>
+                        {isExpanded && (
+                          <motion.div
+                            initial={{ height: 0, opacity: 0 }}
+                            animate={{ height: 'auto', opacity: 1 }}
+                            exit={{ height: 0, opacity: 0 }}
+                            transition={{ duration: 0.2 }}
+                            className="overflow-hidden"
+                          >
+                            <div className="px-4 pb-4 pt-0 space-y-4 border-t border-amber-100">
+                              {/* Stats row */}
+                              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-3">
+                                <div className="bg-amber-50 rounded-lg p-2.5 text-center">
+                                  <p className="text-lg font-black text-amber-900 tabular-nums">
+                                    {q.totalAnswers}
+                                  </p>
+                                  <p className="text-[10px] font-semibold text-amber-700/50 uppercase">Answers</p>
+                                </div>
+                                {!isPollRating && (
+                                  <div className="bg-amber-50 rounded-lg p-2.5 text-center">
+                                    <p className="text-lg font-black text-amber-900 tabular-nums">
+                                      {q.correctCount}
+                                    </p>
+                                    <p className="text-[10px] font-semibold text-amber-700/50 uppercase">Correct</p>
+                                  </div>
+                                )}
+                                <div className="bg-amber-50 rounded-lg p-2.5 text-center">
+                                  <p className="text-lg font-black text-amber-900 tabular-nums">
+                                    {q.avgAnswerTimeMs > 0 ? `${(q.avgAnswerTimeMs / 1000).toFixed(1)}s` : '—'}
+                                  </p>
+                                  <p className="text-[10px] font-semibold text-amber-700/50 uppercase">Avg Time</p>
+                                </div>
+                                <div className="bg-amber-50 rounded-lg p-2.5 text-center">
+                                  <p className="text-lg font-black text-amber-900 tabular-nums">
+                                    {q.unansweredCount}
+                                  </p>
+                                  <p className="text-[10px] font-semibold text-amber-700/50 uppercase">Skipped</p>
+                                </div>
+                              </div>
+
+                              {/* Correct answer + common wrong */}
+                              {!isPollRating && q.correctAnswer && (
+                                <div className="flex flex-col sm:flex-row gap-2">
+                                  <div className="flex-1 flex items-center gap-2 bg-green-50 border border-green-200/60 rounded-lg px-3 py-2">
+                                    <CheckCircle2 className="h-4 w-4 text-green-500 flex-shrink-0" />
+                                    <div>
+                                      <p className="text-[10px] font-semibold text-green-600/70 uppercase">Correct Answer</p>
+                                      <p className="text-sm font-bold text-green-900">{q.correctAnswer}</p>
+                                    </div>
+                                  </div>
+                                  {q.mostCommonWrongAnswer && (
+                                    <div className="flex-1 flex items-center gap-2 bg-red-50 border border-red-200/60 rounded-lg px-3 py-2">
+                                      <AlertTriangle className="h-4 w-4 text-red-500 flex-shrink-0" />
+                                      <div>
+                                        <p className="text-[10px] font-semibold text-red-600/70 uppercase">Most Common Mistake</p>
+                                        <p className="text-sm font-bold text-red-900">{q.mostCommonWrongAnswer}</p>
+                                      </div>
+                                    </div>
+                                  )}
+                                </div>
+                              )}
+
+                              {/* Rating average */}
+                              {q.questionType === 'RATING' && q.avgRating !== null && (
+                                <div className="flex items-center gap-2 bg-amber-50 border border-amber-200/60 rounded-lg px-3 py-2">
+                                  <Star className="h-4 w-4 text-amber-500 fill-amber-400 flex-shrink-0" />
+                                  <div>
+                                    <p className="text-[10px] font-semibold text-amber-600/70 uppercase">Average Rating</p>
+                                    <div className="flex items-center gap-1.5">
+                                      <p className="text-sm font-bold text-amber-900">{q.avgRating}</p>
+                                      <div className="flex gap-px">
+                                        {[1, 2, 3, 4, 5].map((s) => (
+                                          <Star
+                                            key={s}
+                                            className={cn(
+                                              'h-3.5 w-3.5',
+                                              s <= Math.round(q.avgRating!)
+                                                ? 'text-amber-400 fill-amber-400'
+                                                : 'text-amber-200',
+                                            )}
+                                          />
+                                        ))}
+                                      </div>
+                                    </div>
+                                  </div>
+                                </div>
+                              )}
+
+                              {/* Distribution chart */}
+                              {Object.keys(q.answerDistribution).length > 0 && (
+                                <QuizAnswerDistribution
+                                  distribution={q.answerDistribution}
+                                  correctAnswer={q.correctAnswer}
+                                  options={q.options}
+                                  questionType={q.questionType}
+                                />
+                              )}
+                            </div>
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
+                    </Card>
+                  );
+                })}
+              </motion.div>
+            )}
+
+            {/* ── LEADERBOARD TAB ── */}
+            {activeTab === 'leaderboard' && (
+              <motion.div
+                key="leaderboard"
+                initial={{ opacity: 0, y: 12 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -12 }}
+                transition={{ duration: 0.2 }}
+              >
+                <QuizLeaderboard
+                  leaderboard={leaderboard}
+                  myUserId={user?.id ?? null}
+                  totalQuestions={quiz.questionCount}
+                />
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          <div className="flex items-center justify-center gap-3 pt-2">
+            {isCreator && (
+              <Button
+                variant="outline"
+                className="border-amber-300 text-amber-700 hover:bg-amber-50"
+                onClick={handleExport}
+                disabled={exporting}
+              >
+                {exporting ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Download className="h-4 w-4 mr-2" />}
+                Export Excel
+              </Button>
+            )}
+            <Button asChild variant="outline" className="border-amber-300 text-amber-700 hover:bg-amber-50">
+              <Link to="/dashboard">
+                <LayoutDashboard className="h-4 w-4 mr-2" />
+                Dashboard
+              </Link>
+            </Button>
+            <Button asChild className="bg-gradient-to-r from-orange-500 to-amber-600 hover:from-orange-600 hover:to-amber-700 text-white shadow-md">
+              <Link to="/quiz">
+                <ArrowLeft className="h-4 w-4 mr-2" />
+                Back to Quizzes
+              </Link>
+            </Button>
+          </div>
+        </div>
+      </div>
+    </Layout>
+  );
+}

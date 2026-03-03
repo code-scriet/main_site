@@ -30,6 +30,13 @@ export function initializeSocket(httpServer: HTTPServer) {
       },
       credentials: true,
     },
+    pingTimeout: 60000,
+    pingInterval: 25000,
+    transports: ['websocket', 'polling'],
+    connectionStateRecovery: {
+      maxDisconnectionDuration: 2 * 60 * 1000,
+      skipMiddlewares: false,
+    },
   });
 
   io.on('connection', (socket) => {

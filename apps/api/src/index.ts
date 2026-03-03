@@ -22,6 +22,9 @@ import { sitemapRouter, robotsRouter, indexNowRouter } from './routes/sitemap.js
 import { networkRouter } from './routes/network.js';
 import { auditRouter } from './routes/audit.js';
 import { mailRouter } from './routes/mail.js';
+import { quizRouter } from './quiz/quizRouter.js';
+import { initQuizSocket } from './quiz/quizSocket.js';
+import { quizStore } from './quiz/quizStore.js';
 import { setupPassport } from './config/passport.js';
 import { requestLogger, logger } from './utils/logger.js';
 import { ApiResponse, ErrorCodes } from './utils/response.js';
@@ -63,7 +66,15 @@ const stopEventStatusScheduler = () => {
 };
 
 // Initialize Socket.io
-initializeSocket(httpServer);
+const io = initializeSocket(httpServer);
+
+// Initialize Quiz Socket namespace
+initQuizSocket(io);
+
+// Neon keep-alive: prevent cold connection starts
+setInterval(async () => {
+  try { await prisma.$queryRaw`SELECT 1`; } catch (_e) { /* silent */ }
+}, 4 * 60 * 1000);
 
 // Middleware
 
@@ -79,10 +90,14 @@ app.use(cors({
     // Allow requests with no origin (mobile apps, Postman, etc.)
     if (!origin) return callback(null, true);
     
-    // Allow localhost only in development
+    // Allow localhost and private LAN origins in development
     if (
       NODE_ENV === 'development' &&
-      (origin.startsWith('http://localhost:') || origin.startsWith('http://127.0.0.1:'))
+      (
+        origin.startsWith('http://localhost:') ||
+        origin.startsWith('http://127.0.0.1:') ||
+        /^http:\/\/(192\.168\.|10\.|172\.(1[6-9]|2\d|3[0-1])\.)/.test(origin)
+      )
     ) {
       return callback(null, true);
     }
@@ -183,6 +198,7 @@ app.use('/api/upload', uploadRouter);
 app.use('/api/network', networkRouter);
 app.use('/api/audit-logs', auditRouter);
 app.use('/api/mail', mailRouter);
+app.use('/api/quiz', quizRouter);
 app.use('/api/indexnow', authMiddleware, requireRole('ADMIN'), indexNowRouter);
 
 // Test email endpoint for debugging
@@ -253,11 +269,28 @@ app.use((err: Error, req: express.Request, res: express.Response, _next: express
 });
 
 // Graceful shutdown
-const shutdown = () => {
+const shutdown = async () => {
   logger.info('Shutting down gracefully...');
   stopEventStatusScheduler();
   stopReminderScheduler();
-  process.exit(0);
+
+  // Persist all active quiz sessions before exit
+  const activeIds = quizStore.getAllActiveQuizIds();
+  if (activeIds.length > 0) {
+    logger.info(`Persisting ${activeIds.length} active quiz sessions...`);
+    await Promise.allSettled(
+      activeIds.map(quizId => quizStore.persistResultsAndCleanup(quizId, 'ABANDONED'))
+    );
+  }
+
+  // Close HTTP server
+  httpServer.close(() => {
+    logger.info('Clean exit');
+    process.exit(0);
+  });
+
+  // Force exit after 10 seconds if clean close doesn't happen
+  setTimeout(() => process.exit(1), 10000);
 };
 
 process.on('SIGTERM', shutdown);

@@ -32,10 +32,11 @@ const getCookie = (req: Request, name: string): string | undefined => {
   return match ? decodeURIComponent(match.split('=').slice(1).join('=').trim()) : undefined;
 };
 
-const generateToken = (user: { id: string; email: string; role: string }): string =>
+const generateToken = (user: { id: string; name?: string | null; email: string; role: string }): string =>
   signAccessToken({
     userId: user.id,
     id: user.id,
+    name: user.name || undefined,
     email: user.email,
     role: user.role,
   });

@@ -39,6 +39,10 @@ model User {
   qotdSubmissions    QOTDSubmission[]
   networkProfile     NetworkProfile?
   teamMember         TeamMember?
+  // Quiz relations
+  createdQuizzes     Quiz[]
+  quizParticipants   QuizParticipant[]
+  quizAnswers        QuizAnswer[]
 
   @@map("users")
   @@index([role, createdAt(sort: Desc)], map: "users_role_created_at_desc_idx")
@@ -403,6 +407,116 @@ model NetworkProfile {
   @@index([status, isPublic, isFeatured(sort: Desc), displayOrder, createdAt(sort: Desc)], map: "network_profiles_public_feed_idx")
   @@index([status, isPublic, industry], map: "network_profiles_status_public_industry_idx")
   @@map("network_profiles")
+}
+
+// ──────────────── Live Quiz System ────────────────
+
+model Quiz {
+  id                    String          @id @default(uuid())
+  title                 String          @db.VarChar(255)
+  description           String?         @db.Text
+  joinCode              String?         @unique @map("join_code") @db.VarChar(6)
+  pin                   String?         @unique @db.VarChar(6)
+  pinActive             Boolean         @default(true) @map("pin_active")
+  createdBy             String          @map("created_by")
+  creator               User            @relation(fields: [createdBy], references: [id], onDelete: Cascade)
+  status                QuizStatus      @default(DRAFT)
+  currentQuestionIndex  Int             @default(-1) @map("current_question_index")
+  questionCount         Int             @default(0) @map("question_count")
+  totalParticipants     Int             @default(0) @map("total_participants")
+  startedAt             DateTime?       @map("started_at")
+  endedAt               DateTime?       @map("ended_at")
+  createdAt             DateTime        @default(now()) @map("created_at")
+  updatedAt             DateTime        @updatedAt @map("updated_at")
+  questions             QuizQuestion[]
+  participants          QuizParticipant[]
+  answers               QuizAnswer[]
+
+  @@index([status], map: "idx_quizzes_status")
+  @@index([createdBy], map: "idx_quizzes_created_by")
+  @@index([pin], map: "idx_quizzes_pin")
+  @@map("quizzes")
+}
+
+model QuizQuestion {
+  id                String        @id @default(uuid())
+  quizId            String        @map("quiz_id")
+  quiz              Quiz          @relation(fields: [quizId], references: [id], onDelete: Cascade)
+  position          Int
+  questionText      String        @map("question_text") @db.Text
+  questionType      QuizQuestionType @default(MCQ) @map("question_type")
+  options           Json?         // string array for mcq/true_false/poll
+  correctAnswer     String?       @map("correct_answer")
+  timeLimitSeconds  Int           @default(20) @map("time_limit_seconds")
+  points            Int           @default(100)
+  mediaUrl          String?       @map("media_url")
+  totalAnswers      Int           @default(0) @map("total_answers")
+  correctCount      Int           @default(0) @map("correct_count")
+  avgAnswerTimeMs   Int           @default(0) @map("avg_answer_time_ms")
+  answerDistribution Json?        @map("answer_distribution")
+  createdAt         DateTime      @default(now()) @map("created_at")
+  answers           QuizAnswer[]
+
+  @@index([quizId, position], map: "idx_quiz_questions_quiz_position")
+  @@map("quiz_questions")
+}
+
+model QuizParticipant {
+  id                String   @id @default(uuid())
+  quizId            String   @map("quiz_id")
+  quiz              Quiz     @relation(fields: [quizId], references: [id], onDelete: Cascade)
+  userId            String   @map("user_id")
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  displayName       String   @map("display_name") @db.VarChar(100)
+  joinedAt          DateTime @default(now()) @map("joined_at")
+  finalScore        Int      @default(0) @map("final_score")
+  finalRank         Int?     @map("final_rank")
+  correctCount      Int      @default(0) @map("correct_count")
+  totalAnswerTimeMs BigInt   @default(0) @map("total_answer_time_ms")
+  joinedMidQuiz     Boolean  @default(false) @map("joined_mid_quiz")
+  questionsAnswered Int      @default(0) @map("questions_answered")
+
+  @@unique([quizId, userId])
+  @@index([userId], map: "idx_quiz_participants_user_id")
+  @@index([quizId], map: "idx_quiz_participants_quiz_id")
+  @@map("quiz_participants")
+}
+
+model QuizAnswer {
+  id              String       @id @default(uuid())
+  quizId          String       @map("quiz_id")
+  quiz            Quiz         @relation(fields: [quizId], references: [id], onDelete: Cascade)
+  questionId      String       @map("question_id")
+  question        QuizQuestion @relation(fields: [questionId], references: [id], onDelete: Cascade)
+  userId          String       @map("user_id")
+  user            User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  answerSubmitted String?      @map("answer_submitted")
+  isCorrect       Boolean?     @map("is_correct")
+  pointsAwarded   Int          @default(0) @map("points_awarded")
+  answerTimeMs    Int          @map("answer_time_ms")
+  submittedAt     DateTime     @default(now()) @map("submitted_at")
+
+  @@unique([questionId, userId])
+  @@index([questionId], map: "idx_quiz_answers_question_id")
+  @@index([userId], map: "idx_quiz_answers_user_id")
+  @@index([quizId], map: "idx_quiz_answers_quiz_id")
+  @@map("quiz_answers")
+}
+
+enum QuizStatus {
+  DRAFT
+  WAITING
+  ACTIVE
+  FINISHED
+  ABANDONED
+}
+
+enum QuizQuestionType {
+  MCQ
+  TRUE_FALSE
+  SHORT_ANSWER
+  POLL
+  RATING
 }
 
 enum NetworkConnectionType {
