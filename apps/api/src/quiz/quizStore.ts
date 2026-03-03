@@ -36,7 +36,7 @@ export interface PlayerState {
 export interface AnswerRecord {
   answer: string;
   timeMs: number;
-  isCorrect: boolean;
+  isCorrect: boolean | null;
   pointsAwarded: number;
   questionId: string;
 }

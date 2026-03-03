@@ -4,7 +4,7 @@
  */
 
 import { memo, useMemo } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion } from 'framer-motion';
 import { cn } from '@/lib/utils';
 import { Card, CardContent } from '@/components/ui/card';
 import { Trophy, Zap } from 'lucide-react';

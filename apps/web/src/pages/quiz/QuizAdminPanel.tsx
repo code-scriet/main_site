@@ -4,7 +4,7 @@
  * Features: SVG progress ring, pulsing next button, connected dots.
  */
 
-import { memo, useState, useMemo } from 'react';
+import { memo, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { cn } from '@/lib/utils';
 import { useQuizStore } from '@/lib/quizStore';
@@ -17,7 +17,6 @@ import {
   StopCircle,
   Users,
   CheckCheck,
-  Clock,
   Pause,
   Timer,
   FastForward,
