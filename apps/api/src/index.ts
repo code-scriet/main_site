@@ -23,7 +23,6 @@ import { networkRouter } from './routes/network.js';
 import { auditRouter } from './routes/audit.js';
 import { mailRouter } from './routes/mail.js';
 import { quizRouter } from './quiz/quizRouter.js';
-import { executeRouter } from './routes/execute.js';
 import { initQuizSocket } from './quiz/quizSocket.js';
 import { quizStore } from './quiz/quizStore.js';
 import { setupPassport } from './config/passport.js';
@@ -200,7 +199,6 @@ app.use('/api/network', networkRouter);
 app.use('/api/audit-logs', auditRouter);
 app.use('/api/mail', mailRouter);
 app.use('/api/quiz', quizRouter);
-app.use('/api/execute', executeRouter); // Code execution proxy
 app.use('/api/indexnow', authMiddleware, requireRole('ADMIN'), indexNowRouter);
 
 // Test email endpoint for debugging
