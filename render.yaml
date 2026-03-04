@@ -65,3 +65,51 @@ services:
     envVars:
       - key: VITE_API_URL
         sync: false
+
+  # Playground Backend (Code Execution Server)
+  - type: web
+    name: codescriet-playground-api
+    runtime: node
+    plan: free
+    buildCommand: cd apps/playground && npm install
+    startCommand: cd apps/playground && node execute-server.js
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 10000
+      - key: JDOODLE_CLIENT_ID
+        sync: false
+      - key: JDOODLE_CLIENT_SECRET
+        sync: false
+      - key: ALLOWED_ORIGINS
+        value: https://playground.codescriet.dev
+
+  # Playground Frontend (Static Site)
+  - type: web
+    name: codescriet-playground-web
+    runtime: static
+    plan: free
+    buildCommand: cd apps/playground && npm install && npm run build
+    staticPublishPath: ./apps/playground/dist
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
+    headers:
+      - path: /*
+        name: X-Content-Type-Options
+        value: nosniff
+      - path: /*
+        name: X-Frame-Options
+        value: SAMEORIGIN
+      - path: /index.html
+        name: Cache-Control
+        value: no-cache, no-store, must-revalidate
+      - path: /assets/*
+        name: Cache-Control
+        value: public, max-age=31536000, immutable
+    envVars:
+      - key: VITE_API_URL
+        sync: false

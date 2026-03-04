@@ -17,6 +17,7 @@ export function Header() {
     { name: 'Announcements', href: '/announcements' },
     { name: 'Team', href: '/team' },
     { name: 'Achievements', href: '/achievements' },
+    { name: 'Playground', href: import.meta.env.DEV ? 'http://localhost:5174' : 'https://playground.codescriet.dev', external: true },
     // Network link - conditionally shown based on settings
     ...(settings?.showNetwork !== false ? [{ name: 'Network', href: '/network' }] : []),
   ];
@@ -36,13 +37,25 @@ export function Header() {
           {/* Desktop Navigation */}
           <div className="hidden md:flex items-center space-x-8">
             {navigation.map((item) => (
-              <Link
-                key={item.name}
-                to={item.href}
-                className="text-gray-700 hover:text-amber-600 transition-colors duration-200 font-medium"
-              >
-                {item.name}
-              </Link>
+              item.external ? (
+                <a
+                  key={item.name}
+                  href={item.href}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-gray-700 hover:text-amber-600 transition-colors duration-200 font-medium"
+                >
+                  {item.name}
+                </a>
+              ) : (
+                <Link
+                  key={item.name}
+                  to={item.href}
+                  className="text-gray-700 hover:text-amber-600 transition-colors duration-200 font-medium"
+                >
+                  {item.name}
+                </Link>
+              )
             ))}
           </div>
 
@@ -95,14 +108,27 @@ export function Header() {
         {isMenuOpen && (
           <div className="md:hidden mt-4 pb-4 space-y-3">
             {navigation.map((item) => (
-              <Link
-                key={item.name}
-                to={item.href}
-                className="block py-2.5 px-3 text-gray-700 hover:text-amber-600 hover:bg-amber-50 rounded-lg transition-colors duration-200 font-medium"
-                onClick={() => setIsMenuOpen(false)}
-              >
-                {item.name}
-              </Link>
+              item.external ? (
+                <a
+                  key={item.name}
+                  href={item.href}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="block py-2.5 px-3 text-gray-700 hover:text-amber-600 hover:bg-amber-50 rounded-lg transition-colors duration-200 font-medium"
+                  onClick={() => setIsMenuOpen(false)}
+                >
+                  {item.name}
+                </a>
+              ) : (
+                <Link
+                  key={item.name}
+                  to={item.href}
+                  className="block py-2.5 px-3 text-gray-700 hover:text-amber-600 hover:bg-amber-50 rounded-lg transition-colors duration-200 font-medium"
+                  onClick={() => setIsMenuOpen(false)}
+                >
+                  {item.name}
+                </Link>
+              )
             ))}
             <div className="flex flex-col gap-2 pt-4 mt-2 border-t border-amber-200">
               {user ? (

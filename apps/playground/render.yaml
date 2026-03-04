@@ -1,0 +1,32 @@
+services:
+  # Playground Frontend (Static Site)
+  - type: web
+    name: playground-frontend
+    runtime: static
+    buildCommand: npm install && npm run playground:build
+    staticPublishPath: ./apps/playground/dist
+    env: static
+    domains:
+      - playground.codescriet.dev
+    envVars:
+      - key: VITE_API_URL
+        value: https://playground-api.codescriet.dev
+
+  # Playground Execution Backend (Node.js API)
+  - type: web
+    name: playground-api
+    runtime: node
+    buildCommand: cd apps/playground && npm install
+    startCommand: cd apps/playground && node execute-server.js
+    env: node
+    domains:
+      - playground-api.codescriet.dev
+    envVars:
+      - key: JDOODLE_CLIENT_ID
+        value: 48c12c7c4f88518681775a915c6dea0
+      - key: JDOODLE_CLIENT_SECRET
+        sync: false # This will be added manually in Render dashboard
+      - key: EXECUTE_PORT
+        value: 10000 # Render uses port 10000 by default
+      - key: NODE_ENV
+        value: production
