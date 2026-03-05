@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { Navbar } from '@/components/playground/Navbar';
 import { getSharedSnippet, type Snippet } from '@/utils/snippetsApi';
 import { Button } from '@/components/ui/button';
@@ -17,13 +17,14 @@ const LANG_ICONS: Record<string, string> = {
 
 export default function SnippetViewPage() {
   const { shareToken, id } = useParams();
+  const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const [snippet, setSnippet] = useState<Snippet | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
   useEffect(() => {
-    const token = shareToken || id;
+    const token = shareToken || id || searchParams.get('share');
     if (!token) {
       setError('No snippet identifier provided');
       setLoading(false);
@@ -33,7 +34,7 @@ export default function SnippetViewPage() {
       .then(setSnippet)
       .catch((err) => setError(err instanceof Error ? err.message : 'Snippet not found'))
       .finally(() => setLoading(false));
-  }, [shareToken, id]);
+  }, [shareToken, id, searchParams]);
 
   const handleCopyCode = async () => {
     if (!snippet) return;
