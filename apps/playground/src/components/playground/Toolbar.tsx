@@ -31,6 +31,7 @@ import {
 import { toast } from 'sonner';
 import { useRef } from 'react';
 import { cn } from '@/lib/utils';
+import { useKeyboardShortcuts, getShortcutKey } from '@/hooks/useKeyboardShortcuts';
 
 export function Toolbar() {
   const {
@@ -155,6 +156,15 @@ export function Toolbar() {
     }
   };
 
+  // Register keyboard shortcuts
+  useKeyboardShortcuts({
+    onRun: () => { if (!isRunning) handleRunCode(); },
+    onSave: handleSaveSnippet,
+    onReset: resetCode,
+    onCopy: handleCopyCode,
+    onToggleTheme: toggleTheme,
+  });
+
   const handleDownloadCode = () => {
     const blob = new Blob([code], { type: 'text/plain' });
     const url = URL.createObjectURL(blob);
@@ -243,13 +253,13 @@ export function Toolbar() {
             Stop
           </Button>
         ) : (
-          <Button onClick={handleRunCode} variant="success" className="gap-2">
+          <Button onClick={handleRunCode} variant="success" className="gap-2" title={`Run Code (${getShortcutKey('Enter')})`}>
             <Play className="h-4 w-4" />
             Run Code
           </Button>
         )}
 
-        <Button onClick={handleReset} variant="outline" size="icon" title="Reset Code">
+        <Button onClick={handleReset} variant="outline" size="icon" title={`Reset Code (${getShortcutKey('R', true)})`}>
           <RotateCcw className="h-4 w-4" />
         </Button>
       </div>
@@ -259,7 +269,7 @@ export function Toolbar() {
           onClick={handleCopyCode}
           variant="outline"
           size="icon"
-          title="Copy Code"
+          title={`Copy Code (${getShortcutKey('C', true)})`}
         >
           <Copy className="h-4 w-4" />
         </Button>
@@ -287,7 +297,7 @@ export function Toolbar() {
           onClick={handleSaveSnippet}
           variant="outline"
           size="icon"
-          title="Save Snippet"
+          title={`Save Snippet (${getShortcutKey('S')})`}
         >
           <Save className="h-4 w-4" />
         </Button>
@@ -318,7 +328,7 @@ export function Toolbar() {
           onClick={toggleTheme}
           variant="outline"
           size="icon"
-          title="Toggle Theme"
+          title={`Toggle Theme (${getShortcutKey('T', true)})`}
         >
           {theme === 'dark' ? (
             <Sun className="h-4 w-4" />

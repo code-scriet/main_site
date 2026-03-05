@@ -1,6 +1,7 @@
 import { createContext, useContext, useState, useEffect, ReactNode, useCallback } from 'react';
 import { getLanguageById, DEFAULT_LANGUAGE, type LanguageConfig } from '../utils/languageConfig';
 import { debounce } from '../lib/utils';
+import { preloadPyodide } from '../engines/pyodideEngine';
 
 export interface TestCase {
   id: string;
@@ -130,6 +131,13 @@ export function PlaygroundProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     saveToLocalStorage(state);
   }, [state.code, state.language, state.stdin, state.fontSize, saveToLocalStorage]);
+
+  // Preload Pyodide when Python is selected to speed up first execution
+  useEffect(() => {
+    if (state.language.id === 'python') {
+      preloadPyodide();
+    }
+  }, [state.language.id]);
 
   const setCode = (code: string) => {
     setState((prev) => ({ ...prev, code }));

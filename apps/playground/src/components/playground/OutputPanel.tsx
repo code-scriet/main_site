@@ -45,6 +45,19 @@ export function OutputPanel() {
   const [stats, setStats] = useState<ExecutionStats | null>(null);
   const [historyLoading, setHistoryLoading] = useState(false);
 
+  const refreshStats = useCallback(async () => {
+    if (!isAuthenticated) {
+      setStats(null);
+      return;
+    }
+    try {
+      const s = await getExecutionStats();
+      setStats(s);
+    } catch {
+      setStats({ languageStats: [], todayCount: 0, dailyLimit: 200 });
+    }
+  }, [isAuthenticated]);
+
   const refreshHistory = useCallback(async () => {
     if (!isAuthenticated) return;
     setHistoryLoading(true);
@@ -62,16 +75,21 @@ export function OutputPanel() {
     if (activeTab === 'history') refreshHistory();
   }, [activeTab, refreshHistory]);
 
+  // Initial stats load (counter visible without requiring a run)
+  useEffect(() => {
+    refreshStats();
+  }, [refreshStats]);
+
   // Refresh stats after each run completes
   useEffect(() => {
     if (!isRunning && isAuthenticated) {
       // Small delay to let the server persist
       const t = setTimeout(() => {
-        getExecutionStats().then(setStats).catch(() => {});
+        refreshStats();
       }, 800);
       return () => clearTimeout(t);
     }
-  }, [isRunning, isAuthenticated]);
+  }, [isRunning, isAuthenticated, refreshStats]);
 
   const loadHistoryItem = (item: ExecutionHistoryItem) => {
     try {
@@ -275,7 +293,7 @@ export function OutputPanel() {
                 {history.map((item) => {
                   const lang = (() => { try { return getLanguageById(item.language); } catch { return null; } })();
                   const firstLine = item.code?.split('\n').find((l) => l.trim()) || '(empty)';
-                  const isError = item.status === 'error';
+                  const isError = String(item.status).toUpperCase() === 'ERROR';
                   return (
                     <button
                       key={item.id}

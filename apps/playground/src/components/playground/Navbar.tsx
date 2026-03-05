@@ -2,6 +2,7 @@ import { useAuth, getLoginUrl } from '@/context/AuthContext';
 import { useTheme } from '@/context/ThemeContext';
 import { Code2, ExternalLink, LogOut, User, FolderCode } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Link } from 'react-router-dom';
 
 const MAIN_SITE_URL =
   import.meta.env.VITE_MAIN_SITE_URL ||
@@ -19,7 +20,7 @@ export function Navbar() {
     )}>
       {/* Left: Logo */}
       <div className="flex items-center gap-2">
-        <a href="/" className="flex items-center gap-2 group">
+        <Link to="/" className="flex items-center gap-2 group">
           <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-amber-500 to-orange-500 flex items-center justify-center shadow-sm group-hover:shadow-md group-hover:shadow-amber-500/20 transition-shadow">
             <Code2 className="h-4 w-4 text-white" />
           </div>
@@ -34,18 +35,18 @@ export function Navbar() {
           )}>
             Playground
           </span>
-        </a>
+        </Link>
       </div>
 
       {/* Right: Nav links + user */}
       <div className="flex items-center gap-3">
-        <a
-          href="/snippets"
+        <Link
+          to="/snippets"
           className="hidden sm:flex items-center gap-1.5 text-xs font-medium text-muted-foreground hover:text-foreground transition-colors"
         >
           <FolderCode className="h-3.5 w-3.5" />
           Snippets
-        </a>
+        </Link>
 
         <a
           href={MAIN_SITE_URL}

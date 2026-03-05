@@ -3,7 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { motion } from 'framer-motion';
-import { FileCode2, ExternalLink, BarChart3, ArrowRight, Code2 } from 'lucide-react';
+import { FileCode2, ExternalLink, BarChart3, ArrowRight } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5001/api';

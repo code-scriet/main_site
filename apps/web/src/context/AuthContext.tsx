@@ -3,6 +3,40 @@ import type { ReactNode } from 'react';
 import { api } from '@/lib/api';
 import type { User } from '@/lib/api';
 
+// ---------------------------------------------------------------------------
+// Cookie Helpers for cross-subdomain auth (playground at code.codescriet.dev)
+// ---------------------------------------------------------------------------
+const isProd = import.meta.env.PROD;
+const COOKIE_NAME = 'scriet_session';
+const COOKIE_DOMAIN = '.codescriet.dev';
+const COOKIE_MAX_AGE = 7 * 24 * 60 * 60; // 7 days in seconds
+
+function setSessionCookie(token: string) {
+  const parts = [
+    `${COOKIE_NAME}=${encodeURIComponent(token)}`,
+    `path=/`,
+    `max-age=${COOKIE_MAX_AGE}`,
+    `SameSite=Lax`,
+  ];
+  if (isProd) {
+    parts.push(`domain=${COOKIE_DOMAIN}`);
+    parts.push('Secure');
+  }
+  document.cookie = parts.join('; ');
+}
+
+function clearSessionCookie() {
+  const parts = [
+    `${COOKIE_NAME}=`,
+    `path=/`,
+    `max-age=0`,
+  ];
+  if (isProd) {
+    parts.push(`domain=${COOKIE_DOMAIN}`);
+  }
+  document.cookie = parts.join('; ');
+}
+
 interface ExtendedUser extends User {
   profileCompleted?: boolean;
   phone?: string;
@@ -72,6 +106,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     setError(null);
     try {
       localStorage.setItem('token', newToken);
+      setSessionCookie(newToken); // Cross-subdomain auth for playground
       setToken(newToken);
       const userData = await fetchUser(newToken);
       if (userData) {
@@ -83,6 +118,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Login failed');
       localStorage.removeItem('token');
+      clearSessionCookie();
       setToken(null);
       throw err;
     } finally {
@@ -96,6 +132,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     try {
       const response = await api.login(email, password);
       localStorage.setItem('token', response.token);
+      setSessionCookie(response.token); // Cross-subdomain auth for playground
       setToken(response.token);
       setUser(response.user);
     } catch (err) {
@@ -113,6 +150,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     try {
       const response = await api.register(name, email, password);
       localStorage.setItem('token', response.token);
+      setSessionCookie(response.token); // Cross-subdomain auth for playground
       setToken(response.token);
       setUser(response.user);
     } catch (err) {
@@ -130,6 +168,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     try {
       const response = await api.devLogin(email, name);
       localStorage.setItem('token', response.token);
+      setSessionCookie(response.token); // Cross-subdomain auth for playground
       setToken(response.token);
       setUser(response.user);
     } catch (err) {
@@ -145,6 +184,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     localStorage.removeItem('token');
     localStorage.removeItem('network_intent');
     localStorage.removeItem('network_onboarding_type');
+    clearSessionCookie(); // Clear cross-subdomain cookie
     setToken(null);
     setUser(null);
     setError(null);

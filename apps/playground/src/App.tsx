@@ -1,4 +1,4 @@
-import { Routes, Route, Navigate } from 'react-router-dom';
+import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { PlaygroundProvider } from './context/PlaygroundContext';
 import { ThemeProvider } from './context/ThemeContext';
 import { AuthProvider } from './context/AuthContext';
@@ -7,11 +7,23 @@ import PlaygroundPage from './pages/PlaygroundPage';
 import SnippetsPage from './pages/SnippetsPage';
 import SnippetViewPage from './pages/SnippetViewPage';
 
+// Wrap children with AuthGate only if not on a public route
+function ConditionalAuthGate({ children }: { children: React.ReactNode }) {
+  const location = useLocation();
+  // /s/:token routes are public (shared snippets)
+  const isPublicRoute = location.pathname.startsWith('/s/');
+  
+  if (isPublicRoute) {
+    return <>{children}</>;
+  }
+  return <AuthGate>{children}</AuthGate>;
+}
+
 function App() {
   return (
     <ThemeProvider>
       <AuthProvider>
-        <AuthGate>
+        <ConditionalAuthGate>
           <PlaygroundProvider>
             <Routes>
               <Route path="/" element={<PlaygroundPage />} />
@@ -21,7 +33,7 @@ function App() {
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
           </PlaygroundProvider>
-        </AuthGate>
+        </ConditionalAuthGate>
       </AuthProvider>
     </ThemeProvider>
   );

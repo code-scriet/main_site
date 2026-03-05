@@ -210,3 +210,32 @@ export async function executePython(
     worker.postMessage({ code, stdin: stdin || '' });
   });
 }
+
+// ---------------------------------------------------------------------------
+// Preload Pyodide runtime in background for faster first execution
+// ---------------------------------------------------------------------------
+let preloadStarted = false;
+
+export function preloadPyodide(): void {
+  if (preloadStarted) return;
+  preloadStarted = true;
+
+  // Start a worker that will initialize Pyodide, then terminate
+  const worker = new Worker(getWorkerBlobUrl());
+  
+  // Send an empty message to trigger runtime loading
+  worker.postMessage({ code: '', stdin: '' });
+  
+  // Cleanup after 15 seconds max (Pyodide should load in ~3-5s on fast connections)
+  setTimeout(() => worker.terminate(), 15_000);
+  
+  worker.onmessage = () => {
+    // Pyodide loaded - terminate immediately to free memory
+    worker.terminate();
+  };
+  
+  worker.onerror = () => {
+    // Ignore errors during preload
+    worker.terminate();
+  };
+}

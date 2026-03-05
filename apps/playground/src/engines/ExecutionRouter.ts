@@ -88,13 +88,34 @@ export async function executeCode(options: ExecuteOptions): Promise<ExecuteResul
         result = await executeClientSide(language, code, stdin, signal, onStatus);
       } else {
         // Auto mode — race client execution against a timeout.
-        // If client takes too long, transparently fall back to cloud.
-        result = await Promise.race([
-          executeClientSide(language, code, stdin, signal, onStatus),
-          new Promise<never>((_, reject) => {
-            setTimeout(() => reject(new Error('__CLIENT_TIMEOUT__')), CLIENT_EXECUTION_TIMEOUT_MS);
-          }),
-        ]);
+        // If client takes too long, abort local execution and transparently
+        // fall back to cloud so we don't leave heavy workers running.
+        const localAbort = new AbortController();
+        let timeoutId: ReturnType<typeof setTimeout> | null = null;
+
+        const onParentAbort = () => localAbort.abort();
+        if (signal) {
+          if (signal.aborted) {
+            localAbort.abort();
+          } else {
+            signal.addEventListener('abort', onParentAbort, { once: true });
+          }
+        }
+
+        try {
+          result = await Promise.race([
+            executeClientSide(language, code, stdin, localAbort.signal, onStatus),
+            new Promise<never>((_, reject) => {
+              timeoutId = setTimeout(() => {
+                localAbort.abort();
+                reject(new Error('__CLIENT_TIMEOUT__'));
+              }, CLIENT_EXECUTION_TIMEOUT_MS);
+            }),
+          ]);
+        } finally {
+          if (timeoutId) clearTimeout(timeoutId);
+          if (signal) signal.removeEventListener('abort', onParentAbort);
+        }
       }
 
       return { ...result, tier: 'client', fellBack: false };
