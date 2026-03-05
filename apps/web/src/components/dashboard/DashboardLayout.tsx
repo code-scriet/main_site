@@ -29,9 +29,16 @@ const coreMemberNavItems = [
   { name: 'Create Event', href: '/dashboard/events/new', icon: Calendar },
   { name: 'Create Announcement', href: '/dashboard/announcements/new', icon: Bell },
   { name: 'Manage QOTD', href: '/dashboard/qotd', icon: Code },
-  { name: 'Quiz Manager', href: '/dashboard/quiz', icon: Zap },
   { name: 'Upload Image', href: '/dashboard/upload', icon: Upload },
 ];
+
+const getCoreMemberNavItems = (quizEnabled: boolean) => {
+  const items = [...coreMemberNavItems];
+  if (quizEnabled !== false) {
+    items.splice(3, 0, { name: 'Quiz Manager', href: '/dashboard/quiz', icon: Zap });
+  }
+  return items;
+};
 
 // Admin nav items - Hiring and Network will be conditionally added based on settings
 const getAdminNavItems = (hiringEnabled: boolean, showNetwork: boolean, isSuperAdmin?: boolean, isPresident?: boolean) => {
@@ -88,7 +95,8 @@ export default function DashboardLayout() {
     { name: 'Overview', href: '/dashboard', icon: Home },
     { name: 'My Events', href: '/dashboard/events', icon: Calendar },
     { name: 'Announcements', href: '/dashboard/announcements', icon: Bell },
-    { name: 'Live Quiz', href: '/quiz', icon: Zap },
+    // Only show Live Quiz if enabled in settings
+    ...(settings?.quizEnabled !== false ? [{ name: 'Live Quiz', href: '/quiz', icon: Zap }] : []),
     // Only show leaderboard if enabled in settings
     ...(settings?.showLeaderboard !== false ? [{ name: 'Leaderboard', href: '/dashboard/leaderboard', icon: Trophy }] : []),
     { name: 'My Profile', href: '/dashboard/profile', icon: User },
@@ -163,7 +171,7 @@ export default function DashboardLayout() {
                     Core Member
                   </p>
                 </div>
-                {coreMemberNavItems.map((item) => (
+                {getCoreMemberNavItems(!settingsLoading && settings?.quizEnabled !== false).map((item) => (
                   <NavLink key={item.href} item={item} isActive={location.pathname === item.href} />
                 ))}
               </>

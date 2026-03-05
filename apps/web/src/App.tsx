@@ -68,6 +68,7 @@ const QuizJoinPage = lazy(() => import('@/pages/quiz/QuizJoinPage'));
 
 // Auth Components - keep synchronous for faster auth checks
 import { ProtectedRoute } from '@/components/auth/ProtectedRoute';
+import { FeatureGate } from '@/components/auth/FeatureGate';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -110,13 +111,18 @@ function App() {
                   <Route path="/join-our-network" element={<JoinOurNetworkPage />} />
 
                   {/* Quiz Routes (public listing, auth for participation) */}
-                  <Route path="/quiz" element={<ActiveQuizList />} />
-                  <Route path="/quiz/join" element={<QuizJoinPage />} />
+                  <Route element={<FeatureGate featureKey="quizEnabled" />}>
+                    <Route path="/quiz" element={<ActiveQuizList />} />
+                    <Route path="/quiz/join" element={<QuizJoinPage />} />
+                  </Route>
 
                   {/* Protected User Routes */}
                   <Route element={<ProtectedRoute minRole="USER" />}>
-                    <Route path="/quiz/:quizId" element={<QuizPage />} />
-                    <Route path="/quiz/:quizId/results" element={<QuizResultsPage />} />
+                    <Route element={<FeatureGate featureKey="quizEnabled" />}>
+                      <Route path="/quiz/:quizId" element={<QuizPage />} />
+                      <Route path="/quiz/:quizId/results" element={<QuizResultsPage />} />
+                      <Route path="/quiz/create" element={<AdminQuizCreator />} />
+                    </Route>
                     <Route path="/dashboard" element={<DashboardLayout />}>
                       <Route index element={<DashboardOverview />} />
                       <Route path="events" element={<DashboardEvents />} />
@@ -131,7 +137,6 @@ function App() {
                       <Route path="team/:id/edit" element={<EditTeamProfile />} />
                       <Route path="network/edit/:id?" element={<EditNetworkProfile />} />
                     </Route>
-                    <Route path="/quiz/create" element={<AdminQuizCreator />} />
                   </Route>
 
                   {/* Protected Admin Routes */}

@@ -90,6 +90,8 @@ export interface Settings {
   hiringManagement?: boolean;
   showNetwork?: boolean;
   mailingEnabled?: boolean;
+  playgroundEnabled?: boolean;
+  quizEnabled?: boolean;
   // Social Links
   githubUrl?: string;
   linkedinUrl?: string;

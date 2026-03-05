@@ -85,6 +85,10 @@ model Settings {
   // Mailing system toggle
   mailingEnabled            Boolean  @default(true) @map("mailing_enabled")
 
+  // Feature module toggles
+  playgroundEnabled         Boolean  @default(true) @map("playground_enabled")
+  quizEnabled               Boolean  @default(true) @map("quiz_enabled")
+
   @@map("settings")
 }
 
