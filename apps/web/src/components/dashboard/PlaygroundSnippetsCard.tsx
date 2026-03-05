@@ -63,7 +63,6 @@ export function PlaygroundSnippetsCard() {
   const [dailyLimit, setDailyLimit] = useState(200);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('history');
-  const [expandedHistoryId, setExpandedHistoryId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!token) { setLoading(false); return; }
@@ -188,61 +187,31 @@ export function PlaygroundSnippetsCard() {
                   {history.map((item) => (
                     <div
                       key={item.id}
-                      className="p-3 rounded-lg bg-gray-50 hover:bg-gray-100 transition-colors"
+                      className="flex items-center justify-between p-3 rounded-lg bg-gray-50 hover:bg-gray-100 transition-colors"
                     >
-                      <div className="flex items-center justify-between gap-3">
-                        <div className="flex items-center gap-3 min-w-0">
-                          <span className="text-lg">{LANG_ICONS[item.language] || '📄'}</span>
-                          <div className="min-w-0">
-                            <p className="font-mono text-xs text-gray-700 truncate max-w-[260px]">
-                              {item.code?.split('\n')[0] || 'Code snippet'}
-                            </p>
-                            <p className="text-xs text-gray-500 flex items-center gap-2">
-                              <Clock className="h-3 w-3" />
-                              {formatTimeAgo(item.executedAt)}
-                              {item.durationMs && (
-                                <span className="text-amber-600">{formatDuration(item.durationMs)}</span>
-                              )}
-                            </p>
-                          </div>
-                        </div>
-
-                        <div className="flex items-center gap-2 shrink-0">
-                          {item.status === 'SUCCESS' ? (
-                            <CheckCircle className="h-4 w-4 text-green-500" />
-                          ) : (
-                            <XCircle className="h-4 w-4 text-red-500" />
-                          )}
-                          <Badge variant="outline" className="text-xs">{item.language}</Badge>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="h-7 px-2 text-xs"
-                            onClick={() => setExpandedHistoryId(prev => prev === item.id ? null : item.id)}
-                          >
-                            {expandedHistoryId === item.id ? 'Hide' : 'Show'}
-                          </Button>
+                      <div className="flex items-center gap-3 min-w-0">
+                        <span className="text-lg">{LANG_ICONS[item.language] || '📄'}</span>
+                        <div className="min-w-0">
+                          <p className="font-mono text-xs text-gray-700 truncate max-w-[200px]">
+                            {item.code?.split('\n')[0] || 'Code snippet'}
+                          </p>
+                          <p className="text-xs text-gray-500 flex items-center gap-2">
+                            <Clock className="h-3 w-3" />
+                            {formatTimeAgo(item.executedAt)}
+                            {item.durationMs && (
+                              <span className="text-amber-600">{formatDuration(item.durationMs)}</span>
+                            )}
+                          </p>
                         </div>
                       </div>
-
-                      {expandedHistoryId === item.id && (
-                        <div className="mt-3 space-y-2">
-                          <div>
-                            <p className="text-[11px] font-medium text-gray-500 mb-1">Code</p>
-                            <pre className="text-xs font-mono p-2 rounded bg-white border border-gray-200 overflow-x-auto max-h-44 overflow-y-auto whitespace-pre-wrap break-words">
-                              {item.code || '// No code saved'}
-                            </pre>
-                          </div>
-                          {!!item.output && (
-                            <div>
-                              <p className="text-[11px] font-medium text-gray-500 mb-1">Output</p>
-                              <pre className="text-xs font-mono p-2 rounded bg-white border border-gray-200 overflow-x-auto max-h-32 overflow-y-auto whitespace-pre-wrap break-words">
-                                {item.output}
-                              </pre>
-                            </div>
-                          )}
-                        </div>
-                      )}
+                      <div className="flex items-center gap-2 shrink-0">
+                        {item.status === 'SUCCESS' ? (
+                          <CheckCircle className="h-4 w-4 text-green-500" />
+                        ) : (
+                          <XCircle className="h-4 w-4 text-red-500" />
+                        )}
+                        <Badge variant="outline" className="text-xs">{item.language}</Badge>
+                      </div>
                     </div>
                   ))}
                 </div>
