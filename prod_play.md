@@ -17,7 +17,8 @@ Complete instructions for deploying the Code.Scriet Playground to production acr
                                         │ API calls
 ┌─────────────────────┐        ┌────────▼────────────────┐
 │   Main API          │        │  Playground API (Backend)│
-│  api.codescriet.dev │        │  playground-api.         │
+│  codescriet-api.    │        │  playground-api.         │
+│    onrender.com     │        │    codescriet.dev        │
 │  Render Web Service │        │    codescriet.dev        │
 │  (Express + Prisma) │        │  Render Web Service      │
 └─────────────────────┘        └────────┬────────────────┘
@@ -39,7 +40,7 @@ Complete instructions for deploying the Code.Scriet Playground to production acr
 | Service | Domain | Host | Plan |
 |---------|--------|------|------|
 | Main Site Frontend | `codescriet.dev` | Render Static | Free |
-| Main Site API | `api.codescriet.dev` | Render Web Service | Free |
+| Main Site API | `codescriet-api.onrender.com` | Render Web Service | Free |
 | Playground Frontend | `code.codescriet.dev` | Render Static | Free |
 | Playground API | `playground-api.codescriet.dev` | Render Web Service | Free |
 | Execution Proxy | `codescriet-executor.developer-aary.workers.dev` | Cloudflare Workers | Free (100K req/day) |
@@ -69,7 +70,7 @@ No environment variables needed — everything is hardcoded in the worker code.
 **Allowed Origins** (configured in `workers/executor.js`):
 - `https://code.codescriet.dev`
 - `https://codescriet.dev`
-- `https://api.codescriet.dev`
+- `https://codescriet-api.onrender.com`
 - `https://playground-api.codescriet.dev`
 - Server-to-server (no Origin header) — allowed by default
 
@@ -129,7 +130,7 @@ The React (Vite) SPA that runs in the browser.
 |----------|-------|-------|
 | `VITE_API_URL` | `https://playground-api.codescriet.dev` | Playground backend URL |
 | `VITE_MAIN_SITE_URL` | `https://codescriet.dev` | Main site URL (used in Navbar links, auth redirects) |
-| `VITE_MAIN_API_URL` | `https://api.codescriet.dev` | Main API URL (used for auth verification) |
+| `VITE_MAIN_API_URL` | `https://codescriet-api.onrender.com` | Main API URL (used for auth verification) |
 
 > **Important:** All `VITE_` variables are baked into the JS bundle at build time. After changing them, you **must rebuild** the static site.
 
@@ -154,13 +155,13 @@ The main site needs a single env var to link to the playground.
 | Variable | Value | Notes |
 |----------|-------|-------|
 | `VITE_PLAYGROUND_URL` | `https://code.codescriet.dev` | Used in Header links and PlaygroundCard |
-| `VITE_API_URL` | `https://api.codescriet.dev/api` | Already set |
+| `VITE_API_URL` | `https://codescriet-api.onrender.com/api` | Already set |
 
 After adding/updating, rebuild the static site.
 
 ---
 
-## 5. Main Site API (api.codescriet.dev)
+## 5. Main Site API (codescriet-api.onrender.com)
 
 ### Environment Variables to Verify
 
@@ -202,8 +203,9 @@ Add these records at your DNS provider (likely Cloudflare if you're using their 
 |------|------|--------|-------|
 | CNAME | `code` | `<playground-frontend>.onrender.com` | Off (DNS only) |
 | CNAME | `playground-api` | `<playground-api>.onrender.com` | Off (DNS only) |
-| CNAME | `api` | `<main-api>.onrender.com` | Off (DNS only) |
 | CNAME | `@` or `www` | `<main-web>.onrender.com` | Off (DNS only) |
+
+If you are using the default Render URL for the main API (`codescriet-api.onrender.com`), you do **not** need an `api` CNAME record.
 
 > Use "DNS Only" (gray cloud) for Render services — Render handles SSL.
 
@@ -344,16 +346,16 @@ EXECUTOR_URL=https://codescriet-executor.developer-aary.workers.dev/execute
 ```env
 VITE_API_URL=https://playground-api.codescriet.dev
 VITE_MAIN_SITE_URL=https://codescriet.dev
-VITE_MAIN_API_URL=https://api.codescriet.dev
+VITE_MAIN_API_URL=https://codescriet-api.onrender.com
 ```
 
 #### Render: Main Site Frontend (`codescriet.dev`)
 ```env
-VITE_API_URL=https://api.codescriet.dev/api
+VITE_API_URL=https://codescriet-api.onrender.com/api
 VITE_PLAYGROUND_URL=https://code.codescriet.dev
 ```
 
-#### Render: Main API (`api.codescriet.dev`)
+#### Render: Main API (`codescriet-api.onrender.com`)
 ```env
 JWT_SECRET=<must-match-playground-api>
 FRONTEND_URL=https://codescriet.dev
