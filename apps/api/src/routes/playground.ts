@@ -187,6 +187,13 @@ router.post('/admin/reset-limit/:userId', async (req: Request, res: Response) =>
       ON CONFLICT DO NOTHING
     `;
 
+    await prisma.$executeRaw`
+      INSERT INTO playground_daily_usage (user_id, usage_date, count, updated_at)
+      VALUES (${userId}, CURRENT_DATE, 0, NOW())
+      ON CONFLICT (user_id, usage_date)
+      DO UPDATE SET count = 0, updated_at = NOW()
+    `;
+
     console.log(`[Admin] ${admin.email} reset playground daily limit for ${target.email}`);
     return res.json({
       success: true,
@@ -208,11 +215,15 @@ router.get('/admin/execution-counts', async (req: Request, res: Response) => {
       return res.status(403).json({ success: false, error: 'Admin access required' });
     }
 
-    const counts = await prisma.$queryRaw<Array<{ user_id: string; today_count: bigint; last_run_at: Date }>>`
-      SELECT user_id, COUNT(*)::int AS today_count, MAX(executed_at) AS last_run_at
-      FROM executions
-      WHERE executed_at >= CURRENT_DATE
-      GROUP BY user_id
+    const counts = await prisma.$queryRaw<Array<{ user_id: string; today_count: bigint; last_run_at: Date | null }>>`
+      SELECT
+        p.user_id,
+        p.count::int AS today_count,
+        MAX(e.executed_at) AS last_run_at
+      FROM playground_daily_usage p
+      LEFT JOIN executions e ON e.user_id = p.user_id AND e.executed_at >= CURRENT_DATE
+      WHERE p.usage_date = CURRENT_DATE
+      GROUP BY p.user_id, p.count
       ORDER BY today_count DESC
       LIMIT 100
     `;

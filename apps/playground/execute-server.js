@@ -179,6 +179,18 @@ if (DATABASE_URL) {
       await pool.query(`
         CREATE INDEX IF NOT EXISTS plr_user_id_idx ON playground_limit_resets(user_id)
       `);
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS playground_daily_usage (
+          user_id TEXT NOT NULL,
+          usage_date DATE NOT NULL,
+          count INT NOT NULL DEFAULT 0,
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          PRIMARY KEY (user_id, usage_date)
+        )
+      `);
+      await pool.query(`
+        CREATE INDEX IF NOT EXISTS pdu_usage_date_idx ON playground_daily_usage(usage_date)
+      `);
       console.log('[DB] playground_limit_resets table ready ✓');
     } catch (err) {
       if (attemptsLeft > 1) {
@@ -234,34 +246,29 @@ const MAX_HISTORY_PER_USER = 20;
 // Rate Limiting
 // ---------------------------------------------------------------------------
 const MAX_EXECUTIONS_PER_DAY = 200;
-const userExecCounts = new Map(); // in-memory cache (synced from DB per request)
+const userExecCounts = new Map(); // in-memory fallback cache
 const MAX_IP_EXECUTIONS = 30;
 const ipExecCounts = new Map();
 
 /**
- * DB-backed rate limit check. Queries executions since the later of:
- *   - midnight today (resets naturally each day)
- *   - the user's last admin-issued limit reset (if any)
- * Falls back to in-memory if DB is unavailable.
+ * Optimized DB-backed rate limit check.
+ * Uses a compact per-user/day counter table instead of scanning executions.
+ * This makes checks O(1) and drastically reduces database load.
  */
 async function checkUserRateLimit(userId) {
   if (pool) {
     try {
-      const rows = await pool.query(
-        `SELECT COUNT(*)::int AS count
-         FROM executions
-         WHERE user_id = $1
-           AND executed_at >= GREATEST(
-             CURRENT_DATE::timestamptz,
-             COALESCE(
-               (SELECT MAX(reset_at) FROM playground_limit_resets WHERE user_id = $1),
-               '1970-01-01'::timestamptz
-             )
-           )`,
+      const result = await pool.query(
+        `INSERT INTO playground_daily_usage (user_id, usage_date, count, updated_at)
+         VALUES ($1, CURRENT_DATE, 1, NOW())
+         ON CONFLICT (user_id, usage_date)
+         DO UPDATE SET count = playground_daily_usage.count + 1,
+                       updated_at = NOW()
+         RETURNING count::int AS count`,
         [userId]
       );
-      const count = rows.rows[0]?.count ?? 0;
-      const allowed = count < MAX_EXECUTIONS_PER_DAY;
+      const count = result.rows[0]?.count ?? 1;
+      const allowed = count <= MAX_EXECUTIONS_PER_DAY;
       return { allowed, remaining: Math.max(0, MAX_EXECUTIONS_PER_DAY - count) };
     } catch (err) {
       console.error('[RateLimit] DB check failed, falling back to in-memory:', err.message);
@@ -713,18 +720,12 @@ app.get('/api/executions/stats', requireAuth, async (req, res) => {
     `SELECT language, COUNT(*)::int as count FROM executions WHERE user_id = $1 GROUP BY language ORDER BY count DESC`,
     [req.user.id]
   );
-  // today count respects admin resets — counts only since the later of midnight or last reset
+  // Optimized today count from compact daily usage table
   const today = await dbQuery(
-    `SELECT COUNT(*)::int as count
-     FROM executions
-     WHERE user_id = $1
-       AND executed_at >= GREATEST(
-         CURRENT_DATE::timestamptz,
-         COALESCE(
-           (SELECT MAX(reset_at) FROM playground_limit_resets WHERE user_id = $1),
-           '1970-01-01'::timestamptz
-         )
-       )`,
+    `SELECT count::int as count
+     FROM playground_daily_usage
+     WHERE user_id = $1 AND usage_date = CURRENT_DATE
+     LIMIT 1`,
     [req.user.id]
   );
   return res.json({
@@ -764,6 +765,15 @@ app.post('/api/admin/reset-limit/:userId', requireAuth, requireAdmin, async (req
     return res.status(500).json({ success: false, error: 'Failed to reset limit (DB unavailable)' });
   }
 
+  // Reset today's usage counter to 0 (cheap O(1) operation)
+  await dbExec(
+    `INSERT INTO playground_daily_usage (user_id, usage_date, count, updated_at)
+     VALUES ($1, CURRENT_DATE, 0, NOW())
+     ON CONFLICT (user_id, usage_date)
+     DO UPDATE SET count = 0, updated_at = NOW()`,
+    [userId]
+  );
+
   // Also clear in-memory cache so next check re-queries DB
   userExecCounts.delete(userId);
 
@@ -779,12 +789,13 @@ app.post('/api/admin/reset-limit/:userId', requireAuth, requireAdmin, async (req
 app.get('/api/admin/execution-counts', requireAuth, requireAdmin, async (req, res) => {
   const rows = await dbQuery(
     `SELECT
-       e.user_id,
-       COUNT(*)::int AS today_count,
+       p.user_id,
+       p.count::int AS today_count,
        MAX(e.executed_at) AS last_run_at
-     FROM executions e
-     WHERE e.executed_at >= CURRENT_DATE
-     GROUP BY e.user_id
+     FROM playground_daily_usage p
+     LEFT JOIN executions e ON e.user_id = p.user_id AND e.executed_at >= CURRENT_DATE
+     WHERE p.usage_date = CURRENT_DATE
+     GROUP BY p.user_id, p.count
      ORDER BY today_count DESC
      LIMIT 100`
   );
