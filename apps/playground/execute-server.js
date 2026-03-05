@@ -249,6 +249,11 @@ const MAX_EXECUTIONS_PER_DAY = 200;
 const userExecCounts = new Map(); // in-memory fallback cache
 const MAX_IP_EXECUTIONS = 30;
 const ipExecCounts = new Map();
+const NON_METERED_LANGUAGES = new Set(['javascript', 'typescript', 'python', 'web']);
+
+function shouldMeterLanguage(language) {
+  return !NON_METERED_LANGUAGES.has(String(language || '').toLowerCase());
+}
 
 const USER_SESSION_TTL_MS = 30 * 60 * 1000; // 30 minutes idle TTL
 
@@ -657,17 +662,24 @@ app.post('/api/execute', async (req, res) => {
 
     let userSession = null;
 
+    const meterThisRun = shouldMeterLanguage(language);
+
     // Rate limiting
     if (req.user) {
-      const limit = await checkUserRateLimit(req.user.id);
-      res.setHeader('X-RateLimit-Remaining', limit.remaining);
-      if (!limit.allowed) {
-        return res.status(429).json({
-          success: false,
-          error: `Daily execution limit (${MAX_EXECUTIONS_PER_DAY}) reached. Try again tomorrow.`,
-        });
+      if (meterThisRun) {
+        const limit = await checkUserRateLimit(req.user.id);
+        res.setHeader('X-RateLimit-Remaining', limit.remaining);
+        if (!limit.allowed) {
+          return res.status(429).json({
+            success: false,
+            error: `Daily execution limit (${MAX_EXECUTIONS_PER_DAY}) reached. Try again tomorrow.`,
+          });
+        }
+      } else {
+        res.setHeader('X-RateLimit-Remaining', MAX_EXECUTIONS_PER_DAY);
       }
-      if (pool) {
+
+      if (pool && meterThisRun) {
         userSession = await getUserSession(req.user.id);
         userSession.todayCount += 1;
         userSession.dirtyUsage = true;
@@ -937,14 +949,21 @@ app.get('/api/session/bootstrap', requireAuth, async (req, res) => {
 // Preflight: check current session limit before execution starts
 app.get('/api/session/preflight', requireAuth, async (req, res) => {
   const session = await getUserSession(req.user.id);
-  const allowed = session.todayCount < MAX_EXECUTIONS_PER_DAY;
+  const language = String(req.query.language || '').toLowerCase();
+  const metered = shouldMeterLanguage(language);
+  const allowed = metered ? session.todayCount < MAX_EXECUTIONS_PER_DAY : true;
+  const remaining = metered
+    ? Math.max(0, MAX_EXECUTIONS_PER_DAY - session.todayCount)
+    : MAX_EXECUTIONS_PER_DAY;
+
   return res.json({
     success: true,
     data: {
       allowed,
+      metered,
       todayCount: session.todayCount,
       dailyLimit: MAX_EXECUTIONS_PER_DAY,
-      remaining: Math.max(0, MAX_EXECUTIONS_PER_DAY - session.todayCount),
+      remaining,
     },
   });
 });
@@ -957,7 +976,9 @@ app.post('/api/session/record', requireAuth, async (req, res) => {
   }
 
   const session = await getUserSession(req.user.id);
-  if (session.todayCount >= MAX_EXECUTIONS_PER_DAY) {
+  const meterThisRun = shouldMeterLanguage(language);
+
+  if (meterThisRun && session.todayCount >= MAX_EXECUTIONS_PER_DAY) {
     return res.status(429).json({
       success: false,
       error: `Daily execution limit (${MAX_EXECUTIONS_PER_DAY}) reached. Try again tomorrow.`,
@@ -969,8 +990,10 @@ app.post('/api/session/record', requireAuth, async (req, res) => {
     });
   }
 
-  session.todayCount += 1;
-  session.dirtyUsage = true;
+  if (meterThisRun) {
+    session.todayCount += 1;
+    session.dirtyUsage = true;
+  }
   session.history.unshift({
     id: crypto.randomUUID(),
     language,
@@ -987,6 +1010,7 @@ app.post('/api/session/record', requireAuth, async (req, res) => {
   return res.json({
     success: true,
     data: {
+      metered: meterThisRun,
       todayCount: session.todayCount,
       dailyLimit: MAX_EXECUTIONS_PER_DAY,
       remaining: Math.max(0, MAX_EXECUTIONS_PER_DAY - session.todayCount),

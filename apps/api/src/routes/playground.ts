@@ -90,15 +90,14 @@ router.get('/stats', async (req: Request, res: Response) => {
       where: { userId: user.id },
     });
 
-    // Executions today (for daily limit display)
-    const todayStart = new Date();
-    todayStart.setHours(0, 0, 0, 0);
-    const todayCount = await prisma.execution.count({
-      where: {
-        userId: user.id,
-        executedAt: { gte: todayStart },
-      },
-    });
+    // Metered executions today (C/C++/Java only, from session counter table)
+    const usageRows = await prisma.$queryRaw<Array<{ count: bigint | number }>>`
+      SELECT count::int as count
+      FROM playground_daily_usage
+      WHERE user_id = ${user.id} AND usage_date = CURRENT_DATE
+      LIMIT 1
+    `;
+    const todayCount = usageRows.length ? Number(usageRows[0].count) : 0;
 
     return res.json({
       success: true,

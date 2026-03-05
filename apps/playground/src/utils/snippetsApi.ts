@@ -129,6 +129,7 @@ export interface SessionBootstrapData {
 
 export interface SessionPreflight {
   allowed: boolean;
+  metered?: boolean;
   todayCount: number;
   dailyLimit: number;
   remaining: number;
@@ -173,8 +174,9 @@ export async function getSessionBootstrap(): Promise<SessionBootstrapData> {
 }
 
 /** Check if the user can run one more execution in current session */
-export async function getSessionPreflight(): Promise<SessionPreflight> {
-  const res = await fetch(`${BACKEND_URL}/api/session/preflight`, {
+export async function getSessionPreflight(language?: string): Promise<SessionPreflight> {
+  const query = language ? `?language=${encodeURIComponent(language)}` : '';
+  const res = await fetch(`${BACKEND_URL}/api/session/preflight${query}`, {
     headers: getAuthHeaders(),
     credentials: 'include',
   });

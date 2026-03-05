@@ -47,7 +47,7 @@ export function useCodeExecution() {
     const startTime = Date.now();
 
     try {
-      const preflight = await getSessionPreflight();
+      const preflight = await getSessionPreflight(language.id);
       if (!preflight.allowed) {
         const msg = `Daily execution limit (${preflight.dailyLimit}) reached. Try again tomorrow.`;
         setError(msg);
