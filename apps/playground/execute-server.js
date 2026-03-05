@@ -250,6 +250,160 @@ const userExecCounts = new Map(); // in-memory fallback cache
 const MAX_IP_EXECUTIONS = 30;
 const ipExecCounts = new Map();
 
+const USER_SESSION_TTL_MS = 30 * 60 * 1000; // 30 minutes idle TTL
+
+const userSessions = new Map();
+
+function todayDateKey() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function toHistoryItem(row) {
+  return {
+    id: row.id,
+    language: row.language,
+    code: row.code || '',
+    output: row.output_text || '',
+    durationMs: row.duration_ms || 0,
+    status: row.status || 'SUCCESS',
+    executedAt: row.executed_at instanceof Date ? row.executed_at.toISOString() : String(row.executed_at),
+  };
+}
+
+async function loadUserSession(userId) {
+  const dateKey = todayDateKey();
+
+  // Read once on session start
+  const usageRows = await dbQuery(
+    `SELECT count::int as count FROM playground_daily_usage WHERE user_id = $1 AND usage_date = CURRENT_DATE LIMIT 1`,
+    [userId]
+  );
+  const todayCount = usageRows[0]?.count || 0;
+
+  const historyRows = await dbQuery(
+    `SELECT id, language, code, output_text, duration_ms, status, executed_at
+     FROM executions
+     WHERE user_id = $1 AND code IS NOT NULL
+     ORDER BY executed_at DESC LIMIT $2`,
+    [userId, MAX_HISTORY_PER_USER]
+  );
+
+  const session = {
+    userId,
+    dateKey,
+    todayCount,
+    history: historyRows.map(toHistoryItem),
+    dirtyUsage: false,
+    dirtyHistory: false,
+    lastTouchedAt: Date.now(),
+  };
+
+  userSessions.set(userId, session);
+  return session;
+}
+
+async function getUserSession(userId) {
+  const dateKey = todayDateKey();
+  const existing = userSessions.get(userId);
+  if (!existing) return loadUserSession(userId);
+
+  existing.lastTouchedAt = Date.now();
+  if (existing.dateKey !== dateKey) {
+    await flushUserSession(userId, 'day-rollover');
+    return loadUserSession(userId);
+  }
+
+  return existing;
+}
+
+async function flushUserSession(userId, reason = 'manual') {
+  const session = userSessions.get(userId);
+  if (!session || !pool) return;
+  if (!session.dirtyUsage && !session.dirtyHistory) return;
+
+  try {
+    await pool.query('BEGIN');
+
+    if (session.dirtyUsage) {
+      await pool.query(
+        `INSERT INTO playground_daily_usage (user_id, usage_date, count, updated_at)
+         VALUES ($1, CURRENT_DATE, $2, NOW())
+         ON CONFLICT (user_id, usage_date)
+         DO UPDATE SET count = EXCLUDED.count, updated_at = NOW()`,
+        [userId, session.todayCount]
+      );
+    }
+
+    if (session.dirtyHistory) {
+      await pool.query(`DELETE FROM executions WHERE user_id = $1 AND code IS NOT NULL`, [userId]);
+
+      for (const item of session.history.slice(0, MAX_HISTORY_PER_USER)) {
+        await pool.query(
+          `INSERT INTO executions (id, user_id, language, code, output_text, duration_ms, status, executed_at)
+           VALUES ($1, $2, $3, $4, $5, $6, $7::"ExecutionStatus", $8)`,
+          [
+            item.id || crypto.randomUUID(),
+            userId,
+            item.language,
+            (item.code || '').slice(0, 5000),
+            (item.output || '').slice(0, 5000),
+            item.durationMs || 0,
+            item.status || 'SUCCESS',
+            item.executedAt || new Date().toISOString(),
+          ]
+        );
+      }
+    }
+
+    await pool.query('COMMIT');
+    session.dirtyUsage = false;
+    session.dirtyHistory = false;
+    console.log(`[SessionFlush] user=${userId} reason=${reason} usage=${session.todayCount} history=${session.history.length}`);
+  } catch (err) {
+    await pool.query('ROLLBACK').catch(() => {});
+    console.error('[SessionFlush] Failed:', err.message);
+  }
+}
+
+async function flushAllDirtySessions(reason = 'periodic') {
+  const now = Date.now();
+  for (const [userId, session] of userSessions.entries()) {
+    if (now - session.lastTouchedAt > USER_SESSION_TTL_MS) {
+      await flushUserSession(userId, `${reason}-idle-ttl`);
+      userSessions.delete(userId);
+      continue;
+    }
+    if (session.dirtyUsage || session.dirtyHistory) {
+      await flushUserSession(userId, reason);
+    }
+  }
+}
+
+setInterval(() => {
+  flushAllDirtySessions('periodic').catch((err) => {
+    console.error('[SessionFlush] Periodic flush error:', err.message);
+  });
+}, 60_000);
+
+async function gracefulFlushAndExit(signal) {
+  try {
+    console.log(`[SessionFlush] Received ${signal}, flushing sessions...`);
+    await flushAllDirtySessions(`shutdown-${signal}`);
+  } catch (err) {
+    console.error('[SessionFlush] Shutdown flush failed:', err.message);
+  } finally {
+    process.exit(0);
+  }
+}
+
+process.on('SIGTERM', () => {
+  gracefulFlushAndExit('SIGTERM');
+});
+
+process.on('SIGINT', () => {
+  gracefulFlushAndExit('SIGINT');
+});
+
 /**
  * Optimized DB-backed rate limit check.
  * Uses a compact per-user/day counter table instead of scanning executions.
@@ -258,20 +412,11 @@ const ipExecCounts = new Map();
 async function checkUserRateLimit(userId) {
   if (pool) {
     try {
-      const result = await pool.query(
-        `INSERT INTO playground_daily_usage (user_id, usage_date, count, updated_at)
-         VALUES ($1, CURRENT_DATE, 1, NOW())
-         ON CONFLICT (user_id, usage_date)
-         DO UPDATE SET count = playground_daily_usage.count + 1,
-                       updated_at = NOW()
-         RETURNING count::int AS count`,
-        [userId]
-      );
-      const count = result.rows[0]?.count ?? 1;
-      const allowed = count <= MAX_EXECUTIONS_PER_DAY;
-      return { allowed, remaining: Math.max(0, MAX_EXECUTIONS_PER_DAY - count) };
+      const session = await getUserSession(userId);
+      const allowed = session.todayCount < MAX_EXECUTIONS_PER_DAY;
+      return { allowed, remaining: Math.max(0, MAX_EXECUTIONS_PER_DAY - session.todayCount) };
     } catch (err) {
-      console.error('[RateLimit] DB check failed, falling back to in-memory:', err.message);
+      console.error('[RateLimit] Session check failed, falling back to in-memory:', err.message);
     }
   }
 
@@ -510,6 +655,8 @@ app.post('/api/execute', async (req, res) => {
       });
     }
 
+    let userSession = null;
+
     // Rate limiting
     if (req.user) {
       const limit = await checkUserRateLimit(req.user.id);
@@ -519,6 +666,12 @@ app.post('/api/execute', async (req, res) => {
           success: false,
           error: `Daily execution limit (${MAX_EXECUTIONS_PER_DAY}) reached. Try again tomorrow.`,
         });
+      }
+      if (pool) {
+        userSession = await getUserSession(req.user.id);
+        userSession.todayCount += 1;
+        userSession.dirtyUsage = true;
+        userSession.lastTouchedAt = Date.now();
       }
     } else {
       const ip = req.ip || req.socket.remoteAddress || 'unknown';
@@ -536,34 +689,26 @@ app.post('/api/execute', async (req, res) => {
     const result = await executeCode(language, code, stdin);
     const durationMs = Date.now() - startMs;
 
-    // Fire-and-forget: save execution to DB (language stats + last 20 history)
+    // Session-first persistence: keep history in memory and flush on session end.
     if (req.user) {
       const status = result.run.code === 0 ? 'SUCCESS' : 'ERROR';
       const output = result.run.stdout || result.run.stderr || '';
-      // Insert execution with code + output
-      dbExec(
-        `INSERT INTO executions (id, user_id, language, code, output_text, duration_ms, status, executed_at)
-         VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6::\"ExecutionStatus\", NOW())`,
-        [req.user.id, language, code.slice(0, 5000), output.slice(0, 5000), durationMs, status]
-      ).then((result) => {
-        if (!result) {
-          console.warn('[DB] Execution insert returned null — DB may not be ready');
-          return;
-        }
-        // Prune: null out code/output on rows older than the 20 most recent
-        dbExec(
-          `UPDATE executions SET code = NULL, output_text = NULL
-           WHERE user_id = $1 AND code IS NOT NULL
-           AND executed_at < (
-             SELECT executed_at FROM executions
-             WHERE user_id = $1 AND code IS NOT NULL
-             ORDER BY executed_at DESC LIMIT 1 OFFSET $2
-           )`,
-          [req.user.id, MAX_HISTORY_PER_USER]
-        );
-      }).catch(err => {
-        console.error('[DB] Failed to save execution:', err.message);
-      });
+
+      if (pool) {
+        const session = userSession || await getUserSession(req.user.id);
+        session.history.unshift({
+          id: crypto.randomUUID(),
+          language,
+          code: code.slice(0, 5000),
+          output: output.slice(0, 5000),
+          durationMs,
+          status,
+          executedAt: new Date().toISOString(),
+        });
+        session.history = session.history.slice(0, MAX_HISTORY_PER_USER);
+        session.dirtyHistory = true;
+        session.lastTouchedAt = Date.now();
+      }
     }
 
     return res.json({
@@ -697,6 +842,11 @@ function mapSnippetRow(row) {
 // ---------------------------------------------------------------------------
 
 app.get('/api/executions/history', requireAuth, async (req, res) => {
+  if (pool) {
+    const session = await getUserSession(req.user.id);
+    return res.json({ success: true, data: session.history });
+  }
+
   const rows = await dbQuery(
     `SELECT id, language, code, output_text, duration_ms, status, executed_at
      FROM executions
@@ -716,6 +866,26 @@ app.get('/api/executions/history', requireAuth, async (req, res) => {
 });
 
 app.get('/api/executions/stats', requireAuth, async (req, res) => {
+  if (pool) {
+    const session = await getUserSession(req.user.id);
+    const languageStatsMap = new Map();
+    for (const item of session.history) {
+      languageStatsMap.set(item.language, (languageStatsMap.get(item.language) || 0) + 1);
+    }
+    const languageStats = [...languageStatsMap.entries()]
+      .map(([language, count]) => ({ language, count }))
+      .sort((a, b) => b.count - a.count);
+
+    return res.json({
+      success: true,
+      data: {
+        languageStats,
+        todayCount: session.todayCount,
+        dailyLimit: MAX_EXECUTIONS_PER_DAY,
+      },
+    });
+  }
+
   const rows = await dbQuery(
     `SELECT language, COUNT(*)::int as count FROM executions WHERE user_id = $1 GROUP BY language ORDER BY count DESC`,
     [req.user.id]
@@ -736,6 +906,38 @@ app.get('/api/executions/stats', requireAuth, async (req, res) => {
       dailyLimit: MAX_EXECUTIONS_PER_DAY,
     },
   });
+});
+
+// Session bootstrap: one DB read on session start for both limit + history
+app.get('/api/session/bootstrap', requireAuth, async (req, res) => {
+  const session = await getUserSession(req.user.id);
+
+  const languageStatsMap = new Map();
+  for (const item of session.history) {
+    languageStatsMap.set(item.language, (languageStatsMap.get(item.language) || 0) + 1);
+  }
+
+  const languageStats = [...languageStatsMap.entries()]
+    .map(([language, count]) => ({ language, count }))
+    .sort((a, b) => b.count - a.count);
+
+  return res.json({
+    success: true,
+    data: {
+      history: session.history,
+      stats: {
+        languageStats,
+        todayCount: session.todayCount,
+        dailyLimit: MAX_EXECUTIONS_PER_DAY,
+      },
+    },
+  });
+});
+
+// Session end: flush in-memory usage/history to DB once
+app.post('/api/session/end', requireAuth, async (req, res) => {
+  await flushUserSession(req.user.id, 'session-end');
+  return res.json({ success: true, message: 'Session flushed' });
 });
 
 // ---------------------------------------------------------------------------
@@ -776,6 +978,12 @@ app.post('/api/admin/reset-limit/:userId', requireAuth, requireAdmin, async (req
 
   // Also clear in-memory cache so next check re-queries DB
   userExecCounts.delete(userId);
+  const activeSession = userSessions.get(userId);
+  if (activeSession) {
+    activeSession.todayCount = 0;
+    activeSession.dirtyUsage = true;
+    activeSession.lastTouchedAt = Date.now();
+  }
 
   console.log(`[Admin] ${req.user.email} reset daily limit for user ${userId}`);
   return res.json({
@@ -880,6 +1088,7 @@ app.get('/health', (_req, res) => {
     executorUrl: EXECUTOR_URL,
     supportedLanguages: SUPPORTED_LANGUAGES,
     dbConnected: dbReady,
+    activeSessions: userSessions.size,
   });
 });
 

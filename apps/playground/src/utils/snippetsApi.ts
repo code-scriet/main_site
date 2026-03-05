@@ -122,6 +122,11 @@ export interface ExecutionStats {
   dailyLimit: number;
 }
 
+export interface SessionBootstrapData {
+  history: ExecutionHistoryItem[];
+  stats: ExecutionStats;
+}
+
 /** Fetch last 20 execution history entries (with code) */
 export async function getExecutionHistory(): Promise<ExecutionHistoryItem[]> {
   const res = await fetch(`${BACKEND_URL}/api/executions/history`, {
@@ -142,4 +147,34 @@ export async function getExecutionStats(): Promise<ExecutionStats> {
   const data = await res.json();
   if (!data.success) return { languageStats: [], todayCount: 0, dailyLimit: 200 };
   return data.data;
+}
+
+/** Session bootstrap: read history + limit once at session start */
+export async function getSessionBootstrap(): Promise<SessionBootstrapData> {
+  const res = await fetch(`${BACKEND_URL}/api/session/bootstrap`, {
+    headers: getAuthHeaders(),
+    credentials: 'include',
+  });
+  const data = await res.json();
+  if (!data.success) {
+    return {
+      history: [],
+      stats: { languageStats: [], todayCount: 0, dailyLimit: 200 },
+    };
+  }
+  return data.data;
+}
+
+/** Flush in-memory session usage/history to DB */
+export async function endExecutionSession(): Promise<void> {
+  try {
+    await fetch(`${BACKEND_URL}/api/session/end`, {
+      method: 'POST',
+      headers: getAuthHeaders(),
+      credentials: 'include',
+      keepalive: true,
+    });
+  } catch {
+    // ignore unload/network errors
+  }
 }

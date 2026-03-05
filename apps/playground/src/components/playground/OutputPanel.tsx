@@ -12,6 +12,7 @@ import { useState, useEffect, useCallback } from 'react';
 import {
   getExecutionHistory,
   getExecutionStats,
+  getSessionBootstrap,
   type ExecutionHistoryItem,
   type ExecutionStats,
 } from '@/utils/snippetsApi';
@@ -77,8 +78,22 @@ export function OutputPanel() {
 
   // Initial stats load (counter visible without requiring a run)
   useEffect(() => {
-    refreshStats();
-  }, [refreshStats]);
+    if (!isAuthenticated) {
+      setStats(null);
+      setHistory([]);
+      return;
+    }
+
+    (async () => {
+      try {
+        const data = await getSessionBootstrap();
+        setHistory(data.history);
+        setStats(data.stats);
+      } catch {
+        refreshStats();
+      }
+    })();
+  }, [isAuthenticated, refreshStats]);
 
   // Refresh stats after each run completes
   useEffect(() => {
