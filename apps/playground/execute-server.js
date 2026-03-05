@@ -383,7 +383,7 @@ setInterval(() => {
   flushAllDirtySessions('periodic').catch((err) => {
     console.error('[SessionFlush] Periodic flush error:', err.message);
   });
-}, 60_000);
+}, 10_000);
 
 async function gracefulFlushAndExit(signal) {
   try {
@@ -930,6 +930,66 @@ app.get('/api/session/bootstrap', requireAuth, async (req, res) => {
         todayCount: session.todayCount,
         dailyLimit: MAX_EXECUTIONS_PER_DAY,
       },
+    },
+  });
+});
+
+// Preflight: check current session limit before execution starts
+app.get('/api/session/preflight', requireAuth, async (req, res) => {
+  const session = await getUserSession(req.user.id);
+  const allowed = session.todayCount < MAX_EXECUTIONS_PER_DAY;
+  return res.json({
+    success: true,
+    data: {
+      allowed,
+      todayCount: session.todayCount,
+      dailyLimit: MAX_EXECUTIONS_PER_DAY,
+      remaining: Math.max(0, MAX_EXECUTIONS_PER_DAY - session.todayCount),
+    },
+  });
+});
+
+// Record client-side execution into in-memory session cache
+app.post('/api/session/record', requireAuth, async (req, res) => {
+  const { language, code = '', output = '', durationMs = 0, status = 'SUCCESS', executedAt } = req.body || {};
+  if (!language) {
+    return res.status(400).json({ success: false, error: 'language is required' });
+  }
+
+  const session = await getUserSession(req.user.id);
+  if (session.todayCount >= MAX_EXECUTIONS_PER_DAY) {
+    return res.status(429).json({
+      success: false,
+      error: `Daily execution limit (${MAX_EXECUTIONS_PER_DAY}) reached. Try again tomorrow.`,
+      data: {
+        todayCount: session.todayCount,
+        dailyLimit: MAX_EXECUTIONS_PER_DAY,
+        remaining: 0,
+      },
+    });
+  }
+
+  session.todayCount += 1;
+  session.dirtyUsage = true;
+  session.history.unshift({
+    id: crypto.randomUUID(),
+    language,
+    code: String(code).slice(0, 5000),
+    output: String(output).slice(0, 5000),
+    durationMs: Math.max(0, Number(durationMs) || 0),
+    status: status === 'ERROR' ? 'ERROR' : 'SUCCESS',
+    executedAt: executedAt || new Date().toISOString(),
+  });
+  session.history = session.history.slice(0, MAX_HISTORY_PER_USER);
+  session.dirtyHistory = true;
+  session.lastTouchedAt = Date.now();
+
+  return res.json({
+    success: true,
+    data: {
+      todayCount: session.todayCount,
+      dailyLimit: MAX_EXECUTIONS_PER_DAY,
+      remaining: Math.max(0, MAX_EXECUTIONS_PER_DAY - session.todayCount),
     },
   });
 });

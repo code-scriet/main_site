@@ -2,6 +2,7 @@ import { useState, useCallback, useRef } from 'react';
 import { executeCode, formatOutput, calculateExecutionTime } from '@/engines/ExecutionRouter';
 import { usePlayground } from '@/context/PlaygroundContext';
 import { validateCode } from '@/lib/utils';
+import { getSessionPreflight, recordClientExecution } from '@/utils/snippetsApi';
 import { toast } from 'sonner';
 
 export function useCodeExecution() {
@@ -46,6 +47,14 @@ export function useCodeExecution() {
     const startTime = Date.now();
 
     try {
+      const preflight = await getSessionPreflight();
+      if (!preflight.allowed) {
+        const msg = `Daily execution limit (${preflight.dailyLimit}) reached. Try again tomorrow.`;
+        setError(msg);
+        toast.error(msg);
+        return { success: false, error: msg };
+      }
+
       const result = await executeCode({
         language: language.id,
         code,
@@ -64,6 +73,21 @@ export function useCodeExecution() {
         if (output) {
           setOutput(output);
         }
+
+        if (result.tier === 'client') {
+          try {
+            await recordClientExecution({
+              language: language.id,
+              code,
+              output: (output || error || '').slice(0, 5000),
+              durationMs: endTime - startTime,
+              status: 'ERROR',
+            });
+          } catch {
+            // non-blocking
+          }
+        }
+
         toast.error(error || 'Code execution failed');
         return { success: false, error, output };
       } else {
@@ -73,6 +97,21 @@ export function useCodeExecution() {
           // Show warnings (e.g. compiler warnings) as info, not errors
           setError(`Warning: ${warning}`);
         }
+
+        if (result.tier === 'client') {
+          try {
+            await recordClientExecution({
+              language: language.id,
+              code,
+              output: finalOutput.slice(0, 5000),
+              durationMs: endTime - startTime,
+              status: 'SUCCESS',
+            });
+          } catch {
+            // non-blocking
+          }
+        }
+
         const tierLabel = result.tier === 'client' ? '(local)' : '(cloud)';
         toast.success(`Executed in ${executionTime} ${tierLabel}`);
         return { success: true, output: finalOutput, executionTime };

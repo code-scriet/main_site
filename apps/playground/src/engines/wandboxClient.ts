@@ -11,6 +11,19 @@ import type { ExecutionResult, CloudExecutionRequest } from './types';
 const BACKEND_URL = import.meta.env.VITE_API_URL || 'http://localhost:5002';
 const CLOUD_TIMEOUT = 15_000; // 15 seconds (matches server timeout)
 
+function getAuthHeaders(): HeadersInit {
+  const cookieMatch = document.cookie
+    .split('; ')
+    .find((row) => row.startsWith('scriet_session='));
+  const token = cookieMatch
+    ? decodeURIComponent(cookieMatch.split('=').slice(1).join('='))
+    : (sessionStorage.getItem('pg_token') || localStorage.getItem('token'));
+
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (token) headers.Authorization = `Bearer ${token}`;
+  return headers;
+}
+
 export async function executeViaCloud(
   request: CloudExecutionRequest,
   signal?: AbortSignal,
@@ -28,7 +41,7 @@ export async function executeViaCloud(
   try {
     const response = await fetch(`${BACKEND_URL}/api/execute`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: getAuthHeaders(),
       credentials: 'include',
       body: JSON.stringify({
         language: request.language,

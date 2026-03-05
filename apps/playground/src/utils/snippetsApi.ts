@@ -127,6 +127,13 @@ export interface SessionBootstrapData {
   stats: ExecutionStats;
 }
 
+export interface SessionPreflight {
+  allowed: boolean;
+  todayCount: number;
+  dailyLimit: number;
+  remaining: number;
+}
+
 /** Fetch last 20 execution history entries (with code) */
 export async function getExecutionHistory(): Promise<ExecutionHistoryItem[]> {
   const res = await fetch(`${BACKEND_URL}/api/executions/history`, {
@@ -163,6 +170,40 @@ export async function getSessionBootstrap(): Promise<SessionBootstrapData> {
     };
   }
   return data.data;
+}
+
+/** Check if the user can run one more execution in current session */
+export async function getSessionPreflight(): Promise<SessionPreflight> {
+  const res = await fetch(`${BACKEND_URL}/api/session/preflight`, {
+    headers: getAuthHeaders(),
+    credentials: 'include',
+  });
+  const data = await res.json();
+  if (!data.success) {
+    return { allowed: true, todayCount: 0, dailyLimit: 200, remaining: 200 };
+  }
+  return data.data;
+}
+
+/** Record a client-side execution into the user's server-side session cache */
+export async function recordClientExecution(input: {
+  language: string;
+  code: string;
+  output: string;
+  durationMs: number;
+  status: 'SUCCESS' | 'ERROR';
+}): Promise<void> {
+  const res = await fetch(`${BACKEND_URL}/api/session/record`, {
+    method: 'POST',
+    headers: getAuthHeaders(),
+    credentials: 'include',
+    body: JSON.stringify(input),
+  });
+
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error(data.error || 'Failed to record execution');
+  }
 }
 
 /** Flush in-memory session usage/history to DB */
