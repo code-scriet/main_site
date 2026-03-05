@@ -160,4 +160,75 @@ router.get('/history', async (req: Request, res: Response) => {
   }
 });
 
+// ---------------------------------------------------------------------------
+// Admin — Reset a user's daily execution limit (ADMIN only)
+// ---------------------------------------------------------------------------
+
+/** Reset a specific user's daily execution limit */
+router.post('/admin/reset-limit/:userId', async (req: Request, res: Response) => {
+  try {
+    const admin = getAuthUser(req);
+    if (!admin) return res.status(401).json({ error: 'Not authenticated' });
+    if (!['ADMIN', 'CORE_MEMBER'].includes(admin.role)) {
+      return res.status(403).json({ success: false, error: 'Admin access required' });
+    }
+
+    const { userId } = req.params;
+    const note = typeof req.body?.note === 'string' ? req.body.note.slice(0, 200) : '';
+
+    // Verify target user exists
+    const target = await prisma.user.findUnique({ where: { id: userId }, select: { id: true, email: true } });
+    if (!target) return res.status(404).json({ success: false, error: 'User not found' });
+
+    // Insert a reset record into playground_limit_resets (raw SQL — table managed by execute-server)
+    await prisma.$executeRaw`
+      INSERT INTO playground_limit_resets (id, user_id, reset_by, note, reset_at)
+      VALUES (gen_random_uuid(), ${userId}, ${admin.id}, ${note}, NOW())
+      ON CONFLICT DO NOTHING
+    `;
+
+    console.log(`[Admin] ${admin.email} reset playground daily limit for ${target.email}`);
+    return res.json({
+      success: true,
+      message: `Daily execution limit reset for ${target.email}`,
+      resetAt: new Date().toISOString(),
+    });
+  } catch (error) {
+    console.error('[Playground] Failed to reset limit:', error);
+    return res.status(500).json({ success: false, error: 'Failed to reset limit' });
+  }
+});
+
+/** Get users with their today's execution counts */
+router.get('/admin/execution-counts', async (req: Request, res: Response) => {
+  try {
+    const admin = getAuthUser(req);
+    if (!admin) return res.status(401).json({ error: 'Not authenticated' });
+    if (!['ADMIN', 'CORE_MEMBER'].includes(admin.role)) {
+      return res.status(403).json({ success: false, error: 'Admin access required' });
+    }
+
+    const counts = await prisma.$queryRaw<Array<{ user_id: string; today_count: bigint; last_run_at: Date }>>`
+      SELECT user_id, COUNT(*)::int AS today_count, MAX(executed_at) AS last_run_at
+      FROM executions
+      WHERE executed_at >= CURRENT_DATE
+      GROUP BY user_id
+      ORDER BY today_count DESC
+      LIMIT 100
+    `;
+
+    return res.json({
+      success: true,
+      data: counts.map(r => ({
+        userId: r.user_id,
+        todayCount: Number(r.today_count),
+        lastRunAt: r.last_run_at,
+      })),
+    });
+  } catch (error) {
+    console.error('[Playground] Failed to get execution counts:', error);
+    return res.status(500).json({ success: false, error: 'Failed to fetch counts' });
+  }
+});
+
 export { router as playgroundRouter };

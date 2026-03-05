@@ -166,6 +166,20 @@ if (DATABASE_URL) {
       await pool.query('SELECT 1');
       dbReady = true;
       console.log('[DB] Connected to PostgreSQL ✓');
+      // Ensure limit-reset table exists (safe to run every startup)
+      await pool.query(`
+        CREATE TABLE IF NOT EXISTS playground_limit_resets (
+          id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+          user_id TEXT NOT NULL,
+          reset_by TEXT NOT NULL,
+          reset_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          note TEXT
+        )
+      `);
+      await pool.query(`
+        CREATE INDEX IF NOT EXISTS plr_user_id_idx ON playground_limit_resets(user_id)
+      `);
+      console.log('[DB] playground_limit_resets table ready ✓');
     } catch (err) {
       if (attemptsLeft > 1) {
         console.warn(`[DB] Connection attempt failed (${err.message}), retrying in ${delayMs}ms...`);
@@ -220,11 +234,41 @@ const MAX_HISTORY_PER_USER = 20;
 // Rate Limiting
 // ---------------------------------------------------------------------------
 const MAX_EXECUTIONS_PER_DAY = 200;
-const userExecCounts = new Map();
+const userExecCounts = new Map(); // in-memory cache (synced from DB per request)
 const MAX_IP_EXECUTIONS = 30;
 const ipExecCounts = new Map();
 
-function checkUserRateLimit(userId) {
+/**
+ * DB-backed rate limit check. Queries executions since the later of:
+ *   - midnight today (resets naturally each day)
+ *   - the user's last admin-issued limit reset (if any)
+ * Falls back to in-memory if DB is unavailable.
+ */
+async function checkUserRateLimit(userId) {
+  if (pool) {
+    try {
+      const rows = await pool.query(
+        `SELECT COUNT(*)::int AS count
+         FROM executions
+         WHERE user_id = $1
+           AND executed_at >= GREATEST(
+             CURRENT_DATE::timestamptz,
+             COALESCE(
+               (SELECT MAX(reset_at) FROM playground_limit_resets WHERE user_id = $1),
+               '1970-01-01'::timestamptz
+             )
+           )`,
+        [userId]
+      );
+      const count = rows.rows[0]?.count ?? 0;
+      const allowed = count < MAX_EXECUTIONS_PER_DAY;
+      return { allowed, remaining: Math.max(0, MAX_EXECUTIONS_PER_DAY - count) };
+    } catch (err) {
+      console.error('[RateLimit] DB check failed, falling back to in-memory:', err.message);
+    }
+  }
+
+  // In-memory fallback
   const today = new Date().toISOString().slice(0, 10);
   const entry = userExecCounts.get(userId);
   if (!entry || entry.date !== today) {
@@ -461,7 +505,7 @@ app.post('/api/execute', async (req, res) => {
 
     // Rate limiting
     if (req.user) {
-      const limit = checkUserRateLimit(req.user.id);
+      const limit = await checkUserRateLimit(req.user.id);
       res.setHeader('X-RateLimit-Remaining', limit.remaining);
       if (!limit.allowed) {
         return res.status(429).json({
@@ -669,8 +713,18 @@ app.get('/api/executions/stats', requireAuth, async (req, res) => {
     `SELECT language, COUNT(*)::int as count FROM executions WHERE user_id = $1 GROUP BY language ORDER BY count DESC`,
     [req.user.id]
   );
+  // today count respects admin resets — counts only since the later of midnight or last reset
   const today = await dbQuery(
-    `SELECT COUNT(*)::int as count FROM executions WHERE user_id = $1 AND executed_at >= CURRENT_DATE`,
+    `SELECT COUNT(*)::int as count
+     FROM executions
+     WHERE user_id = $1
+       AND executed_at >= GREATEST(
+         CURRENT_DATE::timestamptz,
+         COALESCE(
+           (SELECT MAX(reset_at) FROM playground_limit_resets WHERE user_id = $1),
+           '1970-01-01'::timestamptz
+         )
+       )`,
     [req.user.id]
   );
   return res.json({
@@ -680,6 +734,79 @@ app.get('/api/executions/stats', requireAuth, async (req, res) => {
       todayCount: today[0]?.count || 0,
       dailyLimit: MAX_EXECUTIONS_PER_DAY,
     },
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Admin — Execution Limit Management (ADMIN / CORE_MEMBER only)
+// ---------------------------------------------------------------------------
+
+function requireAdmin(req, res, next) {
+  if (!req.user) return res.status(401).json({ success: false, error: 'Authentication required' });
+  if (!['ADMIN', 'CORE_MEMBER'].includes(req.user.role)) {
+    return res.status(403).json({ success: false, error: 'Admin access required' });
+  }
+  next();
+}
+
+/** Reset a specific user's daily execution limit */
+app.post('/api/admin/reset-limit/:userId', requireAuth, requireAdmin, async (req, res) => {
+  const { userId } = req.params;
+  const { note = '' } = req.body;
+
+  // Insert a reset record — the rate limit query will now count from this moment
+  const result = await dbExec(
+    `INSERT INTO playground_limit_resets (user_id, reset_by, note) VALUES ($1, $2, $3)`,
+    [userId, req.user.id, note.slice(0, 200)]
+  );
+
+  if (!result) {
+    return res.status(500).json({ success: false, error: 'Failed to reset limit (DB unavailable)' });
+  }
+
+  // Also clear in-memory cache so next check re-queries DB
+  userExecCounts.delete(userId);
+
+  console.log(`[Admin] ${req.user.email} reset daily limit for user ${userId}`);
+  return res.json({
+    success: true,
+    message: `Daily limit reset for user ${userId}`,
+    resetAt: new Date().toISOString(),
+  });
+});
+
+/** Get today's execution counts for all users (admin dashboard) */
+app.get('/api/admin/execution-counts', requireAuth, requireAdmin, async (req, res) => {
+  const rows = await dbQuery(
+    `SELECT
+       e.user_id,
+       COUNT(*)::int AS today_count,
+       MAX(e.executed_at) AS last_run_at
+     FROM executions e
+     WHERE e.executed_at >= CURRENT_DATE
+     GROUP BY e.user_id
+     ORDER BY today_count DESC
+     LIMIT 100`
+  );
+
+  const resets = await dbQuery(
+    `SELECT user_id, MAX(reset_at) AS last_reset_at
+     FROM playground_limit_resets
+     WHERE reset_at >= CURRENT_DATE
+     GROUP BY user_id`
+  );
+
+  const resetMap = Object.fromEntries(resets.map(r => [r.user_id, r.last_reset_at]));
+
+  return res.json({
+    success: true,
+    data: rows.map(r => ({
+      userId: r.user_id,
+      todayCount: r.today_count,
+      dailyLimit: MAX_EXECUTIONS_PER_DAY,
+      lastRunAt: r.last_run_at,
+      lastResetAt: resetMap[r.user_id] || null,
+    })),
   });
 });
 

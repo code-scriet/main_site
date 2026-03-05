@@ -7,7 +7,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { api } from '@/lib/api';
 import type { User } from '@/lib/api';
-import { Users, Loader2, AlertCircle, Shield, UserCheck, Crown, Trash2, Phone, GraduationCap, CheckCircle, XCircle, Edit, X, Eye, Calendar, Github, Linkedin, Twitter, Globe, Mail, Download, Search } from 'lucide-react';
+import { Users, Loader2, AlertCircle, Shield, UserCheck, Crown, Trash2, Phone, GraduationCap, CheckCircle, XCircle, Edit, X, Eye, Calendar, Github, Linkedin, Twitter, Globe, Mail, Download, Search, RefreshCw } from 'lucide-react';
 
 import { useAuth } from '@/context/AuthContext';
 import { useSocketEvent } from '@/context/SocketContext';
@@ -48,6 +48,7 @@ export default function AdminUsers() {
   const [error, setError] = useState<string | null>(null);
   const [updatingId, setUpdatingId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [resettingLimitId, setResettingLimitId] = useState<string | null>(null);
   
   // Edit modal state
   const [editingUser, setEditingUser] = useState<User | null>(null);
@@ -157,6 +158,28 @@ export default function AdminUsers() {
       setError(err instanceof Error ? err.message : 'Failed to update role');
     } finally {
       setUpdatingId(null);
+    }
+  };
+
+  const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5001/api';
+
+  const handleResetLimit = async (userId: string, userName: string) => {
+    if (!token) return;
+    if (!window.confirm(`Reset today's playground execution limit for ${userName}?`)) return;
+    setResettingLimitId(userId);
+    try {
+      const res = await fetch(`${API_URL}/playground/admin/reset-limit/${userId}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ note: `Manual reset by admin via dashboard` }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to reset limit');
+      toast.success(`Playground limit reset for ${userName}`);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to reset limit');
+    } finally {
+      setResettingLimitId(null);
     }
   };
 
@@ -505,6 +528,21 @@ export default function AdminUsers() {
                             <Edit className="h-4 w-4" />
                           </Button>
                         )}
+                        {/* Reset playground daily limit */}
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => handleResetLimit(user.id, user.name)}
+                          disabled={resettingLimitId === user.id}
+                          className="h-9 text-amber-600 border-amber-300 hover:bg-amber-50"
+                          title="Reset today's playground execution limit"
+                        >
+                          {resettingLimitId === user.id ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <RefreshCw className="h-4 w-4" />
+                          )}
+                        </Button>
                         {user.role !== 'ADMIN' && user.id !== currentUser?.id && (
                           <Button
                             variant="destructive"
