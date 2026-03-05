@@ -19,6 +19,8 @@ export function FeatureGate({ featureKey, redirectTo = '/' }: FeatureGateProps) 
   // While loading, don't block (avoids incorrect redirect on first paint)
   if (loading) return <Outlet />;
 
+  // Treat both null and undefined as "no settings yet" → enable the feature.
+  // The intentional loose equality (==) handles both cases concisely.
   const isEnabled = settings == null || settings[featureKey] !== false;
 
   if (!isEnabled) {

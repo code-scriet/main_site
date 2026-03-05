@@ -32,10 +32,10 @@ const coreMemberNavItems = [
   { name: 'Upload Image', href: '/dashboard/upload', icon: Upload },
 ];
 
-const getCoreMemberNavItems = (quizEnabled: boolean) => {
+const getCoreMemberNavItems = (includeQuizManager: boolean) => {
   const items = [...coreMemberNavItems];
-  if (quizEnabled !== false) {
-    items.splice(3, 0, { name: 'Quiz Manager', href: '/dashboard/quiz', icon: Zap });
+  if (includeQuizManager) {
+    items.push({ name: 'Quiz Manager', href: '/dashboard/quiz', icon: Zap });
   }
   return items;
 };
