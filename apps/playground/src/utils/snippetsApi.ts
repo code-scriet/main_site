@@ -94,9 +94,7 @@ export async function getSharedSnippet(shareToken: string): Promise<Snippet> {
 /** Build the share URL for a snippet */
 export function getShareUrl(shareToken: string): string {
   const base = import.meta.env.DEV ? 'http://localhost:5174' : 'https://code.codescriet.dev';
-  // Use root query-based link to avoid 404s on deployments where deep-link
-  // rewrites for /s/:token are not configured correctly.
-  return `${base}/?share=${encodeURIComponent(shareToken)}`;
+  return `${base}/s/${shareToken}`;
 }
 
 // ---------------------------------------------------------------------------
