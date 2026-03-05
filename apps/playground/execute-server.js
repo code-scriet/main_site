@@ -11,8 +11,17 @@ const NODE_ENV = process.env.NODE_ENV || 'development';
 // ---------------------------------------------------------------------------
 // CORS — controlled via ALLOWED_ORIGIN env var
 // ---------------------------------------------------------------------------
+
+// Always-allowed production origins (hardcoded fallback so the server works
+// even if ALLOWED_ORIGIN env var is not set in the Render dashboard).
+const HARDCODED_PROD_ORIGINS = [
+  'https://code.codescriet.dev',
+  'https://codescriet.dev',
+  'https://www.codescriet.dev',
+];
+
 const PROD_ORIGINS = process.env.ALLOWED_ORIGIN
-  ? process.env.ALLOWED_ORIGIN.split(',').map(o => o.trim())
+  ? process.env.ALLOWED_ORIGIN.split(',').map(o => o.trim()).filter(Boolean)
   : [];
 
 const DEV_ORIGINS = [
@@ -22,14 +31,19 @@ const DEV_ORIGINS = [
 ];
 
 const ALLOWED_ORIGINS = [
-  ...PROD_ORIGINS,
-  ...(NODE_ENV === 'development' ? DEV_ORIGINS : []),
+  ...new Set([
+    ...HARDCODED_PROD_ORIGINS,
+    ...PROD_ORIGINS,
+    ...(NODE_ENV === 'development' ? DEV_ORIGINS : []),
+  ]),
 ];
 
 app.use(cors({
   origin: (origin, callback) => {
-    if (!origin && NODE_ENV === 'development') return callback(null, true);
-    if (!origin || ALLOWED_ORIGINS.includes(origin)) return callback(null, true);
+    // Allow server-to-server requests (no origin) or requests from known origins
+    if (!origin) return callback(null, true);
+    if (ALLOWED_ORIGINS.includes(origin)) return callback(null, true);
+    console.warn(`[CORS] Blocked request from: ${origin}`);
     callback(new Error(`CORS blocked: ${origin}`));
   },
   credentials: true,

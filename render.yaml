@@ -86,8 +86,10 @@ services:
         value: production
       - key: PORT
         value: 10000
+      - key: DATABASE_URL
+        sync: false            # REQUIRED: same DATABASE_URL as the main codescriet-api service
       - key: ALLOWED_ORIGIN
-        sync: false            # Set to https://playground.codescriet.dev in Render dashboard
+        value: https://code.codescriet.dev,https://codescriet.dev,https://www.codescriet.dev
       - key: JWT_SECRET
         sync: false            # Must match main API's JWT_SECRET for shared auth
       - key: EXECUTOR_URL
