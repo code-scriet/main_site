@@ -19,7 +19,7 @@ Complete instructions for deploying the Code.Scriet Playground to production acr
 │   Main API          │        │  Playground API (Backend)│
 │  codescriet-api.    │        │  playground-api.         │
 │    onrender.com     │        │    codescriet.dev        │
-│  Render Web Service │        │    codescriet.dev        │
+│  Render Web Service │        │  Render Web Service      │
 │  (Express + Prisma) │        │  Render Web Service      │
 └─────────────────────┘        └────────┬────────────────┘
                                         │ POST /execute
