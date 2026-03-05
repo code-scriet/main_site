@@ -44,9 +44,11 @@ function getCookie(name: string): string | null {
   return match ? decodeURIComponent(match.split('=').slice(1).join('=')) : null;
 }
 
-/** Clear the session cookie */
+/** Clear the session cookie (must match domain used when setting) */
 function clearCookie(name: string) {
-  document.cookie = `${name}=; Max-Age=0; path=/;`;
+  const isProd = !import.meta.env.DEV;
+  const domainPart = isProd ? '; domain=.codescriet.dev' : '';
+  document.cookie = `${name}=; Max-Age=0; path=/${domainPart}`;
 }
 
 /**

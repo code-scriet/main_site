@@ -5,42 +5,63 @@
 // WebAssembly). The Pyodide runtime is loaded lazily from CDN on first use
 // and cached by the browser's HTTP cache for subsequent runs.
 //
-// stdout/stderr are captured by redirecting sys.stdout and sys.stderr to
-// StringIO objects before executing user code then reading them back.
-//
-// stdin is simulated by pre-loading user-provided input and patching
-// the built-in input() function.
+// KEY DESIGN: A single persistent Web Worker is reused across all executions.
+// This means Pyodide only needs to initialise ONCE per page load (~3-5s first
+// time, then instant thereafter). Each run message is paired with a unique
+// correlation ID so responses can be matched back.
 // ---------------------------------------------------------------------------
 
 import type { ExecutionResult } from './types';
 
 const PYODIDE_CDN = 'https://cdn.jsdelivr.net/pyodide/v0.27.0/full/pyodide.js';
-const WORKER_TIMEOUT = 10_000; // 10 seconds
 
-// We run Pyodide in a Web Worker so it cannot block the main thread.
-// The worker code is constructed as a blob URL.
+/** Max time to wait for a single Python execution (after runtime is ready) */
+const EXEC_TIMEOUT_MS = 10_000;
+/** Max time to wait for Pyodide to initially load */
+const INIT_TIMEOUT_MS = 30_000;
 
+// ---------------------------------------------------------------------------
+// Worker code (runs in Web Worker context)
+// ---------------------------------------------------------------------------
 function buildPyodideWorkerCode(): string {
   return `
-    // Pyodide Worker — runs Python in WASM sandbox
+    // Persistent Pyodide Worker — initialises once, executes many times
     let pyodide = null;
+    let initPromise = null;
 
     async function initPyodide() {
       if (pyodide) return pyodide;
-      importScripts('${PYODIDE_CDN}');
-      pyodide = await loadPyodide({
-        stdout: () => {},  // We capture via StringIO, not native stdout
-        stderr: () => {},
-      });
-      return pyodide;
+      if (initPromise) return initPromise;
+      initPromise = (async () => {
+        importScripts('${PYODIDE_CDN}');
+        pyodide = await loadPyodide({
+          stdout: () => {},
+          stderr: () => {},
+        });
+        return pyodide;
+      })();
+      return initPromise;
     }
 
+    // Start loading immediately so it's ready when the first run arrives
+    initPyodide().then(() => {
+      self.postMessage({ type: 'ready' });
+    }).catch(err => {
+      self.postMessage({ type: 'init_error', error: String(err) });
+    });
+
     self.onmessage = async (e) => {
-      const { code, stdin } = e.data;
+      const { id, code, stdin } = e.data;
+
+      // Ping — just confirm the worker is alive
+      if (e.data.ping) {
+        self.postMessage({ type: 'pong' });
+        return;
+      }
+
       try {
-        self.postMessage({ type: 'status', message: 'Loading Python runtime...' });
+        self.postMessage({ type: 'status', id, message: 'Running code...' });
         const py = await initPyodide();
-        self.postMessage({ type: 'status', message: 'Running code...' });
 
         // Setup stdout/stderr capture + stdin simulation
         const setupCode = \`
@@ -52,7 +73,6 @@ sys.stdout = __stdout_capture
 sys.stderr = __stderr_capture
 
 __original_input = builtins.input
-
 __stdin_lines = \${JSON.stringify((stdin || '').split('\\n'))}.copy()
 __stdin_index = [0]
 
@@ -70,36 +90,38 @@ builtins.input = __patched_input
         py.runPython(setupCode);
 
         try {
-          // Run user code
           py.runPython(code);
         } finally {
-          // Always restore stream/input state for next run
           py.runPython('sys.stdout = sys.__stdout__; sys.stderr = sys.__stderr__; builtins.input = __original_input');
         }
 
-        // Collect output
         const stdout = py.runPython('__stdout_capture.getvalue()');
         const stderr = py.runPython('__stderr_capture.getvalue()');
 
         self.postMessage({
           type: 'result',
+          id,
           stdout: stdout || '',
           stderr: stderr || '',
           exitCode: stderr ? 1 : 0,
         });
       } catch (err) {
-        // Pyodide wraps Python exceptions ‒ extract the useful part
         let errorMsg = String(err);
-        // Try to pull out just the Python traceback
-        if (err && err.message) {
-          errorMsg = err.message;
-        }
+        if (err && err.message) errorMsg = err.message;
         errorMsg = errorMsg
-          .replace(/^PythonError:\s*/i, '')
-          .replace(/^Error:\s*/i, '')
+          .replace(/^PythonError:\\s*/i, '')
+          .replace(/^Error:\\s*/i, '')
           .trim();
+
+        // Try to reset stdout/stderr so next run starts clean
+        try {
+          const py = await initPyodide();
+          py.runPython('import sys, builtins; sys.stdout = sys.__stdout__; sys.stderr = sys.__stderr__');
+        } catch { /* ignore reset errors */ }
+
         self.postMessage({
           type: 'result',
+          id,
           stdout: '',
           stderr: errorMsg || 'Python execution failed',
           exitCode: 1,
@@ -109,7 +131,25 @@ builtins.input = __patched_input
   `;
 }
 
+// ---------------------------------------------------------------------------
+// Singleton Worker Management
+// ---------------------------------------------------------------------------
+
+interface PendingExecution {
+  resolve: (result: ExecutionResult) => void;
+  reject: (err: Error) => void;
+  timer: ReturnType<typeof setTimeout>;
+}
+
+let singletonWorker: Worker | null = null;
 let workerBlobUrl: string | null = null;
+let workerReady = false;
+let workerInitError: string | null = null;
+let readyCallbacks: Array<() => void> = [];
+
+/** Counter for correlation IDs */
+let execIdCounter = 0;
+const pendingExecutions = new Map<string, PendingExecution>();
 
 function getWorkerBlobUrl(): string {
   if (!workerBlobUrl) {
@@ -119,6 +159,94 @@ function getWorkerBlobUrl(): string {
   return workerBlobUrl;
 }
 
+function handleWorkerMessage(e: MessageEvent) {
+  const msg = e.data;
+
+  if (msg.type === 'ready') {
+    workerReady = true;
+    readyCallbacks.forEach(cb => cb());
+    readyCallbacks = [];
+    return;
+  }
+
+  if (msg.type === 'init_error') {
+    workerInitError = msg.error;
+    workerReady = true; // mark ready so waiters unblock (they'll get the error)
+    readyCallbacks.forEach(cb => cb());
+    readyCallbacks = [];
+    return;
+  }
+
+  if (msg.type === 'pong') return;
+
+  if (msg.type === 'status') return; // Could surface via callback in future
+
+  if (msg.type === 'result' && msg.id) {
+    const pending = pendingExecutions.get(msg.id);
+    if (!pending) return;
+    pendingExecutions.delete(msg.id);
+    clearTimeout(pending.timer);
+
+    pending.resolve({
+      language: 'python',
+      version: 'pyodide 0.27.0 (WASM)',
+      provider: 'client',
+      run: {
+        stdout: msg.stdout || '',
+        stderr: msg.stderr || '',
+        code: msg.exitCode ?? 0,
+        signal: null,
+        output: msg.stdout || '',
+      },
+    });
+  }
+}
+
+function handleWorkerError(err: ErrorEvent) {
+  // Reject all pending + mark worker dead
+  for (const [, pending] of pendingExecutions) {
+    clearTimeout(pending.timer);
+    pending.reject(new Error(`Pyodide worker error: ${err.message}`));
+  }
+  pendingExecutions.clear();
+
+  // Destroy the worker so next call recreates it
+  singletonWorker = null;
+  workerReady = false;
+  workerInitError = null;
+}
+
+function getOrCreateWorker(): Worker {
+  if (singletonWorker) return singletonWorker;
+
+  const worker = new Worker(getWorkerBlobUrl());
+  worker.onmessage = handleWorkerMessage;
+  worker.onerror = handleWorkerError;
+  singletonWorker = worker;
+  workerReady = false;
+  workerInitError = null;
+  return worker;
+}
+
+/** Returns a promise that resolves once Pyodide is loaded in the worker */
+function waitForReady(): Promise<void> {
+  if (workerReady) return Promise.resolve();
+  return new Promise<void>((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      reject(new Error('Pyodide failed to initialise within 30s'));
+    }, INIT_TIMEOUT_MS);
+
+    readyCallbacks.push(() => {
+      clearTimeout(timeout);
+      resolve();
+    });
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Public API
+// ---------------------------------------------------------------------------
+
 export type StatusCallback = (message: string) => void;
 
 export async function executePython(
@@ -127,20 +255,52 @@ export async function executePython(
   signal?: AbortSignal,
   onStatus?: StatusCallback,
 ): Promise<ExecutionResult> {
-  return new Promise((resolve, reject) => {
-    const worker = new Worker(getWorkerBlobUrl());
-    let settled = false;
+  // Ensure the singleton worker exists and Pyodide is loaded
+  getOrCreateWorker();
 
-    const cleanup = () => {
-      if (!settled) {
-        settled = true;
-        worker.terminate();
-      }
+  if (!workerReady) {
+    onStatus?.('Loading Python runtime (first run only)...');
+    try {
+      await waitForReady();
+    } catch (err) {
+      return {
+        language: 'python',
+        version: 'pyodide 0.27.0 (WASM)',
+        provider: 'client',
+        run: {
+          stdout: '',
+          stderr: `Failed to load Python runtime: ${err instanceof Error ? err.message : String(err)}`,
+          code: 1,
+          signal: null,
+          output: '',
+        },
+      };
+    }
+  }
+
+  if (workerInitError) {
+    return {
+      language: 'python',
+      version: 'pyodide 0.27.0 (WASM)',
+      provider: 'client',
+      run: {
+        stdout: '',
+        stderr: `Python runtime failed to load: ${workerInitError}`,
+        code: 1,
+        signal: null,
+        output: '',
+      },
     };
+  }
 
-    // Hard timeout
+  onStatus?.('Running code...');
+
+  const execId = `exec-${++execIdCounter}`;
+
+  return new Promise<ExecutionResult>((resolve, reject) => {
+    // Per-execution timeout (after Pyodide is already loaded)
     const timer = setTimeout(() => {
-      cleanup();
+      pendingExecutions.delete(execId);
       resolve({
         language: 'python',
         version: 'pyodide 0.27.0 (WASM)',
@@ -153,89 +313,34 @@ export async function executePython(
           output: '',
         },
       });
-    }, WORKER_TIMEOUT);
+    }, EXEC_TIMEOUT_MS);
+
+    pendingExecutions.set(execId, { resolve, reject, timer });
 
     // AbortSignal support
     if (signal) {
       signal.addEventListener('abort', () => {
-        clearTimeout(timer);
-        cleanup();
-        reject(new Error('Execution cancelled'));
-      });
+        const pending = pendingExecutions.get(execId);
+        if (pending) {
+          pendingExecutions.delete(execId);
+          clearTimeout(pending.timer);
+          pending.reject(new Error('Execution cancelled'));
+        }
+      }, { once: true });
     }
 
-    worker.onmessage = (e) => {
-      const msg = e.data;
-
-      if (msg.type === 'status' && onStatus) {
-        onStatus(msg.message);
-        return; // Don't resolve yet — still loading/running
-      }
-
-      if (msg.type === 'result') {
-        clearTimeout(timer);
-        cleanup();
-        resolve({
-          language: 'python',
-          version: 'pyodide 0.27.0 (WASM)',
-          provider: 'client',
-          run: {
-            stdout: msg.stdout || '',
-            stderr: msg.stderr || '',
-            code: msg.exitCode ?? 0,
-            signal: null,
-            output: msg.stdout || '',
-          },
-        });
-      }
-    };
-
-    worker.onerror = (err) => {
-      clearTimeout(timer);
-      cleanup();
-      resolve({
-        language: 'python',
-        version: 'pyodide 0.27.0 (WASM)',
-        provider: 'client',
-        run: {
-          stdout: '',
-          stderr: `Pyodide worker error: ${err.message || 'Unknown error'}`,
-          code: 1,
-          signal: null,
-          output: '',
-        },
-      });
-    };
-
-    worker.postMessage({ code, stdin: stdin || '' });
+    singletonWorker!.postMessage({ id: execId, code, stdin: stdin || '' });
   });
 }
 
 // ---------------------------------------------------------------------------
-// Preload Pyodide runtime in background for faster first execution
+// Preload — call early to warm up Pyodide before the first run
 // ---------------------------------------------------------------------------
-let preloadStarted = false;
-
 export function preloadPyodide(): void {
-  if (preloadStarted) return;
-  preloadStarted = true;
+  getOrCreateWorker(); // ensures the worker is created and starts loading
+}
 
-  // Start a worker that will initialize Pyodide, then terminate
-  const worker = new Worker(getWorkerBlobUrl());
-  
-  // Send an empty message to trigger runtime loading
-  worker.postMessage({ code: '', stdin: '' });
-  
-  // Cleanup after 15 seconds max (Pyodide should load in ~3-5s on fast connections)
-  setTimeout(() => worker.terminate(), 15_000);
-  
-  worker.onmessage = () => {
-    // Pyodide loaded - terminate immediately to free memory
-    worker.terminate();
-  };
-  
-  worker.onerror = () => {
-    // Ignore errors during preload
-    worker.terminate();
-  };
+/** Returns true once Pyodide has finished loading in the persistent worker */
+export function isPyodideReady(): boolean {
+  return workerReady && !workerInitError;
 }

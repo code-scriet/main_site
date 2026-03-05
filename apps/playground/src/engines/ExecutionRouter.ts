@@ -39,9 +39,12 @@ import { executeViaCloud } from './wandboxClient'; // file kept for compat, call
 
 /**
  * If client-side execution takes longer than this, abort it and fall back to
- * cloud execution. This prevents the UI from hanging on slow devices or heavy
- * programs. Only applies in 'auto' mode — explicit 'client' mode runs without
- * a timeout.
+ * cloud execution. Applies to Python, JS, and TS in 'auto' mode.
+ *
+ * Python note: on first page load Pyodide is still downloading in the
+ * background, so the first Python run will likely exceed 4 s and fall back
+ * to cloud automatically. Subsequent runs use the warm persistent worker
+ * and finish in milliseconds — well within the limit.
  */
 const CLIENT_EXECUTION_TIMEOUT_MS = 4000;
 
