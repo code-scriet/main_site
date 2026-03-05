@@ -216,16 +216,27 @@ function handleWorkerError(err: ErrorEvent) {
   workerInitError = null;
 }
 
-function getOrCreateWorker(): Worker {
+function getOrCreateWorker(): Worker | null {
   if (singletonWorker) return singletonWorker;
 
-  const worker = new Worker(getWorkerBlobUrl());
-  worker.onmessage = handleWorkerMessage;
-  worker.onerror = handleWorkerError;
-  singletonWorker = worker;
-  workerReady = false;
-  workerInitError = null;
-  return worker;
+  try {
+    const worker = new Worker(getWorkerBlobUrl());
+    worker.onmessage = handleWorkerMessage;
+    worker.onerror = handleWorkerError;
+    singletonWorker = worker;
+    workerReady = false;
+    workerInitError = null;
+    return worker;
+  } catch (err) {
+    // Worker creation can fail if blob URLs are blocked (CSP) or in restricted environments.
+    // Mark as errored so callers fall back to cloud.
+    workerInitError = err instanceof Error ? err.message : 'Failed to create Web Worker';
+    workerReady = true; // unblock any waiters
+    readyCallbacks.forEach(cb => cb());
+    readyCallbacks = [];
+    console.warn('[Pyodide] Worker creation failed:', workerInitError);
+    return null;
+  }
 }
 
 /** Returns a promise that resolves once Pyodide is loaded in the worker */

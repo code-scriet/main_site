@@ -135,7 +135,13 @@ export function PlaygroundProvider({ children }: { children: ReactNode }) {
   // Preload Pyodide when Python is selected to speed up first execution
   useEffect(() => {
     if (state.language.id === 'python') {
-      preloadPyodide();
+      try {
+        preloadPyodide();
+      } catch (err) {
+        // Worker spawn failures (e.g. CSP) are non-fatal — Python will fall
+        // back to cloud execution on first run.
+        console.warn('[Pyodide] Preload failed (will use cloud fallback):', err);
+      }
     }
   }, [state.language.id]);
 

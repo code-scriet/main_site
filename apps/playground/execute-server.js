@@ -122,28 +122,64 @@ const DATABASE_URL = process.env.DATABASE_URL;
 let pool = null;
 let dbReady = false;
 
+// Determine whether SSL is needed: enable for any non-localhost URL.
+// This covers Render, Railway, Neon, Supabase, and any other cloud provider.
+function needsSsl(url) {
+  if (!url) return false;
+  try {
+    const u = new URL(url);
+    const host = u.hostname.toLowerCase();
+    return host !== 'localhost' && host !== '127.0.0.1' && host !== '::1';
+  } catch {
+    // Fallback: if URL contains common cloud provider keywords use SSL
+    return url.includes('neon') || url.includes('render') || url.includes('supabase')
+      || url.includes('railway') || url.includes('planetscale') || url.includes('amazonaws');
+  }
+}
+
 if (DATABASE_URL) {
   pool = new pg.Pool({
     connectionString: DATABASE_URL,
     max: 5,
     idleTimeoutMillis: 30_000,
-    connectionTimeoutMillis: 5_000,
-    ssl: DATABASE_URL.includes('neon') || DATABASE_URL.includes('render') || DATABASE_URL.includes('supabase')
-      ? { rejectUnauthorized: false }
-      : undefined,
+    connectionTimeoutMillis: 8_000,
+    ssl: needsSsl(DATABASE_URL) ? { rejectUnauthorized: false } : undefined,
   });
 
-  // Verify connection on startup
-  pool.query('SELECT 1')
-    .then(() => { dbReady = true; console.log('[DB] Connected to PostgreSQL'); })
-    .catch(err => { console.error('[DB] Connection failed, running in memory-only mode:', err.message); });
+  // Verify connection on startup (with retry — DB may take a moment after deploy)
+  async function connectWithRetry(attemptsLeft = 5, delayMs = 2000) {
+    try {
+      await pool.query('SELECT 1');
+      dbReady = true;
+      console.log('[DB] Connected to PostgreSQL ✓');
+    } catch (err) {
+      if (attemptsLeft > 1) {
+        console.warn(`[DB] Connection attempt failed (${err.message}), retrying in ${delayMs}ms...`);
+        setTimeout(() => connectWithRetry(attemptsLeft - 1, delayMs * 1.5), delayMs);
+      } else {
+        console.error('[DB] All connection attempts failed — running in memory-only mode:', err.message);
+        console.error('[DB] DATABASE_URL prefix:', DATABASE_URL.slice(0, 30) + '...');
+      }
+    }
+  }
+  connectWithRetry();
 } else {
   console.warn('[DB] DATABASE_URL not set — snippets and history will use in-memory storage');
 }
 
 /** Fire-and-forget DB query — never blocks, never throws */
 function dbExec(sql, params = []) {
-  if (!pool || !dbReady) return Promise.resolve(null);
+  if (!pool) return Promise.resolve(null);
+  if (!dbReady) {
+    // Pool exists but startup check hasn't passed — attempt anyway (pool may be healthy now)
+    return pool.query(sql, params).then(result => {
+      dbReady = true; // mark ready if this succeeds
+      return result;
+    }).catch(err => {
+      console.error('[DB] Query error:', err.message);
+      return null;
+    });
+  }
   return pool.query(sql, params).catch(err => {
     console.error('[DB] Query error:', err.message);
     return null;
@@ -152,9 +188,10 @@ function dbExec(sql, params = []) {
 
 /** Query and return rows — returns [] on failure */
 async function dbQuery(sql, params = []) {
-  if (!pool || !dbReady) return [];
+  if (!pool) return [];
   try {
     const res = await pool.query(sql, params);
+    if (!dbReady) dbReady = true; // mark ready on first successful query
     return res.rows;
   } catch (err) {
     console.error('[DB] Query error:', err.message);
@@ -443,7 +480,11 @@ app.post('/api/execute', async (req, res) => {
         `INSERT INTO executions (id, user_id, language, code, output_text, duration_ms, status, executed_at)
          VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6::\"ExecutionStatus\", NOW())`,
         [req.user.id, language, code.slice(0, 5000), output.slice(0, 5000), durationMs, status]
-      ).then(() => {
+      ).then((result) => {
+        if (!result) {
+          console.warn('[DB] Execution insert returned null — DB may not be ready');
+          return;
+        }
         // Prune: null out code/output on rows older than the 20 most recent
         dbExec(
           `UPDATE executions SET code = NULL, output_text = NULL
@@ -455,6 +496,8 @@ app.post('/api/execute', async (req, res) => {
            )`,
           [req.user.id, MAX_HISTORY_PER_USER]
         );
+      }).catch(err => {
+        console.error('[DB] Failed to save execution:', err.message);
       });
     }
 
