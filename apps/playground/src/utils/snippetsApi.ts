@@ -96,3 +96,50 @@ export function getShareUrl(shareToken: string): string {
   const base = import.meta.env.DEV ? 'http://localhost:5174' : 'https://code.codescriet.dev';
   return `${base}/s/${shareToken}`;
 }
+
+// ---------------------------------------------------------------------------
+// Execution History & Stats
+// ---------------------------------------------------------------------------
+
+export interface ExecutionHistoryItem {
+  id: string;
+  language: string;
+  code: string;
+  output: string;
+  durationMs: number;
+  status: string;
+  executedAt: string;
+}
+
+export interface LanguageStat {
+  language: string;
+  count: number;
+}
+
+export interface ExecutionStats {
+  languageStats: LanguageStat[];
+  todayCount: number;
+  dailyLimit: number;
+}
+
+/** Fetch last 20 execution history entries (with code) */
+export async function getExecutionHistory(): Promise<ExecutionHistoryItem[]> {
+  const res = await fetch(`${BACKEND_URL}/api/executions/history`, {
+    headers: getAuthHeaders(),
+    credentials: 'include',
+  });
+  const data = await res.json();
+  if (!data.success) return [];
+  return data.data;
+}
+
+/** Fetch execution stats (language counters, daily usage) */
+export async function getExecutionStats(): Promise<ExecutionStats> {
+  const res = await fetch(`${BACKEND_URL}/api/executions/stats`, {
+    headers: getAuthHeaders(),
+    credentials: 'include',
+  });
+  const data = await res.json();
+  if (!data.success) return { languageStats: [], todayCount: 0, dailyLimit: 200 };
+  return data.data;
+}

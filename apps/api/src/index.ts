@@ -25,6 +25,7 @@ import { mailRouter } from './routes/mail.js';
 import { quizRouter } from './quiz/quizRouter.js';
 import { initQuizSocket } from './quiz/quizSocket.js';
 import { quizStore } from './quiz/quizStore.js';
+import { playgroundRouter } from './routes/playground.js';
 import { setupPassport } from './config/passport.js';
 import { requestLogger, logger } from './utils/logger.js';
 import { ApiResponse, ErrorCodes } from './utils/response.js';
@@ -199,6 +200,7 @@ app.use('/api/network', networkRouter);
 app.use('/api/audit-logs', auditRouter);
 app.use('/api/mail', mailRouter);
 app.use('/api/quiz', quizRouter);
+app.use('/api/playground', playgroundRouter);
 app.use('/api/indexnow', authMiddleware, requireRole('ADMIN'), indexNowRouter);
 
 // Test email endpoint for debugging

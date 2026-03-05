@@ -2,6 +2,7 @@ import express from 'express';
 import cors from 'cors';
 import crypto from 'crypto';
 import jwt from 'jsonwebtoken';
+import pg from 'pg';
 
 const app = express();
 const PORT = process.env.PORT || process.env.EXECUTE_PORT || 5002;
@@ -115,6 +116,56 @@ function requireAuth(req, res, next) {
 app.use(optionalAuth);
 
 // ---------------------------------------------------------------------------
+// PostgreSQL Connection — shared database with main codescriet.dev site
+// ---------------------------------------------------------------------------
+const DATABASE_URL = process.env.DATABASE_URL;
+let pool = null;
+let dbReady = false;
+
+if (DATABASE_URL) {
+  pool = new pg.Pool({
+    connectionString: DATABASE_URL,
+    max: 5,
+    idleTimeoutMillis: 30_000,
+    connectionTimeoutMillis: 5_000,
+    ssl: DATABASE_URL.includes('neon') || DATABASE_URL.includes('render') || DATABASE_URL.includes('supabase')
+      ? { rejectUnauthorized: false }
+      : undefined,
+  });
+
+  // Verify connection on startup
+  pool.query('SELECT 1')
+    .then(() => { dbReady = true; console.log('[DB] Connected to PostgreSQL'); })
+    .catch(err => { console.error('[DB] Connection failed, running in memory-only mode:', err.message); });
+} else {
+  console.warn('[DB] DATABASE_URL not set — snippets and history will use in-memory storage');
+}
+
+/** Fire-and-forget DB query — never blocks, never throws */
+function dbExec(sql, params = []) {
+  if (!pool || !dbReady) return Promise.resolve(null);
+  return pool.query(sql, params).catch(err => {
+    console.error('[DB] Query error:', err.message);
+    return null;
+  });
+}
+
+/** Query and return rows — returns [] on failure */
+async function dbQuery(sql, params = []) {
+  if (!pool || !dbReady) return [];
+  try {
+    const res = await pool.query(sql, params);
+    return res.rows;
+  } catch (err) {
+    console.error('[DB] Query error:', err.message);
+    return [];
+  }
+}
+
+// Max 20 execution history entries with code per user
+const MAX_HISTORY_PER_USER = 20;
+
+// ---------------------------------------------------------------------------
 // Rate Limiting
 // ---------------------------------------------------------------------------
 const MAX_EXECUTIONS_PER_DAY = 200;
@@ -226,7 +277,7 @@ function clean(text) {
 
 // Sanitize error messages — never expose upstream provider details to users
 function sanitizeError(message) {
-  if (!message) return 'Code execution failed';
+  if (!message) return '';
   return message
     .replace(/wandbox/gi, 'execution service')
     .replace(/wandbox\.org/gi, 'execution service')
@@ -275,7 +326,13 @@ async function executeCode(language, code, stdin) {
       throw new Error(sanitizeError(result.error));
     }
 
-    // Parse response (same shape as upstream provider)
+    // Parse Wandbox response fields:
+    //   program_output  = stdout from the program
+    //   program_error   = stderr from the program (may contain warnings, not always errors)
+    //   compiler_error  = compiler stderr (warnings + errors)
+    //   compiler_output = compiler stdout
+    //   status          = exit code as string ("0" = success)
+    //   signal          = signal name if killed (e.g. "SIGKILL")
     const exitCode = parseInt(result.status, 10) || 0;
     const stdout = clean(result.program_output);
     const stderr = clean(result.program_error);
@@ -283,23 +340,39 @@ async function executeCode(language, code, stdin) {
     const compilerOut = clean(result.compiler_output);
     const signal = result.signal || null;
 
+    // Determine if this is truly an error:
+    // - If we have stdout (program_output), the program ran successfully.
+    //   stderr may contain warnings which are informational, not errors.
+    // - compiler_error for C/C++/Java may contain warnings even on success.
+    //   It's only a real compile error if there's NO program_output.
+    // - A non-zero exit code WITH output is a runtime error but we still show output.
+    const hasOutput = !!stdout;
+    const isCompileError = !!compilerErr && !hasOutput;
+    const isRuntimeError = exitCode !== 0 && !hasOutput;
+    const isSignalKill = !!signal && !hasOutput;
+
+    // Only sanitize actual error messages, not warnings
+    const runStderr = isRuntimeError || isSignalKill
+      ? sanitizeError(stderr) || sanitizeError(compilerErr)
+      : (stderr ? sanitizeError(stderr) : '');
+
     return {
       language,
       version: config.version,
       provider: 'codescriet',
       run: {
         stdout,
-        stderr: sanitizeError(stderr),
+        stderr: isCompileError ? '' : runStderr,
         code: exitCode,
         signal,
         output: stdout || stderr,
       },
       compile: (compilerErr || compilerOut) ? {
         stdout: compilerOut,
-        stderr: sanitizeError(compilerErr),
-        code: compilerErr ? 1 : 0,
+        stderr: isCompileError ? sanitizeError(compilerErr) : '',
+        code: isCompileError ? 1 : 0,
         signal: null,
-        output: sanitizeError(compilerErr || compilerOut),
+        output: isCompileError ? sanitizeError(compilerErr) : sanitizeError(compilerOut),
       } : undefined,
     };
   } finally {
@@ -361,6 +434,30 @@ app.post('/api/execute', async (req, res) => {
     const result = await executeCode(language, code, stdin);
     const durationMs = Date.now() - startMs;
 
+    // Fire-and-forget: save execution to DB (language stats + last 20 history)
+    if (req.user) {
+      const status = result.run.code === 0 ? 'SUCCESS' : 'ERROR';
+      const output = result.run.stdout || result.run.stderr || '';
+      // Insert execution with code + output
+      dbExec(
+        `INSERT INTO executions (id, user_id, language, code, output_text, duration_ms, status, executed_at)
+         VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6::\"ExecutionStatus\", NOW())`,
+        [req.user.id, language, code.slice(0, 5000), output.slice(0, 5000), durationMs, status]
+      ).then(() => {
+        // Prune: null out code/output on rows older than the 20 most recent
+        dbExec(
+          `UPDATE executions SET code = NULL, output_text = NULL
+           WHERE user_id = $1 AND code IS NOT NULL
+           AND executed_at < (
+             SELECT executed_at FROM executions
+             WHERE user_id = $1 AND code IS NOT NULL
+             ORDER BY executed_at DESC LIMIT 1 OFFSET $2
+           )`,
+          [req.user.id, MAX_HISTORY_PER_USER]
+        );
+      });
+    }
+
     return res.json({
       success: true,
       data: result,
@@ -372,7 +469,7 @@ app.post('/api/execute', async (req, res) => {
     if (message.includes('abort')) {
       return res.status(408).json({ success: false, error: 'Execution timed out (15s limit).' });
     }
-    return res.status(500).json({ success: false, error: sanitizeError(message) });
+    return res.status(500).json({ success: false, error: sanitizeError(message) || 'Code execution failed' });
   }
 });
 
@@ -383,99 +480,196 @@ app.get('/api/auth/status', (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
-// In-memory Snippets Store
+// DB-backed Snippets
 // ---------------------------------------------------------------------------
-const snippets = new Map();
-let snippetCounter = 0;
 
-function generateId() {
-  return `snip_${Date.now().toString(36)}_${(++snippetCounter).toString(36)}`;
-}
 function generateShareToken() {
   return crypto.randomBytes(8).toString('base64url');
 }
 
-app.post('/api/snippets', requireAuth, (req, res) => {
+app.post('/api/snippets', requireAuth, async (req, res) => {
   const { title, language, code, isPublic = false } = req.body;
   if (!title || !language || !code) {
     return res.status(400).json({ success: false, error: 'title, language, and code are required' });
   }
-  const id = generateId();
-  const snippet = {
-    id, userId: req.user.id, userName: req.user.email,
-    title: title.slice(0, 100), language, code,
-    isPublic: Boolean(isPublic),
-    shareToken: isPublic ? generateShareToken() : null,
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-  };
-  snippets.set(id, snippet);
-  return res.status(201).json({ success: true, data: snippet });
-});
-
-app.get('/api/snippets', requireAuth, (req, res) => {
-  const userSnippets = [...snippets.values()]
-    .filter(s => s.userId === req.user.id)
-    .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
-  return res.json({ success: true, data: userSnippets });
-});
-
-app.get('/api/snippets/shared/:token', (req, res) => {
-  const snippet = [...snippets.values()].find(s => s.shareToken === req.params.token && s.isPublic);
-  if (!snippet) return res.status(404).json({ success: false, error: 'Snippet not found' });
-  return res.json({ success: true, data: snippet });
-});
-
-app.get('/api/snippets/:id', requireAuth, (req, res) => {
-  const snippet = snippets.get(req.params.id);
-  if (!snippet) return res.status(404).json({ success: false, error: 'Snippet not found' });
-  if (snippet.userId !== req.user.id) return res.status(403).json({ success: false, error: 'Not your snippet' });
-  return res.json({ success: true, data: snippet });
-});
-
-app.put('/api/snippets/:id', requireAuth, (req, res) => {
-  const snippet = snippets.get(req.params.id);
-  if (!snippet) return res.status(404).json({ success: false, error: 'Snippet not found' });
-  if (snippet.userId !== req.user.id) return res.status(403).json({ success: false, error: 'Not your snippet' });
-  const { title, language, code, isPublic } = req.body;
-  if (title !== undefined) snippet.title = title.slice(0, 100);
-  if (language !== undefined) snippet.language = language;
-  if (code !== undefined) snippet.code = code;
-  if (isPublic !== undefined) {
-    snippet.isPublic = Boolean(isPublic);
-    if (snippet.isPublic && !snippet.shareToken) snippet.shareToken = generateShareToken();
-    if (!snippet.isPublic) snippet.shareToken = null;
+  const shareToken = isPublic ? generateShareToken() : null;
+  const rows = await dbQuery(
+    `INSERT INTO snippets (id, user_id, title, language, code, is_public, share_token, created_at, updated_at)
+     VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, $6, NOW(), NOW())
+     RETURNING *`,
+    [req.user.id, title.slice(0, 100), language, code, Boolean(isPublic), shareToken]
+  );
+  if (!rows.length) {
+    // Fallback: return a fake response if DB is down
+    return res.status(201).json({ success: true, data: {
+      id: crypto.randomUUID(), userId: req.user.id, userName: req.user.email,
+      title: title.slice(0, 100), language, code,
+      isPublic: Boolean(isPublic), shareToken,
+      createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+    } });
   }
-  snippet.updatedAt = new Date().toISOString();
-  return res.json({ success: true, data: snippet });
+  return res.status(201).json({ success: true, data: mapSnippetRow(rows[0]) });
 });
 
-app.delete('/api/snippets/:id', requireAuth, (req, res) => {
-  const snippet = snippets.get(req.params.id);
-  if (!snippet) return res.status(404).json({ success: false, error: 'Snippet not found' });
-  if (snippet.userId !== req.user.id) return res.status(403).json({ success: false, error: 'Not your snippet' });
-  snippets.delete(req.params.id);
+app.get('/api/snippets', requireAuth, async (req, res) => {
+  const rows = await dbQuery(
+    `SELECT * FROM snippets WHERE user_id = $1 ORDER BY updated_at DESC LIMIT 100`,
+    [req.user.id]
+  );
+  return res.json({ success: true, data: rows.map(mapSnippetRow) });
+});
+
+app.get('/api/snippets/shared/:token', async (req, res) => {
+  const rows = await dbQuery(
+    `SELECT * FROM snippets WHERE share_token = $1 AND is_public = true LIMIT 1`,
+    [req.params.token]
+  );
+  if (!rows.length) return res.status(404).json({ success: false, error: 'Snippet not found' });
+  return res.json({ success: true, data: mapSnippetRow(rows[0]) });
+});
+
+app.get('/api/snippets/:id', requireAuth, async (req, res) => {
+  const rows = await dbQuery(`SELECT * FROM snippets WHERE id = $1 LIMIT 1`, [req.params.id]);
+  if (!rows.length) return res.status(404).json({ success: false, error: 'Snippet not found' });
+  if (rows[0].user_id !== req.user.id) return res.status(403).json({ success: false, error: 'Not your snippet' });
+  return res.json({ success: true, data: mapSnippetRow(rows[0]) });
+});
+
+app.put('/api/snippets/:id', requireAuth, async (req, res) => {
+  const rows = await dbQuery(`SELECT * FROM snippets WHERE id = $1 LIMIT 1`, [req.params.id]);
+  if (!rows.length) return res.status(404).json({ success: false, error: 'Snippet not found' });
+  if (rows[0].user_id !== req.user.id) return res.status(403).json({ success: false, error: 'Not your snippet' });
+
+  const { title, language, code, isPublic } = req.body;
+  const s = rows[0];
+  const newTitle = title !== undefined ? title.slice(0, 100) : s.title;
+  const newLang = language !== undefined ? language : s.language;
+  const newCode = code !== undefined ? code : s.code;
+  let newPublic = s.is_public;
+  let newToken = s.share_token;
+  if (isPublic !== undefined) {
+    newPublic = Boolean(isPublic);
+    if (newPublic && !newToken) newToken = generateShareToken();
+    if (!newPublic) newToken = null;
+  }
+
+  const updated = await dbQuery(
+    `UPDATE snippets SET title=$1, language=$2, code=$3, is_public=$4, share_token=$5, updated_at=NOW()
+     WHERE id=$6 RETURNING *`,
+    [newTitle, newLang, newCode, newPublic, newToken, req.params.id]
+  );
+  return res.json({ success: true, data: mapSnippetRow(updated[0] || rows[0]) });
+});
+
+app.delete('/api/snippets/:id', requireAuth, async (req, res) => {
+  const rows = await dbQuery(`SELECT user_id FROM snippets WHERE id = $1 LIMIT 1`, [req.params.id]);
+  if (!rows.length) return res.status(404).json({ success: false, error: 'Snippet not found' });
+  if (rows[0].user_id !== req.user.id) return res.status(403).json({ success: false, error: 'Not your snippet' });
+  await dbExec(`DELETE FROM snippets WHERE id = $1`, [req.params.id]);
   return res.json({ success: true, message: 'Snippet deleted' });
 });
 
-// ---------------------------------------------------------------------------
-// User Preferences (in-memory)
-// ---------------------------------------------------------------------------
-const userPrefs = new Map();
+/** Map DB row to API response shape */
+function mapSnippetRow(row) {
+  return {
+    id: row.id,
+    userId: row.user_id,
+    title: row.title,
+    language: row.language,
+    code: row.code,
+    isPublic: row.is_public,
+    shareToken: row.share_token,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
 
-app.get('/api/prefs', requireAuth, (req, res) => {
-  const prefs = userPrefs.get(req.user.id) || { theme: 'vs-dark', fontSize: 14, keybinding: 'default', lastLanguage: 'python' };
+// ---------------------------------------------------------------------------
+// Execution History — last 20 per user (with code), all-time stats (no code)
+// ---------------------------------------------------------------------------
+
+app.get('/api/executions/history', requireAuth, async (req, res) => {
+  const rows = await dbQuery(
+    `SELECT id, language, code, output_text, duration_ms, status, executed_at
+     FROM executions
+     WHERE user_id = $1 AND code IS NOT NULL
+     ORDER BY executed_at DESC LIMIT $2`,
+    [req.user.id, MAX_HISTORY_PER_USER]
+  );
+  return res.json({ success: true, data: rows.map(r => ({
+    id: r.id,
+    language: r.language,
+    code: r.code,
+    output: r.output_text,
+    durationMs: r.duration_ms,
+    status: r.status,
+    executedAt: r.executed_at,
+  })) });
+});
+
+app.get('/api/executions/stats', requireAuth, async (req, res) => {
+  const rows = await dbQuery(
+    `SELECT language, COUNT(*)::int as count FROM executions WHERE user_id = $1 GROUP BY language ORDER BY count DESC`,
+    [req.user.id]
+  );
+  const today = await dbQuery(
+    `SELECT COUNT(*)::int as count FROM executions WHERE user_id = $1 AND executed_at >= CURRENT_DATE`,
+    [req.user.id]
+  );
+  return res.json({
+    success: true,
+    data: {
+      languageStats: rows,
+      todayCount: today[0]?.count || 0,
+      dailyLimit: MAX_EXECUTIONS_PER_DAY,
+    },
+  });
+});
+
+// ---------------------------------------------------------------------------
+// User Preferences (DB-backed with in-memory fallback)
+// ---------------------------------------------------------------------------
+const userPrefsMemory = new Map();
+
+app.get('/api/prefs', requireAuth, async (req, res) => {
+  const defaultPrefs = { theme: 'vs-dark', fontSize: 14, keybinding: 'default', lastLanguage: 'python' };
+  // Try DB first
+  const rows = await dbQuery(
+    `SELECT * FROM user_playground_prefs WHERE user_id = $1 LIMIT 1`,
+    [req.user.id]
+  );
+  if (rows.length) {
+    return res.json({ success: true, data: {
+      theme: rows[0].theme,
+      fontSize: rows[0].fontSize || rows[0].fontsize,
+      keybinding: rows[0].keybinding,
+      lastLanguage: rows[0].last_language,
+    } });
+  }
+  // Fallback to memory
+  const prefs = userPrefsMemory.get(req.user.id) || defaultPrefs;
   return res.json({ success: true, data: prefs });
 });
 
-app.put('/api/prefs', requireAuth, (req, res) => {
+app.put('/api/prefs', requireAuth, async (req, res) => {
   const { theme, fontSize, keybinding, lastLanguage } = req.body;
-  const existing = userPrefs.get(req.user.id) || { theme: 'vs-dark', fontSize: 14, keybinding: 'default', lastLanguage: 'python' };
+  const defaultPrefs = { theme: 'vs-dark', fontSize: 14, keybinding: 'default', lastLanguage: 'python' };
+  const existing = userPrefsMemory.get(req.user.id) || defaultPrefs;
+
   if (theme !== undefined) existing.theme = theme;
   if (fontSize !== undefined) existing.fontSize = Math.min(Math.max(Number(fontSize), 10), 24);
   if (keybinding !== undefined) existing.keybinding = keybinding;
   if (lastLanguage !== undefined) existing.lastLanguage = lastLanguage;
-  userPrefs.set(req.user.id, existing);
+  userPrefsMemory.set(req.user.id, existing);
+
+  // Persist to DB (upsert)
+  dbExec(
+    `INSERT INTO user_playground_prefs (user_id, theme, "fontSize", keybinding, last_language)
+     VALUES ($1, $2, $3, $4, $5)
+     ON CONFLICT (user_id) DO UPDATE SET theme=$2, "fontSize"=$3, keybinding=$4, last_language=$5`,
+    [req.user.id, existing.theme, existing.fontSize, existing.keybinding, existing.lastLanguage]
+  );
+
   return res.json({ success: true, data: existing });
 });
 
@@ -486,22 +680,26 @@ app.get('/health', (_req, res) => {
   res.json({
     status: 'ok',
     service: 'code-execution',
+    version: '5.0.0',
     provider: 'codescriet',
     executorUrl: EXECUTOR_URL,
     supportedLanguages: SUPPORTED_LANGUAGES,
-    snippetsInMemory: snippets.size,
+    dbConnected: dbReady,
   });
 });
 
 app.get('/', (_req, res) => {
   res.json({
     service: 'Code Execution API',
-    version: '4.0.0',
+    version: '5.0.0',
     provider: 'codescriet',
     architecture: 'Tier 1 (client-side) → Tier 2 (Cloudflare Worker proxy)',
+    storage: dbReady ? 'PostgreSQL' : 'in-memory',
     endpoints: {
       execute: 'POST /api/execute  — Tier 2 cloud execution',
-      snippets: 'GET|POST /api/snippets',
+      snippets: 'CRUD /api/snippets',
+      history: 'GET /api/executions/history',
+      stats: 'GET /api/executions/stats',
       prefs: 'GET|PUT /api/prefs',
       authStatus: 'GET /api/auth/status',
       health: 'GET /health',
@@ -514,9 +712,10 @@ app.get('/', (_req, res) => {
 // ---------------------------------------------------------------------------
 app.listen(PORT, () => {
   console.log('');
-  console.log('Code Execution Server v4.0 — Cloudflare Worker Proxy');
+  console.log('Code Execution Server v5.0 — DB-backed + Cloudflare Worker Proxy');
   console.log(`Listening:    http://localhost:${PORT}`);
   console.log(`Executor:     ${EXECUTOR_URL}`);
+  console.log(`Database:     ${DATABASE_URL ? 'PostgreSQL' : 'in-memory (no DATABASE_URL)'}`);
   console.log(`Languages:    ${SUPPORTED_LANGUAGES.join(', ')}`);
   console.log(`Timeout:      ${EXECUTION_TIMEOUT / 1000}s`);
 });

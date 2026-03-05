@@ -541,6 +541,8 @@ model Execution {
   id         String          @id @default(uuid())
   userId     String          @map("user_id")
   language   String
+  code       String?         @db.Text
+  outputText String?         @map("output_text") @db.Text
   executedAt DateTime        @default(now()) @map("executed_at")
   durationMs Int?            @map("duration_ms")
   status     ExecutionStatus @default(SUCCESS)

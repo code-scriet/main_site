@@ -57,7 +57,7 @@ export function useCodeExecution() {
       const executionTime = calculateExecutionTime(startTime, endTime);
       setExecutionTime(executionTime);
 
-      const { output, error, hasError } = formatOutput(result);
+      const { output, error, hasError, warning } = formatOutput(result);
 
       if (hasError) {
         setError(error);
@@ -69,6 +69,10 @@ export function useCodeExecution() {
       } else {
         const finalOutput = output || 'Program executed successfully with no output';
         setOutput(finalOutput);
+        if (warning) {
+          // Show warnings (e.g. compiler warnings) as info, not errors
+          setError(`Warning: ${warning}`);
+        }
         const tierLabel = result.tier === 'client' ? '(local)' : '(cloud)';
         toast.success(`Executed in ${executionTime} ${tierLabel}`);
         return { success: true, output: finalOutput, executionTime };

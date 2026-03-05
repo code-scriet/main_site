@@ -90,7 +90,7 @@ export function Toolbar() {
       const executionTime = calculateExecutionTime(startTime, endTime);
       setExecutionTime(executionTime);
 
-      const { output, error, hasError } = formatOutput(result);
+      const { output, error, hasError, warning } = formatOutput(result);
 
       if (hasError) {
         setError(error);
@@ -100,6 +100,9 @@ export function Toolbar() {
         toast.error(error || 'Code execution failed');
       } else {
         setOutput(output || 'Program executed successfully with no output');
+        if (warning) {
+          setError(`Warning: ${warning}`);
+        }
         const tierLabel = result.tier === 'client' ? '(local)' : '(cloud)';
         toast.success(`Executed in ${executionTime} ${tierLabel}`);
       }

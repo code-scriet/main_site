@@ -12,6 +12,7 @@ import { Link } from 'react-router-dom';
 import { QOTDWidget } from '@/components/dashboard/QOTDWidget';
 import { QuizDashboardWidget } from '@/components/dashboard/QuizDashboardWidget';
 import { PlaygroundCard } from '@/components/dashboard/PlaygroundCard';
+import { PlaygroundSnippetsCard } from '@/components/dashboard/PlaygroundSnippetsCard';
 import { formatDate } from '@/lib/dateUtils';
 
 export default function DashboardOverview() {
@@ -136,6 +137,9 @@ export default function DashboardOverview() {
 
       {/* Code Playground Card */}
       <PlaygroundCard />
+
+      {/* Playground Snippets & Language Stats */}
+      <PlaygroundSnippetsCard />
 
       <div className="grid lg:grid-cols-2 gap-6">
         {/* QOTD Widget - conditionally shown */}

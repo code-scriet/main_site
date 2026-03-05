@@ -34,6 +34,18 @@ import { executeHtml } from './htmlEngine';
 import { executeViaCloud } from './wandboxClient'; // file kept for compat, calls our backend
 
 // ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
+
+/**
+ * If client-side execution takes longer than this, abort it and fall back to
+ * cloud execution. This prevents the UI from hanging on slow devices or heavy
+ * programs. Only applies in 'auto' mode — explicit 'client' mode runs without
+ * a timeout.
+ */
+const CLIENT_EXECUTION_TIMEOUT_MS = 4000;
+
+// ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
 
@@ -69,20 +81,40 @@ export async function executeCode(options: ExecuteOptions): Promise<ExecuteResul
 
   if (tier === 'client') {
     try {
-      const result = await executeClientSide(language, code, stdin, signal, onStatus);
+      let result: ExecutionResult;
+
+      if (mode === 'client' || !CLOUD_SUPPORTED_LANGUAGES.has(language)) {
+        // Explicit client mode or no cloud fallback available — run without timeout
+        result = await executeClientSide(language, code, stdin, signal, onStatus);
+      } else {
+        // Auto mode — race client execution against a timeout.
+        // If client takes too long, transparently fall back to cloud.
+        result = await Promise.race([
+          executeClientSide(language, code, stdin, signal, onStatus),
+          new Promise<never>((_, reject) => {
+            setTimeout(() => reject(new Error('__CLIENT_TIMEOUT__')), CLIENT_EXECUTION_TIMEOUT_MS);
+          }),
+        ]);
+      }
+
       return { ...result, tier: 'client', fellBack: false };
     } catch (err) {
+      const errorMsg = err instanceof Error ? err.message : 'Client execution failed';
+
       // If user explicitly chose client and it failed, don't fallback
       if (mode === 'client') {
         throw err;
       }
 
-      // Auto mode — fallback to cloud
-      const fallbackReason = err instanceof Error ? err.message : 'Client execution failed';
-      console.warn(`[ExecutionRouter] Client-side failed for ${language}, falling back to cloud:`, fallbackReason);
+      // Auto mode — fallback to cloud (including timeout fallback)
+      const isTimeout = errorMsg === '__CLIENT_TIMEOUT__';
+      const fallbackReason = isTimeout
+        ? `Client-side took >${CLIENT_EXECUTION_TIMEOUT_MS / 1000}s, falling back to cloud`
+        : errorMsg;
+      console.warn(`[ExecutionRouter] ${fallbackReason}`);
 
       if (CLOUD_SUPPORTED_LANGUAGES.has(language)) {
-        onStatus?.('Client-side failed, running on cloud...');
+        onStatus?.(isTimeout ? 'Taking too long locally, running on cloud...' : 'Client-side failed, running on cloud...');
         const cloudResult = await executeViaCloud({ language, code, stdin }, signal);
         return {
           ...cloudResult,
@@ -183,23 +215,46 @@ export { isLowEndDevice, getDeviceInfo } from './deviceDetection';
 export type { ExecutionResult, ExecutionMode, ExecutionTier } from './types';
 
 /**
- * Format execution output for display
+ * Format execution output for display.
+ *
+ * Key logic:
+ * - If stdout has content, the program ran — show output even if stderr exists
+ * - stderr from compiled languages often contains warnings, not errors
+ * - Only treat as error if: compile error with no output, OR no output at all with stderr
  */
 export function formatOutput(result: ExecutionResult): {
   output: string;
   error: string;
   exitCode: number;
   hasError: boolean;
+  warning: string;
 } {
   const output = result.run.stdout || '';
   const stderr = result.run.stderr || '';
   const compileError = result.compile?.stderr || '';
   const exitCode = result.run.code;
 
-  const error = compileError || stderr;
-  const hasError = exitCode !== 0 || !!compileError || !!stderr;
+  // Compilation error with no output = real error
+  if (compileError && !output) {
+    return { output: '', error: compileError, exitCode, hasError: true, warning: '' };
+  }
 
-  return { output, error, exitCode, hasError };
+  // Program produced output — it ran successfully
+  if (output) {
+    // stderr alongside output is a warning (e.g. compiler warnings, runtime logs)
+    const warning = stderr || (compileError && exitCode === 0 ? compileError : '');
+    // Only mark as error if exit code is non-zero AND there's stderr
+    const hasError = exitCode !== 0 && !!stderr;
+    return { output, error: hasError ? stderr : '', exitCode, hasError, warning };
+  }
+
+  // No output — check if there's an error
+  if (stderr) {
+    return { output: '', error: stderr, exitCode, hasError: true, warning: '' };
+  }
+
+  // No output, no error — program ran with empty output
+  return { output: '', error: '', exitCode, hasError: false, warning: '' };
 }
 
 /**
