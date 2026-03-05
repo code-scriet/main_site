@@ -1,4 +1,5 @@
 import { createContext, useContext, useState, useEffect, useCallback, useMemo, type ReactNode } from 'react';
+import { endExecutionSession } from '@/utils/snippetsApi';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -144,6 +145,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [fetchUser]);
 
   const logout = useCallback(() => {
+    // Flush buffered execution history/usage before removing auth token
+    endExecutionSession();
     clearCookie('scriet_session');
     localStorage.removeItem('token');
     sessionStorage.removeItem('pg_token');

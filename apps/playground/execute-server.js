@@ -383,7 +383,7 @@ setInterval(() => {
   flushAllDirtySessions('periodic').catch((err) => {
     console.error('[SessionFlush] Periodic flush error:', err.message);
   });
-}, 10_000);
+}, 60_000);
 
 async function gracefulFlushAndExit(signal) {
   try {
