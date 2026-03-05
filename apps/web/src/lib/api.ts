@@ -36,6 +36,7 @@ async function request<T>(endpoint: string, options: RequestOptions = {}): Promi
 
   const response = await fetch(`${API_URL}${endpoint}`, {
     ...fetchOptions,
+    credentials: 'include',   // send & receive cookies for cross-origin session
     headers,
   });
 

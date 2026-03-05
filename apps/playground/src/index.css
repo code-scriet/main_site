@@ -3,49 +3,69 @@
 @tailwind utilities;
 
 @layer base {
+  /* ─── Light mode: warm amber-cream palette matching main site ─── */
   :root {
-    --background: 0 0% 100%;
-    --foreground: 222.2 84% 4.9%;
-    --card: 0 0% 100%;
-    --card-foreground: 222.2 84% 4.9%;
+    --background: 43 100% 98%;            /* warm cream – matches amber-50 */
+    --foreground: 20 14% 8%;              /* warm near-black */
+    --card: 40 60% 99%;                   /* slightly warm white */
+    --card-foreground: 20 14% 8%;
     --popover: 0 0% 100%;
-    --popover-foreground: 222.2 84% 4.9%;
-    --primary: 222.2 47.4% 11.2%;
-    --primary-foreground: 210 40% 98%;
-    --secondary: 210 40% 96.1%;
-    --secondary-foreground: 222.2 47.4% 11.2%;
-    --muted: 210 40% 96.1%;
-    --muted-foreground: 215.4 16.3% 46.9%;
-    --accent: 210 40% 96.1%;
-    --accent-foreground: 222.2 47.4% 11.2%;
-    --destructive: 0 84.2% 60.2%;
-    --destructive-foreground: 210 40% 98%;
-    --border: 214.3 31.8% 91.4%;
-    --input: 214.3 31.8% 91.4%;
-    --ring: 222.2 84% 4.9%;
+    --popover-foreground: 20 14% 8%;
+    --primary: 38 100% 57%;               /* amber-500 (main site match) */
+    --primary-foreground: 0 0% 100%;
+    --secondary: 35 60% 95%;              /* warm tinted secondary */
+    --secondary-foreground: 20 14% 12%;
+    --muted: 40 40% 95%;                  /* warm muted */
+    --muted-foreground: 25 10% 45%;
+    --accent: 40 50% 95%;                 /* warm accent */
+    --accent-foreground: 20 14% 8%;
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 30 30% 89%;                 /* warm border */
+    --input: 30 30% 89%;
+    --ring: 38 100% 57%;                  /* amber-500 */
     --radius: 0.5rem;
+
+    /* Terminal tokens — light mode */
+    --terminal-bg: 35 30% 96%;            /* warm off-white */
+    --terminal-fg: 20 14% 12%;            /* dark warm gray */
+    --terminal-error: 0 72% 46%;          /* red-700 */
+    --terminal-success: 142 64% 30%;      /* green-700 */
+    --terminal-warning: 32 95% 40%;       /* amber-700 */
+    --terminal-muted: 25 10% 52%;
+    --terminal-border: 30 30% 89%;
   }
 
+  /* ─── Dark mode: deep navy ─── */
   .dark {
-    --background: 222.2 84% 4.9%;
+    --background: 224 71% 4%;
     --foreground: 210 40% 98%;
-    --card: 222.2 84% 4.9%;
+    --card: 224 71% 4%;
     --card-foreground: 210 40% 98%;
-    --popover: 222.2 84% 4.9%;
+    --popover: 224 71% 4%;
     --popover-foreground: 210 40% 98%;
-    --primary: 210 40% 98%;
-    --primary-foreground: 222.2 47.4% 11.2%;
-    --secondary: 217.2 32.6% 17.5%;
+    --primary: 38 92% 50%;                /* amber-500 */
+    --primary-foreground: 0 0% 100%;
+    --secondary: 217.2 32.6% 12%;
     --secondary-foreground: 210 40% 98%;
-    --muted: 217.2 32.6% 17.5%;
-    --muted-foreground: 215 20.2% 65.1%;
-    --accent: 217.2 32.6% 17.5%;
+    --muted: 217.2 32.6% 12%;
+    --muted-foreground: 215 20.2% 55%;
+    --accent: 217.2 32.6% 12%;
     --accent-foreground: 210 40% 98%;
     --destructive: 0 62.8% 30.6%;
     --destructive-foreground: 210 40% 98%;
-    --border: 217.2 32.6% 17.5%;
-    --input: 217.2 32.6% 17.5%;
-    --ring: 212.7 26.8% 83.9%;
+    --border: 217.2 32.6% 14%;
+    --input: 217.2 32.6% 14%;
+    --ring: 38 92% 50%;                   /* amber-500 */
+
+    /* Terminal tokens — dark mode */
+    --terminal-bg: 228 60% 6%;            /* slightly lighter than bg */
+    --terminal-fg: 210 40% 92%;
+    --terminal-error: 0 91% 71%;          /* red-400 */
+    --terminal-success: 142 69% 58%;      /* green-400 */
+    --terminal-warning: 48 96% 53%;       /* yellow-400 */
+    --terminal-muted: 215 20% 55%;
+    --terminal-border: 217.2 32.6% 14%;
   }
 }
 
@@ -54,78 +74,85 @@
     @apply border-border;
   }
   body {
-    @apply bg-background text-foreground;
+    @apply bg-background text-foreground font-sans;
   }
 }
 
-/* Custom scrollbar styles */
+/* ─── Custom scrollbar ─── */
 ::-webkit-scrollbar {
-  width: 10px;
-  height: 10px;
+  width: 8px;
+  height: 8px;
 }
 
 ::-webkit-scrollbar-track {
-  @apply bg-secondary;
+  background: hsl(var(--secondary));
 }
 
 ::-webkit-scrollbar-thumb {
-  @apply bg-muted-foreground/30 rounded-md;
+  background: hsl(var(--muted-foreground) / 0.25);
+  border-radius: 4px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  @apply bg-muted-foreground/50;
+  background: hsl(var(--muted-foreground) / 0.45);
 }
 
-/* Terminal output styles */
+/* ─── Terminal output ─── */
 .terminal-output {
-  font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
-  font-size: 14px;
-  line-height: 1.5;
+  font-family: 'Fira Code', 'Consolas', 'Monaco', 'Courier New', monospace;
+  font-size: 13px;
+  line-height: 1.6;
+  background: hsl(var(--terminal-bg));
+  color: hsl(var(--terminal-fg));
 }
 
 .terminal-output .error {
-  @apply text-red-400;
+  color: hsl(var(--terminal-error));
 }
 
 .terminal-output .success {
-  @apply text-green-400;
+  color: hsl(var(--terminal-success));
 }
 
 .terminal-output .warning {
-  @apply text-yellow-400;
+  color: hsl(var(--terminal-warning));
 }
 
-/* Code editor container */
+/* ─── Code editor container ─── */
 .code-editor-container {
-  @apply w-full h-full rounded-md overflow-hidden;
+  @apply w-full h-full overflow-hidden;
 }
 
-/* Monaco editor theme customization */
+/* Monaco editor — remove inner rounded corners to sit flush */
 .monaco-editor {
-  @apply rounded-md;
+  border-radius: 0 !important;
 }
 
-/* Loading spinner */
+/* ─── Resize handle hover glow ─── */
+[data-panel-resize-handle-id] {
+  transition: background-color 150ms ease;
+}
+
+/* ─── Animations ─── */
 @keyframes spin {
-  to {
-    transform: rotate(360deg);
-  }
+  to { transform: rotate(360deg); }
 }
-
 .animate-spin {
   animation: spin 1s linear infinite;
 }
 
-/* Pulse animation for running code */
 @keyframes pulse {
-  0%, 100% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0.5;
-  }
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
 }
-
 .animate-pulse {
   animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.animate-fade-in {
+  animation: fadeIn 200ms ease-out;
 }

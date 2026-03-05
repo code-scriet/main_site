@@ -35,6 +35,10 @@ export interface AnswerResult {
   newStreak: number;
 }
 
+export interface AnswerReceipt {
+  accepted?: boolean;
+}
+
 export interface LeaderboardEntry {
   rank: number;
   userId: string;
@@ -138,7 +142,7 @@ interface QuizState {
   showQuestion: (q: QuizQuestion) => void;
   setMyAnswer: (answer: string) => void;
 
-  answerReceived: (data: AnswerResult) => void;
+  answerReceived: (data: AnswerReceipt) => void;
   answerCountUpdate: (data: { answered: number; total?: number }) => void;
   allAnsweredReceived: () => void;
 
@@ -255,12 +259,10 @@ export const useQuizStore = create<QuizState>()(
 
     setMyAnswer: (answer) => set({ myAnswer: answer, hasAnswered: true }),
 
-    answerReceived: (data) =>
+    answerReceived: (_data) =>
       set({
         hasAnswered: true,
-        lastAnswerResult: data,
-        myScore: data.newScore,
-        myStreak: data.newStreak,
+        lastAnswerResult: null,
       }),
 
     answerCountUpdate: (data) => set({ answeredCount: data.answered }),

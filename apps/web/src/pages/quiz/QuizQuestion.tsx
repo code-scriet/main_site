@@ -364,7 +364,7 @@ export function QuizQuestion({ onSubmitAnswer }: QuizQuestionProps) {
 
       {/* Feedback area */}
       <AnimatePresence>
-        {hasAnswered && lastAnswerResult && isPollOrRating && (
+        {hasAnswered && isPollOrRating && (
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}

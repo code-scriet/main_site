@@ -7,7 +7,7 @@
     "packages/*"
   ],
   "scripts": {
-    "dev": "concurrently -n \"API,WEB\" -c \"blue,green\" \"npm run dev --workspace=apps/api\" \"npm run dev --workspace=apps/web\"",
+    "dev": "bash ./scripts/free-dev-ports.sh && concurrently -n \"API,WEB,PLAYGROUND\" -c \"blue,green,magenta\" \"npm run dev --workspace=apps/api\" \"npm run dev --workspace=apps/web\" \"npm run playground\"",
     "start": "npm run build && npm run start:prod",
     "start:prod": "NODE_ENV=production concurrently \"npm run start --workspace=apps/api\" \"npm run preview --workspace=apps/web\"",
     "build": "npm run build --workspace=apps/web && npm run build --workspace=apps/api",

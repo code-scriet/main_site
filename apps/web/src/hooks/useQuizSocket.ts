@@ -73,6 +73,9 @@ export function useQuizSocket() {
     socket.on('quiz_resumed', (data) => store.getState().quizResumed(data));
     socket.on('timer_extended', (data) => store.getState().timerExtended(data));
     socket.on('player_kicked', () => store.getState().playerKicked());
+    socket.on('control_action_blocked', (data) => {
+      console.warn('[QuizControlBlocked]', data);
+    });
 
     socket.on('quiz_error', (err) => {
       console.warn('[QuizSocket]', err);

@@ -65,34 +65,45 @@ services:
     envVars:
       - key: VITE_API_URL
         sync: false
+      - key: VITE_PLAYGROUND_URL
+        value: https://code.codescriet.dev
 
   # Playground Backend (Code Execution Server)
+  # Separate Node.js service — does NOT share CPU/RAM with main API
   - type: web
     name: codescriet-playground-api
     runtime: node
     plan: free
-    buildCommand: cd apps/playground && npm install
-    startCommand: cd apps/playground && node execute-server.js
+    rootDir: apps/playground
+    buildCommand: npm install
+    startCommand: node execute-server.js
     healthCheckPath: /health
+    buildFilter:
+      paths:
+        - apps/playground/**
     envVars:
       - key: NODE_ENV
         value: production
       - key: PORT
         value: 10000
-      - key: JDOODLE_CLIENT_ID
-        sync: false
-      - key: JDOODLE_CLIENT_SECRET
-        sync: false
-      - key: ALLOWED_ORIGINS
-        value: https://playground.codescriet.dev
+      - key: ALLOWED_ORIGIN
+        sync: false            # Set to https://playground.codescriet.dev in Render dashboard
+      - key: JWT_SECRET
+        sync: false            # Must match main API's JWT_SECRET for shared auth
+      - key: EXECUTOR_URL
+        value: https://codescriet-executor.developer-aary.workers.dev/execute
 
   # Playground Frontend (Static Site)
   - type: web
     name: codescriet-playground-web
     runtime: static
     plan: free
-    buildCommand: cd apps/playground && npm install && npm run build
-    staticPublishPath: ./apps/playground/dist
+    rootDir: apps/playground
+    buildCommand: npm install && npm run build
+    staticPublishPath: dist
+    buildFilter:
+      paths:
+        - apps/playground/**
     routes:
       - type: rewrite
         source: /*
@@ -112,4 +123,8 @@ services:
         value: public, max-age=31536000, immutable
     envVars:
       - key: VITE_API_URL
-        sync: false
+        sync: false            # Set to https://playground-api.codescriet.dev in Render
+      - key: VITE_MAIN_SITE_URL
+        value: https://codescriet.dev
+      - key: VITE_MAIN_API_URL
+        value: https://codescriet-api.onrender.com

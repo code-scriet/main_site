@@ -36,19 +36,34 @@ export const requireAuthUser = (req: Request): AuthUser => {
   return user;
 };
 
+/** Extract token from Bearer header OR scriet_session cookie */
+function extractToken(req: Request): string | null {
+  const authHeader = req.headers.authorization;
+  if (authHeader?.startsWith('Bearer ')) {
+    return authHeader.substring(7);
+  }
+  // Fallback: read scriet_session cookie (set by API on login, httpOnly:false)
+  const cookies = req.headers.cookie;
+  if (cookies) {
+    const match = cookies.split(';').find(c => c.trim().startsWith('scriet_session='));
+    if (match) {
+      return decodeURIComponent(match.split('=').slice(1).join('=').trim());
+    }
+  }
+  return null;
+}
+
 const authMiddlewareImpl = async (
   req: Request,
   res: Response,
   next: NextFunction
 ) => {
   try {
-    const authHeader = req.headers.authorization;
+    const token = extractToken(req);
 
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    if (!token) {
       return res.status(401).json({ error: 'No token provided' });
     }
-
-    const token = authHeader.substring(7);
     const decoded = jwt.verify(token, getJwtSecret()) as Partial<AccessTokenPayload>;
     const userId = typeof decoded.userId === 'string'
       ? decoded.userId
@@ -97,13 +112,11 @@ const optionalAuthMiddlewareImpl = async (
   next: NextFunction
 ) => {
   try {
-    const authHeader = req.headers.authorization;
+    const token = extractToken(req);
 
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    if (!token) {
       return next();
     }
-
-    const token = authHeader.substring(7);
     const decoded = jwt.verify(token, getJwtSecret()) as Partial<AccessTokenPayload>;
     const userId = typeof decoded.userId === 'string'
       ? decoded.userId

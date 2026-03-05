@@ -7,10 +7,11 @@ import { useAuth } from '@/context/AuthContext';
 import { useSettings } from '@/context/SettingsContext';
 import { api } from '@/lib/api';
 import type { Registration, Announcement } from '@/lib/api';
-import { Calendar, Bell, Trophy, Code, ArrowRight, Loader2, Users, CheckCircle, Clock, XCircle, UserCircle, Zap } from 'lucide-react';
+import { Calendar, Bell, Trophy, Code, ArrowRight, Loader2, Users, CheckCircle, Clock, XCircle, UserCircle, Zap, Code2 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { QOTDWidget } from '@/components/dashboard/QOTDWidget';
 import { QuizDashboardWidget } from '@/components/dashboard/QuizDashboardWidget';
+import { PlaygroundCard } from '@/components/dashboard/PlaygroundCard';
 import { formatDate } from '@/lib/dateUtils';
 
 export default function DashboardOverview() {
@@ -133,6 +134,9 @@ export default function DashboardOverview() {
         ))}
       </div>
 
+      {/* Code Playground Card */}
+      <PlaygroundCard />
+
       <div className="grid lg:grid-cols-2 gap-6">
         {/* QOTD Widget - conditionally shown */}
         {settings?.showQOTD !== false && (
@@ -184,6 +188,21 @@ export default function DashboardOverview() {
                   Live Quizzes
                 </Button>
               </Link>
+              <a 
+                href={(() => {
+                  const base = import.meta.env.VITE_PLAYGROUND_URL || (import.meta.env.DEV ? 'http://localhost:5174' : 'https://code.codescriet.dev');
+                  const token = localStorage.getItem('token');
+                  return token ? `${base}/#token=${encodeURIComponent(token)}` : base;
+                })()} 
+                target="_blank" 
+                rel="noopener noreferrer"
+                className="block"
+              >
+                <Button variant="outline" className="w-full justify-start text-amber-700 border-amber-200 hover:bg-amber-50">
+                  <Code2 className="h-4 w-4 mr-3" />
+                  Code Playground
+                </Button>
+              </a>
               <Link to={isTeamMember && teamMemberId ? `/dashboard/team/${teamMemberId}/edit` : '/dashboard/profile'} className="block">
                 <Button variant="outline" className="w-full justify-start">
                   <UserCircle className="h-4 w-4 mr-3" />

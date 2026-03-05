@@ -1,0 +1,153 @@
+// ---------------------------------------------------------------------------
+// JavaScript Client-Side Execution Engine
+// ---------------------------------------------------------------------------
+// Runs JS code in a Web Worker sandbox with a 10s hard timeout.
+// Zero server/API calls. Worker is terminated after timeout.
+// ---------------------------------------------------------------------------
+
+import type { ExecutionResult } from './types';
+
+const WORKER_TIMEOUT = 10_000; // 10 seconds
+
+export async function executeJavaScript(
+  code: string,
+  _stdin?: string,
+  signal?: AbortSignal,
+): Promise<ExecutionResult> {
+  return new Promise((resolve, reject) => {
+    // Create worker from the jsWorker module via blob URL
+    const workerCode = `
+      const _output = [];
+      const _errors = [];
+
+      function stringify(...args) {
+        return args.map(a => {
+          if (a === null) return 'null';
+          if (a === undefined) return 'undefined';
+          if (typeof a === 'object') {
+            try { return JSON.stringify(a, null, 2); } catch { return String(a); }
+          }
+          return String(a);
+        }).join(' ');
+      }
+
+      console.log = (...args) => { _output.push(stringify(...args)); };
+      console.warn = (...args) => { _output.push('[warn] ' + stringify(...args)); };
+      console.error = (...args) => { _errors.push(stringify(...args)); };
+      console.info = (...args) => { _output.push(stringify(...args)); };
+      console.dir = (...args) => { _output.push(stringify(...args)); };
+      console.table = (...args) => { _output.push(stringify(...args)); };
+      console.clear = () => { _output.length = 0; _errors.length = 0; };
+      console.assert = (cond, ...args) => { if (!cond) _errors.push('Assertion failed: ' + stringify(...args)); };
+      console.time = () => {};
+      console.timeEnd = () => {};
+      console.timeLog = () => {};
+      console.group = () => {};
+      console.groupEnd = () => {};
+
+      self.onmessage = (e) => {
+        const { code } = e.data;
+        _output.length = 0;
+        _errors.length = 0;
+        try {
+          const indirectEval = eval;
+          indirectEval(code);
+          self.postMessage({
+            type: 'result',
+            stdout: _output.join('\\n'),
+            stderr: _errors.join('\\n'),
+            exitCode: _errors.length > 0 ? 1 : 0,
+          });
+        } catch (err) {
+          const errorMsg = err instanceof Error
+            ? err.name + ': ' + err.message + '\\n' + (err.stack || '')
+            : String(err);
+          self.postMessage({
+            type: 'result',
+            stdout: _output.join('\\n'),
+            stderr: _errors.length > 0 ? _errors.join('\\n') + '\\n' + errorMsg : errorMsg,
+            exitCode: 1,
+          });
+        }
+      };
+    `;
+
+    const blob = new Blob([workerCode], { type: 'application/javascript' });
+    const workerUrl = URL.createObjectURL(blob);
+    const worker = new Worker(workerUrl);
+
+    let settled = false;
+
+    const cleanup = () => {
+      if (!settled) {
+        settled = true;
+        worker.terminate();
+        URL.revokeObjectURL(workerUrl);
+      }
+    };
+
+    // Hard timeout — terminate worker after 10s
+    const timer = setTimeout(() => {
+      cleanup();
+      resolve({
+        language: 'javascript',
+        version: 'browser',
+        provider: 'client',
+        run: {
+          stdout: '',
+          stderr: 'Execution timed out (10s limit). Your code may have an infinite loop.',
+          code: 1,
+          signal: 'SIGTERM',
+          output: '',
+        },
+      });
+    }, WORKER_TIMEOUT);
+
+    // AbortSignal support
+    if (signal) {
+      signal.addEventListener('abort', () => {
+        clearTimeout(timer);
+        cleanup();
+        reject(new Error('Execution cancelled'));
+      });
+    }
+
+    worker.onmessage = (e) => {
+      clearTimeout(timer);
+      cleanup();
+      const { stdout, stderr, exitCode } = e.data;
+      resolve({
+        language: 'javascript',
+        version: 'browser',
+        provider: 'client',
+        run: {
+          stdout: stdout || '',
+          stderr: stderr || '',
+          code: exitCode ?? 0,
+          signal: null,
+          output: stdout || '',
+        },
+      });
+    };
+
+    worker.onerror = (err) => {
+      clearTimeout(timer);
+      cleanup();
+      resolve({
+        language: 'javascript',
+        version: 'browser',
+        provider: 'client',
+        run: {
+          stdout: '',
+          stderr: `Worker error: ${err.message || 'Unknown error'}`,
+          code: 1,
+          signal: null,
+          output: '',
+        },
+      });
+    };
+
+    // Send code to the worker
+    worker.postMessage({ code });
+  });
+}

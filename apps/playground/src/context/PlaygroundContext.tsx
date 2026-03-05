@@ -92,6 +92,21 @@ export function PlaygroundProvider({ children }: { children: ReactNode }) {
     };
   });
 
+  // Check for snippet loaded from Snippets page
+  useEffect(() => {
+    const raw = sessionStorage.getItem('load-snippet');
+    if (raw) {
+      sessionStorage.removeItem('load-snippet');
+      try {
+        const { language: langId, code } = JSON.parse(raw);
+        if (langId && code) {
+          const lang = getLanguageById(langId);
+          setState((prev) => ({ ...prev, language: lang, code, output: '', error: '' }));
+        }
+      } catch { /* ignore */ }
+    }
+  }, []);
+
   // Auto-save to localStorage
   const saveToLocalStorage = useCallback(
     debounce((stateToSave: PlaygroundState) => {

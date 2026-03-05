@@ -41,6 +41,31 @@ const generateToken = (user: { id: string; name?: string | null; email: string; 
     role: user.role,
   });
 
+/**
+ * Set cross-subdomain auth cookie so the playground at code.codescriet.dev
+ * can read the session without a separate login.
+ * In development the cookie is set without Domain (works for localhost).
+ */
+const setSessionCookie = (res: Response, token: string) => {
+  const isProd = process.env.NODE_ENV === 'production';
+  res.cookie('scriet_session', token, {
+    httpOnly: false,          // frontend needs to read it for auth header
+    secure: isProd,
+    sameSite: 'lax',
+    maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+    ...(isProd ? { domain: '.codescriet.dev' } : {}),
+    path: '/',
+  });
+};
+
+const clearSessionCookie = (res: Response) => {
+  const isProd = process.env.NODE_ENV === 'production';
+  res.clearCookie('scriet_session', {
+    ...(isProd ? { domain: '.codescriet.dev' } : {}),
+    path: '/',
+  });
+};
+
 const normalizeNetworkType = (value: string | undefined): 'professional' | 'alumni' | undefined => (
   value === 'professional' || value === 'alumni' ? value : undefined
 );
@@ -138,6 +163,7 @@ authRouter.post('/register', async (req: Request, res: Response) => {
       });
     }
     
+    setSessionCookie(res, token);
     res.status(201).json({ token, user: withSuperAdmin({ id: user.id, name: user.name, email: user.email, role: user.role, avatar: user.avatar }) });
   } catch (error) {
     logger.error('Registration error:', { error: error instanceof Error ? error.message : String(error) });
@@ -173,6 +199,7 @@ authRouter.post('/login', async (req: Request, res: Response) => {
 
     const user = await demoteOrphanNetworkUser(fetchedUser);
     const token = generateToken(user);
+    setSessionCookie(res, token);
     res.json({ token, user: withSuperAdmin({ id: user.id, name: user.name, email: user.email, role: user.role, avatar: user.avatar }) });
   } catch (error) {
     logger.error('Login error:', { error: error instanceof Error ? error.message : String(error) });
@@ -255,6 +282,7 @@ authRouter.get('/google/callback',
       }
 
       const token = generateToken(user);
+      setSessionCookie(res, token);
       const shouldPassNetworkIntent = isNetworkIntent;
       return res.redirect(buildAuthCallbackUrl(token, shouldPassNetworkIntent ? 'network' : undefined, shouldPassNetworkIntent ? networkType : undefined));
     } catch (error) {
@@ -338,8 +366,7 @@ authRouter.get('/github/callback',
         user.role = 'NETWORK';
       }
 
-      const token = generateToken(user);
-      const shouldPassNetworkIntent = isNetworkIntent;
+      const token = generateToken(user);      setSessionCookie(res, token);      const shouldPassNetworkIntent = isNetworkIntent;
       return res.redirect(buildAuthCallbackUrl(token, shouldPassNetworkIntent ? 'network' : undefined, shouldPassNetworkIntent ? networkType : undefined));
     } catch (error) {
       logger.error('GitHub callback error:', { error: error instanceof Error ? error.message : String(error) });
@@ -385,6 +412,7 @@ authRouter.post('/dev-login', async (req: Request, res: Response) => {
       socketEvents.userCreated(user.id);
     }
     
+    setSessionCookie(res, token);
     res.json({ token, user: withSuperAdmin({ id: user.id, name: user.name, email: user.email, role: user.role }) });
   } catch (error) {
     logger.error('Dev login error:', { error: error instanceof Error ? error.message : String(error) });
@@ -398,5 +426,6 @@ authRouter.get('/me', authMiddleware, (req: Request, res: Response) => {
 });
 
 authRouter.post('/logout', (_req: Request, res: Response) => {
+  clearSessionCookie(res);
   res.json({ message: 'Logged out successfully' });
 });

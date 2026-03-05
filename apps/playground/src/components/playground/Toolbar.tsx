@@ -1,7 +1,9 @@
 import { usePlayground } from '@/context/PlaygroundContext';
 import { useTheme } from '@/context/ThemeContext';
+import { useAuth } from '@/context/AuthContext';
 import { getAllLanguages } from '@/utils/languageConfig';
-import { executeCode, formatOutput, calculateExecutionTime } from '@/utils/pistonApi';
+import { executeCode, formatOutput, calculateExecutionTime } from '@/engines/ExecutionRouter';
+import { createSnippet } from '@/utils/snippetsApi';
 import { copyToClipboard, validateCode } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import {
@@ -13,6 +15,7 @@ import {
 } from '@/components/ui/select';
 import {
   Play,
+  Square,
   RotateCcw,
   Copy,
   Save,
@@ -26,6 +29,8 @@ import {
   Code2,
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { useRef } from 'react';
+import { cn } from '@/lib/utils';
 
 export function Toolbar() {
   const {
@@ -33,6 +38,7 @@ export function Toolbar() {
     language,
     setLanguage,
     stdin,
+    isRunning,
     setOutput,
     setError,
     setIsRunning,
@@ -43,24 +49,29 @@ export function Toolbar() {
     toggleProblemPanel,
   } = usePlayground();
   const { theme, toggleTheme } = useTheme();
+  const { isAuthenticated } = useAuth();
+  const abortRef = useRef<AbortController | null>(null);
 
   const languages = getAllLanguages();
 
   const handleRunCode = async () => {
-    // Validate code
     const validation = validateCode(code);
     if (!validation.valid) {
       toast.error(validation.message || 'Invalid code');
       return;
     }
 
-    // Handle web (HTML/CSS/JS) separately
     if (language.id === 'web') {
       setOutput('');
       setError('');
       toast.success('Web preview updated!');
       return;
     }
+
+    // Cancel any in-flight execution
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
 
     setIsRunning(true);
     setOutput('');
@@ -70,9 +81,9 @@ export function Toolbar() {
     try {
       const result = await executeCode({
         language: language.id,
-        version: language.version,
-        files: [{ content: code }],
+        code,
         stdin: stdin || undefined,
+        signal: controller.signal,
       });
 
       const endTime = Date.now();
@@ -86,18 +97,29 @@ export function Toolbar() {
         if (output) {
           setOutput(output);
         }
-        toast.error('Code execution failed');
+        toast.error(error || 'Code execution failed');
       } else {
         setOutput(output || 'Program executed successfully with no output');
-        toast.success(`Executed in ${executionTime}`);
+        const tierLabel = result.tier === 'client' ? '(local)' : '(cloud)';
+        toast.success(`Executed in ${executionTime} ${tierLabel}`);
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';
-      setError(`Execution error: ${message}`);
-      toast.error('Failed to execute code');
+      if (message === 'Execution cancelled') {
+        setError('Execution cancelled by user.');
+        toast.info('Execution stopped');
+      } else {
+        setError(`Execution error: ${message}`);
+        toast.error('Failed to execute code');
+      }
     } finally {
       setIsRunning(false);
+      abortRef.current = null;
     }
+  };
+
+  const handleStopExecution = () => {
+    abortRef.current?.abort();
   };
 
   const handleCopyCode = async () => {
@@ -109,9 +131,25 @@ export function Toolbar() {
     }
   };
 
-  const handleSaveSnippet = () => {
-    // TODO: Implement save snippet functionality
-    toast.info('Save snippet feature coming soon!');
+  const handleSaveSnippet = async () => {
+    if (!isAuthenticated) {
+      toast.error('Sign in to save snippets');
+      return;
+    }
+    const title = prompt('Snippet title:');
+    if (!title?.trim()) return;
+    const makePublic = confirm('Make this snippet public (shareable)?');
+    try {
+      const saved = await createSnippet({
+        title: title.trim(),
+        language: language.id,
+        code,
+        isPublic: makePublic,
+      });
+      toast.success(`Snippet "${saved.title}" saved!`);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to save snippet');
+    }
   };
 
   const handleDownloadCode = () => {
@@ -170,7 +208,10 @@ export function Toolbar() {
   };
 
   return (
-    <div className="flex items-center justify-between gap-3 p-3 border-b bg-card/50 backdrop-blur-sm flex-wrap">
+    <div className={cn(
+      'flex items-center justify-between gap-3 p-3 border-b flex-wrap transition-colors',
+      theme === 'dark' ? 'bg-card/50 backdrop-blur-sm' : 'bg-white/60 backdrop-blur-sm'
+    )}>
       <div className="flex items-center gap-3 flex-1 min-w-[200px]">
         <Select value={language.id} onValueChange={setLanguage}>
           <SelectTrigger className="w-[180px]">
@@ -193,10 +234,17 @@ export function Toolbar() {
           </SelectContent>
         </Select>
 
-        <Button onClick={handleRunCode} variant="success" className="gap-2">
-          <Play className="h-4 w-4" />
-          Run Code
-        </Button>
+        {isRunning ? (
+          <Button onClick={handleStopExecution} variant="destructive" className="gap-2">
+            <Square className="h-4 w-4" />
+            Stop
+          </Button>
+        ) : (
+          <Button onClick={handleRunCode} variant="success" className="gap-2">
+            <Play className="h-4 w-4" />
+            Run Code
+          </Button>
+        )}
 
         <Button onClick={handleReset} variant="outline" size="icon" title="Reset Code">
           <RotateCcw className="h-4 w-4" />

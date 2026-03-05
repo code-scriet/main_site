@@ -534,3 +534,50 @@ enum NetworkStatus {
   VERIFIED
   REJECTED
 }
+
+// ──────────────── Playground ────────────────
+
+model Execution {
+  id         String          @id @default(uuid())
+  userId     String          @map("user_id")
+  language   String
+  executedAt DateTime        @default(now()) @map("executed_at")
+  durationMs Int?            @map("duration_ms")
+  status     ExecutionStatus @default(SUCCESS)
+
+  @@index([userId, executedAt])
+  @@index([executedAt])
+  @@map("executions")
+}
+
+model UserPlaygroundPrefs {
+  userId       String @id @map("user_id")
+  theme        String @default("dark")
+  fontSize     Int    @default(14)
+  keybinding   String @default("default") // 'vim' | 'emacs' | 'default'
+  lastLanguage String @default("python") @map("last_language")
+
+  @@map("user_playground_prefs")
+}
+
+model Snippet {
+  id         String   @id @default(uuid())
+  userId     String   @map("user_id")
+  title      String
+  language   String
+  code       String   @db.Text
+  isPublic   Boolean  @default(false) @map("is_public")
+  shareToken String?  @unique @map("share_token")
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  @@index([userId, createdAt])
+  @@index([shareToken])
+  @@map("snippets")
+}
+
+enum ExecutionStatus {
+  SUCCESS
+  ERROR
+  TIMEOUT
+}

@@ -1,5 +1,5 @@
-import { useState, useCallback } from 'react';
-import { executeCode, formatOutput, calculateExecutionTime } from '@/utils/pistonApi';
+import { useState, useCallback, useRef } from 'react';
+import { executeCode, formatOutput, calculateExecutionTime } from '@/engines/ExecutionRouter';
 import { usePlayground } from '@/context/PlaygroundContext';
 import { validateCode } from '@/lib/utils';
 import { toast } from 'sonner';
@@ -16,6 +16,7 @@ export function useCodeExecution() {
   } = usePlayground();
 
   const [isExecuting, setIsExecuting] = useState(false);
+  const abortRef = useRef<AbortController | null>(null);
 
   const runCode = useCallback(async () => {
     // Validate code
@@ -33,6 +34,11 @@ export function useCodeExecution() {
       return { success: true };
     }
 
+    // Cancel any in-flight execution
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+
     setIsExecuting(true);
     setIsRunning(true);
     setOutput('');
@@ -42,10 +48,9 @@ export function useCodeExecution() {
     try {
       const result = await executeCode({
         language: language.id,
-        version: language.version,
-        files: [{ content: code }],
+        code,
         stdin: stdin || undefined,
-        run_timeout: 15000, // 15 seconds timeout
+        signal: controller.signal,
       });
 
       const endTime = Date.now();
@@ -59,16 +64,22 @@ export function useCodeExecution() {
         if (output) {
           setOutput(output);
         }
-        toast.error('Code execution failed');
+        toast.error(error || 'Code execution failed');
         return { success: false, error, output };
       } else {
         const finalOutput = output || 'Program executed successfully with no output';
         setOutput(finalOutput);
-        toast.success(`Executed in ${executionTime}`);
+        const tierLabel = result.tier === 'client' ? '(local)' : '(cloud)';
+        toast.success(`Executed in ${executionTime} ${tierLabel}`);
         return { success: true, output: finalOutput, executionTime };
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';
+      if (message === 'Execution cancelled') {
+        setError('Execution cancelled by user.');
+        toast.info('Execution stopped');
+        return { success: false, error: message };
+      }
       const errorMsg = `Execution error: ${message}`;
       setError(errorMsg);
       toast.error('Failed to execute code');
@@ -76,11 +87,17 @@ export function useCodeExecution() {
     } finally {
       setIsExecuting(false);
       setIsRunning(false);
+      abortRef.current = null;
     }
   }, [code, language, stdin, setOutput, setError, setIsRunning, setExecutionTime]);
 
+  const stopExecution = useCallback(() => {
+    abortRef.current?.abort();
+  }, []);
+
   return {
     runCode,
+    stopExecution,
     isExecuting,
   };
 }

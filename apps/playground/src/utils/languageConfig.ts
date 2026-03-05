@@ -1,25 +1,24 @@
 export interface LanguageConfig {
   id: string;
   name: string;
-  pistonId: string;
-  version: string;
   icon: string;
   fileExtension: string;
   monacoId: string;
   boilerplate: string;
   comment: string;
+  /** Which execution tiers this language supports */
+  tiers: ('client' | 'cloud')[];
 }
 
 export const LANGUAGES: Record<string, LanguageConfig> = {
   javascript: {
     id: 'javascript',
     name: 'JavaScript',
-    pistonId: 'javascript',
-    version: '18.15.0',
     icon: '🟨',
     fileExtension: '.js',
     monacoId: 'javascript',
     comment: '//',
+    tiers: ['client', 'cloud'],
     boilerplate: `// JavaScript Playground
 console.log('Hello from Code Scriet!');
 
@@ -34,12 +33,11 @@ console.log(greet('Coder'));
   python: {
     id: 'python',
     name: 'Python',
-    pistonId: 'python',
-    version: '3.10.0',
     icon: '🐍',
     fileExtension: '.py',
     monacoId: 'python',
     comment: '#',
+    tiers: ['client', 'cloud'],
     boilerplate: `# Python Playground
 print('Hello from Code Scriet!')
 
@@ -53,12 +51,11 @@ print(greet('Coder'))
   cpp: {
     id: 'cpp',
     name: 'C++',
-    pistonId: 'c++',
-    version: '10.2.0',
     icon: '⚡',
     fileExtension: '.cpp',
     monacoId: 'cpp',
     comment: '//',
+    tiers: ['cloud'],
     boilerplate: `// C++ Playground
 #include <iostream>
 #include <string>
@@ -78,14 +75,13 @@ int main() {
   java: {
     id: 'java',
     name: 'Java',
-    pistonId: 'java',
-    version: '15.0.2',
     icon: '☕',
     fileExtension: '.java',
     monacoId: 'java',
     comment: '//',
+    tiers: ['cloud'],
     boilerplate: `// Java Playground
-public class Main {
+class Main {
     public static void main(String[] args) {
         System.out.println("Hello from Code Scriet!");
         
@@ -99,12 +95,11 @@ public class Main {
   c: {
     id: 'c',
     name: 'C',
-    pistonId: 'c',
-    version: '10.2.0',
     icon: '🔷',
     fileExtension: '.c',
     monacoId: 'c',
     comment: '//',
+    tiers: ['cloud'],
     boilerplate: `// C Playground
 #include <stdio.h>
 
@@ -122,12 +117,11 @@ int main() {
   typescript: {
     id: 'typescript',
     name: 'TypeScript',
-    pistonId: 'typescript',
-    version: '5.0.3',
     icon: '🔷',
     fileExtension: '.ts',
     monacoId: 'typescript',
     comment: '//',
+    tiers: ['client', 'cloud'],
     boilerplate: `// TypeScript Playground
 console.log('Hello from Code Scriet!');
 
@@ -142,12 +136,11 @@ console.log(greet('Coder'));
   web: {
     id: 'web',
     name: 'HTML/CSS/JS',
-    pistonId: 'web',
-    version: '1.0.0',
     icon: '🌐',
     fileExtension: '.html',
     monacoId: 'html',
     comment: '<!--',
+    tiers: ['client'],
     boilerplate: `<!DOCTYPE html>
 <html lang="en">
 <head>

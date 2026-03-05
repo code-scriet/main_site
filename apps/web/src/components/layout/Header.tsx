@@ -1,14 +1,24 @@
 import { Link } from 'react-router-dom';
 import { Menu, X } from 'lucide-react';
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/context/AuthContext';
 import { useSettings } from '@/context/SettingsContext';
+
+const BASE_PLAYGROUND_URL = import.meta.env.VITE_PLAYGROUND_URL ||
+  (import.meta.env.DEV ? 'http://localhost:5174' : 'https://code.codescriet.dev');
 
 export function Header() {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const { user, logout } = useAuth();
   const { settings, loading: settingsLoading } = useSettings();
+
+  // Build playground URL with JWT hash so the playground auto-authenticates
+  const playgroundUrl = useMemo(() => {
+    const token = localStorage.getItem('token');
+    if (token) return `${BASE_PLAYGROUND_URL}/#token=${encodeURIComponent(token)}`;
+    return BASE_PLAYGROUND_URL;
+  }, [user]); // recalculate when user changes (login/logout)
 
   const navigation = [
     { name: 'Home', href: '/' },
@@ -17,7 +27,7 @@ export function Header() {
     { name: 'Announcements', href: '/announcements' },
     { name: 'Team', href: '/team' },
     { name: 'Achievements', href: '/achievements' },
-    { name: 'Playground', href: import.meta.env.DEV ? 'http://localhost:5174' : 'https://playground.codescriet.dev', external: true },
+    { name: 'Playground', href: playgroundUrl, external: true },
     // Network link - conditionally shown based on settings
     ...(settings?.showNetwork !== false ? [{ name: 'Network', href: '/network' }] : []),
   ];

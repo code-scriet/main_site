@@ -10,6 +10,7 @@ import { logger } from '../utils/logger.js';
 import { prisma } from '../lib/prisma.js';
 import { quizStore } from './quizStore.js';
 import type { QuizQuestionData } from './quizStore.js';
+import type { QuizRoom } from './quizStore.js';
 
 // Extend socket type to include our custom properties
 interface QuizSocket extends Socket {
@@ -93,6 +94,34 @@ export function initQuizSocket(io: SocketIOServer) {
   // ─── Connection handler ────────────────────────────────────────────────
   const canControlQuiz = (room: { adminUserId: string }, socket: QuizSocket) =>
     socket.userId === room.adminUserId || ['ADMIN', 'PRESIDENT'].includes(socket.userRole || '');
+
+  const getCurrentQuestionRemainingMs = (room: QuizRoom): number => {
+    const currentQ = room.questions[room.currentQuestionIndex];
+    if (!currentQ || room.currentQuestionIndex < 0) return 0;
+
+    if (room.status === 'paused' && room.pausedTimeRemaining !== null) {
+      return Math.max(0, room.pausedTimeRemaining);
+    }
+
+    const elapsed = Date.now() - room.currentQuestionStartTime;
+    return Math.max(0, (currentQ.timeLimitSeconds * 1000) - elapsed);
+  };
+
+  const canRevealCurrentQuestion = (room: QuizRoom): boolean => {
+    return getCurrentQuestionRemainingMs(room) <= 0;
+  };
+
+  const emitQuestionResults = (quizId: string, room: QuizRoom): void => {
+    const currentQ = room.questions[room.currentQuestionIndex];
+    if (!currentQ || room.currentQuestionIndex < 0) return;
+
+    quizNamespace.to(quizId).emit('question_results', {
+      correctAnswer: currentQ.correctAnswer,
+      leaderboard: quizStore.getLeaderboard(quizId),
+      answerDistribution: quizStore.getAnswerDistribution(quizId),
+      questionIndex: room.currentQuestionIndex,
+    });
+  };
 
   quizNamespace.on('connection', (socket: QuizSocket) => {
     logger.debug('Quiz socket connected', { socketId: socket.id, userId: socket.userId });
@@ -363,25 +392,20 @@ export function initQuizSocket(io: SocketIOServer) {
         return;
       }
 
+      const shouldRevealCurrentQuestion = canRevealCurrentQuestion(room);
+
       // Clear auto-advance timer
       if (room.autoAdvanceTimer) {
         clearTimeout(room.autoAdvanceTimer);
         room.autoAdvanceTimer = null;
       }
 
-      // Emit results for current question before advancing
-      const currentQ = room.questions[room.currentQuestionIndex];
-      if (currentQ && room.currentQuestionIndex >= 0) {
-        quizNamespace.to(quizId).emit('question_results', {
-          correctAnswer: currentQ.correctAnswer,
-          leaderboard: quizStore.getLeaderboard(quizId),
-          answerDistribution: quizStore.getAnswerDistribution(quizId),
-          questionIndex: room.currentQuestionIndex,
-        });
+      // Emit results only when timer has completed.
+      // If host advances early, we skip reveal to prevent answer leakage.
+      if (shouldRevealCurrentQuestion) {
+        emitQuestionResults(quizId, room);
+        await new Promise((resolve) => setTimeout(resolve, 3000));
       }
-
-      // Wait 3 seconds before advancing
-      await new Promise((resolve) => setTimeout(resolve, 3000));
 
       const advancement = quizStore.advanceQuestion(quizId);
 
@@ -428,12 +452,7 @@ export function initQuizSocket(io: SocketIOServer) {
 
       // Respond to submitter
       socket.emit('answer_received', {
-        isCorrect: result.isCorrect,
-        isPoll: result.isPoll,
-        pointsAwarded: result.pointsAwarded,
-        timeMs: result.timeMs,
-        newScore: result.newScore,
-        newStreak: result.newStreak,
+        accepted: true,
       });
 
       // Broadcast answer count to room
@@ -603,21 +622,18 @@ export function initQuizSocket(io: SocketIOServer) {
         return;
       }
 
+      const shouldRevealCurrentQuestion = canRevealCurrentQuestion(room);
+
       // Clear auto-advance timer
       if (room.autoAdvanceTimer) {
         clearTimeout(room.autoAdvanceTimer);
         room.autoAdvanceTimer = null;
       }
 
-      // Emit results for current question
-      const currentQ = room.questions[room.currentQuestionIndex];
-      if (currentQ && room.currentQuestionIndex >= 0) {
-        quizNamespace.to(quizId).emit('question_results', {
-          correctAnswer: currentQ.correctAnswer,
-          leaderboard: quizStore.getLeaderboard(quizId),
-          answerDistribution: quizStore.getAnswerDistribution(quizId),
-          questionIndex: room.currentQuestionIndex,
-        });
+      // Emit results only when timer has completed.
+      // If host skips early, we skip reveal to prevent answer leakage.
+      if (shouldRevealCurrentQuestion) {
+        emitQuestionResults(quizId, room);
       }
 
       // Immediately advance (no 3s delay for skip)
@@ -677,14 +693,8 @@ export function initQuizSocket(io: SocketIOServer) {
     if (!room) return;
 
     // Emit results for current question
-    const currentQ = room.questions[room.currentQuestionIndex];
-    if (currentQ) {
-      quizNamespace.to(quizId).emit('question_results', {
-        correctAnswer: currentQ.correctAnswer,
-        leaderboard: quizStore.getLeaderboard(quizId),
-        answerDistribution: quizStore.getAnswerDistribution(quizId),
-        questionIndex: room.currentQuestionIndex,
-      });
+    if (canRevealCurrentQuestion(room)) {
+      emitQuestionResults(quizId, room);
     }
 
     // Wait 3 seconds before advancing

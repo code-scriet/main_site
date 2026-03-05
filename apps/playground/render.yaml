@@ -3,30 +3,41 @@ services:
   - type: web
     name: playground-frontend
     runtime: static
-    buildCommand: npm install && npm run playground:build
-    staticPublishPath: ./apps/playground/dist
+    buildCommand: npm install && npm run build
+    staticPublishPath: dist
     env: static
     domains:
-      - playground.codescriet.dev
+      - code.codescriet.dev
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
     envVars:
       - key: VITE_API_URL
         value: https://playground-api.codescriet.dev
+      - key: VITE_MAIN_SITE_URL
+        value: https://codescriet.dev
+      - key: VITE_MAIN_API_URL
+        value: https://codescriet-api.onrender.com
 
   # Playground Execution Backend (Node.js API)
   - type: web
     name: playground-api
     runtime: node
-    buildCommand: cd apps/playground && npm install
-    startCommand: cd apps/playground && node execute-server.js
+    buildCommand: npm install
+    startCommand: node execute-server.js
     env: node
     domains:
       - playground-api.codescriet.dev
+    healthCheckPath: /health
     envVars:
-      - key: JDOODLE_CLIENT_ID
-        value: 48c12c7c4f88518681775a915c6dea0
-      - key: JDOODLE_CLIENT_SECRET
-        sync: false # This will be added manually in Render dashboard
-      - key: EXECUTE_PORT
-        value: 10000 # Render uses port 10000 by default
+      - key: PORT
+        value: 10000
       - key: NODE_ENV
         value: production
+      - key: ALLOWED_ORIGIN
+        sync: false
+      - key: JWT_SECRET
+        sync: false
+      - key: EXECUTOR_URL
+        value: https://codescriet-executor.developer-aary.workers.dev/execute
