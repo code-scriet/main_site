@@ -367,7 +367,7 @@ export default function QuizPage() {
             <motion.div key="finished" exit={{ opacity: 0, y: -20 }}>
               {showFinaleIntro && <QuizFinaleIntro title={title || 'Quiz'} totalQuestions={totalQuestions} />}
               {!showFinaleIntro && (
-                <FinalResults userId={user?.id ?? ''} leaderboard={leaderboard} totalQuestions={totalQuestions} title={title || 'Quiz'} />
+                <FinalResults userId={user?.id ?? ''} quizId={quizId || ''} isHost={isHost} leaderboard={leaderboard} totalQuestions={totalQuestions} title={title || 'Quiz'} />
               )}
             </motion.div>
           )}
@@ -395,7 +395,7 @@ export default function QuizPage() {
 /* ---------- Final results view ---------- */
 
 import type { LeaderboardEntry } from '@/lib/quizStore';
-import { Home, LayoutDashboard } from 'lucide-react';
+import { Home, LayoutDashboard, ArrowRight } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 
 function ordinal(n: number): string {
@@ -413,11 +413,15 @@ function getContextualMessage(rank: number, total: number): { emoji: string; tex
 
 function FinalResults({
   userId,
+  quizId,
+  isHost,
   leaderboard,
   totalQuestions,
   title,
 }: {
   userId: string;
+  quizId: string;
+  isHost: boolean;
   leaderboard: LeaderboardEntry[];
   totalQuestions: number;
   title: string;
@@ -425,6 +429,7 @@ function FinalResults({
   const navigate = useNavigate();
   const myEntry = leaderboard.find((e) => e.userId === userId);
   const [copied, setCopied] = useState(false);
+  const [countdown, setCountdown] = useState(5);
 
   const handleCopyResult = useCallback(async () => {
     if (!myEntry) return;
@@ -438,6 +443,22 @@ function FinalResults({
 
   const contextMsg = myEntry ? getContextualMessage(myEntry.rank, leaderboard.length) : null;
   const accuracy = myEntry && totalQuestions > 0 ? Math.round((myEntry.correctCount / totalQuestions) * 100) : 0;
+
+  // Auto-redirect to results page after 5s (players only, not host)
+  useEffect(() => {
+    if (isHost || !quizId) return;
+    const interval = setInterval(() => {
+      setCountdown((prev) => {
+        if (prev <= 1) {
+          clearInterval(interval);
+          navigate(`/quiz/${quizId}/results`);
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [isHost, quizId, navigate]);
 
   return (
     <motion.div
@@ -509,24 +530,41 @@ function FinalResults({
         totalQuestions={totalQuestions}
       />
 
-      {/* Back buttons */}
-      <div className="pt-4 flex flex-col sm:flex-row items-center justify-center gap-3">
+      {/* Redirect / navigation */}
+      <div className="pt-4 flex flex-col items-center gap-3">
         <Button
-          onClick={() => navigate('/dashboard')}
-          variant="outline"
+          onClick={() => navigate(`/quiz/${quizId}/results`)}
+          className="bg-gradient-to-r from-orange-500 to-amber-600 hover:from-orange-600 hover:to-amber-700 text-white shadow-lg px-8"
           size="lg"
         >
-          <LayoutDashboard className="h-4 w-4 mr-2" />
-          Back to Dashboard
+          View Full Results
+          <ArrowRight className="h-4 w-4 ml-2" />
         </Button>
-        <Button
-          onClick={() => navigate('/quiz')}
-          className="bg-amber-600 hover:bg-amber-700"
-          size="lg"
-        >
-          <Home className="h-4 w-4 mr-2" />
-          Back to Quizzes
-        </Button>
+        {!isHost && countdown > 0 && (
+          <p className="text-xs text-amber-600/60 font-medium tabular-nums">
+            Redirecting in {countdown}s…
+          </p>
+        )}
+        <div className="flex items-center gap-3">
+          <Button
+            onClick={() => navigate('/dashboard')}
+            variant="ghost"
+            size="sm"
+            className="text-amber-700/60 hover:text-amber-700"
+          >
+            <LayoutDashboard className="h-3.5 w-3.5 mr-1.5" />
+            Dashboard
+          </Button>
+          <Button
+            onClick={() => navigate('/quiz')}
+            variant="ghost"
+            size="sm"
+            className="text-amber-700/60 hover:text-amber-700"
+          >
+            <Home className="h-3.5 w-3.5 mr-1.5" />
+            Quizzes
+          </Button>
+        </div>
       </div>
     </motion.div>
   );

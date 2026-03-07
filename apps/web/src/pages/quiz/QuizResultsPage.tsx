@@ -10,6 +10,7 @@ import { useAuth } from '@/context/AuthContext';
 import { Layout } from '@/components/layout/Layout';
 import { QuizLeaderboard } from './QuizLeaderboard';
 import { QuizAnswerDistribution } from './QuizAnswerDistribution';
+import { PollResultsView } from './PollResultsView';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
@@ -791,14 +792,67 @@ export default function QuizResultsPage() {
                                 </div>
                               )}
 
-                              {/* Distribution chart */}
+                              {/* Distribution chart / Poll analytics */}
                               {Object.keys(q.answerDistribution).length > 0 && (
-                                <QuizAnswerDistribution
-                                  distribution={q.answerDistribution}
-                                  correctAnswer={q.correctAnswer}
-                                  options={q.options}
-                                  questionType={q.questionType}
-                                />
+                                isPollRating && isCreator ? (
+                                  <div className="space-y-3">
+                                    {/* Poll engagement insights — admin only */}
+                                    {(() => {
+                                      const participationPct = insights.totalParticipants > 0
+                                        ? Math.round((q.totalAnswers / insights.totalParticipants) * 100)
+                                        : 0;
+                                      const values = Object.values(q.answerDistribution);
+                                      const total = values.reduce((s, v) => s + v, 0);
+                                      const maxVotes = Math.max(...values);
+                                      const topOption = Object.entries(q.answerDistribution)
+                                        .sort(([, a], [, b]) => b - a)[0];
+                                      // Shannon entropy normalized to [0,1] — lower = more consensus
+                                      const entropy = total > 0 ? -(values.reduce((s, v) => {
+                                        if (v === 0) return s;
+                                        const p = v / total;
+                                        return s + p * Math.log2(p);
+                                      }, 0)) / Math.log2(Math.max(values.length, 2)) : 0;
+                                      const consensusLabel = entropy < 0.5 ? 'Strong consensus'
+                                        : entropy < 0.75 ? 'Moderate spread' : 'Highly divided';
+                                      const consensusColor = entropy < 0.5 ? 'text-emerald-600'
+                                        : entropy < 0.75 ? 'text-amber-600' : 'text-red-600';
+                                      return (
+                                        <div className="grid grid-cols-3 gap-2">
+                                          <div className="bg-purple-50 border border-purple-200/40 rounded-lg px-3 py-2 text-center">
+                                            <p className="text-lg font-black text-purple-800 tabular-nums">{participationPct}%</p>
+                                            <p className="text-[10px] text-purple-600/70 font-semibold uppercase">Participation</p>
+                                          </div>
+                                          <div className="bg-purple-50 border border-purple-200/40 rounded-lg px-3 py-2 text-center">
+                                            <p className={cn('text-xs font-bold', consensusColor)}>{consensusLabel}</p>
+                                            <p className="text-[10px] text-purple-600/70 font-semibold uppercase">Consensus</p>
+                                          </div>
+                                          <div className="bg-purple-50 border border-purple-200/40 rounded-lg px-3 py-2 text-center">
+                                            <p className="text-xs font-bold text-purple-800 truncate" title={topOption?.[0]}>
+                                              {topOption?.[0]?.length > 15 ? topOption[0].slice(0, 15) + '…' : topOption?.[0]}
+                                            </p>
+                                            <p className="text-[10px] text-purple-600/70 font-semibold uppercase">
+                                              Top ({total > 0 ? Math.round((maxVotes / total) * 100) : 0}%)
+                                            </p>
+                                          </div>
+                                        </div>
+                                      );
+                                    })()}
+                                    {/* Full PollResultsView with bar/pie toggle + export */}
+                                    <PollResultsView
+                                      distribution={q.answerDistribution}
+                                      options={q.options}
+                                      questionText={q.questionText}
+                                      totalVotes={q.totalAnswers}
+                                    />
+                                  </div>
+                                ) : (
+                                  <QuizAnswerDistribution
+                                    distribution={q.answerDistribution}
+                                    correctAnswer={q.correctAnswer}
+                                    options={q.options}
+                                    questionType={q.questionType}
+                                  />
+                                )
                               )}
                             </div>
                           </motion.div>
