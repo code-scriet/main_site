@@ -8,7 +8,7 @@ import { logger } from '../utils/logger.js';
 import { prisma } from '../lib/prisma.js';
 import type { Server as SocketIOServer } from 'socket.io';
 
-// ─── Types-t ────────────────────────────────────────────────────────────────
+// ───  ────────────────────────────────────────────────────────────────
 
 export interface QuizQuestionData {
   id: string;
