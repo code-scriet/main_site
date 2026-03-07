@@ -9,6 +9,8 @@ import { subscribeWithSelector } from 'zustand/middleware';
 export interface QuizPlayer {
   userId: string;
   displayName: string;
+  answered?: boolean;
+  connected?: boolean;
 }
 
 export type QuizQuestionType = 'MCQ' | 'TRUE_FALSE' | 'SHORT_ANSWER' | 'POLL' | 'RATING';
@@ -102,6 +104,7 @@ interface QuizState {
 
   // Answer count live update
   answeredCount: number;
+  totalPlayers: number;
 
   // Admin-only
   allAnswered: boolean;
@@ -156,6 +159,10 @@ interface QuizState {
   timerExtended: (data: { extraSeconds: number }) => void;
   playerKicked: () => void;
 
+  myRankUpdated: (data: { rank: number; totalPlayers: number; score: number }) => void;
+
+  playerStatusUpdated: (statuses: Array<{ userId: string; answered: boolean; connected: boolean }>) => void;
+
   setQuizError: (err: { code: string; message: string } | null) => void;
 
   reset: () => void;
@@ -187,6 +194,7 @@ const initialState = {
   myUserId: null,
   leaderboard: [],
   answeredCount: 0,
+  totalPlayers: 0,
   allAnswered: false,
   quizError: null,
   kicked: false,
@@ -243,7 +251,7 @@ export const useQuizStore = create<QuizState>()(
       }),
 
     showQuestion: (q) =>
-      set({
+      set((state) => ({
         currentQuestion: q,
         questionIndex: q.questionIndex,
         questionStartTime: q.timeElapsedMs ? Date.now() - q.timeElapsedMs : Date.now(),
@@ -254,8 +262,9 @@ export const useQuizStore = create<QuizState>()(
         pollResults: null,
         answeredCount: 0,
         allAnswered: false,
-        quizStatus: 'question',
-      }),
+        quizStatus: 'question' as const,
+        players: state.players.map(p => ({ ...p, answered: false })),
+      })),
 
     setMyAnswer: (answer) => set({ myAnswer: answer, hasAnswered: true }),
 
@@ -325,6 +334,17 @@ export const useQuizStore = create<QuizState>()(
       }),
 
     setQuizError: (err) => set({ quizError: err, quizStatus: err ? 'idle' : 'idle' }),
+
+    myRankUpdated: (data) => set({ myRank: data.rank, totalPlayers: data.totalPlayers, myScore: data.score }),
+
+    playerStatusUpdated: (statuses) =>
+      set((state) => ({
+        players: state.players.map(p => {
+          const status = statuses.find(s => s.userId === p.userId);
+          if (!status) return p;
+          return { ...p, answered: status.answered, connected: status.connected };
+        }),
+      })),
 
     reset: () => set(initialState),
   })),

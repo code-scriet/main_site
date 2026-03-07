@@ -8,7 +8,7 @@
  * - PARTICIPANTS must enter PIN and see PLAYER MODE (question answering)
  */
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { AnimatePresence, motion } from 'framer-motion';
 import { useQuizSocket } from '@/hooks/useQuizSocket';
@@ -22,7 +22,8 @@ import { QuizResultReveal } from './QuizResultReveal';
 import { QuizLeaderboard } from './QuizLeaderboard';
 import { QuizAdminPanel } from './QuizAdminPanel';
 import { QuizHostView } from './QuizHostView';
-import { Loader2, WifiOff, ArrowLeft, AlertCircle, Lock } from 'lucide-react';
+import { QuizFinaleIntro } from './QuizFinaleIntro';
+import { Loader2, WifiOff, ArrowLeft, AlertCircle, Lock, Check, Share2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
 export default function QuizPage() {
@@ -49,6 +50,19 @@ export default function QuizPage() {
   const kicked = useQuizStore((s) => s.kicked);
   const reset = useQuizStore((s) => s.reset);
   const setMyUserId = useQuizStore((s) => s.setMyUserId);
+
+  // Finale intro state: show 2s splash before leaderboard
+  const [showFinaleIntro, setShowFinaleIntro] = useState(false);
+  const [finaleShown, setFinaleShown] = useState(false);
+
+  useEffect(() => {
+    if (quizStatus === 'finished' && !finaleShown) {
+      setShowFinaleIntro(true);
+      setFinaleShown(true);
+      const timer = setTimeout(() => setShowFinaleIntro(false), 2000);
+      return () => clearTimeout(timer);
+    }
+  }, [quizStatus, finaleShown]);
 
   // Set user ID in store
   useEffect(() => {
@@ -351,7 +365,10 @@ export default function QuizPage() {
 
           {quizStatus === 'finished' && (
             <motion.div key="finished" exit={{ opacity: 0, y: -20 }}>
-              <FinalResults userId={user?.id ?? ''} leaderboard={leaderboard} totalQuestions={totalQuestions} />
+              {showFinaleIntro && <QuizFinaleIntro title={title || 'Quiz'} totalQuestions={totalQuestions} />}
+              {!showFinaleIntro && (
+                <FinalResults userId={user?.id ?? ''} leaderboard={leaderboard} totalQuestions={totalQuestions} title={title || 'Quiz'} />
+              )}
             </motion.div>
           )}
         </AnimatePresence>
@@ -378,60 +395,110 @@ export default function QuizPage() {
 /* ---------- Final results view ---------- */
 
 import type { LeaderboardEntry } from '@/lib/quizStore';
-import { Trophy, PartyPopper, Home, LayoutDashboard } from 'lucide-react';
+import { Home, LayoutDashboard } from 'lucide-react';
+import { Card, CardContent } from '@/components/ui/card';
+
+function ordinal(n: number): string {
+  const s = ['th', 'st', 'nd', 'rd'];
+  const v = n % 100;
+  return n + (s[(v - 20) % 10] || s[v] || s[0]);
+}
+
+function getContextualMessage(rank: number, total: number): { emoji: string; text: string } {
+  if (rank <= 3) return { emoji: '🏆', text: 'Podium finish! Outstanding performance.' };
+  if (rank <= Math.ceil(total * 0.25)) return { emoji: '🎯', text: 'Great result! You were in the top quarter.' };
+  if (rank <= Math.ceil(total * 0.5)) return { emoji: '💪', text: 'Above average — solid showing.' };
+  return { emoji: '📚', text: 'Better luck next time!' };
+}
 
 function FinalResults({
   userId,
   leaderboard,
   totalQuestions,
+  title,
 }: {
   userId: string;
   leaderboard: LeaderboardEntry[];
   totalQuestions: number;
+  title: string;
 }) {
   const navigate = useNavigate();
   const myEntry = leaderboard.find((e) => e.userId === userId);
+  const [copied, setCopied] = useState(false);
+
+  const handleCopyResult = useCallback(async () => {
+    if (!myEntry) return;
+    const text = `I scored ${myEntry.score} pts and ranked ${ordinal(myEntry.rank)}/${leaderboard.length} in "${title}" 🧠`;
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch { /* clipboard not available */ }
+  }, [myEntry, leaderboard.length, title]);
+
+  const contextMsg = myEntry ? getContextualMessage(myEntry.rank, leaderboard.length) : null;
+  const accuracy = myEntry && totalQuestions > 0 ? Math.round((myEntry.correctCount / totalQuestions) * 100) : 0;
 
   return (
     <motion.div
       initial={{ opacity: 0, scale: 0.95 }}
       animate={{ opacity: 1, scale: 1 }}
-      className="space-y-8"
+      className="space-y-6"
     >
-      {/* Winner celebration */}
-      {leaderboard[0] && (
-        <div className="text-center space-y-3">
-          <motion.div
-            initial={{ scale: 0 }}
-            animate={{ scale: 1 }}
-            transition={{ type: 'spring', delay: 0.3 }}
-          >
-            <PartyPopper className="h-16 w-16 mx-auto text-amber-500" />
-          </motion.div>
-          <h2 className="text-3xl font-bold text-amber-900">Quiz Complete!</h2>
-          <p className="text-lg text-gray-600">
-            Winner: <span className="font-bold text-amber-700">{leaderboard[0].displayName}</span>{' '}
-            with {leaderboard[0].score} points
-          </p>
-        </div>
-      )}
-
-      {/* My result */}
-      {myEntry && (
+      {/* Personal result card */}
+      {myEntry && contextMsg && (
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.5 }}
-          className="bg-amber-50 border-2 border-amber-300 rounded-xl p-5 text-center"
+          transition={{ delay: 0.2 }}
         >
-          <Trophy className="h-8 w-8 mx-auto text-amber-600 mb-2" />
-          <p className="text-lg font-bold text-amber-900">
-            You placed #{myEntry.rank} out of {leaderboard.length}
-          </p>
-          <div className="flex items-center justify-center gap-6 mt-2 text-sm text-amber-700">
-            <span>{myEntry.score} points</span>
-            <span>{myEntry.correctCount}/{totalQuestions} correct</span>
-          </div>
+          <Card className="border-2 border-amber-300 shadow-xl overflow-hidden">
+            <CardContent className="p-6 sm:p-8 bg-gradient-to-br from-amber-50 to-orange-50">
+              {/* Rank + contextual message */}
+              <div className="text-center mb-4">
+                <p className="text-4xl mb-1">{contextMsg.emoji}</p>
+                <p className="text-3xl sm:text-4xl font-black text-amber-900 tabular-nums font-display">
+                  {ordinal(myEntry.rank)}
+                </p>
+                <p className="text-sm text-amber-700/60 font-medium">out of {leaderboard.length} players</p>
+                <p className="text-sm text-amber-800 mt-1 font-medium">{contextMsg.text}</p>
+              </div>
+
+              {/* Stats row */}
+              <div className="grid grid-cols-3 gap-3 mt-4">
+                <div className="text-center p-3 bg-white/60 rounded-xl">
+                  <p className="text-2xl font-black text-amber-800 tabular-nums">{myEntry.score}</p>
+                  <p className="text-xs text-amber-700/50 font-semibold uppercase tracking-wide">Points</p>
+                </div>
+                <div className="text-center p-3 bg-white/60 rounded-xl">
+                  <p className="text-2xl font-black text-amber-800 tabular-nums">{accuracy}%</p>
+                  <p className="text-xs text-amber-700/50 font-semibold uppercase tracking-wide">Accuracy</p>
+                </div>
+                <div className="text-center p-3 bg-white/60 rounded-xl">
+                  <p className="text-2xl font-black text-amber-800 tabular-nums">
+                    {myEntry.correctCount}/{totalQuestions}
+                  </p>
+                  <p className="text-xs text-amber-700/50 font-semibold uppercase tracking-wide">Correct</p>
+                </div>
+              </div>
+
+              {/* Share button */}
+              <div className="mt-4 flex justify-center">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleCopyResult}
+                  className="border-amber-300 text-amber-700 hover:bg-amber-100"
+                >
+                  {copied ? (
+                    <><Check className="h-4 w-4 mr-1.5" /> Copied!</>
+                  ) : (
+                    <><Share2 className="h-4 w-4 mr-1.5" /> Copy Result</>
+                  )}
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
         </motion.div>
       )}
 

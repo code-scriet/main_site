@@ -775,6 +775,32 @@ quizRouter.get('/:quizId/results', authMiddleware, async (req: Request, res: Res
 
     const isCreator = quiz.createdBy === user.id || user.role === 'ADMIN' || user.role === 'PRESIDENT';
 
+    // Per-player per-question answer data for heatmap (creator/admin only)
+    let participantAnswers: {
+      userId: string;
+      questionId: string;
+      isCorrect: boolean | null;
+      answerTimeMs: number;
+    }[] = [];
+
+    if (isCreator) {
+      const rawAnswers = await prisma.quizAnswer.findMany({
+        where: { quizId },
+        select: {
+          userId: true,
+          questionId: true,
+          isCorrect: true,
+          answerTimeMs: true,
+        },
+      });
+      participantAnswers = rawAnswers.map((a) => ({
+        userId: a.userId,
+        questionId: a.questionId,
+        isCorrect: a.isCorrect,
+        answerTimeMs: a.answerTimeMs,
+      }));
+    }
+
     return ApiResponse.success(res, {
       quiz: {
         id: quiz.id,
@@ -825,6 +851,7 @@ quizRouter.get('/:quizId/results', authMiddleware, async (req: Request, res: Res
         durationMs,
       },
       isCreator,
+      participantAnswers,
     });
   } catch (error) {
     logger.error('GET /api/quiz/:quizId/results error', { error: error instanceof Error ? error.message : String(error) });

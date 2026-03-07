@@ -1,6 +1,11 @@
 /**
  * QuizLeaderboard — ranked list of quiz participants.
  * Used both mid-quiz (compact top-5) and final (full list with podium + confetti).
+ *
+ * Final leaderboard features:
+ * - Physical podium: rank 3 first (500ms), rank 2 (800ms), rank 1 (1100ms)
+ * - Crown 👑 for rank 1, CSS confetti burst
+ * - Enhanced table with accuracy bars, alternating rows
  */
 
 import { memo, useMemo } from 'react';
@@ -10,28 +15,30 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Trophy, Zap } from 'lucide-react';
 import type { LeaderboardEntry } from '@/lib/quizStore';
 
-/* ---- CSS-only confetti keyframes (injected once via style tag) ---- */
+/* ── CSS confetti ── */
 const confettiCSS = `
 @keyframes quiz-confetti-fall {
   0% { transform: translateY(-20px) rotate(0deg); opacity: 1; }
-  100% { transform: translateY(180px) rotate(720deg); opacity: 0; }
+  100% { transform: translateY(200px) rotate(720deg); opacity: 0; }
 }
 @keyframes quiz-confetti-fall2 {
   0% { transform: translateY(-10px) rotate(45deg); opacity: 1; }
-  100% { transform: translateY(160px) rotate(-540deg); opacity: 0; }
+  100% { transform: translateY(180px) rotate(-540deg); opacity: 0; }
 }
 `;
 
 const MEDAL_COLORS = {
-  1: '#FFD700', // Gold
-  2: '#C0C0C0', // Silver
-  3: '#CD7F32', // Bronze
+  1: '#FFD700',
+  2: '#C0C0C0',
+  3: '#CD7F32',
 } as const;
+
+const CONFETTI_COLORS = ['#FFD700', '#f59e0b', '#fb923c', '#a855f7', '#3b82f6', '#ef4444'];
 
 interface QuizLeaderboardProps {
   leaderboard: LeaderboardEntry[];
   myUserId: string | null;
-  compact?: boolean; // true = show top 5 only
+  compact?: boolean;
   totalQuestions?: number;
 }
 
@@ -43,7 +50,6 @@ export const QuizLeaderboard = memo(function QuizLeaderboard({
 }: QuizLeaderboardProps) {
   const entries = compact ? leaderboard.slice(0, 5) : leaderboard;
 
-  // Find tied players (same score, ordered by time)
   const tieGroups = new Map<number, string[]>();
   leaderboard.forEach((e) => {
     if (!tieGroups.has(e.score)) tieGroups.set(e.score, []);
@@ -62,6 +68,9 @@ export const QuizLeaderboard = memo(function QuizLeaderboard({
 
   const showPodium = !compact && leaderboard.length >= 3;
 
+  // Podium animation delays: rank3 first (builds anticipation), then rank2, then rank1
+  const podiumDelays = { 3: 0.5, 2: 0.8, 1: 1.1 };
+
   return (
     <div className="w-full">
       {/* Confetti style injection */}
@@ -69,23 +78,23 @@ export const QuizLeaderboard = memo(function QuizLeaderboard({
         <style dangerouslySetInnerHTML={{ __html: confettiCSS }} />
       )}
 
-      {/* Podium — only on full leaderboard view */}
+      {/* ═══════════ Podium ═══════════ */}
       {showPodium && (
-        <div className="mb-6 relative">
-          {/* CSS confetti particles (if user in top 3) */}
+        <div className="mb-8 relative">
+          {/* Confetti particles */}
           {meInTop3 && (
             <div className="absolute inset-0 overflow-hidden pointer-events-none z-10" aria-hidden>
-              {Array.from({ length: 18 }).map((_, i) => (
+              {Array.from({ length: 20 }).map((_, i) => (
                 <span
                   key={i}
                   className="absolute block rounded-sm"
                   style={{
                     width: `${6 + (i % 4) * 2}px`,
                     height: `${6 + (i % 3) * 2}px`,
-                    left: `${5 + (i * 5.3) % 90}%`,
-                    top: '-8px',
-                    background: ['#FFD700', '#C0C0C0', '#CD7F32', '#f59e0b', '#fb923c', '#a855f7'][i % 6],
-                    animation: `${i % 2 === 0 ? 'quiz-confetti-fall' : 'quiz-confetti-fall2'} ${1.5 + (i % 5) * 0.3}s ease-in ${(i % 7) * 0.15}s forwards`,
+                    left: `${3 + (i * 4.8) % 94}%`,
+                    top: '-12px',
+                    background: CONFETTI_COLORS[i % 6],
+                    animation: `${i % 2 === 0 ? 'quiz-confetti-fall' : 'quiz-confetti-fall2'} ${2 + (i % 5) * 0.4}s ease-in ${(i % 7) * 0.15}s forwards`,
                     opacity: 0.9,
                   }}
                 />
@@ -94,52 +103,67 @@ export const QuizLeaderboard = memo(function QuizLeaderboard({
           )}
 
           {/* Podium layout: 2nd — 1st — 3rd */}
-          <div className="flex items-end justify-center gap-3 sm:gap-4">
+          <div className="flex items-end justify-center gap-2 sm:gap-4">
             {[1, 0, 2].map((podiumIdx) => {
               const entry = leaderboard[podiumIdx];
               if (!entry) return null;
               const rank = entry.rank;
               const isMe = entry.userId === myUserId;
-              const height = rank === 1 ? 'h-28 sm:h-32' : rank === 2 ? 'h-20 sm:h-24' : 'h-16 sm:h-20';
               const medalColor = MEDAL_COLORS[rank as 1 | 2 | 3];
+              const delay = podiumDelays[rank as 1 | 2 | 3] ?? 0.5;
 
               return (
                 <motion.div
                   key={entry.userId}
-                  initial={{ opacity: 0, y: 40 }}
+                  initial={{ opacity: 0, y: 60 }}
                   animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: 0.15 + podiumIdx * 0.15, type: 'spring', stiffness: 200, damping: 18 }}
-                  className="flex flex-col items-center flex-1 max-w-[140px]"
+                  transition={{ delay, type: 'spring', stiffness: 180, damping: 16 }}
+                  className="flex flex-col items-center flex-1 max-w-[150px]"
                 >
-                  {/* Medal + Name */}
-                  <div className={cn(
-                    'text-center mb-2',
-                    rank === 1 && 'scale-105',
-                  )}>
-                    <div
-                      className="w-10 h-10 sm:w-12 sm:h-12 rounded-full flex items-center justify-center mx-auto mb-1 font-black text-white text-sm sm:text-base shadow-md"
-                      style={{ background: medalColor }}
+                  {/* Crown for rank 1 */}
+                  {rank === 1 && (
+                    <motion.div
+                      initial={{ opacity: 0, y: -10, rotate: -15 }}
+                      animate={{ opacity: 1, y: 0, rotate: 0 }}
+                      transition={{ delay: delay + 0.2, type: 'spring', stiffness: 200 }}
+                      className="mb-0.5"
                     >
-                      {rank}
-                    </div>
-                    <p className={cn(
-                      'text-xs sm:text-sm font-semibold truncate max-w-[120px]',
-                      isMe ? 'text-amber-700' : 'text-amber-900',
-                    )}>
-                      {entry.displayName}
-                      {isMe && <span className="text-amber-500 ml-1">(you)</span>}
-                    </p>
-                    <p className="text-xs font-bold text-amber-600 tabular-nums">{entry.score} pts</p>
-                  </div>
+                      <span className="text-2xl">👑</span>
+                    </motion.div>
+                  )}
 
-                  {/* Podium bar */}
+                  {/* Avatar circle */}
                   <div
                     className={cn(
-                      'w-full rounded-t-xl',
-                      height,
+                      'rounded-full flex items-center justify-center font-black text-white shadow-lg mb-2',
+                      rank === 1 ? 'w-14 h-14 sm:w-16 sm:h-16 text-lg sm:text-xl' : 'w-11 h-11 sm:w-13 sm:h-13 text-sm sm:text-base',
                     )}
                     style={{
-                      background: `linear-gradient(to top, ${medalColor}33, ${medalColor}88)`,
+                      background: `linear-gradient(135deg, ${medalColor}, ${medalColor}cc)`,
+                      boxShadow: `0 4px 16px ${medalColor}40`,
+                    }}
+                  >
+                    {entry.displayName.charAt(0).toUpperCase()}
+                  </div>
+
+                  {/* Name + score */}
+                  <p className={cn(
+                    'text-xs sm:text-sm font-semibold truncate max-w-[130px] text-center',
+                    isMe ? 'text-amber-600' : 'text-amber-900',
+                  )}>
+                    {entry.displayName}
+                    {isMe && <span className="text-amber-400 ml-1">(you)</span>}
+                  </p>
+                  <p className="text-sm font-bold text-amber-700 tabular-nums">{entry.score} pts</p>
+
+                  {/* Podium block */}
+                  <motion.div
+                    initial={{ height: 0 }}
+                    animate={{ height: rank === 1 ? 128 : rank === 2 ? 96 : 72 }}
+                    transition={{ delay: delay - 0.1, duration: 0.5, ease: 'easeOut' }}
+                    className="w-full rounded-t-xl mt-1"
+                    style={{
+                      background: `linear-gradient(to top, ${medalColor}20, ${medalColor}66)`,
                       borderTop: `3px solid ${medalColor}`,
                     }}
                   />
@@ -150,14 +174,14 @@ export const QuizLeaderboard = memo(function QuizLeaderboard({
         </div>
       )}
 
-      {/* Table header */}
+      {/* ═══════════ Table ═══════════ */}
       <Card className="border-amber-200/60 shadow-sm overflow-hidden">
         <CardContent className="p-0">
           {!compact && (
             <div className="flex items-center gap-2 px-4 pt-4 pb-2">
               <Trophy className="h-4 w-4 text-amber-600" />
               <h3 className="text-sm font-bold text-amber-900 tracking-tight">
-                {compact ? 'Top 5' : 'Full Rankings'}
+                Full Rankings
               </h3>
             </div>
           )}
@@ -165,9 +189,10 @@ export const QuizLeaderboard = memo(function QuizLeaderboard({
           {/* Column headers */}
           <div className="grid grid-cols-12 gap-2 px-4 py-1.5 text-[10px] sm:text-xs font-semibold text-amber-700/50 uppercase tracking-wider border-b border-amber-100">
             <span className="col-span-1">#</span>
-            <span className="col-span-5">Name</span>
+            <span className="col-span-3">Name</span>
             <span className="col-span-2 text-right">Score ↓</span>
             <span className="col-span-2 text-right">Correct</span>
+            <span className="col-span-2 text-right">Accuracy</span>
             <span className="col-span-2 text-right">Avg</span>
           </div>
 
@@ -178,6 +203,9 @@ export const QuizLeaderboard = memo(function QuizLeaderboard({
               const avgSpeed = entry.correctCount > 0
                 ? `${(entry.totalAnswerTimeMs / entry.correctCount / 1000).toFixed(1)}s`
                 : '-';
+              const accuracy = totalQuestions && totalQuestions > 0
+                ? Math.round((entry.correctCount / totalQuestions) * 100)
+                : null;
 
               return (
                 <motion.div
@@ -189,7 +217,8 @@ export const QuizLeaderboard = memo(function QuizLeaderboard({
                     'grid grid-cols-12 gap-2 px-4 py-2.5 text-sm transition-colors',
                     isMe
                       ? 'bg-amber-50 font-semibold'
-                      : 'hover:bg-amber-50/40',
+                      : idx % 2 === 1 ? 'bg-amber-50/20' : '',
+                    !isMe && 'hover:bg-amber-50/40',
                   )}
                 >
                   <span className="col-span-1 flex items-center font-bold text-amber-800 text-xs">
@@ -200,7 +229,7 @@ export const QuizLeaderboard = memo(function QuizLeaderboard({
                       : entry.rank
                     }
                   </span>
-                  <span className="col-span-5 flex items-center gap-1 truncate text-amber-900">
+                  <span className="col-span-3 flex items-center gap-1 truncate text-amber-900">
                     {entry.displayName}
                     {isFastestInTie(entry) && (
                       <Zap className="h-3 w-3 text-amber-500 flex-shrink-0" />
@@ -212,6 +241,22 @@ export const QuizLeaderboard = memo(function QuizLeaderboard({
                   </span>
                   <span className="col-span-2 text-right tabular-nums text-amber-700/60">
                     {entry.correctCount}{totalQuestions ? `/${totalQuestions}` : ''}
+                  </span>
+                  <span className="col-span-2 text-right">
+                    {accuracy !== null ? (
+                      <span className="inline-flex items-center gap-1">
+                        <span className="text-xs tabular-nums text-amber-700/60">{accuracy}%</span>
+                        <span
+                          className="inline-block h-1.5 rounded-full"
+                          style={{
+                            width: `${Math.max(accuracy * 0.3, 4)}px`,
+                            background: accuracy >= 75 ? '#10b981' : accuracy >= 40 ? '#f59e0b' : '#ef4444',
+                          }}
+                        />
+                      </span>
+                    ) : (
+                      <span className="text-amber-700/40">-</span>
+                    )}
                   </span>
                   <span className="col-span-2 text-right tabular-nums text-amber-700/50 text-xs">
                     {avgSpeed}
@@ -229,7 +274,7 @@ export const QuizLeaderboard = memo(function QuizLeaderboard({
         </p>
       )}
 
-      {/* Show user's rank if they're not in the compact view */}
+      {/* User's rank if not in compact view */}
       {compact && myUserId && !entries.find((e) => e.userId === myUserId) && (
         <div className="mt-2 px-3 py-2 bg-amber-50 rounded-lg border border-amber-200 text-sm">
           {(() => {

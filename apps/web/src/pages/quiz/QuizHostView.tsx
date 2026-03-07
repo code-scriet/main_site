@@ -12,7 +12,7 @@
  * - QR code for participants to join
  */
 
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { QRCodeSVG } from 'qrcode.react';
@@ -110,6 +110,51 @@ export function QuizHostView({
   const totalQuestions = useQuizStore((s) => s.totalQuestions);
   const answeredCount = useQuizStore((s) => s.answeredCount);
 
+  // ─── CP7: Velocity sparkline buffer ───
+  const velocityBuffer = useRef<{ t: number; count: number }[]>([]);
+  const questionStartRef = useRef<number>(Date.now());
+  const prevQuestionIdx = useRef<number>(-1);
+
+  // Reset on new question
+  useEffect(() => {
+    const idx = currentQuestion?.questionIndex ?? -1;
+    if (idx !== prevQuestionIdx.current) {
+      velocityBuffer.current = [];
+      questionStartRef.current = Date.now();
+      prevQuestionIdx.current = idx;
+    }
+  }, [currentQuestion?.questionIndex]);
+
+  // Push on answeredCount change
+  useEffect(() => {
+    if (answeredCount > 0 && quizStatus === 'question') {
+      velocityBuffer.current.push({
+        t: Date.now() - questionStartRef.current,
+        count: answeredCount,
+      });
+    }
+  }, [answeredCount, quizStatus]);
+
+  // ─── CP8: Running mean accuracy for contextual label ───
+  const accuracyHistory = useRef<number[]>([]);
+  const questionRevealData = questionReveal;
+
+  useEffect(() => {
+    if (quizStatus === 'revealing' && questionRevealData?.correctAnswer != null) {
+      const dist = questionRevealData.answerDistribution ?? {};
+      const total = Object.values(dist).reduce((s: number, n: number) => s + n, 0);
+      const correct = dist[questionRevealData.correctAnswer] ?? 0;
+      if (total > 0) {
+        const acc = Math.round((correct / total) * 100);
+        // Only push if it's a new question (avoid duplicates)
+        const idx = currentQuestion?.questionIndex ?? -1;
+        if (accuracyHistory.current.length < idx + 1) {
+          accuracyHistory.current.push(acc);
+        }
+      }
+    }
+  }, [quizStatus, questionRevealData, currentQuestion?.questionIndex]);
+
   // Calculate time remaining using the proper timer hook
   const { secondsLeft: timeRemaining } = useQuizTimer(
     questionStartTime,
@@ -179,6 +224,35 @@ export function QuizHostView({
           </Badge>
         </div>
       </div>
+
+      {/* Live stats bar */}
+      {(quizStatus === 'question' || quizStatus === 'revealing') && (
+        <div className="bg-white/60 backdrop-blur-sm border-b border-amber-100">
+          <div className="max-w-7xl mx-auto px-4 py-2 flex items-center gap-4 flex-wrap text-xs font-medium">
+            <div className="flex items-center gap-1.5 text-amber-700">
+              <span className="relative flex h-2 w-2">
+                <span className="absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75 animate-ping" />
+                <span className="relative inline-flex h-2 w-2 rounded-full bg-green-500" />
+              </span>
+              <span className="tabular-nums font-semibold">{participants.length}</span>
+              <span className="text-amber-700/50">connected</span>
+            </div>
+            <div className="flex items-center gap-2 flex-1 max-w-[200px]">
+              <span className="text-amber-700 tabular-nums font-semibold">{answeredCount}/{participants.length}</span>
+              <div className="flex-1 h-1.5 bg-amber-100 rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-amber-500 rounded-full transition-all duration-300"
+                  style={{ width: `${participants.length > 0 ? (answeredCount / participants.length) * 100 : 0}%` }}
+                />
+              </div>
+              <span className="text-amber-700/50">answered</span>
+            </div>
+            <div className="text-amber-700/60">
+              Q<span className="font-semibold text-amber-700 tabular-nums">{currentQuestion ? currentQuestion.questionIndex + 1 : 0}</span>/{totalQuestions}
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="max-w-7xl mx-auto px-4 py-6">
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -482,6 +556,67 @@ export function QuizHostView({
               </Card>
             )}
 
+            {/* CP7: Velocity sparkline */}
+            {quizStatus === 'question' && velocityBuffer.current.length >= 2 && (
+              <Card className="border-amber-200/60 shadow-sm">
+                <CardContent className="p-4">
+                  <p className="text-[10px] font-semibold text-amber-700/50 uppercase tracking-wide mb-2">Answer Velocity</p>
+                  <svg width="100%" height={50} viewBox="0 0 200 50" preserveAspectRatio="none" style={{ overflow: 'visible' }}>
+                    <polyline
+                      points={(() => {
+                        const buf = velocityBuffer.current;
+                        if (buf.length < 2) return '';
+                        const maxT = Math.max(buf[buf.length - 1].t, 1);
+                        const maxC = Math.max(...buf.map(b => b.count), 1);
+                        return buf.map(b => `${(b.t / maxT) * 200},${50 - (b.count / maxC) * 50}`).join(' ');
+                      })()}
+                      fill="none"
+                      stroke="#d97706"
+                      strokeWidth={1.5}
+                      opacity={0.7}
+                    />
+                  </svg>
+                </CardContent>
+              </Card>
+            )}
+
+            {/* CP8: Post-question performance preview */}
+            {quizStatus === 'revealing' && questionReveal && (
+              <Card className="border-amber-200/60 shadow-sm">
+                <CardContent className="p-4 space-y-2">
+                  <p className="text-[10px] font-semibold text-amber-700/50 uppercase tracking-wide">Question Summary</p>
+                  {(() => {
+                    const dist = questionReveal.answerDistribution ?? {};
+                    const total = Object.values(dist).reduce((s: number, n: number) => s + n, 0);
+                    const correct = questionReveal.correctAnswer ? (dist[questionReveal.correctAnswer] ?? 0) : 0;
+                    const accuracy = total > 0 ? Math.round((correct / total) * 100) : 0;
+                    const unanswered = participants.length - total;
+                    const runningMean = accuracyHistory.current.length > 0
+                      ? Math.round(accuracyHistory.current.reduce((a, b) => a + b, 0) / accuracyHistory.current.length)
+                      : 50;
+                    const label = accuracy > runningMean ? 'Easier than average' : 'Harder than average';
+                    const labelColor = accuracy > runningMean ? 'text-green-600' : 'text-red-600';
+
+                    return (
+                      <div className="grid grid-cols-2 gap-2 text-center">
+                        <div className="bg-amber-50 rounded-lg p-2">
+                          <p className="text-lg font-black text-amber-900 tabular-nums">{accuracy}%</p>
+                          <p className="text-[10px] text-amber-700/50 font-semibold uppercase">Accuracy</p>
+                        </div>
+                        <div className="bg-amber-50 rounded-lg p-2">
+                          <p className="text-lg font-black text-amber-900 tabular-nums">{unanswered}</p>
+                          <p className="text-[10px] text-amber-700/50 font-semibold uppercase">Didn't Answer</p>
+                        </div>
+                        <div className="col-span-2">
+                          <p className={cn('text-xs font-semibold', labelColor)}>{label}</p>
+                        </div>
+                      </div>
+                    );
+                  })()}
+                </CardContent>
+              </Card>
+            )}
+
             {/* Participants / Leaderboard toggle */}
             <Card className="border-amber-200/60 shadow-sm overflow-hidden">
               <div className="flex border-b border-amber-100">
@@ -518,36 +653,74 @@ export function QuizHostView({
                       <p className="text-center text-amber-700/40 py-8 text-sm">
                         No players have joined yet
                       </p>
-                    ) : (
-                      participants.map((p) => (
-                        <div
-                          key={p.userId || p.displayName}
-                          className="flex items-center justify-between p-2.5 bg-amber-50/50 hover:bg-amber-50 rounded-lg transition-colors"
-                        >
-                          <div className="flex items-center gap-2.5">
-                            {/* Green = connected (always, since they're in the list) */}
-                            <span className="relative flex h-2 w-2">
-                              <span className="absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75 animate-ping" />
-                              <span className="relative inline-flex h-2 w-2 rounded-full bg-green-500" />
-                            </span>
-                            <div className="w-7 h-7 rounded-full bg-gradient-to-br from-orange-400 to-amber-500 flex items-center justify-center text-white font-bold text-xs">
-                              {p.displayName?.charAt(0).toUpperCase() || '?'}
+                    ) : (() => {
+                      // Sort by status during active questions only
+                      const isActive = quizStatus === 'question' || quizStatus === 'revealing';
+                      const displayPlayers = isActive
+                        ? [...participants].sort((a, b) => {
+                            const aDisc = a.connected === false ? 1 : 0;
+                            const bDisc = b.connected === false ? 1 : 0;
+                            if (aDisc !== bDisc) return aDisc - bDisc;
+                            const aAns = a.answered === true ? 0 : 1;
+                            const bAns = b.answered === true ? 0 : 1;
+                            return aAns - bAns;
+                          })
+                        : participants;
+
+                      return displayPlayers.map((p) => {
+                        const isDisconnected = p.connected === false;
+                        const hasAnswered = p.answered === true;
+                        const indicator = isActive
+                          ? isDisconnected
+                            ? { icon: '🔴', label: 'Disconnected', dotClass: 'bg-red-400' }
+                            : hasAnswered
+                              ? { icon: '✅', label: 'Answered', dotClass: 'bg-emerald-500' }
+                              : { icon: '⏳', label: 'Waiting', dotClass: 'bg-amber-400' }
+                          : { icon: null, label: 'Connected', dotClass: 'bg-green-500' };
+
+                        return (
+                          <div
+                            key={p.userId || p.displayName}
+                            className={cn(
+                              'flex items-center justify-between p-2.5 rounded-lg transition-colors',
+                              isDisconnected && isActive
+                                ? 'bg-red-50/40 hover:bg-red-50/60'
+                                : 'bg-amber-50/50 hover:bg-amber-50',
+                            )}
+                          >
+                            <div className="flex items-center gap-2.5">
+                              {isActive && indicator.icon ? (
+                                <span className="text-xs" title={indicator.label}>{indicator.icon}</span>
+                              ) : (
+                                <span className="relative flex h-2 w-2">
+                                  <span className="absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75 animate-ping" />
+                                  <span className="relative inline-flex h-2 w-2 rounded-full bg-green-500" />
+                                </span>
+                              )}
+                              <div className="w-7 h-7 rounded-full bg-gradient-to-br from-orange-400 to-amber-500 flex items-center justify-center text-white font-bold text-xs">
+                                {p.displayName?.charAt(0).toUpperCase() || '?'}
+                              </div>
+                              <span className={cn(
+                                'text-sm font-medium',
+                                isDisconnected && isActive ? 'text-amber-700/50 line-through' : 'text-amber-900',
+                              )}>
+                                {p.displayName}
+                              </span>
                             </div>
-                            <span className="text-sm font-medium text-amber-900">{p.displayName}</span>
+                            {quizStatus === 'lobby' && (
+                              <Button
+                                size="sm"
+                                variant="ghost"
+                                onClick={() => onKickPlayer(p.userId || '')}
+                                className="text-red-400 hover:text-red-600 hover:bg-red-50 h-7 w-7 p-0"
+                              >
+                                <UserX className="h-3.5 w-3.5" />
+                              </Button>
+                            )}
                           </div>
-                          {quizStatus === 'lobby' && (
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              onClick={() => onKickPlayer(p.userId || '')}
-                              className="text-red-400 hover:text-red-600 hover:bg-red-50 h-7 w-7 p-0"
-                            >
-                              <UserX className="h-3.5 w-3.5" />
-                            </Button>
-                          )}
-                        </div>
-                      ))
-                    )}
+                        );
+                      });
+                    })()}
                   </div>
                 ) : (
                   <QuizLeaderboard

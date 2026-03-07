@@ -20,6 +20,10 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { LeaderboardEntry } from '@/lib/quizStore';
+import {
+  LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, ReferenceLine,
+  ScatterChart, Scatter, ZAxis, CartesianGrid, Cell,
+} from 'recharts';
 
 /* ── Types ── */
 
@@ -78,6 +82,12 @@ interface QuizResult {
   questionAnalytics: QuestionAnalytic[];
   insights: Insights;
   isCreator: boolean;
+  participantAnswers: Array<{
+    userId: string;
+    questionId: string;
+    isCorrect: boolean | null;
+    answerTimeMs: number;
+  }>;
 }
 
 /* ── Accuracy bar helper ── */
@@ -504,6 +514,106 @@ export default function QuizResultsPage() {
                     </CardContent>
                   </Card>
                 )}
+
+                {/* Difficulty Curve Chart */}
+                {scoredQuestions.length > 2 && (
+                  <Card className="border-amber-200/60 shadow-sm">
+                    <CardContent className="p-5">
+                      <h3 className="text-sm font-bold text-amber-900 font-display mb-4">Difficulty Curve</h3>
+                      <div style={{ width: '100%', height: 220 }}>
+                        <ResponsiveContainer width="100%" height="100%">
+                          <LineChart
+                            data={scoredQuestions.map(q => ({
+                              name: `Q${q.position + 1}`,
+                              accuracy: q.accuracy,
+                              label: q.questionText.slice(0, 40),
+                              avgTime: (q.avgAnswerTimeMs / 1000).toFixed(1),
+                              answers: q.totalAnswers,
+                            }))}
+                            margin={{ top: 5, right: 20, bottom: 5, left: 0 }}
+                          >
+                            <XAxis dataKey="name" tick={{ fontSize: 11, fill: '#92400e' }} />
+                            <YAxis domain={[0, 100]} tick={{ fontSize: 11, fill: '#92400e' }} />
+                            <Tooltip
+                              contentStyle={{ backgroundColor: '#fffbeb', border: '1px solid #fcd34d', borderRadius: 8, fontSize: 12 }}
+                              formatter={(value: any) => [`${value}%`, 'Accuracy']}
+                              labelFormatter={(label: any) => {
+                                const q = scoredQuestions.find(sq => `Q${sq.position + 1}` === String(label));
+                                return q ? q.questionText.slice(0, 60) : String(label);
+                              }}
+                            />
+                            <ReferenceLine
+                              y={insights.avgAccuracy}
+                              stroke="#d97706"
+                              strokeDasharray="4 4"
+                              label={{ value: `Avg: ${insights.avgAccuracy}%`, position: 'right', fontSize: 10, fill: '#d97706' }}
+                            />
+                            <Line
+                              type="monotone"
+                              dataKey="accuracy"
+                              stroke="#10b981"
+                              strokeWidth={2}
+                              dot={({ cx, cy, payload }: any) => {
+                                const isHardest = insights.hardestQuestion?.position === scoredQuestions.find(q => `Q${q.position + 1}` === payload.name)?.position;
+                                const isEasiest = insights.easiestQuestion?.position === scoredQuestions.find(q => `Q${q.position + 1}` === payload.name)?.position;
+                                return (
+                                  <circle
+                                    cx={cx} cy={cy} r={isHardest || isEasiest ? 6 : 4}
+                                    fill={isHardest ? '#ef4444' : isEasiest ? '#10b981' : '#6ee7b7'}
+                                    stroke="white" strokeWidth={2}
+                                  />
+                                );
+                              }}
+                              animationDuration={800}
+                            />
+                          </LineChart>
+                        </ResponsiveContainer>
+                      </div>
+                      <p className="text-[10px] text-amber-700/40 text-center mt-1">
+                        <span className="inline-block w-2 h-2 rounded-full bg-red-400 mr-1" />Hardest
+                        <span className="inline-block w-2 h-2 rounded-full bg-emerald-400 ml-3 mr-1" />Easiest
+                        <span className="inline-block w-6 border-t border-dashed border-amber-500 ml-3 mr-1 align-middle" />Average
+                      </p>
+                    </CardContent>
+                  </Card>
+                )}
+
+                {/* Drop-off Analysis */}
+                {questionAnalytics.length > 1 && (
+                  <Card className="border-amber-200/60 shadow-sm">
+                    <CardContent className="p-5">
+                      <h3 className="text-sm font-bold text-amber-900 font-display mb-3">Participation Drop-off</h3>
+                      <div className="space-y-2">
+                        {questionAnalytics.map((q) => {
+                          const participation = insights.totalParticipants > 0
+                            ? Math.round((q.totalAnswers / insights.totalParticipants) * 100)
+                            : 0;
+                          const barColor = participation >= 90 ? 'bg-green-500' : participation >= 70 ? 'bg-amber-500' : 'bg-red-500';
+                          return (
+                            <div key={q.id} className="flex items-center gap-2">
+                              <span className="text-xs font-bold text-amber-700 w-7 text-right tabular-nums">Q{q.position + 1}</span>
+                              <div className="flex-1 h-3 bg-amber-100 rounded-full overflow-hidden">
+                                <motion.div
+                                  initial={{ width: 0 }}
+                                  animate={{ width: `${participation}%` }}
+                                  transition={{ duration: 0.5, delay: q.position * 0.05 }}
+                                  className={cn('h-full rounded-full', barColor)}
+                                />
+                              </div>
+                              <span className={cn(
+                                'text-xs font-bold tabular-nums w-10 text-right',
+                                participation >= 90 ? 'text-green-600' : participation >= 70 ? 'text-amber-600' : 'text-red-600',
+                              )}>{participation}%</span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                      <p className="text-[10px] text-amber-700/40 mt-2">
+                        Shows how many participants answered each question. Drop-offs may indicate disengagement.
+                      </p>
+                    </CardContent>
+                  </Card>
+                )}
               </motion.div>
             )}
 
@@ -548,6 +658,19 @@ export default function QuizResultsPage() {
                             <Badge variant="outline" className="border-amber-200 text-amber-600 text-[10px] py-0 px-1.5">
                               {q.questionType}
                             </Badge>
+                            {!isPollRating && (
+                              <Badge
+                                variant="outline"
+                                className={cn(
+                                  'text-[10px] py-0 px-1.5',
+                                  q.accuracy > 75 ? 'border-green-300 text-green-600 bg-green-50' :
+                                  q.accuracy >= 40 ? 'border-amber-300 text-amber-600 bg-amber-50' :
+                                  'border-red-300 text-red-600 bg-red-50',
+                                )}
+                              >
+                                {q.accuracy > 75 ? 'Easy' : q.accuracy >= 40 ? 'Medium' : 'Hard'}
+                              </Badge>
+                            )}
                             {!isPollRating && (
                               <span className={cn(
                                 'text-xs font-bold tabular-nums',
@@ -701,6 +824,79 @@ export default function QuizResultsPage() {
                   myUserId={user?.id ?? null}
                   totalQuestions={quiz.questionCount}
                 />
+
+                {/* CP9: Performance scatter chart — accuracy vs speed */}
+                {leaderboard.length > 1 && (
+                  <Card className="border-amber-200/60 shadow-sm mt-6">
+                    <CardContent className="p-5">
+                      <h3 className="text-sm font-bold text-amber-900 font-display mb-3">Accuracy vs Speed</h3>
+                      {(() => {
+                        const data = leaderboard
+                          .filter((p: any) => (p.questionsAnswered ?? quiz.questionCount) > 0)
+                          .map((p: any) => {
+                            const qAnswered = p.questionsAnswered ?? quiz.questionCount;
+                            const acc = Math.round((p.correctCount / qAnswered) * 100);
+                            const avgMs = p.correctCount > 0 ? p.totalAnswerTimeMs / p.correctCount : p.totalAnswerTimeMs / Math.max(qAnswered, 1);
+                            return { name: p.displayName, accuracy: acc, avgTimeMs: Math.round(avgMs), score: p.score };
+                          });
+                        const meanAcc = data.length > 0 ? Math.round(data.reduce((s: number, d: any) => s + d.accuracy, 0) / data.length) : 50;
+                        const meanTime = data.length > 0 ? Math.round(data.reduce((s: number, d: any) => s + d.avgTimeMs, 0) / data.length) : 5000;
+                        const maxTime = Math.max(...data.map((d: any) => d.avgTimeMs), 1);
+
+                        return (
+                          <div style={{ width: '100%', height: 280 }} className="relative">
+                            {/* Quadrant labels */}
+                            <div className="absolute top-1 left-8 text-[9px] text-green-600/40 font-semibold">Fast & Accurate</div>
+                            <div className="absolute top-1 right-2 text-[9px] text-amber-600/40 font-semibold">Quick Guessers</div>
+                            <div className="absolute bottom-6 left-8 text-[9px] text-blue-600/40 font-semibold">Slow but Sure</div>
+                            <div className="absolute bottom-6 right-2 text-[9px] text-red-600/40 font-semibold">Struggling</div>
+                            <ResponsiveContainer width="100%" height="100%">
+                              <ScatterChart margin={{ top: 10, right: 20, bottom: 20, left: 0 }}>
+                                <CartesianGrid strokeDasharray="3 3" stroke="#fef3c7" />
+                                <XAxis
+                                  type="number" dataKey="accuracy" name="Accuracy" unit="%"
+                                  domain={[0, 100]} tick={{ fontSize: 10, fill: '#92400e' }}
+                                  label={{ value: 'Accuracy %', position: 'bottom', fontSize: 10, fill: '#92400e', offset: 0 }}
+                                />
+                                <YAxis
+                                  type="number" dataKey="avgTimeMs" name="Avg Time" unit="ms"
+                                  domain={[0, maxTime + 500]} tick={{ fontSize: 10, fill: '#92400e' }} reversed
+                                  label={{ value: 'Speed (ms, lower=faster)', angle: -90, position: 'insideLeft', fontSize: 10, fill: '#92400e' }}
+                                />
+                                <ZAxis type="number" dataKey="score" range={[40, 200]} />
+                                <Tooltip
+                                  contentStyle={{ backgroundColor: '#fffbeb', border: '1px solid #fcd34d', borderRadius: 8, fontSize: 11 }}
+                                  formatter={(value: any, name: any) => {
+                                    if (name === 'Accuracy') return [`${value}%`, name];
+                                    if (name === 'Avg Time') return [`${(Number(value) / 1000).toFixed(1)}s`, name];
+                                    return [value, name];
+                                  }}
+                                  labelFormatter={() => ''}
+                                />
+                                <ReferenceLine x={meanAcc} stroke="#d97706" strokeDasharray="4 4" />
+                                <ReferenceLine y={meanTime} stroke="#d97706" strokeDasharray="4 4" />
+                                <Scatter name="Players" data={data}>
+                                  {data.map((_: any, i: number) => (
+                                    <Cell key={i} fill={i < 3 ? '#10b981' : '#f59e0b'} opacity={0.7} />
+                                  ))}
+                                </Scatter>
+                              </ScatterChart>
+                            </ResponsiveContainer>
+                          </div>
+                        );
+                      })()}
+                    </CardContent>
+                  </Card>
+                )}
+
+                {/* CP10: Performance Heatmap — player × question grid */}
+                {isCreator && (result?.participantAnswers?.length ?? 0) > 0 && (
+                  <HeatmapGrid
+                    participantAnswers={result!.participantAnswers}
+                    leaderboard={leaderboard}
+                    questionAnalytics={questionAnalytics}
+                  />
+                )}
               </motion.div>
             )}
           </AnimatePresence>
@@ -733,5 +929,115 @@ export default function QuizResultsPage() {
         </div>
       </div>
     </Layout>
+  );
+}
+
+/* ── HeatmapGrid ── */
+
+interface HeatmapGridProps {
+  participantAnswers: Array<{
+    userId: string;
+    questionId: string;
+    isCorrect: boolean | null;
+    answerTimeMs: number;
+  }>;
+  leaderboard: Array<{
+    userId: string;
+    displayName: string;
+    score: number;
+    [k: string]: any;
+  }>;
+  questionAnalytics: Array<QuestionAnalytic>;
+}
+
+function HeatmapGrid({ participantAnswers, leaderboard, questionAnalytics }: HeatmapGridProps) {
+  const topPlayers = leaderboard.slice(0, 20);
+  const sortedQuestions = [...questionAnalytics].sort((a, b) => a.position - b.position);
+
+  const answerMap = new Map<string, { isCorrect: boolean | null; answerTimeMs: number }>();
+  participantAnswers.forEach(a => {
+    answerMap.set(`${a.userId}::${a.questionId}`, { isCorrect: a.isCorrect, answerTimeMs: a.answerTimeMs });
+  });
+
+  function getCellColor(userId: string, questionId: string, timeLimitSeconds: number): string {
+    const record = answerMap.get(`${userId}::${questionId}`);
+    if (!record) return '#e5e7eb';
+    if (record.isCorrect === null) return '#fde68a';
+    if (!record.isCorrect) return '#fca5a5';
+    const timeRatio = record.answerTimeMs / (timeLimitSeconds * 1000);
+    if (timeRatio <= 0.4) return '#059669';
+    if (timeRatio <= 0.7) return '#34d399';
+    return '#a7f3d0';
+  }
+
+  function getCellTitle(userId: string, questionId: string): string {
+    const record = answerMap.get(`${userId}::${questionId}`);
+    if (!record) return 'No answer submitted';
+    if (record.isCorrect === null) return `Responded in ${(record.answerTimeMs / 1000).toFixed(1)}s`;
+    return `${record.isCorrect ? '✓ Correct' : '✗ Wrong'} — ${(record.answerTimeMs / 1000).toFixed(1)}s`;
+  }
+
+  if (topPlayers.length === 0 || sortedQuestions.length === 0) return null;
+
+  return (
+    <Card className="border-amber-200/60 shadow-sm mt-6">
+      <CardContent className="p-5">
+        <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+          <h3 className="text-sm font-bold text-amber-900 font-display">Performance Heatmap</h3>
+          <div className="flex items-center gap-3 text-[10px] text-amber-700/70 flex-wrap">
+            <span className="flex items-center gap-1">
+              <span className="inline-block w-3 h-3 rounded-sm" style={{ backgroundColor: '#059669' }} /> Fast correct
+            </span>
+            <span className="flex items-center gap-1">
+              <span className="inline-block w-3 h-3 rounded-sm" style={{ backgroundColor: '#a7f3d0' }} /> Slow correct
+            </span>
+            <span className="flex items-center gap-1">
+              <span className="inline-block w-3 h-3 rounded-sm" style={{ backgroundColor: '#fca5a5' }} /> Wrong
+            </span>
+            <span className="flex items-center gap-1">
+              <span className="inline-block w-3 h-3 rounded-sm" style={{ backgroundColor: '#e5e7eb' }} /> No answer
+            </span>
+          </div>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="text-xs border-collapse" style={{ minWidth: sortedQuestions.length * 32 + 140 }}>
+            <thead>
+              <tr>
+                <th className="text-left text-amber-800/60 font-medium pr-3 pb-1" style={{ width: 140, minWidth: 140 }}>Player</th>
+                {sortedQuestions.map((q, i) => (
+                  <th key={q.id} className="text-center text-amber-800/60 font-medium pb-1" style={{ width: 28, minWidth: 28 }} title={`Question ${i + 1}`}>
+                    Q{i + 1}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {topPlayers.map((player, rowIdx) => (
+                <tr key={player.userId}>
+                  <td className="pr-3 py-0.5 text-amber-900 font-medium truncate" style={{ maxWidth: 140 }} title={player.displayName}>
+                    <span className="text-amber-500/60 mr-1">#{rowIdx + 1}</span>
+                    {player.displayName}
+                  </td>
+                  {sortedQuestions.map(q => (
+                    <td key={q.id} className="py-0.5 px-0.5" title={getCellTitle(player.userId, q.id)}>
+                      <div
+                        style={{
+                          width: 22, height: 22, borderRadius: 3,
+                          backgroundColor: getCellColor(player.userId, q.id, q.timeLimitSeconds),
+                          margin: '0 auto',
+                        }}
+                      />
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        <p className="text-[10px] text-amber-700/40 mt-2">
+          Showing top {Math.min(topPlayers.length, 20)} players by score. Hover cells for details.
+        </p>
+      </CardContent>
+    </Card>
   );
 }

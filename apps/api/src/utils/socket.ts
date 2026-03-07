@@ -32,11 +32,9 @@ export function initializeSocket(httpServer: HTTPServer) {
     },
     pingTimeout: 60000,
     pingInterval: 25000,
-    transports: ['websocket', 'polling'],
-    connectionStateRecovery: {
-      maxDisconnectionDuration: 2 * 60 * 1000,
-      skipMiddlewares: false,
-    },
+    transports: ['websocket'],
+    maxHttpBufferSize: 1e6,
+    upgradeTimeout: 10000,
   });
 
   io.on('connection', (socket) => {

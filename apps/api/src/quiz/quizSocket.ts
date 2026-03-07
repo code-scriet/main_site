@@ -12,6 +12,47 @@ import { quizStore } from './quizStore.js';
 import type { QuizQuestionData } from './quizStore.js';
 import type { QuizRoom } from './quizStore.js';
 
+// ─── Throttle map for answer_count_update broadcasts ─────────────────────────
+const answerCountThrottles = new Map<string, NodeJS.Timeout>();
+
+function scheduleAnswerCountBroadcast(quizId: string, ns: { to: (room: string) => { emit: (ev: string, data: any) => void } }): void {
+  if (answerCountThrottles.has(quizId)) return;
+
+  answerCountThrottles.set(quizId, setTimeout(() => {
+    answerCountThrottles.delete(quizId);
+    const room = quizStore.getRoom(quizId);
+    if (!room || room.status !== 'active') return;
+
+    const players = Array.from(room.players.values());
+    const answered = players.filter(p => p.answeredCurrentQuestion).length;
+    const total = players.filter(p => p.connected).length;
+
+    ns.to(quizId).emit('answer_count_update', { answered, total });
+
+    // Host-only unicast — per-player answered + connected status
+    if (room.adminSocketId) {
+      const playerStatuses = [...room.players.entries()].map(([userId, player]) => ({
+        userId,
+        answered: player.answeredCurrentQuestion,
+        connected: player.connected,
+      }));
+      ns.to(room.adminSocketId).emit('player_status_update', playerStatuses);
+    }
+
+    if (answered >= total && total > 0 && room.adminSocketId) {
+      ns.to(room.adminSocketId).emit('all_answered', {});
+    }
+  }, 1000));
+}
+
+function clearAnswerCountThrottle(quizId: string): void {
+  const timer = answerCountThrottles.get(quizId);
+  if (timer) {
+    clearTimeout(timer);
+    answerCountThrottles.delete(quizId);
+  }
+}
+
 // Extend socket type to include our custom properties
 interface QuizSocket extends Socket {
   userId?: string;
@@ -115,12 +156,31 @@ export function initQuizSocket(io: SocketIOServer) {
     const currentQ = room.questions[room.currentQuestionIndex];
     if (!currentQ || room.currentQuestionIndex < 0) return;
 
+    clearAnswerCountThrottle(quizId);
+
+    const fullLeaderboard = quizStore.getLeaderboard(quizId);
+    const answerDistribution = quizStore.getAnswerDistribution(quizId);
+
+    // Broadcast top-10 leaderboard to all (slim payload)
     quizNamespace.to(quizId).emit('question_results', {
       correctAnswer: currentQ.correctAnswer,
-      leaderboard: quizStore.getLeaderboard(quizId),
-      answerDistribution: quizStore.getAnswerDistribution(quizId),
+      leaderboard: fullLeaderboard.slice(0, 10),
+      answerDistribution,
       questionIndex: room.currentQuestionIndex,
     });
+
+    // Send each player their personal rank (targeted, not broadcast)
+    for (let i = 0; i < fullLeaderboard.length; i++) {
+      const entry = fullLeaderboard[i];
+      const player = room.players.get(entry.userId);
+      if (player?.socketId && player.connected) {
+        quizNamespace.to(player.socketId).emit('my_rank_update', {
+          rank: i + 1,
+          totalPlayers: fullLeaderboard.length,
+          score: entry.score,
+        });
+      }
+    }
   };
 
   quizNamespace.on('connection', (socket: QuizSocket) => {
@@ -285,6 +345,16 @@ export function initQuizSocket(io: SocketIOServer) {
             displayName: socket.userDisplayName,
             totalPlayers: players.length,
           });
+
+          // Host-only: refresh player status list
+          if (room.adminSocketId && room.status === 'active') {
+            const playerStatuses = [...room.players.entries()].map(([userId, player]) => ({
+              userId,
+              answered: player.answeredCurrentQuestion,
+              connected: player.connected,
+            }));
+            quizNamespace.to(room.adminSocketId).emit('player_status_update', playerStatuses);
+          }
         }
       } catch (error) {
         logger.error('join_quiz error', { error: error instanceof Error ? error.message : String(error) });
@@ -366,6 +436,16 @@ export function initQuizSocket(io: SocketIOServer) {
             q, advancement.questionIndex!, room.meta.totalQuestions,
           ));
 
+          // Host-only: reset status — everyone is ⏳ at question start
+          if (room.adminSocketId) {
+            const playerStatuses = [...room.players.entries()].map(([userId, player]) => ({
+              userId,
+              answered: false,
+              connected: player.connected,
+            }));
+            quizNamespace.to(room.adminSocketId).emit('player_status_update', playerStatuses);
+          }
+
           // Auto-advance timer
           room.autoAdvanceTimer = setTimeout(() => {
             handleAutoAdvance(quizId);
@@ -427,6 +507,16 @@ export function initQuizSocket(io: SocketIOServer) {
           q, advancement.questionIndex!, room.meta.totalQuestions,
         ));
 
+        // Host-only: reset status
+        if (room.adminSocketId) {
+          const playerStatuses = [...room.players.entries()].map(([userId, player]) => ({
+            userId,
+            answered: false,
+            connected: player.connected,
+          }));
+          quizNamespace.to(room.adminSocketId).emit('player_status_update', playerStatuses);
+        }
+
         room.autoAdvanceTimer = setTimeout(() => {
           handleAutoAdvance(quizId);
         }, (q.timeLimitSeconds + 3) * 1000);
@@ -455,16 +545,14 @@ export function initQuizSocket(io: SocketIOServer) {
         accepted: true,
       });
 
-      // Broadcast answer count to room
+      // Throttled broadcast of answer count to room
       const room = quizStore.getRoom(quizId);
       if (room) {
         const currentQ = room.questions[room.currentQuestionIndex];
         const isPollOrRating = currentQ && (currentQ.questionType === 'POLL' || currentQ.questionType === 'RATING');
 
-        quizNamespace.to(quizId).emit('answer_count_update', {
-          answered: room.currentAnswers.size,
-          total: room.players.size,
-        });
+        // Throttled: batches updates to max ~1.3×/sec
+        scheduleAnswerCountBroadcast(quizId, quizNamespace);
 
         // For POLL/RATING: broadcast live results to everyone as votes come in
         if (isPollOrRating) {
@@ -472,11 +560,6 @@ export function initQuizSocket(io: SocketIOServer) {
             distribution: quizStore.getAnswerDistribution(quizId),
             totalResponses: room.currentAnswers.size,
           });
-        }
-
-        // Notify admin if all answered
-        if (result.allAnswered && room.adminSocketId) {
-          quizNamespace.to(room.adminSocketId).emit('all_answered', {});
         }
       }
     });
@@ -649,6 +732,16 @@ export function initQuizSocket(io: SocketIOServer) {
         quizNamespace.to(quizId).emit('show_question', sanitizeQuestionForClient(
           q, advancement.questionIndex!, room.meta.totalQuestions,
         ));
+
+        // Host-only: reset status
+        if (room.adminSocketId) {
+          const playerStatuses = [...room.players.entries()].map(([userId, player]) => ({
+            userId,
+            answered: false,
+            connected: player.connected,
+          }));
+          quizNamespace.to(room.adminSocketId).emit('player_status_update', playerStatuses);
+        }
         room.autoAdvanceTimer = setTimeout(() => {
           handleAutoAdvance(quizId);
         }, (q.timeLimitSeconds + 3) * 1000);
@@ -678,6 +771,16 @@ export function initQuizSocket(io: SocketIOServer) {
           displayName: result.displayName,
           connectedPlayers: result.connectedPlayers,
         });
+
+        // Host-only: refresh player status to show 🔴 immediately
+        if (room.adminSocketId) {
+          const playerStatuses = [...room.players.entries()].map(([userId, player]) => ({
+            userId,
+            answered: player.answeredCurrentQuestion,
+            connected: player.connected,
+          }));
+          quizNamespace.to(room.adminSocketId).emit('player_status_update', playerStatuses);
+        }
       }
 
       // Schedule cleanup if no participants are connected
@@ -720,6 +823,16 @@ export function initQuizSocket(io: SocketIOServer) {
         quizNamespace.to(quizId).emit('show_question', sanitizeQuestionForClient(
           q, advancement.questionIndex!, updatedRoom.meta.totalQuestions,
         ));
+
+        // Host-only: reset status
+        if (updatedRoom.adminSocketId) {
+          const playerStatuses = [...updatedRoom.players.entries()].map(([userId, player]) => ({
+            userId,
+            answered: false,
+            connected: player.connected,
+          }));
+          quizNamespace.to(updatedRoom.adminSocketId).emit('player_status_update', playerStatuses);
+        }
 
         updatedRoom.autoAdvanceTimer = setTimeout(() => {
           handleAutoAdvance(quizId);

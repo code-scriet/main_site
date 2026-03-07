@@ -33,8 +33,8 @@ export function useQuizSocket() {
       reconnectionAttempts: Infinity,
       reconnectionDelay: 1000,
       reconnectionDelayMax: 5000,
-      timeout: 10000,
-      transports: ['websocket', 'polling'],
+      timeout: 20000,
+      transports: ['websocket'],
     });
 
     socketRef.current = socket;
@@ -73,8 +73,12 @@ export function useQuizSocket() {
     socket.on('quiz_resumed', (data) => store.getState().quizResumed(data));
     socket.on('timer_extended', (data) => store.getState().timerExtended(data));
     socket.on('player_kicked', () => store.getState().playerKicked());
+    socket.on('my_rank_update', (data) => store.getState().myRankUpdated(data));
     socket.on('control_action_blocked', (data) => {
       console.warn('[QuizControlBlocked]', data);
+    });
+    socket.on('player_status_update', (statuses: Array<{ userId: string; answered: boolean; connected: boolean }>) => {
+      store.getState().playerStatusUpdated(statuses);
     });
 
     socket.on('quiz_error', (err) => {
