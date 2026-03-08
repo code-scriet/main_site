@@ -54,55 +54,18 @@ const templateTextColor: Record<Template, string> = {
 
 function CertCard({ cert }: { cert: Certificate }) {
   const verifyUrl = `${window.location.origin}/verify/${cert.certId}`;
-  const [downloading, setDownloading] = useState(false);
 
-  async function handleDownload() {
-    setDownloading(true);
-    const filename = `certificate-${cert.certId}.pdf`;
-    try {
-      // Always fetch as blob — the `download` attribute on <a> is silently ignored
-      // for cross-origin URLs (API is on a different domain than the frontend in
-      // production), which causes Chrome to navigate and show "Failed to load PDF
-      // document". Fetching as blob gives us a same-origin blob URL where `download`
-      // is respected and file type is forced to octet-stream so Chrome doesn't
-      // intercept it with its built-in PDF viewer.
-      const localUrl = `${API_URL}/certificates/files/${cert.certId}.pdf`;
-      let fetchUrl: string;
-
-      const head = await fetch(localUrl, { method: 'HEAD' });
-      if (head.ok) {
-        fetchUrl = localUrl;
-      } else if (head.status === 404 && cert.pdfUrl) {
-        fetchUrl = cert.pdfUrl;
-      } else {
-        throw new Error(
-          head.status === 404
-            ? 'Certificate file not found on server.'
-            : `Server error (${head.status})`
-        );
-      }
-
-      const res = await fetch(fetchUrl);
-      if (!res.ok) throw new Error(`Failed to fetch PDF (${res.status})`);
-      const raw = await res.blob();
-      const blob = new Blob([raw], { type: 'application/octet-stream' });
-      const blobUrl = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = blobUrl;
-      a.download = filename;
-      a.style.display = 'none';
-      document.body.appendChild(a);
-      a.click();
-      setTimeout(() => {
-        URL.revokeObjectURL(blobUrl);
-        if (document.body.contains(a)) document.body.removeChild(a);
-      }, 10000);
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Unknown error';
-      toast.error(`Download failed: ${msg}`);
-    } finally {
-      setDownloading(false);
-    }
+  function handleDownload() {
+    // The /download/:certId endpoint is public and handles both local files and
+    // Cloudinary-stored PDFs server-side, responding with Content-Disposition: attachment.
+    // Navigating to it triggers a browser download without any cross-origin blob issues.
+    const url = `${API_URL}/certificates/download/${cert.certId}`;
+    const a = document.createElement('a');
+    a.href = url;
+    a.style.display = 'none';
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(() => { if (document.body.contains(a)) document.body.removeChild(a); }, 1000);
   }
 
   function copyLink() {
@@ -152,11 +115,10 @@ function CertCard({ cert }: { cert: Certificate }) {
           <Button
             size="sm"
             onClick={handleDownload}
-            disabled={downloading}
             className="flex-1 gap-1.5 bg-amber-500 hover:bg-amber-600 text-white text-xs"
           >
-            {downloading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
-            {downloading ? 'Downloading…' : 'Download PDF'}
+            <Download className="w-3.5 h-3.5" />
+            Download PDF
           </Button>
         )}
         <Button

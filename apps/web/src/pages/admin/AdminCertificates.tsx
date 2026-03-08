@@ -298,50 +298,18 @@ export default function AdminCertificates() {
     navigator.clipboard.writeText(url).then(() => toast.success('Verify link copied!')).catch(() => toast.error('Copy failed'));
   }
 
-  async function downloadPdf(storedPdfUrl: string, certId: string) {
-    const filename = `certificate-${certId}.pdf`;
-    try {
-      // Always fetch as blob — the `download` attribute on <a> is silently ignored
-      // for cross-origin URLs (API is on a different domain than the frontend in
-      // production), which causes Chrome to navigate and show "Failed to load PDF
-      // document". Fetching as blob gives us a same-origin blob URL where `download`
-      // is respected and file type is forced to octet-stream so Chrome doesn't
-      // intercept it with its built-in PDF viewer.
-      const localUrl = `${API_URL}/certificates/files/${certId}.pdf`;
-      let fetchUrl: string;
-
-      const head = await fetch(localUrl, { method: 'HEAD' });
-      if (head.ok) {
-        fetchUrl = localUrl;
-      } else if (head.status === 404 && storedPdfUrl) {
-        fetchUrl = storedPdfUrl;
-      } else {
-        throw new Error(
-          head.status === 404
-            ? 'PDF file not found on server (may have been generated elsewhere)'
-            : `Server error (${head.status})`
-        );
-      }
-
-      const res = await fetch(fetchUrl);
-      if (!res.ok) throw new Error(`Failed to fetch PDF (${res.status})`);
-      const raw = await res.blob();
-      const blob = new Blob([raw], { type: 'application/octet-stream' });
-      const blobUrl = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = blobUrl;
-      a.download = filename;
-      a.style.display = 'none';
-      document.body.appendChild(a);
-      a.click();
-      setTimeout(() => {
-        URL.revokeObjectURL(blobUrl);
-        if (document.body.contains(a)) document.body.removeChild(a);
-      }, 10000);
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : 'Unknown error';
-      toast.error(`PDF download failed: ${msg}`);
-    }
+  function downloadPdf(storedPdfUrl: string, certId: string) {
+    // The /download/:certId endpoint is public and handles both local files and
+    // Cloudinary-stored PDFs server-side, responding with Content-Disposition: attachment.
+    // Navigating to it triggers a browser download without any cross-origin blob issues.
+    void storedPdfUrl; // resolved server-side
+    const url = `${API_URL}/certificates/download/${certId}`;
+    const a = document.createElement('a');
+    a.href = url;
+    a.style.display = 'none';
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(() => { if (document.body.contains(a)) document.body.removeChild(a); }, 1000);
   }
 
   return (

@@ -76,6 +76,74 @@ certificatesRouter.get('/files/:filename', (req: Request, res: Response) => {
 });
 
 // ──────────────────────────────────────────────────────────────────
+// PUBLIC: Download a certificate PDF by certId — proxies local file or Cloudinary
+// so the frontend never needs cross-origin fetch or blob workarounds.
+// GET /api/certificates/download/:certId
+// ──────────────────────────────────────────────────────────────────
+certificatesRouter.get('/download/:certId', async (req: Request, res: Response) => {
+  const { certId } = req.params;
+  if (!/^[A-Z0-9\-]{10,20}$/i.test(certId)) {
+    return res.status(400).json({ error: 'Invalid certificate ID' });
+  }
+
+  const upperCertId = certId.toUpperCase();
+  const filename = `${upperCertId}.pdf`;
+  const localPath = path.join(LOCAL_CERT_DIR, filename);
+
+  res.setHeader('Content-Type', 'application/pdf');
+  res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+  res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+
+  // Serve from local disk if available
+  if (fs.existsSync(localPath)) {
+    return res.sendFile(localPath);
+  }
+
+  // Otherwise look up pdfUrl in DB and proxy from Cloudinary (or wherever it's stored)
+  try {
+    const cert = await prisma.certificate.findUnique({
+      where: { certId: upperCertId },
+      select: { pdfUrl: true, isRevoked: true },
+    });
+
+    if (!cert) {
+      return res.status(404).json({ error: 'Certificate not found.' });
+    }
+    if (cert.isRevoked) {
+      return res.status(403).json({ error: 'Certificate has been revoked.' });
+    }
+    if (!cert.pdfUrl) {
+      return res.status(404).json({ error: 'No PDF available for this certificate.' });
+    }
+
+    // Pipe the remote file (Cloudinary, etc.) directly to the client
+    const upstream = await fetch(cert.pdfUrl);
+    if (!upstream.ok) {
+      return res.status(502).json({ error: 'Failed to fetch PDF from storage.' });
+    }
+
+    // Stream the body to the response
+    const reader = upstream.body?.getReader();
+    if (!reader) {
+      return res.status(502).json({ error: 'Empty response from storage.' });
+    }
+
+    const pump = async () => {
+      const { done, value } = await reader.read();
+      if (done) { res.end(); return; }
+      res.write(value);
+      await pump();
+    };
+    await pump();
+  } catch (error) {
+    logger.error('Certificate download failed', { certId, error });
+    if (!res.headersSent) {
+      return res.status(500).json({ error: 'Internal server error.' });
+    }
+  }
+});
+
+// ──────────────────────────────────────────────────────────────────
 // PRIVATE: Admin list all certificates with pagination + filters
 // GET /api/certificates
 // ──────────────────────────────────────────────────────────────────
