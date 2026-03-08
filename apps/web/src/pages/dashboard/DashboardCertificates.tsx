@@ -15,6 +15,8 @@ import {
 import { toast } from 'sonner';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5001/api';
+// Base without trailing /api — used to build the files download URL
+const API_BASE = API_URL.replace(/\/api$/, '');
 
 type CertType = 'PARTICIPATION' | 'COMPLETION' | 'WINNER' | 'SPEAKER';
 type Template = 'gold' | 'dark' | 'white' | 'emerald';
@@ -52,15 +54,18 @@ const templateTextColor: Record<Template, string> = {
   emerald: 'text-emerald-900',
 };
 
-function CertCard({ cert }: { cert: Certificate }) {
+function CertCard({ cert, token }: { cert: Certificate; token: string | null }) {
   const verifyUrl = `${window.location.origin}/verify/${cert.certId}`;
   const [downloading, setDownloading] = useState(false);
 
   async function handleDownload() {
-    if (!cert.pdfUrl) return;
     setDownloading(true);
     try {
-      const res = await fetch(cert.pdfUrl);
+      // Always reconstruct the URL from the API base + certId to avoid stale absolute URLs
+      const downloadUrl = `${API_BASE}/api/certificates/files/${cert.certId}.pdf`;
+      const headers: Record<string, string> = {};
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+      const res = await fetch(downloadUrl, { headers });
       if (!res.ok) throw new Error(`Server returned ${res.status}`);
       const blob = await res.blob();
       const objUrl = URL.createObjectURL(blob);
@@ -72,8 +77,9 @@ function CertCard({ cert }: { cert: Certificate }) {
       a.click();
       document.body.removeChild(a);
       URL.revokeObjectURL(objUrl);
-    } catch {
-      toast.error('Download failed. The certificate file may not be available yet. Please contact an admin.');
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Unknown error';
+      toast.error(`Download failed: ${msg}. Please contact an admin.`);
     } finally {
       setDownloading(false);
     }
@@ -214,7 +220,7 @@ export default function DashboardCertificates() {
         <>
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {certs.map(cert => (
-              <CertCard key={cert.certId} cert={cert} />
+              <CertCard key={cert.certId} cert={cert} token={token} />
             ))}
           </div>
 

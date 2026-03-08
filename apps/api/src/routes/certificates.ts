@@ -56,6 +56,26 @@ const revokeSchema = z.object({
 });
 
 // ──────────────────────────────────────────────────────────────────
+// PUBLIC: Serve locally-stored certificate PDF files (MUST be first to avoid /:certId conflict)
+// GET /api/certificates/files/:filename
+// ──────────────────────────────────────────────────────────────────
+certificatesRouter.get('/files/:filename', (req: Request, res: Response) => {
+  const { filename } = req.params;
+  // Only allow safe filenames: alphanumeric + hyphens + .pdf
+  if (!/^[A-Z0-9\-]{10,20}\.pdf$/i.test(filename)) {
+    return res.status(400).json({ error: 'Invalid filename' });
+  }
+  const filePath = path.join(LOCAL_CERT_DIR, filename);
+  if (!fs.existsSync(filePath)) {
+    return res.status(404).json({ error: 'Certificate file not found.' });
+  }
+  res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+  res.setHeader('Content-Type', 'application/pdf');
+  res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+  return res.sendFile(filePath);
+});
+
+// ──────────────────────────────────────────────────────────────────
 // PRIVATE: Admin list all certificates with pagination + filters
 // GET /api/certificates
 // ──────────────────────────────────────────────────────────────────
@@ -444,27 +464,6 @@ certificatesRouter.post('/:certId/resend', authMiddleware, requireRole('ADMIN'),
     logger.error('Failed to resend certificate email', { certId, error });
     return ApiResponse.error(res, { code: ErrorCodes.INTERNAL_ERROR, message: 'Failed to resend email', status: 500 });
   }
-});
-
-// ──────────────────────────────────────────────────────────────────
-// PUBLIC: Serve locally-stored certificate PDF files
-// GET /api/certificates/files/:filename
-// ──────────────────────────────────────────────────────────────────
-certificatesRouter.get('/files/:filename', (req: Request, res: Response) => {
-  const { filename } = req.params;
-  // Only allow safe filenames: XXXX-XXXX-XXXX.pdf pattern
-  if (!/^[A-Z0-9\-]{14}\.pdf$/i.test(filename)) {
-    return res.status(400).json({ error: 'Invalid filename' });
-  }
-  const filePath = path.join(LOCAL_CERT_DIR, filename);
-  if (!fs.existsSync(filePath)) {
-    return res.status(404).json({ error: 'Certificate file not found. It may have been generated on a different server or the file was removed.' });
-  }
-  // Override Helmet's same-origin CORP so cross-origin fetch (frontend download) works
-  res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
-  res.setHeader('Content-Type', 'application/pdf');
-  res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
-  return res.sendFile(filePath);
 });
 
 // ──────────────────────────────────────────────────────────────────

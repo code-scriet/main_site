@@ -30,6 +30,7 @@ import {
 import { toast } from 'sonner';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5001/api';
+const API_BASE = API_URL.replace(/\/api$/, '');
 
 const CERT_TYPES = ['PARTICIPATION', 'COMPLETION', 'WINNER', 'SPEAKER'] as const;
 const TEMPLATES = ['gold', 'dark', 'white', 'emerald'] as const;
@@ -298,9 +299,13 @@ export default function AdminCertificates() {
     navigator.clipboard.writeText(url).then(() => toast.success('Verify link copied!')).catch(() => toast.error('Copy failed'));
   }
 
-  async function downloadPdf(pdfUrl: string, certId: string) {
+  async function downloadPdf(_pdfUrl: string, certId: string) {
     try {
-      const res = await fetch(pdfUrl);
+      // Always reconstruct from API base + certId to avoid stale stored absolute URLs
+      const downloadUrl = `${API_BASE}/api/certificates/files/${certId}.pdf`;
+      const headers: Record<string, string> = {};
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+      const res = await fetch(downloadUrl, { headers });
       if (!res.ok) throw new Error(`Server returned ${res.status}`);
       const blob = await res.blob();
       const objUrl = URL.createObjectURL(blob);
@@ -312,8 +317,9 @@ export default function AdminCertificates() {
       a.click();
       document.body.removeChild(a);
       URL.revokeObjectURL(objUrl);
-    } catch {
-      toast.error('PDF download failed. The file may not exist on this server.');
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Unknown error';
+      toast.error(`PDF download failed: ${msg}`);
     }
   }
 
