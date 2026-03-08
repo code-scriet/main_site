@@ -22,6 +22,9 @@ build/
 *.db
 *.db-journal
 
+# Uploaded/generated files (certificates stored locally in dev)
+apps/api/uploads/
+
 # Logs
 logs/
 *.log
