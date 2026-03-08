@@ -74,14 +74,16 @@ export default function DashboardLayout() {
   // Check if academic details are missing — skip for staff roles (they don't have student fields)
   const isStaff = user?.role === 'CORE_MEMBER' || user?.role === 'ADMIN' || user?.role === 'PRESIDENT';
   const needsProfileCompletion = user && !isStaff && (!user.phone || !user.course || !user.branch || !user.year);
-  const isOnProfilePage = location.pathname === '/dashboard/profile';
 
-  // Redirect to profile page if academic details are missing (except when already on profile)
+  // Pages that are accessible even when profile is incomplete (read-only views)
+  const profileExemptPaths = ['/dashboard/profile', '/dashboard/certificates'];
+
+  // Redirect to profile page if academic details are missing (except on exempt pages)
   useEffect(() => {
-    if (needsProfileCompletion && !isOnProfilePage) {
+    if (needsProfileCompletion && !profileExemptPaths.includes(location.pathname)) {
       navigate('/dashboard/profile');
     }
-  }, [needsProfileCompletion, isOnProfilePage, navigate]);
+  }, [needsProfileCompletion, location.pathname, navigate]);
 
   const isCoreMember = user?.role === 'CORE_MEMBER' || user?.role === 'ADMIN' || user?.role === 'PRESIDENT';
   const isAdmin = user?.role === 'ADMIN' || user?.role === 'PRESIDENT';

@@ -67,7 +67,10 @@ function CertCard({ cert }: { cert: Certificate }) {
       const a = document.createElement('a');
       a.href = objUrl;
       a.download = `certificate-${cert.certId}.pdf`;
+      a.style.display = 'none';
+      document.body.appendChild(a);
       a.click();
+      document.body.removeChild(a);
       URL.revokeObjectURL(objUrl);
     } catch {
       toast.error('Download failed. The certificate file may not be available yet. Please contact an admin.');

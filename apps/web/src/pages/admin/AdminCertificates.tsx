@@ -307,7 +307,10 @@ export default function AdminCertificates() {
       const a = document.createElement('a');
       a.href = objUrl;
       a.download = `certificate-${certId}.pdf`;
+      a.style.display = 'none';
+      document.body.appendChild(a);
       a.click();
+      document.body.removeChild(a);
       URL.revokeObjectURL(objUrl);
     } catch {
       toast.error('PDF download failed. The file may not exist on this server.');
