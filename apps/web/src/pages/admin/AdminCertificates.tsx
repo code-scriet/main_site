@@ -298,35 +298,35 @@ export default function AdminCertificates() {
     navigator.clipboard.writeText(url).then(() => toast.success('Verify link copied!')).catch(() => toast.error('Copy failed'));
   }
 
-  async function downloadPdf(_pdfUrl: string, certId: string) {
+  async function downloadPdf(storedPdfUrl: string, certId: string) {
     try {
-      // The /files/:filename endpoint is public — no auth header needed
-      const downloadUrl = `${API_URL}/certificates/files/${certId}.pdf`;
-      const res = await fetch(downloadUrl);
-      if (!res.ok) {
+      const localUrl = `${API_URL}/certificates/files/${certId}.pdf`;
+
+      // Determine which URL to download from
+      let downloadUrl: string;
+      const head = await fetch(localUrl, { method: 'HEAD' });
+      if (head.ok) {
+        downloadUrl = localUrl;
+      } else if (head.status === 404 && storedPdfUrl) {
+        // Fallback to stored URL (e.g. Cloudinary in production)
+        downloadUrl = storedPdfUrl;
+      } else {
         throw new Error(
-          res.status === 404
+          head.status === 404
             ? 'PDF file not found on server (may have been generated elsewhere)'
-            : `Server error (${res.status})`
+            : `Server error (${head.status})`
         );
       }
-      const contentType = res.headers.get('content-type') || '';
-      if (!contentType.includes('pdf')) {
-        throw new Error('Server did not return a valid PDF file.');
-      }
-      const blob = await res.blob();
-      const objUrl = URL.createObjectURL(blob);
+
+      // Use a direct anchor click — the server sends Content-Disposition: attachment
+      // which forces download without navigating away. Avoids blob URL revocation
+      // race condition that caused "Failed to load PDF document" in Chrome.
       const a = document.createElement('a');
-      a.href = objUrl;
-      a.download = `certificate-${certId}.pdf`;
+      a.href = downloadUrl;
       a.style.display = 'none';
       document.body.appendChild(a);
       a.click();
-      // Defer cleanup so browser has time to initiate the download
-      setTimeout(() => {
-        document.body.removeChild(a);
-        URL.revokeObjectURL(objUrl);
-      }, 500);
+      setTimeout(() => { if (document.body.contains(a)) document.body.removeChild(a); }, 1000);
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Unknown error';
       toast.error(`PDF download failed: ${msg}`);

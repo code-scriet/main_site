@@ -59,33 +59,34 @@ function CertCard({ cert }: { cert: Certificate }) {
   async function handleDownload() {
     setDownloading(true);
     try {
-      // The /files/:filename endpoint is public — no auth needed
-      const downloadUrl = `${API_URL}/certificates/files/${cert.certId}.pdf`;
-      const res = await fetch(downloadUrl);
-      if (!res.ok) {
+      const localUrl = `${API_URL}/certificates/files/${cert.certId}.pdf`;
+
+      // Determine which URL to download from
+      let downloadUrl: string;
+      const head = await fetch(localUrl, { method: 'HEAD' });
+      if (head.ok) {
+        downloadUrl = localUrl;
+      } else if (head.status === 404 && cert.pdfUrl) {
+        // Fallback to stored URL (e.g. Cloudinary in production)
+        downloadUrl = cert.pdfUrl;
+      } else {
         throw new Error(
-          res.status === 404
+          head.status === 404
             ? 'Certificate file not found on server. It may have been generated on a different server.'
-            : `Server error (${res.status})`
+            : `Server error (${head.status})`
         );
       }
-      const contentType = res.headers.get('content-type') || '';
-      if (!contentType.includes('pdf')) {
-        throw new Error('Server did not return a valid PDF file.');
-      }
-      const blob = await res.blob();
-      const objUrl = URL.createObjectURL(blob);
+
+      // Use a direct anchor click — the server sends Content-Disposition: attachment
+      // which forces the browser to download the file without navigating away.
+      // This avoids the blob URL revocation race condition that caused
+      // "Failed to load PDF document" in Chrome's PDF viewer.
       const a = document.createElement('a');
-      a.href = objUrl;
-      a.download = `certificate-${cert.certId}.pdf`;
+      a.href = downloadUrl;
       a.style.display = 'none';
       document.body.appendChild(a);
       a.click();
-      // Defer cleanup so browser has time to initiate the download
-      setTimeout(() => {
-        document.body.removeChild(a);
-        URL.revokeObjectURL(objUrl);
-      }, 500);
+      setTimeout(() => { if (document.body.contains(a)) document.body.removeChild(a); }, 1000);
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Unknown error';
       toast.error(`Download failed: ${msg}`);
