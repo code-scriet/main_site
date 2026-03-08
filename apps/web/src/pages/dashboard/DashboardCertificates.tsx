@@ -58,17 +58,40 @@ function CertCard({ cert }: { cert: Certificate }) {
 
   async function handleDownload() {
     setDownloading(true);
+    const filename = `certificate-${cert.certId}.pdf`;
     try {
       const localUrl = `${API_URL}/certificates/files/${cert.certId}.pdf`;
-
-      // Determine which URL to download from
-      let downloadUrl: string;
       const head = await fetch(localUrl, { method: 'HEAD' });
+
       if (head.ok) {
-        downloadUrl = localUrl;
+        // Same-origin: direct anchor — server sends Content-Disposition: attachment
+        const a = document.createElement('a');
+        a.href = localUrl;
+        a.download = filename;
+        a.style.display = 'none';
+        document.body.appendChild(a);
+        a.click();
+        setTimeout(() => { if (document.body.contains(a)) document.body.removeChild(a); }, 1000);
       } else if (head.status === 404 && cert.pdfUrl) {
-        // Fallback to stored URL (e.g. Cloudinary in production)
-        downloadUrl = cert.pdfUrl;
+        // Cross-origin fallback (e.g. Cloudinary): fetch as blob so the browser
+        // downloads rather than opening in Chrome's PDF viewer.
+        // Using application/octet-stream prevents Chrome from intercepting the blob
+        // as a PDF, avoiding the "Failed to load PDF document" race condition.
+        const res = await fetch(cert.pdfUrl);
+        if (!res.ok) throw new Error(`Failed to fetch PDF (${res.status})`);
+        const raw = await res.blob();
+        const blob = new Blob([raw], { type: 'application/octet-stream' });
+        const blobUrl = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = blobUrl;
+        a.download = filename;
+        a.style.display = 'none';
+        document.body.appendChild(a);
+        a.click();
+        setTimeout(() => {
+          URL.revokeObjectURL(blobUrl);
+          if (document.body.contains(a)) document.body.removeChild(a);
+        }, 10000);
       } else {
         throw new Error(
           head.status === 404
@@ -76,17 +99,6 @@ function CertCard({ cert }: { cert: Certificate }) {
             : `Server error (${head.status})`
         );
       }
-
-      // Use a direct anchor click — the server sends Content-Disposition: attachment
-      // which forces the browser to download the file without navigating away.
-      // This avoids the blob URL revocation race condition that caused
-      // "Failed to load PDF document" in Chrome's PDF viewer.
-      const a = document.createElement('a');
-      a.href = downloadUrl;
-      a.style.display = 'none';
-      document.body.appendChild(a);
-      a.click();
-      setTimeout(() => { if (document.body.contains(a)) document.body.removeChild(a); }, 1000);
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Unknown error';
       toast.error(`Download failed: ${msg}`);
