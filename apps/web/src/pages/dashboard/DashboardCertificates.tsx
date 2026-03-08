@@ -15,8 +15,6 @@ import {
 import { toast } from 'sonner';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5001/api';
-// Base without trailing /api — used to build the files download URL
-const API_BASE = API_URL.replace(/\/api$/, '');
 
 type CertType = 'PARTICIPATION' | 'COMPLETION' | 'WINNER' | 'SPEAKER';
 type Template = 'gold' | 'dark' | 'white' | 'emerald';
@@ -54,19 +52,27 @@ const templateTextColor: Record<Template, string> = {
   emerald: 'text-emerald-900',
 };
 
-function CertCard({ cert, token }: { cert: Certificate; token: string | null }) {
+function CertCard({ cert }: { cert: Certificate }) {
   const verifyUrl = `${window.location.origin}/verify/${cert.certId}`;
   const [downloading, setDownloading] = useState(false);
 
   async function handleDownload() {
     setDownloading(true);
     try {
-      // Always reconstruct the URL from the API base + certId to avoid stale absolute URLs
-      const downloadUrl = `${API_BASE}/api/certificates/files/${cert.certId}.pdf`;
-      const headers: Record<string, string> = {};
-      if (token) headers['Authorization'] = `Bearer ${token}`;
-      const res = await fetch(downloadUrl, { headers });
-      if (!res.ok) throw new Error(`Server returned ${res.status}`);
+      // The /files/:filename endpoint is public — no auth needed
+      const downloadUrl = `${API_URL}/certificates/files/${cert.certId}.pdf`;
+      const res = await fetch(downloadUrl);
+      if (!res.ok) {
+        throw new Error(
+          res.status === 404
+            ? 'Certificate file not found on server. It may have been generated on a different server.'
+            : `Server error (${res.status})`
+        );
+      }
+      const contentType = res.headers.get('content-type') || '';
+      if (!contentType.includes('pdf')) {
+        throw new Error('Server did not return a valid PDF file.');
+      }
       const blob = await res.blob();
       const objUrl = URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -75,11 +81,14 @@ function CertCard({ cert, token }: { cert: Certificate; token: string | null }) 
       a.style.display = 'none';
       document.body.appendChild(a);
       a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(objUrl);
+      // Defer cleanup so browser has time to initiate the download
+      setTimeout(() => {
+        document.body.removeChild(a);
+        URL.revokeObjectURL(objUrl);
+      }, 500);
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Unknown error';
-      toast.error(`Download failed: ${msg}. Please contact an admin.`);
+      toast.error(`Download failed: ${msg}`);
     } finally {
       setDownloading(false);
     }
@@ -220,7 +229,7 @@ export default function DashboardCertificates() {
         <>
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {certs.map(cert => (
-              <CertCard key={cert.certId} cert={cert} token={token} />
+              <CertCard key={cert.certId} cert={cert} />
             ))}
           </div>
 

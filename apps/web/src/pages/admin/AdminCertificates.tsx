@@ -30,7 +30,6 @@ import {
 import { toast } from 'sonner';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5001/api';
-const API_BASE = API_URL.replace(/\/api$/, '');
 
 const CERT_TYPES = ['PARTICIPATION', 'COMPLETION', 'WINNER', 'SPEAKER'] as const;
 const TEMPLATES = ['gold', 'dark', 'white', 'emerald'] as const;
@@ -301,12 +300,20 @@ export default function AdminCertificates() {
 
   async function downloadPdf(_pdfUrl: string, certId: string) {
     try {
-      // Always reconstruct from API base + certId to avoid stale stored absolute URLs
-      const downloadUrl = `${API_BASE}/api/certificates/files/${certId}.pdf`;
-      const headers: Record<string, string> = {};
-      if (token) headers['Authorization'] = `Bearer ${token}`;
-      const res = await fetch(downloadUrl, { headers });
-      if (!res.ok) throw new Error(`Server returned ${res.status}`);
+      // The /files/:filename endpoint is public — no auth header needed
+      const downloadUrl = `${API_URL}/certificates/files/${certId}.pdf`;
+      const res = await fetch(downloadUrl);
+      if (!res.ok) {
+        throw new Error(
+          res.status === 404
+            ? 'PDF file not found on server (may have been generated elsewhere)'
+            : `Server error (${res.status})`
+        );
+      }
+      const contentType = res.headers.get('content-type') || '';
+      if (!contentType.includes('pdf')) {
+        throw new Error('Server did not return a valid PDF file.');
+      }
       const blob = await res.blob();
       const objUrl = URL.createObjectURL(blob);
       const a = document.createElement('a');
@@ -315,8 +322,11 @@ export default function AdminCertificates() {
       a.style.display = 'none';
       document.body.appendChild(a);
       a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(objUrl);
+      // Defer cleanup so browser has time to initiate the download
+      setTimeout(() => {
+        document.body.removeChild(a);
+        URL.revokeObjectURL(objUrl);
+      }, 500);
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Unknown error';
       toast.error(`PDF download failed: ${msg}`);
