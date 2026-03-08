@@ -1,5 +1,8 @@
 import { Router, Request, Response } from 'express';
 import { z } from 'zod';
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import { CertType } from '@prisma/client';
 import { prisma } from '../lib/prisma.js';
 import { authMiddleware, getAuthUser } from '../middleware/auth.js';
@@ -10,6 +13,9 @@ import { generateCertId } from '../utils/generateCertId.js';
 import { generateCertificatePDF } from '../utils/generateCertificatePDF.js';
 import { uploadCertificate } from '../utils/uploadCertificate.js';
 import { emailService } from '../utils/email.js';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const LOCAL_CERT_DIR = path.join(__dirname, '..', '..', 'uploads', 'certificates');
 
 export const certificatesRouter = Router();
 
@@ -174,9 +180,11 @@ certificatesRouter.post('/generate', authMiddleware, requireRole('ADMIN'), async
       pdfUrl,
       verifyUrl: `https://codescriet.dev/verify/${certId}`,
     }, 'Certificate generated successfully');
-  } catch (error) {
-    logger.error('Certificate generation failed', { error });
-    return ApiResponse.error(res, { code: ErrorCodes.INTERNAL_ERROR, message: 'Certificate generation failed', status: 500 });
+  } catch (error: unknown) {
+    const err = error as Error;
+    logger.error('Certificate generation failed', { message: err?.message, stack: err?.stack });
+    console.error('[CERT ERROR]', err?.message, err?.stack);
+    return ApiResponse.error(res, { code: ErrorCodes.INTERNAL_ERROR, message: `Certificate generation failed: ${err?.message ?? 'unknown'}`, status: 500 });
   }
 });
 
@@ -436,6 +444,25 @@ certificatesRouter.post('/:certId/resend', authMiddleware, requireRole('ADMIN'),
     logger.error('Failed to resend certificate email', { certId, error });
     return ApiResponse.error(res, { code: ErrorCodes.INTERNAL_ERROR, message: 'Failed to resend email', status: 500 });
   }
+});
+
+// ──────────────────────────────────────────────────────────────────
+// PUBLIC: Serve locally-stored certificate PDF files
+// GET /api/certificates/files/:filename
+// ──────────────────────────────────────────────────────────────────
+certificatesRouter.get('/files/:filename', (req: Request, res: Response) => {
+  const { filename } = req.params;
+  // Only allow safe filenames: XXXX-XXXX-XXXX.pdf pattern
+  if (!/^[A-Z0-9\-]{14}\.pdf$/i.test(filename)) {
+    return res.status(400).json({ error: 'Invalid filename' });
+  }
+  const filePath = path.join(LOCAL_CERT_DIR, filename);
+  if (!fs.existsSync(filePath)) {
+    return res.status(404).json({ error: 'Certificate not found' });
+  }
+  res.setHeader('Content-Type', 'application/pdf');
+  res.setHeader('Content-Disposition', `inline; filename="${filename}"`);
+  return res.sendFile(filePath);
 });
 
 // ──────────────────────────────────────────────────────────────────

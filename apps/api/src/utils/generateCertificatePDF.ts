@@ -1,5 +1,5 @@
 import React from 'react';
-import { Document, Page, View, Text, Image, StyleSheet, pdf } from '@react-pdf/renderer';
+import { Document, Page, View, Text, Image, StyleSheet, renderToBuffer } from '@react-pdf/renderer';
 import QRCode from 'qrcode';
 
 export type CertTemplate = 'gold' | 'dark' | 'white' | 'emerald';
@@ -102,6 +102,6 @@ export async function generateCertificatePDF(data: CertData): Promise<Buffer> {
     ),
   );
 
-  const pdfBuffer = await pdf(doc).toBuffer();
-  return pdfBuffer as unknown as Buffer;
+  const pdfBuffer = await renderToBuffer(doc);
+  return pdfBuffer;
 }

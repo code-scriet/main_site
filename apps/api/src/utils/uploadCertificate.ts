@@ -1,5 +1,28 @@
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import { cloudinary, isCloudinaryConfigured } from '../config/cloudinary.js';
 import { logger } from './logger.js';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const LOCAL_CERT_DIR = path.join(__dirname, '..', '..', 'uploads', 'certificates');
+
+function isCloudinaryPlaceholder(): boolean {
+  return (
+    process.env.CLOUDINARY_CLOUD_NAME === 'your_cloud_name' ||
+    process.env.CLOUDINARY_API_KEY === 'your_api_key'
+  );
+}
+
+function saveToLocalDisk(certId: string, pdfBuffer: Buffer): string {
+  if (!fs.existsSync(LOCAL_CERT_DIR)) {
+    fs.mkdirSync(LOCAL_CERT_DIR, { recursive: true });
+  }
+  const filePath = path.join(LOCAL_CERT_DIR, `${certId}.pdf`);
+  fs.writeFileSync(filePath, pdfBuffer);
+  const baseUrl = process.env.API_BASE_URL || `http://localhost:${process.env.PORT || 5001}`;
+  return `${baseUrl}/api/certificates/files/${certId}.pdf`;
+}
 
 /**
  * Uploads a PDF buffer to Cloudinary as a raw file.
@@ -21,8 +44,20 @@ export async function uploadCertificate(certId: string, pdfBuffer: Buffer): Prom
     return uploadToR2(certId, pdfBuffer);
   }
 
-  // Fallback to Cloudinary (already configured in this codebase)
-  return uploadToCloudinary(certId, pdfBuffer);
+  // Fall back to local disk if Cloudinary is not configured or has placeholder credentials
+  if (!isCloudinaryConfigured || isCloudinaryPlaceholder()) {
+    logger.warn('Cloudinary not configured — saving certificate to local disk', { certId });
+    return saveToLocalDisk(certId, pdfBuffer);
+  }
+
+  // Try Cloudinary, fall back to local disk on error
+  try {
+    return await uploadToCloudinary(certId, pdfBuffer);
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : String(err);
+    logger.warn('Cloudinary upload failed, falling back to local disk', { certId, error: message });
+    return saveToLocalDisk(certId, pdfBuffer);
+  }
 }
 
 async function uploadToR2(certId: string, pdfBuffer: Buffer): Promise<string> {
@@ -52,10 +87,6 @@ async function uploadToR2(certId: string, pdfBuffer: Buffer): Promise<string> {
 }
 
 function uploadToCloudinary(certId: string, pdfBuffer: Buffer): Promise<string> {
-  if (!isCloudinaryConfigured) {
-    throw new Error('Neither R2 nor Cloudinary is configured. Set CLOUDINARY_* or R2_* env vars.');
-  }
-
   return new Promise((resolve, reject) => {
     const uploadStream = cloudinary.uploader.upload_stream(
       {
