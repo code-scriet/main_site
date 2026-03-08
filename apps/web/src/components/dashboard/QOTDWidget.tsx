@@ -89,7 +89,7 @@ export function QOTDWidget({ token }: QOTDWidgetProps) {
       
       if (response.ok) {
         setSubmitted(true);
-        setStreak(prev => prev + 1);
+        await loadStreak(); // Reload from server to get the authoritative streak count
       } else {
         const result = await response.json();
         // Check both error formats

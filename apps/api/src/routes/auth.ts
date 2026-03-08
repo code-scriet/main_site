@@ -249,7 +249,7 @@ authRouter.get('/google/callback',
 
       let user = await prisma.user.findUnique({
         where: { id: passportUser.id },
-        select: { id: true, email: true, role: true },
+        select: { id: true, name: true, email: true, role: true },
       });
 
       if (!user) {
@@ -334,7 +334,7 @@ authRouter.get('/github/callback',
 
       let user = await prisma.user.findUnique({
         where: { id: passportUser.id },
-        select: { id: true, email: true, role: true },
+        select: { id: true, name: true, email: true, role: true },
       });
 
       if (!user) {

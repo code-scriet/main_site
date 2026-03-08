@@ -28,6 +28,8 @@ export default function DashboardOverview() {
   const [isTeamMember, setIsTeamMember] = useState(false);
   const [teamMemberId, setTeamMemberId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [totalRegistrations, setTotalRegistrations] = useState(0);
+  const [totalAnnouncements, setTotalAnnouncements] = useState(0);
 
   useEffect(() => {
     const loadData = async () => {
@@ -42,6 +44,8 @@ export default function DashboardOverview() {
           api.getMyHiringApplication(token).catch(() => null),
           api.getMyTeamProfile(token).catch(() => null),
         ]);
+        setTotalRegistrations(regs.length);
+        setTotalAnnouncements(anns.length);
         setRegistrations(regs.slice(0, 3)); // Show only first 3
         setAnnouncements(anns.slice(0, 3)); // Show only first 3
         setHiringStatus(hiring);
@@ -60,8 +64,8 @@ export default function DashboardOverview() {
   }, [token]);
 
   const stats = [
-    { label: 'Events Registered', value: registrations.length.toString(), icon: Calendar, color: 'bg-blue-500' },
-    { label: 'Announcements', value: announcements.length.toString(), icon: Bell, color: 'bg-purple-500' },
+    { label: 'Events Registered', value: totalRegistrations.toString(), icon: Calendar, color: 'bg-blue-500' },
+    { label: 'Announcements', value: totalAnnouncements.toString(), icon: Bell, color: 'bg-purple-500' },
     { label: 'Your Role', value: user?.role || 'USER', icon: Trophy, color: 'bg-amber-500' },
     { label: 'Member Since', value: 'Active', icon: Code, color: 'bg-green-500' },
   ];

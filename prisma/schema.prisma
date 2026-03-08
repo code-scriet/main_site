@@ -43,6 +43,8 @@ model User {
   createdQuizzes     Quiz[]
   quizParticipants   QuizParticipant[]
   quizAnswers        QuizAnswer[]
+  // Certificate relations
+  certificates       Certificate[]
 
   @@map("users")
   @@index([role, createdAt(sort: Desc)], map: "users_role_created_at_desc_idx")
@@ -122,6 +124,7 @@ model Event {
   slug                  String              @unique @default("")
   allowLateRegistration Boolean             @default(false) @map("allow_late_registration")
   registrations         EventRegistration[]
+  certificates          Certificate[]
 
   @@index([status, startDate])
   @@index([startDate])
@@ -582,4 +585,59 @@ enum ExecutionStatus {
   SUCCESS
   ERROR
   TIMEOUT
+}
+
+// ──────────────── Certificate System ────────────────
+
+enum CertType {
+  PARTICIPATION
+  COMPLETION
+  WINNER
+  SPEAKER
+}
+
+model Certificate {
+  id             String    @id @default(cuid())
+  certId         String    @unique @map("cert_id") // Public human-readable ID e.g. "ABCD-EFGH-IJKL"
+
+  recipientId    String?   @map("recipient_id")
+  recipient      User?     @relation(fields: [recipientId], references: [id], onDelete: SetNull)
+
+  recipientName  String    @map("recipient_name")
+  recipientEmail String    @map("recipient_email")
+
+  eventId        String?   @map("event_id")
+  event          Event?    @relation(fields: [eventId], references: [id], onDelete: SetNull)
+  eventName      String    @map("event_name")
+
+  type           CertType
+  position       String?   // e.g. "1st Place" — only for WINNER type
+  domain         String?   // e.g. "Web Development"
+
+  template       String    @default("gold") // gold | dark | white | emerald
+
+  pdfUrl         String?   @map("pdf_url")
+  qrCodeUrl      String?   @map("qr_code_url")
+
+  issuedBy       String    @map("issued_by")
+  issuedAt       DateTime  @default(now()) @map("issued_at")
+
+  emailSent      Boolean   @default(false) @map("email_sent")
+  emailSentAt    DateTime? @map("email_sent_at")
+
+  isRevoked      Boolean   @default(false) @map("is_revoked")
+  revokedAt      DateTime? @map("revoked_at")
+  revokedBy      String?   @map("revoked_by")
+  revokedReason  String?   @map("revoked_reason")
+
+  viewCount      Int       @default(0) @map("view_count")
+
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  @@index([recipientId])
+  @@index([eventId])
+  @@index([certId])
+  @@index([recipientEmail])
+  @@map("certificates")
 }

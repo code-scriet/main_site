@@ -1250,6 +1250,45 @@ class EmailService {
     return this.send({ to: email, ...template });
   }
 
+  async sendCertificateIssued(
+    email: string,
+    name: string,
+    eventName: string,
+    certId: string,
+    pdfUrl: string,
+  ): Promise<boolean> {
+    const verifyUrl = `${SITE_URL}/verify/${certId}`;
+    const template = {
+      subject: `🎓 Your Certificate for ${eventName} is Ready!`,
+      html: generateEmailTemplate({
+        preheader: `Congratulations, ${name}! Your certificate for ${eventName} has been issued.`,
+        accentColor: '#fbbf24',
+        badge: { text: 'Certificate Issued', icon: '🎓' },
+        title: `Congratulations, ${name}!`,
+        subtitle: `Your certificate for "${eventName}" has been issued by code.scriet.`,
+        infoCards: [
+          { icon: '🆔', label: 'Certificate ID', value: certId },
+          { icon: '📅', label: 'Issued On', value: new Date().toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' }) },
+        ],
+        body: `
+          <p style="margin: 0 0 16px; font-size: 15px; color: #d1d5db; line-height: 1.7;">
+            Your participation certificate has been digitally issued and is permanently verifiable. You can download it as a PDF or share the verification link on LinkedIn to showcase your achievement.
+          </p>
+          <div style="padding: 16px 20px; background: linear-gradient(135deg, #fbbf2415, #f59e0b10); border-left: 3px solid #fbbf24; border-radius: 0 12px 12px 0;">
+            <p style="margin: 0; font-size: 13px; color: #fcd34d; line-height: 1.7;">
+              <strong>LinkedIn Tip:</strong> Add this certificate to your LinkedIn profile under "Licences & Certifications" using the verify URL below.
+            </p>
+          </div>
+        `,
+        cta: { text: '⬇ Download Certificate PDF', url: pdfUrl },
+        secondaryCta: { text: '🔍 Verify Certificate', url: verifyUrl },
+        footer: 'This certificate is permanently verifiable at codescriet.dev',
+      }),
+      text: `Hi ${name}, your certificate for ${eventName} is ready! Certificate ID: ${certId}. Download PDF: ${pdfUrl}. Verify at: ${verifyUrl}`,
+    };
+    return this.send({ to: email, ...template });
+  }
+
   isConfigured(): boolean {
     return this.configured;
   }

@@ -85,6 +85,9 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       const token = localStorage.getItem('token');
       if (token) {
         const userData = await fetchUser(token);
+        if (!userData) {
+          setToken(null);
+        }
         setUser(userData);
       }
       setIsLoading(false);

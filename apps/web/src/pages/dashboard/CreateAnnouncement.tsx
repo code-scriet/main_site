@@ -130,7 +130,7 @@ export default function CreateAnnouncement() {
         tags: form.tags.length > 0 ? form.tags : undefined,
         featured: form.featured,
         pinned: form.pinned,
-        expiresAt: form.expiresAt || undefined,
+        expiresAt: form.expiresAt ? new Date(form.expiresAt).toISOString() : undefined,
       }, token);
 
       navigate('/dashboard/announcements');

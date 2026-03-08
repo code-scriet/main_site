@@ -45,6 +45,8 @@ const ProfilePage = lazy(() => import('@/pages/dashboard/ProfilePage'));
 const ImageUploadTool = lazy(() => import('@/pages/dashboard/ImageUploadTool'));
 const EditTeamProfile = lazy(() => import('@/pages/dashboard/EditTeamProfile'));
 const EditNetworkProfile = lazy(() => import('@/pages/dashboard/EditNetworkProfile'));
+const DashboardCertificates = lazy(() => import('@/pages/dashboard/DashboardCertificates'));
+const VerifyCertificatePage = lazy(() => import('@/pages/VerifyCertificatePage'));
 const QuizManager = lazy(() => import('@/pages/dashboard/QuizManager'));
 
 // Admin Pages - lazy loaded
@@ -55,6 +57,7 @@ const AdminSettings = lazy(() => import('@/pages/admin/AdminSettings'));
 const AdminEventRegistrations = lazy(() => import('@/pages/admin/AdminEventRegistrations'));
 const EditEvent = lazy(() => import('@/pages/admin/EditEvent'));
 const AdminHiring = lazy(() => import('@/pages/admin/AdminHiring'));
+const AdminCertificates = lazy(() => import('@/pages/admin/AdminCertificates'));
 const AdminNetwork = lazy(() => import('@/pages/admin/AdminNetwork'));
 const AdminAuditLog = lazy(() => import('@/pages/admin/AdminAuditLog'));
 const AdminMail = lazy(() => import('@/pages/admin/AdminMail'));
@@ -105,6 +108,8 @@ function App() {
                   <Route path="/auth/callback" element={<AuthCallbackPage />} />
                   <Route path="/network" element={<NetworkPage />} />
                   <Route path="/network/onboarding" element={<NetworkOnboarding />} />
+                  <Route path="/verify" element={<VerifyCertificatePage />} />
+                  <Route path="/verify/:certId" element={<VerifyCertificatePage />} />
                   <Route path="/network/status" element={<NetworkStatusPage />} />
                   <Route path="/network/:slug" element={<NetworkProfilePage />} />
                   <Route path="/join-our-network" element={<JoinOurNetworkPage />} />
@@ -130,6 +135,7 @@ function App() {
                       <Route path="profile" element={<ProfilePage />} />
                       <Route path="team/:id/edit" element={<EditTeamProfile />} />
                       <Route path="network/edit/:id?" element={<EditNetworkProfile />} />
+                      <Route path="certificates" element={<DashboardCertificates />} />
                     </Route>
                     <Route path="/quiz/create" element={<AdminQuizCreator />} />
                   </Route>
@@ -147,6 +153,7 @@ function App() {
                       <Route path="settings" element={<AdminSettings />} />
                       <Route path="audit-log" element={<AdminAuditLog />} />
                       <Route path="mail" element={<AdminMail />} />
+                      <Route path="certificates" element={<AdminCertificates />} />
                     </Route>
                   </Route>
 

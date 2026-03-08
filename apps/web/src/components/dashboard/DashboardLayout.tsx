@@ -22,6 +22,7 @@ import {
   ClipboardList,
   Mail,
   Zap,
+  Award,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -55,6 +56,7 @@ const getAdminNavItems = (hiringEnabled: boolean, showNetwork: boolean, isSuperA
   
   items.push(
     { name: 'Event Registrations', href: '/admin/event-registrations', icon: Calendar },
+    { name: 'Certificates', href: '/admin/certificates', icon: Award },
     { name: 'Send Mail', href: '/admin/mail', icon: Mail },
     { name: 'Settings', href: '/admin/settings', icon: Settings }
   );
@@ -92,6 +94,7 @@ export default function DashboardLayout() {
     // Only show leaderboard if enabled in settings
     ...(settings?.showLeaderboard !== false ? [{ name: 'Leaderboard', href: '/dashboard/leaderboard', icon: Trophy }] : []),
     { name: 'My Profile', href: '/dashboard/profile', icon: User },
+    { name: 'My Certificates', href: '/dashboard/certificates', icon: Award },
   ];
 
   return (

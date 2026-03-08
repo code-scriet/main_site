@@ -36,8 +36,8 @@ export default function DashboardAnnouncements() {
   const [editForm, setEditForm] = useState<Partial<Announcement>>({});
   const [deleting, setDeleting] = useState<string | null>(null);
 
-  const isCoreMember = user?.role === 'CORE_MEMBER' || user?.role === 'ADMIN';
-  const isAdmin = user?.role === 'ADMIN';
+  const isCoreMember = user?.role === 'CORE_MEMBER' || user?.role === 'ADMIN' || user?.role === 'PRESIDENT';
+  const isAdmin = user?.role === 'ADMIN' || user?.role === 'PRESIDENT';
 
   useEffect(() => {
     loadAnnouncements();
