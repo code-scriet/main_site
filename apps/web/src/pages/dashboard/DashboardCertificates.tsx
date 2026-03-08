@@ -53,7 +53,28 @@ const templateTextColor: Record<Template, string> = {
 };
 
 function CertCard({ cert }: { cert: Certificate }) {
-  const verifyUrl = `https://codescriet.dev/verify/${cert.certId}`;
+  const verifyUrl = `${window.location.origin}/verify/${cert.certId}`;
+  const [downloading, setDownloading] = useState(false);
+
+  async function handleDownload() {
+    if (!cert.pdfUrl) return;
+    setDownloading(true);
+    try {
+      const res = await fetch(cert.pdfUrl);
+      if (!res.ok) throw new Error(`Server returned ${res.status}`);
+      const blob = await res.blob();
+      const objUrl = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = objUrl;
+      a.download = `certificate-${cert.certId}.pdf`;
+      a.click();
+      URL.revokeObjectURL(objUrl);
+    } catch {
+      toast.error('Download failed. The certificate file may not be available yet. Please contact an admin.');
+    } finally {
+      setDownloading(false);
+    }
+  }
 
   function copyLink() {
     navigator.clipboard.writeText(verifyUrl)
@@ -99,12 +120,15 @@ function CertCard({ cert }: { cert: Certificate }) {
 
       <div className="flex gap-2 flex-wrap">
         {cert.pdfUrl && (
-          <a href={cert.pdfUrl} target="_blank" rel="noopener noreferrer" className="flex-1">
-            <Button size="sm" className="w-full gap-1.5 bg-amber-500 hover:bg-amber-600 text-white text-xs">
-              <Download className="w-3.5 h-3.5" />
-              Download PDF
-            </Button>
-          </a>
+          <Button
+            size="sm"
+            onClick={handleDownload}
+            disabled={downloading}
+            className="flex-1 gap-1.5 bg-amber-500 hover:bg-amber-600 text-white text-xs"
+          >
+            {downloading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
+            {downloading ? 'Downloading…' : 'Download PDF'}
+          </Button>
         )}
         <Button
           variant="outline"

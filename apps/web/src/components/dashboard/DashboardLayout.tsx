@@ -71,8 +71,9 @@ export default function DashboardLayout() {
   const location = useLocation();
   const navigate = useNavigate();
 
-  // Check if academic details are missing
-  const needsProfileCompletion = user && (!user.phone || !user.course || !user.branch || !user.year);
+  // Check if academic details are missing — skip for staff roles (they don't have student fields)
+  const isStaff = user?.role === 'CORE_MEMBER' || user?.role === 'ADMIN' || user?.role === 'PRESIDENT';
+  const needsProfileCompletion = user && !isStaff && (!user.phone || !user.course || !user.branch || !user.year);
   const isOnProfilePage = location.pathname === '/dashboard/profile';
 
   // Redirect to profile page if academic details are missing (except when already on profile)

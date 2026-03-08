@@ -458,10 +458,12 @@ certificatesRouter.get('/files/:filename', (req: Request, res: Response) => {
   }
   const filePath = path.join(LOCAL_CERT_DIR, filename);
   if (!fs.existsSync(filePath)) {
-    return res.status(404).json({ error: 'Certificate not found' });
+    return res.status(404).json({ error: 'Certificate file not found. It may have been generated on a different server or the file was removed.' });
   }
+  // Override Helmet's same-origin CORP so cross-origin fetch (frontend download) works
+  res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
   res.setHeader('Content-Type', 'application/pdf');
-  res.setHeader('Content-Disposition', `inline; filename="${filename}"`);
+  res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
   return res.sendFile(filePath);
 });
 

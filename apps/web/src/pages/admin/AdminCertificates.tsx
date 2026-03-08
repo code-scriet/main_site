@@ -294,8 +294,24 @@ export default function AdminCertificates() {
   }
 
   function copyVerifyLink(certId: string) {
-    const url = `https://codescriet.dev/verify/${certId}`;
+    const url = `${window.location.origin}/verify/${certId}`;
     navigator.clipboard.writeText(url).then(() => toast.success('Verify link copied!')).catch(() => toast.error('Copy failed'));
+  }
+
+  async function downloadPdf(pdfUrl: string, certId: string) {
+    try {
+      const res = await fetch(pdfUrl);
+      if (!res.ok) throw new Error(`Server returned ${res.status}`);
+      const blob = await res.blob();
+      const objUrl = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = objUrl;
+      a.download = `certificate-${certId}.pdf`;
+      a.click();
+      URL.revokeObjectURL(objUrl);
+    } catch {
+      toast.error('PDF download failed. The file may not exist on this server.');
+    }
   }
 
   return (
@@ -403,11 +419,9 @@ export default function AdminCertificates() {
                     <td className="px-4 py-3">
                       <div className="flex items-center justify-end gap-1.5">
                         {cert.pdfUrl && (
-                          <a href={cert.pdfUrl} target="_blank" rel="noopener noreferrer" title="Download PDF">
-                            <Button variant="outline" size="sm" className="h-7 w-7 p-0">
-                              <Download className="w-3.5 h-3.5" />
-                            </Button>
-                          </a>
+                          <Button variant="outline" size="sm" className="h-7 w-7 p-0" onClick={() => downloadPdf(cert.pdfUrl!, cert.certId)} title="Download PDF">
+                            <Download className="w-3.5 h-3.5" />
+                          </Button>
                         )}
                         <Button variant="outline" size="sm" className="h-7 w-7 p-0" onClick={() => copyVerifyLink(cert.certId)} title="Copy verify link">
                           <Copy className="w-3.5 h-3.5" />
