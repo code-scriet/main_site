@@ -16,6 +16,25 @@ import { emailService } from '../utils/email.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const LOCAL_CERT_DIR = path.join(__dirname, '..', '..', 'uploads', 'certificates');
+const LOGOS_DIR = path.join(__dirname, '..', '..', 'public', 'logos');
+
+// Pre-load logos as base64 at startup so they're available to PDF generation.
+// Fails gracefully (undefined) if the files are not yet present on this server instance.
+function loadLogoBase64(filename: string): string | undefined {
+  const logoPath = path.join(LOGOS_DIR, filename);
+  try {
+    if (fs.existsSync(logoPath)) {
+      const ext = path.extname(filename).replace('.', '');
+      const mime = ext === 'svg' ? 'image/svg+xml' : `image/${ext}`;
+      const b64 = fs.readFileSync(logoPath).toString('base64');
+      return `data:${mime};base64,${b64}`;
+    }
+  } catch { /* file missing or unreadable — skip */ }
+  return undefined;
+}
+
+const CODESCRIET_LOGO = loadLogoBase64('codescriet.png');
+const CCSU_LOGO       = loadLogoBase64('ccsu.png');
 
 export const certificatesRouter = Router();
 
@@ -31,8 +50,10 @@ const generateSchema = z.object({
   type: z.enum(certTypes),
   position: z.string().max(100).optional().nullable(),
   domain: z.string().max(100).optional().nullable(),
+  description: z.string().max(400).optional().nullable(),
   template: z.enum(certTemplates).default('gold'),
   signatoryName: z.string().max(100).default('Club President'),
+  facultyName: z.string().max(100).optional().nullable(),
   sendEmail: z.boolean().default(false),
 });
 
@@ -48,6 +69,8 @@ const bulkSchema = z.object({
   type: z.enum(certTypes),
   template: z.enum(certTemplates).default('dark'),
   signatoryName: z.string().max(100).default('Club President'),
+  facultyName: z.string().max(100).optional().nullable(),
+  description: z.string().max(400).optional().nullable(),
   sendEmail: z.boolean().default(false),
 });
 
@@ -76,17 +99,41 @@ certificatesRouter.get('/files/:filename', (req: Request, res: Response) => {
 });
 
 // ──────────────────────────────────────────────────────────────────
-// PUBLIC: Download a certificate PDF by certId — proxies local file or Cloudinary
-// so the frontend never needs cross-origin fetch or blob workarounds.
+// PRIVATE: Download a certificate PDF by certId — proxies local file or Cloudinary.
+// Only the certificate's recipient (by userId) or an ADMIN may download.
 // GET /api/certificates/download/:certId
 // ──────────────────────────────────────────────────────────────────
-certificatesRouter.get('/download/:certId', async (req: Request, res: Response) => {
+certificatesRouter.get('/download/:certId', authMiddleware, async (req: Request, res: Response) => {
+  const authUser = getAuthUser(req)!;
   const { certId } = req.params;
   if (!/^[A-Z0-9\-]{10,20}$/i.test(certId)) {
     return res.status(400).json({ error: 'Invalid certificate ID' });
   }
 
   const upperCertId = certId.toUpperCase();
+
+  // Fetch certificate to validate ownership
+  let cert: { pdfUrl: string | null; isRevoked: boolean; recipientId: string | null } | null;
+  try {
+    cert = await prisma.certificate.findUnique({
+      where: { certId: upperCertId },
+      select: { pdfUrl: true, isRevoked: true, recipientId: true },
+    });
+  } catch (error) {
+    logger.error('Certificate download DB lookup failed', { certId, error });
+    return res.status(500).json({ error: 'Internal server error.' });
+  }
+
+  if (!cert) return res.status(404).json({ error: 'Certificate not found.' });
+  if (cert.isRevoked) return res.status(403).json({ error: 'Certificate has been revoked.' });
+
+  // Access check: ADMIN can download any; USER can only download their own
+  const isAdmin = ['ADMIN', 'CORE_MEMBER'].includes(authUser.role);
+  const isOwner = cert.recipientId && cert.recipientId === authUser.id;
+  if (!isAdmin && !isOwner) {
+    return res.status(403).json({ error: 'You are not authorised to download this certificate.' });
+  }
+
   const filename = `${upperCertId}.pdf`;
   const localPath = path.join(LOCAL_CERT_DIR, filename);
 
@@ -99,35 +146,20 @@ certificatesRouter.get('/download/:certId', async (req: Request, res: Response) 
     return res.sendFile(localPath);
   }
 
-  // Otherwise look up pdfUrl in DB and proxy from Cloudinary (or wherever it's stored)
+  if (!cert.pdfUrl) {
+    return res.status(404).json({ error: 'No PDF available for this certificate.' });
+  }
+
+  // Proxy from Cloudinary (or wherever pdfUrl points)
   try {
-    const cert = await prisma.certificate.findUnique({
-      where: { certId: upperCertId },
-      select: { pdfUrl: true, isRevoked: true },
-    });
-
-    if (!cert) {
-      return res.status(404).json({ error: 'Certificate not found.' });
-    }
-    if (cert.isRevoked) {
-      return res.status(403).json({ error: 'Certificate has been revoked.' });
-    }
-    if (!cert.pdfUrl) {
-      return res.status(404).json({ error: 'No PDF available for this certificate.' });
-    }
-
-    // Pipe the remote file (Cloudinary, etc.) directly to the client
     const upstream = await fetch(cert.pdfUrl);
     if (!upstream.ok) {
       return res.status(502).json({ error: 'Failed to fetch PDF from storage.' });
     }
-
-    // Stream the body to the response
     const reader = upstream.body?.getReader();
     if (!reader) {
       return res.status(502).json({ error: 'Empty response from storage.' });
     }
-
     const pump = async () => {
       const { done, value } = await reader.read();
       if (done) { res.end(); return; }
@@ -136,7 +168,7 @@ certificatesRouter.get('/download/:certId', async (req: Request, res: Response) 
     };
     await pump();
   } catch (error) {
-    logger.error('Certificate download failed', { certId, error });
+    logger.error('Certificate download proxy failed', { certId, error });
     if (!res.headersSent) {
       return res.status(500).json({ error: 'Internal server error.' });
     }
@@ -201,7 +233,7 @@ certificatesRouter.post('/generate', authMiddleware, requireRole('ADMIN'), async
   const {
     recipientName, recipientEmail, recipientId,
     eventId, eventName, type, position, domain, template,
-    signatoryName, sendEmail,
+    signatoryName, facultyName, description, sendEmail,
   } = validation.data;
 
   try {
@@ -220,10 +252,14 @@ certificatesRouter.post('/generate', authMiddleware, requireRole('ADMIN'), async
       type,
       position: position ?? undefined,
       domain: domain ?? undefined,
+      description: description ?? undefined,
       certId,
       issuedAt: new Date(),
       signatoryName,
+      facultyName: facultyName ?? undefined,
       template,
+      codescrietLogoUrl: CODESCRIET_LOGO,
+      ccsuLogoUrl: CCSU_LOGO,
     });
 
     // Upload to storage
@@ -288,7 +324,7 @@ certificatesRouter.post('/bulk', authMiddleware, requireRole('ADMIN'), async (re
     return ApiResponse.badRequest(res, validation.error.errors[0].message);
   }
 
-  const { recipients, eventId, eventName, type, template, signatoryName, sendEmail } = validation.data;
+  const { recipients, eventId, eventName, type, template, signatoryName, facultyName, description, sendEmail } = validation.data;
 
   const successes: Array<{ certId: string; pdfUrl: string; name: string; email: string }> = [];
   const failures: Array<{ name: string; email: string; reason: string }> = [];
@@ -306,10 +342,14 @@ certificatesRouter.post('/bulk', authMiddleware, requireRole('ADMIN'), async (re
             eventName,
             type,
             position: r.position ?? undefined,
+            description: description ?? undefined,
             certId,
             issuedAt: new Date(),
             signatoryName,
+            facultyName: facultyName ?? undefined,
             template,
+            codescrietLogoUrl: CODESCRIET_LOGO,
+            ccsuLogoUrl: CCSU_LOGO,
           });
 
           const pdfUrl = await uploadCertificate(certId, pdfBuffer);
