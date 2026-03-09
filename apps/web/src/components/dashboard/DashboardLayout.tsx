@@ -35,7 +35,7 @@ const coreMemberNavItems = [
 ];
 
 // Admin nav items - Hiring and Network will be conditionally added based on settings
-const getAdminNavItems = (hiringEnabled: boolean, showNetwork: boolean, isSuperAdmin?: boolean, isPresident?: boolean) => {
+const getAdminNavItems = (hiringEnabled: boolean, showNetwork: boolean, certificatesEnabled: boolean, isSuperAdmin?: boolean, isPresident?: boolean) => {
   const items = [
     { name: 'User Management', href: '/admin/users', icon: Users },
     { name: 'Team Management', href: '/admin/team', icon: Shield },
@@ -56,7 +56,13 @@ const getAdminNavItems = (hiringEnabled: boolean, showNetwork: boolean, isSuperA
   
   items.push(
     { name: 'Event Registrations', href: '/admin/event-registrations', icon: Calendar },
-    { name: 'Certificates', href: '/admin/certificates', icon: Award },
+  );
+
+  if (certificatesEnabled !== false) {
+    items.push({ name: 'Certificates', href: '/admin/certificates', icon: Award });
+  }
+
+  items.push(
     { name: 'Send Mail', href: '/admin/mail', icon: Mail },
     { name: 'Settings', href: '/admin/settings', icon: Settings }
   );
@@ -97,7 +103,8 @@ export default function DashboardLayout() {
     // Only show leaderboard if enabled in settings
     ...(settings?.showLeaderboard !== false ? [{ name: 'Leaderboard', href: '/dashboard/leaderboard', icon: Trophy }] : []),
     { name: 'My Profile', href: '/dashboard/profile', icon: User },
-    { name: 'My Certificates', href: '/dashboard/certificates', icon: Award },
+    // Only show certificates if enabled in settings
+    ...(settings?.certificatesEnabled !== false ? [{ name: 'My Certificates', href: '/dashboard/certificates', icon: Award }] : []),
   ];
 
   return (
@@ -185,6 +192,7 @@ export default function DashboardLayout() {
                 {getAdminNavItems(
                   !settingsLoading && settings?.hiringEnabled === true,
                   !settingsLoading && settings?.showNetwork !== false,
+                  !settingsLoading && settings?.certificatesEnabled !== false,
                   user?.isSuperAdmin,
                   user?.role === 'PRESIDENT',
                 ).map((item) => (

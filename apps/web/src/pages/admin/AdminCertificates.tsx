@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -11,6 +12,7 @@ import {
   DialogFooter,
 } from '@/components/ui/dialog';
 import { useAuth } from '@/context/AuthContext';
+import { useSettings } from '@/context/SettingsContext';
 import {
   Award,
   Loader2,
@@ -101,6 +103,15 @@ interface BulkEntry {
 
 export default function AdminCertificates() {
   const { token } = useAuth();
+  const { settings, loading: settingsLoading } = useSettings();
+  const navigate = useNavigate();
+
+  // Redirect if certificates feature is disabled
+  useEffect(() => {
+    if (!settingsLoading && settings?.certificatesEnabled === false) {
+      navigate('/admin/settings', { replace: true });
+    }
+  }, [settings, settingsLoading, navigate]);
 
   const [certs, setCerts] = useState<Certificate[]>([]);
   const [total, setTotal] = useState(0);

@@ -1,8 +1,10 @@
 import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/context/AuthContext';
+import { useSettings } from '@/context/SettingsContext';
 import {
   Award,
   Loader2,
@@ -143,6 +145,16 @@ function CertCard({ cert }: { cert: Certificate }) {
 
 export default function DashboardCertificates() {
   const { token } = useAuth();
+  const { settings, loading: settingsLoading } = useSettings();
+  const navigate = useNavigate();
+
+  // Redirect if certificates feature is disabled
+  useEffect(() => {
+    if (!settingsLoading && settings?.certificatesEnabled === false) {
+      navigate('/dashboard', { replace: true });
+    }
+  }, [settings, settingsLoading, navigate]);
+
   const [certs, setCerts] = useState<Certificate[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
