@@ -87,6 +87,10 @@ model Settings {
   // Mailing system toggle
   mailingEnabled            Boolean  @default(true) @map("mailing_enabled")
 
+  // Feature toggles (President / Super Admin only)
+  certificatesEnabled       Boolean  @default(true) @map("certificates_enabled")
+  playgroundEnabled         Boolean  @default(true) @map("playground_enabled")
+
   @@map("settings")
 }
 

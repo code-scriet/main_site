@@ -22,6 +22,8 @@ const defaultSettings: Settings = {
   showAchievements: true,
   hiringEnabled: true,
   showNetwork: true,
+  certificatesEnabled: true,
+  playgroundEnabled: true,
   githubUrl: '',
   linkedinUrl: '',
   twitterUrl: '',

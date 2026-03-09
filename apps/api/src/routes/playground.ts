@@ -16,6 +16,19 @@ const router = Router();
 // All routes require authentication
 router.use(authMiddleware);
 
+// Gate: check if playground feature is enabled
+router.use(async (req: Request, res: Response, next: Function) => {
+  try {
+    const settings = await prisma.settings.findUnique({ where: { id: 'default' }, select: { playgroundEnabled: true } });
+    if (settings && settings.playgroundEnabled === false) {
+      return res.status(403).json({ success: false, error: { message: 'Code Playground is currently disabled' } });
+    }
+    next();
+  } catch {
+    next();
+  }
+});
+
 // ---------------------------------------------------------------------------
 // Snippets
 // ---------------------------------------------------------------------------

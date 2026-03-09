@@ -225,6 +225,12 @@ certificatesRouter.get('/', authMiddleware, requireRole('ADMIN'), async (req: Re
 certificatesRouter.post('/generate', authMiddleware, requireRole('ADMIN'), async (req: Request, res: Response) => {
   const authUser = getAuthUser(req)!;
 
+  // Check feature toggle
+  const featureSettings = await prisma.settings.findUnique({ where: { id: 'default' }, select: { certificatesEnabled: true } });
+  if (featureSettings && featureSettings.certificatesEnabled === false) {
+    return ApiResponse.error(res, { code: ErrorCodes.FORBIDDEN, message: 'Certificate generation is currently disabled', status: 403 });
+  }
+
   const validation = generateSchema.safeParse(req.body);
   if (!validation.success) {
     return ApiResponse.badRequest(res, validation.error.errors[0].message);
@@ -318,6 +324,12 @@ certificatesRouter.post('/generate', authMiddleware, requireRole('ADMIN'), async
 // ──────────────────────────────────────────────────────────────────
 certificatesRouter.post('/bulk', authMiddleware, requireRole('ADMIN'), async (req: Request, res: Response) => {
   const authUser = getAuthUser(req)!;
+
+  // Check feature toggle
+  const featureSettings = await prisma.settings.findUnique({ where: { id: 'default' }, select: { certificatesEnabled: true } });
+  if (featureSettings && featureSettings.certificatesEnabled === false) {
+    return ApiResponse.error(res, { code: ErrorCodes.FORBIDDEN, message: 'Certificate generation is currently disabled', status: 403 });
+  }
 
   const validation = bulkSchema.safeParse(req.body);
   if (!validation.success) {

@@ -27,7 +27,8 @@ export function Header() {
     { name: 'Announcements', href: '/announcements' },
     { name: 'Team', href: '/team' },
     { name: 'Achievements', href: '/achievements' },
-    { name: 'Playground', href: playgroundUrl, external: true },
+    // Playground link - conditionally shown based on settings
+    ...(settings?.playgroundEnabled !== false ? [{ name: 'Playground', href: playgroundUrl, external: true }] : []),
     // Network link - conditionally shown based on settings
     ...(settings?.showNetwork !== false ? [{ name: 'Network', href: '/network' }] : []),
   ];

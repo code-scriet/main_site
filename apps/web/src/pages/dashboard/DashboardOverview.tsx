@@ -140,10 +140,10 @@ export default function DashboardOverview() {
       </div>
 
       {/* Code Playground Card */}
-      <PlaygroundCard />
+      {settings?.playgroundEnabled !== false && <PlaygroundCard />}
 
       {/* Playground Snippets & Language Stats */}
-      <PlaygroundSnippetsCard />
+      {settings?.playgroundEnabled !== false && <PlaygroundSnippetsCard />}
 
       <div className="grid lg:grid-cols-2 gap-6">
         {/* QOTD Widget - conditionally shown */}
@@ -204,7 +204,7 @@ export default function DashboardOverview() {
                 })()} 
                 target="_blank" 
                 rel="noopener noreferrer"
-                className="block"
+                className={`block${settings?.playgroundEnabled === false ? ' hidden' : ''}`}
               >
                 <Button variant="outline" className="w-full justify-start text-amber-700 border-amber-200 hover:bg-amber-50">
                   <Code2 className="h-4 w-4 mr-3" />
