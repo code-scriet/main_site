@@ -1,27 +1,35 @@
 import React from 'react';
 import {
   Document, Page, View, Text, Image,
-  Svg, Path, Circle, Rect, Polygon,
+  Svg, Path, Circle, Rect, Polygon, Line,
+  Font,
   renderToBuffer,
 } from '@react-pdf/renderer';
 import QRCode from 'qrcode';
+import path from 'path';
+import { fileURLToPath } from 'url';
 
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const LOGOS_DIR = path.join(__dirname, '..', '..', 'public', 'logos');
+
+// ── CUSTOM FONTS ──────────────────────────────────────────────────────────────
+// Load local font files (pre-downloaded at startup) — no network at render time.
+const GREAT_VIBES_PATH = path.join(LOGOS_DIR, 'GreatVibes.ttf');
+const CINZEL_PATH      = path.join(LOGOS_DIR, 'Cinzel.ttf');
+
+try {
+  Font.register({ family: 'GreatVibes', src: GREAT_VIBES_PATH });
+} catch { /* fall back to Times-BoldItalic */ }
+
+try {
+  Font.register({ family: 'Cinzel', src: CINZEL_PATH });
+} catch { /* fall back to Helvetica-Bold */ }
+
+// Suppress hyphenation inside the PDF renderer
+Font.registerHyphenationCallback((word: string) => [word]);
+
+// ── LEGACY TEMPLATE TYPE (kept for backwards compat — now ignored in premium design) ──
 export type CertTemplate = 'gold' | 'dark' | 'white' | 'emerald';
-
-interface Theme {
-  bg: string;
-  accent: string;
-  nameColor: string;
-  textColor: string;
-  subtext: string;
-}
-
-const THEMES: Record<CertTemplate, Theme> = {
-  gold:    { bg: '#0f0e0a', accent: '#c9a84c', nameColor: '#f0d080', textColor: '#e8dcc8', subtext: '#8a7a5a' },
-  dark:    { bg: '#0a0a14', accent: '#6366f1', nameColor: '#e0e7ff', textColor: '#c7d2fe', subtext: '#818cf8' },
-  white:   { bg: '#fafaf8', accent: '#1a1a2e', nameColor: '#1a1a2e', textColor: '#2d2d3e', subtext: '#555555' },
-  emerald: { bg: '#0a1a12', accent: '#10b981', nameColor: '#6ee7b7', textColor: '#a7f3d0', subtext: '#34d399' },
-};
 
 export interface CertData {
   recipientName: string;
@@ -29,333 +37,496 @@ export interface CertData {
   type: string;
   position?: string;
   domain?: string;
-  description?: string;        // italic event description line
+  description?: string;
   certId: string;
   issuedAt: Date;
   signatoryName: string;
-  facultyName?: string;        // second signatory (Faculty Coordinator)
-  template: CertTemplate;
-  codescrietLogoUrl?: string;  // base64 data URL or https URL
-  ccsuLogoUrl?: string;        // base64 data URL or https URL
+  facultyName?: string;
+  template: CertTemplate;        // kept for API compat — premium design ignores it
+  codescrietLogoUrl?: string;
+  ccsuLogoUrl?: string;
 }
 
-// A4 landscape dimensions in points
+// A4 landscape dimensions
 const W = 841.89;
 const H = 595.28;
 
-export async function generateCertificatePDF(data: CertData): Promise<Buffer> {
-  const T = THEMES[data.template] ?? THEMES.gold;
-  const isWinner = data.type.toUpperCase() === 'WINNER';
+// ── COLOUR PALETTE ────────────────────────────────────────────────────────────
+const C = {
+  bg:         '#0a0905',
+  gold:       '#c9a84c',
+  goldBright: '#f0d080',
+  goldDark:   '#7a5a1c',
+  goldRibbon: '#b8922e',
+  white:      '#ffffff',
+  muted:      'rgba(255,255,255,0.55)',
+  veryMuted:  'rgba(255,255,255,0.22)',
+  certIdGray: '#8a7a5a',
+};
 
-  const typeVerb: Record<string, string> = {
-    PARTICIPATION: 'PARTICIPATED IN',
-    COMPLETION: 'SUCCESSFULLY COMPLETED',
-    WINNER: 'WON',
-    SPEAKER: 'SPOKEN AT',
+// ── ORDINAL SUFFIX ─────────────────────────────────────────────────────────────
+function ordinal(n: number): string {
+  const s = ['th', 'st', 'nd', 'rd'];
+  const v = n % 100;
+  return n + (s[(v - 20) % 10] ?? s[v] ?? s[0]);
+}
+
+function formatDate(d: Date): string {
+  const day  = d.getDate();
+  const month = d.toLocaleDateString('en-IN', { month: 'long' });
+  const year  = d.getFullYear();
+  return `${ordinal(day)} ${month}, ${year}`;
+}
+
+// ── TYPE-BASED COPY ────────────────────────────────────────────────────────────
+function getTypeLabel(type: string): string {
+  const map: Record<string, string> = {
+    WINNER:        'of Excellence',
+    PARTICIPATION: 'of Participation',
+    COMPLETION:    'of Achievement',
+    SPEAKER:       'of Recognition',
   };
-  const verb = typeVerb[data.type.toUpperCase()] ?? 'PARTICIPATED IN';
+  return map[type.toUpperCase()] ?? 'of Participation';
+}
 
+function getDescription(type: string, customDesc?: string): string {
+  if (customDesc) return customDesc;
+  const map: Record<string, string> = {
+    WINNER:        'in recognition of outstanding performance and exceptional skill demonstrated at',
+    PARTICIPATION: 'for actively participating and contributing to',
+    COMPLETION:    'for successfully completing and demonstrating proficiency in',
+    SPEAKER:       'for sharing knowledge and expertise as a distinguished speaker at',
+  };
+  return map[type.toUpperCase()] ?? 'for actively participating and contributing to';
+}
+
+// ── MAIN EXPORT ────────────────────────────────────────────────────────────────
+export async function generateCertificatePDF(data: CertData): Promise<Buffer> {
+  const type      = data.type.toUpperCase();
+  const isWinner  = type === 'WINNER';
   const verifyUrl = `https://codescriet.dev/verify/${data.certId}`;
-  const qrDataUrl = await QRCode.toDataURL(verifyUrl, { width: 120, margin: 1 });
-
-  const dateStr = data.issuedAt.toLocaleDateString('en-IN', {
-    day: 'numeric', month: 'long', year: 'numeric',
+  const qrDataUrl = await QRCode.toDataURL(verifyUrl, {
+    width: 160, margin: 1,
+    color: { dark: '#000000', light: '#ffffff' },
   });
+  const dateStr = formatDate(data.issuedAt);
 
-  // Header text colors: white template has dark band at top, so use white text there
-  const hTextColor = data.template === 'white' ? '#ffffff' : T.accent;
-  const hSubColor  = data.template === 'white' ? 'rgba(255,255,255,0.72)' : T.subtext;
-
-  // Footer tiny text on dark band (white template)
-  const footerTinyColor = data.template === 'white' ? '#aaaaaa' : T.subtext;
-
-  // ── DOT GRID (very subtle background texture) ──
-  const dotCols = 14;
-  const dotRows = 10;
-  const dsx = W / dotCols;
-  const dsy = H / dotRows;
-  const dots: React.ReactNode[] = [];
-  for (let r = 0; r < dotRows; r++) {
-    for (let c = 0; c < dotCols; c++) {
-      dots.push(
-        React.createElement(Circle, {
-          key: `d${r}-${c}`,
-          cx: dsx * (c + 0.5),
-          cy: dsy * (r + 0.5),
-          r: 1,
-          fill: T.accent,
-        })
-      );
-    }
-  }
-
-  // ── CORNER DIAMOND ──
-  const mkDiamond = (size: number) =>
+  // ── RIBBON SWOOSHES ─────────────────────────────────────────────────────────
+  // Top-right ribbon (wide band, diagonal from top-right corner)
+  const topRightRibbon = React.createElement(
+    View,
+    { style: { position: 'absolute', top: 0, left: 0 } },
     React.createElement(
-      Svg, { width: size, height: size },
-      React.createElement(Polygon, {
-        points: `${size / 2},1 ${size - 1},${size / 2} ${size / 2},${size - 1} 1,${size / 2}`,
-        fill: '#c9a84c',  // universal gold — visible on any background
-        opacity: 0.72,
-      })
-    );
-
-  // ── HEADER/BODY DIVIDER (tapered, thick center → thin at edges) ──
-  const headerDivider =
-    React.createElement(Svg, { width: 500, height: 5 },
-      React.createElement(Rect, { x: 0, y: 2, width: 500, height: 1, fill: T.accent, opacity: 0.22 }),
-      React.createElement(Rect, { x: 65, y: 1, width: 370, height: 3, fill: T.accent, opacity: 0.55 }),
-      React.createElement(Rect, { x: 190, y: 0, width: 120, height: 5, fill: T.accent, opacity: 0.95 }),
-    );
-
-  // ── NAME UNDERLINE (same tapered style) ──
-  const nameUnderline =
-    React.createElement(Svg, { width: 480, height: 3 },
-      React.createElement(Rect, { x: 0, y: 1, width: 480, height: 0.5, fill: T.accent, opacity: 0.2 }),
-      React.createElement(Rect, { x: 110, y: 0, width: 260, height: 3, fill: T.accent, opacity: 0.62 }),
-    );
-
-  // ── WINNER BADGE (circle + star) ──
-  const winnerBadge =
-    React.createElement(Svg, { width: 76, height: 76 },
-      React.createElement(Circle, { cx: 38, cy: 38, r: 36, fill: '#c9a84c', opacity: 0.93 }),
-      React.createElement(Circle, { cx: 38, cy: 38, r: 30, fill: 'none', stroke: '#ffffff', strokeWidth: 1.2, opacity: 0.5 }),
-      // 5-point star
-      React.createElement(Polygon, {
-        points: '38,9 43,27 62,27 47,39 52,57 38,45 24,57 29,39 14,27 33,27',
-        fill: '#ffffff', opacity: 0.95,
+      Svg, { width: W, height: H },
+      // Main ribbon fill
+      React.createElement(Path, {
+        d: 'M 580 0 C 660 0 760 0 841 0 L 841 200 C 760 160 680 80 580 0 Z',
+        fill: C.goldRibbon,
+        opacity: 0.82,
       }),
-    );
+      // Highlight stripe (lighter edge)
+      React.createElement(Path, {
+        d: 'M 620 0 C 700 0 800 0 841 0 L 841 90 C 780 60 700 20 620 0 Z',
+        fill: C.goldBright,
+        opacity: 0.22,
+      }),
+      // Inner refinement line
+      React.createElement(Path, {
+        d: 'M 600 0 L 841 0 L 841 170 C 750 130 660 60 600 0 Z',
+        fill: 'none',
+        stroke: C.goldBright,
+        strokeWidth: 0.8,
+        opacity: 0.5,
+      }),
+    )
+  );
 
-  // ── TEMPLATE-SPECIFIC DECORATIONS ──
-  const decorations: React.ReactNode[] = [];
+  // Bottom-left ribbon (mirror)
+  const bottomLeftRibbon = React.createElement(
+    View,
+    { style: { position: 'absolute', top: 0, left: 0 } },
+    React.createElement(
+      Svg, { width: W, height: H },
+      React.createElement(Path, {
+        d: 'M 0 395 C 80 435 160 515 262 595 L 0 595 Z',
+        fill: C.goldRibbon,
+        opacity: 0.82,
+      }),
+      React.createElement(Path, {
+        d: 'M 0 455 C 60 490 130 550 200 595 L 0 595 Z',
+        fill: C.goldBright,
+        opacity: 0.22,
+      }),
+      React.createElement(Path, {
+        d: 'M 0 420 C 80 460 160 530 240 595 L 0 595 Z',
+        fill: 'none',
+        stroke: C.goldBright,
+        strokeWidth: 0.8,
+        opacity: 0.5,
+      }),
+    )
+  );
 
-  if (data.template === 'gold') {
-    // Regal double-line border (outer 2pt, inner 0.5pt, 8pt gap)
-    decorations.push(
-      React.createElement(View, { key: 'g-outer', style: { position: 'absolute', top: 10, left: 10, right: 10, bottom: 10, border: '2pt solid #c9a84c', opacity: 0.78 } }),
-      React.createElement(View, { key: 'g-inner', style: { position: 'absolute', top: 18, left: 18, right: 18, bottom: 18, border: '0.5pt solid #c9a84c', opacity: 0.35 } }),
+  // ── CORNER FLOURISHES (SVG) ────────────────────────────────────────────────
+  const mkFlourish = (flip: boolean) => {
+    const sx = flip ? -1 : 1;
+    return React.createElement(
+      Svg, { width: 72, height: 72 },
+      // Outer S-curve arc
+      React.createElement(Path, {
+        d: `M ${flip ? 72 : 0},0 C ${flip ? 50 : 22},0 ${flip ? 20 : 52},22 ${flip ? 20 : 52},42 C ${flip ? 20 : 52},62 ${flip ? 72 : 0},62 ${flip ? 72 : 0},72`,
+        fill: 'none', stroke: C.gold, strokeWidth: 1.2, opacity: 0.7,
+      }),
+      // Inner parallel curve
+      React.createElement(Path, {
+        d: `M ${flip ? 72 : 0},8 C ${flip ? 57 : 15},8 ${flip ? 29 : 43},26 ${flip ? 29 : 43},44 C ${flip ? 29 : 43},64 ${flip ? 72 : 0},66 ${flip ? 72 : 0},72`,
+        fill: 'none', stroke: C.gold, strokeWidth: 0.6, opacity: 0.4,
+      }),
+      // Tip diamond
+      React.createElement(Polygon, {
+        points: `${flip ? 72 : 0},2 ${flip ? 68 : 4},6 ${flip ? 72 : 0},10 ${flip ? 76 : -4},6`,
+        fill: C.gold, opacity: 0.8,
+      }),
+      // Small accent circles
+      React.createElement(Circle, { cx: flip ? 20 : 52, cy: 42, r: 2.5, fill: C.gold, opacity: 0.6 }),
     );
-  } else if (data.template === 'dark') {
-    // Glowing horizontal lines (simulated with thick semi-transparent bars)
-    decorations.push(
-      React.createElement(View, { key: 'd-top', style: { position: 'absolute', top: 0, left: 0, right: 0, height: 5, backgroundColor: '#6366f1', opacity: 0.42 } }),
-      React.createElement(View, { key: 'd-bot', style: { position: 'absolute', bottom: 0, left: 0, right: 0, height: 5, backgroundColor: '#6366f1', opacity: 0.42 } }),
-    );
-  } else if (data.template === 'white') {
-    // Solid header band (#1a1a2e, 84pt) and footer band (40pt)
-    decorations.push(
-      React.createElement(View, { key: 'w-head', style: { position: 'absolute', top: 0, left: 0, right: 0, height: 84, backgroundColor: '#1a1a2e' } }),
-      React.createElement(View, { key: 'w-foot', style: { position: 'absolute', bottom: 0, left: 0, right: 0, height: 40, backgroundColor: '#1a1a2e' } }),
-    );
-  } else if (data.template === 'emerald') {
-    // Curved decorative arcs in top corners
-    decorations.push(
-      React.createElement(View, { key: 'em-al', style: { position: 'absolute', top: 0, left: 0 } },
-        React.createElement(Svg, { width: 155, height: 155 },
-          React.createElement(Path, { d: 'M 0 155 Q 0 0 155 0', fill: 'none', stroke: '#10b981', strokeWidth: 2.5, opacity: 0.28 }),
-          React.createElement(Path, { d: 'M 0 110 Q 0 0 110 0', fill: 'none', stroke: '#10b981', strokeWidth: 1.5, opacity: 0.18 }),
-          React.createElement(Path, { d: 'M 0 68 Q 0 0 68 0', fill: 'none', stroke: '#10b981', strokeWidth: 1, opacity: 0.12 }),
-        )
-      ),
-      React.createElement(View, { key: 'em-ar', style: { position: 'absolute', top: 0, right: 0 } },
-        React.createElement(Svg, { width: 155, height: 155 },
-          React.createElement(Path, { d: 'M 155 155 Q 155 0 0 0', fill: 'none', stroke: '#10b981', strokeWidth: 2.5, opacity: 0.28 }),
-          React.createElement(Path, { d: 'M 155 110 Q 155 0 45 0', fill: 'none', stroke: '#10b981', strokeWidth: 1.5, opacity: 0.18 }),
-          React.createElement(Path, { d: 'M 155 68 Q 155 0 87 0', fill: 'none', stroke: '#10b981', strokeWidth: 1, opacity: 0.12 }),
-        )
-      ),
-    );
-  }
+  };
 
-  // ── SIGNATORY VERTICAL POSITIONS (from bottom) ──
-  // Stack Club President above Faculty Coordinator when both present
-  const fac = data.facultyName;
-  const sig1NameBot  = fac ? 130 : 108;
-  const sig1LineBot  = fac ? 123 : 101;
-  const sig1LabelBot = fac ? 107 : 85;
+  // ── MEDAL / BADGE (top-left) ───────────────────────────────────────────────
+  const medal = React.createElement(
+    Svg, { width: 110, height: 130 },
+    // Outer ring
+    React.createElement(Circle, { cx: 52, cy: 52, r: 48, stroke: C.gold, strokeWidth: 3, fill: '#1a1508' }),
+    // Inner ring
+    React.createElement(Circle, { cx: 52, cy: 52, r: 38, stroke: C.gold, strokeWidth: 1, fill: 'none', opacity: 0.5 }),
+    // 5-point star
+    React.createElement(Path, {
+      d: 'M52,26 L56.5,39 L70,39 L59.5,47 L63.5,60 L52,52 L40.5,60 L44.5,47 L34,39 L47.5,39 Z',
+      fill: C.gold, stroke: C.goldBright, strokeWidth: 0.5,
+    }),
+    // Ribbon tabs below
+    React.createElement(Rect, { x: 37, y: 102, width: 12, height: 22, fill: C.gold }),
+    React.createElement(Rect, { x: 55, y: 102, width: 12, height: 22, fill: '#9a7a2c' }),
+    React.createElement(Rect, { x: 46, y: 102, width: 12, height: 24, fill: C.goldRibbon }),
+    // Small dots at bottom of ribbon
+    React.createElement(Circle, { cx: 42, cy: 127, r: 2.5, fill: C.gold }),
+    React.createElement(Circle, { cx: 52, cy: 127, r: 2.5, fill: C.gold }),
+    React.createElement(Circle, { cx: 62, cy: 127, r: 2.5, fill: C.gold }),
+  );
+
+  // ── CENTRE DIVIDER (diamond + lines) ──────────────────────────────────────
+  const centreDivider = React.createElement(
+    Svg, { width: 260, height: 12 },
+    React.createElement(Line, { x1: 0, y1: 6, x2: 95, y2: 6, stroke: C.gold, strokeWidth: 0.5, opacity: 0.6 }),
+    React.createElement(Polygon, { points: '121,0 130,6 121,12 112,6', fill: C.gold }),
+    React.createElement(Line, { x1: 139, y1: 6, x2: 260, y2: 6, stroke: C.gold, strokeWidth: 0.5, opacity: 0.6 }),
+  );
+
+  // ── NAME UNDERLINE ─────────────────────────────────────────────────────────
+  const nameUnderline = React.createElement(
+    Svg, { width: 380, height: 4 },
+    React.createElement(Line, { x1: 0, y1: 2, x2: 380, y2: 2, stroke: C.gold, strokeWidth: 1, opacity: 0.8 }),
+  );
+
+  // ── WINNER OCTAGON BADGE ───────────────────────────────────────────────────
+  const winnerBadge = isWinner ? React.createElement(
+    View, { style: { position: 'absolute', top: 108, right: 120 } },
+    React.createElement(
+      Svg, { width: 90, height: 90 },
+      React.createElement(Polygon, {
+        points: '27,5 63,5 85,27 85,63 63,85 27,85 5,63 5,27',
+        fill: '#0a0905', stroke: C.gold, strokeWidth: 2,
+      }),
+      React.createElement(Polygon, {
+        points: '30,10 60,10 80,30 80,60 60,80 30,80 10,60 10,30',
+        fill: 'none', stroke: C.gold, strokeWidth: 0.5, opacity: 0.4,
+      }),
+      // Star inside badge
+      React.createElement(Path, {
+        d: 'M45,20 L48.5,30.5 L60,30.5 L51,37 L54,47.5 L45,41 L36,47.5 L39,37 L30,30.5 L41.5,30.5 Z',
+        fill: C.gold,
+      }),
+      React.createElement(Text, {
+        style: { position: 'absolute', top: 52, left: 0, right: 0, textAlign: 'center', fontSize: 8, color: C.gold, fontFamily: 'Helvetica-Bold', letterSpacing: 1 },
+      }, data.position ? data.position.toUpperCase() : '1ST PLACE'),
+    )
+  ) : null;
+
+  // ── RADIAL GLOW OVERLAY (very subtle warm centre) ─────────────────────────
+  // react-pdf doesn't support SVG radial-gradient natively; approximate with
+  // a large semi-transparent gold ellipse at very low opacity.
+  const radialGlow = React.createElement(
+    View, { style: { position: 'absolute', top: H / 2 - 160, left: W / 2 - 200 } },
+    React.createElement(
+      Svg, { width: 400, height: 320 },
+      React.createElement(Path, {
+        d: 'M 200 160 m -180 0 a 180 140 0 1 0 360 0 a 180 140 0 1 0 -360 0',
+        fill: C.gold, opacity: 0.025,
+      }),
+    )
+  );
+
+  // ── DETERMINE signatory vertical positions ─────────────────────────────────
+  const hasFaculty = Boolean(data.facultyName);
 
   return renderToBuffer(
     React.createElement(
       Document, null,
       React.createElement(
         Page,
-        { size: [W, H], style: { backgroundColor: T.bg, position: 'relative', fontFamily: 'Times-Roman' } },
+        { size: [W, H], style: { backgroundColor: C.bg, position: 'relative' } },
 
-        // ── DOT GRID BACKGROUND (3% opacity) ──
-        React.createElement(View, { style: { position: 'absolute', top: 0, left: 0 } },
-          React.createElement(Svg, { width: W, height: H, style: { opacity: 0.03 } },
-            ...dots
-          )
+        // ── LAYER 1: GOLD RIBBON SWOOSHES ──────────────────────────────────
+        topRightRibbon,
+        bottomLeftRibbon,
+
+        // ── LAYER 2: RADIAL GLOW ──────────────────────────────────────────
+        radialGlow,
+
+        // ── LAYER 3: WATERMARK ────────────────────────────────────────────
+        ...(data.codescrietLogoUrl ? [
+          React.createElement(View, {
+            key: 'wm',
+            style: { position: 'absolute', top: H / 2 - 90, left: W / 2 - 90, opacity: 0.04 },
+          },
+            React.createElement(Image, { src: data.codescrietLogoUrl, style: { width: 180, height: 180 } })
+          ),
+        ] : []),
+
+        // ── CORNER FLOURISHES ─────────────────────────────────────────────
+        // Top-left
+        React.createElement(View, { key: 'fl-tl', style: { position: 'absolute', top: 8, left: 8 } }, mkFlourish(false)),
+        // Top-right
+        React.createElement(View, { key: 'fl-tr', style: { position: 'absolute', top: 8, right: 8, transform: 'rotate(90deg)' } }, mkFlourish(true)),
+        // Bottom-right
+        React.createElement(View, { key: 'fl-br', style: { position: 'absolute', bottom: 8, right: 8, transform: 'rotate(180deg)' } }, mkFlourish(false)),
+        // Bottom-left
+        React.createElement(View, { key: 'fl-bl', style: { position: 'absolute', bottom: 8, left: 8, transform: 'rotate(270deg)' } }, mkFlourish(true)),
+
+        // ── MEDAL (top-left) ──────────────────────────────────────────────
+        React.createElement(View, { key: 'medal', style: { position: 'absolute', top: 22, left: 32 } }, medal),
+
+        // ── DUAL LOGO ROW (top-centre) ────────────────────────────────────
+        React.createElement(View, {
+          key: 'logo-row',
+          style: {
+            position: 'absolute', top: 18, left: 0, right: 0,
+            flexDirection: 'row', justifyContent: 'center', alignItems: 'center', gap: 10,
+          },
+        },
+          // CCSU logo
+          ...(data.ccsuLogoUrl ? [
+            React.createElement(Image, { key: 'ccsu', src: data.ccsuLogoUrl, style: { width: 44, height: 44 } }),
+            // Gold divider
+            React.createElement(View, { key: 'div1', style: { width: 1, height: 32, backgroundColor: C.gold, opacity: 0.5 } }),
+          ] : []),
+
+          // Text block
+          React.createElement(View, { key: 'title-block', style: { flexDirection: 'column', alignItems: 'center', gap: 2 } },
+            React.createElement(Text, {
+              style: { fontSize: 11, fontFamily: 'Helvetica-Bold', color: C.gold, letterSpacing: 4 },
+            }, 'CODESCRIET'),
+            React.createElement(Text, {
+              style: { fontSize: 7, color: 'rgba(255,255,255,0.45)', letterSpacing: 1.5 },
+            }, 'Chaudhary Charan Singh University'),
+          ),
+
+          // Gold divider
+          ...(data.codescrietLogoUrl ? [
+            React.createElement(View, { key: 'div2', style: { width: 1, height: 32, backgroundColor: C.gold, opacity: 0.5 } }),
+            // CodeScriet logo
+            React.createElement(Image, { key: 'cslogo', src: data.codescrietLogoUrl, style: { width: 44, height: 44 } }),
+          ] : []),
         ),
 
-        // ── TEMPLATE DECORATIONS ──
-        ...decorations,
+        // ── WINNER BADGE ──────────────────────────────────────────────────
+        winnerBadge,
 
-        // ══ HEADER AREA (0–84pt) ══
-
-        // CCSU logo — top-left (48×48, vertically centered in header)
-        ...(data.ccsuLogoUrl ? [
-          React.createElement(View, { key: 'ccsu', style: { position: 'absolute', top: 18, left: 28 } },
-            React.createElement(Image, { src: data.ccsuLogoUrl, style: { width: 48, height: 48 } })
-          ),
-        ] : []),
-
-        // CodeScriet logo — top-right (48×48)
-        ...(data.codescrietLogoUrl ? [
-          React.createElement(View, { key: 'cslogo', style: { position: 'absolute', top: 18, right: 28 } },
-            React.createElement(Image, { src: data.codescrietLogoUrl, style: { width: 48, height: 48 } })
-          ),
-        ] : []),
-
-        // Club name
+        // ── "CERTIFICATE" HEADING ─────────────────────────────────────────
+        // Shadow layer (1pt offset)
         React.createElement(Text, {
-          style: { position: 'absolute', top: 20, left: 0, right: 0, textAlign: 'center', fontSize: 13, fontFamily: 'Helvetica-Bold', color: hTextColor, letterSpacing: 5 },
-        }, '\u26A1  CODESCRIET'),
-
-        // University name (subtext below club name)
+          key: 'cert-shadow',
+          style: {
+            position: 'absolute', top: 121, left: 1, right: -1,
+            textAlign: 'center', fontSize: 48,
+            fontFamily: 'Cinzel',
+            color: C.goldDark, letterSpacing: 12, opacity: 0.7,
+          },
+        }, 'CERTIFICATE'),
+        // Main layer
         React.createElement(Text, {
-          style: { position: 'absolute', top: 42, left: 0, right: 0, textAlign: 'center', fontSize: 7.5, color: hSubColor, letterSpacing: 1.5 },
-        }, 'CHAUDHARY CHARAN SINGH UNIVERSITY, MEERUT'),
+          key: 'cert-heading',
+          style: {
+            position: 'absolute', top: 120, left: 0, right: 0,
+            textAlign: 'center', fontSize: 48,
+            fontFamily: 'Cinzel',
+            color: C.gold, letterSpacing: 12,
+          },
+        }, 'CERTIFICATE'),
 
-        // Department subline
+        // ── "of Achievement" subtitle ─────────────────────────────────────
         React.createElement(Text, {
-          style: { position: 'absolute', top: 60, left: 0, right: 0, textAlign: 'center', fontSize: 6, color: hSubColor, letterSpacing: 2, opacity: 0.75 },
-        }, 'DEPARTMENT OF COMPUTER SCIENCE & ENGINEERING'),
+          key: 'type-label',
+          style: {
+            position: 'absolute', top: 174, left: 0, right: 0,
+            textAlign: 'center', fontSize: 15,
+            fontFamily: 'Times-Italic',
+            color: 'rgba(255,255,255,0.65)', letterSpacing: 3,
+          },
+        }, getTypeLabel(type)),
 
-        // Header / body tapered divider
-        React.createElement(View, { style: { position: 'absolute', top: 84, left: 171 } }, headerDivider),
+        // ── DECORATIVE DIVIDER ────────────────────────────────────────────
+        React.createElement(View, {
+          key: 'divider',
+          style: { position: 'absolute', top: 198, left: (W - 260) / 2 },
+        }, centreDivider),
 
-        // ── WATERMARK (CodeScriet logo, centered, 5% opacity) ──
-        ...(data.codescrietLogoUrl ? [
-          React.createElement(View, { key: 'wm', style: { position: 'absolute', top: 197, left: 320, opacity: 0.05 } },
-            React.createElement(Image, { src: data.codescrietLogoUrl, style: { width: 200, height: 200 } })
-          ),
-        ] : []),
-
-        // ── CORNER DIAMOND ORNAMENTS ──
-        React.createElement(View, { style: { position: 'absolute', top: 7, left: 7 } }, mkDiamond(18)),
-        React.createElement(View, { style: { position: 'absolute', top: 7, right: 7 } }, mkDiamond(18)),
-        React.createElement(View, { style: { position: 'absolute', bottom: 7, left: 7 } }, mkDiamond(18)),
-        React.createElement(View, { style: { position: 'absolute', bottom: 7, right: 7 } }, mkDiamond(18)),
-
-        // ══ CERTIFICATE BODY ══
-
-        // "THIS IS TO CERTIFY THAT"
+        // ── "THIS CERTIFICATE IS PROUDLY PRESENTED TO" ────────────────────
         React.createElement(Text, {
-          style: { position: 'absolute', top: 103, left: 0, right: 0, textAlign: 'center', fontSize: 7.5, color: T.subtext, letterSpacing: 4 },
-        }, 'THIS IS TO CERTIFY THAT'),
+          key: 'presented-to',
+          style: {
+            position: 'absolute', top: 218, left: 0, right: 0,
+            textAlign: 'center', fontSize: 8.5,
+            fontFamily: 'Helvetica',
+            color: 'rgba(255,255,255,0.42)', letterSpacing: 2.5,
+          },
+        }, 'THIS CERTIFICATE IS PROUDLY PRESENTED TO'),
 
-        // Recipient name (large italic)
+        // ── RECIPIENT NAME ────────────────────────────────────────────────
         React.createElement(Text, {
-          style: { position: 'absolute', top: 118, left: 70, right: 70, textAlign: 'center', fontSize: 44, fontFamily: 'Times-BoldItalic', color: T.nameColor, lineHeight: 1.1 },
+          key: 'name',
+          style: {
+            position: 'absolute', top: 232, left: 120, right: 120,
+            textAlign: 'center', fontSize: 58,
+            fontFamily: 'GreatVibes',
+            color: C.goldBright, lineHeight: 1.1,
+          },
         }, data.recipientName),
 
-        // Name underline (tapered)
-        React.createElement(View, { style: { position: 'absolute', top: 174, left: 181 } }, nameUnderline),
+        // ── NAME UNDERLINE ────────────────────────────────────────────────
+        React.createElement(View, {
+          key: 'name-underline',
+          style: { position: 'absolute', top: 298, left: (W - 380) / 2 },
+        }, nameUnderline),
 
-        // "HAS [VERB]"
+        // ── DESCRIPTION TEXT ──────────────────────────────────────────────
         React.createElement(Text, {
-          style: { position: 'absolute', top: 186, left: 0, right: 0, textAlign: 'center', fontSize: 7.5, color: T.subtext, letterSpacing: 4 },
-        }, `HAS ${verb}`),
+          key: 'desc',
+          style: {
+            position: 'absolute', top: 308, left: 150, right: 150,
+            textAlign: 'center', fontSize: 9,
+            fontFamily: 'Times-Italic',
+            color: C.muted, lineHeight: 1.55,
+          },
+        }, getDescription(type, data.description)),
 
-        // Event name
+        // ── EVENT NAME ────────────────────────────────────────────────────
         React.createElement(Text, {
-          style: { position: 'absolute', top: 204, left: 90, right: 90, textAlign: 'center', fontSize: 21, fontFamily: 'Times-Bold', color: T.textColor, lineHeight: 1.2 },
-        }, data.eventName),
+          key: 'event',
+          style: {
+            position: 'absolute', top: 342, left: 90, right: 90,
+            textAlign: 'center', fontSize: 18,
+            fontFamily: 'Helvetica-Bold',
+            color: C.white, letterSpacing: 1,
+          },
+        }, data.domain ? `${data.eventName}  ·  ${data.domain}` : data.eventName),
 
-        // Event description (italic, optional)
-        ...(data.description ? [
-          React.createElement(Text, {
-            key: 'desc',
-            style: { position: 'absolute', top: 250, left: 95, right: 95, textAlign: 'center', fontSize: 9, fontFamily: 'Times-Italic', color: T.subtext, lineHeight: 1.35 },
-          }, `\u201C${data.description}\u201D`),
-        ] : []),
-
-        // Domain badge (optional)
-        ...(data.domain ? [
-          React.createElement(Text, {
-            key: 'domain',
-            style: { position: 'absolute', top: 300, left: 0, right: 0, textAlign: 'center', fontSize: 8, color: T.accent, letterSpacing: 2 },
-          }, data.domain.toUpperCase()),
-        ] : []),
-
-        // WINNER badge (SVG, top-right body area)
-        ...(isWinner ? [
-          React.createElement(View, { key: 'wb', style: { position: 'absolute', top: 97, right: 86 } }, winnerBadge),
-          ...(data.position ? [
-            React.createElement(Text, {
-              key: 'wp',
-              style: { position: 'absolute', top: 178, right: 62, width: 124, textAlign: 'center', fontSize: 7.5, color: T.accent, letterSpacing: 1.5 },
-            }, data.position.toUpperCase()),
-          ] : []),
-        ] : []),
-
-        // ══ FOOTER ══
-
-        // Department label (above date, left)
+        // ── DATE ──────────────────────────────────────────────────────────
         React.createElement(Text, {
-          style: { position: 'absolute', bottom: 122, left: 55, fontSize: 6, color: T.subtext, letterSpacing: 1.5 },
-        }, 'DEPT. OF COMPUTER SCIENCE & ENGINEERING'),
-
-        // Date label
-        React.createElement(Text, {
-          style: { position: 'absolute', bottom: 105, left: 55, fontSize: 7, color: T.subtext, letterSpacing: 2 },
-        }, 'DATE ISSUED'),
-
-        // Date value
-        React.createElement(Text, {
-          style: { position: 'absolute', bottom: 85, left: 55, fontSize: 11, fontFamily: 'Times-Bold', color: T.textColor },
+          key: 'date',
+          style: {
+            position: 'absolute', top: 373, left: 0, right: 0,
+            textAlign: 'center', fontSize: 9.5,
+            fontFamily: 'Times-Roman',
+            color: 'rgba(255,255,255,0.45)', letterSpacing: 1.5,
+          },
         }, dateStr),
 
-        // Date underline
+        // ── SIGNATORY 1 — CLUB PRESIDENT ──────────────────────────────────
         React.createElement(View, {
-          style: { position: 'absolute', bottom: 80, left: 55, width: 108, height: 0.5, backgroundColor: T.subtext, opacity: 0.4 },
-        }),
-
-        // Signatory 1 — Club President
-        React.createElement(Text, {
-          style: { position: 'absolute', bottom: sig1NameBot, left: 0, right: 0, textAlign: 'center', fontSize: 13, fontFamily: 'Times-Italic', color: T.nameColor },
-        }, data.signatoryName),
-        React.createElement(View, {
-          style: { position: 'absolute', bottom: sig1LineBot, left: 295, width: 250, height: 0.5, backgroundColor: T.subtext, opacity: 0.4 },
-        }),
-        React.createElement(Text, {
-          style: { position: 'absolute', bottom: sig1LabelBot, left: 0, right: 0, textAlign: 'center', fontSize: 6.5, color: T.subtext, letterSpacing: 2 },
-        }, 'CLUB PRESIDENT · CODE.SCRIET'),
-
-        // Signatory 2 — Faculty Coordinator (optional)
-        ...(fac ? [
-          React.createElement(Text, {
-            key: 'f-name',
-            style: { position: 'absolute', bottom: 87, left: 0, right: 0, textAlign: 'center', fontSize: 11, fontFamily: 'Times-Italic', color: T.nameColor },
-          }, fac),
-          React.createElement(View, {
-            key: 'f-line',
-            style: { position: 'absolute', bottom: 80, left: 303, width: 235, height: 0.5, backgroundColor: T.subtext, opacity: 0.4 },
-          }),
-          React.createElement(Text, {
-            key: 'f-label',
-            style: { position: 'absolute', bottom: 64, left: 0, right: 0, textAlign: 'center', fontSize: 6.5, color: T.subtext, letterSpacing: 2 },
-          }, 'FACULTY COORDINATOR'),
-        ] : []),
-
-        // QR code (right side)
-        React.createElement(View, {
-          style: { position: 'absolute', bottom: 38, right: 50, backgroundColor: '#ffffff', padding: 4, borderRadius: 3 },
+          key: 'sig1',
+          style: {
+            position: 'absolute',
+            bottom: hasFaculty ? 92 : 70,
+            left: hasFaculty ? W / 2 - 200 : 0,
+            right: hasFaculty ? W / 2 + 200 : 0,
+            alignItems: 'center',
+          },
         },
-          React.createElement(Image, { src: qrDataUrl, style: { width: 68, height: 68 } })
+          React.createElement(Text, {
+            style: { fontSize: 16, fontFamily: 'Times-BoldItalic', color: C.goldBright, textAlign: 'center' },
+          }, data.signatoryName),
+          React.createElement(View, { style: { width: 120, height: 0.5, backgroundColor: C.gold, opacity: 0.6, marginTop: 4 } }),
+          React.createElement(Text, {
+            style: { fontSize: 7.5, fontFamily: 'Helvetica-Bold', color: 'rgba(255,255,255,0.5)', letterSpacing: 2, marginTop: 4, textAlign: 'center' },
+          }, data.signatoryName.toUpperCase()),
+          React.createElement(Text, {
+            style: { fontSize: 7, fontFamily: 'Helvetica', color: C.gold, letterSpacing: 2, marginTop: 2, textAlign: 'center' },
+          }, 'CLUB PRESIDENT'),
         ),
 
-        // Certificate ID (below QR)
-        React.createElement(Text, {
-          style: { position: 'absolute', bottom: 24, right: 50, width: 76, fontSize: 6, color: footerTinyColor, fontFamily: 'Courier', letterSpacing: 0.5, textAlign: 'center' },
-        }, data.certId),
+        // ── SIGNATORY 2 — FACULTY COORDINATOR (optional) ─────────────────
+        ...(hasFaculty ? [
+          React.createElement(View, {
+            key: 'sig2',
+            style: {
+              position: 'absolute',
+              bottom: 92,
+              left: W / 2 + 20,
+              right: 0,
+              alignItems: 'center',
+            },
+          },
+            React.createElement(Text, {
+              style: { fontSize: 16, fontFamily: 'Times-BoldItalic', color: C.goldBright, textAlign: 'center' },
+            }, data.facultyName!),
+            React.createElement(View, { style: { width: 120, height: 0.5, backgroundColor: C.gold, opacity: 0.6, marginTop: 4 } }),
+            React.createElement(Text, {
+              style: { fontSize: 7.5, fontFamily: 'Helvetica-Bold', color: 'rgba(255,255,255,0.5)', letterSpacing: 2, marginTop: 4, textAlign: 'center' },
+            }, data.facultyName!.toUpperCase()),
+            React.createElement(Text, {
+              style: { fontSize: 7, fontFamily: 'Helvetica', color: C.gold, letterSpacing: 2, marginTop: 2, textAlign: 'center' },
+            }, 'FACULTY COORDINATOR'),
+          ),
+        ] : []),
 
-        // Verify URL (very bottom center)
+        // ── QR CODE ───────────────────────────────────────────────────────
+        React.createElement(View, {
+          key: 'qr',
+          style: {
+            position: 'absolute', bottom: 30, right: 48,
+            backgroundColor: '#ffffff', padding: 6, borderRadius: 6,
+          },
+        },
+          React.createElement(Image, { src: qrDataUrl, style: { width: 80, height: 80 } })
+        ),
         React.createElement(Text, {
-          style: { position: 'absolute', bottom: 10, left: 0, right: 0, textAlign: 'center', fontSize: 6.5, color: footerTinyColor, opacity: 0.65, fontFamily: 'Helvetica' },
-        }, `This certificate is digitally verified. Scan QR or visit codescriet.dev/verify/${data.certId}`),
+          key: 'cert-id',
+          style: {
+            position: 'absolute', bottom: 20, right: 48, width: 92,
+            textAlign: 'center', fontSize: 6.5, fontFamily: 'Courier',
+            color: C.certIdGray, letterSpacing: 0.5,
+          },
+        }, data.certId),
+        React.createElement(Text, {
+          key: 'scan-label',
+          style: {
+            position: 'absolute', bottom: 10, right: 48, width: 92,
+            textAlign: 'center', fontSize: 6, fontFamily: 'Helvetica',
+            color: C.gold, letterSpacing: 2,
+          },
+        }, 'SCAN TO VERIFY'),
+
+        // ── BOTTOM VERIFICATION TEXT ──────────────────────────────────────
+        React.createElement(Text, {
+          key: 'verify',
+          style: {
+            position: 'absolute', bottom: 12, left: 0, right: 160,
+            textAlign: 'center', fontSize: 6,
+            fontFamily: 'Helvetica',
+            color: 'rgba(255,255,255,0.2)', letterSpacing: 0.8,
+          },
+        }, `This certificate is digitally verified · codescriet.dev/verify/${data.certId}`),
       )
     )
   );

@@ -33,8 +33,8 @@ function loadLogoBase64(filename: string): string | undefined {
   return undefined;
 }
 
-const CODESCRIET_LOGO = loadLogoBase64('codescriet.png');
-const CCSU_LOGO       = loadLogoBase64('ccsu.png');
+const CODESCRIET_LOGO = loadLogoBase64('codescriet.png') ?? loadLogoBase64('codescriet.jpg') ?? loadLogoBase64('codescriet.jpeg');
+const CCSU_LOGO       = loadLogoBase64('ccsu.png') ?? loadLogoBase64('ccsu.jpg') ?? loadLogoBase64('ccsu.jpeg');
 
 export const certificatesRouter = Router();
 
