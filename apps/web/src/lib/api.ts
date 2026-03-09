@@ -651,6 +651,8 @@ export const api = {
   getSettings: () => request<Settings>('/settings/public'),
   updateSettings: (data: Partial<Settings>, token: string) =>
     request<Settings>('/settings', { method: 'PUT', body: JSON.stringify(data), token }),
+  patchSetting: (key: string, value: boolean | string | number, token: string) =>
+    request<Settings>(`/settings/${key}`, { method: 'PATCH', body: JSON.stringify({ value }), token }),
   
   // Profile
   getProfile: (token: string) => request<{
