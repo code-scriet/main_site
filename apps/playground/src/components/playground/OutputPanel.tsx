@@ -202,7 +202,7 @@ export function OutputPanel() {
 
           <div className="flex items-center gap-2">
             {/* Daily limit counter */}
-            {stats && !isWebLanguage && (
+            {stats && (
               <span className={cn(
                 'text-[11px] font-mono px-2 py-0.5 rounded-md',
                 stats.todayCount >= stats.dailyLimit

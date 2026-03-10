@@ -27,12 +27,38 @@ export function useCodeExecution() {
       return { success: false, error: validation.message };
     }
 
-    // Handle web (HTML/CSS/JS) separately
+    // Handle web (HTML/CSS/JS) separately, but still count toward daily limits/history.
     if (language.id === 'web') {
-      setOutput('');
-      setError('');
-      toast.success('Web preview updated!');
-      return { success: true };
+      const startTime = Date.now();
+      try {
+        const preflight = await getSessionPreflight(language.id);
+        if (!preflight.allowed) {
+          const msg = `Daily execution limit (${preflight.dailyLimit}) reached. Try again tomorrow.`;
+          setError(msg);
+          toast.error(msg);
+          return { success: false, error: msg };
+        }
+
+        setOutput('');
+        setError('');
+
+        // Record web preview runs in session history/counter as successful local runs.
+        await recordClientExecution({
+          language: language.id,
+          code,
+          output: 'Web preview updated',
+          durationMs: Math.max(0, Date.now() - startTime),
+          status: 'SUCCESS',
+        });
+
+        toast.success('Web preview updated!');
+        return { success: true };
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Failed to record web execution';
+        setError(message);
+        toast.error(message);
+        return { success: false, error: message };
+      }
     }
 
     // Cancel any in-flight execution

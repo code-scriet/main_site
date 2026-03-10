@@ -234,8 +234,8 @@ async function dbQuery(sql, params = []) {
   }
 }
 
-// Max 20 execution history entries with code per user
-const MAX_HISTORY_PER_USER = 20;
+// Max 15 execution history entries with code per user
+const MAX_HISTORY_PER_USER = 15;
 
 // ---------------------------------------------------------------------------
 // Rate Limiting
@@ -908,7 +908,7 @@ function mapSnippetRow(row) {
 }
 
 // ---------------------------------------------------------------------------
-// Execution History — last 20 per user (with code), all-time stats (no code)
+// Execution History — last 15 per user (with code), all-time stats (no code)
 // ---------------------------------------------------------------------------
 
 app.get('/api/executions/history', requireAuth, async (req, res) => {

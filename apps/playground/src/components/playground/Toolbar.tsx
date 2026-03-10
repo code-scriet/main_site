@@ -2,9 +2,9 @@ import { usePlayground } from '@/context/PlaygroundContext';
 import { useTheme } from '@/context/ThemeContext';
 import { useAuth } from '@/context/AuthContext';
 import { getAllLanguages } from '@/utils/languageConfig';
-import { executeCode, formatOutput, calculateExecutionTime } from '@/engines/ExecutionRouter';
 import { createSnippet } from '@/utils/snippetsApi';
-import { copyToClipboard, validateCode } from '@/lib/utils';
+import { copyToClipboard } from '@/lib/utils';
+import { useCodeExecution } from '@/hooks/useCodeExecution';
 import { Button } from '@/components/ui/button';
 import {
   Select,
@@ -29,7 +29,6 @@ import {
   Code2,
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { useRef } from 'react';
 import { cn } from '@/lib/utils';
 import { useKeyboardShortcuts, getShortcutKey } from '@/hooks/useKeyboardShortcuts';
 
@@ -38,12 +37,7 @@ export function Toolbar() {
     code,
     language,
     setLanguage,
-    stdin,
     isRunning,
-    setOutput,
-    setError,
-    setIsRunning,
-    setExecutionTime,
     resetCode,
     increaseFontSize,
     decreaseFontSize,
@@ -51,79 +45,16 @@ export function Toolbar() {
   } = usePlayground();
   const { theme, toggleTheme } = useTheme();
   const { isAuthenticated } = useAuth();
-  const abortRef = useRef<AbortController | null>(null);
+  const { runCode, stopExecution } = useCodeExecution();
 
   const languages = getAllLanguages();
 
   const handleRunCode = async () => {
-    const validation = validateCode(code);
-    if (!validation.valid) {
-      toast.error(validation.message || 'Invalid code');
-      return;
-    }
-
-    if (language.id === 'web') {
-      setOutput('');
-      setError('');
-      toast.success('Web preview updated!');
-      return;
-    }
-
-    // Cancel any in-flight execution
-    abortRef.current?.abort();
-    const controller = new AbortController();
-    abortRef.current = controller;
-
-    setIsRunning(true);
-    setOutput('');
-    setError('');
-    const startTime = Date.now();
-
-    try {
-      const result = await executeCode({
-        language: language.id,
-        code,
-        stdin: stdin || undefined,
-        signal: controller.signal,
-      });
-
-      const endTime = Date.now();
-      const executionTime = calculateExecutionTime(startTime, endTime);
-      setExecutionTime(executionTime);
-
-      const { output, error, hasError, warning } = formatOutput(result);
-
-      if (hasError) {
-        setError(error);
-        if (output) {
-          setOutput(output);
-        }
-        toast.error(error || 'Code execution failed');
-      } else {
-        setOutput(output || 'Program executed successfully with no output');
-        if (warning) {
-          setError(`Warning: ${warning}`);
-        }
-        const tierLabel = result.tier === 'client' ? '(local)' : '(cloud)';
-        toast.success(`Executed in ${executionTime} ${tierLabel}`);
-      }
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Unknown error';
-      if (message === 'Execution cancelled') {
-        setError('Execution cancelled by user.');
-        toast.info('Execution stopped');
-      } else {
-        setError(`Execution error: ${message}`);
-        toast.error('Failed to execute code');
-      }
-    } finally {
-      setIsRunning(false);
-      abortRef.current = null;
-    }
+    await runCode();
   };
 
   const handleStopExecution = () => {
-    abortRef.current?.abort();
+    stopExecution();
   };
 
   const handleCopyCode = async () => {
