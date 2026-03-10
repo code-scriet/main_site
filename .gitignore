@@ -108,5 +108,6 @@ Screenshot*
 # Local development files
 .local/
 .history/
+.qoder/
 
 

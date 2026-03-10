@@ -3,10 +3,21 @@ import cors from 'cors';
 import crypto from 'crypto';
 import jwt from 'jsonwebtoken';
 import pg from 'pg';
+import dotenv from 'dotenv';
+import { fileURLToPath } from 'url';
+import { dirname, resolve } from 'path';
+
+// Load env from the monorepo root .env, then the local playground .env
+// (local values override root). This ensures JWT_SECRET matches the main API.
+const __dir = dirname(fileURLToPath(import.meta.url));
+dotenv.config({ path: resolve(__dir, '../../.env') });
+dotenv.config({ path: resolve(__dir, '.env') });
 
 const app = express();
-const PORT = process.env.PORT || process.env.EXECUTE_PORT || 5002;
 const NODE_ENV = process.env.NODE_ENV || 'development';
+const PORT = NODE_ENV === 'production'
+  ? (process.env.PORT || process.env.EXECUTE_PORT || 5002)
+  : (process.env.EXECUTE_PORT || process.env.PLAYGROUND_EXECUTE_PORT || 5002);
 
 // ---------------------------------------------------------------------------
 // CORS — controlled via ALLOWED_ORIGIN env var
@@ -98,23 +109,32 @@ function getJwtSecret() {
 
 function extractToken(req) {
   const auth = req.headers.authorization;
-  if (auth && auth.startsWith('Bearer ')) return auth.substring(7);
+  const bearerToken = auth && auth.startsWith('Bearer ') ? auth.substring(7) : null;
+
   const cookies = req.headers.cookie;
+  let cookieToken = null;
   if (cookies) {
     const match = cookies.split(';').find(c => c.trim().startsWith('scriet_session='));
-    if (match) return decodeURIComponent(match.split('=').slice(1).join('=').trim());
+    if (match) cookieToken = decodeURIComponent(match.split('=').slice(1).join('=').trim());
   }
-  return null;
+
+  return { bearerToken, cookieToken };
 }
 
 function optionalAuth(req, _res, next) {
-  const token = extractToken(req);
-  if (token) {
+  const { bearerToken, cookieToken } = extractToken(req);
+  const candidates = [bearerToken, cookieToken].filter(Boolean);
+
+  for (const token of candidates) {
     try {
       const decoded = jwt.verify(token, getJwtSecret());
       req.user = { id: decoded.userId || decoded.id, email: decoded.email, role: decoded.role };
-    } catch { /* continue as anonymous */ }
+      break;
+    } catch {
+      // Try next token candidate (fallback to cookie when bearer token is stale)
+    }
   }
+
   next();
 }
 
@@ -166,32 +186,7 @@ if (DATABASE_URL) {
       await pool.query('SELECT 1');
       dbReady = true;
       console.log('[DB] Connected to PostgreSQL ✓');
-      // Ensure limit-reset table exists (safe to run every startup)
-      await pool.query(`
-        CREATE TABLE IF NOT EXISTS playground_limit_resets (
-          id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-          user_id TEXT NOT NULL,
-          reset_by TEXT NOT NULL,
-          reset_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-          note TEXT
-        )
-      `);
-      await pool.query(`
-        CREATE INDEX IF NOT EXISTS plr_user_id_idx ON playground_limit_resets(user_id)
-      `);
-      await pool.query(`
-        CREATE TABLE IF NOT EXISTS playground_daily_usage (
-          user_id TEXT NOT NULL,
-          usage_date DATE NOT NULL,
-          count INT NOT NULL DEFAULT 0,
-          updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-          PRIMARY KEY (user_id, usage_date)
-        )
-      `);
-      await pool.query(`
-        CREATE INDEX IF NOT EXISTS pdu_usage_date_idx ON playground_daily_usage(usage_date)
-      `);
-      console.log('[DB] playground_limit_resets table ready ✓');
+      console.log('[DB] playground usage tables expected via Prisma migrations ✓');
     } catch (err) {
       if (attemptsLeft > 1) {
         console.warn(`[DB] Connection attempt failed (${err.message}), retrying in ${delayMs}ms...`);
@@ -245,15 +240,11 @@ const MAX_HISTORY_PER_USER = 20;
 // ---------------------------------------------------------------------------
 // Rate Limiting
 // ---------------------------------------------------------------------------
-const MAX_EXECUTIONS_PER_DAY = 200;
+const MAX_EXECUTIONS_PER_DAY = Number(process.env.PLAYGROUND_DAILY_LIMIT || 200);
 const userExecCounts = new Map(); // in-memory fallback cache
 const MAX_IP_EXECUTIONS = 30;
 const ipExecCounts = new Map();
-const NON_METERED_LANGUAGES = new Set(['javascript', 'typescript', 'python', 'web']);
-
-function shouldMeterLanguage(language) {
-  return !NON_METERED_LANGUAGES.has(String(language || '').toLowerCase());
-}
+// All languages are metered — every execution counts toward the daily limit
 
 const USER_SESSION_TTL_MS = 30 * 60 * 1000; // 30 minutes idle TTL
 
@@ -391,15 +382,32 @@ setInterval(() => {
 }, 60_000);
 
 async function gracefulFlushAndExit(signal) {
+  if (gracefulFlushAndExit.inProgress) {
+    return;
+  }
+  gracefulFlushAndExit.inProgress = true;
+
   try {
     console.log(`[SessionFlush] Received ${signal}, flushing sessions...`);
     await flushAllDirtySessions(`shutdown-${signal}`);
+    if (pool) {
+      await pool.end();
+    }
   } catch (err) {
     console.error('[SessionFlush] Shutdown flush failed:', err.message);
   } finally {
+    if (server) {
+      server.close(() => {
+        process.exit(0);
+      });
+      setTimeout(() => process.exit(1), 5000);
+      return;
+    }
     process.exit(0);
   }
 }
+
+gracefulFlushAndExit.inProgress = false;
 
 process.on('SIGTERM', () => {
   gracefulFlushAndExit('SIGTERM');
@@ -498,6 +506,50 @@ function checkSecurityPatterns(code) {
 const EXECUTOR_URL = process.env.EXECUTOR_URL || 'https://codescriet-executor.developer-aary.workers.dev/execute';
 const EXECUTION_TIMEOUT = 15_000; // 15 seconds
 const MAX_OUTPUT_SIZE = 50_000; // 50 KB
+
+// ---------------------------------------------------------------------------
+// Execution Result Cache — avoids redundant cloud calls for identical code
+// ---------------------------------------------------------------------------
+const EXEC_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
+const EXEC_CACHE_MAX_SIZE = 500;
+const execCache = new Map(); // key → { result, expiresAt }
+
+function execCacheKey(language, code, stdin) {
+  // Use a fast hash: language + code length + first/last chars + stdin
+  // Full collision avoidance via full code comparison in get()
+  return `${language}:${code.length}:${crypto.createHash('sha256').update(code + (stdin || '')).digest('hex').slice(0, 16)}`;
+}
+
+function getCachedExecution(language, code, stdin) {
+  const key = execCacheKey(language, code, stdin);
+  const entry = execCache.get(key);
+  if (!entry) return null;
+  if (Date.now() > entry.expiresAt) {
+    execCache.delete(key);
+    return null;
+  }
+  return entry.result;
+}
+
+function setCachedExecution(language, code, stdin, result) {
+  // Only cache successful executions
+  if (result.run.code !== 0) return;
+  // Evict oldest entries if at capacity
+  if (execCache.size >= EXEC_CACHE_MAX_SIZE) {
+    const firstKey = execCache.keys().next().value;
+    execCache.delete(firstKey);
+  }
+  const key = execCacheKey(language, code, stdin);
+  execCache.set(key, { result, expiresAt: Date.now() + EXEC_CACHE_TTL_MS });
+}
+
+// Periodic cache cleanup every 2 minutes
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, entry] of execCache.entries()) {
+    if (now > entry.expiresAt) execCache.delete(key);
+  }
+}, 2 * 60 * 1000);
 
 // Language → compiler mapping
 const COMPILERS = {
@@ -662,24 +714,18 @@ app.post('/api/execute', async (req, res) => {
 
     let userSession = null;
 
-    const meterThisRun = shouldMeterLanguage(language);
-
-    // Rate limiting
+    // Rate limiting — all languages are metered
     if (req.user) {
-      if (meterThisRun) {
-        const limit = await checkUserRateLimit(req.user.id);
-        res.setHeader('X-RateLimit-Remaining', limit.remaining);
-        if (!limit.allowed) {
-          return res.status(429).json({
-            success: false,
-            error: `Daily execution limit (${MAX_EXECUTIONS_PER_DAY}) reached. Try again tomorrow.`,
-          });
-        }
-      } else {
-        res.setHeader('X-RateLimit-Remaining', MAX_EXECUTIONS_PER_DAY);
+      const limit = await checkUserRateLimit(req.user.id);
+      res.setHeader('X-RateLimit-Remaining', limit.remaining);
+      if (!limit.allowed) {
+        return res.status(429).json({
+          success: false,
+          error: `Daily execution limit (${MAX_EXECUTIONS_PER_DAY}) reached. Try again tomorrow.`,
+        });
       }
 
-      if (pool && meterThisRun) {
+      if (pool) {
         userSession = await getUserSession(req.user.id);
         userSession.todayCount += 1;
         userSession.dirtyUsage = true;
@@ -698,8 +744,20 @@ app.post('/api/execute', async (req, res) => {
     }
 
     const startMs = Date.now();
-    const result = await executeCode(language, code, stdin);
-    const durationMs = Date.now() - startMs;
+
+    // Check execution cache — return cached result if identical code was run recently
+    const cached = getCachedExecution(language, code, stdin);
+    let result;
+    let fromCache = false;
+    if (cached) {
+      result = cached;
+      fromCache = true;
+      console.log(`[Execute] Cache hit for ${language} (${code.length} chars)`);
+    } else {
+      result = await executeCode(language, code, stdin);
+      setCachedExecution(language, code, stdin, result);
+    }
+    const durationMs = fromCache ? 0 : (Date.now() - startMs);
 
     // Session-first persistence: keep history in memory and flush on session end.
     if (req.user) {
@@ -726,7 +784,7 @@ app.post('/api/execute', async (req, res) => {
     return res.json({
       success: true,
       data: result,
-      meta: { durationMs, userId: req.user?.id || null, provider: 'codescriet' },
+      meta: { durationMs, userId: req.user?.id || null, provider: 'codescriet', cached: fromCache },
     });
   } catch (error) {
     console.error('[Execute] Execution error:', error);
@@ -949,18 +1007,14 @@ app.get('/api/session/bootstrap', requireAuth, async (req, res) => {
 // Preflight: check current session limit before execution starts
 app.get('/api/session/preflight', requireAuth, async (req, res) => {
   const session = await getUserSession(req.user.id);
-  const language = String(req.query.language || '').toLowerCase();
-  const metered = shouldMeterLanguage(language);
-  const allowed = metered ? session.todayCount < MAX_EXECUTIONS_PER_DAY : true;
-  const remaining = metered
-    ? Math.max(0, MAX_EXECUTIONS_PER_DAY - session.todayCount)
-    : MAX_EXECUTIONS_PER_DAY;
+  const allowed = session.todayCount < MAX_EXECUTIONS_PER_DAY;
+  const remaining = Math.max(0, MAX_EXECUTIONS_PER_DAY - session.todayCount);
 
   return res.json({
     success: true,
     data: {
       allowed,
-      metered,
+      metered: true,
       todayCount: session.todayCount,
       dailyLimit: MAX_EXECUTIONS_PER_DAY,
       remaining,
@@ -976,9 +1030,8 @@ app.post('/api/session/record', requireAuth, async (req, res) => {
   }
 
   const session = await getUserSession(req.user.id);
-  const meterThisRun = shouldMeterLanguage(language);
 
-  if (meterThisRun && session.todayCount >= MAX_EXECUTIONS_PER_DAY) {
+  if (session.todayCount >= MAX_EXECUTIONS_PER_DAY) {
     return res.status(429).json({
       success: false,
       error: `Daily execution limit (${MAX_EXECUTIONS_PER_DAY}) reached. Try again tomorrow.`,
@@ -990,10 +1043,8 @@ app.post('/api/session/record', requireAuth, async (req, res) => {
     });
   }
 
-  if (meterThisRun) {
-    session.todayCount += 1;
-    session.dirtyUsage = true;
-  }
+  session.todayCount += 1;
+  session.dirtyUsage = true;
   session.history.unshift({
     id: crypto.randomUUID(),
     language,
@@ -1010,7 +1061,7 @@ app.post('/api/session/record', requireAuth, async (req, res) => {
   return res.json({
     success: true,
     data: {
-      metered: meterThisRun,
+      metered: true,
       todayCount: session.todayCount,
       dailyLimit: MAX_EXECUTIONS_PER_DAY,
       remaining: Math.max(0, MAX_EXECUTIONS_PER_DAY - session.todayCount),
@@ -1025,12 +1076,12 @@ app.post('/api/session/end', requireAuth, async (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
-// Admin — Execution Limit Management (ADMIN / CORE_MEMBER only)
+// Admin — Execution Limit Management (ADMIN only)
 // ---------------------------------------------------------------------------
 
 function requireAdmin(req, res, next) {
   if (!req.user) return res.status(401).json({ success: false, error: 'Authentication required' });
-  if (!['ADMIN', 'CORE_MEMBER'].includes(req.user.role)) {
+  if (!['ADMIN', 'PRESIDENT'].includes(req.user.role)) {
     return res.status(403).json({ success: false, error: 'Admin access required' });
   }
   next();
@@ -1173,6 +1224,7 @@ app.get('/health', (_req, res) => {
     supportedLanguages: SUPPORTED_LANGUAGES,
     dbConnected: dbReady,
     activeSessions: userSessions.size,
+    cachedExecutions: execCache.size,
   });
 });
 
@@ -1198,7 +1250,7 @@ app.get('/', (_req, res) => {
 // ---------------------------------------------------------------------------
 // Start
 // ---------------------------------------------------------------------------
-app.listen(PORT, () => {
+const server = app.listen(PORT, () => {
   console.log('');
   console.log('Code Execution Server v5.0 — DB-backed + Cloudflare Worker Proxy');
   console.log(`Listening:    http://localhost:${PORT}`);

@@ -1,16 +1,24 @@
 const BACKEND_URL = import.meta.env.VITE_API_URL || 'http://localhost:5002';
 
-function getAuthHeaders(): HeadersInit {
-  // Read token from cookie or localStorage
-  const cookieMatch = document.cookie
-    .split('; ')
-    .find((row) => row.startsWith('scriet_session='));
-  const token = cookieMatch
-    ? decodeURIComponent(cookieMatch.split('=').slice(1).join('='))
-    : localStorage.getItem('token');
+function isExpiredJwt(token: string): boolean {
+  try {
+    const payload = JSON.parse(atob(token.split('.')[1] || '')) as { exp?: number };
+    if (!payload.exp) return false;
+    // Consider token expired if within 10 seconds of expiry.
+    return payload.exp * 1000 <= Date.now() + 10_000;
+  } catch {
+    return false;
+  }
+}
 
+function getAuthHeaders(): HeadersInit {
+  // Token priority: sessionStorage pg_token (set by AuthContext after /auth/me)
+  // then localStorage token (email/password logins on same origin).
+  // The scriet_session cookie is httpOnly so JS can't read it, but the browser
+  // sends it automatically via credentials: 'include'.
+  const token = sessionStorage.getItem('pg_token') || localStorage.getItem('token');
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-  if (token) headers['Authorization'] = `Bearer ${token}`;
+  if (token && !isExpiredJwt(token)) headers['Authorization'] = `Bearer ${token}`;
   return headers;
 }
 

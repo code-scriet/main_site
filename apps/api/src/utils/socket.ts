@@ -60,16 +60,28 @@ export const socketEvents = {
   userCreated: (userId: string) => {
     if (!io) logger.warn('Socket.io not initialized, cannot emit user:created');
     else logger.debug('Emitting user:created', { userId });
-    io?.emit('user:created', { userId });
+    try {
+      io?.emit('user:created', { userId });
+    } catch (error) {
+      logger.error('Failed to emit user:created', { userId, error: error instanceof Error ? error.message : String(error) });
+    }
   },
   userUpdated: (userId: string) => {
     if (!io) logger.warn('Socket.io not initialized, cannot emit user:updated');
     else logger.debug('Emitting user:updated', { userId });
-    io?.emit('user:updated', { userId });
+    try {
+      io?.emit('user:updated', { userId });
+    } catch (error) {
+      logger.error('Failed to emit user:updated', { userId, error: error instanceof Error ? error.message : String(error) });
+    }
   },
   userDeleted: (userId: string) => {
     if (!io) logger.warn('Socket.io not initialized, cannot emit user:deleted');
     else logger.debug('Emitting user:deleted', { userId });
-    io?.emit('user:deleted', { userId });
+    try {
+      io?.emit('user:deleted', { userId });
+    } catch (error) {
+      logger.error('Failed to emit user:deleted', { userId, error: error instanceof Error ? error.message : String(error) });
+    }
   },
 };

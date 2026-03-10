@@ -28,7 +28,7 @@ const ALLOWED_TAGS = [
 // Allowed attributes for tags
 const ALLOWED_ATTR = [
   // Global attributes
-  'class', 'id', 'style',
+  'class',
   // Links
   'href', 'target', 'rel', 'title',
   // Images
@@ -85,7 +85,7 @@ export function sanitizeMarkdown(content: string | null | undefined): string {
     ],
     ALLOWED_ATTR,
     ALLOWED_URI_REGEXP,
-    FORBID_TAGS: ['script', 'style', 'iframe', 'form', 'input', 'button', 'object', 'embed'],
+    FORBID_TAGS: ['script', 'style', 'iframe', 'form', 'input', 'button', 'object', 'embed', 'svg', 'math'],
     FORBID_ATTR: ['onerror', 'onload', 'onclick', 'onmouseover', 'onfocus', 'onblur'],
     KEEP_CONTENT: true,
   });
@@ -120,6 +120,11 @@ export function sanitizeUrl(url: string | null | undefined): string {
   }
 
   const trimmed = url.trim();
+
+  // Reject protocol-relative URLs (e.g. //evil.com)
+  if (trimmed.startsWith('//')) {
+    return '';
+  }
   
   // Check for allowed protocols
   const allowedProtocols = ['http:', 'https:', 'mailto:', 'tel:'];

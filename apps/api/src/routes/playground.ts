@@ -6,21 +6,45 @@
 // writes to these same tables.
 // ---------------------------------------------------------------------------
 
-import { Router, Request, Response } from 'express';
+import { Router, Request, Response, NextFunction } from 'express';
 import { prisma } from '../lib/prisma.js';
 import { authMiddleware } from '../middleware/auth.js';
 import { getAuthUser } from '../middleware/auth.js';
+import { requireRole } from '../middleware/role.js';
+import { logger } from '../utils/logger.js';
 
 const router = Router();
+const PLAYGROUND_DAILY_LIMIT = Number(process.env.PLAYGROUND_DAILY_LIMIT || 200);
+const SETTINGS_CACHE_TTL_MS = 60 * 1000;
+
+const playgroundSettingsCache: {
+  expiresAt: number;
+  enabled: boolean;
+} = {
+  expiresAt: 0,
+  enabled: true,
+};
+
+const getUsageDate = (): Date => {
+  const usageDate = new Date();
+  usageDate.setUTCHours(0, 0, 0, 0);
+  return usageDate;
+};
 
 // All routes require authentication
 router.use(authMiddleware);
 
 // Gate: check if playground feature is enabled
-router.use(async (req: Request, res: Response, next: Function) => {
+router.use(async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const settings = await prisma.settings.findUnique({ where: { id: 'default' }, select: { playgroundEnabled: true } });
-    if (settings && settings.playgroundEnabled === false) {
+    const now = Date.now();
+    if (now >= playgroundSettingsCache.expiresAt) {
+      const settings = await prisma.settings.findUnique({ where: { id: 'default' }, select: { playgroundEnabled: true } });
+      playgroundSettingsCache.enabled = settings?.playgroundEnabled !== false;
+      playgroundSettingsCache.expiresAt = now + SETTINGS_CACHE_TTL_MS;
+    }
+
+    if (!playgroundSettingsCache.enabled) {
       return res.status(403).json({ success: false, error: { message: 'Code Playground is currently disabled' } });
     }
     next();
@@ -59,7 +83,7 @@ router.get('/snippets', async (req: Request, res: Response) => {
       })),
     });
   } catch (error) {
-    console.error('[Playground] Failed to list snippets:', error);
+    logger.error('[Playground] Failed to list snippets', { error: error instanceof Error ? error.message : String(error) });
     return res.status(500).json({ success: false, error: 'Failed to fetch snippets' });
   }
 });
@@ -104,13 +128,17 @@ router.get('/stats', async (req: Request, res: Response) => {
     });
 
     // Metered executions today (C/C++/Java only, from session counter table)
-    const usageRows = await prisma.$queryRaw<Array<{ count: bigint | number }>>`
-      SELECT count::int as count
-      FROM playground_daily_usage
-      WHERE user_id = ${user.id} AND usage_date = CURRENT_DATE
-      LIMIT 1
-    `;
-    const todayCount = usageRows.length ? Number(usageRows[0].count) : 0;
+    const usageDate = getUsageDate();
+    const usageRow = await prisma.playgroundDailyUsage.findUnique({
+      where: {
+        userId_usageDate: {
+          userId: user.id,
+          usageDate,
+        },
+      },
+      select: { count: true },
+    });
+    const todayCount = usageRow?.count || 0;
 
     return res.json({
       success: true,
@@ -121,11 +149,11 @@ router.get('/stats', async (req: Request, res: Response) => {
         })),
         totalExecutions,
         todayCount,
-        dailyLimit: 200,
+        dailyLimit: PLAYGROUND_DAILY_LIMIT,
       },
     });
   } catch (error) {
-    console.error('[Playground] Failed to fetch stats:', error);
+    logger.error('[Playground] Failed to fetch stats', { error: error instanceof Error ? error.message : String(error) });
     return res.status(500).json({ success: false, error: 'Failed to fetch stats' });
   }
 });
@@ -167,7 +195,7 @@ router.get('/history', async (req: Request, res: Response) => {
       })),
     });
   } catch (error) {
-    console.error('[Playground] Failed to fetch history:', error);
+    logger.error('[Playground] Failed to fetch history', { error: error instanceof Error ? error.message : String(error) });
     return res.status(500).json({ success: false, error: 'Failed to fetch history' });
   }
 });
@@ -177,13 +205,10 @@ router.get('/history', async (req: Request, res: Response) => {
 // ---------------------------------------------------------------------------
 
 /** Reset a specific user's daily execution limit */
-router.post('/admin/reset-limit/:userId', async (req: Request, res: Response) => {
+router.post('/admin/reset-limit/:userId', requireRole('ADMIN'), async (req: Request, res: Response) => {
   try {
     const admin = getAuthUser(req);
     if (!admin) return res.status(401).json({ error: 'Not authenticated' });
-    if (!['ADMIN', 'CORE_MEMBER'].includes(admin.role)) {
-      return res.status(403).json({ success: false, error: 'Admin access required' });
-    }
 
     const { userId } = req.params;
     const note = typeof req.body?.note === 'string' ? req.body.note.slice(0, 200) : '';
@@ -192,64 +217,81 @@ router.post('/admin/reset-limit/:userId', async (req: Request, res: Response) =>
     const target = await prisma.user.findUnique({ where: { id: userId }, select: { id: true, email: true } });
     if (!target) return res.status(404).json({ success: false, error: 'User not found' });
 
-    // Insert a reset record into playground_limit_resets (raw SQL — table managed by execute-server)
-    await prisma.$executeRaw`
-      INSERT INTO playground_limit_resets (id, user_id, reset_by, note, reset_at)
-      VALUES (gen_random_uuid(), ${userId}, ${admin.id}, ${note}, NOW())
-      ON CONFLICT DO NOTHING
-    `;
+    await prisma.playgroundLimitReset.create({
+      data: {
+        userId,
+        resetBy: admin.id,
+        note,
+      },
+    });
 
-    await prisma.$executeRaw`
-      INSERT INTO playground_daily_usage (user_id, usage_date, count, updated_at)
-      VALUES (${userId}, CURRENT_DATE, 0, NOW())
-      ON CONFLICT (user_id, usage_date)
-      DO UPDATE SET count = 0, updated_at = NOW()
-    `;
+    await prisma.playgroundDailyUsage.upsert({
+      where: {
+        userId_usageDate: {
+          userId,
+          usageDate: getUsageDate(),
+        },
+      },
+      create: {
+        userId,
+        usageDate: getUsageDate(),
+        count: 0,
+      },
+      update: {
+        count: 0,
+      },
+    });
 
-    console.log(`[Admin] ${admin.email} reset playground daily limit for ${target.email}`);
+    logger.info('[Playground] Admin reset daily limit', { adminEmail: admin.email, targetEmail: target.email });
     return res.json({
       success: true,
       message: `Daily execution limit reset for ${target.email}`,
       resetAt: new Date().toISOString(),
     });
   } catch (error) {
-    console.error('[Playground] Failed to reset limit:', error);
+    logger.error('[Playground] Failed to reset limit', { error: error instanceof Error ? error.message : String(error) });
     return res.status(500).json({ success: false, error: 'Failed to reset limit' });
   }
 });
 
 /** Get users with their today's execution counts */
-router.get('/admin/execution-counts', async (req: Request, res: Response) => {
+router.get('/admin/execution-counts', requireRole('ADMIN'), async (req: Request, res: Response) => {
   try {
-    const admin = getAuthUser(req);
-    if (!admin) return res.status(401).json({ error: 'Not authenticated' });
-    if (!['ADMIN', 'CORE_MEMBER'].includes(admin.role)) {
-      return res.status(403).json({ success: false, error: 'Admin access required' });
-    }
+    const usageDate = getUsageDate();
+    const counts = await prisma.playgroundDailyUsage.findMany({
+      where: { usageDate },
+      orderBy: { count: 'desc' },
+      take: 100,
+      select: {
+        userId: true,
+        count: true,
+      },
+    });
 
-    const counts = await prisma.$queryRaw<Array<{ user_id: string; today_count: bigint; last_run_at: Date | null }>>`
-      SELECT
-        p.user_id,
-        p.count::int AS today_count,
-        MAX(e.executed_at) AS last_run_at
-      FROM playground_daily_usage p
-      LEFT JOIN executions e ON e.user_id = p.user_id AND e.executed_at >= CURRENT_DATE
-      WHERE p.usage_date = CURRENT_DATE
-      GROUP BY p.user_id, p.count
-      ORDER BY today_count DESC
-      LIMIT 100
-    `;
+    const userIds = counts.map((row) => row.userId);
+    const latestExecutions = userIds.length
+      ? await prisma.execution.groupBy({
+          by: ['userId'],
+          where: {
+            userId: { in: userIds },
+            executedAt: { gte: usageDate },
+          },
+          _max: { executedAt: true },
+        })
+      : [];
+
+    const latestByUser = new Map(latestExecutions.map((row) => [row.userId, row._max.executedAt || null]));
 
     return res.json({
       success: true,
       data: counts.map(r => ({
-        userId: r.user_id,
-        todayCount: Number(r.today_count),
-        lastRunAt: r.last_run_at,
+        userId: r.userId,
+        todayCount: r.count,
+        lastRunAt: latestByUser.get(r.userId) || null,
       })),
     });
   } catch (error) {
-    console.error('[Playground] Failed to get execution counts:', error);
+    logger.error('[Playground] Failed to get execution counts', { error: error instanceof Error ? error.message : String(error) });
     return res.status(500).json({ success: false, error: 'Failed to fetch counts' });
   }
 });

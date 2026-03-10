@@ -40,6 +40,9 @@ import { startReminderScheduler, stopReminderScheduler } from './utils/scheduler
 import { getJwtSecret } from './utils/jwt.js';
 import { updateEventStatuses } from './utils/eventStatus.js';
 
+// Load monorepo root .env first, then local .env (local overrides root).
+// In production (Render) neither file exists — env vars come from the dashboard.
+dotenv.config({ path: '../../.env' });
 dotenv.config();
 
 const app = express();
@@ -51,6 +54,8 @@ const NODE_ENV = process.env.NODE_ENV === 'development' ? 'development' : 'produ
 getJwtSecret();
 
 let eventStatusInterval: NodeJS.Timeout | null = null;
+const MAX_LISTEN_RETRIES = 5;
+const LISTEN_RETRY_DELAY_MS = 1500;
 
 const startEventStatusScheduler = () => {
   // Run once on startup and then periodically.
@@ -74,8 +79,20 @@ const io = initializeSocket(httpServer);
 initQuizSocket(io);
 
 // Neon keep-alive: prevent cold connection starts
+let keepAliveFailureCount = 0;
 setInterval(async () => {
-  try { await prisma.$queryRaw`SELECT 1`; } catch (_e) { /* silent */ }
+  try {
+    await prisma.$queryRaw`SELECT 1`;
+    keepAliveFailureCount = 0;
+  } catch (error) {
+    keepAliveFailureCount += 1;
+    if (keepAliveFailureCount >= 3) {
+      logger.warn('Database keep-alive failing repeatedly', {
+        consecutiveFailures: keepAliveFailureCount,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
 }, 4 * 60 * 1000);
 
 // Middleware
@@ -164,13 +181,32 @@ app.get('/', (req, res) => {
 });
 
 // Health check with detailed status
-app.get('/health', (req, res) => {
-  res.json({ 
-    status: 'ok', 
-    timestamp: new Date().toISOString(),
-    environment: NODE_ENV,
-    version: process.env.npm_package_version || '1.0.0',
-  });
+app.get('/health', async (_req, res) => {
+  try {
+    await Promise.race([
+      prisma.$queryRaw`SELECT 1`,
+      new Promise((_, reject) => setTimeout(() => reject(new Error('db_ping_timeout')), 2000)),
+    ]);
+
+    res.json({
+      status: 'ok',
+      database: 'ok',
+      timestamp: new Date().toISOString(),
+      environment: NODE_ENV,
+      version: process.env.npm_package_version || '1.0.0',
+    });
+  } catch (error) {
+    logger.warn('Health check database ping failed', {
+      error: error instanceof Error ? error.message : String(error),
+    });
+    res.status(503).json({
+      status: 'degraded',
+      database: 'down',
+      timestamp: new Date().toISOString(),
+      environment: NODE_ENV,
+      version: process.env.npm_package_version || '1.0.0',
+    });
+  }
 });
 
 // Simple ping endpoint for uptime bots (lightweight, no JSON parsing)
@@ -273,7 +309,15 @@ app.use((err: Error, req: express.Request, res: express.Response, _next: express
 });
 
 // Graceful shutdown
+let shuttingDown = false;
+let shutdownTimer: NodeJS.Timeout | null = null;
+
 const shutdown = async () => {
+  if (shuttingDown) {
+    return;
+  }
+  shuttingDown = true;
+
   logger.info('Shutting down gracefully...');
   stopEventStatusScheduler();
   stopReminderScheduler();
@@ -287,18 +331,59 @@ const shutdown = async () => {
     );
   }
 
-  // Close HTTP server
-  httpServer.close(() => {
-    logger.info('Clean exit');
-    process.exit(0);
-  });
-
   // Force exit after 10 seconds if clean close doesn't happen
-  setTimeout(() => process.exit(1), 10000);
+  shutdownTimer = setTimeout(() => {
+    logger.error('Forced shutdown after timeout');
+    process.exit(1);
+  }, 10000);
+
+  // Close HTTP server and then disconnect Prisma.
+  httpServer.close(async () => {
+    try {
+      await prisma.$disconnect();
+      logger.info('Clean exit');
+      if (shutdownTimer) {
+        clearTimeout(shutdownTimer);
+      }
+      process.exit(0);
+    } catch (error) {
+      logger.error('Error during Prisma disconnect', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      process.exit(1);
+    }
+  });
 };
 
 process.on('SIGTERM', shutdown);
 process.on('SIGINT', shutdown);
+
+const startHttpServerWithRetry = (attempt = 1) => {
+  const onError = (error: NodeJS.ErrnoException) => {
+    if (error.code === 'EADDRINUSE' && attempt < MAX_LISTEN_RETRIES) {
+      logger.warn('Port is busy, retrying server start', {
+        port: PORT,
+        attempt,
+        maxRetries: MAX_LISTEN_RETRIES,
+      });
+      setTimeout(() => startHttpServerWithRetry(attempt + 1), LISTEN_RETRY_DELAY_MS);
+      return;
+    }
+
+    logger.error('Failed to start HTTP server', {
+      port: PORT,
+      code: error.code,
+      message: error.message,
+    });
+    process.exit(1);
+  };
+
+  httpServer.once('error', onError);
+  httpServer.listen(PORT, () => {
+    httpServer.removeListener('error', onError);
+    logger.info(`🚀 Server running on http://localhost:${PORT}`, { environment: NODE_ENV });
+  });
+};
 
 // Initialize database (create admin and settings if needed)
 initializeDatabase()
@@ -308,10 +393,8 @@ initializeDatabase()
     // Start the event reminder scheduler
     startEventStatusScheduler();
     startReminderScheduler();
-    
-    httpServer.listen(PORT, () => {
-      logger.info(`🚀 Server running on http://localhost:${PORT}`, { environment: NODE_ENV });
-    });
+
+    startHttpServerWithRetry();
   })
   .catch((error) => {
     logger.error('Failed to start server:', error);

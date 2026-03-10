@@ -31,11 +31,17 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 const MAIN_SITE_API =
   import.meta.env.VITE_MAIN_API_URL ||
-  (import.meta.env.DEV ? 'http://localhost:5001' : 'https://codescriet-api.onrender.com');
+  (import.meta.env.DEV ? 'http://localhost:5001' : 'https://api.codescriet.dev');
 
 const MAIN_SITE_URL =
   import.meta.env.VITE_MAIN_SITE_URL ||
   (import.meta.env.DEV ? 'http://localhost:5173' : 'https://codescriet.dev');
+
+type FetchUserResult = {
+  user: PlaygroundUser | null;
+  token?: string;
+  authFailed?: boolean;
+};
 
 /** Read a cookie value by name */
 function getCookie(name: string): string | null {
@@ -84,7 +90,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [token, setToken] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
-  const fetchUser = useCallback(async (jwt?: string | null): Promise<PlaygroundUser | null> => {
+  const fetchUser = useCallback(async (jwt?: string | null): Promise<FetchUserResult> => {
     try {
       const headers: Record<string, string> = {};
       if (jwt) {
@@ -95,12 +101,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         headers,
         credentials: 'include',
       });
-      if (!res.ok) return null;
+      if (!res.ok) {
+        // Treat 401 as invalid auth; all other failures can be transient/network.
+        return { user: null, authFailed: res.status === 401 };
+      }
       const data = await res.json();
-      // The main API returns { success: true, data: { ...user } }
-      return data.data || data.user || null;
+      // The main API returns { success: true, data: { ...user }, token?: string }
+      const user = data.data || data.user || null;
+      return { user: user || null, token: data.token };
     } catch {
-      return null;
+      // Network/CORS/server issues should not wipe a valid local session cookie.
+      return { user: null, authFailed: false };
     }
   }, []);
 
@@ -118,13 +129,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
       const jwt = hashToken || sessionToken || cookieToken || storageToken;
 
-      const userData = await fetchUser(jwt);
-      if (userData) {
-        setUser(userData);
-        setToken(jwt);
+      const result = await fetchUser(jwt);
+      if (result.user) {
+        setUser(result.user);
+        // Prefer the token we already had; fall back to the one returned by /auth/me
+        const resolvedToken = jwt || result.token || null;
+        setToken(resolvedToken);
         // Ensure session token is always kept for refresh
-        if (jwt) sessionStorage.setItem('pg_token', jwt);
-      } else if (jwt) {
+        if (resolvedToken) sessionStorage.setItem('pg_token', resolvedToken);
+      } else if (jwt && result.authFailed) {
         // Invalid token — clean up
         clearCookie('scriet_session');
         localStorage.removeItem('token');
@@ -137,10 +150,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const refreshUser = useCallback(async () => {
     const jwt = sessionStorage.getItem('pg_token') || getCookie('scriet_session') || localStorage.getItem('token');
-    const userData = await fetchUser(jwt);
-    if (userData) {
-      setUser(userData);
-      setToken(jwt);
+    const result = await fetchUser(jwt);
+    if (result.user) {
+      setUser(result.user);
+      const resolvedToken = jwt || result.token || null;
+      setToken(resolvedToken);
+      if (resolvedToken) sessionStorage.setItem('pg_token', resolvedToken);
+    } else if (jwt && result.authFailed) {
+      clearCookie('scriet_session');
+      localStorage.removeItem('token');
+      sessionStorage.removeItem('pg_token');
+      setUser(null);
+      setToken(null);
     }
   }, [fetchUser]);
 

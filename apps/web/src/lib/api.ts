@@ -497,6 +497,12 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ email, password }),
     }),
+  exchangeAuthCode: (code: string) =>
+    request<{ token: string; intent?: string; network_type?: 'professional' | 'alumni' }>('/auth/exchange-code', {
+      method: 'POST',
+      body: JSON.stringify({ code }),
+    }),
+  logout: () => request<{ message: string }>('/auth/logout', { method: 'POST' }),
   
   // Events
   getEvents: (status?: string) => {

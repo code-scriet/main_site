@@ -1,6 +1,7 @@
 import { Router, Request, Response } from 'express';
 import passport from 'passport';
 import bcrypt from 'bcryptjs';
+import { randomUUID } from 'crypto';
 import { z } from 'zod';
 import { authMiddleware, getAuthUser } from '../middleware/auth.js';
 import { prisma } from '../lib/prisma.js';
@@ -15,12 +16,48 @@ const isDevLoginEnabled = (): boolean => process.env.NODE_ENV === 'development' 
 
 const getFrontendUrl = (): string => process.env.FRONTEND_URL || 'http://localhost:5173';
 
-const buildAuthCallbackUrl = (token: string, intent?: string, networkType?: string): string => {
+type OAuthExchangePayload = {
+  token: string;
+  intent?: 'network';
+  networkType?: 'professional' | 'alumni';
+  expiresAt: number;
+};
+
+const OAUTH_CODE_TTL_MS = 30 * 1000;
+const oauthCodeStore = new Map<string, OAuthExchangePayload>();
+
+const pruneExpiredOAuthCodes = () => {
+  const now = Date.now();
+  for (const [code, payload] of oauthCodeStore.entries()) {
+    if (payload.expiresAt <= now) {
+      oauthCodeStore.delete(code);
+    }
+  }
+};
+
+const issueOAuthCode = (payload: Omit<OAuthExchangePayload, 'expiresAt'>): string => {
+  pruneExpiredOAuthCodes();
+  const code = randomUUID();
+  oauthCodeStore.set(code, { ...payload, expiresAt: Date.now() + OAUTH_CODE_TTL_MS });
+  return code;
+};
+
+const consumeOAuthCode = (code: string): OAuthExchangePayload | null => {
+  pruneExpiredOAuthCodes();
+  const payload = oauthCodeStore.get(code);
+  if (!payload) {
+    return null;
+  }
+  oauthCodeStore.delete(code);
+  if (payload.expiresAt <= Date.now()) {
+    return null;
+  }
+  return payload;
+};
+
+const buildAuthCallbackUrl = (code: string): string => {
   const callbackUrl = new URL('/auth/callback', getFrontendUrl());
-  let hash = `token=${encodeURIComponent(token)}`;
-  if (intent) hash += `&intent=${encodeURIComponent(intent)}`;
-  if (networkType) hash += `&network_type=${encodeURIComponent(networkType)}`;
-  callbackUrl.hash = hash;
+  callbackUrl.searchParams.set('code', code);
   return callbackUrl.toString();
 };
 
@@ -49,7 +86,7 @@ const generateToken = (user: { id: string; name?: string | null; email: string; 
 const setSessionCookie = (res: Response, token: string) => {
   const isProd = process.env.NODE_ENV === 'production';
   res.cookie('scriet_session', token, {
-    httpOnly: false,          // frontend needs to read it for auth header
+    httpOnly: true,
     secure: isProd,
     sameSite: 'lax',
     maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
@@ -61,6 +98,8 @@ const setSessionCookie = (res: Response, token: string) => {
 const clearSessionCookie = (res: Response) => {
   const isProd = process.env.NODE_ENV === 'production';
   res.clearCookie('scriet_session', {
+    secure: isProd,
+    sameSite: 'lax',
     ...(isProd ? { domain: '.codescriet.dev' } : {}),
     path: '/',
   });
@@ -114,6 +153,10 @@ const devLoginSchema = z.object({
   name: z.string().trim().min(1).max(100).optional(),
 });
 
+const exchangeCodeSchema = z.object({
+  code: z.string().uuid(),
+});
+
 authRouter.get('/providers', (_req: Request, res: Response) => {
   res.json({
     google: !!(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_ID !== 'your_google_client_id'),
@@ -136,7 +179,7 @@ authRouter.post('/register', async (req: Request, res: Response) => {
       select: { id: true },
     });
     if (existingUser) {
-      return res.status(400).json({ error: 'An account with this email already exists' });
+      return res.status(400).json({ error: 'Registration failed. If you already have an account, try logging in.' });
     }
 
     const hashedPassword = await bcrypt.hash(password, 12);
@@ -146,7 +189,7 @@ authRouter.post('/register', async (req: Request, res: Response) => {
         email,
         password: hashedPassword,
         oauthProvider: 'email',
-        oauthId: `email_${Date.now()}`,
+        oauthId: `email_${randomUUID()}`,
         role: 'USER',
       },
     });
@@ -238,13 +281,14 @@ authRouter.get('/google', (req: Request, res: Response, next) => {
   passport.authenticate('google', { scope: ['profile', 'email'] })(req, res, next);
 });
 
-authRouter.get('/google/callback',
-  passport.authenticate('google', { session: false, failureRedirect: `${getFrontendUrl()}/signin?error=google_auth_failed` }),
+/** Shared OAuth callback handler — used by both Google and GitHub */
+const handleOAuthCallback = (provider: 'google' | 'github') =>
   async (req: Request, res: Response) => {
+    const errorRedirect = `${getFrontendUrl()}/signin?error=${provider}_auth_failed`;
     try {
       const passportUser = req.user as { id?: string } | undefined;
       if (!passportUser?.id) {
-        return res.redirect(`${getFrontendUrl()}/signin?error=google_auth_failed`);
+        return res.redirect(errorRedirect);
       }
 
       let user = await prisma.user.findUnique({
@@ -253,7 +297,7 @@ authRouter.get('/google/callback',
       });
 
       if (!user) {
-        return res.redirect(`${getFrontendUrl()}/signin?error=google_auth_failed`);
+        return res.redirect(errorRedirect);
       }
 
       // Check for network intent from cookie
@@ -283,13 +327,21 @@ authRouter.get('/google/callback',
 
       const token = generateToken(user);
       setSessionCookie(res, token);
-      const shouldPassNetworkIntent = isNetworkIntent;
-      return res.redirect(buildAuthCallbackUrl(token, shouldPassNetworkIntent ? 'network' : undefined, shouldPassNetworkIntent ? networkType : undefined));
+      const code = issueOAuthCode({
+        token,
+        intent: isNetworkIntent ? 'network' : undefined,
+        networkType: isNetworkIntent ? networkType : undefined,
+      });
+      return res.redirect(buildAuthCallbackUrl(code));
     } catch (error) {
-      logger.error('Google callback error:', { error: error instanceof Error ? error.message : String(error) });
-      return res.redirect(`${getFrontendUrl()}/signin?error=google_auth_failed`);
+      logger.error(`${provider} callback error:`, { error: error instanceof Error ? error.message : String(error) });
+      return res.redirect(errorRedirect);
     }
-  }
+  };
+
+authRouter.get('/google/callback',
+  passport.authenticate('google', { session: false, failureRedirect: `${getFrontendUrl()}/signin?error=google_auth_failed` }),
+  handleOAuthCallback('google'),
 );
 
 authRouter.get('/github', (req: Request, res: Response, next) => {
@@ -325,54 +377,7 @@ authRouter.get('/github', (req: Request, res: Response, next) => {
 
 authRouter.get('/github/callback',
   passport.authenticate('github', { session: false, failureRedirect: `${getFrontendUrl()}/signin?error=github_auth_failed` }),
-  async (req: Request, res: Response) => {
-    try {
-      const passportUser = req.user as { id?: string } | undefined;
-      if (!passportUser?.id) {
-        return res.redirect(`${getFrontendUrl()}/signin?error=github_auth_failed`);
-      }
-
-      let user = await prisma.user.findUnique({
-        where: { id: passportUser.id },
-        select: { id: true, name: true, email: true, role: true },
-      });
-
-      if (!user) {
-        return res.redirect(`${getFrontendUrl()}/signin?error=github_auth_failed`);
-      }
-
-      // Check for network intent from cookie
-      const intent = getCookie(req, 'oauth_intent');
-      const networkType = normalizeNetworkType(getCookie(req, 'network_type'));
-      res.clearCookie('oauth_intent');
-      res.clearCookie('network_type');
-
-      const isNetworkIntent = intent === 'network';
-
-      // Safety net: if an account has NETWORK role but no profile and this is a normal sign-in,
-      // normalize back to USER so regular users stay on the standard auth flow.
-      if (!isNetworkIntent) {
-        user = await demoteOrphanNetworkUser(user);
-      }
-
-      // For network intent, upgrade USER/PUBLIC to NETWORK role
-      // Higher-privileged users (MEMBER, ADMIN, etc.) keep their role
-      const isNetworkUpgrade = isNetworkIntent && (user.role === 'USER' || user.role === 'PUBLIC');
-      if (isNetworkUpgrade) {
-        await prisma.user.update({
-          where: { id: user.id },
-          data: { role: 'NETWORK' },
-        });
-        user.role = 'NETWORK';
-      }
-
-      const token = generateToken(user);      setSessionCookie(res, token);      const shouldPassNetworkIntent = isNetworkIntent;
-      return res.redirect(buildAuthCallbackUrl(token, shouldPassNetworkIntent ? 'network' : undefined, shouldPassNetworkIntent ? networkType : undefined));
-    } catch (error) {
-      logger.error('GitHub callback error:', { error: error instanceof Error ? error.message : String(error) });
-      return res.redirect(`${getFrontendUrl()}/signin?error=github_auth_failed`);
-    }
-  }
+  handleOAuthCallback('github'),
 );
 
 authRouter.post('/dev-login', async (req: Request, res: Response) => {
@@ -398,7 +403,7 @@ authRouter.post('/dev-login', async (req: Request, res: Response) => {
           name: name || email.split('@')[0],
           email,
           oauthProvider: 'dev',
-          oauthId: `dev_${Date.now()}`,
+          oauthId: `dev_${randomUUID()}`,
           role: 'USER',
         },
       });
@@ -422,7 +427,31 @@ authRouter.post('/dev-login', async (req: Request, res: Response) => {
 
 authRouter.get('/me', authMiddleware, (req: Request, res: Response) => {
   const authUser = getAuthUser(req);
-  res.json({ success: true, data: authUser ? withSuperAdmin(authUser) : authUser });
+  if (!authUser) {
+    return res.json({ success: true, data: null });
+  }
+  // Include a fresh token so cross-origin callers (e.g. the playground) can
+  // obtain a JWT even when they authenticated via httpOnly cookie alone.
+  const token = generateToken(authUser);
+  res.json({ success: true, data: withSuperAdmin(authUser), token });
+});
+
+authRouter.post('/exchange-code', (req: Request, res: Response) => {
+  const parsed = exchangeCodeSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(400).json({ error: 'Invalid authorization code' });
+  }
+
+  const payload = consumeOAuthCode(parsed.data.code);
+  if (!payload) {
+    return res.status(400).json({ error: 'Authorization code expired or invalid' });
+  }
+
+  return res.json({
+    token: payload.token,
+    intent: payload.intent,
+    network_type: payload.networkType,
+  });
 });
 
 authRouter.post('/logout', (_req: Request, res: Response) => {

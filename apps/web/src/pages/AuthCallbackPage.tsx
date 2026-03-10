@@ -3,6 +3,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { extractApiErrorMessage } from '@/lib/error';
 import { useAuth } from '@/context/AuthContext';
 import { useSettings } from '@/context/SettingsContext';
+import { api } from '@/lib/api';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5001/api';
 
@@ -42,8 +43,11 @@ export default function AuthCallbackPage() {
         const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ''));
         const tokenFromHash = hashParams.get('token');
         const tokenFromQuery = searchParams.get('token');
-        const token = tokenFromHash || tokenFromQuery;
+        const code = searchParams.get('code');
+        let token = tokenFromHash || tokenFromQuery;
         const errorParam = searchParams.get('error');
+        let callbackIntent: string | undefined;
+        let callbackNetworkType: 'professional' | 'alumni' | undefined;
 
         if (errorParam) {
           console.error('Auth error:', errorParam);
@@ -51,9 +55,16 @@ export default function AuthCallbackPage() {
           return;
         }
 
+        if (!token && code) {
+          const exchange = await api.exchangeAuthCode(code);
+          token = exchange.token;
+          callbackIntent = exchange.intent;
+          callbackNetworkType = normalizeNetworkType(exchange.network_type);
+        }
+
         if (!token) {
-          console.error('No token found in callback');
-          navigate('/signin');
+          console.error('No token or authorization code found in callback');
+          navigate('/signin?error=invalid_oauth_callback');
           return;
         }
 
@@ -121,9 +132,9 @@ export default function AuthCallbackPage() {
         }
 
         // Check for network intent from URL hash/query (set by backend) or localStorage
-        const intentFromHash = hashParams.get('intent') || searchParams.get('intent');
+        const intentFromHash = callbackIntent || hashParams.get('intent') || searchParams.get('intent');
         const networkTypeFromHash = normalizeNetworkType(
-          hashParams.get('network_type') || searchParams.get('network_type')
+          callbackNetworkType || hashParams.get('network_type') || searchParams.get('network_type')
         );
         const networkTypeFromStorage = normalizeNetworkType(localStorage.getItem('network_onboarding_type'));
         const networkIntentStr = localStorage.getItem('network_intent');

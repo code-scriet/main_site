@@ -581,8 +581,31 @@ model Snippet {
   updatedAt  DateTime @updatedAt @map("updated_at")
 
   @@index([userId, createdAt])
+  @@index([userId, updatedAt])
   @@index([shareToken])
   @@map("snippets")
+}
+
+model PlaygroundDailyUsage {
+  userId    String   @map("user_id")
+  usageDate DateTime @db.Date @map("usage_date")
+  count     Int      @default(0)
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@id([userId, usageDate])
+  @@index([usageDate], map: "pdu_usage_date_idx")
+  @@map("playground_daily_usage")
+}
+
+model PlaygroundLimitReset {
+  id      String   @id @default(uuid())
+  userId  String   @map("user_id")
+  resetBy String   @map("reset_by")
+  resetAt DateTime @default(now()) @map("reset_at")
+  note    String?
+
+  @@index([userId], map: "plr_user_id_idx")
+  @@map("playground_limit_resets")
 }
 
 enum ExecutionStatus {

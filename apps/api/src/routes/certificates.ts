@@ -1,4 +1,5 @@
 import { Router, Request, Response } from 'express';
+import rateLimit from 'express-rate-limit';
 import { z } from 'zod';
 import fs from 'fs';
 import path from 'path';
@@ -37,6 +38,22 @@ const CODESCRIET_LOGO = loadLogoBase64('codescriet.png') ?? loadLogoBase64('code
 const CCSU_LOGO       = loadLogoBase64('ccsu.png') ?? loadLogoBase64('ccsu.jpg') ?? loadLogoBase64('ccsu.jpeg');
 
 export const certificatesRouter = Router();
+
+const certificateVerifyLimiter = rateLimit({
+  windowMs: 5 * 60 * 1000,
+  max: 60,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { valid: false, reason: 'rate_limited' },
+});
+
+const certificateDownloadLimiter = rateLimit({
+  windowMs: 5 * 60 * 1000,
+  max: 30,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many download attempts, please try again later.' },
+});
 
 const certTypes = ['PARTICIPATION', 'COMPLETION', 'WINNER', 'SPEAKER'] as const;
 const certTemplates = ['gold', 'dark', 'white', 'emerald'] as const;
@@ -103,7 +120,7 @@ certificatesRouter.get('/files/:filename', (req: Request, res: Response) => {
 // Only the certificate's recipient (by userId) or an ADMIN may download.
 // GET /api/certificates/download/:certId
 // ──────────────────────────────────────────────────────────────────
-certificatesRouter.get('/download/:certId', authMiddleware, async (req: Request, res: Response) => {
+certificatesRouter.get('/download/:certId', certificateDownloadLimiter, authMiddleware, async (req: Request, res: Response) => {
   const authUser = getAuthUser(req)!;
   const { certId } = req.params;
   if (!/^[A-Z0-9\-]{10,20}$/i.test(certId)) {
@@ -424,7 +441,7 @@ certificatesRouter.post('/bulk', authMiddleware, requireRole('ADMIN'), async (re
 // PUBLIC: Verify a certificate (no auth required)
 // GET /api/certificates/verify/:certId
 // ──────────────────────────────────────────────────────────────────
-certificatesRouter.get('/verify/:certId', async (req: Request, res: Response) => {
+certificatesRouter.get('/verify/:certId', certificateVerifyLimiter, async (req: Request, res: Response) => {
   const { certId } = req.params;
   if (!certId || certId.length > 20) {
     return res.status(400).json({ valid: false, reason: 'invalid_id' });

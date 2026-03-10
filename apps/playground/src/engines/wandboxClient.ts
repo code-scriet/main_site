@@ -11,6 +11,16 @@ import type { ExecutionResult, CloudExecutionRequest } from './types';
 const BACKEND_URL = import.meta.env.VITE_API_URL || 'http://localhost:5002';
 const CLOUD_TIMEOUT = 15_000; // 15 seconds (matches server timeout)
 
+function isExpiredJwt(token: string): boolean {
+  try {
+    const payload = JSON.parse(atob(token.split('.')[1] || '')) as { exp?: number };
+    if (!payload.exp) return false;
+    return payload.exp * 1000 <= Date.now() + 10_000;
+  } catch {
+    return false;
+  }
+}
+
 function getAuthHeaders(): HeadersInit {
   const cookieMatch = document.cookie
     .split('; ')
@@ -20,7 +30,7 @@ function getAuthHeaders(): HeadersInit {
     : (sessionStorage.getItem('pg_token') || localStorage.getItem('token'));
 
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-  if (token) headers.Authorization = `Bearer ${token}`;
+  if (token && !isExpiredJwt(token)) headers.Authorization = `Bearer ${token}`;
   return headers;
 }
 
