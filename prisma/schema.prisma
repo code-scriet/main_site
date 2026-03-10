@@ -90,6 +90,7 @@ model Settings {
   // Feature toggles (President / Super Admin only)
   certificatesEnabled       Boolean  @default(true) @map("certificates_enabled")
   playgroundEnabled         Boolean  @default(true) @map("playground_enabled")
+  playgroundDailyLimit      Int      @default(100) @map("playground_daily_limit")
 
   @@map("settings")
 }

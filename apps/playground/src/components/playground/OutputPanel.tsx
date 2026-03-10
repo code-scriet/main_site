@@ -55,7 +55,7 @@ export function OutputPanel() {
       const s = await getExecutionStats();
       setStats(s);
     } catch {
-      setStats({ languageStats: [], todayCount: 0, dailyLimit: 200 });
+      setStats({ languageStats: [], todayCount: 0, dailyLimit: 100 });
     }
   }, [isAuthenticated]);
 

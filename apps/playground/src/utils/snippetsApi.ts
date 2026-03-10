@@ -161,7 +161,7 @@ export async function getExecutionStats(): Promise<ExecutionStats> {
     credentials: 'include',
   });
   const data = await res.json();
-  if (!data.success) return { languageStats: [], todayCount: 0, dailyLimit: 200 };
+  if (!data.success) return { languageStats: [], todayCount: 0, dailyLimit: 100 };
   return data.data;
 }
 
@@ -175,7 +175,7 @@ export async function getSessionBootstrap(): Promise<SessionBootstrapData> {
   if (!data.success) {
     return {
       history: [],
-      stats: { languageStats: [], todayCount: 0, dailyLimit: 200 },
+      stats: { languageStats: [], todayCount: 0, dailyLimit: 100 },
     };
   }
   return data.data;
@@ -190,7 +190,7 @@ export async function getSessionPreflight(language?: string): Promise<SessionPre
   });
   const data = await res.json();
   if (!data.success) {
-    return { allowed: true, todayCount: 0, dailyLimit: 200, remaining: 200 };
+    return { allowed: true, todayCount: 0, dailyLimit: 100, remaining: 100 };
   }
   return data.data;
 }

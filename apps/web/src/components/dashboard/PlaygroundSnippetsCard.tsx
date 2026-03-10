@@ -60,7 +60,7 @@ export function PlaygroundSnippetsCard() {
   const [history, setHistory] = useState<ExecutionHistoryItem[]>([]);
   const [totalExecutions, setTotalExecutions] = useState(0);
   const [todayCount, setTodayCount] = useState(0);
-  const [dailyLimit, setDailyLimit] = useState(200);
+  const [dailyLimit, setDailyLimit] = useState(100);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('history');
 
@@ -73,7 +73,7 @@ export function PlaygroundSnippetsCard() {
       fetch(`${API_URL}/playground/snippets`, { headers, credentials: 'include' })
         .then(r => r.json()).catch(() => ({ data: [] })),
       fetch(`${API_URL}/playground/stats`, { headers, credentials: 'include' })
-        .then(r => r.json()).catch(() => ({ data: { languageStats: [], totalExecutions: 0, todayCount: 0, dailyLimit: 200 } })),
+        .then(r => r.json()).catch(() => ({ data: { languageStats: [], totalExecutions: 0, todayCount: 0, dailyLimit: 100 } })),
       fetch(`${API_URL}/playground/history`, { headers, credentials: 'include' })
         .then(r => r.json()).catch(() => ({ data: [] })),
     ]).then(([snippetsRes, statsRes, historyRes]) => {
@@ -81,7 +81,7 @@ export function PlaygroundSnippetsCard() {
       setStats(statsRes.data?.languageStats || []);
       setTotalExecutions(statsRes.data?.totalExecutions || 0);
       setTodayCount(statsRes.data?.todayCount || 0);
-      setDailyLimit(statsRes.data?.dailyLimit || 200);
+      setDailyLimit(statsRes.data?.dailyLimit || 100);
       setHistory((historyRes.data || []).slice(0, 10));
     }).finally(() => setLoading(false));
   }, [token]);

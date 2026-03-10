@@ -240,7 +240,15 @@ const MAX_HISTORY_PER_USER = 15;
 // ---------------------------------------------------------------------------
 // Rate Limiting
 // ---------------------------------------------------------------------------
-const MAX_EXECUTIONS_PER_DAY = Number(process.env.PLAYGROUND_DAILY_LIMIT || 200);
+const DEFAULT_PLAYGROUND_DAILY_LIMIT = 100;
+const SETTINGS_CACHE_TTL_MS = 60 * 1000;
+const LIMIT_RESYNC_COOLDOWN_MS = 5_000;
+
+const playgroundSettingsCache = {
+  expiresAt: 0,
+  dailyLimit: DEFAULT_PLAYGROUND_DAILY_LIMIT,
+};
+
 const userExecCounts = new Map(); // in-memory fallback cache
 const MAX_IP_EXECUTIONS = 30;
 const ipExecCounts = new Map();
@@ -252,6 +260,39 @@ const userSessions = new Map();
 
 function todayDateKey() {
   return new Date().toISOString().slice(0, 10);
+}
+
+function clampDailyLimit(value) {
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed)) return DEFAULT_PLAYGROUND_DAILY_LIMIT;
+  return Math.min(10000, Math.max(1, parsed));
+}
+
+async function getDailyExecutionLimit({ forceRefresh = false } = {}) {
+  if (!pool) {
+    return clampDailyLimit(process.env.PLAYGROUND_DAILY_LIMIT || DEFAULT_PLAYGROUND_DAILY_LIMIT);
+  }
+
+  const now = Date.now();
+  if (!forceRefresh && now < playgroundSettingsCache.expiresAt) {
+    return playgroundSettingsCache.dailyLimit;
+  }
+
+  try {
+    const rows = await dbQuery(
+      `SELECT playground_daily_limit::int AS daily_limit
+       FROM settings
+       WHERE id = 'default'
+       LIMIT 1`
+    );
+    playgroundSettingsCache.dailyLimit = clampDailyLimit(rows[0]?.daily_limit);
+    playgroundSettingsCache.expiresAt = now + SETTINGS_CACHE_TTL_MS;
+  } catch {
+    playgroundSettingsCache.dailyLimit = clampDailyLimit(process.env.PLAYGROUND_DAILY_LIMIT || DEFAULT_PLAYGROUND_DAILY_LIMIT);
+    playgroundSettingsCache.expiresAt = now + SETTINGS_CACHE_TTL_MS;
+  }
+
+  return playgroundSettingsCache.dailyLimit;
 }
 
 function toHistoryItem(row) {
@@ -292,6 +333,7 @@ async function loadUserSession(userId) {
     dirtyUsage: false,
     dirtyHistory: false,
     lastTouchedAt: Date.now(),
+    lastLimitResyncAt: 0,
   };
 
   userSessions.set(userId, session);
@@ -310,6 +352,15 @@ async function getUserSession(userId) {
   }
 
   return existing;
+}
+
+async function refreshUserSessionFromDatabase(userId, reason = 'bootstrap-refresh') {
+  const existing = userSessions.get(userId);
+  if (existing?.dirtyUsage || existing?.dirtyHistory) {
+    await flushUserSession(userId, `${reason}-flush`);
+  }
+  userSessions.delete(userId);
+  return loadUserSession(userId);
 }
 
 async function flushUserSession(userId, reason = 'manual') {
@@ -367,10 +418,6 @@ async function flushAllDirtySessions(reason = 'periodic') {
     if (now - session.lastTouchedAt > USER_SESSION_TTL_MS) {
       await flushUserSession(userId, `${reason}-idle-ttl`);
       userSessions.delete(userId);
-      continue;
-    }
-    if (session.dirtyUsage || session.dirtyHistory) {
-      await flushUserSession(userId, reason);
     }
   }
 }
@@ -423,11 +470,12 @@ process.on('SIGINT', () => {
  * This makes checks O(1) and drastically reduces database load.
  */
 async function checkUserRateLimit(userId) {
+  const dailyLimit = await getDailyExecutionLimit();
   if (pool) {
     try {
       const session = await getUserSession(userId);
-      const allowed = session.todayCount < MAX_EXECUTIONS_PER_DAY;
-      return { allowed, remaining: Math.max(0, MAX_EXECUTIONS_PER_DAY - session.todayCount) };
+      const allowed = session.todayCount < dailyLimit;
+      return { allowed, remaining: Math.max(0, dailyLimit - session.todayCount), dailyLimit };
     } catch (err) {
       console.error('[RateLimit] Session check failed, falling back to in-memory:', err.message);
     }
@@ -438,10 +486,29 @@ async function checkUserRateLimit(userId) {
   const entry = userExecCounts.get(userId);
   if (!entry || entry.date !== today) {
     userExecCounts.set(userId, { date: today, count: 1 });
-    return { allowed: true, remaining: MAX_EXECUTIONS_PER_DAY - 1 };
+    return { allowed: true, remaining: Math.max(0, dailyLimit - 1), dailyLimit };
   }
   entry.count++;
-  return { allowed: entry.count <= MAX_EXECUTIONS_PER_DAY, remaining: Math.max(0, MAX_EXECUTIONS_PER_DAY - entry.count) };
+  return { allowed: entry.count <= dailyLimit, remaining: Math.max(0, dailyLimit - entry.count), dailyLimit };
+}
+
+async function resyncSessionCountFromDatabase(userId, session) {
+  if (!pool) return;
+  const now = Date.now();
+  if (now - (session.lastLimitResyncAt || 0) < LIMIT_RESYNC_COOLDOWN_MS) return;
+  session.lastLimitResyncAt = now;
+
+  const rows = await dbQuery(
+    `SELECT count::int as count
+     FROM playground_daily_usage
+     WHERE user_id = $1 AND usage_date = CURRENT_DATE
+     LIMIT 1`,
+    [userId]
+  );
+
+  session.todayCount = rows[0]?.count || 0;
+  session.dirtyUsage = false;
+  session.lastTouchedAt = Date.now();
 }
 
 function checkIpRateLimit(ip) {
@@ -719,17 +786,37 @@ app.post('/api/execute', async (req, res) => {
       const limit = await checkUserRateLimit(req.user.id);
       res.setHeader('X-RateLimit-Remaining', limit.remaining);
       if (!limit.allowed) {
-        return res.status(429).json({
-          success: false,
-          error: `Daily execution limit (${MAX_EXECUTIONS_PER_DAY}) reached. Try again tomorrow.`,
-        });
+        const session = await getUserSession(req.user.id);
+        await resyncSessionCountFromDatabase(req.user.id, session);
+        const refreshedLimit = await getDailyExecutionLimit({ forceRefresh: true });
+        if (session.todayCount >= refreshedLimit) {
+          return res.status(429).json({
+            success: false,
+            error: `Daily execution limit (${refreshedLimit}) reached. Try again tomorrow.`,
+          });
+        }
+
+        userSession = session;
+      } else if (pool) {
+        userSession = await getUserSession(req.user.id);
       }
 
       if (pool) {
-        userSession = await getUserSession(req.user.id);
+        const activeLimit = await getDailyExecutionLimit();
+        if (userSession.todayCount >= activeLimit) {
+          return res.status(429).json({
+            success: false,
+            error: `Daily execution limit (${activeLimit}) reached. Try again tomorrow.`,
+          });
+        }
+
         userSession.todayCount += 1;
         userSession.dirtyUsage = true;
         userSession.lastTouchedAt = Date.now();
+
+        if (userSession.todayCount >= activeLimit) {
+          await flushUserSession(req.user.id, 'limit-reached');
+        }
       }
     } else {
       const ip = req.ip || req.socket.remoteAddress || 'unknown';
@@ -936,6 +1023,7 @@ app.get('/api/executions/history', requireAuth, async (req, res) => {
 });
 
 app.get('/api/executions/stats', requireAuth, async (req, res) => {
+  const dailyLimit = await getDailyExecutionLimit();
   if (pool) {
     const session = await getUserSession(req.user.id);
     const languageStatsMap = new Map();
@@ -951,7 +1039,7 @@ app.get('/api/executions/stats', requireAuth, async (req, res) => {
       data: {
         languageStats,
         todayCount: session.todayCount,
-        dailyLimit: MAX_EXECUTIONS_PER_DAY,
+        dailyLimit,
       },
     });
   }
@@ -973,14 +1061,16 @@ app.get('/api/executions/stats', requireAuth, async (req, res) => {
     data: {
       languageStats: rows,
       todayCount: today[0]?.count || 0,
-      dailyLimit: MAX_EXECUTIONS_PER_DAY,
+      dailyLimit,
     },
   });
 });
 
 // Session bootstrap: one DB read on session start for both limit + history
 app.get('/api/session/bootstrap', requireAuth, async (req, res) => {
-  const session = await getUserSession(req.user.id);
+  const dailyLimit = await getDailyExecutionLimit();
+  // On tab reload / fresh login, force DB rehydrate so admin resets are reflected immediately.
+  const session = await refreshUserSessionFromDatabase(req.user.id, 'session-bootstrap');
 
   const languageStatsMap = new Map();
   for (const item of session.history) {
@@ -998,7 +1088,7 @@ app.get('/api/session/bootstrap', requireAuth, async (req, res) => {
       stats: {
         languageStats,
         todayCount: session.todayCount,
-        dailyLimit: MAX_EXECUTIONS_PER_DAY,
+        dailyLimit,
       },
     },
   });
@@ -1006,9 +1096,14 @@ app.get('/api/session/bootstrap', requireAuth, async (req, res) => {
 
 // Preflight: check current session limit before execution starts
 app.get('/api/session/preflight', requireAuth, async (req, res) => {
+  const dailyLimit = await getDailyExecutionLimit();
   const session = await getUserSession(req.user.id);
-  const allowed = session.todayCount < MAX_EXECUTIONS_PER_DAY;
-  const remaining = Math.max(0, MAX_EXECUTIONS_PER_DAY - session.todayCount);
+  if (session.todayCount >= dailyLimit) {
+    await resyncSessionCountFromDatabase(req.user.id, session);
+  }
+
+  const allowed = session.todayCount < dailyLimit;
+  const remaining = Math.max(0, dailyLimit - session.todayCount);
 
   return res.json({
     success: true,
@@ -1016,7 +1111,7 @@ app.get('/api/session/preflight', requireAuth, async (req, res) => {
       allowed,
       metered: true,
       todayCount: session.todayCount,
-      dailyLimit: MAX_EXECUTIONS_PER_DAY,
+      dailyLimit,
       remaining,
     },
   });
@@ -1024,6 +1119,7 @@ app.get('/api/session/preflight', requireAuth, async (req, res) => {
 
 // Record client-side execution into in-memory session cache
 app.post('/api/session/record', requireAuth, async (req, res) => {
+  const dailyLimit = await getDailyExecutionLimit();
   const { language, code = '', output = '', durationMs = 0, status = 'SUCCESS', executedAt } = req.body || {};
   if (!language) {
     return res.status(400).json({ success: false, error: 'language is required' });
@@ -1031,13 +1127,17 @@ app.post('/api/session/record', requireAuth, async (req, res) => {
 
   const session = await getUserSession(req.user.id);
 
-  if (session.todayCount >= MAX_EXECUTIONS_PER_DAY) {
+  if (session.todayCount >= dailyLimit) {
+    await resyncSessionCountFromDatabase(req.user.id, session);
+  }
+
+  if (session.todayCount >= dailyLimit) {
     return res.status(429).json({
       success: false,
-      error: `Daily execution limit (${MAX_EXECUTIONS_PER_DAY}) reached. Try again tomorrow.`,
+      error: `Daily execution limit (${dailyLimit}) reached. Try again tomorrow.`,
       data: {
         todayCount: session.todayCount,
-        dailyLimit: MAX_EXECUTIONS_PER_DAY,
+        dailyLimit,
         remaining: 0,
       },
     });
@@ -1058,13 +1158,17 @@ app.post('/api/session/record', requireAuth, async (req, res) => {
   session.dirtyHistory = true;
   session.lastTouchedAt = Date.now();
 
+  if (session.todayCount >= dailyLimit) {
+    await flushUserSession(req.user.id, 'limit-reached');
+  }
+
   return res.json({
     success: true,
     data: {
       metered: true,
       todayCount: session.todayCount,
-      dailyLimit: MAX_EXECUTIONS_PER_DAY,
-      remaining: Math.max(0, MAX_EXECUTIONS_PER_DAY - session.todayCount),
+      dailyLimit,
+      remaining: Math.max(0, dailyLimit - session.todayCount),
     },
   });
 });
@@ -1130,6 +1234,7 @@ app.post('/api/admin/reset-limit/:userId', requireAuth, requireAdmin, async (req
 
 /** Get today's execution counts for all users (admin dashboard) */
 app.get('/api/admin/execution-counts', requireAuth, requireAdmin, async (req, res) => {
+  const dailyLimit = await getDailyExecutionLimit();
   const rows = await dbQuery(
     `SELECT
        p.user_id,
@@ -1157,10 +1262,56 @@ app.get('/api/admin/execution-counts', requireAuth, requireAdmin, async (req, re
     data: rows.map(r => ({
       userId: r.user_id,
       todayCount: r.today_count,
-      dailyLimit: MAX_EXECUTIONS_PER_DAY,
+      dailyLimit,
       lastRunAt: r.last_run_at,
       lastResetAt: resetMap[r.user_id] || null,
     })),
+  });
+});
+
+/** Debug a specific user's session usage: in-memory vs persisted DB */
+app.get('/api/admin/session-debug/:userId', requireAuth, requireAdmin, async (req, res) => {
+  const { userId } = req.params;
+  const dailyLimit = await getDailyExecutionLimit({ forceRefresh: true });
+  const session = userSessions.get(userId) || null;
+
+  const usageRows = await dbQuery(
+    `SELECT count::int AS count
+     FROM playground_daily_usage
+     WHERE user_id = $1 AND usage_date = CURRENT_DATE
+     LIMIT 1`,
+    [userId]
+  );
+
+  const resetRows = await dbQuery(
+    `SELECT reset_at
+     FROM playground_limit_resets
+     WHERE user_id = $1
+     ORDER BY reset_at DESC
+     LIMIT 1`,
+    [userId]
+  );
+
+  return res.json({
+    success: true,
+    data: {
+      userId,
+      dailyLimit,
+      inMemory: session
+        ? {
+            todayCount: session.todayCount,
+            dirtyUsage: Boolean(session.dirtyUsage),
+            dirtyHistory: Boolean(session.dirtyHistory),
+            lastTouchedAt: new Date(session.lastTouchedAt).toISOString(),
+            dateKey: session.dateKey,
+          }
+        : null,
+      db: {
+        todayCount: usageRows[0]?.count || 0,
+        lastResetAt: resetRows[0]?.reset_at || null,
+      },
+      mismatch: session ? session.todayCount !== (usageRows[0]?.count || 0) : false,
+    },
   });
 });
 

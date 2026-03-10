@@ -6,6 +6,7 @@ import { requireRole } from '../middleware/role.js';
 import { auditLog } from '../utils/audit.js';
 import { logger } from '../utils/logger.js';
 import { invalidateEmailTemplateConfigCache } from '../utils/email.js';
+import { updateEventStatuses } from '../utils/eventStatus.js';
 
 export const settingsRouter = Router();
 
@@ -31,6 +32,7 @@ const updateSettingsSchema = z.object({
   mailingEnabled: z.boolean().optional(),
   certificatesEnabled: z.boolean().optional(),
   playgroundEnabled: z.boolean().optional(),
+  playgroundDailyLimit: z.coerce.number().int().min(1).max(10000).optional(),
   githubUrl: optionalUrl,
   linkedinUrl: optionalUrl,
   twitterUrl: optionalUrl,
@@ -68,6 +70,7 @@ settingsRouter.get('/public', async (req: Request, res: Response) => {
         mailingEnabled: true,
         certificatesEnabled: true,
         playgroundEnabled: true,
+        playgroundDailyLimit: true,
         announcementsEnabled: true,
         githubUrl: true,
         linkedinUrl: true,
@@ -99,6 +102,7 @@ settingsRouter.get('/public', async (req: Request, res: Response) => {
           mailingEnabled: true,
           certificatesEnabled: true,
           playgroundEnabled: true,
+          playgroundDailyLimit: 100,
           announcementsEnabled: true,
           githubUrl: null,
           linkedinUrl: null,
@@ -179,6 +183,7 @@ settingsRouter.put('/', authMiddleware, requireRole('ADMIN'), async (req: Reques
       mailingEnabled,
       certificatesEnabled,
       playgroundEnabled,
+      playgroundDailyLimit,
       githubUrl,
       linkedinUrl,
       twitterUrl,
@@ -206,6 +211,7 @@ settingsRouter.put('/', authMiddleware, requireRole('ADMIN'), async (req: Reques
       ...(mailingEnabled !== undefined && { mailingEnabled }),
       ...(certificatesEnabled !== undefined && { certificatesEnabled }),
       ...(playgroundEnabled !== undefined && { playgroundEnabled }),
+      ...(playgroundDailyLimit !== undefined && { playgroundDailyLimit }),
       ...(githubUrl !== undefined && { githubUrl: githubUrl || null }),
       ...(linkedinUrl !== undefined && { linkedinUrl: linkedinUrl || null }),
       ...(twitterUrl !== undefined && { twitterUrl: twitterUrl || null }),
@@ -268,6 +274,7 @@ settingsRouter.patch('/:key', authMiddleware, requireRole('ADMIN'), async (req: 
       'mailingEnabled',
       'certificatesEnabled',
       'playgroundEnabled',
+      'playgroundDailyLimit',
       'githubUrl',
       'linkedinUrl',
       'twitterUrl',
@@ -313,6 +320,7 @@ settingsRouter.patch('/:key', authMiddleware, requireRole('ADMIN'), async (req: 
     }
 
     const parsedMaxEvents = key === 'maxEventsPerUser' ? Number(value) : undefined;
+    const parsedPlaygroundDailyLimit = key === 'playgroundDailyLimit' ? Number(value) : undefined;
     if (
       key === 'maxEventsPerUser' &&
       (parsedMaxEvents === undefined ||
@@ -321,6 +329,16 @@ settingsRouter.patch('/:key', authMiddleware, requireRole('ADMIN'), async (req: 
         parsedMaxEvents > 100)
     ) {
       return res.status(400).json({ success: false, error: { message: 'maxEventsPerUser must be an integer between 1 and 100' } });
+    }
+
+    if (
+      key === 'playgroundDailyLimit' &&
+      (parsedPlaygroundDailyLimit === undefined ||
+        !Number.isInteger(parsedPlaygroundDailyLimit) ||
+        parsedPlaygroundDailyLimit < 1 ||
+        parsedPlaygroundDailyLimit > 10000)
+    ) {
+      return res.status(400).json({ success: false, error: { message: 'playgroundDailyLimit must be an integer between 1 and 10000' } });
     }
 
     if (urlKeys.has(key) && value !== null && typeof value !== 'string') {
@@ -338,7 +356,12 @@ settingsRouter.patch('/:key', authMiddleware, requireRole('ADMIN'), async (req: 
       }
     }
 
-    let normalizedValue: unknown = key === 'maxEventsPerUser' ? parsedMaxEvents : value;
+    let normalizedValue: unknown =
+      key === 'maxEventsPerUser'
+        ? parsedMaxEvents
+        : key === 'playgroundDailyLimit'
+          ? parsedPlaygroundDailyLimit
+          : value;
     if (
       ['githubUrl', 'linkedinUrl', 'twitterUrl', 'instagramUrl', 'discordUrl'].includes(key) &&
       typeof value === 'string' &&
@@ -480,5 +503,28 @@ settingsRouter.patch('/email-templates', authMiddleware, requireRole('ADMIN'), a
   } catch (error) {
     logger.error('Failed to update email templates:', { error: error instanceof Error ? error.message : String(error) });
     res.status(500).json({ success: false, error: { message: 'Failed to update email templates' } });
+  }
+});
+
+// Trigger event status sync immediately (admin only)
+settingsRouter.post('/event-status/sync-now', authMiddleware, requireRole('ADMIN'), async (req: Request, res: Response) => {
+  try {
+    const authUser = getAuthUser(req)!;
+
+    const summary = await updateEventStatuses();
+
+    await auditLog(authUser.id, 'UPDATE', 'events', 'status-sync', {
+      action: 'manual-status-sync',
+      summary,
+    });
+
+    return res.json({
+      success: true,
+      data: summary,
+      message: 'Event statuses synced successfully',
+    });
+  } catch (error) {
+    logger.error('Failed to sync event statuses:', { error: error instanceof Error ? error.message : String(error) });
+    return res.status(500).json({ success: false, error: { message: 'Failed to sync event statuses' } });
   }
 });

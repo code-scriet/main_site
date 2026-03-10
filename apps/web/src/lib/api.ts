@@ -93,6 +93,7 @@ export interface Settings {
   mailingEnabled?: boolean;
   certificatesEnabled?: boolean;
   playgroundEnabled?: boolean;
+  playgroundDailyLimit?: number;
   // Social Links
   githubUrl?: string;
   linkedinUrl?: string;

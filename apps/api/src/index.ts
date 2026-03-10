@@ -56,13 +56,15 @@ getJwtSecret();
 let eventStatusInterval: NodeJS.Timeout | null = null;
 const MAX_LISTEN_RETRIES = 5;
 const LISTEN_RETRY_DELAY_MS = 1500;
+const EVENT_STATUS_INTERVAL_MS = Number(process.env.EVENT_STATUS_INTERVAL_MS || 30 * 60 * 1000);
+const ENABLE_BACKGROUND_SCHEDULERS = process.env.ENABLE_BACKGROUND_SCHEDULERS === 'true';
 
 const startEventStatusScheduler = () => {
   // Run once on startup and then periodically.
   void updateEventStatuses();
   eventStatusInterval = setInterval(() => {
     void updateEventStatuses();
-  }, 5 * 60 * 1000);
+  }, EVENT_STATUS_INTERVAL_MS);
 };
 
 const stopEventStatusScheduler = () => {
@@ -80,20 +82,27 @@ initQuizSocket(io);
 
 // Neon keep-alive: prevent cold connection starts
 let keepAliveFailureCount = 0;
-setInterval(async () => {
-  try {
-    await prisma.$queryRaw`SELECT 1`;
-    keepAliveFailureCount = 0;
-  } catch (error) {
-    keepAliveFailureCount += 1;
-    if (keepAliveFailureCount >= 3) {
-      logger.warn('Database keep-alive failing repeatedly', {
-        consecutiveFailures: keepAliveFailureCount,
-        error: error instanceof Error ? error.message : String(error),
-      });
+const ENABLE_DB_KEEPALIVE = process.env.ENABLE_DB_KEEPALIVE === 'true';
+const DB_KEEPALIVE_INTERVAL_MS = Number(process.env.DB_KEEPALIVE_INTERVAL_MS || 4 * 60 * 1000);
+
+if (ENABLE_DB_KEEPALIVE) {
+  setInterval(async () => {
+    try {
+      await prisma.$queryRaw`SELECT 1`;
+      keepAliveFailureCount = 0;
+    } catch (error) {
+      keepAliveFailureCount += 1;
+      if (keepAliveFailureCount >= 3) {
+        logger.warn('Database keep-alive failing repeatedly', {
+          consecutiveFailures: keepAliveFailureCount,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
     }
-  }
-}, 4 * 60 * 1000);
+  }, DB_KEEPALIVE_INTERVAL_MS);
+} else {
+  logger.info('Database keep-alive disabled (set ENABLE_DB_KEEPALIVE=true to enable).');
+}
 
 // Middleware
 
@@ -180,8 +189,19 @@ app.get('/', (req, res) => {
   });
 });
 
-// Health check with detailed status
-app.get('/health', async (_req, res) => {
+// Lightweight health check (no DB query) to reduce background DB compute burn.
+app.get('/health', (_req, res) => {
+  res.json({
+    status: 'ok',
+    database: 'unknown',
+    timestamp: new Date().toISOString(),
+    environment: NODE_ENV,
+    version: process.env.npm_package_version || '1.0.0',
+  });
+});
+
+// Deep health check with explicit DB ping (use only when needed).
+app.get('/health/db', async (_req, res) => {
   try {
     await Promise.race([
       prisma.$queryRaw`SELECT 1`,
@@ -196,7 +216,7 @@ app.get('/health', async (_req, res) => {
       version: process.env.npm_package_version || '1.0.0',
     });
   } catch (error) {
-    logger.warn('Health check database ping failed', {
+    logger.warn('Deep health check database ping failed', {
       error: error instanceof Error ? error.message : String(error),
     });
     res.status(503).json({
@@ -390,9 +410,13 @@ initializeDatabase()
   .then(() => populateAnnouncementSlugs())
   .then(() => populateProfileSlugs())
   .then(() => {
-    // Start the event reminder scheduler
-    startEventStatusScheduler();
-    startReminderScheduler();
+    // Keep DB asleep when idle by default. Enable only if explicitly configured.
+    if (ENABLE_BACKGROUND_SCHEDULERS) {
+      startEventStatusScheduler();
+      startReminderScheduler();
+    } else {
+      logger.info('Background schedulers disabled (set ENABLE_BACKGROUND_SCHEDULERS=true to enable).');
+    }
 
     startHttpServerWithRetry();
   })

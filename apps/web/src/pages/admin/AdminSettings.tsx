@@ -3,7 +3,7 @@ import { motion } from 'framer-motion';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Save, AlertCircle, CheckCircle, Globe, Mail, Shield, Loader2, RefreshCw, Share2, FileText, Eye, Code, Search } from 'lucide-react';
+import { Save, AlertCircle, CheckCircle, Globe, Mail, Shield, Loader2, RefreshCw, Share2, FileText, Eye, Code, Search, Clock } from 'lucide-react';
 import { api } from '@/lib/api';
 import type { Settings } from '@/lib/api';
 import { useAuth } from '@/context/AuthContext';
@@ -37,6 +37,7 @@ export default function AdminSettings() {
     hiringManagement: true,
     showNetwork: true,
     mailingEnabled: true,
+    playgroundDailyLimit: 100,
     githubUrl: '',
     linkedinUrl: '',
     twitterUrl: '',
@@ -53,6 +54,10 @@ export default function AdminSettings() {
   const [showPreview, setShowPreview] = useState(false);
   const [indexNowSubmitting, setIndexNowSubmitting] = useState(false);
   const [indexNowResult, setIndexNowResult] = useState<{ count: number; error?: string } | null>(null);
+  const [eventSyncSubmitting, setEventSyncSubmitting] = useState(false);
+  const [eventSyncResult, setEventSyncResult] = useState<
+    { toOngoing: number; toPastFromOngoing: number; toPastFromUpcoming: number; error?: string } | null
+  >(null);
 
   const fetchSettings = async () => {
     setLoading(true);
@@ -475,6 +480,22 @@ export default function AdminSettings() {
               <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-amber-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-amber-500"></div>
             </label>
           </div>
+          <div className="space-y-2 p-4 bg-amber-50 rounded-lg">
+            <label className="text-sm font-medium text-gray-700">Playground Daily Execution Limit</label>
+            <Input
+              type="number"
+              min="1"
+              max="10000"
+              value={settings.playgroundDailyLimit ?? 100}
+              onChange={(e) =>
+                setSettings({
+                  ...settings,
+                  playgroundDailyLimit: Math.min(10000, Math.max(1, parseInt(e.target.value, 10) || 100)),
+                })
+              }
+            />
+            <p className="text-xs text-gray-500">Shared across dashboard and playground runtime. Editable by super admin or president.</p>
+          </div>
         </CardContent>
       </Card>
 
@@ -726,6 +747,77 @@ We've got something exciting lined up for you:`}
       </Card>
 
       {/* Save Button */}
+
+      {/* Event Status Sync */}
+      <Card className="border-amber-100">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Clock className="h-5 w-5 text-amber-600" />
+            Event Status Sync
+          </CardTitle>
+          <CardDescription>
+            Background sync runs every 30 minutes. Use this button to run an instant sync for everyone right now.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex items-center gap-4 flex-wrap">
+            <Button
+              variant="outline"
+              className="gap-2"
+              disabled={eventSyncSubmitting}
+              onClick={async () => {
+                if (!token) return;
+                setEventSyncSubmitting(true);
+                setEventSyncResult(null);
+                try {
+                  const res = await fetch(`${import.meta.env.VITE_API_URL}/settings/event-status/sync-now`, {
+                    method: 'POST',
+                    headers: { Authorization: `Bearer ${token}` },
+                    credentials: 'include',
+                  });
+                  const data = await res.json();
+                  if (data.success && data.data) {
+                    setEventSyncResult(data.data);
+                  } else {
+                    setEventSyncResult({ toOngoing: 0, toPastFromOngoing: 0, toPastFromUpcoming: 0, error: data.error?.message || 'Sync failed' });
+                  }
+                } catch {
+                  setEventSyncResult({ toOngoing: 0, toPastFromOngoing: 0, toPastFromUpcoming: 0, error: 'Network error' });
+                } finally {
+                  setEventSyncSubmitting(false);
+                }
+              }}
+            >
+              {eventSyncSubmitting ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <RefreshCw className="h-4 w-4" />
+              )}
+              Sync Event Status Now
+            </Button>
+
+            {eventSyncResult && !eventSyncResult.error && (
+              <span className="text-sm text-green-600 flex items-center gap-1">
+                <CheckCircle className="h-4 w-4" />
+                Updated: {eventSyncResult.toOngoing + eventSyncResult.toPastFromOngoing + eventSyncResult.toPastFromUpcoming}
+              </span>
+            )}
+
+            {eventSyncResult?.error && (
+              <span className="text-sm text-red-600 flex items-center gap-1">
+                <AlertCircle className="h-4 w-4" />
+                {eventSyncResult.error}
+              </span>
+            )}
+          </div>
+
+          {eventSyncResult && !eventSyncResult.error && (
+            <p className="text-xs text-gray-600">
+              UPCOMING -&gt; ONGOING: {eventSyncResult.toOngoing} | ONGOING -&gt; PAST: {eventSyncResult.toPastFromOngoing} | UPCOMING -&gt; PAST: {eventSyncResult.toPastFromUpcoming}
+            </p>
+          )}
+        </CardContent>
+      </Card>
 
       {/* SEO — IndexNow */}
       <Card className="border-amber-100">

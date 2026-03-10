@@ -1,0 +1,2 @@
+ALTER TABLE "settings"
+ADD COLUMN IF NOT EXISTS "playground_daily_limit" INTEGER NOT NULL DEFAULT 100;

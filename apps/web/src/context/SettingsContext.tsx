@@ -24,6 +24,7 @@ const defaultSettings: Settings = {
   showNetwork: true,
   certificatesEnabled: true,
   playgroundEnabled: true,
+  playgroundDailyLimit: 100,
   githubUrl: '',
   linkedinUrl: '',
   twitterUrl: '',

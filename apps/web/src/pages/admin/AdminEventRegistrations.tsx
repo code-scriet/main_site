@@ -4,7 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Loader2, Calendar, Users, Search, Download, Mail, Trash2, Pencil, Phone, GraduationCap } from 'lucide-react';
+import { Loader2, Calendar, Users, Search, Download, Mail, Trash2, Pencil, Phone, GraduationCap, RefreshCw, CheckCircle, AlertCircle } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { api } from '@/lib/api';
 import { Link } from 'react-router-dom';
@@ -43,6 +43,10 @@ export default function AdminEventRegistrations() {
   const [selectedEvent, setSelectedEvent] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [deletingRegId, setDeletingRegId] = useState<string | null>(null);
+  const [eventSyncSubmitting, setEventSyncSubmitting] = useState(false);
+  const [eventSyncResult, setEventSyncResult] = useState<
+    { toOngoing: number; toPastFromOngoing: number; toPastFromUpcoming: number; error?: string } | null
+  >(null);
 
   useEffect(() => {
     loadEvents();
@@ -192,7 +196,80 @@ export default function AdminEventRegistrations() {
           <h1 className="text-2xl font-bold text-amber-900">Event Registrations</h1>
           <p className="text-gray-600">View and manage event participants</p>
         </div>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            className="gap-2"
+            disabled={eventSyncSubmitting || !token}
+            onClick={async () => {
+              if (!token) return;
+              setEventSyncSubmitting(true);
+              setEventSyncResult(null);
+              try {
+                const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:5001/api';
+                const res = await fetch(`${apiUrl}/settings/event-status/sync-now`, {
+                  method: 'POST',
+                  headers: { Authorization: `Bearer ${token}` },
+                  credentials: 'include',
+                });
+                const data = await res.json();
+                if (data.success && data.data) {
+                  setEventSyncResult(data.data);
+                  await loadEvents();
+                } else {
+                  setEventSyncResult({
+                    toOngoing: 0,
+                    toPastFromOngoing: 0,
+                    toPastFromUpcoming: 0,
+                    error: data.error?.message || 'Sync failed',
+                  });
+                }
+              } catch {
+                setEventSyncResult({
+                  toOngoing: 0,
+                  toPastFromOngoing: 0,
+                  toPastFromUpcoming: 0,
+                  error: 'Network error',
+                });
+              } finally {
+                setEventSyncSubmitting(false);
+              }
+            }}
+          >
+            {eventSyncSubmitting ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <RefreshCw className="h-4 w-4" />
+            )}
+            Sync Event Status Now
+          </Button>
+        </div>
       </div>
+
+      {eventSyncResult && !eventSyncResult.error && (
+        <Card className="border-green-200 bg-green-50">
+          <CardContent className="pt-6 text-sm text-green-700">
+            <p className="flex items-center gap-2 font-medium mb-1">
+              <CheckCircle className="h-4 w-4" />
+              Event status sync completed.
+            </p>
+            <p>
+              UPCOMING -&gt; ONGOING: {eventSyncResult.toOngoing} | ONGOING -&gt; PAST: {eventSyncResult.toPastFromOngoing} | UPCOMING -&gt; PAST: {eventSyncResult.toPastFromUpcoming}
+            </p>
+          </CardContent>
+        </Card>
+      )}
+
+      {eventSyncResult?.error && (
+        <Card className="border-red-200 bg-red-50">
+          <CardContent className="pt-6 text-sm text-red-700">
+            <p className="flex items-center gap-2 font-medium">
+              <AlertCircle className="h-4 w-4" />
+              {eventSyncResult.error}
+            </p>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Search */}
       <Card>

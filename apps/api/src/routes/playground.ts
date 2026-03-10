@@ -14,15 +14,44 @@ import { requireRole } from '../middleware/role.js';
 import { logger } from '../utils/logger.js';
 
 const router = Router();
-const PLAYGROUND_DAILY_LIMIT = Number(process.env.PLAYGROUND_DAILY_LIMIT || 200);
 const SETTINGS_CACHE_TTL_MS = 60 * 1000;
+const DEFAULT_PLAYGROUND_DAILY_LIMIT = 100;
 
 const playgroundSettingsCache: {
   expiresAt: number;
   enabled: boolean;
+  dailyLimit: number;
 } = {
   expiresAt: 0,
   enabled: true,
+  dailyLimit: DEFAULT_PLAYGROUND_DAILY_LIMIT,
+};
+
+const getCachedPlaygroundSettings = async (): Promise<{ enabled: boolean; dailyLimit: number }> => {
+  const now = Date.now();
+  if (now < playgroundSettingsCache.expiresAt) {
+    return {
+      enabled: playgroundSettingsCache.enabled,
+      dailyLimit: playgroundSettingsCache.dailyLimit,
+    };
+  }
+
+  const settings = await prisma.settings.findUnique({
+    where: { id: 'default' },
+    select: { playgroundEnabled: true, playgroundDailyLimit: true },
+  });
+
+  playgroundSettingsCache.enabled = settings?.playgroundEnabled !== false;
+  playgroundSettingsCache.dailyLimit =
+    Number.isInteger(settings?.playgroundDailyLimit)
+      ? Math.max(1, Number(settings!.playgroundDailyLimit))
+      : DEFAULT_PLAYGROUND_DAILY_LIMIT;
+  playgroundSettingsCache.expiresAt = now + SETTINGS_CACHE_TTL_MS;
+
+  return {
+    enabled: playgroundSettingsCache.enabled,
+    dailyLimit: playgroundSettingsCache.dailyLimit,
+  };
 };
 
 const getUsageDate = (): Date => {
@@ -37,14 +66,8 @@ router.use(authMiddleware);
 // Gate: check if playground feature is enabled
 router.use(async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const now = Date.now();
-    if (now >= playgroundSettingsCache.expiresAt) {
-      const settings = await prisma.settings.findUnique({ where: { id: 'default' }, select: { playgroundEnabled: true } });
-      playgroundSettingsCache.enabled = settings?.playgroundEnabled !== false;
-      playgroundSettingsCache.expiresAt = now + SETTINGS_CACHE_TTL_MS;
-    }
-
-    if (!playgroundSettingsCache.enabled) {
+    const settings = await getCachedPlaygroundSettings();
+    if (!settings.enabled) {
       return res.status(403).json({ success: false, error: { message: 'Code Playground is currently disabled' } });
     }
     next();
@@ -111,6 +134,8 @@ router.get('/snippets/:id', async (req: Request, res: Response) => {
 /** Get user's language usage stats + execution count */
 router.get('/stats', async (req: Request, res: Response) => {
   try {
+  const settings = await getCachedPlaygroundSettings();
+
     const user = getAuthUser(req);
     if (!user) return res.status(401).json({ error: 'Not authenticated' });
 
@@ -149,7 +174,7 @@ router.get('/stats', async (req: Request, res: Response) => {
         })),
         totalExecutions,
         todayCount,
-        dailyLimit: PLAYGROUND_DAILY_LIMIT,
+        dailyLimit: settings.dailyLimit,
       },
     });
   } catch (error) {
@@ -257,6 +282,7 @@ router.post('/admin/reset-limit/:userId', requireRole('ADMIN'), async (req: Requ
 /** Get users with their today's execution counts */
 router.get('/admin/execution-counts', requireRole('ADMIN'), async (req: Request, res: Response) => {
   try {
+    const settings = await getCachedPlaygroundSettings();
     const usageDate = getUsageDate();
     const counts = await prisma.playgroundDailyUsage.findMany({
       where: { usageDate },
@@ -287,6 +313,7 @@ router.get('/admin/execution-counts', requireRole('ADMIN'), async (req: Request,
       data: counts.map(r => ({
         userId: r.userId,
         todayCount: r.count,
+        dailyLimit: settings.dailyLimit,
         lastRunAt: latestByUser.get(r.userId) || null,
       })),
     });
