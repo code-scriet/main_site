@@ -162,13 +162,24 @@ export async function executeJavaScript(
     worker.onerror = (err) => {
       clearTimeout(timer);
       cleanup();
+
+      const line = Number.isFinite(err.lineno) && err.lineno > 0 ? err.lineno : null;
+      const column = Number.isFinite(err.colno) && err.colno > 0 ? err.colno : null;
+      const file = err.filename || 'worker';
+      const location = line
+        ? `${file}:${line}${column ? `:${column}` : ''}`
+        : file;
+      const runtimeError = (err as ErrorEvent).error as Error | undefined;
+      const stack = runtimeError?.stack ? `\n${runtimeError.stack}` : '';
+      const details = `Worker runtime error at ${location}: ${err.message || 'Unknown error'}${stack}`;
+
       resolve({
         language: 'javascript',
         version: 'browser',
         provider: 'client',
         run: {
           stdout: '',
-          stderr: `Worker error: ${err.message || 'Unknown error'}`,
+          stderr: details,
           code: 1,
           signal: null,
           output: '',
