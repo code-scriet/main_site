@@ -2,7 +2,7 @@ import { useState, useCallback, useRef } from 'react';
 import { executeCode, formatOutput, calculateExecutionTime } from '@/engines/ExecutionRouter';
 import { usePlayground } from '@/context/PlaygroundContext';
 import { validateCode } from '@/lib/utils';
-import { getSessionPreflight, recordClientExecution } from '@/utils/snippetsApi';
+import { getSessionPreflight, recordClientExecution, decrementPreflightCache } from '@/utils/snippetsApi';
 import { toast } from 'sonner';
 
 export function useCodeExecution() {
@@ -100,18 +100,15 @@ export function useCodeExecution() {
           setOutput(output);
         }
 
+        decrementPreflightCache();
         if (result.tier === 'client') {
-          try {
-            await recordClientExecution({
-              language: language.id,
-              code,
-              output: (output || error || '').slice(0, 5000),
-              durationMs: endTime - startTime,
-              status: 'ERROR',
-            });
-          } catch {
-            // non-blocking
-          }
+          recordClientExecution({
+            language: language.id,
+            code,
+            output: (output || error || '').slice(0, 5000),
+            durationMs: endTime - startTime,
+            status: 'ERROR',
+          }).catch(() => {});
         }
 
         toast.error(error || 'Code execution failed');
@@ -124,18 +121,15 @@ export function useCodeExecution() {
           setError(`Warning: ${warning}`);
         }
 
+        decrementPreflightCache();
         if (result.tier === 'client') {
-          try {
-            await recordClientExecution({
-              language: language.id,
-              code,
-              output: finalOutput.slice(0, 5000),
-              durationMs: endTime - startTime,
-              status: 'SUCCESS',
-            });
-          } catch {
-            // non-blocking
-          }
+          recordClientExecution({
+            language: language.id,
+            code,
+            output: finalOutput.slice(0, 5000),
+            durationMs: endTime - startTime,
+            status: 'SUCCESS',
+          }).catch(() => {});
         }
 
         const tierLabel = result.tier === 'client' ? '(local)' : '(cloud)';

@@ -181,8 +181,22 @@ export async function getSessionBootstrap(): Promise<SessionBootstrapData> {
   return data.data;
 }
 
+// Preflight cache — avoids a network round-trip on every execution
+let _preflightCache: { data: SessionPreflight; ts: number; lang: string } | null = null;
+const PREFLIGHT_TTL = 60_000; // 60 seconds
+
 /** Check if the user can run one more execution in current session */
 export async function getSessionPreflight(language?: string): Promise<SessionPreflight> {
+  const lang = language || '';
+  if (
+    _preflightCache &&
+    _preflightCache.lang === lang &&
+    Date.now() - _preflightCache.ts < PREFLIGHT_TTL &&
+    _preflightCache.data.remaining > 0
+  ) {
+    return _preflightCache.data;
+  }
+
   const query = language ? `?language=${encodeURIComponent(language)}` : '';
   const res = await fetch(`${BACKEND_URL}/api/session/preflight${query}`, {
     headers: getAuthHeaders(),
@@ -190,9 +204,20 @@ export async function getSessionPreflight(language?: string): Promise<SessionPre
   });
   const data = await res.json();
   if (!data.success) {
-    return { allowed: true, todayCount: 0, dailyLimit: 100, remaining: 100 };
+    const fallback = { allowed: true, todayCount: 0, dailyLimit: 100, remaining: 100 };
+    _preflightCache = { data: fallback, ts: Date.now(), lang };
+    return fallback;
   }
+  _preflightCache = { data: data.data, ts: Date.now(), lang };
   return data.data;
+}
+
+/** Decrement the locally cached preflight remaining count after an execution */
+export function decrementPreflightCache(): void {
+  if (_preflightCache) {
+    _preflightCache.data.remaining = Math.max(0, _preflightCache.data.remaining - 1);
+    _preflightCache.data.todayCount++;
+  }
 }
 
 /** Record a client-side execution into the user's server-side session cache */

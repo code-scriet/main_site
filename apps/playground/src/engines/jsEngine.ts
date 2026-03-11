@@ -2,21 +2,31 @@
 // JavaScript Client-Side Execution Engine
 // ---------------------------------------------------------------------------
 // Runs JS code in a Web Worker sandbox with a 10s hard timeout.
-// Zero server/API calls. Worker is terminated after timeout.
+// Zero server/API calls. Worker is persistent and reused across executions;
+// only terminated on timeout/abort (infinite loops) and lazily recreated.
 // ---------------------------------------------------------------------------
 
 import type { ExecutionResult } from './types';
 
 const WORKER_TIMEOUT = 10_000; // 10 seconds
 
-export async function executeJavaScript(
-  code: string,
-  _stdin?: string,
-  signal?: AbortSignal,
-): Promise<ExecutionResult> {
-  return new Promise((resolve, reject) => {
-    // Create worker from the jsWorker module via blob URL
-    const workerCode = `
+// ---------------------------------------------------------------------------
+// Persistent Worker Management
+// ---------------------------------------------------------------------------
+
+interface PendingExec {
+  resolve: (result: ExecutionResult) => void;
+  reject: (err: Error) => void;
+  timer: ReturnType<typeof setTimeout>;
+}
+
+let singletonWorker: Worker | null = null;
+let workerBlobUrl: string | null = null;
+let execIdCounter = 0;
+const pendingExecs = new Map<string, PendingExec>();
+
+function buildWorkerCode(): string {
+  return `
       const _output = [];
       const _errors = [];
 
@@ -46,7 +56,7 @@ export async function executeJavaScript(
       console.groupEnd = () => {};
 
       self.onmessage = (e) => {
-        const { code } = e.data;
+        const { id, code } = e.data;
         _output.length = 0;
         _errors.length = 0;
         try {
@@ -55,6 +65,7 @@ export async function executeJavaScript(
           indirectEval(executable);
           self.postMessage({
             type: 'result',
+            id,
             stdout: _output.join('\\n'),
             stderr: _errors.join('\\n'),
             exitCode: _errors.length > 0 ? 1 : 0,
@@ -93,6 +104,7 @@ export async function executeJavaScript(
 
           self.postMessage({
             type: 'result',
+            id,
             stdout: _output.join('\\n'),
             stderr: _errors.length > 0 ? _errors.join('\\n') + '\\n' + errorMsg : errorMsg,
             exitCode: 1,
@@ -100,24 +112,107 @@ export async function executeJavaScript(
         }
       };
     `;
+}
 
-    const blob = new Blob([workerCode], { type: 'application/javascript' });
-    const workerUrl = URL.createObjectURL(blob);
-    const worker = new Worker(workerUrl);
+function getWorkerBlobUrl(): string {
+  if (!workerBlobUrl) {
+    const blob = new Blob([buildWorkerCode()], { type: 'application/javascript' });
+    workerBlobUrl = URL.createObjectURL(blob);
+  }
+  return workerBlobUrl;
+}
 
-    let settled = false;
+function destroyWorker(): void {
+  if (singletonWorker) {
+    singletonWorker.onmessage = null;
+    singletonWorker.onerror = null;
+    singletonWorker.terminate();
+    singletonWorker = null;
+  }
+  for (const [, pending] of pendingExecs) {
+    clearTimeout(pending.timer);
+    pending.reject(new Error('Worker terminated'));
+  }
+  pendingExecs.clear();
+}
 
-    const cleanup = () => {
-      if (!settled) {
-        settled = true;
-        worker.terminate();
-        URL.revokeObjectURL(workerUrl);
-      }
-    };
+function handleWorkerMessage(e: MessageEvent): void {
+  const { type, id, stdout, stderr, exitCode } = e.data;
+  if (type !== 'result' || !id) return;
 
-    // Hard timeout — terminate worker after 10s
+  const pending = pendingExecs.get(id);
+  if (!pending) return;
+  pendingExecs.delete(id);
+  clearTimeout(pending.timer);
+
+  pending.resolve({
+    language: 'javascript',
+    version: 'browser',
+    provider: 'client',
+    run: {
+      stdout: stdout || '',
+      stderr: stderr || '',
+      code: exitCode ?? 0,
+      signal: null,
+      output: stdout || '',
+    },
+  });
+}
+
+function handleWorkerError(err: ErrorEvent): void {
+  const line = Number.isFinite(err.lineno) && err.lineno > 0 ? err.lineno : null;
+  const column = Number.isFinite(err.colno) && err.colno > 0 ? err.colno : null;
+  const file = err.filename || 'worker';
+  const location = line ? `${file}:${line}${column ? `:${column}` : ''}` : file;
+  const runtimeError = (err as ErrorEvent).error as Error | undefined;
+  const stack = runtimeError?.stack ? `\n${runtimeError.stack}` : '';
+  const details = `Worker runtime error at ${location}: ${err.message || 'Unknown error'}${stack}`;
+
+  for (const [, pending] of pendingExecs) {
+    clearTimeout(pending.timer);
+    pending.resolve({
+      language: 'javascript',
+      version: 'browser',
+      provider: 'client',
+      run: { stdout: '', stderr: details, code: 1, signal: null, output: '' },
+    });
+  }
+  pendingExecs.clear();
+
+  if (singletonWorker) {
+    singletonWorker.onmessage = null;
+    singletonWorker.onerror = null;
+    singletonWorker.terminate();
+    singletonWorker = null;
+  }
+}
+
+function getOrCreateWorker(): Worker {
+  if (singletonWorker) return singletonWorker;
+  const worker = new Worker(getWorkerBlobUrl());
+  worker.onmessage = handleWorkerMessage;
+  worker.onerror = handleWorkerError;
+  singletonWorker = worker;
+  return worker;
+}
+
+// ---------------------------------------------------------------------------
+// Public API
+// ---------------------------------------------------------------------------
+
+export async function executeJavaScript(
+  code: string,
+  _stdin?: string,
+  signal?: AbortSignal,
+): Promise<ExecutionResult> {
+  const worker = getOrCreateWorker();
+  const id = String(++execIdCounter);
+
+  return new Promise<ExecutionResult>((resolve, reject) => {
     const timer = setTimeout(() => {
-      cleanup();
+      if (!pendingExecs.has(id)) return;
+      pendingExecs.delete(id);
+      destroyWorker();
       resolve({
         language: 'javascript',
         version: 'browser',
@@ -132,62 +227,18 @@ export async function executeJavaScript(
       });
     }, WORKER_TIMEOUT);
 
-    // AbortSignal support
+    pendingExecs.set(id, { resolve, reject, timer });
+
     if (signal) {
       signal.addEventListener('abort', () => {
+        if (!pendingExecs.has(id)) return;
+        pendingExecs.delete(id);
         clearTimeout(timer);
-        cleanup();
+        destroyWorker();
         reject(new Error('Execution cancelled'));
-      });
+      }, { once: true });
     }
 
-    worker.onmessage = (e) => {
-      clearTimeout(timer);
-      cleanup();
-      const { stdout, stderr, exitCode } = e.data;
-      resolve({
-        language: 'javascript',
-        version: 'browser',
-        provider: 'client',
-        run: {
-          stdout: stdout || '',
-          stderr: stderr || '',
-          code: exitCode ?? 0,
-          signal: null,
-          output: stdout || '',
-        },
-      });
-    };
-
-    worker.onerror = (err) => {
-      clearTimeout(timer);
-      cleanup();
-
-      const line = Number.isFinite(err.lineno) && err.lineno > 0 ? err.lineno : null;
-      const column = Number.isFinite(err.colno) && err.colno > 0 ? err.colno : null;
-      const file = err.filename || 'worker';
-      const location = line
-        ? `${file}:${line}${column ? `:${column}` : ''}`
-        : file;
-      const runtimeError = (err as ErrorEvent).error as Error | undefined;
-      const stack = runtimeError?.stack ? `\n${runtimeError.stack}` : '';
-      const details = `Worker runtime error at ${location}: ${err.message || 'Unknown error'}${stack}`;
-
-      resolve({
-        language: 'javascript',
-        version: 'browser',
-        provider: 'client',
-        run: {
-          stdout: '',
-          stderr: details,
-          code: 1,
-          signal: null,
-          output: '',
-        },
-      });
-    };
-
-    // Send code to the worker
-    worker.postMessage({ code });
+    worker.postMessage({ id, code });
   });
 }
