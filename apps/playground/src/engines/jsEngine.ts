@@ -51,7 +51,7 @@ export async function executeJavaScript(
         _errors.length = 0;
         try {
           const indirectEval = eval;
-          const executable = code + '\n//# sourceURL=playground-user-code.js';
+          const executable = code + '\\n//# sourceURL=playground-user-code.js';
           indirectEval(executable);
           self.postMessage({
             type: 'result',
