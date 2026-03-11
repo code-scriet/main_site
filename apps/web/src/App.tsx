@@ -31,6 +31,8 @@ const NetworkOnboarding = lazy(() => import('@/pages/network/NetworkOnboarding')
 const NetworkStatusPage = lazy(() => import('@/pages/network/NetworkStatusPage'));
 const NetworkProfilePage = lazy(() => import('@/pages/network/NetworkProfilePage'));
 const JoinOurNetworkPage = lazy(() => import('@/pages/JoinOurNetworkPage'));
+const PrivacyPolicyPage = lazy(() => import('@/pages/PrivacyPolicyPage'));
+const ContactPage = lazy(() => import('@/pages/ContactPage'));
 
 // Dashboard - lazy loaded
 const DashboardLayout = lazy(() => import('@/components/dashboard/DashboardLayout'));
@@ -113,6 +115,8 @@ function App() {
                   <Route path="/network/status" element={<NetworkStatusPage />} />
                   <Route path="/network/:slug" element={<NetworkProfilePage />} />
                   <Route path="/join-our-network" element={<JoinOurNetworkPage />} />
+                  <Route path="/privacy-policy" element={<PrivacyPolicyPage />} />
+                  <Route path="/contact" element={<ContactPage />} />
 
                   {/* Quiz Routes (public listing, auth for participation) */}
                   <Route path="/quiz" element={<ActiveQuizList />} />

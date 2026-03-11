@@ -11,7 +11,7 @@ interface SEOProps {
 
 const BASE_URL = 'https://codescriet.dev';
 const DEFAULT_TITLE = 'codescriet - Official Coding Club of SCRIET';
-const DEFAULT_DESCRIPTION = 'The official coding club of SCRIET, CCS University Meerut. Join code.scriet for DSA, competitive programming, hackathons, and tech events. Meerut\'s most active coding community — est. 2022.';
+const DEFAULT_DESCRIPTION = 'The official coding club of SCRIET, CCS University Meerut. Join code.scriet for DSA, competitive programming, hackathons, and tech events.';
 const DEFAULT_IMAGE = `${BASE_URL}/logo.jpeg`;
 
 /**

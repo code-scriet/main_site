@@ -8,4 +8,6 @@
   <url><loc>https://codescriet.dev/network</loc><priority>0.8</priority><changefreq>daily</changefreq></url>
   <url><loc>https://codescriet.dev/about</loc><priority>0.7</priority><changefreq>monthly</changefreq></url>
   <url><loc>https://codescriet.dev/join-us</loc><priority>0.8</priority><changefreq>weekly</changefreq></url>
+  <url><loc>https://codescriet.dev/contact</loc><priority>0.5</priority><changefreq>monthly</changefreq></url>
+  <url><loc>https://codescriet.dev/privacy-policy</loc><priority>0.3</priority><changefreq>yearly</changefreq></url>
 </urlset>

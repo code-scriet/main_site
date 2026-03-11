@@ -13,6 +13,8 @@ export default function HomePage() {
   return (
     <Layout>
       <SEO 
+        title="code.scriet — Official Coding Club of CCSU"
+        description="The official coding club of SCRIET, CCS University Meerut. Join us for DSA, competitive programming, hackathons, and tech events."
         url="/"
       />
       <Hero />

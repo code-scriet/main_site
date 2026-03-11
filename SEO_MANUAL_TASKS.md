@@ -232,9 +232,13 @@ Write 2–3 articles on dev.to or Hashnode about events, learnings, or technical
 - [ ] Update Instagram bio spelling
 - [ ] Update LinkedIn page name & about
 - [ ] Confirm Twitter/X handle matches meta tags
-- [ ] Create 1200×630 OG banner image
+- [ ] Create 1200×630 OG banner image and replace `logo.jpeg` as `og:image`
 - [ ] Create multi-size favicon PNGs
 - [ ] Deploy OG Cloudflare Worker
 - [ ] Create Wikidata entry
 - [ ] Write 2–3 articles on dev.to/Hashnode
 - [ ] Get 3–5 backlinks from tech communities
+- [ ] Add `Content-Security-Policy` header via Cloudflare / Render
+- [ ] Add `Strict-Transport-Security: max-age=31536000; includeSubDomains` header
+- [ ] Add `X-Frame-Options: SAMEORIGIN` header
+- [ ] Enable Cloudflare "Always Use HTTPS" to eliminate HTTP redirects
