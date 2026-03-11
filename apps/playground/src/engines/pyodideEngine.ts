@@ -90,7 +90,9 @@ builtins.input = __patched_input
         py.runPython(setupCode);
 
         try {
-          py.runPython(code);
+          const wrappedCode = '__user_code = ' + JSON.stringify(code) + '\\n' +
+            "exec(compile(__user_code, 'main.py', 'exec'))";
+          py.runPython(wrappedCode);
         } finally {
           py.runPython('sys.stdout = sys.__stdout__; sys.stderr = sys.__stderr__; builtins.input = __original_input');
         }
@@ -106,12 +108,28 @@ builtins.input = __patched_input
           exitCode: stderr ? 1 : 0,
         });
       } catch (err) {
-        let errorMsg = String(err);
-        if (err && err.message) errorMsg = err.message;
-        errorMsg = errorMsg
-          .replace(/^PythonError:\\s*/i, '')
-          .replace(/^Error:\\s*/i, '')
+        const parts = [];
+        if (err && typeof err.toString === 'function') {
+          parts.push(String(err.toString()));
+        }
+        if (err && err.message) {
+          parts.push(String(err.message));
+        }
+        if (err && err.stack) {
+          parts.push(String(err.stack));
+        }
+
+        let errorMsg = parts
+          .filter(Boolean)
+          .join('\n')
+          .replace(/\n{3,}/g, '\n\n')
           .trim();
+
+        // If we only captured a bare label (e.g. "PythonError"), keep a
+        // useful fallback so users still get context instead of just a type name.
+        if (!errorMsg || /^[A-Za-z]+Error:?$/i.test(errorMsg)) {
+          errorMsg = 'Python runtime error occurred. No traceback was returned by the runtime.';
+        }
 
         // Try to reset stdout/stderr so next run starts clean
         try {
@@ -123,7 +141,7 @@ builtins.input = __patched_input
           type: 'result',
           id,
           stdout: '',
-          stderr: errorMsg || 'Python execution failed',
+          stderr: errorMsg,
           exitCode: 1,
         });
       }

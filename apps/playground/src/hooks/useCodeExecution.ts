@@ -149,9 +149,9 @@ export function useCodeExecution() {
         toast.info('Execution stopped');
         return { success: false, error: message };
       }
-      const errorMsg = `Execution error: ${message}`;
+      const errorMsg = message;
       setError(errorMsg);
-      toast.error('Failed to execute code');
+      toast.error(errorMsg || 'Failed to execute code');
       return { success: false, error: errorMsg };
     } finally {
       setIsExecuting(false);

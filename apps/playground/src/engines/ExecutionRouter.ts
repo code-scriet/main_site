@@ -258,9 +258,17 @@ export function formatOutput(result: ExecutionResult): {
   const compileError = result.compile?.stderr || '';
   const exitCode = result.run.code;
 
+  const withLocationHeader = (text: string) => {
+    if (!text) return text;
+    const location = extractLocation(text);
+    if (!location) return text;
+    if (/^Location:\s+/im.test(text)) return text;
+    return `Location: ${location}\n${text}`;
+  };
+
   // Compilation error with no output = real error
   if (compileError && !output) {
-    return { output: '', error: compileError, exitCode, hasError: true, warning: '' };
+    return { output: '', error: withLocationHeader(compileError), exitCode, hasError: true, warning: '' };
   }
 
   // Program produced output — it ran successfully
@@ -269,16 +277,42 @@ export function formatOutput(result: ExecutionResult): {
     const warning = stderr || (compileError && exitCode === 0 ? compileError : '');
     // Only mark as error if exit code is non-zero AND there's stderr
     const hasError = exitCode !== 0 && !!stderr;
-    return { output, error: hasError ? stderr : '', exitCode, hasError, warning };
+    return {
+      output,
+      error: hasError ? withLocationHeader(stderr) : '',
+      exitCode,
+      hasError,
+      warning: withLocationHeader(warning),
+    };
   }
 
   // No output — check if there's an error
   if (stderr) {
-    return { output: '', error: stderr, exitCode, hasError: true, warning: '' };
+    return { output: '', error: withLocationHeader(stderr), exitCode, hasError: true, warning: '' };
   }
 
   // No output, no error — program ran with empty output
   return { output: '', error: '', exitCode, hasError: false, warning: '' };
+}
+
+function extractLocation(text: string): string | null {
+  // Python traceback style: File "main.py", line 7
+  const pythonMatch = text.match(/File\s+"[^"]+",\s*line\s+(\d+)/i);
+  if (pythonMatch) return `line ${pythonMatch[1]}`;
+
+  // TypeScript diagnostics style: TS1005: (3:14)
+  const tsParenMatch = text.match(/\((\d+):(\d+)\)/);
+  if (tsParenMatch) return `line ${tsParenMatch[1]}, column ${tsParenMatch[2]}`;
+
+  // GCC/Clang/Java/JS stack style: file:line:column
+  const fileLineColMatch = text.match(/(?:^|\s)(?:[A-Za-z0-9_./\\-]+):(\d+):(\d+)(?:\b|\))/m);
+  if (fileLineColMatch) return `line ${fileLineColMatch[1]}, column ${fileLineColMatch[2]}`;
+
+  // Generic "line N"
+  const genericLineMatch = text.match(/\bline\s+(\d+)\b/i);
+  if (genericLineMatch) return `line ${genericLineMatch[1]}`;
+
+  return null;
 }
 
 /**

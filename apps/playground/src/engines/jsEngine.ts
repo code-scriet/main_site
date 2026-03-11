@@ -51,7 +51,8 @@ export async function executeJavaScript(
         _errors.length = 0;
         try {
           const indirectEval = eval;
-          indirectEval(code);
+          const executable = code + '\n//# sourceURL=playground-user-code.js';
+          indirectEval(executable);
           self.postMessage({
             type: 'result',
             stdout: _output.join('\\n'),
@@ -59,9 +60,37 @@ export async function executeJavaScript(
             exitCode: _errors.length > 0 ? 1 : 0,
           });
         } catch (err) {
-          const errorMsg = err instanceof Error
-            ? err.name + ': ' + err.message + '\\n' + (err.stack || '')
-            : String(err);
+          const rawStack = err instanceof Error ? (err.stack || '') : '';
+          const name = err instanceof Error ? (err.name || 'Error') : 'Error';
+          const message = err instanceof Error ? (err.message || String(err)) : String(err);
+
+          let line = Number.isFinite(err?.lineNumber) ? err.lineNumber : null;
+          let column = Number.isFinite(err?.columnNumber) ? err.columnNumber : null;
+
+          // Stack examples we may see:
+          //   at eval (playground-user-code.js:3:11)
+          //   at playground-user-code.js:3:11
+          const stackMatch = rawStack.match(/playground-user-code\.js:(\d+):(\d+)/);
+          if ((!line || !column) && stackMatch) {
+            line = Number(stackMatch[1]);
+            column = Number(stackMatch[2]);
+          }
+
+          const location = line
+            ? ('Line ' + line + (column ? (', Column ' + column) : ''))
+            : '';
+
+          const headline = location
+            ? (name + ': ' + message + ' (' + location + ')')
+            : (name + ': ' + message);
+
+          // Avoid duplicating the headline if stack already starts with it
+          const cleanedStack = rawStack && !rawStack.startsWith(headline)
+            ? rawStack
+            : '';
+
+          const errorMsg = cleanedStack ? (headline + '\\n' + cleanedStack) : headline;
+
           self.postMessage({
             type: 'result',
             stdout: _output.join('\\n'),
