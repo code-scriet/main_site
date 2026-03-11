@@ -520,10 +520,8 @@ export default function SignInPage() {
                 {/* Footer */}
                 <div className="pt-4 border-t border-amber-100">
                   <p className="text-center text-xs text-gray-500">
-                    By continuing, you agree to our{' '}
-                    <a href="#" className="text-amber-600 hover:underline">Terms of Service</a>
-                    {' '}and{' '}
-                    <a href="#" className="text-amber-600 hover:underline">Privacy Policy</a>
+                    By signing in or creating an account, you accept our{' '}
+                    <Link to="/privacy-policy" className="text-amber-600 hover:underline">Privacy Policy</Link>
                   </p>
                 </div>
               </CardContent>
