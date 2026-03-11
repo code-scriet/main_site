@@ -12,7 +12,7 @@ interface SEOProps {
 const BASE_URL = 'https://codescriet.dev';
 const DEFAULT_TITLE = 'codescriet - Official Coding Club of SCRIET';
 const DEFAULT_DESCRIPTION = 'The official coding club of SCRIET, CCS University Meerut. Join code.scriet for DSA, competitive programming, hackathons, and tech events.';
-const DEFAULT_IMAGE = `${BASE_URL}/logo.jpeg`;
+const DEFAULT_IMAGE = `${BASE_URL}/og-image.jpg`;
 
 /**
  * SEO Component - Updates document head meta tags dynamically
