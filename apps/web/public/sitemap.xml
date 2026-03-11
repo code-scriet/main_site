@@ -1,7 +1,11 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
-  <sitemap>
-    <loc>https://api.codescriet.dev/sitemap.xml</loc>
-    <lastmod>2026-03-02</lastmod>
-  </sitemap>
-</sitemapindex>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url><loc>https://codescriet.dev/</loc><priority>1.0</priority><changefreq>weekly</changefreq></url>
+  <url><loc>https://codescriet.dev/events</loc><priority>0.9</priority><changefreq>daily</changefreq></url>
+  <url><loc>https://codescriet.dev/achievements</loc><priority>0.9</priority><changefreq>daily</changefreq></url>
+  <url><loc>https://codescriet.dev/announcements</loc><priority>0.8</priority><changefreq>daily</changefreq></url>
+  <url><loc>https://codescriet.dev/team</loc><priority>0.7</priority><changefreq>monthly</changefreq></url>
+  <url><loc>https://codescriet.dev/network</loc><priority>0.8</priority><changefreq>daily</changefreq></url>
+  <url><loc>https://codescriet.dev/about</loc><priority>0.7</priority><changefreq>monthly</changefreq></url>
+  <url><loc>https://codescriet.dev/join-us</loc><priority>0.8</priority><changefreq>weekly</changefreq></url>
+</urlset>

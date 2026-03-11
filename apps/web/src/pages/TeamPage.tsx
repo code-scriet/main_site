@@ -67,9 +67,8 @@ export default function TeamPage() {
     <Layout>
       <SEO 
         title="Our Team"
-        description="Meet the passionate team behind code.scriet - the talented individuals driving SCRIET's premier coding community forward."
+        description="Meet the team behind codescriet, the official coding club of SCRIET."
         url="/team"
-        keywords="code.scriet team, SCRIET coding club members, coding club leadership"
       />
       <BreadcrumbSchema
         items={[

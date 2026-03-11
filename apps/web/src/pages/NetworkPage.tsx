@@ -306,9 +306,8 @@ export default function NetworkPage() {
     <Layout>
       <SEO
         title="Alumni & Professional Network"
-        description="Connect with industry professionals, mentors, and alumni who support the code.scriet community."
+        description="Connect with alumni and professionals from the codescriet network at SCRIET, CCS University Meerut."
         url="/network"
-        keywords="code.scriet network, alumni network, professional mentors, student guidance, technical club"
       />
       <BreadcrumbSchema
         items={[

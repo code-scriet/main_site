@@ -2,11 +2,10 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
-    <meta http-equiv="Pragma" content="no-cache" />
-    <meta http-equiv="Expires" content="0" />
+
     <link rel="icon" type="image/jpeg" href="/logo.jpeg" />
     <link rel="apple-touch-icon" href="/logo.jpeg" />
+    <link rel="manifest" href="/site.webmanifest" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     
     <!-- Google Fonts - Distinctive Typography -->
@@ -17,8 +16,7 @@
     <!-- Primary Meta Tags -->
     <title>codescriet - Official Coding Club of SCRIET | code.scriet</title>
     <meta name="title" content="codescriet - Official Coding Club of SCRIET | code.scriet" />
-    <meta name="description" content="codescriet (code.scriet, code scriet) - The Official Coding Club of SCRIET, CCS University Meerut. Join codescriet for DSA, competitive programming, hackathons, web development workshops, and tech events. codescriet is Meerut's most active coding community." />
-    <meta name="keywords" content="codescriet, code scriet, code.scriet, codescriet club, codescriet meerut, codescriet ccs, codescriet scriet, scriet coding club, SCRIET, coding club meerut, programming club, DSA club, CCS University, hackathons, competitive programming, web development, tech events, learn coding" />
+    <meta name="description" content="The official coding club of SCRIET, CCS University Meerut. Join code.scriet for DSA, competitive programming, hackathons, and tech events. Meerut's most active coding community — est. 2022." />
     <meta name="author" content="codescriet" />
     <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1" />
     <meta name="googlebot" content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1" />
@@ -34,19 +32,21 @@
     <meta property="og:title" content="codescriet - Official Coding Club of SCRIET" />
     <meta property="og:description" content="codescriet (code.scriet, code scriet) - The Official Coding Club of SCRIET, CCS University Meerut. Join codescriet for DSA, competitive programming, hackathons, and tech events." />
     <meta property="og:image" content="https://codescriet.dev/logo.jpeg" />
-    <meta property="og:image:width" content="1200" />
-    <meta property="og:image:height" content="630" />
+    <meta property="og:image:width" content="512" />
+    <meta property="og:image:height" content="512" />
     <meta property="og:image:alt" content="codescriet - Official Coding Club of SCRIET" />
     <meta property="og:site_name" content="codescriet" />
     <meta property="og:locale" content="en_IN" />
 
     <!-- Twitter -->
-    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:card" content="summary" />
     <meta name="twitter:url" content="https://codescriet.dev/" />
     <meta name="twitter:title" content="codescriet - Official Coding Club of SCRIET" />
     <meta name="twitter:description" content="codescriet (code.scriet, code scriet) - The Official Coding Club of SCRIET. Join codescriet for DSA, hackathons, and tech events." />
     <meta name="twitter:image" content="https://codescriet.dev/logo.jpeg" />
     <meta name="twitter:image:alt" content="codescriet - Official Coding Club" />
+    <meta name="twitter:site" content="@codescriet" />
+    <meta name="twitter:creator" content="@codescriet" />
 
     <!-- Structured Data - Organization -->
     <script type="application/ld+json">
@@ -55,7 +55,8 @@
       "@type": ["Organization", "EducationalOrganization"],
       "@id": "https://codescriet.dev/#organization",
       "name": "codescriet",
-      "alternateName": ["code.scriet", "code scriet", "scriet", "codescriet club", "codescriet coding club", "scriet coding club", "SCRIET coding club"],
+      "alternateName": ["code.scriet", "code scriet", "codescriet club", "codescriet coding club", "scriet coding club", "SCRIET coding club", "scriet club", "scriet", "code scriet meerut", "codescriet meerut", "codescriet ccs university", "coding club scriet", "coding club meerut"],
+      "disambiguatingDescription": "codescriet (spelled c-o-d-e-s-c-r-i-e-t) is the official coding club of SCRIET college, CCS University Meerut. It is distinct from and unrelated to 'codescript'.",
       "url": "https://codescriet.dev",
       "logo": {
         "@type": "ImageObject",
@@ -114,37 +115,17 @@
     }
     </script>
 
-    <!-- Structured Data - BreadcrumbList -->
+    <!-- Structured Data - AboutPage -->
     <script type="application/ld+json">
     {
       "@context": "https://schema.org",
-      "@type": "BreadcrumbList",
-      "itemListElement": [
-        {
-          "@type": "ListItem",
-          "position": 1,
-          "name": "Home",
-          "item": "https://codescriet.dev/"
-        },
-        {
-          "@type": "ListItem",
-          "position": 2,
-          "name": "Events",
-          "item": "https://codescriet.dev/events"
-        },
-        {
-          "@type": "ListItem",
-          "position": 3,
-          "name": "Team",
-          "item": "https://codescriet.dev/team"
-        },
-        {
-          "@type": "ListItem",
-          "position": 4,
-          "name": "Network",
-          "item": "https://codescriet.dev/network"
-        }
-      ]
+      "@type": "AboutPage",
+      "@id": "https://codescriet.dev/about#webpage",
+      "name": "About codescriet — Official Coding Club of SCRIET",
+      "description": "codescriet is the official coding club of SCRIET (Swami Keshvanand Institute of Engineering Management and Gramothan), CCS University Meerut. The name codescriet combines 'code' and 'SCRIET'.",
+      "url": "https://codescriet.dev/about",
+      "isPartOf": { "@id": "https://codescriet.dev/#website" },
+      "about": { "@id": "https://codescriet.dev/#organization" }
     }
     </script>
   </head>

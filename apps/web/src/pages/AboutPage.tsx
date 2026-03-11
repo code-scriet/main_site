@@ -15,10 +15,9 @@ export default function AboutPage() {
   return (
     <Layout>
       <SEO 
-        title="About Us"
-        description="Learn about code.scriet - SCRIET's premier coding club. Discover our journey, philosophy, and mission to build an environment where curiosity becomes capability."
+        title="About codescriet — SCRIET's Official Coding Club, CCS University Meerut"
+        description="codescriet is the official coding club of SCRIET, CCS University Meerut. Known as code.scriet or code scriet, we run events in DSA, competitive programming, and web development."
         url="/about"
-        keywords="about code.scriet, SCRIET coding club, coding community, student empowerment, tech ecosystem"
       />
       
       {/* Hero Section */}
@@ -89,6 +88,12 @@ export default function AboutPage() {
               <div className="max-w-3xl mx-auto space-y-4">
                 <p className="text-gray-700 text-lg">
                   Code.Scriet was founded with one belief:
+                </p>
+                <p className="text-gray-600 text-base">
+                  Our club name, codescriet, combines "code" and "SCRIET"
+                  (Swami Keshvanand Institute of Engineering Management and Gramothan).
+                  You may also find us as code.scriet or code scriet across social media.
+                  We are the official coding club of SCRIET, CCS University Meerut.
                 </p>
                 <blockquote className="text-xl sm:text-2xl text-gray-900 font-medium italic border-l-4 border-amber-500 pl-6 py-2">
                   "Students don't need more clubs. They need ecosystems."

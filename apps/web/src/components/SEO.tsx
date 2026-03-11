@@ -3,7 +3,6 @@ import { useEffect } from 'react';
 interface SEOProps {
   title?: string;
   description?: string;
-  keywords?: string;
   image?: string;
   url?: string;
   type?: 'website' | 'article';
@@ -12,9 +11,8 @@ interface SEOProps {
 
 const BASE_URL = 'https://codescriet.dev';
 const DEFAULT_TITLE = 'codescriet - Official Coding Club of SCRIET';
-const DEFAULT_DESCRIPTION = 'codescriet (code.scriet, code scriet) - The Official Coding Club of SCRIET, CCS University Meerut. Join codescriet for DSA, competitive programming, hackathons, web development, and tech events.';
+const DEFAULT_DESCRIPTION = 'The official coding club of SCRIET, CCS University Meerut. Join code.scriet for DSA, competitive programming, hackathons, and tech events. Meerut\'s most active coding community — est. 2022.';
 const DEFAULT_IMAGE = `${BASE_URL}/logo.jpeg`;
-const DEFAULT_KEYWORDS = 'codescriet, code scriet, code.scriet, codescriet club, scriet coding club, SCRIET, coding club meerut, CCS University, DSA, competitive programming, hackathons';
 
 /**
  * SEO Component - Updates document head meta tags dynamically
@@ -23,7 +21,6 @@ const DEFAULT_KEYWORDS = 'codescriet, code scriet, code.scriet, codescriet club,
 export function SEO({
   title,
   description = DEFAULT_DESCRIPTION,
-  keywords = DEFAULT_KEYWORDS,
   image = DEFAULT_IMAGE,
   url,
   type = 'website',
@@ -81,7 +78,6 @@ export function SEO({
     // Update basic meta tags
     updateMetaTag('meta[name="title"]', 'content', fullTitle);
     updateMetaTag('meta[name="description"]', 'content', description);
-    updateMetaTag('meta[name="keywords"]', 'content', keywords);
 
     // Update robots meta
     updateMetaTag('meta[name="robots"]', 'content', noIndex ? 'noindex, nofollow' : 'index, follow');
@@ -106,7 +102,7 @@ export function SEO({
     return () => {
       document.title = DEFAULT_TITLE;
     };
-  }, [fullTitle, description, keywords, image, fullUrl, type, noIndex]);
+  }, [fullTitle, description, image, fullUrl, type, noIndex]);
 
   return null;
 }

@@ -273,9 +273,8 @@ export default function JoinUsPage() {
     <Layout>
       <SEO 
         title="Join Us"
-        description="Join code.scriet - SCRIET's premier coding club. Apply to become a core team member and contribute to our coding community."
+        description="Join codescriet — apply to become a member of SCRIET's official coding club."
         url="/join-us"
-        keywords="join code.scriet, SCRIET coding club recruitment, coding club membership, become a member"
       />
       <section className="min-h-screen py-8 sm:py-12 bg-gradient-to-br from-amber-50 via-orange-50 to-amber-100">
         <div className="container mx-auto px-4">

@@ -179,9 +179,8 @@ export default function EventsPage() {
     <Layout>
       <SEO 
         title="Events"
-        description="Discover upcoming workshops, hackathons, and coding events by code.scriet - SCRIET's coding club. Register and participate in exciting tech events."
+        description="Explore upcoming and past events from codescriet — hackathons, workshops, and tech events at SCRIET."
         url="/events"
-        keywords="code.scriet events, SCRIET hackathons, coding workshops, programming events, tech events"
       />
       <BreadcrumbSchema
         items={[

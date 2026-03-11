@@ -238,7 +238,6 @@ export default function AnnouncementDetailPage() {
         description={announcement.shortDescription || announcement.body.slice(0, 160)}
         url={`/announcements/${announcement.slug}`}
         image={announcement.imageUrl || undefined}
-        keywords={tags.length > 0 ? tags.join(', ') : 'announcement, code.scriet, SCRIET'}
       />
       
       {/* Schema markup for SEO */}

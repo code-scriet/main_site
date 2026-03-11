@@ -70,9 +70,8 @@ export default function AnnouncementsPage() {
     <Layout>
       <SEO 
         title="Announcements"
-        description="Stay updated with the latest news, updates, and announcements from code.scriet - SCRIET's official coding club."
+        description="Latest news and updates from codescriet, the official coding club of SCRIET."
         url="/announcements"
-        keywords="code.scriet announcements, SCRIET coding club news, club updates"
       />
       <BreadcrumbSchema
         items={[

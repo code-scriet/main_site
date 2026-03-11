@@ -1,0 +1,12 @@
+{
+  "name": "codescriet",
+  "short_name": "codescriet",
+  "description": "Official Coding Club of SCRIET, CCS University Meerut",
+  "icons": [
+    { "src": "/logo.jpeg", "sizes": "512x512", "type": "image/jpeg" }
+  ],
+  "start_url": "/",
+  "display": "browser",
+  "theme_color": "#f97316",
+  "background_color": "#ffffff"
+}

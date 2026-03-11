@@ -14,7 +14,6 @@ export default function HomePage() {
     <Layout>
       <SEO 
         url="/"
-        keywords="code.scriet, codescriet, code scriet, SCRIET coding club, DSA club, programming club, competitive programming, web development"
       />
       <Hero />
       <AboutPreview />

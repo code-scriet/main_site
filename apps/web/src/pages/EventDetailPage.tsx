@@ -584,7 +584,6 @@ export default function EventDetailPage() {
         title={event.title}
         description={event.shortDescription || event.description.slice(0, 160)}
         url={`/events/${event.slug}`}
-        keywords={`${event.title}, ${event.eventType || 'event'}, code.scriet, ${event.tags?.join(', ') || ''}`}
       />
 
       {/* Schema markup for SEO */}

@@ -289,9 +289,8 @@ export default function AchievementsPage() {
     <Layout>
       <SEO 
         title="Achievements"
-        description="Discover Code.Scriet's journey of empowering students through technology. From workshops to hackathons, see how we're building a culture of innovation and growth."
+        description="Achievements and milestones of codescriet, the official coding club of SCRIET, CCS University Meerut."
         url="/achievements"
-        keywords="code.scriet achievements, SCRIET coding club awards, student empowerment, coding community impact, hackathon wins"
       />
       <BreadcrumbSchema
         items={[

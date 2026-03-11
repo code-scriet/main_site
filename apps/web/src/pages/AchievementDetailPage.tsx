@@ -575,7 +575,6 @@ export default function AchievementDetailPage() {
         description={achievement.shortDescription || achievement.description}
         url={`/achievements/${achievement.slug || achievement.id}`}
         image={achievement.imageUrl}
-        keywords={`${achievement.title}, code.scriet achievement, ${achievement.eventName || ''}, ${achievement.tags?.join(', ') || ''}`}
       />
       
       <AchievementSchema
