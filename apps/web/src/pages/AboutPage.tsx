@@ -90,8 +90,8 @@ export default function AboutPage() {
                   Code.Scriet was founded with one belief:
                 </p>
                 <p className="text-gray-600 text-base">
-                  Our club name, codescriet, combines "code" and "SCRIET"
-                  (Swami Keshvanand Institute of Engineering Management and Gramothan).
+                  Our club name, codescriet, combines "code" WITH "SCRIET", code for 
+                  COMMUNITY OF DEVELOPERS AND ENGINNERSS.
                   You may also find us as code.scriet or code scriet across social media.
                   We are the official coding club of SCRIET, CCS University Meerut.
                 </p>

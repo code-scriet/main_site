@@ -1,7 +1,7 @@
 import { motion } from 'framer-motion';
 import { Button } from '@/components/ui/button';
 import { Link } from 'react-router-dom';
-import { Code, Users, ArrowRight, Sparkles, Target, Brain } from 'lucide-react';
+import { Code, Users, ArrowRight, Target, Brain } from 'lucide-react';
 import { useMotionConfig } from '@/hooks/useMotionConfig';
 import { useSettings } from '@/context/SettingsContext';
 import { useHomePageData } from '@/hooks/useHomePageData';
@@ -37,11 +37,7 @@ const features = [
   },
 ];
 
-const aboutStats = [
-  { value: '500+', label: 'Members' },
-  { value: '3', label: 'Events' },
-  { value: '7+', label: 'Projects' },
-];
+
 
 export function AboutPreview() {
   const { settings } = useSettings();
@@ -78,22 +74,11 @@ export function AboutPreview() {
           viewport={{ once: true, margin: '-50px' }}
           className="text-center mb-14 sm:mb-20"
         >
-          <motion.div 
-            initial={{ opacity: 0, scale: shouldReduceMotion ? 0.95 : 0.8 }}
-            whileInView={{ opacity: 1, scale: 1 }}
-            transition={{ duration: shouldReduceMotion ? 0.3 : 0.5 }}
-            viewport={{ once: true, margin: '-50px' }}
-            className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-amber-100/80 text-amber-700 mb-6 border border-amber-200/50"
-          >
-            <Sparkles className="h-4 w-4" />
-            <span className="text-sm font-medium tracking-wide">What We Offer</span>
-          </motion.div>
-          
           <h2 className="text-3xl sm:text-4xl md:text-5xl lg:text-6xl font-bold text-gray-900 mb-5 sm:mb-6 px-2 leading-[1.1]">
             Grow Your{' '}
             <span className="relative">
               <span className="text-transparent bg-clip-text bg-gradient-to-r from-amber-500 via-orange-500 to-amber-600">
-                Coding Skills
+                Technical Edge
               </span>
               <motion.span 
                 className="absolute -bottom-2 left-0 h-1 bg-gradient-to-r from-amber-400 to-orange-400 rounded-full"
@@ -170,8 +155,11 @@ export function AboutPreview() {
           }} />
           
           <div className="relative p-8 sm:p-10 md:p-12">
-            <div className="grid grid-cols-3 gap-6 sm:gap-8 text-center">
-              {aboutStats.map((stat, index) => (
+            <div className="grid grid-cols-2 gap-6 sm:gap-8 text-center">
+              {[
+                { value: `${homeData?.stats?.members ?? 500}+`, label: 'Members' },
+                { value: `${homeData?.stats?.events ?? 3}+`, label: 'Events' },
+              ].map((stat, index) => (
                 <motion.div
                   key={stat.label}
                   initial={{ opacity: 0, y: 10 }}

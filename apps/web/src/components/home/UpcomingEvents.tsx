@@ -94,17 +94,6 @@ export function UpcomingEvents() {
           className="flex flex-col md:flex-row justify-between items-start md:items-end mb-12 gap-6"
         >
           <div>
-            <motion.div 
-              initial={{ opacity: 0, scale: shouldReduceMotion ? 0.95 : 0.8 }}
-              whileInView={{ opacity: 1, scale: 1 }}
-              transition={{ duration: shouldReduceMotion ? 0.3 : 0.5 }}
-              viewport={{ once: true, margin: '-50px' }}
-              className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-orange-100 text-orange-700 mb-4"
-            >
-              <Calendar className="h-4 w-4" />
-              <span className="text-sm font-medium">Don't Miss Out</span>
-            </motion.div>
-            
             <h2 className="text-2xl sm:text-4xl md:text-5xl font-bold text-gray-900 mb-2 sm:mb-3">
               Upcoming{' '}
               <span className="text-transparent bg-clip-text bg-gradient-to-r from-orange-500 to-amber-600">

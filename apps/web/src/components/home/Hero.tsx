@@ -2,7 +2,7 @@ import { useEffect, useRef, useMemo, useCallback, memo } from 'react';
 import { motion, useScroll, useTransform } from 'framer-motion';
 import { Button } from '@/components/ui/button';
 import { Link } from 'react-router-dom';
-import { ArrowRight, Users, Calendar, Sparkles, Terminal, Zap, LayoutDashboard } from 'lucide-react';
+import { ArrowRight, Users, Calendar, Terminal, Zap, LayoutDashboard } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { useSettings } from '@/context/SettingsContext';
 import { useMotionConfig } from '@/hooks/useMotionConfig';
@@ -342,17 +342,6 @@ export function Hero() {
           animate="visible"
           className="text-center space-y-6 sm:space-y-8 max-w-5xl mx-auto"
         >
-          {/* Badge */}
-          <motion.div variants={itemVariants} className="flex justify-center">
-            <motion.div 
-              className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-amber-500/10 border border-amber-500/20 backdrop-blur-sm"
-              whileHover={!isMobile ? { scale: 1.05 } : undefined}
-            >
-              <Sparkles className="h-4 w-4 text-amber-400" />
-              <span className="text-amber-200 text-sm font-medium">SCRIET's Premier Coding Community</span>
-            </motion.div>
-          </motion.div>
-
           {/* Logo */}
           <motion.div variants={itemVariants} className="flex justify-center">
             <motion.div 

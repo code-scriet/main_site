@@ -1,7 +1,7 @@
 import { motion } from 'framer-motion';
 import { Button } from '@/components/ui/button';
 import { Link } from 'react-router-dom';
-import { Trophy, ArrowRight, Loader2, Award, Star, Medal, ChevronRight, Image as ImageIcon, Sparkles, Calendar } from 'lucide-react';
+import { Trophy, ArrowRight, Loader2, Star, Medal, ChevronRight, Image as ImageIcon, Sparkles, Calendar } from 'lucide-react';
 import { formatDate } from '@/lib/dateUtils';
 import { processImageUrl } from '@/lib/imageUtils';
 import { useMotionConfig } from '@/hooks/useMotionConfig';
@@ -45,17 +45,6 @@ export function AchievementsShowcase() {
           viewport={{ once: true }}
           className="text-center mb-8 sm:mb-12"
         >
-          <motion.div 
-            initial={{ opacity: 0, scale: shouldReduceMotion ? 0.95 : 0.8 }}
-            whileInView={{ opacity: 1, scale: 1 }}
-            transition={{ duration: shouldReduceMotion ? 0.3 : 0.5 }}
-            viewport={{ once: true, margin: '-50px' }}
-            className="inline-flex items-center gap-2 px-3 sm:px-4 py-1.5 sm:py-2 rounded-full bg-amber-200 text-amber-800 mb-4 sm:mb-6"
-          >
-            <Award className="h-4 w-4" />
-            <span className="text-sm font-medium">Pride of code.scriet</span>
-          </motion.div>
-          
           <h2 className="text-2xl sm:text-4xl md:text-5xl font-bold text-gray-900 mb-3 sm:mb-4">
             Our{' '}
             <span className="text-transparent bg-clip-text bg-gradient-to-r from-amber-600 to-orange-600">

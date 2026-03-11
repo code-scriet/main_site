@@ -2,7 +2,7 @@ import { motion } from 'framer-motion';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Link } from 'react-router-dom';
-import { Bell, Calendar, ArrowRight, Megaphone, AlertTriangle, Info, CheckCircle } from 'lucide-react';
+import { Bell, Calendar, ArrowRight, AlertTriangle, Info, CheckCircle } from 'lucide-react';
 import { formatDate } from '@/lib/dateUtils';
 import { useMotionConfig } from '@/hooks/useMotionConfig';
 import { useHomePageData } from '@/hooks/useHomePageData';
@@ -61,17 +61,6 @@ export function LatestAnnouncements() {
           viewport={{ once: true, margin: '-50px' }}
           className="text-center mb-8 sm:mb-12"
         >
-          <motion.div 
-            initial={{ opacity: 0, scale: shouldReduceMotion ? 0.95 : 0.8 }}
-            whileInView={{ opacity: 1, scale: 1 }}
-            transition={{ duration: shouldReduceMotion ? 0.3 : 0.5 }}
-            viewport={{ once: true, margin: '-50px' }}
-            className="inline-flex items-center gap-2 px-3 sm:px-4 py-1.5 sm:py-2 rounded-full bg-purple-100 text-purple-700 mb-4 sm:mb-6"
-          >
-            <Megaphone className="h-4 w-4" />
-            <span className="text-sm font-medium">Stay Updated</span>
-          </motion.div>
-          
           <h2 className="text-2xl sm:text-4xl md:text-5xl font-bold text-gray-900 mb-3 sm:mb-4">
             Latest{' '}
             <span className="text-transparent bg-clip-text bg-gradient-to-r from-purple-600 to-violet-600">

@@ -30,17 +30,6 @@ export function TeamHighlight() {
           viewport={{ once: true, margin: '-50px' }}
           className="text-center mb-8 sm:mb-12 lg:mb-16"
         >
-          <motion.div 
-            initial={{ opacity: 0, scale: shouldReduceMotion ? 0.95 : 0.8 }}
-            whileInView={{ opacity: 1, scale: 1 }}
-            transition={{ duration: shouldReduceMotion ? 0.3 : 0.5 }}
-            viewport={{ once: true, margin: '-50px' }}
-            className="inline-flex items-center gap-2 px-3 sm:px-4 py-1.5 sm:py-2 rounded-full bg-blue-100 text-blue-700 mb-4 sm:mb-6"
-          >
-            <Users className="h-4 w-4" />
-            <span className="text-sm font-medium">The Crew</span>
-          </motion.div>
-          
           <h2 className="text-2xl sm:text-4xl md:text-5xl font-bold text-gray-900 mb-3 sm:mb-4">
             Meet Our{' '}
             <span className="text-transparent bg-clip-text bg-gradient-to-r from-blue-600 to-cyan-600">
@@ -72,7 +61,7 @@ export function TeamHighlight() {
         ) : (
           <div className="relative mb-8 sm:mb-12">
             {/* Subtle bottom shade-out — visible on all screens, slightly stronger on mobile */}
-            <div className="pointer-events-none absolute bottom-0 left-0 right-0 h-28 sm:h-20 bg-gradient-to-t from-gray-50 via-gray-50/60 to-transparent z-10" />
+            <div className="pointer-events-none absolute bottom-0 left-0 right-0 h-16 sm:h-12 bg-gradient-to-t from-gray-50 via-gray-50/40 to-transparent z-10" />
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 sm:gap-6 md:gap-8">
             {teamMembers.map((member, index) => {
                 const profileSlugOrId = member.slug || member.id;

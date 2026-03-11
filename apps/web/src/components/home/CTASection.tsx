@@ -1,7 +1,7 @@
 import { motion } from 'framer-motion';
 import { Button } from '@/components/ui/button';
 import { Link } from 'react-router-dom';
-import { ArrowRight, Code, Sparkles, Rocket, Users } from 'lucide-react';
+import { ArrowRight, Code, Rocket, Users, Trophy, Lightbulb } from 'lucide-react';
 import { useMotionConfig } from '@/hooks/useMotionConfig';
 
 export function CTASection() {
@@ -79,18 +79,6 @@ export function CTASection() {
           viewport={{ once: true }}
           className="max-w-4xl mx-auto text-center"
         >
-          {/* Badge */}
-          <motion.div 
-            initial={{ opacity: 0, scale: shouldReduceMotion ? 0.95 : 0.8 }}
-            whileInView={{ opacity: 1, scale: 1 }}
-            transition={{ duration: shouldReduceMotion ? 0.3 : 0.5, delay: shouldReduceMotion ? 0.05 : 0.2 }}
-            viewport={{ once: true, margin: '-50px' }}
-            className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-amber-500/20 border border-amber-500/30 mb-8"
-          >
-            <Sparkles className="h-4 w-4 text-amber-400" />
-            <span className="text-amber-300 text-sm font-medium">Start Your Journey Today</span>
-          </motion.div>
-          
           {/* Heading */}
           <motion.h2 
             initial={{ opacity: 0, y: shouldReduceMotion ? 10 : 20 }}
@@ -99,9 +87,9 @@ export function CTASection() {
             viewport={{ once: true, margin: '-50px' }}
             className="text-2xl sm:text-4xl md:text-5xl lg:text-6xl font-bold text-white mb-4 sm:mb-6 leading-tight px-2"
           >
-            Ready to Level Up Your{' '}
+            Be Part of{' '}
             <span className="text-transparent bg-clip-text bg-gradient-to-r from-amber-400 to-orange-500">
-              Coding Skills?
+              Something Bigger
             </span>
           </motion.h2>
           
@@ -171,12 +159,12 @@ export function CTASection() {
             </div>
             <div className="hidden sm:block w-px h-4 bg-white/20" />
             <div className="flex items-center gap-2">
-              <span>🏆</span>
+              <Trophy className="h-4 w-4 text-amber-400" />
               <span>Weekly Contests</span>
             </div>
             <div className="hidden sm:block w-px h-4 bg-white/20" />
             <div className="flex items-center gap-2">
-              <span>💡</span>
+              <Lightbulb className="h-4 w-4 text-amber-400" />
               <span>Expert Mentorship</span>
             </div>
           </motion.div>

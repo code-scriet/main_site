@@ -83,17 +83,6 @@ export function NetworkHighlight() {
           viewport={{ once: true, margin: '-50px' }}
           className="mb-12 text-center lg:mb-16"
         >
-          <motion.div
-            initial={{ opacity: 0, scale: shouldReduceMotion ? 0.95 : 0.8 }}
-            whileInView={{ opacity: 1, scale: 1 }}
-            transition={{ duration: shouldReduceMotion ? 0.3 : 0.5 }}
-            viewport={{ once: true, margin: '-50px' }}
-            className="mb-6 inline-flex items-center gap-2.5 rounded-full border border-amber-200 bg-gradient-to-r from-amber-50 to-orange-50 px-4 py-2 shadow-sm"
-          >
-            <Users2 className="h-4 w-4 text-amber-600" />
-            <span className="text-sm font-medium text-amber-700">Alumni & Industry Network</span>
-          </motion.div>
-
           <h2 className="mb-4 text-3xl font-bold text-gray-900 sm:text-4xl md:text-5xl">
             Connect with{' '}
             <span className="bg-gradient-to-r from-amber-500 to-orange-500 bg-clip-text text-transparent">
@@ -173,10 +162,10 @@ export function NetworkHighlight() {
                     }
                   }}
                   aria-label={`View ${profile.fullName}'s profile`}
-                  className={`group relative overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm transition-all duration-300 hover:border-amber-300 hover:shadow-lg hover:shadow-amber-500/20`}
+                  className="group relative overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm transition-all duration-300 hover:border-amber-300 hover:shadow-lg hover:shadow-amber-500/20"
                 >
                   {/* Hover glow effect */}
-                  <div className={`absolute inset-0 bg-gradient-to-br ${isAlumni ? 'from-amber-50 to-orange-50' : 'from-amber-50 to-orange-50'} opacity-0 group-hover:opacity-60 transition-opacity duration-300`} />
+                  <div className="absolute inset-0 bg-gradient-to-br from-amber-50 to-orange-50 opacity-0 group-hover:opacity-60 transition-opacity duration-300" />
 
                   {/* Featured indicator */}
                   {profile.isFeatured && (
@@ -190,18 +179,14 @@ export function NetworkHighlight() {
 
                   {/* Top accent bar */}
                   <div
-                    className={`h-1 bg-gradient-to-r ${
-                      isAlumni
-                        ? 'from-amber-500 via-orange-500 to-amber-400'
-                        : 'from-amber-500 via-orange-500 to-amber-400'
-                    }`}
+                    className="h-1 bg-gradient-to-r from-amber-500 via-orange-500 to-amber-400"
                   />
 
                   <div className="relative z-10 p-5">
                     <div className="flex gap-4">
                       {/* Avatar */}
                       <div className="relative flex-shrink-0">
-                        <div className={`h-16 w-16 overflow-hidden rounded-xl ring-2 ${isAlumni ? 'ring-amber-200' : 'ring-amber-200'} shadow-sm`}>
+                        <div className={`h-16 w-16 overflow-hidden rounded-xl ring-2 ring-amber-200 shadow-sm`}>
                           <img
                             src={
                               profile.profilePhoto ||
@@ -223,7 +208,7 @@ export function NetworkHighlight() {
 
                       {/* Info */}
                       <div className="min-w-0 flex-1">
-                        <h3 className={`truncate font-semibold text-gray-900 transition-colors ${isAlumni ? 'group-hover:text-amber-600' : 'group-hover:text-amber-600'}`}>
+                        <h3 className="truncate font-semibold text-gray-900 transition-colors group-hover:text-amber-600">
                           {profile.fullName}
                         </h3>
                         <p className="flex items-center gap-1.5 truncate text-sm text-gray-700">
@@ -292,11 +277,7 @@ export function NetworkHighlight() {
                       <Link
                         to={profileUrl}
                         onClick={(e) => e.stopPropagation()}
-                        className={`flex items-center gap-1 text-xs font-medium transition-colors ${
-                          isAlumni
-                            ? 'text-amber-600 hover:text-amber-700'
-                            : 'text-amber-600 hover:text-amber-700'
-                        }`}
+                        className="flex items-center gap-1 text-xs font-medium transition-colors text-amber-600 hover:text-amber-700"
                       >
                         View Profile
                         <ChevronRight className="h-3.5 w-3.5" />
