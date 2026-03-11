@@ -43,13 +43,9 @@ services:
     name: codescriet-web
     runtime: static
     plan: free
-    buildCommand: npm install && npm run build --workspace=apps/web
+    buildCommand: npm install && node scripts/generate-sitemap.js && npm run build --workspace=apps/web
     staticPublishPath: ./apps/web/dist
     routes:
-      - type: redirect
-        source: /sitemap.xml
-        destination: https://api.codescriet.dev/sitemap.xml
-        httpStatus: 302
       - type: rewrite
         source: /*
         destination: /index.html
