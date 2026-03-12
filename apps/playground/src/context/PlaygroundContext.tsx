@@ -1,7 +1,7 @@
 import { createContext, useContext, useState, useEffect, ReactNode, useCallback } from 'react';
 import { getLanguageById, DEFAULT_LANGUAGE, type LanguageConfig } from '../utils/languageConfig';
 import { debounce } from '../lib/utils';
-import { preloadPyodide } from '../engines/pyodideEngine';
+// Pyodide, JS, and TS engines are preloaded in main.tsx
 
 export interface TestCase {
   id: string;
@@ -132,18 +132,7 @@ export function PlaygroundProvider({ children }: { children: ReactNode }) {
     saveToLocalStorage(state);
   }, [state.code, state.language, state.stdin, state.fontSize, saveToLocalStorage]);
 
-  // Preload Pyodide when Python is selected to speed up first execution
-  useEffect(() => {
-    if (state.language.id === 'python') {
-      try {
-        preloadPyodide();
-      } catch (err) {
-        // Worker spawn failures (e.g. CSP) are non-fatal — Python will fall
-        // back to cloud execution on first run.
-        console.warn('[Pyodide] Preload failed (will use cloud fallback):', err);
-      }
-    }
-  }, [state.language.id]);
+  // Engines are preloaded unconditionally in main.tsx
 
   const setCode = (code: string) => {
     setState((prev) => ({ ...prev, code }));

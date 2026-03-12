@@ -7,6 +7,15 @@ import { ErrorBoundary } from './components/ErrorBoundary';
 import App from './App';
 import './index.css';
 
+// Preload execution engines early so first run is fast
+import { preloadPyodide } from './engines/pyodideEngine';
+import { preloadTypeScript } from './engines/tsEngine';
+import { preloadJavaScript } from './engines/jsEngine';
+
+try { preloadJavaScript(); } catch { /* non-fatal */ }
+try { preloadPyodide(); } catch { /* non-fatal */ }
+try { preloadTypeScript(); } catch { /* non-fatal */ }
+
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {

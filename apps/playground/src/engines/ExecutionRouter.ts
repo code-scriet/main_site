@@ -29,7 +29,8 @@ import { CLIENT_SUPPORTED_LANGUAGES, CLOUD_SUPPORTED_LANGUAGES } from './types';
 import { isLowEndDevice, supportsWebWorkers } from './deviceDetection';
 import { executeJavaScript } from './jsEngine';
 import { executeTypeScript } from './tsEngine';
-import { executePython, type StatusCallback } from './pyodideEngine';
+import { executePython, isPyodideReady, type StatusCallback } from './pyodideEngine';
+import { isTypeScriptReady } from './tsEngine';
 import { executeHtml } from './htmlEngine';
 import { executeViaCloud } from './wandboxClient'; // file kept for compat, calls our backend
 
@@ -90,34 +91,44 @@ export async function executeCode(options: ExecuteOptions): Promise<ExecuteResul
         // Explicit client mode or no cloud fallback available — run without timeout
         result = await executeClientSide(language, code, stdin, signal, onStatus);
       } else {
-        // Auto mode — race client execution against a timeout.
-        // If client takes too long, abort local execution and transparently
-        // fall back to cloud so we don't leave heavy workers running.
-        const localAbort = new AbortController();
-        let timeoutId: ReturnType<typeof setTimeout> | null = null;
+        // Auto mode — if the engine is already warm, run directly (no timeout
+        // race). This avoids the 4s cloud-fallback penalty on repeat runs.
+        const engineWarm =
+          (language === 'javascript') ||
+          (language === 'python' && isPyodideReady()) ||
+          (language === 'typescript' && isTypeScriptReady());
 
-        const onParentAbort = () => localAbort.abort();
-        if (signal) {
-          if (signal.aborted) {
-            localAbort.abort();
-          } else {
-            signal.addEventListener('abort', onParentAbort, { once: true });
+        if (engineWarm) {
+          result = await executeClientSide(language, code, stdin, signal, onStatus);
+        } else {
+          // Engine cold — race client execution against a timeout.
+          // If client takes too long, abort local and fall back to cloud.
+          const localAbort = new AbortController();
+          let timeoutId: ReturnType<typeof setTimeout> | null = null;
+
+          const onParentAbort = () => localAbort.abort();
+          if (signal) {
+            if (signal.aborted) {
+              localAbort.abort();
+            } else {
+              signal.addEventListener('abort', onParentAbort, { once: true });
+            }
           }
-        }
 
-        try {
-          result = await Promise.race([
-            executeClientSide(language, code, stdin, localAbort.signal, onStatus),
-            new Promise<never>((_, reject) => {
-              timeoutId = setTimeout(() => {
-                localAbort.abort();
-                reject(new Error('__CLIENT_TIMEOUT__'));
-              }, CLIENT_EXECUTION_TIMEOUT_MS);
-            }),
-          ]);
-        } finally {
-          if (timeoutId) clearTimeout(timeoutId);
-          if (signal) signal.removeEventListener('abort', onParentAbort);
+          try {
+            result = await Promise.race([
+              executeClientSide(language, code, stdin, localAbort.signal, onStatus),
+              new Promise<never>((_, reject) => {
+                timeoutId = setTimeout(() => {
+                  localAbort.abort();
+                  reject(new Error('__CLIENT_TIMEOUT__'));
+                }, CLIENT_EXECUTION_TIMEOUT_MS);
+              }),
+            ]);
+          } finally {
+            if (timeoutId) clearTimeout(timeoutId);
+            if (signal) signal.removeEventListener('abort', onParentAbort);
+          }
         }
       }
 

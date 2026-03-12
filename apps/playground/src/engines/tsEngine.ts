@@ -129,3 +129,13 @@ export async function executeTypeScript(
     };
   }
 }
+
+/** Start loading the TS compiler from CDN so it's ready when needed */
+export function preloadTypeScript(): void {
+  loadTypeScriptCompiler().catch(() => {});
+}
+
+/** Returns true if the TS compiler has already been loaded */
+export function isTypeScriptReady(): boolean {
+  return tsModule !== null;
+}

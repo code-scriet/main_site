@@ -242,3 +242,8 @@ export async function executeJavaScript(
     worker.postMessage({ id, code });
   });
 }
+
+/** Warm up the JS worker so the first execution is instant */
+export function preloadJavaScript(): void {
+  getOrCreateWorker();
+}
