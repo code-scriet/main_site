@@ -14,6 +14,8 @@ export function useCodeExecution() {
     setError,
     setIsRunning,
     setExecutionTime,
+    setInputPrompt,
+    inputResolverRef,
   } = usePlayground();
 
   const [isExecuting, setIsExecuting] = useState(false);
@@ -86,6 +88,21 @@ export function useCodeExecution() {
         code,
         stdin: stdin || undefined,
         signal: controller.signal,
+        interactive: {
+          onPartialOutput: (stdout) => {
+            setOutput(stdout);
+          },
+          onInputRequest: (prompt) => {
+            return new Promise<string>((resolve) => {
+              inputResolverRef.current = (text: string) => {
+                inputResolverRef.current = null;
+                setInputPrompt(null);
+                resolve(text);
+              };
+              setInputPrompt(prompt);
+            });
+          },
+        },
       });
 
       const endTime = Date.now();
@@ -150,9 +167,11 @@ export function useCodeExecution() {
     } finally {
       setIsExecuting(false);
       setIsRunning(false);
+      setInputPrompt(null);
+      inputResolverRef.current = null;
       abortRef.current = null;
     }
-  }, [code, language, stdin, setOutput, setError, setIsRunning, setExecutionTime]);
+  }, [code, language, stdin, setOutput, setError, setIsRunning, setExecutionTime, setInputPrompt, inputResolverRef]);
 
   const stopExecution = useCallback(() => {
     abortRef.current?.abort();

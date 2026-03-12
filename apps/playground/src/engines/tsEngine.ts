@@ -6,7 +6,7 @@
 // Zero server calls. Compiler is cached by the browser after first load.
 // ---------------------------------------------------------------------------
 
-import { executeJavaScript } from './jsEngine';
+import { executeJavaScript, type InteractiveCallbacks } from './jsEngine';
 import type { ExecutionResult } from './types';
 
 let tsModule: typeof import('typescript') | null = null;
@@ -52,6 +52,7 @@ export async function executeTypeScript(
   code: string,
   stdin?: string,
   signal?: AbortSignal,
+  callbacks?: InteractiveCallbacks,
 ): Promise<ExecutionResult> {
   try {
     const ts = await loadTypeScriptCompiler();
@@ -106,7 +107,7 @@ export async function executeTypeScript(
     }
 
     // Run the transpiled JS in a Web Worker
-    const jsResult = await executeJavaScript(transpiled.outputText, stdin, signal);
+    const jsResult = await executeJavaScript(transpiled.outputText, stdin, signal, callbacks);
 
     return {
       ...jsResult,

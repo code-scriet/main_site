@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useEffect, ReactNode, useCallback } from 'react';
+import { createContext, useContext, useState, useEffect, ReactNode, useCallback, useRef } from 'react';
 import { getLanguageById, DEFAULT_LANGUAGE, type LanguageConfig } from '../utils/languageConfig';
 import { debounce } from '../lib/utils';
 // Pyodide, JS, and TS engines are preloaded in main.tsx
@@ -51,6 +51,11 @@ interface PlaygroundContextType extends PlaygroundState {
   toggleProblemPanel: () => void;
   setCurrentProblem: (problem: Problem | null) => void;
   clearOutput: () => void;
+  /** Non-null when the running program is waiting for user input */
+  inputPrompt: string | null;
+  setInputPrompt: (prompt: string | null) => void;
+  /** Ref holding the resolve callback for the current input request */
+  inputResolverRef: React.MutableRefObject<((value: string) => void) | null>;
 }
 
 const PlaygroundContext = createContext<PlaygroundContextType | undefined>(undefined);
@@ -59,6 +64,9 @@ const LOCAL_STORAGE_KEY = 'playground-state';
 const AUTO_SAVE_DELAY = 2000; // 2 seconds
 
 export function PlaygroundProvider({ children }: { children: ReactNode }) {
+  const [inputPrompt, setInputPrompt] = useState<string | null>(null);
+  const inputResolverRef = useRef<((value: string) => void) | null>(null);
+
   const [state, setState] = useState<PlaygroundState>(() => {
     // Load from localStorage
     const saved = localStorage.getItem(LOCAL_STORAGE_KEY);
@@ -232,6 +240,9 @@ export function PlaygroundProvider({ children }: { children: ReactNode }) {
     toggleProblemPanel,
     setCurrentProblem,
     clearOutput,
+    inputPrompt,
+    setInputPrompt,
+    inputResolverRef,
   };
 
   return (

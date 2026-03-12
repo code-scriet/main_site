@@ -8,15 +8,17 @@ import {
   ChevronUp, ChevronDown, History, Clock, Play, Cloud,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import {
   getExecutionHistory,
   getExecutionStats,
   getSessionBootstrap,
+  getSessionPreflight,
   type ExecutionHistoryItem,
   type ExecutionStats,
 } from '@/utils/snippetsApi';
 import { getLanguageById } from '@/utils/languageConfig';
+import { CLIENT_SUPPORTED_LANGUAGES } from '@/engines/types';
 
 type Tab = 'output' | 'history';
 
@@ -32,14 +34,44 @@ export function OutputPanel() {
     language,
     setCode,
     setLanguage,
+    inputPrompt,
+    inputResolverRef,
   } = usePlayground();
   const { theme } = useTheme();
   const { isAuthenticated } = useAuth();
 
   const isWebLanguage = language.id === 'web';
+  const isCloudOnly = !CLIENT_SUPPORTED_LANGUAGES.has(language.id);
   const isDark = theme === 'dark';
   const [stdinCollapsed, setStdinCollapsed] = useState(false);
+
+  // Auto-expand stdin when switching to a cloud-only language (C/C++/Java)
+  useEffect(() => {
+    if (isCloudOnly) setStdinCollapsed(false);
+  }, [isCloudOnly]);
   const [activeTab, setActiveTab] = useState<Tab>('output');
+  const [interactiveInput, setInteractiveInput] = useState('');
+  const inputFieldRef = useRef<HTMLInputElement>(null);
+  const outputEndRef = useRef<HTMLDivElement>(null);
+
+  // Auto-scroll output when new content arrives or input prompt appears
+  useEffect(() => {
+    outputEndRef.current?.scrollIntoView({ behavior: 'instant' });
+  }, [output, inputPrompt]);
+
+  // Auto-focus the interactive input field
+  useEffect(() => {
+    if (inputPrompt !== null) {
+      setTimeout(() => inputFieldRef.current?.focus(), 50);
+    }
+  }, [inputPrompt]);
+
+  const submitInteractiveInput = useCallback(() => {
+    if (inputResolverRef.current) {
+      inputResolverRef.current(interactiveInput);
+      setInteractiveInput('');
+    }
+  }, [interactiveInput, inputResolverRef]);
 
   // History & stats state
   const [history, setHistory] = useState<ExecutionHistoryItem[]>([]);
@@ -95,16 +127,17 @@ export function OutputPanel() {
     })();
   }, [isAuthenticated, refreshStats]);
 
-  // Refresh stats after each run completes
+  // Update stats counter optimistically after each run completes
+  // (avoids a redundant network round-trip — preflight cache already tracks count)
   useEffect(() => {
-    if (!isRunning && isAuthenticated) {
-      // Small delay to let the server persist
-      const t = setTimeout(() => {
-        refreshStats();
-      }, 800);
-      return () => clearTimeout(t);
+    if (!isRunning && isAuthenticated && stats) {
+      // Sync from locally-decremented preflight cache
+      getSessionPreflight(language.id).then((pf) => {
+        setStats((prev) => prev ? { ...prev, todayCount: pf.todayCount, dailyLimit: pf.dailyLimit } : prev);
+      }).catch(() => {});
     }
-  }, [isRunning, isAuthenticated, refreshStats]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isRunning, isAuthenticated]);
 
   const loadHistoryItem = (item: ExecutionHistoryItem) => {
     try {
@@ -128,15 +161,22 @@ export function OutputPanel() {
             onClick={() => setStdinCollapsed(!stdinCollapsed)}
             className="w-full flex items-center justify-between px-4 py-2 text-sm font-medium hover:bg-accent/50 transition-colors"
           >
-            <span>Custom Input (stdin)</span>
+            <span>Custom Input (stdin){isCloudOnly && <span className="text-xs text-muted-foreground ml-2 font-normal">— required for {language.name} input</span>}</span>
             {stdinCollapsed ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronUp className="h-3.5 w-3.5" />}
           </button>
           {!stdinCollapsed && (
             <div className="px-4 pb-3">
+              {isCloudOnly && (
+                <p className="text-xs text-muted-foreground mb-2">
+                  {language.name} runs on a remote server — provide all input upfront (one value per line).
+                </p>
+              )}
               <Textarea
                 value={stdin}
                 onChange={(e) => setStdin(e.target.value)}
-                placeholder="Enter input for your program..."
+                placeholder={isCloudOnly
+                  ? `Enter all input values, one per line (e.g. for scanf/cin)...`
+                  : 'Enter input for your program...'}
                 className={cn(
                   'min-h-[70px] font-mono text-sm resize-none',
                   isDark
@@ -231,7 +271,7 @@ export function OutputPanel() {
         {/* Tab body */}
         {activeTab === 'output' ? (
           <div className="flex-1 overflow-auto p-4 font-mono text-sm terminal-output animate-fade-in">
-            {isRunning ? (
+            {isRunning && !output && inputPrompt === null ? (
               <div className="flex items-center gap-2" style={{ color: 'hsl(var(--terminal-warning))' }}>
                 <Loader2 className="h-4 w-4 animate-spin" />
                 <span>Executing code...</span>
@@ -262,7 +302,7 @@ export function OutputPanel() {
 
                 {output && (
                   <div>
-                    {!error && (
+                    {!error && !isRunning && (
                       <div className="flex items-center gap-2 mb-2" style={{ color: 'hsl(var(--terminal-success))' }}>
                         <CheckCircle2 className="h-4 w-4" />
                         <span className="font-semibold">Output:</span>
@@ -271,6 +311,37 @@ export function OutputPanel() {
                     <pre className="whitespace-pre-wrap text-[13px] leading-relaxed">{output}</pre>
                   </div>
                 )}
+
+                {/* Interactive input prompt */}
+                {inputPrompt !== null && isRunning && (
+                  <div className="mt-1">
+                    <div className="flex items-center gap-0">
+                      <span className="text-primary font-bold select-none">&gt;&nbsp;</span>
+                      <input
+                        ref={inputFieldRef}
+                        type="text"
+                        value={interactiveInput}
+                        onChange={(e) => setInteractiveInput(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            submitInteractiveInput();
+                          }
+                        }}
+                        className={cn(
+                          'flex-1 bg-transparent outline-none font-mono text-sm caret-primary',
+                          'border-b border-primary/40 focus:border-primary pb-0.5',
+                          isDark ? 'text-foreground' : 'text-foreground'
+                        )}
+                        placeholder="Type input and press Enter..."
+                        autoComplete="off"
+                        spellCheck={false}
+                      />
+                    </div>
+                  </div>
+                )}
+
+                <div ref={outputEndRef} />
 
                 {!isRunning && !output && !error && (
                   <div className="flex flex-col items-center justify-center h-full text-center py-12"

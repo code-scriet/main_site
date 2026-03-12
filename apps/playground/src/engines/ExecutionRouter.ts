@@ -27,7 +27,7 @@
 import type { ExecutionResult, ExecutionMode, ExecutionTier } from './types';
 import { CLIENT_SUPPORTED_LANGUAGES, CLOUD_SUPPORTED_LANGUAGES } from './types';
 import { isLowEndDevice, supportsWebWorkers } from './deviceDetection';
-import { executeJavaScript } from './jsEngine';
+import { executeJavaScript, type InteractiveCallbacks } from './jsEngine';
 import { executeTypeScript } from './tsEngine';
 import { executePython, isPyodideReady, type StatusCallback } from './pyodideEngine';
 import { isTypeScriptReady } from './tsEngine';
@@ -63,6 +63,8 @@ export interface ExecuteOptions {
   signal?: AbortSignal;
   /** Callback for status messages (e.g. "Loading Python runtime...") */
   onStatus?: StatusCallback;
+  /** Callbacks for interactive input and streaming output */
+  interactive?: InteractiveCallbacks;
 }
 
 export interface ExecuteResult extends ExecutionResult {
@@ -78,7 +80,7 @@ export interface ExecuteResult extends ExecutionResult {
  * Execute code using the optimal strategy for the given language and device.
  */
 export async function executeCode(options: ExecuteOptions): Promise<ExecuteResult> {
-  const { language, code, stdin, mode = 'auto', signal, onStatus } = options;
+  const { language, code, stdin, mode = 'auto', signal, onStatus, interactive } = options;
 
   // --- Determine which tier to use ---
   const tier = resolveTier(language, mode);
@@ -89,7 +91,7 @@ export async function executeCode(options: ExecuteOptions): Promise<ExecuteResul
 
       if (mode === 'client' || !CLOUD_SUPPORTED_LANGUAGES.has(language)) {
         // Explicit client mode or no cloud fallback available — run without timeout
-        result = await executeClientSide(language, code, stdin, signal, onStatus);
+        result = await executeClientSide(language, code, stdin, signal, onStatus, interactive);
       } else {
         // Auto mode — if the engine is already warm, run directly (no timeout
         // race). This avoids the 4s cloud-fallback penalty on repeat runs.
@@ -99,7 +101,7 @@ export async function executeCode(options: ExecuteOptions): Promise<ExecuteResul
           (language === 'typescript' && isTypeScriptReady());
 
         if (engineWarm) {
-          result = await executeClientSide(language, code, stdin, signal, onStatus);
+          result = await executeClientSide(language, code, stdin, signal, onStatus, interactive);
         } else {
           // Engine cold — race client execution against a timeout.
           // If client takes too long, abort local and fall back to cloud.
@@ -117,7 +119,7 @@ export async function executeCode(options: ExecuteOptions): Promise<ExecuteResul
 
           try {
             result = await Promise.race([
-              executeClientSide(language, code, stdin, localAbort.signal, onStatus),
+              executeClientSide(language, code, stdin, localAbort.signal, onStatus, interactive),
               new Promise<never>((_, reject) => {
                 timeoutId = setTimeout(() => {
                   localAbort.abort();
@@ -222,17 +224,18 @@ async function executeClientSide(
   stdin?: string,
   signal?: AbortSignal,
   onStatus?: StatusCallback,
+  interactive?: InteractiveCallbacks,
 ): Promise<ExecutionResult> {
   switch (language) {
     case 'javascript':
-      return executeJavaScript(code, stdin, signal);
+      return executeJavaScript(code, stdin, signal, interactive);
 
     case 'typescript':
       onStatus?.('Transpiling TypeScript...');
-      return executeTypeScript(code, stdin, signal);
+      return executeTypeScript(code, stdin, signal, interactive);
 
     case 'python':
-      return executePython(code, stdin, signal, onStatus);
+      return executePython(code, stdin, signal, onStatus, interactive);
 
     case 'web':
       return executeHtml(code, stdin, signal);

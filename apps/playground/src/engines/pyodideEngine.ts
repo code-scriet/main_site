@@ -12,6 +12,7 @@
 // ---------------------------------------------------------------------------
 
 import type { ExecutionResult } from './types';
+import type { InteractiveCallbacks } from './jsEngine';
 
 const PYODIDE_CDN = 'https://cdn.jsdelivr.net/pyodide/v0.27.0/full/pyodide.js';
 
@@ -51,7 +52,7 @@ function buildPyodideWorkerCode(): string {
     });
 
     self.onmessage = async (e) => {
-      const { id, code, stdin } = e.data;
+      const { id, code, stdin, inputBuffer } = e.data;
 
       // Ping — just confirm the worker is alive
       if (e.data.ping) {
@@ -59,13 +60,56 @@ function buildPyodideWorkerCode(): string {
         return;
       }
 
+      // Set up SharedArrayBuffer views for interactive input
+      let inputInt32 = null;
+      let inputBytes = null;
+      if (inputBuffer) {
+        inputInt32 = new Int32Array(inputBuffer, 0, 1);
+        inputBytes = new Uint8Array(inputBuffer, 4);
+      }
+
       try {
         self.postMessage({ type: 'status', id, message: 'Running code...' });
         const py = await initPyodide();
 
-        // Setup stdout/stderr capture + stdin simulation
+        // Register JS-side interactive input helper on globalThis so Python can call it
+        self.__inputInt32 = inputInt32;
+        self.__inputBytes = inputBytes;
+        self.__currentId = id;
+        self.__outputCapture = null; // will be set after setup
+
+        self.__jsInteractiveInput = function(promptText) {
+          // Flush partial output so the UI can display it
+          if (self.__outputCapture) {
+            try {
+              const partialStdout = py.runPython('__stdout_capture.getvalue()');
+              self.postMessage({
+                type: 'partial_output',
+                id: self.__currentId,
+                stdout: partialStdout || '',
+              });
+            } catch(e) { /* ignore */ }
+          }
+          if (!self.__inputInt32) {
+            throw new Error('No input available');
+          }
+          Atomics.store(self.__inputInt32, 0, 0);
+          self.postMessage({
+            type: 'input_request',
+            id: self.__currentId,
+            prompt: promptText || '',
+          });
+          Atomics.wait(self.__inputInt32, 0, 0);
+          const byteLength = Atomics.load(self.__inputInt32, 0);
+          if (byteLength === -1) throw new Error('Execution cancelled');
+          if (byteLength <= 0) return '';
+          const bytes = new Uint8Array(self.__inputBytes.buffer, self.__inputBytes.byteOffset, byteLength);
+          return new TextDecoder().decode(bytes);
+        };
+
+        // Setup stdout/stderr capture + stdin simulation with interactive fallback
         const setupCode = \`
-import sys, io, builtins
+import sys, io, builtins, js
 
 __stdout_capture = io.StringIO()
 __stderr_capture = io.StringIO()
@@ -83,11 +127,17 @@ def __patched_input(prompt=''):
         line = __stdin_lines[__stdin_index[0]]
         __stdin_index[0] += 1
         return line
+    # No pre-filled stdin left — try interactive input via SharedArrayBuffer
+    interactive_fn = js.globalThis.__jsInteractiveInput
+    if interactive_fn:
+        result = interactive_fn(str(prompt) if prompt else '')
+        return str(result)
     raise EOFError('No more input available')
 
 builtins.input = __patched_input
 \`;
         py.runPython(setupCode);
+        self.__outputCapture = true;
 
         try {
           const wrappedCode = '__user_code = ' + JSON.stringify(code) + '\\n' +
@@ -149,6 +199,41 @@ builtins.input = __patched_input
   `;
 }
 
+const SAB_SIZE = 65_540;
+
+let sharedInputBuffer: SharedArrayBuffer | null = null;
+
+function getSharedBuffer(): SharedArrayBuffer | null {
+  if (sharedInputBuffer) return sharedInputBuffer;
+  if (typeof SharedArrayBuffer !== 'undefined') {
+    try {
+      sharedInputBuffer = new SharedArrayBuffer(SAB_SIZE);
+      return sharedInputBuffer;
+    } catch { return null; }
+  }
+  return null;
+}
+
+function writeInputToBuffer(text: string): void {
+  const sab = getSharedBuffer();
+  if (!sab) return;
+  const int32 = new Int32Array(sab, 0, 1);
+  const data = new Uint8Array(sab, 4);
+  const encoded = new TextEncoder().encode(text);
+  const len = Math.min(encoded.length, data.length);
+  data.set(encoded.subarray(0, len));
+  Atomics.store(int32, 0, len || 1);
+  Atomics.notify(int32, 0);
+}
+
+function cancelInputBuffer(): void {
+  const sab = getSharedBuffer();
+  if (!sab) return;
+  const int32 = new Int32Array(sab, 0, 1);
+  Atomics.store(int32, 0, -1);
+  Atomics.notify(int32, 0);
+}
+
 // ---------------------------------------------------------------------------
 // Singleton Worker Management
 // ---------------------------------------------------------------------------
@@ -157,6 +242,7 @@ interface PendingExecution {
   resolve: (result: ExecutionResult) => void;
   reject: (err: Error) => void;
   timer: ReturnType<typeof setTimeout>;
+  callbacks?: InteractiveCallbacks;
 }
 
 let singletonWorker: Worker | null = null;
@@ -198,6 +284,47 @@ function handleWorkerMessage(e: MessageEvent) {
   if (msg.type === 'pong') return;
 
   if (msg.type === 'status') return; // Could surface via callback in future
+
+  if (msg.type === 'partial_output' && msg.id) {
+    const pending = pendingExecutions.get(msg.id);
+    if (pending) pending.callbacks?.onPartialOutput?.(msg.stdout || '');
+    return;
+  }
+
+  if (msg.type === 'input_request' && msg.id) {
+    const pending = pendingExecutions.get(msg.id);
+    if (!pending) return;
+    clearTimeout(pending.timer);
+
+    const handleInput = pending.callbacks?.onInputRequest;
+    if (!handleInput) {
+      writeInputToBuffer('');
+      pending.timer = setTimeout(() => {
+        if (!pendingExecutions.has(msg.id)) return;
+        pendingExecutions.delete(msg.id);
+        pending.resolve({
+          language: 'python', version: 'pyodide 0.27.0 (WASM)', provider: 'client',
+          run: { stdout: '', stderr: 'Execution timed out.', code: 1, signal: 'SIGTERM', output: '' },
+        });
+      }, EXEC_TIMEOUT_MS);
+      return;
+    }
+
+    handleInput(msg.prompt || '').then((text) => {
+      writeInputToBuffer(text);
+      pending.timer = setTimeout(() => {
+        if (!pendingExecutions.has(msg.id)) return;
+        pendingExecutions.delete(msg.id);
+        pending.resolve({
+          language: 'python', version: 'pyodide 0.27.0 (WASM)', provider: 'client',
+          run: { stdout: '', stderr: 'Execution timed out.', code: 1, signal: 'SIGTERM', output: '' },
+        });
+      }, EXEC_TIMEOUT_MS);
+    }).catch(() => {
+      cancelInputBuffer();
+    });
+    return;
+  }
 
   if (msg.type === 'result' && msg.id) {
     const pending = pendingExecutions.get(msg.id);
@@ -283,6 +410,7 @@ export async function executePython(
   stdin?: string,
   signal?: AbortSignal,
   onStatus?: StatusCallback,
+  callbacks?: InteractiveCallbacks,
 ): Promise<ExecutionResult> {
   // Ensure the singleton worker exists and Pyodide is loaded
   getOrCreateWorker();
@@ -344,7 +472,7 @@ export async function executePython(
       });
     }, EXEC_TIMEOUT_MS);
 
-    pendingExecutions.set(execId, { resolve, reject, timer });
+    pendingExecutions.set(execId, { resolve, reject, timer, callbacks });
 
     // AbortSignal support
     if (signal) {
@@ -353,12 +481,14 @@ export async function executePython(
         if (pending) {
           pendingExecutions.delete(execId);
           clearTimeout(pending.timer);
+          cancelInputBuffer();
           pending.reject(new Error('Execution cancelled'));
         }
       }, { once: true });
     }
 
-    singletonWorker!.postMessage({ id: execId, code, stdin: stdin || '' });
+    const inputBuffer = getSharedBuffer();
+    singletonWorker!.postMessage({ id: execId, code, stdin: stdin || '', inputBuffer });
   });
 }
 

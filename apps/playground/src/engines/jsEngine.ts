@@ -4,11 +4,72 @@
 // Runs JS code in a Web Worker sandbox with a 10s hard timeout.
 // Zero server/API calls. Worker is persistent and reused across executions;
 // only terminated on timeout/abort (infinite loops) and lazily recreated.
+//
+// Interactive input: provides `input(prompt?)`, `prompt()`, and `readline()`
+// globals. Uses SharedArrayBuffer + Atomics for synchronous blocking when
+// the program calls input(). Falls back to pre-filled stdin lines when SAB
+// is unavailable or when stdin was pre-provided.
 // ---------------------------------------------------------------------------
 
 import type { ExecutionResult } from './types';
 
 const WORKER_TIMEOUT = 10_000; // 10 seconds
+const SAB_SIZE = 65_540; // 4 bytes control int32 + 65536 bytes data
+
+// ---------------------------------------------------------------------------
+// Interactive Input Callbacks
+// ---------------------------------------------------------------------------
+
+export interface InteractiveCallbacks {
+  /** Called when the worker flushes partial output (e.g. before blocking for input) */
+  onPartialOutput?: (stdout: string) => void;
+  /** Called when the program calls input(). Must resolve with the user's typed input. */
+  onInputRequest?: (prompt: string) => Promise<string>;
+}
+
+// ---------------------------------------------------------------------------
+// SharedArrayBuffer for interactive input
+// ---------------------------------------------------------------------------
+// Layout:
+//   Bytes 0-3  : Int32 control word
+//                0  = worker is waiting for input
+//                >0 = input ready, value = byte length of UTF-8 data
+//                -1 = cancelled / aborted
+//   Bytes 4+   : UTF-8 encoded input data (up to 65536 bytes)
+// ---------------------------------------------------------------------------
+
+let sharedInputBuffer: SharedArrayBuffer | null = null;
+
+function getSharedBuffer(): SharedArrayBuffer | null {
+  if (sharedInputBuffer) return sharedInputBuffer;
+  if (typeof SharedArrayBuffer !== 'undefined') {
+    try {
+      sharedInputBuffer = new SharedArrayBuffer(SAB_SIZE);
+      return sharedInputBuffer;
+    } catch { return null; }
+  }
+  return null;
+}
+
+function writeInputToBuffer(text: string): void {
+  const sab = getSharedBuffer();
+  if (!sab) return;
+  const int32 = new Int32Array(sab, 0, 1);
+  const data = new Uint8Array(sab, 4);
+  const encoded = new TextEncoder().encode(text);
+  const len = Math.min(encoded.length, data.length);
+  data.set(encoded.subarray(0, len));
+  Atomics.store(int32, 0, len || 1); // min 1 so worker wakes (0 = still waiting)
+  Atomics.notify(int32, 0);
+}
+
+function cancelInputBuffer(): void {
+  const sab = getSharedBuffer();
+  if (!sab) return;
+  const int32 = new Int32Array(sab, 0, 1);
+  Atomics.store(int32, 0, -1);
+  Atomics.notify(int32, 0);
+}
 
 // ---------------------------------------------------------------------------
 // Persistent Worker Management
@@ -18,6 +79,7 @@ interface PendingExec {
   resolve: (result: ExecutionResult) => void;
   reject: (err: Error) => void;
   timer: ReturnType<typeof setTimeout>;
+  callbacks?: InteractiveCallbacks;
 }
 
 let singletonWorker: Worker | null = null;
@@ -29,6 +91,11 @@ function buildWorkerCode(): string {
   return `
       const _output = [];
       const _errors = [];
+      let _currentId = null;
+      let _inputInt32 = null;
+      let _inputBytes = null;
+      let _stdinLines = [];
+      let _stdinIndex = 0;
 
       function stringify(...args) {
         return args.map(a => {
@@ -55,10 +122,53 @@ function buildWorkerCode(): string {
       console.group = () => {};
       console.groupEnd = () => {};
 
+      function input(promptText) {
+        if (promptText !== undefined && promptText !== '') {
+          _output.push(String(promptText));
+        }
+        if (_stdinIndex < _stdinLines.length) {
+          return _stdinLines[_stdinIndex++];
+        }
+        if (!_inputInt32) {
+          throw new Error('No input available. Provide input in the stdin section or use a browser that supports interactive input.');
+        }
+        self.postMessage({
+          type: 'partial_output',
+          id: _currentId,
+          stdout: _output.join('\\n'),
+        });
+        Atomics.store(_inputInt32, 0, 0);
+        self.postMessage({
+          type: 'input_request',
+          id: _currentId,
+          prompt: promptText !== undefined ? String(promptText) : '',
+        });
+        Atomics.wait(_inputInt32, 0, 0);
+        const byteLength = Atomics.load(_inputInt32, 0);
+        if (byteLength === -1) throw new Error('Execution cancelled');
+        if (byteLength <= 0) return '';
+        const bytes = new Uint8Array(_inputBytes.buffer, _inputBytes.byteOffset, byteLength);
+        return new TextDecoder().decode(bytes);
+      }
+      const prompt = input;
+      const readline = () => input('');
+
       self.onmessage = (e) => {
-        const { id, code } = e.data;
+        const { id, code, inputBuffer, stdin } = e.data;
+        _currentId = id;
         _output.length = 0;
         _errors.length = 0;
+        _stdinLines = stdin ? stdin.split('\\n') : [];
+        _stdinIndex = 0;
+
+        if (inputBuffer) {
+          _inputInt32 = new Int32Array(inputBuffer, 0, 1);
+          _inputBytes = new Uint8Array(inputBuffer, 4);
+        } else {
+          _inputInt32 = null;
+          _inputBytes = null;
+        }
+
         try {
           const indirectEval = eval;
           const executable = code + '\\n//# sourceURL=playground-user-code.js';
@@ -78,10 +188,7 @@ function buildWorkerCode(): string {
           let line = Number.isFinite(err?.lineNumber) ? err.lineNumber : null;
           let column = Number.isFinite(err?.columnNumber) ? err.columnNumber : null;
 
-          // Stack examples we may see:
-          //   at eval (playground-user-code.js:3:11)
-          //   at playground-user-code.js:3:11
-          const stackMatch = rawStack.match(/playground-user-code\.js:(\d+):(\d+)/);
+          const stackMatch = rawStack.match(/playground-user-code\\.js:(\\d+):(\\d+)/);
           if ((!line || !column) && stackMatch) {
             line = Number(stackMatch[1]);
             column = Number(stackMatch[2]);
@@ -95,7 +202,6 @@ function buildWorkerCode(): string {
             ? (name + ': ' + message + ' (' + location + ')')
             : (name + ': ' + message);
 
-          // Avoid duplicating the headline if stack already starts with it
           const cleanedStack = rawStack && !rawStack.startsWith(headline)
             ? rawStack
             : '';
@@ -136,27 +242,76 @@ function destroyWorker(): void {
   pendingExecs.clear();
 }
 
+function makeTimeoutHandler(id: string, pending: PendingExec): () => void {
+  return () => {
+    if (!pendingExecs.has(id)) return;
+    pendingExecs.delete(id);
+    destroyWorker();
+    pending.resolve({
+      language: 'javascript',
+      version: 'browser',
+      provider: 'client',
+      run: {
+        stdout: '',
+        stderr: 'Execution timed out (10s limit). Your code may have an infinite loop.',
+        code: 1,
+        signal: 'SIGTERM',
+        output: '',
+      },
+    });
+  };
+}
+
 function handleWorkerMessage(e: MessageEvent): void {
-  const { type, id, stdout, stderr, exitCode } = e.data;
-  if (type !== 'result' || !id) return;
+  const msg = e.data;
+  if (!msg || !msg.id) return;
 
-  const pending = pendingExecs.get(id);
+  const pending = pendingExecs.get(msg.id);
   if (!pending) return;
-  pendingExecs.delete(id);
-  clearTimeout(pending.timer);
 
-  pending.resolve({
-    language: 'javascript',
-    version: 'browser',
-    provider: 'client',
-    run: {
-      stdout: stdout || '',
-      stderr: stderr || '',
-      code: exitCode ?? 0,
-      signal: null,
-      output: stdout || '',
-    },
-  });
+  if (msg.type === 'partial_output') {
+    pending.callbacks?.onPartialOutput?.(msg.stdout || '');
+    return;
+  }
+
+  if (msg.type === 'input_request') {
+    // Pause the execution timeout while waiting for user input
+    clearTimeout(pending.timer);
+
+    const handleInput = pending.callbacks?.onInputRequest;
+    if (!handleInput) {
+      // No input handler — write empty string to unblock worker
+      writeInputToBuffer('');
+      pending.timer = setTimeout(makeTimeoutHandler(msg.id, pending), WORKER_TIMEOUT);
+      return;
+    }
+
+    handleInput(msg.prompt || '').then((text) => {
+      writeInputToBuffer(text);
+      // Restart the execution timeout
+      pending.timer = setTimeout(makeTimeoutHandler(msg.id, pending), WORKER_TIMEOUT);
+    }).catch(() => {
+      cancelInputBuffer();
+    });
+    return;
+  }
+
+  if (msg.type === 'result') {
+    pendingExecs.delete(msg.id);
+    clearTimeout(pending.timer);
+    pending.resolve({
+      language: 'javascript',
+      version: 'browser',
+      provider: 'client',
+      run: {
+        stdout: msg.stdout || '',
+        stderr: msg.stderr || '',
+        code: msg.exitCode ?? 0,
+        signal: null,
+        output: msg.stdout || '',
+      },
+    });
+  }
 }
 
 function handleWorkerError(err: ErrorEvent): void {
@@ -202,44 +357,37 @@ function getOrCreateWorker(): Worker {
 
 export async function executeJavaScript(
   code: string,
-  _stdin?: string,
+  stdin?: string,
   signal?: AbortSignal,
+  callbacks?: InteractiveCallbacks,
 ): Promise<ExecutionResult> {
   const worker = getOrCreateWorker();
   const id = String(++execIdCounter);
+  const inputBuffer = getSharedBuffer();
 
   return new Promise<ExecutionResult>((resolve, reject) => {
-    const timer = setTimeout(() => {
-      if (!pendingExecs.has(id)) return;
-      pendingExecs.delete(id);
-      destroyWorker();
-      resolve({
-        language: 'javascript',
-        version: 'browser',
-        provider: 'client',
-        run: {
-          stdout: '',
-          stderr: 'Execution timed out (10s limit). Your code may have an infinite loop.',
-          code: 1,
-          signal: 'SIGTERM',
-          output: '',
-        },
-      });
-    }, WORKER_TIMEOUT);
+    const pending: PendingExec = {
+      resolve,
+      reject,
+      timer: 0 as unknown as ReturnType<typeof setTimeout>,
+      callbacks,
+    };
+    pending.timer = setTimeout(makeTimeoutHandler(id, pending), WORKER_TIMEOUT);
 
-    pendingExecs.set(id, { resolve, reject, timer });
+    pendingExecs.set(id, pending);
 
     if (signal) {
       signal.addEventListener('abort', () => {
         if (!pendingExecs.has(id)) return;
         pendingExecs.delete(id);
-        clearTimeout(timer);
+        clearTimeout(pending.timer);
+        cancelInputBuffer();
         destroyWorker();
         reject(new Error('Execution cancelled'));
       }, { once: true });
     }
 
-    worker.postMessage({ id, code });
+    worker.postMessage({ id, code, inputBuffer, stdin: stdin || '' });
   });
 }
 

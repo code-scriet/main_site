@@ -112,6 +112,12 @@ services:
         destination: /index.html
     headers:
       - path: /*
+        name: Cross-Origin-Opener-Policy
+        value: same-origin
+      - path: /*
+        name: Cross-Origin-Embedder-Policy
+        value: credentialless
+      - path: /*
         name: X-Content-Type-Options
         value: nosniff
       - path: /*
