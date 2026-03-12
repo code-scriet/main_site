@@ -72,6 +72,8 @@ interface PlaygroundContextType extends PlaygroundState {
   startLocalPython: () => void;
   /** Revert to cloud execution for Python */
   revertToCloudPython: () => void;
+  /** Error message if Pyodide failed to initialize, null otherwise */
+  pyodideError: string | null;
   /** Non-null when the running program is waiting for user input */
   inputPrompt: string | null;
   setInputPrompt: (prompt: string | null) => void;
@@ -95,6 +97,7 @@ export function PlaygroundProvider({ children }: { children: ReactNode }) {
   });
   const [pyodideProgress, setPyodideProgress] = useState(0);
   const [pyodideLabel, setPyodideLabel] = useState('');
+  const [pyodideError, setPyodideError] = useState<string | null>(null);
 
   const [state, setState] = useState<PlaygroundState>(() => {
     // Load from localStorage
@@ -177,13 +180,16 @@ export function PlaygroundProvider({ children }: { children: ReactNode }) {
     setPythonMode('downloading');
     setPyodideProgress(0);
     setPyodideLabel('Starting download…');
+    setPyodideError(null);
     downloadAndWarmPyodide((percent, label) => {
       setPyodideProgress(percent);
       setPyodideLabel(label);
     }).then(() => {
       setPythonMode('local');
       localStorage.setItem(PYTHON_MODE_KEY, 'local');
-    }).catch(() => {
+    }).catch((err: unknown) => {
+      const msg = err instanceof Error ? err.message : 'Failed to load Python runtime';
+      setPyodideError(msg);
       setPythonMode('cloud');
       localStorage.removeItem(PYTHON_MODE_KEY);
     });
@@ -322,6 +328,7 @@ export function PlaygroundProvider({ children }: { children: ReactNode }) {
     pythonMode,
     pyodideProgress,
     pyodideLabel,
+    pyodideError,
     inputPrompt,
     setInputPrompt,
     inputResolverRef,

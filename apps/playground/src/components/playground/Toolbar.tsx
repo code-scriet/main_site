@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import { usePlayground } from '@/context/PlaygroundContext';
 import { useTheme } from '@/context/ThemeContext';
 import { useAuth } from '@/context/AuthContext';
@@ -47,9 +48,16 @@ export function Toolbar() {
     pythonMode,
     pyodideProgress,
     pyodideLabel,
+    pyodideError,
     startLocalPython,
     revertToCloudPython,
   } = usePlayground();
+
+  useEffect(() => {
+    if (pyodideError) {
+      toast.error(`Python local runtime failed: ${pyodideError}`, { duration: 6000 });
+    }
+  }, [pyodideError]);
   const { theme, toggleTheme } = useTheme();
   const { isAuthenticated } = useAuth();
   const { runCode, stopExecution } = useCodeExecution();

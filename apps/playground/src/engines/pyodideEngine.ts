@@ -20,7 +20,7 @@ const PYODIDE_CDN = `${PYODIDE_CDN_BASE}/pyodide.js`;
 /** Max time to wait for a single Python execution (after runtime is ready) */
 const EXEC_TIMEOUT_MS = 10_000;
 /** Max time to wait for Pyodide to initially load */
-const INIT_TIMEOUT_MS = 60_000;
+const INIT_TIMEOUT_MS = 30_000;
 
 /** Files to pre-fetch so the worker loads from cache. Ordered by size descending. */
 const PREFETCH_FILES: Array<{ path: string; approxBytes: number }> = [
@@ -44,6 +44,7 @@ function buildPyodideWorkerCode(): string {
       initPromise = (async () => {
         importScripts('${PYODIDE_CDN}');
         pyodide = await loadPyodide({
+          indexURL: '${PYODIDE_CDN_BASE}/',
           stdout: () => {},
           stderr: () => {},
         });
@@ -363,10 +364,19 @@ function handleWorkerError(err: ErrorEvent) {
   }
   pendingExecutions.clear();
 
+  // Unblock any waiters that are waiting for initialization — without this,
+  // they'd hang until their individual 30s timeouts fire even though we already
+  // know the worker is dead.
+  workerInitError = err.message || 'Worker crashed during initialization';
+  workerReady = true;
+  const pendingCallbacks = readyCallbacks.splice(0);
+  pendingCallbacks.forEach(cb => cb());
+
   // Destroy the worker so next call recreates it
   singletonWorker = null;
   workerReady = false;
-  workerInitError = null;
+  // NOTE: workerInitError is intentionally kept until getOrCreateWorker() resets
+  // it when a fresh worker is created, so callers can inspect it after waitForReady().
 }
 
 function getOrCreateWorker(): Worker | null {
@@ -397,7 +407,7 @@ function waitForReady(): Promise<void> {
   if (workerReady) return Promise.resolve();
   return new Promise<void>((resolve, reject) => {
     const timeout = setTimeout(() => {
-      reject(new Error('Pyodide failed to initialise within 30s'));
+      reject(new Error('Pyodide failed to initialise within 30s — try again or use cloud execution'));
     }, INIT_TIMEOUT_MS);
 
     readyCallbacks.push(() => {
