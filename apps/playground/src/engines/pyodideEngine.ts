@@ -14,12 +14,20 @@
 import type { ExecutionResult } from './types';
 import type { InteractiveCallbacks } from './jsEngine';
 
-const PYODIDE_CDN = 'https://cdn.jsdelivr.net/pyodide/v0.27.0/full/pyodide.js';
+const PYODIDE_CDN_BASE = 'https://cdn.jsdelivr.net/pyodide/v0.27.0/full';
+const PYODIDE_CDN = `${PYODIDE_CDN_BASE}/pyodide.js`;
 
 /** Max time to wait for a single Python execution (after runtime is ready) */
 const EXEC_TIMEOUT_MS = 10_000;
 /** Max time to wait for Pyodide to initially load */
-const INIT_TIMEOUT_MS = 30_000;
+const INIT_TIMEOUT_MS = 60_000;
+
+/** Files to pre-fetch so the worker loads from cache. Ordered by size descending. */
+const PREFETCH_FILES: Array<{ path: string; approxBytes: number }> = [
+  { path: 'pyodide.asm.wasm',  approxBytes: 13_000_000 },
+  { path: 'python_stdlib.zip', approxBytes:  5_500_000 },
+  { path: 'pyodide.asm.js',    approxBytes:  1_200_000 },
+];
 
 // ---------------------------------------------------------------------------
 // Worker code (runs in Web Worker context)
@@ -493,13 +501,78 @@ export async function executePython(
 }
 
 // ---------------------------------------------------------------------------
-// Preload — call early to warm up Pyodide before the first run
+// Preload — kept for compat, but prefer downloadAndWarmPyodide for explicit UX
 // ---------------------------------------------------------------------------
 export function preloadPyodide(): void {
-  getOrCreateWorker(); // ensures the worker is created and starts loading
+  getOrCreateWorker();
 }
 
 /** Returns true once Pyodide has finished loading in the persistent worker */
 export function isPyodideReady(): boolean {
   return workerReady && !workerInitError;
+}
+
+// ---------------------------------------------------------------------------
+// Explicit warm-up with progress reporting
+// ---------------------------------------------------------------------------
+
+export type ProgressCallback = (percent: number, label: string) => void;
+
+/**
+ * Pre-fetches the main Pyodide WASM + stdlib files so the browser HTTP cache
+ * is populated, then initialises the persistent worker. Calls onProgress with
+ * values 0–100 and a human-readable label throughout.
+ */
+export async function downloadAndWarmPyodide(onProgress: ProgressCallback): Promise<void> {
+  const totalApprox = PREFETCH_FILES.reduce((s, f) => s + f.approxBytes, 0);
+  let completedBytes = 0;
+
+  onProgress(0, 'Starting download…');
+
+  for (const file of PREFETCH_FILES) {
+    const url = `${PYODIDE_CDN_BASE}/${file.path}`;
+    let fileLoaded = 0;
+
+    try {
+      const resp = await fetch(url, { mode: 'cors' });
+      const contentLength = parseInt(resp.headers.get('content-length') || '0', 10);
+      const fileSize = contentLength > 0 ? contentLength : file.approxBytes;
+      const reader = resp.body?.getReader();
+
+      if (reader) {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          fileLoaded += value.length;
+          const overall = (completedBytes + (fileLoaded / fileSize) * file.approxBytes) / totalApprox;
+          onProgress(Math.min(88, Math.round(overall * 90)), 'Downloading Python runtime…');
+        }
+        reader.releaseLock();
+      } else {
+        await resp.arrayBuffer();
+        fileLoaded = file.approxBytes;
+      }
+    } catch {
+      // Prefetch failed — worker will fetch normally (slower but still works)
+      fileLoaded = file.approxBytes;
+    }
+
+    completedBytes += file.approxBytes;
+    onProgress(Math.min(88, Math.round((completedBytes / totalApprox) * 90)), 'Downloading Python runtime…');
+  }
+
+  onProgress(92, 'Initializing Python interpreter…');
+  getOrCreateWorker();
+
+  try {
+    await waitForReady();
+  } catch (err) {
+    throw new Error(`Pyodide failed to initialize: ${err instanceof Error ? err.message : String(err)}`);
+  }
+
+  if (workerInitError) {
+    throw new Error(`Pyodide failed to initialize: ${workerInitError}`);
+  }
+
+  onProgress(100, 'Python ready!');
 }

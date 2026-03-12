@@ -18,6 +18,7 @@ export function useCodeExecution() {
     setStatusMessage,
     setInputPrompt,
     inputResolverRef,
+    pythonMode,
   } = usePlayground();
 
   const [isExecuting, setIsExecuting] = useState(false);
@@ -87,10 +88,17 @@ export function useCodeExecution() {
         return { success: false, error: msg };
       }
 
+      // For Python: respect the user's local/cloud preference explicitly
+      const executionMode =
+        language.id === 'python'
+          ? pythonMode === 'local' ? 'client' : 'cloud'
+          : 'auto';
+
       const result = await executeCode({
         language: language.id,
         code,
         stdin: stdin || undefined,
+        mode: executionMode,
         signal: controller.signal,
         onStatus: (msg) => setStatusMessage(msg),
         interactive: {
@@ -179,7 +187,7 @@ export function useCodeExecution() {
       inputResolverRef.current = null;
       abortRef.current = null;
     }
-  }, [code, language, stdin, setOutput, setError, setIsRunning, setExecutionTime, setExecutionTier, setStatusMessage, setInputPrompt, inputResolverRef]);
+  }, [code, language, stdin, pythonMode, setOutput, setError, setIsRunning, setExecutionTime, setExecutionTier, setStatusMessage, setInputPrompt, inputResolverRef]);
 
   const stopExecution = useCallback(() => {
     abortRef.current?.abort();

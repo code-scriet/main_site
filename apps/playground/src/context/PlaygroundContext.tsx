@@ -1,7 +1,12 @@
 import { createContext, useContext, useState, useEffect, ReactNode, useCallback, useRef } from 'react';
 import { getLanguageById, DEFAULT_LANGUAGE, type LanguageConfig } from '../utils/languageConfig';
 import { debounce } from '../lib/utils';
-// Pyodide, JS, and TS engines are preloaded in main.tsx
+import { downloadAndWarmPyodide } from '../engines/pyodideEngine';
+
+/** Whether the user wants to run Python locally (Pyodide) or via cloud. */
+export type PythonMode = 'cloud' | 'downloading' | 'local';
+
+const PYTHON_MODE_KEY = 'playground-python-mode';
 
 export interface TestCase {
   id: string;
@@ -39,6 +44,12 @@ interface PlaygroundState {
   executionTier: 'client' | 'cloud' | null;
   /** Status message shown during execution (e.g. "Loading Python runtime...") */
   statusMessage: string;
+  /** Whether to run Python locally (Pyodide) or via cloud */
+  pythonMode: PythonMode;
+  /** Download/init progress 0–100 while pythonMode === 'downloading' */
+  pyodideProgress: number;
+  /** Human-readable label for the download step */
+  pyodideLabel: string;
 }
 
 interface PlaygroundContextType extends PlaygroundState {
@@ -57,6 +68,10 @@ interface PlaygroundContextType extends PlaygroundState {
   toggleProblemPanel: () => void;
   setCurrentProblem: (problem: Problem | null) => void;
   clearOutput: () => void;
+  /** Trigger download + warm-up of Pyodide for local Python execution */
+  startLocalPython: () => void;
+  /** Revert to cloud execution for Python */
+  revertToCloudPython: () => void;
   /** Non-null when the running program is waiting for user input */
   inputPrompt: string | null;
   setInputPrompt: (prompt: string | null) => void;
@@ -72,6 +87,14 @@ const AUTO_SAVE_DELAY = 2000; // 2 seconds
 export function PlaygroundProvider({ children }: { children: ReactNode }) {
   const [inputPrompt, setInputPrompt] = useState<string | null>(null);
   const inputResolverRef = useRef<((value: string) => void) | null>(null);
+
+  const [pythonMode, setPythonMode] = useState<PythonMode>(() => {
+    // If user previously enabled local mode, we'll auto-warm in useEffect below
+    const saved = localStorage.getItem(PYTHON_MODE_KEY);
+    return saved === 'local' ? 'downloading' : 'cloud';
+  });
+  const [pyodideProgress, setPyodideProgress] = useState(0);
+  const [pyodideLabel, setPyodideLabel] = useState('');
 
   const [state, setState] = useState<PlaygroundState>(() => {
     // Load from localStorage
@@ -150,7 +173,39 @@ export function PlaygroundProvider({ children }: { children: ReactNode }) {
     saveToLocalStorage(state);
   }, [state.code, state.language, state.stdin, state.fontSize, saveToLocalStorage]);
 
-  // Engines are preloaded unconditionally in main.tsx
+  const warmPyodide = useCallback(() => {
+    setPythonMode('downloading');
+    setPyodideProgress(0);
+    setPyodideLabel('Starting download…');
+    downloadAndWarmPyodide((percent, label) => {
+      setPyodideProgress(percent);
+      setPyodideLabel(label);
+    }).then(() => {
+      setPythonMode('local');
+      localStorage.setItem(PYTHON_MODE_KEY, 'local');
+    }).catch(() => {
+      setPythonMode('cloud');
+      localStorage.removeItem(PYTHON_MODE_KEY);
+    });
+  }, []);
+
+  // Auto-warm if user had previously opted for local
+  useEffect(() => {
+    if (pythonMode === 'downloading') {
+      warmPyodide();
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // run once on mount only
+
+  const startLocalPython = useCallback(() => {
+    if (pythonMode !== 'cloud') return;
+    warmPyodide();
+  }, [pythonMode, warmPyodide]);
+
+  const revertToCloudPython = useCallback(() => {
+    setPythonMode('cloud');
+    localStorage.removeItem(PYTHON_MODE_KEY);
+  }, []);
 
   const setCode = (code: string) => {
     setState((prev) => ({ ...prev, code }));
@@ -262,6 +317,11 @@ export function PlaygroundProvider({ children }: { children: ReactNode }) {
     toggleProblemPanel,
     setCurrentProblem,
     clearOutput,
+    startLocalPython,
+    revertToCloudPython,
+    pythonMode,
+    pyodideProgress,
+    pyodideLabel,
     inputPrompt,
     setInputPrompt,
     inputResolverRef,

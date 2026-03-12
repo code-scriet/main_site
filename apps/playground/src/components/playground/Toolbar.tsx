@@ -27,6 +27,8 @@ import {
   Download,
   Maximize,
   Code2,
+  Cpu,
+  X,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
@@ -42,6 +44,11 @@ export function Toolbar() {
     increaseFontSize,
     decreaseFontSize,
     toggleProblemPanel,
+    pythonMode,
+    pyodideProgress,
+    pyodideLabel,
+    startLocalPython,
+    revertToCloudPython,
   } = usePlayground();
   const { theme, toggleTheme } = useTheme();
   const { isAuthenticated } = useAuth();
@@ -188,6 +195,50 @@ export function Toolbar() {
             <Play className="h-4 w-4" />
             Run Code
           </Button>
+        )}
+
+        {/* Python local execution toggle */}
+        {language.id === 'python' && (
+          pythonMode === 'local' ? (
+            /* Local mode active — show indicator with option to revert */
+            <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-md border border-green-500/40 bg-green-500/10 text-green-400 text-xs font-medium">
+              <Cpu className="h-3.5 w-3.5 shrink-0" />
+              <span>Local</span>
+              <button
+                onClick={revertToCloudPython}
+                className="ml-0.5 hover:text-green-200 transition-colors"
+                title="Switch back to cloud execution"
+              >
+                <X className="h-3 w-3" />
+              </button>
+            </div>
+          ) : pythonMode === 'downloading' ? (
+            /* Download in progress — show progress bar */
+            <div className="flex flex-col justify-center min-w-[120px] sm:min-w-[160px] max-w-[200px]">
+              <div className="flex items-center justify-between mb-0.5">
+                <span className="text-[10px] text-muted-foreground truncate">{pyodideLabel}</span>
+                <span className="text-[10px] text-muted-foreground ml-1 shrink-0">{pyodideProgress}%</span>
+              </div>
+              <div className="h-1.5 w-full rounded-full bg-muted overflow-hidden">
+                <div
+                  className="h-full rounded-full bg-amber-500 transition-all duration-300"
+                  style={{ width: `${pyodideProgress}%` }}
+                />
+              </div>
+            </div>
+          ) : (
+            /* Cloud mode — offer to switch to local */
+            <Button
+              onClick={startLocalPython}
+              variant="outline"
+              size="sm"
+              className="gap-1.5 text-xs border-dashed flex"
+              title="Download Python runtime to run code locally (faster after first load)"
+            >
+              <Cpu className="h-3.5 w-3.5" />
+              Run Locally
+            </Button>
+          )
         )}
 
         <Button onClick={handleReset} variant="outline" size="icon" title={`Reset Code (${getShortcutKey('R', true)})`}>

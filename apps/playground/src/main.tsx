@@ -7,14 +7,13 @@ import { ErrorBoundary } from './components/ErrorBoundary';
 import App from './App';
 import './index.css';
 
-// Preload execution engines early so first run is fast
-import { preloadPyodide } from './engines/pyodideEngine';
+// Preload JS/TS engines eagerly (lightweight workers, no large downloads)
 import { preloadTypeScript } from './engines/tsEngine';
 import { preloadJavaScript } from './engines/jsEngine';
 
 try { preloadJavaScript(); } catch { /* non-fatal */ }
-try { preloadPyodide(); } catch { /* non-fatal */ }
 try { preloadTypeScript(); } catch { /* non-fatal */ }
+// Python (Pyodide) is only loaded when the user explicitly clicks "Run Locally"
 
 const queryClient = new QueryClient({
   defaultOptions: {
