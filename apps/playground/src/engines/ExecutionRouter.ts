@@ -40,18 +40,21 @@ import { executeViaCloud } from './wandboxClient'; // file kept for compat, call
 
 /**
  * If client-side execution takes longer than this, abort it and fall back to
- * cloud execution. Applies to Python, JS, and TS in 'auto' mode.
- *
- * Uses a map so Python gets a longer cold-start budget (Pyodide ~15 MB
- * WASM download on first run) while JS/TS still fall back quickly.
+ * cloud execution. Applies to JS and TS in 'auto' mode.
  */
 const CLIENT_TIMEOUT_DEFAULT_MS = 4_000;
-const CLIENT_TIMEOUT_BY_LANG: Record<string, number> = {
-  python: 15_000, // Pyodide needs time to download+init (~3-8s first time)
+
+/**
+ * How long to wait before starting cloud execution in parallel with a cold
+ * client engine. Giving the client a head start avoids burning cloud quota
+ * when Pyodide is almost ready, while still recovering quickly when it isn't.
+ */
+const CLOUD_PARALLEL_DELAY_BY_LANG: Record<string, number> = {
+  python: 5_000, // Start cloud after 5s if Pyodide still loading
 };
 
-function getClientTimeout(language: string): number {
-  return CLIENT_TIMEOUT_BY_LANG[language] ?? CLIENT_TIMEOUT_DEFAULT_MS;
+function getClientTimeout(_language: string): number {
+  return CLIENT_TIMEOUT_DEFAULT_MS;
 }
 
 // ---------------------------------------------------------------------------
@@ -108,33 +111,67 @@ export async function executeCode(options: ExecuteOptions): Promise<ExecuteResul
         if (engineWarm) {
           result = await executeClientSide(language, code, stdin, signal, onStatus, interactive);
         } else {
-          // Engine cold — race client execution against a timeout.
-          // If client takes too long, abort local and fall back to cloud.
+          // Engine cold — run client immediately and, after a short delay,
+          // start cloud in parallel. Whichever finishes first wins.
+          // This avoids making the user wait the full init time before cloud
+          // kicks in (e.g. Pyodide cold-start can exceed 15s on slow networks).
+          const parallelDelay = CLOUD_PARALLEL_DELAY_BY_LANG[language];
           const localAbort = new AbortController();
-          let timeoutId: ReturnType<typeof setTimeout> | null = null;
+          const cloudAbort = new AbortController();
 
-          const onParentAbort = () => localAbort.abort();
+          const onParentAbort = () => { localAbort.abort(); cloudAbort.abort(); };
           if (signal) {
             if (signal.aborted) {
-              localAbort.abort();
+              localAbort.abort(); cloudAbort.abort();
             } else {
               signal.addEventListener('abort', onParentAbort, { once: true });
             }
           }
 
           try {
-            const timeout = getClientTimeout(language);
-            result = await Promise.race([
-              executeClientSide(language, code, stdin, localAbort.signal, onStatus, interactive),
-              new Promise<never>((_, reject) => {
-                timeoutId = setTimeout(() => {
-                  localAbort.abort();
-                  reject(new Error('__CLIENT_TIMEOUT__'));
-                }, timeout);
-              }),
-            ]);
+            if (parallelDelay && CLOUD_SUPPORTED_LANGUAGES.has(language)) {
+              // Race: client vs (cloud after parallelDelay)
+              type Tagged = { result: ExecutionResult; tier: ExecutionTier };
+              const clientRace: Promise<Tagged> = executeClientSide(
+                language, code, stdin, localAbort.signal, onStatus, interactive,
+              ).then(r => { cloudAbort.abort(); return { result: r, tier: 'client' as ExecutionTier }; });
+
+              const cloudRace: Promise<Tagged> = new Promise<Tagged>((resolve, reject) => {
+                const delayId = setTimeout(async () => {
+                  if (cloudAbort.signal.aborted) return; // client already won
+                  onStatus?.('Still loading locally, also trying cloud...');
+                  try {
+                    const r = await executeViaCloud({ language, code, stdin }, cloudAbort.signal);
+                    localAbort.abort(); // cancel client if cloud wins
+                    resolve({ result: r, tier: 'cloud' as ExecutionTier });
+                  } catch (e) {
+                    reject(e);
+                  }
+                }, parallelDelay);
+                cloudAbort.signal.addEventListener('abort', () => clearTimeout(delayId), { once: true });
+              });
+
+              const winner = await Promise.race([clientRace, cloudRace]);
+              return { ...winner.result, tier: winner.tier, fellBack: winner.tier === 'cloud', fallbackReason: winner.tier === 'cloud' ? 'Pyodide still loading, cloud responded first' : undefined };
+            } else {
+              // No parallel-delay configured — classic timeout fallback
+              let timeoutId: ReturnType<typeof setTimeout> | null = null;
+              try {
+                const timeout = getClientTimeout(language);
+                result = await Promise.race([
+                  executeClientSide(language, code, stdin, localAbort.signal, onStatus, interactive),
+                  new Promise<never>((_, reject) => {
+                    timeoutId = setTimeout(() => {
+                      localAbort.abort();
+                      reject(new Error('__CLIENT_TIMEOUT__'));
+                    }, timeout);
+                  }),
+                ]);
+              } finally {
+                if (timeoutId) clearTimeout(timeoutId);
+              }
+            }
           } finally {
-            if (timeoutId) clearTimeout(timeoutId);
             if (signal) signal.removeEventListener('abort', onParentAbort);
           }
         }
