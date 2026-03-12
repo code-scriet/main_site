@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import {
   Trash2, Terminal, AlertCircle, CheckCircle2, Loader2,
-  ChevronUp, ChevronDown, History, Clock, Play, Cloud,
+  ChevronUp, ChevronDown, History, Clock, Play, Cloud, Cpu,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useState, useEffect, useCallback, useRef } from 'react';
@@ -30,6 +30,8 @@ export function OutputPanel() {
     error,
     isRunning,
     executionTime,
+    executionTier,
+    statusMessage,
     clearOutput,
     language,
     setCode,
@@ -221,6 +223,17 @@ export function OutputPanel() {
                       {executionTime}
                     </span>
                   )}
+                  {executionTier && activeTab === 'output' && (
+                    <span className={cn(
+                      'text-[10px] px-1.5 py-0.5 rounded font-mono flex items-center gap-0.5',
+                      executionTier === 'client'
+                        ? isDark ? 'bg-green-500/10 text-green-400' : 'bg-green-100 text-green-700'
+                        : isDark ? 'bg-blue-500/10 text-blue-400' : 'bg-blue-100 text-blue-700'
+                    )}>
+                      {executionTier === 'client' ? <Cpu className="h-2.5 w-2.5" /> : <Cloud className="h-2.5 w-2.5" />}
+                      {executionTier === 'client' ? 'Local' : 'Cloud'}
+                    </span>
+                  )}
                 </button>
 
                 {/* History tab */}
@@ -274,7 +287,7 @@ export function OutputPanel() {
             {isRunning && !output && inputPrompt === null ? (
               <div className="flex items-center gap-2" style={{ color: 'hsl(var(--terminal-warning))' }}>
                 <Loader2 className="h-4 w-4 animate-spin" />
-                <span>Executing code...</span>
+                <span>{statusMessage || 'Executing code...'}</span>
               </div>
             ) : isWebLanguage ? (
               <WebPreview />

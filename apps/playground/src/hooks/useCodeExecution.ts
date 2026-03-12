@@ -14,6 +14,8 @@ export function useCodeExecution() {
     setError,
     setIsRunning,
     setExecutionTime,
+    setExecutionTier,
+    setStatusMessage,
     setInputPrompt,
     inputResolverRef,
   } = usePlayground();
@@ -72,6 +74,8 @@ export function useCodeExecution() {
     setIsRunning(true);
     setOutput('');
     setError('');
+    setExecutionTier(null);
+    setStatusMessage('');
     const startTime = Date.now();
 
     try {
@@ -88,6 +92,7 @@ export function useCodeExecution() {
         code,
         stdin: stdin || undefined,
         signal: controller.signal,
+        onStatus: (msg) => setStatusMessage(msg),
         interactive: {
           onPartialOutput: (stdout) => {
             setOutput(stdout);
@@ -108,6 +113,8 @@ export function useCodeExecution() {
       const endTime = Date.now();
       const executionTime = calculateExecutionTime(startTime, endTime);
       setExecutionTime(executionTime);
+      setExecutionTier(result.tier);
+      setStatusMessage('');
 
       const { output, error, hasError, warning } = formatOutput(result);
 
@@ -167,11 +174,12 @@ export function useCodeExecution() {
     } finally {
       setIsExecuting(false);
       setIsRunning(false);
+      setStatusMessage('');
       setInputPrompt(null);
       inputResolverRef.current = null;
       abortRef.current = null;
     }
-  }, [code, language, stdin, setOutput, setError, setIsRunning, setExecutionTime, setInputPrompt, inputResolverRef]);
+  }, [code, language, stdin, setOutput, setError, setIsRunning, setExecutionTime, setExecutionTier, setStatusMessage, setInputPrompt, inputResolverRef]);
 
   const stopExecution = useCallback(() => {
     abortRef.current?.abort();

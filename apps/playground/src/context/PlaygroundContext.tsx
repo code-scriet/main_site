@@ -35,6 +35,10 @@ interface PlaygroundState {
   fontSize: number;
   showProblemPanel: boolean;
   currentProblem: Problem | null;
+  /** Which tier ran the last execution ('client' | 'cloud' | null) */
+  executionTier: 'client' | 'cloud' | null;
+  /** Status message shown during execution (e.g. "Loading Python runtime...") */
+  statusMessage: string;
 }
 
 interface PlaygroundContextType extends PlaygroundState {
@@ -45,6 +49,8 @@ interface PlaygroundContextType extends PlaygroundState {
   setError: (error: string) => void;
   setIsRunning: (isRunning: boolean) => void;
   setExecutionTime: (time: string) => void;
+  setExecutionTier: (tier: 'client' | 'cloud' | null) => void;
+  setStatusMessage: (message: string) => void;
   resetCode: () => void;
   increaseFontSize: () => void;
   decreaseFontSize: () => void;
@@ -80,6 +86,8 @@ export function PlaygroundProvider({ children }: { children: ReactNode }) {
           output: '',
           error: '',
           executionTime: '',
+          executionTier: null,
+          statusMessage: '',
         };
       } catch (error) {
         console.error('Failed to parse saved state:', error);
@@ -98,6 +106,8 @@ export function PlaygroundProvider({ children }: { children: ReactNode }) {
       fontSize: 14,
       showProblemPanel: false,
       currentProblem: null,
+      executionTier: null,
+      statusMessage: '',
     };
   });
 
@@ -177,6 +187,14 @@ export function PlaygroundProvider({ children }: { children: ReactNode }) {
     setState((prev) => ({ ...prev, executionTime }));
   };
 
+  const setExecutionTier = (executionTier: 'client' | 'cloud' | null) => {
+    setState((prev) => ({ ...prev, executionTier }));
+  };
+
+  const setStatusMessage = (statusMessage: string) => {
+    setState((prev) => ({ ...prev, statusMessage }));
+  };
+
   const resetCode = () => {
     setState((prev) => ({
       ...prev,
@@ -222,6 +240,8 @@ export function PlaygroundProvider({ children }: { children: ReactNode }) {
       output: '',
       error: '',
       executionTime: '',
+      executionTier: null,
+      statusMessage: '',
     }));
   };
 
@@ -234,6 +254,8 @@ export function PlaygroundProvider({ children }: { children: ReactNode }) {
     setError,
     setIsRunning,
     setExecutionTime,
+    setExecutionTier,
+    setStatusMessage,
     resetCode,
     increaseFontSize,
     decreaseFontSize,

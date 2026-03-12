@@ -42,12 +42,17 @@ import { executeViaCloud } from './wandboxClient'; // file kept for compat, call
  * If client-side execution takes longer than this, abort it and fall back to
  * cloud execution. Applies to Python, JS, and TS in 'auto' mode.
  *
- * Python note: on first page load Pyodide is still downloading in the
- * background, so the first Python run will likely exceed 4 s and fall back
- * to cloud automatically. Subsequent runs use the warm persistent worker
- * and finish in milliseconds — well within the limit.
+ * Uses a map so Python gets a longer cold-start budget (Pyodide ~15 MB
+ * WASM download on first run) while JS/TS still fall back quickly.
  */
-const CLIENT_EXECUTION_TIMEOUT_MS = 4000;
+const CLIENT_TIMEOUT_DEFAULT_MS = 4_000;
+const CLIENT_TIMEOUT_BY_LANG: Record<string, number> = {
+  python: 15_000, // Pyodide needs time to download+init (~3-8s first time)
+};
+
+function getClientTimeout(language: string): number {
+  return CLIENT_TIMEOUT_BY_LANG[language] ?? CLIENT_TIMEOUT_DEFAULT_MS;
+}
 
 // ---------------------------------------------------------------------------
 // Public API
@@ -118,13 +123,14 @@ export async function executeCode(options: ExecuteOptions): Promise<ExecuteResul
           }
 
           try {
+            const timeout = getClientTimeout(language);
             result = await Promise.race([
               executeClientSide(language, code, stdin, localAbort.signal, onStatus, interactive),
               new Promise<never>((_, reject) => {
                 timeoutId = setTimeout(() => {
                   localAbort.abort();
                   reject(new Error('__CLIENT_TIMEOUT__'));
-                }, CLIENT_EXECUTION_TIMEOUT_MS);
+                }, timeout);
               }),
             ]);
           } finally {
@@ -146,7 +152,7 @@ export async function executeCode(options: ExecuteOptions): Promise<ExecuteResul
       // Auto mode — fallback to cloud (including timeout fallback)
       const isTimeout = errorMsg === '__CLIENT_TIMEOUT__';
       const fallbackReason = isTimeout
-        ? `Client-side took >${CLIENT_EXECUTION_TIMEOUT_MS / 1000}s, falling back to cloud`
+        ? `Client-side took too long, falling back to cloud`
         : errorMsg;
       console.warn(`[ExecutionRouter] ${fallbackReason}`);
 

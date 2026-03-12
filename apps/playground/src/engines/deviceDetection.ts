@@ -7,33 +7,20 @@
  * heavy client-side engines (Pyodide WASM, TS compiler, etc.).
  *
  * Criteria (any one triggers low-end):
- *   - navigator.deviceMemory < 2 GB (Chrome/Edge only)
- *   - navigator.hardwareConcurrency <= 2 cores
- *   - Mobile Android device (regex on user agent)
- *   - iOS device (limited WASM support / memory pressure)
+ *   - navigator.deviceMemory < 1 GB (Chrome/Edge only)
+ *   - navigator.hardwareConcurrency <= 1 core (single-core)
  */
 export function isLowEndDevice(): boolean {
   const nav = navigator as Navigator & { deviceMemory?: number };
 
   // Device memory API (Chrome 63+, Edge 79+)
-  if (typeof nav.deviceMemory === 'number' && nav.deviceMemory < 2) {
+  // Only flag truly memory-constrained devices (< 1 GB)
+  if (typeof nav.deviceMemory === 'number' && nav.deviceMemory < 1) {
     return true;
   }
 
-  // CPU cores
-  if (typeof nav.hardwareConcurrency === 'number' && nav.hardwareConcurrency <= 2) {
-    return true;
-  }
-
-  const ua = navigator.userAgent;
-
-  // Mobile Android
-  if (/Android.*Mobile/i.test(ua)) {
-    return true;
-  }
-
-  // iOS (limited WASM memory, aggressive process killing)
-  if (/iPhone|iPad|iPod/i.test(ua)) {
+  // Only single-core is truly too weak for WASM engines
+  if (typeof nav.hardwareConcurrency === 'number' && nav.hardwareConcurrency <= 1) {
     return true;
   }
 
