@@ -67,7 +67,7 @@ Add a fourth JSON-LD block that makes the brand name unmistakable:
   "@type": "AboutPage",
   "@id": "https://codescriet.dev/about#webpage",
   "name": "About codescriet — Official Coding Club of SCRIET",
-  "description": "codescriet is the official coding club of SCRIET (Swami Keshvanand Institute of Engineering Management and Gramothan), CCS University Meerut. The name codescriet combines 'code' and 'SCRIET'.",
+  "description": "codescriet is the official coding club of SCRIET (sir chhotu ram institute of engineering and technology ), CCS University Meerut. The name codescriet combines 'code' and 'SCRIET'.",
   "url": "https://codescriet.dev/about",
   "isPartOf": { "@id": "https://codescriet.dev/#website" },
   "about": { "@id": "https://codescriet.dev/#organization" }
@@ -84,7 +84,7 @@ Find the main hero heading and make sure it says the full brand name clearly. Al
 <p>
   codescriet (code + SCRIET) is the official coding club of SCRIET,
   Chaudhary Charan Singh University, Meerut. We are also known as
-  code.scriet and code scriet.
+  code.scriet and code scriet or codescriet.
 </p>
 ```
 
@@ -97,7 +97,7 @@ Add an explicit paragraph that Google can read:
 ```tsx
 <p>
   Our club name, codescriet, combines "code" and "SCRIET"
-  (Swami Keshvanand Institute of Engineering Management and Gramothan).
+  (sir chhotu ram institute of enginneringt and technology).
   You may also find us as code.scriet or code scriet across social media.
   We are the official coding club of SCRIET, CCS University Meerut —
   not to be confused with any other organization.

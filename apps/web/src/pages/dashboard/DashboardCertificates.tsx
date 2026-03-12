@@ -5,6 +5,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/context/AuthContext';
 import { useSettings } from '@/context/SettingsContext';
+import { api } from '@/lib/api';
 import {
   Award,
   Loader2,
@@ -13,6 +14,8 @@ import {
   Copy,
   ExternalLink,
   ShieldCheck,
+  ChevronLeft,
+  ChevronRight,
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -158,18 +161,26 @@ export default function DashboardCertificates() {
   const [certs, setCerts] = useState<Certificate[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [page, setPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [total, setTotal] = useState(0);
+  const [typeFilter, setTypeFilter] = useState('');
+  const [sortOrder, setSortOrder] = useState<'desc' | 'asc'>('desc');
 
   useEffect(() => {
     async function load() {
       setLoading(true);
       setError('');
       try {
-        const res = await fetch(`${API_URL}/certificates/mine`, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.error || 'Failed to load');
-        setCerts(data.data.certificates);
+        const data = await api.getMyCertificates(token!, {
+          page,
+          limit: 12,
+          type: typeFilter || undefined,
+          sort: sortOrder,
+        }) as { certificates: Certificate[]; total: number; page: number; totalPages: number };
+        setCerts(data.certificates as Certificate[]);
+        setTotal(data.total);
+        setTotalPages(data.totalPages);
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Failed to load certificates');
       } finally {
@@ -177,7 +188,10 @@ export default function DashboardCertificates() {
       }
     }
     load();
-  }, [token]);
+  }, [token, page, typeFilter, sortOrder]);
+
+  // Reset page when filters change
+  useEffect(() => { setPage(1); }, [typeFilter, sortOrder]);
 
   return (
     <div className="p-6 max-w-5xl mx-auto space-y-6">
@@ -187,9 +201,32 @@ export default function DashboardCertificates() {
           My Certificates
         </h1>
         <p className="text-gray-500 text-sm mt-0.5">
-          Certificates earned through club events and activities
+          {total} certificate{total !== 1 ? 's' : ''} earned through club events and activities
         </p>
       </motion.div>
+
+      {/* Filters */}
+      <div className="flex flex-wrap gap-3 items-center">
+        <select
+          value={typeFilter}
+          onChange={e => setTypeFilter(e.target.value)}
+          className="border border-gray-200 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
+        >
+          <option value="">All Types</option>
+          <option value="PARTICIPATION">Participation</option>
+          <option value="COMPLETION">Completion</option>
+          <option value="WINNER">Winner</option>
+          <option value="SPEAKER">Speaker</option>
+        </select>
+        <select
+          value={sortOrder}
+          onChange={e => setSortOrder(e.target.value as 'asc' | 'desc')}
+          className="border border-gray-200 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
+        >
+          <option value="desc">Newest First</option>
+          <option value="asc">Oldest First</option>
+        </select>
+      </div>
 
       {loading ? (
         <div className="flex justify-center items-center h-48">
@@ -217,6 +254,21 @@ export default function DashboardCertificates() {
               <CertCard key={cert.certId} cert={cert} />
             ))}
           </div>
+
+          {/* Pagination */}
+          {totalPages > 1 && (
+            <div className="flex items-center justify-between">
+              <p className="text-sm text-gray-500">Page {page} of {totalPages}</p>
+              <div className="flex gap-2">
+                <Button variant="outline" size="sm" disabled={page === 1} onClick={() => setPage(p => p - 1)} className="h-8 w-8 p-0">
+                  <ChevronLeft className="w-4 h-4" />
+                </Button>
+                <Button variant="outline" size="sm" disabled={page === totalPages} onClick={() => setPage(p => p + 1)} className="h-8 w-8 p-0">
+                  <ChevronRight className="w-4 h-4" />
+                </Button>
+              </div>
+            </div>
+          )}
 
           {/* Verify tip */}
           <Card className="border-amber-100 bg-amber-50/50">

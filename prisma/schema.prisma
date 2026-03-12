@@ -641,17 +641,19 @@ model Certificate {
   type           CertType
   position       String?   // e.g. "1st Place" — only for WINNER type
   domain         String?   // e.g. "Web Development"
+  description    String?   // Optional description rendered on the certificate
 
   template       String    @default("gold") // gold | dark | white | emerald
 
   pdfUrl         String?   @map("pdf_url")
-  qrCodeUrl      String?   @map("qr_code_url")
 
   issuedBy       String    @map("issued_by")
   issuedAt       DateTime  @default(now()) @map("issued_at")
 
   emailSent      Boolean   @default(false) @map("email_sent")
   emailSentAt    DateTime? @map("email_sent_at")
+
+  lastEmailResentAt DateTime? @map("last_email_resent_at")
 
   isRevoked      Boolean   @default(false) @map("is_revoked")
   revokedAt      DateTime? @map("revoked_at")
@@ -667,5 +669,7 @@ model Certificate {
   @@index([eventId])
   @@index([certId])
   @@index([recipientEmail])
+  @@index([eventId, issuedAt])
+  @@unique([recipientEmail, eventId, type], name: "unique_cert_per_event")
   @@map("certificates")
 }

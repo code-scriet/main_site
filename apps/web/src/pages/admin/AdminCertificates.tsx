@@ -13,6 +13,7 @@ import {
 } from '@/components/ui/dialog';
 import { useAuth } from '@/context/AuthContext';
 import { useSettings } from '@/context/SettingsContext';
+import { api } from '@/lib/api';
 import {
   Award,
   Loader2,
@@ -28,6 +29,8 @@ import {
   ChevronLeft,
   ChevronRight,
   Users,
+  FileDown,
+  Eye,
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -79,7 +82,9 @@ interface GenerateFormData {
   template: Template;
   position: string;
   domain: string;
+  description: string;
   signatoryName: string;
+  facultyName: string;
   sendEmail: boolean;
 }
 
@@ -91,7 +96,9 @@ const defaultForm: GenerateFormData = {
   template: 'gold',
   position: '',
   domain: '',
+  description: '',
   signatoryName: 'Club President',
+  facultyName: '',
   sendEmail: false,
 };
 
@@ -135,8 +142,12 @@ export default function AdminCertificates() {
   const [bulkTemplate, setBulkTemplate] = useState<Template>('dark');
   const [bulkSignatory, setBulkSignatory] = useState('Club President');
   const [bulkSendEmail, setBulkSendEmail] = useState(false);
+  const [bulkDescription, setBulkDescription] = useState('');
+  const [bulkFacultyName, setBulkFacultyName] = useState('');
   const [bulkCsv, setBulkCsv] = useState('');
   const [bulkGenerating, setBulkGenerating] = useState(false);
+  const [bulkPreview, setBulkPreview] = useState<BulkEntry[] | null>(null);
+  const [bulkParseErrors, setBulkParseErrors] = useState<string[]>([]);
 
   // Revoke modal
   const [revokeTarget, setRevokeTarget] = useState<Certificate | null>(null);
@@ -149,16 +160,9 @@ export default function AdminCertificates() {
     setLoading(true);
     setError('');
     try {
-      const params = new URLSearchParams({ page: String(page), limit: '20' });
-      if (search) params.set('search', search);
-      if (typeFilter) params.set('type', typeFilter);
-      const res = await fetch(`${API_URL}/certificates?${params}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Failed to load');
-      setCerts(data.data.certificates);
-      setTotal(data.data.total);
+      const data = await api.getCertificates(token!, { page, limit: 20, search: search || undefined, type: typeFilter || undefined }) as { certificates: Certificate[]; total: number };
+      setCerts(data.certificates);
+      setTotal(data.total);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load certificates');
     } finally {
@@ -182,14 +186,20 @@ export default function AdminCertificates() {
     }
     setGenerating(true);
     try {
-      const res = await fetch(`${API_URL}/certificates/generate`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify(form),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Generation failed');
-      toast.success(`Certificate generated! ID: ${data.data.certId}`);
+      const data = await api.generateCertificate({
+        recipientName: form.recipientName,
+        recipientEmail: form.recipientEmail,
+        eventName: form.eventName,
+        type: form.type,
+        template: form.template,
+        position: form.position || undefined,
+        domain: form.domain || undefined,
+        description: form.description || undefined,
+        signatoryName: form.signatoryName,
+        facultyName: form.facultyName || undefined,
+        sendEmail: form.sendEmail,
+      }, token!);
+      toast.success(`Certificate generated! ID: ${data.certId}`);
       setShowGenerate(false);
       setForm(defaultForm);
       fetchCerts();
@@ -200,12 +210,7 @@ export default function AdminCertificates() {
     }
   }
 
-  async function handleBulkGenerate() {
-    if (!bulkEventName || !bulkCsv.trim()) {
-      toast.error('Please fill in event name and recipient list');
-      return;
-    }
-
+  function parseBulkCsv(): { recipients: BulkEntry[]; errors: string[] } {
     const lines = bulkCsv.trim().split('\n').filter(Boolean);
     const recipients: BulkEntry[] = [];
     const parseErrors: string[] = [];
@@ -217,12 +222,56 @@ export default function AdminCertificates() {
         continue;
       }
       const [name, email, position = ''] = parts;
-      if (!name || !email.includes('@')) {
-        parseErrors.push(`Bad entry: ${line}`);
+      if (!name) {
+        parseErrors.push(`Missing name: ${line}`);
+        continue;
+      }
+      // Proper email validation
+      if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+        parseErrors.push(`Invalid email: ${email || '(empty)'}`);
         continue;
       }
       recipients.push({ name, email, position });
     }
+
+    return { recipients, errors: parseErrors };
+  }
+
+  function handleBulkPreview() {
+    const { recipients, errors } = parseBulkCsv();
+    setBulkParseErrors(errors);
+    if (errors.length > 0) {
+      toast.error(`CSV has ${errors.length} error(s). Fix them before generating.`);
+      setBulkPreview(null);
+      return;
+    }
+    if (recipients.length === 0) {
+      toast.error('No valid recipients found');
+      setBulkPreview(null);
+      return;
+    }
+    setBulkPreview(recipients);
+    toast.success(`${recipients.length} recipient(s) parsed successfully`);
+  }
+
+  function downloadCsvTemplate() {
+    const csv = 'Name,Email,Position (optional)\nAlice Johnson,alice@example.com,1st Place\nBob Smith,bob@example.com,\n';
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'certificate-recipients-template.csv';
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  async function handleBulkGenerate() {
+    if (!bulkEventName || !bulkCsv.trim()) {
+      toast.error('Please fill in event name and recipient list');
+      return;
+    }
+
+    const { recipients, errors: parseErrors } = parseBulkCsv();
 
     if (parseErrors.length) {
       toast.error(`CSV errors: ${parseErrors.join('; ')}`);
@@ -236,27 +285,25 @@ export default function AdminCertificates() {
 
     setBulkGenerating(true);
     try {
-      const res = await fetch(`${API_URL}/certificates/bulk`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({
-          recipients,
-          eventName: bulkEventName,
-          type: bulkType,
-          template: bulkTemplate,
-          signatoryName: bulkSignatory,
-          sendEmail: bulkSendEmail,
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Bulk generation failed');
-      toast.success(data.message || `Generated ${data.data.generated} certificates`);
-      if (data.data.failed > 0) {
-        toast.warning(`${data.data.failed} certificates failed to generate`);
+      const data = await api.bulkGenerateCertificates({
+        recipients,
+        eventName: bulkEventName,
+        type: bulkType,
+        template: bulkTemplate,
+        signatoryName: bulkSignatory,
+        facultyName: bulkFacultyName || undefined,
+        description: bulkDescription || undefined,
+        sendEmail: bulkSendEmail,
+      }, token!);
+      toast.success(`Generated ${data.generated} certificates`);
+      if (data.failed > 0) {
+        toast.warning(`${data.failed} certificates failed to generate`);
       }
       setShowBulk(false);
       setBulkCsv('');
       setBulkEventName('');
+      setBulkPreview(null);
+      setBulkParseErrors([]);
       fetchCerts();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Bulk generation failed');
@@ -269,13 +316,7 @@ export default function AdminCertificates() {
     if (!revokeTarget) return;
     setRevoking(true);
     try {
-      const res = await fetch(`${API_URL}/certificates/${revokeTarget.certId}/revoke`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ reason: revokeReason }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Revoke failed');
+      await api.revokeCertificate(revokeTarget.certId, revokeReason || undefined, token!);
       toast.success('Certificate revoked');
       setRevokeTarget(null);
       setRevokeReason('');
@@ -290,13 +331,8 @@ export default function AdminCertificates() {
   async function handleResend(certId: string) {
     setResendingId(certId);
     try {
-      const res = await fetch(`${API_URL}/certificates/${certId}/resend`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Resend failed');
-      toast.success(data.message || 'Email sent');
+      const data = await api.resendCertificateEmail(certId, token!);
+      toast.success(data.sent ? 'Email sent' : 'Email service not configured');
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Resend failed');
     } finally {
@@ -537,6 +573,14 @@ export default function AdminCertificates() {
                 <label className="text-sm font-medium text-gray-700">Signatory Name</label>
                 <Input value={form.signatoryName} onChange={e => setForm(f => ({ ...f, signatoryName: e.target.value }))} placeholder="Club President" className="mt-1" />
               </div>
+              <div className="col-span-2">
+                <label className="text-sm font-medium text-gray-700">Faculty Name</label>
+                <Input value={form.facultyName} onChange={e => setForm(f => ({ ...f, facultyName: e.target.value }))} placeholder="e.g. Dr. Sharma" className="mt-1" />
+              </div>
+              <div className="col-span-2">
+                <label className="text-sm font-medium text-gray-700">Description</label>
+                <Input value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} placeholder="Custom recognition text (optional)" className="mt-1" />
+              </div>
               <div className="col-span-2 flex items-center gap-2">
                 <input
                   type="checkbox"
@@ -592,17 +636,47 @@ export default function AdminCertificates() {
               <Input value={bulkSignatory} onChange={e => setBulkSignatory(e.target.value)} placeholder="Club President" className="mt-1" />
             </div>
             <div>
-              <label className="text-sm font-medium text-gray-700">
-                Recipients (CSV) *
-              </label>
+              <label className="text-sm font-medium text-gray-700">Faculty Name</label>
+              <Input value={bulkFacultyName} onChange={e => setBulkFacultyName(e.target.value)} placeholder="e.g. Dr. Sharma" className="mt-1" />
+            </div>
+            <div>
+              <label className="text-sm font-medium text-gray-700">Description</label>
+              <Input value={bulkDescription} onChange={e => setBulkDescription(e.target.value)} placeholder="Custom recognition text (optional)" className="mt-1" />
+            </div>
+            <div>
+              <div className="flex items-center justify-between mb-1">
+                <label className="text-sm font-medium text-gray-700">
+                  Recipients (CSV) *
+                </label>
+                <Button variant="ghost" size="sm" onClick={downloadCsvTemplate} className="h-7 text-xs gap-1 text-amber-600 hover:text-amber-700">
+                  <FileDown className="w-3 h-3" />
+                  Download Template
+                </Button>
+              </div>
               <p className="text-xs text-gray-400 mb-1">One per line: <code>Name, Email, Position (optional)</code></p>
               <textarea
                 value={bulkCsv}
-                onChange={e => setBulkCsv(e.target.value)}
+                onChange={e => { setBulkCsv(e.target.value); setBulkPreview(null); setBulkParseErrors([]); }}
                 rows={6}
                 placeholder={"Alice, alice@example.com, 1st Place\nBob, bob@example.com"}
                 className="mt-1 w-full border border-gray-200 rounded-md px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-amber-400 resize-none"
               />
+              {bulkParseErrors.length > 0 && (
+                <div className="mt-2 p-2 bg-red-50 border border-red-200 rounded text-xs text-red-600 space-y-0.5">
+                  {bulkParseErrors.map((e, i) => <p key={i}>{e}</p>)}
+                </div>
+              )}
+              {bulkPreview && (
+                <div className="mt-2 p-2 bg-green-50 border border-green-200 rounded text-xs text-green-700">
+                  <p className="font-medium mb-1">{bulkPreview.length} recipient(s) ready:</p>
+                  <div className="max-h-24 overflow-y-auto space-y-0.5">
+                    {bulkPreview.slice(0, 10).map((r, i) => (
+                      <p key={i}>{r.name} — {r.email}{r.position ? ` (${r.position})` : ''}</p>
+                    ))}
+                    {bulkPreview.length > 10 && <p className="text-green-500">…and {bulkPreview.length - 10} more</p>}
+                  </div>
+                </div>
+              )}
             </div>
             <div className="flex items-center gap-2">
               <input type="checkbox" id="bulkSendEmail" checked={bulkSendEmail} onChange={e => setBulkSendEmail(e.target.checked)} className="w-4 h-4 rounded accent-amber-500" />
@@ -611,10 +685,17 @@ export default function AdminCertificates() {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setShowBulk(false)}>Cancel</Button>
-            <Button onClick={handleBulkGenerate} disabled={bulkGenerating} className="bg-amber-500 hover:bg-amber-600 text-white">
-              {bulkGenerating ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Users className="w-4 h-4 mr-2" />}
-              {bulkGenerating ? 'Generating…' : 'Generate All'}
-            </Button>
+            {!bulkPreview ? (
+              <Button onClick={handleBulkPreview} className="bg-blue-500 hover:bg-blue-600 text-white">
+                <Eye className="w-4 h-4 mr-2" />
+                Preview
+              </Button>
+            ) : (
+              <Button onClick={handleBulkGenerate} disabled={bulkGenerating} className="bg-amber-500 hover:bg-amber-600 text-white">
+                {bulkGenerating ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Users className="w-4 h-4 mr-2" />}
+                {bulkGenerating ? 'Generating…' : 'Generate All'}
+              </Button>
+            )}
           </DialogFooter>
         </DialogContent>
       </Dialog>

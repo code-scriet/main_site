@@ -40,6 +40,8 @@ Font.registerHyphenationCallback((word: string) => [word]);
 // ── LEGACY TEMPLATE TYPE (kept for API backwards compat — ignored in rendering) ──
 export type CertTemplate = 'gold' | 'dark' | 'white' | 'emerald';
 
+const FRONTEND_URL = process.env.FRONTEND_URL || 'https://codescriet.dev';
+
 export interface CertData {
   recipientName:     string;
   eventName:         string;
@@ -107,7 +109,7 @@ function getPosShort(position?: string): string {
 export async function generateCertificatePDF(data: CertData): Promise<Buffer> {
   const type       = data.type.toUpperCase();
   const isWinner   = type === 'WINNER';
-  const verifyUrl  = `https://codescriet.dev/verify/${data.certId}`;
+  const verifyUrl  = `${FRONTEND_URL}/verify/${data.certId}`;
   const qrDataUrl  = await QRCode.toDataURL(verifyUrl, {
     width: 160, margin: 1,
     color: { dark: '#000000', light: '#ffffff' },
@@ -748,7 +750,7 @@ export async function generateCertificatePDF(data: CertData): Promise<Buffer> {
             fontFamily: 'CormorantGaramond', fontSize: 6.5,
             color: 'rgba(255,255,255,0.15)', letterSpacing: 1.5,
           },
-        }, `This certificate is digitally verified  ·  codescriet.dev/verify/${data.certId}`),
+        }, `This certificate is digitally verified  ·  ${FRONTEND_URL.replace(/^https?:\/\//, '')}/verify/${data.certId}`),
 
       )
     )

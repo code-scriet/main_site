@@ -14,6 +14,11 @@ import { generateCertId } from '../utils/generateCertId.js';
 import { generateCertificatePDF } from '../utils/generateCertificatePDF.js';
 import { uploadCertificate } from '../utils/uploadCertificate.js';
 import { emailService } from '../utils/email.js';
+import { sanitizeText } from '../utils/sanitize.js';
+import { auditLog } from '../utils/audit.js';
+
+const FRONTEND_URL = process.env.FRONTEND_URL || 'https://codescriet.dev';
+const RESEND_COOLDOWN_MS = 10 * 60 * 1000; // 10 minutes
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const LOCAL_CERT_DIR = path.join(__dirname, '..', '..', 'uploads', 'certificates');
@@ -260,6 +265,22 @@ certificatesRouter.post('/generate', authMiddleware, requireRole('ADMIN'), async
   } = validation.data;
 
   try {
+    // Validate recipientId exists if provided
+    if (recipientId) {
+      const userExists = await prisma.user.findUnique({ where: { id: recipientId }, select: { id: true } });
+      if (!userExists) {
+        return ApiResponse.badRequest(res, 'Recipient user not found');
+      }
+    }
+
+    // Validate eventId exists if provided
+    if (eventId) {
+      const eventExists = await prisma.event.findUnique({ where: { id: eventId }, select: { id: true } });
+      if (!eventExists) {
+        return ApiResponse.badRequest(res, 'Event not found');
+      }
+    }
+
     // Generate unique cert ID, retry on collision (extremely rare)
     let certId = generateCertId();
     let attempts = 0;
@@ -267,19 +288,31 @@ certificatesRouter.post('/generate', authMiddleware, requireRole('ADMIN'), async
       certId = generateCertId();
       attempts++;
     }
+    if (attempts >= 5 && await prisma.certificate.findUnique({ where: { certId } })) {
+      return ApiResponse.error(res, { code: ErrorCodes.INTERNAL_ERROR, message: 'Failed to generate unique certificate ID. Please try again.', status: 500 });
+    }
+
+    // Sanitize text fields before PDF rendering
+    const safeRecipientName = sanitizeText(recipientName);
+    const safeEventName = sanitizeText(eventName);
+    const safePosition = position ? sanitizeText(position) : undefined;
+    const safeDomain = domain ? sanitizeText(domain) : undefined;
+    const safeDescription = description ? sanitizeText(description) : undefined;
+    const safeSignatoryName = sanitizeText(signatoryName);
+    const safeFacultyName = facultyName ? sanitizeText(facultyName) : undefined;
 
     // Generate PDF
     const pdfBuffer = await generateCertificatePDF({
-      recipientName,
-      eventName,
+      recipientName: safeRecipientName,
+      eventName: safeEventName,
       type,
-      position: position ?? undefined,
-      domain: domain ?? undefined,
-      description: description ?? undefined,
+      position: safePosition,
+      domain: safeDomain,
+      description: safeDescription,
       certId,
       issuedAt: new Date(),
-      signatoryName,
-      facultyName: facultyName ?? undefined,
+      signatoryName: safeSignatoryName,
+      facultyName: safeFacultyName,
       template,
       codescrietLogoUrl: CODESCRIET_LOGO,
       ccsuLogoUrl: CCSU_LOGO,
@@ -292,14 +325,15 @@ certificatesRouter.post('/generate', authMiddleware, requireRole('ADMIN'), async
     const certificate = await prisma.certificate.create({
       data: {
         certId,
-        recipientName,
+        recipientName: safeRecipientName,
         recipientEmail,
         recipientId: recipientId || null,
         eventId: eventId || null,
-        eventName,
+        eventName: safeEventName,
         type: type.toUpperCase() as CertType,
-        position: position || null,
-        domain: domain || null,
+        position: safePosition || null,
+        domain: safeDomain || null,
+        description: safeDescription || null,
         template,
         pdfUrl,
         issuedBy: authUser.id,
@@ -321,11 +355,12 @@ certificatesRouter.post('/generate', authMiddleware, requireRole('ADMIN'), async
     }
 
     logger.info('Certificate generated', { certId, recipientEmail, eventName, type, issuedBy: authUser.id });
+    await auditLog(authUser.id, 'CERTIFICATE_GENERATE', 'certificate', certId, { recipientEmail, eventName, type });
 
     return ApiResponse.success(res, {
       certId: certificate.certId,
       pdfUrl,
-      verifyUrl: `https://codescriet.dev/verify/${certId}`,
+      verifyUrl: `${FRONTEND_URL}/verify/${certId}`,
     }, 'Certificate generated successfully');
   } catch (error: unknown) {
     const err = error as Error;
@@ -355,6 +390,20 @@ certificatesRouter.post('/bulk', authMiddleware, requireRole('ADMIN'), async (re
 
   const { recipients, eventId, eventName, type, template, signatoryName, facultyName, description, sendEmail } = validation.data;
 
+  // Validate eventId if provided
+  if (eventId) {
+    const eventExists = await prisma.event.findUnique({ where: { id: eventId }, select: { id: true } });
+    if (!eventExists) {
+      return ApiResponse.badRequest(res, 'Event not found');
+    }
+  }
+
+  // Sanitize shared text fields once
+  const safeEventName = sanitizeText(eventName);
+  const safeSignatoryName = sanitizeText(signatoryName);
+  const safeFacultyName = facultyName ? sanitizeText(facultyName) : undefined;
+  const safeDescription = description ? sanitizeText(description) : undefined;
+
   const successes: Array<{ certId: string; pdfUrl: string; name: string; email: string }> = [];
   const failures: Array<{ name: string; email: string; reason: string }> = [];
 
@@ -365,17 +414,20 @@ certificatesRouter.post('/bulk', authMiddleware, requireRole('ADMIN'), async (re
     await Promise.allSettled(
       batch.map(async (r) => {
         try {
+          const safeName = sanitizeText(r.name);
+          const safePosition = r.position ? sanitizeText(r.position) : undefined;
+
           const certId = generateCertId();
           const pdfBuffer = await generateCertificatePDF({
-            recipientName: r.name,
-            eventName,
+            recipientName: safeName,
+            eventName: safeEventName,
             type,
-            position: r.position ?? undefined,
-            description: description ?? undefined,
+            position: safePosition,
+            description: safeDescription,
             certId,
             issuedAt: new Date(),
-            signatoryName,
-            facultyName: facultyName ?? undefined,
+            signatoryName: safeSignatoryName,
+            facultyName: safeFacultyName,
             template,
             codescrietLogoUrl: CODESCRIET_LOGO,
             ccsuLogoUrl: CCSU_LOGO,
@@ -386,13 +438,14 @@ certificatesRouter.post('/bulk', authMiddleware, requireRole('ADMIN'), async (re
           await prisma.certificate.create({
             data: {
               certId,
-              recipientName: r.name,
+              recipientName: safeName,
               recipientEmail: r.email,
               recipientId: r.userId || null,
               eventId: eventId || null,
-              eventName,
+              eventName: safeEventName,
               type: type.toUpperCase() as CertType,
-              position: r.position || null,
+              position: safePosition || null,
+              description: safeDescription || null,
               template,
               pdfUrl,
               issuedBy: authUser.id,
@@ -409,7 +462,7 @@ certificatesRouter.post('/bulk', authMiddleware, requireRole('ADMIN'), async (re
                   });
                 }
               })
-              .catch(() => {});
+              .catch(err => logger.error('Bulk certificate email failed', { certId, email: r.email, error: err instanceof Error ? err.message : String(err) }));
           }
 
           successes.push({ certId, pdfUrl, name: r.name, email: r.email });
@@ -427,6 +480,10 @@ certificatesRouter.post('/bulk', authMiddleware, requireRole('ADMIN'), async (re
     failed: failures.length,
     eventName,
     issuedBy: authUser.id,
+  });
+
+  await auditLog(authUser.id, 'CERTIFICATE_BULK_GENERATE', 'certificate', undefined, {
+    eventName, type, generated: successes.length, failed: failures.length, total: recipients.length,
   });
 
   return ApiResponse.success(res, {
@@ -493,29 +550,44 @@ certificatesRouter.get('/verify/:certId', certificateVerifyLimiter, async (req: 
 certificatesRouter.get('/mine', authMiddleware, async (req: Request, res: Response) => {
   const authUser = getAuthUser(req)!;
   try {
-    const certificates = await prisma.certificate.findMany({
-      where: {
-        OR: [
-          { recipientId: authUser.id },
-          { recipientEmail: authUser.email },
-        ],
-        isRevoked: false,
-      },
-      orderBy: { issuedAt: 'desc' },
-      select: {
-        certId: true,
-        recipientName: true,
-        eventName: true,
-        type: true,
-        position: true,
-        domain: true,
-        template: true,
-        issuedAt: true,
-        pdfUrl: true,
-      },
-    });
+    const page = Math.max(1, parseInt(req.query.page as string) || 1);
+    const limit = Math.min(50, Math.max(1, parseInt(req.query.limit as string) || 20));
+    const type = req.query.type as string | undefined;
+    const sort = (req.query.sort as string) === 'asc' ? 'asc' as const : 'desc' as const;
 
-    return ApiResponse.success(res, { certificates });
+    const where: Record<string, unknown> = {
+      OR: [
+        { recipientId: authUser.id },
+        { recipientEmail: authUser.email },
+      ],
+      isRevoked: false,
+    };
+    if (type && ['PARTICIPATION', 'COMPLETION', 'WINNER', 'SPEAKER'].includes(type.toUpperCase())) {
+      where.type = type.toUpperCase();
+    }
+
+    const [certificates, total] = await Promise.all([
+      prisma.certificate.findMany({
+        where,
+        orderBy: { issuedAt: sort },
+        skip: (page - 1) * limit,
+        take: limit,
+        select: {
+          certId: true,
+          recipientName: true,
+          eventName: true,
+          type: true,
+          position: true,
+          domain: true,
+          template: true,
+          issuedAt: true,
+          pdfUrl: true,
+        },
+      }),
+      prisma.certificate.count({ where }),
+    ]);
+
+    return ApiResponse.success(res, { certificates, total, page, totalPages: Math.ceil(total / limit) });
   } catch (error) {
     logger.error('Failed to fetch user certificates', { userId: authUser.id, error });
     return ApiResponse.error(res, { code: ErrorCodes.INTERNAL_ERROR, message: 'Failed to fetch certificates', status: 500 });
@@ -528,7 +600,7 @@ certificatesRouter.get('/mine', authMiddleware, async (req: Request, res: Respon
 // ──────────────────────────────────────────────────────────────────
 certificatesRouter.patch('/:certId/revoke', authMiddleware, requireRole('ADMIN'), async (req: Request, res: Response) => {
   const authUser = getAuthUser(req)!;
-  const { certId } = req.params;
+  const upperCertId = req.params.certId.toUpperCase();
 
   const validation = revokeSchema.safeParse(req.body);
   if (!validation.success) {
@@ -536,7 +608,7 @@ certificatesRouter.patch('/:certId/revoke', authMiddleware, requireRole('ADMIN')
   }
 
   try {
-    const cert = await prisma.certificate.findUnique({ where: { certId } });
+    const cert = await prisma.certificate.findUnique({ where: { certId: upperCertId } });
     if (!cert) {
       return ApiResponse.error(res, { code: ErrorCodes.NOT_FOUND, message: 'Certificate not found', status: 404 });
     }
@@ -545,7 +617,7 @@ certificatesRouter.patch('/:certId/revoke', authMiddleware, requireRole('ADMIN')
     }
 
     await prisma.certificate.update({
-      where: { certId },
+      where: { certId: upperCertId },
       data: {
         isRevoked: true,
         revokedAt: new Date(),
@@ -554,10 +626,11 @@ certificatesRouter.patch('/:certId/revoke', authMiddleware, requireRole('ADMIN')
       },
     });
 
-    logger.info('Certificate revoked', { certId, revokedBy: authUser.id });
-    return ApiResponse.success(res, { certId }, 'Certificate revoked');
+    logger.info('Certificate revoked', { certId: upperCertId, revokedBy: authUser.id });
+    await auditLog(authUser.id, 'CERTIFICATE_REVOKE', 'certificate', upperCertId, { reason: validation.data.reason });
+    return ApiResponse.success(res, { certId: upperCertId }, 'Certificate revoked');
   } catch (error) {
-    logger.error('Failed to revoke certificate', { certId, error });
+    logger.error('Failed to revoke certificate', { certId: upperCertId, error });
     return ApiResponse.error(res, { code: ErrorCodes.INTERNAL_ERROR, message: 'Failed to revoke certificate', status: 500 });
   }
 });
@@ -567,10 +640,10 @@ certificatesRouter.patch('/:certId/revoke', authMiddleware, requireRole('ADMIN')
 // POST /api/certificates/:certId/resend
 // ──────────────────────────────────────────────────────────────────
 certificatesRouter.post('/:certId/resend', authMiddleware, requireRole('ADMIN'), async (req: Request, res: Response) => {
-  const { certId } = req.params;
+  const upperCertId = req.params.certId.toUpperCase();
 
   try {
-    const cert = await prisma.certificate.findUnique({ where: { certId } });
+    const cert = await prisma.certificate.findUnique({ where: { certId: upperCertId } });
     if (!cert) {
       return ApiResponse.error(res, { code: ErrorCodes.NOT_FOUND, message: 'Certificate not found', status: 404 });
     }
@@ -579,6 +652,12 @@ certificatesRouter.post('/:certId/resend', authMiddleware, requireRole('ADMIN'),
     }
     if (cert.isRevoked) {
       return ApiResponse.badRequest(res, 'Cannot resend a revoked certificate');
+    }
+
+    // Rate limit: one resend per 10 minutes per certificate
+    if (cert.lastEmailResentAt && (Date.now() - cert.lastEmailResentAt.getTime()) < RESEND_COOLDOWN_MS) {
+      const waitMinutes = Math.ceil((RESEND_COOLDOWN_MS - (Date.now() - cert.lastEmailResentAt.getTime())) / 60000);
+      return ApiResponse.badRequest(res, `Please wait ${waitMinutes} minute(s) before resending this certificate email`);
     }
 
     const sent = await emailService.sendCertificateIssued(
@@ -591,14 +670,15 @@ certificatesRouter.post('/:certId/resend', authMiddleware, requireRole('ADMIN'),
 
     if (sent) {
       await prisma.certificate.update({
-        where: { certId },
-        data: { emailSent: true, emailSentAt: new Date() },
+        where: { certId: upperCertId },
+        data: { emailSent: true, emailSentAt: new Date(), lastEmailResentAt: new Date() },
       });
     }
 
+    await auditLog(getAuthUser(req)!.id, 'CERTIFICATE_RESEND', 'certificate', upperCertId, { sent });
     return ApiResponse.success(res, { sent }, sent ? 'Email sent' : 'Email service not configured');
   } catch (error) {
-    logger.error('Failed to resend certificate email', { certId, error });
+    logger.error('Failed to resend certificate email', { certId: upperCertId, error });
     return ApiResponse.error(res, { code: ErrorCodes.INTERNAL_ERROR, message: 'Failed to resend email', status: 500 });
   }
 });

@@ -116,12 +116,14 @@ function ValidResult({ result }: { result: VerifyResult }) {
               </div>
 
               {result.pdfUrl && (
-                <a href={result.pdfUrl} target="_blank" rel="noopener noreferrer" className="mt-4 inline-block">
-                  <Button className="gap-2 bg-amber-500 hover:bg-amber-600 text-white">
-                    <Download className="w-4 h-4" />
-                    Download Certificate
-                  </Button>
-                </a>
+                <div className="mt-4 flex gap-2">
+                  <a href={`${API_URL}/certificates/files/${result.certId}.pdf`} target="_blank" rel="noopener noreferrer">
+                    <Button className="gap-2 bg-amber-500 hover:bg-amber-600 text-white">
+                      <Download className="w-4 h-4" />
+                      Download Certificate
+                    </Button>
+                  </a>
+                </div>
               )}
             </div>
           </div>
@@ -225,12 +227,17 @@ function QRScanner({ onDetect }: { onDetect: (certId: string) => void }) {
       }
       rafRef.current = requestAnimationFrame(tick);
     }).catch(() => {
-      rafRef.current = requestAnimationFrame(tick);
+      setError('QR scanner failed to load. Please enter the certificate ID manually.');
+      stopCamera();
     });
   }, [onDetect, stopCamera]);
 
   async function startCamera() {
     setError('');
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setError('Camera API not available. Please use a modern browser with HTTPS.');
+      return;
+    }
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         video: { facingMode: 'environment' },
@@ -242,8 +249,17 @@ function QRScanner({ onDetect }: { onDetect: (certId: string) => void }) {
       }
       setScanning(true);
       rafRef.current = requestAnimationFrame(tick);
-    } catch {
-      setError('Camera access denied. Please allow camera access and try again.');
+    } catch (err) {
+      const name = err instanceof DOMException ? err.name : '';
+      if (name === 'NotAllowedError') {
+        setError('Camera access denied. Please allow camera permission in your browser settings and try again.');
+      } else if (name === 'NotFoundError') {
+        setError('No camera found on this device.');
+      } else if (name === 'NotReadableError' || name === 'AbortError') {
+        setError('Camera is in use by another app. Close it and try again.');
+      } else {
+        setError('Could not access camera. Please try again or enter the certificate ID manually.');
+      }
     }
   }
 

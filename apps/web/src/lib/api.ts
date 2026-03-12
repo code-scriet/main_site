@@ -851,4 +851,33 @@ export const api = {
         totalParticipants: number;
       }>;
     }>('/quiz/my-dashboard', { token }),
+
+  // Certificates
+  getCertificates: (token: string, params?: { page?: number; limit?: number; search?: string; type?: string; eventId?: string }) => {
+    const qs = new URLSearchParams();
+    if (params?.page) qs.set('page', String(params.page));
+    if (params?.limit) qs.set('limit', String(params.limit));
+    if (params?.search) qs.set('search', params.search);
+    if (params?.type) qs.set('type', params.type);
+    if (params?.eventId) qs.set('eventId', params.eventId);
+    const query = qs.toString() ? `?${qs.toString()}` : '';
+    return request<{ certificates: unknown[]; total: number; page: number; totalPages: number }>(`/certificates${query}`, { token });
+  },
+  generateCertificate: (data: Record<string, unknown>, token: string) =>
+    request<{ certId: string; pdfUrl: string; verifyUrl: string }>('/certificates/generate', { method: 'POST', body: JSON.stringify(data), token }),
+  bulkGenerateCertificates: (data: Record<string, unknown>, token: string) =>
+    request<{ generated: number; failed: number; results: unknown[]; errors: unknown[] }>('/certificates/bulk', { method: 'POST', body: JSON.stringify(data), token }),
+  getMyCertificates: (token: string, params?: { page?: number; limit?: number; type?: string; sort?: string }) => {
+    const qs = new URLSearchParams();
+    if (params?.page) qs.set('page', String(params.page));
+    if (params?.limit) qs.set('limit', String(params.limit));
+    if (params?.type) qs.set('type', params.type);
+    if (params?.sort) qs.set('sort', params.sort);
+    const query = qs.toString() ? `?${qs.toString()}` : '';
+    return request<{ certificates: unknown[]; total: number; page: number; totalPages: number }>(`/certificates/mine${query}`, { token });
+  },
+  revokeCertificate: (certId: string, reason: string | undefined, token: string) =>
+    request<{ certId: string }>(`/certificates/${certId}/revoke`, { method: 'PATCH', body: JSON.stringify({ reason }), token }),
+  resendCertificateEmail: (certId: string, token: string) =>
+    request<{ sent: boolean }>(`/certificates/${certId}/resend`, { method: 'POST', token }),
 };
