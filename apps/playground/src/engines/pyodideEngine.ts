@@ -180,8 +180,8 @@ builtins.input = __patched_input
 
         let errorMsg = parts
           .filter(Boolean)
-          .join('\n')
-          .replace(/\n{3,}/g, '\n\n')
+          .join('\\n')
+          .replace(/\\n{3,}/g, '\\n\\n')
           .trim();
 
         // If we only captured a bare label (e.g. "PythonError"), keep a
