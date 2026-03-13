@@ -253,6 +253,12 @@ async function sendCertificateFile(
     return res.status(404).json({ error: 'Stored certificate file is unavailable on this server.' });
   }
 
+  // For Cloudinary-hosted PDFs, redirect with fl_attachment to force browser download
+  if (cert.pdfUrl.includes('res.cloudinary.com')) {
+    const cloudinaryDownloadUrl = cert.pdfUrl.replace('/raw/upload/', '/raw/upload/fl_attachment/');
+    return res.redirect(302, cloudinaryDownloadUrl);
+  }
+
   try {
     const upstream = await fetch(cert.pdfUrl);
     if (!upstream.ok) {

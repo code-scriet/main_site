@@ -18,6 +18,7 @@ const GREAT_VIBES_PATH       = path.join(LOGOS_DIR, 'GreatVibes.ttf');
 const CINZEL_PATH            = path.join(LOGOS_DIR, 'Cinzel.ttf');
 const CORMORANT_PATH         = path.join(LOGOS_DIR, 'CormorantGaramond.ttf');
 const CORMORANT_ITALIC_PATH  = path.join(LOGOS_DIR, 'CormorantGaramond-Italic.ttf');
+const PLAYFAIR_BOLD_PATH     = path.join(LOGOS_DIR, 'PlayfairDisplay-Bold.ttf');
 
 try { Font.register({ family: 'GreatVibes', src: GREAT_VIBES_PATH }); }
 catch { /* fallback: Times-BoldItalic */ }
@@ -34,6 +35,9 @@ try {
     ],
   });
 } catch { /* fallback: Times-Roman */ }
+
+try { Font.register({ family: 'PlayfairDisplay', src: PLAYFAIR_BOLD_PATH, fontWeight: 700 }); }
+catch { /* fallback: Times-BoldItalic */ }
 
 Font.registerHyphenationCallback((word: string) => [word]);
 
@@ -301,10 +305,10 @@ export async function generateCertificatePDF(data: CertData): Promise<Buffer> {
                 color: C.textMuted, letterSpacing: 2, marginBottom: 8,
               },
             }, 'THIS CERTIFICATE IS PROUDLY PRESENTED TO'),
-            // Use only bundled fonts that are verified to load on the server.
             React.createElement(Text, {
               style: {
-                fontFamily: 'CormorantGaramond', fontSize: nameFontSize(data.recipientName),
+                fontFamily: 'PlayfairDisplay', fontWeight: 700,
+                fontSize: nameFontSize(data.recipientName),
                 color: C.maroon,
                 lineHeight: 1.1, letterSpacing: 0.5,
                 textAlign: 'center', maxWidth: 680,
