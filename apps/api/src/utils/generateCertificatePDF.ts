@@ -13,7 +13,9 @@ import { logger } from './logger.js';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const LOGOS_DIR = path.join(__dirname, '..', '..', 'public', 'logos');
 
-// ── CUSTOM FONTS (local files — no network at render time) ────────────────────
+// ── CUSTOM FONTS ──────────────────────────────────────────────────────────────
+// Primary: static TTF from Google Fonts GitHub (guaranteed pure TTF binary).
+// Fallback: local files (may fail if they're WOFF2 mislabeled as .woff or variable TTFs).
 const GREAT_VIBES_PATH       = path.join(LOGOS_DIR, 'GreatVibes.ttf');
 const CINZEL_REG_PATH        = path.join(LOGOS_DIR, 'Cinzel-Regular.woff');
 const CINZEL_BOLD_PATH       = path.join(LOGOS_DIR, 'Cinzel-Bold.woff');
@@ -21,47 +23,74 @@ const CORMORANT_PATH         = path.join(LOGOS_DIR, 'CormorantGaramond.ttf');
 const CORMORANT_ITALIC_PATH  = path.join(LOGOS_DIR, 'CormorantGaramond-Italic.ttf');
 const PLAYFAIR_BOLD_PATH     = path.join(LOGOS_DIR, 'PlayfairDisplay-Bold.woff');
 
-try { 
-  Font.register({ 
-    family: 'GreatVibes', 
-    src: 'https://fonts.gstatic.com/s/greatvibes/v14/RWmMoKWR9v4ksMfaWd_JN9XFiaQ.ttf' 
-  }); 
-}
-catch { /* fallback: Times-BoldItalic */ }
 
-try {
-  Font.register({
+
+function registerFontSafe(family: string, primary: () => void, fallback: () => void) {
+  try { primary(); }
+  catch {
+    try { fallback(); }
+    catch { logger.warn(`Could not register font "${family}" from either source`); }
+  }
+}
+
+// Static instance TTF URLs from Google Fonts CSS API (verified format: 'truetype').
+// These are pre-compiled single-weight instances — NOT variable fonts.
+const GSTATIC_CINZEL_400 = 'https://fonts.gstatic.com/s/cinzel/v26/8vIU7ww63mVu7gtR-kwKxNvkNOjw-tbnTYo.ttf';
+const GSTATIC_CINZEL_700 = 'https://fonts.gstatic.com/s/cinzel/v26/8vIU7ww63mVu7gtR-kwKxNvkNOjw-jHgTYo.ttf';
+const GSTATIC_CORMORANT_400 = 'https://fonts.gstatic.com/s/cormorantgaramond/v21/co3umX5slCNuHLi8bLeY9MK7whWMhyjypVO7abI26QOD_v86GnM.ttf';
+const GSTATIC_CORMORANT_400I = 'https://fonts.gstatic.com/s/cormorantgaramond/v21/co3smX5slCNuHLi8bLeY9MK7whWMhyjYrGFEsdtdc62E6zd58jDOjw.ttf';
+const GSTATIC_PLAYFAIR_700 = 'https://fonts.gstatic.com/s/playfairdisplay/v40/nuFvD-vYSZviVYUb_rj3ij__anPXJzDwcbmjWBN2PKeiukDQ.ttf';
+const GSTATIC_GREATVIBES = 'https://raw.githubusercontent.com/google/fonts/main/ofl/greatvibes/GreatVibes-Regular.ttf';
+
+registerFontSafe('GreatVibes',
+  () => Font.register({ family: 'GreatVibes', src: GSTATIC_GREATVIBES }),
+  () => Font.register({ family: 'GreatVibes', src: GREAT_VIBES_PATH }),
+);
+
+registerFontSafe('Cinzel',
+  () => Font.register({
     family: 'Cinzel',
     fonts: [
-      { src: 'https://fonts.gstatic.com/s/cinzel/v19/8vIX7ww63mVu7gtz8E0.ttf', fontWeight: 400 },
-      { src: 'https://fonts.gstatic.com/s/cinzel/v19/8vIV7ww63mVu7gtzS0eAxw.ttf', fontWeight: 700 },
+      { src: GSTATIC_CINZEL_400, fontWeight: 400 },
+      { src: GSTATIC_CINZEL_700, fontWeight: 700 },
+    ],
+  }),
+  () => Font.register({
+    family: 'Cinzel',
+    fonts: [
       { src: CINZEL_REG_PATH, fontWeight: 400 },
       { src: CINZEL_BOLD_PATH, fontWeight: 700 },
     ],
-  });
-} catch { /* fallback: Helvetica-Bold */ }
+  }),
+);
 
-try {
-  Font.register({
+registerFontSafe('CormorantGaramond',
+  () => Font.register({
     family: 'CormorantGaramond',
     fonts: [
-      { src: 'https://fonts.gstatic.com/s/cormorantgaramond/v14/co3bmX5slCNwfwPUA3j85C1_vYf0y08.ttf' },
-      { src: 'https://fonts.gstatic.com/s/cormorantgaramond/v14/co3dmX5slCNwfwPUA3j85C1_vdfg41p12w.ttf', fontStyle: 'italic' },
+      { src: GSTATIC_CORMORANT_400 },
+      { src: GSTATIC_CORMORANT_400I, fontStyle: 'italic' },
+    ],
+  }),
+  () => Font.register({
+    family: 'CormorantGaramond',
+    fonts: [
       { src: CORMORANT_PATH },
       { src: CORMORANT_ITALIC_PATH, fontStyle: 'italic' },
     ],
-  });
-} catch { /* fallback: Times-Roman */ }
+  }),
+);
 
-try {
-  Font.register({ 
-    family: 'PlayfairDisplay', 
-    fonts: [
-      { src: 'https://fonts.gstatic.com/s/playfairdisplay/v30/nuFvD-vYSZviVYUb_rj3ij__anPXJzDwcbmjWBN2PKdFvXDXbtMK.ttf', fontWeight: 700 },
-      { src: PLAYFAIR_BOLD_PATH, fontWeight: 700 }
-    ] 
-  });
-} catch { /* fallback */ }
+registerFontSafe('PlayfairDisplay',
+  () => Font.register({
+    family: 'PlayfairDisplay',
+    fonts: [{ src: GSTATIC_PLAYFAIR_700, fontWeight: 700 }],
+  }),
+  () => Font.register({
+    family: 'PlayfairDisplay',
+    fonts: [{ src: PLAYFAIR_BOLD_PATH, fontWeight: 700 }],
+  }),
+);
 
 Font.registerHyphenationCallback((word: string) => [word]);
 
