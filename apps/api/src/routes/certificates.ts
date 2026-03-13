@@ -265,14 +265,22 @@ async function sendCertificateFile(
   // or we natively HTTP redirect the browser directly to Cloudinary (for public verifications).
   let finalUrl = cert.pdfUrl;
 
-  // Cloudinary requires signed URLs for strict delivery of `image/pdf` files
+  // Cloudinary requires signed URLs for strict delivery.
+  // CRITICAL: The resource_type in the signed URL MUST match the resource_type
+  // used during upload, otherwise Cloudinary returns ERR_INVALID_RESPONSE.
+  // Old certs used 'raw', new ones use 'raw' too. Detect from stored URL to be safe.
   if (isCloudinaryConfigured && finalUrl.includes('cloudinary.com')) {
+    // Detect resource_type from the stored URL path: /raw/upload/ or /image/upload/
+    let detectedResourceType: 'raw' | 'image' = 'raw';
+    if (finalUrl.includes('/image/upload/')) {
+      detectedResourceType = 'image';
+    }
+
     finalUrl = cloudinary.url(`certificates/${cert.certId}.pdf`, {
-      resource_type: 'image',
+      resource_type: detectedResourceType,
       type: 'upload',
       sign_url: true,
       secure: true,
-      flags: 'attachment', // ensures browsers present the 'save as' dialog cleanly if they don't natively view
     });
   }
 

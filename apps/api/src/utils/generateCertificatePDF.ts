@@ -40,7 +40,7 @@ const GSTATIC_CINZEL_700 = 'https://fonts.gstatic.com/s/cinzel/v26/8vIU7ww63mVu7
 const GSTATIC_CORMORANT_400 = 'https://fonts.gstatic.com/s/cormorantgaramond/v21/co3umX5slCNuHLi8bLeY9MK7whWMhyjypVO7abI26QOD_v86GnM.ttf';
 const GSTATIC_CORMORANT_400I = 'https://fonts.gstatic.com/s/cormorantgaramond/v21/co3smX5slCNuHLi8bLeY9MK7whWMhyjYrGFEsdtdc62E6zd58jDOjw.ttf';
 const GSTATIC_PLAYFAIR_700 = 'https://fonts.gstatic.com/s/playfairdisplay/v40/nuFvD-vYSZviVYUb_rj3ij__anPXJzDwcbmjWBN2PKeiukDQ.ttf';
-const GSTATIC_GREATVIBES = 'https://raw.githubusercontent.com/google/fonts/main/ofl/greatvibes/GreatVibes-Regular.ttf';
+const GSTATIC_GREATVIBES = 'https://fonts.gstatic.com/s/greatvibes/v21/RWmMoKWR9v4ksMfaWd_JN-XC.ttf';
 
 registerFontSafe('GreatVibes',
   () => Font.register({ family: 'GreatVibes', src: GSTATIC_GREATVIBES }),

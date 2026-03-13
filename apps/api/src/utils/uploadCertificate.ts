@@ -91,7 +91,7 @@ function uploadToCloudinary(certId: string, pdfBuffer: Buffer): Promise<string> 
     const uploadStream = cloudinary.uploader.upload_stream(
       {
         public_id: `certificates/${certId}`,
-        resource_type: 'image',
+        resource_type: 'raw',
         format: 'pdf',
         tags: ['certificate'],
         overwrite: false,
