@@ -234,67 +234,38 @@ async function sendCertificateFile(
   cert: Pick<CertificateFileRecord, 'certId' | 'pdfUrl'>,
   source: 'authenticated-download' | 'public-verify-download' | 'legacy-file-link',
 ) {
-  const filename = `${cert.certId}.pdf`;
   const localPath = buildCertificateLocalPath(cert.certId);
 
-  res.setHeader('Content-Type', 'application/pdf');
-  res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
-  res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
-
+  // If we have a copy stored locally physically, we can just send it back.
   if (fs.existsSync(localPath)) {
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${cert.certId}.pdf"`);
+    res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
     return res.sendFile(localPath);
   }
 
   if (!cert.pdfUrl) {
-    return res.status(404).json({ error: 'No PDF available for this certificate.' });
+    if (source === 'authenticated-download') {
+      return res.status(404).json({ error: 'No PDF available for this certificate.' });
+    }
+    return res.status(404).send('No PDF available for this certificate.');
   }
 
   if (isLegacyLocalCertificateUrl(cert.certId, cert.pdfUrl)) {
-    return res.status(404).json({ error: 'Stored certificate file is unavailable on this server.' });
+    if (source === 'authenticated-download') {
+      return res.status(404).json({ error: 'Stored certificate file is unavailable on this server.' });
+    }
+    return res.status(404).send('Stored certificate file is unavailable on this server.');
   }
 
-  // Proxy the PDF from Cloudinary (or any remote URL) through our server
-  // to force download with correct Content-Disposition header.
-  // Note: fl_attachment on Cloudinary raw files returns 401, so we proxy instead.
-  try {
-    let pdfFetchUrl = cert.pdfUrl;
-    if (pdfFetchUrl.startsWith('http://')) {
-      pdfFetchUrl = pdfFetchUrl.replace('http://', 'https://');
-    }
-
-    const upstream = await fetch(pdfFetchUrl, {
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Accept': 'application/pdf,application/octet-stream',
-      }
-    });
-
-    if (!upstream.ok) {
-      logger.error('Certificate download proxy failed upstream ok check', { 
-        certId: cert.certId, 
-        source, 
-        status: upstream.status, 
-        statusText: upstream.statusText,
-        url: pdfFetchUrl
-      });
-      return res.status(502).json({ error: 'Failed to fetch PDF from storage.' });
-    }
-
-    const contentType = upstream.headers.get('content-type');
-    if (contentType) {
-      res.setHeader('Content-Type', contentType);
-    }
-
-    const contentLength = upstream.headers.get('content-length');
-    if (contentLength) {
-      res.setHeader('Content-Length', contentLength);
-    }
-
-    const pdfBuffer = Buffer.from(await upstream.arrayBuffer());
-    return res.status(200).send(pdfBuffer);
-  } catch (error) {
-    logger.error('Certificate download proxy failed', { certId: cert.certId, source, error });
-    return res.status(500).json({ error: 'Internal server error.' });
+  // To bypass Cloudinary's strict bot-protection which blocks Render IPs (502 Gateway),
+  // we do not fetch it from the backend API.
+  // Instead, we return the URL back to the client to open Native (for authenticated fetches)
+  // or we natively HTTP redirect the browser directly to Cloudinary (for public verifications).
+  if (source === 'authenticated-download') {
+    return res.status(200).json({ url: cert.pdfUrl });
+  } else {
+    return res.redirect(cert.pdfUrl);
   }
 }
 
@@ -1051,14 +1022,8 @@ certificatesRouter.patch('/:certId/revoke', authMiddleware, requireRole('ADMIN')
       return ApiResponse.badRequest(res, 'Certificate is already revoked');
     }
 
-    await prisma.certificate.update({
+    await prisma.certificate.delete({
       where: { certId: upperCertId },
-      data: {
-        isRevoked: true,
-        revokedAt: new Date(),
-        revokedBy: authUser.id,
-        revokedReason: validation.data.reason || 'Revoked by admin',
-      },
     });
 
     logger.info('Certificate revoked', { certId: upperCertId, revokedBy: authUser.id });

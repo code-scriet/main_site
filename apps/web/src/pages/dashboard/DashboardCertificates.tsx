@@ -196,15 +196,10 @@ export default function DashboardCertificates() {
 
     setDownloadingId(certId);
     try {
-      const { blob, filename } = await api.downloadCertificate(certId, token);
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = filename || `${certId}.pdf`;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      URL.revokeObjectURL(url);
+      const { url } = await api.downloadCertificate(certId, token);
+      
+      // Open the certificate PDF in a new tab natively
+      window.open(url, '_blank', 'noopener,noreferrer');
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Download failed');
     } finally {
