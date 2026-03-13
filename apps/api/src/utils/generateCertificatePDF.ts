@@ -21,13 +21,20 @@ const CORMORANT_PATH         = path.join(LOGOS_DIR, 'CormorantGaramond.ttf');
 const CORMORANT_ITALIC_PATH  = path.join(LOGOS_DIR, 'CormorantGaramond-Italic.ttf');
 const PLAYFAIR_BOLD_PATH     = path.join(LOGOS_DIR, 'PlayfairDisplay-Bold.woff');
 
-try { Font.register({ family: 'GreatVibes', src: GREAT_VIBES_PATH }); }
+try { 
+  Font.register({ 
+    family: 'GreatVibes', 
+    src: 'https://fonts.gstatic.com/s/greatvibes/v14/RWmMoKWR9v4ksMfaWd_JN9XFiaQ.ttf' 
+  }); 
+}
 catch { /* fallback: Times-BoldItalic */ }
 
 try {
   Font.register({
     family: 'Cinzel',
     fonts: [
+      { src: 'https://fonts.gstatic.com/s/cinzel/v19/8vIX7ww63mVu7gtz8E0.ttf', fontWeight: 400 },
+      { src: 'https://fonts.gstatic.com/s/cinzel/v19/8vIV7ww63mVu7gtzS0eAxw.ttf', fontWeight: 700 },
       { src: CINZEL_REG_PATH, fontWeight: 400 },
       { src: CINZEL_BOLD_PATH, fontWeight: 700 },
     ],
@@ -38,6 +45,8 @@ try {
   Font.register({
     family: 'CormorantGaramond',
     fonts: [
+      { src: 'https://fonts.gstatic.com/s/cormorantgaramond/v14/co3bmX5slCNwfwPUA3j85C1_vYf0y08.ttf' },
+      { src: 'https://fonts.gstatic.com/s/cormorantgaramond/v14/co3dmX5slCNwfwPUA3j85C1_vdfg41p12w.ttf', fontStyle: 'italic' },
       { src: CORMORANT_PATH },
       { src: CORMORANT_ITALIC_PATH, fontStyle: 'italic' },
     ],
@@ -45,7 +54,13 @@ try {
 } catch { /* fallback: Times-Roman */ }
 
 try {
-  Font.register({ family: 'PlayfairDisplay', fonts: [{ src: PLAYFAIR_BOLD_PATH, fontWeight: 700 }] });
+  Font.register({ 
+    family: 'PlayfairDisplay', 
+    fonts: [
+      { src: 'https://fonts.gstatic.com/s/playfairdisplay/v30/nuFvD-vYSZviVYUb_rj3ij__anPXJzDwcbmjWBN2PKdFvXDXbtMK.ttf', fontWeight: 700 },
+      { src: PLAYFAIR_BOLD_PATH, fontWeight: 700 }
+    ] 
+  });
 } catch { /* fallback */ }
 
 Font.registerHyphenationCallback((word: string) => [word]);

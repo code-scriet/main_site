@@ -17,6 +17,7 @@ import { emailService } from '../utils/email.js';
 import { sanitizeText } from '../utils/sanitize.js';
 import { auditLog } from '../utils/audit.js';
 import { buildPublicCertificateDownloadUrl } from '../utils/publicUrl.js';
+import { cloudinary, isCloudinaryConfigured } from '../config/cloudinary.js';
 
 const FRONTEND_URL = (process.env.FRONTEND_URL || 'https://codescriet.dev').replace(/\/+$/, '');
 const RESEND_COOLDOWN_MS = 10 * 60 * 1000; // 10 minutes
@@ -262,10 +263,23 @@ async function sendCertificateFile(
   // we do not fetch it from the backend API.
   // Instead, we return the URL back to the client to open Native (for authenticated fetches)
   // or we natively HTTP redirect the browser directly to Cloudinary (for public verifications).
+  let finalUrl = cert.pdfUrl;
+
+  // Cloudinary requires signed URLs for strict delivery of `image/pdf` files
+  if (isCloudinaryConfigured && finalUrl.includes('cloudinary.com')) {
+    finalUrl = cloudinary.url(`certificates/${cert.certId}.pdf`, {
+      resource_type: 'image',
+      type: 'upload',
+      sign_url: true,
+      secure: true,
+      flags: 'attachment', // ensures browsers present the 'save as' dialog cleanly if they don't natively view
+    });
+  }
+
   if (source === 'authenticated-download') {
-    return res.status(200).json({ url: cert.pdfUrl });
+    return res.status(200).json({ url: finalUrl });
   } else {
-    return res.redirect(cert.pdfUrl);
+    return res.redirect(finalUrl);
   }
 }
 

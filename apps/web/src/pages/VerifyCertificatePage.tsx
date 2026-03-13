@@ -240,12 +240,29 @@ function QRScanner({ onDetect }: { onDetect: (certId: string) => void }) {
       return;
     }
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: 'environment' },
-      });
+      // Android often struggles with simple 'facingMode: environment'.
+      // Try exact environment, fallback to ideal environment, fallback to any camera.
+      let stream: MediaStream;
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: { exact: 'environment' } },
+        });
+      } catch {
+        try {
+          stream = await navigator.mediaDevices.getUserMedia({
+            video: { facingMode: 'environment' },
+          });
+        } catch {
+          // Fallback to any available camera if Android completely rejects environment mapping
+          stream = await navigator.mediaDevices.getUserMedia({ video: true });
+        }
+      }
+
       streamRef.current = stream;
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
+        // Ensure inline playback is allowed for mobile Safari/Chrome
+        videoRef.current.setAttribute('playsinline', 'true');
         await videoRef.current.play();
       }
       setScanning(true);
