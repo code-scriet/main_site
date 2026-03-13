@@ -34,54 +34,44 @@ const FONT_URLS: Record<string, string> = {
   'PlayfairDisplay-700': 'https://fonts.gstatic.com/s/playfairdisplay/v40/nuFvD-vYSZviVYUb_rj3ij__anPXJzDwcbmjWBN2PKeiukDQ.ttf',
 };
 
-const FONT_CACHE_DIR = path.join('/tmp', 'cert-fonts');
-
-// Pre-fetch a font from URL and save to local temp file.
-// Returns the local file path, or null if fetch fails.
-async function prefetchFont(name: string, url: string): Promise<string | null> {
-  const localPath = path.join(FONT_CACHE_DIR, `${name}.ttf`);
-  // If already cached, skip download
-  if (fs.existsSync(localPath)) return localPath;
-
+// Pre-fetch a font from URL and convert to Base64 Data URI.
+// This guarantees it loads in react-pdf regardless of file system permissions or pathing.
+async function prefetchFontAsDataUri(name: string, url: string): Promise<string | null> {
   try {
-    if (!fs.existsSync(FONT_CACHE_DIR)) {
-      fs.mkdirSync(FONT_CACHE_DIR, { recursive: true });
-    }
     const response = await fetch(url);
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const buffer = Buffer.from(await response.arrayBuffer());
-    fs.writeFileSync(localPath, buffer);
-    logger.info(`Font pre-fetched: ${name} (${buffer.length} bytes)`);
-    return localPath;
+    const b64 = buffer.toString('base64');
+    logger.info(`Font pre-fetched as Base64: ${name} (${buffer.length} bytes)`);
+    // Assuming all fetched fonts are TTF based on FONT_URLS
+    return `data:font/ttf;base64,${b64}`;
   } catch (err) {
     logger.warn(`Failed to pre-fetch font "${name}" from ${url}`, { error: err instanceof Error ? err.message : String(err) });
     return null;
   }
 }
 
-
 // Initialize fonts — called once at startup.
-// Downloads fonts from Google CDN to /tmp, then registers local paths.
+// Downloads fonts from Google CDN as Base64 URIs and registers them.
 // Falls back to bundled local files if CDN is unreachable.
 let fontsInitialized = false;
 export async function initFonts(): Promise<void> {
   if (fontsInitialized) return;
   fontsInitialized = true;
 
-  // Pre-fetch all fonts in parallel
+  // Pre-fetch all fonts in parallel via Base64
   const [greatVibes, cinzel400, cinzel700, cormorant400, cormorant400i, playfair700] = await Promise.all([
-    prefetchFont('GreatVibes', FONT_URLS['GreatVibes']),
-    prefetchFont('Cinzel-400', FONT_URLS['Cinzel-400']),
-    prefetchFont('Cinzel-700', FONT_URLS['Cinzel-700']),
-    prefetchFont('Cormorant-400', FONT_URLS['Cormorant-400']),
-    prefetchFont('Cormorant-400i', FONT_URLS['Cormorant-400i']),
-    prefetchFont('PlayfairDisplay-700', FONT_URLS['PlayfairDisplay-700']),
+    prefetchFontAsDataUri('GreatVibes', FONT_URLS['GreatVibes']),
+    prefetchFontAsDataUri('Cinzel-400', FONT_URLS['Cinzel-400']),
+    prefetchFontAsDataUri('Cinzel-700', FONT_URLS['Cinzel-700']),
+    prefetchFontAsDataUri('Cormorant-400', FONT_URLS['Cormorant-400']),
+    prefetchFontAsDataUri('Cormorant-400i', FONT_URLS['Cormorant-400i']),
+    prefetchFontAsDataUri('PlayfairDisplay-700', FONT_URLS['PlayfairDisplay-700']),
   ]);
 
   try {
-    // Try the bundled local file directly to ensure no stream corruption
-    Font.register({ family: 'GreatVibes', src: GREAT_VIBES_PATH });
-    logger.info(`GreatVibes registered from local bundle`);
+    Font.register({ family: 'GreatVibes', src: greatVibes || GREAT_VIBES_PATH });
+    logger.info(`GreatVibes registered from ${greatVibes ? 'Base64 CDN' : 'local bundle'}`);
   } catch (err) { logger.error('Failed to register GreatVibes', { error: err }); }
 
   // Register Cinzel
@@ -114,7 +104,7 @@ export async function initFonts(): Promise<void> {
     });
   } catch (err) { logger.error('Failed to register PlayfairDisplay', { error: err }); }
 
-  logger.info('All certificate fonts initialized');
+  logger.info('All certificate fonts initialized using Data URIs');
 }
 
 Font.registerHyphenationCallback((word: string) => [word]);
@@ -461,13 +451,13 @@ export async function generateCertificatePDF(data: CertData): Promise<Buffer> {
               React.createElement(Text, {
                 style: {
                   fontFamily: 'GreatVibes', fontSize: 34,
-                  color: '#333333', marginBottom: -5,
+                  color: '#333333', marginBottom: -10,
                 },
               }, data.signatoryName),
               React.createElement(View, {
                 style: {
                   width: '100%', height: 1,
-                  backgroundColor: C.textMain, opacity: 0.5, marginBottom: 6,
+                  backgroundColor: C.textMain, opacity: 0.5, marginBottom: 8,
                 },
               }),
               React.createElement(Text, {
@@ -515,13 +505,13 @@ export async function generateCertificatePDF(data: CertData): Promise<Buffer> {
                 React.createElement(Text, {
                   style: {
                     fontFamily: 'GreatVibes', fontSize: 34,
-                    color: '#333333', marginBottom: -5,
+                    color: '#333333', marginBottom: -10,
                   },
                 }, data.facultyName!),
                 React.createElement(View, {
                   style: {
                     width: '100%', height: 1,
-                    backgroundColor: C.textMain, opacity: 0.5, marginBottom: 6,
+                    backgroundColor: C.textMain, opacity: 0.5, marginBottom: 8,
                   },
                 }),
                 React.createElement(Text, {
