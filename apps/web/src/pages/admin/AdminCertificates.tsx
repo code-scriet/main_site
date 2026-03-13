@@ -37,10 +37,8 @@ import { toast } from 'sonner';
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5001/api';
 
 const CERT_TYPES = ['PARTICIPATION', 'COMPLETION', 'WINNER', 'SPEAKER'] as const;
-const TEMPLATES = ['gold', 'dark', 'white', 'emerald'] as const;
 
 type CertType = (typeof CERT_TYPES)[number];
-type Template = (typeof TEMPLATES)[number];
 
 interface Certificate {
   id: string;
@@ -51,7 +49,7 @@ interface Certificate {
   type: CertType;
   position?: string;
   domain?: string;
-  template: Template;
+  template?: string;
   pdfUrl?: string;
   issuedAt: string;
   emailSent: boolean;
@@ -79,26 +77,52 @@ interface GenerateFormData {
   recipientEmail: string;
   eventName: string;
   type: CertType;
-  template: Template;
   position: string;
   domain: string;
   description: string;
   signatoryName: string;
+  signatoryTitle: string;
   facultyName: string;
+  facultyTitle: string;
   sendEmail: boolean;
 }
+
+const SIGNATORY_STORAGE_KEY = 'cert_signatory_defaults';
+
+function loadSignatoryDefaults(): Pick<GenerateFormData, 'signatoryName' | 'signatoryTitle' | 'facultyName' | 'facultyTitle'> {
+  try {
+    const saved = localStorage.getItem(SIGNATORY_STORAGE_KEY);
+    if (saved) {
+      const parsed = JSON.parse(saved);
+      return {
+        signatoryName: parsed.signatoryName || '',
+        signatoryTitle: parsed.signatoryTitle || 'Club President',
+        facultyName: parsed.facultyName || '',
+        facultyTitle: parsed.facultyTitle || 'Faculty Coordinator',
+      };
+    }
+  } catch { /* ignore */ }
+  return { signatoryName: '', signatoryTitle: 'Club President', facultyName: '', facultyTitle: 'Faculty Coordinator' };
+}
+
+function saveSignatoryDefaults(data: { signatoryName: string; signatoryTitle: string; facultyName: string; facultyTitle: string }) {
+  try { localStorage.setItem(SIGNATORY_STORAGE_KEY, JSON.stringify(data)); } catch { /* ignore */ }
+}
+
+const sigDefaults = loadSignatoryDefaults();
 
 const defaultForm: GenerateFormData = {
   recipientName: '',
   recipientEmail: '',
   eventName: '',
   type: 'PARTICIPATION',
-  template: 'gold',
   position: '',
   domain: '',
   description: '',
-  signatoryName: 'Club President',
-  facultyName: '',
+  signatoryName: sigDefaults.signatoryName,
+  signatoryTitle: sigDefaults.signatoryTitle,
+  facultyName: sigDefaults.facultyName,
+  facultyTitle: sigDefaults.facultyTitle,
   sendEmail: false,
 };
 
@@ -139,11 +163,13 @@ export default function AdminCertificates() {
   const [showBulk, setShowBulk] = useState(false);
   const [bulkEventName, setBulkEventName] = useState('');
   const [bulkType, setBulkType] = useState<CertType>('PARTICIPATION');
-  const [bulkTemplate, setBulkTemplate] = useState<Template>('dark');
-  const [bulkSignatory, setBulkSignatory] = useState('Club President');
+  const [bulkSignatory, setBulkSignatory] = useState(sigDefaults.signatoryName);
+  const [bulkSignatoryTitle, setBulkSignatoryTitle] = useState(sigDefaults.signatoryTitle);
   const [bulkSendEmail, setBulkSendEmail] = useState(false);
   const [bulkDescription, setBulkDescription] = useState('');
-  const [bulkFacultyName, setBulkFacultyName] = useState('');
+  const [bulkFacultyName, setBulkFacultyName] = useState(sigDefaults.facultyName);
+  const [bulkFacultyTitle, setBulkFacultyTitle] = useState(sigDefaults.facultyTitle);
+  const [bulkDomain, setBulkDomain] = useState('');
   const [bulkCsv, setBulkCsv] = useState('');
   const [bulkGenerating, setBulkGenerating] = useState(false);
   const [bulkPreview, setBulkPreview] = useState<BulkEntry[] | null>(null);
@@ -180,7 +206,7 @@ export default function AdminCertificates() {
   }, [search, typeFilter]);
 
   async function handleGenerate() {
-    if (!form.recipientName || !form.recipientEmail || !form.eventName) {
+    if (!form.recipientName || !form.recipientEmail || !form.eventName || !form.signatoryName) {
       toast.error('Please fill in all required fields');
       return;
     }
@@ -191,14 +217,21 @@ export default function AdminCertificates() {
         recipientEmail: form.recipientEmail,
         eventName: form.eventName,
         type: form.type,
-        template: form.template,
         position: form.position || undefined,
         domain: form.domain || undefined,
         description: form.description || undefined,
         signatoryName: form.signatoryName,
+        signatoryTitle: form.signatoryTitle || undefined,
         facultyName: form.facultyName || undefined,
+        facultyTitle: form.facultyTitle || undefined,
         sendEmail: form.sendEmail,
       }, token!);
+      saveSignatoryDefaults({
+        signatoryName: form.signatoryName,
+        signatoryTitle: form.signatoryTitle,
+        facultyName: form.facultyName,
+        facultyTitle: form.facultyTitle,
+      });
       toast.success(`Certificate generated! ID: ${data.certId}`);
       setShowGenerate(false);
       setForm(defaultForm);
@@ -266,8 +299,8 @@ export default function AdminCertificates() {
   }
 
   async function handleBulkGenerate() {
-    if (!bulkEventName || !bulkCsv.trim()) {
-      toast.error('Please fill in event name and recipient list');
+    if (!bulkEventName || !bulkCsv.trim() || !bulkSignatory) {
+      toast.error('Please fill in event name, signatory name, and recipient list');
       return;
     }
 
@@ -289,12 +322,20 @@ export default function AdminCertificates() {
         recipients,
         eventName: bulkEventName,
         type: bulkType,
-        template: bulkTemplate,
         signatoryName: bulkSignatory,
+        signatoryTitle: bulkSignatoryTitle || undefined,
         facultyName: bulkFacultyName || undefined,
+        facultyTitle: bulkFacultyTitle || undefined,
+        domain: bulkDomain || undefined,
         description: bulkDescription || undefined,
         sendEmail: bulkSendEmail,
       }, token!);
+      saveSignatoryDefaults({
+        signatoryName: bulkSignatory,
+        signatoryTitle: bulkSignatoryTitle,
+        facultyName: bulkFacultyName,
+        facultyTitle: bulkFacultyTitle,
+      });
       toast.success(`Generated ${data.generated} certificates`);
       if (data.failed > 0) {
         toast.warning(`${data.failed} certificates failed to generate`);
@@ -302,6 +343,8 @@ export default function AdminCertificates() {
       setShowBulk(false);
       setBulkCsv('');
       setBulkEventName('');
+      setBulkDomain('');
+      setBulkDescription('');
       setBulkPreview(null);
       setBulkParseErrors([]);
       fetchCerts();
@@ -541,7 +584,7 @@ export default function AdminCertificates() {
                 <label className="text-sm font-medium text-gray-700">Event Name *</label>
                 <Input value={form.eventName} onChange={e => setForm(f => ({ ...f, eventName: e.target.value }))} placeholder="e.g. Hackathon 2026" className="mt-1" />
               </div>
-              <div>
+              <div className="col-span-2">
                 <label className="text-sm font-medium text-gray-700">Certificate Type</label>
                 <select
                   className="mt-1 w-full border border-gray-200 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
@@ -552,16 +595,6 @@ export default function AdminCertificates() {
                 </select>
               </div>
               <div>
-                <label className="text-sm font-medium text-gray-700">Template</label>
-                <select
-                  className="mt-1 w-full border border-gray-200 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
-                  value={form.template}
-                  onChange={e => setForm(f => ({ ...f, template: e.target.value as Template }))}
-                >
-                  {TEMPLATES.map(t => <option key={t} value={t}>{t.charAt(0).toUpperCase() + t.slice(1)}</option>)}
-                </select>
-              </div>
-              <div>
                 <label className="text-sm font-medium text-gray-700">Position / Rank</label>
                 <Input value={form.position} onChange={e => setForm(f => ({ ...f, position: e.target.value }))} placeholder="e.g. 1st Place" className="mt-1" />
               </div>
@@ -569,13 +602,21 @@ export default function AdminCertificates() {
                 <label className="text-sm font-medium text-gray-700">Domain / Track</label>
                 <Input value={form.domain} onChange={e => setForm(f => ({ ...f, domain: e.target.value }))} placeholder="e.g. Web Dev" className="mt-1" />
               </div>
-              <div className="col-span-2">
-                <label className="text-sm font-medium text-gray-700">Signatory Name</label>
-                <Input value={form.signatoryName} onChange={e => setForm(f => ({ ...f, signatoryName: e.target.value }))} placeholder="Club President" className="mt-1" />
+              <div>
+                <label className="text-sm font-medium text-gray-700">Signatory Name *</label>
+                <Input value={form.signatoryName} onChange={e => setForm(f => ({ ...f, signatoryName: e.target.value }))} placeholder="e.g. Aarav Mehta" className="mt-1" />
               </div>
-              <div className="col-span-2">
+              <div>
+                <label className="text-sm font-medium text-gray-700">Signatory Title</label>
+                <Input value={form.signatoryTitle} onChange={e => setForm(f => ({ ...f, signatoryTitle: e.target.value }))} placeholder="Club President" className="mt-1" />
+              </div>
+              <div>
                 <label className="text-sm font-medium text-gray-700">Faculty Name</label>
-                <Input value={form.facultyName} onChange={e => setForm(f => ({ ...f, facultyName: e.target.value }))} placeholder="e.g. Dr. Sharma" className="mt-1" />
+                <Input value={form.facultyName} onChange={e => setForm(f => ({ ...f, facultyName: e.target.value }))} placeholder="e.g. Dr. Priya Singh" className="mt-1" />
+              </div>
+              <div>
+                <label className="text-sm font-medium text-gray-700">Faculty Title</label>
+                <Input value={form.facultyTitle} onChange={e => setForm(f => ({ ...f, facultyTitle: e.target.value }))} placeholder="Faculty Coordinator" className="mt-1" />
               </div>
               <div className="col-span-2">
                 <label className="text-sm font-medium text-gray-700">Description</label>
@@ -617,27 +658,33 @@ export default function AdminCertificates() {
               <label className="text-sm font-medium text-gray-700">Event Name *</label>
               <Input value={bulkEventName} onChange={e => setBulkEventName(e.target.value)} placeholder="Hackathon 2026" className="mt-1" />
             </div>
+            <div>
+              <label className="text-sm font-medium text-gray-700">Type</label>
+              <select className="mt-1 w-full border border-gray-200 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400" value={bulkType} onChange={e => setBulkType(e.target.value as CertType)}>
+                {CERT_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+              </select>
+            </div>
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="text-sm font-medium text-gray-700">Type</label>
-                <select className="mt-1 w-full border border-gray-200 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400" value={bulkType} onChange={e => setBulkType(e.target.value as CertType)}>
-                  {CERT_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
-                </select>
+                <label className="text-sm font-medium text-gray-700">Signatory Name *</label>
+                <Input value={bulkSignatory} onChange={e => setBulkSignatory(e.target.value)} placeholder="e.g. Aarav Mehta" className="mt-1" />
               </div>
               <div>
-                <label className="text-sm font-medium text-gray-700">Template</label>
-                <select className="mt-1 w-full border border-gray-200 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400" value={bulkTemplate} onChange={e => setBulkTemplate(e.target.value as Template)}>
-                  {TEMPLATES.map(t => <option key={t} value={t}>{t.charAt(0).toUpperCase() + t.slice(1)}</option>)}
-                </select>
+                <label className="text-sm font-medium text-gray-700">Signatory Title</label>
+                <Input value={bulkSignatoryTitle} onChange={e => setBulkSignatoryTitle(e.target.value)} placeholder="Club President" className="mt-1" />
+              </div>
+              <div>
+                <label className="text-sm font-medium text-gray-700">Faculty Name</label>
+                <Input value={bulkFacultyName} onChange={e => setBulkFacultyName(e.target.value)} placeholder="e.g. Dr. Priya Singh" className="mt-1" />
+              </div>
+              <div>
+                <label className="text-sm font-medium text-gray-700">Faculty Title</label>
+                <Input value={bulkFacultyTitle} onChange={e => setBulkFacultyTitle(e.target.value)} placeholder="Faculty Coordinator" className="mt-1" />
               </div>
             </div>
             <div>
-              <label className="text-sm font-medium text-gray-700">Signatory Name</label>
-              <Input value={bulkSignatory} onChange={e => setBulkSignatory(e.target.value)} placeholder="Club President" className="mt-1" />
-            </div>
-            <div>
-              <label className="text-sm font-medium text-gray-700">Faculty Name</label>
-              <Input value={bulkFacultyName} onChange={e => setBulkFacultyName(e.target.value)} placeholder="e.g. Dr. Sharma" className="mt-1" />
+              <label className="text-sm font-medium text-gray-700">Domain / Track</label>
+              <Input value={bulkDomain} onChange={e => setBulkDomain(e.target.value)} placeholder="e.g. Web Development (optional)" className="mt-1" />
             </div>
             <div>
               <label className="text-sm font-medium text-gray-700">Description</label>

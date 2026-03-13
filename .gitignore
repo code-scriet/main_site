@@ -111,3 +111,7 @@ Screenshot*
 .qoder/
 
 
+
+# Documentation and temporary files
+*.md
+html.html

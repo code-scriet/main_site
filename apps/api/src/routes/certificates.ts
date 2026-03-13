@@ -74,8 +74,10 @@ const generateSchema = z.object({
   domain: z.string().max(100).optional().nullable(),
   description: z.string().max(400).optional().nullable(),
   template: z.enum(certTemplates).default('gold'),
-  signatoryName: z.string().max(100).default('Club President'),
+  signatoryName: z.string().max(100).optional().nullable(),
+  signatoryTitle: z.string().max(100).optional().nullable(),
   facultyName: z.string().max(100).optional().nullable(),
+  facultyTitle: z.string().max(100).optional().nullable(),
   sendEmail: z.boolean().default(false),
 });
 
@@ -89,10 +91,13 @@ const bulkSchema = z.object({
   eventId: z.string().optional().nullable(),
   eventName: z.string().min(2).max(200),
   type: z.enum(certTypes),
-  template: z.enum(certTemplates).default('dark'),
-  signatoryName: z.string().max(100).default('Club President'),
+  template: z.enum(certTemplates).default('gold'),
+  signatoryName: z.string().max(100).optional().nullable(),
+  signatoryTitle: z.string().max(100).optional().nullable(),
   facultyName: z.string().max(100).optional().nullable(),
+  facultyTitle: z.string().max(100).optional().nullable(),
   description: z.string().max(400).optional().nullable(),
+  domain: z.string().max(100).optional().nullable(),
   sendEmail: z.boolean().default(false),
 });
 
@@ -149,8 +154,8 @@ certificatesRouter.get('/download/:certId', certificateDownloadLimiter, authMidd
   if (!cert) return res.status(404).json({ error: 'Certificate not found.' });
   if (cert.isRevoked) return res.status(403).json({ error: 'Certificate has been revoked.' });
 
-  // Access check: ADMIN can download any; USER can only download their own
-  const isAdmin = ['ADMIN', 'CORE_MEMBER'].includes(authUser.role);
+  // Access check: ADMIN/PRESIDENT can download any; USER can only download their own
+  const isAdmin = ['ADMIN', 'PRESIDENT'].includes(authUser.role);
   const isOwner = cert.recipientId && cert.recipientId === authUser.id;
   if (!isAdmin && !isOwner) {
     return res.status(403).json({ error: 'You are not authorised to download this certificate.' });
@@ -261,7 +266,9 @@ certificatesRouter.post('/generate', authMiddleware, requireRole('ADMIN'), async
   const {
     recipientName, recipientEmail, recipientId,
     eventId, eventName, type, position, domain, template,
-    signatoryName, facultyName, description, sendEmail,
+    signatoryName, signatoryTitle,
+    facultyName, facultyTitle,
+    description, sendEmail,
   } = validation.data;
 
   try {
@@ -281,15 +288,21 @@ certificatesRouter.post('/generate', authMiddleware, requireRole('ADMIN'), async
       }
     }
 
+    // Compose signatory info from form values
+    const finalSignatoryName  = sanitizeText(signatoryName ?? 'Club President');
+    const finalSignatoryTitle = signatoryTitle ?? 'Club President';
+    const finalFacultyName    = facultyName ? sanitizeText(facultyName) : undefined;
+    const finalFacultyTitle   = facultyTitle ?? 'Faculty Coordinator';
+
     // Generate unique cert ID, retry on collision (extremely rare)
     let certId = generateCertId();
-    let attempts = 0;
-    while (attempts < 5 && await prisma.certificate.findUnique({ where: { certId } })) {
+    for (let attempt = 1; attempt <= 5; attempt++) {
+      const exists = await prisma.certificate.findUnique({ where: { certId }, select: { certId: true } });
+      if (!exists) break;
+      if (attempt === 5) {
+        return ApiResponse.error(res, { code: ErrorCodes.INTERNAL_ERROR, message: 'Failed to generate unique certificate ID. Please try again.', status: 500 });
+      }
       certId = generateCertId();
-      attempts++;
-    }
-    if (attempts >= 5 && await prisma.certificate.findUnique({ where: { certId } })) {
-      return ApiResponse.error(res, { code: ErrorCodes.INTERNAL_ERROR, message: 'Failed to generate unique certificate ID. Please try again.', status: 500 });
     }
 
     // Sanitize text fields before PDF rendering
@@ -298,8 +311,6 @@ certificatesRouter.post('/generate', authMiddleware, requireRole('ADMIN'), async
     const safePosition = position ? sanitizeText(position) : undefined;
     const safeDomain = domain ? sanitizeText(domain) : undefined;
     const safeDescription = description ? sanitizeText(description) : undefined;
-    const safeSignatoryName = sanitizeText(signatoryName);
-    const safeFacultyName = facultyName ? sanitizeText(facultyName) : undefined;
 
     // Generate PDF
     const pdfBuffer = await generateCertificatePDF({
@@ -311,9 +322,10 @@ certificatesRouter.post('/generate', authMiddleware, requireRole('ADMIN'), async
       description: safeDescription,
       certId,
       issuedAt: new Date(),
-      signatoryName: safeSignatoryName,
-      facultyName: safeFacultyName,
-      template,
+      signatoryName: finalSignatoryName,
+      signatoryTitle: finalSignatoryTitle,
+      facultyName: finalFacultyName,
+      facultyTitle: finalFacultyTitle,
       codescrietLogoUrl: CODESCRIET_LOGO,
       ccsuLogoUrl: CCSU_LOGO,
     });
@@ -321,7 +333,7 @@ certificatesRouter.post('/generate', authMiddleware, requireRole('ADMIN'), async
     // Upload to storage
     const pdfUrl = await uploadCertificate(certId, pdfBuffer);
 
-    // Persist to database
+    // Persist to database with signatory snapshot
     const certificate = await prisma.certificate.create({
       data: {
         certId,
@@ -337,6 +349,10 @@ certificatesRouter.post('/generate', authMiddleware, requireRole('ADMIN'), async
         template,
         pdfUrl,
         issuedBy: authUser.id,
+        signatoryName: finalSignatoryName,
+        signatoryTitle: finalSignatoryTitle,
+        facultyName: finalFacultyName || null,
+        facultyTitle: finalFacultyTitle || null,
       },
     });
 
@@ -365,7 +381,6 @@ certificatesRouter.post('/generate', authMiddleware, requireRole('ADMIN'), async
   } catch (error: unknown) {
     const err = error as Error;
     logger.error('Certificate generation failed', { message: err?.message, stack: err?.stack });
-    console.error('[CERT ERROR]', err?.message, err?.stack);
     return ApiResponse.error(res, { code: ErrorCodes.INTERNAL_ERROR, message: `Certificate generation failed: ${err?.message ?? 'unknown'}`, status: 500 });
   }
 });
@@ -388,7 +403,12 @@ certificatesRouter.post('/bulk', authMiddleware, requireRole('ADMIN'), async (re
     return ApiResponse.badRequest(res, validation.error.errors[0].message);
   }
 
-  const { recipients, eventId, eventName, type, template, signatoryName, facultyName, description, sendEmail } = validation.data;
+  const {
+    recipients, eventId, eventName, type, template,
+    signatoryName, signatoryTitle,
+    facultyName, facultyTitle,
+    description, domain, sendEmail,
+  } = validation.data;
 
   // Validate eventId if provided
   if (eventId) {
@@ -398,14 +418,21 @@ certificatesRouter.post('/bulk', authMiddleware, requireRole('ADMIN'), async (re
     }
   }
 
+  // Compose signatory info from form values
+  const finalSignatoryName  = sanitizeText(signatoryName ?? 'Club President');
+  const finalSignatoryTitle = signatoryTitle ?? 'Club President';
+  const finalFacultyName    = facultyName ? sanitizeText(facultyName) : undefined;
+  const finalFacultyTitle   = facultyTitle ?? 'Faculty Coordinator';
+
   // Sanitize shared text fields once
-  const safeEventName = sanitizeText(eventName);
-  const safeSignatoryName = sanitizeText(signatoryName);
-  const safeFacultyName = facultyName ? sanitizeText(facultyName) : undefined;
+  const safeEventName   = sanitizeText(eventName);
+  const safeDomain      = domain ? sanitizeText(domain) : undefined;
   const safeDescription = description ? sanitizeText(description) : undefined;
 
   const successes: Array<{ certId: string; pdfUrl: string; name: string; email: string }> = [];
   const failures: Array<{ name: string; email: string; reason: string }> = [];
+  let emailsSent = 0;
+  let emailsFailed = 0;
 
   // Process in batches of 5 to limit memory/concurrency
   const BATCH_SIZE = 5;
@@ -417,18 +444,31 @@ certificatesRouter.post('/bulk', authMiddleware, requireRole('ADMIN'), async (re
           const safeName = sanitizeText(r.name);
           const safePosition = r.position ? sanitizeText(r.position) : undefined;
 
-          const certId = generateCertId();
+          // Generate unique cert ID with collision retry
+          let certId = generateCertId();
+          for (let attempt = 1; attempt <= 5; attempt++) {
+            const exists = await prisma.certificate.findUnique({ where: { certId }, select: { certId: true } });
+            if (!exists) break;
+            if (attempt === 5) {
+              failures.push({ name: r.name, email: r.email, reason: 'Could not generate unique certificate ID' });
+              return;
+            }
+            certId = generateCertId();
+          }
+
           const pdfBuffer = await generateCertificatePDF({
             recipientName: safeName,
             eventName: safeEventName,
             type,
             position: safePosition,
+            domain: safeDomain,
             description: safeDescription,
             certId,
             issuedAt: new Date(),
-            signatoryName: safeSignatoryName,
-            facultyName: safeFacultyName,
-            template,
+            signatoryName: finalSignatoryName,
+            signatoryTitle: finalSignatoryTitle,
+            facultyName: finalFacultyName,
+            facultyTitle: finalFacultyTitle,
             codescrietLogoUrl: CODESCRIET_LOGO,
             ccsuLogoUrl: CCSU_LOGO,
           });
@@ -445,24 +485,31 @@ certificatesRouter.post('/bulk', authMiddleware, requireRole('ADMIN'), async (re
               eventName: safeEventName,
               type: type.toUpperCase() as CertType,
               position: safePosition || null,
+              domain: safeDomain || null,
               description: safeDescription || null,
               template,
               pdfUrl,
               issuedBy: authUser.id,
+              signatoryName: finalSignatoryName,
+              signatoryTitle: finalSignatoryTitle,
+              facultyName: finalFacultyName || null,
+              facultyTitle: finalFacultyTitle || null,
             },
           });
 
           if (sendEmail) {
-            emailService.sendCertificateIssued(r.email, r.name, eventName, certId, pdfUrl)
-              .then(async (sent) => {
-                if (sent) {
-                  await prisma.certificate.update({
-                    where: { certId },
-                    data: { emailSent: true, emailSentAt: new Date() },
-                  });
-                }
-              })
-              .catch(err => logger.error('Bulk certificate email failed', { certId, email: r.email, error: err instanceof Error ? err.message : String(err) }));
+            try {
+              const sent = await emailService.sendCertificateIssued(r.email, r.name, eventName, certId, pdfUrl);
+              if (sent) {
+                emailsSent++;
+                await prisma.certificate.update({ where: { certId }, data: { emailSent: true, emailSentAt: new Date() } });
+              } else {
+                emailsFailed++;
+              }
+            } catch (err) {
+              emailsFailed++;
+              logger.error('Bulk certificate email failed', { certId, email: r.email, error: err instanceof Error ? err.message : String(err) });
+            }
           }
 
           successes.push({ certId, pdfUrl, name: r.name, email: r.email });
@@ -491,6 +538,7 @@ certificatesRouter.post('/bulk', authMiddleware, requireRole('ADMIN'), async (re
     failed: failures.length,
     results: successes,
     errors: failures,
+    ...(sendEmail ? { emailsSent, emailsFailed } : {}),
   }, `Generated ${successes.length}/${recipients.length} certificates`);
 });
 

@@ -615,6 +615,23 @@ enum ExecutionStatus {
   TIMEOUT
 }
 
+// ──────────────── Signatories ────────────────
+
+model Signatory {
+  id           String   @id @default(cuid())
+  name         String
+  title        String   @default("Club President")
+  signatureUrl String?  @map("signature_url") // Cloudinary URL or base64 data URI of transparent-bg PNG
+  isActive     Boolean  @default(true) @map("is_active")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt      @map("updated_at")
+
+  certificatesAsPrimary Certificate[] @relation("PrimarySignatory")
+  certificatesAsFaculty Certificate[] @relation("FacultySignatory")
+
+  @@map("signatories")
+}
+
 // ──────────────── Certificate System ────────────────
 
 enum CertType {
@@ -646,6 +663,20 @@ model Certificate {
   template       String    @default("gold") // gold | dark | white | emerald
 
   pdfUrl         String?   @map("pdf_url")
+
+  // Signatory — snapshot denormalized at generation time for historical accuracy
+  signatoryId        String?   @map("signatory_id")
+  signatory          Signatory? @relation("PrimarySignatory", fields: [signatoryId], references: [id], onDelete: SetNull)
+  signatoryName      String?   @map("signatory_name")       // denormalized
+  signatoryTitle     String?   @map("signatory_title")      // denormalized
+  signatoryImageUrl  String?   @map("signatory_image_url")  // denormalized (Cloudinary URL)
+
+  // Faculty signatory — optional second signer
+  facultySignatoryId      String?   @map("faculty_signatory_id")
+  facultySignatory        Signatory? @relation("FacultySignatory", fields: [facultySignatoryId], references: [id], onDelete: SetNull)
+  facultyName             String?   @map("faculty_name")
+  facultyTitle            String?   @map("faculty_title")
+  facultySignatoryImageUrl String?  @map("faculty_signatory_image_url")
 
   issuedBy       String    @map("issued_by")
   issuedAt       DateTime  @default(now()) @map("issued_at")
