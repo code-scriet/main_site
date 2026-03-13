@@ -17,7 +17,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import {
   Loader2, Trophy, ArrowLeft, BookOpen, Clock, Users, LayoutDashboard,
   Download, ChevronDown, ChevronUp, Target, Zap, TrendingUp, BarChart3,
-  Star, AlertTriangle, CheckCircle2, Timer, Brain,
+  Star, AlertTriangle, CheckCircle2, Timer, Brain, MessageSquare,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { LeaderboardEntry } from '@/lib/quizStore';
@@ -45,6 +45,7 @@ interface QuestionAnalytic {
   avgRating: number | null;
   mostCommonWrongAnswer: string | null;
   unansweredCount: number;
+  sampleResponses: string[];
 }
 
 interface Insights {
@@ -107,6 +108,26 @@ function AccuracyBar({ accuracy, className }: { accuracy: number; className?: st
       />
     </div>
   );
+}
+
+function isUnscoredQuestionType(questionType: string): boolean {
+  return questionType === 'POLL' || questionType === 'RATING' || questionType === 'OPEN_ENDED';
+}
+
+function parseAnswerList(raw: string | null | undefined): string[] {
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed.filter((value): value is string => typeof value === 'string') : [];
+  } catch {
+    return [];
+  }
+}
+
+function formatAnswerDisplay(raw: string | null | undefined): string {
+  if (!raw) return '';
+  const parsed = parseAnswerList(raw);
+  return parsed.length > 0 ? parsed.join(', ') : raw;
 }
 
 /* ── Section tabs ── */
@@ -215,7 +236,7 @@ export default function QuizResultsPage() {
   ];
 
   const scoredQuestions = questionAnalytics.filter(
-    (q) => q.questionType !== 'POLL' && q.questionType !== 'RATING',
+    (q) => !isUnscoredQuestionType(q.questionType),
   );
 
   return (
@@ -630,7 +651,9 @@ export default function QuizResultsPage() {
               >
                 {questionAnalytics.map((q) => {
                   const isExpanded = expandedQ === q.id;
+                  const isUnscoredQuestion = isUnscoredQuestionType(q.questionType);
                   const isPollRating = q.questionType === 'POLL' || q.questionType === 'RATING';
+                  const isOpenEnded = q.questionType === 'OPEN_ENDED';
                   return (
                     <Card key={q.id} className="border-amber-200/60 shadow-sm overflow-hidden">
                       <button
@@ -640,7 +663,9 @@ export default function QuizResultsPage() {
                         {/* Question number */}
                         <div className={cn(
                           'flex-shrink-0 w-8 h-8 rounded-lg flex items-center justify-center text-xs font-black text-white',
-                          isPollRating
+                          isOpenEnded
+                            ? 'bg-gradient-to-br from-emerald-500 to-teal-600'
+                            : isPollRating
                             ? 'bg-gradient-to-br from-violet-500 to-purple-600'
                             : q.accuracy >= 80
                               ? 'bg-gradient-to-br from-green-500 to-emerald-600'
@@ -657,9 +682,9 @@ export default function QuizResultsPage() {
                           </p>
                           <div className="flex items-center gap-3 mt-1.5 flex-wrap">
                             <Badge variant="outline" className="border-amber-200 text-amber-600 text-[10px] py-0 px-1.5">
-                              {q.questionType}
+                              {q.questionType.replace('_', ' ')}
                             </Badge>
-                            {!isPollRating && (
+                            {!isUnscoredQuestion && (
                               <Badge
                                 variant="outline"
                                 className={cn(
@@ -672,7 +697,7 @@ export default function QuizResultsPage() {
                                 {q.accuracy > 75 ? 'Easy' : q.accuracy >= 40 ? 'Medium' : 'Hard'}
                               </Badge>
                             )}
-                            {!isPollRating && (
+                            {!isUnscoredQuestion && (
                               <span className={cn(
                                 'text-xs font-bold tabular-nums',
                                 q.accuracy >= 80 ? 'text-green-600' :
@@ -680,6 +705,11 @@ export default function QuizResultsPage() {
                                 'text-red-600',
                               )}>
                                 {q.accuracy}% correct
+                              </span>
+                            )}
+                            {isOpenEnded && (
+                              <span className="text-xs font-bold text-emerald-600">
+                                Feedback
                               </span>
                             )}
                             {q.questionType === 'RATING' && q.avgRating !== null && (
@@ -722,7 +752,7 @@ export default function QuizResultsPage() {
                                   </p>
                                   <p className="text-[10px] font-semibold text-amber-700/50 uppercase">Answers</p>
                                 </div>
-                                {!isPollRating && (
+                                {!isUnscoredQuestion && (
                                   <div className="bg-amber-50 rounded-lg p-2.5 text-center">
                                     <p className="text-lg font-black text-amber-900 tabular-nums">
                                       {q.correctCount}
@@ -745,13 +775,13 @@ export default function QuizResultsPage() {
                               </div>
 
                               {/* Correct answer + common wrong */}
-                              {!isPollRating && q.correctAnswer && (
+                              {!isUnscoredQuestion && q.correctAnswer && (
                                 <div className="flex flex-col sm:flex-row gap-2">
                                   <div className="flex-1 flex items-center gap-2 bg-green-50 border border-green-200/60 rounded-lg px-3 py-2">
                                     <CheckCircle2 className="h-4 w-4 text-green-500 flex-shrink-0" />
                                     <div>
                                       <p className="text-[10px] font-semibold text-green-600/70 uppercase">Correct Answer</p>
-                                      <p className="text-sm font-bold text-green-900">{q.correctAnswer}</p>
+                                      <p className="text-sm font-bold text-green-900">{formatAnswerDisplay(q.correctAnswer)}</p>
                                     </div>
                                   </div>
                                   {q.mostCommonWrongAnswer && (
@@ -761,6 +791,35 @@ export default function QuizResultsPage() {
                                         <p className="text-[10px] font-semibold text-red-600/70 uppercase">Most Common Mistake</p>
                                         <p className="text-sm font-bold text-red-900">{q.mostCommonWrongAnswer}</p>
                                       </div>
+                                    </div>
+                                  )}
+                                </div>
+                              )}
+
+                              {isOpenEnded && (
+                                <div className="space-y-3">
+                                  <div className="flex items-center gap-2 bg-emerald-50 border border-emerald-200/60 rounded-lg px-3 py-2">
+                                    <MessageSquare className="h-4 w-4 text-emerald-500 flex-shrink-0" />
+                                    <div>
+                                      <p className="text-[10px] font-semibold text-emerald-600/70 uppercase">Response Summary</p>
+                                      <p className="text-sm font-bold text-emerald-900">{q.totalAnswers} responses collected</p>
+                                    </div>
+                                  </div>
+
+                                  {isCreator && q.sampleResponses.length > 0 ? (
+                                    <div className="rounded-lg border border-emerald-200/60 bg-emerald-50/60 p-3">
+                                      <p className="text-[10px] font-semibold text-emerald-600/70 uppercase mb-2">Sample Responses</p>
+                                      <div className="space-y-2">
+                                        {q.sampleResponses.map((response, index) => (
+                                          <div key={`${q.id}-sample-${index}`} className="rounded-md bg-white/90 px-3 py-2 text-sm text-emerald-900 border border-emerald-100">
+                                            {response}
+                                          </div>
+                                        ))}
+                                      </div>
+                                    </div>
+                                  ) : (
+                                    <div className="rounded-lg border border-emerald-200/60 bg-emerald-50/40 px-3 py-2 text-sm text-emerald-700/80">
+                                      {isCreator ? 'No text responses were recorded for this question.' : 'Open-ended responses are visible to the quiz creator only.'}
                                     </div>
                                   )}
                                 </div>
@@ -793,7 +852,7 @@ export default function QuizResultsPage() {
                               )}
 
                               {/* Distribution chart / Poll analytics */}
-                              {Object.keys(q.answerDistribution).length > 0 && (
+                              {!isOpenEnded && Object.keys(q.answerDistribution).length > 0 && (
                                 isPollRating && isCreator ? (
                                   <div className="space-y-3">
                                     {/* Poll engagement insights — admin only */}

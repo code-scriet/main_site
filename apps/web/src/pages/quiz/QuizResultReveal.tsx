@@ -83,6 +83,22 @@ function BreakdownPills({ points, timeMs, timeLimitSeconds, streak }: {
   );
 }
 
+function parseAnswerList(raw: string | null | undefined): string[] {
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed.filter((value): value is string => typeof value === 'string') : [];
+  } catch {
+    return [];
+  }
+}
+
+function formatAnswerDisplay(raw: string | null | undefined): string {
+  if (!raw) return '';
+  const parsed = parseAnswerList(raw);
+  return parsed.length > 0 ? parsed.join(', ') : raw;
+}
+
 /* ─── Recharts distribution chart ─── */
 function DistributionChart({ distribution, correctAnswer, options, questionType }: {
   distribution: Record<string, number>;
@@ -90,23 +106,28 @@ function DistributionChart({ distribution, correctAnswer, options, questionType 
   options: string[] | null;
   questionType: string;
 }) {
-  const isPoll = questionType === 'POLL' || questionType === 'RATING';
+  const isPoll = questionType === 'POLL' || questionType === 'RATING' || questionType === 'OPEN_ENDED';
   const letters = ['A', 'B', 'C', 'D', 'E', 'F'];
+  const correctAnswers = questionType === 'MULTI_SELECT' ? parseAnswerList(correctAnswer) : [];
 
   const data = useMemo(() => {
     const entries = options
       ? options.map((opt, i) => ({
           name: options.length <= 4 ? `${letters[i]}) ${opt}` : opt,
           count: distribution[opt] || 0,
-          isCorrect: !isPoll && opt === correctAnswer,
+          isCorrect: questionType === 'MULTI_SELECT'
+            ? correctAnswers.includes(opt)
+            : !isPoll && opt === correctAnswer,
         }))
       : Object.entries(distribution).map(([label, count]) => ({
           name: label,
           count,
-          isCorrect: !isPoll && label === correctAnswer,
+          isCorrect: questionType === 'MULTI_SELECT'
+            ? correctAnswers.includes(label)
+            : !isPoll && label === correctAnswer,
         }));
     return entries;
-  }, [distribution, correctAnswer, options, isPoll]);
+  }, [correctAnswer, correctAnswers, distribution, isPoll, options, questionType]);
 
   const total = data.reduce((sum, d) => sum + d.count, 0) || 1;
 
@@ -252,6 +273,8 @@ export const QuizResultReveal = memo(function QuizResultReveal({ userId }: QuizR
 
   const isPollOrRating = currentQuestion?.questionType === 'POLL' || currentQuestion?.questionType === 'RATING';
   const isRating = currentQuestion?.questionType === 'RATING';
+  const isOpenEnded = currentQuestion?.questionType === 'OPEN_ENDED';
+  const isUnscoredType = isPollOrRating || isOpenEnded;
 
   // Animated count-up for points
   const animatedPoints = useCountUp(lastAnswerResult?.pointsAwarded ?? 0);
@@ -276,7 +299,27 @@ export const QuizResultReveal = memo(function QuizResultReveal({ userId }: QuizR
       className="max-w-3xl mx-auto space-y-5"
     >
       {/* ═══════════ Answer Reveal Banner ═══════════ */}
-      {isPollOrRating ? (
+      {isOpenEnded ? (
+        <Card className="border-emerald-200/60 shadow-lg overflow-hidden">
+          <CardContent className="p-6 sm:p-8 text-center bg-gradient-to-br from-emerald-50 to-teal-50">
+            <motion.div
+              initial={{ scale: 0 }}
+              animate={{ scale: 1 }}
+              transition={{ delay: 0.15, type: 'spring', stiffness: 250, damping: 18 }}
+              className="mb-3"
+            >
+              <CheckCircle className="h-12 w-12 mx-auto text-emerald-500" />
+            </motion.div>
+            <h3 className="text-2xl font-bold mb-2 text-emerald-800 font-display">Response Submitted</h3>
+            <p className="text-sm text-emerald-700/80">Your feedback was recorded for the host.</p>
+            {myAnswer && (
+              <p className="mt-3 text-sm text-emerald-700/80">
+                Your response: <span className="font-semibold text-emerald-800">{myAnswer}</span>
+              </p>
+            )}
+          </CardContent>
+        </Card>
+      ) : isPollOrRating ? (
         <Card className="border-purple-200/60 shadow-lg overflow-hidden">
           <CardContent className="p-6 sm:p-8 text-center bg-gradient-to-br from-purple-50 to-indigo-50">
             <motion.div
@@ -371,13 +414,13 @@ export const QuizResultReveal = memo(function QuizResultReveal({ userId }: QuizR
                 className="text-center mb-3"
               >
                 {!lastAnswerResult.isCorrect && myAnswer && (
-                  <p className="text-sm text-red-500 line-through mb-0.5">{myAnswer}</p>
+                  <p className="text-sm text-red-500 line-through mb-0.5">{formatAnswerDisplay(myAnswer)}</p>
                 )}
                 <p className={cn(
                   'text-lg font-bold',
                   lastAnswerResult.isCorrect ? 'text-emerald-700' : 'text-emerald-600',
                 )}>
-                  {questionReveal.correctAnswer}
+                  {formatAnswerDisplay(questionReveal.correctAnswer)}
                 </p>
               </motion.div>
             )}
@@ -450,9 +493,9 @@ export const QuizResultReveal = memo(function QuizResultReveal({ userId }: QuizR
         <Card className="border-amber-200/60 shadow-md">
           <CardContent className="p-6 text-center">
             <p className="text-amber-700/70 text-lg font-medium">Time ran out — no answer submitted</p>
-            {questionReveal?.correctAnswer && (
+            {!isUnscoredType && questionReveal?.correctAnswer && (
               <p className="mt-2 text-sm text-emerald-600 font-semibold">
-                Correct answer: {questionReveal.correctAnswer}
+                Correct answer: {formatAnswerDisplay(questionReveal.correctAnswer)}
               </p>
             )}
           </CardContent>
@@ -460,7 +503,7 @@ export const QuizResultReveal = memo(function QuizResultReveal({ userId }: QuizR
       )}
 
       {/* ═══════════ Answer Distribution ═══════════ */}
-      {questionReveal?.answerDistribution && Object.keys(questionReveal.answerDistribution).length > 0 && (
+      {!isOpenEnded && questionReveal?.answerDistribution && Object.keys(questionReveal.answerDistribution).length > 0 && (
         <motion.div
           initial={{ opacity: 0, y: 15 }}
           animate={{ opacity: 1, y: 0 }}
@@ -473,14 +516,14 @@ export const QuizResultReveal = memo(function QuizResultReveal({ userId }: QuizR
               questionText={currentQuestion?.questionText ?? 'Poll'}
               totalVotes={Object.values(questionReveal.answerDistribution).reduce((sum, v) => sum + v, 0)}
             />
-          ) : (
+          ) : !isOpenEnded ? (
             <DistributionChart
               distribution={questionReveal.answerDistribution}
               correctAnswer={questionReveal.correctAnswer ?? null}
               options={currentQuestion?.options ?? null}
               questionType={currentQuestion?.questionType ?? 'MCQ'}
             />
-          )}
+          ) : null}
         </motion.div>
       )}
 

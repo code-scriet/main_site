@@ -25,6 +25,8 @@ import {
   Type,
   BarChart3,
   Star,
+  ListChecks,
+  MessageSquare,
   Image,
   Copy,
   Download,
@@ -35,7 +37,23 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
-type QuestionType = 'MCQ' | 'TRUE_FALSE' | 'SHORT_ANSWER' | 'POLL' | 'RATING';
+type QuestionType = 'MCQ' | 'TRUE_FALSE' | 'SHORT_ANSWER' | 'POLL' | 'RATING' | 'MULTI_SELECT' | 'OPEN_ENDED';
+
+const QUESTION_TYPE_LABELS: Record<QuestionType, string> = {
+  MCQ: 'Multiple Choice',
+  TRUE_FALSE: 'True / False',
+  SHORT_ANSWER: 'Short Answer',
+  POLL: 'Poll',
+  RATING: 'Rating',
+  MULTI_SELECT: 'Multi-Select',
+  OPEN_ENDED: 'Open Ended',
+};
+
+const isUnscoredQuestion = (type: QuestionType) =>
+  type === 'POLL' || type === 'RATING' || type === 'OPEN_ENDED';
+
+const usesOptions = (type: QuestionType) =>
+  type === 'MCQ' || type === 'POLL' || type === 'MULTI_SELECT';
 
 interface QuestionDraft {
   id: string;
@@ -43,6 +61,7 @@ interface QuestionDraft {
   questionType: QuestionType;
   options: string[];
   correctAnswer: string;
+  correctAnswers: string[];
   timeLimitSeconds: number;
   points: number;
   mediaUrl: string;
@@ -55,6 +74,7 @@ function createEmptyQuestion(): QuestionDraft {
     questionType: 'MCQ',
     options: ['', '', '', ''],
     correctAnswer: '',
+    correctAnswers: [],
     timeLimitSeconds: 20,
     points: 100,
     mediaUrl: '',
@@ -143,13 +163,34 @@ export default function AdminQuizCreator() {
     if (questions.length === 0) return 'Add at least one question';
     for (let i = 0; i < questions.length; i++) {
       const q = questions[i];
+      const nonEmptyOptions = q.options.map((option) => option.trim()).filter(Boolean);
       if (!q.questionText.trim()) return `Question ${i + 1}: text is required`;
-      if (q.questionType === 'MCQ' || q.questionType === 'POLL') {
-        const nonEmpty = q.options.filter((o) => o.trim());
-        if (nonEmpty.length < 2) return `Question ${i + 1}: at least 2 options needed`;
+      if (nonEmptyOptions.length > 0 && new Set(nonEmptyOptions).size !== nonEmptyOptions.length) {
+        return `Question ${i + 1}: option labels must be unique`;
       }
-      if (q.questionType !== 'POLL' && q.questionType !== 'RATING' && !q.correctAnswer.trim()) {
+      if (usesOptions(q.questionType) && nonEmptyOptions.length < 2) {
+        return `Question ${i + 1}: at least 2 options needed`;
+      }
+      if (q.questionType === 'MCQ' && !q.correctAnswer.trim()) {
         return `Question ${i + 1}: correct answer is required`;
+      }
+      if (q.questionType === 'MCQ' && q.correctAnswer.trim() && !nonEmptyOptions.includes(q.correctAnswer.trim())) {
+        return `Question ${i + 1}: the correct answer must match one of the options`;
+      }
+      if (q.questionType === 'TRUE_FALSE' && !q.correctAnswer.trim()) {
+        return `Question ${i + 1}: select True or False as the correct answer`;
+      }
+      if (q.questionType === 'SHORT_ANSWER' && !q.correctAnswer.trim()) {
+        return `Question ${i + 1}: correct answer is required`;
+      }
+      if (q.questionType === 'MULTI_SELECT') {
+        const selectedCorrectAnswers = q.correctAnswers.map((answer) => answer.trim()).filter(Boolean);
+        if (selectedCorrectAnswers.length === 0) {
+          return `Question ${i + 1}: mark at least one correct option`;
+        }
+        if (selectedCorrectAnswers.some((answer) => !nonEmptyOptions.includes(answer))) {
+          return `Question ${i + 1}: every marked correct answer must match one of the options`;
+        }
       }
     }
     return null;
@@ -197,16 +238,21 @@ export default function AdminQuizCreator() {
           questionText: q.questionText.trim(),
           questionType: q.questionType,
           options:
-            q.questionType === 'MCQ' || q.questionType === 'POLL'
+            usesOptions(q.questionType)
               ? q.options.filter((o) => o.trim())
               : q.questionType === 'TRUE_FALSE'
                 ? ['True', 'False']
                 : q.questionType === 'RATING'
                   ? ['1', '2', '3', '4', '5']
                   : [],
-          correctAnswer: (q.questionType === 'POLL' || q.questionType === 'RATING') ? '' : q.correctAnswer.trim(),
+          correctAnswer:
+            q.questionType === 'MULTI_SELECT'
+              ? JSON.stringify(q.correctAnswers.map((answer) => answer.trim()).filter(Boolean))
+              : isUnscoredQuestion(q.questionType)
+                ? ''
+                : q.correctAnswer.trim(),
           timeLimitSeconds: q.timeLimitSeconds,
-          points: q.points,
+          points: isUnscoredQuestion(q.questionType) ? 0 : q.points,
           mediaUrl: q.mediaUrl.trim() || undefined,
         })),
       };
@@ -471,26 +517,42 @@ export default function AdminQuizCreator() {
                           {([
                             { type: 'MCQ', label: 'Multiple Choice', icon: CircleDot },
                             { type: 'TRUE_FALSE', label: 'True / False', icon: CheckCircle },
+                            { type: 'MULTI_SELECT', label: 'Multi-Select', icon: ListChecks },
                             { type: 'SHORT_ANSWER', label: 'Short Answer', icon: Type },
+                            { type: 'OPEN_ENDED', label: 'Open Ended', icon: MessageSquare },
                             { type: 'POLL', label: 'Poll', icon: BarChart3 },
                             { type: 'RATING', label: 'Rating', icon: Star },
                           ] as const).map(({ type, label, icon: Icon }) => (
                             <button
                               key={type}
-                              onClick={() =>
+                              onClick={() => {
+                                const previousSingleCorrect =
+                                  activeQ.questionType === 'MULTI_SELECT'
+                                    ? activeQ.correctAnswers[0] || ''
+                                    : activeQ.correctAnswer;
+                                const baseOptions = usesOptions(type)
+                                  ? (activeQ.options.length >= 2 ? activeQ.options : ['', '', '', ''])
+                                  : type === 'TRUE_FALSE'
+                                    ? ['True', 'False']
+                                    : [];
+
                                 updateQuestion(activeQIndex, {
                                   questionType: type,
-                                  correctAnswer: (type === 'POLL' || type === 'RATING') ? '' : activeQ.correctAnswer,
-                                  options:
-                                    type === 'TRUE_FALSE'
-                                      ? ['True', 'False']
-                                      : type === 'SHORT_ANSWER' || type === 'RATING'
-                                        ? []
-                                        : activeQ.options.length >= 2
-                                          ? activeQ.options
-                                          : ['', '', '', ''],
-                                })
-                              }
+                                  options: baseOptions,
+                                  correctAnswer:
+                                    type === 'MCQ' || type === 'TRUE_FALSE' || type === 'SHORT_ANSWER'
+                                      ? previousSingleCorrect
+                                      : '',
+                                  correctAnswers:
+                                    type === 'MULTI_SELECT'
+                                      ? (activeQ.questionType === 'MULTI_SELECT'
+                                          ? activeQ.correctAnswers
+                                          : previousSingleCorrect
+                                            ? [previousSingleCorrect]
+                                            : [])
+                                      : [],
+                                });
+                              }}
                               className={cn(
                                 'flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-sm transition-all duration-200',
                                 activeQ.questionType === type
@@ -517,27 +579,54 @@ export default function AdminQuizCreator() {
                         />
                       </div>
 
-                      {/* Options (MCQ / POLL) */}
-                      {(activeQ.questionType === 'MCQ' || activeQ.questionType === 'POLL') && (
+                      {/* Options (MCQ / POLL / MULTI_SELECT) */}
+                      {usesOptions(activeQ.questionType) && (
                         <div>
                           <label className="block text-sm font-semibold text-amber-800 mb-2">
-                            Options {activeQ.questionType === 'MCQ' && <span className="font-normal text-amber-600/60 text-xs ml-1">— click circle to mark correct</span>}
+                            Options
+                            {activeQ.questionType === 'MCQ' && (
+                              <span className="font-normal text-amber-600/60 text-xs ml-1">— click the circle to mark the correct answer</span>
+                            )}
+                            {activeQ.questionType === 'MULTI_SELECT' && (
+                              <span className="font-normal text-amber-600/60 text-xs ml-1">— click the circles to mark every correct answer</span>
+                            )}
                           </label>
                           <div className="space-y-2">
                             {activeQ.options.map((opt, oi) => (
                               <div key={oi} className="flex items-center gap-2">
-                                {activeQ.questionType === 'MCQ' && (
+                                {(activeQ.questionType === 'MCQ' || activeQ.questionType === 'MULTI_SELECT') && (
                                   <button
-                                    onClick={() => updateQuestion(activeQIndex, { correctAnswer: opt })}
+                                    onClick={() => {
+                                      if (!opt.trim()) return;
+                                      if (activeQ.questionType === 'MCQ') {
+                                        updateQuestion(activeQIndex, { correctAnswer: opt });
+                                        return;
+                                      }
+
+                                      const alreadySelected = activeQ.correctAnswers.includes(opt);
+                                      updateQuestion(activeQIndex, {
+                                        correctAnswers: alreadySelected
+                                          ? activeQ.correctAnswers.filter((answer) => answer !== opt)
+                                          : [...activeQ.correctAnswers, opt],
+                                      });
+                                    }}
                                     className={cn(
                                       'w-6 h-6 rounded-full border-2 flex items-center justify-center flex-shrink-0 transition-all duration-200',
-                                      opt && activeQ.correctAnswer === opt
+                                      opt && (
+                                        activeQ.questionType === 'MCQ'
+                                          ? activeQ.correctAnswer === opt
+                                          : activeQ.correctAnswers.includes(opt)
+                                      )
                                         ? 'border-green-500 bg-green-500 text-white scale-110'
                                         : 'border-amber-300 hover:border-amber-400',
                                     )}
-                                    title="Mark as correct"
+                                    title={activeQ.questionType === 'MCQ' ? 'Mark as correct' : 'Toggle correct answer'}
                                   >
-                                    {opt && activeQ.correctAnswer === opt && (
+                                    {opt && (
+                                      activeQ.questionType === 'MCQ'
+                                        ? activeQ.correctAnswer === opt
+                                        : activeQ.correctAnswers.includes(opt)
+                                    ) && (
                                       <Check className="h-3.5 w-3.5" />
                                     )}
                                   </button>
@@ -545,9 +634,22 @@ export default function AdminQuizCreator() {
                                 <Input
                                   value={opt}
                                   onChange={(e) => {
+                                    const nextValue = e.target.value;
+                                    const previousValue = activeQ.options[oi];
                                     const newOpts = [...activeQ.options];
-                                    newOpts[oi] = e.target.value;
-                                    updateQuestion(activeQIndex, { options: newOpts });
+                                    newOpts[oi] = nextValue;
+
+                                    const patch: Partial<QuestionDraft> = { options: newOpts };
+                                    if (activeQ.questionType === 'MCQ' && activeQ.correctAnswer === previousValue) {
+                                      patch.correctAnswer = nextValue;
+                                    }
+                                    if (activeQ.questionType === 'MULTI_SELECT' && activeQ.correctAnswers.includes(previousValue)) {
+                                      patch.correctAnswers = activeQ.correctAnswers.map((answer) =>
+                                        answer === previousValue ? nextValue : answer,
+                                      );
+                                    }
+
+                                    updateQuestion(activeQIndex, patch);
                                   }}
                                   placeholder={`Option ${oi + 1}`}
                                   className="flex-1 border-amber-200 focus:border-amber-400 focus:ring-amber-400/20"
@@ -557,8 +659,17 @@ export default function AdminQuizCreator() {
                                     variant="ghost"
                                     size="sm"
                                     onClick={() => {
+                                      const removedOption = activeQ.options[oi];
                                       const newOpts = activeQ.options.filter((_, idx) => idx !== oi);
-                                      updateQuestion(activeQIndex, { options: newOpts });
+                                      updateQuestion(activeQIndex, {
+                                        options: newOpts,
+                                        ...(activeQ.questionType === 'MCQ' && activeQ.correctAnswer === removedOption
+                                          ? { correctAnswer: '' }
+                                          : {}),
+                                        ...(activeQ.questionType === 'MULTI_SELECT'
+                                          ? { correctAnswers: activeQ.correctAnswers.filter((answer) => answer !== removedOption) }
+                                          : {}),
+                                      });
                                     }}
                                     className="text-amber-400 hover:text-red-500 hover:bg-red-50"
                                   >
@@ -620,6 +731,31 @@ export default function AdminQuizCreator() {
                         </div>
                       )}
 
+                      {/* Multi-select preview */}
+                      {activeQ.questionType === 'MULTI_SELECT' && (
+                        <Card className="border-amber-200/60 bg-amber-50/50">
+                          <CardContent className="p-4">
+                            <p className="text-sm text-amber-800 font-semibold">Participants can select multiple answers before submitting.</p>
+                            <p className="text-xs text-amber-600/60 mt-1">
+                              Fully correct selections earn full points. Partial selections earn proportional credit only when no wrong option is selected.
+                            </p>
+                          </CardContent>
+                        </Card>
+                      )}
+
+                      {/* Open-ended preview */}
+                      {activeQ.questionType === 'OPEN_ENDED' && (
+                        <Card className="border-amber-200/60 bg-amber-50/50">
+                          <CardContent className="p-4 space-y-3">
+                            <p className="text-sm text-amber-800 font-semibold">Participants will type a free-text response. Nothing is right or wrong.</p>
+                            <div className="rounded-lg border border-dashed border-amber-300 bg-white px-3 py-3 text-sm text-amber-600/60">
+                              Feedback textarea preview
+                            </div>
+                            <p className="text-xs text-amber-600/50">Ideal for session reflections, suggestions, and qualitative feedback.</p>
+                          </CardContent>
+                        </Card>
+                      )}
+
                       {/* Rating preview */}
                       {activeQ.questionType === 'RATING' && (
                         <Card className="border-amber-200/60 bg-amber-50/50">
@@ -660,14 +796,18 @@ export default function AdminQuizCreator() {
                             type="number"
                             min={10}
                             max={500}
-                            value={activeQ.points}
+                            value={isUnscoredQuestion(activeQ.questionType) ? 0 : activeQ.points}
                             onChange={(e) =>
                               updateQuestion(activeQIndex, {
                                 points: Math.max(10, Math.min(500, parseInt(e.target.value) || 100)),
                               })
                             }
+                            disabled={isUnscoredQuestion(activeQ.questionType)}
                             className="border-amber-200 focus:border-amber-400 focus:ring-amber-400/20 font-mono"
                           />
+                          {isUnscoredQuestion(activeQ.questionType) && (
+                            <p className="mt-1 text-[11px] text-amber-600/60">This question type does not affect scores or streaks.</p>
+                          )}
                         </div>
                       </div>
 
@@ -730,7 +870,7 @@ export default function AdminQuizCreator() {
                       ~{questions.reduce((s, q) => s + q.timeLimitSeconds, 0)}s total
                     </Badge>
                     <Badge variant="outline" className="border-amber-300 text-amber-700 font-mono text-xs">
-                      {questions.reduce((s, q) => s + q.points, 0)} pts max
+                      {questions.reduce((sum, question) => sum + (isUnscoredQuestion(question.questionType) ? 0 : question.points), 0)} pts max
                     </Badge>
                   </div>
                 </CardContent>
@@ -747,15 +887,20 @@ export default function AdminQuizCreator() {
                         <p className="font-semibold text-amber-900 truncate text-sm">{q.questionText || '(empty)'}</p>
                         <div className="flex gap-1.5 mt-1.5 flex-wrap">
                           <Badge variant="outline" className="text-[10px] border-amber-200 text-amber-600 px-1.5 py-0">
-                            {q.questionType.replace('_', ' ')}
+                            {QUESTION_TYPE_LABELS[q.questionType]}
                           </Badge>
                           <Badge variant="outline" className="text-[10px] border-amber-200 text-amber-600 px-1.5 py-0 font-mono">
                             {q.timeLimitSeconds}s
                           </Badge>
                           <Badge variant="outline" className="text-[10px] border-amber-200 text-amber-600 px-1.5 py-0 font-mono">
-                            {q.points}pts
+                            {isUnscoredQuestion(q.questionType) ? '0pts' : `${q.points}pts`}
                           </Badge>
-                          {q.questionType !== 'POLL' && q.questionType !== 'RATING' && q.correctAnswer && (
+                          {q.questionType === 'MULTI_SELECT' && q.correctAnswers.length > 0 && (
+                            <Badge className="text-[10px] bg-green-100 text-green-700 border-green-300 px-1.5 py-0">
+                              ✓ {q.correctAnswers.join(', ')}
+                            </Badge>
+                          )}
+                          {!isUnscoredQuestion(q.questionType) && q.questionType !== 'MULTI_SELECT' && q.correctAnswer && (
                             <Badge className="text-[10px] bg-green-100 text-green-700 border-green-300 px-1.5 py-0">
                               ✓ {q.correctAnswer}
                             </Badge>

@@ -51,6 +51,63 @@ async function request<T>(endpoint: string, options: RequestOptions = {}): Promi
   return json.data !== undefined ? json.data : json;
 }
 
+function parseFilenameFromDisposition(disposition: string | null, fallback: string): string {
+  if (!disposition) return fallback;
+
+  const utf8Match = disposition.match(/filename\*=UTF-8''([^;]+)/i);
+  if (utf8Match?.[1]) {
+    try {
+      return decodeURIComponent(utf8Match[1]);
+    } catch {
+      return utf8Match[1];
+    }
+  }
+
+  const basicMatch = disposition.match(/filename="?([^";]+)"?/i);
+  return basicMatch?.[1] || fallback;
+}
+
+async function requestBlob(
+  endpoint: string,
+  options: RequestOptions = {},
+): Promise<{ blob: Blob; filename: string }> {
+  const { token, ...fetchOptions } = options;
+  const headers: Record<string, string> = {
+    ...(fetchOptions.headers as Record<string, string>),
+  };
+
+  const hasHeader = (name: string) =>
+    Object.keys(headers).some((headerName) => headerName.toLowerCase() === name.toLowerCase());
+
+  if (!hasHeader('Accept')) {
+    headers.Accept = 'application/octet-stream';
+  }
+
+  if (token) {
+    headers.Authorization = `Bearer ${token}`;
+  }
+
+  const response = await fetch(`${API_URL}${endpoint}`, {
+    ...fetchOptions,
+    credentials: 'include',
+    headers,
+  });
+
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => null);
+    const message = extractApiErrorMessage(errorData, `Request failed (${response.status})`);
+    throw new Error(message);
+  }
+
+  const blob = await response.blob();
+  const fallbackFilename = `${endpoint.split('/').pop() || 'download'}.pdf`;
+
+  return {
+    blob,
+    filename: parseFilenameFromDisposition(response.headers.get('content-disposition'), fallbackFilename),
+  };
+}
+
 export interface AuthProviders {
   google: boolean;
   github: boolean;
@@ -867,6 +924,8 @@ export const api = {
     request<{ certId: string; pdfUrl: string; verifyUrl: string }>('/certificates/generate', { method: 'POST', body: JSON.stringify(data), token }),
   bulkGenerateCertificates: (data: Record<string, unknown>, token: string) =>
     request<{ generated: number; failed: number; results: unknown[]; errors: unknown[] }>('/certificates/bulk', { method: 'POST', body: JSON.stringify(data), token }),
+  downloadCertificate: (certId: string, token: string) =>
+    requestBlob(`/certificates/download/${certId}`, { token }),
   getMyCertificates: (token: string, params?: { page?: number; limit?: number; type?: string; sort?: string }) => {
     const qs = new URLSearchParams();
     if (params?.page) qs.set('page', String(params.page));

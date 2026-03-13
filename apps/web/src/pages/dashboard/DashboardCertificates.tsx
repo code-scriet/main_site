@@ -19,8 +19,6 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5001/api';
-
 type CertType = 'PARTICIPATION' | 'COMPLETION' | 'WINNER' | 'SPEAKER';
 type Template = 'gold' | 'dark' | 'white' | 'emerald';
 
@@ -57,21 +55,16 @@ const templateTextColor: Record<Template, string> = {
   emerald: 'text-emerald-900',
 };
 
-function CertCard({ cert }: { cert: Certificate }) {
+function CertCard({
+  cert,
+  downloading,
+  onDownload,
+}: {
+  cert: Certificate;
+  downloading: boolean;
+  onDownload: () => void;
+}) {
   const verifyUrl = `${window.location.origin}/verify/${cert.certId}`;
-
-  function handleDownload() {
-    // The /download/:certId endpoint is public and handles both local files and
-    // Cloudinary-stored PDFs server-side, responding with Content-Disposition: attachment.
-    // Navigating to it triggers a browser download without any cross-origin blob issues.
-    const url = `${API_URL}/certificates/download/${cert.certId}`;
-    const a = document.createElement('a');
-    a.href = url;
-    a.style.display = 'none';
-    document.body.appendChild(a);
-    a.click();
-    setTimeout(() => { if (document.body.contains(a)) document.body.removeChild(a); }, 1000);
-  }
 
   function copyLink() {
     navigator.clipboard.writeText(verifyUrl)
@@ -119,11 +112,12 @@ function CertCard({ cert }: { cert: Certificate }) {
         {cert.pdfUrl && (
           <Button
             size="sm"
-            onClick={handleDownload}
+            onClick={onDownload}
+            disabled={downloading}
             className="flex-1 gap-1.5 bg-amber-500 hover:bg-amber-600 text-white text-xs"
           >
-            <Download className="w-3.5 h-3.5" />
-            Download PDF
+            {downloading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
+            {downloading ? 'Downloading…' : 'Download PDF'}
           </Button>
         )}
         <Button
@@ -166,6 +160,7 @@ export default function DashboardCertificates() {
   const [total, setTotal] = useState(0);
   const [typeFilter, setTypeFilter] = useState('');
   const [sortOrder, setSortOrder] = useState<'desc' | 'asc'>('desc');
+  const [downloadingId, setDownloadingId] = useState<string | null>(null);
 
   useEffect(() => {
     async function load() {
@@ -192,6 +187,30 @@ export default function DashboardCertificates() {
 
   // Reset page when filters change
   useEffect(() => { setPage(1); }, [typeFilter, sortOrder]);
+
+  async function handleDownload(certId: string) {
+    if (!token) {
+      toast.error('You need to be signed in to download certificates');
+      return;
+    }
+
+    setDownloadingId(certId);
+    try {
+      const { blob, filename } = await api.downloadCertificate(certId, token);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename || `${certId}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Download failed');
+    } finally {
+      setDownloadingId(null);
+    }
+  }
 
   return (
     <div className="p-6 max-w-5xl mx-auto space-y-6">
@@ -251,7 +270,12 @@ export default function DashboardCertificates() {
         <>
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             {certs.map(cert => (
-              <CertCard key={cert.certId} cert={cert} />
+              <CertCard
+                key={cert.certId}
+                cert={cert}
+                downloading={downloadingId === cert.certId}
+                onDownload={() => void handleDownload(cert.certId)}
+              />
             ))}
           </div>
 

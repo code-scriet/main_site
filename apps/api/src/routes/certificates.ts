@@ -105,6 +105,22 @@ const revokeSchema = z.object({
   reason: z.string().max(500).optional(),
 });
 
+function buildCertificateEventScope(eventName: string, eventId?: string | null) {
+  if (eventId) {
+    return {
+      OR: [
+        { eventId },
+        { eventId: null, eventName },
+      ],
+    };
+  }
+
+  return {
+    eventId: null,
+    eventName,
+  };
+}
+
 // ──────────────────────────────────────────────────────────────────
 // PUBLIC: Serve locally-stored certificate PDF files (MUST be first to avoid /:certId conflict)
 // GET /api/certificates/files/:filename
@@ -234,6 +250,22 @@ certificatesRouter.get('/', authMiddleware, requireRole('ADMIN'), async (req: Re
         orderBy: { issuedAt: 'desc' },
         skip: (page - 1) * limit,
         take: limit,
+        select: {
+          id: true,
+          certId: true,
+          recipientName: true,
+          recipientEmail: true,
+          eventName: true,
+          type: true,
+          position: true,
+          domain: true,
+          template: true,
+          pdfUrl: true,
+          issuedAt: true,
+          emailSent: true,
+          isRevoked: true,
+          viewCount: true,
+        },
       }),
       prisma.certificate.count({ where }),
     ]);
@@ -289,10 +321,12 @@ certificatesRouter.post('/generate', authMiddleware, requireRole('ADMIN'), async
     }
 
     // Compose signatory info from form values
-    const finalSignatoryName  = sanitizeText(signatoryName ?? 'Club President');
-    const finalSignatoryTitle = signatoryTitle ?? 'Club President';
-    const finalFacultyName    = facultyName ? sanitizeText(facultyName) : undefined;
-    const finalFacultyTitle   = facultyTitle ?? 'Faculty Coordinator';
+    const finalSignatoryName = sanitizeText(signatoryName?.trim() || 'Club President');
+    const finalSignatoryTitle = sanitizeText(signatoryTitle?.trim() || 'Club President');
+    const finalFacultyName = facultyName?.trim() ? sanitizeText(facultyName) : undefined;
+    const finalFacultyTitle = facultyName?.trim()
+      ? sanitizeText(facultyTitle?.trim() || 'Faculty Coordinator')
+      : undefined;
 
     // Generate unique cert ID, retry on collision (extremely rare)
     let certId = generateCertId();
@@ -311,6 +345,23 @@ certificatesRouter.post('/generate', authMiddleware, requireRole('ADMIN'), async
     const safePosition = position ? sanitizeText(position) : undefined;
     const safeDomain = domain ? sanitizeText(domain) : undefined;
     const safeDescription = description ? sanitizeText(description) : undefined;
+    const normalizedCertType = type.toUpperCase() as CertType;
+
+    const existingCertificate = await prisma.certificate.findFirst({
+      where: {
+        recipientEmail,
+        type: normalizedCertType,
+        ...buildCertificateEventScope(safeEventName, eventId),
+      },
+      select: { certId: true },
+    });
+
+    if (existingCertificate) {
+      return ApiResponse.badRequest(
+        res,
+        `A certificate for this recipient, event, and type already exists (ID: ${existingCertificate.certId})`,
+      );
+    }
 
     // Generate PDF
     const pdfBuffer = await generateCertificatePDF({
@@ -342,7 +393,7 @@ certificatesRouter.post('/generate', authMiddleware, requireRole('ADMIN'), async
         recipientId: recipientId || null,
         eventId: eventId || null,
         eventName: safeEventName,
-        type: type.toUpperCase() as CertType,
+        type: normalizedCertType,
         position: safePosition || null,
         domain: safeDomain || null,
         description: safeDescription || null,
@@ -419,25 +470,68 @@ certificatesRouter.post('/bulk', authMiddleware, requireRole('ADMIN'), async (re
   }
 
   // Compose signatory info from form values
-  const finalSignatoryName  = sanitizeText(signatoryName ?? 'Club President');
-  const finalSignatoryTitle = signatoryTitle ?? 'Club President';
-  const finalFacultyName    = facultyName ? sanitizeText(facultyName) : undefined;
-  const finalFacultyTitle   = facultyTitle ?? 'Faculty Coordinator';
+  const finalSignatoryName = sanitizeText(signatoryName?.trim() || 'Club President');
+  const finalSignatoryTitle = sanitizeText(signatoryTitle?.trim() || 'Club President');
+  const finalFacultyName = facultyName?.trim() ? sanitizeText(facultyName) : undefined;
+  const finalFacultyTitle = facultyName?.trim()
+    ? sanitizeText(facultyTitle?.trim() || 'Faculty Coordinator')
+    : undefined;
 
   // Sanitize shared text fields once
   const safeEventName   = sanitizeText(eventName);
   const safeDomain      = domain ? sanitizeText(domain) : undefined;
   const safeDescription = description ? sanitizeText(description) : undefined;
+  const normalizedCertType = type.toUpperCase() as CertType;
 
   const successes: Array<{ certId: string; pdfUrl: string; name: string; email: string }> = [];
   const failures: Array<{ name: string; email: string; reason: string }> = [];
   let emailsSent = 0;
   let emailsFailed = 0;
 
+  const existingCertificates = await prisma.certificate.findMany({
+    where: {
+      recipientEmail: { in: Array.from(new Set(recipients.map((recipient) => recipient.email))) },
+      type: normalizedCertType,
+      ...buildCertificateEventScope(safeEventName, eventId),
+    },
+    select: {
+      recipientEmail: true,
+      certId: true,
+    },
+  });
+  const existingByEmail = new Map(
+    existingCertificates.map((certificate) => [certificate.recipientEmail, certificate.certId]),
+  );
+  const queuedEmails = new Set<string>();
+  const recipientsToProcess = recipients.filter((recipient) => {
+    if (queuedEmails.has(recipient.email)) {
+      failures.push({
+        name: recipient.name,
+        email: recipient.email,
+        reason: 'Duplicate recipient email in this bulk upload',
+      });
+      return false;
+    }
+
+    queuedEmails.add(recipient.email);
+
+    const existingCertId = existingByEmail.get(recipient.email);
+    if (existingCertId) {
+      failures.push({
+        name: recipient.name,
+        email: recipient.email,
+        reason: `Certificate already exists for this recipient (ID: ${existingCertId})`,
+      });
+      return false;
+    }
+
+    return true;
+  });
+
   // Process in batches of 5 to limit memory/concurrency
   const BATCH_SIZE = 5;
-  for (let i = 0; i < recipients.length; i += BATCH_SIZE) {
-    const batch = recipients.slice(i, i + BATCH_SIZE);
+  for (let i = 0; i < recipientsToProcess.length; i += BATCH_SIZE) {
+    const batch = recipientsToProcess.slice(i, i + BATCH_SIZE);
     await Promise.allSettled(
       batch.map(async (r) => {
         try {
@@ -483,7 +577,7 @@ certificatesRouter.post('/bulk', authMiddleware, requireRole('ADMIN'), async (re
               recipientId: r.userId || null,
               eventId: eventId || null,
               eventName: safeEventName,
-              type: type.toUpperCase() as CertType,
+              type: normalizedCertType,
               position: safePosition || null,
               domain: safeDomain || null,
               description: safeDescription || null,
@@ -522,7 +616,7 @@ certificatesRouter.post('/bulk', authMiddleware, requireRole('ADMIN'), async (re
     );
   }
 
-  logger.info('Bulk certificate generation complete', {
+    logger.info('Bulk certificate generation complete', {
     generated: successes.length,
     failed: failures.length,
     eventName,
@@ -656,7 +750,13 @@ certificatesRouter.patch('/:certId/revoke', authMiddleware, requireRole('ADMIN')
   }
 
   try {
-    const cert = await prisma.certificate.findUnique({ where: { certId: upperCertId } });
+    const cert = await prisma.certificate.findUnique({
+      where: { certId: upperCertId },
+      select: {
+        certId: true,
+        isRevoked: true,
+      },
+    });
     if (!cert) {
       return ApiResponse.error(res, { code: ErrorCodes.NOT_FOUND, message: 'Certificate not found', status: 404 });
     }
@@ -691,7 +791,18 @@ certificatesRouter.post('/:certId/resend', authMiddleware, requireRole('ADMIN'),
   const upperCertId = req.params.certId.toUpperCase();
 
   try {
-    const cert = await prisma.certificate.findUnique({ where: { certId: upperCertId } });
+    const cert = await prisma.certificate.findUnique({
+      where: { certId: upperCertId },
+      select: {
+        certId: true,
+        recipientEmail: true,
+        recipientName: true,
+        eventName: true,
+        pdfUrl: true,
+        isRevoked: true,
+        lastEmailResentAt: true,
+      },
+    });
     if (!cert) {
       return ApiResponse.error(res, { code: ErrorCodes.NOT_FOUND, message: 'Certificate not found', status: 404 });
     }
@@ -739,7 +850,42 @@ certificatesRouter.get('/:certId', authMiddleware, requireRole('ADMIN'), async (
   const { certId } = req.params;
 
   try {
-    const cert = await prisma.certificate.findUnique({ where: { certId: certId.toUpperCase() } });
+    const cert = await prisma.certificate.findUnique({
+      where: { certId: certId.toUpperCase() },
+      select: {
+        id: true,
+        certId: true,
+        recipientId: true,
+        recipientName: true,
+        recipientEmail: true,
+        eventId: true,
+        eventName: true,
+        type: true,
+        position: true,
+        domain: true,
+        description: true,
+        template: true,
+        pdfUrl: true,
+        issuedBy: true,
+        issuedAt: true,
+        emailSent: true,
+        emailSentAt: true,
+        lastEmailResentAt: true,
+        isRevoked: true,
+        revokedAt: true,
+        revokedBy: true,
+        revokedReason: true,
+        viewCount: true,
+        createdAt: true,
+        updatedAt: true,
+        signatoryName: true,
+        signatoryTitle: true,
+        signatoryImageUrl: true,
+        facultyName: true,
+        facultyTitle: true,
+        facultySignatoryImageUrl: true,
+      },
+    });
     if (!cert) {
       return ApiResponse.error(res, { code: ErrorCodes.NOT_FOUND, message: 'Certificate not found', status: 404 });
     }

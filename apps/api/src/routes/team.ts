@@ -60,6 +60,12 @@ const normalizeOptionalText = (value?: string): string | null => {
   return trimmed ? trimmed : null;
 };
 
+// Preserve explicit blank overrides for self-managed team profiles so linked
+// user data does not repopulate a field that the member intentionally cleared.
+const normalizeExplicitOverride = (value?: string): string => {
+  return value?.trim() ?? '';
+};
+
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 const teamMemberUserSelect = {
@@ -531,6 +537,12 @@ teamRouter.put('/:id/profile', authMiddleware, async (req: Request, res: Respons
 
     // Sanitize rich content fields
     const sanitizedData = sanitizeRichContent({ bio, vision, story, expertise, achievements, website });
+    const normalizedWebsite =
+      website === undefined
+        ? undefined
+        : website.trim() === ''
+          ? ''
+          : (sanitizedData.website as string | null);
 
     const teamMember = await prisma.teamMember.update({
       where: { id },
@@ -540,11 +552,11 @@ teamRouter.put('/:id/profile', authMiddleware, async (req: Request, res: Respons
         ...(story !== undefined && { story: sanitizedData.story as string | null }),
         ...(expertise !== undefined && { expertise: sanitizedData.expertise as string | null }),
         ...(achievements !== undefined && { achievements: sanitizedData.achievements as string | null }),
-        ...(website !== undefined && { website: sanitizedData.website as string | null }),
-        ...(github !== undefined && { github: normalizeOptionalText(github) }),
-        ...(linkedin !== undefined && { linkedin: normalizeOptionalText(linkedin) }),
-        ...(twitter !== undefined && { twitter: normalizeOptionalText(twitter) }),
-        ...(instagram !== undefined && { instagram: normalizeOptionalText(instagram) }),
+        ...(normalizedWebsite !== undefined && { website: normalizedWebsite }),
+        ...(github !== undefined && { github: normalizeExplicitOverride(github) }),
+        ...(linkedin !== undefined && { linkedin: normalizeExplicitOverride(linkedin) }),
+        ...(twitter !== undefined && { twitter: normalizeExplicitOverride(twitter) }),
+        ...(instagram !== undefined && { instagram: normalizeExplicitOverride(instagram) }),
       },
     });
 

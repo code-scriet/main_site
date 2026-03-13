@@ -1,0 +1,3 @@
+-- AlterEnum
+ALTER TYPE "QuizQuestionType" ADD VALUE 'MULTI_SELECT';
+ALTER TYPE "QuizQuestionType" ADD VALUE 'OPEN_ENDED';

@@ -34,8 +34,6 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5001/api';
-
 const CERT_TYPES = ['PARTICIPATION', 'COMPLETION', 'WINNER', 'SPEAKER'] as const;
 
 type CertType = (typeof CERT_TYPES)[number];
@@ -181,6 +179,7 @@ export default function AdminCertificates() {
   const [revoking, setRevoking] = useState(false);
 
   const [resendingId, setResendingId] = useState<string | null>(null);
+  const [downloadingId, setDownloadingId] = useState<string | null>(null);
 
   const fetchCerts = useCallback(async () => {
     setLoading(true);
@@ -388,18 +387,28 @@ export default function AdminCertificates() {
     navigator.clipboard.writeText(url).then(() => toast.success('Verify link copied!')).catch(() => toast.error('Copy failed'));
   }
 
-  function downloadPdf(storedPdfUrl: string, certId: string) {
-    // The /download/:certId endpoint is public and handles both local files and
-    // Cloudinary-stored PDFs server-side, responding with Content-Disposition: attachment.
-    // Navigating to it triggers a browser download without any cross-origin blob issues.
-    void storedPdfUrl; // resolved server-side
-    const url = `${API_URL}/certificates/download/${certId}`;
-    const a = document.createElement('a');
-    a.href = url;
-    a.style.display = 'none';
-    document.body.appendChild(a);
-    a.click();
-    setTimeout(() => { if (document.body.contains(a)) document.body.removeChild(a); }, 1000);
+  async function downloadPdf(certId: string) {
+    if (!token) {
+      toast.error('You need to be signed in to download certificates');
+      return;
+    }
+
+    setDownloadingId(certId);
+    try {
+      const { blob, filename } = await api.downloadCertificate(certId, token);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename || `${certId}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Download failed');
+    } finally {
+      setDownloadingId(null);
+    }
   }
 
   return (
@@ -507,8 +516,8 @@ export default function AdminCertificates() {
                     <td className="px-4 py-3">
                       <div className="flex items-center justify-end gap-1.5">
                         {cert.pdfUrl && (
-                          <Button variant="outline" size="sm" className="h-7 w-7 p-0" onClick={() => downloadPdf(cert.pdfUrl!, cert.certId)} title="Download PDF">
-                            <Download className="w-3.5 h-3.5" />
+                          <Button variant="outline" size="sm" className="h-7 w-7 p-0" onClick={() => void downloadPdf(cert.certId)} title="Download PDF" disabled={downloadingId === cert.certId}>
+                            {downloadingId === cert.certId ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
                           </Button>
                         )}
                         <Button variant="outline" size="sm" className="h-7 w-7 p-0" onClick={() => copyVerifyLink(cert.certId)} title="Copy verify link">

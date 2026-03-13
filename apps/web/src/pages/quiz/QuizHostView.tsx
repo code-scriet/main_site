@@ -73,6 +73,16 @@ function ProgressRing({ value, max, size = 64 }: { value: number; max: number; s
   );
 }
 
+function parseAnswerList(raw: string | null | undefined): string[] {
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed.filter((value): value is string => typeof value === 'string') : [];
+  } catch {
+    return [];
+  }
+}
+
 interface QuizHostViewProps {
   onStartQuiz: () => void;
   onNextQuestion: () => void;
@@ -138,12 +148,18 @@ export function QuizHostView({
   // ─── CP8: Running mean accuracy for contextual label ───
   const accuracyHistory = useRef<number[]>([]);
   const questionRevealData = questionReveal;
+  const revealedCorrectAnswers = useMemo(
+    () => currentQuestion?.questionType === 'MULTI_SELECT' ? parseAnswerList(questionRevealData?.correctAnswer) : [],
+    [currentQuestion?.questionType, questionRevealData?.correctAnswer],
+  );
 
   useEffect(() => {
     if (quizStatus === 'revealing' && questionRevealData?.correctAnswer != null) {
       const dist = questionRevealData.answerDistribution ?? {};
       const total = Object.values(dist).reduce((s: number, n: number) => s + n, 0);
-      const correct = dist[questionRevealData.correctAnswer] ?? 0;
+      const correct = currentQuestion?.questionType === 'MULTI_SELECT'
+        ? revealedCorrectAnswers.reduce((sum, answer) => sum + (dist[answer] ?? 0), 0)
+        : (questionRevealData.correctAnswer ? (dist[questionRevealData.correctAnswer] ?? 0) : 0);
       if (total > 0) {
         const acc = Math.round((correct / total) * 100);
         // Only push if it's a new question (avoid duplicates)
@@ -153,7 +169,7 @@ export function QuizHostView({
         }
       }
     }
-  }, [quizStatus, questionRevealData, currentQuestion?.questionIndex]);
+  }, [quizStatus, questionRevealData, currentQuestion?.questionIndex, currentQuestion?.questionType, revealedCorrectAnswers]);
 
   // Calculate time remaining using the proper timer hook
   const { secondsLeft: timeRemaining } = useQuizTimer(
@@ -330,24 +346,32 @@ export function QuizHostView({
                   </h2>
                   {currentQuestion.options && (
                     <div className="grid grid-cols-2 gap-2">
-                      {currentQuestion.options.map((opt, i) => (
-                        <div
-                          key={i}
-                          className={cn(
-                            'p-3 rounded-lg border text-sm font-medium',
-                            quizStatus === 'revealing' && questionReveal?.correctAnswer === opt
-                              ? 'bg-green-50 border-green-300 text-green-800'
-                              : 'bg-amber-50/50 border-amber-200 text-amber-800',
-                          )}
-                        >
-                          <span className="font-bold text-amber-600 mr-1.5">{String.fromCharCode(65 + i)})</span>
-                          {opt}
-                        </div>
-                      ))}
+                      {currentQuestion.options.map((opt, i) => {
+                        const isCorrectOption = quizStatus === 'revealing' && (
+                          currentQuestion.questionType === 'MULTI_SELECT'
+                            ? revealedCorrectAnswers.includes(opt)
+                            : questionReveal?.correctAnswer === opt
+                        );
+
+                        return (
+                          <div
+                            key={i}
+                            className={cn(
+                              'p-3 rounded-lg border text-sm font-medium',
+                              isCorrectOption
+                                ? 'bg-green-50 border-green-300 text-green-800'
+                                : 'bg-amber-50/50 border-amber-200 text-amber-800',
+                            )}
+                          >
+                            <span className="font-bold text-amber-600 mr-1.5">{String.fromCharCode(65 + i)})</span>
+                            {opt}
+                          </div>
+                        );
+                      })}
                     </div>
                   )}
                   {/* Answer distribution during reveal */}
-                  {quizStatus === 'revealing' && questionReveal?.answerDistribution && (
+                  {quizStatus === 'revealing' && questionReveal?.answerDistribution && currentQuestion.questionType !== 'OPEN_ENDED' && (
                     <div className="mt-4 pt-4 border-t border-amber-100">
                       <QuizAnswerDistribution
                         distribution={questionReveal.answerDistribution}
@@ -588,20 +612,32 @@ export function QuizHostView({
                   {(() => {
                     const dist = questionReveal.answerDistribution ?? {};
                     const total = Object.values(dist).reduce((s: number, n: number) => s + n, 0);
-                    const correct = questionReveal.correctAnswer ? (dist[questionReveal.correctAnswer] ?? 0) : 0;
-                    const accuracy = total > 0 ? Math.round((correct / total) * 100) : 0;
+                    const correct = currentQuestion?.questionType === 'MULTI_SELECT'
+                      ? revealedCorrectAnswers.reduce((sum, answer) => sum + (dist[answer] ?? 0), 0)
+                      : (questionReveal.correctAnswer ? (dist[questionReveal.correctAnswer] ?? 0) : 0);
+                    const accuracy = currentQuestion?.questionType === 'OPEN_ENDED'
+                      ? 0
+                      : total > 0 ? Math.round((correct / total) * 100) : 0;
                     const unanswered = participants.length - total;
                     const runningMean = accuracyHistory.current.length > 0
                       ? Math.round(accuracyHistory.current.reduce((a, b) => a + b, 0) / accuracyHistory.current.length)
                       : 50;
-                    const label = accuracy > runningMean ? 'Easier than average' : 'Harder than average';
-                    const labelColor = accuracy > runningMean ? 'text-green-600' : 'text-red-600';
+                    const label = currentQuestion?.questionType === 'OPEN_ENDED'
+                      ? 'Qualitative feedback collected'
+                      : accuracy > runningMean ? 'Easier than average' : 'Harder than average';
+                    const labelColor = currentQuestion?.questionType === 'OPEN_ENDED'
+                      ? 'text-emerald-600'
+                      : accuracy > runningMean ? 'text-green-600' : 'text-red-600';
 
                     return (
                       <div className="grid grid-cols-2 gap-2 text-center">
                         <div className="bg-amber-50 rounded-lg p-2">
-                          <p className="text-lg font-black text-amber-900 tabular-nums">{accuracy}%</p>
-                          <p className="text-[10px] text-amber-700/50 font-semibold uppercase">Accuracy</p>
+                          <p className="text-lg font-black text-amber-900 tabular-nums">
+                            {currentQuestion?.questionType === 'OPEN_ENDED' ? total : `${accuracy}%`}
+                          </p>
+                          <p className="text-[10px] text-amber-700/50 font-semibold uppercase">
+                            {currentQuestion?.questionType === 'OPEN_ENDED' ? 'Responses' : 'Accuracy'}
+                          </p>
                         </div>
                         <div className="bg-amber-50 rounded-lg p-2">
                           <p className="text-lg font-black text-amber-900 tabular-nums">{unanswered}</p>

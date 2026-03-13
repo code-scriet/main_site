@@ -53,6 +53,8 @@ interface QuizAccessTokenPayload {
   accessRole: QuizAccessRole;
 }
 
+type SupportedQuestionType = 'MCQ' | 'TRUE_FALSE' | 'SHORT_ANSWER' | 'POLL' | 'RATING' | 'MULTI_SELECT' | 'OPEN_ENDED';
+
 function signQuizAccessToken(payload: QuizAccessTokenPayload): string {
   return jwt.sign(payload, getJwtSecret(), { expiresIn: '20m' });
 }
@@ -62,7 +64,7 @@ function signQuizAccessToken(payload: QuizAccessTokenPayload): string {
 const questionSchema = z.object({
   position: z.number().int().min(0),
   questionText: z.string().min(1, 'Question text is required'),
-  questionType: z.enum(['MCQ', 'TRUE_FALSE', 'SHORT_ANSWER', 'POLL', 'RATING']),
+  questionType: z.enum(['MCQ', 'TRUE_FALSE', 'SHORT_ANSWER', 'POLL', 'RATING', 'MULTI_SELECT', 'OPEN_ENDED']),
   options: z.array(z.string()).nullable().optional(),
   correctAnswer: z.string().nullable().optional(),
   timeLimitSeconds: z.number().int().min(5).max(120).default(20),
@@ -82,6 +84,98 @@ const updateQuizSchema = z.object({
   questions: z.array(questionSchema).min(1).max(50).optional(),
 });
 
+const UNSCORED_QUESTION_TYPES = new Set<SupportedQuestionType>(['POLL', 'RATING', 'OPEN_ENDED']);
+
+function parseJsonArrayString(raw: string): string[] | null {
+  try {
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return null;
+
+    const values = parsed
+      .map((item) => (typeof item === 'string' ? item.trim() : ''))
+      .filter(Boolean);
+
+    if (values.length === 0) return null;
+    return Array.from(new Set(values));
+  } catch {
+    return null;
+  }
+}
+
+function validateQuizQuestions(questions: z.infer<typeof questionSchema>[]): string | null {
+  for (const q of questions) {
+    const normalizedOptions = (q.options || []).map((option) => option.trim()).filter(Boolean);
+
+    if (normalizedOptions.length > 0 && new Set(normalizedOptions).size !== normalizedOptions.length) {
+      return `Question "${q.questionText.substring(0, 50)}..." has duplicate options`;
+    }
+
+    if ((q.questionType === 'MCQ' || q.questionType === 'TRUE_FALSE' || q.questionType === 'MULTI_SELECT') && (!q.options || q.options.length < 2)) {
+      return `Question "${q.questionText.substring(0, 50)}..." must have at least 2 options`;
+    }
+
+    if (q.questionType === 'MCQ' && !q.correctAnswer) {
+      return 'MCQ question must have a correct answer marked';
+    }
+
+    if (q.questionType === 'TRUE_FALSE' && !q.correctAnswer) {
+      return 'True/False question must have a correct answer';
+    }
+
+    if (q.questionType === 'SHORT_ANSWER' && !q.correctAnswer) {
+      return 'Short answer question must have a correct answer';
+    }
+
+    if (q.questionType === 'MULTI_SELECT') {
+      if (!q.correctAnswer) {
+        return 'Multi-select question must have at least one correct answer marked';
+      }
+
+      const options = normalizedOptions;
+      const correctAnswers = parseJsonArrayString(q.correctAnswer);
+
+      if (options.length < 2) {
+        return `Question "${q.questionText.substring(0, 50)}..." must have at least 2 options`;
+      }
+
+      if (!correctAnswers) {
+        return 'Multi-select correct answers must be a JSON array of option labels';
+      }
+
+      const invalidCorrectAnswer = correctAnswers.find((answer) => !options.includes(answer));
+      if (invalidCorrectAnswer) {
+        return `Multi-select correct answer "${invalidCorrectAnswer}" must match one of the configured options`;
+      }
+    }
+
+    if (q.questionType === 'OPEN_ENDED' && q.correctAnswer && q.correctAnswer.trim()) {
+      return 'Open-ended questions cannot have a correct answer';
+    }
+  }
+
+  return null;
+}
+
+function formatAnswerDisplay(
+  raw: string | null | undefined,
+  questionType: SupportedQuestionType,
+): string {
+  if (!raw) return '-';
+  if (questionType !== 'MULTI_SELECT') return raw;
+
+  const values = parseJsonArrayString(raw);
+  return values ? values.join(', ') : raw;
+}
+
+function formatOptionsDisplay(
+  options: string[] | null | undefined,
+  questionType: SupportedQuestionType,
+): string {
+  if (questionType === 'OPEN_ENDED') return 'Free text response';
+  if (!options?.length) return '-';
+  return options.join(', ');
+}
+
 // ─── POST /api/quiz — Create quiz + questions (CORE_MEMBER+) ────────────
 
 quizRouter.post('/', authMiddleware, requireRole('CORE_MEMBER'), quizCreateLimiter, async (req: Request, res: Response) => {
@@ -99,17 +193,9 @@ quizRouter.post('/', authMiddleware, requireRole('CORE_MEMBER'), quizCreateLimit
 
     const { title, description, questions } = parsed.data;
 
-    // Validate MCQ/TRUE_FALSE have options and correct answer
-    for (const q of questions) {
-      if ((q.questionType === 'MCQ' || q.questionType === 'TRUE_FALSE') && (!q.options || q.options.length < 2)) {
-        return ApiResponse.badRequest(res, `Question "${q.questionText.substring(0, 50)}..." must have at least 2 options`);
-      }
-      if (q.questionType === 'MCQ' && !q.correctAnswer) {
-        return ApiResponse.badRequest(res, `MCQ question must have a correct answer marked`);
-      }
-      if (q.questionType === 'TRUE_FALSE' && !q.correctAnswer) {
-        return ApiResponse.badRequest(res, `True/False question must have a correct answer`);
-      }
+    const validationError = validateQuizQuestions(questions);
+    if (validationError) {
+      return ApiResponse.badRequest(res, validationError);
     }
 
     const quiz = await prisma.$transaction(async (tx) => {
@@ -665,6 +751,7 @@ quizRouter.get('/:quizId/results', authMiddleware, async (req: Request, res: Res
     }));
 
     const myResult = participants.find((p) => p.userId === user.id);
+    const isCreator = quiz.createdBy === user.id || user.role === 'ADMIN' || user.role === 'PRESIDENT';
 
     // Fetch per-question analytics — stored during persistResultsAndCleanup
     const questions = await prisma.quizQuestion.findMany({
@@ -685,12 +772,43 @@ quizRouter.get('/:quizId/results', authMiddleware, async (req: Request, res: Res
         answerDistribution: true,
       },
     });
+    const rawAnswersForCreator = isCreator
+      ? await prisma.quizAnswer.findMany({
+          where: { quizId },
+          select: {
+            userId: true,
+            questionId: true,
+            answerSubmitted: true,
+            isCorrect: true,
+            answerTimeMs: true,
+          },
+        })
+      : [];
+    const openEndedQuestionIds = new Set(
+      questions
+        .filter((question) => question.questionType === 'OPEN_ENDED')
+        .map((question) => question.id),
+    );
+    const openEndedSamples = new Map<string, string[]>();
+
+    for (const answer of rawAnswersForCreator) {
+      if (!openEndedQuestionIds.has(answer.questionId) || !answer.answerSubmitted?.trim()) {
+        continue;
+      }
+
+      const existing = openEndedSamples.get(answer.questionId) ?? [];
+      if (existing.length < 8) {
+        existing.push(answer.answerSubmitted.trim());
+        openEndedSamples.set(answer.questionId, existing);
+      }
+    }
 
     // Build per-question analytics with computed inferences
     const questionAnalytics = questions.map((q) => {
       const accuracy = q.totalAnswers > 0 ? Math.round((q.correctCount / q.totalAnswers) * 100) : 0;
-      const isPollOrRating = q.questionType === 'POLL' || q.questionType === 'RATING';
+      const isUnscoredType = UNSCORED_QUESTION_TYPES.has(q.questionType as SupportedQuestionType);
       const distribution = (q.answerDistribution as Record<string, number> | null) ?? {};
+      const correctAnswers = q.questionType === 'MULTI_SELECT' ? parseJsonArrayString(q.correctAnswer || '') || [] : [];
 
       // For rating questions: compute average rating
       let avgRating: number | null = null;
@@ -703,10 +821,14 @@ quizRouter.get('/:quizId/results', authMiddleware, async (req: Request, res: Res
 
       // Find most common wrong answer (for scored questions)
       let mostCommonWrongAnswer: string | null = null;
-      if (!isPollOrRating && q.correctAnswer) {
+      if (!isUnscoredType && q.correctAnswer) {
         let maxWrong = 0;
         for (const [answer, count] of Object.entries(distribution)) {
-          if (answer !== q.correctAnswer && count > maxWrong) {
+          const isWrongAnswer = q.questionType === 'MULTI_SELECT'
+            ? !correctAnswers.includes(answer)
+            : answer !== q.correctAnswer;
+
+          if (isWrongAnswer && count > maxWrong) {
             maxWrong = count;
             mostCommonWrongAnswer = answer;
           }
@@ -719,16 +841,17 @@ quizRouter.get('/:quizId/results', authMiddleware, async (req: Request, res: Res
         questionText: q.questionText,
         questionType: q.questionType,
         options: q.options,
-        correctAnswer: isPollOrRating ? null : q.correctAnswer,
+        correctAnswer: isUnscoredType ? null : q.correctAnswer,
         timeLimitSeconds: q.timeLimitSeconds,
         points: q.points,
         totalAnswers: q.totalAnswers,
         correctCount: q.correctCount,
         accuracy,
         avgAnswerTimeMs: q.avgAnswerTimeMs,
-        answerDistribution: distribution,
+        answerDistribution: q.questionType === 'OPEN_ENDED' && !isCreator ? {} : distribution,
         avgRating,
         mostCommonWrongAnswer,
+        sampleResponses: q.questionType === 'OPEN_ENDED' && isCreator ? (openEndedSamples.get(q.id) ?? []) : [],
         // Unanswered = participants who didn't answer this question
         unansweredCount: Math.max(0, participants.length - q.totalAnswers),
       };
@@ -739,17 +862,20 @@ quizRouter.get('/:quizId/results', authMiddleware, async (req: Request, res: Res
     const avgScore = totalParticipants > 0
       ? Math.round(participants.reduce((s, p) => s + p.finalScore, 0) / totalParticipants)
       : 0;
-    const maxPossibleScore = questions.reduce((s, q) => s + q.points, 0);
+    const maxPossibleScore = questions.reduce(
+      (sum, question) => sum + (UNSCORED_QUESTION_TYPES.has(question.questionType as SupportedQuestionType) ? 0 : question.points),
+      0,
+    );
     const avgAccuracy = questions.length > 0
       ? Math.round(
           questionAnalytics
-            .filter((q) => q.questionType !== 'POLL' && q.questionType !== 'RATING')
+            .filter((q) => !UNSCORED_QUESTION_TYPES.has(q.questionType as SupportedQuestionType))
             .reduce((s, q) => s + q.accuracy, 0) /
-          Math.max(1, questionAnalytics.filter((q) => q.questionType !== 'POLL' && q.questionType !== 'RATING').length)
+          Math.max(1, questionAnalytics.filter((q) => !UNSCORED_QUESTION_TYPES.has(q.questionType as SupportedQuestionType)).length)
         )
       : 0;
     const scoredQuestions = questionAnalytics.filter(
-      (q) => q.questionType !== 'POLL' && q.questionType !== 'RATING',
+      (q) => !UNSCORED_QUESTION_TYPES.has(q.questionType as SupportedQuestionType),
     );
     const hardestQuestion = scoredQuestions.length > 0
       ? scoredQuestions.reduce((h, q) => (q.accuracy < h.accuracy ? q : h))
@@ -773,8 +899,6 @@ quizRouter.get('/:quizId/results', authMiddleware, async (req: Request, res: Res
       ? new Date(quiz.endedAt).getTime() - new Date(quiz.startedAt).getTime()
       : null;
 
-    const isCreator = quiz.createdBy === user.id || user.role === 'ADMIN' || user.role === 'PRESIDENT';
-
     // Per-player per-question answer data for heatmap (creator/admin only)
     let participantAnswers: {
       userId: string;
@@ -784,16 +908,7 @@ quizRouter.get('/:quizId/results', authMiddleware, async (req: Request, res: Res
     }[] = [];
 
     if (isCreator) {
-      const rawAnswers = await prisma.quizAnswer.findMany({
-        where: { quizId },
-        select: {
-          userId: true,
-          questionId: true,
-          isCorrect: true,
-          answerTimeMs: true,
-        },
-      });
-      participantAnswers = rawAnswers.map((a) => ({
+      participantAnswers = rawAnswersForCreator.map((a) => ({
         userId: a.userId,
         questionId: a.questionId,
         isCorrect: a.isCorrect,
@@ -941,6 +1056,8 @@ quizRouter.get('/:quizId/export', authMiddleware, requireRole('CORE_MEMBER'), as
       if (!answerMap.has(a.userId)) answerMap.set(a.userId, new Map());
       answerMap.get(a.userId)!.set(a.questionId, a);
     }
+    const questionMap = new Map(quiz.questions.map((question) => [question.id, question]));
+    const participantMap = new Map(quiz.participants.map((participant) => [participant.userId, participant]));
 
     const ExcelJS = await import('exceljs');
     const workbook = new ExcelJS.default.Workbook();
@@ -1021,20 +1138,26 @@ quizRouter.get('/:quizId/export', authMiddleware, requireRole('CORE_MEMBER'), as
     qaSheet.getRow(1).height = 25;
 
     for (const q of quiz.questions) {
-      const isPollRating = q.questionType === 'POLL' || q.questionType === 'RATING';
+      const isUnscoredType = UNSCORED_QUESTION_TYPES.has(q.questionType as SupportedQuestionType);
       const accuracy = q.totalAnswers > 0 ? Math.round((q.correctCount / q.totalAnswers) * 100) : 0;
       const dist = (q.answerDistribution as Record<string, number> | null) ?? {};
+      const multiCorrectAnswers = q.questionType === 'MULTI_SELECT' ? parseJsonArrayString(q.correctAnswer || '') || [] : [];
 
       let commonWrong = '-';
-      if (!isPollRating && q.correctAnswer) {
+      if (!isUnscoredType && q.correctAnswer) {
         let maxW = 0;
         for (const [a, c] of Object.entries(dist)) {
-          if (a !== q.correctAnswer && c > maxW) { maxW = c; commonWrong = a; }
+          const isWrongAnswer = q.questionType === 'MULTI_SELECT'
+            ? !multiCorrectAnswers.includes(a)
+            : a !== q.correctAnswer;
+          if (isWrongAnswer && c > maxW) { maxW = c; commonWrong = a; }
         }
       }
 
       // Avg rating for rating type
-      let correctAns = isPollRating ? 'N/A' : (q.correctAnswer || '-');
+      let correctAns = isUnscoredType
+        ? 'N/A'
+        : formatAnswerDisplay(q.correctAnswer, q.questionType as SupportedQuestionType);
       if (q.questionType === 'RATING' && q.totalAnswers > 0) {
         const total = Object.entries(dist).reduce((s, [k, v]) => s + parseFloat(k) * v, 0);
         correctAns = `Avg: ${(total / q.totalAnswers).toFixed(1)} ★`;
@@ -1046,13 +1169,13 @@ quizRouter.get('/:quizId/export', authMiddleware, requireRole('CORE_MEMBER'), as
         type: q.questionType,
         correctAns,
         totalAns: q.totalAnswers,
-        correctCnt: isPollRating ? 'N/A' : q.correctCount,
-        accuracy: isPollRating ? 'N/A' : accuracy,
+        correctCnt: isUnscoredType ? 'N/A' : q.correctCount,
+        accuracy: isUnscoredType ? 'N/A' : accuracy,
         avgTime: q.avgAnswerTimeMs > 0 ? (q.avgAnswerTimeMs / 1000).toFixed(2) : '-',
         timeLimit: q.timeLimitSeconds,
         points: q.points,
         unanswered: Math.max(0, quiz.participants.length - q.totalAnswers),
-        commonWrong: isPollRating ? 'N/A' : commonWrong,
+        commonWrong: isUnscoredType ? 'N/A' : commonWrong,
       });
     }
     // Color: low accuracy = red tint, high = green tint
@@ -1113,9 +1236,11 @@ quizRouter.get('/:quizId/export', authMiddleware, requireRole('CORE_MEMBER'), as
       };
       for (const q of quiz.questions) {
         const ans = answerMap.get(p.userId)?.get(q.id);
-        const isPR = q.questionType === 'POLL' || q.questionType === 'RATING';
-        rowData[`q${q.position}_ans`] = ans?.answerSubmitted ?? '(no answer)';
-        rowData[`q${q.position}_correct`] = !ans ? '-' : isPR ? 'N/A' : ans.isCorrect ? '✓' : '✗';
+        const isUnscoredType = UNSCORED_QUESTION_TYPES.has(q.questionType as SupportedQuestionType);
+        rowData[`q${q.position}_ans`] = ans?.answerSubmitted
+          ? formatAnswerDisplay(ans.answerSubmitted, q.questionType as SupportedQuestionType)
+          : '(no answer)';
+        rowData[`q${q.position}_correct`] = !ans ? '-' : isUnscoredType ? 'N/A' : ans.isCorrect ? '✓' : '✗';
         rowData[`q${q.position}_pts`] = ans?.pointsAwarded ?? 0;
         rowData[`q${q.position}_time`] = ans ? (ans.answerTimeMs / 1000).toFixed(2) : '-';
       }
@@ -1133,16 +1258,104 @@ quizRouter.get('/:quizId/export', authMiddleware, requireRole('CORE_MEMBER'), as
       };
     });
 
-    // ── Sheet 4: Quiz Summary ──
+    // ── Sheet 4: All Responses (one row per submitted answer) ──
+    const responsesSheet = workbook.addWorksheet('All Responses');
+    responsesSheet.columns = [
+      { header: 'Participant', key: 'participant', width: 28 },
+      { header: 'Rank', key: 'rank', width: 8 },
+      { header: 'User ID', key: 'userId', width: 30 },
+      { header: 'Final Score', key: 'finalScore', width: 12 },
+      { header: 'Question #', key: 'questionNumber', width: 10 },
+      { header: 'Question ID', key: 'questionId', width: 30 },
+      { header: 'Question Type', key: 'questionType', width: 16 },
+      { header: 'Question', key: 'questionText', width: 48 },
+      { header: 'Available Options', key: 'availableOptions', width: 36 },
+      { header: 'Submitted Answer', key: 'submittedAnswer', width: 38 },
+      { header: 'Submitted Answer (Raw)', key: 'submittedAnswerRaw', width: 38 },
+      { header: 'Correct Answer', key: 'correctAnswer', width: 28 },
+      { header: 'Correct Answer (Raw)', key: 'correctAnswerRaw', width: 28 },
+      { header: 'Result', key: 'result', width: 14 },
+      { header: 'Points Awarded', key: 'pointsAwarded', width: 14 },
+      { header: 'Answer Time (s)', key: 'answerTimeSeconds', width: 16 },
+    ];
+    responsesSheet.getRow(1).eachCell((cell) => { Object.assign(cell, { style: headerStyle }); });
+    responsesSheet.getRow(1).height = 25;
+    responsesSheet.getColumn('questionText').alignment = { vertical: 'top', wrapText: true };
+    responsesSheet.getColumn('availableOptions').alignment = { vertical: 'top', wrapText: true };
+    responsesSheet.getColumn('submittedAnswer').alignment = { vertical: 'top', wrapText: true };
+    responsesSheet.getColumn('submittedAnswerRaw').alignment = { vertical: 'top', wrapText: true };
+    responsesSheet.getColumn('correctAnswer').alignment = { vertical: 'top', wrapText: true };
+    responsesSheet.getColumn('correctAnswerRaw').alignment = { vertical: 'top', wrapText: true };
+
+    const sortedAnswers = [...allAnswers].sort((left, right) => {
+      const leftQuestion = questionMap.get(left.questionId);
+      const rightQuestion = questionMap.get(right.questionId);
+      if ((leftQuestion?.position ?? 0) !== (rightQuestion?.position ?? 0)) {
+        return (leftQuestion?.position ?? 0) - (rightQuestion?.position ?? 0);
+      }
+      const leftParticipant = participantMap.get(left.userId);
+      const rightParticipant = participantMap.get(right.userId);
+      return (leftParticipant?.finalRank ?? Number.MAX_SAFE_INTEGER) - (rightParticipant?.finalRank ?? Number.MAX_SAFE_INTEGER);
+    });
+
+    for (const answer of sortedAnswers) {
+      const question = questionMap.get(answer.questionId);
+      const participant = participantMap.get(answer.userId);
+      if (!question || !participant) continue;
+
+      const isUnscoredType = UNSCORED_QUESTION_TYPES.has(question.questionType as SupportedQuestionType);
+      responsesSheet.addRow({
+        participant: participant.displayName,
+        rank: participant.finalRank ?? '-',
+        userId: answer.userId,
+        finalScore: participant.finalScore,
+        questionNumber: question.position + 1,
+        questionId: question.id,
+        questionType: question.questionType,
+        questionText: question.questionText,
+        availableOptions: formatOptionsDisplay(
+          question.options as string[] | null,
+          question.questionType as SupportedQuestionType,
+        ),
+        submittedAnswer: formatAnswerDisplay(
+          answer.answerSubmitted,
+          question.questionType as SupportedQuestionType,
+        ),
+        submittedAnswerRaw: answer.answerSubmitted || '-',
+        correctAnswer: isUnscoredType
+          ? 'N/A'
+          : formatAnswerDisplay(question.correctAnswer, question.questionType as SupportedQuestionType),
+        correctAnswerRaw: isUnscoredType ? 'N/A' : question.correctAnswer || '-',
+        result: isUnscoredType ? 'N/A' : answer.isCorrect ? 'Correct' : 'Incorrect',
+        pointsAwarded: answer.pointsAwarded,
+        answerTimeSeconds: (answer.answerTimeMs / 1000).toFixed(2),
+      });
+    }
+
+    responsesSheet.eachRow((row, index) => {
+      if (index > 1) {
+        row.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: index % 2 === 0 ? 'FFF8FAFC' : 'FFFFFFFF' } };
+      }
+      row.border = {
+        top: { style: 'thin', color: { argb: 'FFE5E7EB' } },
+        bottom: { style: 'thin', color: { argb: 'FFE5E7EB' } },
+        left: { style: 'thin', color: { argb: 'FFE5E7EB' } },
+        right: { style: 'thin', color: { argb: 'FFE5E7EB' } },
+      };
+    });
+
+    // ── Sheet 5: Quiz Summary ──
     const summarySheet = workbook.addWorksheet('Quiz Summary');
-    const totalScored = quiz.questions.filter((q) => q.questionType !== 'POLL' && q.questionType !== 'RATING');
+    const totalScored = quiz.questions.filter(
+      (q) => !UNSCORED_QUESTION_TYPES.has(q.questionType as SupportedQuestionType),
+    );
     const avgAccuracy = totalScored.length > 0
       ? Math.round(totalScored.reduce((s, q) => s + (q.totalAnswers > 0 ? (q.correctCount / q.totalAnswers) * 100 : 0), 0) / totalScored.length)
       : 0;
     const avgScore = quiz.participants.length > 0
       ? Math.round(quiz.participants.reduce((s, p) => s + p.finalScore, 0) / quiz.participants.length)
       : 0;
-    const maxScore = quiz.questions.reduce((s, q) => s + q.points, 0);
+    const maxScore = totalScored.reduce((sum, question) => sum + question.points, 0);
     const duration = quiz.startedAt && quiz.endedAt
       ? Math.round((new Date(quiz.endedAt).getTime() - new Date(quiz.startedAt).getTime()) / 1000)
       : null;
@@ -1206,6 +1419,12 @@ quizRouter.patch('/:quizId', authMiddleware, requireRole('CORE_MEMBER'), async (
     }
 
     const { title, description, questions } = parsed.data;
+    if (questions) {
+      const validationError = validateQuizQuestions(questions);
+      if (validationError) {
+        return ApiResponse.badRequest(res, validationError);
+      }
+    }
 
     await prisma.$transaction(async (tx) => {
       if (title || description !== undefined) {
@@ -1351,7 +1570,7 @@ quizRouter.post('/:quizId/open', authMiddleware, requireRole('CORE_MEMBER'), asy
           id: q.id,
           position: q.position,
           questionText: q.questionText,
-          questionType: q.questionType as 'MCQ' | 'TRUE_FALSE' | 'SHORT_ANSWER' | 'POLL' | 'RATING',
+          questionType: q.questionType as SupportedQuestionType,
           options: q.options as string[] | null,
           correctAnswer: q.correctAnswer,
           timeLimitSeconds: q.timeLimitSeconds,

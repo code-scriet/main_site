@@ -14,7 +14,7 @@ export interface QuizQuestionData {
   id: string;
   position: number;
   questionText: string;
-  questionType: 'MCQ' | 'TRUE_FALSE' | 'SHORT_ANSWER' | 'POLL' | 'RATING';
+  questionType: 'MCQ' | 'TRUE_FALSE' | 'SHORT_ANSWER' | 'POLL' | 'RATING' | 'MULTI_SELECT' | 'OPEN_ENDED';
   options: string[] | null;
   correctAnswer: string | null;
   timeLimitSeconds: number;
@@ -89,7 +89,7 @@ export function calculatePoints(
   const timeRatio = Math.max(0, (timeLimitMs - timeMs) / timeLimitMs);
   const basePoints = question.points;
   const timeBonus = Math.floor(timeRatio * 50);
-  const streakBonus = Math.min((streak - 1) * 10, 50);
+  const streakBonus = Math.min(Math.max(streak - 1, 0) * 10, 50);
   return basePoints + timeBonus + streakBonus;
 }
 
@@ -100,7 +100,9 @@ const quizRooms = new Map<string, QuizRoom>();
 // Rate limiter for submit_answer
 const answerRateLimit = new Map<string, number>();
 const MAX_ANSWER_LENGTH = 200;
+const MAX_OPEN_ENDED_LENGTH = 1000;
 const MAX_ANALYTICS_KEY_LENGTH = 80;
+const UNSCORED_QUESTION_TYPES = new Set<QuizQuestionData['questionType']>(['POLL', 'RATING', 'OPEN_ENDED']);
 
 function normalizeWhitespace(value: string): string {
   return value.replace(/\s+/g, ' ').trim();
@@ -112,6 +114,42 @@ function sanitizeAnswerInput(rawAnswer: string): string {
 
 function normalizeForDistribution(value: string): string {
   return value.slice(0, MAX_ANALYTICS_KEY_LENGTH);
+}
+
+function parseJsonStringArray(raw: string): string[] | null {
+  try {
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return null;
+
+    const values = parsed.map((item) => {
+      if (typeof item !== 'string') return null;
+      const normalized = normalizeWhitespace(item);
+      return normalized || null;
+    });
+
+    if (values.some((value) => value === null)) {
+      return null;
+    }
+
+    const deduped = Array.from(new Set(values as string[]));
+    return deduped.length > 0 ? deduped : null;
+  } catch {
+    return null;
+  }
+}
+
+function normalizeMultiSelectSubmission(raw: string, allowedOptions: string[]): string[] | null {
+  const parsed = parseJsonStringArray(raw);
+  if (!parsed) return null;
+
+  const selected = new Set(parsed);
+  const normalized = allowedOptions.filter((option) => selected.has(option));
+
+  if (normalized.length !== selected.size) {
+    return null;
+  }
+
+  return normalized;
 }
 
 export const quizStore = {
@@ -249,13 +287,24 @@ export const quizStore = {
     const question = room.questions[room.currentQuestionIndex];
     if (!question) return { error: 'INVALID_QUESTION' };
 
-    const sanitizedAnswer = sanitizeAnswerInput(answerText);
+    const maxAnswerLength = question.questionType === 'OPEN_ENDED' ? MAX_OPEN_ENDED_LENGTH : MAX_ANSWER_LENGTH;
+    const sanitizedAnswer = question.questionType === 'OPEN_ENDED'
+      ? answerText.trim()
+      : sanitizeAnswerInput(answerText);
     if (!sanitizedAnswer) return { error: 'INVALID_ANSWER' };
-    if (sanitizedAnswer.length > MAX_ANSWER_LENGTH) return { error: 'ANSWER_TOO_LONG' };
-    const boundedAnswer = sanitizedAnswer.slice(0, MAX_ANSWER_LENGTH);
+    if (sanitizedAnswer.length > maxAnswerLength) return { error: 'ANSWER_TOO_LONG' };
+    let boundedAnswer = sanitizedAnswer.slice(0, maxAnswerLength);
+    let normalizedSelections: string[] | null = null;
 
     // Strict answer-shape checks to prevent malformed payload abuse.
-    if (question.questionType !== 'SHORT_ANSWER') {
+    if (question.questionType === 'MULTI_SELECT') {
+      const allowedOptions = question.options || [];
+      normalizedSelections = normalizeMultiSelectSubmission(boundedAnswer, allowedOptions);
+      if (!normalizedSelections) {
+        return { error: 'INVALID_ANSWER' };
+      }
+      boundedAnswer = JSON.stringify(normalizedSelections);
+    } else if (question.questionType !== 'SHORT_ANSWER' && question.questionType !== 'OPEN_ENDED') {
       const allowedOptions = question.options || (question.questionType === 'TRUE_FALSE' ? ['True', 'False'] : []);
       if (!allowedOptions.includes(boundedAnswer)) {
         return { error: 'INVALID_OPTION' };
@@ -270,33 +319,56 @@ export const quizStore = {
       return { error: 'TIME_EXPIRED' };
     }
 
-    // POLL and RATING questions have no correct answer — skip scoring entirely
-    const isPollOrRating = question.questionType === 'POLL' || question.questionType === 'RATING';
+    // POLL, RATING, and OPEN_ENDED questions have no correct answer — skip scoring entirely
+    const isUnscoredType = UNSCORED_QUESTION_TYPES.has(question.questionType);
 
     // Determine correctness
     let isCorrect = false;
-    if (!isPollOrRating && question.correctAnswer !== null) {
-      if (question.questionType === 'SHORT_ANSWER') {
+    let partialRatio = 1;
+    if (!isUnscoredType && question.correctAnswer !== null) {
+      if (question.questionType === 'MULTI_SELECT') {
+        const correctSelections = normalizeMultiSelectSubmission(question.correctAnswer, question.options || []);
+        if (!normalizedSelections || !correctSelections || correctSelections.length === 0) {
+          isCorrect = false;
+          partialRatio = 0;
+        } else {
+          const correctSet = new Set(correctSelections);
+          const hasWrong = normalizedSelections.some((selection) => !correctSet.has(selection));
+          if (hasWrong) {
+            partialRatio = 0;
+            isCorrect = false;
+          } else {
+            partialRatio = normalizedSelections.length / correctSelections.length;
+            isCorrect = partialRatio === 1;
+          }
+        }
+      } else if (question.questionType === 'SHORT_ANSWER') {
         isCorrect = boundedAnswer.toLowerCase() === question.correctAnswer.trim().toLowerCase();
       } else {
         isCorrect = boundedAnswer === question.correctAnswer;
       }
     }
 
-    // Update streak (only for scored questions)
-    if (!isPollOrRating) {
-      if (isCorrect) {
-        player.streak += 1;
+    const nextStreak = isUnscoredType
+      ? player.streak
+      : isCorrect
+        ? player.streak + 1
+        : 0;
+
+    let pointsAwarded = 0;
+    if (!isUnscoredType) {
+      if (question.questionType === 'MULTI_SELECT' && partialRatio > 0 && partialRatio < 1) {
+        const partialPoints = calculatePoints(question, timeMs, 1, true);
+        pointsAwarded = Math.floor(partialPoints * partialRatio);
       } else {
-        player.streak = 0;
+        pointsAwarded = calculatePoints(question, timeMs, nextStreak, isCorrect);
       }
     }
 
-    const pointsAwarded = isPollOrRating ? 0 : calculatePoints(question, timeMs, player.streak, isCorrect);
-
     // Update player
+    player.streak = nextStreak;
     player.score += pointsAwarded;
-    player.correctCount += (isCorrect && !isPollOrRating) ? 1 : 0;
+    player.correctCount += (isCorrect && !isUnscoredType) ? 1 : 0;
     player.totalAnswerTimeMs += timeMs;
     player.answeredCurrentQuestion = true;
 
@@ -304,7 +376,7 @@ export const quizStore = {
     room.currentAnswers.set(userId, {
       answer: boundedAnswer,
       timeMs,
-      isCorrect: isPollOrRating ? null : isCorrect,
+      isCorrect: isUnscoredType ? null : isCorrect,
       pointsAwarded,
       questionId: question.id,
     });
@@ -313,7 +385,7 @@ export const quizStore = {
     room.allAnswers.push({
       answer: boundedAnswer,
       timeMs,
-      isCorrect: isPollOrRating ? null : isCorrect,
+      isCorrect: isUnscoredType ? null : isCorrect,
       pointsAwarded,
       questionId: question.id,
       userId,
@@ -322,23 +394,30 @@ export const quizStore = {
     // Update per-question analytics
     const analytics = room.questionAnalytics.get(question.id) || { totalAnswers: 0, correctCount: 0, totalTimeMs: 0, distribution: {} };
     analytics.totalAnswers += 1;
-    if (isCorrect && !isPollOrRating) analytics.correctCount += 1;
+    if (isCorrect && !isUnscoredType) analytics.correctCount += 1;
     analytics.totalTimeMs += timeMs;
-    const analyticsKey = normalizeForDistribution(boundedAnswer);
-    analytics.distribution[analyticsKey] = (analytics.distribution[analyticsKey] || 0) + 1;
+    if (question.questionType === 'MULTI_SELECT') {
+      for (const selection of normalizedSelections || []) {
+        const key = normalizeForDistribution(selection);
+        analytics.distribution[key] = (analytics.distribution[key] || 0) + 1;
+      }
+    } else {
+      const analyticsKey = normalizeForDistribution(boundedAnswer);
+      analytics.distribution[analyticsKey] = (analytics.distribution[analyticsKey] || 0) + 1;
+    }
     room.questionAnalytics.set(question.id, analytics);
 
     const connectedPlayers = Array.from(room.players.values()).filter(p => p.connected);
     const allAnswered = connectedPlayers.every(p => p.answeredCurrentQuestion);
 
     return {
-      isCorrect: isPollOrRating ? null : isCorrect,
-      isPoll: isPollOrRating,
+      isCorrect: isUnscoredType ? null : isCorrect,
+      isPoll: isUnscoredType,
       pointsAwarded,
       timeMs,
       allAnswered,
       newScore: player.score,
-      newStreak: player.streak,
+      newStreak: nextStreak,
     };
   },
 
@@ -415,7 +494,17 @@ export const quizStore = {
     if (!room) return {};
 
     const distribution: Record<string, number> = {};
+    const currentQuestion = room.questions[room.currentQuestionIndex];
+
     for (const answer of room.currentAnswers.values()) {
+      if (currentQuestion?.questionType === 'MULTI_SELECT') {
+        const selections = parseJsonStringArray(answer.answer) || [];
+        for (const selection of selections) {
+          distribution[selection] = (distribution[selection] || 0) + 1;
+        }
+        continue;
+      }
+
       distribution[answer.answer] = (distribution[answer.answer] || 0) + 1;
     }
     return distribution;

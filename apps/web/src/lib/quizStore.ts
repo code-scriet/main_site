@@ -13,7 +13,7 @@ export interface QuizPlayer {
   connected?: boolean;
 }
 
-export type QuizQuestionType = 'MCQ' | 'TRUE_FALSE' | 'SHORT_ANSWER' | 'POLL' | 'RATING';
+export type QuizQuestionType = 'MCQ' | 'TRUE_FALSE' | 'SHORT_ANSWER' | 'POLL' | 'RATING' | 'MULTI_SELECT' | 'OPEN_ENDED';
 
 export interface QuizQuestion {
   questionIndex: number;

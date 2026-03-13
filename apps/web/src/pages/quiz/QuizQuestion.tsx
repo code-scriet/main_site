@@ -12,6 +12,7 @@ import { QuizTimer } from './QuizTimer';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent } from '@/components/ui/card';
 import { CheckCircle, XCircle, Send, Zap, Check } from 'lucide-react';
 
@@ -31,16 +32,65 @@ export function QuizQuestion({ onSubmitAnswer }: QuizQuestionProps) {
   const pollResults = useQuizStore((s) => s.pollResults);
 
   const [shortAnswer, setShortAnswer] = useState('');
+  const [multiSelectAnswers, setMultiSelectAnswers] = useState<string[]>([]);
+  const [openEndedAnswer, setOpenEndedAnswer] = useState('');
 
   const { progress, isUrgent, isExpired, secondsLeft } = useQuizTimer(
     questionStartTime,
     currentQuestion?.timeLimitSeconds ?? null,
   );
 
-  // Reset short answer input when question changes
+  // Reset local inputs when question changes
   useEffect(() => {
     setShortAnswer('');
+    setMultiSelectAnswers([]);
+    setOpenEndedAnswer('');
+    setRatingValue(0);
+    setHoverRating(0);
   }, [currentQuestion?.questionIndex]);
+
+  // Rating state
+  const [ratingValue, setRatingValue] = useState<number>(0);
+  const [hoverRating, setHoverRating] = useState<number>(0);
+
+  const handleSelect = useCallback(
+    (answer: string) => {
+      if (hasAnswered || !currentQuestion) return;
+      setMyAnswer(answer);
+      onSubmitAnswer(answer, currentQuestion.questionId);
+    },
+    [hasAnswered, currentQuestion, setMyAnswer, onSubmitAnswer],
+  );
+
+  const handleShortAnswerSubmit = useCallback(() => {
+    if (hasAnswered || !currentQuestion || !shortAnswer.trim()) return;
+    const trimmed = shortAnswer.trim();
+    setMyAnswer(trimmed);
+    onSubmitAnswer(trimmed, currentQuestion.questionId);
+  }, [hasAnswered, currentQuestion, shortAnswer, setMyAnswer, onSubmitAnswer]);
+
+  const toggleMultiSelectOption = useCallback((option: string) => {
+    if (hasAnswered || !currentQuestion || isExpired) return;
+    setMultiSelectAnswers((previous) =>
+      previous.includes(option)
+        ? previous.filter((answer) => answer !== option)
+        : [...previous, option],
+    );
+  }, [currentQuestion, hasAnswered, isExpired]);
+
+  const handleMultiSelectSubmit = useCallback(() => {
+    if (hasAnswered || !currentQuestion || multiSelectAnswers.length === 0) return;
+    const payload = JSON.stringify(multiSelectAnswers);
+    setMyAnswer(payload);
+    onSubmitAnswer(payload, currentQuestion.questionId);
+  }, [currentQuestion, hasAnswered, multiSelectAnswers, onSubmitAnswer, setMyAnswer]);
+
+  const handleOpenEndedSubmit = useCallback(() => {
+    if (hasAnswered || !currentQuestion || !openEndedAnswer.trim()) return;
+    const trimmed = openEndedAnswer.trim();
+    setMyAnswer(trimmed);
+    onSubmitAnswer(trimmed, currentQuestion.questionId);
+  }, [currentQuestion, hasAnswered, openEndedAnswer, onSubmitAnswer, setMyAnswer]);
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -59,42 +109,60 @@ export function QuizQuestion({ onSubmitAnswer }: QuizQuestionProps) {
         }
       }
 
+      if (currentQuestion.questionType === 'MULTI_SELECT') {
+        const opts = currentQuestion.options;
+        if (!opts) return;
+        const idx = parseInt(e.key) - 1;
+        if (idx >= 0 && idx < opts.length) {
+          const option = opts[idx];
+          setMultiSelectAnswers((previous) =>
+            previous.includes(option)
+              ? previous.filter((answer) => answer !== option)
+              : [...previous, option],
+          );
+        }
+        if (e.key === 'Enter' && multiSelectAnswers.length > 0) {
+          const payload = JSON.stringify(multiSelectAnswers);
+          setMyAnswer(payload);
+          onSubmitAnswer(payload, currentQuestion.questionId);
+        }
+      }
+
       if (currentQuestion.questionType === 'TRUE_FALSE') {
         if (e.key.toLowerCase() === 't') handleSelect('True');
         if (e.key.toLowerCase() === 'f') handleSelect('False');
+      }
+
+      if (currentQuestion.questionType === 'SHORT_ANSWER' && e.key === 'Enter') {
+        const trimmed = shortAnswer.trim();
+        if (trimmed) {
+          setMyAnswer(trimmed);
+          onSubmitAnswer(trimmed, currentQuestion.questionId);
+        }
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [currentQuestion, hasAnswered, isExpired]);
-
-  const handleSelect = useCallback(
-    (answer: string) => {
-      if (hasAnswered || !currentQuestion) return;
-      setMyAnswer(answer);
-      onSubmitAnswer(answer, currentQuestion.questionId);
-    },
-    [hasAnswered, currentQuestion, setMyAnswer, onSubmitAnswer],
-  );
-
-  const handleShortAnswerSubmit = useCallback(() => {
-    if (hasAnswered || !currentQuestion || !shortAnswer.trim()) return;
-    const trimmed = shortAnswer.trim();
-    setMyAnswer(trimmed);
-    onSubmitAnswer(trimmed, currentQuestion.questionId);
-  }, [hasAnswered, currentQuestion, shortAnswer, setMyAnswer, onSubmitAnswer]);
+  }, [currentQuestion, hasAnswered, isExpired, multiSelectAnswers, onSubmitAnswer, setMyAnswer, shortAnswer, handleSelect]);
 
   if (!currentQuestion) return null;
 
   const letters = ['A', 'B', 'C', 'D', 'E', 'F'];
   const isPoll = currentQuestion.questionType === 'POLL';
   const isRating = currentQuestion.questionType === 'RATING';
-  const isPollOrRating = isPoll || isRating;
-
-  // Rating state
-  const [ratingValue, setRatingValue] = useState<number>(0);
-  const [hoverRating, setHoverRating] = useState<number>(0);
+  const isOpenEnded = currentQuestion.questionType === 'OPEN_ENDED';
+  const isUnscoredType = isPoll || isRating || isOpenEnded;
+  const submittedMultiSelectAnswers = currentQuestion.questionType === 'MULTI_SELECT' && myAnswer
+    ? (() => {
+        try {
+          const parsed = JSON.parse(myAnswer);
+          return Array.isArray(parsed) ? parsed.filter((value): value is string => typeof value === 'string') : [];
+        } catch {
+          return [];
+        }
+      })()
+    : [];
 
   return (
     <motion.div
@@ -114,7 +182,7 @@ export function QuizQuestion({ onSubmitAnswer }: QuizQuestionProps) {
               Question {currentQuestion.questionIndex + 1} of {currentQuestion.totalQuestions}
             </span>
             <div className="flex items-center gap-2">
-              {!isPollOrRating && (
+              {!isUnscoredType && (
                 <Badge variant="outline" className="border-amber-300 text-amber-800 bg-amber-50 font-semibold text-xs">
                   {currentQuestion.points} pts
                 </Badge>
@@ -127,6 +195,11 @@ export function QuizQuestion({ onSubmitAnswer }: QuizQuestionProps) {
               {isRating && (
                 <Badge className="bg-blue-100 text-blue-700 border-blue-200 font-semibold text-xs">
                   Rating
+                </Badge>
+              )}
+              {isOpenEnded && (
+                <Badge className="bg-emerald-100 text-emerald-700 border-emerald-200 font-semibold text-xs">
+                  Open Ended
                 </Badge>
               )}
             </div>
@@ -225,6 +298,66 @@ export function QuizQuestion({ onSubmitAnswer }: QuizQuestionProps) {
               })}
             </div>
           )}
+
+        {/* Multi-select */}
+        {currentQuestion.questionType === 'MULTI_SELECT' && currentQuestion.options && (
+          <Card className="border-amber-200/60">
+            <CardContent className="p-4 sm:p-5 space-y-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {currentQuestion.options.map((opt, i) => {
+                  const isSelected = hasAnswered
+                    ? submittedMultiSelectAnswers.includes(opt)
+                    : multiSelectAnswers.includes(opt);
+
+                  return (
+                    <motion.button
+                      key={opt}
+                      whileHover={!hasAnswered && !isExpired ? { scale: 1.02, y: -1 } : {}}
+                      whileTap={!hasAnswered && !isExpired ? { scale: 0.98 } : {}}
+                      disabled={hasAnswered || isExpired}
+                      onClick={() => toggleMultiSelectOption(opt)}
+                      className={cn(
+                        'w-full flex items-center gap-3 sm:gap-4 p-4 sm:p-5 rounded-xl border-2 text-left transition-all duration-300',
+                        isSelected
+                          ? 'border-amber-500 bg-amber-50 shadow-md shadow-amber-100'
+                          : 'border-amber-200 bg-white hover:border-amber-400 hover:shadow-md',
+                        hasAnswered && !isSelected && 'opacity-50 border-amber-100',
+                      )}
+                    >
+                      <span
+                        className={cn(
+                          'flex-shrink-0 w-10 h-10 rounded-full border-2 flex items-center justify-center font-bold text-sm transition-all duration-300',
+                          isSelected
+                            ? 'border-amber-500 bg-gradient-to-br from-orange-500 to-amber-600 text-white'
+                            : 'border-amber-300 bg-white text-amber-700',
+                        )}
+                      >
+                        {isSelected ? <Check className="h-4 w-4" /> : letters[i]}
+                      </span>
+                      <span className={cn('font-medium transition-colors duration-300', isSelected ? 'text-amber-900' : 'text-amber-800')}>
+                        {opt}
+                      </span>
+                    </motion.button>
+                  );
+                })}
+              </div>
+
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <p className="text-sm text-amber-700/70">
+                  Select every correct option. Choosing any wrong option scores zero.
+                </p>
+                <Button
+                  onClick={handleMultiSelectSubmit}
+                  disabled={hasAnswered || isExpired || multiSelectAnswers.length === 0}
+                  className="bg-gradient-to-r from-orange-500 to-amber-600 hover:from-orange-600 hover:to-amber-700 text-white shadow-md"
+                >
+                  <Send className="mr-2 h-4 w-4" />
+                  Submit
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
         {/* Rating (1-5 stars) */}
         {isRating && (
@@ -360,27 +493,59 @@ export function QuizQuestion({ onSubmitAnswer }: QuizQuestionProps) {
             </CardContent>
           </Card>
         )}
+
+        {/* Open ended */}
+        {currentQuestion.questionType === 'OPEN_ENDED' && (
+          <Card className="border-amber-200/60">
+            <CardContent className="p-4 sm:p-5 space-y-3">
+              <Textarea
+                value={openEndedAnswer}
+                onChange={(e) => setOpenEndedAnswer(e.target.value)}
+                placeholder="Share your thoughts, feedback, or reflection..."
+                disabled={hasAnswered || isExpired}
+                rows={5}
+                className="resize-none border-2 border-amber-200 focus:border-amber-400 focus:ring-2 focus:ring-amber-400/20"
+              />
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-sm text-amber-700/70">No right or wrong answer. Your response will be saved as feedback.</p>
+                <Button
+                  onClick={handleOpenEndedSubmit}
+                  disabled={hasAnswered || isExpired || !openEndedAnswer.trim()}
+                  className="h-12 px-5 bg-gradient-to-r from-orange-500 to-amber-600 hover:from-orange-600 hover:to-amber-700 text-white shadow-md"
+                >
+                  <Send className="h-4 w-4 mr-2" />
+                  Submit
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        )}
       </div>
 
       {/* Feedback area */}
       <AnimatePresence>
-        {hasAnswered && isPollOrRating && (
+        {hasAnswered && isUnscoredType && (
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
-            className="rounded-xl p-4 border-2 text-center bg-purple-50 border-purple-200 shadow-sm"
+            className={cn(
+              'rounded-xl p-4 border-2 text-center shadow-sm',
+              isOpenEnded ? 'bg-emerald-50 border-emerald-200' : 'bg-purple-50 border-purple-200',
+            )}
           >
             <div className="flex items-center justify-center gap-2 mb-1">
-              <CheckCircle className="h-5 w-5 text-purple-600" />
-              <span className="text-base font-bold text-purple-800">
-                {isPoll ? 'Vote Recorded!' : 'Rating Submitted!'}
+              <CheckCircle className={cn('h-5 w-5', isOpenEnded ? 'text-emerald-600' : 'text-purple-600')} />
+              <span className={cn('text-base font-bold', isOpenEnded ? 'text-emerald-800' : 'text-purple-800')}>
+                {isPoll ? 'Vote Recorded!' : isRating ? 'Rating Submitted!' : 'Response Submitted!'}
               </span>
             </div>
-            <p className="text-sm text-purple-600/80">Thanks for your response</p>
+            <p className={cn('text-sm', isOpenEnded ? 'text-emerald-600/80' : 'text-purple-600/80')}>
+              Thanks for your response
+            </p>
           </motion.div>
         )}
 
-        {hasAnswered && lastAnswerResult && !isPollOrRating && (
+        {hasAnswered && lastAnswerResult && !isUnscoredType && (
           <motion.div
             initial={{ opacity: 0, y: 20, scale: 0.96 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
@@ -425,7 +590,7 @@ export function QuizQuestion({ onSubmitAnswer }: QuizQuestionProps) {
           </motion.div>
         )}
 
-        {hasAnswered && !lastAnswerResult && (
+        {hasAnswered && !lastAnswerResult && !isUnscoredType && (
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
@@ -443,7 +608,7 @@ export function QuizQuestion({ onSubmitAnswer }: QuizQuestionProps) {
       </AnimatePresence>
 
       {/* Live poll results (shown to voters who already answered) */}
-      {isPollOrRating && hasAnswered && pollResults && (
+      {(isPoll || isRating) && hasAnswered && pollResults && (
         <motion.div
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}

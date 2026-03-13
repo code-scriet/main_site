@@ -525,6 +525,8 @@ enum QuizQuestionType {
   SHORT_ANSWER
   POLL
   RATING
+  MULTI_SELECT
+  OPEN_ENDED
 }
 
 enum NetworkConnectionType {

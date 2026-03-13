@@ -21,13 +21,23 @@ export const QuizAnswerDistribution = memo(function QuizAnswerDistribution({
   options,
   questionType,
 }: QuizAnswerDistributionProps) {
+  const correctAnswers = questionType === 'MULTI_SELECT' && correctAnswer
+    ? (() => {
+        try {
+          const parsed = JSON.parse(correctAnswer);
+          return Array.isArray(parsed) ? parsed.filter((value): value is string => typeof value === 'string') : [];
+        } catch {
+          return [];
+        }
+      })()
+    : [];
   const entries = options
     ? options.map((opt) => ({ label: opt, count: distribution[opt] || 0 }))
     : Object.entries(distribution).map(([label, count]) => ({ label, count }));
 
   const total = entries.reduce((sum, e) => sum + e.count, 0) || 1;
   const maxCount = Math.max(...entries.map((e) => e.count), 1);
-  const isPoll = questionType === 'POLL';
+  const isPoll = questionType === 'POLL' || questionType === 'RATING' || questionType === 'OPEN_ENDED';
   const letters = ['A', 'B', 'C', 'D', 'E', 'F'];
 
   return (
@@ -35,7 +45,9 @@ export const QuizAnswerDistribution = memo(function QuizAnswerDistribution({
       <h4 className="text-xs font-semibold text-amber-700/50 uppercase tracking-widest">Answer Distribution</h4>
       {entries.map((entry, i) => {
         const pct = Math.round((entry.count / total) * 100);
-        const isCorrect = !isPoll && entry.label === correctAnswer;
+        const isCorrect = questionType === 'MULTI_SELECT'
+          ? correctAnswers.includes(entry.label)
+          : !isPoll && entry.label === correctAnswer;
         const barWidth = `${(entry.count / maxCount) * 100}%`;
 
         return (
