@@ -9,13 +9,11 @@ import QRCode from 'qrcode';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { logger } from './logger.js';
-import fs from 'fs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const LOGOS_DIR = path.join(__dirname, '..', '..', 'public', 'logos');
 
 // ── CUSTOM FONTS ──────────────────────────────────────────────────────────────
-// Local font paths (bundled with the app)
 const GREAT_VIBES_PATH       = path.join(LOGOS_DIR, 'GreatVibes.ttf');
 const CINZEL_REG_PATH        = path.join(LOGOS_DIR, 'Cinzel-Regular.woff');
 const CINZEL_BOLD_PATH       = path.join(LOGOS_DIR, 'Cinzel-Bold.woff');
@@ -23,91 +21,55 @@ const CORMORANT_PATH         = path.join(LOGOS_DIR, 'CormorantGaramond.ttf');
 const CORMORANT_ITALIC_PATH  = path.join(LOGOS_DIR, 'CormorantGaramond-Italic.ttf');
 const PLAYFAIR_BOLD_PATH     = path.join(LOGOS_DIR, 'PlayfairDisplay-Bold.woff');
 
-// Static instance TTF URLs from Google Fonts CSS API (verified format: 'truetype').
-// These are pre-compiled single-weight instances — NOT variable fonts.
-const FONT_URLS: Record<string, string> = {
-  'GreatVibes':          'https://fonts.gstatic.com/s/greatvibes/v21/RWmMoKWR9v4ksMfaWd_JN-XC.ttf',
-  'Cinzel-400':          'https://fonts.gstatic.com/s/cinzel/v26/8vIU7ww63mVu7gtR-kwKxNvkNOjw-tbnTYo.ttf',
-  'Cinzel-700':          'https://fonts.gstatic.com/s/cinzel/v26/8vIU7ww63mVu7gtR-kwKxNvkNOjw-jHgTYo.ttf',
-  'Cormorant-400':       'https://fonts.gstatic.com/s/cormorantgaramond/v21/co3umX5slCNuHLi8bLeY9MK7whWMhyjypVO7abI26QOD_v86GnM.ttf',
-  'Cormorant-400i':      'https://fonts.gstatic.com/s/cormorantgaramond/v21/co3smX5slCNuHLi8bLeY9MK7whWMhyjYrGFEsdtdc62E6zd58jDOjw.ttf',
-  'PlayfairDisplay-700': 'https://fonts.gstatic.com/s/playfairdisplay/v40/nuFvD-vYSZviVYUb_rj3ij__anPXJzDwcbmjWBN2PKeiukDQ.ttf',
-};
-
-// Pre-fetch a font from URL and convert to Base64 Data URI.
-// This guarantees it loads in react-pdf regardless of file system permissions or pathing.
-async function prefetchFontAsDataUri(name: string, url: string): Promise<string | null> {
-  try {
-    const response = await fetch(url);
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    const buffer = Buffer.from(await response.arrayBuffer());
-    const b64 = buffer.toString('base64');
-    logger.info(`Font pre-fetched as Base64: ${name} (${buffer.length} bytes)`);
-    // Assuming all fetched fonts are TTF based on FONT_URLS
-    return `data:font/ttf;base64,${b64}`;
-  } catch (err) {
-    logger.warn(`Failed to pre-fetch font "${name}" from ${url}`, { error: err instanceof Error ? err.message : String(err) });
-    return null;
-  }
-}
-
-// Initialize fonts — called once at startup.
-// Downloads fonts from Google CDN as Base64 URIs and registers them.
-// Falls back to bundled local files if CDN is unreachable.
 let fontsInitialized = false;
 export async function initFonts(): Promise<void> {
   if (fontsInitialized) return;
-  fontsInitialized = true;
-
-  // Pre-fetch all fonts in parallel via Base64
-  const [greatVibes, cinzel400, cinzel700, cormorant400, cormorant400i, playfair700] = await Promise.all([
-    prefetchFontAsDataUri('GreatVibes', FONT_URLS['GreatVibes']),
-    prefetchFontAsDataUri('Cinzel-400', FONT_URLS['Cinzel-400']),
-    prefetchFontAsDataUri('Cinzel-700', FONT_URLS['Cinzel-700']),
-    prefetchFontAsDataUri('Cormorant-400', FONT_URLS['Cormorant-400']),
-    prefetchFontAsDataUri('Cormorant-400i', FONT_URLS['Cormorant-400i']),
-    prefetchFontAsDataUri('PlayfairDisplay-700', FONT_URLS['PlayfairDisplay-700']),
-  ]);
-
   try {
-    Font.register({ family: 'GreatVibes', src: greatVibes || GREAT_VIBES_PATH });
-    logger.info(`GreatVibes registered from ${greatVibes ? 'Base64 CDN' : 'local bundle'}`);
-  } catch (err) { logger.error('Failed to register GreatVibes', { error: err }); }
+    Font.register({
+      family: 'GreatVibes',
+      src: GREAT_VIBES_PATH,
+    });
+  } catch (err) {
+    logger.error('Failed to register GreatVibes', { error: err });
+  }
 
-  // Register Cinzel
   try {
     Font.register({
       family: 'Cinzel',
       fonts: [
-        { src: cinzel400 || CINZEL_REG_PATH, fontWeight: 400 },
-        { src: cinzel700 || CINZEL_BOLD_PATH, fontWeight: 700 },
+        { src: CINZEL_REG_PATH, fontWeight: 400 },
+        { src: CINZEL_BOLD_PATH, fontWeight: 700 },
       ],
     });
-  } catch (err) { logger.error('Failed to register Cinzel', { error: err }); }
+  } catch (err) {
+    logger.error('Failed to register Cinzel', { error: err });
+  }
 
-  // Register Cormorant Garamond
   try {
     Font.register({
       family: 'CormorantGaramond',
       fonts: [
-        { src: cormorant400 || CORMORANT_PATH },
-        { src: cormorant400i || CORMORANT_ITALIC_PATH, fontStyle: 'italic' },
+        { src: CORMORANT_PATH },
+        { src: CORMORANT_ITALIC_PATH, fontStyle: 'italic' },
       ],
     });
-  } catch (err) { logger.error('Failed to register CormorantGaramond', { error: err }); }
+  } catch (err) {
+    logger.error('Failed to register CormorantGaramond', { error: err });
+  }
 
-  // Register Playfair Display
   try {
     Font.register({
       family: 'PlayfairDisplay',
-      fonts: [{ src: playfair700 || PLAYFAIR_BOLD_PATH, fontWeight: 700 }],
+      fonts: [{ src: PLAYFAIR_BOLD_PATH, fontWeight: 700 }],
     });
-  } catch (err) { logger.error('Failed to register PlayfairDisplay', { error: err }); }
+  } catch (err) {
+    logger.error('Failed to register PlayfairDisplay', { error: err });
+  }
 
-  logger.info('All certificate fonts initialized using Data URIs');
+  Font.registerHyphenationCallback((word: string) => [word]);
+  fontsInitialized = true;
+  logger.info('Certificate fonts initialized from local assets');
 }
-
-Font.registerHyphenationCallback((word: string) => [word]);
 
 const FRONTEND_URL = (process.env.FRONTEND_URL || 'https://codescriet.dev').replace(/\/+$/, '');
 
@@ -444,35 +406,7 @@ export async function generateCertificatePDF(data: CertData): Promise<Buffer> {
               paddingHorizontal: 35,
             },
           },
-            // LEFT — Primary signatory signature
-            React.createElement(View, {
-              style: { alignItems: 'center', width: 190 },
-            },
-              React.createElement(Text, {
-                style: {
-                  fontFamily: 'GreatVibes', fontSize: 34,
-                  color: '#333333', marginBottom: -10,
-                },
-              }, data.signatoryName),
-              React.createElement(View, {
-                style: {
-                  width: '100%', height: 1,
-                  backgroundColor: C.textMain, opacity: 0.5, marginBottom: 8,
-                },
-              }),
-              React.createElement(Text, {
-                style: {
-                  fontFamily: 'Cinzel', fontSize: 11, fontWeight: 700,
-                  color: C.textMain, letterSpacing: 1,
-                },
-              }, data.signatoryName.toUpperCase()),
-              React.createElement(Text, {
-                style: {
-                  fontFamily: 'CormorantGaramond', fontSize: 12, fontStyle: 'italic',
-                  color: C.textMuted, marginTop: 2,
-                },
-              }, data.signatoryTitle || 'Club President'),
-            ),
+            React.createElement(View, { style: { width: 190 } }),
 
             // CENTRE — Verification block (QR 52x52, no border box)
             React.createElement(View, {
@@ -496,42 +430,110 @@ export async function generateCertificatePDF(data: CertData): Promise<Buffer> {
               }, `Verify at ${verifyDomain}`),
             ),
 
-            // RIGHT — Faculty signatory (or empty placeholder for symmetric layout)
-            ...(hasFaculty ? [
-              React.createElement(View, {
-                key: 'faculty-sig',
-                style: { alignItems: 'center', width: 190 },
-              },
-                React.createElement(Text, {
-                  style: {
-                    fontFamily: 'GreatVibes', fontSize: 34,
-                    color: '#333333', marginBottom: -10,
-                  },
-                }, data.facultyName!),
-                React.createElement(View, {
-                  style: {
-                    width: '100%', height: 1,
-                    backgroundColor: C.textMain, opacity: 0.5, marginBottom: 8,
-                  },
-                }),
-                React.createElement(Text, {
-                  style: {
-                    fontFamily: 'Cinzel', fontSize: 11, fontWeight: 700,
-                    color: C.textMain, letterSpacing: 1,
-                  },
-                }, data.facultyName!.toUpperCase()),
-                React.createElement(Text, {
-                  style: {
-                    fontFamily: 'CormorantGaramond', fontSize: 12, fontStyle: 'italic',
-                    color: C.textMuted, marginTop: 2,
-                  },
-                }, data.facultyTitle || 'Faculty Coordinator'),
-              ),
-            ] : [
-              React.createElement(View, { key: 'empty-sig', style: { width: 190 } }),
-            ]),
+            React.createElement(View, { style: { width: 190 } }),
           ),
         ),
+
+        React.createElement(View, {
+          style: {
+            position: 'absolute',
+            left: 78,
+            bottom: 58,
+            width: 190,
+            alignItems: 'center',
+          },
+        },
+          React.createElement(Text, {
+            style: {
+              fontFamily: 'GreatVibes',
+              fontSize: 28,
+              lineHeight: 1.1,
+              color: '#333333',
+              textAlign: 'center',
+              width: '100%',
+              marginBottom: 6,
+            },
+          }, data.signatoryName),
+          React.createElement(View, {
+            style: {
+              width: '100%',
+              height: 1,
+              backgroundColor: C.textMain,
+              opacity: 0.5,
+              marginBottom: 8,
+            },
+          }),
+          React.createElement(Text, {
+            style: {
+              fontFamily: 'Cinzel',
+              fontSize: 11,
+              fontWeight: 700,
+              color: C.textMain,
+              letterSpacing: 1,
+            },
+          }, data.signatoryName.toUpperCase()),
+          React.createElement(Text, {
+            style: {
+              fontFamily: 'CormorantGaramond',
+              fontSize: 12,
+              fontStyle: 'italic',
+              color: C.textMuted,
+              marginTop: 2,
+            },
+          }, data.signatoryTitle || 'Club President'),
+        ),
+
+        ...(hasFaculty ? [
+          React.createElement(View, {
+            key: 'faculty-signature-absolute',
+            style: {
+              position: 'absolute',
+              right: 78,
+              bottom: 58,
+              width: 190,
+              alignItems: 'center',
+            },
+          },
+            React.createElement(Text, {
+              style: {
+                fontFamily: 'GreatVibes',
+                fontSize: 28,
+                lineHeight: 1.1,
+                color: '#333333',
+                textAlign: 'center',
+                width: '100%',
+                marginBottom: 6,
+              },
+            }, data.facultyName!),
+            React.createElement(View, {
+              style: {
+                width: '100%',
+                height: 1,
+                backgroundColor: C.textMain,
+                opacity: 0.5,
+                marginBottom: 8,
+              },
+            }),
+            React.createElement(Text, {
+              style: {
+                fontFamily: 'Cinzel',
+                fontSize: 11,
+                fontWeight: 700,
+                color: C.textMain,
+                letterSpacing: 1,
+              },
+            }, data.facultyName!.toUpperCase()),
+            React.createElement(Text, {
+              style: {
+                fontFamily: 'CormorantGaramond',
+                fontSize: 12,
+                fontStyle: 'italic',
+                color: C.textMuted,
+                marginTop: 2,
+              },
+            }, data.facultyTitle || 'Faculty Coordinator'),
+          ),
+        ] : []),
       )
     )
   );
