@@ -1036,8 +1036,14 @@ certificatesRouter.patch('/:certId/revoke', authMiddleware, requireRole('ADMIN')
       return ApiResponse.badRequest(res, 'Certificate is already revoked');
     }
 
-    await prisma.certificate.delete({
+    await prisma.certificate.update({
       where: { certId: upperCertId },
+      data: {
+        isRevoked: true,
+        revokedAt: new Date(),
+        revokedBy: authUser.id,
+        revokedReason: validation.data.reason || 'Revoked by admin',
+      },
     });
 
     logger.info('Certificate revoked', { certId: upperCertId, revokedBy: authUser.id });
@@ -1046,6 +1052,36 @@ certificatesRouter.patch('/:certId/revoke', authMiddleware, requireRole('ADMIN')
   } catch (error) {
     logger.error('Failed to revoke certificate', { certId: upperCertId, error });
     return ApiResponse.error(res, { code: ErrorCodes.INTERNAL_ERROR, message: 'Failed to revoke certificate', status: 500 });
+  }
+});
+
+// ──────────────────────────────────────────────────────────────────
+// PRIVATE: Admin delete a certificate
+// DELETE /api/certificates/:certId
+// ──────────────────────────────────────────────────────────────────
+certificatesRouter.delete('/:certId', authMiddleware, requireRole('ADMIN'), async (req: Request, res: Response) => {
+  const authUser = getAuthUser(req)!;
+  const upperCertId = req.params.certId.toUpperCase();
+
+  try {
+    const cert = await prisma.certificate.findUnique({
+      where: { certId: upperCertId },
+      select: { certId: true },
+    });
+    if (!cert) {
+      return ApiResponse.error(res, { code: ErrorCodes.NOT_FOUND, message: 'Certificate not found', status: 404 });
+    }
+
+    await prisma.certificate.delete({
+      where: { certId: upperCertId },
+    });
+
+    logger.info('Certificate deleted', { certId: upperCertId, deletedBy: authUser.id });
+    await auditLog(authUser.id, 'CERTIFICATE_DELETE', 'certificate', upperCertId, { action: 'deleted' });
+    return ApiResponse.success(res, { certId: upperCertId }, 'Certificate deleted from database');
+  } catch (error) {
+    logger.error('Failed to delete certificate', { certId: upperCertId, error });
+    return ApiResponse.error(res, { code: ErrorCodes.INTERNAL_ERROR, message: 'Failed to delete certificate', status: 500 });
   }
 });
 

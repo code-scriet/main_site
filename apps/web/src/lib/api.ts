@@ -902,6 +902,8 @@ export const api = {
   },
   revokeCertificate: (certId: string, reason: string | undefined, token: string) =>
     request<{ certId: string }>(`/certificates/${certId}/revoke`, { method: 'PATCH', body: JSON.stringify({ reason }), token }),
+  deleteCertificate: (certId: string, token: string) =>
+    request<{ certId: string }>(`/certificates/${certId}`, { method: 'DELETE', token }),
   resendCertificateEmail: (certId: string, token: string) =>
     request<{ sent: boolean }>(`/certificates/${certId}/resend`, { method: 'POST', token }),
 };

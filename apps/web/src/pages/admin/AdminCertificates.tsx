@@ -31,6 +31,7 @@ import {
   Users,
   FileDown,
   Eye,
+  Trash2,
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -177,6 +178,10 @@ export default function AdminCertificates() {
   // Revoke modal
   const [revokeTarget, setRevokeTarget] = useState<Certificate | null>(null);
   const [revokeReason, setRevokeReason] = useState('');
+  
+  // Delete modal
+  const [deleteTarget, setDeleteTarget] = useState<Certificate | null>(null);
+  const [deleting, setDeleting] = useState(false);
   const [revoking, setRevoking] = useState(false);
 
   const [resendingId, setResendingId] = useState<string | null>(null);
@@ -375,6 +380,21 @@ export default function AdminCertificates() {
     }
   }
 
+  async function handleDelete() {
+    if (!deleteTarget) return;
+    setDeleting(true);
+    try {
+      await api.deleteCertificate(deleteTarget.certId, token!);
+      toast.success('Certificate deleted successfully');
+      setDeleteTarget(null);
+      fetchCerts();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Delete failed');
+    } finally {
+      setDeleting(false);
+    }
+  }
+
   async function handleResend(certId: string) {
     setResendingId(certId);
     try {
@@ -546,6 +566,15 @@ export default function AdminCertificates() {
                             </Button>
                           </>
                         )}
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-7 w-7 p-0 text-red-600 hover:text-red-700 hover:bg-red-50"
+                          onClick={() => setDeleteTarget(cert)}
+                          title="Delete Permanently"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </Button>
                       </div>
                     </td>
                   </tr>
@@ -786,6 +815,33 @@ export default function AdminCertificates() {
             <Button onClick={handleRevoke} disabled={revoking} className="bg-red-500 hover:bg-red-600 text-white">
               {revoking ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <XCircle className="w-4 h-4 mr-2" />}
               {revoking ? 'Revoking…' : 'Revoke'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Modal */}
+      <Dialog open={!!deleteTarget} onOpenChange={open => { if (!open) setDeleteTarget(null); }}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="text-red-600 flex items-center gap-2">
+              <Trash2 className="w-5 h-5" />
+              Delete Certificate
+            </DialogTitle>
+          </DialogHeader>
+          <div className="py-2 space-y-3">
+            <p className="text-sm text-gray-600">
+              Are you sure you want to <strong>permanently delete</strong> certificate <strong className="font-mono">{deleteTarget?.certId}</strong> for <strong>{deleteTarget?.recipientName}</strong>?
+            </p>
+            <p className="text-sm text-red-600 font-medium bg-red-50 p-2 rounded border border-red-100">
+              This will completely remove it from the database and invalidate the local PDF mapping. This action cannot be undone.
+            </p>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteTarget(null)}>Cancel</Button>
+            <Button onClick={handleDelete} disabled={deleting} className="bg-red-600 hover:bg-red-700 text-white">
+              {deleting ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Trash2 className="w-4 h-4 mr-2" />}
+              {deleting ? 'Deleting…' : 'Delete'}
             </Button>
           </DialogFooter>
         </DialogContent>
