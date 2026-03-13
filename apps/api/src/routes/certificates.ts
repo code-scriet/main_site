@@ -257,8 +257,26 @@ async function sendCertificateFile(
   // to force download with correct Content-Disposition header.
   // Note: fl_attachment on Cloudinary raw files returns 401, so we proxy instead.
   try {
-    const upstream = await fetch(cert.pdfUrl);
+    let pdfFetchUrl = cert.pdfUrl;
+    if (pdfFetchUrl.startsWith('http://')) {
+      pdfFetchUrl = pdfFetchUrl.replace('http://', 'https://');
+    }
+
+    const upstream = await fetch(pdfFetchUrl, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'application/pdf,application/octet-stream',
+      }
+    });
+
     if (!upstream.ok) {
+      logger.error('Certificate download proxy failed upstream ok check', { 
+        certId: cert.certId, 
+        source, 
+        status: upstream.status, 
+        statusText: upstream.statusText,
+        url: pdfFetchUrl
+      });
       return res.status(502).json({ error: 'Failed to fetch PDF from storage.' });
     }
 

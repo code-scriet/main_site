@@ -137,13 +137,13 @@ function buildDescription(data: CertData, type: string): React.ReactNode[] {
       return elements;
     }
     case 'PARTICIPATION':
-      return ['for actively participating and contributing their talents to'];
+      return ['for actively participating and contributing their efforts to'];
     case 'COMPLETION':
       return ['for successfully completing and demonstrating mastery in'];
     case 'SPEAKER':
-      return ['for sharing knowledge and expertise as a distinguished speaker at'];
+      return ['for sharing their valuable knowledge and expertise as a speaker at'];
     default:
-      return ['for contributing to'];
+      return ['for their valuable contribution and participation at'];
   }
 }
 
@@ -273,8 +273,8 @@ export async function generateCertificatePDF(data: CertData): Promise<Buffer> {
           },
             React.createElement(Text, {
               style: {
-                fontFamily: 'Cinzel', fontSize: 44, fontWeight: 700,
-                color: C.textMain, letterSpacing: 8, lineHeight: 1,
+                fontFamily: 'Cinzel', fontSize: 48, fontWeight: 700,
+                color: C.textMain, lineHeight: 1, paddingBottom: 5,
               },
             }, 'CERTIFICATE'),
             React.createElement(Text, {
@@ -374,8 +374,8 @@ export async function generateCertificatePDF(data: CertData): Promise<Buffer> {
             },
               React.createElement(Text, {
                 style: {
-                  fontFamily: 'GreatVibes', fontSize: 28,
-                  color: C.textMain, opacity: 0.8, marginBottom: -5,
+                  fontFamily: 'GreatVibes', fontSize: 34,
+                  color: '#333333', marginBottom: -5,
                 },
               }, data.signatoryName),
               React.createElement(View, {
@@ -428,8 +428,8 @@ export async function generateCertificatePDF(data: CertData): Promise<Buffer> {
               },
                 React.createElement(Text, {
                   style: {
-                    fontFamily: 'GreatVibes', fontSize: 28,
-                    color: C.textMain, opacity: 0.8, marginBottom: -5,
+                    fontFamily: 'GreatVibes', fontSize: 34,
+                    color: '#333333', marginBottom: -5,
                   },
                 }, data.facultyName!),
                 React.createElement(View, {
