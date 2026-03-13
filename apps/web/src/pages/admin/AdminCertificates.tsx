@@ -156,6 +156,7 @@ export default function AdminCertificates() {
   const [showGenerate, setShowGenerate] = useState(false);
   const [form, setForm] = useState<GenerateFormData>(defaultForm);
   const [generating, setGenerating] = useState(false);
+  const [generateError, setGenerateError] = useState('');
 
   // Bulk generate modal
   const [showBulk, setShowBulk] = useState(false);
@@ -206,9 +207,10 @@ export default function AdminCertificates() {
 
   async function handleGenerate() {
     if (!form.recipientName || !form.recipientEmail || !form.eventName || !form.signatoryName) {
-      toast.error('Please fill in all required fields');
+      setGenerateError('Please fill in all required fields');
       return;
     }
+    setGenerateError('');
     setGenerating(true);
     try {
       const data = await api.generateCertificate({
@@ -234,9 +236,12 @@ export default function AdminCertificates() {
       toast.success(`Certificate generated! ID: ${data.certId}`);
       setShowGenerate(false);
       setForm(defaultForm);
+      setGenerateError('');
       fetchCerts();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Generation failed');
+      const msg = err instanceof Error ? err.message : 'Generation failed';
+      setGenerateError(msg);
+      toast.error(msg);
     } finally {
       setGenerating(false);
     }
@@ -571,7 +576,7 @@ export default function AdminCertificates() {
       )}
 
       {/* Generate Modal */}
-      <Dialog open={showGenerate} onOpenChange={setShowGenerate}>
+      <Dialog open={showGenerate} onOpenChange={(open) => { setShowGenerate(open); if (!open) setGenerateError(''); }}>
         <DialogContent className="max-w-lg">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
@@ -579,6 +584,12 @@ export default function AdminCertificates() {
               Generate Certificate
             </DialogTitle>
           </DialogHeader>
+          {generateError && (
+            <div className="flex items-start gap-2 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+              <AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0" />
+              <span>{generateError}</span>
+            </div>
+          )}
           <div className="space-y-4 py-2">
             <div className="grid grid-cols-2 gap-3">
               <div className="col-span-2">
