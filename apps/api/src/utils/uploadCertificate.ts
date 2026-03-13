@@ -33,6 +33,12 @@ function saveToLocalDisk(certId: string, pdfBuffer: Buffer): string {
  * and R2_PUBLIC_URL are defined in your environment.
  */
 export async function uploadCertificate(certId: string, pdfBuffer: Buffer): Promise<string> {
+  // ALWAYS save a local copy first — this ensures downloads work even when
+  // Cloudinary delivery is blocked ("Customer is marked as untrusted").
+  // The download endpoint checks local disk first before trying cloud URLs.
+  saveToLocalDisk(certId, pdfBuffer);
+  logger.info('Certificate saved to local disk', { certId });
+
   // Prefer R2 if configured
   if (
     process.env.R2_ENDPOINT &&
@@ -41,23 +47,27 @@ export async function uploadCertificate(certId: string, pdfBuffer: Buffer): Prom
     process.env.R2_BUCKET_NAME &&
     process.env.R2_PUBLIC_URL
   ) {
-    return uploadToR2(certId, pdfBuffer);
+    try {
+      return await uploadToR2(certId, pdfBuffer);
+    } catch (err: unknown) {
+      logger.warn('R2 upload failed, using local path', { certId, error: err instanceof Error ? err.message : String(err) });
+      return buildLegacyCertificateFileUrl(certId);
+    }
   }
 
-  // Fall back to local disk if Cloudinary is not configured or has placeholder credentials
-  if (!isCloudinaryConfigured || isCloudinaryPlaceholder()) {
-    logger.warn('Cloudinary not configured — saving certificate to local disk', { certId });
-    return saveToLocalDisk(certId, pdfBuffer);
+  // Also upload to Cloudinary as a backup (even though delivery is blocked,
+  // it preserves the file for when the user enables PDF delivery later)
+  if (isCloudinaryConfigured && !isCloudinaryPlaceholder()) {
+    try {
+      const url = await uploadToCloudinary(certId, pdfBuffer);
+      logger.info('Certificate also uploaded to Cloudinary', { certId });
+      return url;
+    } catch (err: unknown) {
+      logger.warn('Cloudinary upload failed, using local path', { certId, error: err instanceof Error ? err.message : String(err) });
+    }
   }
 
-  // Try Cloudinary, fall back to local disk on error
-  try {
-    return await uploadToCloudinary(certId, pdfBuffer);
-  } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : String(err);
-    logger.warn('Cloudinary upload failed, falling back to local disk', { certId, error: message });
-    return saveToLocalDisk(certId, pdfBuffer);
-  }
+  return buildLegacyCertificateFileUrl(certId);
 }
 
 async function uploadToR2(certId: string, pdfBuffer: Buffer): Promise<string> {

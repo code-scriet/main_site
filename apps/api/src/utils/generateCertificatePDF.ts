@@ -9,13 +9,13 @@ import QRCode from 'qrcode';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { logger } from './logger.js';
+import fs from 'fs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const LOGOS_DIR = path.join(__dirname, '..', '..', 'public', 'logos');
 
 // ── CUSTOM FONTS ──────────────────────────────────────────────────────────────
-// Primary: static TTF from Google Fonts GitHub (guaranteed pure TTF binary).
-// Fallback: local files (may fail if they're WOFF2 mislabeled as .woff or variable TTFs).
+// Local font paths (bundled with the app)
 const GREAT_VIBES_PATH       = path.join(LOGOS_DIR, 'GreatVibes.ttf');
 const CINZEL_REG_PATH        = path.join(LOGOS_DIR, 'Cinzel-Regular.woff');
 const CINZEL_BOLD_PATH       = path.join(LOGOS_DIR, 'Cinzel-Bold.woff');
@@ -23,74 +23,99 @@ const CORMORANT_PATH         = path.join(LOGOS_DIR, 'CormorantGaramond.ttf');
 const CORMORANT_ITALIC_PATH  = path.join(LOGOS_DIR, 'CormorantGaramond-Italic.ttf');
 const PLAYFAIR_BOLD_PATH     = path.join(LOGOS_DIR, 'PlayfairDisplay-Bold.woff');
 
+// Static instance TTF URLs from Google Fonts CSS API (verified format: 'truetype').
+// These are pre-compiled single-weight instances — NOT variable fonts.
+const FONT_URLS: Record<string, string> = {
+  'GreatVibes':          'https://fonts.gstatic.com/s/greatvibes/v21/RWmMoKWR9v4ksMfaWd_JN-XC.ttf',
+  'Cinzel-400':          'https://fonts.gstatic.com/s/cinzel/v26/8vIU7ww63mVu7gtR-kwKxNvkNOjw-tbnTYo.ttf',
+  'Cinzel-700':          'https://fonts.gstatic.com/s/cinzel/v26/8vIU7ww63mVu7gtR-kwKxNvkNOjw-jHgTYo.ttf',
+  'Cormorant-400':       'https://fonts.gstatic.com/s/cormorantgaramond/v21/co3umX5slCNuHLi8bLeY9MK7whWMhyjypVO7abI26QOD_v86GnM.ttf',
+  'Cormorant-400i':      'https://fonts.gstatic.com/s/cormorantgaramond/v21/co3smX5slCNuHLi8bLeY9MK7whWMhyjYrGFEsdtdc62E6zd58jDOjw.ttf',
+  'PlayfairDisplay-700': 'https://fonts.gstatic.com/s/playfairdisplay/v40/nuFvD-vYSZviVYUb_rj3ij__anPXJzDwcbmjWBN2PKeiukDQ.ttf',
+};
 
+const FONT_CACHE_DIR = path.join('/tmp', 'cert-fonts');
 
-function registerFontSafe(family: string, primary: () => void, fallback: () => void) {
-  try { primary(); }
-  catch {
-    try { fallback(); }
-    catch { logger.warn(`Could not register font "${family}" from either source`); }
+// Pre-fetch a font from URL and save to local temp file.
+// Returns the local file path, or null if fetch fails.
+async function prefetchFont(name: string, url: string): Promise<string | null> {
+  const localPath = path.join(FONT_CACHE_DIR, `${name}.ttf`);
+  // If already cached, skip download
+  if (fs.existsSync(localPath)) return localPath;
+
+  try {
+    if (!fs.existsSync(FONT_CACHE_DIR)) {
+      fs.mkdirSync(FONT_CACHE_DIR, { recursive: true });
+    }
+    const response = await fetch(url);
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const buffer = Buffer.from(await response.arrayBuffer());
+    fs.writeFileSync(localPath, buffer);
+    logger.info(`Font pre-fetched: ${name} (${buffer.length} bytes)`);
+    return localPath;
+  } catch (err) {
+    logger.warn(`Failed to pre-fetch font "${name}" from ${url}`, { error: err instanceof Error ? err.message : String(err) });
+    return null;
   }
 }
 
-// Static instance TTF URLs from Google Fonts CSS API (verified format: 'truetype').
-// These are pre-compiled single-weight instances — NOT variable fonts.
-const GSTATIC_CINZEL_400 = 'https://fonts.gstatic.com/s/cinzel/v26/8vIU7ww63mVu7gtR-kwKxNvkNOjw-tbnTYo.ttf';
-const GSTATIC_CINZEL_700 = 'https://fonts.gstatic.com/s/cinzel/v26/8vIU7ww63mVu7gtR-kwKxNvkNOjw-jHgTYo.ttf';
-const GSTATIC_CORMORANT_400 = 'https://fonts.gstatic.com/s/cormorantgaramond/v21/co3umX5slCNuHLi8bLeY9MK7whWMhyjypVO7abI26QOD_v86GnM.ttf';
-const GSTATIC_CORMORANT_400I = 'https://fonts.gstatic.com/s/cormorantgaramond/v21/co3smX5slCNuHLi8bLeY9MK7whWMhyjYrGFEsdtdc62E6zd58jDOjw.ttf';
-const GSTATIC_PLAYFAIR_700 = 'https://fonts.gstatic.com/s/playfairdisplay/v40/nuFvD-vYSZviVYUb_rj3ij__anPXJzDwcbmjWBN2PKeiukDQ.ttf';
-const GSTATIC_GREATVIBES = 'https://fonts.gstatic.com/s/greatvibes/v21/RWmMoKWR9v4ksMfaWd_JN-XC.ttf';
 
-registerFontSafe('GreatVibes',
-  () => Font.register({ family: 'GreatVibes', src: GSTATIC_GREATVIBES }),
-  () => Font.register({ family: 'GreatVibes', src: GREAT_VIBES_PATH }),
-);
+// Initialize fonts — called once at startup.
+// Downloads fonts from Google CDN to /tmp, then registers local paths.
+// Falls back to bundled local files if CDN is unreachable.
+let fontsInitialized = false;
+export async function initFonts(): Promise<void> {
+  if (fontsInitialized) return;
+  fontsInitialized = true;
 
-registerFontSafe('Cinzel',
-  () => Font.register({
-    family: 'Cinzel',
-    fonts: [
-      { src: GSTATIC_CINZEL_400, fontWeight: 400 },
-      { src: GSTATIC_CINZEL_700, fontWeight: 700 },
-    ],
-  }),
-  () => Font.register({
-    family: 'Cinzel',
-    fonts: [
-      { src: CINZEL_REG_PATH, fontWeight: 400 },
-      { src: CINZEL_BOLD_PATH, fontWeight: 700 },
-    ],
-  }),
-);
+  // Pre-fetch all fonts in parallel
+  const [greatVibes, cinzel400, cinzel700, cormorant400, cormorant400i, playfair700] = await Promise.all([
+    prefetchFont('GreatVibes', FONT_URLS['GreatVibes']),
+    prefetchFont('Cinzel-400', FONT_URLS['Cinzel-400']),
+    prefetchFont('Cinzel-700', FONT_URLS['Cinzel-700']),
+    prefetchFont('Cormorant-400', FONT_URLS['Cormorant-400']),
+    prefetchFont('Cormorant-400i', FONT_URLS['Cormorant-400i']),
+    prefetchFont('PlayfairDisplay-700', FONT_URLS['PlayfairDisplay-700']),
+  ]);
 
-registerFontSafe('CormorantGaramond',
-  () => Font.register({
-    family: 'CormorantGaramond',
-    fonts: [
-      { src: GSTATIC_CORMORANT_400 },
-      { src: GSTATIC_CORMORANT_400I, fontStyle: 'italic' },
-    ],
-  }),
-  () => Font.register({
-    family: 'CormorantGaramond',
-    fonts: [
-      { src: CORMORANT_PATH },
-      { src: CORMORANT_ITALIC_PATH, fontStyle: 'italic' },
-    ],
-  }),
-);
+  try {
+    // Try the bundled local file directly to ensure no stream corruption
+    Font.register({ family: 'GreatVibes', src: GREAT_VIBES_PATH });
+    logger.info(`GreatVibes registered from local bundle`);
+  } catch (err) { logger.error('Failed to register GreatVibes', { error: err }); }
 
-registerFontSafe('PlayfairDisplay',
-  () => Font.register({
-    family: 'PlayfairDisplay',
-    fonts: [{ src: GSTATIC_PLAYFAIR_700, fontWeight: 700 }],
-  }),
-  () => Font.register({
-    family: 'PlayfairDisplay',
-    fonts: [{ src: PLAYFAIR_BOLD_PATH, fontWeight: 700 }],
-  }),
-);
+  // Register Cinzel
+  try {
+    Font.register({
+      family: 'Cinzel',
+      fonts: [
+        { src: cinzel400 || CINZEL_REG_PATH, fontWeight: 400 },
+        { src: cinzel700 || CINZEL_BOLD_PATH, fontWeight: 700 },
+      ],
+    });
+  } catch (err) { logger.error('Failed to register Cinzel', { error: err }); }
+
+  // Register Cormorant Garamond
+  try {
+    Font.register({
+      family: 'CormorantGaramond',
+      fonts: [
+        { src: cormorant400 || CORMORANT_PATH },
+        { src: cormorant400i || CORMORANT_ITALIC_PATH, fontStyle: 'italic' },
+      ],
+    });
+  } catch (err) { logger.error('Failed to register CormorantGaramond', { error: err }); }
+
+  // Register Playfair Display
+  try {
+    Font.register({
+      family: 'PlayfairDisplay',
+      fonts: [{ src: playfair700 || PLAYFAIR_BOLD_PATH, fontWeight: 700 }],
+    });
+  } catch (err) { logger.error('Failed to register PlayfairDisplay', { error: err }); }
+
+  logger.info('All certificate fonts initialized');
+}
 
 Font.registerHyphenationCallback((word: string) => [word]);
 
@@ -156,6 +181,20 @@ function nameFontSize(name: string): number {
   return 38;
 }
 
+function formatPosition(pos: string): string {
+  const p = pos.trim().toLowerCase();
+  if (p === '1' || p === '1st' || p === 'first') return 'First Place';
+  if (p === '2' || p === '2nd' || p === 'second') return 'Second Place';
+  if (p === '3' || p === '3rd' || p === 'third') return 'Third Place';
+  if (p === '4' || p === '4th' || p === 'fourth') return 'Fourth Place';
+  if (p === '5' || p === '5th' || p === 'fifth') return 'Fifth Place';
+  
+  if (/^\d+(st|nd|rd|th)$/.test(p)) {
+    return pos.trim() + ' Place';
+  }
+  return pos.trim();
+}
+
 // ── DESCRIPTION BUILDER ────────────────────────────────────────────────────────
 function buildDescription(data: CertData, type: string): React.ReactNode[] {
   if (data.description) {
@@ -170,7 +209,7 @@ function buildDescription(data: CertData, type: string): React.ReactNode[] {
 
   switch (type) {
     case 'WINNER': {
-      const posText = data.position || 'First Place';
+      const posText = data.position ? formatPosition(data.position) : 'First Place';
       const elements: React.ReactNode[] = [
         'for outstanding performance\nand for securing ',
         React.createElement(Text, { key: 'hl', style: highlightStyle }, posText),
@@ -193,6 +232,9 @@ function buildDescription(data: CertData, type: string): React.ReactNode[] {
 
 // ── MAIN EXPORT ────────────────────────────────────────────────────────────────
 export async function generateCertificatePDF(data: CertData): Promise<Buffer> {
+  // Ensure fonts are pre-fetched and registered before rendering
+  await initFonts();
+
   const type       = data.type.toUpperCase();
   const verifyUrl  = `${FRONTEND_URL}/verify/${data.certId}`;
   const qrDataUrl  = await QRCode.toDataURL(verifyUrl, {

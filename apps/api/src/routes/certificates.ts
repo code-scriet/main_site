@@ -16,7 +16,7 @@ import { uploadCertificate } from '../utils/uploadCertificate.js';
 import { emailService } from '../utils/email.js';
 import { sanitizeText } from '../utils/sanitize.js';
 import { auditLog } from '../utils/audit.js';
-import { buildPublicCertificateDownloadUrl } from '../utils/publicUrl.js';
+import { buildPublicCertificateDownloadUrl, buildLegacyCertificateFileUrl } from '../utils/publicUrl.js';
 import { cloudinary, isCloudinaryConfigured } from '../config/cloudinary.js';
 
 const FRONTEND_URL = (process.env.FRONTEND_URL || 'https://codescriet.dev').replace(/\/+$/, '');
@@ -237,14 +237,21 @@ async function sendCertificateFile(
 ) {
   const localPath = buildCertificateLocalPath(cert.certId);
 
-  // If we have a copy stored locally physically, we can just send it back.
+  // Always try local disk first — we now save every certificate locally.
   if (fs.existsSync(localPath)) {
+    if (source === 'authenticated-download') {
+      // For authenticated downloads, return a JSON object with a server-relative URL.
+      // The frontend will open this in a new tab.
+      return res.status(200).json({ url: buildLegacyCertificateFileUrl(cert.certId) });
+    }
+    // For public verification & legacy links, serve the file directly with proper headers
     res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', `attachment; filename="${cert.certId}.pdf"`);
+    res.setHeader('Content-Disposition', `inline; filename="${cert.certId}.pdf"`);
     res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
     return res.sendFile(localPath);
   }
 
+  // Fallback: no local file available
   if (!cert.pdfUrl) {
     if (source === 'authenticated-download') {
       return res.status(404).json({ error: 'No PDF available for this certificate.' });
@@ -252,43 +259,10 @@ async function sendCertificateFile(
     return res.status(404).send('No PDF available for this certificate.');
   }
 
-  if (isLegacyLocalCertificateUrl(cert.certId, cert.pdfUrl)) {
-    if (source === 'authenticated-download') {
-      return res.status(404).json({ error: 'Stored certificate file is unavailable on this server.' });
-    }
-    return res.status(404).send('Stored certificate file is unavailable on this server.');
-  }
-
-  // To bypass Cloudinary's strict bot-protection which blocks Render IPs (502 Gateway),
-  // we do not fetch it from the backend API.
-  // Instead, we return the URL back to the client to open Native (for authenticated fetches)
-  // or we natively HTTP redirect the browser directly to Cloudinary (for public verifications).
-  let finalUrl = cert.pdfUrl;
-
-  // Cloudinary requires signed URLs for strict delivery.
-  // CRITICAL: The resource_type in the signed URL MUST match the resource_type
-  // used during upload, otherwise Cloudinary returns ERR_INVALID_RESPONSE.
-  // Old certs used 'raw', new ones use 'raw' too. Detect from stored URL to be safe.
-  if (isCloudinaryConfigured && finalUrl.includes('cloudinary.com')) {
-    // Detect resource_type from the stored URL path: /raw/upload/ or /image/upload/
-    let detectedResourceType: 'raw' | 'image' = 'raw';
-    if (finalUrl.includes('/image/upload/')) {
-      detectedResourceType = 'image';
-    }
-
-    finalUrl = cloudinary.url(`certificates/${cert.certId}.pdf`, {
-      resource_type: detectedResourceType,
-      type: 'upload',
-      sign_url: true,
-      secure: true,
-    });
-  }
-
   if (source === 'authenticated-download') {
-    return res.status(200).json({ url: finalUrl });
-  } else {
-    return res.redirect(finalUrl);
+    return res.status(404).json({ error: 'Certificate file is stored in the cloud but delivery is blocked. Please regenerate the certificate.' });
   }
+  return res.status(404).send('Certificate file unavailable. Please contact the administrator.');
 }
 
 function buildCertificateEventScope(eventName: string, eventId?: string | null) {
