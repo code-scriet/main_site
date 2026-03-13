@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
+import { flushSync } from 'react-dom';
 import { motion } from 'framer-motion';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -174,7 +175,10 @@ function QRScanner({ onDetect }: { onDetect: (certId: string) => void }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const rafRef = useRef<number>(0);
+  const jsQrRef = useRef<(typeof import('jsqr').default) | null>(null);
+  const jsQrPromiseRef = useRef<Promise<(typeof import('jsqr').default)> | null>(null);
   const [scanning, setScanning] = useState(false);
+  const [cameraReady, setCameraReady] = useState(false);
   const [error, setError] = useState('');
 
   const stopCamera = useCallback(() => {
@@ -183,13 +187,156 @@ function QRScanner({ onDetect }: { onDetect: (certId: string) => void }) {
       streamRef.current = null;
     }
     cancelAnimationFrame(rafRef.current);
+    if (videoRef.current) {
+      videoRef.current.pause();
+      videoRef.current.srcObject = null;
+    }
+    setCameraReady(false);
     setScanning(false);
+  }, []);
+
+  const loadJsQr = useCallback(async () => {
+    if (jsQrRef.current) return jsQrRef.current;
+    if (!jsQrPromiseRef.current) {
+      jsQrPromiseRef.current = import('jsqr').then(module => module.default);
+    }
+    const jsQr = await jsQrPromiseRef.current;
+    jsQrRef.current = jsQr;
+    return jsQr;
+  }, []);
+
+  const waitForVideoFrame = useCallback(async (video: HTMLVideoElement) => {
+    const playVideo = async () => {
+      try {
+        await video.play();
+      } catch (error) {
+        if (error instanceof DOMException && error.name === 'AbortError') {
+          await new Promise(resolve => window.setTimeout(resolve, 150));
+          await video.play();
+          return;
+        }
+        throw error;
+      }
+    };
+
+    await playVideo();
+
+    await new Promise<void>((resolve, reject) => {
+      const timeoutAt = Date.now() + 4000;
+      let frameId = 0;
+
+      const checkFrame = () => {
+        if (
+          video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA &&
+          video.videoWidth > 0 &&
+          video.videoHeight > 0
+        ) {
+          cancelAnimationFrame(frameId);
+          resolve();
+          return;
+        }
+
+        if (Date.now() >= timeoutAt) {
+          cancelAnimationFrame(frameId);
+          reject(new Error('Camera preview did not initialize.'));
+          return;
+        }
+
+        frameId = requestAnimationFrame(checkFrame);
+      };
+
+      frameId = requestAnimationFrame(checkFrame);
+    });
+  }, []);
+
+  const attachStreamToVideo = useCallback(async (stream: MediaStream) => {
+    const video = videoRef.current;
+    if (!video) {
+      throw new Error('Camera preview element is not ready.');
+    }
+
+    video.pause();
+    video.srcObject = null;
+    video.muted = true;
+    video.autoplay = true;
+    video.playsInline = true;
+    video.disablePictureInPicture = true;
+    video.setAttribute('autoplay', 'true');
+    video.setAttribute('muted', 'true');
+    video.setAttribute('playsinline', 'true');
+    video.srcObject = stream;
+
+    await waitForVideoFrame(video);
+  }, [waitForVideoFrame]);
+
+  const getCameraAttempts = useCallback(async () => {
+    const attempts: MediaStreamConstraints[] = [
+      {
+        audio: false,
+        video: {
+          facingMode: { ideal: 'environment' },
+          width: { ideal: 1280 },
+          height: { ideal: 720 },
+        },
+      },
+      {
+        audio: false,
+        video: {
+          facingMode: 'environment',
+          width: { ideal: 1280 },
+          height: { ideal: 720 },
+        },
+      },
+    ];
+
+    if (navigator.mediaDevices.enumerateDevices) {
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const videoInputs = devices.filter(device => device.kind === 'videoinput');
+      const preferredIds = new Set<string>();
+      const preferredDevices = [
+        videoInputs.find(device => /(back|rear|environment)/i.test(device.label)),
+        videoInputs[videoInputs.length - 1],
+      ].filter((device): device is MediaDeviceInfo => Boolean(device));
+
+      for (const device of preferredDevices) {
+        if (preferredIds.has(device.deviceId)) continue;
+        preferredIds.add(device.deviceId);
+        attempts.push({
+          audio: false,
+          video: {
+            deviceId: { exact: device.deviceId },
+            width: { ideal: 1280 },
+            height: { ideal: 720 },
+          },
+        });
+      }
+    }
+
+    attempts.push({
+      audio: false,
+      video: {
+        width: { ideal: 1280 },
+        height: { ideal: 720 },
+      },
+    });
+
+    return attempts;
   }, []);
 
   const tick = useCallback(() => {
     const video = videoRef.current;
     const canvas = canvasRef.current;
-    if (!video || !canvas || video.readyState !== video.HAVE_ENOUGH_DATA) {
+    const jsQr = jsQrRef.current;
+
+    if (
+      !streamRef.current ||
+      !video ||
+      !canvas ||
+      !jsQr ||
+      video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA ||
+      video.videoWidth === 0 ||
+      video.videoHeight === 0
+    ) {
       rafRef.current = requestAnimationFrame(tick);
       return;
     }
@@ -202,35 +349,30 @@ function QRScanner({ onDetect }: { onDetect: (certId: string) => void }) {
     ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
     const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
 
-    // Dynamically import jsqr to keep bundle lean
-    import('jsqr').then(({ default: jsQR }) => {
-      const code = jsQR(imageData.data, imageData.width, imageData.height);
-      if (code?.data) {
-        // Extract certId from URL or use raw data
-        try {
-          const url = new URL(code.data);
-          const parts = url.pathname.split('/');
-          const certId = parts[parts.length - 1];
-          if (certId) {
-            stopCamera();
-            onDetect(certId);
-            return;
-          }
-        } catch {
-          // Not a URL — use raw value if it looks like a cert ID
-          const raw = code.data.trim().toUpperCase();
-          if (/^[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}$/.test(raw)) {
-            stopCamera();
-            onDetect(raw);
-            return;
-          }
+    const code = jsQr(imageData.data, imageData.width, imageData.height);
+    if (code?.data) {
+      // Extract certId from URL or use raw data
+      try {
+        const url = new URL(code.data);
+        const parts = url.pathname.split('/');
+        const certId = parts[parts.length - 1];
+        if (certId) {
+          stopCamera();
+          onDetect(certId);
+          return;
+        }
+      } catch {
+        // Not a URL — use raw value if it looks like a cert ID
+        const raw = code.data.trim().toUpperCase();
+        if (/^[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}$/.test(raw)) {
+          stopCamera();
+          onDetect(raw);
+          return;
         }
       }
-      rafRef.current = requestAnimationFrame(tick);
-    }).catch(() => {
-      setError('QR scanner failed to load. Please enter the certificate ID manually.');
-      stopCamera();
-    });
+    }
+
+    rafRef.current = requestAnimationFrame(tick);
   }, [onDetect, stopCamera]);
 
   async function startCamera() {
@@ -239,35 +381,38 @@ function QRScanner({ onDetect }: { onDetect: (certId: string) => void }) {
       setError('Camera API not available. Please use a modern browser with HTTPS.');
       return;
     }
+
+    stopCamera();
+    flushSync(() => {
+      setScanning(true);
+      setCameraReady(false);
+    });
+
     try {
-      // Android often struggles with simple 'facingMode: environment'.
-      // Try exact environment, fallback to ideal environment, fallback to any camera.
-      let stream: MediaStream;
-      try {
-        stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: { exact: 'environment' } },
-        });
-      } catch {
+      await loadJsQr();
+      const attempts = await getCameraAttempts();
+      let lastError: unknown = new Error('Could not access camera.');
+
+      for (const constraints of attempts) {
+        let stream: MediaStream | null = null;
         try {
-          stream = await navigator.mediaDevices.getUserMedia({
-            video: { facingMode: 'environment' },
-          });
-        } catch {
-          // Fallback to any available camera if Android completely rejects environment mapping
-          stream = await navigator.mediaDevices.getUserMedia({ video: true });
+          stream = await navigator.mediaDevices.getUserMedia(constraints);
+          await attachStreamToVideo(stream);
+          streamRef.current = stream;
+          setCameraReady(true);
+          rafRef.current = requestAnimationFrame(tick);
+          return;
+        } catch (attemptError) {
+          lastError = attemptError;
+          if (stream) {
+            stream.getTracks().forEach(track => track.stop());
+          }
         }
       }
 
-      streamRef.current = stream;
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        // Ensure inline playback is allowed for mobile Safari/Chrome
-        videoRef.current.setAttribute('playsinline', 'true');
-        await videoRef.current.play();
-      }
-      setScanning(true);
-      rafRef.current = requestAnimationFrame(tick);
+      throw lastError;
     } catch (err) {
+      stopCamera();
       const name = err instanceof DOMException ? err.name : '';
       if (name === 'NotAllowedError') {
         setError('Camera access denied. Please allow camera permission in your browser settings and try again.');
@@ -275,6 +420,8 @@ function QRScanner({ onDetect }: { onDetect: (certId: string) => void }) {
         setError('No camera found on this device.');
       } else if (name === 'NotReadableError' || name === 'AbortError') {
         setError('Camera is in use by another app. Close it and try again.');
+      } else if (err instanceof Error && err.message === 'Camera preview did not initialize.') {
+        setError('The camera opened, but no video frames were received. Try again, switch browsers, or enter the certificate ID manually.');
       } else {
         setError('Could not access camera. Please try again or enter the certificate ID manually.');
       }
@@ -291,11 +438,24 @@ function QRScanner({ onDetect }: { onDetect: (certId: string) => void }) {
           Open Camera to Scan QR Code
         </Button>
       ) : (
-        <div className="relative rounded-xl overflow-hidden bg-black">
-          <video ref={videoRef} className="w-full" playsInline muted />
+        <div className="relative aspect-[4/3] min-h-[18rem] rounded-xl overflow-hidden bg-black">
+          <video
+            ref={videoRef}
+            className={`h-full w-full object-cover transition-opacity duration-200 ${cameraReady ? 'opacity-100' : 'opacity-0'}`}
+            playsInline
+            muted
+            autoPlay
+          />
           {/* Scan overlay */}
           <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-            <div className="w-48 h-48 border-2 border-amber-400 rounded-lg opacity-70" />
+            {!cameraReady ? (
+              <div className="flex items-center gap-2 rounded-full bg-black/70 px-4 py-2 text-sm text-white">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Starting camera…
+              </div>
+            ) : (
+              <div className="w-48 h-48 border-2 border-amber-400 rounded-lg opacity-70" />
+            )}
           </div>
           <Button
             onClick={stopCamera}
@@ -314,7 +474,7 @@ function QRScanner({ onDetect }: { onDetect: (certId: string) => void }) {
           <AlertCircle className="w-3.5 h-3.5" /> {error}
         </p>
       )}
-      {scanning && (
+      {scanning && cameraReady && (
         <p className="text-gray-500 text-xs text-center animate-pulse">
           Point camera at a certificate QR code…
         </p>
