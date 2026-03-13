@@ -3,6 +3,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { cloudinary, isCloudinaryConfigured } from '../config/cloudinary.js';
 import { logger } from './logger.js';
+import { buildLegacyCertificateFileUrl } from './publicUrl.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const LOCAL_CERT_DIR = path.join(__dirname, '..', '..', 'uploads', 'certificates');
@@ -20,8 +21,7 @@ function saveToLocalDisk(certId: string, pdfBuffer: Buffer): string {
   }
   const filePath = path.join(LOCAL_CERT_DIR, `${certId}.pdf`);
   fs.writeFileSync(filePath, pdfBuffer);
-  const baseUrl = process.env.API_BASE_URL || `http://localhost:${process.env.PORT || 5001}`;
-  return `${baseUrl}/api/certificates/files/${certId}.pdf`;
+  return buildLegacyCertificateFileUrl(certId);
 }
 
 /**

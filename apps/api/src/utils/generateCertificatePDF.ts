@@ -8,6 +8,7 @@ import {
 import QRCode from 'qrcode';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { logger } from './logger.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const LOGOS_DIR = path.join(__dirname, '..', '..', 'public', 'logos');
@@ -17,7 +18,6 @@ const GREAT_VIBES_PATH       = path.join(LOGOS_DIR, 'GreatVibes.ttf');
 const CINZEL_PATH            = path.join(LOGOS_DIR, 'Cinzel.ttf');
 const CORMORANT_PATH         = path.join(LOGOS_DIR, 'CormorantGaramond.ttf');
 const CORMORANT_ITALIC_PATH  = path.join(LOGOS_DIR, 'CormorantGaramond-Italic.ttf');
-const PLAYFAIR_BOLD_PATH     = path.join(LOGOS_DIR, 'PlayfairDisplay-Bold.ttf');
 
 try { Font.register({ family: 'GreatVibes', src: GREAT_VIBES_PATH }); }
 catch { /* fallback: Times-BoldItalic */ }
@@ -35,12 +35,9 @@ try {
   });
 } catch { /* fallback: Times-Roman */ }
 
-try { Font.register({ family: 'PlayfairDisplay', src: PLAYFAIR_BOLD_PATH }); }
-catch { /* fallback: Cinzel */ }
-
 Font.registerHyphenationCallback((word: string) => [word]);
 
-const FRONTEND_URL = process.env.FRONTEND_URL || 'https://codescriet.dev';
+const FRONTEND_URL = (process.env.FRONTEND_URL || 'https://codescriet.dev').replace(/\/+$/, '');
 
 export interface CertData {
   recipientName:            string;
@@ -150,6 +147,13 @@ export async function generateCertificatePDF(data: CertData): Promise<Buffer> {
   const hasFaculty  = Boolean(data.facultyName);
   const verifyDomain = FRONTEND_URL.replace(/^https?:\/\//, '');
   const descElements = buildDescription(data, type);
+
+  if (!data.codescrietLogoUrl) {
+    logger.warn('Certificate PDF rendering without CodeScriet logo', { certId: data.certId });
+  }
+  if (!data.ccsuLogoUrl) {
+    logger.warn('Certificate PDF rendering without CCSU logo', { certId: data.certId });
+  }
 
   return renderToBuffer(
     React.createElement(Document, null,
@@ -297,11 +301,11 @@ export async function generateCertificatePDF(data: CertData): Promise<Buffer> {
                 color: C.textMuted, letterSpacing: 2, marginBottom: 8,
               },
             }, 'THIS CERTIFICATE IS PROUDLY PRESENTED TO'),
-            // Playfair Display Bold — not italic, auto-scaled for long names
+            // Use only bundled fonts that are verified to load on the server.
             React.createElement(Text, {
               style: {
-                fontFamily: 'PlayfairDisplay', fontSize: nameFontSize(data.recipientName),
-                fontWeight: 700, color: C.maroon,
+                fontFamily: 'CormorantGaramond', fontSize: nameFontSize(data.recipientName),
+                color: C.maroon,
                 lineHeight: 1.1, letterSpacing: 0.5,
                 textAlign: 'center', maxWidth: 680,
               },

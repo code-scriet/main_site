@@ -5,6 +5,25 @@ interface RequestOptions extends RequestInit {
   token?: string;
 }
 
+async function readErrorPayload(response: Response): Promise<unknown> {
+  const contentType = response.headers.get('content-type') || '';
+
+  if (contentType.includes('application/json')) {
+    return response.json().catch(() => null);
+  }
+
+  const text = await response.text().catch(() => '');
+  if (!text.trim()) {
+    return null;
+  }
+
+  try {
+    return JSON.parse(text);
+  } catch {
+    return { error: text.trim() };
+  }
+}
+
 async function request<T>(endpoint: string, options: RequestOptions = {}): Promise<T> {
   const { token, ...fetchOptions } = options;
   const method = (fetchOptions.method ?? 'GET').toUpperCase();
@@ -41,7 +60,7 @@ async function request<T>(endpoint: string, options: RequestOptions = {}): Promi
   });
 
   if (!response.ok) {
-    const errorData = await response.json().catch(() => null);
+    const errorData = await readErrorPayload(response);
     const message = extractApiErrorMessage(errorData, `Request failed (${response.status})`);
     throw new Error(message);
   }
@@ -94,7 +113,7 @@ async function requestBlob(
   });
 
   if (!response.ok) {
-    const errorData = await response.json().catch(() => null);
+    const errorData = await readErrorPayload(response);
     const message = extractApiErrorMessage(errorData, `Request failed (${response.status})`);
     throw new Error(message);
   }
@@ -921,7 +940,7 @@ export const api = {
     return request<{ certificates: unknown[]; total: number; page: number; totalPages: number }>(`/certificates${query}`, { token });
   },
   generateCertificate: (data: Record<string, unknown>, token: string) =>
-    request<{ certId: string; pdfUrl: string; verifyUrl: string }>('/certificates/generate', { method: 'POST', body: JSON.stringify(data), token }),
+    request<{ certId: string; pdfUrl: string; downloadUrl: string; verifyUrl: string }>('/certificates/generate', { method: 'POST', body: JSON.stringify(data), token }),
   bulkGenerateCertificates: (data: Record<string, unknown>, token: string) =>
     request<{ generated: number; failed: number; results: unknown[]; errors: unknown[] }>('/certificates/bulk', { method: 'POST', body: JSON.stringify(data), token }),
   downloadCertificate: (certId: string, token: string) =>

@@ -69,7 +69,7 @@ const EMAIL_FROM_NAME = process.env.EMAIL_FROM_NAME || 'code.scriet';
 const EMAIL_REPLY_TO = process.env.EMAIL_REPLY_TO || 'tech_admin@codescriet.dev';
 
 // Production URL for all email links
-const SITE_URL = 'https://codescriet.dev';
+const SITE_URL = (process.env.FRONTEND_URL || 'https://codescriet.dev').replace(/\/+$/, '');
 
 // Configure marked for email-safe HTML
 marked.setOptions({
@@ -1255,7 +1255,7 @@ class EmailService {
     name: string,
     eventName: string,
     certId: string,
-    pdfUrl: string,
+    downloadUrl: string,
   ): Promise<boolean> {
     const verifyUrl = `${SITE_URL}/verify/${certId}`;
     const template = {
@@ -1280,11 +1280,11 @@ class EmailService {
             </p>
           </div>
         `,
-        cta: { text: '⬇ Download Certificate PDF', url: pdfUrl },
+        cta: { text: '⬇ Download Certificate PDF', url: downloadUrl },
         secondaryCta: { text: '🔍 Verify Certificate', url: verifyUrl },
         footer: 'This certificate is permanently verifiable at codescriet.dev',
       }),
-      text: `Hi ${name}, your certificate for ${eventName} is ready! Certificate ID: ${certId}. Download PDF: ${pdfUrl}. Verify at: ${verifyUrl}`,
+      text: `Hi ${name}, your certificate for ${eventName} is ready! Certificate ID: ${certId}. Download PDF: ${downloadUrl}. Verify at: ${verifyUrl}`,
     };
     return this.send({ to: email, ...template });
   }

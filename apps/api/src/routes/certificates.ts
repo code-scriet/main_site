@@ -16,8 +16,9 @@ import { uploadCertificate } from '../utils/uploadCertificate.js';
 import { emailService } from '../utils/email.js';
 import { sanitizeText } from '../utils/sanitize.js';
 import { auditLog } from '../utils/audit.js';
+import { buildPublicCertificateDownloadUrl } from '../utils/publicUrl.js';
 
-const FRONTEND_URL = process.env.FRONTEND_URL || 'https://codescriet.dev';
+const FRONTEND_URL = (process.env.FRONTEND_URL || 'https://codescriet.dev').replace(/\/+$/, '');
 const RESEND_COOLDOWN_MS = 10 * 60 * 1000; // 10 minutes
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -109,6 +110,173 @@ const isSchemaDriftError = (error: unknown): error is Prisma.PrismaClientKnownRe
   error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2022'
 );
 
+type CertificateFileRecord = {
+  certId: string;
+  pdfUrl: string | null;
+  isRevoked: boolean;
+  recipientId: string | null;
+  recipientEmail: string;
+};
+
+function normalizeEmail(value?: string | null): string | null {
+  const normalized = value?.trim().toLowerCase();
+  return normalized ? normalized : null;
+}
+
+function buildCertificateVerifyUrl(certId: string): string {
+  return `${FRONTEND_URL}/verify/${certId}`;
+}
+
+function buildCertificateLocalPath(certId: string): string {
+  return path.join(LOCAL_CERT_DIR, `${certId}.pdf`);
+}
+
+function extractCertIdFromFilename(filename: string): string | null {
+  const match = filename.match(/^([A-Z0-9\-]{10,20})\.pdf$/i);
+  return match?.[1]?.toUpperCase() ?? null;
+}
+
+function isCertificateOwner(
+  cert: Pick<CertificateFileRecord, 'recipientId' | 'recipientEmail'>,
+  authUser: { id: string; email?: string | null },
+): boolean {
+  if (cert.recipientId && cert.recipientId === authUser.id) {
+    return true;
+  }
+
+  const recipientEmail = normalizeEmail(cert.recipientEmail);
+  const authEmail = normalizeEmail(authUser.email);
+  return Boolean(recipientEmail && authEmail && recipientEmail === authEmail);
+}
+
+function isLegacyLocalCertificateUrl(certId: string, pdfUrl: string): boolean {
+  try {
+    const parsed = new URL(pdfUrl);
+    const normalizedPath = parsed.pathname.replace(/\/+$/, '');
+    return (
+      normalizedPath.endsWith(`/certificates/files/${certId}.pdf`) ||
+      normalizedPath.endsWith(`/api/certificates/files/${certId}.pdf`)
+    );
+  } catch {
+    return false;
+  }
+}
+
+async function findRecipientIdByEmail(recipientEmail: string): Promise<string | null> {
+  const normalizedEmail = normalizeEmail(recipientEmail);
+  if (!normalizedEmail) {
+    return null;
+  }
+
+  const user = await prisma.user.findFirst({
+    where: {
+      email: {
+        equals: normalizedEmail,
+        mode: 'insensitive',
+      },
+    },
+    select: { id: true },
+  });
+
+  return user?.id ?? null;
+}
+
+async function findRecipientIdsByEmail(recipientEmails: string[]): Promise<Map<string, string>> {
+  const emails = Array.from(
+    new Set(
+      recipientEmails
+        .map((email) => normalizeEmail(email))
+        .filter((email): email is string => Boolean(email)),
+    ),
+  );
+
+  if (!emails.length) {
+    return new Map();
+  }
+
+  const users = await prisma.user.findMany({
+    where: {
+      OR: emails.map((email) => ({
+        email: {
+          equals: email,
+          mode: 'insensitive',
+        },
+      })),
+    },
+    select: {
+      id: true,
+      email: true,
+    },
+  });
+
+  return new Map(
+    users
+      .map((user) => [normalizeEmail(user.email), user.id] as const)
+      .filter((entry): entry is readonly [string, string] => Boolean(entry[0])),
+  );
+}
+
+async function fetchCertificateFileRecord(certId: string): Promise<CertificateFileRecord | null> {
+  return prisma.certificate.findUnique({
+    where: { certId },
+    select: {
+      certId: true,
+      pdfUrl: true,
+      isRevoked: true,
+      recipientId: true,
+      recipientEmail: true,
+    },
+  });
+}
+
+async function sendCertificateFile(
+  res: Response,
+  cert: Pick<CertificateFileRecord, 'certId' | 'pdfUrl'>,
+  source: 'authenticated-download' | 'public-verify-download' | 'legacy-file-link',
+) {
+  const filename = `${cert.certId}.pdf`;
+  const localPath = buildCertificateLocalPath(cert.certId);
+
+  res.setHeader('Content-Type', 'application/pdf');
+  res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+  res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+
+  if (fs.existsSync(localPath)) {
+    return res.sendFile(localPath);
+  }
+
+  if (!cert.pdfUrl) {
+    return res.status(404).json({ error: 'No PDF available for this certificate.' });
+  }
+
+  if (isLegacyLocalCertificateUrl(cert.certId, cert.pdfUrl)) {
+    return res.status(404).json({ error: 'Stored certificate file is unavailable on this server.' });
+  }
+
+  try {
+    const upstream = await fetch(cert.pdfUrl);
+    if (!upstream.ok) {
+      return res.status(502).json({ error: 'Failed to fetch PDF from storage.' });
+    }
+
+    const contentType = upstream.headers.get('content-type');
+    if (contentType) {
+      res.setHeader('Content-Type', contentType);
+    }
+
+    const contentLength = upstream.headers.get('content-length');
+    if (contentLength) {
+      res.setHeader('Content-Length', contentLength);
+    }
+
+    const pdfBuffer = Buffer.from(await upstream.arrayBuffer());
+    return res.status(200).send(pdfBuffer);
+  } catch (error) {
+    logger.error('Certificate download proxy failed', { certId: cert.certId, source, error });
+    return res.status(500).json({ error: 'Internal server error.' });
+  }
+}
+
 function buildCertificateEventScope(eventName: string, eventId?: string | null) {
   if (eventId) {
     return {
@@ -166,28 +334,35 @@ async function updateCertificateWithSchemaFallback(
 }
 
 // ──────────────────────────────────────────────────────────────────
-// PUBLIC: Serve locally-stored certificate PDF files (MUST be first to avoid /:certId conflict)
+// PUBLIC: Legacy certificate file endpoint retained for backward compatibility.
 // GET /api/certificates/files/:filename
 // ──────────────────────────────────────────────────────────────────
-certificatesRouter.get('/files/:filename', (req: Request, res: Response) => {
+certificatesRouter.get('/files/:filename', certificateDownloadLimiter, async (req: Request, res: Response) => {
   const { filename } = req.params;
-  // Only allow safe filenames: alphanumeric + hyphens + .pdf
-  if (!/^[A-Z0-9\-]{10,20}\.pdf$/i.test(filename)) {
+  const certId = extractCertIdFromFilename(filename);
+  if (!certId) {
     return res.status(400).json({ error: 'Invalid filename' });
   }
-  const filePath = path.join(LOCAL_CERT_DIR, filename);
-  if (!fs.existsSync(filePath)) {
-    return res.status(404).json({ error: 'Certificate file not found.' });
+
+  try {
+    const cert = await fetchCertificateFileRecord(certId);
+    if (!cert) {
+      return res.status(404).json({ error: 'Certificate not found.' });
+    }
+    if (cert.isRevoked) {
+      return res.status(403).json({ error: 'Certificate has been revoked.' });
+    }
+
+    return sendCertificateFile(res, cert, 'legacy-file-link');
+  } catch (error) {
+    logger.error('Legacy certificate file lookup failed', { certId, error });
+    return res.status(500).json({ error: 'Internal server error.' });
   }
-  res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
-  res.setHeader('Content-Type', 'application/pdf');
-  res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
-  return res.sendFile(filePath);
 });
 
 // ──────────────────────────────────────────────────────────────────
 // PRIVATE: Download a certificate PDF by certId — proxies local file or Cloudinary.
-// Only the certificate's recipient (by userId) or an ADMIN may download.
+// Only the certificate's recipient (by userId/email) or an ADMIN/PRESIDENT may download.
 // GET /api/certificates/download/:certId
 // ──────────────────────────────────────────────────────────────────
 certificatesRouter.get('/download/:certId', certificateDownloadLimiter, authMiddleware, async (req: Request, res: Response) => {
@@ -199,66 +374,51 @@ certificatesRouter.get('/download/:certId', certificateDownloadLimiter, authMidd
 
   const upperCertId = certId.toUpperCase();
 
-  // Fetch certificate to validate ownership
-  let cert: { pdfUrl: string | null; isRevoked: boolean; recipientId: string | null } | null;
   try {
-    cert = await prisma.certificate.findUnique({
-      where: { certId: upperCertId },
-      select: { pdfUrl: true, isRevoked: true, recipientId: true },
-    });
+    const cert = await fetchCertificateFileRecord(upperCertId);
+    if (!cert) {
+      return res.status(404).json({ error: 'Certificate not found.' });
+    }
+    if (cert.isRevoked) {
+      return res.status(403).json({ error: 'Certificate has been revoked.' });
+    }
+
+    const isAdmin = ['ADMIN', 'PRESIDENT'].includes(authUser.role);
+    if (!isAdmin && !isCertificateOwner(cert, authUser)) {
+      return res.status(403).json({ error: 'You are not authorised to download this certificate.' });
+    }
+
+    return sendCertificateFile(res, cert, 'authenticated-download');
   } catch (error) {
-    logger.error('Certificate download DB lookup failed', { certId, error });
+    logger.error('Certificate download DB lookup failed', { certId: upperCertId, error });
     return res.status(500).json({ error: 'Internal server error.' });
   }
+});
 
-  if (!cert) return res.status(404).json({ error: 'Certificate not found.' });
-  if (cert.isRevoked) return res.status(403).json({ error: 'Certificate has been revoked.' });
-
-  // Access check: ADMIN/PRESIDENT can download any; USER can only download their own
-  const isAdmin = ['ADMIN', 'PRESIDENT'].includes(authUser.role);
-  const isOwner = cert.recipientId && cert.recipientId === authUser.id;
-  if (!isAdmin && !isOwner) {
-    return res.status(403).json({ error: 'You are not authorised to download this certificate.' });
+// ──────────────────────────────────────────────────────────────────
+// PUBLIC: Download through the verification flow without exposing raw storage URLs.
+// GET /api/certificates/verify/:certId/download
+// ──────────────────────────────────────────────────────────────────
+certificatesRouter.get('/verify/:certId/download', certificateDownloadLimiter, async (req: Request, res: Response) => {
+  const { certId } = req.params;
+  if (!/^[A-Z0-9\-]{10,20}$/i.test(certId)) {
+    return res.status(400).json({ error: 'Invalid certificate ID' });
   }
 
-  const filename = `${upperCertId}.pdf`;
-  const localPath = path.join(LOCAL_CERT_DIR, filename);
-
-  res.setHeader('Content-Type', 'application/pdf');
-  res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
-  res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
-
-  // Serve from local disk if available
-  if (fs.existsSync(localPath)) {
-    return res.sendFile(localPath);
-  }
-
-  if (!cert.pdfUrl) {
-    return res.status(404).json({ error: 'No PDF available for this certificate.' });
-  }
-
-  // Proxy from Cloudinary (or wherever pdfUrl points)
+  const upperCertId = certId.toUpperCase();
   try {
-    const upstream = await fetch(cert.pdfUrl);
-    if (!upstream.ok) {
-      return res.status(502).json({ error: 'Failed to fetch PDF from storage.' });
+    const cert = await fetchCertificateFileRecord(upperCertId);
+    if (!cert) {
+      return res.status(404).json({ error: 'Certificate not found.' });
     }
-    const reader = upstream.body?.getReader();
-    if (!reader) {
-      return res.status(502).json({ error: 'Empty response from storage.' });
+    if (cert.isRevoked) {
+      return res.status(403).json({ error: 'Certificate has been revoked.' });
     }
-    const pump = async () => {
-      const { done, value } = await reader.read();
-      if (done) { res.end(); return; }
-      res.write(value);
-      await pump();
-    };
-    await pump();
+
+    return sendCertificateFile(res, cert, 'public-verify-download');
   } catch (error) {
-    logger.error('Certificate download proxy failed', { certId, error });
-    if (!res.headersSent) {
-      return res.status(500).json({ error: 'Internal server error.' });
-    }
+    logger.error('Certificate verify download failed', { certId: upperCertId, error });
+    return res.status(500).json({ error: 'Internal server error.' });
   }
 });
 
@@ -348,12 +508,16 @@ certificatesRouter.post('/generate', authMiddleware, requireRole('ADMIN'), async
   } = validation.data;
 
   try {
+    let resolvedRecipientId = recipientId || null;
+
     // Validate recipientId exists if provided
     if (recipientId) {
       const userExists = await prisma.user.findUnique({ where: { id: recipientId }, select: { id: true } });
       if (!userExists) {
         return ApiResponse.badRequest(res, 'Recipient user not found');
       }
+    } else {
+      resolvedRecipientId = await findRecipientIdByEmail(recipientEmail);
     }
 
     // Validate eventId exists if provided
@@ -393,7 +557,10 @@ certificatesRouter.post('/generate', authMiddleware, requireRole('ADMIN'), async
 
     const existingCertificate = await prisma.certificate.findFirst({
       where: {
-        recipientEmail,
+        recipientEmail: {
+          equals: recipientEmail,
+          mode: 'insensitive',
+        },
         type: normalizedCertType,
         ...buildCertificateEventScope(safeEventName, eventId),
       },
@@ -427,13 +594,14 @@ certificatesRouter.post('/generate', authMiddleware, requireRole('ADMIN'), async
 
     // Upload to storage
     const pdfUrl = await uploadCertificate(certId, pdfBuffer);
+    const downloadUrl = buildPublicCertificateDownloadUrl(certId);
 
     // Persist to database with signatory snapshot
     const legacyCertificateData: Prisma.CertificateUncheckedCreateInput = {
       certId,
       recipientName: safeRecipientName,
       recipientEmail,
-      recipientId: recipientId || null,
+      recipientId: resolvedRecipientId,
       eventId: eventId || null,
       eventName: safeEventName,
       type: normalizedCertType,
@@ -458,7 +626,7 @@ certificatesRouter.post('/generate', authMiddleware, requireRole('ADMIN'), async
 
     // Optionally send email
     if (sendEmail) {
-      emailService.sendCertificateIssued(recipientEmail, recipientName, eventName, certId, pdfUrl)
+      emailService.sendCertificateIssued(recipientEmail, recipientName, eventName, certId, downloadUrl)
         .then(async (sent) => {
           if (sent) {
             await prisma.certificate.update({
@@ -476,7 +644,8 @@ certificatesRouter.post('/generate', authMiddleware, requireRole('ADMIN'), async
     return ApiResponse.success(res, {
       certId: certificate.certId,
       pdfUrl,
-      verifyUrl: `${FRONTEND_URL}/verify/${certId}`,
+      downloadUrl,
+      verifyUrl: buildCertificateVerifyUrl(certId),
     }, 'Certificate generated successfully');
   } catch (error: unknown) {
     const err = error as Error;
@@ -536,10 +705,26 @@ certificatesRouter.post('/bulk', authMiddleware, requireRole('ADMIN'), async (re
   const failures: Array<{ name: string; email: string; reason: string }> = [];
   let emailsSent = 0;
   let emailsFailed = 0;
+  const providedUserIds = Array.from(
+    new Set(recipients.map((recipient) => recipient.userId).filter((userId): userId is string => Boolean(userId))),
+  );
+  const validUserIds = new Set(
+    providedUserIds.length
+      ? (await prisma.user.findMany({
+        where: { id: { in: providedUserIds } },
+        select: { id: true },
+      })).map((user) => user.id)
+      : [],
+  );
 
   const existingCertificates = await prisma.certificate.findMany({
     where: {
-      recipientEmail: { in: Array.from(new Set(recipients.map((recipient) => recipient.email))) },
+      OR: Array.from(new Set(recipients.map((recipient) => recipient.email))).map((email) => ({
+        recipientEmail: {
+          equals: email,
+          mode: 'insensitive',
+        },
+      })),
       type: normalizedCertType,
       ...buildCertificateEventScope(safeEventName, eventId),
     },
@@ -549,11 +734,22 @@ certificatesRouter.post('/bulk', authMiddleware, requireRole('ADMIN'), async (re
     },
   });
   const existingByEmail = new Map(
-    existingCertificates.map((certificate) => [certificate.recipientEmail, certificate.certId]),
+    existingCertificates.map((certificate) => [normalizeEmail(certificate.recipientEmail) ?? certificate.recipientEmail, certificate.certId]),
   );
   const queuedEmails = new Set<string>();
   const recipientsToProcess = recipients.filter((recipient) => {
-    if (queuedEmails.has(recipient.email)) {
+    const normalizedRecipientEmail = normalizeEmail(recipient.email) ?? recipient.email;
+
+    if (recipient.userId && !validUserIds.has(recipient.userId)) {
+      failures.push({
+        name: recipient.name,
+        email: recipient.email,
+        reason: 'Recipient user not found',
+      });
+      return false;
+    }
+
+    if (queuedEmails.has(normalizedRecipientEmail)) {
       failures.push({
         name: recipient.name,
         email: recipient.email,
@@ -562,9 +758,9 @@ certificatesRouter.post('/bulk', authMiddleware, requireRole('ADMIN'), async (re
       return false;
     }
 
-    queuedEmails.add(recipient.email);
+    queuedEmails.add(normalizedRecipientEmail);
 
-    const existingCertId = existingByEmail.get(recipient.email);
+    const existingCertId = existingByEmail.get(normalizedRecipientEmail);
     if (existingCertId) {
       failures.push({
         name: recipient.name,
@@ -576,6 +772,7 @@ certificatesRouter.post('/bulk', authMiddleware, requireRole('ADMIN'), async (re
 
     return true;
   });
+  const recipientIdByEmail = await findRecipientIdsByEmail(recipientsToProcess.map((recipient) => recipient.email));
 
   // Process in batches of 5 to limit memory/concurrency
   const BATCH_SIZE = 5;
@@ -617,12 +814,14 @@ certificatesRouter.post('/bulk', authMiddleware, requireRole('ADMIN'), async (re
           });
 
           const pdfUrl = await uploadCertificate(certId, pdfBuffer);
+          const downloadUrl = buildPublicCertificateDownloadUrl(certId);
+          const resolvedRecipientId = r.userId || recipientIdByEmail.get(normalizeEmail(r.email) ?? r.email) || null;
 
           const legacyCertificateData: Prisma.CertificateUncheckedCreateInput = {
             certId,
             recipientName: safeName,
             recipientEmail: r.email,
-            recipientId: r.userId || null,
+            recipientId: resolvedRecipientId,
             eventId: eventId || null,
             eventName: safeEventName,
             type: normalizedCertType,
@@ -647,7 +846,7 @@ certificatesRouter.post('/bulk', authMiddleware, requireRole('ADMIN'), async (re
 
           if (sendEmail) {
             try {
-              const sent = await emailService.sendCertificateIssued(r.email, r.name, eventName, certId, pdfUrl);
+              const sent = await emailService.sendCertificateIssued(r.email, r.name, eventName, certId, downloadUrl);
               if (sent) {
                 emailsSent++;
                 await updateCertificateWithSchemaFallback(
@@ -674,7 +873,7 @@ certificatesRouter.post('/bulk', authMiddleware, requireRole('ADMIN'), async (re
     );
   }
 
-    logger.info('Bulk certificate generation complete', {
+  logger.info('Bulk certificate generation complete', {
     generated: successes.length,
     failed: failures.length,
     eventName,
@@ -736,7 +935,11 @@ certificatesRouter.get('/verify/:certId', certificateVerifyLimiter, async (req: 
       data: { viewCount: { increment: 1 } },
     }).catch(() => {});
 
-    return res.status(200).json({ valid: true, ...cert });
+    return res.status(200).json({
+      valid: true,
+      ...cert,
+      downloadUrl: buildPublicCertificateDownloadUrl(cert.certId),
+    });
   } catch (error) {
     logger.error('Certificate verify failed', { certId, error });
     return res.status(500).json({ valid: false, reason: 'server_error' });
@@ -758,7 +961,12 @@ certificatesRouter.get('/mine', authMiddleware, async (req: Request, res: Respon
     const where: Record<string, unknown> = {
       OR: [
         { recipientId: authUser.id },
-        { recipientEmail: authUser.email },
+        {
+          recipientEmail: {
+            equals: authUser.email,
+            mode: 'insensitive',
+          },
+        },
       ],
       isRevoked: false,
     };
@@ -897,9 +1105,6 @@ certificatesRouter.post('/:certId/resend', authMiddleware, requireRole('ADMIN'),
     if (!cert) {
       return ApiResponse.error(res, { code: ErrorCodes.NOT_FOUND, message: 'Certificate not found', status: 404 });
     }
-    if (!cert.pdfUrl) {
-      return ApiResponse.badRequest(res, 'Certificate has no PDF URL');
-    }
     if (cert.isRevoked) {
       return ApiResponse.badRequest(res, 'Cannot resend a revoked certificate');
     }
@@ -915,7 +1120,7 @@ certificatesRouter.post('/:certId/resend', authMiddleware, requireRole('ADMIN'),
       cert.recipientName,
       cert.eventName,
       cert.certId,
-      cert.pdfUrl,
+      buildPublicCertificateDownloadUrl(cert.certId),
     );
 
     if (sent) {

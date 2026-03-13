@@ -36,6 +36,7 @@ interface VerifyResult {
   template?: string;
   issuedAt?: string;
   pdfUrl?: string;
+  downloadUrl?: string;
 }
 
 const typeColors: Record<CertType, string> = {
@@ -115,9 +116,9 @@ function ValidResult({ result }: { result: VerifyResult }) {
                 </div>
               </div>
 
-              {result.pdfUrl && (
+              {result.downloadUrl && (
                 <div className="mt-4 flex gap-2">
-                  <a href={`${API_URL}/certificates/files/${result.certId}.pdf`} target="_blank" rel="noopener noreferrer">
+                  <a href={result.downloadUrl} target="_blank" rel="noopener noreferrer">
                     <Button className="gap-2 bg-amber-500 hover:bg-amber-600 text-white">
                       <Download className="w-4 h-4" />
                       Download Certificate
