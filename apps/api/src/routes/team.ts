@@ -121,6 +121,8 @@ const sanitizeRichContent = (data: Record<string, unknown>): Record<string, unkn
 };
 
 // Merge team member data with linked user data (team member fields take priority)
+// Uses explicit null checks so that intentionally cleared fields stay empty
+// and don't fall through to the linked user's data.
 const mergeWithUserData = (teamMember: any, includeSyncMetadata = true): any => {
   if (!teamMember.user) return teamMember;
 
@@ -128,22 +130,24 @@ const mergeWithUserData = (teamMember: any, includeSyncMetadata = true): any => 
   const merged: Record<string, unknown> = {
     ...teamMember,
     // Merged fields - team member data takes priority
-    imageUrl: teamMember.imageUrl || user.avatar,
-    bio: teamMember.bio || user.bio,
-    github: teamMember.github || user.githubUrl,
-    linkedin: teamMember.linkedin || user.linkedinUrl,
-    twitter: teamMember.twitter || user.twitterUrl,
-    website: teamMember.website || user.websiteUrl,
+    // Only fall back to user data when the team member field is null (never explicitly set),
+    // not when it's an empty string (intentionally cleared).
+    imageUrl: teamMember.imageUrl !== null ? teamMember.imageUrl : user.avatar,
+    bio: teamMember.bio !== null ? teamMember.bio : user.bio,
+    github: teamMember.github !== null ? teamMember.github : user.githubUrl,
+    linkedin: teamMember.linkedin !== null ? teamMember.linkedin : user.linkedinUrl,
+    twitter: teamMember.twitter !== null ? teamMember.twitter : user.twitterUrl,
+    website: teamMember.website !== null ? teamMember.website : user.websiteUrl,
   };
 
   if (includeSyncMetadata) {
     merged._syncedFrom = {
-      imageUrl: !teamMember.imageUrl && user.avatar ? 'user' : 'team',
-      bio: !teamMember.bio && user.bio ? 'user' : 'team',
-      github: !teamMember.github && user.githubUrl ? 'user' : 'team',
-      linkedin: !teamMember.linkedin && user.linkedinUrl ? 'user' : 'team',
-      twitter: !teamMember.twitter && user.twitterUrl ? 'user' : 'team',
-      website: !teamMember.website && user.websiteUrl ? 'user' : 'team',
+      imageUrl: teamMember.imageUrl === null && user.avatar ? 'user' : 'team',
+      bio: teamMember.bio === null && user.bio ? 'user' : 'team',
+      github: teamMember.github === null && user.githubUrl ? 'user' : 'team',
+      linkedin: teamMember.linkedin === null && user.linkedinUrl ? 'user' : 'team',
+      twitter: teamMember.twitter === null && user.twitterUrl ? 'user' : 'team',
+      website: teamMember.website === null && user.websiteUrl ? 'user' : 'team',
     };
   }
 
