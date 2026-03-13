@@ -108,7 +108,9 @@ async function requestBlob(
 
   const response = await fetch(`${API_URL}${endpoint}`, {
     ...fetchOptions,
-    credentials: 'include',
+    // Use same-origin (not include) so that cross-origin redirects (e.g. to Cloudinary)
+    // don't trigger CORS credential errors. Auth is handled via Bearer token header above.
+    credentials: 'same-origin',
     headers,
   });
 
