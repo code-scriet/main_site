@@ -4,7 +4,7 @@ import { z } from 'zod';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { CertType } from '@prisma/client';
+import { CertType, Prisma } from '@prisma/client';
 import { prisma } from '../lib/prisma.js';
 import { authMiddleware, getAuthUser } from '../middleware/auth.js';
 import { requireRole } from '../middleware/role.js';
@@ -105,6 +105,10 @@ const revokeSchema = z.object({
   reason: z.string().max(500).optional(),
 });
 
+const isSchemaDriftError = (error: unknown): error is Prisma.PrismaClientKnownRequestError => (
+  error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2022'
+);
+
 function buildCertificateEventScope(eventName: string, eventId?: string | null) {
   if (eventId) {
     return {
@@ -119,6 +123,46 @@ function buildCertificateEventScope(eventName: string, eventId?: string | null) 
     eventId: null,
     eventName,
   };
+}
+
+async function createCertificateWithSchemaFallback(
+  certId: string,
+  fullData: Prisma.CertificateUncheckedCreateInput,
+  legacyData: Prisma.CertificateUncheckedCreateInput,
+) {
+  try {
+    return await prisma.certificate.create({ data: fullData });
+  } catch (error) {
+    if (!isSchemaDriftError(error)) {
+      throw error;
+    }
+
+    logger.warn('Certificate schema drift detected during create; retrying with legacy columns only', { certId });
+    return prisma.certificate.create({ data: legacyData });
+  }
+}
+
+async function updateCertificateWithSchemaFallback(
+  certId: string,
+  fullData: Prisma.CertificateUncheckedUpdateInput,
+  legacyData: Prisma.CertificateUncheckedUpdateInput,
+) {
+  try {
+    return await prisma.certificate.update({
+      where: { certId },
+      data: fullData,
+    });
+  } catch (error) {
+    if (!isSchemaDriftError(error)) {
+      throw error;
+    }
+
+    logger.warn('Certificate schema drift detected during update; retrying with legacy columns only', { certId });
+    return prisma.certificate.update({
+      where: { certId },
+      data: legacyData,
+    });
+  }
 }
 
 // ──────────────────────────────────────────────────────────────────
@@ -385,27 +429,32 @@ certificatesRouter.post('/generate', authMiddleware, requireRole('ADMIN'), async
     const pdfUrl = await uploadCertificate(certId, pdfBuffer);
 
     // Persist to database with signatory snapshot
-    const certificate = await prisma.certificate.create({
-      data: {
-        certId,
-        recipientName: safeRecipientName,
-        recipientEmail,
-        recipientId: recipientId || null,
-        eventId: eventId || null,
-        eventName: safeEventName,
-        type: normalizedCertType,
-        position: safePosition || null,
-        domain: safeDomain || null,
+    const legacyCertificateData: Prisma.CertificateUncheckedCreateInput = {
+      certId,
+      recipientName: safeRecipientName,
+      recipientEmail,
+      recipientId: recipientId || null,
+      eventId: eventId || null,
+      eventName: safeEventName,
+      type: normalizedCertType,
+      position: safePosition || null,
+      domain: safeDomain || null,
+      template,
+      pdfUrl,
+      issuedBy: authUser.id,
+    };
+    const certificate = await createCertificateWithSchemaFallback(
+      certId,
+      {
+        ...legacyCertificateData,
         description: safeDescription || null,
-        template,
-        pdfUrl,
-        issuedBy: authUser.id,
         signatoryName: finalSignatoryName,
         signatoryTitle: finalSignatoryTitle,
         facultyName: finalFacultyName || null,
         facultyTitle: finalFacultyTitle || null,
       },
-    });
+      legacyCertificateData,
+    );
 
     // Optionally send email
     if (sendEmail) {
@@ -569,34 +618,43 @@ certificatesRouter.post('/bulk', authMiddleware, requireRole('ADMIN'), async (re
 
           const pdfUrl = await uploadCertificate(certId, pdfBuffer);
 
-          await prisma.certificate.create({
-            data: {
-              certId,
-              recipientName: safeName,
-              recipientEmail: r.email,
-              recipientId: r.userId || null,
-              eventId: eventId || null,
-              eventName: safeEventName,
-              type: normalizedCertType,
-              position: safePosition || null,
-              domain: safeDomain || null,
+          const legacyCertificateData: Prisma.CertificateUncheckedCreateInput = {
+            certId,
+            recipientName: safeName,
+            recipientEmail: r.email,
+            recipientId: r.userId || null,
+            eventId: eventId || null,
+            eventName: safeEventName,
+            type: normalizedCertType,
+            position: safePosition || null,
+            domain: safeDomain || null,
+            template,
+            pdfUrl,
+            issuedBy: authUser.id,
+          };
+          await createCertificateWithSchemaFallback(
+            certId,
+            {
+              ...legacyCertificateData,
               description: safeDescription || null,
-              template,
-              pdfUrl,
-              issuedBy: authUser.id,
               signatoryName: finalSignatoryName,
               signatoryTitle: finalSignatoryTitle,
               facultyName: finalFacultyName || null,
               facultyTitle: finalFacultyTitle || null,
             },
-          });
+            legacyCertificateData,
+          );
 
           if (sendEmail) {
             try {
               const sent = await emailService.sendCertificateIssued(r.email, r.name, eventName, certId, pdfUrl);
               if (sent) {
                 emailsSent++;
-                await prisma.certificate.update({ where: { certId }, data: { emailSent: true, emailSentAt: new Date() } });
+                await updateCertificateWithSchemaFallback(
+                  certId,
+                  { emailSent: true, emailSentAt: new Date(), lastEmailResentAt: null },
+                  { emailSent: true, emailSentAt: new Date() },
+                );
               } else {
                 emailsFailed++;
               }
@@ -791,18 +849,51 @@ certificatesRouter.post('/:certId/resend', authMiddleware, requireRole('ADMIN'),
   const upperCertId = req.params.certId.toUpperCase();
 
   try {
-    const cert = await prisma.certificate.findUnique({
-      where: { certId: upperCertId },
-      select: {
-        certId: true,
-        recipientEmail: true,
-        recipientName: true,
-        eventName: true,
-        pdfUrl: true,
-        isRevoked: true,
-        lastEmailResentAt: true,
-      },
-    });
+    let cert:
+      | {
+          certId: string;
+          recipientEmail: string;
+          recipientName: string;
+          eventName: string;
+          pdfUrl: string | null;
+          isRevoked: boolean;
+          lastEmailResentAt: Date | null;
+        }
+      | null;
+
+    try {
+      cert = await prisma.certificate.findUnique({
+        where: { certId: upperCertId },
+        select: {
+          certId: true,
+          recipientEmail: true,
+          recipientName: true,
+          eventName: true,
+          pdfUrl: true,
+          isRevoked: true,
+          lastEmailResentAt: true,
+        },
+      });
+    } catch (error) {
+      if (!isSchemaDriftError(error)) {
+        throw error;
+      }
+
+      logger.warn('Certificate schema drift detected during resend lookup; retrying with legacy columns only', { certId: upperCertId });
+      const legacyCert = await prisma.certificate.findUnique({
+        where: { certId: upperCertId },
+        select: {
+          certId: true,
+          recipientEmail: true,
+          recipientName: true,
+          eventName: true,
+          pdfUrl: true,
+          isRevoked: true,
+        },
+      });
+      cert = legacyCert ? { ...legacyCert, lastEmailResentAt: null } : null;
+    }
+
     if (!cert) {
       return ApiResponse.error(res, { code: ErrorCodes.NOT_FOUND, message: 'Certificate not found', status: 404 });
     }
@@ -828,10 +919,11 @@ certificatesRouter.post('/:certId/resend', authMiddleware, requireRole('ADMIN'),
     );
 
     if (sent) {
-      await prisma.certificate.update({
-        where: { certId: upperCertId },
-        data: { emailSent: true, emailSentAt: new Date(), lastEmailResentAt: new Date() },
-      });
+      await updateCertificateWithSchemaFallback(
+        upperCertId,
+        { emailSent: true, emailSentAt: new Date(), lastEmailResentAt: new Date() },
+        { emailSent: true, emailSentAt: new Date() },
+      );
     }
 
     await auditLog(getAuthUser(req)!.id, 'CERTIFICATE_RESEND', 'certificate', upperCertId, { sent });
@@ -850,42 +942,79 @@ certificatesRouter.get('/:certId', authMiddleware, requireRole('ADMIN'), async (
   const { certId } = req.params;
 
   try {
-    const cert = await prisma.certificate.findUnique({
-      where: { certId: certId.toUpperCase() },
-      select: {
-        id: true,
-        certId: true,
-        recipientId: true,
-        recipientName: true,
-        recipientEmail: true,
-        eventId: true,
-        eventName: true,
-        type: true,
-        position: true,
-        domain: true,
-        description: true,
-        template: true,
-        pdfUrl: true,
-        issuedBy: true,
-        issuedAt: true,
-        emailSent: true,
-        emailSentAt: true,
-        lastEmailResentAt: true,
-        isRevoked: true,
-        revokedAt: true,
-        revokedBy: true,
-        revokedReason: true,
-        viewCount: true,
-        createdAt: true,
-        updatedAt: true,
-        signatoryName: true,
-        signatoryTitle: true,
-        signatoryImageUrl: true,
-        facultyName: true,
-        facultyTitle: true,
-        facultySignatoryImageUrl: true,
-      },
-    });
+    let cert;
+    try {
+      cert = await prisma.certificate.findUnique({
+        where: { certId: certId.toUpperCase() },
+        select: {
+          id: true,
+          certId: true,
+          recipientId: true,
+          recipientName: true,
+          recipientEmail: true,
+          eventId: true,
+          eventName: true,
+          type: true,
+          position: true,
+          domain: true,
+          description: true,
+          template: true,
+          pdfUrl: true,
+          issuedBy: true,
+          issuedAt: true,
+          emailSent: true,
+          emailSentAt: true,
+          lastEmailResentAt: true,
+          isRevoked: true,
+          revokedAt: true,
+          revokedBy: true,
+          revokedReason: true,
+          viewCount: true,
+          createdAt: true,
+          updatedAt: true,
+          signatoryName: true,
+          signatoryTitle: true,
+          signatoryImageUrl: true,
+          facultyName: true,
+          facultyTitle: true,
+          facultySignatoryImageUrl: true,
+        },
+      });
+    } catch (error) {
+      if (!isSchemaDriftError(error)) {
+        throw error;
+      }
+
+      logger.warn('Certificate schema drift detected during single-certificate lookup; retrying with legacy columns only', { certId });
+      cert = await prisma.certificate.findUnique({
+        where: { certId: certId.toUpperCase() },
+        select: {
+          id: true,
+          certId: true,
+          recipientId: true,
+          recipientName: true,
+          recipientEmail: true,
+          eventId: true,
+          eventName: true,
+          type: true,
+          position: true,
+          domain: true,
+          template: true,
+          pdfUrl: true,
+          issuedBy: true,
+          issuedAt: true,
+          emailSent: true,
+          emailSentAt: true,
+          isRevoked: true,
+          revokedAt: true,
+          revokedBy: true,
+          revokedReason: true,
+          viewCount: true,
+          createdAt: true,
+          updatedAt: true,
+        },
+      });
+    }
     if (!cert) {
       return ApiResponse.error(res, { code: ErrorCodes.NOT_FOUND, message: 'Certificate not found', status: 404 });
     }
