@@ -13,18 +13,26 @@ import { logger } from './logger.js';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const LOGOS_DIR = path.join(__dirname, '..', '..', 'public', 'logos');
 
-// ── CUSTOM FONTS (local TTF — no network at render time) ──────────────────────
+// ── CUSTOM FONTS (local files — no network at render time) ────────────────────
 const GREAT_VIBES_PATH       = path.join(LOGOS_DIR, 'GreatVibes.ttf');
-const CINZEL_PATH            = path.join(LOGOS_DIR, 'Cinzel.ttf');
+const CINZEL_REG_PATH        = path.join(LOGOS_DIR, 'Cinzel-Regular.woff');
+const CINZEL_BOLD_PATH       = path.join(LOGOS_DIR, 'Cinzel-Bold.woff');
 const CORMORANT_PATH         = path.join(LOGOS_DIR, 'CormorantGaramond.ttf');
 const CORMORANT_ITALIC_PATH  = path.join(LOGOS_DIR, 'CormorantGaramond-Italic.ttf');
-const PLAYFAIR_BOLD_PATH     = path.join(LOGOS_DIR, 'PlayfairDisplay-Bold.woff2');
+const PLAYFAIR_BOLD_PATH     = path.join(LOGOS_DIR, 'PlayfairDisplay-Bold.woff');
 
 try { Font.register({ family: 'GreatVibes', src: GREAT_VIBES_PATH }); }
 catch { /* fallback: Times-BoldItalic */ }
 
-try { Font.register({ family: 'Cinzel', src: CINZEL_PATH }); }
-catch { /* fallback: Helvetica-Bold */ }
+try {
+  Font.register({
+    family: 'Cinzel',
+    fonts: [
+      { src: CINZEL_REG_PATH, fontWeight: 400 },
+      { src: CINZEL_BOLD_PATH, fontWeight: 700 },
+    ],
+  });
+} catch { /* fallback: Helvetica-Bold */ }
 
 try {
   Font.register({

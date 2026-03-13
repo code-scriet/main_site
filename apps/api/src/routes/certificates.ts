@@ -253,12 +253,9 @@ async function sendCertificateFile(
     return res.status(404).json({ error: 'Stored certificate file is unavailable on this server.' });
   }
 
-  // For Cloudinary-hosted PDFs, redirect with fl_attachment to force browser download
-  if (cert.pdfUrl.includes('res.cloudinary.com')) {
-    const cloudinaryDownloadUrl = cert.pdfUrl.replace('/raw/upload/', '/raw/upload/fl_attachment/');
-    return res.redirect(302, cloudinaryDownloadUrl);
-  }
-
+  // Proxy the PDF from Cloudinary (or any remote URL) through our server
+  // to force download with correct Content-Disposition header.
+  // Note: fl_attachment on Cloudinary raw files returns 401, so we proxy instead.
   try {
     const upstream = await fetch(cert.pdfUrl);
     if (!upstream.ok) {
