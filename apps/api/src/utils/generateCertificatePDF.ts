@@ -18,7 +18,7 @@ const GREAT_VIBES_PATH       = path.join(LOGOS_DIR, 'GreatVibes.ttf');
 const CINZEL_PATH            = path.join(LOGOS_DIR, 'Cinzel.ttf');
 const CORMORANT_PATH         = path.join(LOGOS_DIR, 'CormorantGaramond.ttf');
 const CORMORANT_ITALIC_PATH  = path.join(LOGOS_DIR, 'CormorantGaramond-Italic.ttf');
-const PLAYFAIR_BOLD_PATH     = path.join(LOGOS_DIR, 'PlayfairDisplay-Bold.ttf');
+const PLAYFAIR_BOLD_PATH     = path.join(LOGOS_DIR, 'PlayfairDisplay-Bold.woff2');
 
 try { Font.register({ family: 'GreatVibes', src: GREAT_VIBES_PATH }); }
 catch { /* fallback: Times-BoldItalic */ }
@@ -36,8 +36,9 @@ try {
   });
 } catch { /* fallback: Times-Roman */ }
 
-try { Font.register({ family: 'PlayfairDisplay', src: PLAYFAIR_BOLD_PATH, fontWeight: 700 }); }
-catch { /* fallback: Times-BoldItalic */ }
+try {
+  Font.register({ family: 'PlayfairDisplay', fonts: [{ src: PLAYFAIR_BOLD_PATH, fontWeight: 700 }] });
+} catch { /* fallback */ }
 
 Font.registerHyphenationCallback((word: string) => [word]);
 
