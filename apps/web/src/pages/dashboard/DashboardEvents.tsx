@@ -6,66 +6,28 @@ import { Button } from '@/components/ui/button';
 import { useAuth } from '@/context/AuthContext';
 import { api } from '@/lib/api';
 import type { Registration, Event } from '@/lib/api';
-import { Calendar, MapPin, Clock, Loader2, AlertCircle, Plus, ChevronDown, ChevronUp, FileText } from 'lucide-react';
+import { Calendar, MapPin, Clock, Loader2, AlertCircle, Plus, ChevronDown, ChevronUp, FileText, QrCode } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
 import { formatDate, formatTime, formatDateTime } from '@/lib/dateUtils';
 import EventCard from '@/components/home/EventCard';
 import { Markdown } from '@/components/ui/markdown';
-
-// Helper to get registration status
-function getRegistrationStatus(event: Event): {
-  status: 'not_started' | 'open' | 'closed' | 'full' | 'past';
-  message: string;
-  canRegister: boolean;
-} {
-  const now = new Date();
-  const eventStart = new Date(event.startDate);
-  const regStart = event.registrationStartDate ? new Date(event.registrationStartDate) : null;
-  const regEnd = event.registrationEndDate ? new Date(event.registrationEndDate) : eventStart;
-
-  if (event.status === 'PAST') {
-    return { status: 'past', message: 'Event has ended', canRegister: false };
-  }
-
-  if (event.capacity && event._count && event._count.registrations >= event.capacity) {
-    return { status: 'full', message: 'Event is full', canRegister: false };
-  }
-
-  if (regStart && now < regStart) {
-    return { 
-      status: 'not_started', 
-      message: `Opens ${formatDate(regStart)}`, 
-      canRegister: false 
-    };
-  }
-
-  if (event.allowLateRegistration) {
-    if (regEnd && now > regEnd) {
-      return { status: 'closed', message: 'Registration closed', canRegister: false };
-    }
-    if (event.status === 'ONGOING') {
-      return { status: 'open', message: 'Late registration open', canRegister: true };
-    }
-  } else if (regEnd && now > regEnd) {
-    return { status: 'closed', message: 'Registration closed', canRegister: false };
-  }
-
-  return { status: 'open', message: 'Registration open', canRegister: true };
-}
+import QRTicket from '@/components/attendance/QRTicket';
+import { getRegistrationStatus } from '@/lib/registrationStatus';
 
 export default function DashboardEvents() {
   const { user, token } = useAuth();
   const navigate = useNavigate();
   const [registrations, setRegistrations] = useState<Registration[]>([]);
   const [availableEvents, setAvailableEvents] = useState<Event[]>([]);
+  const [allEvents, setAllEvents] = useState<Event[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [registeringId, setRegisteringId] = useState<string | null>(null);
   const [cancelingId, setCancelingId] = useState<string | null>(null);
   const [expandedEventId, setExpandedEventId] = useState<string | null>(null);
 
-  const isCoreMember = user?.role === 'CORE_MEMBER' || user?.role === 'ADMIN';
-  
+  const isCoreMember = user?.role === 'CORE_MEMBER' || user?.role === 'ADMIN' || user?.role === 'PRESIDENT';
+
   // Check if academic details are complete
   const hasCompleteAcademicDetails = user?.phone && user?.course && user?.branch && user?.year;
 
@@ -86,9 +48,10 @@ export default function DashboardEvents() {
         api.getMyRegistrations(token),
         api.getEvents(),
       ]);
-      
+
       setRegistrations(regs);
-      
+      setAllEvents(events);
+
       // Filter out events user is already registered for
       const registeredEventIds = new Set(regs.map(r => r.eventId));
       setAvailableEvents(events.filter(e => !registeredEventIds.has(e.id) && e.status !== 'PAST'));
@@ -335,6 +298,21 @@ export default function DashboardEvents() {
                             <p className="text-sm text-gray-600">{reg.event.prerequisites}</p>
                           </div>
                         )}
+
+                        {/* Attendance QR Ticket */}
+                        <div className="sm:col-span-2">
+                          <QRTicket
+                            attendanceToken={reg.attendanceToken || null}
+                            attended={reg.attended || false}
+                            scannedAt={reg.scannedAt || null}
+                            event={{
+                              title: reg.event.title,
+                              startDate: reg.event.startDate,
+                              endDate: reg.event.endDate || null,
+                              status: reg.event.status,
+                            }}
+                          />
+                        </div>
                       </div>
                     </motion.div>
                   )}
@@ -344,6 +322,51 @@ export default function DashboardEvents() {
           )}
         </CardContent>
       </Card>
+
+      {/* Manage Events Attendance — Core Member+ only */}
+      {isCoreMember && allEvents.length > 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <QrCode className="h-5 w-5 text-amber-600" />
+              Manage Attendance
+            </CardTitle>
+            <CardDescription>Scan QR codes and manage attendance for events</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-2">
+              {allEvents.map((event) => (
+                <div
+                  key={event.id}
+                  className="flex items-center justify-between rounded-lg border border-amber-100 bg-amber-50/30 px-4 py-3 hover:bg-amber-50 transition-colors"
+                >
+                  <div className="flex items-center gap-3 min-w-0">
+                    <Badge
+                      variant={
+                        event.status === 'UPCOMING' ? 'success' :
+                        event.status === 'ONGOING' ? 'warning' : 'secondary'
+                      }
+                      className="shrink-0 text-xs"
+                    >
+                      {event.status}
+                    </Badge>
+                    <div className="min-w-0">
+                      <p className="font-medium text-amber-900 truncate">{event.title}</p>
+                      <p className="text-xs text-gray-500">{formatDate(event.startDate)}</p>
+                    </div>
+                  </div>
+                  <Link to={`/dashboard/events/${event.id}/attendance?tab=scanner`}>
+                    <Button size="sm" variant="outline" className="shrink-0 gap-1.5 text-amber-700 border-amber-300 hover:bg-amber-100">
+                      <QrCode className="h-3.5 w-3.5" />
+                      Scanner
+                    </Button>
+                  </Link>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Available Events */}
       <Card>

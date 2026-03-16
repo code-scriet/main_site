@@ -32,10 +32,177 @@ import {
   FileDown,
   Eye,
   Trash2,
+  PenLine,
+  ImageIcon,
 } from 'lucide-react';
 import { toast } from 'sonner';
 
 const CERT_TYPES = ['PARTICIPATION', 'COMPLETION', 'WINNER', 'SPEAKER'] as const;
+
+interface ActiveSignatory {
+  id: string;
+  name: string;
+  title: string;
+  signatureUrl: string | null;
+}
+
+// ── SignatoryPicker ──────────────────────────────────────────────────────────
+// Dropdown of saved signatories. Selecting one uses its stored signature image.
+// "Custom" mode lets admin type a name/title and optionally upload a signature
+// image — which is uploaded to Cloudinary on the spot and stored as a URL.
+interface SignatoryPickerProps {
+  label: string;
+  required?: boolean;
+  token: string;
+  signatories: ActiveSignatory[];
+  selectedId: string;
+  name: string;
+  title: string;
+  defaultTitle: string;
+  imageUrl: string;           // Cloudinary URL of the uploaded signature image
+  onSelect: (id: string, name: string, title: string) => void;
+  onImageUrlChange: (url: string) => void;
+}
+
+function SignatoryPicker({
+  label, required, token, signatories, selectedId, name, title, defaultTitle,
+  imageUrl, onSelect, onImageUrlChange,
+}: SignatoryPickerProps) {
+  const [uploading, setUploading] = useState(false);
+  const selected = signatories.find(s => s.id === selectedId);
+  const isCustom = !selectedId;
+
+  async function handleImageFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    e.target.value = '';
+    setUploading(true);
+    try {
+      const url = await api.uploadImage(file, token);
+      onImageUrlChange(url);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Image upload failed');
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  return (
+    <div className="col-span-2 rounded-lg border border-gray-200 bg-gray-50 p-3 space-y-3">
+      {/* Label */}
+      <p className="text-sm font-semibold text-gray-700">
+        {label}{required && <span className="text-red-500 ml-0.5">*</span>}
+      </p>
+
+      {/* Dropdown */}
+      <select
+        className="w-full rounded-md border border-gray-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
+        value={selectedId || '__custom__'}
+        onChange={e => {
+          const val = e.target.value;
+          if (val === '__custom__') {
+            onSelect('', '', '');
+            onImageUrlChange('');
+          } else {
+            const sig = signatories.find(s => s.id === val);
+            if (sig) { onSelect(sig.id, sig.name, sig.title); onImageUrlChange(''); }
+          }
+        }}
+      >
+        <option value="__custom__">✏ Custom (type manually)</option>
+        {signatories.map(s => (
+          <option key={s.id} value={s.id}>
+            {s.signatureUrl ? '🖊 ' : ''}{s.name} — {s.title}
+          </option>
+        ))}
+      </select>
+
+      {/* Selected saved signatory preview */}
+      {selected && (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-gray-100 bg-white p-2">
+          <div>
+            <p className="text-sm font-medium text-gray-800">{selected.name}</p>
+            <p className="text-xs text-gray-500">{selected.title}</p>
+          </div>
+          {selected.signatureUrl ? (
+            <div className="flex items-center gap-2 rounded border border-green-200 bg-green-50 px-2 py-1.5">
+              <ImageIcon className="w-3.5 h-3.5 text-green-600 shrink-0" />
+              <span className="text-xs text-green-700 font-medium">Signature image</span>
+              <img
+                src={selected.signatureUrl}
+                alt="Signature"
+                className="h-8 max-w-[90px] object-contain opacity-80 ml-1"
+                onError={e => { (e.target as HTMLImageElement).src = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII='; }}
+              />
+            </div>
+          ) : (
+            <div className="flex items-center gap-1.5 rounded border border-amber-200 bg-amber-50 px-2 py-1.5">
+              <PenLine className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+              <span className="text-xs text-amber-700">Cursive text fallback</span>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Custom mode: name + title + Cloudinary image upload */}
+      {isCustom && (
+        <div className="space-y-2.5">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            <div>
+              <label className="text-xs text-gray-500 block mb-0.5">Name{required && ' *'}</label>
+              <Input
+                value={name}
+                onChange={e => onSelect('', e.target.value, title)}
+                placeholder="e.g. Aarav Mehta"
+                className="h-9 text-sm"
+              />
+            </div>
+            <div>
+              <label className="text-xs text-gray-500 block mb-0.5">Title</label>
+              <Input
+                value={title}
+                onChange={e => onSelect('', name, e.target.value)}
+                placeholder={defaultTitle}
+                className="h-9 text-sm"
+              />
+            </div>
+          </div>
+
+          {/* Signature image — Cloudinary upload */}
+          {imageUrl ? (
+            <div className="flex items-center gap-3 rounded-md border border-green-200 bg-white p-2">
+              <img src={imageUrl} alt="Signature preview" className="h-10 max-w-[120px] object-contain shrink-0" />
+              <div className="flex-1 min-w-0">
+                <p className="text-xs font-medium text-green-700">Signature uploaded</p>
+                <p className="text-xs text-gray-400 truncate">{imageUrl.split('/').pop()}</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => onImageUrlChange('')}
+                className="text-xs text-red-500 hover:text-red-600 shrink-0 font-medium"
+              >
+                Remove
+              </button>
+            </div>
+          ) : (
+            <label className={`flex items-center gap-2 cursor-pointer rounded-md border border-dashed px-3 py-2.5 text-sm transition-colors ${
+              uploading
+                ? 'border-amber-300 bg-amber-50 text-amber-600 cursor-not-allowed'
+                : 'border-gray-300 bg-white text-gray-500 hover:border-amber-400 hover:text-amber-600'
+            }`}>
+              {uploading ? (
+                <><Loader2 className="w-4 h-4 animate-spin shrink-0" /><span>Uploading to Cloudinary…</span></>
+              ) : (
+                <><ImageIcon className="w-4 h-4 shrink-0" /><span>Upload signature image <span className="text-xs text-gray-400">(PNG/JPG — optional)</span></span></>
+              )}
+              <input type="file" accept="image/*" className="hidden" disabled={uploading} onChange={handleImageFile} />
+            </label>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
 
 type CertType = (typeof CERT_TYPES)[number];
 
@@ -79,32 +246,38 @@ interface GenerateFormData {
   position: string;
   domain: string;
   description: string;
+  signatoryId: string;
   signatoryName: string;
   signatoryTitle: string;
+  signatoryImageUrl: string;
+  facultySignatoryId: string;
   facultyName: string;
   facultyTitle: string;
+  facultyImageUrl: string;
   sendEmail: boolean;
 }
 
 const SIGNATORY_STORAGE_KEY = 'cert_signatory_defaults';
 
-function loadSignatoryDefaults(): Pick<GenerateFormData, 'signatoryName' | 'signatoryTitle' | 'facultyName' | 'facultyTitle'> {
+function loadSignatoryDefaults(): Pick<GenerateFormData, 'signatoryId' | 'signatoryName' | 'signatoryTitle' | 'facultySignatoryId' | 'facultyName' | 'facultyTitle'> {
   try {
     const saved = localStorage.getItem(SIGNATORY_STORAGE_KEY);
     if (saved) {
       const parsed = JSON.parse(saved);
       return {
+        signatoryId: parsed.signatoryId || '',
         signatoryName: parsed.signatoryName || '',
         signatoryTitle: parsed.signatoryTitle || 'Club President',
+        facultySignatoryId: parsed.facultySignatoryId || '',
         facultyName: parsed.facultyName || '',
         facultyTitle: parsed.facultyTitle || 'Faculty Coordinator',
       };
     }
   } catch { /* ignore */ }
-  return { signatoryName: '', signatoryTitle: 'Club President', facultyName: '', facultyTitle: 'Faculty Coordinator' };
+  return { signatoryId: '', signatoryName: '', signatoryTitle: 'Club President', facultySignatoryId: '', facultyName: '', facultyTitle: 'Faculty Coordinator' };
 }
 
-function saveSignatoryDefaults(data: { signatoryName: string; signatoryTitle: string; facultyName: string; facultyTitle: string }) {
+function saveSignatoryDefaults(data: { signatoryId: string; signatoryName: string; signatoryTitle: string; facultySignatoryId: string; facultyName: string; facultyTitle: string }) {
   try { localStorage.setItem(SIGNATORY_STORAGE_KEY, JSON.stringify(data)); } catch { /* ignore */ }
 }
 
@@ -118,10 +291,14 @@ const defaultForm: GenerateFormData = {
   position: '',
   domain: '',
   description: '',
+  signatoryId: sigDefaults.signatoryId,
   signatoryName: sigDefaults.signatoryName,
   signatoryTitle: sigDefaults.signatoryTitle,
+  signatoryImageUrl: '',
+  facultySignatoryId: sigDefaults.facultySignatoryId,
   facultyName: sigDefaults.facultyName,
   facultyTitle: sigDefaults.facultyTitle,
+  facultyImageUrl: '',
   sendEmail: false,
 };
 
@@ -129,6 +306,15 @@ interface BulkEntry {
   name: string;
   email: string;
   position: string;
+}
+
+interface FullSignatory {
+  id: string;
+  name: string;
+  title: string;
+  signatureUrl: string | null;
+  isActive: boolean;
+  _count: { certificatesAsPrimary: number; certificatesAsFaculty: number };
 }
 
 export default function AdminCertificates() {
@@ -143,6 +329,88 @@ export default function AdminCertificates() {
     }
   }, [settings, settingsLoading, navigate]);
 
+  // Signatories — full list for management section + active subset for form dropdowns
+  const [activeSignatories, setActiveSignatories] = useState<ActiveSignatory[]>([]);
+  const [allSignatories, setAllSignatories] = useState<FullSignatory[]>([]);
+  const [loadingAllSigs, setLoadingAllSigs] = useState(false);
+
+  // Signature modal state (create / edit)
+  const [sigModalOpen, setSigModalOpen] = useState(false);
+  const [sigModalEdit, setSigModalEdit] = useState<FullSignatory | null>(null);
+  const [sigModalName, setSigModalName] = useState('');
+  const [sigModalTitle, setSigModalTitle] = useState('Club President');
+  const [sigModalUploadedUrl, setSigModalUploadedUrl] = useState<string | null>(null);
+  const [sigModalUploading, setSigModalUploading] = useState(false);
+  const [sigModalSaving, setSigModalSaving] = useState(false);
+  const [sigModalClearImg, setSigModalClearImg] = useState(false);
+
+  const fetchAllSignatories = useCallback(async () => {
+    if (!token) return;
+    setLoadingAllSigs(true);
+    try {
+      const data = await api.getSignatories(token);
+      setAllSignatories(data);
+      setActiveSignatories(data.filter(s => s.isActive).map(s => ({ id: s.id, name: s.name, title: s.title, signatureUrl: s.signatureUrl })));
+    } catch { /* non-fatal */ } finally {
+      setLoadingAllSigs(false);
+    }
+  }, [token]);
+
+  useEffect(() => { fetchAllSignatories(); }, [fetchAllSignatories]);
+
+  function openSigModal(editTarget?: FullSignatory) {
+    setSigModalEdit(editTarget ?? null);
+    setSigModalName(editTarget?.name ?? '');
+    setSigModalTitle(editTarget?.title ?? 'Club President');
+    setSigModalUploadedUrl(null);
+    setSigModalUploading(false);
+    setSigModalClearImg(false);
+    setSigModalOpen(true);
+  }
+
+  async function saveSigModal() {
+    if (!sigModalName.trim()) return;
+    setSigModalSaving(true);
+    try {
+      if (sigModalEdit) {
+        await api.updateSignatory(sigModalEdit.id, {
+          name: sigModalName,
+          title: sigModalTitle,
+          ...(sigModalClearImg ? { signatureImageBase64: null } :
+              sigModalUploadedUrl ? { signatureImageUrl: sigModalUploadedUrl } : {}),
+        }, token!);
+        toast.success('Signature updated');
+      } else {
+        await api.createSignatory({
+          name: sigModalName,
+          title: sigModalTitle,
+          ...(sigModalUploadedUrl ? { signatureImageUrl: sigModalUploadedUrl } : {}),
+        }, token!);
+        toast.success('Signature saved');
+      }
+      setSigModalOpen(false);
+      fetchAllSignatories();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Save failed');
+    } finally {
+      setSigModalSaving(false);
+    }
+  }
+
+  async function deleteSig(id: string) {
+    try {
+      const result = await api.deleteSignatory(id, token!);
+      if (result && (result as { deactivated?: boolean }).deactivated) {
+        toast.success('Signature deactivated (referenced by existing certificates)');
+      } else {
+        toast.success('Signature deleted');
+      }
+      fetchAllSignatories();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Delete failed');
+    }
+  }
+
   const [certs, setCerts] = useState<Certificate[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
@@ -151,7 +419,14 @@ export default function AdminCertificates() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [search, setSearch] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
   const [typeFilter, setTypeFilter] = useState('');
+
+  // Debounce search input
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedSearch(search), 300);
+    return () => clearTimeout(timer);
+  }, [search]);
 
   // Generate modal
   const [showGenerate, setShowGenerate] = useState(false);
@@ -163,8 +438,12 @@ export default function AdminCertificates() {
   const [showBulk, setShowBulk] = useState(false);
   const [bulkEventName, setBulkEventName] = useState('');
   const [bulkType, setBulkType] = useState<CertType>('PARTICIPATION');
+  const [bulkSignatoryId, setBulkSignatoryId] = useState(sigDefaults.signatoryId);
   const [bulkSignatory, setBulkSignatory] = useState(sigDefaults.signatoryName);
   const [bulkSignatoryTitle, setBulkSignatoryTitle] = useState(sigDefaults.signatoryTitle);
+  const [bulkFacultySignatoryId, setBulkFacultySignatoryId] = useState(sigDefaults.facultySignatoryId);
+  const [bulkSignatoryImageUrl, setBulkSignatoryImageUrl] = useState('');
+  const [bulkFacultyImageUrl, setBulkFacultyImageUrl] = useState('');
   const [bulkSendEmail, setBulkSendEmail] = useState(false);
   const [bulkDescription, setBulkDescription] = useState('');
   const [bulkFacultyName, setBulkFacultyName] = useState(sigDefaults.facultyName);
@@ -191,7 +470,7 @@ export default function AdminCertificates() {
     setLoading(true);
     setError('');
     try {
-      const data = await api.getCertificates(token!, { page, limit: 20, search: search || undefined, type: typeFilter || undefined }) as { certificates: Certificate[]; total: number };
+      const data = await api.getCertificates(token!, { page, limit: 20, search: debouncedSearch || undefined, type: typeFilter || undefined }) as { certificates: Certificate[]; total: number };
       setCerts(data.certificates);
       setTotal(data.total);
     } catch (err) {
@@ -199,20 +478,23 @@ export default function AdminCertificates() {
     } finally {
       setLoading(false);
     }
-  }, [token, page, search, typeFilter]);
+  }, [token, page, debouncedSearch, typeFilter]);
 
   useEffect(() => {
     fetchCerts();
   }, [fetchCerts]);
 
-  // Debounce search
+  // Reset to page 1 on filter change
   useEffect(() => {
     setPage(1);
-  }, [search, typeFilter]);
+  }, [debouncedSearch, typeFilter]);
 
   async function handleGenerate() {
-    if (!form.recipientName || !form.recipientEmail || !form.eventName || !form.signatoryName) {
-      setGenerateError('Please fill in all required fields');
+    if (!form.recipientName.trim()) { setGenerateError('Recipient name is required'); return; }
+    if (!form.recipientEmail.trim()) { setGenerateError('Recipient email is required'); return; }
+    if (!form.eventName.trim()) { setGenerateError('Event name is required'); return; }
+    if (!form.signatoryId && !form.signatoryName.trim()) {
+      setGenerateError('Enter the signatory\'s name in the Signatory section below');
       return;
     }
     setGenerateError('');
@@ -226,15 +508,21 @@ export default function AdminCertificates() {
         position: form.position || undefined,
         domain: form.domain || undefined,
         description: form.description || undefined,
-        signatoryName: form.signatoryName,
-        signatoryTitle: form.signatoryTitle || undefined,
-        facultyName: form.facultyName || undefined,
-        facultyTitle: form.facultyTitle || undefined,
+        signatoryId: form.signatoryId || undefined,
+        signatoryName: form.signatoryId ? undefined : form.signatoryName,
+        signatoryTitle: form.signatoryId ? undefined : (form.signatoryTitle || undefined),
+        signatoryCustomImageUrl: !form.signatoryId && form.signatoryImageUrl ? form.signatoryImageUrl : undefined,
+        facultySignatoryId: form.facultySignatoryId || undefined,
+        facultyName: form.facultySignatoryId ? undefined : (form.facultyName || undefined),
+        facultyTitle: form.facultySignatoryId ? undefined : (form.facultyTitle || undefined),
+        facultyCustomImageUrl: !form.facultySignatoryId && form.facultyImageUrl ? form.facultyImageUrl : undefined,
         sendEmail: form.sendEmail,
       }, token!);
       saveSignatoryDefaults({
+        signatoryId: form.signatoryId,
         signatoryName: form.signatoryName,
         signatoryTitle: form.signatoryTitle,
+        facultySignatoryId: form.facultySignatoryId,
         facultyName: form.facultyName,
         facultyTitle: form.facultyTitle,
       });
@@ -308,8 +596,10 @@ export default function AdminCertificates() {
   }
 
   async function handleBulkGenerate() {
-    if (!bulkEventName || !bulkCsv.trim() || !bulkSignatory) {
-      toast.error('Please fill in event name, signatory name, and recipient list');
+    if (!bulkEventName.trim()) { toast.error('Event name is required'); return; }
+    if (!bulkCsv.trim()) { toast.error('Paste the recipient list before generating'); return; }
+    if (!bulkSignatoryId && !bulkSignatory.trim()) {
+      toast.error('Enter the signatory\'s name in the Signatory section');
       return;
     }
 
@@ -331,17 +621,23 @@ export default function AdminCertificates() {
         recipients,
         eventName: bulkEventName,
         type: bulkType,
-        signatoryName: bulkSignatory,
-        signatoryTitle: bulkSignatoryTitle || undefined,
-        facultyName: bulkFacultyName || undefined,
-        facultyTitle: bulkFacultyTitle || undefined,
+        signatoryId: bulkSignatoryId || undefined,
+        signatoryName: bulkSignatoryId ? undefined : bulkSignatory,
+        signatoryTitle: bulkSignatoryId ? undefined : (bulkSignatoryTitle || undefined),
+        signatoryCustomImageUrl: !bulkSignatoryId && bulkSignatoryImageUrl ? bulkSignatoryImageUrl : undefined,
+        facultySignatoryId: bulkFacultySignatoryId || undefined,
+        facultyName: bulkFacultySignatoryId ? undefined : (bulkFacultyName || undefined),
+        facultyTitle: bulkFacultySignatoryId ? undefined : (bulkFacultyTitle || undefined),
+        facultyCustomImageUrl: !bulkFacultySignatoryId && bulkFacultyImageUrl ? bulkFacultyImageUrl : undefined,
         domain: bulkDomain || undefined,
         description: bulkDescription || undefined,
         sendEmail: bulkSendEmail,
       }, token!);
       saveSignatoryDefaults({
+        signatoryId: bulkSignatoryId,
         signatoryName: bulkSignatory,
         signatoryTitle: bulkSignatoryTitle,
+        facultySignatoryId: bulkFacultySignatoryId,
         facultyName: bulkFacultyName,
         facultyTitle: bulkFacultyTitle,
       });
@@ -356,6 +652,8 @@ export default function AdminCertificates() {
       setBulkDescription('');
       setBulkPreview(null);
       setBulkParseErrors([]);
+      setBulkSignatoryImageUrl('');
+      setBulkFacultyImageUrl('');
       fetchCerts();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Bulk generation failed');
@@ -453,6 +751,67 @@ export default function AdminCertificates() {
           </Button>
         </div>
       </motion.div>
+
+      {/* Saved Signatures */}
+      <Card>
+        <CardContent className="p-4">
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-sm font-semibold text-gray-700 flex items-center gap-1.5">
+              <PenLine className="w-4 h-4 text-amber-500" />
+              Saved Signatures
+              <span className="text-xs text-gray-400 font-normal ml-1">
+                ({allSignatories.length} {allSignatories.length === 1 ? 'entry' : 'entries'})
+              </span>
+            </h2>
+            <Button size="sm" onClick={() => openSigModal()} className="gap-1.5 bg-amber-500 hover:bg-amber-600 text-white h-8">
+              <Plus className="w-3.5 h-3.5" />
+              Add Signature
+            </Button>
+          </div>
+          {loadingAllSigs ? (
+            <div className="flex justify-center py-4"><Loader2 className="w-5 h-5 animate-spin text-amber-500" /></div>
+          ) : allSignatories.length === 0 ? (
+            <p className="text-sm text-gray-400 text-center py-4">No saved signatures yet. Add one to make it available in all certificate forms.</p>
+          ) : (
+            <div className="divide-y divide-gray-100">
+              {allSignatories.map(sig => {
+                const certCount = sig._count.certificatesAsPrimary + sig._count.certificatesAsFaculty;
+                return (
+                  <div key={sig.id} className="flex items-center gap-3 py-2.5">
+                    {sig.signatureUrl ? (
+                      <img
+                        src={sig.signatureUrl}
+                        alt={sig.name}
+                        className="h-8 w-24 object-contain shrink-0 rounded border border-gray-100 bg-white"
+                        onError={e => { (e.target as HTMLImageElement).src = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII='; }}
+                      />
+                    ) : (
+                      <div className="h-8 w-24 rounded border border-dashed border-gray-200 flex items-center justify-center shrink-0">
+                        <PenLine className="w-4 h-4 text-gray-300" />
+                      </div>
+                    )}
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-gray-800 truncate">{sig.name}</p>
+                      <p className="text-xs text-gray-400">{sig.title} · {certCount} cert{certCount !== 1 ? 's' : ''}</p>
+                    </div>
+                    {!sig.isActive && (
+                      <span className="text-xs text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded shrink-0">Inactive</span>
+                    )}
+                    <div className="flex gap-1 shrink-0">
+                      <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-gray-400 hover:text-gray-700" onClick={() => openSigModal(sig)} title="Edit">
+                        <PenLine className="w-3.5 h-3.5" />
+                      </Button>
+                      <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-gray-400 hover:text-red-600" onClick={() => { if (window.confirm(`Delete signature "${sig.name}"?`)) void deleteSig(sig.id); }} title="Delete">
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </Button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       {/* Filters */}
       <Card>
@@ -601,34 +960,34 @@ export default function AdminCertificates() {
 
       {/* Generate Modal */}
       <Dialog open={showGenerate} onOpenChange={(open) => { setShowGenerate(open); if (!open) setGenerateError(''); }}>
-        <DialogContent className="max-w-lg">
-          <DialogHeader>
+        <DialogContent className="max-w-lg flex flex-col gap-4 max-h-[90vh]">
+          <DialogHeader className="shrink-0">
             <DialogTitle className="flex items-center gap-2">
               <Award className="w-5 h-5 text-amber-500" />
               Generate Certificate
             </DialogTitle>
           </DialogHeader>
           {generateError && (
-            <div className="flex items-start gap-2 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+            <div className="shrink-0 flex items-start gap-2 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
               <AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0" />
               <span>{generateError}</span>
             </div>
           )}
-          <div className="space-y-4 py-2">
-            <div className="grid grid-cols-2 gap-3">
-              <div className="col-span-2">
+          <div className="flex-1 overflow-y-auto min-h-0 py-1 pr-1">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="col-span-full">
                 <label className="text-sm font-medium text-gray-700">Recipient Name *</label>
                 <Input value={form.recipientName} onChange={e => setForm(f => ({ ...f, recipientName: e.target.value }))} placeholder="Full name" className="mt-1" />
               </div>
-              <div className="col-span-2">
+              <div className="col-span-full">
                 <label className="text-sm font-medium text-gray-700">Recipient Email *</label>
                 <Input type="email" value={form.recipientEmail} onChange={e => setForm(f => ({ ...f, recipientEmail: e.target.value }))} placeholder="email@example.com" className="mt-1" />
               </div>
-              <div className="col-span-2">
+              <div className="col-span-full">
                 <label className="text-sm font-medium text-gray-700">Event Name *</label>
                 <Input value={form.eventName} onChange={e => setForm(f => ({ ...f, eventName: e.target.value }))} placeholder="e.g. Hackathon 2026" className="mt-1" />
               </div>
-              <div className="col-span-2">
+              <div className="col-span-full">
                 <label className="text-sm font-medium text-gray-700">Certificate Type</label>
                 <select
                   className="mt-1 w-full border border-gray-200 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
@@ -646,27 +1005,36 @@ export default function AdminCertificates() {
                 <label className="text-sm font-medium text-gray-700">Domain / Track</label>
                 <Input value={form.domain} onChange={e => setForm(f => ({ ...f, domain: e.target.value }))} placeholder="e.g. Web Dev" className="mt-1" />
               </div>
-              <div>
-                <label className="text-sm font-medium text-gray-700">Signatory Name *</label>
-                <Input value={form.signatoryName} onChange={e => setForm(f => ({ ...f, signatoryName: e.target.value }))} placeholder="e.g. Aarav Mehta" className="mt-1" />
-              </div>
-              <div>
-                <label className="text-sm font-medium text-gray-700">Signatory Title</label>
-                <Input value={form.signatoryTitle} onChange={e => setForm(f => ({ ...f, signatoryTitle: e.target.value }))} placeholder="Club President" className="mt-1" />
-              </div>
-              <div>
-                <label className="text-sm font-medium text-gray-700">Faculty Name</label>
-                <Input value={form.facultyName} onChange={e => setForm(f => ({ ...f, facultyName: e.target.value }))} placeholder="e.g. Dr. Priya Singh" className="mt-1" />
-              </div>
-              <div>
-                <label className="text-sm font-medium text-gray-700">Faculty Title</label>
-                <Input value={form.facultyTitle} onChange={e => setForm(f => ({ ...f, facultyTitle: e.target.value }))} placeholder="Faculty Coordinator" className="mt-1" />
-              </div>
-              <div className="col-span-2">
+              <SignatoryPicker
+                label="Signatory *"
+                required
+                token={token!}
+                signatories={activeSignatories}
+                selectedId={form.signatoryId}
+                name={form.signatoryName}
+                title={form.signatoryTitle}
+                defaultTitle="Club President"
+                imageUrl={form.signatoryImageUrl}
+                onSelect={(id, name, title) => setForm(f => ({ ...f, signatoryId: id, signatoryName: name, signatoryTitle: title || f.signatoryTitle, signatoryImageUrl: '' }))}
+                onImageUrlChange={url => setForm(f => ({ ...f, signatoryImageUrl: url }))}
+              />
+              <SignatoryPicker
+                label="Faculty Signatory (optional)"
+                token={token!}
+                signatories={activeSignatories}
+                selectedId={form.facultySignatoryId}
+                name={form.facultyName}
+                title={form.facultyTitle}
+                defaultTitle="Faculty Coordinator"
+                imageUrl={form.facultyImageUrl}
+                onSelect={(id, name, title) => setForm(f => ({ ...f, facultySignatoryId: id, facultyName: name, facultyTitle: title || f.facultyTitle, facultyImageUrl: '' }))}
+                onImageUrlChange={url => setForm(f => ({ ...f, facultyImageUrl: url }))}
+              />
+              <div className="col-span-full">
                 <label className="text-sm font-medium text-gray-700">Description</label>
                 <Input value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} placeholder="Custom recognition text (optional)" className="mt-1" />
               </div>
-              <div className="col-span-2 flex items-center gap-2">
+              <div className="col-span-full flex items-center gap-2">
                 <input
                   type="checkbox"
                   id="sendEmail"
@@ -678,7 +1046,7 @@ export default function AdminCertificates() {
               </div>
             </div>
           </div>
-          <DialogFooter>
+          <DialogFooter className="shrink-0 border-t border-gray-100 pt-2">
             <Button variant="outline" onClick={() => setShowGenerate(false)}>Cancel</Button>
             <Button onClick={handleGenerate} disabled={generating} className="bg-amber-500 hover:bg-amber-600 text-white">
               {generating ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Award className="w-4 h-4 mr-2" />}
@@ -690,14 +1058,14 @@ export default function AdminCertificates() {
 
       {/* Bulk Generate Modal */}
       <Dialog open={showBulk} onOpenChange={setShowBulk}>
-        <DialogContent className="max-w-lg">
-          <DialogHeader>
+        <DialogContent className="max-w-lg flex flex-col gap-4 max-h-[90vh]">
+          <DialogHeader className="shrink-0">
             <DialogTitle className="flex items-center gap-2">
               <Users className="w-5 h-5 text-amber-500" />
               Bulk Generate Certificates
             </DialogTitle>
           </DialogHeader>
-          <div className="space-y-4 py-2">
+          <div className="flex-1 overflow-y-auto min-h-0 space-y-4 py-1 pr-1">
             <div>
               <label className="text-sm font-medium text-gray-700">Event Name *</label>
               <Input value={bulkEventName} onChange={e => setBulkEventName(e.target.value)} placeholder="Hackathon 2026" className="mt-1" />
@@ -708,24 +1076,31 @@ export default function AdminCertificates() {
                 {CERT_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
               </select>
             </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="text-sm font-medium text-gray-700">Signatory Name *</label>
-                <Input value={bulkSignatory} onChange={e => setBulkSignatory(e.target.value)} placeholder="e.g. Aarav Mehta" className="mt-1" />
-              </div>
-              <div>
-                <label className="text-sm font-medium text-gray-700">Signatory Title</label>
-                <Input value={bulkSignatoryTitle} onChange={e => setBulkSignatoryTitle(e.target.value)} placeholder="Club President" className="mt-1" />
-              </div>
-              <div>
-                <label className="text-sm font-medium text-gray-700">Faculty Name</label>
-                <Input value={bulkFacultyName} onChange={e => setBulkFacultyName(e.target.value)} placeholder="e.g. Dr. Priya Singh" className="mt-1" />
-              </div>
-              <div>
-                <label className="text-sm font-medium text-gray-700">Faculty Title</label>
-                <Input value={bulkFacultyTitle} onChange={e => setBulkFacultyTitle(e.target.value)} placeholder="Faculty Coordinator" className="mt-1" />
-              </div>
-            </div>
+            <SignatoryPicker
+              label="Signatory *"
+              required
+              token={token!}
+              signatories={activeSignatories}
+              selectedId={bulkSignatoryId}
+              name={bulkSignatory}
+              title={bulkSignatoryTitle}
+              defaultTitle="Club President"
+              imageUrl={bulkSignatoryImageUrl}
+              onSelect={(id, name, title) => { setBulkSignatoryId(id); setBulkSignatory(name); setBulkSignatoryTitle(title || bulkSignatoryTitle); setBulkSignatoryImageUrl(''); }}
+              onImageUrlChange={setBulkSignatoryImageUrl}
+            />
+            <SignatoryPicker
+              label="Faculty Signatory (optional)"
+              token={token!}
+              signatories={activeSignatories}
+              selectedId={bulkFacultySignatoryId}
+              name={bulkFacultyName}
+              title={bulkFacultyTitle}
+              defaultTitle="Faculty Coordinator"
+              imageUrl={bulkFacultyImageUrl}
+              onSelect={(id, name, title) => { setBulkFacultySignatoryId(id); setBulkFacultyName(name); setBulkFacultyTitle(title || bulkFacultyTitle); setBulkFacultyImageUrl(''); }}
+              onImageUrlChange={setBulkFacultyImageUrl}
+            />
             <div>
               <label className="text-sm font-medium text-gray-700">Domain / Track</label>
               <Input value={bulkDomain} onChange={e => setBulkDomain(e.target.value)} placeholder="e.g. Web Development (optional)" className="mt-1" />
@@ -774,7 +1149,7 @@ export default function AdminCertificates() {
               <label htmlFor="bulkSendEmail" className="text-sm text-gray-700">Send certificate emails to all recipients</label>
             </div>
           </div>
-          <DialogFooter>
+          <DialogFooter className="shrink-0 border-t border-gray-100 pt-2">
             <Button variant="outline" onClick={() => setShowBulk(false)}>Cancel</Button>
             {!bulkPreview ? (
               <Button onClick={handleBulkPreview} className="bg-blue-500 hover:bg-blue-600 text-white">
@@ -846,6 +1221,85 @@ export default function AdminCertificates() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Add / Edit Signature Modal */}
+      <Dialog open={sigModalOpen} onOpenChange={open => { if (!sigModalSaving) setSigModalOpen(open); }}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle>{sigModalEdit ? 'Edit Signature' : 'Add Signature'}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 pt-1">
+            <div>
+              <label className="text-xs text-gray-500 block mb-1">Name <span className="text-red-500">*</span></label>
+              <Input value={sigModalName} onChange={e => setSigModalName(e.target.value)} placeholder="e.g. Aarav Mehta" className="h-9" />
+            </div>
+            <div>
+              <label className="text-xs text-gray-500 block mb-1">Title</label>
+              <Input value={sigModalTitle} onChange={e => setSigModalTitle(e.target.value)} placeholder="e.g. Club President" className="h-9" />
+            </div>
+            <div>
+              <label className="text-xs text-gray-500 block mb-1">Signature Image <span className="text-gray-400">(optional, PNG/JPG)</span></label>
+              {sigModalEdit?.signatureUrl && !sigModalUploadedUrl && !sigModalClearImg && (
+                <div className="flex items-center gap-2 rounded border p-2 bg-gray-50 mb-2">
+                  <img src={sigModalEdit.signatureUrl} alt="Current" className="h-8 max-w-[100px] object-contain" onError={e => { (e.target as HTMLImageElement).src = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII='; }} />
+                  <button type="button" className="text-xs text-red-500 hover:text-red-700 ml-auto" onClick={() => setSigModalClearImg(true)}>Remove</button>
+                </div>
+              )}
+              {sigModalClearImg && (
+                <p className="text-xs text-amber-600 mb-2">
+                  Signature image will be removed on save.{' '}
+                  <button type="button" className="underline" onClick={() => setSigModalClearImg(false)}>Undo</button>
+                </p>
+              )}
+              {sigModalUploading ? (
+                <div className="flex items-center gap-2 rounded border p-2 bg-gray-50">
+                  <Loader2 className="w-4 h-4 animate-spin text-amber-500 shrink-0" />
+                  <span className="text-xs text-gray-500">Uploading to Cloudinary…</span>
+                </div>
+              ) : sigModalUploadedUrl ? (
+                <div className="flex items-center gap-2 rounded border p-2 bg-gray-50 overflow-hidden">
+                  <img src={sigModalUploadedUrl} alt="Preview" className="h-8 max-w-[80px] object-contain shrink-0" />
+                  <p className="text-xs text-gray-500 truncate flex-1 min-w-0">{sigModalUploadedUrl.split('/').pop()}</p>
+                  <button type="button" className="text-xs text-red-500 shrink-0" onClick={() => setSigModalUploadedUrl(null)}>Remove</button>
+                </div>
+              ) : (
+                <label className="flex items-center gap-2 cursor-pointer rounded-md border border-dashed border-gray-300 bg-white px-3 py-2 text-sm text-gray-500 hover:border-amber-400 hover:text-amber-600 transition-colors">
+                  <ImageIcon className="w-4 h-4 shrink-0" />
+                  <span>Choose image file</span>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={async e => {
+                      const file = e.target.files?.[0];
+                      e.target.value = '';
+                      if (!file) return;
+                      setSigModalClearImg(false);
+                      setSigModalUploading(true);
+                      try {
+                        const url = await api.uploadImage(file, token!);
+                        setSigModalUploadedUrl(url);
+                      } catch (err) {
+                        toast.error(err instanceof Error ? err.message : 'Upload failed');
+                      } finally {
+                        setSigModalUploading(false);
+                      }
+                    }}
+                  />
+                </label>
+              )}
+            </div>
+          </div>
+          <DialogFooter className="pt-2">
+            <Button variant="outline" onClick={() => setSigModalOpen(false)} disabled={sigModalSaving}>Cancel</Button>
+            <Button onClick={saveSigModal} disabled={sigModalSaving || sigModalUploading || !sigModalName.trim()} className="bg-amber-500 hover:bg-amber-600 text-white">
+              {sigModalSaving && <Loader2 className="w-4 h-4 animate-spin mr-1.5" />}
+              {sigModalEdit ? 'Save Changes' : 'Add Signature'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
     </div>
   );
 }

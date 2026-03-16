@@ -64,6 +64,9 @@ export default function AdminEventRegistrations() {
       const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:5001/api';
       const data = await api.getEvents();
       // Get detailed registration data for each event
+      // N+1: Fetches registrations per event. Acceptable — admin-only page,
+      // bounded by total event count (typically <50). Would need a dedicated
+      // admin endpoint to batch if event count grows significantly.
       const eventsWithDetails = await Promise.all(
         data.map(async (event) => {
           try {

@@ -82,12 +82,14 @@ export interface CertData {
   description?:             string;
   certId:                   string;
   issuedAt:                 Date;
-  // Signatory (rendered as cursive text in Great Vibes font)
+  // Signatory — image preferred, typed name fallback (GreatVibes font)
   signatoryName:            string;
   signatoryTitle?:          string;          // e.g. "Club President"
-  // Faculty signatory (optional)
+  signatoryImageUrl?:       string;          // processed signature image (base64 data URI or URL)
+  // Faculty signatory (optional) — same image-first, text-fallback logic
   facultyName?:             string;
   facultyTitle?:            string;          // e.g. "Faculty Coordinator"
+  facultySignatoryImageUrl?: string;         // processed signature image (base64 data URI or URL)
   codescrietLogoUrl?:       string;          // base64 data URI
   ccsuLogoUrl?:             string;          // base64 data URI
 }
@@ -190,7 +192,7 @@ export async function generateCertificatePDF(data: CertData): Promise<Buffer> {
   const type       = data.type.toUpperCase();
   const verifyUrl  = `${FRONTEND_URL}/verify/${data.certId}`;
   const qrDataUrl  = await QRCode.toDataURL(verifyUrl, {
-    width: 160, margin: 1,
+    width: 400, margin: 1,
     color: { dark: '#000000', light: '#ffffff' },
   });
   const dateStr     = formatDateUpper(data.issuedAt);
@@ -289,7 +291,7 @@ export async function generateCertificatePDF(data: CertData): Promise<Buffer> {
                   fontFamily: 'CormorantGaramond', fontSize: 15, fontWeight: 600,
                   color: C.maroon, letterSpacing: 2, marginTop: 4,
                 },
-              }, 'CODE.SCRIET CODING CLUB'),
+              }, 'CODE.SCRIET CODING COMMUNITY'),
             ),
             // CodeScriet Logo
             React.createElement(View, {
@@ -329,7 +331,7 @@ export async function generateCertificatePDF(data: CertData): Promise<Buffer> {
               x1: 0, y1: 6, x2: 130, y2: 6,
               stroke: C.gold, strokeWidth: 1, opacity: 0.6,
             }),
-            React.createElement(Polygon, {
+            React.createElement(Polygon, {        
               points: '150,1 156,6 150,11 144,6',
               fill: C.maroon,
             }),
@@ -406,7 +408,7 @@ export async function generateCertificatePDF(data: CertData): Promise<Buffer> {
               paddingHorizontal: 35,
             },
           },
-            React.createElement(View, { style: { width: 190 } }),
+            React.createElement(View, { style: { width: 240 } }),
 
             // CENTRE — Verification block (QR 52x52, no border box)
             React.createElement(View, {
@@ -430,30 +432,49 @@ export async function generateCertificatePDF(data: CertData): Promise<Buffer> {
               }, `Verify at ${verifyDomain}`),
             ),
 
-            React.createElement(View, { style: { width: 190 } }),
+            React.createElement(View, { style: { width: 240 } }),
           ),
         ),
 
+        // ── PRIMARY SIGNATORY (absolute-positioned, left) ──────────────
         React.createElement(View, {
           style: {
             position: 'absolute',
-            left: 78,
+            left: 55,
             bottom: 58,
-            width: 190,
+            width: 240,
             alignItems: 'center',
           },
         },
-          React.createElement(Text, {
-            style: {
-              fontFamily: 'GreatVibes',
-              fontSize: 28,
-              lineHeight: 1.1,
-              color: '#333333',
-              textAlign: 'center',
-              width: '100%',
-              marginBottom: 6,
-            },
-          }, data.signatoryName),
+          // Signature: image if available, otherwise GreatVibes cursive text
+          ...(data.signatoryImageUrl
+            ? [
+                React.createElement(Image, {
+                  key: 'sig-img',
+                  src: data.signatoryImageUrl,
+                  style: {
+                    width: 220,
+                    maxHeight: 80,
+                    objectFit: 'contain' as const,
+                    marginBottom: -20,
+                  },
+                }),
+              ]
+            : [
+                React.createElement(Text, {
+                  key: 'sig-text',
+                  style: {
+                    fontFamily: 'GreatVibes',
+                    fontSize: 28,
+                    lineHeight: 1.1,
+                    color: '#333333',
+                    textAlign: 'center',
+                    width: '100%',
+                    marginBottom: 6,
+                  },
+                }, data.signatoryName),
+              ]
+          ),
           React.createElement(View, {
             style: {
               width: '100%',
@@ -483,28 +504,47 @@ export async function generateCertificatePDF(data: CertData): Promise<Buffer> {
           }, data.signatoryTitle || 'Club President'),
         ),
 
+        // ── FACULTY SIGNATORY (absolute-positioned, right) ──────────────
         ...(hasFaculty ? [
           React.createElement(View, {
             key: 'faculty-signature-absolute',
             style: {
               position: 'absolute',
-              right: 78,
+              right: 55,
               bottom: 58,
-              width: 190,
+              width: 240,
               alignItems: 'center',
             },
           },
-            React.createElement(Text, {
-              style: {
-                fontFamily: 'GreatVibes',
-                fontSize: 28,
-                lineHeight: 1.1,
-                color: '#333333',
-                textAlign: 'center',
-                width: '100%',
-                marginBottom: 6,
-              },
-            }, data.facultyName!),
+            // Faculty signature: image if available, otherwise GreatVibes cursive text
+            ...(data.facultySignatoryImageUrl
+              ? [
+                  React.createElement(Image, {
+                    key: 'fac-sig-img',
+                    src: data.facultySignatoryImageUrl,
+                    style: {
+                      width: 220,
+                      maxHeight: 80,
+                      objectFit: 'contain' as const,
+                      marginBottom: -20,
+                    },
+                  }),
+                ]
+              : [
+                  React.createElement(Text, {
+                    key: 'fac-sig-text',
+                    style: {
+                      fontFamily: 'GreatVibes',
+                      fontSize: 28,
+                      lineHeight: 1.1,
+                      color: '#333333',
+                      textAlign: 'center',
+                      width: '100%',
+                      marginBottom: 6,
+                    },
+                  }, data.facultyName ?? ''),
+                ]
+            ),
             React.createElement(View, {
               style: {
                 width: '100%',
@@ -522,7 +562,7 @@ export async function generateCertificatePDF(data: CertData): Promise<Buffer> {
                 color: C.textMain,
                 letterSpacing: 1,
               },
-            }, data.facultyName!.toUpperCase()),
+            }, (data.facultyName ?? '').toUpperCase()),
             React.createElement(Text, {
               style: {
                 fontFamily: 'CormorantGaramond',

@@ -144,11 +144,19 @@ model EventRegistration {
   timestamp            DateTime @default(now())
   customFieldResponses Json?    @map("custom_field_responses")
   reminderSentAt       DateTime? @map("reminder_sent_at")
+
+  // Attendance fields
+  attendanceToken      String?   @unique @map("attendance_token")
+  attended             Boolean   @default(false)
+  scannedAt            DateTime? @map("scanned_at")
+  manualOverride       Boolean   @default(false) @map("manual_override")
+
   event                Event    @relation(fields: [eventId], references: [id], onDelete: Cascade)
   user                 User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([userId, eventId])
   @@index([eventId])
+  @@index([eventId, attended])
   @@index([eventId, timestamp(sort: Desc)], map: "event_registrations_event_id_timestamp_desc_idx")
   @@index([userId, timestamp])
   @@index([timestamp])
@@ -211,6 +219,8 @@ model TeamMember {
   expertise    String?  @db.Text
   achievements String?  @db.Text
   website      String?
+  // Credits given to this team member
+  credits      Credit[]
 
   @@index([team, order])
   @@index([team, order, createdAt], map: "team_members_team_order_created_at_idx")
@@ -705,4 +715,20 @@ model Certificate {
   @@index([eventId, issuedAt])
   @@unique([recipientEmail, eventId, type], name: "unique_cert_per_event")
   @@map("certificates")
+}
+
+model Credit {
+  id            String      @id @default(uuid())
+  title         String
+  description   String?     @db.Text
+  category      String
+  teamMemberId  String?     @map("team_member_id")
+  teamMember    TeamMember? @relation(fields: [teamMemberId], references: [id], onDelete: SetNull)
+  order         Int         @default(0)
+  createdAt     DateTime    @default(now()) @map("created_at")
+  updatedAt     DateTime    @updatedAt @map("updated_at")
+
+  @@index([category, order])
+  @@index([teamMemberId])
+  @@map("credits")
 }

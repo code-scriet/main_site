@@ -7,12 +7,13 @@ import { useAuth } from '@/context/AuthContext';
 import { useSettings } from '@/context/SettingsContext';
 import { api } from '@/lib/api';
 import type { Registration, Announcement } from '@/lib/api';
-import { Calendar, Bell, Trophy, Code, ArrowRight, Loader2, Users, CheckCircle, Clock, XCircle, UserCircle, Zap, Code2 } from 'lucide-react';
+import { Calendar, Bell, Trophy, Code, ArrowRight, Loader2, Users, CheckCircle, Clock, XCircle, UserCircle, Zap, Code2, AlertCircle } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { QOTDWidget } from '@/components/dashboard/QOTDWidget';
 import { QuizDashboardWidget } from '@/components/dashboard/QuizDashboardWidget';
 import { PlaygroundCard } from '@/components/dashboard/PlaygroundCard';
 import { PlaygroundSnippetsCard } from '@/components/dashboard/PlaygroundSnippetsCard';
+import AttendanceHistory from '@/components/attendance/AttendanceHistory';
 import { formatDate } from '@/lib/dateUtils';
 
 export default function DashboardOverview() {
@@ -28,6 +29,7 @@ export default function DashboardOverview() {
   const [isTeamMember, setIsTeamMember] = useState(false);
   const [teamMemberId, setTeamMemberId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [totalRegistrations, setTotalRegistrations] = useState(0);
   const [totalAnnouncements, setTotalAnnouncements] = useState(0);
 
@@ -50,11 +52,11 @@ export default function DashboardOverview() {
         setAnnouncements(anns.slice(0, 3)); // Show only first 3
         setHiringStatus(hiring);
         setIsTeamMember(!!myTeamProfile);
-        if (myTeamProfile && (myTeamProfile as any).id) {
-          setTeamMemberId((myTeamProfile as any).id);
+        if (myTeamProfile && 'id' in myTeamProfile) {
+          setTeamMemberId((myTeamProfile as { id: string }).id);
         }
       } catch (error) {
-        console.error('Failed to load dashboard data:', error);
+        setError('Failed to load dashboard data. Please try refreshing the page.');
       } finally {
         setLoading(false);
       }
@@ -74,6 +76,15 @@ export default function DashboardOverview() {
     return (
       <div className="flex items-center justify-center py-20">
         <Loader2 className="h-8 w-8 animate-spin text-amber-600" />
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="flex flex-col items-center justify-center py-20 text-center">
+        <AlertCircle className="h-10 w-10 text-red-500 mb-3" />
+        <p className="text-gray-700 font-medium">{error}</p>
       </div>
     );
   }
@@ -330,6 +341,17 @@ export default function DashboardOverview() {
           <QuizDashboardWidget token={token || ''} />
         </motion.div>
       </div>
+
+      {/* Attendance History */}
+      {token && (
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.4, delay: 0.47 }}
+        >
+          <AttendanceHistory token={token} />
+        </motion.div>
+      )}
 
       {/* Announcements */}
       <motion.div

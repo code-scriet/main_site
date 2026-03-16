@@ -32,6 +32,7 @@ const NetworkStatusPage = lazy(() => import('@/pages/network/NetworkStatusPage')
 const NetworkProfilePage = lazy(() => import('@/pages/network/NetworkProfilePage'));
 const JoinOurNetworkPage = lazy(() => import('@/pages/JoinOurNetworkPage'));
 const PrivacyPolicyPage = lazy(() => import('@/pages/PrivacyPolicyPage'));
+const CreditsPage = lazy(() => import('@/pages/CreditsPage'));
 const ContactPage = lazy(() => import('@/pages/ContactPage'));
 
 // Dashboard - lazy loaded
@@ -61,8 +62,10 @@ const EditEvent = lazy(() => import('@/pages/admin/EditEvent'));
 const AdminHiring = lazy(() => import('@/pages/admin/AdminHiring'));
 const AdminCertificates = lazy(() => import('@/pages/admin/AdminCertificates'));
 const AdminNetwork = lazy(() => import('@/pages/admin/AdminNetwork'));
+const AdminCredits = lazy(() => import('@/pages/admin/AdminCredits'));
 const AdminAuditLog = lazy(() => import('@/pages/admin/AdminAuditLog'));
 const AdminMail = lazy(() => import('@/pages/admin/AdminMail'));
+const EventAdminHub = lazy(() => import('@/components/attendance/EventAdminHub'));
 
 // Quiz Pages - lazy loaded
 const ActiveQuizList = lazy(() => import('@/pages/quiz/ActiveQuizList'));
@@ -116,6 +119,7 @@ function App() {
                   <Route path="/network/:slug" element={<NetworkProfilePage />} />
                   <Route path="/join-our-network" element={<JoinOurNetworkPage />} />
                   <Route path="/privacy-policy" element={<PrivacyPolicyPage />} />
+                  <Route path="/credits" element={<CreditsPage />} />
                   <Route path="/contact" element={<ContactPage />} />
 
                   {/* Quiz Routes (public listing, auth for participation) */}
@@ -140,6 +144,9 @@ function App() {
                       <Route path="team/:id/edit" element={<EditTeamProfile />} />
                       <Route path="network/edit/:id?" element={<EditNetworkProfile />} />
                       <Route path="certificates" element={<DashboardCertificates />} />
+                      <Route element={<ProtectedRoute minRole="CORE_MEMBER" />}>
+                        <Route path="events/:eventId/attendance" element={<EventAdminHub />} />
+                      </Route>
                     </Route>
                     <Route path="/quiz/create" element={<AdminQuizCreator />} />
                   </Route>
@@ -154,10 +161,12 @@ function App() {
                       <Route path="events/:id/edit" element={<EditEvent />} />
                       <Route path="hiring" element={<AdminHiring />} />
                       <Route path="network" element={<AdminNetwork />} />
+                      <Route path="credits" element={<AdminCredits />} />
                       <Route path="settings" element={<AdminSettings />} />
                       <Route path="audit-log" element={<AdminAuditLog />} />
                       <Route path="mail" element={<AdminMail />} />
                       <Route path="certificates" element={<AdminCertificates />} />
+                      <Route path="events/:eventId/attendance" element={<EventAdminHub />} />
                     </Route>
                   </Route>
 

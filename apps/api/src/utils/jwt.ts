@@ -60,5 +60,5 @@ export const getJwtSecret = (): string => {
 
 export const signAccessToken = (payload: AccessTokenPayload): string => {
   const expiresIn = (process.env.JWT_EXPIRES_IN || '7d') as jwt.SignOptions['expiresIn'];
-  return jwt.sign(payload, getJwtSecret(), { expiresIn });
+  return jwt.sign(payload, getJwtSecret(), { algorithm: 'HS256', expiresIn });
 };

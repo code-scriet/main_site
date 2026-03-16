@@ -76,10 +76,14 @@ const generateSchema = z.object({
   domain: z.string().max(100).optional().nullable(),
   description: z.string().max(400).optional().nullable(),
   template: z.enum(certTemplates).default('gold'),
+  signatoryId: z.string().optional().nullable(),           // FK → Signatory (preferred)
   signatoryName: z.string().max(100).optional().nullable(),
   signatoryTitle: z.string().max(100).optional().nullable(),
+  signatoryCustomImageUrl: z.string().url().optional().nullable(), // Cloudinary URL for custom signatories
+  facultySignatoryId: z.string().optional().nullable(),
   facultyName: z.string().max(100).optional().nullable(),
   facultyTitle: z.string().max(100).optional().nullable(),
+  facultyCustomImageUrl: z.string().url().optional().nullable(),   // Cloudinary URL for custom faculty
   sendEmail: z.boolean().default(false),
 });
 
@@ -94,10 +98,14 @@ const bulkSchema = z.object({
   eventName: z.string().min(2).max(200),
   type: z.enum(certTypes),
   template: z.enum(certTemplates).default('gold'),
+  signatoryId: z.string().optional().nullable(),
   signatoryName: z.string().max(100).optional().nullable(),
   signatoryTitle: z.string().max(100).optional().nullable(),
+  signatoryCustomImageUrl: z.string().url().optional().nullable(),
+  facultySignatoryId: z.string().optional().nullable(),
   facultyName: z.string().max(100).optional().nullable(),
   facultyTitle: z.string().max(100).optional().nullable(),
+  facultyCustomImageUrl: z.string().url().optional().nullable(),
   description: z.string().max(400).optional().nullable(),
   domain: z.string().max(100).optional().nullable(),
   sendEmail: z.boolean().default(false),
@@ -278,6 +286,71 @@ function buildCertificateEventScope(eventName: string, eventId?: string | null) 
   return {
     eventId: null,
     eventName,
+  };
+}
+
+interface ResolvedSignatory {
+  id: string | null;
+  name: string;
+  title: string;
+  processedImageUrl: string | undefined;  // base64 data URI after processing, or undefined
+  rawImageUrl: string | null;             // original URL to store in certificate record
+}
+
+/**
+ * Resolve signatory data from either a Signatory ID, an inline base64 image, or plain text.
+ *
+ * Priority order:
+ *   1. signatoryId       → fetch DB record, process its stored signatureUrl
+ *   2. inlineImageUrl    → Cloudinary URL uploaded by admin for custom signatory
+ *   3. text only         → name/title rendered as GreatVibes cursive text (no image)
+ */
+async function resolveSignatory(
+  signatoryId: string | null | undefined,
+  fallbackName: string | null | undefined,
+  fallbackTitle: string | null | undefined,
+  defaultName: string,
+  defaultTitle: string,
+  inlineImageUrl?: string | null,
+): Promise<ResolvedSignatory> {
+  // 1. Signatory ID — fetch from DB and process stored image
+  if (signatoryId) {
+    const signatory = await prisma.signatory.findUnique({
+      where: { id: signatoryId },
+      select: { id: true, name: true, title: true, signatureUrl: true },
+    });
+
+    if (signatory) {
+      return {
+        id: signatory.id,
+        name: sanitizeText(signatory.name),
+        title: sanitizeText(signatory.title),
+        processedImageUrl: signatory.signatureUrl || undefined,
+        rawImageUrl: signatory.signatureUrl,
+      };
+    }
+
+    logger.warn('Signatory ID not found — falling back to text/image fields', { signatoryId });
+  }
+
+  // 2. Inline Cloudinary URL (custom signatory — image uploaded just for this certificate batch)
+  if (inlineImageUrl?.trim()) {
+    return {
+      id: null,
+      name: sanitizeText(fallbackName?.trim() || defaultName),
+      title: sanitizeText(fallbackTitle?.trim() || defaultTitle),
+      processedImageUrl: inlineImageUrl.trim(),
+      rawImageUrl: inlineImageUrl.trim(),
+    };
+  }
+
+  // 3. Text-only fallback
+  return {
+    id: null,
+    name: sanitizeText(fallbackName?.trim() || defaultName),
+    title: sanitizeText(fallbackTitle?.trim() || defaultTitle),
+    processedImageUrl: undefined,
+    rawImageUrl: null,
   };
 }
 
@@ -482,6 +555,10 @@ certificatesRouter.post('/generate', authMiddleware, requireRole('ADMIN'), async
     return ApiResponse.error(res, { code: ErrorCodes.FORBIDDEN, message: 'Certificate generation is currently disabled', status: 403 });
   }
 
+  if (!isCloudinaryConfigured) {
+    return ApiResponse.error(res, { code: ErrorCodes.INTERNAL_ERROR, message: 'Certificate upload is not configured — Cloudinary credentials missing', status: 500 });
+  }
+
   const validation = generateSchema.safeParse(req.body);
   if (!validation.success) {
     return ApiResponse.badRequest(res, validation.error.errors[0].message);
@@ -490,8 +567,8 @@ certificatesRouter.post('/generate', authMiddleware, requireRole('ADMIN'), async
   const {
     recipientName, recipientEmail, recipientId,
     eventId, eventName, type, position, domain, template,
-    signatoryName, signatoryTitle,
-    facultyName, facultyTitle,
+    signatoryId, signatoryName, signatoryTitle, signatoryCustomImageUrl,
+    facultySignatoryId, facultyName, facultyTitle, facultyCustomImageUrl,
     description, sendEmail,
   } = validation.data;
 
@@ -516,13 +593,19 @@ certificatesRouter.post('/generate', authMiddleware, requireRole('ADMIN'), async
       }
     }
 
-    // Compose signatory info from form values
-    const finalSignatoryName = sanitizeText(signatoryName?.trim() || 'Club President');
-    const finalSignatoryTitle = sanitizeText(signatoryTitle?.trim() || 'Club President');
-    const finalFacultyName = facultyName?.trim() ? sanitizeText(facultyName) : undefined;
-    const finalFacultyTitle = facultyName?.trim()
-      ? sanitizeText(facultyTitle?.trim() || 'Faculty Coordinator')
-      : undefined;
+    // Resolve signatories: ID → DB+image, inline base64 → processed image, text → cursive fallback
+    const primarySig = await resolveSignatory(
+      signatoryId, signatoryName, signatoryTitle,
+      'Club President', 'Club President',
+      signatoryCustomImageUrl,
+    );
+    const facultySig = (facultySignatoryId || facultyName?.trim() || facultyCustomImageUrl?.trim())
+      ? await resolveSignatory(
+          facultySignatoryId, facultyName, facultyTitle,
+          '', 'Faculty Coordinator',
+          facultyCustomImageUrl,
+        )
+      : null;
 
     // Generate unique cert ID, retry on collision (extremely rare)
     let certId = generateCertId();
@@ -562,7 +645,8 @@ certificatesRouter.post('/generate', authMiddleware, requireRole('ADMIN'), async
       );
     }
 
-    // Generate PDF
+    // Generate PDF — signature images are passed when available, PDF renderer
+    // automatically falls back to GreatVibes cursive text when images are absent
     const pdfBuffer = await generateCertificatePDF({
       recipientName: safeRecipientName,
       eventName: safeEventName,
@@ -572,10 +656,12 @@ certificatesRouter.post('/generate', authMiddleware, requireRole('ADMIN'), async
       description: safeDescription,
       certId,
       issuedAt: new Date(),
-      signatoryName: finalSignatoryName,
-      signatoryTitle: finalSignatoryTitle,
-      facultyName: finalFacultyName,
-      facultyTitle: finalFacultyTitle,
+      signatoryName: primarySig.name,
+      signatoryTitle: primarySig.title,
+      signatoryImageUrl: primarySig.processedImageUrl,
+      facultyName: facultySig?.name || undefined,
+      facultyTitle: facultySig?.title || undefined,
+      facultySignatoryImageUrl: facultySig?.processedImageUrl,
       codescrietLogoUrl: CODESCRIET_LOGO,
       ccsuLogoUrl: CCSU_LOGO,
     });
@@ -604,10 +690,14 @@ certificatesRouter.post('/generate', authMiddleware, requireRole('ADMIN'), async
       {
         ...legacyCertificateData,
         description: safeDescription || null,
-        signatoryName: finalSignatoryName,
-        signatoryTitle: finalSignatoryTitle,
-        facultyName: finalFacultyName || null,
-        facultyTitle: finalFacultyTitle || null,
+        signatoryId: primarySig.id,
+        signatoryName: primarySig.name,
+        signatoryTitle: primarySig.title,
+        signatoryImageUrl: primarySig.rawImageUrl,
+        facultySignatoryId: facultySig?.id || null,
+        facultyName: facultySig?.name || null,
+        facultyTitle: facultySig?.title || null,
+        facultySignatoryImageUrl: facultySig?.rawImageUrl || null,
       },
       legacyCertificateData,
     );
@@ -617,10 +707,14 @@ certificatesRouter.post('/generate', authMiddleware, requireRole('ADMIN'), async
       emailService.sendCertificateIssued(recipientEmail, recipientName, eventName, certId, downloadUrl)
         .then(async (sent) => {
           if (sent) {
-            await prisma.certificate.update({
-              where: { certId },
-              data: { emailSent: true, emailSentAt: new Date() },
-            });
+            try {
+              await prisma.certificate.update({
+                where: { certId },
+                data: { emailSent: true, emailSentAt: new Date() },
+              });
+            } catch (dbErr) {
+              logger.error('Failed to update emailSent flag after successful send', { certId, error: dbErr instanceof Error ? dbErr.message : String(dbErr) });
+            }
           }
         })
         .catch(err => logger.error('Certificate email failed', { certId, error: err.message }));
@@ -636,9 +730,12 @@ certificatesRouter.post('/generate', authMiddleware, requireRole('ADMIN'), async
       verifyUrl: buildCertificateVerifyUrl(certId),
     }, 'Certificate generated successfully');
   } catch (error: unknown) {
+    if ((error as any)?.code === 'P2002') {
+      return ApiResponse.badRequest(res, 'A certificate for this recipient/event/type combination already exists');
+    }
     const err = error as Error;
     logger.error('Certificate generation failed', { message: err?.message, stack: err?.stack });
-    return ApiResponse.error(res, { code: ErrorCodes.INTERNAL_ERROR, message: `Certificate generation failed: ${err?.message ?? 'unknown'}`, status: 500 });
+    return ApiResponse.error(res, { code: ErrorCodes.INTERNAL_ERROR, message: 'Certificate generation failed. Please try again.', status: 500 });
   }
 });
 
@@ -655,6 +752,10 @@ certificatesRouter.post('/bulk', authMiddleware, requireRole('ADMIN'), async (re
     return ApiResponse.error(res, { code: ErrorCodes.FORBIDDEN, message: 'Certificate generation is currently disabled', status: 403 });
   }
 
+  if (!isCloudinaryConfigured) {
+    return ApiResponse.error(res, { code: ErrorCodes.INTERNAL_ERROR, message: 'Certificate upload is not configured — Cloudinary credentials missing', status: 500 });
+  }
+
   const validation = bulkSchema.safeParse(req.body);
   if (!validation.success) {
     return ApiResponse.badRequest(res, validation.error.errors[0].message);
@@ -662,8 +763,8 @@ certificatesRouter.post('/bulk', authMiddleware, requireRole('ADMIN'), async (re
 
   const {
     recipients, eventId, eventName, type, template,
-    signatoryName, signatoryTitle,
-    facultyName, facultyTitle,
+    signatoryId, signatoryName, signatoryTitle, signatoryCustomImageUrl,
+    facultySignatoryId, facultyName, facultyTitle, facultyCustomImageUrl,
     description, domain, sendEmail,
   } = validation.data;
 
@@ -675,13 +776,19 @@ certificatesRouter.post('/bulk', authMiddleware, requireRole('ADMIN'), async (re
     }
   }
 
-  // Compose signatory info from form values
-  const finalSignatoryName = sanitizeText(signatoryName?.trim() || 'Club President');
-  const finalSignatoryTitle = sanitizeText(signatoryTitle?.trim() || 'Club President');
-  const finalFacultyName = facultyName?.trim() ? sanitizeText(facultyName) : undefined;
-  const finalFacultyTitle = facultyName?.trim()
-    ? sanitizeText(facultyTitle?.trim() || 'Faculty Coordinator')
-    : undefined;
+  // Resolve signatories once for the entire batch (image processing is expensive)
+  const primarySig = await resolveSignatory(
+    signatoryId, signatoryName, signatoryTitle,
+    'Club President', 'Club President',
+    signatoryCustomImageUrl,
+  );
+  const facultySig = (facultySignatoryId || facultyName?.trim() || facultyCustomImageUrl?.trim())
+    ? await resolveSignatory(
+        facultySignatoryId, facultyName, facultyTitle,
+        '', 'Faculty Coordinator',
+        facultyCustomImageUrl,
+      )
+    : null;
 
   // Sanitize shared text fields once
   const safeEventName   = sanitizeText(eventName);
@@ -793,10 +900,12 @@ certificatesRouter.post('/bulk', authMiddleware, requireRole('ADMIN'), async (re
             description: safeDescription,
             certId,
             issuedAt: new Date(),
-            signatoryName: finalSignatoryName,
-            signatoryTitle: finalSignatoryTitle,
-            facultyName: finalFacultyName,
-            facultyTitle: finalFacultyTitle,
+            signatoryName: primarySig.name,
+            signatoryTitle: primarySig.title,
+            signatoryImageUrl: primarySig.processedImageUrl,
+            facultyName: facultySig?.name || undefined,
+            facultyTitle: facultySig?.title || undefined,
+            facultySignatoryImageUrl: facultySig?.processedImageUrl,
             codescrietLogoUrl: CODESCRIET_LOGO,
             ccsuLogoUrl: CCSU_LOGO,
           });
@@ -824,10 +933,14 @@ certificatesRouter.post('/bulk', authMiddleware, requireRole('ADMIN'), async (re
             {
               ...legacyCertificateData,
               description: safeDescription || null,
-              signatoryName: finalSignatoryName,
-              signatoryTitle: finalSignatoryTitle,
-              facultyName: finalFacultyName || null,
-              facultyTitle: finalFacultyTitle || null,
+              signatoryId: primarySig.id,
+              signatoryName: primarySig.name,
+              signatoryTitle: primarySig.title,
+              signatoryImageUrl: primarySig.rawImageUrl,
+              facultySignatoryId: facultySig?.id || null,
+              facultyName: facultySig?.name || null,
+              facultyTitle: facultySig?.title || null,
+              facultySignatoryImageUrl: facultySig?.rawImageUrl || null,
             },
             legacyCertificateData,
           );

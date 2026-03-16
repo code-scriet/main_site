@@ -25,8 +25,9 @@ import {
   type RegistrationAdditionalFieldInput,
 } from '@/lib/api';
 import { useAuth } from '@/context/AuthContext';
-import { formatDate, formatTime, formatDateTime, getWeekdayShort, getDayOfMonth, getMonthShort } from '@/lib/dateUtils';
+import { formatTime, formatDateTime, getWeekdayShort, getDayOfMonth, getMonthShort } from '@/lib/dateUtils';
 import { processImageUrl, processImageGallery } from '@/lib/imageUtils';
+import { getRegistrationStatus } from '@/lib/registrationStatus';
 
 type EventStatus = 'UPCOMING' | 'ONGOING' | 'PAST';
 
@@ -47,53 +48,6 @@ const resourceIcons: Record<string, React.ReactNode> = {
 };
 
 // Helper to get registration status
-function getRegistrationStatus(event: Event): {
-  status: 'not_started' | 'open' | 'closed' | 'full' | 'past';
-  message: string;
-  canRegister: boolean;
-} {
-  const now = new Date();
-  const eventStart = new Date(event.startDate);
-  const regStart = event.registrationStartDate ? new Date(event.registrationStartDate) : null;
-  const regEnd = event.registrationEndDate ? new Date(event.registrationEndDate) : eventStart;
-
-  if (event.status === 'PAST') {
-    return { status: 'past', message: 'Event has ended', canRegister: false };
-  }
-
-  if (event.capacity && event._count && event._count.registrations >= event.capacity) {
-    return { status: 'full', message: 'Event is full', canRegister: false };
-  }
-
-  if (regStart && now < regStart) {
-    return { 
-      status: 'not_started', 
-      message: `Registration opens ${formatDate(regStart)} at ${formatTime(regStart)}`, 
-      canRegister: false 
-    };
-  }
-
-  // If late registration is allowed, check if we're still within the extended window
-  if (event.allowLateRegistration) {
-    // When late registration is allowed, registration stays open even during the event
-    // until the registration end date (which can be during/after event start)
-    if (regEnd && now > regEnd) {
-      return { status: 'closed', message: 'Registration closed', canRegister: false };
-    }
-    // Event is ONGOING but late registration is allowed
-    if (event.status === 'ONGOING') {
-      return { status: 'open', message: 'Late registration open', canRegister: true };
-    }
-  } else {
-    // Standard behavior: registration closes when reg end date passes
-    if (regEnd && now > regEnd) {
-      return { status: 'closed', message: 'Registration closed', canRegister: false };
-    }
-  }
-
-  return { status: 'open', message: 'Registration open', canRegister: true };
-}
-
 function validateCustomFieldValue(field: EventRegistrationField, value: string): string | null {
   const trimmed = value.trim();
 
@@ -359,6 +313,7 @@ export default function EventDetailPage() {
   const [registrationFieldErrors, setRegistrationFieldErrors] = useState<Record<string, string>>({});
   const [registrationFormError, setRegistrationFormError] = useState<string | null>(null);
   const [autoRegisterTriggered, setAutoRegisterTriggered] = useState(false);
+  const [attendanceSummary, setAttendanceSummary] = useState<{ total: number; attended: number } | null>(null);
 
   useEffect(() => {
     const fetchEvent = async () => {
@@ -393,6 +348,15 @@ export default function EventDetailPage() {
 
     fetchEvent();
   }, [id, token]);
+
+  // Fetch attendance summary for past events
+  useEffect(() => {
+    if (event?.status === 'PAST' && event.id) {
+      api.getAttendanceSummary(event.id)
+        .then(setAttendanceSummary)
+        .catch(() => {});
+    }
+  }, [event?.id, event?.status]);
 
   const performRegistration = async (additionalFields?: RegistrationAdditionalFieldInput[]) => {
     if (!event || !token) {
@@ -904,6 +868,12 @@ export default function EventDetailPage() {
                       {event.status === 'PAST' ? 'Event Completed' : regStatus.message}
                     </Button>
                   )}
+                  {event.status === 'PAST' && attendanceSummary && attendanceSummary.attended > 0 && (
+                    <p className="text-sm text-center text-gray-500 mt-2">
+                      <Users className="inline h-4 w-4 mr-1" />
+                      {attendanceSummary.attended} {attendanceSummary.attended === 1 ? 'person' : 'people'} attended
+                    </p>
+                  )}
                 </CardContent>
               </Card>
             </div>
@@ -1206,6 +1176,12 @@ export default function EventDetailPage() {
                       <Button variant="outline" className="w-full" disabled>
                         {event.status === 'PAST' ? 'Event Completed' : regStatus.message}
                       </Button>
+                    )}
+                    {event.status === 'PAST' && attendanceSummary && attendanceSummary.attended > 0 && (
+                      <p className="text-sm text-center text-gray-500 mt-2">
+                        <Users className="inline h-4 w-4 mr-1" />
+                        {attendanceSummary.attended} {attendanceSummary.attended === 1 ? 'person' : 'people'} attended
+                      </p>
                     )}
                   </CardContent>
                 </Card>

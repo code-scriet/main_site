@@ -30,7 +30,7 @@ import {
   ChevronRight,
   Quote,
 } from 'lucide-react';
-import { api, type TeamMember } from '@/lib/api';
+import { api, type TeamMember, type Credit } from '@/lib/api';
 import { useMotionConfig } from '@/hooks/useMotionConfig';
 
 // Extended TeamMember type with new profile fields
@@ -99,6 +99,7 @@ export default function TeamMemberProfilePage() {
   const { isMobile } = useMotionConfig();
 
   const [member, setMember] = useState<TeamMemberProfile | null>(null);
+  const [memberCredits, setMemberCredits] = useState<Credit[]>([]);
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -121,6 +122,14 @@ export default function TeamMemberProfilePage() {
           navigate(`/team/${data.slug}`, { replace: true });
         }
         setMember(data);
+
+        // Fetch credits for this team member
+        try {
+          const credits = await api.getCredits(data.id);
+          setMemberCredits(credits);
+        } catch {
+          // Credits are non-critical, fail silently
+        }
       } catch {
         setNotFound(true);
       } finally {
@@ -164,38 +173,37 @@ export default function TeamMemberProfilePage() {
   const socialLinks = useMemo<SocialLink[]>(() => {
     if (!member) return [];
 
+    const VALID_USERNAME = /^[a-zA-Z0-9._-]+$/;
+    const buildSocialUrl = (value: string, base: string): string | null => {
+      if (value.startsWith('http')) return value;
+      if (VALID_USERNAME.test(value)) return `${base}/${value}`;
+      return null;
+    };
+
     return [
       member.github
-        ? {
-            icon: Github,
-            label: 'GitHub',
-            href: member.github.startsWith('http') ? member.github : `https://github.com/${member.github}`,
-            color: 'hover:bg-gray-900 hover:text-white',
-          }
+        ? (() => {
+            const href = buildSocialUrl(member.github, 'https://github.com');
+            return href ? { icon: Github, label: 'GitHub', href, color: 'hover:bg-gray-900 hover:text-white' } : null;
+          })()
         : null,
       member.linkedin
-        ? {
-            icon: Linkedin,
-            label: 'LinkedIn',
-            href: member.linkedin.startsWith('http') ? member.linkedin : `https://linkedin.com/in/${member.linkedin}`,
-            color: 'hover:bg-[#0077b5] hover:text-white',
-          }
+        ? (() => {
+            const href = buildSocialUrl(member.linkedin, 'https://linkedin.com/in');
+            return href ? { icon: Linkedin, label: 'LinkedIn', href, color: 'hover:bg-[#0077b5] hover:text-white' } : null;
+          })()
         : null,
       member.twitter
-        ? {
-            icon: Twitter,
-            label: 'Twitter',
-            href: member.twitter.startsWith('http') ? member.twitter : `https://twitter.com/${member.twitter}`,
-            color: 'hover:bg-[#1da1f2] hover:text-white',
-          }
+        ? (() => {
+            const href = buildSocialUrl(member.twitter, 'https://twitter.com');
+            return href ? { icon: Twitter, label: 'Twitter', href, color: 'hover:bg-[#1da1f2] hover:text-white' } : null;
+          })()
         : null,
       member.instagram
-        ? {
-            icon: Instagram,
-            label: 'Instagram',
-            href: member.instagram.startsWith('http') ? member.instagram : `https://instagram.com/${member.instagram}`,
-            color: 'hover:bg-gradient-to-br hover:from-purple-600 hover:to-pink-500 hover:text-white',
-          }
+        ? (() => {
+            const href = buildSocialUrl(member.instagram, 'https://instagram.com');
+            return href ? { icon: Instagram, label: 'Instagram', href, color: 'hover:bg-gradient-to-br hover:from-purple-600 hover:to-pink-500 hover:text-white' } : null;
+          })()
         : null,
       member.website
         ? {
@@ -592,6 +600,46 @@ export default function TeamMemberProfilePage() {
                           </a>
                         ))}
                       </div>
+                    </motion.div>
+                  )}
+
+                  {/* Credits Card */}
+                  {memberCredits.length > 0 && (
+                    <motion.div
+                      initial={{ opacity: 0, y: 16 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ delay: 0.21 }}
+                      className="rounded-2xl border border-amber-100 bg-white p-5 shadow-sm sm:p-6"
+                    >
+                      <h3 className="mb-4 flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-stone-500">
+                        <Award className="h-3.5 w-3.5" />
+                        Contributions
+                      </h3>
+                      <div className="space-y-3">
+                        {memberCredits.map((credit) => (
+                          <div key={credit.id} className="flex items-start gap-3">
+                            <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-amber-100">
+                              <Award className="h-3.5 w-3.5 text-amber-600" />
+                            </div>
+                            <div className="min-w-0">
+                              <p className="text-sm font-semibold text-gray-900">{credit.title}</p>
+                              {credit.description && (
+                                <p className="mt-0.5 text-xs text-gray-500 line-clamp-2">{credit.description}</p>
+                              )}
+                              <Badge variant="outline" className="mt-1 text-[10px] px-1.5 py-0">
+                                {credit.category}
+                              </Badge>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                      <Link
+                        to="/credits"
+                        className="mt-4 inline-flex items-center gap-1 text-xs font-medium text-amber-600 hover:text-amber-700 transition"
+                      >
+                        View all credits
+                        <ChevronRight className="h-3 w-3" />
+                      </Link>
                     </motion.div>
                   )}
 

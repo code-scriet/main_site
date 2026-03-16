@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import { prisma } from '../lib/prisma.js';
 import { authMiddleware, getAuthUser } from '../middleware/auth.js';
 import { requireRole } from '../middleware/role.js';
+import { logger } from '../utils/logger.js';
 
 export const auditRouter = Router();
 
@@ -77,11 +78,20 @@ auditRouter.get('/', authMiddleware, requireRole('ADMIN'), async (req: Request, 
       user: userMap.get(log.userId) || { id: log.userId, name: 'Unknown', email: '', avatar: null },
     }));
 
-    // Get distinct entities and actions for filter dropdowns
-    const [entities, actions] = await Promise.all([
-      prisma.auditLog.findMany({ select: { entity: true }, distinct: ['entity'] }),
-      prisma.auditLog.findMany({ select: { action: true }, distinct: ['action'] }),
-    ]);
+    // Get distinct entities and actions for filter dropdowns (scoped to last 90 days for performance)
+    let filterEntities: string[] = [];
+    let filterActions: string[] = [];
+    try {
+      const cutoff = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000);
+      const [entityResults, actionResults] = await Promise.all([
+        prisma.auditLog.findMany({ where: { timestamp: { gte: cutoff } }, select: { entity: true }, distinct: ['entity'] }),
+        prisma.auditLog.findMany({ where: { timestamp: { gte: cutoff } }, select: { action: true }, distinct: ['action'] }),
+      ]);
+      filterEntities = entityResults.map(e => e.entity);
+      filterActions = actionResults.map(a => a.action);
+    } catch (err) {
+      logger.error('Failed to fetch audit log filters', { error: err instanceof Error ? err.message : String(err) });
+    }
 
     res.json({
       success: true,
@@ -94,8 +104,8 @@ auditRouter.get('/', authMiddleware, requireRole('ADMIN'), async (req: Request, 
           totalPages: Math.ceil(total / limit),
         },
         filters: {
-          entities: entities.map(e => e.entity),
-          actions: actions.map(a => a.action),
+          entities: filterEntities,
+          actions: filterActions,
         },
       },
     });
@@ -103,6 +113,41 @@ auditRouter.get('/', authMiddleware, requireRole('ADMIN'), async (req: Request, 
     res.status(500).json({
       success: false,
       error: { message: 'Failed to fetch audit logs' },
+    });
+  }
+});
+
+// Delete audit logs older than N days (super admin only)
+auditRouter.delete('/retention', authMiddleware, requireRole('ADMIN'), async (req: Request, res: Response) => {
+  try {
+    const authUser = getAuthUser(req)!;
+    const superAdminEmail = process.env.SUPER_ADMIN_EMAIL;
+    const isSuperAdmin = superAdminEmail && authUser.email === superAdminEmail;
+    const isPresident = authUser.role === 'PRESIDENT';
+
+    if (!isSuperAdmin && !isPresident) {
+      return res.status(403).json({
+        success: false,
+        error: { message: 'Only the super admin or president can delete audit logs' },
+      });
+    }
+
+    const days = Math.max(30, parseInt(req.query.days as string) || 90);
+    const cutoff = new Date();
+    cutoff.setDate(cutoff.getDate() - days);
+
+    const deleted = await prisma.auditLog.deleteMany({
+      where: { timestamp: { lt: cutoff } },
+    });
+
+    res.json({
+      success: true,
+      data: { deleted: deleted.count, olderThan: cutoff.toISOString() },
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: { message: 'Failed to delete old audit logs' },
     });
   }
 });

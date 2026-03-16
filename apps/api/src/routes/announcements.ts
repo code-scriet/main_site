@@ -10,6 +10,7 @@ import { emailService } from '../utils/email.js';
 import { logger } from '../utils/logger.js';
 import { submitUrl } from '../utils/indexnow.js';
 import { parsePaginationNumber } from '../utils/pagination.js';
+import { sanitizeHtml } from '../utils/sanitize.js';
 
 export const announcementsRouter = Router();
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -219,7 +220,7 @@ announcementsRouter.post('/', authMiddleware, requireRole('CORE_MEMBER'), async 
       data: {
         title: data.title,
         slug,
-        body: data.body,
+        body: sanitizeHtml(data.body),
         shortDescription: normalizeOptionalText(data.shortDescription),
         priority: data.priority || 'MEDIUM',
         imageUrl: normalizeOptionalText(data.imageUrl),
@@ -330,7 +331,7 @@ announcementsRouter.put('/:id', authMiddleware, requireRole('CORE_MEMBER'), asyn
       data: {
         ...(data.title && { title: data.title }),
         ...slugUpdate,
-        ...(data.body !== undefined && { body: data.body }),
+        ...(data.body !== undefined && { body: sanitizeHtml(data.body) }),
         ...(data.shortDescription !== undefined && { shortDescription: normalizeOptionalText(data.shortDescription) }),
         ...(data.priority && { priority: data.priority }),
         ...(data.imageUrl !== undefined && { imageUrl: normalizeOptionalText(data.imageUrl) }),

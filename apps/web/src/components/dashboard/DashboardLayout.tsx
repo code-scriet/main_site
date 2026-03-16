@@ -23,10 +23,12 @@ import {
   Mail,
   Zap,
   Award,
+  QrCode,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 const coreMemberNavItems = [
+  { name: 'Take Attendance', href: '/dashboard/events', icon: QrCode },
   { name: 'Create Event', href: '/dashboard/events/new', icon: Calendar },
   { name: 'Create Announcement', href: '/dashboard/announcements/new', icon: Bell },
   { name: 'Manage QOTD', href: '/dashboard/qotd', icon: Code },
@@ -40,6 +42,7 @@ const getAdminNavItems = (hiringEnabled: boolean, showNetwork: boolean, certific
     { name: 'User Management', href: '/admin/users', icon: Users },
     { name: 'Team Management', href: '/admin/team', icon: Shield },
     { name: 'Achievements', href: '/admin/achievements', icon: Trophy },
+    { name: 'Credits', href: '/admin/credits', icon: Award },
   ];
   
   if (hiringEnabled !== false) {
@@ -166,7 +169,7 @@ export default function DashboardLayout() {
               Dashboard
             </p>
             {userNavItems.map((item) => (
-              <NavLink key={item.href} item={item} isActive={location.pathname === item.href} />
+              <NavLink key={item.href} item={item} isActive={location.pathname === item.href || location.pathname.startsWith(item.href + '/')} onNavigate={() => setSidebarOpen(false)} />
             ))}
 
             {isCoreMember && (
@@ -177,7 +180,7 @@ export default function DashboardLayout() {
                   </p>
                 </div>
                 {coreMemberNavItems.map((item) => (
-                  <NavLink key={item.href} item={item} isActive={location.pathname === item.href} />
+                  <NavLink key={item.href} item={item} isActive={location.pathname === item.href || location.pathname.startsWith(item.href + '/')} onNavigate={() => setSidebarOpen(false)} />
                 ))}
               </>
             )}
@@ -196,7 +199,7 @@ export default function DashboardLayout() {
                   user?.isSuperAdmin,
                   user?.role === 'PRESIDENT',
                 ).map((item) => (
-                  <NavLink key={item.href} item={item} isActive={location.pathname === item.href} />
+                  <NavLink key={item.href} item={item} isActive={location.pathname === item.href || location.pathname.startsWith(item.href + '/')} onNavigate={() => setSidebarOpen(false)} />
                 ))}
               </>
             )}
@@ -259,11 +262,12 @@ interface NavItem {
   icon: React.ComponentType<{ className?: string }>;
 }
 
-function NavLink({ item, isActive }: { item: NavItem; isActive: boolean }) {
+function NavLink({ item, isActive, onNavigate }: { item: NavItem; isActive: boolean; onNavigate?: () => void }) {
   const Icon = item.icon;
   return (
     <Link
       to={item.href}
+      onClick={onNavigate}
       className={cn(
         'flex items-center space-x-3 px-3 py-2 rounded-lg transition-colors duration-200',
         isActive

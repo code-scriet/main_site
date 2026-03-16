@@ -26,6 +26,7 @@ export function Footer() {
     { name: 'Achievements', href: '/achievements' },
     { name: 'Contact', href: '/contact' },
     { name: 'Privacy Policy', href: '/privacy-policy' },
+    { name: 'Credits', href: '/credits' },
   ];
 
   // Build social links from settings

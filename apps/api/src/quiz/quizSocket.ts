@@ -89,7 +89,7 @@ function verifyQuizAccessToken(
   expectedUserId: string,
 ): QuizAccessTokenPayload | null {
   try {
-    const decoded = jwt.verify(token, getJwtSecret()) as Partial<QuizAccessTokenPayload>;
+    const decoded = jwt.verify(token, getJwtSecret(), { algorithms: ['HS256'] }) as Partial<QuizAccessTokenPayload>;
     if (!decoded || decoded.quizId !== expectedQuizId || decoded.userId !== expectedUserId) {
       return null;
     }
@@ -110,7 +110,7 @@ export function initQuizSocket(io: SocketIOServer) {
     const token = socket.handshake.auth?.token;
     if (!token) return next(new Error('AUTH_REQUIRED'));
     try {
-      const decoded = jwt.verify(token, getJwtSecret()) as {
+      const decoded = jwt.verify(token, getJwtSecret(), { algorithms: ['HS256'] }) as {
         userId?: string;
         id?: string;
         email?: string;

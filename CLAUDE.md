@@ -1,8 +1,12 @@
 # CLAUDE.md — code.scriet Club Platform
 
+> **For AI Agents:** This file is the single source of truth. Read it fully before making any changes. Do NOT explore the codebase speculatively — everything needed is documented here.
+
+---
+
 ## Project Overview
 
-**code.scriet** is a full-stack web platform for CCSU's (Chaudhary Charan Singh University) coding club. It handles events, announcements, team management, achievements, hiring applications, a professional/alumni network, live quizzes, a code playground, and certificate generation.
+**code.scriet** is a full-stack monorepo web platform for CCSU's (Chaudhary Charan Singh University) coding club. It handles events, announcements, team management, achievements, hiring applications, a professional/alumni network, live quizzes, a code playground, certificate generation, QR attendance tracking, and a credits/acknowledgements system.
 
 **Production URLs:**
 - Frontend: `https://codescriet.dev`
@@ -10,84 +14,508 @@
 - Playground: `https://code.codescriet.dev`
 - Code Executor Worker: Cloudflare Worker (proxies to Wandbox API)
 
+---
+
+## Hard Constraints
+
+These rules are non-negotiable. Never propose a solution that violates them without an explicit override instruction from the user.
+
+1. **Free-tier only (512 MB RAM):** The Render API service runs on the free tier with a 512 MB RAM ceiling. Do not introduce in-memory data structures that grow proportionally with user/player count (e.g., per-session chat buffers, unbounded caches). The safe working ceiling is ~900 concurrent quiz players.
+2. **WebSocket-only for real-time:** All real-time quiz and attendance communication goes through Socket.io WebSocket transport. Never introduce HTTP long-polling or SSE for real-time quiz events.
+3. **Prisma connection pool is frozen:** The pool config is deliberately tuned for Neon serverless concurrent connection limits. Do not alter the `datasource` block, add pool middleware, or change connection limits without explicit approval.
+4. **Node memory cap in production:** `--max-old-space-size=400` must be present in the production start script to leave headroom beneath the 512 MB limit.
+5. **`prisma migrate dev --create-only` is mandatory:** Always generate migration files with `--create-only` and review the SQL before applying. Never run bare `prisma migrate dev` against a shared or production database — it can OOM on constrained machines.
+6. **Optimization code is frozen during UI work:** Do not touch quiz scoring logic, leaderboard calculation, or socket throttle configs when working on UI-only tasks. These live in `apps/api/src/quiz/quizSocket.ts`. Strict separation.
+7. **Leaderboard broadcasts top 10 only:** The `leaderboard_update` socket event sends only the top 10 players. This is a deliberate payload cap — do not expand the count.
+8. **`answer_count_update` throttle is fixed at 1000 ms:** The server throttles this broadcast to one emission per second. Do not lower the interval.
+9. **`my_rank_update` is a unicast:** This event is sent only to the individual player's socket. It must never become a broadcast.
+10. **Phase transitions are server-authoritative:** Quiz phase changes (`start`, `next_question`, `end`, `pause`, `resume`) are always triggered server-side via timers or explicit host action. Client-clock / schedule-based transitions are forbidden — they break pause/resume and extend-time controls.
+
+---
+
+## Response Standards
+
+When generating code or architectural proposals for this codebase:
+
+- **Be stack-specific:** Reference exact file paths, Prisma model names, and existing utility functions. "Use a cache" is not acceptable — "add a bounded Map in `quizStore.ts`" is.
+- **Flag O(n²) patterns immediately:** If a proposed solution nests iteration over players inside a questions loop (or any unbounded × unbounded pattern), call it out with the complexity class and the break-even value of n before anything else.
+- **Socket event documentation format:** When adding a new Socket.io event, always document: `event_name` → direction (server→client or client→server) → payload TypeScript interface → trigger condition → unicast or broadcast.
+- **Prisma N+1 annotation:** Any query inside a loop that cannot be batched must be annotated `// N+1: consider batching` and explain why it is acceptable at current scale or state the batching path.
+- **Free-tier impact statement:** For any non-trivial new feature, estimate the peak memory delta (bytes × expected concurrent users) and confirm it fits within the 512 MB constraint.
+- **No new infrastructure:** Never suggest Redis, message queues, separate worker processes, or any paid external service. We are on free tier.
+
+---
+
 ## Monorepo Structure
 
 ```
 club_site/
 ├── apps/
-│   ├── api/          # Express.js backend (TypeScript)
-│   ├── web/          # React frontend (Vite + TypeScript)
-│   └── playground/   # Code playground (React frontend + Express execute-server)
-├── packages/         # Shared packages (currently unused)
-├── prisma/           # Database schema and migrations
-│   ├── schema.prisma
-│   └── seed.ts
+│   ├── api/                    # Express.js backend (TypeScript, ESM)
+│   │   ├── src/
+│   │   │   ├── index.ts        # App entry point — mounts all routers
+│   │   │   ├── config/
+│   │   │   │   └── passport.ts       # Passport.js Google + GitHub OAuth strategies
+│   │   │   ├── middleware/
+│   │   │   │   ├── auth.ts           # authMiddleware + getAuthUser()
+│   │   │   │   └── role.ts           # requireRole()
+│   │   │   ├── routes/
+│   │   │   │   ├── auth.ts           # /api/auth/*
+│   │   │   │   ├── events.ts         # /api/events/*
+│   │   │   │   ├── registrations.ts  # /api/registrations/*
+│   │   │   │   ├── announcements.ts  # /api/announcements/*
+│   │   │   │   ├── team.ts           # /api/team/*
+│   │   │   │   ├── achievements.ts   # /api/achievements/*
+│   │   │   │   ├── qotd.ts           # /api/qotd/*
+│   │   │   │   ├── users.ts          # /api/users/*
+│   │   │   │   ├── stats.ts          # /api/stats/*
+│   │   │   │   ├── settings.ts       # /api/settings/*
+│   │   │   │   ├── hiring.ts         # /api/hiring/*
+│   │   │   │   ├── certificates.ts   # /api/certificates/*
+│   │   │   │   ├── signatories.ts    # /api/signatories/*
+│   │   │   │   ├── upload.ts         # /api/upload/*
+│   │   │   │   ├── network.ts        # /api/network/*
+│   │   │   │   ├── audit.ts          # /api/audit-logs/*
+│   │   │   │   ├── mail.ts           # /api/mail/*
+│   │   │   │   ├── playground.ts     # /api/playground/*
+│   │   │   │   ├── credits.ts        # /api/credits/*  ← NEW
+│   │   │   │   ├── attendance.ts     # /api/attendance/*
+│   │   │   │   └── sitemap.ts        # /sitemap.xml, /robots.txt, IndexNow
+│   │   │   ├── attendance/
+│   │   │   │   └── attendanceSocket.ts  # Socket.io /attendance namespace
+│   │   │   ├── quiz/
+│   │   │   │   ├── quizRouter.ts     # /api/quiz/* REST routes
+│   │   │   │   ├── quizSocket.ts     # Socket.io /quiz namespace
+│   │   │   │   └── quizStore.ts      # In-memory quiz state (Map<quizId, QuizRoom>)
+│   │   │   ├── lib/
+│   │   │   │   └── prisma.ts         # Prisma client + withRetry()
+│   │   │   └── utils/
+│   │   │       ├── attendanceToken.ts # JWT sign/verify for attendance tokens
+│   │   │       ├── audit.ts          # auditLog() helper
+│   │   │       ├── email.ts          # emailService (Brevo/Sendinblue)
+│   │   │       ├── eventStatus.ts    # updateEventStatuses()
+│   │   │       ├── generateCertificatePDF.ts  # @react-pdf/renderer PDF generation
+│   │   │       ├── processSignatureImage.ts  # sharp-based signature image cleanup
+│   │   │       ├── init.ts           # initializeDatabase(), slug population
+│   │   │       ├── jwt.ts            # getJwtSecret(), signToken(), verifyToken()
+│   │   │       ├── logger.ts         # winston logger + requestLogger middleware
+│   │   │       ├── response.ts       # ApiResponse.success() / ApiResponse.error()
+│   │   │       ├── sanitize.ts       # sanitizeHtml() / sanitizeText()
+│   │   │       ├── scheduler.ts      # startReminderScheduler() / stopReminderScheduler()
+│   │   │       └── socket.ts         # initializeSocket() — Socket.io setup
+│   │   └── public/
+│   │       └── logos/               # Certificate fonts + logos (base64 or TTF/WOFF)
+│   │           ├── GreatVibes.ttf
+│   │           ├── Cinzel-Regular.woff / Cinzel-Bold.woff
+│   │           ├── CormorantGaramond.ttf / CormorantGaramond-Italic.ttf
+│   │           └── PlayfairDisplay-Bold.woff
+│   │
+│   ├── web/                    # React frontend (Vite + TypeScript)
+│   │   └── src/
+│   │       ├── App.tsx               # Router, lazy routes, QueryClient
+│   │       ├── context/
+│   │       │   ├── AuthContext.tsx   # useAuth() — token, user, login, logout
+│   │       │   └── SettingsContext.tsx # useSettings() — settings from /api/settings/public
+│   │       ├── lib/
+│   │       │   ├── api.ts            # All API calls + TypeScript interfaces
+│   │       │   ├── error.ts          # extractApiErrorMessage()
+│   │       │   └── utils.ts          # cn() (clsx + tailwind-merge)
+│   │       ├── components/
+│   │       │   ├── auth/
+│   │       │   │   └── ProtectedRoute.tsx  # minRole prop guard
+│   │       │   ├── dashboard/
+│   │       │   │   └── DashboardLayout.tsx # Sidebar nav (user + core + admin sections)
+│   │       │   ├── layout/
+│   │       │   │   ├── Layout.tsx    # Public page wrapper (Navbar + Footer)
+│   │       │   │   ├── Navbar.tsx
+│   │       │   │   └── Footer.tsx
+│   │       │   ├── SEO.tsx           # <Helmet> SEO tags
+│   │       │   └── ui/               # shadcn/ui components (button, card, input, etc.)
+│   │       └── pages/
+│   │           ├── HomePage.tsx
+│   │           ├── AboutPage.tsx
+│   │           ├── EventsPage.tsx / EventDetailPage.tsx
+│   │           ├── TeamPage.tsx / TeamMemberProfilePage.tsx
+│   │           ├── AchievementsPage.tsx / AchievementDetailPage.tsx
+│   │           ├── AnnouncementsPage.tsx / AnnouncementDetailPage.tsx
+│   │           ├── SignInPage.tsx
+│   │           ├── JoinUsPage.tsx
+│   │           ├── AuthCallbackPage.tsx
+│   │           ├── NetworkPage.tsx
+│   │           ├── JoinOurNetworkPage.tsx
+│   │           ├── PrivacyPolicyPage.tsx
+│   │           ├── ContactPage.tsx
+│   │           ├── CreditsPage.tsx         # ← NEW: public /credits page
+│   │           ├── VerifyCertificatePage.tsx
+│   │           ├── network/
+│   │           │   ├── NetworkOnboarding.tsx
+│   │           │   ├── NetworkStatusPage.tsx
+│   │           │   └── NetworkProfilePage.tsx
+│   │           ├── dashboard/
+│   │           │   ├── DashboardOverview.tsx
+│   │           │   ├── DashboardEvents.tsx
+│   │           │   ├── DashboardAnnouncements.tsx
+│   │           │   ├── DashboardLeaderboard.tsx
+│   │           │   ├── DashboardCertificates.tsx
+│   │           │   ├── CreateEvent.tsx
+│   │           │   ├── CreateAnnouncement.tsx
+│   │           │   ├── CreateQOTD.tsx
+│   │           │   ├── ProfilePage.tsx
+│   │           │   ├── ImageUploadTool.tsx
+│   │           │   ├── EditTeamProfile.tsx
+│   │           │   ├── EditNetworkProfile.tsx
+│   │           │   └── QuizManager.tsx
+│   │           ├── admin/
+│   │           │   ├── AdminUsersRealtime.tsx
+│   │           │   ├── AdminTeam.tsx
+│   │           │   ├── AdminAchievements.tsx
+│   │           │   ├── AdminSettings.tsx
+│   │           │   ├── AdminEventRegistrations.tsx
+│   │           │   ├── EditEvent.tsx
+│   │           │   ├── AdminHiring.tsx
+│   │           │   ├── AdminCertificates.tsx
+│   │           │   ├── AdminNetwork.tsx
+│   │           │   ├── AdminCredits.tsx    # ← NEW: admin /admin/credits page
+│   │           │   ├── AdminAuditLog.tsx
+│   │           │   └── AdminMail.tsx
+│   │           └── quiz/
+│   │               ├── ActiveQuizList.tsx
+│   │               ├── QuizPage.tsx
+│   │               ├── QuizResultsPage.tsx
+│   │               ├── AdminQuizCreator.tsx
+│   │               └── QuizJoinPage.tsx
+│   │
+│   └── playground/             # Code playground (separate Vite app + execute-server)
+│       ├── execute-server.js   # Express.js (plain JS) execute server
+│       └── src/                # React frontend for code editor
+│
+├── packages/                   # Shared packages (currently unused)
+├── prisma/
+│   ├── schema.prisma           # Full DB schema (see section below)
+│   └── seed.ts                 # Seeds super admin + default Settings row
 ├── workers/
-│   └── executor.js   # Cloudflare Worker for code execution proxy
-├── scripts/          # Shell scripts (migrate, free ports)
-├── render.yaml       # Render deployment blueprint (4 services)
+│   └── executor.js             # Cloudflare Worker (code execution proxy)
+├── scripts/                    # Shell scripts (migrate, free ports)
+├── render.yaml                 # Render deployment blueprint (4 services)
 └── .github/workflows/ci.yml
 ```
+
+---
 
 ## Tech Stack
 
 | Layer | Technology |
 |-------|-----------|
-| Backend | Express.js, TypeScript, Node.js 20 |
-| Frontend | React 18, Vite, TypeScript, TailwindCSS |
+| Backend | Express.js, TypeScript, Node.js 20, ESM (`"type": "module"`) |
+| Frontend | React 18, Vite, TypeScript, TailwindCSS, shadcn/ui, Zustand (quiz UI state), Recharts (analytics charts) |
 | Database | PostgreSQL (Neon serverless) via Prisma ORM |
-| Auth | Passport.js (Google, GitHub OAuth), JWT, bcryptjs |
-| Real-time | Socket.io (quiz system, live updates) |
-| Email | Brevo (Sendinblue) API via `sib-api-v3-sdk` |
+| Auth | Passport.js (Google, GitHub OAuth), JWT (7-day), bcryptjs |
+| Real-time | Socket.io (`/quiz` namespace) |
+| Email | Brevo REST API (direct HTTP fetch to `https://api.brevo.com/v3/smtp/email`, auth via `BREVO_API_KEY`) |
 | File Storage | Cloudinary (images, certificate PDFs) |
-| PDF | @react-pdf/renderer (server-side certificate generation) |
+| PDF | `@react-pdf/renderer` (server-side certificate generation) |
+| Image Processing | `sharp` (signature image cleanup — background removal, contrast, threshold) |
 | Data Export | ExcelJS (event registrations, user lists) |
-| Deployment | Render (4 services), Cloudflare Workers |
+| QR Code | `qrcode.react ^4.2.0` (frontend rendering); `html5-qrcode` (scanning — used in attendance scanner) |
+| Animations | Framer Motion (frontend) |
+| Deployment | Render (4 services, **free tier — 512 MB RAM**), Cloudflare Workers |
 | Package Manager | npm with workspaces |
+
+---
 
 ## Key Commands
 
 ```bash
 # Development
-npm run dev                    # Start API + Web in dev mode (concurrently)
+npm run dev                    # API + Web (concurrently)
 npm run dev:api                # API only (port 5001)
 npm run dev:web                # Web only (port 5173)
 
 # Build
-npm run build                  # Build all workspaces
-npm run build:api              # Build API only
-npm run build:web              # Build Web only
+npm run build                  # All workspaces
+npm run build:api
+npm run build:web
 
 # Database
-npm run db:migrate             # Run migrations (dev)
-npm run db:migrate:deploy      # Run migrations (production)
+npm run db:migrate             # Dev migrations — WARNING: see note below
+npm run db:migrate:deploy      # Production migrations
 npm run db:generate            # Regenerate Prisma client
-npm run db:push                # Push schema without migration
-npm run db:seed                # Seed super admin + default settings
+npm run db:push                # Push schema (no migration file)
+npm run db:seed                # Seed super admin + default Settings
 npm run db:studio              # Open Prisma Studio
 
+# IMPORTANT — always use --create-only to generate migrations without auto-applying:
+# npx prisma migrate dev --create-only --name <migration_name>
+# Review the generated SQL in prisma/migrations/ then apply with db:migrate:deploy
+
 # Linting
-npm run lint:api               # Lint API
-npm run lint:web               # Lint Web
+npm run lint:api
+npm run lint:web
 ```
 
-## Database Schema (Key Models)
+---
 
-- **User** — id, name, email, password?, oauthProvider, oauthId, role, avatar, profile fields, profileSlug
-- **Event** — id, title, slug, description, dates, venue, capacity, registrations, customFields (JSON), status enum
-- **EventRegistration** — userId + eventId (unique), customFieldValues (JSON), reminderSentAt
-- **Announcement** — title, content (rich HTML), slug, priority, pinned
-- **TeamMember** — name, role, position, social links
-- **Achievement** — title, description, image, date
-- **QOTD** — question of the day, active flag
-- **HiringApplication** — userId, type enum, status enum, answers (JSON)
-- **NetworkProfile** — userId (1:1), type (professional/alumni), bio (rich HTML), skills, experience, verified flag, slug + legacySlugs
-- **Certificate** — eventId, recipientName/Email, certificateCode (unique), pdfUrl, verified, viewCount
-- **Quiz/QuizQuestion/QuizParticipant/QuizAnswer** — live quiz system with scoring
-- **Execution** — playground code execution records
-- **Snippet** — saved playground code snippets
-- **AuditLog** — admin action logging
-- **Settings** — singleton (id='default'), feature toggles, social URLs, email templates
+## All API Routes (Mounted in `apps/api/src/index.ts`)
+
+| Path | Router | Auth Required |
+|------|--------|---------------|
+| `/api/auth/*` | authRouter | No (rate-limited: 50/15min) |
+| `/api/events/*` | eventsRouter | Some routes |
+| `/api/registrations/*` | registrationsRouter | Yes |
+| `/api/announcements/*` | announcementsRouter | Some |
+| `/api/team/*` | teamRouter | Some |
+| `/api/achievements/*` | achievementsRouter | Some |
+| `/api/qotd/*` | qotdRouter | Some |
+| `/api/users/*` | usersRouter | Yes |
+| `/api/stats/*` | statsRouter | No (public) |
+| `/api/settings/*` | settingsRouter | Some |
+| `/api/hiring/*` | hiringRouter | Some |
+| `/api/certificates/*` | certificatesRouter | Some |
+| `/api/signatories/*` | signatoriesRouter | Admin |
+| `/api/upload/*` | uploadRouter | Yes |
+| `/api/network/*` | networkRouter | Some |
+| `/api/audit-logs/*` | auditRouter | Admin |
+| `/api/mail/*` | mailRouter | Admin |
+| `/api/quiz/*` | quizRouter | Some |
+| `/api/playground/*` | playgroundRouter | Some |
+| `/api/credits/*` | creditsRouter | GET=public, POST/PUT/DELETE=Admin |
+| `/api/attendance/*` | attendanceRouter | Some (user QR + history = auth, admin endpoints = Admin, summary = public) |
+| `/api/indexnow` | indexNowRouter | Admin |
+| `/sitemap.xml` | sitemapRouter | Public |
+| `/robots.txt` | robotsRouter | Public |
+| `/health` | inline | Public (no DB) |
+| `/health/db` | inline | Public (DB ping, 2s timeout) |
+| `/ping` | inline | Public (plain text "pong") |
+| `/api/test-email` | inline | Admin |
+
+**Rate Limiting:** General API = 500 req/15min per IP; Auth = 50 req/15min (successful requests not counted).
+
+---
+
+## Credits System (NEW)
+
+### DB Model (`prisma/schema.prisma`)
+```prisma
+model Credit {
+  id            String      @id @default(uuid())
+  title         String
+  description   String?     @db.Text
+  category      String
+  teamMemberId  String?     @map("team_member_id")
+  teamMember    TeamMember? @relation(fields: [teamMemberId], references: [id], onDelete: SetNull)
+  order         Int         @default(0)
+  createdAt     DateTime    @default(now()) @map("created_at")
+  updatedAt     DateTime    @updatedAt @map("updated_at")
+
+  @@index([category, order])
+  @@map("credits")
+}
+```
+`TeamMember` also has a `credits Credit[]` relation.
+
+### API Endpoints (`apps/api/src/routes/credits.ts`)
+- `GET /api/credits` — list all, optional `?teamMemberId=<uuid>` filter. Public.
+- `GET /api/credits/:id` — single credit. Public.
+- `POST /api/credits` — create. **Admin only.**
+- `PUT /api/credits/:id` — update. **Admin only.**
+- `DELETE /api/credits/:id` — delete. **Admin only.**
+- `PATCH /api/credits/reorder` — bulk reorder `{ credits: [{id, order}] }`. **Admin only.**
+
+Response format: `{ success: true, data: Credit }`.
+
+### Frontend
+- **Public page:** `apps/web/src/pages/CreditsPage.tsx` → route `/credits`
+  - Fetches via `api.getCredits()`
+  - Groups by category, shows styled cards with team member avatar (links to `/team/:slug`)
+  - Categories with built-in styles: `Founding`, `Platform`, `Design`, `Events`, `Content`, `Infrastructure`, `Special Thanks`
+- **Admin page:** `apps/web/src/pages/admin/AdminCredits.tsx` → route `/admin/credits`
+  - CRUD UI with category presets + custom category input
+  - Team member search/filter dropdown
+  - Order field for display ordering
+
+### API Client (`apps/web/src/lib/api.ts`)
+```typescript
+export interface Credit {
+  id: string;
+  title: string;
+  description?: string;
+  category: string;
+  teamMemberId?: string;
+  teamMember?: { id: string; name: string; slug?: string; imageUrl: string; role: string; team: string };
+  order: number;
+  createdAt: string;
+}
+
+api.getCredits(teamMemberId?)
+api.getCredit(id)
+api.createCredit(data, token)
+api.updateCredit(id, data, token)
+api.deleteCredit(id, token)
+api.reorderCredits(credits, token)  // PATCH /api/credits/reorder
+```
+
+---
+
+## Full Database Schema (Key Models)
+
+All models use PostgreSQL via Prisma. `DATABASE_URL` = pooler, `DIRECT_URL` = non-pooler (required for migrations to avoid P1002 advisory lock errors).
+
+### User
+```
+id, name, email (unique), password?, oauthProvider, oauthId,
+role (Role enum), avatar, bio, githubUrl, linkedinUrl, twitterUrl,
+websiteUrl, branch, course, phone, profileCompleted, year,
+createdAt, updatedAt
+Relations: announcements, registrations, hiringApplications,
+           qotdSubmissions, networkProfile, teamMember,
+           createdQuizzes, quizParticipants, quizAnswers, certificates
+```
+
+### Settings (singleton, id='default')
+```
+clubName, clubEmail, clubDescription, registrationOpen, maxEventsPerUser,
+announcementsEnabled, showAchievements, showLeaderboard, showQOTD,
+discordUrl, githubUrl, instagramUrl, linkedinUrl, twitterUrl,
+hiringEnabled, hiringTechnical, hiringDsaChamps, hiringDesigning,
+hiringSocialMedia, hiringManagement,
+emailAnnouncementBody, emailEventBody, emailFooterText,
+emailWelcomeBody, emailNetworkVerifiedBody, emailNetworkRejectedBody,
+show_tech_blogs, showNetwork, mailingEnabled,
+certificatesEnabled, playgroundEnabled, playgroundDailyLimit
+```
+
+### Event
+```
+id, title, slug (unique), description, status (EventStatus),
+startDate, endDate?, registrationStartDate?, registrationEndDate?,
+location?, venue?, capacity?, imageUrl, createdBy,
+eventType?, prerequisites?, registrationFields (JSON)?,
+agenda?, faqs (JSON)?, featured, highlights?, imageGallery (JSON)?,
+learningOutcomes?, resources (JSON)?, shortDescription (varchar 300)?,
+speakers (JSON)?, tags (String[]), targetAudience?, videoUrl?, slug,
+allowLateRegistration
+Relations: registrations, certificates
+```
+
+### EventRegistration
+```
+id, userId, eventId, timestamp, customFieldResponses (JSON)?,
+reminderSentAt?, attendanceToken? (unique), attended (default false),
+scannedAt?, manualOverride (default false)
+Unique: [userId, eventId]
+Index: [eventId, attended]
+```
+
+### Announcement
+```
+id, title, body, slug (unique), priority (AnnouncementPriority),
+createdBy, featured, pinned, shortDescription?, imageUrl?, imageGallery?,
+attachments (JSON)?, links (JSON)?, tags (String[]), expiresAt?,
+createdAt, updatedAt
+```
+
+### TeamMember
+```
+id, name, role, team, imageUrl, github?, linkedin?, twitter?,
+instagram?, order, userId? (unique FK to User), slug? (unique),
+legacySlugs (String[]), bio?, vision?, story?, expertise?,
+achievements?, website?, createdAt
+Relations: user, credits
+```
+
+### Achievement
+```
+id, title, slug (unique), description, content?, shortDescription?,
+eventName?, achievedBy, imageUrl?, imageGallery (JSON)?, date,
+tags (String[]), featured, createdAt, updatedAt
+```
+
+### QOTD + QOTDSubmission
+```
+QOTD: id, date (unique), question, problemLink, difficulty, createdAt
+QOTDSubmission: id, userId, qotdId, timestamp. Unique: [userId, qotdId]
+```
+
+### AuditLog
+```
+id, userId, action, entity, entityId?, metadata (JSON)?, timestamp
+```
+
+### HiringApplication
+```
+id, name, email (unique), phone?, department, year, skills?,
+applyingRole (ApplyingRole), status (ApplicationStatus), userId?,
+createdAt, updatedAt
+```
+
+### NetworkProfile (1:1 with User)
+```
+id, userId (unique), slug? (unique), legacySlugs (String[]),
+fullName, designation, company, industry, bio?, profilePhoto?,
+phone?, linkedinUsername?, twitterUsername?, githubUsername?,
+personalWebsite?, connectionType (NetworkConnectionType),
+connectionNote?, connectedSince?,
+passoutYear?, degree?, branch?, rollNumber?, achievements?,
+currentLocation?, vision?, story?, expertise?, adminNotes?,
+events (JSON, array), isFeatured, status (NetworkStatus),
+verifiedAt?, verifiedBy?, rejectionReason?,
+isPublic, displayOrder, createdAt, updatedAt
+```
+
+### Certificate
+```
+id, certId (unique — public human-readable e.g. "ABCD-EFGH-IJKL"),
+recipientId? (FK User), recipientName, recipientEmail,
+eventId? (FK Event), eventName, type (CertType),
+position?, domain?, description?, template (default:"gold"),
+pdfUrl?,
+signatoryId? (FK Signatory), signatoryName, signatoryTitle, signatoryImageUrl,
+facultySignatoryId? (FK Signatory), facultyName, facultyTitle, facultySignatoryImageUrl,
+issuedBy, issuedAt,
+emailSent, emailSentAt?, lastEmailResentAt?,
+isRevoked, revokedAt?, revokedBy?, revokedReason?,
+viewCount, createdAt, updatedAt
+Unique: [recipientEmail, eventId, type]
+```
+
+### Signatory
+```
+id, name, title (default:"Club President"), signatureUrl?,
+isActive, createdAt, updatedAt
+Relations: certificatesAsPrimary, certificatesAsFaculty
+```
+
+### Credit
+*(see Credits System section above)*
+
+### Quiz / QuizQuestion / QuizParticipant / QuizAnswer
+*(see Quiz System Architecture section below)*
+
+### Playground Models
+```
+Execution: id, userId, language, code?, outputText?, executedAt, durationMs?, status (ExecutionStatus)
+UserPlaygroundPrefs: userId (PK), theme, fontSize, keybinding, lastLanguage
+Snippet: id, userId, title, language, code, isPublic, shareToken? (unique), createdAt, updatedAt
+PlaygroundDailyUsage: [userId, usageDate] (composite PK), count, updatedAt
+PlaygroundLimitReset: id, userId, resetBy, resetAt, note?
+```
+
+### Enums
+```
+Role: PUBLIC | USER | CORE_MEMBER | ADMIN | PRESIDENT | MEMBER | NETWORK
+EventStatus: UPCOMING | ONGOING | PAST
+AnnouncementPriority: LOW | MEDIUM | HIGH | URGENT
+ApplyingRole: TECHNICAL | DSA_CHAMPS | DESIGNING | SOCIAL_MEDIA | MANAGEMENT
+ApplicationStatus: PENDING | INTERVIEW_SCHEDULED | SELECTED | REJECTED
+CertType: PARTICIPATION | COMPLETION | WINNER | SPEAKER
+QuizStatus: DRAFT | WAITING | ACTIVE | FINISHED | ABANDONED
+QuizQuestionType: MCQ | TRUE_FALSE | SHORT_ANSWER | POLL | RATING | MULTI_SELECT | OPEN_ENDED
+NetworkConnectionType: GUEST_SPEAKER | GMEET_SESSION | EVENT_JUDGE | MENTOR | INDUSTRY_PARTNER | ALUMNI | OTHER
+NetworkStatus: PENDING | VERIFIED | REJECTED
+ExecutionStatus: SUCCESS | ERROR | TIMEOUT
+```
+
+---
 
 ## Role Hierarchy
 
@@ -101,105 +529,491 @@ ADMIN     = 4
 PRESIDENT = 4  (same level as ADMIN)
 ```
 
-Super admin is determined by matching `process.env.SUPER_ADMIN_EMAIL`. Only super admin and PRESIDENT can modify settings.
+Super admin is determined by `process.env.SUPER_ADMIN_EMAIL`. Only super admin and PRESIDENT can modify settings.
+
+Use `requireRole('ADMIN')` for admin-only routes. PRESIDENT is treated as ADMIN by the role middleware.
+
+---
 
 ## Auth Flow
 
-1. **Email/Password:** Register/login → JWT returned in response body + `scriet_session` cookie
+1. **Email/Password:** Register/login → JWT in response body + `scriet_session` cookie set.
 2. **OAuth (Google/GitHub):**
    - Redirect to provider → callback → Passport creates/finds user
    - Network intent stored in short-lived cookies (`oauth_intent`, `network_type`)
    - Redirect to `/auth/callback#token=<jwt>&intent=...`
    - Frontend extracts token from hash, stores in `localStorage`
    - Cross-subdomain cookie `scriet_session` set on `.codescriet.dev` for playground access
-3. **Token:** JWT with 7-day expiry, contains `userId`, `email`, `name`, `role`
-4. **Middleware:** `authMiddleware` extracts token from Bearer header or cookie, does DB lookup
+3. **Token:** JWT, 7-day expiry, contains `{ userId, email, name, role }`
+4. **Middleware:** `authMiddleware` (`apps/api/src/middleware/auth.ts`) — reads token from `Authorization: Bearer <token>` header OR `scriet_session` cookie. Does DB lookup per request.
+5. **Dev login:** `POST /api/auth/dev-login` (only when `ENABLE_DEV_AUTH=true`)
 
-## Quiz System Architecture
-
-- **In-memory only during active quiz** — `quizStore.ts` uses `Map<string, QuizRoom>`. No DB writes until quiz ends.
-- **Socket.io namespace:** `/quiz` with JWT auth middleware
-- **Events:** `join`, `start`, `next_question`, `submit_answer`, `end`, `pause`, `resume`, `extend_time`, `skip`, `kick`
-- **Scoring:** Base points (1000) + time bonus (faster = more points) + streak bonus (consecutive correct answers)
-- **Auto-advance:** Server-side timers advance questions. Pausing clears timers.
-- **Rate limiting:** 500ms per user per answer submission
-- **Persistence:** On quiz end, results written to `QuizParticipant` + `QuizAnswer` tables. Graceful shutdown persists active sessions as `ABANDONED`.
+---
 
 ## Certificate System
 
-- PDF generated server-side via `@react-pdf/renderer`
-- Logo pre-loaded as base64 (CCSU logo from `apps/api/public/logos/`)
-- QR code embedded (links to public verification URL)
-- Uploaded to Cloudinary, URL stored in DB
-- Bulk generation supported (loops through registered users)
-- Public verification at `/api/certificates/verify/:code` (increments view count)
+- PDF generated server-side via `@react-pdf/renderer` in `apps/api/src/utils/generateCertificatePDF.ts`
+- **Fonts** (loaded from `apps/api/public/logos/`):
+  - `GreatVibes` (.ttf) — cursive signature (fallback when no signature image)
+  - `Cinzel` (.woff, 400 + 700) — headings
+  - `CormorantGaramond` (.ttf, regular + italic) — serif body
+  - `PlayfairDisplay` (.woff, 700) — recipient name
+- **Initialization:** `initFonts()` must be called before `generateCertificatePDF()` (called automatically)
+- **`CertData` interface:**
+  ```typescript
+  { recipientName, eventName, type, position?, domain?, description?,
+    certId, issuedAt,
+    signatoryName, signatoryTitle?, signatoryImageUrl?,
+    facultyName?, facultyTitle?, facultySignatoryImageUrl?,
+    codescrietLogoUrl?, ccsuLogoUrl? }
+  ```
+- **Position formatting:** `formatPosition()` converts "1"/"1st" → "First Place", etc.
+- **Layout:** A4 Landscape (841.89 × 595.28 pt), maroon/gold palette
+- Logos are base64 data URIs passed in `CertData`
+- QR code embedded (links to `FRONTEND_URL/verify/:certId`)
+- Uploaded to Cloudinary, URL stored in `Certificate.pdfUrl`
+- Bulk generation supported
+- Public verification: `GET /api/certificates/verify/:code` (increments `viewCount`)
 - Emailed to recipients via Brevo
+
+### Dual Signature Mechanism
+
+Certificates support two signature rendering methods per signatory slot (primary + faculty):
+
+1. **Signature Image (preferred):** When a `Signatory` record has a `signatureUrl`, the image is processed through `processSignatureImage()` in `apps/api/src/utils/processSignatureImage.ts`:
+   - Fetches the image (URL or base64 data URI)
+   - Auto-corrects EXIF orientation (`.rotate()` — fixes rotated phone camera photos)
+   - Converts to grayscale, normalises contrast
+   - Median filter (3px) removes noise/specks, then sharpen (σ=1.2) enhances ink edges
+   - Detects dark backgrounds via mean luminance analysis — auto-inverts if light ink on dark paper
+   - Adaptive threshold (`mean * 0.65`, clamped [100, 200]) instead of hardcoded value
+   - Per-pixel alpha: ink → opaque black, background → fully transparent
+   - Trims transparent edges, resizes to fit (max 200×70 px)
+   - Returns base64 PNG data URI for embedding in the PDF
+   - If processing fails, returns `undefined` → triggers text fallback
+
+2. **Typed Name (fallback):** When no signature image is available (or processing fails), the signatory name is rendered in the `GreatVibes` handwritten-style font at 28pt, matching the original behavior.
+
+**Detection logic in generate routes:**
+- `POST /api/certificates/generate` and `POST /api/certificates/bulk` accept optional `signatoryId` and `facultySignatoryId` fields
+- `resolveSignatory()` helper in `certificates.ts` fetches the `Signatory` record by ID, processes the image via `sharp`, and returns both the processed image URL (for PDF) and the raw URL (for DB storage)
+- If no ID is provided, falls back to the `signatoryName`/`signatoryTitle` text fields
+- For custom signatories (no ID), `signatoryCustomImageUrl` / `facultyCustomImageUrl` can pass a Cloudinary URL directly — also processed through `processSignatureImage()`
+- Signature images are processed once per generate/bulk request (not per recipient)
+
+**Layout rules:**
+- Signature area: 190pt wide, positioned at bottom (58pt from bottom edge)
+- Image signatures: 150×50pt, `object-fit: contain`, centered
+- Text signatures: GreatVibes 28pt, centered
+- Below the signature (always shown): horizontal rule, name in Cinzel 11pt caps, title in CormorantGaramond 12pt italic
+- Primary signatory: left-aligned (78pt from left). Faculty signatory: right-aligned (78pt from right)
+
+---
+
+## Quiz System Architecture
+
+> The quiz platform is mature and optimized. All core performance work is done. Do not propose performance refactors unless a specific regression is identified. **Never touch socket event handlers or Prisma pool config during UI work** (Hard Constraint #6).
+
+### Server-Side Core
+
+- **In-memory during active quiz** — `quizStore.ts` uses `Map<string, QuizRoom>`. No DB writes until quiz ends.
+- **Socket.io namespace:** `/quiz` with JWT auth middleware.
+- **Phase transitions are server-authoritative.** See Hard Constraint #10 — never client-clock based.
+- **Scoring:** Base points (1000) + time bonus (faster = more) + streak bonus (consecutive correct). Logic in `apps/api/src/quiz/quizSocket.ts`.
+- **Auto-advance:** Server-side timers advance questions. Pausing clears timers.
+- **Rate limiting:** 500ms per user per answer submission.
+- **Persistence:** On quiz end → `QuizParticipant` + `QuizAnswer` tables. Graceful shutdown persists active sessions as `ABANDONED`.
+- **Capacity ceiling:** ~900 concurrent players is the safe limit on the free-tier Render instance.
+
+### Socket Events Reference
+
+| Event | Direction | Audience | Notes |
+|-------|-----------|----------|-------|
+| `join` | client→server | — | Player/host joins room |
+| `start` | client→server | — | Host starts quiz |
+| `next_question` | client→server | — | Host advances question |
+| `submit_answer` | client→server | — | Player submits; 500ms rate-limit per user |
+| `end` | client→server | — | Host ends quiz early |
+| `pause` / `resume` | client→server | — | Clears/restores server timers |
+| `extend_time` | client→server | — | Host adds seconds to current question |
+| `skip` | client→server | — | Host skips to results |
+| `kick` | client→server | — | Host kicks a player |
+| `question_start` | server→client | broadcast | New question begins |
+| `answer_result` | server→client | unicast | Per-player correct/points/streak |
+| `leaderboard_update` | server→client | broadcast | **Top 10 only** — Hard Constraint #7 |
+| `answer_count_update` | server→client | broadcast | **Throttled 1000ms** — Hard Constraint #8 |
+| `my_rank_update` | server→client | **unicast** | Per-player socket only — Hard Constraint #9 |
+| `player_status_update` | server→client | **unicast to host** | Emitted at 7 locations in `quizSocket.ts` |
+| `poll_results` | server→client | broadcast | Live poll distribution |
+| `quiz_end` | server→client | broadcast | Triggers 2s finale splash in `QuizPage.tsx` |
+| `podium` | server→client | broadcast | Final top-3 data for podium animation |
+
+### Frontend UI Components
+
+All files in `apps/web/src/pages/quiz/`:
+
+- **`QuizPage.tsx`** — Root quiz view. State machine: `idle | joining | lobby | question | revealing | paused | finished`. Contains 2s finale splash (`finaleShown` flag) before showing leaderboard.
+- **`QuizHostView.tsx`** — Host dashboard: sorted player list, live answer count, `player_status_update` grid, kick/skip controls.
+- **`QuizAdminPanel.tsx`** — Admin controls overlay (pause, resume, extend, end).
+- **`QuizLeaderboard.tsx`** — Mid-quiz: compact top-5. Final: animated 3-tier podium (rank 3 @ 500ms, rank 2 @ 800ms, rank 1 @ 1100ms) with pure CSS confetti keyframes (no external library).
+- **`QuizFinaleIntro.tsx`** — Full-screen 2s splash overlay triggered on `quiz_end`.
+- **`QuizResultsPage.tsx`** — Post-quiz analytics (creator/admin only): `HeatmapGrid` inline component (player × question accuracy), difficulty curve (`LineChart`), drop-off analysis, performance scatter (`ScatterChart`). Uses Recharts.
+- **`QuizQuestion.tsx`** — Active question with countdown timer.
+- **`QuizResultReveal.tsx`** — Per-question result reveal with answer distribution.
+- **`QuizAnswerDistribution.tsx`** — Answer choice bar visualization.
+- **`PollResultsView.tsx`** — Live poll results.
+- **`QuizLobby.tsx`** — Waiting room before quiz starts.
+
+Supporting files:
+- `apps/web/src/lib/quizScoring.ts` — Scoring formula utilities
+- `apps/web/src/hooks/useQuizSocket.ts` — Socket.io connection hook
+- `apps/web/src/hooks/useQuizTimer.ts` — Client-side countdown display (display only — does NOT drive phase transitions)
+
+### Zustand Store (`apps/web/src/lib/quizStore.ts`)
+
+```typescript
+// QuizPlayer — presence and answer status only
+interface QuizPlayer {
+  userId: string;
+  displayName: string;
+  answered?: boolean;
+  connected?: boolean;
+}
+
+// Key QuizState fields (per-player session stats live on QuizState, not QuizPlayer)
+myScore: number;
+myStreak: number;
+myRank: number | null;
+leaderboard: LeaderboardEntry[];  // top 10 from server
+answeredCount: number;
+players: Record<string, QuizPlayer>;
+```
+
+### Previously Evaluated & Rejected
+
+| Proposal | Reason Rejected |
+|----------|----------------|
+| Client-clock phase transitions | Breaks pause/resume and admin extend-time controls |
+| Removing `my_rank_update` unicast | UX regression — players need immediate personal rank without waiting for next broadcast |
+| HTTP polling fallback on Socket.io | Overhead incompatible with free-tier constraints at 100+ concurrent |
+
+---
+
+## Attendance System
+
+> **Status: IMPLEMENTED.** Full QR check-in + offline-first scanner + attendance certificates system.
+
+### Architecture
+
+- **QR payload:** Long-lived JWT (30-day expiry), containing `{ userId, eventId, registrationId, purpose: 'attendance' }`. Generated once per registration, stored in `EventRegistration.attendanceToken`.
+- **Token generation:** Automatic on event registration (in `registrations.ts`, after the serializable transaction). Utility: `apps/api/src/utils/attendanceToken.ts`.
+- **Scanning:** Core members (CORE_MEMBER+) can scan. `POST /api/attendance/scan` verifies the JWT, marks attendance. Offline scans batch-synced via `POST /api/attendance/scan-batch`.
+- **Offline support:** `useOfflineScanner` hook stores scans in localStorage (`attendance_scans:${eventId}`), syncs via 5 triggers: immediate, 3s interval batch, mount sync, visibilitychange, and `sendBeacon` on unload.
+- **QR scanner:** `html5-qrcode` (installed) with `{ fps: 10, qrbox: 280 }`, rear camera preference.
+- **QR display:** `qrcode.react` renders student's QR ticket. Visible from 30 min before event start to endDate (or startDate + 4h fallback).
+- **Uniqueness:** `[userId, eventId]` composite unique on EventRegistration prevents double-marking.
+
+### DB Fields (on EventRegistration)
+
+```prisma
+attendanceToken  String?   @unique @map("attendance_token")
+attended         Boolean   @default(false)
+scannedAt        DateTime? @map("scanned_at")
+manualOverride   Boolean   @default(false) @map("manual_override")
+@@index([eventId, attended])
+```
+
+### API Endpoints (`/api/attendance/*`)
+
+| Route | Method | Auth | Purpose |
+|-------|--------|------|---------|
+| `/my-qr/:eventId` | GET | User | Student's QR token + event info |
+| `/scan` | POST | CORE_MEMBER+ | Single QR scan (with `bypassWindow` option) |
+| `/scan-batch` | POST | CORE_MEMBER+ | Batch sync from offline scanner |
+| `/scan-beacon` | POST | Token-in-body (CORE_MEMBER+) | Beacon API fire-and-forget |
+| `/manual-checkin` | POST | CORE_MEMBER+ | Manual mark present by registrationId |
+| `/unmark` | PATCH | CORE_MEMBER+ | Undo check-in |
+| `/bulk-update` | PATCH | CORE_MEMBER+ | Bulk mark/unmark selected |
+| `/edit/:registrationId` | PATCH | CORE_MEMBER+ | Edit scannedAt timestamp |
+| `/regenerate-token/:registrationId` | POST | Admin | Generate new QR token |
+| `/search` | GET | CORE_MEMBER+ | Search attendees by name/email |
+| `/live/:eventId` | GET | CORE_MEMBER+ | Live stats + recent scans |
+| `/event/:eventId/full` | GET | CORE_MEMBER+ | Full attendance table data |
+| `/event/:eventId/export` | GET | CORE_MEMBER+ | Excel download (ExcelJS) |
+| `/email-absentees/:eventId` | POST | Admin | Email non-attendees via Brevo |
+| `/event/:eventId/certificate-recipients` | GET | Admin | Attendees + cert status for wizard |
+| `/my-history` | GET | User | Student attendance history |
+| `/event/:eventId/summary` | GET | Public | Attendance count for event detail |
+| `/backfill-tokens` | POST | Admin | Backfill tokens for existing registrations |
+
+### Socket.io `/attendance` Namespace
+
+| Event | Direction | Auth | Notes |
+|-------|-----------|------|-------|
+| `join:event` | client→server | CORE_MEMBER+ | Join room `event:${eventId}` |
+| `leave:event` | client→server | Any | Leave attendance room |
+| `attendance:marked` | server→client | broadcast to room | Emitted by scan/manual-checkin routes |
+| `attendance:unmarked` | server→client | broadcast to room | Emitted by unmark route |
+| `attendance:bulk` | server→client | broadcast to room | Emitted by bulk-update route |
+
+### Frontend Components
+
+| Component | Path | Purpose |
+|-----------|------|---------|
+| QRTicket | `apps/web/src/components/attendance/QRTicket.tsx` | Student QR display (countdown → QR → attended badge) |
+| AdminScanner | `apps/web/src/components/attendance/AdminScanner.tsx` | Offline-first camera scanner with audio feedback, manual check-in, live dashboard |
+| AttendanceManager | `apps/web/src/components/attendance/AttendanceManager.tsx` | Full CRUD data table (mark/unmark, bulk, export Excel, email absentees) |
+| EventCertificateWizard | `apps/web/src/components/attendance/EventCertificateWizard.tsx` | 3-step wizard: select recipients → configure signatory → generate. Post-generation management table |
+| EventAdminHub | `apps/web/src/components/attendance/EventAdminHub.tsx` | Tab page: Details, Scanner, Manage (all roles), + Certificates (admin only). Accessible via `/admin/events/:eventId/attendance` (Admin) or `/dashboard/events/:eventId/attendance` (CORE_MEMBER+) |
+| AttendanceHistory | `apps/web/src/components/attendance/AttendanceHistory.tsx` | Student attendance history (dashboard widget) |
+| useOfflineScanner | `apps/web/src/hooks/useOfflineScanner.ts` | localStorage offline sync hook (5 sync triggers) |
+
+---
 
 ## Playground Architecture
 
-- **Frontend:** React app at `code.codescriet.dev` with Monaco-like editor
-- **Execute Server:** Express.js (`apps/playground/execute-server.js`, plain JS)
-  - Proxies code execution to Cloudflare Worker → Wandbox API
-  - Fallback: Piston API for additional languages
-  - Python: Pyodide (runs in browser, no server call)
-  - Manages daily execution limits (200/day for C/C++/Java)
-  - Creates its own DB tables via raw SQL (not in Prisma schema)
+- **Frontend:** React app at `code.codescriet.dev` (separate Vite build)
+- **Execute Server:** `apps/playground/execute-server.js` (plain JS, port 5002)
+  - Proxies to Cloudflare Worker → Wandbox API
+  - Fallback: Piston API
+  - Python: Pyodide (browser-only, no server call)
+  - Daily execution limits (configurable, default 100/day per `playgroundDailyLimit` in Settings)
+  - Uses Prisma models: `PlaygroundDailyUsage`, `PlaygroundLimitReset`
 - **Auth:** Shares JWT secret with main API, reads `scriet_session` cookie
+
+---
 
 ## Important Patterns
 
-- **Neon cold-start retry:** `withRetry()` in `apps/api/src/lib/prisma.ts` retries on P1002/P2024 errors
-- **Serializable transaction retry:** Event registration uses serializable isolation with 3 retry attempts for P2034 conflicts
-- **Reservation-based email dedup:** Scheduler marks `reminderSentAt` before sending, rolls back on failure
-- **Keep-alive:** 4-minute interval `SELECT 1` to prevent Neon cold starts
-- **Email template caching:** 5-minute TTL cache for email template config from DB
+- **Neon cold-start retry:** `withRetry()` in `apps/api/src/lib/prisma.ts` — retries on Prisma errors P1002/P2024 (connection issues)
+- **Serializable transaction retry:** Event registration uses serializable isolation with 3 retry attempts for P2034 conflicts. Retries use jittered exponential backoff (50 ms × 2^attempt + random jitter) to prevent thundering-herd re-contention.
+- **Atomic attendance scan:** All attendance mark operations use `updateMany({ where: { id, attended: false } })`. Result `count === 0` signals a duplicate. Never use check-then-update for attendance — it creates a TOCTOU race condition.
+- **Reservation-based email dedup:** Scheduler marks `reminderSentAt` before sending; rolls back on send failure
+- **DB keep-alive:** Opt-in `SELECT 1` interval (set `ENABLE_DB_KEEPALIVE=true`, default 4 min). Off by default to reduce Neon compute burn.
+- **Background schedulers:** `ENABLE_BACKGROUND_SCHEDULERS=true` enables event status + reminder schedulers. Off by default.
+- **Email template caching:** 5-minute TTL cache for email template config from DB. On DB error, returns stale cache (if available) instead of empty defaults — prevents blank emails during Neon cold-start timeouts.
+- **ESM imports:** All API imports must use `.js` extension (even for `.ts` source files), e.g., `import { foo } from './bar.js'`
+- **Response format:** `{ success: true, data: T }` via `ApiResponse.success()` or raw `res.json()` depending on route. Frontend `api.ts` unwraps `.data` automatically.
+- **Prisma migrate --create-only:** Never apply schema changes with bare `prisma migrate dev`. Always generate first with `--create-only`, review the SQL in `prisma/migrations/`, then deploy with `db:migrate:deploy`. (Hard Constraint #5)
+- **Prisma N+1 guard:** Any query executed inside a loop must be annotated `// N+1: consider batching` with justification, or replaced with `findMany({ where: { id: { in: ids } } })` batching.
 
-## Environment Variables (Key)
+---
 
-| Variable | Required | Description |
-|----------|----------|-------------|
-| `DATABASE_URL` | Yes | PostgreSQL connection string (Neon) |
-| `JWT_SECRET` | Yes | JWT signing secret (checked against insecure defaults) |
-| `SUPER_ADMIN_EMAIL` | Yes | Email for super admin account |
-| `SUPER_ADMIN_PASSWORD` | Yes | Password for super admin (used in seed) |
-| `FRONTEND_URL` | Yes | Frontend origin for CORS and redirects |
-| `BACKEND_URL` | No | Backend URL (defaults to localhost:5001) |
-| `GOOGLE_CLIENT_ID/SECRET` | No | Google OAuth credentials |
-| `GITHUB_CLIENT_ID/SECRET` | No | GitHub OAuth credentials |
-| `CLOUDINARY_*` | No | Cloudinary cloud name, API key, secret |
-| `BREVO_API_KEY` | No | Brevo email API key |
-| `ENABLE_DEV_AUTH` | No | Enable dev-login endpoint (dev only) |
-| `ENABLE_REQUEST_LOGGING` | No | Enable request logging in production |
+## Frontend Routing (Full Route Map)
+
+All pages are lazy-loaded with `React.lazy()` + `<Suspense>`.
+
+### Public Routes
+| Path | Component |
+|------|-----------|
+| `/` | HomePage |
+| `/about` | AboutPage |
+| `/events` | EventsPage |
+| `/events/:id` | EventDetailPage |
+| `/announcements` | AnnouncementsPage |
+| `/announcements/:id` | AnnouncementDetailPage |
+| `/team` | TeamPage |
+| `/team/:slug` | TeamMemberProfilePage |
+| `/achievements` | AchievementsPage |
+| `/achievements/:id` | AchievementDetailPage |
+| `/signin` | SignInPage |
+| `/signup` | SignInPage (same) |
+| `/join-us` | JoinUsPage |
+| `/auth/callback` | AuthCallbackPage |
+| `/network` | NetworkPage |
+| `/network/onboarding` | NetworkOnboarding |
+| `/network/status` | NetworkStatusPage |
+| `/network/:slug` | NetworkProfilePage |
+| `/join-our-network` | JoinOurNetworkPage |
+| `/privacy-policy` | PrivacyPolicyPage |
+| `/credits` | **CreditsPage** ← NEW |
+| `/contact` | ContactPage |
+| `/verify` | VerifyCertificatePage |
+| `/verify/:certId` | VerifyCertificatePage |
+| `/quiz` | ActiveQuizList |
+| `/quiz/join` | QuizJoinPage |
+
+### Protected User Routes (`minRole="USER"`)
+| Path | Component |
+|------|-----------|
+| `/quiz/:quizId` | QuizPage |
+| `/quiz/:quizId/results` | QuizResultsPage |
+| `/quiz/create` | AdminQuizCreator |
+| `/dashboard` | DashboardLayout > DashboardOverview |
+| `/dashboard/events` | DashboardEvents |
+| `/dashboard/announcements` | DashboardAnnouncements |
+| `/dashboard/leaderboard` | DashboardLeaderboard |
+| `/dashboard/events/new` | CreateEvent |
+| `/dashboard/announcements/new` | CreateAnnouncement |
+| `/dashboard/qotd` | CreateQOTD |
+| `/dashboard/quiz` | QuizManager |
+| `/dashboard/upload` | ImageUploadTool |
+| `/dashboard/profile` | ProfilePage |
+| `/dashboard/team/:id/edit` | EditTeamProfile |
+| `/dashboard/network/edit/:id?` | EditNetworkProfile |
+| `/dashboard/certificates` | DashboardCertificates |
+
+### Protected CORE_MEMBER Routes (`minRole="CORE_MEMBER"`, inside dashboard)
+| Path | Component |
+|------|-----------|
+| `/dashboard/events/:eventId/attendance` | EventAdminHub (3 tabs: Details, Scanner, Manage) |
+
+### Protected Admin Routes (`minRole="ADMIN"`)
+| Path | Component |
+|------|-----------|
+| `/admin/users` | AdminUsersRealtime |
+| `/admin/team` | AdminTeam |
+| `/admin/achievements` | AdminAchievements |
+| `/admin/credits` | **AdminCredits** ← NEW |
+| `/admin/event-registrations` | AdminEventRegistrations |
+| `/admin/events/:id/edit` | EditEvent |
+| `/admin/events/:eventId/attendance` | EventAdminHub |
+| `/admin/hiring` | AdminHiring |
+| `/admin/network` | AdminNetwork |
+| `/admin/certificates` | AdminCertificates |
+| `/admin/audit-log` | AdminAuditLog (PRESIDENT/superAdmin only) |
+| `/admin/mail` | AdminMail |
+| `/admin/settings` | AdminSettings |
+
+---
+
+## Dashboard Sidebar Navigation
+
+`DashboardLayout.tsx` builds nav dynamically:
+
+**User nav** (always): Overview, My Events, Announcements, Live Quiz, Leaderboard (if `showLeaderboard`), My Profile, My Certificates (if `certificatesEnabled`)
+
+**Core Member nav** (CORE_MEMBER+): Create Event, Create Announcement, Manage QOTD, Quiz Manager, Upload Image
+
+**Admin nav** (ADMIN/PRESIDENT) — built by `getAdminNavItems()`:
+1. User Management
+2. Team Management
+3. Achievements
+4. **Credits** ← NEW (always shown)
+5. Hiring Applications (if `hiringEnabled`)
+6. Network Management (if `showNetwork`)
+7. Audit Log (PRESIDENT or superAdmin only)
+8. Event Registrations
+9. Certificates (if `certificatesEnabled`)
+10. Send Mail
+11. Settings
+
+---
+
+## Frontend API Client (`apps/web/src/lib/api.ts`)
+
+Base URL: `import.meta.env.VITE_API_URL || 'http://localhost:5001/api'`
+
+All requests use `fetch` with `credentials: 'include'` for cross-origin cookie support.
+
+**Key types exported:** `AuthProviders`, `User`, `Settings`, `Event`, `Registration`, `Announcement`, `TeamMember`, `Achievement`, `Credit`, `NetworkProfile`, `NetworkProfileInput`, `AuditLogEntry`, `HomePageData`
+
+**`api` object methods (full list):**
+- Auth: `getProviders`, `getMe`, `devLogin`, `register`, `login`, `exchangeAuthCode`, `logout`
+- Events: `getEvents`, `getEvent`, `createEvent`, `updateEvent`, `deleteEvent`
+- Registrations: `registerForEvent`, `cancelRegistration`, `getMyRegistrations`
+- Announcements: `getAnnouncements`, `getAnnouncement`, `createAnnouncement`, `updateAnnouncement`, `deleteAnnouncement`
+- Team: `getTeam`, `getTeamMember`, `getTeamMemberBySlug`, `createTeamMember`, `updateTeamMember`, `updateTeamMemberProfile`, `linkTeamMemberToUser`, `getMyTeamProfile`, `searchUsers`, `deleteTeamMember`
+- Achievements: `getAchievements`, `getFeaturedAchievements`, `getAchievement`, `createAchievement`, `updateAchievement`, `deleteAchievement`
+- **Credits:** `getCredits`, `getCredit`, `createCredit`, `updateCredit`, `deleteCredit`, `reorderCredits`
+- QOTD: `getTodayQOTD`, `getQOTDHistory`, `createQOTD`, `submitQOTD`, `getQOTDStats`
+- Stats: `getPublicStats`, `getHomePageData`, `getDashboardStats`
+- Users (Admin): `getUsers`, `getUser`, `updateUser`, `updateUserRole`, `deleteUser`
+- Settings: `getSettings`, `updateSettings`, `patchSetting`
+- Profile: `getProfile`, `updateProfile`, `changePassword`, `addPassword`
+- Hiring: `getMyHiringApplication`
+- Network (public): `getNetworkProfiles`, `getNetworkProfile`
+- Network (user): `joinNetwork`, `getMyNetworkProfile`, `createNetworkProfile`, `updateNetworkProfile`
+- Network (admin): `getNetworkPending`, `getNetworkAll`, `getNetworkPendingUsers`, `revertPendingNetworkUser`, `deletePendingNetworkUser`, `verifyNetworkProfile`, `rejectNetworkProfile`, `updateNetworkProfileAdmin`, `deleteNetworkProfile`, `getNetworkStats`
+- Audit Logs: `getAuditLogs`
+- Quiz: `getMyQuizDashboard`
+- Certificates: `getCertificates`, `generateCertificate`, `bulkGenerateCertificates`, `downloadCertificate`, `getMyCertificates`, `revokeCertificate`, `deleteCertificate`, `resendCertificateEmail`
+
+---
 
 ## Coding Conventions
 
-- **API routes:** Express Router, Zod validation, `ApiResponse.success()`/`ApiResponse.error()` for responses (though not consistently used — some routes use raw `res.json()`)
-- **Auth:** Always use `authMiddleware` + `requireRole()` middleware chain. Get user with `getAuthUser(req)`.
-- **Database:** Use Prisma client from `apps/api/src/lib/prisma.ts`. Wrap flaky queries in `withRetry()`.
-- **Logging:** Use `logger` from `apps/api/src/utils/logger.ts` (not `console.log`)
-- **HTML input:** Sanitize with `sanitizeHtml()`/`sanitizeText()` from `apps/api/src/utils/sanitize.ts`
-- **Frontend routing:** Lazy-loaded with `React.lazy()` + `Suspense`, protected by `ProtectedRoute` component
-- **State management:** React Query (`@tanstack/react-query`) for server state, React context for auth
-- **Imports:** Use `.js` extensions in API imports (ESM compatibility with TypeScript)
+- **API routes:** Express Router, Zod validation, `ApiResponse.success()`/`ApiResponse.error()` preferred. Some older routes use raw `res.json()`.
+- **Auth in routes:** Always `authMiddleware` then `requireRole('ROLENAME')`. Get current user with `getAuthUser(req)`.
+- **Database:** Prisma client from `apps/api/src/lib/prisma.ts`. Wrap risky queries in `withRetry()`.
+- **Logging:** `logger` from `apps/api/src/utils/logger.ts`. Never use `console.log`.
+- **HTML sanitization:** `sanitizeHtml()`/`sanitizeText()` from `apps/api/src/utils/sanitize.ts` for all HTML input.
+- **Audit logging:** Call `auditLog(userId, action, entity, entityId, metadata)` from `apps/api/src/utils/audit.ts` on all admin mutations.
+- **Frontend routing:** `React.lazy()` + `<Suspense fallback={<PageLoader />}>` for all pages.
+- **State management:** React Query (`@tanstack/react-query`) for server state (staleTime: 5min, gcTime: 30min). React context for auth/settings.
+- **Styling:** TailwindCSS utility classes. `cn()` from `apps/web/src/lib/utils.ts` for conditional classes.
+- **ESM imports:** Use `.js` extensions in all API TypeScript imports.
+- **Zustand (quiz UI only):** Use Zustand exclusively for quiz player/host UI state requiring cross-component sync without prop drilling (`apps/web/src/lib/quizStore.ts`). Do not use for server-fetched data (use React Query instead). Do not create additional Zustand stores without discussion.
+
+---
+
+## Environment Variables
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `DATABASE_URL` | Yes | PostgreSQL pooler connection string (Neon) |
+| `DIRECT_URL` | Yes | PostgreSQL non-pooler connection (for migrations) |
+| `JWT_SECRET` | Yes | JWT signing secret (fail-fast check on startup) |
+| `SUPER_ADMIN_EMAIL` | Yes | Email for super admin |
+| `SUPER_ADMIN_PASSWORD` | Yes | Password for super admin (seed only) |
+| `FRONTEND_URL` | Yes | Frontend origin for CORS + redirects |
+| `BACKEND_URL` | No | Backend URL (defaults to localhost:5001) |
+| `GOOGLE_CLIENT_ID/SECRET` | No | Google OAuth credentials |
+| `GITHUB_CLIENT_ID/SECRET` | No | GitHub OAuth credentials |
+| `CLOUDINARY_CLOUD_NAME` | No | Cloudinary cloud name |
+| `CLOUDINARY_API_KEY` | No | Cloudinary API key |
+| `CLOUDINARY_API_SECRET` | No | Cloudinary API secret |
+| `BREVO_API_KEY` | No | Brevo (Sendinblue) email API key |
+| `ENABLE_DEV_AUTH` | No | Enable `/api/auth/dev-login` (dev only) |
+| `ENABLE_REQUEST_LOGGING` | No | Enable request logging in production |
+| `ENABLE_DB_KEEPALIVE` | No | Enable 4-min `SELECT 1` keep-alive (default: off) |
+| `DB_KEEPALIVE_INTERVAL_MS` | No | Keep-alive interval (default: 240000) |
+| `ENABLE_BACKGROUND_SCHEDULERS` | No | Enable event status + reminder schedulers (default: off) |
+| `EVENT_STATUS_INTERVAL_MS` | No | Event status check interval (default: 1800000 = 30min) |
+| `PORT` | No | API port (default: 5001) |
+
+---
 
 ## Known Issues
 
-See `issues.md` for the full list. Critical items:
 1. Session cookie `httpOnly: false` — XSS can steal tokens
-2. JWT in URL hash fragment after OAuth
-3. Playground tables managed via raw SQL outside Prisma
-4. No test suite anywhere in the codebase
-5. 38+ AI-generated markdown files tracked in git
+2. JWT in URL hash fragment after OAuth — security concern
+3. No test suite anywhere in the codebase
+4. Some routes use raw `res.json()` instead of `ApiResponse` utility
+5. `AdminEventRegistrations` makes N+1 fetch calls (one per event for registrations) — acceptable at current scale, annotated in code
+6. Certificate email fire-and-forget pattern means `emailSent` flag update could fail silently — try-catch added but pattern is inherently lossy during restarts
+
+---
 
 ## Deployment (Render)
 
-Four services defined in `render.yaml`:
+Four services in `render.yaml`:
 1. **club-api** — Web service, `npm run start:api`, port 5001
-2. **club-web** — Static site, built with Vite, serves from `apps/web/dist`
+2. **club-web** — Static site, Vite build, serves `apps/web/dist`
 3. **playground-api** — Web service, `node apps/playground/execute-server.js`, port 5002
-4. **playground-web** — Static site, built with Vite, serves from `apps/playground/dist`
+4. **playground-web** — Static site, Vite build, serves `apps/playground/dist`
 
 Build command includes `prisma generate` and `prisma migrate deploy`.
+
+**Free-tier limits:** `club-api` and `playground-api` run on Render's free web service tier: 512 MB RAM, shared CPU, automatic spin-down after 15 minutes of inactivity. This is a hard architectural constraint — see Hard Constraints section.
+
+**UptimeRobot:** An external UptimeRobot monitor pings `GET /ping` every 5 minutes to prevent free-tier spin-down. The `/ping` endpoint returns plain text `"pong"` with no DB call. Do not remove or rename this endpoint.
+
+CORS: Allows `*.codescriet.dev`, `https://codescriet.dev`, and `FRONTEND_URL` env var. In dev: any `localhost` or LAN IP.
+
+---
+
+## Architecture Debate Standards
+
+When proposing any non-trivial architectural change — new system, new DB model, new real-time event, background job, or external dependency — the proposal must include:
+
+1. **Explicit tradeoffs:** List pros and cons. State what is gained and what is lost. Never propose only one side.
+2. **Capacity math:** Estimate memory delta (bytes × expected concurrent users at peak), DB query count per request, and socket event frequency at 900 players.
+3. **Two alternatives compared:** Example: "Option A: in-memory Map (fast, lost on restart, fits free tier) vs Option B: Redis (persistent, survives restart, requires paid service)."
+4. **O(n²) flag:** If the proposal involves nested iteration over any collection that scales with users or questions, state the complexity class and the value of n at which it becomes problematic.
+5. **Free-tier impact check:** Confirm the proposal fits within 512 MB RAM. If it requires a paid external service, explicitly flag it and justify the cost.
+
+---
 
 ## File Quick Reference
 
@@ -207,19 +1021,80 @@ Build command includes `prisma generate` and `prisma migrate deploy`.
 |------|-------|
 | API entry point | `apps/api/src/index.ts` |
 | Auth routes | `apps/api/src/routes/auth.ts` |
+| Credits routes | `apps/api/src/routes/credits.ts` |
 | Auth middleware | `apps/api/src/middleware/auth.ts` |
 | Role middleware | `apps/api/src/middleware/role.ts` |
 | JWT utilities | `apps/api/src/utils/jwt.ts` |
 | Prisma client | `apps/api/src/lib/prisma.ts` |
 | HTML sanitizer | `apps/api/src/utils/sanitize.ts` |
+| Audit logger | `apps/api/src/utils/audit.ts` |
 | Email service | `apps/api/src/utils/email.ts` |
 | Event scheduler | `apps/api/src/utils/scheduler.ts` |
+| API response helpers | `apps/api/src/utils/response.ts` |
 | Quiz socket | `apps/api/src/quiz/quizSocket.ts` |
 | Quiz state | `apps/api/src/quiz/quizStore.ts` |
 | Certificate PDF | `apps/api/src/utils/generateCertificatePDF.ts` |
-| Frontend auth | `apps/web/src/context/AuthContext.tsx` |
+| Signature image processing | `apps/api/src/utils/processSignatureImage.ts` |
+| Frontend auth context | `apps/web/src/context/AuthContext.tsx` |
+| Frontend settings context | `apps/web/src/context/SettingsContext.tsx` |
 | Frontend API client | `apps/web/src/lib/api.ts` |
 | Frontend routes | `apps/web/src/App.tsx` |
+| Dashboard layout | `apps/web/src/components/dashboard/DashboardLayout.tsx` |
+| Credits public page | `apps/web/src/pages/CreditsPage.tsx` |
+| Credits admin page | `apps/web/src/pages/admin/AdminCredits.tsx` |
+| Layout wrapper | `apps/web/src/components/layout/Layout.tsx` |
+| DB Schema | `prisma/schema.prisma` |
 | Playground executor | `apps/playground/execute-server.js` |
 | CF Worker | `workers/executor.js` |
-| DB Schema | `prisma/schema.prisma` |
+| Quiz host view | `apps/web/src/pages/quiz/QuizHostView.tsx` |
+| Quiz leaderboard (podium + confetti) | `apps/web/src/pages/quiz/QuizLeaderboard.tsx` |
+| Quiz finale splash | `apps/web/src/pages/quiz/QuizFinaleIntro.tsx` |
+| Quiz results + HeatmapGrid | `apps/web/src/pages/quiz/QuizResultsPage.tsx` |
+| Quiz admin controls | `apps/web/src/pages/quiz/QuizAdminPanel.tsx` |
+| Quiz Zustand store (frontend) | `apps/web/src/lib/quizStore.ts` |
+| Quiz scoring utilities | `apps/web/src/lib/quizScoring.ts` |
+| Quiz socket hook | `apps/web/src/hooks/useQuizSocket.ts` |
+| Quiz timer hook | `apps/web/src/hooks/useQuizTimer.ts` |
+| Attendance routes | `apps/api/src/routes/attendance.ts` |
+| Attendance token util | `apps/api/src/utils/attendanceToken.ts` |
+| Attendance socket | `apps/api/src/attendance/attendanceSocket.ts` |
+| Attendance admin hub | `apps/web/src/components/attendance/EventAdminHub.tsx` |
+| Attendance QR scanner | `apps/web/src/components/attendance/AdminScanner.tsx` |
+| Attendance manager | `apps/web/src/components/attendance/AttendanceManager.tsx` |
+| Attendance QR ticket | `apps/web/src/components/attendance/QRTicket.tsx` |
+| Attendance cert wizard | `apps/web/src/components/attendance/EventCertificateWizard.tsx` |
+| Attendance history | `apps/web/src/components/attendance/AttendanceHistory.tsx` |
+| Offline scanner hook | `apps/web/src/hooks/useOfflineScanner.ts` |
+| Registration status utility | `apps/web/src/lib/registrationStatus.ts` |
+
+---
+
+## Living Document Protocol
+
+This file is the **single source of truth** for AI agents working on this codebase. It must stay in sync with the actual implementation. Update the relevant section **in the same commit** as the code change when any of the following occur:
+
+| Trigger | Section to update |
+|---------|------------------|
+| New route mounted in `apps/api/src/index.ts` | All API Routes |
+| New Prisma model or enum in `schema.prisma` | Full Database Schema, Enums |
+| New frontend page/route in `apps/web/src/App.tsx` | Frontend Routing |
+| New Socket.io event in `quizSocket.ts` | Quiz System Architecture → Socket Events Reference |
+| New environment variable | Environment Variables |
+| New Hard Constraint identified | Hard Constraints |
+| Architectural proposal evaluated and rejected | Relevant system's "Previously Evaluated & Rejected" subsection |
+| New npm dependency installed | Tech Stack |
+| New quiz UI component created | Quiz System Architecture → Frontend UI Components + File Quick Reference |
+| Attendance system feature implemented | Attendance System (move from "planned" to actual description) |
+| New attendance socket event | Attendance System → Socket.io Namespace |
+
+### Staleness Rule
+
+If a section is known to be out of date but not yet corrected, add this annotation directly below the section heading:
+
+```
+> WARNING: STALE — last verified YYYY-MM-DD. Do not rely on this section until updated.
+```
+
+### Sync Rule
+
+**Do not let this file become aspirational documentation.** If the code does not yet do something (e.g., attendance system routes), clearly mark it "planned" or "NOT IMPLEMENTED" — never state planned work as present fact. If this file and the actual codebase ever contradict each other, **the codebase wins** — update this file to reflect reality.

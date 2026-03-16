@@ -56,7 +56,7 @@ interface QuizAccessTokenPayload {
 type SupportedQuestionType = 'MCQ' | 'TRUE_FALSE' | 'SHORT_ANSWER' | 'POLL' | 'RATING' | 'MULTI_SELECT' | 'OPEN_ENDED';
 
 function signQuizAccessToken(payload: QuizAccessTokenPayload): string {
-  return jwt.sign(payload, getJwtSecret(), { expiresIn: '20m' });
+  return jwt.sign(payload, getJwtSecret(), { algorithm: 'HS256', expiresIn: '20m' });
 }
 
 // ─── Validation schemas ──────────────────────────────────────────────────

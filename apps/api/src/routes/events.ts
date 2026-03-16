@@ -11,6 +11,7 @@ import { logger } from '../utils/logger.js';
 import { submitUrl } from '../utils/indexnow.js';
 import { sanitizeEventRegistrationFields } from '../utils/eventRegistrationFields.js';
 import { getRegistrationStatus } from '../utils/registrationStatus.js';
+import { sanitizeHtml } from '../utils/sanitize.js';
 
 export const eventsRouter = Router();
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -321,7 +322,7 @@ eventsRouter.post('/', authMiddleware, requireRole('CORE_MEMBER'), async (req: R
       data: {
         title: data.title,
         slug,
-        description: data.description,
+        description: sanitizeHtml(data.description),
         startDate: data.startDate,
         endDate: data.endDate || null,
         registrationStartDate: data.registrationStartDate || null,
@@ -329,17 +330,17 @@ eventsRouter.post('/', authMiddleware, requireRole('CORE_MEMBER'), async (req: R
         location: normalizeOptionalText(data.location),
         venue: normalizeOptionalText(data.venue),
         eventType: normalizeOptionalText(data.eventType),
-        prerequisites: normalizeOptionalText(data.prerequisites),
+        prerequisites: normalizeOptionalText(sanitizeHtml(data.prerequisites)),
         capacity: data.capacity || null,
         imageUrl: normalizeOptionalText(data.imageUrl),
         status: data.status || 'UPCOMING',
         createdBy: authUser.id,
         // Extended event fields
         shortDescription: normalizeOptionalText(data.shortDescription),
-        agenda: normalizeOptionalText(data.agenda),
-        highlights: normalizeOptionalText(data.highlights),
-        learningOutcomes: normalizeOptionalText(data.learningOutcomes),
-        targetAudience: normalizeOptionalText(data.targetAudience),
+        agenda: normalizeOptionalText(sanitizeHtml(data.agenda)),
+        highlights: normalizeOptionalText(sanitizeHtml(data.highlights)),
+        learningOutcomes: normalizeOptionalText(sanitizeHtml(data.learningOutcomes)),
+        targetAudience: normalizeOptionalText(sanitizeHtml(data.targetAudience)),
         speakers: toNullableJsonValue(data.speakers),
         resources: toNullableJsonValue(data.resources),
         faqs: toNullableJsonValue(data.faqs),
@@ -448,7 +449,7 @@ eventsRouter.put('/:id', authMiddleware, requireRole('CORE_MEMBER'), async (req:
       data: {
         ...(data.title && { title: data.title }),
         ...slugUpdate,
-        ...(data.description !== undefined && { description: data.description }),
+        ...(data.description !== undefined && { description: sanitizeHtml(data.description) }),
         ...(data.startDate !== undefined && { startDate: data.startDate }),
         ...(data.endDate !== undefined && { endDate: data.endDate || null }),
         ...(data.registrationStartDate !== undefined && { registrationStartDate: data.registrationStartDate || null }),
@@ -456,16 +457,16 @@ eventsRouter.put('/:id', authMiddleware, requireRole('CORE_MEMBER'), async (req:
         ...(data.location !== undefined && { location: normalizeOptionalText(data.location) }),
         ...(data.venue !== undefined && { venue: normalizeOptionalText(data.venue) }),
         ...(data.eventType !== undefined && { eventType: normalizeOptionalText(data.eventType) }),
-        ...(data.prerequisites !== undefined && { prerequisites: normalizeOptionalText(data.prerequisites) }),
+        ...(data.prerequisites !== undefined && { prerequisites: normalizeOptionalText(sanitizeHtml(data.prerequisites)) }),
         ...(data.capacity !== undefined && { capacity: data.capacity || null }),
         ...(data.imageUrl !== undefined && { imageUrl: normalizeOptionalText(data.imageUrl) }),
         ...(data.status && { status: data.status }),
         // Extended event fields
         ...(data.shortDescription !== undefined && { shortDescription: normalizeOptionalText(data.shortDescription) }),
-        ...(data.agenda !== undefined && { agenda: normalizeOptionalText(data.agenda) }),
-        ...(data.highlights !== undefined && { highlights: normalizeOptionalText(data.highlights) }),
-        ...(data.learningOutcomes !== undefined && { learningOutcomes: normalizeOptionalText(data.learningOutcomes) }),
-        ...(data.targetAudience !== undefined && { targetAudience: normalizeOptionalText(data.targetAudience) }),
+        ...(data.agenda !== undefined && { agenda: normalizeOptionalText(sanitizeHtml(data.agenda)) }),
+        ...(data.highlights !== undefined && { highlights: normalizeOptionalText(sanitizeHtml(data.highlights)) }),
+        ...(data.learningOutcomes !== undefined && { learningOutcomes: normalizeOptionalText(sanitizeHtml(data.learningOutcomes)) }),
+        ...(data.targetAudience !== undefined && { targetAudience: normalizeOptionalText(sanitizeHtml(data.targetAudience)) }),
         ...(data.speakers !== undefined && { speakers: toNullableJsonValue(data.speakers) }),
         ...(data.resources !== undefined && { resources: toNullableJsonValue(data.resources) }),
         ...(data.faqs !== undefined && { faqs: toNullableJsonValue(data.faqs) }),

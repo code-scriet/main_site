@@ -10,8 +10,9 @@ import { Calendar, MapPin, Users, Loader2, Clock, AlertCircle, CheckCircle, LogI
 import { api, type Event } from '@/lib/api';
 import { useAuth } from '@/context/AuthContext';
 import { useNavigate, Link } from 'react-router-dom';
-import { formatDate, formatTime } from '@/lib/dateUtils';
+import { formatDate } from '@/lib/dateUtils';
 import { processImageUrl } from '@/lib/imageUtils';
+import { getRegistrationStatus } from '@/lib/registrationStatus';
 
 type EventStatus = 'UPCOMING' | 'ONGOING' | 'PAST';
 
@@ -27,47 +28,6 @@ const statusBadgeVariant = (status: EventStatus) => {
       return 'default';
   }
 };
-
-// Helper to get registration status
-function getRegistrationStatus(event: Event): {
-  status: 'not_started' | 'open' | 'closed' | 'full' | 'past';
-  message: string;
-  canRegister: boolean;
-} {
-  const now = new Date();
-  const eventStart = new Date(event.startDate);
-  const regStart = event.registrationStartDate ? new Date(event.registrationStartDate) : null;
-  const regEnd = event.registrationEndDate ? new Date(event.registrationEndDate) : eventStart;
-
-  if (event.status === 'PAST') {
-    return { status: 'past', message: 'Event has ended', canRegister: false };
-  }
-
-  if (event.capacity && event._count && event._count.registrations >= event.capacity) {
-    return { status: 'full', message: 'Event is full', canRegister: false };
-  }
-
-  if (regStart && now < regStart) {
-    return { 
-      status: 'not_started', 
-      message: `Registration opens ${formatDate(regStart)} at ${formatTime(regStart)}`, 
-      canRegister: false 
-    };
-  }
-
-  if (event.allowLateRegistration) {
-    if (regEnd && now > regEnd) {
-      return { status: 'closed', message: 'Registration closed', canRegister: false };
-    }
-    if (event.status === 'ONGOING') {
-      return { status: 'open', message: 'Late registration open', canRegister: true };
-    }
-  } else if (regEnd && now > regEnd) {
-    return { status: 'closed', message: 'Registration closed', canRegister: false };
-  }
-
-  return { status: 'open', message: 'Registration open', canRegister: true };
-}
 
 export default function EventsPage() {
   const [activeTab, setActiveTab] = useState<EventStatus | 'ALL'>('ALL');

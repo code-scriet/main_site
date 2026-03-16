@@ -9,6 +9,7 @@ import { generateSlug, generateUniqueSlug } from '../utils/slug.js';
 import { parsePaginationNumber } from '../utils/pagination.js';
 import { logger } from '../utils/logger.js';
 import { submitUrl } from '../utils/indexnow.js';
+import { sanitizeHtml } from '../utils/sanitize.js';
 
 export const achievementsRouter = Router();
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -241,8 +242,8 @@ achievementsRouter.post('/', authMiddleware, requireRole('CORE_MEMBER'), async (
       data: {
         title,
         slug,
-        description,
-        content: normalizeOptionalText(content),
+        description: sanitizeHtml(description),
+        content: normalizeOptionalText(content) ? sanitizeHtml(normalizeOptionalText(content)!) : null,
         shortDescription: normalizeOptionalText(shortDescription),
         eventName: normalizeOptionalText(eventName),
         achievedBy,
@@ -283,8 +284,8 @@ achievementsRouter.put('/:id', authMiddleware, requireRole('CORE_MEMBER'), async
 
     // If title changed, regenerate slug
     const updateData: any = {
-      ...(description !== undefined && { description }),
-      ...(content !== undefined && { content: normalizeOptionalText(content) }),
+      ...(description !== undefined && { description: sanitizeHtml(description) }),
+      ...(content !== undefined && { content: normalizeOptionalText(content) ? sanitizeHtml(normalizeOptionalText(content)!) : null }),
       ...(shortDescription !== undefined && { shortDescription: normalizeOptionalText(shortDescription) }),
       ...(eventName !== undefined && { eventName: normalizeOptionalText(eventName) }),
       ...(achievedBy !== undefined && { achievedBy }),

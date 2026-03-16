@@ -98,7 +98,7 @@ function optionalAuth(req, _res, next) {
   const token = extractToken(req);
   if (token) {
     try {
-      const decoded = jwt.verify(token, getJwtSecret());
+      const decoded = jwt.verify(token, getJwtSecret(), { algorithms: ['HS256'] });
       req.user = { id: decoded.userId || decoded.id, email: decoded.email, role: decoded.role };
     } catch { /* token invalid — continue as anonymous */ }
   }

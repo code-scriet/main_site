@@ -15,7 +15,8 @@ export const signatoriesRouter = Router();
 const createSchema = z.object({
   name:                  z.string().min(2).max(100),
   title:                 z.string().min(2).max(100).default('Club President'),
-  signatureImageBase64:  z.string().optional().nullable(), // base64 data URI of transparent PNG
+  signatureImageBase64:  z.string().optional().nullable(), // legacy: base64 data URI
+  signatureImageUrl:     z.string().url().optional().nullable(), // preferred: pre-uploaded Cloudinary URL
 });
 
 const updateSchema = z.object({
@@ -23,6 +24,7 @@ const updateSchema = z.object({
   title:                 z.string().min(2).max(100).optional(),
   isActive:              z.boolean().optional(),
   signatureImageBase64:  z.string().optional().nullable(), // null = remove existing signature
+  signatureImageUrl:     z.string().url().optional().nullable(), // preferred: pre-uploaded Cloudinary URL
 });
 
 // ── Cloudinary upload helper ─────────────────────────────────────────────────
@@ -99,7 +101,7 @@ signatoriesRouter.post('/', authMiddleware, requireRole('ADMIN'), async (req: Re
     return ApiResponse.badRequest(res, validation.error.errors[0].message);
   }
 
-  const { name, title, signatureImageBase64 } = validation.data;
+  const { name, title, signatureImageBase64, signatureImageUrl } = validation.data;
 
   try {
     // Create the record first to get an ID
@@ -110,15 +112,16 @@ signatoriesRouter.post('/', authMiddleware, requireRole('ADMIN'), async (req: Re
       },
     });
 
-    // Upload signature image if provided
+    // Apply signature image: prefer pre-uploaded URL over raw base64
     let signatureUrl: string | null = null;
-    if (signatureImageBase64) {
+    if (signatureImageUrl) {
+      // Frontend already uploaded to Cloudinary — just store the URL
+      signatureUrl = signatureImageUrl;
+      await prisma.signatory.update({ where: { id: signatory.id }, data: { signatureUrl } });
+    } else if (signatureImageBase64) {
       try {
         signatureUrl = await uploadSignatureImage(signatory.id, signatureImageBase64);
-        await prisma.signatory.update({
-          where: { id: signatory.id },
-          data: { signatureUrl },
-        });
+        await prisma.signatory.update({ where: { id: signatory.id }, data: { signatureUrl } });
       } catch (uploadErr) {
         logger.error('Signature image upload failed', { signatoryId: signatory.id, error: uploadErr });
         // Don't fail the whole request — signatory created, just without image
@@ -143,7 +146,7 @@ signatoriesRouter.patch('/:id', authMiddleware, requireRole('ADMIN'), async (req
     return ApiResponse.badRequest(res, validation.error.errors[0].message);
   }
 
-  const { name, title, isActive, signatureImageBase64 } = validation.data;
+  const { name, title, isActive, signatureImageBase64, signatureImageUrl } = validation.data;
 
   try {
     const existing = await prisma.signatory.findUnique({ where: { id } });
@@ -158,12 +161,15 @@ signatoriesRouter.patch('/:id', authMiddleware, requireRole('ADMIN'), async (req
     if (isActive !== undefined) updateData.isActive = isActive;
 
     // Handle signature image update
-    if (signatureImageBase64 === null) {
-      // Explicit null = remove signature
+    if (signatureImageBase64 === null && !signatureImageUrl) {
+      // Explicit null base64 = remove signature
       updateData.signatureUrl = null;
       await deleteSignatureFromCloudinary(id);
+    } else if (signatureImageUrl) {
+      // Frontend pre-uploaded to Cloudinary — store URL directly
+      updateData.signatureUrl = signatureImageUrl;
     } else if (signatureImageBase64) {
-      // New image provided — upload and replace
+      // Legacy: raw base64 upload
       try {
         updateData.signatureUrl = await uploadSignatureImage(id, signatureImageBase64);
       } catch (uploadErr) {

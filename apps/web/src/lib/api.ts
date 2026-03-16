@@ -215,6 +215,10 @@ export interface Registration {
   userId: string;
   eventId: string;
   timestamp: string;
+  attendanceToken?: string;
+  attended?: boolean;
+  scannedAt?: string;
+  manualOverride?: boolean;
   customFieldResponses?: Array<{
     fieldId: string;
     label: string;
@@ -295,6 +299,82 @@ export interface Achievement {
   featured?: boolean;
   createdAt?: string;
   updatedAt?: string;
+}
+
+export interface Credit {
+  id: string;
+  title: string;
+  description?: string;
+  category: string;
+  teamMemberId?: string;
+  teamMember?: { id: string; name: string; slug?: string; imageUrl: string; role: string; team: string };
+  order: number;
+  createdAt: string;
+}
+
+// Attendance types
+export interface AttendanceQR {
+  attendanceToken: string;
+  attended: boolean;
+  scannedAt: string | null;
+  event: { title: string; startDate: string; endDate: string | null };
+}
+
+export interface AttendanceLiveData {
+  total: number;
+  attended: number;
+  notAttended: number;
+  attendanceRate: number;
+  recentScans: Array<{
+    id: string;
+    scannedAt: string;
+    user: { name: string; email: string };
+  }>;
+}
+
+export interface AttendanceRecord {
+  id: string;
+  userId: string;
+  eventId: string;
+  timestamp: string;
+  attended: boolean;
+  scannedAt: string | null;
+  manualOverride: boolean;
+  attendanceToken: string | null;
+  user: { id: string; name: string; email: string; avatar: string | null; branch: string | null; year: string | null };
+}
+
+export interface CertificateRecipient {
+  registrationId: string;
+  userId: string;
+  userName: string;
+  userEmail: string;
+  userAvatar: string | null;
+  attended: boolean;
+  scannedAt: string | null;
+  manualOverride: boolean;
+  hasCertificate: boolean;
+  certificateDbId: string | null;
+  certificateId: string | null;
+  certificatePdfUrl: string | null;
+  emailSent: boolean;
+  emailSentAt: string | null;
+}
+
+export interface AttendanceSearchResult {
+  registrationId: string;
+  userName: string;
+  userEmail: string;
+  userAvatar: string | null;
+  attended: boolean;
+  scannedAt: string | null;
+  manualOverride: boolean;
+}
+
+export interface AttendanceHistoryEvent {
+  id: string;
+  scannedAt: string;
+  event: { id: string; title: string; slug: string; startDate: string; imageUrl: string | null };
 }
 
 // Network types
@@ -632,7 +712,25 @@ export const api = {
     request<Achievement>(`/achievements/${id}`, { method: 'PUT', body: JSON.stringify(data), token }),
   deleteAchievement: (id: string, token: string) =>
     request(`/achievements/${id}`, { method: 'DELETE', token }),
-  
+
+  // Credits
+  getCredits: (teamMemberId?: string) => {
+    const params = new URLSearchParams();
+    if (teamMemberId) params.set('teamMemberId', teamMemberId);
+    const query = params.toString();
+    return request<Credit[]>(`/credits${query ? `?${query}` : ''}`);
+  },
+  getCredit: (id: string) =>
+    request<Credit>(`/credits/${id}`),
+  createCredit: (data: Partial<Credit>, token: string) =>
+    request<Credit>('/credits', { method: 'POST', body: JSON.stringify(data), token }),
+  updateCredit: (id: string, data: Partial<Credit>, token: string) =>
+    request<Credit>(`/credits/${id}`, { method: 'PUT', body: JSON.stringify(data), token }),
+  deleteCredit: (id: string, token: string) =>
+    request(`/credits/${id}`, { method: 'DELETE', token }),
+  reorderCredits: (credits: { id: string; order: number }[], token: string) =>
+    request('/credits/reorder', { method: 'PATCH', body: JSON.stringify({ credits }), token }),
+
   // QOTD
   getTodayQOTD: () => request('/qotd/today'),
   getQOTDHistory: (limit?: number, offset?: number) => {
@@ -874,6 +972,44 @@ export const api = {
       }>;
     }>('/quiz/my-dashboard', { token }),
 
+  // Signatories (admin)
+  getActiveSignatories: (token: string) =>
+    request<{ id: string; name: string; title: string; signatureUrl: string | null }[]>('/signatories/active', { token }),
+
+  getSignatories: (token: string) =>
+    request<{
+      id: string; name: string; title: string; signatureUrl: string | null; isActive: boolean;
+      _count: { certificatesAsPrimary: number; certificatesAsFaculty: number };
+    }[]>('/signatories', { token }),
+
+  createSignatory: (data: { name: string; title: string; signatureImageBase64?: string; signatureImageUrl?: string }, token: string) =>
+    request<{ id: string; name: string; title: string; signatureUrl: string | null; isActive: boolean }>('/signatories', { method: 'POST', body: JSON.stringify(data), token }),
+
+  updateSignatory: (id: string, data: { name?: string; title?: string; isActive?: boolean; signatureImageBase64?: string | null; signatureImageUrl?: string | null }, token: string) =>
+    request<{ id: string; name: string; title: string; signatureUrl: string | null; isActive: boolean }>(`/signatories/${id}`, { method: 'PATCH', body: JSON.stringify(data), token }),
+
+  deleteSignatory: (id: string, token: string) =>
+    request<{ deactivated?: boolean; certCount?: number } | null>(`/signatories/${id}`, { method: 'DELETE', token }),
+
+  // Upload image to Cloudinary (returns secure_url)
+  uploadImage: async (file: File, token: string): Promise<string> => {
+    const formData = new FormData();
+    formData.append('image', file);
+    const BASE_URL = (import.meta.env.VITE_API_URL as string | undefined) || 'http://localhost:5001/api';
+    const res = await fetch(`${BASE_URL}/upload/image`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}` },
+      body: formData,
+      credentials: 'include',
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({})) as { message?: string };
+      throw new Error(err.message || 'Image upload failed');
+    }
+    const json = await res.json() as { data?: { url: string } };
+    return json.data?.url ?? '';
+  },
+
   // Certificates
   getCertificates: (token: string, params?: { page?: number; limit?: number; search?: string; type?: string; eventId?: string }) => {
     const qs = new URLSearchParams();
@@ -906,4 +1042,46 @@ export const api = {
     request<{ certId: string }>(`/certificates/${certId}`, { method: 'DELETE', token }),
   resendCertificateEmail: (certId: string, token: string) =>
     request<{ sent: boolean }>(`/certificates/${certId}/resend`, { method: 'POST', token }),
+
+  // === Attendance ===
+  getMyQR: (eventId: string, token: string) =>
+    request<AttendanceQR>(`/attendance/my-qr/${eventId}`, { token }),
+  scanAttendance: (qrToken: string, token: string, bypassWindow?: boolean) =>
+    request<{ userId: string; userName: string; scannedAt: string }>('/attendance/scan', { method: 'POST', body: JSON.stringify({ token: qrToken, bypassWindow }), token }),
+  scanAttendanceBatch: (scans: Array<{ token: string; scannedAtLocal: string; localId: string }>, eventId: string, token: string, bypassWindow?: boolean) =>
+    request<{ results: Array<{ localId: string; status: 'ok' | 'duplicate' | 'error'; name?: string; message?: string }> }>('/attendance/scan-batch', { method: 'POST', body: JSON.stringify({ scans, eventId, bypassWindow }), token }),
+  manualCheckin: (registrationId: string, token: string) =>
+    request<{ registrationId: string }>('/attendance/manual-checkin', { method: 'POST', body: JSON.stringify({ registrationId }), token }),
+  unmarkAttendance: (registrationId: string, token: string) =>
+    request<{ registrationId: string }>('/attendance/unmark', { method: 'PATCH', body: JSON.stringify({ registrationId }), token }),
+  bulkUpdateAttendance: (registrationIds: string[], action: 'mark' | 'unmark', token: string) =>
+    request<{ updated: number }>('/attendance/bulk-update', { method: 'PATCH', body: JSON.stringify({ registrationIds, action }), token }),
+  editAttendance: (registrationId: string, data: { scannedAt?: string; manualOverride?: boolean }, token: string) =>
+    request<{ registrationId: string }>(`/attendance/edit/${registrationId}`, { method: 'PATCH', body: JSON.stringify(data), token }),
+  regenerateAttendanceToken: (registrationId: string, token: string) =>
+    request<{ attendanceToken: string }>(`/attendance/regenerate-token/${registrationId}`, { method: 'POST', token }),
+  searchAttendance: (eventId: string, query: string, token: string, page?: number) =>
+    request<{ results: AttendanceSearchResult[]; total: number; page: number; totalPages: number }>(`/attendance/search?eventId=${eventId}&q=${encodeURIComponent(query)}${page ? `&page=${page}` : ''}`, { token }),
+  getAttendanceLive: (eventId: string, token: string) =>
+    request<AttendanceLiveData>(`/attendance/live/${eventId}`, { token }),
+  getAttendanceFull: (eventId: string, token: string) =>
+    request<{ registrations: AttendanceRecord[] }>(`/attendance/event/${eventId}/full`, { token }),
+  exportAttendanceExcel: async (eventId: string, token: string) => {
+    const res = await fetch(`${API_URL}/attendance/event/${eventId}/export`, {
+      headers: { Authorization: `Bearer ${token}` },
+      credentials: 'include',
+    });
+    if (!res.ok) throw new Error('Export failed');
+    return res.blob();
+  },
+  emailAbsentees: (eventId: string, subject: string, body: string, token: string) =>
+    request<{ emailed: number }>(`/attendance/email-absentees/${eventId}`, { method: 'POST', body: JSON.stringify({ subject, body }), token }),
+  getAttendanceCertRecipients: (eventId: string, token: string) =>
+    request<{ recipients: CertificateRecipient[]; stats: { totalRegistered: number; totalAttended: number; alreadyCertified: number } }>(`/attendance/event/${eventId}/certificate-recipients`, { token }),
+  getMyAttendanceHistory: (token: string) =>
+    request<{ events: AttendanceHistoryEvent[] }>('/attendance/my-history', { token }),
+  getAttendanceSummary: (eventId: string) =>
+    request<{ total: number; attended: number }>(`/attendance/event/${eventId}/summary`),
+  backfillAttendanceTokens: (token: string) =>
+    request<{ backfilled: number }>('/attendance/backfill-tokens', { method: 'POST', token }),
 };

@@ -64,7 +64,7 @@ const authMiddlewareImpl = async (
     if (!token) {
       return res.status(401).json({ error: 'No token provided' });
     }
-    const decoded = jwt.verify(token, getJwtSecret()) as Partial<AccessTokenPayload>;
+    const decoded = jwt.verify(token, getJwtSecret(), { algorithms: ['HS256'] }) as Partial<AccessTokenPayload>;
     const userId = typeof decoded.userId === 'string'
       ? decoded.userId
       : typeof decoded.id === 'string'
@@ -74,7 +74,12 @@ const authMiddlewareImpl = async (
     if (!userId) {
       return res.status(401).json({ error: 'Invalid token payload' });
     }
-    
+
+    // Reject attendance QR tokens — they share the signing key but must not grant auth
+    if ((decoded as Record<string, unknown>).purpose === 'attendance') {
+      return res.status(401).json({ error: 'Attendance tokens cannot be used for authentication' });
+    }
+
     const user = await prisma.user.findUnique({
       where: { id: userId },
       select: {
@@ -117,7 +122,7 @@ const optionalAuthMiddlewareImpl = async (
     if (!token) {
       return next();
     }
-    const decoded = jwt.verify(token, getJwtSecret()) as Partial<AccessTokenPayload>;
+    const decoded = jwt.verify(token, getJwtSecret(), { algorithms: ['HS256'] }) as Partial<AccessTokenPayload>;
     const userId = typeof decoded.userId === 'string'
       ? decoded.userId
       : typeof decoded.id === 'string'
@@ -127,7 +132,12 @@ const optionalAuthMiddlewareImpl = async (
     if (!userId) {
       return next();
     }
-    
+
+    // Skip attendance QR tokens — they share the signing key but must not grant auth
+    if ((decoded as Record<string, unknown>).purpose === 'attendance') {
+      return next();
+    }
+
     const user = await prisma.user.findUnique({
       where: { id: userId },
       select: {

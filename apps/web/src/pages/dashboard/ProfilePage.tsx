@@ -95,12 +95,12 @@ export default function ProfilePage() {
 
   useEffect(() => {
     // Check for pending event registration on mount (storage OR navigation state)
-    // We check state first as it's more reliable during redirects
+    // Read once and store in state — avoid re-reading localStorage later
     const statePendingId = location.state?.pendingEventId;
     const storagePendingId = localStorage.getItem('pendingEventRegistration');
-    
+
     const pendingId = statePendingId || storagePendingId;
-    
+
     if (pendingId) {
       // Ensure it's in localStorage for persistence if page refreshed
       if (!storagePendingId) {
@@ -140,7 +140,14 @@ export default function ProfilePage() {
     
     setSaving(true);
     setMessage(null);
-    
+
+      // Validate phone if provided
+      if (phone && !/^[0-9]{10}$/.test(phone)) {
+        setMessage({ type: 'error', text: 'Phone number must be exactly 10 digits' });
+        setSaving(false);
+        return;
+      }
+
     try {
       await api.updateProfile({
         name,
@@ -159,17 +166,16 @@ export default function ProfilePage() {
       // Refresh user context to update academic details
       await refreshUser();
       
-      // Check for pending event registration (check state first, then storage as backup)
-      const eventIdToRegister = pendingEventId || localStorage.getItem('pendingEventRegistration');
-      
-      if (eventIdToRegister) {
+      // Check for pending event registration (use state only — localStorage was read once on mount)
+      if (pendingEventId) {
         localStorage.removeItem('pendingEventRegistration');
+        setPendingEventId(null);
         setMessage({
           type: 'success',
           text: 'Profile updated! Redirecting you to complete event registration.',
         });
         setTimeout(() => {
-          navigate(`/events/${eventIdToRegister}?register=1`);
+          navigate(`/events/${pendingEventId}?register=1`);
         }, 1000);
         return;
       } else {
@@ -407,7 +413,7 @@ export default function ProfilePage() {
                   <Input
                     id="phone"
                     value={phone}
-                    onChange={(e) => setPhone(e.target.value)}
+                    onChange={(e) => setPhone(e.target.value.replace(/\D/g, '').slice(0, 10))}
                     placeholder="10-digit mobile number"
                     pattern="[0-9]{10}"
                     maxLength={10}

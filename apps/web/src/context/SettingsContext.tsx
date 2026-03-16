@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useEffect, useCallback, useMemo, type ReactNode } from 'react';
+import { createContext, useContext, useState, useEffect, useCallback, useMemo, useRef, type ReactNode } from 'react';
 import { api } from '@/lib/api';
 import type { Settings } from '@/lib/api';
 
@@ -63,6 +63,20 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     void refreshSettings();
+  }, [refreshSettings]);
+
+  // Refetch settings when the tab regains focus (catches admin changes in another tab)
+  // Throttled to at most once every 30 seconds to avoid excessive API calls on rapid tab switching
+  const lastFetchedRef = useRef(0);
+  useEffect(() => {
+    const onFocus = () => {
+      if (Date.now() - lastFetchedRef.current > 30_000) {
+        lastFetchedRef.current = Date.now();
+        void refreshSettings();
+      }
+    };
+    window.addEventListener('focus', onFocus);
+    return () => window.removeEventListener('focus', onFocus);
   }, [refreshSettings]);
 
   const value = useMemo(

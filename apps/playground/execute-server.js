@@ -127,7 +127,7 @@ function optionalAuth(req, _res, next) {
 
   for (const token of candidates) {
     try {
-      const decoded = jwt.verify(token, getJwtSecret());
+      const decoded = jwt.verify(token, getJwtSecret(), { algorithms: ['HS256'] });
       req.user = { id: decoded.userId || decoded.id, email: decoded.email, role: decoded.role };
       break;
     } catch {

@@ -1,4 +1,5 @@
 import express from 'express';
+import compression from 'compression';
 import cors from 'cors';
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
@@ -28,6 +29,9 @@ import { quizRouter } from './quiz/quizRouter.js';
 import { initQuizSocket } from './quiz/quizSocket.js';
 import { quizStore } from './quiz/quizStore.js';
 import { playgroundRouter } from './routes/playground.js';
+import { creditsRouter } from './routes/credits.js';
+import { attendanceRouter } from './routes/attendance.js';
+import { initializeAttendanceSocket } from './attendance/attendanceSocket.js';
 import { setupPassport } from './config/passport.js';
 import { requestLogger, logger } from './utils/logger.js';
 import { ApiResponse, ErrorCodes } from './utils/response.js';
@@ -53,6 +57,14 @@ const NODE_ENV = process.env.NODE_ENV === 'development' ? 'development' : 'produ
 
 // Fail fast if auth secret is insecure/missing
 getJwtSecret();
+
+// Warn about missing optional-but-important config
+if (!process.env.BREVO_API_KEY) {
+  logger.warn('BREVO_API_KEY not set — all email functionality disabled (certificates, reminders, announcements)');
+}
+if (!process.env.CLOUDINARY_CLOUD_NAME || !process.env.CLOUDINARY_API_KEY || !process.env.CLOUDINARY_API_SECRET) {
+  logger.warn('Cloudinary not fully configured — certificate PDF upload and image upload will fail');
+}
 
 let eventStatusInterval: NodeJS.Timeout | null = null;
 const MAX_LISTEN_RETRIES = 5;
@@ -80,6 +92,9 @@ const io = initializeSocket(httpServer);
 
 // Initialize Quiz Socket namespace
 initQuizSocket(io);
+
+// Initialize Attendance Socket namespace
+initializeAttendanceSocket(io);
 
 // Neon keep-alive: prevent cold connection starts
 let keepAliveFailureCount = 0;
@@ -114,6 +129,7 @@ if (NODE_ENV === 'production') {
 }
 
 app.use(helmet());
+app.use(compression());
 app.use(cors({
   origin: (origin, callback) => {
     // Allow requests with no origin (mobile apps, Postman, etc.)
@@ -145,7 +161,7 @@ app.use(cors({
   },
   credentials: true,
 }));
-app.use(express.json());
+app.use(express.json({ limit: '10mb' }));
 
 // Request logging (only in development or if explicitly enabled)
 if (NODE_ENV === 'development' || process.env.ENABLE_REQUEST_LOGGING === 'true') {
@@ -261,6 +277,8 @@ app.use('/api/audit-logs', auditRouter);
 app.use('/api/mail', mailRouter);
 app.use('/api/quiz', quizRouter);
 app.use('/api/playground', playgroundRouter);
+app.use('/api/credits', creditsRouter);
+app.use('/api/attendance', attendanceRouter);
 app.use('/api/indexnow', authMiddleware, requireRole('ADMIN'), indexNowRouter);
 
 // Test email endpoint for debugging
@@ -344,6 +362,9 @@ const shutdown = async () => {
   stopEventStatusScheduler();
   stopReminderScheduler();
 
+  // Close Socket.io server first — disconnects all clients (quiz + attendance)
+  io.close();
+
   // Persist all active quiz sessions before exit
   const activeIds = quizStore.getAllActiveQuizIds();
   if (activeIds.length > 0) {
@@ -353,11 +374,12 @@ const shutdown = async () => {
     );
   }
 
-  // Force exit after 10 seconds if clean close doesn't happen
+  // Force exit after 28 seconds if clean close doesn't happen (Render sends SIGKILL at 30s)
   shutdownTimer = setTimeout(() => {
     logger.error('Forced shutdown after timeout');
     process.exit(1);
-  }, 10000);
+  }, 28000);
+  shutdownTimer.unref();
 
   // Close HTTP server and then disconnect Prisma.
   httpServer.close(async () => {

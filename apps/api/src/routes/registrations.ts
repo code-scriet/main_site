@@ -3,6 +3,7 @@ import { Prisma } from '@prisma/client';
 import { prisma } from '../lib/prisma.js';
 import { authMiddleware, getAuthUser } from '../middleware/auth.js';
 import { auditLog } from '../utils/audit.js';
+import { generateAttendanceToken } from '../utils/attendanceToken.js';
 import { emailService } from '../utils/email.js';
 import { logger } from '../utils/logger.js';
 import { sanitizeEventRegistrationFields, validateRegistrationFieldSubmissions } from '../utils/eventRegistrationFields.js';
@@ -178,6 +179,10 @@ registrationsRouter.post('/events/:eventId', authMiddleware, async (req: Request
           error.code === 'P2034' &&
           attempt < REGISTRATION_TRANSACTION_RETRIES - 1
         ) {
+          // Jittered exponential backoff to prevent thundering herd
+          const baseMs = 50 * Math.pow(2, attempt);
+          const jitter = Math.random() * baseMs;
+          await new Promise(resolve => setTimeout(resolve, baseMs + jitter));
           continue;
         }
 
@@ -191,12 +196,22 @@ registrationsRouter.post('/events/:eventId', authMiddleware, async (req: Request
 
     await auditLog(authUser.id, 'REGISTER', 'event', eventId, { eventTitle });
 
+    // Generate attendance QR token for this registration
+    let attendanceTokenValue: string | undefined;
+    try {
+      attendanceTokenValue = generateAttendanceToken(authUser.id, eventId, registration.id);
+      await prisma.eventRegistration.update({ where: { id: registration.id }, data: { attendanceToken: attendanceTokenValue } });
+    } catch (tokenErr) {
+      logger.warn('Failed to generate attendance token', { registrationId: registration.id, error: tokenErr });
+    }
+
     // Send registration confirmation email (async, don't wait)
     if (authUser.email) {
       sendRegistrationConfirmationEmail(
         authUser.email,
         authUser.name || 'Member',
         registration.event,
+        attendanceTokenValue,
       );
     }
 
@@ -220,7 +235,8 @@ registrationsRouter.post('/events/:eventId', authMiddleware, async (req: Request
 async function sendRegistrationConfirmationEmail(
   email: string,
   name: string,
-  event: { title: string; startDate: Date; slug: string; location?: string | null; imageUrl?: string | null }
+  event: { title: string; startDate: Date; slug: string; location?: string | null; imageUrl?: string | null },
+  attendanceToken?: string,
 ) {
   try {
     logger.info(`📧 Sending registration confirmation to ${email}...`);
@@ -231,7 +247,8 @@ async function sendRegistrationConfirmationEmail(
       event.startDate,
       event.slug,
       event.location || undefined,
-      event.imageUrl || undefined
+      event.imageUrl || undefined,
+      attendanceToken,
     );
     logger.info(`✅ Registration confirmation sent to ${email}`);
   } catch (error) {
@@ -297,6 +314,10 @@ registrationsRouter.get('/my', authMiddleware, async (req: Request, res: Respons
         eventId: true,
         timestamp: true,
         customFieldResponses: true,
+        attendanceToken: true,
+        attended: true,
+        scannedAt: true,
+        manualOverride: true,
         event: {
           select: {
             id: true,
@@ -308,6 +329,11 @@ registrationsRouter.get('/my', authMiddleware, async (req: Request, res: Respons
             venue: true,
             status: true,
             imageUrl: true,
+            slug: true,
+            capacity: true,
+            eventType: true,
+            prerequisites: true,
+            _count: { select: { registrations: true } },
           },
         },
       },
