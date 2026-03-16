@@ -50,10 +50,10 @@ const updateSettingsSchema = z.object({
 });
 
 const updateEmailTemplatesSchema = z.object({
-  emailWelcomeBody: z.string().max(20000).optional(),
-  emailAnnouncementBody: z.string().max(20000).optional(),
-  emailEventBody: z.string().max(20000).optional(),
-  emailFooterText: z.string().max(5000).optional(),
+  emailWelcomeBody: z.string().max(20000).nullable().optional(),
+  emailAnnouncementBody: z.string().max(20000).nullable().optional(),
+  emailEventBody: z.string().max(20000).nullable().optional(),
+  emailFooterText: z.string().max(5000).nullable().optional(),
 });
 
 // Get public settings (for frontend)

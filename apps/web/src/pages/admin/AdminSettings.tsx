@@ -71,34 +71,29 @@ export default function AdminSettings() {
     setLoading(true);
     setError(null);
     try {
-      const data = await api.getSettings();
-      
-      // Fetch email templates from the config file endpoint
       if (token) {
-        try {
-          const response = await fetch(`${import.meta.env.VITE_API_URL}/settings/email-templates`, {
-            headers: {
-              'Authorization': `Bearer ${token}`,
-            },
-          });
-          if (response.ok) {
-            const emailData = await response.json();
-            if (emailData.success && emailData.data) {
-              setSettings({
-                ...data,
-                emailWelcomeBody: emailData.data.emailWelcomeBody || '',
-                emailAnnouncementBody: emailData.data.emailAnnouncementBody || '',
-                emailEventBody: emailData.data.emailEventBody || '',
-                emailFooterText: emailData.data.emailFooterText || '',
-              });
-              return;
-            }
+        // Use admin endpoint to load ALL settings including admin-only fields
+        // (emailTestingMode, emailTestRecipients, email notification toggles, email body templates)
+        const response = await fetch(`${import.meta.env.VITE_API_URL}/settings`, {
+          headers: { 'Authorization': `Bearer ${token}` },
+        });
+        if (response.ok) {
+          const json = await response.json();
+          if (json.success && json.data) {
+            setSettings({
+              ...json.data,
+              // DB stores these as nullable; ensure empty string in UI
+              emailWelcomeBody: json.data.emailWelcomeBody ?? '',
+              emailAnnouncementBody: json.data.emailAnnouncementBody ?? '',
+              emailEventBody: json.data.emailEventBody ?? '',
+              emailFooterText: json.data.emailFooterText ?? '',
+            });
+            return;
           }
-        } catch (err) {
-          console.error('Failed to fetch email templates:', err);
         }
       }
-      
+      // Fallback: public endpoint (admin-only fields will show initial defaults)
+      const data = await api.getSettings();
       setSettings(data);
     } catch (err) {
       setError('Failed to load settings');
@@ -149,10 +144,10 @@ export default function AdminSettings() {
           'Authorization': `Bearer ${token}`,
         },
         body: JSON.stringify({
-          emailWelcomeBody,
-          emailAnnouncementBody,
-          emailEventBody,
-          emailFooterText,
+          emailWelcomeBody: emailWelcomeBody ?? '',
+          emailAnnouncementBody: emailAnnouncementBody ?? '',
+          emailEventBody: emailEventBody ?? '',
+          emailFooterText: emailFooterText ?? '',
         }),
       });
       
@@ -160,7 +155,7 @@ export default function AdminSettings() {
         throw new Error('Failed to update email templates');
       }
       
-      setSettings({ ...updated, emailWelcomeBody, emailAnnouncementBody, emailEventBody, emailFooterText });
+      setSettings({ ...updated, emailWelcomeBody: emailWelcomeBody ?? '', emailAnnouncementBody: emailAnnouncementBody ?? '', emailEventBody: emailEventBody ?? '', emailFooterText: emailFooterText ?? '' });
       // Refresh global settings so all components get the update
       await refreshGlobalSettings();
       setSaved(true);
