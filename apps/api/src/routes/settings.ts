@@ -261,6 +261,70 @@ settingsRouter.put('/', authMiddleware, requireRole('ADMIN'), async (req: Reques
   }
 });
 
+// Update email template configuration
+// IMPORTANT: Must be registered BEFORE patch('/:key') otherwise the wildcard route captures it first
+settingsRouter.patch('/email-templates', authMiddleware, requireRole('ADMIN'), async (req: Request, res: Response) => {
+  try {
+    const authUser = getAuthUser(req)!;
+
+    // Only Super Admin or President can update email templates
+    const superAdminEmail = process.env.SUPER_ADMIN_EMAIL;
+    if (authUser.email !== superAdminEmail && authUser.role !== 'PRESIDENT') {
+      return res.status(403).json({
+        success: false,
+        error: { message: 'Only the super admin or president can update email templates' },
+      });
+    }
+
+    const parsed = updateEmailTemplatesSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({
+        success: false,
+        error: { message: parsed.error.errors[0]?.message || 'Invalid email template payload' },
+      });
+    }
+
+    const { emailWelcomeBody, emailAnnouncementBody, emailEventBody, emailFooterText } = parsed.data;
+
+    const settings = await prisma.settings.upsert({
+      where: { id: 'default' },
+      create: {
+        id: 'default',
+        emailWelcomeBody: emailWelcomeBody || '',
+        emailAnnouncementBody: emailAnnouncementBody || '',
+        emailEventBody: emailEventBody || '',
+        emailFooterText: emailFooterText || '',
+      },
+      update: {
+        ...(emailWelcomeBody !== undefined && { emailWelcomeBody }),
+        ...(emailAnnouncementBody !== undefined && { emailAnnouncementBody }),
+        ...(emailEventBody !== undefined && { emailEventBody }),
+        ...(emailFooterText !== undefined && { emailFooterText }),
+      },
+    });
+
+    invalidateEmailTemplateConfigCache();
+
+    await auditLog(authUser.id, 'UPDATE', 'email-templates', 'config', {
+      updated: { emailWelcomeBody, emailAnnouncementBody, emailEventBody, emailFooterText },
+    });
+
+    res.json({
+      success: true,
+      data: {
+        emailWelcomeBody: settings.emailWelcomeBody || '',
+        emailAnnouncementBody: settings.emailAnnouncementBody || '',
+        emailEventBody: settings.emailEventBody || '',
+        emailFooterText: settings.emailFooterText || '',
+      },
+      message: 'Email templates updated successfully. Changes will take effect immediately.',
+    });
+  } catch (error) {
+    logger.error('Failed to update email templates:', { error: error instanceof Error ? error.message : String(error) });
+    res.status(500).json({ success: false, error: { message: 'Failed to update email templates' } });
+  }
+});
+
 // Update specific setting
 settingsRouter.patch('/:key', authMiddleware, requireRole('ADMIN'), async (req: Request, res: Response) => {
   try {
@@ -491,69 +555,6 @@ settingsRouter.get('/email-templates', authMiddleware, requireRole('ADMIN'), asy
   } catch (error) {
     logger.error('Failed to read email templates:', { error: error instanceof Error ? error.message : String(error) });
     res.status(500).json({ success: false, error: { message: 'Failed to read email templates' } });
-  }
-});
-
-// Update email template configuration
-settingsRouter.patch('/email-templates', authMiddleware, requireRole('ADMIN'), async (req: Request, res: Response) => {
-  try {
-    const authUser = getAuthUser(req)!;
-
-    // Only Super Admin or President can update email templates
-    const superAdminEmail = process.env.SUPER_ADMIN_EMAIL;
-    if (authUser.email !== superAdminEmail && authUser.role !== 'PRESIDENT') {
-      return res.status(403).json({
-        success: false,
-        error: { message: 'Only the super admin or president can update email templates' },
-      });
-    }
-
-    const parsed = updateEmailTemplatesSchema.safeParse(req.body);
-    if (!parsed.success) {
-      return res.status(400).json({
-        success: false,
-        error: { message: parsed.error.errors[0]?.message || 'Invalid email template payload' },
-      });
-    }
-
-    const { emailWelcomeBody, emailAnnouncementBody, emailEventBody, emailFooterText } = parsed.data;
-    
-    const settings = await prisma.settings.upsert({
-      where: { id: 'default' },
-      create: {
-        id: 'default',
-        emailWelcomeBody: emailWelcomeBody || '',
-        emailAnnouncementBody: emailAnnouncementBody || '',
-        emailEventBody: emailEventBody || '',
-        emailFooterText: emailFooterText || '',
-      },
-      update: {
-        ...(emailWelcomeBody !== undefined && { emailWelcomeBody }),
-        ...(emailAnnouncementBody !== undefined && { emailAnnouncementBody }),
-        ...(emailEventBody !== undefined && { emailEventBody }),
-        ...(emailFooterText !== undefined && { emailFooterText }),
-      },
-    });
-
-    invalidateEmailTemplateConfigCache();
-    
-    await auditLog(authUser.id, 'UPDATE', 'email-templates', 'config', {
-      updated: { emailWelcomeBody, emailAnnouncementBody, emailEventBody, emailFooterText },
-    });
-    
-    res.json({
-      success: true,
-      data: {
-        emailWelcomeBody: settings.emailWelcomeBody || '',
-        emailAnnouncementBody: settings.emailAnnouncementBody || '',
-        emailEventBody: settings.emailEventBody || '',
-        emailFooterText: settings.emailFooterText || '',
-      },
-      message: 'Email templates updated successfully. Changes will take effect immediately.',
-    });
-  } catch (error) {
-    logger.error('Failed to update email templates:', { error: error instanceof Error ? error.message : String(error) });
-    res.status(500).json({ success: false, error: { message: 'Failed to update email templates' } });
   }
 });
 
