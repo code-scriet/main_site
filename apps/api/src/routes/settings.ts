@@ -5,7 +5,7 @@ import { authMiddleware, getAuthUser } from '../middleware/auth.js';
 import { requireRole } from '../middleware/role.js';
 import { auditLog } from '../utils/audit.js';
 import { logger } from '../utils/logger.js';
-import { invalidateEmailTemplateConfigCache } from '../utils/email.js';
+import { invalidateEmailTemplateConfigCache, invalidateNotificationSettingsCache } from '../utils/email.js';
 import { updateEventStatuses } from '../utils/eventStatus.js';
 
 export const settingsRouter = Router();
@@ -33,6 +33,15 @@ const updateSettingsSchema = z.object({
   certificatesEnabled: z.boolean().optional(),
   playgroundEnabled: z.boolean().optional(),
   playgroundDailyLimit: z.coerce.number().int().min(1).max(10000).optional(),
+  // Email notification controls
+  emailWelcomeEnabled: z.boolean().optional(),
+  emailEventCreationEnabled: z.boolean().optional(),
+  emailRegistrationEnabled: z.boolean().optional(),
+  emailAnnouncementEnabled: z.boolean().optional(),
+  emailCertificateEnabled: z.boolean().optional(),
+  emailReminderEnabled: z.boolean().optional(),
+  emailTestingMode: z.boolean().optional(),
+  emailTestRecipients: z.string().max(2000).optional().nullable(),
   githubUrl: optionalUrl,
   linkedinUrl: optionalUrl,
   twitterUrl: optionalUrl,
@@ -184,6 +193,14 @@ settingsRouter.put('/', authMiddleware, requireRole('ADMIN'), async (req: Reques
       certificatesEnabled,
       playgroundEnabled,
       playgroundDailyLimit,
+      emailWelcomeEnabled,
+      emailEventCreationEnabled,
+      emailRegistrationEnabled,
+      emailAnnouncementEnabled,
+      emailCertificateEnabled,
+      emailReminderEnabled,
+      emailTestingMode,
+      emailTestRecipients,
       githubUrl,
       linkedinUrl,
       twitterUrl,
@@ -212,6 +229,14 @@ settingsRouter.put('/', authMiddleware, requireRole('ADMIN'), async (req: Reques
       ...(certificatesEnabled !== undefined && { certificatesEnabled }),
       ...(playgroundEnabled !== undefined && { playgroundEnabled }),
       ...(playgroundDailyLimit !== undefined && { playgroundDailyLimit }),
+      ...(emailWelcomeEnabled !== undefined && { emailWelcomeEnabled }),
+      ...(emailEventCreationEnabled !== undefined && { emailEventCreationEnabled }),
+      ...(emailRegistrationEnabled !== undefined && { emailRegistrationEnabled }),
+      ...(emailAnnouncementEnabled !== undefined && { emailAnnouncementEnabled }),
+      ...(emailCertificateEnabled !== undefined && { emailCertificateEnabled }),
+      ...(emailReminderEnabled !== undefined && { emailReminderEnabled }),
+      ...(emailTestingMode !== undefined && { emailTestingMode }),
+      ...(emailTestRecipients !== undefined && { emailTestRecipients: emailTestRecipients || null }),
       ...(githubUrl !== undefined && { githubUrl: githubUrl || null }),
       ...(linkedinUrl !== undefined && { linkedinUrl: linkedinUrl || null }),
       ...(twitterUrl !== undefined && { twitterUrl: twitterUrl || null }),
@@ -228,6 +253,7 @@ settingsRouter.put('/', authMiddleware, requireRole('ADMIN'), async (req: Reques
       update: settingsData,
     });
 
+    invalidateNotificationSettingsCache();
     await auditLog(authUser.id, 'UPDATE', 'settings', 'default', parsed.data);
     res.json({ success: true, data: settings, message: 'Settings updated successfully' });
   } catch (error) {
@@ -275,6 +301,14 @@ settingsRouter.patch('/:key', authMiddleware, requireRole('ADMIN'), async (req: 
       'certificatesEnabled',
       'playgroundEnabled',
       'playgroundDailyLimit',
+      'emailWelcomeEnabled',
+      'emailEventCreationEnabled',
+      'emailRegistrationEnabled',
+      'emailAnnouncementEnabled',
+      'emailCertificateEnabled',
+      'emailReminderEnabled',
+      'emailTestingMode',
+      'emailTestRecipients',
       'githubUrl',
       'linkedinUrl',
       'twitterUrl',
@@ -306,6 +340,13 @@ settingsRouter.patch('/:key', authMiddleware, requireRole('ADMIN'), async (req: 
       'mailingEnabled',
       'certificatesEnabled',
       'playgroundEnabled',
+      'emailWelcomeEnabled',
+      'emailEventCreationEnabled',
+      'emailRegistrationEnabled',
+      'emailAnnouncementEnabled',
+      'emailCertificateEnabled',
+      'emailReminderEnabled',
+      'emailTestingMode',
     ]);
     const urlKeys = new Set([
       'githubUrl',
@@ -341,6 +382,15 @@ settingsRouter.patch('/:key', authMiddleware, requireRole('ADMIN'), async (req: 
       return res.status(400).json({ success: false, error: { message: 'playgroundDailyLimit must be an integer between 1 and 10000' } });
     }
 
+    if (key === 'emailTestRecipients') {
+      if (value !== null && typeof value !== 'string') {
+        return res.status(400).json({ success: false, error: { message: 'emailTestRecipients must be a string or null' } });
+      }
+      if (typeof value === 'string' && value.length > 2000) {
+        return res.status(400).json({ success: false, error: { message: 'emailTestRecipients must be at most 2000 characters' } });
+      }
+    }
+
     if (urlKeys.has(key) && value !== null && typeof value !== 'string') {
       return res.status(400).json({ success: false, error: { message: `${key} must be a URL string or empty` } });
     }
@@ -363,7 +413,7 @@ settingsRouter.patch('/:key', authMiddleware, requireRole('ADMIN'), async (req: 
           ? parsedPlaygroundDailyLimit
           : value;
     if (
-      ['githubUrl', 'linkedinUrl', 'twitterUrl', 'instagramUrl', 'discordUrl'].includes(key) &&
+      ['githubUrl', 'linkedinUrl', 'twitterUrl', 'instagramUrl', 'discordUrl', 'emailTestRecipients'].includes(key) &&
       typeof value === 'string' &&
       value.trim() === ''
     ) {
@@ -381,6 +431,7 @@ settingsRouter.patch('/:key', authMiddleware, requireRole('ADMIN'), async (req: 
       },
     });
 
+    invalidateNotificationSettingsCache();
     await auditLog(authUser.id, 'UPDATE', 'settings', 'default', { [key]: normalizedValue });
     res.json({ success: true, data: settings, message: `Setting ${key} updated successfully` });
   } catch (error) {

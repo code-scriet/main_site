@@ -6,6 +6,112 @@ import { logger } from './logger.js';
 import { prisma } from '../lib/prisma.js';
 import QRCode from 'qrcode';
 
+// ============================================
+// Email Category & Notification Settings
+// ============================================
+
+export type EmailCategory =
+  | 'welcome'
+  | 'event_creation'
+  | 'registration'
+  | 'announcement'
+  | 'certificate'
+  | 'reminder'
+  | 'admin_mail'
+  | 'other';
+
+interface NotificationSettings {
+  emailWelcomeEnabled: boolean;
+  emailEventCreationEnabled: boolean;
+  emailRegistrationEnabled: boolean;
+  emailAnnouncementEnabled: boolean;
+  emailCertificateEnabled: boolean;
+  emailReminderEnabled: boolean;
+  mailingEnabled: boolean;
+  emailTestingMode: boolean;
+  emailTestRecipients: string | null;
+}
+
+const CATEGORY_TOGGLE_MAP: Record<EmailCategory, keyof NotificationSettings | null> = {
+  welcome: 'emailWelcomeEnabled',
+  event_creation: 'emailEventCreationEnabled',
+  registration: 'emailRegistrationEnabled',
+  announcement: 'emailAnnouncementEnabled',
+  certificate: 'emailCertificateEnabled',
+  reminder: 'emailReminderEnabled',
+  admin_mail: 'mailingEnabled',
+  other: null,
+};
+
+let notificationSettingsCache: NotificationSettings | null = null;
+let lastNotificationFetch = 0;
+const NOTIFICATION_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+
+export function invalidateNotificationSettingsCache(): void {
+  notificationSettingsCache = null;
+  lastNotificationFetch = 0;
+}
+
+const ALL_ENABLED_DEFAULTS: NotificationSettings = {
+  emailWelcomeEnabled: true,
+  emailEventCreationEnabled: true,
+  emailRegistrationEnabled: true,
+  emailAnnouncementEnabled: true,
+  emailCertificateEnabled: true,
+  emailReminderEnabled: true,
+  mailingEnabled: true,
+  emailTestingMode: false,
+  emailTestRecipients: null,
+};
+
+async function getNotificationSettings(): Promise<NotificationSettings> {
+  const now = Date.now();
+  if (notificationSettingsCache && (now - lastNotificationFetch) < NOTIFICATION_CACHE_TTL) {
+    return notificationSettingsCache;
+  }
+
+  try {
+    const settings = await prisma.settings.findUnique({
+      where: { id: 'default' },
+      select: {
+        emailWelcomeEnabled: true,
+        emailEventCreationEnabled: true,
+        emailRegistrationEnabled: true,
+        emailAnnouncementEnabled: true,
+        emailCertificateEnabled: true,
+        emailReminderEnabled: true,
+        mailingEnabled: true,
+        emailTestingMode: true,
+        emailTestRecipients: true,
+      },
+    });
+
+    notificationSettingsCache = {
+      emailWelcomeEnabled: settings?.emailWelcomeEnabled ?? true,
+      emailEventCreationEnabled: settings?.emailEventCreationEnabled ?? true,
+      emailRegistrationEnabled: settings?.emailRegistrationEnabled ?? true,
+      emailAnnouncementEnabled: settings?.emailAnnouncementEnabled ?? true,
+      emailCertificateEnabled: settings?.emailCertificateEnabled ?? true,
+      emailReminderEnabled: settings?.emailReminderEnabled ?? true,
+      mailingEnabled: settings?.mailingEnabled ?? true,
+      emailTestingMode: settings?.emailTestingMode ?? false,
+      emailTestRecipients: settings?.emailTestRecipients ?? null,
+    };
+    lastNotificationFetch = now;
+    return notificationSettingsCache;
+  } catch (error) {
+    logger.error('Failed to fetch notification settings', {
+      error: error instanceof Error ? error.message : String(error),
+    });
+    if (notificationSettingsCache) return notificationSettingsCache;
+    return ALL_ENABLED_DEFAULTS;
+  }
+}
+
+// ============================================
+// Email template config cache
+// ============================================
+
 // Email template config cache
 interface EmailTemplateConfig {
   welcomeBody: string;
@@ -94,6 +200,7 @@ interface EmailOptions {
   html: string;
   text?: string;
   attachments?: EmailAttachment[];
+  category?: EmailCategory;
 }
 
 interface EmailTemplate {
@@ -916,6 +1023,54 @@ class EmailService {
       return false;
     }
 
+    // ── Notification guard: category toggle + testing mode ──
+    const category = options.category || 'other';
+    const ns = await getNotificationSettings();
+
+    const toggleKey = CATEGORY_TOGGLE_MAP[category];
+    if (toggleKey && !ns[toggleKey]) {
+      logger.info(`📧 Email suppressed by ${toggleKey} toggle`, {
+        category,
+        to: Array.isArray(options.to) ? `${(options.to as string[]).length} recipients` : options.to,
+        subject: options.subject,
+      });
+      return false;
+    }
+
+    if (ns.emailTestingMode && category !== 'other') {
+      const testEmails = (ns.emailTestRecipients || '')
+        .split(',')
+        .map(e => e.trim())
+        .filter(e => e.length > 0);
+
+      if (testEmails.length === 0) {
+        logger.warn('📧 Email testing mode active but no test recipients configured — suppressing', {
+          category,
+          originalTo: Array.isArray(options.to) ? options.to : [options.to],
+          subject: options.subject,
+        });
+        return false;
+      }
+
+      const originalRecipients = Array.isArray(options.to) ? options.to : [options.to];
+      logger.info('📧 Email testing mode: redirecting email', {
+        category,
+        originalRecipients: originalRecipients.slice(0, 20),
+        originalCount: originalRecipients.length,
+        redirectedTo: testEmails,
+        subject: options.subject,
+      });
+
+      options.subject = `[TEST] ${options.subject}`;
+      options.to = testEmails;
+      options.bcc = undefined;
+
+      const recipientPreview = originalRecipients.slice(0, 10).join(', ');
+      const moreCount = originalRecipients.length > 10 ? ` + ${originalRecipients.length - 10} more` : '';
+      const debugHeader = `<div style="background:#fef08a;color:#854d0e;padding:12px 16px;border-radius:8px;margin-bottom:16px;font-size:13px;font-family:sans-serif;"><strong>🧪 TEST MODE</strong> — Original recipients (${originalRecipients.length}): ${recipientPreview}${moreCount}</div>`;
+      options.html = debugHeader + options.html;
+    }
+
     try {
       const recipients: BrevoRecipient[] = Array.isArray(options.to)
         ? options.to.map(email => ({ email }))
@@ -968,8 +1123,52 @@ class EmailService {
     }
   }
 
-  async sendBulk(emails: string[], subject: string, html: string, text?: string): Promise<boolean> {
+  async sendBulk(emails: string[], subject: string, html: string, text?: string, category: EmailCategory = 'other'): Promise<boolean> {
     if (!this.configured || emails.length === 0) return false;
+
+    // ── Notification guard: category toggle + testing mode ──
+    const ns = await getNotificationSettings();
+
+    const toggleKey = CATEGORY_TOGGLE_MAP[category];
+    if (toggleKey && !ns[toggleKey]) {
+      logger.info(`📧 Bulk email suppressed by ${toggleKey} toggle`, {
+        category,
+        recipientCount: emails.length,
+        subject,
+      });
+      return false;
+    }
+
+    if (ns.emailTestingMode && category !== 'other') {
+      const testEmails = (ns.emailTestRecipients || '')
+        .split(',')
+        .map(e => e.trim())
+        .filter(e => e.length > 0);
+
+      if (testEmails.length === 0) {
+        logger.warn('📧 Bulk email testing mode active but no test recipients — suppressing', {
+          category,
+          originalCount: emails.length,
+          subject,
+        });
+        return false;
+      }
+
+      logger.info('📧 Bulk email testing mode: redirecting', {
+        category,
+        originalCount: emails.length,
+        redirectedTo: testEmails,
+        subject,
+      });
+
+      const debugHeader = `<div style="background:#fef08a;color:#854d0e;padding:12px 16px;border-radius:8px;margin-bottom:16px;font-size:13px;font-family:sans-serif;"><strong>🧪 TEST MODE</strong> — Would have sent to ${emails.length} recipients</div>`;
+      return this.send({
+        to: testEmails,
+        subject: `[TEST] ${subject}`,
+        html: debugHeader + html,
+        text: `[TEST MODE - Would send to ${emails.length} recipients] ${text || ''}`,
+      });
+    }
 
     const BATCH_SIZE = 1000;
     const batches: string[][] = [];
@@ -1047,24 +1246,24 @@ class EmailService {
   async sendWelcome(email: string, name: string, clubName: string = 'code.scriet'): Promise<boolean> {
     const config = await getEmailTemplateConfig();
     const template = EmailTemplates.welcome(name, clubName, config.welcomeBody, config.footerText);
-    return this.send({ to: email, ...template });
+    return this.send({ to: email, ...template, category: 'welcome' });
   }
 
   async sendEventRegistration(email: string, name: string, eventTitle: string, eventDate: Date, eventSlug: string, location?: string, imageUrl?: string, attendanceToken?: string): Promise<boolean> {
     const template = await EmailTemplates.eventRegistration(name, eventTitle, eventDate, eventSlug, location, imageUrl, attendanceToken);
-    return this.send({ to: email, ...template });
+    return this.send({ to: email, ...template, category: 'registration' });
   }
 
   async sendAnnouncementToAll(emails: string[], title: string, body: string, priority: string, slug: string, shortDescription?: string, imageUrl?: string, tags?: string[]): Promise<boolean> {
     const config = await getEmailTemplateConfig();
     const template = EmailTemplates.newAnnouncement(title, body, priority, slug, shortDescription, imageUrl, tags, config.announcementIntro, config.footerText);
-    return this.sendBulk(emails, template.subject, template.html, template.text);
+    return this.sendBulk(emails, template.subject, template.html, template.text, 'announcement');
   }
 
   async sendNewEventToAll(emails: string[], title: string, description: string, startDate: Date, slug: string, shortDescription?: string, location?: string, imageUrl?: string, tags?: string[], eventType?: string): Promise<boolean> {
     const config = await getEmailTemplateConfig();
     const template = EmailTemplates.newEvent(title, description, startDate, slug, shortDescription, location, imageUrl, tags, eventType, config.eventIntro, config.footerText);
-    return this.sendBulk(emails, template.subject, template.html, template.text);
+    return this.sendBulk(emails, template.subject, template.html, template.text, 'event_creation');
   }
 
   async sendPasswordReset(email: string, name: string, resetLink: string): Promise<boolean> {
@@ -1074,7 +1273,7 @@ class EmailService {
 
   async sendEventReminder(email: string, name: string, eventTitle: string, eventDate: Date, eventSlug: string): Promise<boolean> {
     const template = EmailTemplates.eventReminder(name, eventTitle, eventDate, eventSlug);
-    return this.send({ to: email, ...template });
+    return this.send({ to: email, ...template, category: 'reminder' });
   }
 
   async sendRegistrationOpens(emails: string[], eventTitle: string, startDate: Date, slug: string, shortDescription?: string, imageUrl?: string): Promise<boolean> {
@@ -1332,7 +1531,7 @@ class EmailService {
       }),
       text: `Hi ${name}, your certificate for ${eventName} is ready! Certificate ID: ${certId}. Download PDF: ${downloadUrl}. Verify at: ${verifyUrl}`,
     };
-    return this.send({ to: email, ...template });
+    return this.send({ to: email, ...template, category: 'certificate' });
   }
 
   isConfigured(): boolean {

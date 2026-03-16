@@ -3,7 +3,7 @@ import { motion } from 'framer-motion';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Save, AlertCircle, CheckCircle, Globe, Mail, Shield, Loader2, RefreshCw, Share2, FileText, Eye, Code, Search, Clock } from 'lucide-react';
+import { Save, AlertCircle, CheckCircle, Globe, Mail, Shield, Loader2, RefreshCw, Share2, FileText, Eye, Code, Search, Clock, AlertTriangle } from 'lucide-react';
 import { api } from '@/lib/api';
 import type { Settings } from '@/lib/api';
 import { useAuth } from '@/context/AuthContext';
@@ -37,6 +37,14 @@ export default function AdminSettings() {
     hiringManagement: true,
     showNetwork: true,
     mailingEnabled: true,
+    emailWelcomeEnabled: true,
+    emailEventCreationEnabled: true,
+    emailRegistrationEnabled: true,
+    emailAnnouncementEnabled: true,
+    emailCertificateEnabled: true,
+    emailReminderEnabled: true,
+    emailTestingMode: false,
+    emailTestRecipients: null,
     playgroundDailyLimit: 100,
     githubUrl: '',
     linkedinUrl: '',
@@ -293,16 +301,72 @@ export default function AdminSettings() {
         </CardContent>
       </Card>
 
-      {/* Notification Settings */}
+      {/* Email & Notifications */}
       <Card className="border-amber-100">
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Mail className="h-5 w-5 text-amber-600" />
-            Notifications
+            Email & Notifications
           </CardTitle>
-          <CardDescription>Configure announcement settings</CardDescription>
+          <CardDescription>Control which emails are sent and enable testing mode to prevent accidental mass emails</CardDescription>
         </CardHeader>
-        <CardContent>
+        <CardContent className="space-y-4">
+          {/* Testing Mode Banner */}
+          {settings.emailTestingMode && (
+            <div className="flex items-start gap-3 p-4 bg-amber-50 border border-amber-300 rounded-lg">
+              <AlertTriangle className="h-5 w-5 text-amber-600 shrink-0 mt-0.5" />
+              <div>
+                <p className="text-sm font-semibold text-amber-900">Testing Mode Active</p>
+                <p className="text-xs text-amber-700 mt-1">
+                  All emails are being redirected to test addresses below. No real users will receive emails.
+                  {!settings.emailTestRecipients?.trim() && (
+                    <span className="block mt-1 text-red-600 font-medium">No test recipients configured — all emails are being suppressed!</span>
+                  )}
+                </p>
+              </div>
+            </div>
+          )}
+
+          {/* Testing Mode Toggle */}
+          <div className="flex items-center justify-between p-4 bg-amber-50 rounded-lg">
+            <div>
+              <p className="font-medium text-amber-900">Testing Mode</p>
+              <p className="text-sm text-gray-500">Redirect all emails to test addresses instead of real users</p>
+            </div>
+            <label className="relative inline-flex items-center cursor-pointer">
+              <input
+                type="checkbox"
+                checked={settings.emailTestingMode ?? false}
+                onChange={(e) => handleToggle('emailTestingMode', e.target.checked)}
+                className="sr-only peer"
+              />
+              <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-amber-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-amber-500"></div>
+            </label>
+          </div>
+
+          {/* Test Recipients Input */}
+          {settings.emailTestingMode && (
+            <div className="ml-4 border-l-2 border-amber-200 pl-4 space-y-2">
+              <label className="text-sm font-medium text-gray-700">Test Recipients</label>
+              <Input
+                value={settings.emailTestRecipients || ''}
+                onChange={(e) => setSettings({ ...settings, emailTestRecipients: e.target.value })}
+                onBlur={async () => {
+                  if (!token) return;
+                  try {
+                    await api.patchSetting('emailTestRecipients', settings.emailTestRecipients || '', token);
+                  } catch (err) {
+                    setError('Failed to save test recipients');
+                    console.error(err);
+                  }
+                }}
+                placeholder="admin@example.com, dev@example.com"
+              />
+              <p className="text-xs text-gray-500">Comma-separated email addresses. All outgoing emails will be redirected here.</p>
+            </div>
+          )}
+
+          {/* Announcements Feature Toggle */}
           <div className="flex items-center justify-between p-4 bg-amber-50 rounded-lg">
             <div>
               <p className="font-medium text-amber-900">Announcements</p>
@@ -317,6 +381,36 @@ export default function AdminSettings() {
               />
               <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-amber-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-amber-500"></div>
             </label>
+          </div>
+
+          {/* Email Category Toggles */}
+          <div className="space-y-1 pt-2">
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">Email Category Toggles</p>
+            {[
+              { key: 'emailWelcomeEnabled' as const, label: 'Welcome Emails', desc: 'Sent when a new user registers' },
+              { key: 'emailEventCreationEnabled' as const, label: 'New Event Emails', desc: 'Sent to all users when a new event is created' },
+              { key: 'emailRegistrationEnabled' as const, label: 'Registration Confirmation', desc: 'Sent when a user registers for an event' },
+              { key: 'emailAnnouncementEnabled' as const, label: 'Announcement Emails', desc: 'Sent to all users for new announcements' },
+              { key: 'emailCertificateEnabled' as const, label: 'Certificate Emails', desc: 'Sent when a certificate is issued to a user' },
+              { key: 'emailReminderEnabled' as const, label: 'Event Reminders', desc: 'Automated reminders before events start' },
+              { key: 'mailingEnabled' as const, label: 'Admin Bulk Mail', desc: 'Enable the admin email composer to send emails to users' },
+            ].map(({ key, label, desc }) => (
+              <div key={key} className="flex items-center justify-between p-3 bg-white rounded-lg border border-amber-100">
+                <div>
+                  <p className="text-sm font-medium text-amber-900">{label}</p>
+                  <p className="text-xs text-gray-400">{desc}</p>
+                </div>
+                <label className="relative inline-flex items-center cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={settings[key] ?? true}
+                    onChange={(e) => handleToggle(key, e.target.checked)}
+                    className="sr-only peer"
+                  />
+                  <div className="w-9 h-5 bg-gray-200 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-amber-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-amber-500"></div>
+                </label>
+              </div>
+            ))}
           </div>
         </CardContent>
       </Card>
@@ -430,21 +524,6 @@ export default function AdminSettings() {
                 type="checkbox"
                 checked={settings.showNetwork ?? true}
                 onChange={(e) => handleToggle('showNetwork', e.target.checked)}
-                className="sr-only peer"
-              />
-              <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-amber-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-amber-500"></div>
-            </label>
-          </div>
-          <div className="flex items-center justify-between p-4 bg-amber-50 rounded-lg">
-            <div>
-              <p className="font-medium text-amber-900">Mailing System</p>
-              <p className="text-sm text-gray-500">Enable the admin email composer to send emails to users</p>
-            </div>
-            <label className="relative inline-flex items-center cursor-pointer">
-              <input
-                type="checkbox"
-                checked={settings.mailingEnabled ?? true}
-                onChange={(e) => handleToggle('mailingEnabled', e.target.checked)}
                 className="sr-only peer"
               />
               <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-amber-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-amber-500"></div>

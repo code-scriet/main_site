@@ -92,6 +92,18 @@ model Settings {
   playgroundEnabled         Boolean  @default(true) @map("playground_enabled")
   playgroundDailyLimit      Int      @default(100) @map("playground_daily_limit")
 
+  // Email notification category toggles
+  emailWelcomeEnabled       Boolean  @default(true) @map("email_welcome_enabled")
+  emailEventCreationEnabled Boolean  @default(true) @map("email_event_creation_enabled")
+  emailRegistrationEnabled  Boolean  @default(true) @map("email_registration_enabled")
+  emailAnnouncementEnabled  Boolean  @default(true) @map("email_announcement_enabled")
+  emailCertificateEnabled   Boolean  @default(true) @map("email_certificate_enabled")
+  emailReminderEnabled      Boolean  @default(true) @map("email_reminder_enabled")
+
+  // Email testing mode
+  emailTestingMode          Boolean  @default(false) @map("email_testing_mode")
+  emailTestRecipients       String?  @map("email_test_recipients")
+
   @@map("settings")
 }
 

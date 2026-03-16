@@ -381,7 +381,10 @@ hiringSocialMedia, hiringManagement,
 emailAnnouncementBody, emailEventBody, emailFooterText,
 emailWelcomeBody, emailNetworkVerifiedBody, emailNetworkRejectedBody,
 show_tech_blogs, showNetwork, mailingEnabled,
-certificatesEnabled, playgroundEnabled, playgroundDailyLimit
+certificatesEnabled, playgroundEnabled, playgroundDailyLimit,
+emailWelcomeEnabled, emailEventCreationEnabled, emailRegistrationEnabled,
+emailAnnouncementEnabled, emailCertificateEnabled, emailReminderEnabled,
+emailTestingMode, emailTestRecipients?
 ```
 
 ### Event
@@ -767,6 +770,74 @@ manualOverride   Boolean   @default(false) @map("manual_override")
 | EventAdminHub | `apps/web/src/components/attendance/EventAdminHub.tsx` | Tab page: Details, Scanner, Manage (all roles), + Certificates (admin only). Accessible via `/admin/events/:eventId/attendance` (Admin) or `/dashboard/events/:eventId/attendance` (CORE_MEMBER+) |
 | AttendanceHistory | `apps/web/src/components/attendance/AttendanceHistory.tsx` | Student attendance history (dashboard widget) |
 | useOfflineScanner | `apps/web/src/hooks/useOfflineScanner.ts` | localStorage offline sync hook (5 sync triggers) |
+
+---
+
+## Email Notification Control System
+
+> **Status: IMPLEMENTED.** Centralized per-category email toggles + testing mode.
+
+### Architecture
+
+All email guards are enforced inside `EmailService.send()` and `EmailService.sendBulk()` — no route can bypass them. Each email is tagged with an `EmailCategory`:
+
+```typescript
+type EmailCategory = 'welcome' | 'event_creation' | 'registration' | 'announcement' | 'certificate' | 'reminder' | 'admin_mail' | 'other';
+```
+
+**Guard evaluation order** (inside `send()`/`sendBulk()`):
+1. Fetch notification settings (5-min cached, stale fallback on DB error, defaults to all-enabled)
+2. Category toggle check → if disabled, suppress + log
+3. Testing mode check → if on, redirect to test emails with `[TEST]` subject prefix + debug banner
+4. Normal send via Brevo API
+
+### Category → Toggle Mapping
+
+| Category | Settings Field | Methods | Callers |
+|----------|---------------|---------|---------|
+| `welcome` | `emailWelcomeEnabled` | `sendWelcome` | auth.ts, passport.ts |
+| `event_creation` | `emailEventCreationEnabled` | `sendNewEventToAll` | events.ts |
+| `registration` | `emailRegistrationEnabled` | `sendEventRegistration` | registrations.ts |
+| `announcement` | `emailAnnouncementEnabled` | `sendAnnouncementToAll` | announcements.ts |
+| `certificate` | `emailCertificateEnabled` | `sendCertificateIssued` | certificates.ts |
+| `reminder` | `emailReminderEnabled` | `sendEventReminder` | scheduler.ts |
+| `admin_mail` | `mailingEnabled` (existing) | `sendBulk` via mail route | mail.ts |
+| `other` | *(no toggle — always allowed)* | raw `send()` | attendance.ts, hiring.ts, network.ts |
+
+### DB Fields (on Settings)
+
+```prisma
+emailWelcomeEnabled         Boolean  @default(true)
+emailEventCreationEnabled   Boolean  @default(true)
+emailRegistrationEnabled    Boolean  @default(true)
+emailAnnouncementEnabled    Boolean  @default(true)
+emailCertificateEnabled     Boolean  @default(true)
+emailReminderEnabled        Boolean  @default(true)
+emailTestingMode            Boolean  @default(false)
+emailTestRecipients         String?
+```
+
+### Testing Mode
+
+When `emailTestingMode` is `true`:
+- All emails redirect to comma-separated `emailTestRecipients`
+- Subject prefixed with `[TEST]`
+- Yellow debug banner injected into HTML showing original recipient(s)
+- If no test recipients configured → all emails suppressed + logged
+
+### Admin UI
+
+"Email & Notifications" card in AdminSettings.tsx (between Registration & Events and Feature Toggles):
+- Testing Mode toggle + test recipients input (appears when active)
+- Warning banner when testing mode is active
+- 7 individual email category toggles (auto-save via PATCH)
+- `mailingEnabled` moved from Feature Toggles into this card as "Admin Bulk Mail"
+
+### Cache
+
+- `getNotificationSettings()` — 5-min TTL, same pattern as email template config cache
+- `invalidateNotificationSettingsCache()` — called from settings.ts PUT and PATCH handlers
+- Stale cache fallback on DB error; defaults to all-enabled if no cache at all
 
 ---
 

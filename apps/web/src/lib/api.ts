@@ -127,6 +127,15 @@ export interface Settings {
   emailAnnouncementBody?: string;
   emailEventBody?: string;
   emailFooterText?: string;
+  // Email Notification Controls
+  emailWelcomeEnabled?: boolean;
+  emailEventCreationEnabled?: boolean;
+  emailRegistrationEnabled?: boolean;
+  emailAnnouncementEnabled?: boolean;
+  emailCertificateEnabled?: boolean;
+  emailReminderEnabled?: boolean;
+  emailTestingMode?: boolean;
+  emailTestRecipients?: string | null;
   updatedAt: string;
 }
 
