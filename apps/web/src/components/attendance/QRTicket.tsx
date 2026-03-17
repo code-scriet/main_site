@@ -5,7 +5,6 @@ import { Button } from "@/components/ui/button";
 import { formatDateTime, formatDate, formatTime } from "@/lib/dateUtils";
 import {
   CheckCircle2,
-  Clock,
   Download,
   QrCode,
   CalendarX2,
@@ -24,27 +23,11 @@ interface QRTicketProps {
   };
 }
 
-const QR_VISIBLE_BEFORE_START_MS = 30 * 60 * 1000; // 30 minutes
 const DEFAULT_EVENT_DURATION_MS = 4 * 60 * 60 * 1000; // 4 hours
-
-function getTimeUntil(targetMs: number): string {
-  const diff = targetMs - Date.now();
-  if (diff <= 0) return "";
-
-  const totalMinutes = Math.floor(diff / 60000);
-  const hours = Math.floor(totalMinutes / 60);
-  const minutes = totalMinutes % 60;
-
-  if (hours > 0) {
-    return minutes > 0 ? `${hours}h ${minutes}m` : `${hours}h`;
-  }
-  return `${minutes}m`;
-}
 
 type TicketState =
   | "attended"
   | "past_not_attended"
-  | "upcoming_locked"
   | "qr_visible"
   | "no_token";
 
@@ -58,14 +41,8 @@ function resolveState(props: QRTicketProps): TicketState {
     ? new Date(props.event.endDate).getTime()
     : startMs + DEFAULT_EVENT_DURATION_MS;
 
-  const qrWindowStart = startMs - QR_VISIBLE_BEFORE_START_MS;
-
   if (props.event.status === "PAST" || now > endMs) {
     return "past_not_attended";
-  }
-
-  if (now < qrWindowStart) {
-    return "upcoming_locked";
   }
 
   return "qr_visible";
@@ -80,10 +57,9 @@ export default function QRTicket({
   const [ticketState, setTicketState] = useState<TicketState>(() =>
     resolveState({ attendanceToken, attended, scannedAt, event })
   );
-  const [countdown, setCountdown] = useState("");
   const qrRef = useRef<HTMLDivElement>(null);
 
-  // Re-evaluate state and countdown every 15 seconds
+  // Re-evaluate state every 15 seconds
   useEffect(() => {
     function tick() {
       const state = resolveState({
@@ -93,14 +69,6 @@ export default function QRTicket({
         event,
       });
       setTicketState(state);
-
-      if (state === "upcoming_locked") {
-        const startMs = new Date(event.startDate).getTime();
-        const qrWindowStart = startMs - QR_VISIBLE_BEFORE_START_MS;
-        setCountdown(getTimeUntil(qrWindowStart));
-      } else {
-        setCountdown("");
-      }
     }
 
     tick();
@@ -233,19 +201,6 @@ export default function QRTicket({
           <CalendarX2 className="h-8 w-8 text-stone-400" />
           <p className="text-sm text-stone-500">
             This event has ended. Attendance was not recorded.
-          </p>
-        </div>
-      )}
-
-      {ticketState === "upcoming_locked" && (
-        <div className="flex flex-col items-center gap-2 py-6 text-center">
-          <Clock className="h-8 w-8 text-amber-400 animate-pulse" />
-          <p className="text-sm font-medium text-amber-700">
-            QR will be available in{" "}
-            <span className="font-bold">{countdown || "..."}</span>
-          </p>
-          <p className="text-xs text-amber-500">
-            Available 30 minutes before the event starts
           </p>
         </div>
       )}
