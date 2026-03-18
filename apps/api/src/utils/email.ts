@@ -195,6 +195,7 @@ interface EmailAttachment {
 
 interface EmailOptions {
   to: string | string[];
+  cc?: string | string[];
   bcc?: string | string[];
   subject: string;
   html: string;
@@ -1063,6 +1064,7 @@ class EmailService {
 
       options.subject = `[TEST] ${options.subject}`;
       options.to = testEmails;
+      options.cc = undefined;
       options.bcc = undefined;
 
       const recipientPreview = originalRecipients.slice(0, 10).join(', ');
@@ -1076,6 +1078,10 @@ class EmailService {
         ? options.to.map(email => ({ email }))
         : [{ email: options.to }];
 
+      const ccRecipients: BrevoRecipient[] = options.cc
+        ? (Array.isArray(options.cc) ? options.cc : [options.cc]).map(email => ({ email }))
+        : [];
+
       const bccRecipients: BrevoRecipient[] = options.bcc
         ? (Array.isArray(options.bcc) ? options.bcc : [options.bcc]).map(email => ({ email }))
         : [];
@@ -1084,6 +1090,7 @@ class EmailService {
         sender: { name: this.fromName, email: this.fromEmail },
         replyTo: { email: this.replyToEmail, name: 'code.scriet Support' },
         to: recipients,
+        ...(ccRecipients.length > 0 ? { cc: ccRecipients } : {}),
         ...(bccRecipients.length > 0 ? { bcc: bccRecipients } : {}),
         subject: options.subject,
         htmlContent: options.html,
@@ -1111,6 +1118,7 @@ class EmailService {
       logger.info('📧 Email sent via Brevo', {
         messageId: result.messageId,
         recipients: recipients.length,
+        ccRecipients: ccRecipients.length,
         bccRecipients: bccRecipients.length,
         subject: options.subject,
       });

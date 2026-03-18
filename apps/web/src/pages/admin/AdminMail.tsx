@@ -67,6 +67,13 @@ export default function AdminMail() {
   // --- Manual email input ---
   const [manualEmail, setManualEmail] = useState('');
 
+  // --- CC / BCC ---
+  const [showCcBcc, setShowCcBcc] = useState(false);
+  const [ccEmails, setCcEmails] = useState<string[]>([]);
+  const [bccEmails, setBccEmails] = useState<string[]>([]);
+  const [ccInput, setCcInput] = useState('');
+  const [bccInput, setBccInput] = useState('');
+
   // Refs to avoid stale closures
   const selectedRef = useRef(selectedRecipients);
   selectedRef.current = selectedRecipients;
@@ -171,6 +178,29 @@ export default function AdminMail() {
     setError(null);
   };
 
+  // --- CC/BCC helpers ---
+  const addCcBccEmail = (type: 'cc' | 'bcc') => {
+    const input = type === 'cc' ? ccInput : bccInput;
+    const email = input.trim().toLowerCase();
+    if (!email) return;
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      setError('Please enter a valid email address');
+      return;
+    }
+    const list = type === 'cc' ? ccEmails : bccEmails;
+    if (list.includes(email)) {
+      setError('This email is already added');
+      return;
+    }
+    if (list.length >= 50) {
+      setError(`Maximum 50 ${type.toUpperCase()} recipients allowed`);
+      return;
+    }
+    if (type === 'cc') { setCcEmails(prev => [...prev, email]); setCcInput(''); }
+    else { setBccEmails(prev => [...prev, email]); setBccInput(''); }
+    setError(null);
+  };
+
   // --- Send handler ---
   const handleSend = async () => {
     if (!token) return;
@@ -190,6 +220,8 @@ export default function AdminMail() {
       const payload = {
         audience,
         emails: audience === 'specific' ? selectedRecipients.map(r => r.email) : undefined,
+        cc: ccEmails.length > 0 ? ccEmails : undefined,
+        bcc: bccEmails.length > 0 ? bccEmails : undefined,
         subject: subject.trim(),
         body: body.trim(),
         bodyType,
@@ -215,6 +247,11 @@ export default function AdminMail() {
       setSearchQuery('');
       setSearchResults([]);
       setHasSearched(false);
+      setCcEmails([]);
+      setBccEmails([]);
+      setCcInput('');
+      setBccInput('');
+      setShowCcBcc(false);
 
       setTimeout(() => setSuccess(null), 8000);
     } catch (err) {
@@ -480,6 +517,100 @@ export default function AdminMail() {
             <p className="text-xs text-gray-400 text-right">{subject.length}/200</p>
           </div>
 
+          {/* CC / BCC toggle + inputs */}
+          <div>
+            <button
+              type="button"
+              onClick={() => setShowCcBcc(!showCcBcc)}
+              className="text-xs font-medium text-amber-600 hover:text-amber-800 transition-colors"
+            >
+              {showCcBcc ? 'Hide CC/BCC' : '+ Add CC/BCC'}
+              {(ccEmails.length > 0 || bccEmails.length > 0) && !showCcBcc && (
+                <span className="ml-1 text-gray-500">
+                  ({[ccEmails.length > 0 ? `${ccEmails.length} CC` : '', bccEmails.length > 0 ? `${bccEmails.length} BCC` : ''].filter(Boolean).join(', ')})
+                </span>
+              )}
+            </button>
+
+            {showCcBcc && (
+              <div className="mt-3 space-y-3 p-3 bg-gray-50 rounded-lg border border-gray-200">
+                {/* CC */}
+                <div className="space-y-1.5">
+                  <label className="text-xs font-medium text-gray-500">CC</label>
+                  <div className="flex gap-2">
+                    <Input
+                      value={ccInput}
+                      onChange={e => setCcInput(e.target.value)}
+                      onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addCcBccEmail('cc'); } }}
+                      placeholder="cc@example.com"
+                      type="email"
+                      className="flex-1 h-8 text-sm"
+                    />
+                    <Button
+                      onClick={() => addCcBccEmail('cc')}
+                      disabled={!ccInput.trim()}
+                      variant="outline"
+                      size="sm"
+                      className="border-amber-300 text-amber-700 hover:bg-amber-50 h-8 text-xs"
+                    >
+                      <Plus className="h-3 w-3 mr-1" />
+                      Add
+                    </Button>
+                  </div>
+                  {ccEmails.length > 0 && (
+                    <div className="flex flex-wrap gap-1.5">
+                      {ccEmails.map(email => (
+                        <span key={email} className="inline-flex items-center gap-1 px-2 py-1 bg-blue-100 text-blue-800 rounded-full text-xs font-medium">
+                          <span className="truncate max-w-[160px]">{email}</span>
+                          <button onClick={() => setCcEmails(prev => prev.filter(e => e !== email))} className="hover:text-red-600 shrink-0">
+                            <X className="h-3 w-3" />
+                          </button>
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* BCC */}
+                <div className="space-y-1.5">
+                  <label className="text-xs font-medium text-gray-500">BCC</label>
+                  <div className="flex gap-2">
+                    <Input
+                      value={bccInput}
+                      onChange={e => setBccInput(e.target.value)}
+                      onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addCcBccEmail('bcc'); } }}
+                      placeholder="bcc@example.com"
+                      type="email"
+                      className="flex-1 h-8 text-sm"
+                    />
+                    <Button
+                      onClick={() => addCcBccEmail('bcc')}
+                      disabled={!bccInput.trim()}
+                      variant="outline"
+                      size="sm"
+                      className="border-amber-300 text-amber-700 hover:bg-amber-50 h-8 text-xs"
+                    >
+                      <Plus className="h-3 w-3 mr-1" />
+                      Add
+                    </Button>
+                  </div>
+                  {bccEmails.length > 0 && (
+                    <div className="flex flex-wrap gap-1.5">
+                      {bccEmails.map(email => (
+                        <span key={email} className="inline-flex items-center gap-1 px-2 py-1 bg-gray-200 text-gray-700 rounded-full text-xs font-medium">
+                          <span className="truncate max-w-[160px]">{email}</span>
+                          <button onClick={() => setBccEmails(prev => prev.filter(e => e !== email))} className="hover:text-red-600 shrink-0">
+                            <X className="h-3 w-3" />
+                          </button>
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+
           {/* Body */}
           <div className="space-y-2">
             <div className="flex items-center justify-between">
@@ -575,6 +706,8 @@ export default function AdminMail() {
                 : audience === 'all_users'
                   ? 'all users'
                   : 'all network members'}
+              {ccEmails.length > 0 ? ` + ${ccEmails.length} CC` : ''}
+              {bccEmails.length > 0 ? ` + ${bccEmails.length} BCC` : ''}
               ?
             </p>
             <Button

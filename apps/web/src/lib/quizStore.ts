@@ -146,6 +146,7 @@ interface QuizState {
   setMyAnswer: (answer: string) => void;
 
   answerReceived: (data: AnswerReceipt) => void;
+  answerResultReceived: (data: AnswerResult) => void;
   answerCountUpdate: (data: { answered: number; total?: number }) => void;
   allAnsweredReceived: () => void;
 
@@ -272,6 +273,13 @@ export const useQuizStore = create<QuizState>()(
       set({
         hasAnswered: true,
         lastAnswerResult: null,
+      }),
+
+    answerResultReceived: (data) =>
+      set({
+        lastAnswerResult: data,
+        myScore: data.newScore,
+        myStreak: data.newStreak,
       }),
 
     answerCountUpdate: (data) => set({ answeredCount: data.answered }),

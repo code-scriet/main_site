@@ -473,6 +473,8 @@ export function initQuizSocket(io: SocketIOServer) {
       }
 
       const shouldRevealCurrentQuestion = canRevealCurrentQuestion(room);
+      const currentQ = room.questions[room.currentQuestionIndex];
+      const isUnscoredType = currentQ && ['POLL', 'RATING', 'OPEN_ENDED'].includes(currentQ.questionType);
 
       // Clear auto-advance timer
       if (room.autoAdvanceTimer) {
@@ -480,9 +482,9 @@ export function initQuizSocket(io: SocketIOServer) {
         room.autoAdvanceTimer = null;
       }
 
-      // Emit results only when timer has completed.
-      // If host advances early, we skip reveal to prevent answer leakage.
-      if (shouldRevealCurrentQuestion) {
+      // Emit results when timer has completed, OR always for unscored types
+      // (POLL/RATING/OPEN_ENDED have no correct answer to leak on early advance).
+      if (shouldRevealCurrentQuestion || isUnscoredType) {
         emitQuestionResults(quizId, room);
         await new Promise((resolve) => setTimeout(resolve, 3000));
       }
@@ -543,6 +545,16 @@ export function initQuizSocket(io: SocketIOServer) {
       // Respond to submitter
       socket.emit('answer_received', {
         accepted: true,
+      });
+
+      // Unicast per-player scoring feedback
+      socket.emit('answer_result', {
+        isCorrect: result.isCorrect,
+        isPoll: result.isPoll,
+        pointsAwarded: result.pointsAwarded,
+        timeMs: result.timeMs,
+        newScore: result.newScore,
+        newStreak: result.newStreak,
       });
 
       // Throttled broadcast of answer count to room
@@ -706,6 +718,8 @@ export function initQuizSocket(io: SocketIOServer) {
       }
 
       const shouldRevealCurrentQuestion = canRevealCurrentQuestion(room);
+      const currentQ = room.questions[room.currentQuestionIndex];
+      const isUnscoredType = currentQ && ['POLL', 'RATING', 'OPEN_ENDED'].includes(currentQ.questionType);
 
       // Clear auto-advance timer
       if (room.autoAdvanceTimer) {
@@ -713,9 +727,9 @@ export function initQuizSocket(io: SocketIOServer) {
         room.autoAdvanceTimer = null;
       }
 
-      // Emit results only when timer has completed.
-      // If host skips early, we skip reveal to prevent answer leakage.
-      if (shouldRevealCurrentQuestion) {
+      // Emit results when timer completed, OR always for unscored types
+      // (POLL/RATING/OPEN_ENDED have no correct answer to leak on early skip).
+      if (shouldRevealCurrentQuestion || isUnscoredType) {
         emitQuestionResults(quizId, room);
       }
 

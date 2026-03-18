@@ -60,6 +60,7 @@ export function useQuizSocket() {
     socket.on('player_left', (data) => store.getState().playerLeft(data));
     socket.on('show_question', (data) => store.getState().showQuestion(data));
     socket.on('answer_received', (data) => store.getState().answerReceived(data));
+    socket.on('answer_result', (data) => store.getState().answerResultReceived(data));
     socket.on('answer_count_update', (data) => store.getState().answerCountUpdate(data));
     socket.on('all_answered', () => store.getState().allAnsweredReceived());
     socket.on('poll_results_update', (data) => store.getState().pollResultsUpdate(data));

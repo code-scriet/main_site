@@ -52,6 +52,8 @@ function sanitizeEmailHtml(html: string): string {
 const sendMailSchema = z.object({
   audience: z.enum(['all_users', 'all_network', 'specific']),
   emails: z.array(z.string().email()).optional(),
+  cc: z.array(z.string().email()).max(50).optional(),
+  bcc: z.array(z.string().email()).max(50).optional(),
   subject: z.string().trim().min(1).max(200),
   body: z.string().trim().min(1).max(50000),
   bodyType: z.enum(['markdown', 'html']).default('markdown'),
@@ -131,7 +133,7 @@ mailRouter.post('/send', authMiddleware, requireRole('ADMIN'), async (req: Reque
       });
     }
 
-    const { audience, emails, subject, body, bodyType } = parsed.data;
+    const { audience, emails, cc, bcc, subject, body, bodyType } = parsed.data;
 
     // Sanitize HTML bodies to prevent XSS or injected scripts in email clients
     let safeBody = body;
@@ -177,18 +179,39 @@ mailRouter.post('/send', authMiddleware, requireRole('ADMIN'), async (req: Reque
       template.text,
     );
 
+    // Send a separate copy to CC/BCC recipients (Brevo messageVersions API doesn't support CC/BCC)
+    const hasCcBcc = (cc && cc.length > 0) || (bcc && bcc.length > 0);
+    if (hasCcBcc && success) {
+      await emailService.send({
+        to: authUser.email,
+        cc: cc && cc.length > 0 ? cc : undefined,
+        bcc: bcc && bcc.length > 0 ? bcc : undefined,
+        subject: template.subject,
+        html: template.html,
+        text: template.text,
+        category: 'admin_mail',
+      });
+    }
+
     await auditLog(authUser.id, 'SEND_EMAIL', 'mail', undefined, {
       audience,
       recipientCount: recipientEmails.length,
+      ccCount: cc?.length || 0,
+      bccCount: bcc?.length || 0,
       subject,
       bodyType,
     });
 
     if (success) {
+      const ccBccSuffix = [
+        cc?.length ? `${cc.length} CC` : '',
+        bcc?.length ? `${bcc.length} BCC` : '',
+      ].filter(Boolean).join(', ');
+
       res.json({
         success: true,
-        message: `Email sent to ${recipientEmails.length} recipient(s)`,
-        data: { recipientCount: recipientEmails.length },
+        message: `Email sent to ${recipientEmails.length} recipient(s)${ccBccSuffix ? ` + ${ccBccSuffix}` : ''}`,
+        data: { recipientCount: recipientEmails.length, ccCount: cc?.length || 0, bccCount: bcc?.length || 0 },
       });
     } else {
       res.status(500).json({

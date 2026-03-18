@@ -68,7 +68,7 @@ const questionSchema = z.object({
   options: z.array(z.string()).nullable().optional(),
   correctAnswer: z.string().nullable().optional(),
   timeLimitSeconds: z.number().int().min(5).max(120).default(20),
-  points: z.number().int().positive().default(100),
+  points: z.number().int().min(0).default(100),
   mediaUrl: z.string().url().nullable().optional(),
 });
 
@@ -110,7 +110,7 @@ function validateQuizQuestions(questions: z.infer<typeof questionSchema>[]): str
       return `Question "${q.questionText.substring(0, 50)}..." has duplicate options`;
     }
 
-    if ((q.questionType === 'MCQ' || q.questionType === 'TRUE_FALSE' || q.questionType === 'MULTI_SELECT') && (!q.options || q.options.length < 2)) {
+    if ((q.questionType === 'MCQ' || q.questionType === 'TRUE_FALSE' || q.questionType === 'MULTI_SELECT' || q.questionType === 'POLL') && (!q.options || q.options.length < 2)) {
       return `Question "${q.questionText.substring(0, 50)}..." must have at least 2 options`;
     }
 
