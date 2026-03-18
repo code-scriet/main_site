@@ -172,18 +172,13 @@ mailRouter.post('/send', authMiddleware, requireRole('ADMIN'), async (req: Reque
     // Build email using the general-purpose admin template
     const template = EmailTemplates.adminMail(subject, safeBody, bodyType);
 
-    const success = await emailService.sendBulk(
-      recipientEmails,
-      template.subject,
-      template.html,
-      template.text,
-    );
-
-    // Send a separate copy to CC/BCC recipients (Brevo messageVersions API doesn't support CC/BCC)
     const hasCcBcc = (cc && cc.length > 0) || (bcc && bcc.length > 0);
-    if (hasCcBcc && success) {
-      await emailService.send({
-        to: authUser.email,
+    let success: boolean;
+
+    if (audience === 'specific' && hasCcBcc) {
+      // For specific recipients with CC/BCC, use send() so TO/CC/BCC headers are correct
+      success = await emailService.send({
+        to: recipientEmails,
         cc: cc && cc.length > 0 ? cc : undefined,
         bcc: bcc && bcc.length > 0 ? bcc : undefined,
         subject: template.subject,
@@ -191,6 +186,27 @@ mailRouter.post('/send', authMiddleware, requireRole('ADMIN'), async (req: Reque
         text: template.text,
         category: 'admin_mail',
       });
+    } else {
+      // For bulk audiences or no CC/BCC, use sendBulk (individual emails via messageVersions)
+      success = await emailService.sendBulk(
+        recipientEmails,
+        template.subject,
+        template.html,
+        template.text,
+      );
+
+      // For bulk audiences, send a separate copy to CC/BCC recipients
+      if (hasCcBcc && success) {
+        await emailService.send({
+          to: authUser.email,
+          cc: cc && cc.length > 0 ? cc : undefined,
+          bcc: bcc && bcc.length > 0 ? bcc : undefined,
+          subject: template.subject,
+          html: template.html,
+          text: template.text,
+          category: 'admin_mail',
+        });
+      }
     }
 
     await auditLog(authUser.id, 'SEND_EMAIL', 'mail', undefined, {
