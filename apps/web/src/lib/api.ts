@@ -129,6 +129,7 @@ export interface Settings {
   certificatesEnabled?: boolean;
   playgroundEnabled?: boolean;
   playgroundDailyLimit?: number;
+  quizEnabled?: boolean;
   // Social Links
   githubUrl?: string;
   linkedinUrl?: string;

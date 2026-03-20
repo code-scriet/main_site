@@ -3,7 +3,7 @@
  * All quiz create/read/edit/delete operations.
  */
 
-import { Router, Request, Response } from 'express';
+import { Router, Request, Response, NextFunction } from 'express';
 import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
 import { Prisma } from '@prisma/client';
@@ -17,6 +17,49 @@ import { quizStore } from './quizStore.js';
 import rateLimit from 'express-rate-limit';
 
 export const quizRouter = Router();
+
+// ---------------------------------------------------------------------------
+// Quiz feature-enabled gate (1-minute cache, fail-open to avoid blocking on
+// DB cold-start)
+// ---------------------------------------------------------------------------
+const QUIZ_SETTINGS_CACHE_TTL_MS = 60 * 1000;
+const quizSettingsCache: { expiresAt: number; enabled: boolean } = {
+  expiresAt: 0,
+  enabled: true,
+};
+
+const getCachedQuizEnabled = async (): Promise<boolean> => {
+  const now = Date.now();
+  if (now < quizSettingsCache.expiresAt) return quizSettingsCache.enabled;
+  try {
+    const settings = await prisma.settings.findUnique({
+      where: { id: 'default' },
+      select: { quizEnabled: true },
+    });
+    quizSettingsCache.enabled = settings?.quizEnabled !== false;
+  } catch {
+    // On DB error leave cached value unchanged; fail-open
+  }
+  quizSettingsCache.expiresAt = now + QUIZ_SETTINGS_CACHE_TTL_MS;
+  return quizSettingsCache.enabled;
+};
+
+// Apply gate to all quiz REST routes
+quizRouter.use(async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const enabled = await getCachedQuizEnabled();
+    if (!enabled) {
+      return res.status(403).json({
+        success: false,
+        error: { message: 'Live Quiz is currently disabled' },
+      });
+    }
+    next();
+  } catch (err) {
+    logger.error('Quiz feature-gate check failed', { error: err });
+    next();
+  }
+});
 
 // Rate limit quiz creation: max 10 per hour per IP
 const quizCreateLimiter = rateLimit({

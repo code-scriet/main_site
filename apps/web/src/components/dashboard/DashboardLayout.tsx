@@ -59,9 +59,10 @@ const coreMemberNavItems = [
   { id: 'core-create-event', name: 'Create Event', href: '/dashboard/events/new', icon: Calendar },
   { id: 'core-create-announcement', name: 'Create Announcement', href: '/dashboard/announcements/new', icon: Bell },
   { id: 'core-qotd', name: 'Manage QOTD', href: '/dashboard/qotd', icon: Code },
-  { id: 'core-quiz', name: 'Quiz Manager', href: '/dashboard/quiz', icon: Zap },
   { id: 'core-upload', name: 'Upload Image', href: '/dashboard/upload', icon: Upload },
 ] satisfies NavItem[];
+
+const coreMemberQuizNavItem = { id: 'core-quiz', name: 'Quiz Manager', href: '/dashboard/quiz', icon: Zap } satisfies NavItem;
 
 const getAdminNavItems = (hiringEnabled: boolean, showNetwork: boolean, certificatesEnabled: boolean, isSuperAdmin?: boolean, isPresident?: boolean) => {
   const items = [
@@ -147,11 +148,11 @@ export default function DashboardLayout() {
     { id: 'user-overview', name: 'Overview', href: '/dashboard', icon: Home },
     { id: 'user-events', name: 'My Events', href: '/dashboard/events', icon: Calendar },
     { id: 'user-announcements', name: 'Announcements', href: '/dashboard/announcements', icon: Bell },
-    { id: 'user-live-quiz', name: 'Live Quiz', href: '/quiz', icon: Zap },
+    ...(settings?.quizEnabled !== false ? [{ id: 'user-live-quiz', name: 'Live Quiz', href: '/quiz', icon: Zap }] : []),
     ...(settings?.showLeaderboard !== false ? [{ id: 'user-leaderboard', name: 'Leaderboard', href: '/dashboard/leaderboard', icon: Trophy }] : []),
     { id: 'user-profile', name: 'My Profile', href: '/dashboard/profile', icon: User },
     ...(settings?.certificatesEnabled !== false ? [{ id: 'user-certificates', name: 'My Certificates', href: '/dashboard/certificates', icon: Award }] : []),
-  ], [settings?.showLeaderboard, settings?.certificatesEnabled]);
+  ], [settings?.quizEnabled, settings?.showLeaderboard, settings?.certificatesEnabled]);
 
   const adminNavItems = useMemo<NavItem[]>(() => {
     if (!isAdmin) return [];
@@ -167,10 +168,13 @@ export default function DashboardLayout() {
   const allNavItems = useMemo(
     () => [
       ...userNavItems,
-      ...(isCoreMember ? coreMemberNavItems : []),
+      ...(isCoreMember ? [
+        ...coreMemberNavItems,
+        ...(settings?.quizEnabled !== false ? [coreMemberQuizNavItem] : []),
+      ] : []),
       ...adminNavItems,
     ],
-    [userNavItems, isCoreMember, adminNavItems],
+    [userNavItems, isCoreMember, settings?.quizEnabled, adminNavItems],
   );
 
   const routeActiveNavId = useMemo(
@@ -299,7 +303,7 @@ export default function DashboardLayout() {
                   </p>
                 )}
               </div>
-              {coreMemberNavItems.map((item) => (
+              {[...coreMemberNavItems, ...(settings?.quizEnabled !== false ? [coreMemberQuizNavItem] : [])].map((item) => (
                 <NavLink
                   key={item.id}
                   item={item}

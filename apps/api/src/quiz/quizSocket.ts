@@ -106,6 +106,22 @@ export function initQuizSocket(io: SocketIOServer) {
   // ─── Authentication middleware ──────────────────────────────────────────
   const quizNamespace = io.of('/quiz');
 
+  // ─── Feature-enabled gate (fail-open on DB error) ───────────────────────
+  quizNamespace.use(async (_socket, next) => {
+    try {
+      const settings = await prisma.settings.findUnique({
+        where: { id: 'default' },
+        select: { quizEnabled: true },
+      });
+      if (settings?.quizEnabled === false) {
+        return next(new Error('QUIZ_DISABLED'));
+      }
+    } catch {
+      // Fail-open: allow connection if DB is unavailable
+    }
+    next();
+  });
+
   quizNamespace.use((socket: QuizSocket, next) => {
     const token = socket.handshake.auth?.token;
     if (!token) return next(new Error('AUTH_REQUIRED'));

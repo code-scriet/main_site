@@ -95,6 +95,7 @@ model Settings {
   certificatesEnabled       Boolean  @default(true) @map("certificates_enabled")
   playgroundEnabled         Boolean  @default(true) @map("playground_enabled")
   playgroundDailyLimit      Int      @default(100) @map("playground_daily_limit")
+  quizEnabled               Boolean  @default(true) @map("quiz_enabled")
 
   // Email notification category toggles
   emailWelcomeEnabled       Boolean  @default(true) @map("email_welcome_enabled")

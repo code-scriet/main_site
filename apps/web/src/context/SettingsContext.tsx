@@ -25,6 +25,7 @@ const defaultSettings: Settings = {
   certificatesEnabled: true,
   playgroundEnabled: true,
   playgroundDailyLimit: 100,
+  quizEnabled: true,
   emailWelcomeEnabled: true,
   emailEventCreationEnabled: true,
   emailRegistrationEnabled: true,

@@ -1,5 +1,5 @@
 import { lazy, Suspense } from 'react';
-import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, Navigate, Outlet } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { AuthProvider } from '@/context/AuthContext';
 import { SettingsProvider } from '@/context/SettingsContext';
@@ -80,6 +80,25 @@ const QuizJoinPage = lazy(() => import('@/pages/quiz/QuizJoinPage'));
 
 // Auth Components - keep synchronous for faster auth checks
 import { ProtectedRoute } from '@/components/auth/ProtectedRoute';
+import { useSettings } from '@/context/SettingsContext';
+import type { Settings } from '@/lib/api';
+
+/** Boolean feature-toggle keys from Settings. */
+type FeatureFlag = Extract<{
+  [K in keyof Settings]: Settings[K] extends boolean | undefined ? K : never;
+}[keyof Settings], string>;
+
+/** Redirects to '/' when the given settings flag is false. */
+function FeatureRoute({ flag }: { flag: FeatureFlag }) {
+  const { settings, loading } = useSettings();
+  if (loading) return (
+    <div className="min-h-screen flex items-center justify-center bg-amber-50">
+      <div className="animate-spin rounded-full h-12 w-12 border-4 border-amber-600 border-t-transparent" />
+    </div>
+  );
+  if (settings?.[flag] === false) return <Navigate to="/" replace />;
+  return <Outlet />;
+}
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -127,14 +146,19 @@ function App() {
                   <Route path="/competition/:roundId/results" element={<CompetitionResults />} />
                   <Route path="/contact" element={<ContactPage />} />
 
-                  {/* Quiz Routes (public listing, auth for participation) */}
-                  <Route path="/quiz" element={<ActiveQuizList />} />
-                  <Route path="/quiz/join" element={<QuizJoinPage />} />
+                  {/* Quiz Routes — gated by quizEnabled setting */}
+                  <Route element={<FeatureRoute flag="quizEnabled" />}>
+                    <Route path="/quiz" element={<ActiveQuizList />} />
+                    <Route path="/quiz/join" element={<QuizJoinPage />} />
+                  </Route>
 
                   {/* Protected User Routes */}
                   <Route element={<ProtectedRoute minRole="USER" />}>
-                    <Route path="/quiz/:quizId" element={<QuizPage />} />
-                    <Route path="/quiz/:quizId/results" element={<QuizResultsPage />} />
+                    <Route element={<FeatureRoute flag="quizEnabled" />}>
+                      <Route path="/quiz/:quizId" element={<QuizPage />} />
+                      <Route path="/quiz/:quizId/results" element={<QuizResultsPage />} />
+                      <Route path="/quiz/create" element={<AdminQuizCreator />} />
+                    </Route>
                     <Route path="/dashboard" element={<DashboardLayout />}>
                       <Route index element={<DashboardOverview />} />
                       <Route path="events" element={<DashboardEvents />} />
@@ -143,7 +167,9 @@ function App() {
                       <Route path="events/new" element={<CreateEvent />} />
                       <Route path="announcements/new" element={<CreateAnnouncement />} />
                       <Route path="qotd" element={<CreateQOTD />} />
-                      <Route path="quiz" element={<QuizManager />} />
+                      <Route element={<FeatureRoute flag="quizEnabled" />}>
+                        <Route path="quiz" element={<QuizManager />} />
+                      </Route>
                       <Route path="upload" element={<ImageUploadTool />} />
                       <Route path="profile" element={<ProfilePage />} />
                       <Route path="team/:id/edit" element={<EditTeamProfile />} />
@@ -154,7 +180,6 @@ function App() {
                         <Route path="events/:eventId/attendance" element={<EventAdminHub />} />
                       </Route>
                     </Route>
-                    <Route path="/quiz/create" element={<AdminQuizCreator />} />
                   </Route>
 
                   {/* Protected Admin Routes */}
