@@ -80,7 +80,7 @@ function computeRemainingSeconds(round: { duration: number; startedAt: Date | nu
 async function getEventAccess(eventId: string, userId: string) {
   const event = await prisma.event.findUnique({
     where: { id: eventId },
-    select: { id: true, createdBy: true, teamRegistration: true, title: true },
+    select: { id: true, createdBy: true, title: true },
   });
   if (!event) return null;
   return {
@@ -299,9 +299,6 @@ competitionRouter.post('/', authMiddleware, requireRole('ADMIN'), async (req: Re
     const event = await getEventAccess(parsed.data.eventId, admin.id);
     if (!event) {
       return ApiResponse.notFound(res, 'Event not found');
-    }
-    if (!event.teamRegistration) {
-      return ApiResponse.badRequest(res, 'Competition rounds require team registration enabled for the event');
     }
 
     const round = await withRetry(() => prisma.competitionRound.create({

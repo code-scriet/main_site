@@ -28,10 +28,39 @@ const getPendingEventRedirectPath = (eventId: string, pendingType: 'solo' | 'tea
     : `/events/${eventId}?register=1`
 );
 
+const getSafeNextUrl = (rawNext: string | null): string | null => {
+  if (!rawNext) return null;
+  try {
+    const parsed = new URL(rawNext, window.location.origin);
+    const allowedOrigins = new Set([
+      window.location.origin,
+      'https://codescriet.dev',
+      'https://www.codescriet.dev',
+      'https://code.codescriet.dev',
+      ...(import.meta.env.DEV
+        ? ['http://localhost:5173', 'http://localhost:5174', 'http://127.0.0.1:5173', 'http://127.0.0.1:5174']
+        : []),
+    ]);
+    return allowedOrigins.has(parsed.origin) ? parsed.toString() : null;
+  } catch {
+    return null;
+  }
+};
+
+const redirectToNext = (navigate: ReturnType<typeof useNavigate>, targetUrl: string) => {
+  const parsed = new URL(targetUrl);
+  if (parsed.origin === window.location.origin) {
+    navigate(`${parsed.pathname}${parsed.search}${parsed.hash}`);
+    return;
+  }
+  window.location.assign(parsed.toString());
+};
+
 export default function SignInPage() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const { user, loginWithEmail, register, isLoading: authLoading } = useAuth();
+  const nextUrl = getSafeNextUrl(searchParams.get('next'));
   
   const [providers, setProviders] = useState<AuthProviders | null>(null);
   const [loading, setLoading] = useState(true);
@@ -49,9 +78,13 @@ export default function SignInPage() {
   // If already logged in, redirect to dashboard
   useEffect(() => {
     if (user && !authLoading) {
+      if (nextUrl) {
+        redirectToNext(navigate, nextUrl);
+        return;
+      }
       navigate('/dashboard');
     }
-  }, [user, authLoading, navigate]);
+  }, [user, authLoading, navigate, nextUrl]);
 
   // Defensive cleanup: normal sign-in page should never carry network intent.
   useEffect(() => {
@@ -86,6 +119,11 @@ export default function SignInPage() {
     setError(null);
     localStorage.removeItem('network_intent');
     localStorage.removeItem('network_onboarding_type');
+    if (nextUrl) {
+      sessionStorage.setItem('post_login_next', nextUrl);
+    } else {
+      sessionStorage.removeItem('post_login_next');
+    }
     window.location.href = `${API_URL}/auth/google`;
   };
 
@@ -93,6 +131,11 @@ export default function SignInPage() {
     setError(null);
     localStorage.removeItem('network_intent');
     localStorage.removeItem('network_onboarding_type');
+    if (nextUrl) {
+      sessionStorage.setItem('post_login_next', nextUrl);
+    } else {
+      sessionStorage.removeItem('post_login_next');
+    }
     window.location.href = `${API_URL}/auth/github`;
   };
 
@@ -108,6 +151,12 @@ export default function SignInPage() {
     
     try {
       await loginWithEmail(email.trim(), password);
+
+      if (nextUrl) {
+        sessionStorage.removeItem('post_login_next');
+        redirectToNext(navigate, nextUrl);
+        return;
+      }
       
       // Check if user needs to complete profile (especially for pending event registration)
       const pendingEventId = localStorage.getItem('pendingEventRegistration');
@@ -164,6 +213,12 @@ export default function SignInPage() {
     
     try {
       await register(name.trim(), email.trim(), password);
+
+      if (nextUrl) {
+        sessionStorage.removeItem('post_login_next');
+        redirectToNext(navigate, nextUrl);
+        return;
+      }
       
       // New user registration always means incomplete profile
       // Redirect to profile page to complete academic details

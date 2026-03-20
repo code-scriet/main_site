@@ -89,16 +89,18 @@ export default function AdminCompetition() {
   const [editingRound, setEditingRound] = useState<CompetitionRound | null>(null);
   const [form, setForm] = useState<FormState>(DEFAULT_FORM);
 
-  const teamEvents = useMemo(
-    () => events.filter((event) => event.teamRegistration === true),
-    [events],
-  );
+  const getCompetitionRoundUrl = (roundId: string) => {
+    const base = `${BASE_PLAYGROUND_URL}/competition/${roundId}`;
+    return token ? `${base}#token=${encodeURIComponent(token)}` : base;
+  };
+
+  const getCompetitionRoundPublicUrl = (roundId: string) => `${BASE_PLAYGROUND_URL}/competition/${roundId}`;
 
   const filteredEvents = useMemo(() => {
     const query = eventFilter.trim().toLowerCase();
-    if (!query) return teamEvents;
-    return teamEvents.filter((event) => event.title.toLowerCase().includes(query));
-  }, [teamEvents, eventFilter]);
+    if (!query) return events;
+    return events.filter((event) => event.title.toLowerCase().includes(query));
+  }, [events, eventFilter]);
 
   const selectedEvents = selectedEventId
     ? filteredEvents.filter((event) => event.id === selectedEventId)
@@ -110,11 +112,10 @@ export default function AdminCompetition() {
       setLoading(true);
       setError(null);
       const fetchedEvents = await api.getEvents();
-      const eligibleEvents = fetchedEvents.filter((event) => event.teamRegistration === true);
-      setEvents(eligibleEvents);
+      setEvents(fetchedEvents);
 
       const roundsEntries = await Promise.all(
-        eligibleEvents.map(async (event) => {
+        fetchedEvents.map(async (event) => {
           const response = await api.getCompetitionRoundsAdmin(event.id, token);
           return [event.id, response.rounds] as const;
         }),
@@ -352,7 +353,7 @@ export default function AdminCompetition() {
               onChange={(e) => setSelectedEventId(e.target.value)}
               className="h-10 rounded-lg border-2 border-amber-200 bg-white px-3 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-amber-400/20"
             >
-              <option value="">All team events</option>
+              <option value="">All events</option>
               {filteredEvents.map((event) => (
                 <option key={event.id} value={event.id}>
                   {event.title}
@@ -367,7 +368,7 @@ export default function AdminCompetition() {
         <Card>
           <CardContent className="py-12 text-center">
             <Calendar className="h-10 w-10 text-gray-300 mx-auto mb-3" />
-            <p className="text-gray-500">No team-registration events found.</p>
+            <p className="text-gray-500">No events found.</p>
           </CardContent>
         </Card>
       ) : (
@@ -427,12 +428,12 @@ export default function AdminCompetition() {
                           <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
                             Contestant link:{' '}
                             <a
-                              href={`${BASE_PLAYGROUND_URL}/competition/${round.id}`}
+                              href={getCompetitionRoundUrl(round.id)}
                               target="_blank"
                               rel="noreferrer"
                               className="font-semibold underline break-all"
                             >
-                              {`${BASE_PLAYGROUND_URL}/competition/${round.id}`}
+                              {getCompetitionRoundPublicUrl(round.id)}
                             </a>
                           </div>
                         )}
@@ -450,7 +451,7 @@ export default function AdminCompetition() {
                                 className="gap-2"
                                 asChild
                               >
-                                <a href={`${BASE_PLAYGROUND_URL}/competition/${round.id}`} target="_blank" rel="noreferrer">
+                                <a href={getCompetitionRoundUrl(round.id)} target="_blank" rel="noreferrer">
                                   <ExternalLink className="h-4 w-4" />
                                   Open Round Link
                                 </a>
@@ -478,7 +479,7 @@ export default function AdminCompetition() {
                                 className="gap-2"
                                 asChild
                               >
-                                <a href={`${BASE_PLAYGROUND_URL}/competition/${round.id}`} target="_blank" rel="noreferrer">
+                                <a href={getCompetitionRoundUrl(round.id)} target="_blank" rel="noreferrer">
                                   <ExternalLink className="h-4 w-4" />
                                   Open Round Link
                                 </a>
@@ -502,7 +503,7 @@ export default function AdminCompetition() {
                                 className="gap-2"
                                 asChild
                               >
-                                <a href={`${BASE_PLAYGROUND_URL}/competition/${round.id}`} target="_blank" rel="noreferrer">
+                                <a href={getCompetitionRoundUrl(round.id)} target="_blank" rel="noreferrer">
                                   <ExternalLink className="h-4 w-4" />
                                   Open Round Link
                                 </a>
@@ -569,7 +570,7 @@ export default function AdminCompetition() {
                 disabled={Boolean(editingRound)}
               >
                 <option value="">Select event</option>
-                {teamEvents.map((event) => (
+                {events.map((event) => (
                   <option key={event.id} value={event.id}>
                     {event.title}
                   </option>

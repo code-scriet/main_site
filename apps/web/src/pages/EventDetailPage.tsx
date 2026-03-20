@@ -334,6 +334,11 @@ export default function EventDetailPage() {
     }>
   >([]);
 
+  const getCompetitionRoundUrl = (roundId: string) => {
+    const base = `${BASE_PLAYGROUND_URL}/competition/${roundId}`;
+    return token ? `${base}#token=${encodeURIComponent(token)}` : base;
+  };
+
   useEffect(() => {
     const fetchEvent = async () => {
       if (!id) {
@@ -1059,7 +1064,7 @@ export default function EventDetailPage() {
                               )}
                               {user && round.status !== 'FINISHED' && (
                                 <a
-                                  href={`${BASE_PLAYGROUND_URL}/competition/${round.id}`}
+                                  href={getCompetitionRoundUrl(round.id)}
                                   target="_blank"
                                   rel="noreferrer"
                                   className="inline-flex items-center gap-1 text-[11px] font-semibold text-blue-700 underline"
@@ -1472,7 +1477,7 @@ export default function EventDetailPage() {
                                 )}
                                 {user && round.status !== 'FINISHED' && (
                                   <a
-                                    href={`${BASE_PLAYGROUND_URL}/competition/${round.id}`}
+                                    href={getCompetitionRoundUrl(round.id)}
                                     target="_blank"
                                     rel="noreferrer"
                                     className="inline-flex items-center gap-1 text-[11px] font-semibold text-blue-700 underline"
