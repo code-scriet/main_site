@@ -32,6 +32,7 @@ import { playgroundRouter } from './routes/playground.js';
 import { creditsRouter } from './routes/credits.js';
 import { attendanceRouter } from './routes/attendance.js';
 import { teamsRouter } from './routes/teams.js';
+import competitionRouter, { recoverActiveRounds } from './routes/competition.js';
 import { initializeAttendanceSocket } from './attendance/attendanceSocket.js';
 import { setupPassport } from './config/passport.js';
 import { requestLogger, logger } from './utils/logger.js';
@@ -288,6 +289,7 @@ app.use('/api/quiz', quizRouter);
 app.use('/api/playground', playgroundRouter);
 app.use('/api/credits', creditsRouter);
 app.use('/api/attendance', attendanceRouter);
+app.use('/api/competition', competitionRouter);
 app.use('/api/indexnow', authMiddleware, requireRole('ADMIN'), indexNowRouter);
 
 // Test email endpoint for debugging
@@ -435,6 +437,7 @@ const startHttpServerWithRetry = (attempt = 1) => {
   httpServer.listen(PORT, () => {
     httpServer.removeListener('error', onError);
     logger.info(`🚀 Server running on http://localhost:${PORT}`, { environment: NODE_ENV });
+    void recoverActiveRounds();
   });
 };
 

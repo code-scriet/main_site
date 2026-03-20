@@ -75,7 +75,7 @@ export default function AttendancePage() {
   }
 
   return (
-    <div className="max-w-xl">
+    <div className="max-w-xl w-full">
       {/* Header */}
       <motion.div
         initial={{ opacity: 0, y: 12 }}
@@ -146,7 +146,7 @@ export default function AttendancePage() {
               className="rounded-xl border border-gray-100 bg-white shadow-sm p-5"
             >
               <div className="flex items-start justify-between gap-3 mb-3">
-                <h3 className="font-semibold text-gray-900 text-[15px] leading-snug">
+                <h3 className="font-semibold text-gray-900 text-base leading-snug break-words">
                   {selectedEvent.title}
                 </h3>
                 {(() => {
@@ -154,7 +154,7 @@ export default function AttendancePage() {
                   return (
                     <Badge
                       variant={s === 'ONGOING' ? 'warning' : 'success'}
-                      className="shrink-0 text-[10px]"
+                      className="shrink-0 text-xs whitespace-nowrap"
                     >
                       {s}
                     </Badge>
@@ -162,20 +162,20 @@ export default function AttendancePage() {
                 })()}
               </div>
 
-              <div className="space-y-1.5 text-sm text-gray-500">
-                <div className="flex items-center gap-2">
-                  <Calendar className="h-3.5 w-3.5 shrink-0" />
-                  {formatDate(selectedEvent.startDate)} at {formatTime(selectedEvent.startDate)}
-                  {selectedEvent.endDate && (
+               <div className="space-y-1.5 text-sm text-gray-500">
+                 <div className="flex flex-wrap items-center gap-2">
+                   <Calendar className="h-3.5 w-3.5 shrink-0" />
+                   {formatDate(selectedEvent.startDate)} at {formatTime(selectedEvent.startDate)}
+                   {selectedEvent.endDate && (
                     <span className="text-gray-400">→ {formatTime(selectedEvent.endDate)}</span>
                   )}
                 </div>
                 {selectedEvent.location && (
-                  <div className="flex items-center gap-2">
-                    <MapPin className="h-3.5 w-3.5 shrink-0" />
-                    {selectedEvent.location}
-                  </div>
-                )}
+                   <div className="flex items-center gap-2 min-w-0">
+                     <MapPin className="h-3.5 w-3.5 shrink-0" />
+                     <span className="truncate">{selectedEvent.location}</span>
+                   </div>
+                 )}
                 {selectedEvent.capacity && (
                   <div className="flex items-center gap-2">
                     <Users className="h-3.5 w-3.5 shrink-0" />
@@ -215,7 +215,7 @@ export default function AttendancePage() {
                       <div className="flex items-center gap-3 min-w-0">
                         <Badge
                           variant={s === 'ONGOING' ? 'warning' : 'success'}
-                          className="shrink-0 text-[10px]"
+                          className="shrink-0 text-xs whitespace-nowrap"
                         >
                           {s}
                         </Badge>

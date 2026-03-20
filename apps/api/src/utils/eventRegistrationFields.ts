@@ -122,15 +122,20 @@ export function sanitizeEventRegistrationFields(input: unknown): EventRegistrati
       throw new Error(`Field name is required for field ${index + 1}`);
     }
 
-    const rawType = typeof candidate.type === 'string' ? candidate.type.toUpperCase() : 'TEXT';
+    // Backward compatibility for legacy events that stored SELECT fields.
+    const rawTypeCandidate = typeof candidate.type === 'string' ? candidate.type.toUpperCase() : 'TEXT';
+    const rawType = rawTypeCandidate === 'SELECT' ? 'TEXT' : rawTypeCandidate;
     if (!REGISTRATION_FIELD_TYPES.includes(rawType as RegistrationFieldType)) {
       throw new Error(`Unsupported field type "${String(candidate.type)}" for "${label}"`);
     }
     const type = rawType as RegistrationFieldType;
 
+    const legacyKey = typeof candidate.key === 'string' ? candidate.key : undefined;
     let id = typeof candidate.id === 'string' && FIELD_ID_REGEX.test(candidate.id)
       ? candidate.id
-      : buildFieldId(label, index);
+      : legacyKey && FIELD_ID_REGEX.test(legacyKey)
+        ? legacyKey
+        : buildFieldId(label, index);
 
     while (usedIds.has(id)) {
       id = `${id}_${index + 1}`.slice(0, 64);

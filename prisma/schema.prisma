@@ -48,6 +48,7 @@ model User {
   // Team registration relations
   ledTeams           EventTeam[]       @relation("teamLeader")
   teamMemberships    EventTeamMember[] @relation("teamMemberships")
+  competitionSubmissions CompetitionSubmission[]
 
   @@map("users")
   @@index([role, createdAt(sort: Desc)], map: "users_role_created_at_desc_idx")
@@ -152,6 +153,7 @@ model Event {
   registrations         EventRegistration[]
   certificates          Certificate[]
   teams                 EventTeam[]
+  competitionRounds     CompetitionRound[]
 
   @@index([status, startDate])
   @@index([startDate])
@@ -200,6 +202,7 @@ model EventTeam {
   event       Event    @relation(fields: [eventId], references: [id], onDelete: Cascade)
   leader      User     @relation("teamLeader", fields: [leaderId], references: [id], onDelete: Restrict)
   members     EventTeamMember[]
+  competitionSubmissions CompetitionSubmission[]
 
   @@unique([eventId, teamName])
   @@index([inviteCode])
@@ -221,6 +224,70 @@ model EventTeamMember {
 
   @@unique([teamId, userId])
   @@map("event_team_members")
+}
+
+model CompetitionRound {
+  id            String            @id @default(uuid())
+  eventId       String            @map("event_id")
+  title         String            @db.VarChar(200)
+  description   String?           @db.Text
+  duration      Int
+  status        CompetitionStatus @default(DRAFT)
+  targetImageUrl String?          @map("target_image_url")
+  startedAt     DateTime?         @map("started_at")
+  lockedAt      DateTime?         @map("locked_at")
+  createdAt     DateTime          @default(now()) @map("created_at")
+  updatedAt     DateTime          @updatedAt @map("updated_at")
+
+  event         Event                   @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  submissions   CompetitionSubmission[]
+  autoSaves     CompetitionAutoSave[]
+
+  @@index([eventId])
+  @@index([status, startedAt])
+  @@map("competition_rounds")
+}
+
+model CompetitionSubmission {
+  id           String           @id @default(uuid())
+  roundId      String           @map("round_id")
+  teamId       String?          @map("team_id")
+  userId       String           @map("user_id")
+  code         String           @db.Text
+  submittedAt  DateTime         @default(now()) @map("submitted_at")
+  isAutoSubmit Boolean          @default(false) @map("is_auto_submit")
+  score        Float?
+  rank         Int?
+  adminNotes   String?          @map("admin_notes") @db.Text
+  createdAt    DateTime         @default(now()) @map("created_at")
+  updatedAt    DateTime         @updatedAt @map("updated_at")
+
+  round        CompetitionRound @relation(fields: [roundId], references: [id], onDelete: Cascade)
+  team         EventTeam?       @relation(fields: [teamId], references: [id], onDelete: SetNull)
+  user         User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([roundId, teamId])
+  @@unique([roundId, userId])
+  @@index([roundId])
+  @@index([teamId])
+  @@index([rank, score])
+  @@map("competition_submissions")
+}
+
+model CompetitionAutoSave {
+  id        String   @id @default(uuid())
+  roundId   String   @map("round_id")
+  teamId    String?  @map("team_id")
+  userId    String   @map("user_id")
+  code      String   @db.Text
+  savedAt   DateTime @default(now()) @map("saved_at")
+
+  round     CompetitionRound @relation(fields: [roundId], references: [id], onDelete: Cascade)
+
+  @@unique([roundId, userId])
+  @@index([roundId])
+  @@index([teamId])
+  @@map("competition_auto_saves")
 }
 
 model Announcement {
@@ -406,6 +473,14 @@ enum ApplicationStatus {
   INTERVIEW_SCHEDULED
   SELECTED
   REJECTED
+}
+
+enum CompetitionStatus {
+  DRAFT
+  ACTIVE
+  LOCKED
+  JUDGING
+  FINISHED
 }
 
 // Network Feature - Industry Professionals & Alumni

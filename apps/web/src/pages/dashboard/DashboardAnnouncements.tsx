@@ -239,9 +239,9 @@ export default function DashboardAnnouncements() {
                   ) : (
                     // View Mode
                     <>
-                      <div className="flex items-start justify-between gap-4 mb-3">
+                      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 mb-3">
                         <div className="flex items-center gap-2 flex-wrap">
-                          <h3 className="font-semibold text-amber-900">{announcement.title}</h3>
+                          <h3 className="font-semibold text-amber-900 break-words">{announcement.title}</h3>
                           {announcement.pinned && (
                             <Badge variant="outline" className="bg-amber-50 text-amber-700 border-amber-300">
                               <Pin className="h-3 w-3 mr-1" />
@@ -255,7 +255,7 @@ export default function DashboardAnnouncements() {
                             </Badge>
                           )}
                         </div>
-                        <div className="flex items-center gap-2 shrink-0">
+                        <div className="flex items-center gap-2 shrink-0 flex-wrap">
                           <Badge variant={priorityColors[announcement.priority]}>
                             {announcement.priority}
                           </Badge>

@@ -47,7 +47,7 @@ export function QOTDWidget({ token }: QOTDWidgetProps) {
       } else if (response.status === 404) {
         setQotd(null);
       }
-    } catch (err) {
+    } catch {
       setError('Failed to load QOTD');
     } finally {
       setLoading(false);
@@ -72,8 +72,8 @@ export function QOTDWidget({ token }: QOTDWidgetProps) {
         });
         setSubmitted(hasSubmittedToday || false);
       }
-    } catch (err) {
-      console.error('Failed to load streak');
+    } catch {
+      setError('Failed to load streak');
     }
   };
 
@@ -98,7 +98,7 @@ export function QOTDWidget({ token }: QOTDWidgetProps) {
           setSubmitted(true);
         }
       }
-    } catch (err) {
+    } catch {
       setError('Failed to submit');
     } finally {
       setSubmitting(false);
@@ -139,7 +139,7 @@ export function QOTDWidget({ token }: QOTDWidgetProps) {
   return (
     <Card className="overflow-hidden border-gray-100 shadow-sm">
       <CardHeader className="pb-3">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-wrap items-start justify-between gap-2">
           <CardTitle className="flex items-center gap-2 text-base font-semibold text-gray-900">
             <div className="p-2 rounded-lg bg-amber-50">
               <Code className="h-4 w-4 text-amber-600" />
@@ -151,7 +151,7 @@ export function QOTDWidget({ token }: QOTDWidgetProps) {
               <Flame className="h-5 w-5" />
               <span className="text-base font-bold">{streak}</span>
             </div>
-            <Badge className={difficultyColors[qotd.difficulty]}>
+            <Badge className={`${difficultyColors[qotd.difficulty]} whitespace-nowrap`}>
               {qotd.difficulty}
             </Badge>
           </div>

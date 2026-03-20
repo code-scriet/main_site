@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
+import { useParams, useNavigate, useSearchParams, Link } from 'react-router-dom';
 import { Layout } from '@/components/layout/Layout';
 import { SEO } from '@/components/SEO';
 import { EventSchema, BreadcrumbSchema, FAQPageSchema } from '@/components/ui/schema';
@@ -32,6 +32,9 @@ import { getRegistrationStatus } from '@/lib/registrationStatus';
 import { TeamCreateModal, TeamJoinModal, TeamDashboard } from '@/components/teams';
 
 type EventStatus = 'UPCOMING' | 'ONGOING' | 'PAST';
+
+const BASE_PLAYGROUND_URL = import.meta.env.VITE_PLAYGROUND_URL ||
+  (import.meta.env.DEV ? 'http://localhost:5174' : 'https://code.codescriet.dev');
 
 const statusConfig: Record<EventStatus, { label: string; variant: 'success' | 'warning' | 'secondary'; color: string }> = {
   UPCOMING: { label: 'Upcoming', variant: 'success', color: 'bg-green-100 text-green-800 border-green-200' },
@@ -322,6 +325,14 @@ export default function EventDetailPage() {
   const [teamLoading, setTeamLoading] = useState(false);
   const [showCreateTeamModal, setShowCreateTeamModal] = useState(false);
   const [showJoinTeamModal, setShowJoinTeamModal] = useState(false);
+  const [competitionRounds, setCompetitionRounds] = useState<
+    Array<{
+      id: string;
+      title: string;
+      status: 'DRAFT' | 'ACTIVE' | 'LOCKED' | 'JUDGING' | 'FINISHED';
+      hasSubmitted?: boolean;
+    }>
+  >([]);
 
   useEffect(() => {
     const fetchEvent = async () => {
@@ -381,6 +392,31 @@ export default function EventDetailPage() {
     };
 
     fetchTeam();
+  }, [event?.id, event?.teamRegistration, token]);
+
+  useEffect(() => {
+    const fetchCompetitionRounds = async () => {
+      if (!event?.teamRegistration || !event?.id) {
+        setCompetitionRounds([]);
+        return;
+      }
+
+      try {
+        const data = await api.getCompetitionRounds(event.id, token || undefined);
+        setCompetitionRounds(
+          (data.rounds || []).filter((round) =>
+            round.status === 'ACTIVE' ||
+            round.status === 'LOCKED' ||
+            round.status === 'JUDGING' ||
+            round.status === 'FINISHED'
+          )
+        );
+      } catch {
+        setCompetitionRounds([]);
+      }
+    };
+
+    void fetchCompetitionRounds();
   }, [event?.id, event?.teamRegistration, token]);
 
   // Fetch attendance summary for past events
@@ -989,6 +1025,55 @@ export default function EventDetailPage() {
                       )}
                     </>
                   )}
+                  {event.teamRegistration && competitionRounds.length > 0 && (
+                    <div className="mt-3 space-y-2 rounded-lg border border-blue-200 bg-blue-50 p-3">
+                      <p className="text-sm font-semibold text-blue-900">Competition Rounds</p>
+                      {competitionRounds.map((round) => (
+                        <div key={round.id} className="rounded-md border border-blue-200 bg-white px-2.5 py-2">
+                          <div className="flex items-center justify-between gap-2">
+                            <p className="text-xs font-medium text-blue-900 truncate">{round.title}</p>
+                            <Badge variant="outline" className="text-[10px] border-blue-300 text-blue-700">
+                              {round.status}
+                            </Badge>
+                          </div>
+                          <div className="mt-1 flex items-center justify-between gap-2">
+                            <p className="text-[11px] text-blue-700">
+                              {round.hasSubmitted
+                                ? 'Submitted'
+                                : round.status === 'ACTIVE'
+                                ? 'Open now'
+                                : round.status === 'LOCKED'
+                                ? 'Locked'
+                                : round.status === 'JUDGING'
+                                ? 'Judging'
+                                : 'Results published'}
+                            </p>
+                            <div className="flex items-center gap-2">
+                              {round.status === 'FINISHED' && (
+                                <Link
+                                  to={`/competition/${round.id}/results`}
+                                  className="inline-flex items-center gap-1 text-[11px] font-semibold text-amber-700 underline"
+                                >
+                                  View Results
+                                </Link>
+                              )}
+                              {user && round.status !== 'FINISHED' && (
+                                <a
+                                  href={`${BASE_PLAYGROUND_URL}/competition/${round.id}`}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="inline-flex items-center gap-1 text-[11px] font-semibold text-blue-700 underline"
+                                >
+                                  Open
+                                  <ExternalLink className="h-3 w-3" />
+                                </a>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                   {event.status === 'PAST' && attendanceSummary && attendanceSummary.attended > 0 && (
                     <p className="text-sm text-center text-gray-500 mt-2">
                       <Users className="inline h-4 w-4 mr-1" />
@@ -1352,6 +1437,55 @@ export default function EventDetailPage() {
                           </Button>
                         )}
                       </>
+                    )}
+                    {event.teamRegistration && competitionRounds.length > 0 && (
+                      <div className="mt-3 space-y-2 rounded-lg border border-blue-200 bg-blue-50 p-3">
+                        <p className="text-sm font-semibold text-blue-900">Competition Rounds</p>
+                        {competitionRounds.map((round) => (
+                          <div key={round.id} className="rounded-md border border-blue-200 bg-white px-2.5 py-2">
+                            <div className="flex items-center justify-between gap-2">
+                              <p className="text-xs font-medium text-blue-900 truncate">{round.title}</p>
+                              <Badge variant="outline" className="text-[10px] border-blue-300 text-blue-700">
+                                {round.status}
+                              </Badge>
+                            </div>
+                            <div className="mt-1 flex items-center justify-between gap-2">
+                              <p className="text-[11px] text-blue-700">
+                                {round.hasSubmitted
+                                  ? 'Submitted'
+                                  : round.status === 'ACTIVE'
+                                  ? 'Open now'
+                                  : round.status === 'LOCKED'
+                                  ? 'Locked'
+                                  : round.status === 'JUDGING'
+                                  ? 'Judging'
+                                  : 'Results published'}
+                              </p>
+                              <div className="flex items-center gap-2">
+                                {round.status === 'FINISHED' && (
+                                  <Link
+                                    to={`/competition/${round.id}/results`}
+                                    className="inline-flex items-center gap-1 text-[11px] font-semibold text-amber-700 underline"
+                                  >
+                                    View Results
+                                  </Link>
+                                )}
+                                {user && round.status !== 'FINISHED' && (
+                                  <a
+                                    href={`${BASE_PLAYGROUND_URL}/competition/${round.id}`}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="inline-flex items-center gap-1 text-[11px] font-semibold text-blue-700 underline"
+                                  >
+                                    Open
+                                    <ExternalLink className="h-3 w-3" />
+                                  </a>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
                     )}
                     {event.status === 'PAST' && attendanceSummary && attendanceSummary.attended > 0 && (
                       <p className="text-sm text-center text-gray-500 mt-2">

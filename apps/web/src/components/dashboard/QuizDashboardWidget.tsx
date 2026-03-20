@@ -56,9 +56,7 @@ export function QuizDashboardWidget({ token }: QuizDashboardWidgetProps) {
         setLiveQuizzes(data.liveQuizzes);
         setHistory(data.history.slice(0, 5)); // Show top 5 recent
       })
-      .catch((err) => {
-        console.error('Failed to load quiz dashboard:', err);
-      })
+      .catch(() => {})
       .finally(() => setLoading(false));
   }, [token]);
 
@@ -114,15 +112,15 @@ export function QuizDashboardWidget({ token }: QuizDashboardWidgetProps) {
                 <Link
                   key={quiz.id}
                   to="/quiz"
-                  className="flex items-center justify-between p-4 rounded-lg bg-green-50 border border-green-200 hover:bg-green-100 transition-colors"
+                  className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between p-4 rounded-lg bg-green-50 border border-green-200 hover:bg-green-100 transition-colors"
                 >
-                  <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-3 min-w-0">
                     <div className="w-10 h-10 rounded-lg bg-green-500 flex items-center justify-center">
                       <Zap className="h-5 w-5 text-white" />
                     </div>
-                    <div>
-                      <p className="font-medium text-green-900 text-sm">{quiz.title}</p>
-                      <p className="text-sm text-green-700">
+                    <div className="min-w-0">
+                      <p className="font-medium text-green-900 text-sm break-words">{quiz.title}</p>
+                      <p className="text-sm text-green-700 break-words">
                         {quiz.questionCount} questions • {quiz.participantCount} players
                       </p>
                     </div>
@@ -147,15 +145,15 @@ export function QuizDashboardWidget({ token }: QuizDashboardWidgetProps) {
               {history.map((item) => (
                 <div
                   key={item.quizId}
-                  className="flex items-center justify-between p-4 rounded-lg bg-gray-50 hover:bg-gray-100 transition-colors"
+                  className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between p-4 rounded-lg bg-gray-50 hover:bg-gray-100 transition-colors"
                 >
-                  <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-3 min-w-0">
                     <div className="w-10 h-10 rounded-lg bg-amber-50 flex items-center justify-center">
                       <CheckCircle className="h-5 w-5 text-amber-600" />
                     </div>
-                    <div>
-                      <p className="font-medium text-gray-900 text-sm">{item.title}</p>
-                      <p className="text-sm text-gray-500">
+                    <div className="min-w-0">
+                      <p className="font-medium text-gray-900 text-sm break-words">{item.title}</p>
+                      <p className="text-sm text-gray-500 break-words">
                         {item.correctCount}/{item.questionCount} correct
                         {item.endedAt && ` • ${formatDate(item.endedAt)}`}
                       </p>

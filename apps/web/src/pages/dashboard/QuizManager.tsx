@@ -176,15 +176,15 @@ export default function QuizManager() {
               {liveQuizzes.map((quiz) => (
                 <div
                   key={quiz.id}
-                  className="flex items-center justify-between p-4 bg-white rounded-lg border border-green-200"
+                  className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between p-4 bg-white rounded-lg border border-green-200"
                 >
-                  <div className="flex items-center gap-4">
+                  <div className="flex items-center gap-3 sm:gap-4 min-w-0">
                     <div className="w-12 h-12 rounded-lg bg-green-500 flex items-center justify-center">
                       <Zap className="h-6 w-6 text-white" />
                     </div>
-                    <div>
-                      <h3 className="font-semibold text-gray-900">{quiz.title}</h3>
-                      <div className="flex items-center gap-3 text-sm text-gray-500">
+                    <div className="min-w-0">
+                      <h3 className="font-semibold text-gray-900 break-words">{quiz.title}</h3>
+                      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-gray-500">
                         <span>{quiz.questionCount} questions</span>
                         <span className="flex items-center gap-1">
                           <Users className="h-3 w-3" />
@@ -193,7 +193,7 @@ export default function QuizManager() {
                       </div>
                     </div>
                   </div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
                     {getStatusBadge(quiz.status)}
                     <Link to={`/quiz/${quiz.id}?host=true`}>
                       <Button size="sm" className="bg-green-600 hover:bg-green-700">
@@ -233,7 +233,7 @@ export default function QuizManager() {
               </div>
             ) : (
               <div className="overflow-x-auto">
-                <table className="w-full">
+                <table className="w-full min-w-[760px]">
                   <thead>
                     <tr className="border-b text-left text-sm text-gray-500">
                       <th className="pb-3 font-medium">Quiz</th>
@@ -249,7 +249,7 @@ export default function QuizManager() {
                     {quizzes.map((quiz) => (
                       <tr key={quiz.id} className="hover:bg-amber-50/50">
                         <td className="py-3">
-                          <div className="font-medium text-gray-900">{quiz.title}</div>
+                          <div className="font-medium text-gray-900 break-words">{quiz.title}</div>
                         </td>
                         <td className="py-3">{getStatusBadge(quiz.status)}</td>
                         <td className="py-3 text-gray-600">{quiz.questionCount}</td>
@@ -315,7 +315,7 @@ export default function QuizManager() {
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.3, delay: 0.3 }}
-        className="grid grid-cols-2 md:grid-cols-4 gap-4"
+        className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4"
       >
         <Card>
           <CardContent className="p-4 text-center">

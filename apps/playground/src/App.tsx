@@ -7,6 +7,7 @@ import { AuthGate } from './components/auth/AuthGate';
 import PlaygroundPage from './pages/PlaygroundPage';
 import SnippetsPage from './pages/SnippetsPage';
 import SnippetViewPage from './pages/SnippetViewPage';
+import CompetitionPage from './pages/CompetitionPage';
 import { endExecutionSession } from './utils/snippetsApi';
 
 // Wrap children with AuthGate only if not on a public route
@@ -59,6 +60,7 @@ function App() {
           <PlaygroundProvider>
             <Routes>
               <Route path="/" element={<PlaygroundPage />} />
+              <Route path="/competition/:roundId" element={<CompetitionPage />} />
               <Route path="/snippets" element={<SnippetsPage />} />
               <Route path="/snippet/:id" element={<SnippetViewPage />} />
               <Route path="/s/:shareToken" element={<SnippetViewPage />} />

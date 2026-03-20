@@ -119,7 +119,7 @@ export default function EventAdminHub() {
     >
       {/* Header */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex items-center gap-3">
+        <div className="flex items-start gap-3 min-w-0">
           <Link to={backHref}>
             <Button variant="ghost" size="icon" className="shrink-0">
               <ArrowLeft className="h-5 w-5" />
@@ -127,7 +127,7 @@ export default function EventAdminHub() {
           </Link>
 
           <div className="min-w-0">
-            <h1 className="truncate text-2xl font-bold text-gray-900">
+            <h1 className="truncate text-xl sm:text-2xl font-bold text-gray-900">
               {event.title}
             </h1>
             <div className="mt-1 flex items-center gap-2">
@@ -155,7 +155,7 @@ export default function EventAdminHub() {
 
       {/* Tabs */}
       <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as TabValue)}>
-        <TabsList className={`grid w-full ${isAdmin ? 'grid-cols-4' : 'grid-cols-3'}`}>
+        <TabsList className={`grid w-full ${isAdmin ? 'grid-cols-4' : 'grid-cols-3'} h-auto`}>
           <TabsTrigger value="details" className="gap-1.5">
             <Settings className="h-4 w-4" />
             <span className="hidden sm:inline">Details</span>

@@ -192,6 +192,90 @@ export interface EventRegistrationField {
   pattern?: string;
 }
 
+export interface CompetitionRoundPreview {
+  id: string;
+  eventId: string;
+  title: string;
+  description?: string;
+  duration: number;
+  status: 'DRAFT' | 'ACTIVE' | 'LOCKED' | 'JUDGING' | 'FINISHED';
+  startedAt?: string;
+  lockedAt?: string;
+  remainingSeconds?: number | null;
+  submissionCount?: number;
+  hasSubmitted?: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+const EVENT_REGISTRATION_FIELD_TYPES: readonly EventRegistrationFieldType[] = [
+  'TEXT',
+  'TEXTAREA',
+  'NUMBER',
+  'EMAIL',
+  'PHONE',
+  'URL',
+];
+
+const isEventRegistrationFieldType = (value: string): value is EventRegistrationFieldType =>
+  EVENT_REGISTRATION_FIELD_TYPES.includes(value as EventRegistrationFieldType);
+
+function normalizeEventRegistrationFields(input: unknown): EventRegistrationField[] | undefined {
+  if (!Array.isArray(input)) return undefined;
+
+  const usedIds = new Set<string>();
+  const normalized: EventRegistrationField[] = [];
+
+  input.forEach((entry, index) => {
+    if (!entry || typeof entry !== 'object') return;
+    const raw = entry as Record<string, unknown>;
+
+    const label = typeof raw.label === 'string' ? raw.label.trim() : '';
+    if (!label) return;
+
+    const rawId =
+      (typeof raw.id === 'string' && raw.id.trim()) ||
+      (typeof raw.key === 'string' && raw.key.trim()) ||
+      `field_${index + 1}`;
+
+    let id = rawId;
+    while (usedIds.has(id)) {
+      id = `${rawId}_${index + 1}`;
+    }
+    usedIds.add(id);
+
+    const rawType = typeof raw.type === 'string' ? raw.type.toUpperCase() : 'TEXT';
+    const type = isEventRegistrationFieldType(rawType) ? rawType : 'TEXT';
+
+    const toOptionalNumber = (value: unknown): number | undefined =>
+      typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+
+    normalized.push({
+      id,
+      label,
+      type,
+      required: Boolean(raw.required),
+      placeholder: typeof raw.placeholder === 'string' ? raw.placeholder : undefined,
+      minLength: toOptionalNumber(raw.minLength),
+      maxLength: toOptionalNumber(raw.maxLength),
+      min: toOptionalNumber(raw.min),
+      max: toOptionalNumber(raw.max),
+      pattern: typeof raw.pattern === 'string' ? raw.pattern : undefined,
+    });
+  });
+
+  return normalized.length > 0 ? normalized : undefined;
+}
+
+function normalizeEventPayload(event: Event): Event {
+  return {
+    ...event,
+    registrationFields: normalizeEventRegistrationFields(
+      (event as Event & { registrationFields?: unknown }).registrationFields
+    ),
+  };
+}
+
 export interface RegistrationAdditionalFieldInput {
   fieldId: string;
   value: string;
@@ -370,6 +454,61 @@ export interface Credit {
   teamMember?: { id: string; name: string; slug?: string; imageUrl: string; role: string; team: string };
   order: number;
   createdAt: string;
+}
+
+export interface CompetitionRound {
+  id: string;
+  eventId: string;
+  title: string;
+  description?: string;
+  duration: number;
+  status: 'DRAFT' | 'ACTIVE' | 'LOCKED' | 'JUDGING' | 'FINISHED';
+  targetImageUrl?: string;
+  startedAt?: string;
+  lockedAt?: string;
+  serverTime?: string;
+  remainingSeconds?: number | null;
+  submissionCount?: number;
+  hasSubmitted?: boolean;
+  myTeam?: { id: string; teamName: string; memberCount: number } | null;
+  eventTitle?: string;
+  createdAt: string;
+  updatedAt?: string;
+}
+
+export interface CompetitionSubmission {
+  id: string;
+  roundId: string;
+  teamId?: string;
+  teamName?: string | null;
+  userId: string;
+  userName?: string;
+  userEmail?: string;
+  userAvatar?: string | null;
+  code: string;
+  submittedAt: string;
+  isAutoSubmit: boolean;
+  score?: number | null;
+  rank?: number | null;
+  adminNotes?: string | null;
+}
+
+export interface CompetitionMissingTeam {
+  id: string;
+  teamName: string;
+  members: string[];
+}
+
+export interface CompetitionResult {
+  id: string;
+  rank: number | null;
+  teamName: string;
+  members: string[];
+  score: number | null;
+  submittedAt: string;
+  elapsedSeconds?: number | null;
+  isAutoSubmit: boolean;
+  userName?: string;
 }
 
 // Attendance types
@@ -668,11 +807,12 @@ export const api = {
   logout: () => request<{ message: string }>('/auth/logout', { method: 'POST' }),
   
   // Events
-  getEvents: (status?: string) => {
+  getEvents: async (status?: string) => {
     const params = status ? `?status=${status}` : '';
-    return request<Event[]>(`/events${params}`);
+    const events = await request<Event[]>(`/events${params}`);
+    return events.map((event) => normalizeEventPayload(event));
   },
-  getEvent: (id: string) => request<Event>(`/events/${id}`),
+  getEvent: async (id: string) => normalizeEventPayload(await request<Event>(`/events/${id}`)),
   createEvent: (data: Partial<Event>, token: string) => 
     request<Event>('/events', { method: 'POST', body: JSON.stringify(data), token }),
   updateEvent: (id: string, data: Partial<Event>, token: string) =>
@@ -1159,6 +1299,9 @@ export const api = {
   joinTeam: (data: { inviteCode: string; customFieldResponses?: Record<string, unknown> }, token: string) =>
     request<{ team: EventTeam; event: { teamMinSize: number; teamMaxSize: number }; message: string }>('/teams/join', { method: 'POST', body: JSON.stringify(data), token }),
 
+  getCompetitionRounds: (eventId: string, token?: string) =>
+    request<{ rounds: CompetitionRoundPreview[] }>(`/competition/event/${eventId}`, { ...(token ? { token } : {}) }),
+
   getMyTeam: async (eventId: string, token: string): Promise<EventTeam | null> => {
     try {
       return await request<EventTeam>(`/teams/my-team/${eventId}`, { token });
@@ -1201,4 +1344,61 @@ export const api = {
 
   adminDissolveTeam: (teamId: string, token: string) =>
     request<{ message: string }>(`/teams/${teamId}/admin-dissolve`, { method: 'DELETE', token }),
+
+  // Competition
+  createCompetitionRound: (data: {
+    eventId: string;
+    title: string;
+    description?: string;
+    duration: number;
+    targetImageUrl?: string;
+  }, token: string) =>
+    request<{ round: CompetitionRound }>('/competition', { method: 'POST', body: JSON.stringify(data), token }),
+  getCompetitionRoundsAdmin: (eventId: string, token: string) =>
+    request<{ rounds: CompetitionRound[] }>(`/competition/event/${eventId}`, { token }),
+  getCompetitionRound: (roundId: string, token: string) =>
+    request<CompetitionRound>(`/competition/${roundId}`, { token }),
+  startCompetitionRound: (roundId: string, token: string) =>
+    request<{ round: CompetitionRound }>(`/competition/${roundId}/start`, { method: 'PATCH', token }),
+  lockCompetitionRound: (roundId: string, token: string) =>
+    request<{ message: string }>(`/competition/${roundId}/lock`, { method: 'PATCH', token }),
+  beginJudging: (roundId: string, token: string) =>
+    request<{ round: CompetitionRound }>(`/competition/${roundId}/judging`, { method: 'PATCH', token }),
+  finishCompetition: (roundId: string, token: string) =>
+    request<{ round: CompetitionRound }>(`/competition/${roundId}/finish`, { method: 'PATCH', token }),
+  saveCompetitionCode: (roundId: string, data: { code: string }, token: string) =>
+    request<{ savedAt: string; serverTime: string }>(`/competition/${roundId}/save`, { method: 'POST', body: JSON.stringify(data), token }),
+  submitCompetitionCode: (roundId: string, data: { code: string }, token: string) =>
+    request<{ submission: { id: string; submittedAt: string }; message: string }>(`/competition/${roundId}/submit`, { method: 'POST', body: JSON.stringify(data), token }),
+  getMyCompetitionSubmission: (roundId: string, token: string) =>
+    request<{
+      submission: (CompetitionSubmission & { submittedAt: string }) | null;
+      autoSave: { code: string; savedAt: string } | null;
+    }>(`/competition/${roundId}/my-submission`, { token }),
+  getCompetitionSubmissions: (roundId: string, token: string) =>
+    request<{
+      round: CompetitionRound;
+      submissions: CompetitionSubmission[];
+      missingTeams: CompetitionMissingTeam[];
+    }>(`/competition/${roundId}/submissions`, { token }),
+  scoreCompetitionSubmission: (roundId: string, submissionId: string, data: { score?: number; rank?: number; adminNotes?: string }, token: string) =>
+    request<{ submission: CompetitionSubmission }>(`/competition/${roundId}/score/${submissionId}`, { method: 'PATCH', body: JSON.stringify(data), token }),
+  getCompetitionResults: (roundId: string) =>
+    request<{ round: CompetitionRound; results: CompetitionResult[] }>(`/competition/${roundId}/results`),
+  deleteCompetitionRound: (roundId: string, token: string) =>
+    request<{ message: string }>(`/competition/${roundId}`, { method: 'DELETE', token }),
+  updateCompetitionRound: (roundId: string, data: { title?: string; description?: string; duration?: number; targetImageUrl?: string | null }, token: string) =>
+    request<{ round: CompetitionRound }>(`/competition/${roundId}`, { method: 'PUT', body: JSON.stringify(data), token }),
+  exportCompetitionResults: async (roundId: string, token: string) => {
+    const res = await fetch(`${API_URL}/competition/${roundId}/results/export?format=xlsx`, {
+      headers: { Authorization: `Bearer ${token}` },
+      credentials: 'include',
+    });
+    if (!res.ok) throw new Error('Export failed');
+    try {
+      return await res.blob();
+    } catch {
+      throw new Error('Failed to parse export file');
+    }
+  },
 };

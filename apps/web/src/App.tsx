@@ -64,9 +64,12 @@ const AdminHiring = lazy(() => import('@/pages/admin/AdminHiring'));
 const AdminCertificates = lazy(() => import('@/pages/admin/AdminCertificates'));
 const AdminNetwork = lazy(() => import('@/pages/admin/AdminNetwork'));
 const AdminCredits = lazy(() => import('@/pages/admin/AdminCredits'));
+const AdminCompetition = lazy(() => import('@/pages/admin/AdminCompetition'));
+const CompetitionJudge = lazy(() => import('@/pages/admin/CompetitionJudge'));
 const AdminAuditLog = lazy(() => import('@/pages/admin/AdminAuditLog'));
 const AdminMail = lazy(() => import('@/pages/admin/AdminMail'));
 const EventAdminHub = lazy(() => import('@/components/attendance/EventAdminHub'));
+const CompetitionResults = lazy(() => import('@/pages/CompetitionResults'));
 
 // Quiz Pages - lazy loaded
 const ActiveQuizList = lazy(() => import('@/pages/quiz/ActiveQuizList'));
@@ -121,6 +124,7 @@ function App() {
                   <Route path="/join-our-network" element={<JoinOurNetworkPage />} />
                   <Route path="/privacy-policy" element={<PrivacyPolicyPage />} />
                   <Route path="/credits" element={<CreditsPage />} />
+                  <Route path="/competition/:roundId/results" element={<CompetitionResults />} />
                   <Route path="/contact" element={<ContactPage />} />
 
                   {/* Quiz Routes (public listing, auth for participation) */}
@@ -164,6 +168,8 @@ function App() {
                       <Route path="hiring" element={<AdminHiring />} />
                       <Route path="network" element={<AdminNetwork />} />
                       <Route path="credits" element={<AdminCredits />} />
+                      <Route path="competition" element={<AdminCompetition />} />
+                      <Route path="competition/:roundId/judge" element={<CompetitionJudge />} />
                       <Route path="settings" element={<AdminSettings />} />
                       <Route path="audit-log" element={<AdminAuditLog />} />
                       <Route path="mail" element={<AdminMail />} />

@@ -46,7 +46,7 @@ export function PlaygroundCard() {
                 <h3 className="text-lg font-bold text-gray-900">
                   Code Playground
                 </h3>
-                <span className="flex items-center gap-1 text-[11px] font-medium text-amber-700 bg-amber-50 px-2 py-0.5 rounded-full">
+                <span className="flex items-center gap-1 text-xs font-medium text-amber-700 bg-amber-50 px-2 py-0.5 rounded-full">
                   <Zap className="h-3 w-3" />
                   Online IDE
                 </span>

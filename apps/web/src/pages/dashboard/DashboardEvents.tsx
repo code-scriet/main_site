@@ -168,7 +168,7 @@ export default function DashboardEvents() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div>
           <h1 className="text-2xl font-semibold text-gray-900">Events</h1>
           <p className="text-sm text-gray-500 mt-1">Manage your event registrations</p>
@@ -185,7 +185,7 @@ export default function DashboardEvents() {
 
       {/* Tabbed Layout */}
       <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList className="mb-6">
+        <TabsList className="mb-6 grid w-full max-w-md grid-cols-2">
           <TabsTrigger value="my-events">My Events</TabsTrigger>
           <TabsTrigger value="browse">Browse Events</TabsTrigger>
         </TabsList>
@@ -223,7 +223,7 @@ export default function DashboardEvents() {
                         <div className="flex items-start justify-between gap-3">
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center gap-2 flex-wrap">
-                              <h3 className="font-semibold text-gray-900 truncate text-[15px]">
+                              <h3 className="font-semibold text-gray-900 break-words text-[15px]">
                                 {reg.event.title}
                               </h3>
                               <Badge
@@ -231,22 +231,22 @@ export default function DashboardEvents() {
                                   reg.event.status === 'UPCOMING' ? 'success' :
                                   reg.event.status === 'ONGOING' ? 'warning' : 'secondary'
                                 }
-                                className="text-[10px] px-1.5 py-0 shrink-0"
+                                className="text-xs px-1.5 py-0 shrink-0 whitespace-nowrap"
                               >
                                 {reg.event.status}
                               </Badge>
                             </div>
 
                             {/* Date & location */}
-                            <div className="flex items-center gap-3 mt-1.5 text-sm text-gray-500">
-                              <span className="flex items-center gap-1">
+                            <div className="flex flex-wrap items-center gap-2 sm:gap-3 mt-1.5 text-sm text-gray-500">
+                              <span className="flex items-center gap-1 min-w-0">
                                 <Clock className="h-3.5 w-3.5" />
                                 {formatDate(reg.event.startDate)} at {formatTime(reg.event.startDate)}
                               </span>
                               {reg.event.location && (
-                                <span className="flex items-center gap-1">
+                                <span className="flex items-center gap-1 min-w-0">
                                   <MapPin className="h-3.5 w-3.5" />
-                                  <span className="truncate max-w-[120px]">{reg.event.location}</span>
+                                  <span className="truncate max-w-[220px]">{reg.event.location}</span>
                                 </span>
                               )}
                             </div>
@@ -305,8 +305,8 @@ export default function DashboardEvents() {
 
                       {/* Action buttons */}
                       <div className="px-5 pb-4 flex items-center gap-2 flex-wrap">
-                        <Link to={`/events/${reg.event.slug || reg.event.id}`}>
-                          <Button variant="outline" size="sm" className="h-8 text-xs border-gray-200 text-gray-700 hover:bg-gray-50">
+                        <Link to={`/events/${reg.event.slug || reg.event.id}`} className="w-full sm:w-auto">
+                          <Button variant="outline" size="sm" className="h-8 w-full sm:w-auto text-xs border-gray-200 text-gray-700 hover:bg-gray-50">
                             View Event
                           </Button>
                         </Link>
@@ -314,7 +314,7 @@ export default function DashboardEvents() {
                         <Button
                           variant="outline"
                           size="sm"
-                          className="h-8 text-xs border-gray-200 text-gray-700 hover:bg-gray-50"
+                          className="h-8 w-full sm:w-auto text-xs border-gray-200 text-gray-700 hover:bg-gray-50"
                           onClick={() => setQrDialogReg(reg)}
                         >
                           <QrCode className="h-3.5 w-3.5 mr-1.5" />
@@ -324,7 +324,7 @@ export default function DashboardEvents() {
                         {reg.event.teamRegistration && (
                           <Button
                             size="sm"
-                            className="h-8 text-xs bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200 shadow-none"
+                            className="h-8 w-full sm:w-auto text-xs bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200 shadow-none"
                             onClick={() => setTeamDialogEventId(reg.eventId)}
                           >
                             <Users className="h-3.5 w-3.5 mr-1.5" />

@@ -123,32 +123,32 @@ export default function DashboardOverview() {
         />
         <div className="pointer-events-none absolute -top-10 -right-10 h-48 w-48 rounded-full bg-white/10 blur-3xl" />
 
-        <div className="relative flex items-center gap-5 px-7 py-6">
-          <div className="h-14 w-14 rounded-2xl overflow-hidden bg-white/20 ring-2 ring-white/30 shrink-0 shadow-lg">
+        <div className="relative flex flex-wrap items-start gap-3 sm:gap-5 px-4 sm:px-7 py-5 sm:py-6">
+          <div className="h-12 w-12 sm:h-14 sm:w-14 rounded-2xl overflow-hidden bg-white/20 ring-2 ring-white/30 shrink-0 shadow-lg">
             {user?.avatar ? (
               <img src={user.avatar} alt={user.name} className="w-full h-full object-cover" />
             ) : (
-              <div className="w-full h-full flex items-center justify-center text-white font-bold text-xl">
+              <div className="w-full h-full flex items-center justify-center text-white font-bold text-lg sm:text-xl">
                 {user?.name?.charAt(0)?.toUpperCase()}
               </div>
             )}
           </div>
-          <div className="flex-1 min-w-0">
+          <div className="flex-1 min-w-[220px]">
             <p className="text-white/70 text-sm font-medium">Good {getGreeting()}</p>
-            <h1 className="text-2xl font-bold tracking-tight mt-0.5">{firstName}</h1>
-            <p className="text-white/60 text-sm mt-0.5 truncate">{user?.email}</p>
+            <h1 className="text-xl sm:text-2xl font-bold tracking-tight mt-0.5 break-words">{firstName}</h1>
+            <p className="text-white/70 text-sm mt-0.5 break-all sm:break-normal sm:truncate">{user?.email}</p>
           </div>
-          <div className="hidden md:flex shrink-0">
+          <div className="flex shrink-0 w-full sm:w-auto">
             <span className="inline-flex items-center gap-2 rounded-xl bg-white/15 px-4 py-2 text-sm font-semibold backdrop-blur-sm">
               <Trophy className="h-4 w-4 text-amber-200" />
-              {user?.role?.replace('_', ' ')}
+              <span className="truncate">{user?.role?.replace(/_/g, ' ')}</span>
             </span>
           </div>
         </div>
       </motion.div>
 
       {/* ─── Stat Cards (3 equal, full width) ───────────────────────── */}
-      <motion.div {...stagger(1)} className="grid grid-cols-3 gap-4">
+      <motion.div {...stagger(1)} className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
         <StatCard
           icon={<Calendar className="h-5 w-5 text-amber-600" />}
           iconBg="bg-amber-50"
@@ -187,10 +187,10 @@ export default function DashboardOverview() {
             ? [{ to: '/dashboard/certificates', icon: Award, label: 'Certificates', hover: 'hover:bg-amber-50 hover:text-amber-700 hover:border-amber-200' }]
             : []),
         ].map((item) => (
-          <Link key={item.to} to={item.to}>
+          <Link key={item.to} to={item.to} className="w-full sm:w-auto">
             <Button
               variant="outline"
-              className={`h-10 px-4 text-sm font-medium border-gray-200 text-gray-600 rounded-xl transition-all ${item.hover}`}
+              className={`h-10 w-full sm:w-auto px-4 text-sm font-medium border-gray-200 text-gray-600 rounded-xl transition-all ${item.hover}`}
             >
               <item.icon className="h-4 w-4 mr-2" />
               {item.label}
@@ -215,7 +215,7 @@ export default function DashboardOverview() {
           {/* My Events */}
           <motion.div {...stagger(4)}>
             <Card className="rounded-2xl border-gray-100 shadow-sm overflow-hidden">
-              <CardHeader className="flex flex-row items-center justify-between px-6 py-4 border-b border-gray-50">
+              <CardHeader className="flex flex-row items-center justify-between px-4 sm:px-6 py-4 border-b border-gray-50">
                 <CardTitle className="text-[15px] font-semibold text-gray-900 flex items-center gap-2.5">
                   <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-amber-50">
                     <Calendar className="h-4 w-4 text-amber-600" />
@@ -245,7 +245,7 @@ export default function DashboardOverview() {
                       <Link
                         key={reg.id}
                         to={`/events/${reg.event.slug || reg.event.id}`}
-                        className="flex items-center gap-4 px-6 py-4 hover:bg-amber-50/40 transition-colors group"
+                        className="flex items-center gap-3 sm:gap-4 px-4 sm:px-6 py-4 hover:bg-amber-50/40 transition-colors group"
                       >
                         <div className={`h-2.5 w-2.5 rounded-full shrink-0 ${
                           reg.event.status === 'ONGOING'
@@ -255,14 +255,14 @@ export default function DashboardOverview() {
                             : 'bg-gray-300'
                         }`} />
                         <div className="min-w-0 flex-1">
-                          <p className="font-medium text-gray-900 text-sm truncate group-hover:text-amber-700 transition-colors">
+                          <p className="font-medium text-gray-900 text-sm break-words sm:truncate group-hover:text-amber-700 transition-colors">
                             {reg.event.title}
                           </p>
                           <p className="text-xs text-gray-400 mt-0.5">{formatDate(reg.event.startDate)}</p>
                         </div>
                         <Badge
                           variant={reg.event.status === 'UPCOMING' ? 'success' : reg.event.status === 'ONGOING' ? 'warning' : 'secondary'}
-                          className="shrink-0 text-xs"
+                          className="shrink-0 text-xs whitespace-nowrap"
                         >
                           {reg.event.status}
                         </Badge>
@@ -293,7 +293,7 @@ export default function DashboardOverview() {
           {/* Announcements — stretched vertically with more items */}
           <motion.div {...stagger(4)}>
             <Card className="rounded-2xl border-gray-100 shadow-sm overflow-hidden">
-              <CardHeader className="flex flex-row items-center justify-between px-5 py-4 border-b border-gray-50">
+              <CardHeader className="flex flex-row items-center justify-between px-4 sm:px-5 py-4 border-b border-gray-50">
                 <CardTitle className="text-[15px] font-semibold text-gray-900 flex items-center gap-2.5">
                   <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-purple-50">
                     <Bell className="h-4 w-4 text-purple-500" />
@@ -326,7 +326,7 @@ export default function DashboardOverview() {
                         >
                           <div className={`mt-1.5 w-1 rounded-full shrink-0 self-stretch min-h-[1.75rem] ${p.color}`} />
                           <div className="min-w-0 flex-1">
-                            <p className="font-medium text-gray-900 text-sm leading-snug line-clamp-2 group-hover:text-purple-700 transition-colors">
+                            <p className="font-medium text-gray-900 text-sm leading-snug line-clamp-2 break-words group-hover:text-purple-700 transition-colors">
                               {a.title}
                             </p>
                             <p className="text-xs text-gray-400 mt-1">{formatDate(a.createdAt)}</p>
@@ -346,7 +346,7 @@ export default function DashboardOverview() {
               <Card className="rounded-2xl border-gray-100 shadow-sm overflow-hidden">
                 <CardContent className="p-5">
                   {(hiringStatus?.hasApplied || hiringStatus?.hasApplication) ? (
-                    <div className="flex items-start gap-3 p-4 rounded-xl bg-gray-50">
+                     <div className="flex items-start gap-3 p-4 rounded-xl bg-gray-50">
                       {hiringStatus.application?.status === 'PENDING' && <Clock className="h-5 w-5 text-yellow-500 shrink-0 mt-0.5" />}
                       {(hiringStatus.application?.status === 'SELECTED' || hiringStatus.application?.status === 'APPROVED') && (
                         <CheckCircle className="h-5 w-5 text-green-500 shrink-0 mt-0.5" />
@@ -356,9 +356,9 @@ export default function DashboardOverview() {
                       )}
                       <div className="min-w-0 flex-1">
                         <p className="text-sm font-semibold text-gray-900">Application submitted</p>
-                        <p className="text-sm text-gray-500 mt-0.5 truncate">
-                          {hiringStatus.application?.applyingRole?.replace(/_/g, ' ')}
-                        </p>
+                         <p className="text-sm text-gray-500 mt-0.5 break-words">
+                           {hiringStatus.application?.applyingRole?.replace(/_/g, ' ')}
+                         </p>
                         <Badge
                           variant={
                             hiringStatus.application?.status === 'SELECTED' || hiringStatus.application?.status === 'APPROVED'

@@ -119,11 +119,11 @@ export default function DashboardLeaderboard() {
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.4 }}
         >
-          <Card className="bg-gradient-to-r from-amber-400 via-orange-500 to-amber-600 text-white border-none">
-            <CardContent className="p-6">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-4">
-                  <div className="h-14 w-14 rounded-full overflow-hidden ring-4 ring-white/30 bg-white/20">
+            <Card className="bg-gradient-to-r from-amber-400 via-orange-500 to-amber-600 text-white border-none">
+              <CardContent className="p-4 sm:p-6">
+                <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="flex items-center gap-3 sm:gap-4 min-w-0">
+                    <div className="h-14 w-14 rounded-full overflow-hidden ring-4 ring-white/30 bg-white/20">
                     {user.avatar ? (
                       <img src={user.avatar} alt={user.name} className="w-full h-full object-cover" />
                     ) : (
@@ -132,20 +132,20 @@ export default function DashboardLeaderboard() {
                       </div>
                     )}
                   </div>
-                  <div>
-                    <p className="text-amber-100 text-sm">Your Ranking</p>
-                    <p className="text-2xl font-bold">{user.name}</p>
+                    <div className="min-w-0">
+                      <p className="text-amber-100 text-sm">Your Ranking</p>
+                      <p className="text-xl sm:text-2xl font-bold break-words">{user.name}</p>
+                    </div>
                   </div>
-                </div>
-                <div className="text-right">
-                  <div className="flex items-center gap-2 justify-end">
-                    <Trophy className="h-6 w-6" />
+                  <div className="text-left sm:text-right">
+                    <div className="flex items-center gap-2 justify-end">
+                      <Trophy className="h-6 w-6" />
                     <span className="text-3xl font-bold">
                       {userRank ? `#${userRank}` : 'Unranked'}
                     </span>
                   </div>
-                  <div className="flex items-center gap-1 justify-end mt-1">
-                    <Flame className="h-4 w-4" />
+                    <div className="flex items-center gap-1 sm:justify-end mt-1">
+                      <Flame className="h-4 w-4" />
                     <span className="text-amber-100">
                       {userEntry ? `${userEntry.submissions} problems solved` : 'Complete QOTD to get ranked!'}
                     </span>
@@ -187,11 +187,11 @@ export default function DashboardLeaderboard() {
                     initial={{ opacity: 0, x: -20 }}
                     animate={{ opacity: 1, x: 0 }}
                     transition={{ delay: index * 0.05 }}
-                    className={`flex items-center justify-between p-4 rounded-lg border ${getRankBg(rank)} ${
+                    className={`flex items-center justify-between gap-3 p-4 rounded-lg border ${getRankBg(rank)} ${
                       entry.user.id === user?.id ? 'ring-2 ring-amber-500' : ''
                     }`}
                   >
-                    <div className="flex items-center gap-4">
+                    <div className="flex items-center gap-3 sm:gap-4 min-w-0">
                       <div className="w-8 flex justify-center">
                         {getRankIcon(rank)}
                       </div>
@@ -204,8 +204,8 @@ export default function DashboardLeaderboard() {
                           </div>
                         )}
                       </div>
-                      <div>
-                        <p className="font-medium text-amber-900">
+                      <div className="min-w-0">
+                        <p className="font-medium text-amber-900 break-words">
                           {entry.user.name}
                           {entry.user.id === user?.id && (
                             <span className="ml-2 text-xs bg-amber-100 text-amber-700 px-2 py-0.5 rounded-full">

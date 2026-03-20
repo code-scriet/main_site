@@ -515,8 +515,8 @@ export default function EventCertificateWizard({
 
         {/* Table */}
         <div className="border rounded-lg overflow-hidden dark:border-gray-700">
-          <div className="max-h-80 overflow-y-auto">
-            <table className="w-full text-sm">
+          <div className="max-h-80 overflow-x-auto overflow-y-auto">
+            <table className="w-full min-w-[560px] text-sm">
               <thead className="bg-gray-50 dark:bg-gray-800 sticky top-0">
                 <tr>
                   <th className="p-3 text-left w-10">
@@ -1138,8 +1138,8 @@ export default function EventCertificateWizard({
 
         {/* Table */}
         <div className="border rounded-lg overflow-hidden dark:border-gray-700">
-          <div className="max-h-96 overflow-y-auto">
-            <table className="w-full text-sm">
+          <div className="max-h-96 overflow-x-auto overflow-y-auto">
+            <table className="w-full min-w-[640px] text-sm">
               <thead className="bg-gray-50 dark:bg-gray-800 sticky top-0">
                 <tr>
                   <th className="p-3 text-left w-10">

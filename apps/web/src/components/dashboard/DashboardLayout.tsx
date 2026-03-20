@@ -49,6 +49,7 @@ const breadcrumbNames: Record<string, string> = {
   '/dashboard/quiz': 'Quiz Manager',
   '/dashboard/upload': 'Upload Image',
   '/dashboard/attendance': 'Take Attendance',
+  '/admin/competition': 'Competition',
 };
 
 const PROFILE_EXEMPT_PATHS = new Set(['/dashboard/profile', '/dashboard/certificates']);
@@ -84,6 +85,7 @@ const getAdminNavItems = (hiringEnabled: boolean, showNetwork: boolean, certific
 
   items.push(
     { id: 'admin-registrations', name: 'Event Registrations', href: '/admin/event-registrations', icon: Calendar },
+    { id: 'admin-competition', name: 'Competition', href: '/admin/competition', icon: Trophy },
   );
 
   if (certificatesEnabled !== false) {
@@ -245,7 +247,12 @@ export default function DashboardLayout() {
               </div>
               <div className="min-w-0 flex-1">
                 <p className="font-semibold text-gray-900 text-sm truncate leading-tight">{user?.name}</p>
-                <p className="text-xs text-amber-600 font-medium mt-0.5">{user?.role?.replace('_', ' ')}</p>
+                <p
+                  className="text-xs text-amber-600 font-medium mt-0.5 truncate"
+                  title={user?.role?.replace(/_/g, ' ')}
+                >
+                  {user?.role?.replace(/_/g, ' ')}
+                </p>
               </div>
             </div>
           </div>
@@ -267,7 +274,7 @@ export default function DashboardLayout() {
         <nav className="flex-1 overflow-y-auto py-4 px-3 space-y-0.5">
           {/* User section */}
           {!sidebarCollapsed && (
-            <p className="text-[10px] font-bold text-amber-500 uppercase tracking-widest px-3 pb-2 pt-1">
+            <p className="text-xs font-bold text-amber-500 uppercase tracking-wide px-3 pb-2 pt-1">
               Dashboard
             </p>
           )}
@@ -287,7 +294,7 @@ export default function DashboardLayout() {
               <div className={cn('pt-4 pb-1', sidebarCollapsed && 'pt-3 pb-0.5')}>
                 <div className="border-t border-amber-100" />
                 {!sidebarCollapsed && (
-                  <p className="text-[10px] font-bold text-amber-500 uppercase tracking-widest px-3 pt-3 pb-1">
+                  <p className="text-xs font-bold text-amber-500 uppercase tracking-wide px-3 pt-3 pb-1">
                     Core Member
                   </p>
                 )}
@@ -310,7 +317,7 @@ export default function DashboardLayout() {
               <div className={cn('pt-4 pb-1', sidebarCollapsed && 'pt-3 pb-0.5')}>
                 <div className="border-t border-amber-100" />
                 {!sidebarCollapsed && (
-                  <p className="text-[10px] font-bold text-amber-500 uppercase tracking-widest px-3 pt-3 pb-1">
+                  <p className="text-xs font-bold text-amber-500 uppercase tracking-wide px-3 pt-3 pb-1">
                     Admin
                   </p>
                 )}
@@ -366,7 +373,7 @@ export default function DashboardLayout() {
       {/* ── Main area ──────────────────────────────────────────────── */}
       <div className={cn('transition-all duration-300', sidebarCollapsed ? 'lg:pl-[86px]' : 'lg:pl-64')}>
         {/* Top bar */}
-        <header className="sticky top-0 z-30 backdrop-blur-md bg-white/90 border-b border-gray-200/60 h-14 flex items-center px-5 sm:px-7 gap-4">
+        <header className="sticky top-0 z-30 backdrop-blur-md bg-white/90 border-b border-gray-200/60 h-14 flex items-center px-3 sm:px-5 lg:px-7 gap-3 sm:gap-4">
           <button
             onClick={() => setSidebarOpen(true)}
             className="lg:hidden p-2 hover:bg-gray-100 rounded-lg"
@@ -391,7 +398,7 @@ export default function DashboardLayout() {
         </header>
 
         {/* Page content */}
-        <main className="p-6 sm:p-8 w-full min-w-0">
+        <main className="p-4 sm:p-6 lg:p-8 w-full min-w-0">
           <Outlet />
         </main>
       </div>
@@ -430,7 +437,7 @@ function NavLink({
           isActive ? 'text-white' : 'text-amber-500'
         )}
       />
-      {!collapsed && <span className="text-[13.5px] leading-none">{item.name}</span>}
+      {!collapsed && <span className="text-sm leading-none">{item.name}</span>}
     </Link>
   );
 }

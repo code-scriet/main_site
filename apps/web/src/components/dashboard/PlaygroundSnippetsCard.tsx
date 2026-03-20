@@ -194,7 +194,7 @@ export function PlaygroundSnippetsCard() {
                       <div className="flex items-center gap-3 min-w-0">
                         <span className="text-xl">{LANG_ICONS[item.language] || '📄'}</span>
                         <div className="min-w-0">
-                          <p className="font-mono text-sm text-gray-700 truncate max-w-[200px]">
+                          <p className="font-mono text-sm text-gray-700 truncate max-w-[150px] sm:max-w-[200px]">
                             {item.code?.split('\n')[0] || 'Code snippet'}
                           </p>
                           <p className="text-xs text-gray-500 flex items-center gap-2 mt-0.5">

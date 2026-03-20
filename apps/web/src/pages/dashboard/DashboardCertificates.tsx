@@ -78,14 +78,14 @@ function CertCard({
       animate={{ opacity: 1, y: 0 }}
       className={`rounded-xl border bg-gradient-to-br p-5 shadow-sm ${templateGradients[cert.template]}`}
     >
-      <div className="flex items-start justify-between mb-3">
+      <div className="flex items-start justify-between mb-3 gap-3">
         <Award className={`w-8 h-8 ${cert.template === 'dark' ? 'text-amber-400' : 'text-amber-500'}`} />
-        <span className={`inline-block px-2 py-0.5 rounded text-xs font-medium ${typeColors[cert.type]}`}>
+        <span className={`inline-block px-2 py-0.5 rounded text-xs font-medium whitespace-nowrap ${typeColors[cert.type]}`}>
           {cert.type}
         </span>
       </div>
 
-      <h3 className={`font-bold text-base mb-0.5 ${templateTextColor[cert.template]}`}>
+      <h3 className={`font-bold text-base mb-0.5 break-words ${templateTextColor[cert.template]}`}>
         {cert.eventName}
       </h3>
 
@@ -100,7 +100,7 @@ function CertCard({
         </p>
       )}
 
-      <div className={`font-mono text-[11px] mb-3 ${cert.template === 'dark' ? 'text-amber-400' : 'text-amber-700'}`}>
+      <div className={`font-mono text-xs mb-3 break-all ${cert.template === 'dark' ? 'text-amber-400' : 'text-amber-700'}`}>
         {cert.certId}
       </div>
 
@@ -114,7 +114,7 @@ function CertCard({
             size="sm"
             onClick={onDownload}
             disabled={downloading}
-            className="flex-1 gap-1.5 bg-amber-500 hover:bg-amber-600 text-white text-xs"
+            className="w-full sm:flex-1 gap-1.5 bg-amber-500 hover:bg-amber-600 text-white text-xs"
           >
             {downloading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
             {downloading ? 'Downloading…' : 'Download PDF'}
@@ -124,14 +124,14 @@ function CertCard({
           variant="outline"
           size="sm"
           onClick={copyLink}
-          className="gap-1.5 text-xs"
+          className="w-full sm:w-auto gap-1.5 text-xs"
           title="Copy verify link"
         >
           <Copy className="w-3.5 h-3.5" />
           Copy Link
         </Button>
-        <a href={verifyUrl} target="_blank" rel="noopener noreferrer">
-          <Button variant="outline" size="sm" className="gap-1.5 text-xs" title="Open verify page">
+        <a href={verifyUrl} target="_blank" rel="noopener noreferrer" className="w-full sm:w-auto">
+          <Button variant="outline" size="sm" className="w-full sm:w-auto gap-1.5 text-xs" title="Open verify page">
             <ExternalLink className="w-3.5 h-3.5" />
           </Button>
         </a>
@@ -208,7 +208,7 @@ export default function DashboardCertificates() {
   }
 
   return (
-    <div className="p-6 max-w-5xl mx-auto space-y-6">
+    <div className="p-4 sm:p-6 max-w-5xl mx-auto space-y-6">
       <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }}>
         <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
           <Award className="w-6 h-6 text-amber-500" />
@@ -224,7 +224,7 @@ export default function DashboardCertificates() {
         <select
           value={typeFilter}
           onChange={e => setTypeFilter(e.target.value)}
-          className="border border-gray-200 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
+          className="w-full sm:w-auto border border-gray-200 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
         >
           <option value="">All Types</option>
           <option value="PARTICIPATION">Participation</option>
@@ -235,7 +235,7 @@ export default function DashboardCertificates() {
         <select
           value={sortOrder}
           onChange={e => setSortOrder(e.target.value as 'asc' | 'desc')}
-          className="border border-gray-200 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
+          className="w-full sm:w-auto border border-gray-200 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
         >
           <option value="desc">Newest First</option>
           <option value="asc">Oldest First</option>
@@ -276,7 +276,7 @@ export default function DashboardCertificates() {
 
           {/* Pagination */}
           {totalPages > 1 && (
-            <div className="flex items-center justify-between">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
               <p className="text-sm text-gray-500">Page {page} of {totalPages}</p>
               <div className="flex gap-2">
                 <Button variant="outline" size="sm" disabled={page === 1} onClick={() => setPage(p => p - 1)} className="h-8 w-8 p-0">

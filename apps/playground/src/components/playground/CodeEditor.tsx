@@ -1,4 +1,6 @@
-import Editor from '@monaco-editor/react';
+import Editor, { type Monaco } from '@monaco-editor/react';
+import { useCallback } from 'react';
+import { emmetHTML, emmetCSS } from 'emmet-monaco-es';
 import { usePlayground } from '@/context/PlaygroundContext';
 import { useTheme } from '@/context/ThemeContext';
 import { Loader2 } from 'lucide-react';
@@ -13,6 +15,11 @@ export function CodeEditor() {
     }
   };
 
+  const handleBeforeMount = useCallback((monaco: Monaco) => {
+    emmetHTML(monaco);
+    emmetCSS(monaco);
+  }, []);
+
   return (
     <div className="w-full h-full code-editor-container">
       <Editor
@@ -20,6 +27,7 @@ export function CodeEditor() {
         language={language.monacoId}
         value={code}
         onChange={handleEditorChange}
+        beforeMount={handleBeforeMount}
         theme={editorTheme}
         options={{
           fontSize,
@@ -34,8 +42,14 @@ export function CodeEditor() {
           bracketPairColorization: {
             enabled: true,
           },
+          tabCompletion: 'on',
+          quickSuggestions: true,
+          suggestOnTriggerCharacters: true,
+          acceptSuggestionOnEnter: 'on',
           suggest: {
             snippetsPreventQuickSuggestions: false,
+            showSnippets: true,
+            showWords: true,
           },
         }}
         loading={
