@@ -16,7 +16,7 @@ const activeTimers = new Map<string, NodeJS.Timeout>();
 const MAX_CODE_BYTES = 100_000;
 const saveLimiter = rateLimit({
   windowMs: 60 * 1000,
-  max: 4,
+  max: 12,
   standardHeaders: true,
   legacyHeaders: false,
   keyGenerator: (req) => {
@@ -660,14 +660,24 @@ competitionRouter.post('/:roundId/save', authMiddleware, saveLimiter, async (req
     }
 
     const round = await ensureRegisteredForRound(req.params.roundId, user.id);
-    if (round.status !== 'ACTIVE' || !round.startedAt) {
+    const isLockedFallback = round.status === 'LOCKED';
+    if ((round.status !== 'ACTIVE' && !isLockedFallback) || !round.startedAt) {
       return ApiResponse.badRequest(res, 'This round is not accepting saves right now.');
     }
 
     const serverNow = new Date();
-    const remaining = computeRemainingSeconds(round, serverNow.getTime()) ?? 0;
-    if (remaining <= 0) {
-      return ApiResponse.badRequest(res, 'This round is no longer accepting submissions.');
+    if (!isLockedFallback) {
+      const remaining = computeRemainingSeconds(round, serverNow.getTime()) ?? 0;
+      if (remaining <= 0) {
+        return ApiResponse.badRequest(res, 'This round is no longer accepting submissions.');
+      }
+    } else {
+      const lockAgeMs = round.lockedAt
+        ? serverNow.getTime() - round.lockedAt.getTime()
+        : Number.MAX_SAFE_INTEGER;
+      if (lockAgeMs > 2 * 60 * 1000) {
+        return ApiResponse.badRequest(res, 'Round lock finalization window has passed.');
+      }
     }
 
     const myTeam = await getMyTeamInEvent(round.eventId, user.id);
@@ -703,6 +713,36 @@ competitionRouter.post('/:roundId/save', authMiddleware, saveLimiter, async (req
     }
 
     const payloadCode = parsed.data.code;
+
+    if (isLockedFallback) {
+      const submission = await prisma.competitionSubmission.create({
+        data: {
+          roundId: round.id,
+          teamId: myTeam?.id || null,
+          userId: user.id,
+          code: payloadCode,
+          isAutoSubmit: true,
+        },
+        select: { id: true, submittedAt: true },
+      });
+
+      await prisma.competitionAutoSave.deleteMany({
+        where: {
+          roundId: round.id,
+          userId: user.id,
+        },
+      });
+
+      return ApiResponse.success(res, {
+        submitted: true,
+        submission: {
+          id: submission.id,
+          submittedAt: submission.submittedAt.toISOString(),
+        },
+        serverTime: serverNow.toISOString(),
+      });
+    }
+
     const autoSave = await prisma.competitionAutoSave.upsert({
       where: {
         roundId_userId: { roundId: round.id, userId: user.id },
@@ -727,6 +767,9 @@ competitionRouter.post('/:roundId/save', authMiddleware, saveLimiter, async (req
       serverTime: serverNow.toISOString(),
     });
   } catch (error) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+      return ApiResponse.conflict(res, 'Submission already exists for this team or user.');
+    }
     const err = error as { status?: number; code?: string; message?: string };
     if (err.status && err.code && err.message) {
       return ApiResponse.error(res, {

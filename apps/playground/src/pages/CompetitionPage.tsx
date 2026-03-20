@@ -110,6 +110,7 @@ export default function CompetitionPage() {
   const startedAtRef = useRef<number | null>(null);
   const durationRef = useRef<number>(0);
   const retryTimeoutRef = useRef<number | null>(null);
+  const saveRetryDelayMsRef = useRef(4000);
 
   const loadRound = async (): Promise<RoundResponse> => {
     if (!token || !roundId) {
@@ -142,7 +143,7 @@ export default function CompetitionPage() {
   };
 
   const saveServer = async (nextCode: string): Promise<boolean> => {
-    if (!token || !round || round.status !== 'ACTIVE') return false;
+    if (!token || !round || !['ACTIVE', 'LOCKED', 'JUDGING'].includes(round.status)) return false;
     try {
       setSaveState('saving');
       const response = await fetch(`${API_URL}/api/competition/${roundId}/save`, {
@@ -156,7 +157,30 @@ export default function CompetitionPage() {
       });
       const payload = await response.json();
       if (!response.ok) {
-        throw new Error(payload?.error?.message || 'Save failed');
+        const message = payload?.error?.message || 'Save failed';
+        if (response.status === 409 && /already submitted/i.test(message)) {
+          setIsDirty(false);
+          setSaveState('saved');
+          setRound((prev) => (prev ? { ...prev, hasSubmitted: true } : prev));
+          return true;
+        }
+        if (response.status >= 400 && response.status < 500 && response.status !== 429) {
+          setSaveState('failed');
+          return false;
+        }
+        throw new Error(message);
+      }
+      if (payload?.data?.submitted) {
+        setSubmission({
+          id: payload.data?.submission?.id || `auto-${roundId}`,
+          code: nextCode,
+          submittedAt: payload.data?.submission?.submittedAt || new Date().toISOString(),
+          isAutoSubmit: true,
+          score: null,
+          rank: null,
+          adminNotes: null,
+        });
+        setRound((prev) => (prev ? { ...prev, hasSubmitted: true } : prev));
       }
       const serverTime = payload.data?.serverTime ? new Date(payload.data.serverTime).getTime() : null;
       if (serverTime) setClockOffsetMs(serverTime - Date.now());
@@ -164,6 +188,7 @@ export default function CompetitionPage() {
       setLastSavedAt(Date.now());
       setIsDirty(false);
       lastSavedCodeRef.current = nextCode;
+      saveRetryDelayMsRef.current = 4000;
       if (retryTimeoutRef.current) {
         window.clearTimeout(retryTimeoutRef.current);
         retryTimeoutRef.current = null;
@@ -175,10 +200,12 @@ export default function CompetitionPage() {
       } else {
         setSaveState('failed');
         if (!retryTimeoutRef.current) {
+          const retryDelay = saveRetryDelayMsRef.current;
           retryTimeoutRef.current = window.setTimeout(() => {
             retryTimeoutRef.current = null;
             void saveServer(nextCode);
-          }, 5000);
+          }, retryDelay);
+          saveRetryDelayMsRef.current = Math.min(60_000, Math.floor(retryDelay * 1.5));
         }
       }
       return false;
@@ -294,10 +321,11 @@ export default function CompetitionPage() {
 
   useEffect(() => {
     if (!round || round.status !== 'ACTIVE') return;
+    if (!isDirty) return;
     const interval = window.setInterval(() => {
-      if (!isDirty) return;
+      if (!navigator.onLine) return;
       void saveServer(latestCodeRef.current);
-    }, 30_000);
+    }, 45_000);
     return () => window.clearInterval(interval);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [round?.status, isDirty]);
@@ -331,6 +359,11 @@ export default function CompetitionPage() {
     return round.status !== 'ACTIVE' || Boolean(submission) || Boolean(round.hasSubmitted);
   }, [round, submission]);
 
+  const hasServerSubmission = useMemo(
+    () => Boolean(submission) || Boolean(round?.hasSubmitted),
+    [submission, round?.hasSubmitted],
+  );
+
   // Trigger server auto-save when tab becomes hidden (data loss prevention)
   useEffect(() => {
     if (!round || round.status !== 'ACTIVE' || isReadOnly) return;
@@ -343,6 +376,16 @@ export default function CompetitionPage() {
     return () => document.removeEventListener('visibilitychange', handleVisibility);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [round?.status, isDirty, isReadOnly]);
+
+  useEffect(() => {
+    if (!round || !token || !isDirty) return;
+    if (round.status !== 'LOCKED' && round.status !== 'JUDGING') return;
+    if (hasServerSubmission) return;
+    if (!navigator.onLine) return;
+
+    void saveServer(latestCodeRef.current);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [round?.status, isDirty, hasServerSubmission, token]);
 
   // Tick every 10s to refresh "Saved Xs ago" display text
   useEffect(() => {
@@ -378,11 +421,6 @@ export default function CompetitionPage() {
   }, [round, remainingSeconds]);
 
   const progressColor = remainingSeconds <= 60 ? 'bg-red-500' : remainingSeconds <= 300 ? 'bg-yellow-500' : 'bg-green-500';
-
-  const hasServerSubmission = useMemo(
-    () => Boolean(submission) || Boolean(round?.hasSubmitted),
-    [submission, round?.hasSubmitted],
-  );
 
   // Register Emmet for HTML & CSS expansion (e.g. div.container>h1+p Tab)
   const handleEditorBeforeMount = useCallback((monaco: Monaco) => {
