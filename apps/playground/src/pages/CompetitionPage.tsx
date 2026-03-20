@@ -106,6 +106,7 @@ export default function CompetitionPage() {
   const [displayTick, setDisplayTick] = useState(0);
 
   const lastSavedCodeRef = useRef(HTML_BOILERPLATE);
+  const latestCodeRef = useRef(HTML_BOILERPLATE);
   const startedAtRef = useRef<number | null>(null);
   const durationRef = useRef<number>(0);
   const retryTimeoutRef = useRef<number | null>(null);
@@ -224,6 +225,7 @@ export default function CompetitionPage() {
 
       setCode(resolvedCode || HTML_BOILERPLATE);
       lastSavedCodeRef.current = resolvedCode || HTML_BOILERPLATE;
+      latestCodeRef.current = resolvedCode || HTML_BOILERPLATE;
       setLastSavedAt(resolvedSavedAt || null);
       setIsDirty(false);
 
@@ -294,24 +296,25 @@ export default function CompetitionPage() {
     if (!round || round.status !== 'ACTIVE') return;
     const interval = window.setInterval(() => {
       if (!isDirty) return;
-      void saveServer(code);
+      void saveServer(latestCodeRef.current);
     }, 30_000);
     return () => window.clearInterval(interval);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [round?.status, isDirty, code]);
+  }, [round?.status, isDirty]);
 
   useEffect(() => {
     const handleBeforeUnload = () => {
       if (!roundId) return;
-      saveToLocal(roundId, code);
+      saveToLocal(roundId, latestCodeRef.current);
     };
     window.addEventListener('beforeunload', handleBeforeUnload);
     return () => window.removeEventListener('beforeunload', handleBeforeUnload);
-  }, [roundId, code]);
+  }, [roundId]);
 
   useEffect(() => {
     if (!roundId) return;
     saveToLocal(roundId, code);
+    latestCodeRef.current = code;
   }, [code, roundId]);
 
   useEffect(() => {
@@ -333,13 +336,13 @@ export default function CompetitionPage() {
     if (!round || round.status !== 'ACTIVE' || isReadOnly) return;
     const handleVisibility = () => {
       if (document.visibilityState === 'hidden' && isDirty) {
-        void saveServer(code);
+        void saveServer(latestCodeRef.current);
       }
     };
     document.addEventListener('visibilitychange', handleVisibility);
     return () => document.removeEventListener('visibilitychange', handleVisibility);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [round?.status, isDirty, code, isReadOnly]);
+  }, [round?.status, isDirty, isReadOnly]);
 
   // Tick every 10s to refresh "Saved Xs ago" display text
   useEffect(() => {
@@ -354,13 +357,13 @@ export default function CompetitionPage() {
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key === 's') {
         e.preventDefault();
-        if (isDirty) void saveServer(code);
+        if (isDirty) void saveServer(latestCodeRef.current);
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [round?.status, isDirty, code, isReadOnly]);
+  }, [round?.status, isDirty, isReadOnly]);
 
   const timerColorClass = useMemo(() => {
     if (!round || round.status !== 'ACTIVE') return 'text-gray-700';
@@ -375,6 +378,11 @@ export default function CompetitionPage() {
   }, [round, remainingSeconds]);
 
   const progressColor = remainingSeconds <= 60 ? 'bg-red-500' : remainingSeconds <= 300 ? 'bg-yellow-500' : 'bg-green-500';
+
+  const hasServerSubmission = useMemo(
+    () => Boolean(submission) || Boolean(round?.hasSubmitted),
+    [submission, round?.hasSubmitted],
+  );
 
   // Register Emmet for HTML & CSS expansion (e.g. div.container>h1+p Tab)
   const handleEditorBeforeMount = useCallback((monaco: Monaco) => {
@@ -400,7 +408,7 @@ export default function CompetitionPage() {
           'Content-Type': 'application/json',
         },
         credentials: 'include',
-        body: JSON.stringify({ code }),
+        body: JSON.stringify({ code: latestCodeRef.current }),
       });
       const payload = await response.json();
       if (!response.ok) {
@@ -504,9 +512,13 @@ export default function CompetitionPage() {
           )}
         </div>
         <div>
-          {isReadOnly ? (
+          {hasServerSubmission ? (
             <Button variant="outline" size="sm" disabled className="text-green-700 border-green-400">
               Submitted ✓
+            </Button>
+          ) : round.status !== 'ACTIVE' ? (
+            <Button variant="outline" size="sm" disabled>
+              Locked
             </Button>
           ) : (
             <Button size="sm" onClick={() => setShowSubmitConfirm(true)}>
@@ -577,6 +589,7 @@ export default function CompetitionPage() {
                 onChange={(value) => {
                   if (isReadOnly) return;
                   const nextCode = value ?? '';
+                  latestCodeRef.current = nextCode;
                   setCode(nextCode);
                   if (nextCode !== lastSavedCodeRef.current) {
                     setIsDirty(true);
