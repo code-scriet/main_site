@@ -480,16 +480,33 @@ export function Hero() {
                 transition={{ type: 'spring', stiffness: 400 }}
                 className="group relative"
               >
-                <div className="absolute inset-0 bg-gradient-to-br from-white/10 to-white/5 rounded-2xl sm:rounded-3xl opacity-0 group-hover:opacity-100 transition-opacity blur-xl" />
-                <div className="relative bg-white/5 backdrop-blur-md border border-white/10 rounded-2xl sm:rounded-3xl p-4 sm:p-8 md:p-10 transition-all duration-300 group-hover:bg-white/10 group-hover:border-white/20">
-                  <div className={`inline-flex p-2.5 sm:p-4 rounded-xl sm:rounded-2xl bg-gradient-to-br ${stat.color} mb-3 sm:mb-6 shadow-2xl`}>
-                    <stat.icon className="h-5 w-5 sm:h-8 sm:w-8 text-white" />
-                  </div>
-                  <p className="text-3xl sm:text-5xl md:text-6xl font-bold text-white mb-1 sm:mb-2">
-                    <AnimatedCounter value={stats[stat.valueKey]} suffix="+" />
-                  </p>
-                  <p className="text-white/60 text-xs sm:text-base">{stat.label}</p>
-                </div>
+                {stat.valueKey === 'events' ? (
+                  <Link to="/events" className="block focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-300 rounded-2xl sm:rounded-3xl">
+                    <div className="absolute inset-0 bg-gradient-to-br from-white/10 to-white/5 rounded-2xl sm:rounded-3xl opacity-0 group-hover:opacity-100 transition-opacity blur-xl" />
+                    <div className="relative bg-white/5 backdrop-blur-md border border-white/10 rounded-2xl sm:rounded-3xl p-4 sm:p-8 md:p-10 transition-all duration-300 group-hover:bg-white/10 group-hover:border-white/20 cursor-pointer">
+                      <div className={`inline-flex p-2.5 sm:p-4 rounded-xl sm:rounded-2xl bg-gradient-to-br ${stat.color} mb-3 sm:mb-6 shadow-2xl`}>
+                        <stat.icon className="h-5 w-5 sm:h-8 sm:w-8 text-white" />
+                      </div>
+                      <p className="text-3xl sm:text-5xl md:text-6xl font-bold text-white mb-1 sm:mb-2">
+                        <AnimatedCounter value={stats[stat.valueKey]} suffix="+" />
+                      </p>
+                      <p className="text-white/60 text-xs sm:text-base">{stat.label}</p>
+                    </div>
+                  </Link>
+                ) : (
+                  <>
+                    <div className="absolute inset-0 bg-gradient-to-br from-white/10 to-white/5 rounded-2xl sm:rounded-3xl opacity-0 group-hover:opacity-100 transition-opacity blur-xl" />
+                    <div className="relative bg-white/5 backdrop-blur-md border border-white/10 rounded-2xl sm:rounded-3xl p-4 sm:p-8 md:p-10 transition-all duration-300 group-hover:bg-white/10 group-hover:border-white/20">
+                      <div className={`inline-flex p-2.5 sm:p-4 rounded-xl sm:rounded-2xl bg-gradient-to-br ${stat.color} mb-3 sm:mb-6 shadow-2xl`}>
+                        <stat.icon className="h-5 w-5 sm:h-8 sm:w-8 text-white" />
+                      </div>
+                      <p className="text-3xl sm:text-5xl md:text-6xl font-bold text-white mb-1 sm:mb-2">
+                        <AnimatedCounter value={stats[stat.valueKey]} suffix="+" />
+                      </p>
+                      <p className="text-white/60 text-xs sm:text-base">{stat.label}</p>
+                    </div>
+                  </>
+                )}
               </motion.div>
             ))}
           </motion.div>
