@@ -337,7 +337,7 @@ export default function CreateAnnouncement() {
                     </Button>
                   </div>
                   {form.imageGallery.length > 0 && (
-                    <div className="grid grid-cols-3 gap-2 mt-2">
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 mt-2">{/* responsive: 2 cols on mobile */}
                       {form.imageGallery.map((url, index) => (
                         <div key={index} className="relative group">
                           <img

@@ -31,6 +31,7 @@ import { quizStore } from './quiz/quizStore.js';
 import { playgroundRouter } from './routes/playground.js';
 import { creditsRouter } from './routes/credits.js';
 import { attendanceRouter } from './routes/attendance.js';
+import { teamsRouter } from './routes/teams.js';
 import { initializeAttendanceSocket } from './attendance/attendanceSocket.js';
 import { setupPassport } from './config/passport.js';
 import { requestLogger, logger } from './utils/logger.js';
@@ -152,8 +153,15 @@ app.use(cors({
       return callback(null, true);
     }
     
-    // Allow codescriet.dev domains
-    if (origin.endsWith('.codescriet.dev') || origin === 'https://codescriet.dev') {
+    // Allow codescriet.dev domains - explicit allowlist to prevent subdomain takeover
+    const ALLOWED_CODESCRIET_ORIGINS = [
+      'https://codescriet.dev',
+      'https://www.codescriet.dev',
+      'https://api.codescriet.dev',
+      'https://code.codescriet.dev',
+      'https://app.codescriet.dev',
+    ];
+    if (ALLOWED_CODESCRIET_ORIGINS.includes(origin)) {
       return callback(null, true);
     }
     
@@ -261,6 +269,7 @@ app.use('/', indexNowRouter); // Serves key file at /<key>.txt
 app.use('/api/auth', authLimiter, authRouter);
 app.use('/api/events', eventsRouter);
 app.use('/api/registrations', registrationsRouter);
+app.use('/api/teams', teamsRouter);
 app.use('/api/announcements', announcementsRouter);
 app.use('/api/team', teamRouter);
 app.use('/api/achievements', achievementsRouter);

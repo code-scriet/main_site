@@ -876,7 +876,7 @@ export default function QuizResultsPage() {
                                       const consensusColor = entropy < 0.5 ? 'text-emerald-600'
                                         : entropy < 0.75 ? 'text-amber-600' : 'text-red-600';
                                       return (
-                                        <div className="grid grid-cols-3 gap-2">
+                                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">{/* responsive: stack on mobile */}
                                           <div className="bg-purple-50 border border-purple-200/40 rounded-lg px-3 py-2 text-center">
                                             <p className="text-lg font-black text-purple-800 tabular-nums">{participationPct}%</p>
                                             <p className="text-[10px] text-purple-600/70 font-semibold uppercase">Participation</p>

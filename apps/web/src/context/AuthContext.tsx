@@ -1,6 +1,6 @@
-import { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
+import { createContext, useContext, useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import type { ReactNode } from 'react';
-import { api } from '@/lib/api';
+import { api, UnauthorizedError } from '@/lib/api';
 import type { User } from '@/lib/api';
 
 interface ExtendedUser extends User {
@@ -40,26 +40,47 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       const userData = await api.getMe(token);
       return userData as ExtendedUser;
     } catch (err) {
+      // ISSUE-013: Handle 401 by clearing auth state
+      if (err instanceof UnauthorizedError) {
+        console.warn('Session expired or invalid');
+        localStorage.removeItem('token');
+        return null;
+      }
       console.error('Failed to fetch user:', err);
       localStorage.removeItem('token');
       return null;
     }
   }, []);
 
+  // ISSUE-035: Use ref to track component mount status for cleanup
+  const isMountedRef = useRef(true);
+
   useEffect(() => {
+    isMountedRef.current = true;
+    
     const initAuth = async () => {
       const token = localStorage.getItem('token');
       if (token) {
         const userData = await fetchUser(token);
-        if (!userData) {
-          setToken(null);
+        // Only update state if still mounted
+        if (isMountedRef.current) {
+          if (!userData) {
+            setToken(null);
+          }
+          setUser(userData);
         }
-        setUser(userData);
       }
-      setIsLoading(false);
+      if (isMountedRef.current) {
+        setIsLoading(false);
+      }
     };
     
     initAuth();
+    
+    // Cleanup on unmount
+    return () => {
+      isMountedRef.current = false;
+    };
   }, [fetchUser]);
 
   const refreshUser = useCallback(async () => {

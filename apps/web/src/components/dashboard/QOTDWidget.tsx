@@ -107,9 +107,9 @@ export function QOTDWidget({ token }: QOTDWidgetProps) {
 
   if (loading) {
     return (
-      <Card>
+      <Card className="border-gray-100 shadow-sm">
         <CardContent className="p-6 flex items-center justify-center">
-          <Loader2 className="h-6 w-6 animate-spin text-amber-600" />
+          <Loader2 className="h-6 w-6 animate-spin text-amber-500" />
         </CardContent>
       </Card>
     );
@@ -117,17 +117,19 @@ export function QOTDWidget({ token }: QOTDWidgetProps) {
 
   if (!qotd) {
     return (
-      <Card>
+      <Card className="border-gray-100 shadow-sm">
         <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-lg">
-            <Code className="h-5 w-5 text-amber-600" />
+          <CardTitle className="text-base font-semibold text-gray-900 flex items-center gap-2">
+            <div className="p-2 rounded-lg bg-amber-50">
+              <Code className="h-4 w-4 text-amber-600" />
+            </div>
             Question of the Day
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="text-center py-4 text-gray-500">
-            <p>No question for today.</p>
-            <p className="text-sm">Check back tomorrow!</p>
+          <div className="text-center py-6 text-gray-500">
+            <p className="text-sm">No question for today.</p>
+            <p className="text-sm mt-1">Check back tomorrow!</p>
           </div>
         </CardContent>
       </Card>
@@ -135,17 +137,19 @@ export function QOTDWidget({ token }: QOTDWidgetProps) {
   }
 
   return (
-    <Card className="overflow-hidden">
-      <CardHeader className="bg-gradient-to-r from-amber-100 to-orange-100 pb-3">
+    <Card className="overflow-hidden border-gray-100 shadow-sm">
+      <CardHeader className="pb-3">
         <div className="flex items-center justify-between">
-          <CardTitle className="flex items-center gap-2 text-lg">
-            <Code className="h-5 w-5 text-amber-600" />
+          <CardTitle className="flex items-center gap-2 text-base font-semibold text-gray-900">
+            <div className="p-2 rounded-lg bg-amber-50">
+              <Code className="h-4 w-4 text-amber-600" />
+            </div>
             Question of the Day
           </CardTitle>
           <div className="flex items-center gap-2">
-            <div className="flex items-center gap-1 text-amber-600" title="Current streak">
-              <Flame className="h-4 w-4" />
-              <span className="text-sm font-bold">{streak}</span>
+            <div className="flex items-center gap-1.5 text-amber-600" title="Current streak">
+              <Flame className="h-5 w-5" />
+              <span className="text-base font-bold">{streak}</span>
             </div>
             <Badge className={difficultyColors[qotd.difficulty]}>
               {qotd.difficulty}
@@ -153,8 +157,8 @@ export function QOTDWidget({ token }: QOTDWidgetProps) {
           </div>
         </div>
       </CardHeader>
-      <CardContent className="p-4">
-        <p className="text-gray-700 mb-4 line-clamp-2">{qotd.question}</p>
+      <CardContent className="p-5">
+        <p className="text-gray-700 mb-4 line-clamp-2 text-base">{qotd.question}</p>
         
         <div className="flex flex-col sm:flex-row gap-2">
           <a
@@ -192,7 +196,7 @@ export function QOTDWidget({ token }: QOTDWidgetProps) {
         </div>
 
         {!submitted && (
-          <p className="text-xs text-gray-500 mt-3 text-center">
+          <p className="text-sm text-gray-500 mt-4 text-center">
             Solve the problem on LeetCode, then click "I Solved It!" to track your progress
           </p>
         )}

@@ -45,16 +45,16 @@ async function main() {
     },
   });
 
-  console.log('Created test users successfully. You can use these to test the sync logic.');
-  console.log('\n--- Credentials ---');
-  console.log('User 1:');
-  console.log(`Email: test1@code.scriet`);
-  console.log(`Password: password123`);
-  console.log(`ID: ${user1.id}`);
-  console.log('\nUser 2:');
-  console.log(`Email: test2@code.scriet`);
-  console.log(`Password: password123`);
-  console.log(`ID: ${user2.id}`);
+  console.info('Created test users successfully. You can use these to test the sync logic.');
+  console.info('\n--- Credentials ---');
+  console.info('User 1:');
+  console.info(`Email: test1@code.scriet`);
+  console.info(`Password: password123`);
+  console.info(`ID: ${user1.id}`);
+  console.info('\nUser 2:');
+  console.info(`Email: test2@code.scriet`);
+  console.info(`Password: password123`);
+  console.info(`ID: ${user2.id}`);
 }
 
 main()

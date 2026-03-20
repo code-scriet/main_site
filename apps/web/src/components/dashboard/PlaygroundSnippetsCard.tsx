@@ -133,26 +133,28 @@ export function PlaygroundSnippetsCard() {
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.4, delay: 0.55 }}
     >
-      <Card>
-        <CardHeader className="flex flex-row items-center justify-between pb-2">
-          <CardTitle className="flex items-center gap-2">
-            <FileCode2 className="h-5 w-5 text-amber-600" />
+      <Card className="border-gray-100 shadow-sm">
+        <CardHeader className="flex flex-row items-center justify-between pb-3">
+          <CardTitle className="text-base font-semibold text-gray-900 flex items-center gap-2">
+            <div className="p-2 rounded-lg bg-emerald-50">
+              <FileCode2 className="h-4 w-4 text-emerald-600" />
+            </div>
             Playground Activity
           </CardTitle>
           <a href={getPlaygroundUrl()} target="_blank" rel="noopener noreferrer">
-            <Button variant="ghost" size="sm">
+            <Button variant="ghost" size="sm" className="text-sm">
               Open Playground <ArrowRight className="h-4 w-4 ml-1" />
             </Button>
           </a>
         </CardHeader>
         <CardContent>
           {/* Daily Usage Banner */}
-          <div className="mb-4 p-3 rounded-lg bg-amber-50 border border-amber-100">
+          <div className="mb-4 p-4 rounded-lg bg-gray-50">
             <div className="flex items-center justify-between text-sm">
-              <span className="text-amber-700">Today's Usage</span>
-              <span className="font-medium text-amber-900">{todayCount} / {dailyLimit}</span>
+              <span className="text-gray-600">Today's Usage</span>
+              <span className="font-semibold text-gray-900">{todayCount} / {dailyLimit}</span>
             </div>
-            <div className="mt-2 h-2 rounded-full bg-amber-100 overflow-hidden">
+            <div className="mt-2.5 h-2 rounded-full bg-gray-200 overflow-hidden">
               <div
                 className="h-full rounded-full bg-gradient-to-r from-amber-400 to-orange-500 transition-all"
                 style={{ width: `${Math.min((todayCount / dailyLimit) * 100, 100)}%` }}
@@ -162,15 +164,15 @@ export function PlaygroundSnippetsCard() {
 
           <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
             <TabsList className="grid w-full grid-cols-3">
-              <TabsTrigger value="history" className="flex items-center gap-1.5">
+              <TabsTrigger value="history" className="flex items-center gap-1.5 text-sm">
                 <History className="h-4 w-4" />
                 <span className="hidden sm:inline">History</span>
               </TabsTrigger>
-              <TabsTrigger value="snippets" className="flex items-center gap-1.5">
+              <TabsTrigger value="snippets" className="flex items-center gap-1.5 text-sm">
                 <FileCode2 className="h-4 w-4" />
                 <span className="hidden sm:inline">Snippets</span>
               </TabsTrigger>
-              <TabsTrigger value="stats" className="flex items-center gap-1.5">
+              <TabsTrigger value="stats" className="flex items-center gap-1.5 text-sm">
                 <BarChart3 className="h-4 w-4" />
                 <span className="hidden sm:inline">Stats</span>
               </TabsTrigger>
@@ -179,27 +181,27 @@ export function PlaygroundSnippetsCard() {
             {/* History Tab */}
             <TabsContent value="history" className="mt-4">
               {history.length === 0 ? (
-                <p className="text-sm text-gray-500 text-center py-4">
+                <p className="text-sm text-gray-500 text-center py-6">
                   No execution history yet. Run some code in the playground!
                 </p>
               ) : (
-                <div className="space-y-2 max-h-64 overflow-y-auto">
+                <div className="space-y-2 max-h-72 overflow-y-auto">
                   {history.map((item) => (
                     <div
                       key={item.id}
                       className="flex items-center justify-between p-3 rounded-lg bg-gray-50 hover:bg-gray-100 transition-colors"
                     >
                       <div className="flex items-center gap-3 min-w-0">
-                        <span className="text-lg">{LANG_ICONS[item.language] || '📄'}</span>
+                        <span className="text-xl">{LANG_ICONS[item.language] || '📄'}</span>
                         <div className="min-w-0">
-                          <p className="font-mono text-xs text-gray-700 truncate max-w-[200px]">
+                          <p className="font-mono text-sm text-gray-700 truncate max-w-[200px]">
                             {item.code?.split('\n')[0] || 'Code snippet'}
                           </p>
-                          <p className="text-xs text-gray-500 flex items-center gap-2">
+                          <p className="text-xs text-gray-500 flex items-center gap-2 mt-0.5">
                             <Clock className="h-3 w-3" />
                             {formatTimeAgo(item.executedAt)}
                             {item.durationMs && (
-                              <span className="text-amber-600">{formatDuration(item.durationMs)}</span>
+                              <span className="text-gray-600">{formatDuration(item.durationMs)}</span>
                             )}
                           </p>
                         </div>
@@ -221,7 +223,7 @@ export function PlaygroundSnippetsCard() {
             {/* Snippets Tab */}
             <TabsContent value="snippets" className="mt-4">
               {snippets.length === 0 ? (
-                <p className="text-sm text-gray-500 text-center py-4">
+                <p className="text-sm text-gray-500 text-center py-6">
                   No saved snippets yet. Save code in the playground!
                 </p>
               ) : (
@@ -232,20 +234,20 @@ export function PlaygroundSnippetsCard() {
                       href={getPlaygroundUrl(snippet.id)}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="flex items-center justify-between p-3 rounded-lg bg-amber-50 hover:bg-amber-100 transition-colors group"
+                      className="flex items-center justify-between p-3 rounded-lg bg-gray-50 hover:bg-gray-100 transition-colors group"
                     >
                       <div className="flex items-center gap-3 min-w-0">
-                        <span className="text-lg">{LANG_ICONS[snippet.language] || '📄'}</span>
+                        <span className="text-xl">{LANG_ICONS[snippet.language] || '📄'}</span>
                         <div className="min-w-0">
-                          <p className="font-medium text-amber-900 truncate">{snippet.title}</p>
-                          <p className="text-xs text-gray-500">
+                          <p className="font-medium text-gray-900 text-sm truncate">{snippet.title}</p>
+                          <p className="text-xs text-gray-500 mt-0.5">
                             {new Date(snippet.createdAt).toLocaleDateString()}
                           </p>
                         </div>
                       </div>
                       <div className="flex items-center gap-2 shrink-0">
                         <Badge variant="outline" className="text-xs">{snippet.language}</Badge>
-                        <ExternalLink className="h-3.5 w-3.5 text-gray-400 group-hover:text-amber-600 transition-colors" />
+                        <ExternalLink className="h-4 w-4 text-gray-400 group-hover:text-gray-600 transition-colors" />
                       </div>
                     </a>
                   ))}
@@ -257,24 +259,24 @@ export function PlaygroundSnippetsCard() {
             <TabsContent value="stats" className="mt-4">
               <div className="space-y-3">
                 <p className="text-sm text-gray-500">
-                  <span className="text-2xl font-bold text-amber-900">{totalExecutions}</span>{' '}
+                  <span className="text-2xl font-bold text-gray-900">{totalExecutions}</span>{' '}
                   total executions
                 </p>
                 {stats.length === 0 ? (
-                  <p className="text-sm text-gray-500 text-center py-4">
+                  <p className="text-sm text-gray-500 text-center py-6">
                     No language stats yet. Run some code!
                   </p>
                 ) : (
                   stats.map((stat) => (
-                    <div key={stat.language} className="space-y-1">
+                    <div key={stat.language} className="space-y-1.5">
                       <div className="flex items-center justify-between text-sm">
                         <span className="flex items-center gap-2">
-                          <span>{LANG_ICONS[stat.language] || '📄'}</span>
+                          <span className="text-lg">{LANG_ICONS[stat.language] || '📄'}</span>
                           <span className="font-medium capitalize">{stat.language}</span>
                         </span>
                         <span className="text-gray-500">{stat.count}</span>
                       </div>
-                      <div className="h-2 rounded-full bg-gray-100 overflow-hidden">
+                      <div className="h-2.5 rounded-full bg-gray-100 overflow-hidden">
                         <div
                           className={`h-full rounded-full transition-all ${LANG_COLORS[stat.language] || 'bg-amber-400'}`}
                           style={{ width: `${(stat.count / maxStat) * 100}%` }}

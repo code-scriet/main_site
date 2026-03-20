@@ -7,7 +7,7 @@ async function main() {
     where: { team: 'Outreach' },
     data: { team: 'DSA' },
   });
-  console.log(`Updated ${result.count} team members from Outreach to DSA.`);
+  console.info(`Updated ${result.count} team members from Outreach to DSA.`);
 }
 
 main()

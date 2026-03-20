@@ -5,6 +5,8 @@ import { logger } from './logger.js';
 let io: SocketIOServer | null = null;
 
 export function initializeSocket(httpServer: HTTPServer) {
+  const isDevelopment = process.env.NODE_ENV === 'development';
+
   io = new SocketIOServer(httpServer, {
     cors: {
       origin: (origin, callback) => {
@@ -15,14 +17,32 @@ export function initializeSocket(httpServer: HTTPServer) {
         if (origin.startsWith('http://localhost:')) {
           return callback(null, true);
         }
+
+        // Allow private LAN origins in development (same Wi-Fi testing)
+        if (
+          isDevelopment &&
+          (
+            origin.startsWith('http://127.0.0.1:') ||
+            /^http:\/\/(192\.168\.|10\.|172\.(1[6-9]|2\d|3[0-1])\.)/.test(origin)
+          )
+        ) {
+          return callback(null, true);
+        }
         
         // Allow production frontend
         if (process.env.FRONTEND_URL && origin === process.env.FRONTEND_URL) {
           return callback(null, true);
         }
         
-        // Allow codescriet.dev domains
-        if (origin.endsWith('.codescriet.dev') || origin === 'https://codescriet.dev') {
+        // Allow codescriet.dev domains - explicit allowlist to prevent subdomain takeover
+        const ALLOWED_CODESCRIET_ORIGINS = [
+          'https://codescriet.dev',
+          'https://www.codescriet.dev',
+          'https://api.codescriet.dev',
+          'https://code.codescriet.dev',
+          'https://app.codescriet.dev',
+        ];
+        if (ALLOWED_CODESCRIET_ORIGINS.includes(origin)) {
           return callback(null, true);
         }
         

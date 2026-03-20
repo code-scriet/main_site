@@ -2,6 +2,8 @@ import express, { Request, Response } from 'express';
 import { prisma } from '../lib/prisma.js';
 import { logger } from '../utils/logger.js';
 import { submitAllUrls } from '../utils/indexnow.js';
+import { authMiddleware } from '../middleware/auth.js';
+import { requireRole } from '../middleware/role.js';
 
 const INDEXNOW_KEY = '7e55c45349934674ab69e23e318c47c0';
 export const sitemapRouter = express.Router();
@@ -230,7 +232,7 @@ indexNowRouter.get(`/${INDEXNOW_KEY}.txt`, (_req: Request, res: Response) => {
  * Submit all indexable URLs to IndexNow (admin-only)
  * POST /api/indexnow/submit-all
  */
-indexNowRouter.post('/submit-all', async (_req: Request, res: Response) => {
+indexNowRouter.post('/submit-all', authMiddleware, requireRole('ADMIN'), async (_req: Request, res: Response) => {
   try {
     const result = await submitAllUrls();
 

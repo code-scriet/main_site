@@ -149,7 +149,7 @@ settingsRouter.get('/', authMiddleware, requireRole('ADMIN'), async (req: Reques
 });
 
 // Update settings
-settingsRouter.put('/', authMiddleware, requireRole('ADMIN'), async (req: Request, res: Response) => {
+settingsRouter.put('/', authMiddleware, requireRole('PRESIDENT'), async (req: Request, res: Response) => {
   try {
     const authUser = getAuthUser(req)!;
 

@@ -49,6 +49,11 @@
     max-width: 100%;
   }
   
+  /* responsive: ensure images never overflow container */
+  img, video, svg {
+    @apply max-w-full h-auto;
+  }
+  
   h1, h2, h3, h4, h5, h6 {
     @apply font-display font-bold text-amber-900 tracking-tight;
   }

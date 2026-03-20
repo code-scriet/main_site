@@ -382,7 +382,8 @@ authRouter.get('/github/callback',
 
 authRouter.post('/dev-login', async (req: Request, res: Response) => {
   if (!isDevLoginEnabled()) {
-    return res.status(403).json({ error: 'Development login is disabled' });
+    // Return 404 to hide endpoint existence when disabled (security best practice)
+    return res.status(404).json({ error: 'Not found' });
   }
 
   const validation = devLoginSchema.safeParse(req.body);

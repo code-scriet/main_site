@@ -35,11 +35,11 @@ class Logger {
         break;
       case 'debug':
         if (process.env.NODE_ENV !== 'production') {
-          console.log(formattedLog);
+          console.debug(formattedLog);
         }
         break;
       default:
-        console.log(formattedLog);
+        console.info(formattedLog);
     }
   }
 

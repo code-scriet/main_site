@@ -83,6 +83,7 @@ export default function EventsPage() {
     if (!user || !token) {
       // Save pending registration
       localStorage.setItem('pendingEventRegistration', event.id);
+      localStorage.setItem('pendingEventRegistrationType', event.teamRegistration ? 'team' : 'solo');
       // Redirect to sign in
       navigate('/signin', { state: { from: '/events', message: 'Please sign in to register for events', pendingEventId: event.id } });
       return;
@@ -92,11 +93,18 @@ export default function EventsPage() {
     if (!user.phone || !user.course || !user.branch || !user.year) {
       // Save pending registration
       localStorage.setItem('pendingEventRegistration', event.id);
+      localStorage.setItem('pendingEventRegistrationType', event.teamRegistration ? 'team' : 'solo');
       navigate('/dashboard/profile', { state: { message: 'Please complete your profile to register for events', pendingEventId: event.id } });
       return;
     }
 
+    if (event.teamRegistration) {
+      navigate(`/events/${event.slug || event.id}`);
+      return;
+    }
+
     if (event.registrationFields && event.registrationFields.length > 0) {
+      localStorage.setItem('pendingEventRegistrationType', 'solo');
       navigate(`/events/${event.slug || event.id}?register=1`);
       return;
     }

@@ -11,7 +11,7 @@ import { Layout } from '@/components/layout/Layout';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Loader2, Zap, ArrowLeft, AlertCircle } from 'lucide-react';
-import { cn } from '@/lib/utils';
+import { cn, getApiBaseUrl } from '@/lib/utils';
 
 const shakeKeyframes = {
   x: [0, -4, 4, -4, 4, -2, 2, 0],
@@ -99,7 +99,7 @@ export default function QuizJoinPage() {
 
     try {
       const token = localStorage.getItem('token');
-      const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:5001/api';
+      const apiUrl = getApiBaseUrl();
       const res = await fetch(`${apiUrl}/quiz/join`, {
         method: 'POST',
         headers: {

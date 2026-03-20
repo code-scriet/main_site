@@ -458,7 +458,7 @@ export default function EventCertificateWizard({
         transition={{ duration: 0.25 }}
       >
         {/* Stats */}
-        <div className="grid grid-cols-3 gap-3 mb-5">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-5">{/* responsive: stack on mobile */}
           <Card className="border-blue-200 dark:border-blue-800">
             <CardContent className="p-4 flex items-center gap-3">
               <Users className="w-5 h-5 text-blue-500 shrink-0" />
@@ -728,7 +728,7 @@ export default function EventCertificateWizard({
                         />
                       ) : (
                         <div className="w-16 h-10 bg-gray-100 dark:bg-gray-800 rounded border dark:border-gray-600 flex items-center justify-center">
-                          <span className="text-[10px] text-gray-400">No image</span>
+                          <span className="text-xs text-gray-400">No image</span>{/* responsive: min 12px */}
                         </div>
                       )}
                       <div className="min-w-0">
@@ -854,7 +854,7 @@ export default function EventCertificateWizard({
                       />
                     ) : (
                       <div className="w-16 h-10 bg-gray-100 dark:bg-gray-800 rounded border dark:border-gray-600 flex items-center justify-center">
-                        <span className="text-[10px] text-gray-400">No image</span>
+                        <span className="text-xs text-gray-400">No image</span>{/* responsive: min 12px */}
                       </div>
                     )}
                     <div className="min-w-0">

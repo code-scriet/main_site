@@ -60,6 +60,7 @@ const resolveUniqueNetworkSlug = async (raw: string, excludeId?: string): Promis
         ...(excludeId ? { id: { not: excludeId } } : {}),
         slug: { startsWith: baseSlug },
       },
+      take: 100,
       select: { slug: true },
     })
   )
@@ -290,11 +291,13 @@ networkRouter.get('/', async (req: Request, res: Response) => {
         select: { industry: true },
         distinct: ['industry'],
         orderBy: { industry: 'asc' },
+        take: 100,
       }),
       prisma.networkProfile.findMany({
         where: basePublicWhere,
         select: { connectionType: true },
         distinct: ['connectionType'],
+        take: 100,
       }),
     ]);
     const shouldCount = !(offset === 0 && profiles.length < limit);
@@ -557,6 +560,7 @@ networkRouter.get('/admin/pending', authMiddleware, requireRole('ADMIN'), async 
     const profiles = await prisma.networkProfile.findMany({
       where: { status: 'PENDING' },
       orderBy: { createdAt: 'asc' },
+      take: 100,
       include: {
         user: {
           select: {
@@ -682,6 +686,7 @@ networkRouter.get('/admin/pending-users', authMiddleware, requireRole('ADMIN'), 
         networkProfile: { is: null },
       },
       orderBy: { createdAt: 'desc' },
+      take: 100,
       select: {
         id: true,
         name: true,
@@ -807,6 +812,7 @@ networkRouter.get('/admin/export', authMiddleware, requireRole('ADMIN'), async (
               networkProfile: { is: null },
             },
             orderBy: { createdAt: 'desc' },
+            take: 100,
             select: {
               id: true,
               name: true,
@@ -1256,7 +1262,9 @@ networkRouter.patch('/admin/:id/reject', authMiddleware, requireRole('ADMIN'), a
   try {
     const authUser = getAuthUser(req)!;
     const { id } = req.params;
-    const reason = typeof req.body?.reason === 'string' ? req.body.reason.trim() : '';
+    const rawReason = typeof req.body?.reason === 'string' ? req.body.reason.trim() : '';
+    // Sanitize rejection reason to prevent XSS when displayed
+    const reason = rawReason ? sanitizeHtml(rawReason) : '';
 
     if (reason.length > 1000) {
       return res.status(400).json({ success: false, error: { message: 'Rejection reason must be 1000 characters or fewer' } });

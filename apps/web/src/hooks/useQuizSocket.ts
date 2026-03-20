@@ -6,9 +6,10 @@
 import { useEffect, useRef, useCallback } from 'react';
 import { io, Socket } from 'socket.io-client';
 import { useQuizStore } from '@/lib/quizStore';
+import { getApiBaseUrl } from '@/lib/utils';
 
 function getSocketUrl() {
-  let url = import.meta.env.VITE_API_URL || 'http://localhost:5001';
+  let url = getApiBaseUrl();
   url = url.replace(/\/api\/?$/, '');
   return url;
 }

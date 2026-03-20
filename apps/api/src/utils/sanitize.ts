@@ -37,8 +37,8 @@ const ALLOWED_ATTR = [
   'colspan', 'rowspan',
 ];
 
-// Allowed URL schemes
-const ALLOWED_URI_REGEXP = /^(?:(?:https?|mailto|tel):|[^a-z]|[a-z+.-]+(?:[^a-z+.-:]|$))/i;
+// Allowed URL schemes - strict whitelist to prevent javascript:/data: XSS
+const ALLOWED_URI_REGEXP = /^(https?:|mailto:|tel:|\/|#)/i;
 
 /**
  * Sanitizes HTML content to prevent XSS attacks

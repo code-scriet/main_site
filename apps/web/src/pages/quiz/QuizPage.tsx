@@ -23,7 +23,7 @@ import { QuizLeaderboard } from './QuizLeaderboard';
 import { QuizAdminPanel } from './QuizAdminPanel';
 import { QuizHostView } from './QuizHostView';
 import { QuizFinaleIntro } from './QuizFinaleIntro';
-import { Loader2, WifiOff, ArrowLeft, AlertCircle, Lock, Check, Share2 } from 'lucide-react';
+import { Loader2, WifiOff, ArrowLeft, AlertCircle, Lock, Check, Share2, LogOut } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
 export default function QuizPage() {
@@ -167,6 +167,19 @@ export default function QuizPage() {
     if (storeQuizId) skipQuestion(storeQuizId);
   };
 
+  const handleDiscardQuiz = useCallback(() => {
+    if (quizId) {
+      sessionStorage.removeItem(`quiz_access_token_${quizId}`);
+    }
+    setQuizAccessToken(null);
+    setAccessGranted(false);
+    setIsHost(false);
+    setShowFinaleIntro(false);
+    setFinaleShown(false);
+    reset();
+    navigate('/quiz');
+  }, [quizId, navigate, reset]);
+
   // =====================================================
   // ACCESS STATES (must be after all hooks)
   // =====================================================
@@ -274,6 +287,16 @@ export default function QuizPage() {
             <h2 className="text-lg font-medium text-gray-700">
               {isHost ? 'Opening host controls...' : 'Joining quiz...'}
             </h2>
+            {!isHost && (
+              <Button
+                variant="outline"
+                onClick={handleDiscardQuiz}
+                className="border-red-200 text-red-700 hover:bg-red-50 hover:text-red-800"
+              >
+                <LogOut className="h-4 w-4 mr-2" />
+                Discard Quiz
+              </Button>
+            )}
           </div>
         </div>
       </Layout>
@@ -328,7 +351,7 @@ export default function QuizPage() {
         <AnimatePresence mode="wait">
           {quizStatus === 'lobby' && (
             <motion.div key="lobby" exit={{ opacity: 0, y: -20 }}>
-              <QuizLobby />
+              <QuizLobby onDiscardQuiz={!isHost ? handleDiscardQuiz : undefined} />
             </motion.div>
           )}
 
@@ -486,7 +509,7 @@ function FinalResults({
               </div>
 
               {/* Stats row */}
-              <div className="grid grid-cols-3 gap-3 mt-4">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-4">{/* responsive: stack on mobile */}
                 <div className="text-center p-3 bg-white/60 rounded-xl">
                   <p className="text-2xl font-black text-amber-800 tabular-nums">{myEntry.score}</p>
                   <p className="text-xs text-amber-700/50 font-semibold uppercase tracking-wide">Points</p>

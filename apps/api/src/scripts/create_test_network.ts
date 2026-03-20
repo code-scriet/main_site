@@ -4,7 +4,7 @@ import bcrypt from 'bcryptjs';
 const prisma = new PrismaClient();
 
 async function main() {
-  console.log('Creating test users & network profiles...');
+  console.info('Creating test users & network profiles...');
 
   // 1. Alumni User
   let alumniUser = await prisma.user.findUnique({ where: { email: 'alumni@code.scriet' } });
@@ -22,7 +22,7 @@ async function main() {
         websiteUrl: 'https://janedoe.me',
       },
     });
-    console.log('Created user: alumni@code.scriet');
+    console.info('Created user: alumni@code.scriet');
   }
 
   // Alumni Network Profile
@@ -45,7 +45,7 @@ async function main() {
         slug: 'jane-doe-alumni',
       },
     });
-    console.log('Created Alumni profile for Jane');
+    console.info('Created Alumni profile for Jane');
   }
 
   // 2. Network/Guest User
@@ -63,7 +63,7 @@ async function main() {
         twitterUrl: 'https://twitter.com/johnsmith',
       },
     });
-    console.log('Created user: guest@code.scriet');
+    console.info('Created user: guest@code.scriet');
   }
 
   // Guest Network Profile
@@ -83,10 +83,10 @@ async function main() {
         slug: 'john-smith-guest',
       },
     });
-    console.log('Created Guest Speaker profile for John');
+    console.info('Created Guest Speaker profile for John');
   }
 
-  console.log('Test setup complete!');
+  console.info('Test setup complete!');
 }
 
 main()

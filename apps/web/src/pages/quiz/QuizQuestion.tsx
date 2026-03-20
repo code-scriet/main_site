@@ -34,6 +34,8 @@ export function QuizQuestion({ onSubmitAnswer }: QuizQuestionProps) {
   const [shortAnswer, setShortAnswer] = useState('');
   const [multiSelectAnswers, setMultiSelectAnswers] = useState<string[]>([]);
   const [openEndedAnswer, setOpenEndedAnswer] = useState('');
+  const [ratingValue, setRatingValue] = useState<number>(0);
+  const [hoverRating, setHoverRating] = useState<number>(0);
 
   const { progress, isUrgent, isExpired, secondsLeft } = useQuizTimer(
     questionStartTime,
@@ -48,10 +50,6 @@ export function QuizQuestion({ onSubmitAnswer }: QuizQuestionProps) {
     setRatingValue(0);
     setHoverRating(0);
   }, [currentQuestion?.questionIndex]);
-
-  // Rating state
-  const [ratingValue, setRatingValue] = useState<number>(0);
-  const [hoverRating, setHoverRating] = useState<number>(0);
 
   const handleSelect = useCallback(
     (answer: string) => {

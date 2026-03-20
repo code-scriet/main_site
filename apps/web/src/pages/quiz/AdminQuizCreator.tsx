@@ -35,7 +35,7 @@ import {
   Loader2,
   Sparkles,
 } from 'lucide-react';
-import { cn } from '@/lib/utils';
+import { cn, getWebAppOrigin } from '@/lib/utils';
 
 type QuestionType = 'MCQ' | 'TRUE_FALSE' | 'SHORT_ANSWER' | 'POLL' | 'RATING' | 'MULTI_SELECT' | 'OPEN_ENDED';
 
@@ -290,8 +290,9 @@ export default function AdminQuizCreator() {
     }
   };
 
+  const joinBaseOrigin = getWebAppOrigin();
   const joinUrl = createdQuiz
-    ? `${window.location.origin}/quiz/join?pin=${createdQuiz.pin}`
+    ? `${joinBaseOrigin}/quiz/join?pin=${createdQuiz.pin}`
     : '';
 
   return (

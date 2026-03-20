@@ -616,7 +616,7 @@ export default function VerifyCertificatePage() {
 
           {/* Info */}
           {!result && !loading && (
-            <div className="grid grid-cols-3 gap-3 text-center">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-center">{/* responsive: stack on mobile */}
               {[
                 { icon: ShieldCheck, label: 'Tamper-proof', desc: 'Cryptographically signed IDs' },
                 { icon: QrCode, label: 'QR Enabled', desc: 'Scan from any certificate PDF' },

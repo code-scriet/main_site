@@ -230,7 +230,7 @@ router.get('/history', async (req: Request, res: Response) => {
 // ---------------------------------------------------------------------------
 
 /** Reset a specific user's daily execution limit */
-router.post('/admin/reset-limit/:userId', requireRole('ADMIN'), async (req: Request, res: Response) => {
+router.post('/admin/reset-limit/:userId', authMiddleware, requireRole('ADMIN'), async (req: Request, res: Response) => {
   try {
     const admin = getAuthUser(req);
     if (!admin) return res.status(401).json({ error: 'Not authenticated' });
@@ -242,30 +242,32 @@ router.post('/admin/reset-limit/:userId', requireRole('ADMIN'), async (req: Requ
     const target = await prisma.user.findUnique({ where: { id: userId }, select: { id: true, email: true } });
     if (!target) return res.status(404).json({ success: false, error: 'User not found' });
 
-    await prisma.playgroundLimitReset.create({
-      data: {
-        userId,
-        resetBy: admin.id,
-        note,
-      },
-    });
-
-    await prisma.playgroundDailyUsage.upsert({
-      where: {
-        userId_usageDate: {
+    // ISSUE-025: Use transaction to ensure atomicity
+    await prisma.$transaction([
+      prisma.playgroundLimitReset.create({
+        data: {
+          userId,
+          resetBy: admin.id,
+          note,
+        },
+      }),
+      prisma.playgroundDailyUsage.upsert({
+        where: {
+          userId_usageDate: {
+            userId,
+            usageDate: getUsageDate(),
+          },
+        },
+        create: {
           userId,
           usageDate: getUsageDate(),
+          count: 0,
         },
-      },
-      create: {
-        userId,
-        usageDate: getUsageDate(),
-        count: 0,
-      },
-      update: {
-        count: 0,
-      },
-    });
+        update: {
+          count: 0,
+        },
+      }),
+    ]);
 
     logger.info('[Playground] Admin reset daily limit', { adminEmail: admin.email, targetEmail: target.email });
     return res.json({

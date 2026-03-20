@@ -7,14 +7,34 @@ import { useAuth } from '@/context/AuthContext';
 import { useSettings } from '@/context/SettingsContext';
 import { api } from '@/lib/api';
 import type { Registration, Announcement } from '@/lib/api';
-import { Calendar, Bell, Trophy, Code, ArrowRight, Loader2, Users, CheckCircle, Clock, XCircle, UserCircle, Zap, Code2, AlertCircle } from 'lucide-react';
+import {
+  Calendar, Bell, ArrowRight, Loader2, Users, CheckCircle,
+  Clock, XCircle, Zap, AlertCircle, Award, ExternalLink,
+  LayoutDashboard, Trophy,
+} from 'lucide-react';
 import { Link } from 'react-router-dom';
-import { QOTDWidget } from '@/components/dashboard/QOTDWidget';
 import { QuizDashboardWidget } from '@/components/dashboard/QuizDashboardWidget';
 import { PlaygroundCard } from '@/components/dashboard/PlaygroundCard';
 import { PlaygroundSnippetsCard } from '@/components/dashboard/PlaygroundSnippetsCard';
 import AttendanceHistory from '@/components/attendance/AttendanceHistory';
 import { formatDate } from '@/lib/dateUtils';
+
+const fadeUp = {
+  initial: { opacity: 0, y: 16 },
+  animate: { opacity: 1, y: 0 },
+  transition: { duration: 0.35 },
+};
+
+function stagger(index: number) {
+  return { ...fadeUp, transition: { ...fadeUp.transition, delay: index * 0.06 } };
+}
+
+const priorityConfig = {
+  URGENT: { color: 'bg-red-500' },
+  HIGH:   { color: 'bg-orange-400' },
+  MEDIUM: { color: 'bg-amber-400' },
+  LOW:    { color: 'bg-gray-300' },
+};
 
 export default function DashboardOverview() {
   const { user, token } = useAuth();
@@ -35,10 +55,7 @@ export default function DashboardOverview() {
 
   useEffect(() => {
     const loadData = async () => {
-      if (!token) {
-        setLoading(false);
-        return;
-      }
+      if (!token) { setLoading(false); return; }
       try {
         const [regs, anns, hiring, myTeamProfile] = await Promise.all([
           api.getMyRegistrations(token).catch(() => []),
@@ -48,361 +65,376 @@ export default function DashboardOverview() {
         ]);
         setTotalRegistrations(regs.length);
         setTotalAnnouncements(anns.length);
-        setRegistrations(regs.slice(0, 3)); // Show only first 3
-        setAnnouncements(anns.slice(0, 3)); // Show only first 3
+        setRegistrations(regs.slice(0, 5));
+        setAnnouncements(anns.slice(0, 10));
         setHiringStatus(hiring);
         setIsTeamMember(!!myTeamProfile);
         if (myTeamProfile && 'id' in myTeamProfile) {
           setTeamMemberId((myTeamProfile as { id: string }).id);
         }
-      } catch (error) {
-        setError('Failed to load dashboard data. Please try refreshing the page.');
+      } catch {
+        setError('Failed to load dashboard data.');
       } finally {
         setLoading(false);
       }
     };
-
     loadData();
   }, [token]);
 
-  const stats = [
-    { label: 'Events Registered', value: totalRegistrations.toString(), icon: Calendar, color: 'bg-blue-500' },
-    { label: 'Announcements', value: totalAnnouncements.toString(), icon: Bell, color: 'bg-purple-500' },
-    { label: 'Your Role', value: user?.role || 'USER', icon: Trophy, color: 'bg-amber-500' },
-    { label: 'Member Since', value: 'Active', icon: Code, color: 'bg-green-500' },
-  ];
-
   if (loading) {
     return (
-      <div className="flex items-center justify-center py-20">
-        <Loader2 className="h-8 w-8 animate-spin text-amber-600" />
+      <div className="flex items-center justify-center py-32">
+        <Loader2 className="h-8 w-8 animate-spin text-amber-500" />
       </div>
     );
   }
 
   if (error) {
     return (
-      <div className="flex flex-col items-center justify-center py-20 text-center">
-        <AlertCircle className="h-10 w-10 text-red-500 mb-3" />
-        <p className="text-gray-700 font-medium">{error}</p>
+      <div className="flex flex-col items-center justify-center py-24 text-center gap-3">
+        <AlertCircle className="h-10 w-10 text-red-400" />
+        <p className="text-gray-500">{error}</p>
       </div>
     );
   }
 
+  const firstName = user?.name?.split(' ')[0] || 'there';
+  const showHiring = !isTeamMember &&
+    (user?.role === 'USER' || user?.role === 'MEMBER') &&
+    !settingsLoading &&
+    settings?.hiringEnabled === true;
+
+  const playgroundEnabled = settings?.playgroundEnabled !== false;
+
   return (
-    <div className="space-y-6">
-      {/* Welcome Banner */}
+    <div className="space-y-6 w-full">
+
+      {/* ─── Welcome Banner ─────────────────────────────────────────── */}
       <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.4 }}
+        {...fadeUp}
+        className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-amber-500 via-amber-500 to-orange-500 text-white"
       >
-        <Card className="bg-gradient-to-r from-amber-400 via-orange-500 to-amber-600 text-white border-none">
-          <CardContent className="p-6">
-            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-              <div>
-                <h1 className="text-2xl md:text-3xl font-bold mb-2">
-                  Welcome back, {user?.name?.split(' ')[0]}! 👋
-                </h1>
-                <p className="text-amber-100">
-                  Ready to solve some problems today?
-                </p>
+        <div
+          className="pointer-events-none absolute inset-0"
+          style={{
+            backgroundImage: 'radial-gradient(circle, rgba(221,212,191,0.12) 1.5px, transparent 1.5px)',
+            backgroundSize: '22px 22px',
+          }}
+        />
+        <div className="pointer-events-none absolute -top-10 -right-10 h-48 w-48 rounded-full bg-white/10 blur-3xl" />
+
+        <div className="relative flex items-center gap-5 px-7 py-6">
+          <div className="h-14 w-14 rounded-2xl overflow-hidden bg-white/20 ring-2 ring-white/30 shrink-0 shadow-lg">
+            {user?.avatar ? (
+              <img src={user.avatar} alt={user.name} className="w-full h-full object-cover" />
+            ) : (
+              <div className="w-full h-full flex items-center justify-center text-white font-bold text-xl">
+                {user?.name?.charAt(0)?.toUpperCase()}
               </div>
-              <div className="flex items-center gap-2">
-                <div className="h-16 w-16 rounded-full overflow-hidden ring-4 ring-white/30 bg-white/20">
-                  {user?.avatar ? (
-                    <img src={user.avatar} alt={user.name} className="w-full h-full object-cover" />
-                  ) : (
-                    <div className="w-full h-full flex items-center justify-center text-2xl font-bold">
-                      {user?.name?.charAt(0)}
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+            )}
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-white/70 text-sm font-medium">Good {getGreeting()}</p>
+            <h1 className="text-2xl font-bold tracking-tight mt-0.5">{firstName}</h1>
+            <p className="text-white/60 text-sm mt-0.5 truncate">{user?.email}</p>
+          </div>
+          <div className="hidden md:flex shrink-0">
+            <span className="inline-flex items-center gap-2 rounded-xl bg-white/15 px-4 py-2 text-sm font-semibold backdrop-blur-sm">
+              <Trophy className="h-4 w-4 text-amber-200" />
+              {user?.role?.replace('_', ' ')}
+            </span>
+          </div>
+        </div>
       </motion.div>
 
-      {/* Stats Grid */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        {stats.map((stat, index) => (
-          <motion.div
-            key={stat.label}
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.4, delay: index * 0.1 }}
-          >
-            <Card>
-              <CardContent className="p-4">
-                <div className="flex items-center gap-3">
-                  <div className={`${stat.color} p-3 rounded-lg`}>
-                    <stat.icon className="h-5 w-5 text-white" />
-                  </div>
-                  <div>
-                    <p className="text-2xl font-bold text-amber-900">{stat.value}</p>
-                    <p className="text-xs text-gray-500">{stat.label}</p>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          </motion.div>
+      {/* ─── Stat Cards (3 equal, full width) ───────────────────────── */}
+      <motion.div {...stagger(1)} className="grid grid-cols-3 gap-4">
+        <StatCard
+          icon={<Calendar className="h-5 w-5 text-amber-600" />}
+          iconBg="bg-amber-50"
+          label="Registered Events"
+          value={totalRegistrations}
+          linkTo="/dashboard/events"
+        />
+        <StatCard
+          icon={<Bell className="h-5 w-5 text-purple-500" />}
+          iconBg="bg-purple-50"
+          label="Announcements"
+          value={totalAnnouncements}
+          linkTo="/dashboard/announcements"
+        />
+        <StatCard
+          icon={<LayoutDashboard className="h-5 w-5 text-blue-500" />}
+          iconBg="bg-blue-50"
+          label="Your Role"
+          valueText={user?.role?.replace('_', ' ')}
+        />
+      </motion.div>
+
+      {/* ─── Quick Actions ───────────────────────────────────────────── */}
+      <motion.div {...stagger(2)} className="flex gap-2 flex-wrap">
+        {[
+          { to: '/dashboard/events', icon: Calendar, label: 'My Events', hover: 'hover:bg-amber-50 hover:text-amber-700 hover:border-amber-200' },
+          { to: '/dashboard/announcements', icon: Bell, label: 'Announcements', hover: 'hover:bg-purple-50 hover:text-purple-700 hover:border-purple-200' },
+          { to: '/quiz', icon: Zap, label: 'Live Quizzes', hover: 'hover:bg-blue-50 hover:text-blue-700 hover:border-blue-200' },
+          {
+            to: isTeamMember && teamMemberId ? `/dashboard/team/${teamMemberId}/edit` : '/dashboard/profile',
+            icon: Users,
+            label: isTeamMember ? 'Team Profile' : 'My Profile',
+            hover: 'hover:bg-emerald-50 hover:text-emerald-700 hover:border-emerald-200',
+          },
+          ...(settings?.certificatesEnabled !== false
+            ? [{ to: '/dashboard/certificates', icon: Award, label: 'Certificates', hover: 'hover:bg-amber-50 hover:text-amber-700 hover:border-amber-200' }]
+            : []),
+        ].map((item) => (
+          <Link key={item.to} to={item.to}>
+            <Button
+              variant="outline"
+              className={`h-10 px-4 text-sm font-medium border-gray-200 text-gray-600 rounded-xl transition-all ${item.hover}`}
+            >
+              <item.icon className="h-4 w-4 mr-2" />
+              {item.label}
+            </Button>
+          </Link>
         ))}
-      </div>
+      </motion.div>
 
-      {/* Code Playground Card */}
-      {settings?.playgroundEnabled !== false && <PlaygroundCard />}
-
-      {/* Playground Snippets & Language Stats */}
-      {settings?.playgroundEnabled !== false && <PlaygroundSnippetsCard />}
-
-      <div className="grid lg:grid-cols-2 gap-6">
-        {/* QOTD Widget - conditionally shown */}
-        {settings?.showQOTD !== false && (
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.4, delay: 0.3 }}
-          >
-            <QOTDWidget token={token || ''} />
-          </motion.div>
-        )}
-
-        {/* Quick Actions */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.4, delay: 0.35 }}
-          className={settings?.showQOTD === false ? 'lg:col-span-2' : ''}
-        >
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Code className="h-5 w-5 text-amber-600" />
-                Quick Actions
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <Link to="/dashboard/events" className="block">
-                <Button variant="outline" className="w-full justify-start">
-                  <Calendar className="h-4 w-4 mr-3" />
-                  Browse Events
-                </Button>
-              </Link>
-              <Link to="/dashboard/announcements" className="block">
-                <Button variant="outline" className="w-full justify-start">
-                  <Bell className="h-4 w-4 mr-3" />
-                  View Announcements
-                </Button>
-              </Link>
-              <Link to="/events" className="block">
-                <Button variant="outline" className="w-full justify-start">
-                  <ArrowRight className="h-4 w-4 mr-3" />
-                  Explore All Events
-                </Button>
-              </Link>
-              <Link to="/quiz" className="block">
-                <Button variant="outline" className="w-full justify-start text-amber-700">
-                  <Zap className="h-4 w-4 mr-3" />
-                  Live Quizzes
-                </Button>
-              </Link>
-              <a 
-                href={(() => {
-                  const base = import.meta.env.VITE_PLAYGROUND_URL || (import.meta.env.DEV ? 'http://localhost:5174' : 'https://code.codescriet.dev');
-                  const token = localStorage.getItem('token');
-                  return token ? `${base}/#token=${encodeURIComponent(token)}` : base;
-                })()} 
-                target="_blank" 
-                rel="noopener noreferrer"
-                className={`block${settings?.playgroundEnabled === false ? ' hidden' : ''}`}
-              >
-                <Button variant="outline" className="w-full justify-start text-amber-700 border-amber-200 hover:bg-amber-50">
-                  <Code2 className="h-4 w-4 mr-3" />
-                  Code Playground
-                </Button>
-              </a>
-              <Link to={isTeamMember && teamMemberId ? `/dashboard/team/${teamMemberId}/edit` : '/dashboard/profile'} className="block">
-                <Button variant="outline" className="w-full justify-start">
-                  <UserCircle className="h-4 w-4 mr-3" />
-                  {isTeamMember ? 'Edit Team Profile' : 'Edit My Profile'}
-                </Button>
-              </Link>
-              
-              {/* Join the Team - only for users who are NOT already a team member */}
-              {!isTeamMember && (user?.role === 'USER' || user?.role === 'MEMBER') && !settingsLoading && settings?.hiringEnabled === true && (
-                <div className="pt-3 mt-3 border-t border-gray-100">
-                  {(hiringStatus?.hasApplied || hiringStatus?.hasApplication) ? (
-                    <div className="p-3 rounded-lg bg-amber-50 border border-amber-200">
-                      <div className="flex items-center gap-2 mb-2">
-                        {hiringStatus.application?.status === 'PENDING' && (
-                          <Clock className="h-4 w-4 text-amber-600" />
-                        )}
-                        {(hiringStatus.application?.status === 'SELECTED' || hiringStatus.application?.status === 'APPROVED') && (
-                          <CheckCircle className="h-4 w-4 text-green-600" />
-                        )}
-                        {hiringStatus.application?.status === 'REJECTED' && (
-                          <XCircle className="h-4 w-4 text-red-600" />
-                        )}
-                        <span className="font-medium text-amber-900">Application Status</span>
-                      </div>
-                      <p className="text-sm text-gray-600">
-                        You applied for <strong>{hiringStatus.application?.applyingRole?.replace('_', ' ')}</strong>
-                      </p>
-                      <Badge 
-                        variant={hiringStatus.application?.status === 'SELECTED' || hiringStatus.application?.status === 'APPROVED' ? 'success' : 
-                                hiringStatus.application?.status === 'REJECTED' ? 'destructive' : 'warning'}
-                        className="mt-2"
-                      >
-                        {hiringStatus.application?.status}
-                      </Badge>
-                    </div>
-                  ) : (
-                    <Link to="/join-us" className="block">
-                      <div className="p-4 rounded-lg bg-gradient-to-r from-amber-50 to-orange-50 border-2 border-amber-300 hover:border-amber-400 transition-all hover:shadow-md">
-                        <div className="flex items-center gap-3">
-                          <div className="bg-gradient-to-r from-amber-500 to-orange-500 p-3 rounded-lg">
-                            <Users className="h-6 w-6 text-white" />
-                          </div>
-                          <div className="flex-1">
-                            <p className="font-semibold text-amber-900">Join the Team!</p>
-                            <p className="text-sm text-gray-600">Apply to become a core member</p>
-                          </div>
-                          <ArrowRight className="h-5 w-5 text-amber-600" />
-                        </div>
-                      </div>
-                    </Link>
-                  )}
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        </motion.div>
-      </div>
-
-      <div className="grid lg:grid-cols-2 gap-6">
-        {/* My Events */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.4, delay: 0.4 }}
-        >
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between">
-              <CardTitle className="flex items-center gap-2">
-                <Calendar className="h-5 w-5 text-amber-600" />
-                My Events
-              </CardTitle>
-              <Link to="/dashboard/events">
-                <Button variant="ghost" size="sm">
-                  View All
-                  <ArrowRight className="h-4 w-4 ml-1" />
-                </Button>
-              </Link>
-            </CardHeader>
-            <CardContent>
-              {registrations.length === 0 ? (
-                <div className="text-center py-6 text-gray-500">
-                  <p>No registered events yet.</p>
-                  <Link to="/dashboard/events" className="text-amber-600 hover:underline text-sm">
-                    Browse events
-                  </Link>
-                </div>
-              ) : (
-                <div className="space-y-3">
-                  {registrations.map((reg) => (
-                    <div
-                      key={reg.id}
-                      className="flex items-center justify-between p-3 rounded-lg bg-amber-50 hover:bg-amber-100 transition-colors"
-                    >
-                      <div>
-                        <p className="font-medium text-amber-900">{reg.event.title}</p>
-                        <p className="text-sm text-gray-500">
-                          {formatDate(reg.event.startDate)}
-                        </p>
-                      </div>
-                      <Badge variant={reg.event.status === 'UPCOMING' ? 'success' : 'warning'}>
-                        {reg.event.status}
-                      </Badge>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        </motion.div>
-
-        {/* My Quizzes */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.4, delay: 0.45 }}
-        >
-          <QuizDashboardWidget token={token || ''} />
-        </motion.div>
-      </div>
-
-      {/* Attendance History */}
-      {token && (
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.4, delay: 0.47 }}
-        >
-          <AttendanceHistory token={token} />
+      {/* ─── Playground CTA (full width) ───────────────────────────── */}
+      {playgroundEnabled && (
+        <motion.div {...stagger(3)}>
+          <PlaygroundCard />
         </motion.div>
       )}
 
-      {/* Announcements */}
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.4, delay: 0.5 }}
-      >
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between">
-            <CardTitle className="flex items-center gap-2">
-              <Bell className="h-5 w-5 text-amber-600" />
-              Recent Announcements
-            </CardTitle>
-            <Link to="/dashboard/announcements">
-              <Button variant="ghost" size="sm">
-                View All
-                <ArrowRight className="h-4 w-4 ml-1" />
-              </Button>
-            </Link>
-          </CardHeader>
-          <CardContent>
-            {announcements.length === 0 ? (
-              <div className="text-center py-6 text-gray-500">
-                <p>No announcements yet.</p>
-              </div>
-            ) : (
-              <div className="space-y-3">
-                {announcements.map((announcement) => (
-                  <div
-                    key={announcement.id}
-                    className="flex items-center justify-between p-3 rounded-lg border border-amber-200 hover:shadow-md transition-all"
-                  >
-                    <div>
-                      <p className="font-medium text-amber-900">{announcement.title}</p>
-                      <p className="text-sm text-gray-500">
-                        {formatDate(announcement.createdAt)}
-                      </p>
+      {/* ─── Main Grid: 2/3 content + 1/3 sidebar ──────────────────── */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+
+        {/* LEFT COLUMN: Events → Attendance History → Quiz */}
+        <div className="lg:col-span-2 flex flex-col gap-6">
+
+          {/* My Events */}
+          <motion.div {...stagger(4)}>
+            <Card className="rounded-2xl border-gray-100 shadow-sm overflow-hidden">
+              <CardHeader className="flex flex-row items-center justify-between px-6 py-4 border-b border-gray-50">
+                <CardTitle className="text-[15px] font-semibold text-gray-900 flex items-center gap-2.5">
+                  <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-amber-50">
+                    <Calendar className="h-4 w-4 text-amber-600" />
+                  </span>
+                  My Events
+                </CardTitle>
+                <Link to="/dashboard/events">
+                  <Button variant="ghost" size="sm" className="h-8 text-sm text-gray-400 hover:text-amber-600 rounded-lg gap-1">
+                    View all <ArrowRight className="h-3.5 w-3.5" />
+                  </Button>
+                </Link>
+              </CardHeader>
+              <CardContent className="p-0">
+                {registrations.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center py-12 gap-2">
+                    <div className="h-12 w-12 rounded-2xl bg-gray-50 flex items-center justify-center">
+                      <Calendar className="h-6 w-6 text-gray-300" />
                     </div>
-                    <Badge variant={
-                      announcement.priority === 'HIGH' || announcement.priority === 'URGENT' ? 'destructive' :
-                      announcement.priority === 'MEDIUM' ? 'warning' : 'secondary'
-                    }>
-                      {announcement.priority}
-                    </Badge>
+                    <p className="text-sm text-gray-400 font-medium">No registered events</p>
+                    <Link to="/dashboard/events" className="text-sm text-amber-600 font-medium hover:underline inline-flex items-center gap-1 mt-1">
+                      Browse events <ExternalLink className="h-3.5 w-3.5" />
+                    </Link>
                   </div>
-                ))}
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      </motion.div>
+                ) : (
+                  <div className="divide-y divide-gray-50">
+                    {registrations.map((reg) => (
+                      <Link
+                        key={reg.id}
+                        to={`/events/${reg.event.slug || reg.event.id}`}
+                        className="flex items-center gap-4 px-6 py-4 hover:bg-amber-50/40 transition-colors group"
+                      >
+                        <div className={`h-2.5 w-2.5 rounded-full shrink-0 ${
+                          reg.event.status === 'ONGOING'
+                            ? 'bg-green-400 shadow-[0_0_0_3px_rgb(134,239,172,0.3)]'
+                            : reg.event.status === 'UPCOMING'
+                            ? 'bg-amber-400'
+                            : 'bg-gray-300'
+                        }`} />
+                        <div className="min-w-0 flex-1">
+                          <p className="font-medium text-gray-900 text-sm truncate group-hover:text-amber-700 transition-colors">
+                            {reg.event.title}
+                          </p>
+                          <p className="text-xs text-gray-400 mt-0.5">{formatDate(reg.event.startDate)}</p>
+                        </div>
+                        <Badge
+                          variant={reg.event.status === 'UPCOMING' ? 'success' : reg.event.status === 'ONGOING' ? 'warning' : 'secondary'}
+                          className="shrink-0 text-xs"
+                        >
+                          {reg.event.status}
+                        </Badge>
+                      </Link>
+                    ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </motion.div>
+
+          {/* Attendance History */}
+          {token && (
+            <motion.div {...stagger(5)}>
+              <AttendanceHistory token={token} />
+            </motion.div>
+          )}
+
+          {/* Quiz Widget */}
+          <motion.div {...stagger(6)} className="flex-1">
+            <QuizDashboardWidget token={token || ''} />
+          </motion.div>
+        </div>
+
+        {/* RIGHT COLUMN: Announcements → Hiring CTA → Playground Activity */}
+        <div className="flex flex-col gap-6">
+
+          {/* Announcements — stretched vertically with more items */}
+          <motion.div {...stagger(4)}>
+            <Card className="rounded-2xl border-gray-100 shadow-sm overflow-hidden">
+              <CardHeader className="flex flex-row items-center justify-between px-5 py-4 border-b border-gray-50">
+                <CardTitle className="text-[15px] font-semibold text-gray-900 flex items-center gap-2.5">
+                  <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-purple-50">
+                    <Bell className="h-4 w-4 text-purple-500" />
+                  </span>
+                  Announcements
+                </CardTitle>
+                <Link to="/dashboard/announcements">
+                  <Button variant="ghost" size="sm" className="h-8 text-sm text-gray-400 hover:text-purple-600 rounded-lg gap-1">
+                    All <ArrowRight className="h-3.5 w-3.5" />
+                  </Button>
+                </Link>
+              </CardHeader>
+              <CardContent className="p-0">
+                {announcements.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center py-8 gap-2">
+                    <div className="h-12 w-12 rounded-2xl bg-gray-50 flex items-center justify-center">
+                      <Bell className="h-6 w-6 text-gray-300" />
+                    </div>
+                    <p className="text-sm text-gray-400 font-medium">No announcements yet</p>
+                  </div>
+                ) : (
+                  <div className="divide-y divide-gray-50">
+                    {announcements.map((a) => {
+                      const p = priorityConfig[a.priority as keyof typeof priorityConfig] ?? priorityConfig.LOW;
+                      return (
+                        <Link
+                          key={a.id}
+                          to={`/announcements/${a.slug || a.id}`}
+                          className="flex items-start gap-3 px-4 py-3.5 hover:bg-purple-50/30 transition-colors group"
+                        >
+                          <div className={`mt-1.5 w-1 rounded-full shrink-0 self-stretch min-h-[1.75rem] ${p.color}`} />
+                          <div className="min-w-0 flex-1">
+                            <p className="font-medium text-gray-900 text-sm leading-snug line-clamp-2 group-hover:text-purple-700 transition-colors">
+                              {a.title}
+                            </p>
+                            <p className="text-xs text-gray-400 mt-1">{formatDate(a.createdAt)}</p>
+                          </div>
+                        </Link>
+                      );
+                    })}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </motion.div>
+
+          {/* Hiring CTA / Status */}
+          {showHiring && (
+            <motion.div {...stagger(5)}>
+              <Card className="rounded-2xl border-gray-100 shadow-sm overflow-hidden">
+                <CardContent className="p-5">
+                  {(hiringStatus?.hasApplied || hiringStatus?.hasApplication) ? (
+                    <div className="flex items-start gap-3 p-4 rounded-xl bg-gray-50">
+                      {hiringStatus.application?.status === 'PENDING' && <Clock className="h-5 w-5 text-yellow-500 shrink-0 mt-0.5" />}
+                      {(hiringStatus.application?.status === 'SELECTED' || hiringStatus.application?.status === 'APPROVED') && (
+                        <CheckCircle className="h-5 w-5 text-green-500 shrink-0 mt-0.5" />
+                      )}
+                      {hiringStatus.application?.status === 'REJECTED' && (
+                        <XCircle className="h-5 w-5 text-red-400 shrink-0 mt-0.5" />
+                      )}
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-semibold text-gray-900">Application submitted</p>
+                        <p className="text-sm text-gray-500 mt-0.5 truncate">
+                          {hiringStatus.application?.applyingRole?.replace(/_/g, ' ')}
+                        </p>
+                        <Badge
+                          variant={
+                            hiringStatus.application?.status === 'SELECTED' || hiringStatus.application?.status === 'APPROVED'
+                              ? 'success'
+                              : hiringStatus.application?.status === 'REJECTED'
+                              ? 'destructive'
+                              : 'warning'
+                          }
+                          className="text-xs mt-2"
+                        >
+                          {hiringStatus.application?.status}
+                        </Badge>
+                      </div>
+                    </div>
+                  ) : (
+                    <Link to="/join-us" className="flex items-center gap-4 group">
+                      <div className="h-12 w-12 rounded-2xl bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center shrink-0 shadow-sm group-hover:shadow-md transition-shadow">
+                        <Users className="h-6 w-6 text-white" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-semibold text-gray-900 group-hover:text-amber-700 transition-colors">Join the Club</p>
+                        <p className="text-sm text-gray-400 mt-0.5 leading-tight">Apply to become a core member</p>
+                      </div>
+                      <ArrowRight className="h-4 w-4 text-gray-300 group-hover:text-amber-500 group-hover:translate-x-1 transition-all shrink-0" />
+                    </Link>
+                  )}
+                </CardContent>
+              </Card>
+            </motion.div>
+          )}
+
+          {/* Playground Activity — last item, fills remaining column space */}
+          {playgroundEnabled && (
+            <motion.div {...stagger(6)} className="flex-1">
+              <PlaygroundSnippetsCard />
+            </motion.div>
+          )}
+        </div>
+      </div>
     </div>
   );
+}
+
+function getGreeting(): string {
+  const h = new Date().getHours();
+  if (h < 12) return 'morning';
+  if (h < 17) return 'afternoon';
+  return 'evening';
+}
+
+interface StatCardProps {
+  icon: React.ReactNode;
+  iconBg: string;
+  label: string;
+  value?: number;
+  valueText?: string;
+  linkTo?: string;
+}
+
+function StatCard({ icon, iconBg, label, value, valueText, linkTo }: StatCardProps) {
+  const inner = (
+    <Card className={`rounded-2xl border-gray-100 shadow-sm hover:shadow-md transition-shadow h-full ${linkTo ? 'cursor-pointer' : ''}`}>
+      <CardContent className="flex items-center gap-4 p-5">
+        <div className={`h-11 w-11 rounded-xl ${iconBg} flex items-center justify-center shrink-0`}>
+          {icon}
+        </div>
+        <div className="min-w-0 flex-1">
+          <p className="text-xs text-gray-400 font-medium uppercase tracking-wide leading-tight">{label}</p>
+          <p className="text-2xl font-bold text-gray-900 mt-1 leading-none">
+            {value !== undefined ? value : <span className="text-base font-semibold capitalize">{valueText}</span>}
+          </p>
+        </div>
+      </CardContent>
+    </Card>
+  );
+
+  if (linkTo) return <Link to={linkTo} className="h-full">{inner}</Link>;
+  return inner;
 }

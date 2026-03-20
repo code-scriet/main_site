@@ -31,7 +31,7 @@ interface ScanStats {
 }
 
 interface UseOfflineScannerReturn {
-  addScan: (qrToken: string) => LocalScanEntry;
+  addScan: (qrToken: string) => LocalScanEntry | null;
   scans: LocalScanEntry[];
   stats: ScanStats;
   syncStatus: 'idle' | 'syncing' | 'error';
@@ -54,6 +54,30 @@ function generateLocalId(): string {
     return crypto.randomUUID();
   }
   return Date.now().toString(36) + Math.random().toString(36).slice(2);
+}
+
+/**
+ * Validates if a string looks like a valid attendance JWT token.
+ * Attendance tokens are JWTs with 3 base64url segments separated by dots.
+ * This is a lightweight frontend check — full validation happens on the backend.
+ */
+function isValidAttendanceToken(token: string): boolean {
+  if (!token || typeof token !== 'string') return false;
+  
+  // JWT format: header.payload.signature (3 parts separated by dots)
+  const parts = token.split('.');
+  if (parts.length !== 3) return false;
+  
+  // Each part should be non-empty and look like base64url
+  const base64urlPattern = /^[A-Za-z0-9_-]+$/;
+  for (const part of parts) {
+    if (!part || !base64urlPattern.test(part)) return false;
+  }
+  
+  // Minimum reasonable length for a JWT (header + payload + signature)
+  if (token.length < 50) return false;
+  
+  return true;
 }
 
 function readScans(eventId: string): LocalScanEntry[] {
@@ -182,7 +206,20 @@ export function useOfflineScanner(
   // -----------------------------------------------------------------------
 
   const addScan = useCallback(
-    (qrToken: string): LocalScanEntry => {
+    (qrToken: string): LocalScanEntry | null => {
+      // Validate: only accept tokens that look like valid JWT attendance tokens
+      if (!isValidAttendanceToken(qrToken)) {
+        // Return a synthetic rejected entry (not stored) so caller can show error toast
+        return {
+          localId: 'rejected',
+          token: qrToken,
+          scannedAtLocal: new Date().toISOString(),
+          synced: true,
+          result: 'error',
+          errorMessage: 'Invalid QR code — not an attendance token',
+        };
+      }
+
       // Dedup: if this token was already scanned, return existing entry.
       if (seenTokensRef.current.has(qrToken)) {
         const existing = scansRef.current.find((s) => s.token === qrToken);
@@ -220,12 +257,30 @@ export function useOfflineScanner(
             message.toLowerCase().includes('duplicate') ||
             message.toLowerCase().includes('already marked');
 
+          const lower = message.toLowerCase();
+          const isDefinitiveError =
+            lower.includes('forbidden') ||
+            lower.includes('outside the allowed window') ||
+            lower.includes('unauthorized') ||
+            lower.includes('invalid') ||
+            lower.includes('not found') ||
+            lower.includes('required') ||
+            lower.includes('conflict');
+
           if (isDuplicate) {
             const target = scansRef.current.find((s) => s.localId === entry.localId);
             if (target && !target.synced) {
               target.synced = true;
               target.result = 'duplicate';
               target.errorMessage = message;
+              flush();
+            }
+          } else if (isDefinitiveError) {
+            const target = scansRef.current.find((s) => s.localId === entry.localId);
+            if (target && !target.synced) {
+              target.synced = true;
+              target.result = 'error';
+              target.errorMessage = message || 'Scan failed';
               flush();
             }
           }

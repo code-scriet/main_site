@@ -18,6 +18,7 @@ interface EventCardProps {
   onRegister?: (event: Event) => void;
   registering?: boolean;
   showActions?: boolean;
+  registerLabel?: string;
 }
 
 const processImageUrl = (url: string, size: 'card' | 'detail' = 'card') => {
@@ -52,7 +53,8 @@ export default function EventCard({
   registrationStatus,
   onRegister,
   registering = false,
-  showActions = true
+  showActions = true,
+  registerLabel = 'Register Now',
 }: EventCardProps) {
   return (
     <motion.div
@@ -157,7 +159,7 @@ export default function EventCard({
                       className="w-full bg-amber-600 hover:bg-amber-700"
                       disabled={registering}
                     >
-                      {registering ? 'Registering...' : 'Register Now'}
+                      {registering ? 'Registering...' : registerLabel}
                     </Button>
                   ) : null}
                 </div>

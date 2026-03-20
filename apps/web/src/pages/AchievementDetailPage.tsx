@@ -630,7 +630,7 @@ export default function AchievementDetailPage() {
               className="absolute inset-0"
             >
               <div className="absolute top-20 left-20 w-96 h-96 bg-white/10 rounded-full blur-3xl" />
-              <div className="absolute bottom-20 right-20 w-[500px] h-[500px] bg-white/10 rounded-full blur-3xl" />
+              <div className="absolute bottom-20 right-20 w-64 h-64 sm:w-80 sm:h-80 md:w-[500px] md:h-[500px] bg-white/10 rounded-full blur-3xl" />{/* responsive: scale decorative blob */}
             </motion.div>
             <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2">
               <Trophy className="h-56 w-56 text-white/10" />
@@ -756,8 +756,8 @@ export default function AchievementDetailPage() {
       {/* PREMIUM CONTENT SECTION */}
       <section className="py-14 sm:py-20 bg-gradient-to-br from-amber-50 via-orange-50/30 to-amber-50/50 relative overflow-hidden">
         {/* Decorative Elements */}
-        <div className="absolute top-0 left-0 w-[600px] h-[600px] bg-amber-200/20 rounded-full blur-[140px] -translate-x-1/2 -translate-y-1/2" />
-        <div className="absolute bottom-0 right-0 w-[600px] h-[600px] bg-orange-200/15 rounded-full blur-[140px] translate-x-1/2 translate-y-1/2" />
+        <div className="absolute top-0 left-0 w-72 h-72 sm:w-96 sm:h-96 md:w-[600px] md:h-[600px] bg-amber-200/20 rounded-full blur-[140px] -translate-x-1/2 -translate-y-1/2" />{/* responsive: scale decorative blob */}
+        <div className="absolute bottom-0 right-0 w-72 h-72 sm:w-96 sm:h-96 md:w-[600px] md:h-[600px] bg-orange-200/15 rounded-full blur-[140px] translate-x-1/2 translate-y-1/2" />{/* responsive: scale decorative blob */}
         
         <div className="container mx-auto px-4 relative">
           <div className="max-w-5xl mx-auto">

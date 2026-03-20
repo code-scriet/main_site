@@ -49,6 +49,7 @@ const ImageUploadTool = lazy(() => import('@/pages/dashboard/ImageUploadTool'));
 const EditTeamProfile = lazy(() => import('@/pages/dashboard/EditTeamProfile'));
 const EditNetworkProfile = lazy(() => import('@/pages/dashboard/EditNetworkProfile'));
 const DashboardCertificates = lazy(() => import('@/pages/dashboard/DashboardCertificates'));
+const AttendancePage = lazy(() => import('@/pages/dashboard/AttendancePage'));
 const VerifyCertificatePage = lazy(() => import('@/pages/VerifyCertificatePage'));
 const QuizManager = lazy(() => import('@/pages/dashboard/QuizManager'));
 
@@ -145,6 +146,7 @@ function App() {
                       <Route path="network/edit/:id?" element={<EditNetworkProfile />} />
                       <Route path="certificates" element={<DashboardCertificates />} />
                       <Route element={<ProtectedRoute minRole="CORE_MEMBER" />}>
+                        <Route path="attendance" element={<AttendancePage />} />
                         <Route path="events/:eventId/attendance" element={<EventAdminHub />} />
                       </Route>
                     </Route>

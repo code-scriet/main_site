@@ -1,6 +1,42 @@
 // API Response helpers for consistent response formatting
 import { Response } from 'express';
 
+const isProduction = process.env.NODE_ENV === 'production';
+
+// Filter potentially sensitive information from error details in production
+function sanitizeErrorDetails(details: unknown): unknown {
+  if (!isProduction || details === undefined) {
+    return details;
+  }
+
+  // Filter out stack traces from error details
+  if (typeof details === 'string') {
+    // Check for stack trace patterns
+    if (details.includes('    at ') || details.includes('Error:')) {
+      return '[Error details hidden in production]';
+    }
+    return details;
+  }
+
+  if (typeof details === 'object' && details !== null) {
+    // If it's an Error-like object, strip the stack
+    if ('stack' in details) {
+      const { stack: _stack, ...rest } = details as { stack?: string };
+      return sanitizeErrorDetails(rest);
+    }
+    // Recursively sanitize object properties
+    const sanitized: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(details)) {
+      // Skip stack-like keys
+      if (key === 'stack' || key === 'stackTrace') continue;
+      sanitized[key] = sanitizeErrorDetails(value);
+    }
+    return Object.keys(sanitized).length > 0 ? sanitized : undefined;
+  }
+
+  return details;
+}
+
 export interface SuccessResponse<T> {
   success: true;
   data: T;
@@ -112,12 +148,14 @@ export const ApiResponse = {
 
   // Error response
   error(res: Response, error: ApiError) {
+    // Sanitize error details in production to prevent stack trace leakage
+    const sanitizedDetails = sanitizeErrorDetails(error.details);
     const response: ErrorResponse = {
       success: false,
       error: {
         code: error.code,
         message: error.message,
-        ...(error.details ? { details: error.details } : {}),
+        ...(sanitizedDetails ? { details: sanitizedDetails } : {}),
       },
     };
     return res.status(error.status || 400).json(response);

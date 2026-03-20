@@ -141,7 +141,7 @@ function buildCertificateLocalPath(certId: string): string {
 }
 
 function extractCertIdFromFilename(filename: string): string | null {
-  const match = filename.match(/^([A-Z0-9\-]{10,20})\.pdf$/i);
+  const match = filename.match(/^([A-Z0-9-]{10,20})\.pdf$/i);
   return match?.[1]?.toUpperCase() ?? null;
 }
 
@@ -212,6 +212,7 @@ async function findRecipientIdsByEmail(recipientEmails: string[]): Promise<Map<s
         },
       })),
     },
+    take: 100,
     select: {
       id: true,
       email: true,
@@ -429,7 +430,7 @@ certificatesRouter.get('/files/:filename', certificateDownloadLimiter, async (re
 certificatesRouter.get('/download/:certId', certificateDownloadLimiter, authMiddleware, async (req: Request, res: Response) => {
   const authUser = getAuthUser(req)!;
   const { certId } = req.params;
-  if (!/^[A-Z0-9\-]{10,20}$/i.test(certId)) {
+  if (!/^[A-Z0-9-]{10,20}$/i.test(certId)) {
     return res.status(400).json({ error: 'Invalid certificate ID' });
   }
 
@@ -462,7 +463,7 @@ certificatesRouter.get('/download/:certId', certificateDownloadLimiter, authMidd
 // ──────────────────────────────────────────────────────────────────
 certificatesRouter.get('/verify/:certId/download', certificateDownloadLimiter, async (req: Request, res: Response) => {
   const { certId } = req.params;
-  if (!/^[A-Z0-9\-]{10,20}$/i.test(certId)) {
+  if (!/^[A-Z0-9-]{10,20}$/i.test(certId)) {
     return res.status(400).json({ error: 'Invalid certificate ID' });
   }
 
@@ -807,6 +808,7 @@ certificatesRouter.post('/bulk', authMiddleware, requireRole('ADMIN'), async (re
     providedUserIds.length
       ? (await prisma.user.findMany({
         where: { id: { in: providedUserIds } },
+        take: 100,
         select: { id: true },
       })).map((user) => user.id)
       : [],
@@ -823,6 +825,7 @@ certificatesRouter.post('/bulk', authMiddleware, requireRole('ADMIN'), async (re
       type: normalizedCertType,
       ...buildCertificateEventScope(safeEventName, eventId),
     },
+    take: 100,
     select: {
       recipientEmail: true,
       certId: true,
@@ -1016,7 +1019,7 @@ certificatesRouter.get('/verify/:certId', certificateVerifyLimiter, async (req: 
         domain: true,
         template: true,
         issuedAt: true,
-        pdfUrl: true,
+        // pdfUrl intentionally excluded - use downloadUrl instead for access control
         isRevoked: true,
         revokedReason: true,
       },
@@ -1038,7 +1041,14 @@ certificatesRouter.get('/verify/:certId', certificateVerifyLimiter, async (req: 
 
     return res.status(200).json({
       valid: true,
-      ...cert,
+      certId: cert.certId,
+      recipientName: cert.recipientName,
+      eventName: cert.eventName,
+      type: cert.type,
+      position: cert.position,
+      domain: cert.domain,
+      template: cert.template,
+      issuedAt: cert.issuedAt,
       downloadUrl: buildPublicCertificateDownloadUrl(cert.certId),
     });
   } catch (error) {

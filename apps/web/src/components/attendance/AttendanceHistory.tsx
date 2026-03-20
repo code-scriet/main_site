@@ -67,10 +67,12 @@ export default function AttendanceHistory({ token }: AttendanceHistoryProps) {
   }, [token]);
 
   return (
-    <Card className="border-amber-200/50 dark:border-amber-800/30">
+    <Card className="border-gray-100 shadow-sm dark:border-gray-800">
       <CardHeader className="pb-3">
-        <CardTitle className="flex items-center gap-2 text-lg">
-          <Calendar className="h-5 w-5 text-amber-600 dark:text-amber-400" />
+        <CardTitle className="text-base font-semibold text-gray-900 flex items-center gap-2">
+          <div className="p-2 rounded-lg bg-orange-50">
+            <Calendar className="h-4 w-4 text-orange-600" />
+          </div>
           Attendance History
         </CardTitle>
       </CardHeader>
@@ -92,14 +94,14 @@ export default function AttendanceHistory({ token }: AttendanceHistoryProps) {
         )}
 
         {!loading && !error && events.length === 0 && (
-          <div className="flex flex-col items-center justify-center py-10 text-center">
-            <div className="mb-3 rounded-full bg-amber-100 p-3 dark:bg-amber-900/30">
-              <Calendar className="h-6 w-6 text-amber-500" />
+          <div className="flex flex-col items-center justify-center py-12 text-center">
+            <div className="mb-3 rounded-full bg-gray-100 p-4 dark:bg-gray-800">
+              <Calendar className="h-7 w-7 text-gray-400" />
             </div>
             <p className="text-sm font-medium text-muted-foreground">
               No attendance history yet
             </p>
-            <p className="mt-1 text-xs text-muted-foreground/70">
+            <p className="mt-1.5 text-sm text-muted-foreground/70">
               Attend events and scan QR codes to build your history.
             </p>
           </div>
@@ -107,7 +109,7 @@ export default function AttendanceHistory({ token }: AttendanceHistoryProps) {
 
         {!loading && !error && events.length > 0 && (
           <>
-            <p className="mb-4 text-sm font-medium text-amber-700 dark:text-amber-300">
+            <p className="mb-4 text-sm font-medium text-gray-600 dark:text-gray-400">
               You've attended{' '}
               <span className="font-bold">
                 {events.length} {events.length === 1 ? 'event' : 'events'}
@@ -122,9 +124,9 @@ export default function AttendanceHistory({ token }: AttendanceHistoryProps) {
             >
               {events.map((record) => (
                 <motion.li key={record.id} variants={itemVariants}>
-                  <div className="flex items-start gap-3 rounded-lg border border-amber-100 bg-amber-50/50 p-3 transition-colors hover:bg-amber-50 dark:border-amber-900/20 dark:bg-amber-950/20 dark:hover:bg-amber-950/30">
+                  <div className="flex items-start gap-4 rounded-lg border border-gray-100 bg-gray-50/50 p-4 transition-colors hover:bg-gray-50 dark:border-gray-800 dark:bg-gray-900/20 dark:hover:bg-gray-900/30">
                     {/* Thumbnail */}
-                    <div className="h-12 w-12 flex-shrink-0 overflow-hidden rounded-md bg-amber-200/50 dark:bg-amber-800/30">
+                    <div className="h-14 w-14 flex-shrink-0 overflow-hidden rounded-md bg-gray-100 dark:bg-gray-800">
                       {record.event.imageUrl ? (
                         <img
                           src={record.event.imageUrl}
@@ -133,7 +135,7 @@ export default function AttendanceHistory({ token }: AttendanceHistoryProps) {
                         />
                       ) : (
                         <div className="flex h-full w-full items-center justify-center">
-                          <Calendar className="h-5 w-5 text-amber-400 dark:text-amber-600" />
+                          <Calendar className="h-6 w-6 text-gray-400 dark:text-gray-500" />
                         </div>
                       )}
                     </div>
@@ -143,7 +145,7 @@ export default function AttendanceHistory({ token }: AttendanceHistoryProps) {
                       <div className="flex items-start justify-between gap-2">
                         <Link
                           to={`/events/${record.event.slug}`}
-                          className="group flex items-center gap-1 text-sm font-semibold text-foreground hover:text-amber-700 dark:hover:text-amber-300"
+                          className="group flex items-center gap-1 text-sm font-semibold text-foreground hover:text-amber-600 dark:hover:text-amber-400"
                         >
                           <span className="truncate">{record.event.title}</span>
                           <ExternalLink className="h-3 w-3 flex-shrink-0 opacity-0 transition-opacity group-hover:opacity-100" />
@@ -151,7 +153,7 @@ export default function AttendanceHistory({ token }: AttendanceHistoryProps) {
 
                         <Badge
                           variant="secondary"
-                          className="flex-shrink-0 border-amber-300 bg-amber-100 text-amber-800 dark:border-amber-700 dark:bg-amber-900/40 dark:text-amber-300"
+                          className="flex-shrink-0 border-green-200 bg-green-50 text-green-700 dark:border-green-700 dark:bg-green-900/40 dark:text-green-300"
                         >
                           <CheckCircle className="mr-1 h-3 w-3" />
                           Attended

@@ -19,7 +19,7 @@ export function TeamHighlight() {
   return (
     <section className="py-16 sm:py-24 bg-gradient-to-b from-white to-gray-50 relative overflow-hidden">
       {/* Background Decoration */}
-      <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[800px] h-[800px] bg-gradient-radial from-amber-100/30 to-transparent rounded-full" />
+      <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[400px] h-[400px] sm:w-[600px] sm:h-[600px] md:w-[800px] md:h-[800px] bg-gradient-radial from-amber-100/30 to-transparent rounded-full" />{/* responsive: scale decorative blob */}
       
       <div className="container mx-auto px-4 relative">
         {/* Section Header */}

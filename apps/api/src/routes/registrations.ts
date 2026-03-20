@@ -1,5 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { Prisma } from '@prisma/client';
+import { randomUUID } from 'crypto';
 import { prisma } from '../lib/prisma.js';
 import { authMiddleware, getAuthUser } from '../middleware/auth.js';
 import { auditLog } from '../utils/audit.js';
@@ -38,6 +39,21 @@ registrationsRouter.post('/events/:eventId', authMiddleware, async (req: Request
     const { eventId } = req.params;
     const { additionalFields } = req.body ?? {};
 
+    // --- TEAM REGISTRATION GATE ---
+    // If this event requires team registration, block solo registration.
+    // Users must use POST /api/teams/create or POST /api/teams/join instead.
+    const eventForGate = await prisma.event.findUnique({
+      where: { id: eventId },
+      select: { teamRegistration: true },
+    });
+    if (eventForGate?.teamRegistration) {
+      return res.status(400).json({
+        success: false,
+        error: { message: 'This event requires team registration. Please create or join a team instead.' },
+      });
+    }
+    // --- END TEAM REGISTRATION GATE ---
+
     let registration:
       | {
           id: string;
@@ -56,8 +72,11 @@ registrationsRouter.post('/events/:eventId', authMiddleware, async (req: Request
         }
       | null = null;
     let eventTitle = '';
+    let attendanceTokenValue: string | undefined;
 
     for (let attempt = 0; attempt < REGISTRATION_TRANSACTION_RETRIES; attempt += 1) {
+      const registrationId = randomUUID();
+      const attendanceToken = generateAttendanceToken(authUser.id, eventId, registrationId);
       try {
         const result = await prisma.$transaction(async (tx) => {
           const event = await tx.event.findUnique({
@@ -143,7 +162,7 @@ registrationsRouter.post('/events/:eventId', authMiddleware, async (req: Request
           }
 
           const createdRegistration = await tx.eventRegistration.create({
-            data: { userId: authUser.id, eventId, customFieldResponses },
+            data: { id: registrationId, userId: authUser.id, eventId, customFieldResponses, attendanceToken },
             select: {
               id: true,
               userId: true,
@@ -154,13 +173,14 @@ registrationsRouter.post('/events/:eventId', authMiddleware, async (req: Request
             },
           });
 
-          return { createdRegistration, eventTitle: event.title };
+          return { createdRegistration, eventTitle: event.title, attendanceToken };
         }, {
           isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
         });
 
         registration = result.createdRegistration;
         eventTitle = result.eventTitle;
+        attendanceTokenValue = result.attendanceToken;
         break;
       } catch (error) {
         if (error instanceof RegistrationHttpError) {
@@ -171,7 +191,7 @@ registrationsRouter.post('/events/:eventId', authMiddleware, async (req: Request
           error instanceof Prisma.PrismaClientKnownRequestError &&
           error.code === 'P2002'
         ) {
-          return res.status(400).json({ success: false, error: { message: 'Already registered for this event' } });
+          return res.status(409).json({ success: false, error: { message: 'Already registered for this event' } });
         }
 
         if (
@@ -195,15 +215,6 @@ registrationsRouter.post('/events/:eventId', authMiddleware, async (req: Request
     }
 
     await auditLog(authUser.id, 'REGISTER', 'event', eventId, { eventTitle });
-
-    // Generate attendance QR token for this registration
-    let attendanceTokenValue: string | undefined;
-    try {
-      attendanceTokenValue = generateAttendanceToken(authUser.id, eventId, registration.id);
-      await prisma.eventRegistration.update({ where: { id: registration.id }, data: { attendanceToken: attendanceTokenValue } });
-    } catch (tokenErr) {
-      logger.warn('Failed to generate attendance token', { registrationId: registration.id, error: tokenErr });
-    }
 
     // Send registration confirmation email (async, don't wait)
     if (authUser.email) {
@@ -240,7 +251,7 @@ async function sendRegistrationConfirmationEmail(
 ) {
   try {
     logger.info(`📧 Sending registration confirmation to ${email}...`);
-    await emailService.sendEventRegistration(
+    const sent = await emailService.sendEventRegistration(
       email,
       name,
       event.title,
@@ -250,6 +261,13 @@ async function sendRegistrationConfirmationEmail(
       event.imageUrl || undefined,
       attendanceToken,
     );
+    if (!sent) {
+      logger.warn('Registration confirmation email not sent', {
+        email,
+        eventSlug: event.slug,
+      });
+      return;
+    }
     logger.info(`✅ Registration confirmation sent to ${email}`);
   } catch (error) {
     logger.error('Failed to send registration email', {
@@ -264,33 +282,57 @@ registrationsRouter.delete('/events/:eventId', authMiddleware, async (req: Reque
     const authUser = getAuthUser(req)!;
     const { eventId } = req.params;
 
-    const registration = await prisma.eventRegistration.findUnique({
-      where: { userId_eventId: { userId: authUser.id, eventId } },
-      select: {
-        id: true,
-        userId: true,
-        eventId: true,
-        timestamp: true,
-        event: { select: { id: true, title: true, startDate: true } },
-      },
+    const eventTitle = await prisma.$transaction(async (tx) => {
+      const registration = await tx.eventRegistration.findUnique({
+        where: { userId_eventId: { userId: authUser.id, eventId } },
+        select: {
+          id: true,
+          event: { select: { title: true, startDate: true } },
+        },
+      });
+
+      if (!registration) {
+        throw new RegistrationHttpError(404, { success: false, error: { message: 'Not registered for this event' } });
+      }
+
+      if (registration.event.startDate < new Date()) {
+        throw new RegistrationHttpError(400, { success: false, error: { message: 'Cannot unregister from an event that has already started' } });
+      }
+
+      const teamMembership = await tx.eventTeamMember.findUnique({
+        where: { registrationId: registration.id },
+        include: {
+          team: { select: { leaderId: true } },
+        },
+      });
+
+      if (teamMembership?.team.leaderId === authUser.id) {
+        throw new RegistrationHttpError(400, {
+          success: false,
+          error: { message: 'You are the team leader. Transfer leadership or dissolve the team before cancelling your registration.' },
+        });
+      }
+
+      if (teamMembership) {
+        await tx.eventTeamMember.delete({
+          where: { id: teamMembership.id },
+        });
+      }
+
+      await tx.eventRegistration.delete({
+        where: { id: registration.id },
+      });
+
+      return registration.event.title;
     });
 
-    if (!registration) {
-      return res.status(404).json({ success: false, error: { message: 'Not registered for this event' } });
-    }
+    await auditLog(authUser.id, 'UNREGISTER', 'event', eventId, { eventTitle });
 
-    if (registration.event.startDate < new Date()) {
-      return res.status(400).json({ success: false, error: { message: 'Cannot unregister from an event that has already started' } });
-    }
-
-    await prisma.eventRegistration.delete({
-      where: { userId_eventId: { userId: authUser.id, eventId } },
-    });
-
-    await auditLog(authUser.id, 'UNREGISTER', 'event', eventId, { eventTitle: registration.event.title });
-
-    res.json({ success: true, message: `Successfully unregistered from ${registration.event.title}` });
+    res.json({ success: true, message: `Successfully unregistered from ${eventTitle}` });
   } catch (error) {
+    if (error instanceof RegistrationHttpError) {
+      return res.status(error.status).json(error.responseBody);
+    }
     if (isSchemaDriftError(error)) {
       return res.status(500).json({
         success: false,
@@ -333,6 +375,9 @@ registrationsRouter.get('/my', authMiddleware, async (req: Request, res: Respons
             capacity: true,
             eventType: true,
             prerequisites: true,
+            teamRegistration: true,
+            teamMinSize: true,
+            teamMaxSize: true,
             _count: { select: { registrations: true } },
           },
         },

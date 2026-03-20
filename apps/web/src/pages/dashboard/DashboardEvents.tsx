@@ -1,34 +1,40 @@
 import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { useAuth } from '@/context/AuthContext';
 import { api } from '@/lib/api';
-import type { Registration, Event } from '@/lib/api';
-import { Calendar, MapPin, Clock, Loader2, AlertCircle, Plus, ChevronDown, ChevronUp, FileText, QrCode } from 'lucide-react';
+import type { Registration, Event, EventTeam } from '@/lib/api';
+import { Calendar, MapPin, Clock, Loader2, Plus, QrCode, Users, MoreVertical, ExternalLink } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
-import { formatDate, formatTime, formatDateTime } from '@/lib/dateUtils';
+import { formatDate, formatTime } from '@/lib/dateUtils';
+import { toast } from 'sonner';
 import EventCard from '@/components/home/EventCard';
-import { Markdown } from '@/components/ui/markdown';
 import QRTicket from '@/components/attendance/QRTicket';
 import { getRegistrationStatus } from '@/lib/registrationStatus';
+import { TeamDashboard } from '@/components/teams';
 
 export default function DashboardEvents() {
   const { user, token } = useAuth();
   const navigate = useNavigate();
+
   const [registrations, setRegistrations] = useState<Registration[]>([]);
   const [availableEvents, setAvailableEvents] = useState<Event[]>([]);
-  const [allEvents, setAllEvents] = useState<Event[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [registeringId, setRegisteringId] = useState<string | null>(null);
   const [cancelingId, setCancelingId] = useState<string | null>(null);
-  const [expandedEventId, setExpandedEventId] = useState<string | null>(null);
+  const [myTeams, setMyTeams] = useState<Map<string, EventTeam>>(new Map());
+  const [teamsLoading, setTeamsLoading] = useState<Map<string, boolean>>(new Map());
+
+  const [activeTab, setActiveTab] = useState('my-events');
+  const [qrDialogReg, setQrDialogReg] = useState<Registration | null>(null);
+  const [teamDialogEventId, setTeamDialogEventId] = useState<string | null>(null);
 
   const isCoreMember = user?.role === 'CORE_MEMBER' || user?.role === 'ADMIN' || user?.role === 'PRESIDENT';
-
-  // Check if academic details are complete
   const hasCompleteAcademicDetails = user?.phone && user?.course && user?.branch && user?.year;
 
   useEffect(() => {
@@ -42,55 +48,86 @@ export default function DashboardEvents() {
     }
     try {
       setLoading(true);
-      setError(null);
-      
+
       const [regs, events] = await Promise.all([
         api.getMyRegistrations(token),
         api.getEvents(),
       ]);
 
       setRegistrations(regs);
-      setAllEvents(events);
 
-      // Filter out events user is already registered for
       const registeredEventIds = new Set(regs.map(r => r.eventId));
       setAvailableEvents(events.filter(e => !registeredEventIds.has(e.id) && e.status !== 'PAST'));
+
+      // Load team data for team events
+      const teamEventIds = regs.filter(r => r.event.teamRegistration).map(r => r.eventId);
+      if (teamEventIds.length > 0 && token) {
+        await loadTeamsForEvents(teamEventIds);
+      }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load events');
+      toast.error(err instanceof Error ? err.message : 'Failed to load events');
     } finally {
       setLoading(false);
     }
   };
 
+  const loadTeamsForEvents = async (eventIds: string[]) => {
+    if (!token) return;
+
+    for (const eventId of eventIds) {
+      try {
+        setTeamsLoading(prev => new Map(prev).set(eventId, true));
+        const team = await api.getMyTeam(eventId, token);
+        if (team) {
+          setMyTeams(prev => new Map(prev).set(eventId, team));
+        }
+      } catch {
+        // User might not be in a team yet
+      } finally {
+        setTeamsLoading(prev => new Map(prev).set(eventId, false));
+      }
+    }
+  };
+
+  const handleTeamChange = async (eventId: string) => {
+    if (!token) return;
+    await loadTeamsForEvents([eventId]);
+    await loadData();
+  };
+
   const handleRegister = async (event: Event) => {
     if (!token) {
-      setError('Please log in to register for events');
+      toast.error('Please log in to register for events');
       return;
     }
-    
-    // Check if academic details are complete - redirect to profile if not
+
     if (!hasCompleteAcademicDetails) {
-      // Save pending registration
       localStorage.setItem('pendingEventRegistration', event.id);
+      localStorage.setItem('pendingEventRegistrationType', event.teamRegistration ? 'team' : 'solo');
       navigate('/dashboard/profile', { state: { message: 'Please complete your profile to register for events', pendingEventId: event.id } });
       return;
     }
 
+    if (event.teamRegistration) {
+      localStorage.setItem('pendingEventRegistrationType', 'team');
+      navigate(`/events/${event.slug || event.id}`);
+      return;
+    }
+
     if (event.registrationFields && event.registrationFields.length > 0) {
+      localStorage.setItem('pendingEventRegistrationType', 'solo');
       navigate(`/events/${event.slug || event.id}?register=1`);
       return;
     }
-    
+
     try {
-      console.log('Registering for event:', event.id);
       setRegisteringId(event.id);
-      setError(null);
+      localStorage.setItem('pendingEventRegistrationType', 'solo');
       await api.registerForEvent(event.id, token);
-      console.log('Registration successful');
+      toast.success('Registered successfully!');
       await loadData();
     } catch (err) {
-      console.error('Registration error:', err);
-      setError(err instanceof Error ? err.message : 'Failed to register');
+      toast.error(err instanceof Error ? err.message : 'Failed to register');
     } finally {
       setRegisteringId(null);
     }
@@ -98,16 +135,23 @@ export default function DashboardEvents() {
 
   const handleCancel = async (eventId: string) => {
     if (!token) {
-      setError('Please log in to cancel registration');
+      toast.error('Please log in to cancel registration');
       return;
     }
+
+    const team = myTeams.get(eventId);
+    if (team && team.leaderId === user?.id) {
+      toast.error('You are the team leader. Transfer leadership or dissolve the team before cancelling.');
+      return;
+    }
+
     try {
       setCancelingId(eventId);
-      setError(null);
       await api.cancelRegistration(eventId, token);
+      toast.success('Registration cancelled');
       await loadData();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to cancel registration');
+      toast.error(err instanceof Error ? err.message : 'Failed to cancel registration');
     } finally {
       setCancelingId(null);
     }
@@ -116,7 +160,7 @@ export default function DashboardEvents() {
   if (loading) {
     return (
       <div className="flex items-center justify-center py-20">
-        <Loader2 className="h-8 w-8 animate-spin text-amber-600" />
+        <Loader2 className="h-8 w-8 animate-spin text-amber-500" />
       </div>
     );
   }
@@ -124,268 +168,192 @@ export default function DashboardEvents() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+      <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-amber-900">Events</h1>
-          <p className="text-gray-600">Manage your event registrations</p>
+          <h1 className="text-2xl font-semibold text-gray-900">Events</h1>
+          <p className="text-sm text-gray-500 mt-1">Manage your event registrations</p>
         </div>
         {isCoreMember && (
           <Link to="/dashboard/events/new">
-            <Button>
-              <Plus className="h-4 w-4 mr-2" />
+            <Button size="sm">
+              <Plus className="h-4 w-4 mr-1.5" />
               Create Event
             </Button>
           </Link>
         )}
       </div>
 
-      {error && (
-        <motion.div
-          initial={{ opacity: 0, y: -10 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="flex items-start gap-3 p-4 bg-red-50 border border-red-200 rounded-lg text-red-700"
-        >
-          <AlertCircle className="h-5 w-5 shrink-0 mt-0.5" />
-          <p className="text-sm">{error}</p>
-        </motion.div>
-      )}
+      {/* Tabbed Layout */}
+      <Tabs value={activeTab} onValueChange={setActiveTab}>
+        <TabsList className="mb-6">
+          <TabsTrigger value="my-events">My Events</TabsTrigger>
+          <TabsTrigger value="browse">Browse Events</TabsTrigger>
+        </TabsList>
 
-      {/* My Registrations */}
-      <Card>
-        <CardHeader>
-          <CardTitle>My Registered Events</CardTitle>
-          <CardDescription>Events you've signed up for</CardDescription>
-        </CardHeader>
-        <CardContent>
+        {/* Tab 1: My Events — card grid */}
+        <TabsContent value="my-events">
           {registrations.length === 0 ? (
-            <div className="text-center py-8 text-gray-500">
-              <Calendar className="h-12 w-12 mx-auto mb-4 text-gray-300" />
-              <p>You haven't registered for any events yet.</p>
-              <p className="text-sm mt-1">Browse available events below!</p>
-            </div>
+            <Card className="border-gray-100 shadow-sm">
+              <CardContent className="py-16 text-center">
+                <Calendar className="h-10 w-10 mx-auto mb-3 text-gray-300" />
+                <p className="text-gray-500 font-medium">No registered events yet</p>
+                <p className="text-sm text-gray-400 mt-1 mb-4">Browse available events to get started.</p>
+                <Button variant="outline" size="sm" onClick={() => setActiveTab('browse')}>
+                  Browse Events
+                </Button>
+              </CardContent>
+            </Card>
           ) : (
-            <div className="space-y-4">
-              {registrations.map((reg, index) => (
-                <motion.div
-                  key={reg.id}
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: index * 0.1 }}
-                  className="rounded-lg border border-amber-200 bg-amber-50/50 hover:bg-amber-50 transition-colors overflow-hidden"
-                >
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between p-4 gap-4">
-                    <div className="flex-1">
-                      <div className="flex items-center gap-2 mb-2">
-                        <h3 className="font-semibold text-amber-900">{reg.event.title}</h3>
-                        <Badge variant={
-                          reg.event.status === 'UPCOMING' ? 'success' :
-                          reg.event.status === 'ONGOING' ? 'warning' : 'secondary'
-                        }>
-                          {reg.event.status}
-                        </Badge>
-                      </div>
-                      <div className="flex flex-wrap gap-4 text-sm text-gray-600">
-                        <span className="flex items-center gap-1">
-                          <Clock className="h-4 w-4" />
-                          {formatDate(reg.event.startDate)} at {formatTime(reg.event.startDate)}
-                        </span>
-                        {reg.event.location && (
-                          <span className="flex items-center gap-1">
-                            <MapPin className="h-4 w-4" />
-                            {reg.event.location}
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => setExpandedEventId(expandedEventId === reg.eventId ? null : reg.eventId)}
-                        className="text-amber-600 hover:text-amber-700 hover:bg-amber-100"
-                      >
-                        {expandedEventId === reg.eventId ? (
-                          <>
-                            <ChevronUp className="h-4 w-4 mr-1" />
-                            Hide Details
-                          </>
-                        ) : (
-                          <>
-                            <ChevronDown className="h-4 w-4 mr-1" />
-                            View Details
-                          </>
-                        )}
-                      </Button>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => handleCancel(reg.eventId)}
-                        disabled={cancelingId === reg.eventId}
-                        className="text-red-600 hover:text-red-700 hover:bg-red-50"
-                      >
-                        {cancelingId === reg.eventId ? (
-                          <Loader2 className="h-4 w-4 animate-spin" />
-                        ) : (
-                          'Cancel'
-                        )}
-                      </Button>
-                    </div>
-                  </div>
-                  
-                  {/* Expanded Event Details */}
-                  {expandedEventId === reg.eventId && (
-                    <motion.div
-                      initial={{ opacity: 0, height: 0 }}
-                      animate={{ opacity: 1, height: 'auto' }}
-                      exit={{ opacity: 0, height: 0 }}
-                      className="border-t border-amber-200 bg-white p-4"
-                    >
-                      <div className="grid gap-4 sm:grid-cols-2">
-                        {/* Description */}
-                        <div className="sm:col-span-2">
-                          <div className="flex items-center gap-2 text-sm font-medium text-gray-700 mb-1">
-                            <FileText className="h-4 w-4 text-amber-600" />
-                            Description
-                          </div>
-                          <div className="text-sm text-gray-600 prose prose-sm max-w-none">
-                            <Markdown>{reg.event.description || 'No description available'}</Markdown>
-                          </div>
-                        </div>
-                        
-                        {/* Event Type */}
-                        {reg.event.eventType && (
-                          <div>
-                            <div className="text-sm font-medium text-gray-700 mb-1">Event Type</div>
-                            <Badge variant="outline">{reg.event.eventType}</Badge>
-                          </div>
-                        )}
-                        
-                        {/* Venue */}
-                        {reg.event.venue && (
-                          <div>
-                            <div className="text-sm font-medium text-gray-700 mb-1">Venue</div>
-                            <p className="text-sm text-gray-600">{reg.event.venue}</p>
-                          </div>
-                        )}
-                        
-                        {/* Time Details */}
-                        <div>
-                          <div className="text-sm font-medium text-gray-700 mb-1">Start Time</div>
-                          <p className="text-sm text-gray-600">{formatDateTime(reg.event.startDate)}</p>
-                        </div>
-                        
-                        {reg.event.endDate && (
-                          <div>
-                            <div className="text-sm font-medium text-gray-700 mb-1">End Time</div>
-                            <p className="text-sm text-gray-600">{formatDateTime(reg.event.endDate)}</p>
-                          </div>
-                        )}
-                        
-                        {/* Capacity */}
-                        {reg.event.capacity && (
-                          <div>
-                            <div className="text-sm font-medium text-gray-700 mb-1">Capacity</div>
-                            <p className="text-sm text-gray-600">
-                              {reg.event._count?.registrations || 0} / {reg.event.capacity} registered
-                            </p>
-                          </div>
-                        )}
-                        
-                        {/* Prerequisites */}
-                        {reg.event.prerequisites && (
-                          <div className="sm:col-span-2">
-                            <div className="text-sm font-medium text-gray-700 mb-1">Prerequisites</div>
-                            <p className="text-sm text-gray-600">{reg.event.prerequisites}</p>
-                          </div>
-                        )}
+            <div className="grid gap-4 md:grid-cols-2">
+              {registrations.map((reg, index) => {
+                const team = myTeams.get(reg.eventId);
+                const teamLoading = teamsLoading.get(reg.eventId);
 
-                        {/* Attendance QR Ticket */}
-                        <div className="sm:col-span-2">
-                          <QRTicket
-                            attendanceToken={reg.attendanceToken || null}
-                            attended={reg.attended || false}
-                            scannedAt={reg.scannedAt || null}
-                            event={{
-                              title: reg.event.title,
-                              startDate: reg.event.startDate,
-                              endDate: reg.event.endDate || null,
-                              status: reg.event.status,
-                            }}
-                          />
+                return (
+                  <motion.div
+                    key={reg.id}
+                    initial={{ opacity: 0, y: 12 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: index * 0.05, duration: 0.3 }}
+                  >
+                    <div className="rounded-xl bg-white shadow-sm border border-gray-100 hover:shadow-md transition-shadow duration-200 overflow-hidden">
+                      {/* Card content */}
+                      <div className="p-5">
+                        {/* Title row */}
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <h3 className="font-semibold text-gray-900 truncate text-[15px]">
+                                {reg.event.title}
+                              </h3>
+                              <Badge
+                                variant={
+                                  reg.event.status === 'UPCOMING' ? 'success' :
+                                  reg.event.status === 'ONGOING' ? 'warning' : 'secondary'
+                                }
+                                className="text-[10px] px-1.5 py-0 shrink-0"
+                              >
+                                {reg.event.status}
+                              </Badge>
+                            </div>
+
+                            {/* Date & location */}
+                            <div className="flex items-center gap-3 mt-1.5 text-sm text-gray-500">
+                              <span className="flex items-center gap-1">
+                                <Clock className="h-3.5 w-3.5" />
+                                {formatDate(reg.event.startDate)} at {formatTime(reg.event.startDate)}
+                              </span>
+                              {reg.event.location && (
+                                <span className="flex items-center gap-1">
+                                  <MapPin className="h-3.5 w-3.5" />
+                                  <span className="truncate max-w-[120px]">{reg.event.location}</span>
+                                </span>
+                              )}
+                            </div>
+
+                            {/* Team indicator */}
+                            {reg.event.teamRegistration && (
+                              <div className="mt-2">
+                                {teamLoading ? (
+                                  <span className="text-xs text-gray-400 flex items-center gap-1">
+                                    <Loader2 className="h-3 w-3 animate-spin" /> Loading team...
+                                  </span>
+                                ) : team ? (
+                                  <div className="inline-flex items-center gap-1.5 px-2 py-0.5 bg-blue-50 text-blue-700 rounded-full text-xs font-medium">
+                                    <Users className="h-3 w-3" />
+                                    {team.teamName} — {team.members?.length || 1}/{reg.event.teamMaxSize || 4}
+                                  </div>
+                                ) : (
+                                  <div className="inline-flex items-center gap-1.5 px-2 py-0.5 bg-gray-100 text-gray-600 rounded-full text-xs font-medium">
+                                    <Users className="h-3 w-3" />
+                                    Team Event — No team yet
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                          </div>
+
+                          {/* 3-dot dropdown */}
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0 text-gray-400 hover:text-gray-600">
+                                <MoreVertical className="h-4 w-4" />
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end">
+                              <DropdownMenuItem asChild>
+                                <Link to={`/events/${reg.event.slug || reg.event.id}`} className="flex items-center gap-2">
+                                  <ExternalLink className="h-3.5 w-3.5" />
+                                  Event Details
+                                </Link>
+                              </DropdownMenuItem>
+                              <DropdownMenuSeparator />
+                              <DropdownMenuItem
+                                className="text-red-600 focus:text-red-700 focus:bg-red-50"
+                                disabled={cancelingId === reg.eventId}
+                                onClick={() => handleCancel(reg.eventId)}
+                              >
+                                {cancelingId === reg.eventId ? (
+                                  <Loader2 className="h-3.5 w-3.5 mr-2 animate-spin" />
+                                ) : null}
+                                Cancel Registration
+                              </DropdownMenuItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
                         </div>
                       </div>
-                    </motion.div>
-                  )}
-                </motion.div>
-              ))}
+
+                      {/* Action buttons */}
+                      <div className="px-5 pb-4 flex items-center gap-2 flex-wrap">
+                        <Link to={`/events/${reg.event.slug || reg.event.id}`}>
+                          <Button variant="outline" size="sm" className="h-8 text-xs border-gray-200 text-gray-700 hover:bg-gray-50">
+                            View Event
+                          </Button>
+                        </Link>
+
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-8 text-xs border-gray-200 text-gray-700 hover:bg-gray-50"
+                          onClick={() => setQrDialogReg(reg)}
+                        >
+                          <QrCode className="h-3.5 w-3.5 mr-1.5" />
+                          QR Code
+                        </Button>
+
+                        {reg.event.teamRegistration && (
+                          <Button
+                            size="sm"
+                            className="h-8 text-xs bg-blue-50 text-blue-700 hover:bg-blue-100 border border-blue-200 shadow-none"
+                            onClick={() => setTeamDialogEventId(reg.eventId)}
+                          >
+                            <Users className="h-3.5 w-3.5 mr-1.5" />
+                            {team ? 'My Team' : 'Join / Create Team'}
+                          </Button>
+                        )}
+                      </div>
+                    </div>
+                  </motion.div>
+                );
+              })}
             </div>
           )}
-        </CardContent>
-      </Card>
+        </TabsContent>
 
-      {/* Manage Events Attendance — Core Member+ only */}
-      {isCoreMember && allEvents.length > 0 && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <QrCode className="h-5 w-5 text-amber-600" />
-              Manage Attendance
-            </CardTitle>
-            <CardDescription>Scan QR codes and manage attendance for events</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="space-y-2">
-              {allEvents.map((event) => (
-                <div
-                  key={event.id}
-                  className="flex items-center justify-between rounded-lg border border-amber-100 bg-amber-50/30 px-4 py-3 hover:bg-amber-50 transition-colors"
-                >
-                  <div className="flex items-center gap-3 min-w-0">
-                    <Badge
-                      variant={
-                        event.status === 'UPCOMING' ? 'success' :
-                        event.status === 'ONGOING' ? 'warning' : 'secondary'
-                      }
-                      className="shrink-0 text-xs"
-                    >
-                      {event.status}
-                    </Badge>
-                    <div className="min-w-0">
-                      <p className="font-medium text-amber-900 truncate">{event.title}</p>
-                      <p className="text-xs text-gray-500">{formatDate(event.startDate)}</p>
-                    </div>
-                  </div>
-                  <Link to={`/dashboard/events/${event.id}/attendance?tab=scanner`}>
-                    <Button size="sm" variant="outline" className="shrink-0 gap-1.5 text-amber-700 border-amber-300 hover:bg-amber-100">
-                      <QrCode className="h-3.5 w-3.5" />
-                      Scanner
-                    </Button>
-                  </Link>
-                </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Available Events */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Available Events</CardTitle>
-          <CardDescription>Upcoming events you can register for</CardDescription>
-        </CardHeader>
-        <CardContent>
+        {/* Tab 2: Browse Events */}
+        <TabsContent value="browse">
           {availableEvents.length === 0 ? (
-            <div className="text-center py-8 text-gray-500">
-              <Calendar className="h-12 w-12 mx-auto mb-4 text-gray-300" />
-              <p>No available events at the moment.</p>
-              <p className="text-sm mt-1">Check back later for new events!</p>
-            </div>
+            <Card className="border-gray-100 shadow-sm">
+              <CardContent className="py-16 text-center">
+                <Calendar className="h-10 w-10 mx-auto mb-3 text-gray-300" />
+                <p className="text-gray-500 font-medium">No available events right now</p>
+                <p className="text-sm text-gray-400 mt-1">Check back later for new events!</p>
+              </CardContent>
+            </Card>
           ) : (
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
               {availableEvents.map((event, index) => {
                 const regStatus = getRegistrationStatus(event);
-                
                 return (
                   <EventCard
                     key={event.id}
@@ -395,13 +363,80 @@ export default function DashboardEvents() {
                     onRegister={() => handleRegister(event)}
                     registering={registeringId === event.id}
                     showActions={true}
+                    registerLabel={event.teamRegistration ? 'Join as Team' : 'Register Now'}
                   />
                 );
               })}
             </div>
           )}
-        </CardContent>
-      </Card>
+        </TabsContent>
+
+      </Tabs>
+
+      {/* QR Code Dialog */}
+      <Dialog open={!!qrDialogReg} onOpenChange={(open) => !open && setQrDialogReg(null)}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Your QR Ticket</DialogTitle>
+            <DialogDescription>{qrDialogReg?.event.title}</DialogDescription>
+          </DialogHeader>
+          {qrDialogReg && (
+            <QRTicket
+              attendanceToken={qrDialogReg.attendanceToken || null}
+              attended={qrDialogReg.attended || false}
+              scannedAt={qrDialogReg.scannedAt || null}
+              event={{
+                title: qrDialogReg.event.title,
+                startDate: qrDialogReg.event.startDate,
+                endDate: qrDialogReg.event.endDate || null,
+                status: qrDialogReg.event.status,
+              }}
+            />
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Team Management Dialog */}
+      <Dialog open={!!teamDialogEventId} onOpenChange={(open) => !open && setTeamDialogEventId(null)}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Users className="h-5 w-5 text-blue-600" />
+              My Team
+            </DialogTitle>
+            {teamDialogEventId && (
+              <DialogDescription>
+                {registrations.find(r => r.eventId === teamDialogEventId)?.event.title}
+              </DialogDescription>
+            )}
+          </DialogHeader>
+          {teamDialogEventId && (
+            teamsLoading.get(teamDialogEventId) ? (
+              <div className="flex items-center justify-center py-8">
+                <Loader2 className="h-6 w-6 animate-spin text-gray-400" />
+                <span className="ml-2 text-sm text-gray-500">Loading team...</span>
+              </div>
+            ) : myTeams.get(teamDialogEventId) ? (
+              <TeamDashboard
+                team={myTeams.get(teamDialogEventId)!}
+                event={registrations.find(r => r.eventId === teamDialogEventId)!.event}
+                onTeamChange={() => handleTeamChange(teamDialogEventId)}
+              />
+            ) : (
+              <div className="text-center py-8">
+                <Users className="h-10 w-10 mx-auto mb-3 text-gray-300" />
+                <p className="text-gray-600 font-medium">You're not in a team yet</p>
+                <p className="text-sm text-gray-400 mt-1 mb-4">Join or create a team from the event page.</p>
+                <Link to={`/events/${registrations.find(r => r.eventId === teamDialogEventId)?.event.slug || teamDialogEventId}`}>
+                  <Button size="sm" onClick={() => setTeamDialogEventId(null)}>
+                    Go to Event Page
+                  </Button>
+                </Link>
+              </div>
+            )
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

@@ -118,7 +118,7 @@ export const QuizLeaderboard = memo(function QuizLeaderboard({
                   initial={{ opacity: 0, y: 60 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ delay, type: 'spring', stiffness: 180, damping: 16 }}
-                  className="flex flex-col items-center flex-1 max-w-[150px]"
+                  className="flex flex-col items-center flex-1 max-w-[100px] sm:max-w-[150px]"
                 >
                   {/* Crown for rank 1 */}
                   {rank === 1 && (
@@ -148,7 +148,7 @@ export const QuizLeaderboard = memo(function QuizLeaderboard({
 
                   {/* Name + score */}
                   <p className={cn(
-                    'text-xs sm:text-sm font-semibold truncate max-w-[130px] text-center',
+                    'text-xs sm:text-sm font-semibold truncate max-w-[80px] sm:max-w-[130px] text-center',
                     isMe ? 'text-amber-600' : 'text-amber-900',
                   )}>
                     {entry.displayName}

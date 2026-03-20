@@ -439,7 +439,7 @@ export default function AdminNetwork() {
         </div>
 
         {/* Stats */}
-        <div className="grid grid-cols-3 gap-4 mb-6">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">{/* responsive: stack on mobile */}
           {([
             { status: 'PENDING' as const, label: 'Pending', icon: Clock, color: 'amber' },
             { status: 'VERIFIED' as const, label: 'Verified', icon: CheckCircle2, color: 'green' },

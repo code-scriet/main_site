@@ -201,6 +201,7 @@ interface EmailOptions {
   html: string;
   text?: string;
   attachments?: EmailAttachment[];
+  inlineImages?: Record<string, string>;
   category?: EmailCategory;
 }
 
@@ -209,6 +210,12 @@ interface EmailTemplate {
   html: string;
   text?: string;
   attachments?: EmailAttachment[];
+  inlineImages?: Record<string, string>;
+}
+
+interface EventRegistrationContext {
+  teamName?: string;
+  teamRole?: 'LEADER' | 'MEMBER' | string;
 }
 
 interface BrevoRecipient {
@@ -536,10 +543,29 @@ export const EmailTemplates = {
   },
 
   // Event registration confirmation
-  eventRegistration: async (name: string, eventTitle: string, eventDate: Date, eventSlug: string, location?: string, imageUrl?: string, attendanceToken?: string): Promise<EmailTemplate> => {
-    // Generate QR code as CID inline attachment if attendance token is provided
+  eventRegistration: async (
+    name: string,
+    eventTitle: string,
+    eventDate: Date,
+    eventSlug: string,
+    location?: string,
+    imageUrl?: string,
+    attendanceToken?: string,
+    context?: EventRegistrationContext
+  ): Promise<EmailTemplate> => {
+    // Generate QR code and include it both inline and as an attachment.
+    // Different clients handle CID/data rendering differently; attachment is the reliable fallback.
     let qrSection = '';
     const attachments: EmailAttachment[] = [];
+    const inlineImages: Record<string, string> = {};
+    const teamLabel = context?.teamRole === 'LEADER'
+      ? 'Team Leader'
+      : context?.teamRole === 'MEMBER'
+      ? 'Team Member'
+      : context?.teamRole;
+    const teamValue = context?.teamName
+      ? `${context.teamName}${teamLabel ? ` (${teamLabel})` : ''}`
+      : null;
     if (attendanceToken) {
       try {
         const qrDataUrl = await QRCode.toDataURL(attendanceToken, {
@@ -547,8 +573,9 @@ export const EmailTemplates = {
           margin: 1,
           color: { dark: '#1c1917', light: '#ffffff' },
         });
-        // Strip data URI prefix to get raw base64 for Brevo attachment
+        // Strip data URI prefix to get raw base64 for Brevo.
         const qrBase64 = qrDataUrl.replace(/^data:image\/png;base64,/, '');
+        inlineImages['qr-ticket.png'] = qrBase64;
         attachments.push({ content: qrBase64, name: 'qr-ticket.png' });
         qrSection = `
         <div style="text-align:center; margin: 24px 0; padding: 20px; background: linear-gradient(135deg, #fef3c715, #fde68a10); border: 1px solid #f59e0b30; border-radius: 12px;">
@@ -557,7 +584,7 @@ export const EmailTemplates = {
             <img src="cid:qr-ticket.png" alt="QR Attendance Ticket" width="160" height="160" style="display:block; border-radius:4px;" />
           </div>
           <p style="margin: 12px 0 0; font-size: 11px; color: #9ca3af;">Show this QR code at the event entrance for check-in</p>
-          <p style="margin: 8px 0 0; font-size: 11px; color: #6b7280;">Can't see the QR? <a href="${SITE_URL}/dashboard/events" style="color: #fbbf24; text-decoration: underline;">View your ticket in your dashboard</a></p>
+          <p style="margin: 8px 0 0; font-size: 11px; color: #6b7280;">Can't see the QR? Check the attached file <strong>qr-ticket.png</strong> or <a href="${SITE_URL}/dashboard/events" style="color: #fbbf24; text-decoration: underline;">view your ticket in your dashboard</a>.</p>
         </div>`;
       } catch (err) {
         logger.warn('Failed to generate QR code for registration email', {
@@ -569,6 +596,7 @@ export const EmailTemplates = {
     return {
       subject: `Confirmed · ${eventTitle}`,
       attachments,
+      inlineImages,
       html: generateEmailTemplate({
         preheader: `Your seat is secured for ${eventTitle}. See you there.`,
         accentColor: '#10b981',
@@ -580,11 +608,19 @@ export const EmailTemplates = {
           { icon: '📅', label: 'Date', value: eventDate.toLocaleDateString('en-IN', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', timeZone: 'Asia/Kolkata' }) },
           { icon: '⏰', label: 'Time', value: eventDate.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true, timeZone: 'Asia/Kolkata' }) },
           ...(location ? [{ icon: '📍', label: 'Venue', value: location }] : []),
+          ...(teamValue ? [{ icon: '👥', label: 'Team', value: teamValue }] : []),
         ],
         body: `
         <p style="margin: 0 0 16px; font-size: 15px; color: #d1d5db; line-height: 1.7;">
           Your commitment to growth sets you apart. We've reserved your seat—now it's time to show up and level up.
         </p>
+        ${teamValue ? `
+        <div style="padding: 16px 20px; margin-top: 14px; background: linear-gradient(135deg, #3b82f615, #06b6d410); border-left: 3px solid #38bdf8; border-radius: 0 12px 12px 0;">
+          <p style="margin: 0; font-size: 14px; color: #93c5fd;">
+            <strong>Team registration active:</strong> You're registered under <strong>${context?.teamName}</strong>${teamLabel ? ` as ${teamLabel}` : ''}.
+          </p>
+        </div>
+        ` : ''}
 
         <div style="padding: 16px 20px; background: linear-gradient(135deg, #10b98115, #05966910); border-left: 3px solid #10b981; border-radius: 0 12px 12px 0;">
           <p style="margin: 0; font-size: 14px; color: #6ee7b7;">
@@ -596,7 +632,7 @@ export const EmailTemplates = {
         cta: { text: 'View Event Details', url: `${SITE_URL}/events/${eventSlug}` },
         footer: 'The future belongs to those who prepare for it.',
       }),
-      text: `Hi ${name}, your registration for ${eventTitle} on ${eventDate.toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata' })} is confirmed!`,
+      text: `Hi ${name}, your registration for ${eventTitle} on ${eventDate.toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata' })} is confirmed!${teamValue ? ` Team: ${teamValue}.` : ''}`,
     };
   },
 
@@ -1096,7 +1132,19 @@ class EmailService {
         htmlContent: options.html,
         textContent: options.text || htmlToPlainText(options.html),
         ...(options.attachments?.length ? { attachment: options.attachments } : {}),
+        ...(options.inlineImages && Object.keys(options.inlineImages).length > 0 ? { inlineImage: options.inlineImages } : {}),
       };
+
+      logger.info('📧 Brevo payload prepared', {
+        to: recipients.length,
+        cc: ccRecipients.length,
+        bcc: bccRecipients.length,
+        hasAttachments: Boolean(options.attachments?.length),
+        attachmentCount: options.attachments?.length || 0,
+        hasInlineImages: Boolean(options.inlineImages && Object.keys(options.inlineImages).length > 0),
+        inlineImageCount: options.inlineImages ? Object.keys(options.inlineImages).length : 0,
+        subject: options.subject,
+      });
 
       const response = await fetch(BREVO_API_URL, {
         method: 'POST',
@@ -1257,8 +1305,18 @@ class EmailService {
     return this.send({ to: email, ...template, category: 'welcome' });
   }
 
-  async sendEventRegistration(email: string, name: string, eventTitle: string, eventDate: Date, eventSlug: string, location?: string, imageUrl?: string, attendanceToken?: string): Promise<boolean> {
-    const template = await EmailTemplates.eventRegistration(name, eventTitle, eventDate, eventSlug, location, imageUrl, attendanceToken);
+  async sendEventRegistration(
+    email: string,
+    name: string,
+    eventTitle: string,
+    eventDate: Date,
+    eventSlug: string,
+    location?: string,
+    imageUrl?: string,
+    attendanceToken?: string,
+    context?: EventRegistrationContext
+  ): Promise<boolean> {
+    const template = await EmailTemplates.eventRegistration(name, eventTitle, eventDate, eventSlug, location, imageUrl, attendanceToken, context);
     return this.send({ to: email, ...template, category: 'registration' });
   }
 

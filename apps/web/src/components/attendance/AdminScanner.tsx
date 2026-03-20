@@ -83,6 +83,19 @@ const TOAST_MS = 1200;
 const LIVE_POLL_MS = 10_000;
 const SEARCH_DEBOUNCE_MS = 300;
 
+function isLocalhostHost(hostname: string): boolean {
+  return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1';
+}
+
+function isBenignCameraAbort(err: unknown): boolean {
+  const message =
+    err instanceof Error ? err.message : typeof err === 'string' ? err : '';
+  return (
+    message.includes('AbortError') ||
+    message.includes('The play() request was interrupted by a new load request')
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Component
 // ---------------------------------------------------------------------------
@@ -90,7 +103,7 @@ const SEARCH_DEBOUNCE_MS = 300;
 export default function AdminScanner({ eventId, token, onEndSession }: AdminScannerProps) {
   // ---- Feature toggles (must be declared before useOfflineScanner which reads bypassWindow) ----
   const [audioEnabled, setAudioEnabled] = useState(true);
-  const [bypassWindow, setBypassWindow] = useState(false);
+  const [bypassWindow, setBypassWindow] = useState(true);
   const [isFullscreen, setIsFullscreen] = useState(false);
 
   // ---- Offline scanner hook ----
@@ -109,11 +122,17 @@ export default function AdminScanner({ eventId, token, onEndSession }: AdminScan
   const liveIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const startingRef = useRef(false); // concurrency guard for startCamera
+  const mountedRef = useRef(true);
+  const startRetryRef = useRef(0);
 
   // ---- Camera state ----
   const [cameraRunning, setCameraRunning] = useState(false);
   const [cameraError, setCameraError] = useState<string | null>(null);
   const [startingCamera, setStartingCamera] = useState(false);
+  const [stoppingCamera, setStoppingCamera] = useState(false);
+  const [cameraReady, setCameraReady] = useState(false);
+  const cameraOpRef = useRef(0);
+  const stopRequestedRef = useRef(false);
 
   // ---- Live data ----
   const [liveData, setLiveData] = useState<AttendanceLiveData | null>(null);
@@ -202,10 +221,30 @@ export default function AdminScanner({ eventId, token, onEndSession }: AdminScan
         lastScannedRef.current = null;
       }, DEDUP_MS);
 
-      // addScan is synchronous — returns LocalScanEntry. Async sync happens inside the hook.
+      // addScan returns LocalScanEntry or null for invalid tokens.
       const result = addScan(decodedText);
+
+      // Invalid QR code (not a JWT attendance token) — rejected immediately
+      if (result?.localId === 'rejected') {
+        if (audioEnabled) playTone(200, 300);
+        showToast('error', 'Invalid QR — not an attendance code');
+        return;
+      }
+
+      if (result?.synced && result.result === 'duplicate') {
+        if (audioEnabled) playTone(400, 150);
+        showToast('duplicate', result.errorMessage || result.userName || 'Already scanned');
+        return;
+      }
+
+      if (result?.synced && result.result === 'error') {
+        if (audioEnabled) playTone(200, 300);
+        showToast('error', result.errorMessage || 'Scan failed');
+        return;
+      }
+
       if (audioEnabled) playTone(800, 150);
-      showToast('success', result?.userName ?? 'Checked in');
+      showToast('success', 'Scan captured, syncing...');
     },
     [addScan, audioEnabled, showToast],
   );
@@ -214,18 +253,66 @@ export default function AdminScanner({ eventId, token, onEndSession }: AdminScan
   // Camera lifecycle
   // --------------------------------------------------------------------------
 
+  const forceReleaseCameraTracks = useCallback(() => {
+    const root = document.getElementById(READER_ID);
+    if (!root) return;
+
+    const videos = Array.from(root.getElementsByTagName('video'));
+    for (const video of videos) {
+      const stream = video.srcObject;
+      if (stream instanceof MediaStream) {
+        for (const track of stream.getTracks()) {
+          track.stop();
+        }
+      }
+      video.srcObject = null;
+    }
+  }, []);
+
+  const ensureCameraPermission = useCallback(async () => {
+    if (!window.isSecureContext && !isLocalhostHost(window.location.hostname)) {
+      throw new Error(
+        'Camera access requires HTTPS on phones. Open this page over HTTPS (or localhost on the same device) and try again.',
+      );
+    }
+
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      throw new Error('Camera API is not available in this browser.');
+    }
+
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: { ideal: 'environment' } },
+      audio: false,
+    });
+    for (const track of stream.getTracks()) {
+      track.stop();
+    }
+  }, []);
+
   const startCamera = useCallback(async () => {
     if (startingRef.current || cameraRunning) return;
+    const opId = ++cameraOpRef.current;
+    stopRequestedRef.current = false;
     startingRef.current = true;
     setStartingCamera(true);
     setCameraError(null);
 
     try {
-      if (!html5QrRef.current) {
-        html5QrRef.current = new Html5Qrcode(READER_ID);
-      } else if (html5QrRef.current.isScanning) {
-        await html5QrRef.current.stop();
+      await ensureCameraPermission();
+
+      // Recreate scanner instance per start to avoid stale internal media state.
+      if (html5QrRef.current) {
+        try {
+          if (html5QrRef.current.isScanning) {
+            await html5QrRef.current.stop();
+          }
+          html5QrRef.current.clear();
+        } catch {
+          // Ignore cleanup errors while reinitializing scanner.
+        }
+        html5QrRef.current = null;
       }
+      html5QrRef.current = new Html5Qrcode(READER_ID);
 
       await html5QrRef.current.start(
         { facingMode: 'environment' },
@@ -235,15 +322,48 @@ export default function AdminScanner({ eventId, token, onEndSession }: AdminScan
           // QR code not detected — no-op
         },
       );
+
+      if (opId !== cameraOpRef.current || stopRequestedRef.current) {
+        try {
+          if (html5QrRef.current?.isScanning) {
+            await html5QrRef.current.stop();
+          }
+        } catch {
+          // Ignore stop failure during cancellation flow.
+        }
+        forceReleaseCameraTracks();
+        return;
+      }
+
+      startRetryRef.current = 0;
       setCameraRunning(true);
+      setCameraReady(true);
     } catch (err: any) {
       // html5-qrcode can reject its start() promise even when the camera feed IS
       // running (e.g. OverconstrainedError fallback on some mobile browsers).
       // The library may set isScanning asynchronously after the fallback succeeds,
       // so we delay the check by 500ms to let it settle.
       await new Promise((r) => setTimeout(r, 500));
+      if (opId !== cameraOpRef.current || stopRequestedRef.current) {
+        forceReleaseCameraTracks();
+        return;
+      }
+
+      if (isBenignCameraAbort(err) && startRetryRef.current < 1) {
+        startRetryRef.current += 1;
+        forceReleaseCameraTracks();
+        setTimeout(() => {
+          if (!stopRequestedRef.current && mountedRef.current) {
+            void startCamera();
+          }
+        }, 150);
+        return;
+      }
+
       if (html5QrRef.current?.isScanning) {
+        startRetryRef.current = 0;
         setCameraRunning(true);
+        setCameraReady(true);
         setCameraError(null);
         return;
       }
@@ -252,30 +372,49 @@ export default function AdminScanner({ eventId, token, onEndSession }: AdminScan
           ? 'Camera permission denied. Please allow camera access in your browser settings and reload.'
           : err?.message ?? 'Failed to start camera';
       setCameraError(msg);
+      setCameraReady(false);
+      forceReleaseCameraTracks();
     } finally {
-      setStartingCamera(false);
+      if (mountedRef.current) {
+        setStartingCamera(false);
+      }
       startingRef.current = false;
     }
-  }, [cameraRunning, handleScan]);
+  }, [cameraRunning, handleScan, forceReleaseCameraTracks]);
 
   const stopCamera = useCallback(async () => {
+    stopRequestedRef.current = true;
+    cameraOpRef.current += 1;
+    setStoppingCamera(true);
     try {
       if (html5QrRef.current) {
-        await html5QrRef.current.stop();
+        if (html5QrRef.current.isScanning) {
+          await html5QrRef.current.stop();
+        }
         html5QrRef.current.clear();
+        html5QrRef.current = null;
       }
     } catch {
       // Camera may already be stopped
+    } finally {
+      forceReleaseCameraTracks();
+      setCameraRunning(false);
+      setCameraError(null);
+      setCameraReady(false);
+      setStartingCamera(false);
+      setStoppingCamera(false);
+      startingRef.current = false;
+      startRetryRef.current = 0;
     }
-    setCameraRunning(false);
-    setCameraError(null);
-  }, []);
+  }, [forceReleaseCameraTracks]);
 
-  // Start camera on mount
+  // Do not auto-start on mount. Mobile browsers reliably show permission prompts
+  // only when camera access is initiated by a user gesture.
   useEffect(() => {
-    startCamera();
+    mountedRef.current = true;
     return () => {
-      stopCamera();
+      mountedRef.current = false;
+      void stopCamera();
       if (dedupTimerRef.current) clearTimeout(dedupTimerRef.current);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -336,14 +475,17 @@ export default function AdminScanner({ eventId, token, onEndSession }: AdminScan
     try {
       await api.manualCheckin(registrationId, token);
       if (audioEnabled) playTone(800, 150);
+      showToast('success', 'Checked in');
       // Refresh search results to reflect the updated status
       if (searchQuery.trim().length >= 2) {
         const data = await api.searchAttendance(eventId, searchQuery.trim(), token);
         setSearchResults(data.results);
       }
       fetchLiveData();
-    } catch {
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Manual check-in failed';
       if (audioEnabled) playTone(200, 300);
+      showToast('error', message);
     } finally {
       setCheckinLoading(null);
     }
@@ -373,8 +515,8 @@ export default function AdminScanner({ eventId, token, onEndSession }: AdminScan
     }
   };
 
-  const confirmEndSession = () => {
-    stopCamera();
+  const confirmEndSession = async () => {
+    await stopCamera();
     onEndSession?.();
   };
 
@@ -382,7 +524,11 @@ export default function AdminScanner({ eventId, token, onEndSession }: AdminScan
   // Derived values
   // --------------------------------------------------------------------------
 
-  const recentScans = [...scans].reverse().slice(0, 15);
+  // Filter out error scans without a userName (invalid QR codes that shouldn't be displayed)
+  const recentScans = [...scans]
+    .filter((scan) => !(scan.result === 'error' && !scan.userName))
+    .reverse()
+    .slice(0, 15);
   const totalRegistered = liveData?.total ?? 0;
   const attendedCount = liveData?.attended ?? scans.length;
   const attendanceRate = totalRegistered > 0 ? Math.round((attendedCount / totalRegistered) * 100) : 0;
@@ -485,16 +631,23 @@ export default function AdminScanner({ eventId, token, onEndSession }: AdminScan
               <Button
                 variant={cameraRunning ? 'destructive' : 'default'}
                 size="sm"
-                disabled={startingCamera}
+                disabled={startingCamera || stoppingCamera}
                 onClick={cameraRunning ? stopCamera : startCamera}
               >
-                {startingCamera ? (
+                {startingCamera || stoppingCamera ? (
                   <Loader2 className="h-4 w-4 mr-1.5 animate-spin" />
                 ) : (
                   <Camera className="h-4 w-4 mr-1.5" />
                 )}
-                {startingCamera ? 'Starting...' : cameraRunning ? 'Stop Camera' : 'Start Camera'}
+                {startingCamera ? 'Starting...' : stoppingCamera ? 'Stopping...' : cameraRunning ? 'Stop Camera' : 'Start Camera'}
               </Button>
+
+              {!cameraRunning && !cameraReady && !cameraError && (
+                <p className="text-xs text-muted-foreground">
+                  Tap Start Camera to allow permission and begin scanning.
+                </p>
+              )
+              }
 
               <div className="flex items-center gap-2">
                 <Switch
@@ -751,7 +904,7 @@ export default function AdminScanner({ eventId, token, onEndSession }: AdminScan
           </DialogHeader>
           {endSummary && (
             <div className="space-y-4">
-              <div className="grid grid-cols-3 gap-3 text-center">
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-center">{/* responsive: stack on mobile */}
                 <div>
                   <p className="text-2xl font-bold">{endSummary.total}</p>
                   <p className="text-xs text-muted-foreground">Total Scanned</p>

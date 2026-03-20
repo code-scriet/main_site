@@ -80,6 +80,10 @@ const eventSchemaBase = z.object({
   featured: z.boolean().optional(),
   allowLateRegistration: z.boolean().optional(),
   registrationFields: z.unknown().optional(),
+  // Team registration fields
+  teamRegistration: z.boolean().optional(),
+  teamMinSize: z.coerce.number().int().min(1).max(10).optional(),
+  teamMaxSize: z.coerce.number().int().min(1).max(10).optional(),
 });
 
 const createEventSchema = eventSchemaBase.superRefine((value, ctx) => {
@@ -177,6 +181,9 @@ eventsRouter.get('/', optionalAuthMiddleware, async (req: Request, res: Response
       featured: true,
       allowLateRegistration: true,
       registrationFields: true,
+      teamRegistration: true,
+      teamMinSize: true,
+      teamMaxSize: true,
       _count: { select: { registrations: true } },
     } satisfies Prisma.EventSelect;
 
@@ -308,6 +315,16 @@ eventsRouter.post('/', authMiddleware, requireRole('CORE_MEMBER'), async (req: R
       });
     }
 
+    const teamRegistrationEnabled = data.teamRegistration ?? false;
+    const teamMinSize = data.teamMinSize ?? 1;
+    const teamMaxSize = data.teamMaxSize ?? 4;
+    if (teamRegistrationEnabled && teamMinSize > teamMaxSize) {
+      return res.status(400).json({
+        success: false,
+        error: { message: 'Minimum team size cannot exceed maximum team size' },
+      });
+    }
+
     // Generate slug from title
     const baseSlug = generateSlug(data.title) || 'event';
     const existingSlugs = (
@@ -349,6 +366,10 @@ eventsRouter.post('/', authMiddleware, requireRole('CORE_MEMBER'), async (req: R
         tags: data.tags || [],
         featured: data.featured || false,
         allowLateRegistration: data.allowLateRegistration || false,
+        // Team registration fields
+        teamRegistration: teamRegistrationEnabled,
+        teamMinSize,
+        teamMaxSize,
         registrationFields: registrationFields.length > 0
           ? (registrationFields as unknown as Prisma.InputJsonValue)
           : undefined,
@@ -365,6 +386,18 @@ eventsRouter.post('/', authMiddleware, requireRole('CORE_MEMBER'), async (req: R
 
     res.status(201).json({ success: true, data: event, message: 'Event created successfully' });
   } catch (error) {
+    logger.error('Failed to create event', { error: error instanceof Error ? error.message : error });
+    
+    // Handle Prisma errors
+    if (error instanceof Prisma.PrismaClientKnownRequestError) {
+      if (error.code === 'P2002') {
+        return res.status(409).json({ success: false, error: { message: 'An event with this slug already exists' } });
+      }
+      if (error.code === 'P2003') {
+        return res.status(400).json({ success: false, error: { message: 'Invalid user reference' } });
+      }
+    }
+    
     res.status(500).json({ success: false, error: { message: 'Failed to create event' } });
   }
 });
@@ -385,16 +418,28 @@ eventsRouter.put('/:id', authMiddleware, requireRole('CORE_MEMBER'), async (req:
       where: { id: req.params.id },
       select: {
         id: true,
+        createdBy: true,
         startDate: true,
         endDate: true,
         registrationStartDate: true,
         registrationEndDate: true,
         allowLateRegistration: true,
+        teamRegistration: true,
+        teamMinSize: true,
+        teamMaxSize: true,
       },
     });
 
     if (!existingEvent) {
       return res.status(404).json({ success: false, error: { message: 'Event not found' } });
+    }
+
+    // Authorization: Only creator, ADMIN, or PRESIDENT can modify events
+    const isCreatorOrAdmin = existingEvent.createdBy === authUser.id ||
+      authUser.role === 'ADMIN' ||
+      authUser.role === 'PRESIDENT';
+    if (!isCreatorOrAdmin) {
+      return res.status(403).json({ success: false, error: { message: 'Only the event creator or an admin can modify this event' } });
     }
 
     const timelineError = validateEventTimeline({
@@ -408,6 +453,55 @@ eventsRouter.put('/:id', authMiddleware, requireRole('CORE_MEMBER'), async (req:
     if (timelineError) {
       return res.status(400).json({ success: false, error: { message: timelineError } });
     }
+
+    // --- TEAM REGISTRATION TOGGLE GUARD ---
+    if (data.teamRegistration !== undefined) {
+      const currentTeamReg = await prisma.event.findUnique({
+        where: { id: req.params.id },
+        select: { teamRegistration: true },
+      });
+
+      if (currentTeamReg && data.teamRegistration !== currentTeamReg.teamRegistration) {
+        const regCount = await prisma.eventRegistration.count({
+          where: { eventId: req.params.id },
+        });
+        if (regCount > 0) {
+          return res.status(409).json({
+            success: false,
+            error: { message: 'Cannot change team registration mode after registrations exist. Remove all registrations first.' },
+          });
+        }
+      }
+    }
+
+    const nextTeamRegistration = data.teamRegistration ?? existingEvent.teamRegistration;
+    const nextTeamMinSize = data.teamMinSize ?? existingEvent.teamMinSize;
+    const nextTeamMaxSize = data.teamMaxSize ?? existingEvent.teamMaxSize;
+
+    // Validate team size constraints whenever team registration is enabled in resulting state
+    if (nextTeamRegistration) {
+      const minSize = nextTeamMinSize;
+      const maxSize = nextTeamMaxSize;
+      if (minSize < 1 || maxSize < 1) {
+        return res.status(400).json({
+          success: false,
+          error: { message: 'Team size must be at least 1' },
+        });
+      }
+      if (minSize > maxSize) {
+        return res.status(400).json({
+          success: false,
+          error: { message: 'Minimum team size cannot exceed maximum team size' },
+        });
+      }
+      if (maxSize > 10) {
+        return res.status(400).json({
+          success: false,
+          error: { message: 'Maximum team size cannot exceed 10' },
+        });
+      }
+    }
+    // --- END TEAM REGISTRATION TOGGLE GUARD ---
 
     let registrationFieldsUpdate = {};
 
@@ -475,6 +569,10 @@ eventsRouter.put('/:id', authMiddleware, requireRole('CORE_MEMBER'), async (req:
         ...(data.tags !== undefined && { tags: data.tags }),
         ...(data.featured !== undefined && { featured: data.featured }),
         ...(data.allowLateRegistration !== undefined && { allowLateRegistration: data.allowLateRegistration }),
+        // Team registration fields
+        ...(data.teamRegistration !== undefined && { teamRegistration: data.teamRegistration }),
+        ...(data.teamMinSize !== undefined && { teamMinSize: data.teamMinSize }),
+        ...(data.teamMaxSize !== undefined && { teamMaxSize: data.teamMaxSize }),
         ...registrationFieldsUpdate,
       },
     });
@@ -486,13 +584,33 @@ eventsRouter.put('/:id', authMiddleware, requireRole('CORE_MEMBER'), async (req:
 
     res.json({ success: true, data: event, message: 'Event updated successfully' });
   } catch (error) {
+    logger.error('Failed to update event', { error: error instanceof Error ? error.message : error, eventId: req.params.id });
     res.status(500).json({ success: false, error: { message: 'Failed to update event' } });
   }
 });
 
-eventsRouter.delete('/:id', authMiddleware, requireRole('ADMIN'), async (req: Request, res: Response) => {
+eventsRouter.delete('/:id', authMiddleware, requireRole('CORE_MEMBER'), async (req: Request, res: Response) => {
   try {
     const authUser = getAuthUser(req)!;
+    
+    // Check event exists and get creator
+    const event = await prisma.event.findUnique({
+      where: { id: req.params.id },
+      select: { id: true, createdBy: true },
+    });
+    
+    if (!event) {
+      return res.status(404).json({ success: false, error: { message: 'Event not found' } });
+    }
+    
+    // Authorization: Only creator, ADMIN, or PRESIDENT can delete events
+    const isCreatorOrAdmin = event.createdBy === authUser.id ||
+      authUser.role === 'ADMIN' ||
+      authUser.role === 'PRESIDENT';
+    if (!isCreatorOrAdmin) {
+      return res.status(403).json({ success: false, error: { message: 'Only the event creator or an admin can delete this event' } });
+    }
+    
     await prisma.event.delete({ where: { id: req.params.id } });
     await auditLog(authUser.id, 'DELETE', 'event', req.params.id);
     res.json({ success: true, message: 'Event deleted successfully' });
@@ -595,6 +713,22 @@ eventsRouter.get('/:id/registrations/export', authMiddleware, requireRole('CORE_
 
     const registrationFields = sanitizeEventRegistrationFields(event.registrationFields);
 
+    // Build team member lookup for team events
+    let teamMemberMap = new Map<string, { teamName: string; role: string }>();
+    if (event.teamRegistration) {
+      const teamMembers = await prisma.eventTeamMember.findMany({
+        where: { team: { eventId: event.id } },
+        select: {
+          userId: true,
+          role: true,
+          team: { select: { teamName: true } },
+        },
+      });
+      for (const tm of teamMembers) {
+        teamMemberMap.set(tm.userId, { teamName: tm.team.teamName, role: tm.role });
+      }
+    }
+
     const getResponseMap = (responses: unknown): Map<string, string> => {
       const map = new Map<string, string>();
       if (!Array.isArray(responses)) {
@@ -629,6 +763,7 @@ eventsRouter.get('/:id/registrations/export', authMiddleware, requireRole('CORE_
         'Branch',
         'Year',
         'Role',
+        ...(event.teamRegistration ? ['Team Name', 'Team Role'] : []),
         'Registered At',
         'Account Created',
         ...registrationFields.map((field) => field.label),
@@ -636,6 +771,7 @@ eventsRouter.get('/:id/registrations/export', authMiddleware, requireRole('CORE_
 
       const rows = event.registrations.map((registration, index) => {
         const responseMap = getResponseMap(registration.customFieldResponses);
+        const tmInfo = teamMemberMap.get(registration.userId);
         return [
           index + 1,
           registration.user.name,
@@ -645,6 +781,7 @@ eventsRouter.get('/:id/registrations/export', authMiddleware, requireRole('CORE_
           registration.user.branch || '',
           registration.user.year || '',
           registration.user.role,
+          ...(event.teamRegistration ? [tmInfo?.teamName || 'No Team', tmInfo?.role || '-'] : []),
           registration.timestamp.toISOString(),
           registration.user.createdAt.toISOString(),
           ...registrationFields.map((field) => responseMap.get(field.id) || ''),
@@ -678,6 +815,10 @@ eventsRouter.get('/:id/registrations/export', authMiddleware, requireRole('CORE_
       { header: 'Branch', key: 'branch', width: 15 },
       { header: 'Year', key: 'year', width: 12 },
       { header: 'Role', key: 'role', width: 15 },
+      ...(event.teamRegistration ? [
+        { header: 'Team Name', key: 'teamName', width: 25 },
+        { header: 'Team Role', key: 'teamRole', width: 12 },
+      ] : []),
       { header: 'Registered At', key: 'registeredAt', width: 22 },
       { header: 'Account Created', key: 'accountCreated', width: 22 },
       { header: 'GitHub', key: 'github', width: 25 },
@@ -702,6 +843,7 @@ eventsRouter.get('/:id/registrations/export', authMiddleware, requireRole('CORE_
     // Add data rows
     event.registrations.forEach((reg, index) => {
       const responseMap = getResponseMap(reg.customFieldResponses);
+      const tmInfo = teamMemberMap.get(reg.userId);
       const rowData: Record<string, unknown> = {
         sno: index + 1,
         name: reg.user.name,
@@ -711,6 +853,10 @@ eventsRouter.get('/:id/registrations/export', authMiddleware, requireRole('CORE_
         branch: reg.user.branch || 'N/A',
         year: reg.user.year || 'N/A',
         role: reg.user.role,
+        ...(event.teamRegistration ? {
+          teamName: tmInfo?.teamName || 'No Team',
+          teamRole: tmInfo?.role || '-',
+        } : {}),
         registeredAt: reg.timestamp.toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }),
         accountCreated: reg.user.createdAt.toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }),
         github: reg.user.githubUrl || '',

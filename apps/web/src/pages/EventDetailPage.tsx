@@ -23,11 +23,13 @@ import {
   type FAQ,
   type EventRegistrationField,
   type RegistrationAdditionalFieldInput,
+  type EventTeam,
 } from '@/lib/api';
 import { useAuth } from '@/context/AuthContext';
 import { formatTime, formatDateTime, getWeekdayShort, getDayOfMonth, getMonthShort } from '@/lib/dateUtils';
 import { processImageUrl, processImageGallery } from '@/lib/imageUtils';
 import { getRegistrationStatus } from '@/lib/registrationStatus';
+import { TeamCreateModal, TeamJoinModal, TeamDashboard } from '@/components/teams';
 
 type EventStatus = 'UPCOMING' | 'ONGOING' | 'PAST';
 
@@ -315,6 +317,12 @@ export default function EventDetailPage() {
   const [autoRegisterTriggered, setAutoRegisterTriggered] = useState(false);
   const [attendanceSummary, setAttendanceSummary] = useState<{ total: number; attended: number } | null>(null);
 
+  // Team registration state
+  const [myTeam, setMyTeam] = useState<EventTeam | null>(null);
+  const [teamLoading, setTeamLoading] = useState(false);
+  const [showCreateTeamModal, setShowCreateTeamModal] = useState(false);
+  const [showJoinTeamModal, setShowJoinTeamModal] = useState(false);
+
   useEffect(() => {
     const fetchEvent = async () => {
       if (!id) {
@@ -349,6 +357,32 @@ export default function EventDetailPage() {
     fetchEvent();
   }, [id, token]);
 
+  // Fetch team data for team events
+  useEffect(() => {
+    const fetchTeam = async () => {
+      if (!event?.teamRegistration || !token || !event.id) {
+        setMyTeam(null);
+        return;
+      }
+
+      try {
+        setTeamLoading(true);
+        const team = await api.getMyTeam(event.id, token);
+        setMyTeam(team);
+        // If user has a team, they are registered
+        if (team) {
+          setIsRegistered(true);
+        }
+      } catch {
+        setMyTeam(null);
+      } finally {
+        setTeamLoading(false);
+      }
+    };
+
+    fetchTeam();
+  }, [event?.id, event?.teamRegistration, token]);
+
   // Fetch attendance summary for past events
   useEffect(() => {
     if (event?.status === 'PAST' && event.id) {
@@ -357,6 +391,21 @@ export default function EventDetailPage() {
         .catch(() => {});
     }
   }, [event?.id, event?.status]);
+
+  const handleTeamChange = async () => {
+    if (!event?.id || !token) return;
+    try {
+      const team = await api.getMyTeam(event.id, token);
+      setMyTeam(team);
+      setIsRegistered(!!team);
+      // Refresh event data
+      const updatedEvent = await api.getEvent(event.id);
+      setEvent(updatedEvent);
+    } catch {
+      setMyTeam(null);
+      setIsRegistered(false);
+    }
+  };
 
   const performRegistration = async (additionalFields?: RegistrationAdditionalFieldInput[]) => {
     if (!event || !token) {
@@ -421,21 +470,31 @@ export default function EventDetailPage() {
 
     if (!user || !token) {
       localStorage.setItem('pendingEventRegistration', event.id);
+      localStorage.setItem('pendingEventRegistrationType', event.teamRegistration ? 'team' : 'solo');
       navigate('/signin', { state: { from: `/events/${event.slug}`, message: 'Please sign in to register for events' } });
       return;
     }
 
     if (!user.phone || !user.course || !user.branch || !user.year) {
       localStorage.setItem('pendingEventRegistration', event.id);
+      localStorage.setItem('pendingEventRegistrationType', event.teamRegistration ? 'team' : 'solo');
       navigate('/dashboard/profile', { state: { message: 'Please complete your profile to register for events', pendingEventId: event.id } });
       return;
     }
 
+    if (event.teamRegistration) {
+      setRegistrationError('This is a team event. Please create a team or join a team to continue.');
+      setTimeout(() => setRegistrationError(null), 4000);
+      return;
+    }
+
     if (event.registrationFields && event.registrationFields.length > 0) {
+      localStorage.setItem('pendingEventRegistrationType', 'solo');
       openRegistrationFormPopup();
       return;
     }
 
+    localStorage.setItem('pendingEventRegistrationType', 'solo');
     await performRegistration();
   };
 
@@ -450,6 +509,11 @@ export default function EventDetailPage() {
     const nextParams = new URLSearchParams(searchParams);
     nextParams.delete('register');
     setSearchParams(nextParams, { replace: true });
+
+    if (event.teamRegistration) {
+      setAutoRegisterTriggered(true);
+      return;
+    }
 
     setAutoRegisterTriggered(true);
     handleRegister();
@@ -827,46 +891,103 @@ export default function EventDetailPage() {
                     </div>
                   )}
 
-                  {/* Register Button */}
-                  {event.status !== 'PAST' && regStatus.canRegister ? (
-                    isRegistered ? (
-                      <Button 
-                        variant="secondary" 
-                        className="w-full bg-green-50 text-green-700 border border-green-200 cursor-default" 
-                        disabled
-                      >
-                        <CheckCircle className="h-4 w-4 mr-2" />
-                        You're Registered!
-                      </Button>
-                    ) : user ? (
-                      <Button 
-                        className="w-full bg-amber-600 hover:bg-amber-700 text-white" 
-                        onClick={handleRegister}
-                        disabled={registering}
-                      >
-                        {registering ? (
-                          <>
-                            <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                            Registering...
-                          </>
+                  {/* Register Button - different UI for team events */}
+                  {event.teamRegistration ? (
+                    // Team Registration UI
+                    <>
+                      {teamLoading ? (
+                        <div className="flex items-center justify-center py-4">
+                          <Loader2 className="h-5 w-5 animate-spin text-amber-600" />
+                          <span className="ml-2 text-sm text-gray-600">Loading team...</span>
+                        </div>
+                      ) : myTeam ? (
+                        // User has a team - show dashboard
+                        <TeamDashboard team={myTeam} event={event} onTeamChange={handleTeamChange} />
+                      ) : event.status !== 'PAST' && regStatus.canRegister ? (
+                        // User can register - show create/join buttons
+                        user ? (
+                          <div className="space-y-3">
+                            <div className="text-center mb-2">
+                              <Badge variant="outline" className="text-amber-600 border-amber-300">
+                                <Users className="h-3 w-3 mr-1" />
+                                Team Event ({event.teamMinSize}-{event.teamMaxSize} members)
+                              </Badge>
+                            </div>
+                            <Button 
+                              className="w-full bg-amber-600 hover:bg-amber-700 text-white" 
+                              onClick={() => setShowCreateTeamModal(true)}
+                            >
+                              <Users className="h-4 w-4 mr-2" />
+                              Create a Team
+                            </Button>
+                            <Button 
+                              variant="outline"
+                              className="w-full" 
+                              onClick={() => setShowJoinTeamModal(true)}
+                            >
+                              Join a Team
+                            </Button>
+                          </div>
                         ) : (
-                          'Register for This Event'
-                        )}
-                      </Button>
-                    ) : (
-                      <Button 
-                        className="w-full" 
-                        variant="outline"
-                        onClick={handleRegister}
-                      >
-                        <LogIn className="h-4 w-4 mr-2" />
-                        Sign In to Register
-                      </Button>
-                    )
+                          <Button 
+                            className="w-full" 
+                            variant="outline"
+                            onClick={handleRegister}
+                          >
+                            <LogIn className="h-4 w-4 mr-2" />
+                            Sign In to Register
+                          </Button>
+                        )
+                      ) : (
+                        <Button variant="outline" className="w-full" disabled>
+                          {event.status === 'PAST' ? 'Event Completed' : regStatus.message}
+                        </Button>
+                      )}
+                    </>
                   ) : (
-                    <Button variant="outline" className="w-full" disabled>
-                      {event.status === 'PAST' ? 'Event Completed' : regStatus.message}
-                    </Button>
+                    // Solo Registration UI (original)
+                    <>
+                      {event.status !== 'PAST' && regStatus.canRegister ? (
+                        isRegistered ? (
+                          <Button 
+                            variant="secondary" 
+                            className="w-full bg-green-50 text-green-700 border border-green-200 cursor-default" 
+                            disabled
+                          >
+                            <CheckCircle className="h-4 w-4 mr-2" />
+                            You're Registered!
+                          </Button>
+                        ) : user ? (
+                          <Button 
+                            className="w-full bg-amber-600 hover:bg-amber-700 text-white" 
+                            onClick={handleRegister}
+                            disabled={registering}
+                          >
+                            {registering ? (
+                              <>
+                                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                                Registering...
+                              </>
+                            ) : (
+                              'Register for This Event'
+                            )}
+                          </Button>
+                        ) : (
+                          <Button 
+                            className="w-full" 
+                            variant="outline"
+                            onClick={handleRegister}
+                          >
+                            <LogIn className="h-4 w-4 mr-2" />
+                            Sign In to Register
+                          </Button>
+                        )
+                      ) : (
+                        <Button variant="outline" className="w-full" disabled>
+                          {event.status === 'PAST' ? 'Event Completed' : regStatus.message}
+                        </Button>
+                      )}
+                    </>
                   )}
                   {event.status === 'PAST' && attendanceSummary && attendanceSummary.attended > 0 && (
                     <p className="text-sm text-center text-gray-500 mt-2">
@@ -1136,46 +1257,101 @@ export default function EventDetailPage() {
                       </div>
                     )}
 
-                    {/* Register Button */}
-                    {event.status !== 'PAST' && regStatus.canRegister ? (
-                      isRegistered ? (
-                        <Button 
-                          variant="secondary" 
-                          className="w-full bg-green-50 text-green-700 border border-green-200 cursor-default" 
-                          disabled
-                        >
-                          <CheckCircle className="h-4 w-4 mr-2" />
-                          You're Registered!
-                        </Button>
-                      ) : user ? (
-                        <Button 
-                          className="w-full bg-amber-600 hover:bg-amber-700 text-white" 
-                          onClick={handleRegister}
-                          disabled={registering}
-                        >
-                          {registering ? (
-                            <>
-                              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                              Registering...
-                            </>
+                    {/* Register Button - different UI for team events */}
+                    {event.teamRegistration ? (
+                      // Team Registration UI (Desktop)
+                      <>
+                        {teamLoading ? (
+                          <div className="flex items-center justify-center py-4">
+                            <Loader2 className="h-5 w-5 animate-spin text-amber-600" />
+                            <span className="ml-2 text-sm text-gray-600">Loading team...</span>
+                          </div>
+                        ) : myTeam ? (
+                          <TeamDashboard team={myTeam} event={event} onTeamChange={handleTeamChange} />
+                        ) : event.status !== 'PAST' && regStatus.canRegister ? (
+                          user ? (
+                            <div className="space-y-3">
+                              <div className="text-center mb-2">
+                                <Badge variant="outline" className="text-amber-600 border-amber-300">
+                                  <Users className="h-3 w-3 mr-1" />
+                                  Team Event ({event.teamMinSize}-{event.teamMaxSize} members)
+                                </Badge>
+                              </div>
+                              <Button
+                                className="w-full bg-amber-600 hover:bg-amber-700 text-white"
+                                onClick={() => setShowCreateTeamModal(true)}
+                              >
+                                <Users className="h-4 w-4 mr-2" />
+                                Create a Team
+                              </Button>
+                              <Button
+                                variant="outline"
+                                className="w-full"
+                                onClick={() => setShowJoinTeamModal(true)}
+                              >
+                                Join a Team
+                              </Button>
+                            </div>
                           ) : (
-                            'Register for This Event'
-                          )}
-                        </Button>
-                      ) : (
-                        <Button 
-                          className="w-full" 
-                          variant="outline"
-                          onClick={handleRegister}
-                        >
-                          <LogIn className="h-4 w-4 mr-2" />
-                          Sign In to Register
-                        </Button>
-                      )
+                            <Button
+                              className="w-full"
+                              variant="outline"
+                              onClick={handleRegister}
+                            >
+                              <LogIn className="h-4 w-4 mr-2" />
+                              Sign In to Register
+                            </Button>
+                          )
+                        ) : (
+                          <Button variant="outline" className="w-full" disabled>
+                            {event.status === 'PAST' ? 'Event Completed' : regStatus.message}
+                          </Button>
+                        )}
+                      </>
                     ) : (
-                      <Button variant="outline" className="w-full" disabled>
-                        {event.status === 'PAST' ? 'Event Completed' : regStatus.message}
-                      </Button>
+                      // Solo Registration UI (Desktop)
+                      <>
+                        {event.status !== 'PAST' && regStatus.canRegister ? (
+                          isRegistered ? (
+                            <Button
+                              variant="secondary"
+                              className="w-full bg-green-50 text-green-700 border border-green-200 cursor-default"
+                              disabled
+                            >
+                              <CheckCircle className="h-4 w-4 mr-2" />
+                              You're Registered!
+                            </Button>
+                          ) : user ? (
+                            <Button
+                              className="w-full bg-amber-600 hover:bg-amber-700 text-white"
+                              onClick={handleRegister}
+                              disabled={registering}
+                            >
+                              {registering ? (
+                                <>
+                                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                                  Registering...
+                                </>
+                              ) : (
+                                'Register for This Event'
+                              )}
+                            </Button>
+                          ) : (
+                            <Button
+                              className="w-full"
+                              variant="outline"
+                              onClick={handleRegister}
+                            >
+                              <LogIn className="h-4 w-4 mr-2" />
+                              Sign In to Register
+                            </Button>
+                          )
+                        ) : (
+                          <Button variant="outline" className="w-full" disabled>
+                            {event.status === 'PAST' ? 'Event Completed' : regStatus.message}
+                          </Button>
+                        )}
+                      </>
                     )}
                     {event.status === 'PAST' && attendanceSummary && attendanceSummary.attended > 0 && (
                       <p className="text-sm text-center text-gray-500 mt-2">
@@ -1288,6 +1464,32 @@ export default function EventDetailPage() {
           </div>
         </div>
       </section>
+
+      {/* Team Registration Modals */}
+      {event.teamRegistration && (
+        <>
+          <TeamCreateModal
+            open={showCreateTeamModal}
+            onOpenChange={setShowCreateTeamModal}
+            event={event}
+            onSuccess={(team) => {
+              setMyTeam(team);
+              setIsRegistered(true);
+              setShowCreateTeamModal(false);
+            }}
+          />
+          <TeamJoinModal
+            open={showJoinTeamModal}
+            onOpenChange={setShowJoinTeamModal}
+            event={event}
+            onSuccess={(team) => {
+              setMyTeam(team);
+              setIsRegistered(true);
+              setShowJoinTeamModal(false);
+            }}
+          />
+        </>
+      )}
 
     </Layout>
   );

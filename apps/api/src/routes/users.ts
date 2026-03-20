@@ -1,5 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { z } from 'zod';
+import { Prisma } from '@prisma/client';
 import { prisma } from '../lib/prisma.js';
 import { authMiddleware, getAuthUser } from '../middleware/auth.js';
 import { requireRole } from '../middleware/role.js';
@@ -265,6 +266,7 @@ usersRouter.get('/me/registrations', authMiddleware, async (req: Request, res: R
         event: { select: { id: true, title: true, startDate: true, location: true, imageUrl: true } },
       },
       orderBy: { timestamp: 'desc' },
+      take: 100,
     });
 
     res.json({ success: true, data: registrations });
@@ -359,6 +361,7 @@ usersRouter.get('/export', authMiddleware, requireRole('ADMIN'), async (_req: Re
     const users = await prisma.user.findMany({
       where: { role: { not: 'NETWORK' } },
       orderBy: { createdAt: 'desc' },
+      take: 100,
       select: {
         id: true,
         name: true,
@@ -485,6 +488,7 @@ usersRouter.get('/', authMiddleware, requireRole('ADMIN'), async (_req: Request,
     const users = await prisma.user.findMany({
       where: { role: { not: 'NETWORK' } },
       orderBy: { createdAt: 'desc' },
+      take: 100,
       select: { 
         id: true, 
         name: true, 
@@ -833,6 +837,26 @@ usersRouter.delete('/:id', authMiddleware, requireRole('ADMIN'), async (req: Req
     
     res.json({ success: true, message: 'User deleted successfully' });
   } catch (error) {
+    // P2003: Foreign key constraint violation (user leads a team)
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2003') {
+      // Check if user leads any teams to give a helpful message
+      const ledTeams = await prisma.eventTeam.findMany({
+        where: { leaderId: req.params.id },
+        select: { teamName: true, event: { select: { title: true } } },
+        take: 3,
+      });
+      if (ledTeams.length > 0) {
+        const teamNames = ledTeams.map(t => `"${t.teamName}" (${t.event.title})`).join(', ');
+        return res.status(409).json({
+          success: false,
+          error: { message: `Cannot delete user: they lead team(s) ${teamNames}. Dissolve or transfer leadership first.` },
+        });
+      }
+      return res.status(409).json({
+        success: false,
+        error: { message: 'Cannot delete user due to existing relationships. Please remove their team memberships first.' },
+      });
+    }
     res.status(500).json({ success: false, error: { message: 'Failed to delete user' } });
   }
 });

@@ -23,7 +23,7 @@ import { QuizAnswerDistribution } from './QuizAnswerDistribution';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
-import { cn } from '@/lib/utils';
+import { cn, getWebAppOrigin } from '@/lib/utils';
 import {
   Play,
   Pause,
@@ -177,9 +177,10 @@ export function QuizHostView({
     currentQuestion?.timeLimitSeconds ?? null,
   );
 
+  const joinBaseOrigin = getWebAppOrigin();
   const joinUrl = pin
-    ? `${window.location.origin}/quiz/join?pin=${pin}`
-    : `${window.location.origin}/quiz/join`;
+    ? `${joinBaseOrigin}/quiz/join?pin=${pin}`
+    : `${joinBaseOrigin}/quiz/join`;
 
   const copyPin = async () => {
     if (pin) {
@@ -253,7 +254,7 @@ export function QuizHostView({
               <span className="tabular-nums font-semibold">{participants.length}</span>
               <span className="text-amber-700/50">connected</span>
             </div>
-            <div className="flex items-center gap-2 flex-1 max-w-[200px]">
+            <div className="flex items-center gap-2 flex-1 max-w-[120px] sm:max-w-[200px]">{/* responsive: narrower on mobile */}
               <span className="text-amber-700 tabular-nums font-semibold">{answeredCount}/{participants.length}</span>
               <div className="flex-1 h-1.5 bg-amber-100 rounded-full overflow-hidden">
                 <div
@@ -316,7 +317,7 @@ export function QuizHostView({
                           className="mt-4 flex justify-center"
                         >
                           <div className="bg-white p-3 rounded-xl shadow-md">
-                            <QRCodeSVG value={`${joinUrl}?pin=${pin}`} size={140} />
+                            <QRCodeSVG value={joinUrl} size={140} />
                           </div>
                         </motion.div>
                       )}
@@ -345,7 +346,7 @@ export function QuizHostView({
                     {currentQuestion.questionText}
                   </h2>
                   {currentQuestion.options && (
-                    <div className="grid grid-cols-2 gap-2">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">{/* responsive: stack on mobile */}
                       {currentQuestion.options.map((opt, i) => {
                         const isCorrectOption = quizStatus === 'revealing' && (
                           currentQuestion.questionType === 'MULTI_SELECT'
@@ -630,7 +631,7 @@ export function QuizHostView({
                       : accuracy > runningMean ? 'text-green-600' : 'text-red-600';
 
                     return (
-                      <div className="grid grid-cols-2 gap-2 text-center">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-center">{/* responsive: stack on mobile */}
                         <div className="bg-amber-50 rounded-lg p-2">
                           <p className="text-lg font-black text-amber-900 tabular-nums">
                             {currentQuestion?.questionType === 'OPEN_ENDED' ? total : `${accuracy}%`}
@@ -682,7 +683,7 @@ export function QuizHostView({
                 </button>
               </div>
 
-              <div className="p-4 max-h-[500px] overflow-y-auto">
+              <div className="p-4 max-h-[300px] sm:max-h-[500px] overflow-y-auto">{/* responsive: shorter on mobile */}
                 {showParticipants ? (
                   <div className="space-y-1.5">
                     {participants.length === 0 ? (
@@ -770,7 +771,7 @@ export function QuizHostView({
             </Card>
 
             {/* Quick stats */}
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">{/* responsive: stack on mobile */}
               <Card className="border-amber-200/60 shadow-sm">
                 <CardContent className="p-4 text-center">
                   <Users className="h-5 w-5 mx-auto text-amber-500 mb-1" />

@@ -10,6 +10,11 @@ import { cloudinary, isCloudinaryConfigured } from '../config/cloudinary.js';
 
 export const signatoriesRouter = Router();
 
+// ── Constants ────────────────────────────────────────────────────────────────
+
+// Max signature image size: 2MB → base64 ≈ 2.67MB (base64 is ~4/3 larger)
+const MAX_SIGNATURE_BASE64_LENGTH = 3_000_000; // ~2.25MB file
+
 // ── Zod schemas ──────────────────────────────────────────────────────────────
 
 const createSchema = z.object({
@@ -103,6 +108,11 @@ signatoriesRouter.post('/', authMiddleware, requireRole('ADMIN'), async (req: Re
 
   const { name, title, signatureImageBase64, signatureImageUrl } = validation.data;
 
+  // Validate signature image size if base64 provided
+  if (signatureImageBase64 && signatureImageBase64.length > MAX_SIGNATURE_BASE64_LENGTH) {
+    return ApiResponse.badRequest(res, 'Signature image too large. Maximum size is 2MB.');
+  }
+
   try {
     // Create the record first to get an ID
     const signatory = await prisma.signatory.create({
@@ -147,6 +157,11 @@ signatoriesRouter.patch('/:id', authMiddleware, requireRole('ADMIN'), async (req
   }
 
   const { name, title, isActive, signatureImageBase64, signatureImageUrl } = validation.data;
+
+  // Validate signature image size if base64 provided
+  if (signatureImageBase64 && signatureImageBase64.length > MAX_SIGNATURE_BASE64_LENGTH) {
+    return ApiResponse.badRequest(res, 'Signature image too large. Maximum size is 2MB.');
+  }
 
   try {
     const existing = await prisma.signatory.findUnique({ where: { id } });

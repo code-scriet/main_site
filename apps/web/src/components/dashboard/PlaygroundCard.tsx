@@ -22,12 +22,12 @@ export function PlaygroundCard() {
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.4, delay: 0.25 }}
     >
-      <Card className="relative overflow-hidden border-2 border-amber-200 hover:border-amber-400 transition-all hover:shadow-xl group">
-        {/* Gradient Background */}
-        <div className="absolute inset-0 bg-gradient-to-br from-amber-50 via-orange-50 to-amber-100 opacity-60 group-hover:opacity-80 transition-opacity" />
-        
+      <Card className="relative overflow-hidden border-gray-100 shadow-sm hover:shadow-md transition-all group">
+        {/* Subtle gradient background */}
+        <div className="absolute inset-0 bg-gradient-to-br from-amber-50/40 via-white to-orange-50/30 opacity-60 group-hover:opacity-100 transition-opacity" />
+
         {/* Animated Code Icon Background */}
-        <div className="absolute top-0 right-0 opacity-5 group-hover:opacity-10 transition-opacity">
+        <div className="absolute top-0 right-0 opacity-[0.03] group-hover:opacity-[0.06] transition-opacity">
           <Code2 className="h-32 w-32 text-amber-600 transform rotate-12" />
         </div>
 
@@ -35,18 +35,18 @@ export function PlaygroundCard() {
           <div className="flex flex-col md:flex-row items-start md:items-center gap-4">
             {/* Icon */}
             <div className="shrink-0">
-              <div className="h-16 w-16 rounded-2xl bg-gradient-to-br from-amber-500 to-orange-500 flex items-center justify-center shadow-lg group-hover:scale-110 transition-transform">
-                <Code2 className="h-8 w-8 text-white" />
+              <div className="h-14 w-14 rounded-2xl bg-gradient-to-br from-amber-500 to-orange-500 flex items-center justify-center shadow-sm group-hover:shadow-md group-hover:scale-105 transition-all">
+                <Code2 className="h-7 w-7 text-white" />
               </div>
             </div>
 
             {/* Content */}
             <div className="flex-1 space-y-2">
               <div className="flex items-center gap-2 flex-wrap">
-                <h3 className="text-xl font-bold text-amber-900 font-display">
+                <h3 className="text-lg font-bold text-gray-900">
                   Code Playground
                 </h3>
-                <span className="flex items-center gap-1 text-xs font-medium text-amber-600 bg-amber-100 px-2 py-1 rounded-full">
+                <span className="flex items-center gap-1 text-[11px] font-medium text-amber-700 bg-amber-50 px-2 py-0.5 rounded-full">
                   <Zap className="h-3 w-3" />
                   Online IDE
                 </span>
@@ -58,16 +58,16 @@ export function PlaygroundCard() {
 
               {/* Features */}
               <div className="flex flex-wrap gap-3 pt-2">
-                <span className="flex items-center gap-1.5 text-xs text-gray-600">
-                  <FileCode2 className="h-3.5 w-3.5 text-amber-600" />
+                <span className="flex items-center gap-1.5 text-xs text-gray-500">
+                  <FileCode2 className="h-3.5 w-3.5 text-gray-400" />
                   7+ Languages
                 </span>
-                <span className="flex items-center gap-1.5 text-xs text-gray-600">
-                  <Zap className="h-3.5 w-3.5 text-amber-600" />
+                <span className="flex items-center gap-1.5 text-xs text-gray-500">
+                  <Zap className="h-3.5 w-3.5 text-gray-400" />
                   Instant Execution
                 </span>
-                <span className="flex items-center gap-1.5 text-xs text-gray-600">
-                  <PlayCircle className="h-3.5 w-3.5 text-amber-600" />
+                <span className="flex items-center gap-1.5 text-xs text-gray-500">
+                  <PlayCircle className="h-3.5 w-3.5 text-gray-400" />
                   Save Snippets
                 </span>
               </div>

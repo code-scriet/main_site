@@ -1,12 +1,6 @@
 import { Server } from 'socket.io';
-import jwt from 'jsonwebtoken';
-import { getJwtSecret } from '../utils/jwt.js';
+import { verifyToken } from '../utils/jwt.js';
 import { logger } from '../utils/logger.js';
-
-interface SocketUser {
-  userId: string;
-  role: string;
-}
 
 export function initializeAttendanceSocket(io: Server): void {
   const ns = io.of('/attendance');
@@ -17,7 +11,7 @@ export function initializeAttendanceSocket(io: Server): void {
       if (!token) {
         return next(new Error('Authentication required'));
       }
-      const decoded = jwt.verify(token, getJwtSecret(), { algorithms: ['HS256'] }) as SocketUser & jwt.JwtPayload;
+      const decoded = verifyToken(token);
       socket.data.userId = decoded.userId;
       socket.data.role = decoded.role;
       next();

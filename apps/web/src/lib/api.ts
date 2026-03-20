@@ -1,6 +1,14 @@
 import { extractApiErrorMessage } from '@/lib/error';
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5001/api';
 
+// ISSUE-013: Custom error class for 401 responses to trigger auto-logout
+export class UnauthorizedError extends Error {
+  constructor(message: string = 'Authentication required') {
+    super(message);
+    this.name = 'UnauthorizedError';
+  }
+}
+
 interface RequestOptions extends RequestInit {
   token?: string;
 }
@@ -62,6 +70,10 @@ async function request<T>(endpoint: string, options: RequestOptions = {}): Promi
   if (!response.ok) {
     const errorData = await readErrorPayload(response);
     const message = extractApiErrorMessage(errorData, `Request failed (${response.status})`);
+    // ISSUE-013: Throw UnauthorizedError on 401 to trigger auto-logout
+    if (response.status === 401) {
+      throw new UnauthorizedError(message);
+    }
     throw new Error(message);
   }
 
@@ -92,6 +104,7 @@ export interface User {
   year?: string;
   profileCompleted?: boolean;
   createdAt?: string;
+  isSuperAdmin?: boolean; // ISSUE-014: Added to support audit log visibility
 }
 
 export interface Settings {
@@ -217,6 +230,10 @@ export interface Event {
   featured?: boolean;
   allowLateRegistration?: boolean;
   registrationFields?: EventRegistrationField[];
+  // Team registration fields
+  teamRegistration?: boolean;
+  teamMinSize?: number;
+  teamMaxSize?: number;
 }
 
 export interface Registration {
@@ -234,6 +251,40 @@ export interface Registration {
     value: string;
   }>;
   event: Event;
+}
+
+// Team registration types
+export interface EventTeamMemberInfo {
+  id: string;
+  userId: string;
+  role: 'LEADER' | 'MEMBER';
+  joinedAt: string;
+  user: {
+    id: string;
+    name: string;
+    email: string;
+    avatar: string | null;
+  };
+}
+
+export interface EventTeam {
+  id: string;
+  eventId: string;
+  teamName: string;
+  inviteCode?: string; // Only visible to leader
+  leaderId: string;
+  isLocked: boolean;
+  createdAt: string;
+  members: EventTeamMemberInfo[];
+  isLeader?: boolean;
+  isComplete?: boolean;
+  isFull?: boolean;
+  teamMinSize?: number;
+  teamMaxSize?: number;
+}
+
+export interface EventTeamWithEvent extends EventTeam {
+  event: { teamMinSize: number; teamMaxSize: number };
 }
 
 export interface Announcement {
@@ -1081,7 +1132,12 @@ export const api = {
       credentials: 'include',
     });
     if (!res.ok) throw new Error('Export failed');
-    return res.blob();
+    // ISSUE-036: Add error handling for blob() parsing
+    try {
+      return await res.blob();
+    } catch (err) {
+      throw new Error('Failed to parse export file');
+    }
   },
   emailAbsentees: (eventId: string, subject: string, body: string, token: string) =>
     request<{ emailed: number }>(`/attendance/email-absentees/${eventId}`, { method: 'POST', body: JSON.stringify({ subject, body }), token }),
@@ -1093,4 +1149,56 @@ export const api = {
     request<{ total: number; attended: number }>(`/attendance/event/${eventId}/summary`),
   backfillAttendanceTokens: (token: string) =>
     request<{ backfilled: number }>('/attendance/backfill-tokens', { method: 'POST', token }),
+
+  // ========================================
+  // Team registration API
+  // ========================================
+  createTeam: (data: { eventId: string; teamName: string; customFieldResponses?: Record<string, unknown> }, token: string) =>
+    request<{ team: EventTeam; event: { teamMinSize: number; teamMaxSize: number }; message: string }>('/teams/create', { method: 'POST', body: JSON.stringify(data), token }),
+
+  joinTeam: (data: { inviteCode: string; customFieldResponses?: Record<string, unknown> }, token: string) =>
+    request<{ team: EventTeam; event: { teamMinSize: number; teamMaxSize: number }; message: string }>('/teams/join', { method: 'POST', body: JSON.stringify(data), token }),
+
+  getMyTeam: async (eventId: string, token: string): Promise<EventTeam | null> => {
+    try {
+      return await request<EventTeam>(`/teams/my-team/${eventId}`, { token });
+    } catch {
+      // 404 means no team - return null instead of throwing
+      return null;
+    }
+  },
+
+  toggleTeamLock: (teamId: string, token: string) =>
+    request<{ isLocked: boolean }>(`/teams/${teamId}/lock`, { method: 'PATCH', token }),
+
+  removeTeamMember: (teamId: string, userId: string, token: string) =>
+    request<{ message: string }>(`/teams/${teamId}/members/${userId}`, { method: 'DELETE', token }),
+
+  leaveTeam: (teamId: string, token: string) =>
+    request<{ message: string }>(`/teams/${teamId}/leave`, { method: 'POST', token }),
+
+  transferLeadership: (teamId: string, newLeaderId: string, token: string) =>
+    request<{ message: string }>(`/teams/${teamId}/transfer-leadership`, { method: 'POST', body: JSON.stringify({ newLeaderId }), token }),
+
+  dissolveTeam: (teamId: string, token: string) =>
+    request<{ message: string }>(`/teams/${teamId}/dissolve`, { method: 'DELETE', token }),
+
+  // Admin team routes
+  getEventTeams: (eventId: string, token: string) =>
+    request<{
+      teams: Array<EventTeam & {
+        memberCount: number;
+        leader: { id: string; name: string; email: string; avatar: string | null };
+        members: Array<EventTeamMemberInfo & {
+          registration: { id: string; timestamp: string; customFieldResponses: unknown };
+        }>;
+      }>;
+      event: { teamMinSize: number; teamMaxSize: number };
+    }>(`/teams/event/${eventId}`, { token }),
+
+  adminToggleTeamLock: (teamId: string, token: string) =>
+    request<{ isLocked: boolean }>(`/teams/${teamId}/admin-lock`, { method: 'PATCH', token }),
+
+  adminDissolveTeam: (teamId: string, token: string) =>
+    request<{ message: string }>(`/teams/${teamId}/admin-dissolve`, { method: 'DELETE', token }),
 };

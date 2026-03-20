@@ -62,3 +62,29 @@ export const signAccessToken = (payload: AccessTokenPayload): string => {
   const expiresIn = (process.env.JWT_EXPIRES_IN || '7d') as jwt.SignOptions['expiresIn'];
   return jwt.sign(payload, getJwtSecret(), { algorithm: 'HS256', expiresIn });
 };
+
+export const verifyToken = (token: string): AccessTokenPayload => {
+  const decoded = jwt.verify(token, getJwtSecret(), { algorithms: ['HS256'] }) as Partial<AccessTokenPayload> & { purpose?: string };
+
+  if (decoded.purpose === 'attendance') {
+    throw new Error('Attendance tokens cannot be used for authentication');
+  }
+
+  const userId = typeof decoded.userId === 'string'
+    ? decoded.userId
+    : typeof decoded.id === 'string'
+      ? decoded.id
+      : null;
+
+  if (!userId || typeof decoded.email !== 'string' || typeof decoded.role !== 'string') {
+    throw new Error('Invalid token payload');
+  }
+
+  return {
+    userId,
+    id: userId,
+    name: typeof decoded.name === 'string' ? decoded.name : undefined,
+    email: decoded.email,
+    role: decoded.role,
+  };
+};

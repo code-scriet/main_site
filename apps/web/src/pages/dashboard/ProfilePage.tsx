@@ -59,6 +59,12 @@ interface ProfileData {
   _count: { registrations: number; qotdSubmissions: number };
 }
 
+const getPendingEventRedirectPath = (eventId: string, pendingType: 'solo' | 'team') => (
+  pendingType === 'team'
+    ? `/events/${eventId}`
+    : `/events/${eventId}?register=1`
+);
+
 export default function ProfilePage() {
   const { token, refreshUser } = useAuth();
   const navigate = useNavigate();
@@ -92,12 +98,14 @@ export default function ProfilePage() {
   const [changingPassword, setChangingPassword] = useState(false);
 
   const [pendingEventId, setPendingEventId] = useState<string | null>(null);
+  const [pendingEventType, setPendingEventType] = useState<'solo' | 'team'>('solo');
 
   useEffect(() => {
     // Check for pending event registration on mount (storage OR navigation state)
     // Read once and store in state — avoid re-reading localStorage later
     const statePendingId = location.state?.pendingEventId;
     const storagePendingId = localStorage.getItem('pendingEventRegistration');
+    const storagePendingType = localStorage.getItem('pendingEventRegistrationType');
 
     const pendingId = statePendingId || storagePendingId;
 
@@ -107,6 +115,7 @@ export default function ProfilePage() {
         localStorage.setItem('pendingEventRegistration', pendingId);
       }
       setPendingEventId(pendingId);
+      setPendingEventType(storagePendingType === 'team' ? 'team' : 'solo');
     }
 
     const fetchProfile = async () => {
@@ -169,13 +178,15 @@ export default function ProfilePage() {
       // Check for pending event registration (use state only — localStorage was read once on mount)
       if (pendingEventId) {
         localStorage.removeItem('pendingEventRegistration');
+        localStorage.removeItem('pendingEventRegistrationType');
         setPendingEventId(null);
+        setPendingEventType('solo');
         setMessage({
           type: 'success',
           text: 'Profile updated! Redirecting you to complete event registration.',
         });
         setTimeout(() => {
-          navigate(`/events/${pendingEventId}?register=1`);
+          navigate(getPendingEventRedirectPath(pendingEventId, pendingEventType));
         }, 1000);
         return;
       } else {
@@ -293,7 +304,10 @@ export default function ProfilePage() {
                 <Calendar className="h-5 w-5 mt-0.5 flex-shrink-0" />
                 <div>
                   <p className="font-semibold">Finish Your Event Registration</p>
-                  <p className="text-sm mt-1">You are almost there! Complete your profile below and click "Save Changes" to finish registering for the event.</p>
+                  <p className="text-sm mt-1">
+                    You are almost there! Complete your profile below and click "Save Changes" to continue to the event page and finish
+                    {pendingEventType === 'team' ? ' team registration.' : ' registration.'}
+                  </p>
                 </div>
               </div>
             </motion.div>

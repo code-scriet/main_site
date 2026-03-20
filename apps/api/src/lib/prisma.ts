@@ -19,22 +19,30 @@ if (process.env.NODE_ENV !== 'production') {
 }
 
 // Retry wrapper for database operations (handles Neon cold starts)
+// ISSUE-029: Exponential backoff with jitter to prevent thundering herd
 export async function withRetry<T>(
   operation: () => Promise<T>,
   maxRetries = 3,
-  delayMs = 1000
+  baseDelayMs = 500
 ): Promise<T> {
   let lastError: Error | null = null;
   
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
       return await operation();
-    } catch (error: any) {
-      lastError = error;
+    } catch (error: unknown) {
+      lastError = error instanceof Error ? error : new Error(String(error));
+      const code = (error as { code?: string })?.code;
+      const message = (error as { message?: string })?.message;
+      
       // Only retry on connection timeout errors (P1002, P2024)
-      if (error?.code === 'P1002' || error?.code === 'P2024' || error?.message?.includes('timed out')) {
-        console.log(`Database connection attempt ${attempt}/${maxRetries} failed, retrying in ${delayMs}ms...`);
-        await new Promise(resolve => setTimeout(resolve, delayMs * attempt));
+      if (code === 'P1002' || code === 'P2024' || message?.includes('timed out')) {
+        // Exponential backoff: 500ms, 1000ms, 2000ms + random jitter
+        const exponentialDelay = baseDelayMs * Math.pow(2, attempt - 1);
+        const jitter = Math.random() * baseDelayMs;
+        const delay = exponentialDelay + jitter;
+        console.warn(`Database connection attempt ${attempt}/${maxRetries} failed, retrying in ${Math.round(delay)}ms...`);
+        await new Promise(resolve => setTimeout(resolve, delay));
         continue;
       }
       throw error;

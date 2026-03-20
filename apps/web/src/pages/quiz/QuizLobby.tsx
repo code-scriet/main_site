@@ -6,14 +6,19 @@
 
 import { memo, useCallback, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Users, Loader2, Copy, Check, QrCode, Download, Link2 } from 'lucide-react';
+import { Users, Loader2, Copy, Check, QrCode, Download, Link2, LogOut } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { useQuizStore } from '@/lib/quizStore';
+import { getWebAppOrigin } from '@/lib/utils';
 import { QRCodeSVG } from 'qrcode.react';
 
-export const QuizLobby = memo(function QuizLobby() {
+interface QuizLobbyProps {
+  onDiscardQuiz?: () => void;
+}
+
+export const QuizLobby = memo(function QuizLobby({ onDiscardQuiz }: QuizLobbyProps) {
   const players = useQuizStore((s) => s.players);
   const title = useQuizStore((s) => s.title);
   const totalQuestions = useQuizStore((s) => s.totalQuestions);
@@ -24,9 +29,17 @@ export const QuizLobby = memo(function QuizLobby() {
   const [showQr, setShowQr] = useState(false);
   const qrRef = useRef<HTMLDivElement>(null);
 
+  const joinBaseOrigin = getWebAppOrigin();
   const joinUrl = pin
-    ? `${window.location.origin}/quiz/join?pin=${pin}`
-    : `${window.location.origin}/quiz/join`;
+    ? `${joinBaseOrigin}/quiz/join?pin=${pin}`
+    : `${joinBaseOrigin}/quiz/join`;
+  const joinHostLabel = (() => {
+    try {
+      return new URL(joinBaseOrigin).host;
+    } catch {
+      return joinBaseOrigin.replace(/^https?:\/\//, '');
+    }
+  })();
 
   const handleCopyPin = useCallback(async () => {
     if (!pin) return;
@@ -95,7 +108,7 @@ export const QuizLobby = memo(function QuizLobby() {
               </Button>
             </div>
             <p className="text-xs text-amber-200">
-              Go to <span className="font-mono font-semibold">{window.location.host}/quiz/join</span> and enter this PIN
+              Go to <span className="font-mono font-semibold">{joinHostLabel}/quiz/join</span> and enter this PIN
             </p>
           </div>
 
@@ -190,7 +203,7 @@ export const QuizLobby = memo(function QuizLobby() {
 
       {/* Waiting indicator */}
       {!isAdmin && (
-        <div className="text-center py-2">
+        <div className="text-center py-2 space-y-3">
           <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-amber-50 border border-amber-200">
             <span className="relative flex h-2.5 w-2.5">
               <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75" />
@@ -198,6 +211,18 @@ export const QuizLobby = memo(function QuizLobby() {
             </span>
             <p className="text-sm font-medium text-amber-700">Waiting for the host to start...</p>
           </div>
+
+          {onDiscardQuiz && (
+            <Button
+              type="button"
+              variant="outline"
+              onClick={onDiscardQuiz}
+              className="border-red-200 text-red-700 hover:bg-red-50 hover:text-red-800"
+            >
+              <LogOut className="h-4 w-4 mr-2" />
+              Discard Quiz
+            </Button>
+          )}
         </div>
       )}
     </motion.div>

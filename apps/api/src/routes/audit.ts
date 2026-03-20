@@ -6,10 +6,11 @@ import { logger } from '../utils/logger.js';
 
 export const auditRouter = Router();
 
-// Get audit logs (super admin only) — paginated with optional filters
+// Get audit logs (super admin or president only) — paginated with optional filters
+// Note: Uses ADMIN as middleware level but restricts to PRESIDENT/superAdmin internally
 auditRouter.get('/', authMiddleware, requireRole('ADMIN'), async (req: Request, res: Response) => {
   try {
-    // Only the super admin and presidents can view audit logs
+    // Additional check: only super admin and presidents can view audit logs
     const authUser = getAuthUser(req)!;
     const superAdminEmail = process.env.SUPER_ADMIN_EMAIL;
     const isSuperAdmin = superAdminEmail && authUser.email === superAdminEmail;
@@ -68,6 +69,7 @@ auditRouter.get('/', authMiddleware, requireRole('ADMIN'), async (req: Request, 
     const userIds = [...new Set(logs.map(log => log.userId))];
     const users = await prisma.user.findMany({
       where: { id: { in: userIds } },
+      take: 100,
       select: { id: true, name: true, email: true, avatar: true },
     });
     const userMap = new Map(users.map(u => [u.id, u]));
@@ -84,8 +86,8 @@ auditRouter.get('/', authMiddleware, requireRole('ADMIN'), async (req: Request, 
     try {
       const cutoff = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000);
       const [entityResults, actionResults] = await Promise.all([
-        prisma.auditLog.findMany({ where: { timestamp: { gte: cutoff } }, select: { entity: true }, distinct: ['entity'] }),
-        prisma.auditLog.findMany({ where: { timestamp: { gte: cutoff } }, select: { action: true }, distinct: ['action'] }),
+        prisma.auditLog.findMany({ where: { timestamp: { gte: cutoff } }, select: { entity: true }, distinct: ['entity'], take: 100 }),
+        prisma.auditLog.findMany({ where: { timestamp: { gte: cutoff } }, select: { action: true }, distinct: ['action'], take: 100 }),
       ]);
       filterEntities = entityResults.map(e => e.entity);
       filterActions = actionResults.map(a => a.action);

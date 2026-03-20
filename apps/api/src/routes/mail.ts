@@ -144,12 +144,13 @@ mailRouter.post('/send', authMiddleware, requireRole('ADMIN'), async (req: Reque
     let recipientEmails: string[] = [];
 
     if (audience === 'all_users') {
-      const users = await prisma.user.findMany({ select: { email: true } });
+      const users = await prisma.user.findMany({ select: { email: true }, take: 100000 }); // ISSUE-024: limit unbounded query
       recipientEmails = users.map(u => u.email);
     } else if (audience === 'all_network') {
       const profiles = await prisma.networkProfile.findMany({
         where: { status: 'VERIFIED' },
         select: { user: { select: { email: true } } },
+        take: 100000, // ISSUE-024: limit unbounded query
       });
       recipientEmails = profiles.map(p => p.user.email);
     } else if (audience === 'specific') {
@@ -159,7 +160,23 @@ mailRouter.post('/send', authMiddleware, requireRole('ADMIN'), async (req: Reque
           error: { message: 'No recipients specified' },
         });
       }
-      recipientEmails = emails;
+      // ISSUE-018: Validate that specific emails exist in the User table
+      // This prevents admins from using the mail system to send to arbitrary external addresses
+      const validUsers = await prisma.user.findMany({
+        where: { email: { in: emails, mode: 'insensitive' } },
+        select: { email: true },
+      });
+      const validEmails = new Set(validUsers.map(u => u.email.toLowerCase()));
+      const invalidEmails = emails.filter(e => !validEmails.has(e.toLowerCase()));
+      if (invalidEmails.length > 0) {
+        return res.status(400).json({
+          success: false,
+          error: { 
+            message: `Some email addresses are not registered users: ${invalidEmails.slice(0, 5).join(', ')}${invalidEmails.length > 5 ? ` and ${invalidEmails.length - 5} more` : ''}`,
+          },
+        });
+      }
+      recipientEmails = validUsers.map(u => u.email);
     }
 
     if (recipientEmails.length === 0) {

@@ -927,8 +927,8 @@ function FeaturedCard({
         aria-label={`View ${profile.fullName} profile`}
         className={`performance-surface relative flex h-full cursor-pointer flex-col overflow-hidden rounded-3xl border p-6 transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 ${
           isMobile
-            ? 'min-h-[360px] border-gray-200 bg-white shadow-md'
-            : 'min-h-[420px] border-white/80 bg-white/70 shadow-lg backdrop-blur-sm hover:shadow-2xl hover:shadow-amber-500/20'
+            ? 'min-h-[280px] sm:min-h-[360px] border-gray-200 bg-white shadow-md'
+            : 'min-h-[320px] sm:min-h-[420px] border-white/80 bg-white/70 shadow-lg backdrop-blur-sm hover:shadow-2xl hover:shadow-amber-500/20'
         }`}
       >
         {/* Animated gradient border on hover */}
@@ -1116,8 +1116,8 @@ function MemberCard({
         aria-label={`View ${profile.fullName} profile`}
         className={`performance-surface relative flex h-full cursor-pointer flex-col overflow-hidden rounded-2xl border p-5 transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 ${
           isMobile
-            ? 'min-h-[330px] border-gray-200 bg-white shadow-md'
-            : 'min-h-[360px] border-white/80 bg-white/70 shadow-lg backdrop-blur-sm hover:shadow-2xl hover:shadow-amber-500/20'
+            ? 'min-h-[260px] sm:min-h-[330px] border-gray-200 bg-white shadow-md'
+            : 'min-h-[280px] sm:min-h-[360px] border-white/80 bg-white/70 shadow-lg backdrop-blur-sm hover:shadow-2xl hover:shadow-amber-500/20'
         }`}
       >
         {/* Animated gradient border on hover */}

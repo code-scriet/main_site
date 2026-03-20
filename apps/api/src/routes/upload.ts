@@ -8,6 +8,27 @@ import { logger } from '../utils/logger.js';
 
 export const uploadRouter = Router();
 
+// ISSUE-020: Server-side MIME validation using magic bytes
+// Don't trust client-sent mimetype header - validate actual file content
+function validateImageMagicBytes(buffer: Buffer): boolean {
+  if (buffer.length < 12) return false;
+  
+  // Check JPEG
+  if (buffer[0] === 0xFF && buffer[1] === 0xD8 && buffer[2] === 0xFF) return true;
+  
+  // Check PNG
+  if (buffer[0] === 0x89 && buffer[1] === 0x50 && buffer[2] === 0x4E && buffer[3] === 0x47) return true;
+  
+  // Check GIF (GIF87a or GIF89a)
+  if (buffer[0] === 0x47 && buffer[1] === 0x49 && buffer[2] === 0x46 && buffer[3] === 0x38) return true;
+  
+  // Check WebP (RIFF....WEBP)
+  if (buffer[0] === 0x52 && buffer[1] === 0x49 && buffer[2] === 0x46 && buffer[3] === 0x46 &&
+      buffer[8] === 0x57 && buffer[9] === 0x45 && buffer[10] === 0x42 && buffer[11] === 0x50) return true;
+  
+  return false;
+}
+
 // Configure multer to use memory storage
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -15,14 +36,35 @@ const upload = multer({
     fileSize: 5 * 1024 * 1024, // 5MB limit
   },
   fileFilter: (_req, file, cb) => {
-    // Accept images only
-    if (!file.mimetype.startsWith('image/')) {
+    // Only allow known image MIME types
+    const allowedMimeTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
+    if (!allowedMimeTypes.includes(file.mimetype)) {
       cb(new Error('Only image files are allowed'));
       return;
     }
     cb(null, true);
   },
 });
+
+const uploadErrorHandler = (err: unknown, _req: Request, res: Response, next: () => void) => {
+  if (err instanceof multer.MulterError && err.code === 'LIMIT_FILE_SIZE') {
+    return ApiResponse.error(res, {
+      code: ErrorCodes.VALIDATION_ERROR,
+      message: 'File too large. Maximum size is 5MB.',
+      status: 400,
+    });
+  }
+
+  if (err instanceof Error) {
+    return ApiResponse.error(res, {
+      code: ErrorCodes.VALIDATION_ERROR,
+      message: err.message,
+      status: 400,
+    });
+  }
+
+  next();
+};
 
 /**
  * Upload image to Cloudinary
@@ -35,6 +77,7 @@ uploadRouter.post(
   authMiddleware,
   requireRole('CORE_MEMBER'),
   upload.single('image'),
+  uploadErrorHandler,
   async (req: Request, res: Response) => {
     try {
       if (!isCloudinaryConfigured) {
@@ -49,6 +92,19 @@ uploadRouter.post(
         return ApiResponse.error(res, {
           code: ErrorCodes.VALIDATION_ERROR,
           message: 'No image file provided',
+          status: 400,
+        });
+      }
+
+      // ISSUE-020: Validate file content using magic bytes (don't trust client-sent mimetype)
+      if (!validateImageMagicBytes(req.file.buffer)) {
+        logger.warn('Upload rejected: invalid image magic bytes', {
+          claimedMimetype: req.file.mimetype,
+          filename: req.file.originalname,
+        });
+        return ApiResponse.error(res, {
+          code: ErrorCodes.VALIDATION_ERROR,
+          message: 'Invalid image file. Only JPEG, PNG, GIF, and WebP are allowed.',
           status: 400,
         });
       }

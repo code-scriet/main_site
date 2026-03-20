@@ -22,6 +22,12 @@ const errorMessages: Record<string, string> = {
 
 type AuthMode = 'options' | 'login' | 'register';
 
+const getPendingEventRedirectPath = (eventId: string, pendingType: 'solo' | 'team') => (
+  pendingType === 'team'
+    ? `/events/${eventId}`
+    : `/events/${eventId}?register=1`
+);
+
 export default function SignInPage() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
@@ -105,6 +111,8 @@ export default function SignInPage() {
       
       // Check if user needs to complete profile (especially for pending event registration)
       const pendingEventId = localStorage.getItem('pendingEventRegistration');
+      const pendingEventType = localStorage.getItem('pendingEventRegistrationType');
+      const normalizedPendingType: 'solo' | 'team' = pendingEventType === 'team' ? 'team' : 'solo';
       const token = localStorage.getItem('token');
       
       if (token) {
@@ -119,7 +127,8 @@ export default function SignInPage() {
           // If profile is complete and an event is pending, continue registration on event detail page
           if (pendingEventId) {
             localStorage.removeItem('pendingEventRegistration');
-            navigate(`/events/${pendingEventId}?register=1`);
+            localStorage.removeItem('pendingEventRegistrationType');
+            navigate(getPendingEventRedirectPath(pendingEventId, normalizedPendingType));
             return;
           }
         } catch {

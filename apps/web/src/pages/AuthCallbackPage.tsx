@@ -21,6 +21,12 @@ interface NetworkIntent {
   type?: 'professional' | 'alumni';
 }
 
+const getPendingEventRedirectPath = (eventId: string, pendingType: 'solo' | 'team') => (
+  pendingType === 'team'
+    ? `/events/${eventId}`
+    : `/events/${eventId}?register=1`
+);
+
 const normalizeNetworkType = (value: string | null | undefined): 'professional' | 'alumni' | undefined => (
   value === 'professional' || value === 'alumni' ? value : undefined
 );
@@ -225,10 +231,12 @@ export default function AuthCallbackPage() {
         
         // Check for pending event registration
         const pendingEventId = localStorage.getItem('pendingEventRegistration');
+        const pendingEventType = localStorage.getItem('pendingEventRegistrationType');
         if (pendingEventId) {
           setStatus('Redirecting to event registration...');
           localStorage.removeItem('pendingEventRegistration');
-          navigate(`/events/${pendingEventId}?register=1`);
+          localStorage.removeItem('pendingEventRegistrationType');
+          navigate(getPendingEventRedirectPath(pendingEventId, pendingEventType === 'team' ? 'team' : 'solo'));
           return;
         }
         

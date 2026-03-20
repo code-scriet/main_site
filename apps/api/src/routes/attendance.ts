@@ -12,6 +12,7 @@ import { logger } from '../utils/logger.js';
 import { getIO } from '../utils/socket.js';
 import { emailService } from '../utils/email.js';
 import { getJwtSecret } from '../utils/jwt.js';
+import { withRetry } from '../lib/prisma.js';
 import { generateAttendanceToken, verifyAttendanceToken } from '../utils/attendanceToken.js';
 import { sanitizeHtml } from '../utils/sanitize.js';
 
@@ -98,13 +99,21 @@ router.post('/scan', authMiddleware, requireRole('CORE_MEMBER'), async (req: Req
           select: { name: true },
         },
         event: {
-          select: { title: true, startDate: true, endDate: true },
+          select: { title: true, startDate: true, endDate: true, status: true },
         },
       },
     });
 
     if (!registration) {
       return ApiResponse.notFound(res, 'Registration not found');
+    }
+
+    // Event status check: only allow scans for ONGOING events.
+    // Admins can bypass to scan UPCOMING events only when explicitly requested.
+    const isOngoingEvent = registration.event.status === 'ONGOING';
+    const canBypassUpcoming = bypassWindow === true && registration.event.status === 'UPCOMING';
+    if (!isOngoingEvent && !canBypassUpcoming) {
+      return ApiResponse.forbidden(res, 'Attendance scanning is allowed only for ongoing events');
     }
 
     // Scan window check: allow startDate - 30min to endDate || startDate + 4h
@@ -122,10 +131,10 @@ router.post('/scan', authMiddleware, requireRole('CORE_MEMBER'), async (req: Req
 
     // ATOMIC: check + update in one DB call. Zero race window.
     const scannedAt = new Date();
-    const updated = await prisma.eventRegistration.updateMany({
+    const updated = await withRetry(() => prisma.eventRegistration.updateMany({
       where: { id: registration.id, attended: false },
       data: { attended: true, scannedAt },
-    });
+    }));
     if (updated.count === 0) {
       return ApiResponse.conflict(res, `${registration.user.name} has already been scanned`);
     }
@@ -223,7 +232,7 @@ router.post('/scan-batch', authMiddleware, requireRole('CORE_MEMBER'), async (re
       where: { id: { in: regIds } },
       include: {
         user: { select: { name: true } },
-        event: { select: { startDate: true, endDate: true } },
+        event: { select: { startDate: true, endDate: true, status: true } },
       },
     });
     const regMap = new Map(registrations.map((r) => [r.id, r]));
@@ -234,6 +243,14 @@ router.post('/scan-batch', authMiddleware, requireRole('CORE_MEMBER'), async (re
 
       if (!registration) {
         results.push({ localId: item.localId, status: 'error', message: 'Registration not found' });
+        errCount++;
+        continue;
+      }
+
+      const isOngoingEvent = registration.event.status === 'ONGOING';
+      const canBypassUpcoming = bypassWindow === true && registration.event.status === 'UPCOMING';
+      if (!isOngoingEvent && !canBypassUpcoming) {
+        results.push({ localId: item.localId, status: 'error', message: 'Attendance scanning is allowed only for ongoing events' });
         errCount++;
         continue;
       }
@@ -256,10 +273,10 @@ router.post('/scan-batch', authMiddleware, requireRole('CORE_MEMBER'), async (re
       const scannedAt = item.scannedAtLocal ? new Date(item.scannedAtLocal) : new Date();
 
       // ATOMIC: check + update in one DB call. Zero race window.
-      const updated = await prisma.eventRegistration.updateMany({
+      const updated = await withRetry(() => prisma.eventRegistration.updateMany({
         where: { id: registration.id, attended: false },
         data: { attended: true, scannedAt },
-      });
+      }));
 
       if (updated.count === 0) {
         results.push({ localId: item.localId, status: 'duplicate', name: registration.user.name, message: 'Already scanned' });
@@ -350,10 +367,10 @@ router.post('/scan-beacon', beaconLimiter, express.text({ type: '*/*' }), async 
         const scannedAt = scan.scannedAtLocal ? new Date(scan.scannedAtLocal) : new Date();
 
         // ATOMIC: check + update in one DB call. Zero race window.
-        const atomicResult = await prisma.eventRegistration.updateMany({
+        const atomicResult = await withRetry(() => prisma.eventRegistration.updateMany({
           where: { id: payload.registrationId, attended: false },
           data: { attended: true, scannedAt },
-        });
+        }));
 
         if (atomicResult.count === 0) {
           // Already attended or registration not found — skip
@@ -418,10 +435,10 @@ router.post('/manual-checkin', authMiddleware, requireRole('CORE_MEMBER'), async
 
     // ATOMIC: check + update in one DB call. Zero race window.
     const scannedAt = new Date();
-    const updated = await prisma.eventRegistration.updateMany({
+    const updated = await withRetry(() => prisma.eventRegistration.updateMany({
       where: { id: registrationId, attended: false },
       data: { attended: true, scannedAt, manualOverride: true },
-    });
+    }));
     if (updated.count === 0) {
       return ApiResponse.conflict(res, `${registration.user.name} has already been checked in`);
     }

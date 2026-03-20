@@ -264,6 +264,7 @@ npm run lint:web
 | `/api/registrations/*` | registrationsRouter | Yes |
 | `/api/announcements/*` | announcementsRouter | Some |
 | `/api/team/*` | teamRouter | Some |
+| `/api/teams/*` | teamsRouter | User (create/join), Admin (list/admin actions) |
 | `/api/achievements/*` | achievementsRouter | Some |
 | `/api/qotd/*` | qotdRouter | Some |
 | `/api/users/*` | usersRouter | Yes |
@@ -353,6 +354,132 @@ api.updateCredit(id, data, token)
 api.deleteCredit(id, token)
 api.reorderCredits(credits, token)  // PATCH /api/credits/reorder
 ```
+
+---
+
+## Team Registration System
+
+> **Status: IMPLEMENTED.** Full team-based event registration with invite codes.
+
+### Architecture
+
+- **Event-level toggle:** `Event.teamRegistration` boolean + `teamMinSize`/`teamMaxSize` (1-10)
+- **Team creation:** User creates team → becomes leader → auto-registered → gets 8-char invite code
+- **Team join:** Other users enter invite code → join team → auto-registered
+- **Invite code:** 8-character uppercase hex (e.g., `A1B2C3D4`), unique globally
+- **Team lifecycle:** Leader can lock (prevent new joins), transfer leadership, kick members, or dissolve team
+- **Registration gate:** Solo registration blocked for team events; must create/join team
+
+### DB Models (`prisma/schema.prisma`)
+
+```prisma
+model EventTeam {
+  id         String   @id @default(uuid())
+  eventId    String   @map("event_id")
+  event      Event    @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  teamName   String   @map("team_name") @db.VarChar(100)
+  inviteCode String   @unique @map("invite_code") @db.VarChar(8)
+  leaderId   String   @map("leader_id")
+  leader     User     @relation("TeamLeader", fields: [leaderId], references: [id], onDelete: Restrict)
+  isLocked   Boolean  @default(false) @map("is_locked")
+  createdAt  DateTime @default(now()) @map("created_at")
+  members    EventTeamMember[]
+
+  @@unique([eventId, teamName])
+  @@index([eventId])
+  @@map("event_teams")
+}
+
+model EventTeamMember {
+  id             String            @id @default(uuid())
+  teamId         String            @map("team_id")
+  team           EventTeam         @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  userId         String            @map("user_id")
+  user           User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  registrationId String            @unique @map("registration_id")
+  registration   EventRegistration @relation(fields: [registrationId], references: [id], onDelete: Cascade)
+  role           String            @default("MEMBER") @db.VarChar(20)  // "LEADER" | "MEMBER"
+  joinedAt       DateTime          @default(now()) @map("joined_at")
+
+  @@unique([teamId, userId])
+  @@index([userId])
+  @@map("event_team_members")
+}
+```
+
+Event model additions:
+```prisma
+teamRegistration  Boolean  @default(false) @map("team_registration")
+teamMinSize       Int      @default(1) @map("team_min_size")
+teamMaxSize       Int      @default(4) @map("team_max_size")
+teams             EventTeam[]
+```
+
+### API Endpoints (`apps/api/src/routes/teams.ts`)
+
+| Route | Method | Auth | Description |
+|-------|--------|------|-------------|
+| `/api/teams/create` | POST | User | Create team + self-register as leader |
+| `/api/teams/join` | POST | User | Join team via invite code (rate-limited: 15/15min) |
+| `/api/teams/my-team/:eventId` | GET | User | Get user's team for event (null if not in team) |
+| `/api/teams/:teamId/lock` | PATCH | Leader | Toggle team lock |
+| `/api/teams/:teamId/members/:userId` | DELETE | Leader | Remove member from team |
+| `/api/teams/:teamId/leave` | POST | Member | Leave team (not leader) |
+| `/api/teams/:teamId/transfer-leadership` | POST | Leader | Transfer leader role to another member |
+| `/api/teams/:teamId/dissolve` | DELETE | Leader | Dissolve team, cancel all registrations |
+| `/api/teams/event/:eventId` | GET | Admin | List all teams for event |
+| `/api/teams/:teamId/admin-lock` | PATCH | Admin | Admin force lock/unlock |
+| `/api/teams/:teamId/admin-dissolve` | DELETE | Admin | Admin force dissolve |
+
+### Frontend Components (`apps/web/src/components/teams/`)
+
+- **TeamCreateModal** — Create team form with team name + custom fields
+- **TeamJoinModal** — Join team with 8-char invite code input
+- **TeamDashboard** — Team management card (members, invite code, lock, leave/dissolve)
+
+### Frontend Integration
+
+- **EventDetailPage** — Conditional rendering: team events show Create/Join buttons instead of Register
+- **CreateEvent / EditEvent** — Team registration toggle + min/max size config
+- **AdminEventRegistrations** — Team badge + "Teams" button linking to attendance hub
+
+### API Client (`apps/web/src/lib/api.ts`)
+
+```typescript
+export interface EventTeam {
+  id: string;
+  eventId: string;
+  teamName: string;
+  inviteCode?: string;  // Only visible to leader
+  leaderId: string;
+  isLocked: boolean;
+  createdAt: string;
+  members: EventTeamMemberInfo[];
+  isLeader?: boolean;
+  isComplete?: boolean;
+  isFull?: boolean;
+}
+
+api.createTeam(data, token)
+api.joinTeam(data, token)
+api.getMyTeam(eventId, token)  // Returns null if not in team
+api.toggleTeamLock(teamId, token)
+api.removeTeamMember(teamId, userId, token)
+api.leaveTeam(teamId, token)
+api.transferLeadership(teamId, newLeaderId, token)
+api.dissolveTeam(teamId, token)
+api.getEventTeams(eventId, token)  // Admin
+api.adminToggleTeamLock(teamId, token)
+api.adminDissolveTeam(teamId, token)
+```
+
+### Key Patterns
+
+- **Serializable transactions:** Team create/join use `Prisma.TransactionIsolationLevel.Serializable` with 3 retry attempts and jittered exponential backoff for P2034 conflicts
+- **Atomic capacity check:** Registration count checked inside transaction to prevent race conditions
+- **Leader deletion guard:** `onDelete: Restrict` on `EventTeam.leaderId` prevents deleting users who lead teams
+- **Registration cascade:** Team dissolution deletes team members and their registrations in one transaction
+- **Toggle guard:** Cannot change `teamRegistration` mode once event has registrations
 
 ---
 
@@ -1056,6 +1183,47 @@ All requests use `fetch` with `credentials: 'include'` for cross-origin cookie s
 
 ---
 
+## Security Audit (March 2026)
+
+A comprehensive security audit was performed covering CORS, XSS, auth guards, race conditions, input validation, and error handling. Key fixes applied:
+
+### Critical Fixes Applied
+- **CORS subdomain wildcard** — Changed from `endsWith('.codescriet.dev')` to explicit domain allowlist (prevents `attacker.codescriet.dev` spoofing)
+- **URL sanitization XSS** — Fixed regex bypass allowing `jAvAsCrIpT:` URLs; now uses strict protocol whitelist
+- **IndexNow/Playground auth** — Added missing `authMiddleware` to admin endpoints
+- **Certificate pdfUrl exposure** — Removed direct Cloudinary URL from public verify endpoint
+- **Events ownership** — CORE_MEMBER can only modify their own events (not any event)
+- **Attendance event status** — Blocked scanning for PAST events
+- **Registration token race** — Moved attendance token generation inside serializable transaction
+- **Teams leader race** — Added atomic `WHERE leaderId = user.id` checks for lock/transfer/dissolve
+
+### High Priority Fixes
+- **Signature image size** — Added 3MB base64 limit validation
+- **Network rejectionReason** — Applied `sanitizeHtml()` before storage
+- **Mail external emails** — Validates specific emails exist in User table
+- **Upload MIME validation** — Server-side magic bytes check (not client mimetype)
+- **Stack trace filtering** — Strips stack traces from error responses in production
+- **dev-login discoverability** — Returns 404 (not 403) when disabled
+
+### Medium Priority Fixes
+- **Unbounded findMany** — Added `take: 100000` limits to mail routes
+- **Playground reset atomicity** — Wrapped in `prisma.$transaction()`
+
+### Additional Fixes (Batch 2)
+- **Frontend 401 auto-logout** — Added `UnauthorizedError` class, caught in API requests
+- **isSuperAdmin population** — Added field to User interface, already returned by /auth/me
+- **withRetry exponential backoff** — Changed from linear to exponential backoff with jitter
+- **Role hierarchy logging** — Unknown roles now warn to console instead of silent fallback
+- **AuthContext cleanup** — Added mount check ref to prevent state updates after unmount
+- **Export blob error handling** — Added try-catch for blob() parsing in attendance export
+
+### Remaining Known Issues (Low Priority)
+- UUID validation missing on some path params
+- Some Zod schemas use `z.unknown()` for JSON fields
+- Attendance token has no expiration (relies on attended flag)
+
+---
+
 ## Deployment (Render)
 
 Four services in `render.yaml`:
@@ -1070,7 +1238,7 @@ Build command includes `prisma generate` and `prisma migrate deploy`.
 
 **UptimeRobot:** An external UptimeRobot monitor pings `GET /ping` every 5 minutes to prevent free-tier spin-down. The `/ping` endpoint returns plain text `"pong"` with no DB call. Do not remove or rename this endpoint.
 
-CORS: Allows `*.codescriet.dev`, `https://codescriet.dev`, and `FRONTEND_URL` env var. In dev: any `localhost` or LAN IP.
+CORS: Uses explicit domain allowlist: `codescriet.dev`, `www.codescriet.dev`, `api.codescriet.dev`, `code.codescriet.dev`, `playground.codescriet.dev`, plus `FRONTEND_URL` env var. In dev: any `localhost` or LAN IP.
 
 ---
 
@@ -1093,6 +1261,7 @@ When proposing any non-trivial architectural change — new system, new DB model
 | API entry point | `apps/api/src/index.ts` |
 | Auth routes | `apps/api/src/routes/auth.ts` |
 | Credits routes | `apps/api/src/routes/credits.ts` |
+| Teams routes | `apps/api/src/routes/teams.ts` |
 | Auth middleware | `apps/api/src/middleware/auth.ts` |
 | Role middleware | `apps/api/src/middleware/role.ts` |
 | JWT utilities | `apps/api/src/utils/jwt.ts` |
@@ -1113,6 +1282,10 @@ When proposing any non-trivial architectural change — new system, new DB model
 | Dashboard layout | `apps/web/src/components/dashboard/DashboardLayout.tsx` |
 | Credits public page | `apps/web/src/pages/CreditsPage.tsx` |
 | Credits admin page | `apps/web/src/pages/admin/AdminCredits.tsx` |
+| Team components | `apps/web/src/components/teams/` |
+| Team create modal | `apps/web/src/components/teams/TeamCreateModal.tsx` |
+| Team join modal | `apps/web/src/components/teams/TeamJoinModal.tsx` |
+| Team dashboard | `apps/web/src/components/teams/TeamDashboard.tsx` |
 | Layout wrapper | `apps/web/src/components/layout/Layout.tsx` |
 | DB Schema | `prisma/schema.prisma` |
 | Playground executor | `apps/playground/execute-server.js` |

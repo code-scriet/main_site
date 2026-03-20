@@ -172,7 +172,7 @@ export function NetworkHighlight() {
                     <div className="absolute top-3 right-3 z-10">
                       <div className="flex items-center gap-1 rounded-full bg-gradient-to-r from-amber-500 to-orange-500 border border-amber-400 px-2 py-0.5 shadow-sm">
                         <Sparkles className="h-3 w-3 text-white" />
-                        <span className="text-[10px] font-medium text-white">Featured</span>
+                        <span className="text-xs font-medium text-white">Featured</span>{/* responsive: min 12px */}
                       </div>
                     </div>
                   )}
@@ -200,7 +200,7 @@ export function NetworkHighlight() {
                           />
                         </div>
                         {isAlumni && profile.passoutYear && (
-                          <div className="absolute -bottom-1 -right-1 flex h-6 w-6 items-center justify-center rounded-full border-2 border-white bg-gradient-to-br from-amber-500 to-orange-500 text-[9px] font-bold text-white shadow-sm">
+                          <div className="absolute -bottom-1 -right-1 flex h-7 w-7 items-center justify-center rounded-full border-2 border-white bg-gradient-to-br from-amber-500 to-orange-500 text-[10px] font-bold text-white shadow-sm">{/* responsive: slightly larger for readability */}
                             '{String(profile.passoutYear).slice(-2)}
                           </div>
                         )}
@@ -224,15 +224,15 @@ export function NetworkHighlight() {
 
                     {/* Tags row */}
                     <div className="mt-4 flex flex-wrap items-center gap-2">
-                      <Badge className={`${typeStyle.bg} ${typeStyle.text} border ${typeStyle.border} text-[10px] shadow-sm`}>
+                      <Badge className={`${typeStyle.bg} ${typeStyle.text} border ${typeStyle.border} text-xs shadow-sm`}>{/* responsive: min 12px */}
                         {connectionTypeLabels[profile.connectionType]}
                       </Badge>
                       {isAlumni && profile.branch && (
-                        <Badge className="border border-gray-200 bg-gray-50 text-[10px] text-gray-600">
+                        <Badge className="border border-gray-200 bg-gray-50 text-xs text-gray-600">{/* responsive: min 12px */}
                           {profile.branch}
                         </Badge>
                       )}
-                      <Badge className="border border-gray-200 bg-gray-50 text-[10px] text-gray-600">
+                      <Badge className="border border-gray-200 bg-gray-50 text-xs text-gray-600">{/* responsive: min 12px */}
                         {profile.industry}
                       </Badge>
                     </div>
@@ -246,7 +246,7 @@ export function NetworkHighlight() {
                             target="_blank"
                             rel="noopener noreferrer"
                             onClick={(e) => e.stopPropagation()}
-                            className="rounded-lg border border-gray-200 bg-white p-1.5 text-gray-500 shadow-sm transition-all hover:border-blue-300 hover:bg-blue-50 hover:text-blue-600"
+                            className="rounded-lg border border-gray-200 bg-white p-2.5 min-h-10 min-w-10 flex items-center justify-center text-gray-500 shadow-sm transition-all hover:border-blue-300 hover:bg-blue-50 hover:text-blue-600"
                           >
                             <Linkedin className="h-3.5 w-3.5" />
                           </a>
@@ -257,7 +257,7 @@ export function NetworkHighlight() {
                             target="_blank"
                             rel="noopener noreferrer"
                             onClick={(e) => e.stopPropagation()}
-                            className="rounded-lg border border-gray-200 bg-white p-1.5 text-gray-500 shadow-sm transition-all hover:border-gray-300 hover:bg-gray-50 hover:text-gray-900"
+                            className="rounded-lg border border-gray-200 bg-white p-2.5 min-h-10 min-w-10 flex items-center justify-center text-gray-500 shadow-sm transition-all hover:border-gray-300 hover:bg-gray-50 hover:text-gray-900"
                           >
                             <Github className="h-3.5 w-3.5" />
                           </a>
@@ -268,7 +268,7 @@ export function NetworkHighlight() {
                             target="_blank"
                             rel="noopener noreferrer"
                             onClick={(e) => e.stopPropagation()}
-                            className="rounded-lg border border-gray-200 bg-white p-1.5 text-gray-500 shadow-sm transition-all hover:border-emerald-300 hover:bg-emerald-50 hover:text-emerald-600"
+                            className="rounded-lg border border-gray-200 bg-white p-2.5 min-h-10 min-w-10 flex items-center justify-center text-gray-500 shadow-sm transition-all hover:border-emerald-300 hover:bg-emerald-50 hover:text-emerald-600"
                           >
                             <Globe className="h-3.5 w-3.5" />
                           </a>

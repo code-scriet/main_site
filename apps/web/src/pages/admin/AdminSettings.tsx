@@ -169,7 +169,7 @@ export default function AdminSettings() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center min-h-[400px]">
+      <div className="flex items-center justify-center min-h-[200px] sm:min-h-[400px]">{/* responsive: reduced on mobile */}
         <div className="text-center">
           <Loader2 className="h-8 w-8 animate-spin text-amber-600 mx-auto mb-2" />
           <p className="text-gray-600">Loading settings...</p>
