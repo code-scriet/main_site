@@ -141,12 +141,17 @@ export function AboutPreview() {
         </div>
 
         {/* Stats Row - refined and elegant */}
+        <Link
+          to="/events"
+          className="block mb-14 rounded-2xl sm:rounded-3xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500 focus-visible:ring-offset-2"
+          aria-label="View all events"
+        >
         <motion.div
           initial={{ opacity: 0, y: animationY }}
           whileInView={{ opacity: 1, y: 0 }}
           transition={{ duration: animationDuration, delay: shouldReduceMotion ? 0.1 : 0.4 }}
           viewport={{ once: true, margin: '-50px' }}
-          className="relative rounded-2xl sm:rounded-3xl overflow-hidden mb-14"
+          className="relative rounded-2xl sm:rounded-3xl overflow-hidden cursor-pointer hover:opacity-90 transition-opacity duration-200"
         >
           {/* Gradient background with subtle texture */}
           <div className="absolute inset-0 bg-gradient-to-r from-amber-600 via-orange-500 to-amber-600" />
@@ -179,6 +184,7 @@ export function AboutPreview() {
             </div>
           </div>
         </motion.div>
+        </Link>
 
         {/* CTA */}
         <motion.div
