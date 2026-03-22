@@ -536,6 +536,25 @@ Unique: [userId, eventId]
 Index: [eventId, attended]
 ```
 
+### CompetitionRound / CompetitionSubmission / CompetitionAutoSave
+```
+CompetitionRound:
+id, eventId, title, description?, duration, status (CompetitionStatus),
+participantScope (CompetitionParticipantScope; default ALL),
+allowedTeamIds (String[]; default []), targetImageUrl?, startedAt?, lockedAt?,
+createdAt, updatedAt
+Relations: event, submissions, autoSaves
+
+CompetitionSubmission:
+id, roundId, teamId?, userId, code, submittedAt, isAutoSubmit,
+score?, rank?, adminNotes?, createdAt, updatedAt
+Unique: [roundId, teamId], [roundId, userId]
+
+CompetitionAutoSave:
+id, roundId, teamId?, userId, code, savedAt
+Unique: [roundId, userId]
+```
+
 ### Announcement
 ```
 id, title, body, slug (unique), priority (AnnouncementPriority),
@@ -643,6 +662,7 @@ QuizQuestionType: MCQ | TRUE_FALSE | SHORT_ANSWER | POLL | RATING | MULTI_SELECT
 NetworkConnectionType: GUEST_SPEAKER | GMEET_SESSION | EVENT_JUDGE | MENTOR | INDUSTRY_PARTNER | ALUMNI | OTHER
 NetworkStatus: PENDING | VERIFIED | REJECTED
 ExecutionStatus: SUCCESS | ERROR | TIMEOUT
+CompetitionParticipantScope: ALL | SELECTED_TEAMS
 ```
 
 ---

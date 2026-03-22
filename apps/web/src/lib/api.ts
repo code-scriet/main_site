@@ -199,11 +199,15 @@ export interface CompetitionRoundPreview {
   description?: string;
   duration: number;
   status: 'DRAFT' | 'ACTIVE' | 'LOCKED' | 'JUDGING' | 'FINISHED';
+  participantScope?: 'ALL' | 'SELECTED_TEAMS';
+  allowedTeamIds?: string[];
   startedAt?: string;
   lockedAt?: string;
   remainingSeconds?: number | null;
   submissionCount?: number;
   hasSubmitted?: boolean;
+  isEligible?: boolean;
+  eligibilityReason?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -463,6 +467,10 @@ export interface CompetitionRound {
   description?: string;
   duration: number;
   status: 'DRAFT' | 'ACTIVE' | 'LOCKED' | 'JUDGING' | 'FINISHED';
+  participantScope?: 'ALL' | 'SELECTED_TEAMS';
+  allowedTeamIds?: string[];
+  isEligible?: boolean;
+  eligibilityReason?: string;
   targetImageUrl?: string;
   startedAt?: string;
   lockedAt?: string;
@@ -1351,6 +1359,8 @@ export const api = {
     title: string;
     description?: string;
     duration: number;
+    participantScope?: 'ALL' | 'SELECTED_TEAMS';
+    allowedTeamIds?: string[];
     targetImageUrl?: string;
   }, token: string) =>
     request<{ round: CompetitionRound }>('/competition', { method: 'POST', body: JSON.stringify(data), token }),
@@ -1387,7 +1397,14 @@ export const api = {
     request<{ round: CompetitionRound; results: CompetitionResult[] }>(`/competition/${roundId}/results`),
   deleteCompetitionRound: (roundId: string, token: string) =>
     request<{ message: string }>(`/competition/${roundId}`, { method: 'DELETE', token }),
-  updateCompetitionRound: (roundId: string, data: { title?: string; description?: string; duration?: number; targetImageUrl?: string | null }, token: string) =>
+  updateCompetitionRound: (roundId: string, data: {
+    title?: string;
+    description?: string;
+    duration?: number;
+    participantScope?: 'ALL' | 'SELECTED_TEAMS';
+    allowedTeamIds?: string[];
+    targetImageUrl?: string | null;
+  }, token: string) =>
     request<{ round: CompetitionRound }>(`/competition/${roundId}`, { method: 'PUT', body: JSON.stringify(data), token }),
   exportCompetitionResults: async (roundId: string, token: string) => {
     const res = await fetch(`${API_URL}/competition/${roundId}/results/export?format=xlsx`, {

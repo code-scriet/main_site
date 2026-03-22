@@ -331,6 +331,8 @@ export default function EventDetailPage() {
       title: string;
       status: 'DRAFT' | 'ACTIVE' | 'LOCKED' | 'JUDGING' | 'FINISHED';
       hasSubmitted?: boolean;
+      isEligible?: boolean;
+      eligibilityReason?: string;
     }>
   >([]);
 
@@ -401,7 +403,7 @@ export default function EventDetailPage() {
 
   useEffect(() => {
     const fetchCompetitionRounds = async () => {
-      if (!event?.teamRegistration || !event?.id) {
+      if (!event?.id) {
         setCompetitionRounds([]);
         return;
       }
@@ -422,7 +424,7 @@ export default function EventDetailPage() {
     };
 
     void fetchCompetitionRounds();
-  }, [event?.id, event?.teamRegistration, token]);
+  }, [event?.id, token]);
 
   // Fetch attendance summary for past events
   useEffect(() => {
@@ -1030,7 +1032,7 @@ export default function EventDetailPage() {
                       )}
                     </>
                   )}
-                  {event.teamRegistration && competitionRounds.length > 0 && (
+                  {competitionRounds.length > 0 && (
                     <div className="mt-3 space-y-2 rounded-lg border border-blue-200 bg-blue-50 p-3">
                       <p className="text-sm font-semibold text-blue-900">Competition Rounds</p>
                       {competitionRounds.map((round) => (
@@ -1045,6 +1047,8 @@ export default function EventDetailPage() {
                             <p className="text-[11px] text-blue-700">
                               {round.hasSubmitted
                                 ? 'Submitted'
+                                : round.isEligible === false
+                                ? (round.eligibilityReason || 'Not eligible')
                                 : round.status === 'ACTIVE'
                                 ? 'Open now'
                                 : round.status === 'LOCKED'
@@ -1062,7 +1066,7 @@ export default function EventDetailPage() {
                                   View Results
                                 </Link>
                               )}
-                              {user && round.status !== 'FINISHED' && (
+                              {user && round.status !== 'FINISHED' && round.isEligible !== false && (
                                 <a
                                   href={getCompetitionRoundUrl(round.id)}
                                   target="_blank"
@@ -1443,7 +1447,7 @@ export default function EventDetailPage() {
                         )}
                       </>
                     )}
-                    {event.teamRegistration && competitionRounds.length > 0 && (
+                    {competitionRounds.length > 0 && (
                       <div className="mt-3 space-y-2 rounded-lg border border-blue-200 bg-blue-50 p-3">
                         <p className="text-sm font-semibold text-blue-900">Competition Rounds</p>
                         {competitionRounds.map((round) => (
@@ -1458,6 +1462,8 @@ export default function EventDetailPage() {
                               <p className="text-[11px] text-blue-700">
                                 {round.hasSubmitted
                                   ? 'Submitted'
+                                  : round.isEligible === false
+                                  ? (round.eligibilityReason || 'Not eligible')
                                   : round.status === 'ACTIVE'
                                   ? 'Open now'
                                   : round.status === 'LOCKED'
@@ -1475,7 +1481,7 @@ export default function EventDetailPage() {
                                     View Results
                                   </Link>
                                 )}
-                                {user && round.status !== 'FINISHED' && (
+                                {user && round.status !== 'FINISHED' && round.isEligible !== false && (
                                   <a
                                     href={getCompetitionRoundUrl(round.id)}
                                     target="_blank"

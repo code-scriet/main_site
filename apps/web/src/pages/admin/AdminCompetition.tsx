@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/context/AuthContext';
-import { api, type CompetitionRound, type Event } from '@/lib/api';
+import { api, type CompetitionRound, type Event, type EventTeam } from '@/lib/api';
 import { extractApiErrorMessage } from '@/lib/error';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -39,6 +39,8 @@ type FormState = {
   title: string;
   description: string;
   durationMinutes: number;
+  participantScope: 'ALL' | 'SELECTED_TEAMS';
+  allowedTeamIds: string[];
   targetImageUrl: string;
 };
 
@@ -47,6 +49,8 @@ const DEFAULT_FORM: FormState = {
   title: '',
   description: '',
   durationMinutes: 30,
+  participantScope: 'ALL',
+  allowedTeamIds: [],
   targetImageUrl: '',
 };
 
@@ -88,6 +92,7 @@ export default function AdminCompetition() {
   const [createOpen, setCreateOpen] = useState(false);
   const [editingRound, setEditingRound] = useState<CompetitionRound | null>(null);
   const [form, setForm] = useState<FormState>(DEFAULT_FORM);
+  const [eventTeamsMap, setEventTeamsMap] = useState<Record<string, EventTeam[]>>({});
 
   const getCompetitionRoundUrl = (roundId: string) => {
     const base = `${BASE_PLAYGROUND_URL}/competition/${roundId}`;
@@ -114,13 +119,22 @@ export default function AdminCompetition() {
       const fetchedEvents = await api.getEvents();
       setEvents(fetchedEvents);
 
-      const roundsEntries = await Promise.all(
-        fetchedEvents.map(async (event) => {
-          const response = await api.getCompetitionRoundsAdmin(event.id, token);
-          return [event.id, response.rounds] as const;
-        }),
-      );
+      const roundsEntries = await Promise.all(fetchedEvents.map(async (event) => {
+        const response = await api.getCompetitionRoundsAdmin(event.id, token);
+        return [event.id, response.rounds] as const;
+      }));
       setRoundsByEvent(Object.fromEntries(roundsEntries));
+
+      const teamEvents = fetchedEvents.filter((event) => event.teamRegistration);
+      const teamsEntries = await Promise.all(teamEvents.map(async (event) => {
+        try {
+          const response = await api.getEventTeams(event.id, token);
+          return [event.id, response.teams.map((team) => ({ ...team, eventId: event.id }))] as const;
+        } catch {
+          return [event.id, []] as const;
+        }
+      }));
+      setEventTeamsMap(Object.fromEntries(teamsEntries));
     } catch (err) {
       setError(extractApiErrorMessage(err, 'Failed to load competition data'));
     } finally {
@@ -144,9 +158,12 @@ export default function AdminCompetition() {
   }, [roundsByEvent, load]);
 
   const openCreate = (eventId?: string) => {
+    const resolvedEventId = eventId || selectedEventId || filteredEvents[0]?.id || '';
     setForm({
       ...DEFAULT_FORM,
-      eventId: eventId || selectedEventId || filteredEvents[0]?.id || '',
+      eventId: resolvedEventId,
+      participantScope: 'ALL',
+      allowedTeamIds: [],
     });
     setEditingRound(null);
     setCreateOpen(true);
@@ -159,6 +176,8 @@ export default function AdminCompetition() {
       title: round.title,
       description: round.description || '',
       durationMinutes: Math.max(5, Math.floor(round.duration / 60)),
+      participantScope: round.participantScope || 'ALL',
+      allowedTeamIds: round.allowedTeamIds || [],
       targetImageUrl: round.targetImageUrl || '',
     });
     setCreateOpen(true);
@@ -183,10 +202,18 @@ export default function AdminCompetition() {
         title: form.title.trim(),
         description: form.description.trim() || undefined,
         duration: Math.max(5, form.durationMinutes) * 60,
+        participantScope: form.participantScope,
+        allowedTeamIds: form.participantScope === 'SELECTED_TEAMS' ? form.allowedTeamIds : [],
         targetImageUrl: form.targetImageUrl.trim() || undefined,
       };
       if (!payload.eventId) {
         throw new Error('Please select an event');
+      }
+      if (payload.participantScope === 'SELECTED_TEAMS' && payload.allowedTeamIds.length === 0) {
+        throw new Error('Please select at least one team for selected teams mode');
+      }
+      if (payload.participantScope === 'SELECTED_TEAMS' && payload.allowedTeamIds.length === 0) {
+        throw new Error('Please select at least one team for selected teams mode');
       }
 
       if (editingRound) {
@@ -194,6 +221,8 @@ export default function AdminCompetition() {
           title: payload.title,
           description: payload.description,
           duration: payload.duration,
+          participantScope: payload.participantScope,
+          allowedTeamIds: payload.allowedTeamIds,
           targetImageUrl: payload.targetImageUrl || null,
         }, token);
         setSuccess('Round updated successfully');
@@ -270,6 +299,9 @@ export default function AdminCompetition() {
       setError(extractApiErrorMessage(err, 'Failed to delete round'));
     }
   };
+
+  const selectedFormEvent = events.find((event) => event.id === form.eventId) || null;
+  const selectedFormTeams = form.eventId ? (eventTeamsMap[form.eventId] || []) : [];
 
   const viewResults = (roundId: string) => {
     navigate(`/competition/${roundId}/results`);
@@ -382,7 +414,9 @@ export default function AdminCompetition() {
                     <div>
                       <CardTitle className="text-lg">{event.title}</CardTitle>
                       <CardDescription>
-                        {event.status} · {event.teamMinSize || 1}-{event.teamMaxSize || 4} members per team
+                        {event.status} · {event.teamRegistration
+                          ? `${event.teamMinSize || 1}-${event.teamMaxSize || 4} members per team`
+                          : 'Open participation'}
                       </CardDescription>
                     </div>
                     <Button size="sm" onClick={() => openCreate(event.id)} className="gap-2">
@@ -422,6 +456,11 @@ export default function AdminCompetition() {
 
                         <div className="text-xs text-gray-500">
                           Submissions: {round.submissionCount ?? 0}
+                        </div>
+                        <div className="text-xs text-gray-500">
+                          Participants: {round.participantScope === 'SELECTED_TEAMS'
+                            ? `Selected teams (${round.allowedTeamIds?.length || 0})`
+                            : 'All eligible participants'}
                         </div>
 
                         {(round.status === 'DRAFT' || round.status === 'ACTIVE' || round.status === 'LOCKED' || round.status === 'JUDGING' || round.status === 'FINISHED') && (
@@ -488,6 +527,10 @@ export default function AdminCompetition() {
                                 <Eye className="h-4 w-4" />
                                 View Submissions
                               </Button>
+                              <Button size="sm" variant="outline" className="gap-2 text-red-600" onClick={() => void onDeleteRound(round)}>
+                                <Trash2 className="h-4 w-4" />
+                                Delete
+                              </Button>
                             </>
                           )}
 
@@ -512,34 +555,46 @@ export default function AdminCompetition() {
                                 <Eye className="h-4 w-4" />
                                 View Submissions
                               </Button>
-                            </>
-                          )}
-
-                          {round.status === 'JUDGING' && (
-                            <>
-                              <Button size="sm" variant="outline" className="gap-2" onClick={() => navigate(`/admin/competition/${round.id}/judge`)}>
-                                <Trophy className="h-4 w-4" />
-                                Judge Submissions
-                              </Button>
-                              <Button size="sm" className="gap-2" onClick={() => void onFinishRound(round.id)}>
-                                <CheckCircle2 className="h-4 w-4" />
-                                Publish Results
+                              <Button size="sm" variant="outline" className="gap-2 text-red-600" onClick={() => void onDeleteRound(round)}>
+                                <Trash2 className="h-4 w-4" />
+                                Delete
                               </Button>
                             </>
                           )}
 
-                          {round.status === 'FINISHED' && (
-                            <>
+                           {round.status === 'JUDGING' && (
+                             <>
+                               <Button size="sm" variant="outline" className="gap-2" onClick={() => navigate(`/admin/competition/${round.id}/judge`)}>
+                                 <Trophy className="h-4 w-4" />
+                                 Judge Submissions
+                               </Button>
+                               <Button size="sm" className="gap-2" onClick={() => void onFinishRound(round.id)}>
+                                 <CheckCircle2 className="h-4 w-4" />
+                                 Publish Results
+                               </Button>
+                               <Button size="sm" variant="outline" className="gap-2 text-red-600" onClick={() => void onDeleteRound(round)}>
+                                 <Trash2 className="h-4 w-4" />
+                                 Delete
+                               </Button>
+                             </>
+                           )}
+
+                           {round.status === 'FINISHED' && (
+                             <>
                               <Button size="sm" variant="outline" className="gap-2" onClick={() => viewResults(round.id)}>
                                 <Eye className="h-4 w-4" />
                                 View Results
                               </Button>
-                              <Button size="sm" variant="outline" className="gap-2" onClick={() => void exportResults(round)}>
-                                <Download className="h-4 w-4" />
-                                Export Results
-                              </Button>
-                            </>
-                          )}
+                                <Button size="sm" variant="outline" className="gap-2" onClick={() => void exportResults(round)}>
+                                  <Download className="h-4 w-4" />
+                                  Export Results
+                                </Button>
+                                <Button size="sm" variant="outline" className="gap-2 text-red-600" onClick={() => void onDeleteRound(round)}>
+                                  <Trash2 className="h-4 w-4" />
+                                  Delete
+                                </Button>
+                              </>
+                            )}
                         </div>
                       </div>
                     ))
@@ -553,18 +608,27 @@ export default function AdminCompetition() {
 
       <Dialog open={createOpen} onOpenChange={(open) => (!open ? closeDialog() : setCreateOpen(open))}>
         <DialogContent>
-          <DialogHeader>
-            <DialogTitle>{editingRound ? 'Edit Round' : 'Create Competition Round'}</DialogTitle>
-            <DialogDescription>
-              Contestants never see the reference image; it is only used in judging.
-            </DialogDescription>
-          </DialogHeader>
-          <form onSubmit={onSubmitForm} className="space-y-3">
+            <DialogHeader>
+              <DialogTitle>{editingRound ? 'Edit Round' : 'Create Competition Round'}</DialogTitle>
+              <DialogDescription>
+                Configure round settings and participant scope. Contestants never see the reference image.
+              </DialogDescription>
+            </DialogHeader>
+            <form onSubmit={onSubmitForm} className="space-y-3">
             <div>
               <label className="text-sm font-medium text-gray-700 mb-1 block">Event</label>
               <select
                 value={form.eventId}
-                onChange={(e) => setForm((prev) => ({ ...prev, eventId: e.target.value }))}
+                onChange={(e) => {
+                  const nextEventId = e.target.value;
+                  const nextEvent = events.find((event) => event.id === nextEventId);
+                  setForm((prev) => ({
+                    ...prev,
+                    eventId: nextEventId,
+                    participantScope: nextEvent?.teamRegistration ? prev.participantScope : 'ALL',
+                    allowedTeamIds: [],
+                  }));
+                }}
                 className="h-10 w-full rounded-lg border-2 border-amber-200 bg-white px-3 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-amber-400/20"
                 required
                 disabled={Boolean(editingRound)}
@@ -577,6 +641,67 @@ export default function AdminCompetition() {
                 ))}
               </select>
             </div>
+
+            {selectedFormEvent?.teamRegistration && (
+              <div>
+                <label className="text-sm font-medium text-gray-700 mb-1 block">Who can participate?</label>
+                <select
+                  value={form.participantScope}
+                  onChange={(e) => {
+                    const nextScope = e.target.value as 'ALL' | 'SELECTED_TEAMS';
+                    setForm((prev) => ({
+                      ...prev,
+                      participantScope: nextScope,
+                      allowedTeamIds: nextScope === 'SELECTED_TEAMS' ? prev.allowedTeamIds : [],
+                    }));
+                  }}
+                  className="h-10 w-full rounded-lg border-2 border-amber-200 bg-white px-3 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-amber-400/20"
+                >
+                  <option value="ALL">Allow all teams</option>
+                  <option value="SELECTED_TEAMS">Allow only selected teams</option>
+                </select>
+              </div>
+            )}
+
+            {selectedFormEvent?.teamRegistration && form.participantScope === 'SELECTED_TEAMS' && (
+              <div>
+                <label className="text-sm font-medium text-gray-700 mb-1 block">
+                  Selected teams ({form.allowedTeamIds.length})
+                </label>
+                {selectedFormTeams.length === 0 ? (
+                  <div className="rounded-lg border border-dashed border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+                    No teams found for this event yet.
+                  </div>
+                ) : (
+                  <div className="max-h-44 space-y-2 overflow-y-auto rounded-lg border border-amber-200 bg-amber-50/40 p-3">
+                    {selectedFormTeams.map((team) => {
+                      const checked = form.allowedTeamIds.includes(team.id);
+                      return (
+                        <label key={team.id} className="flex items-center justify-between gap-3 rounded-md border border-amber-100 bg-white px-3 py-2 text-sm">
+                          <span className="min-w-0 truncate font-medium text-gray-800">{team.teamName}</span>
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={(e) => {
+                              setForm((prev) => {
+                                if (e.target.checked) {
+                                  return { ...prev, allowedTeamIds: Array.from(new Set([...prev.allowedTeamIds, team.id])) };
+                                }
+                                return { ...prev, allowedTeamIds: prev.allowedTeamIds.filter((id) => id !== team.id) };
+                              });
+                            }}
+                            className="h-4 w-4 rounded border-amber-300 text-amber-600 focus:ring-amber-500"
+                          />
+                        </label>
+                      );
+                    })}
+                  </div>
+                )}
+                <p className="mt-1 text-xs text-gray-500">
+                  Only selected teams can open and submit this round.
+                </p>
+              </div>
+            )}
 
             <div>
               <label className="text-sm font-medium text-gray-700 mb-1 block">Title</label>

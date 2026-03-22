@@ -43,6 +43,8 @@ const createRoundSchema = z.object({
   title: z.string().min(1).max(200),
   description: z.string().max(2000).optional(),
   duration: z.number().int().min(300).max(7200),
+  participantScope: z.enum(['ALL', 'SELECTED_TEAMS']).optional(),
+  allowedTeamIds: z.array(z.string().uuid()).max(500).optional(),
   targetImageUrl: z.string().url().optional(),
 });
 
@@ -50,6 +52,8 @@ const updateRoundSchema = z.object({
   title: z.string().min(1).max(200).optional(),
   description: z.string().max(2000).optional(),
   duration: z.number().int().min(300).max(7200).optional(),
+  participantScope: z.enum(['ALL', 'SELECTED_TEAMS']).optional(),
+  allowedTeamIds: z.array(z.string().uuid()).max(500).optional(),
   targetImageUrl: z.string().url().nullable().optional(),
 }).refine((value) => Object.keys(value).length > 0, {
   message: 'At least one field is required',
@@ -80,13 +84,18 @@ function computeRemainingSeconds(round: { duration: number; startedAt: Date | nu
 async function getEventAccess(eventId: string, userId: string) {
   const event = await prisma.event.findUnique({
     where: { id: eventId },
-    select: { id: true, createdBy: true, title: true },
+    select: { id: true, createdBy: true, title: true, teamRegistration: true },
   });
   if (!event) return null;
   return {
     ...event,
     isOwner: event.createdBy === userId,
   };
+}
+
+function normalizeTeamIds(teamIds?: string[]): string[] {
+  if (!Array.isArray(teamIds) || teamIds.length === 0) return [];
+  return Array.from(new Set(teamIds));
 }
 
 async function getMyTeamInEvent(eventId: string, userId: string) {
@@ -126,6 +135,8 @@ async function ensureRegisteredForRound(roundId: string, userId: string) {
       createdAt: true,
       updatedAt: true,
       targetImageUrl: true,
+      participantScope: true,
+      allowedTeamIds: true,
       event: {
         select: {
           teamRegistration: true,
@@ -159,12 +170,24 @@ async function ensureRegisteredForRound(roundId: string, userId: string) {
   return round;
 }
 
+function getRoundParticipationError(
+  round: Awaited<ReturnType<typeof ensureRegisteredForRound>>,
+  myTeam: Awaited<ReturnType<typeof getMyTeamInEvent>>,
+): string | null {
+  if (!round.event.teamRegistration) return null;
+  if (!myTeam) return 'You must join a team for this competition event.';
+  if (round.participantScope === 'SELECTED_TEAMS' && !round.allowedTeamIds.includes(myTeam.id)) {
+    return 'Your team is not selected for this round.';
+  }
+  return null;
+}
+
 async function autoLockRound(roundId: string): Promise<boolean> {
   try {
     await prisma.$transaction(async (tx) => {
       const round = await tx.competitionRound.findUnique({
         where: { id: roundId },
-        select: { id: true, status: true },
+        select: { id: true, status: true, participantScope: true, allowedTeamIds: true },
       });
       if (!round || round.status !== 'ACTIVE') return;
 
@@ -213,6 +236,9 @@ async function autoLockRound(roundId: string): Promise<boolean> {
         const createOps: Prisma.PrismaPromise<unknown>[] = [];
 
         for (const save of autoSaves) {
+          if (round.participantScope === 'SELECTED_TEAMS') {
+            if (!save.teamId || !round.allowedTeamIds.includes(save.teamId)) continue;
+          }
           if (existingUserSet.has(save.userId)) continue;
 
           if (save.teamId) {
@@ -301,12 +327,37 @@ competitionRouter.post('/', authMiddleware, requireRole('ADMIN'), async (req: Re
       return ApiResponse.notFound(res, 'Event not found');
     }
 
+    const requestedScope = parsed.data.participantScope || 'ALL';
+    let allowedTeamIds = normalizeTeamIds(parsed.data.allowedTeamIds);
+    if (!event.teamRegistration && requestedScope === 'SELECTED_TEAMS') {
+      return ApiResponse.badRequest(res, 'Selected teams mode is only available for team events.');
+    }
+    if (requestedScope === 'SELECTED_TEAMS') {
+      if (allowedTeamIds.length === 0) {
+        return ApiResponse.badRequest(res, 'Select at least one team for selected teams mode.');
+      }
+      const teams = await prisma.eventTeam.findMany({
+        where: {
+          eventId: event.id,
+          id: { in: allowedTeamIds },
+        },
+        select: { id: true },
+      });
+      if (teams.length !== allowedTeamIds.length) {
+        return ApiResponse.badRequest(res, 'One or more selected teams are invalid for this event.');
+      }
+    } else {
+      allowedTeamIds = [];
+    }
+
     const round = await withRetry(() => prisma.competitionRound.create({
       data: {
         eventId: parsed.data.eventId,
         title: sanitizeText(parsed.data.title).trim(),
         description: parsed.data.description ? sanitizeText(parsed.data.description).trim() : null,
         duration: parsed.data.duration,
+        participantScope: requestedScope,
+        allowedTeamIds,
         targetImageUrl: parsed.data.targetImageUrl || null,
         status: 'DRAFT',
       },
@@ -330,6 +381,12 @@ competitionRouter.get('/event/:eventId', optionalAuthMiddleware, async (req: Req
   try {
     const user = getAuthUser(req);
     const { eventId } = req.params;
+    const canViewTeamSelection = user?.role === 'ADMIN' || user?.role === 'PRESIDENT';
+    const event = await prisma.event.findUnique({
+      where: { id: eventId },
+      select: { id: true, teamRegistration: true },
+    });
+    if (!event) return ApiResponse.notFound(res, 'Event not found');
 
     const rounds = await withRetry(() => prisma.competitionRound.findMany({
       where: { eventId },
@@ -340,15 +397,30 @@ competitionRouter.get('/event/:eventId', optionalAuthMiddleware, async (req: Req
     }));
 
     let submittedRounds = new Set<string>();
+    let isRegistered = false;
+    let myTeam: Awaited<ReturnType<typeof getMyTeamInEvent>> = null;
     if (user) {
-      const myTeam = await getMyTeamInEvent(eventId, user.id);
+      const [registration, team] = await Promise.all([
+        prisma.eventRegistration.findUnique({
+          where: {
+            userId_eventId: {
+              userId: user.id,
+              eventId,
+            },
+          },
+          select: { id: true },
+        }),
+        getMyTeamInEvent(eventId, user.id),
+      ]);
+      isRegistered = Boolean(registration);
+      myTeam = team;
       const mySubmissionByRound = rounds.length > 0
         ? await prisma.competitionSubmission.findMany({
             where: {
               roundId: { in: rounds.map((r) => r.id) },
               OR: [
                 { userId: user.id },
-                ...(myTeam ? [{ teamId: myTeam.id }] : []),
+                ...(team ? [{ teamId: team.id }] : []),
               ],
             },
             select: { roundId: true },
@@ -365,11 +437,47 @@ competitionRouter.get('/event/:eventId', optionalAuthMiddleware, async (req: Req
       description: round.description ?? undefined,
       duration: round.duration,
       status: round.status,
+      participantScope: round.participantScope,
+      allowedTeamIds: canViewTeamSelection ? round.allowedTeamIds : undefined,
       startedAt: round.startedAt?.toISOString(),
       lockedAt: round.lockedAt?.toISOString(),
       remainingSeconds: round.status === 'ACTIVE' ? computeRemainingSeconds(round, nowMs) : null,
       submissionCount: round._count.submissions,
       hasSubmitted: user ? submittedRounds.has(round.id) : undefined,
+      isEligible: user
+        ? (
+            isRegistered
+            && (
+              !event.teamRegistration
+              || (
+                myTeam !== null
+                && (
+                  round.participantScope !== 'SELECTED_TEAMS'
+                  || round.allowedTeamIds.includes(myTeam.id)
+                )
+              )
+            )
+          )
+        : undefined,
+      eligibilityReason: user
+        ? (
+            !isRegistered
+              ? 'Register for this event to participate.'
+              : (
+                  event.teamRegistration
+                    ? (
+                        !myTeam
+                          ? 'Join a team to participate.'
+                          : (
+                              round.participantScope === 'SELECTED_TEAMS' && !round.allowedTeamIds.includes(myTeam.id)
+                                ? 'Your team is not selected for this round.'
+                                : undefined
+                            )
+                      )
+                    : undefined
+                )
+          )
+        : undefined,
       createdAt: round.createdAt.toISOString(),
       updatedAt: round.updatedAt.toISOString(),
     }));
@@ -404,6 +512,10 @@ competitionRouter.get('/:roundId', authMiddleware, async (req: Request, res: Res
     }
 
     const myTeam = await getMyTeamInEvent(round.eventId, user.id);
+    const participationError = getRoundParticipationError(round, myTeam);
+    if (participationError) {
+      return ApiResponse.forbidden(res, participationError);
+    }
     const hasSubmittedByUser = await prisma.competitionSubmission.findUnique({
       where: {
         roundId_userId: { roundId, userId: user.id },
@@ -426,6 +538,8 @@ competitionRouter.get('/:roundId', authMiddleware, async (req: Request, res: Res
       description: round.description ?? undefined,
       duration: round.duration,
       status: round.status,
+      participantScope: round.participantScope,
+      allowedTeamIds: round.allowedTeamIds,
       startedAt: round.startedAt?.toISOString(),
       lockedAt: round.lockedAt?.toISOString(),
       serverTime: serverTime.toISOString(),
@@ -681,8 +795,9 @@ competitionRouter.post('/:roundId/save', authMiddleware, saveLimiter, async (req
     }
 
     const myTeam = await getMyTeamInEvent(round.eventId, user.id);
-    if (round.event.teamRegistration && !myTeam) {
-      return ApiResponse.forbidden(res, 'You must join a team for this competition event.');
+    const participationError = getRoundParticipationError(round, myTeam);
+    if (participationError) {
+      return ApiResponse.forbidden(res, participationError);
     }
 
     const alreadySubmittedByUser = await prisma.competitionSubmission.findUnique({
@@ -809,8 +924,9 @@ competitionRouter.post('/:roundId/submit', authMiddleware, submitLimiter, async 
     }
 
     const myTeam = await getMyTeamInEvent(round.eventId, user.id);
-    if (round.event.teamRegistration && !myTeam) {
-      return ApiResponse.forbidden(res, 'You must join a team for this competition event.');
+    const participationError = getRoundParticipationError(round, myTeam);
+    if (participationError) {
+      return ApiResponse.forbidden(res, participationError);
     }
 
     if (myTeam) {
@@ -889,6 +1005,10 @@ competitionRouter.get('/:roundId/my-submission', authMiddleware, async (req: Req
     const user = getAuthUser(req)!;
     const round = await ensureRegisteredForRound(req.params.roundId, user.id);
     const myTeam = await getMyTeamInEvent(round.eventId, user.id);
+    const participationError = getRoundParticipationError(round, myTeam);
+    if (participationError) {
+      return ApiResponse.forbidden(res, participationError);
+    }
 
     const submission = await prisma.competitionSubmission.findUnique({
       where: {
@@ -993,10 +1113,13 @@ competitionRouter.get('/:roundId/submissions', authMiddleware, requireRole('ADMI
         title: true,
         status: true,
         targetImageUrl: true,
+        participantScope: true,
+        allowedTeamIds: true,
         event: {
           select: {
             id: true,
             title: true,
+            teamRegistration: true,
           },
         },
       },
@@ -1020,24 +1143,33 @@ competitionRouter.get('/:roundId/submissions', authMiddleware, requireRole('ADMI
         .map((submission) => submission.teamId)
         .filter((teamId): teamId is string => Boolean(teamId)),
     );
-    const missingTeams = await prisma.eventTeam.findMany({
-      where: {
-        eventId: round.event.id,
-        id: { notIn: Array.from(submittedTeamIds) },
-      },
-      select: {
-        id: true,
-        teamName: true,
-        members: {
+    const missingTeamIds =
+      round.participantScope === 'SELECTED_TEAMS'
+        ? round.allowedTeamIds.filter((teamId) => !submittedTeamIds.has(teamId))
+        : null;
+
+    const missingTeams = round.event.teamRegistration
+      ? await prisma.eventTeam.findMany({
+          where: {
+            eventId: round.event.id,
+            ...(missingTeamIds
+              ? { id: { in: missingTeamIds } }
+              : { id: { notIn: Array.from(submittedTeamIds) } }),
+          },
           select: {
-            user: {
-              select: { name: true },
+            id: true,
+            teamName: true,
+            members: {
+              select: {
+                user: {
+                  select: { name: true },
+                },
+              },
             },
           },
-        },
-      },
-      orderBy: { teamName: 'asc' },
-    });
+          orderBy: { teamName: 'asc' },
+        })
+      : [];
 
     return ApiResponse.success(res, {
       round: {
@@ -1046,6 +1178,8 @@ competitionRouter.get('/:roundId/submissions', authMiddleware, requireRole('ADMI
         eventId: round.event.id,
         eventTitle: round.event.title,
         status: round.status,
+        participantScope: round.participantScope,
+        allowedTeamIds: round.allowedTeamIds,
         targetImageUrl: round.targetImageUrl,
       },
       submissions: submissions.map((submission) => ({
@@ -1391,11 +1525,63 @@ competitionRouter.put('/:roundId', authMiddleware, requireRole('ADMIN'), async (
 
     const round = await prisma.competitionRound.findUnique({
       where: { id: req.params.roundId },
-      select: { id: true, status: true, eventId: true, title: true },
+      select: {
+        id: true,
+        status: true,
+        eventId: true,
+        title: true,
+        participantScope: true,
+        allowedTeamIds: true,
+        event: {
+          select: {
+            teamRegistration: true,
+          },
+        },
+      },
     });
     if (!round) return ApiResponse.notFound(res, 'Round not found');
     if (round.status === 'ACTIVE') {
       return ApiResponse.badRequest(res, 'Cannot edit an active round. Lock it first.');
+    }
+
+    if (!round.event.teamRegistration && parsed.data.participantScope === 'SELECTED_TEAMS') {
+      return ApiResponse.badRequest(res, 'Selected teams mode is only available for team events.');
+    }
+    if (
+      parsed.data.allowedTeamIds !== undefined
+      && parsed.data.participantScope === undefined
+      && round.participantScope === 'ALL'
+    ) {
+      return ApiResponse.badRequest(
+        res,
+        'Set participant scope to selected teams before choosing teams.',
+      );
+    }
+
+    const requestedScope = parsed.data.participantScope ?? round.participantScope;
+    let nextAllowedTeamIds = round.allowedTeamIds;
+    if (!round.event.teamRegistration || requestedScope === 'ALL') {
+      nextAllowedTeamIds = [];
+    } else {
+      const candidateTeamIds = normalizeTeamIds(
+        parsed.data.allowedTeamIds !== undefined
+          ? parsed.data.allowedTeamIds
+          : round.allowedTeamIds,
+      );
+      if (candidateTeamIds.length === 0) {
+        return ApiResponse.badRequest(res, 'Select at least one team for selected teams mode.');
+      }
+      const validTeams = await prisma.eventTeam.findMany({
+        where: {
+          eventId: round.eventId,
+          id: { in: candidateTeamIds },
+        },
+        select: { id: true },
+      });
+      if (validTeams.length !== candidateTeamIds.length) {
+        return ApiResponse.badRequest(res, 'One or more selected teams are invalid for this event.');
+      }
+      nextAllowedTeamIds = candidateTeamIds;
     }
 
     const updated = await prisma.competitionRound.update({
@@ -1404,6 +1590,8 @@ competitionRouter.put('/:roundId', authMiddleware, requireRole('ADMIN'), async (
         ...(parsed.data.title !== undefined ? { title: sanitizeText(parsed.data.title).trim() } : {}),
         ...(parsed.data.description !== undefined ? { description: sanitizeText(parsed.data.description).trim() || null } : {}),
         ...(parsed.data.duration !== undefined ? { duration: parsed.data.duration } : {}),
+        participantScope: (!round.event.teamRegistration || requestedScope === 'ALL') ? 'ALL' : 'SELECTED_TEAMS',
+        allowedTeamIds: nextAllowedTeamIds,
         ...(parsed.data.targetImageUrl !== undefined ? { targetImageUrl: parsed.data.targetImageUrl || null } : {}),
       },
     });
@@ -1439,9 +1627,6 @@ competitionRouter.delete('/:roundId', authMiddleware, requireRole('ADMIN'), asyn
       select: { id: true, status: true, eventId: true, title: true },
     });
     if (!round) return ApiResponse.notFound(res, 'Round not found');
-    if (round.status === 'ACTIVE') {
-      return ApiResponse.badRequest(res, 'Cannot delete an active round. Lock it first.');
-    }
 
     const timer = activeTimers.get(round.id);
     if (timer) clearTimeout(timer);

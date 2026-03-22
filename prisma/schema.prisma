@@ -233,6 +233,8 @@ model CompetitionRound {
   description   String?           @db.Text
   duration      Int
   status        CompetitionStatus @default(DRAFT)
+  participantScope CompetitionParticipantScope @default(ALL) @map("participant_scope")
+  allowedTeamIds String[]         @default([]) @map("allowed_team_ids")
   targetImageUrl String?          @map("target_image_url")
   startedAt     DateTime?         @map("started_at")
   lockedAt      DateTime?         @map("locked_at")
@@ -481,6 +483,11 @@ enum CompetitionStatus {
   LOCKED
   JUDGING
   FINISHED
+}
+
+enum CompetitionParticipantScope {
+  ALL
+  SELECTED_TEAMS
 }
 
 // Network Feature - Industry Professionals & Alumni

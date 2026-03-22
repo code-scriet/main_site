@@ -370,7 +370,7 @@ export default function CompetitionJudge() {
             {scoredCount}/{submissions.length} scored
           </Badge>
           <Badge variant="outline" className="border-amber-300 bg-amber-100 text-amber-800">
-            {missingTeams.length} no submission
+            {missingTeams.length} pending
           </Badge>
           <Button variant="outline" size="sm" className="gap-2" onClick={() => void load()}>
             <RefreshCw className="h-4 w-4" />
@@ -475,8 +475,8 @@ export default function CompetitionJudge() {
       {missingTeams.length > 0 && (
         <Card>
           <CardHeader>
-            <CardTitle className="text-lg">Teams with no submission</CardTitle>
-            <CardDescription>These registered teams did not submit any code before lock.</CardDescription>
+            <CardTitle className="text-lg">Eligible teams with no submission</CardTitle>
+            <CardDescription>These eligible teams did not submit any code before lock.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-2">
             {missingTeams.map((team) => (
