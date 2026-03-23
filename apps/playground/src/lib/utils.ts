@@ -5,6 +5,69 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
+const CODESCRIET_API_ORIGIN = 'https://api.codescriet.dev';
+const CODESCRIET_MAIN_SITE_ORIGIN = 'https://codescriet.dev';
+
+function parseOrigin(raw: string | undefined): string | null {
+  if (!raw) return null;
+  const value = raw.trim();
+  if (!value) return null;
+  try {
+    return new URL(value).origin;
+  } catch {
+    return null;
+  }
+}
+
+function isLocalHost(hostname: string): boolean {
+  return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1';
+}
+
+function isCodescrietHost(hostname: string): boolean {
+  return hostname === 'codescriet.dev' || hostname.endsWith('.codescriet.dev');
+}
+
+/**
+ * Resolve the main API origin used for shared auth (/api/auth/me) and competition calls.
+ * When running on *.codescriet.dev, force the API origin to api.codescriet.dev if an
+ * off-domain env value is provided so browser cookie auth can work cross-subdomain.
+ */
+export function getMainApiOrigin(): string {
+  const configured = parseOrigin(import.meta.env.VITE_MAIN_API_URL);
+  const currentHostname = typeof window !== 'undefined' ? window.location.hostname : '';
+
+  if (configured) {
+    if (currentHostname && isCodescrietHost(currentHostname)) {
+      const configuredHostname = new URL(configured).hostname.toLowerCase();
+      if (!isCodescrietHost(configuredHostname)) {
+        return CODESCRIET_API_ORIGIN;
+      }
+    }
+    return configured;
+  }
+
+  if (currentHostname && isLocalHost(currentHostname)) {
+    return 'http://localhost:5001';
+  }
+
+  return CODESCRIET_API_ORIGIN;
+}
+
+/**
+ * Resolve the main web origin for sign-in redirects.
+ */
+export function getMainSiteOrigin(): string {
+  const configured = parseOrigin(import.meta.env.VITE_MAIN_SITE_URL);
+  if (configured) return configured;
+
+  const currentHostname = typeof window !== 'undefined' ? window.location.hostname : '';
+  if (currentHostname && isLocalHost(currentHostname)) {
+    return 'http://localhost:5173';
+  }
+
+  return CODESCRIET_MAIN_SITE_ORIGIN;
+}
+
 /**
  * Debounce function for auto-save and other delayed operations
  */

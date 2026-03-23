@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, useEffect, useCallback, useMemo, type ReactNode } from 'react';
 import { endExecutionSession } from '@/utils/snippetsApi';
+import { getMainApiOrigin, getMainSiteOrigin } from '@/lib/utils';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -29,13 +30,8 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 // Helpers
 // ---------------------------------------------------------------------------
 
-const MAIN_SITE_API =
-  import.meta.env.VITE_MAIN_API_URL ||
-  (import.meta.env.DEV ? 'http://localhost:5001' : 'https://api.codescriet.dev');
-
-const MAIN_SITE_URL =
-  import.meta.env.VITE_MAIN_SITE_URL ||
-  (import.meta.env.DEV ? 'http://localhost:5173' : 'https://codescriet.dev');
+const MAIN_SITE_API = getMainApiOrigin();
+const MAIN_SITE_URL = getMainSiteOrigin();
 
 type FetchUserResult = {
   user: PlaygroundUser | null;

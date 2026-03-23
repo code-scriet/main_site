@@ -8,6 +8,7 @@ import { useTheme } from '@/context/ThemeContext';
 import { Loader2, Trophy, AlertCircle, CheckCircle2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
+import { getMainApiOrigin, getMainSiteOrigin } from '@/lib/utils';
 import { toast } from 'sonner';
 
 type CompetitionStatus = 'DRAFT' | 'ACTIVE' | 'LOCKED' | 'JUDGING' | 'FINISHED';
@@ -45,8 +46,8 @@ type SubmissionResponse = {
 
 type SaveState = 'idle' | 'saving' | 'saved' | 'failed' | 'offline';
 
-const API_URL = import.meta.env.VITE_MAIN_API_URL || (import.meta.env.DEV ? 'http://localhost:5001' : 'https://api.codescriet.dev');
-const MAIN_SITE_URL = import.meta.env.VITE_MAIN_SITE_URL || (import.meta.env.DEV ? 'http://localhost:5173' : 'https://codescriet.dev');
+const API_URL = getMainApiOrigin();
+const MAIN_SITE_URL = getMainSiteOrigin();
 const STORAGE_PREFIX = 'competition_autosave:';
 const HTML_BOILERPLATE = `<!DOCTYPE html>
 <html>
