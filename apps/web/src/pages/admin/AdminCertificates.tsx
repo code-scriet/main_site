@@ -269,7 +269,21 @@ interface GenerateFormData {
 
 const SIGNATORY_STORAGE_KEY = 'cert_signatory_defaults';
 
-function loadSignatoryDefaults(): Pick<GenerateFormData, 'signatoryId' | 'signatoryName' | 'signatoryTitle' | 'facultySignatoryId' | 'facultyName' | 'facultyTitle'> {
+type SignatoryDefaults = Pick<
+  GenerateFormData,
+  'signatoryId' | 'signatoryName' | 'signatoryTitle' | 'facultySignatoryId' | 'facultyName' | 'facultyTitle'
+>;
+
+const DEFAULT_SIGNATORY_DEFAULTS: SignatoryDefaults = {
+  signatoryId: '',
+  signatoryName: '',
+  signatoryTitle: 'Club President',
+  facultySignatoryId: '',
+  facultyName: '',
+  facultyTitle: 'Faculty Coordinator',
+};
+
+function loadSignatoryDefaults(): SignatoryDefaults {
   try {
     const saved = localStorage.getItem(SIGNATORY_STORAGE_KEY);
     if (saved) {
@@ -284,33 +298,33 @@ function loadSignatoryDefaults(): Pick<GenerateFormData, 'signatoryId' | 'signat
       };
     }
   } catch { /* ignore */ }
-  return { signatoryId: '', signatoryName: '', signatoryTitle: 'Club President', facultySignatoryId: '', facultyName: '', facultyTitle: 'Faculty Coordinator' };
+  return DEFAULT_SIGNATORY_DEFAULTS;
 }
 
-function saveSignatoryDefaults(data: { signatoryId: string; signatoryName: string; signatoryTitle: string; facultySignatoryId: string; facultyName: string; facultyTitle: string }) {
+function saveSignatoryDefaults(data: SignatoryDefaults) {
   try { localStorage.setItem(SIGNATORY_STORAGE_KEY, JSON.stringify(data)); } catch { /* ignore */ }
 }
 
-const sigDefaults = loadSignatoryDefaults();
-
-const defaultForm: GenerateFormData = {
-  recipientName: '',
-  recipientEmail: '',
-  eventName: '',
-  type: 'PARTICIPATION',
-  position: '',
-  domain: '',
-  description: '',
-  signatoryId: sigDefaults.signatoryId,
-  signatoryName: sigDefaults.signatoryName,
-  signatoryTitle: sigDefaults.signatoryTitle,
-  signatoryImageUrl: '',
-  facultySignatoryId: sigDefaults.facultySignatoryId,
-  facultyName: sigDefaults.facultyName,
-  facultyTitle: sigDefaults.facultyTitle,
-  facultyImageUrl: '',
-  sendEmail: false,
-};
+function createDefaultForm(defaults: SignatoryDefaults = DEFAULT_SIGNATORY_DEFAULTS): GenerateFormData {
+  return {
+    recipientName: '',
+    recipientEmail: '',
+    eventName: '',
+    type: 'PARTICIPATION',
+    position: '',
+    domain: '',
+    description: '',
+    signatoryId: defaults.signatoryId,
+    signatoryName: defaults.signatoryName,
+    signatoryTitle: defaults.signatoryTitle,
+    signatoryImageUrl: '',
+    facultySignatoryId: defaults.facultySignatoryId,
+    facultyName: defaults.facultyName,
+    facultyTitle: defaults.facultyTitle,
+    facultyImageUrl: '',
+    sendEmail: false,
+  };
+}
 
 interface BulkEntry {
   name: string;
@@ -426,7 +440,7 @@ export default function AdminCertificates() {
   const [certs, setCerts] = useState<Certificate[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
-  const totalPages = Math.ceil(total / 20);
+  const totalPages = total > 0 ? Math.ceil(total / 20) : 0;
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -442,7 +456,7 @@ export default function AdminCertificates() {
 
   // Generate modal
   const [showGenerate, setShowGenerate] = useState(false);
-  const [form, setForm] = useState<GenerateFormData>(defaultForm);
+  const [form, setForm] = useState<GenerateFormData>(() => createDefaultForm());
   const [generating, setGenerating] = useState(false);
   const [generateError, setGenerateError] = useState('');
 
@@ -450,16 +464,16 @@ export default function AdminCertificates() {
   const [showBulk, setShowBulk] = useState(false);
   const [bulkEventName, setBulkEventName] = useState('');
   const [bulkType, setBulkType] = useState<CertType>('PARTICIPATION');
-  const [bulkSignatoryId, setBulkSignatoryId] = useState(sigDefaults.signatoryId);
-  const [bulkSignatory, setBulkSignatory] = useState(sigDefaults.signatoryName);
-  const [bulkSignatoryTitle, setBulkSignatoryTitle] = useState(sigDefaults.signatoryTitle);
-  const [bulkFacultySignatoryId, setBulkFacultySignatoryId] = useState(sigDefaults.facultySignatoryId);
+  const [bulkSignatoryId, setBulkSignatoryId] = useState('');
+  const [bulkSignatory, setBulkSignatory] = useState('');
+  const [bulkSignatoryTitle, setBulkSignatoryTitle] = useState(DEFAULT_SIGNATORY_DEFAULTS.signatoryTitle);
+  const [bulkFacultySignatoryId, setBulkFacultySignatoryId] = useState('');
   const [bulkSignatoryImageUrl, setBulkSignatoryImageUrl] = useState('');
   const [bulkFacultyImageUrl, setBulkFacultyImageUrl] = useState('');
   const [bulkSendEmail, setBulkSendEmail] = useState(false);
   const [bulkDescription, setBulkDescription] = useState('');
-  const [bulkFacultyName, setBulkFacultyName] = useState(sigDefaults.facultyName);
-  const [bulkFacultyTitle, setBulkFacultyTitle] = useState(sigDefaults.facultyTitle);
+  const [bulkFacultyName, setBulkFacultyName] = useState('');
+  const [bulkFacultyTitle, setBulkFacultyTitle] = useState(DEFAULT_SIGNATORY_DEFAULTS.facultyTitle);
   const [bulkDomain, setBulkDomain] = useState('');
   const [bulkCsv, setBulkCsv] = useState('');
   const [bulkGenerating, setBulkGenerating] = useState(false);
@@ -501,6 +515,17 @@ export default function AdminCertificates() {
     setPage(1);
   }, [debouncedSearch, typeFilter]);
 
+  useEffect(() => {
+    const defaults = loadSignatoryDefaults();
+    setForm(createDefaultForm(defaults));
+    setBulkSignatoryId(defaults.signatoryId);
+    setBulkSignatory(defaults.signatoryName);
+    setBulkSignatoryTitle(defaults.signatoryTitle);
+    setBulkFacultySignatoryId(defaults.facultySignatoryId);
+    setBulkFacultyName(defaults.facultyName);
+    setBulkFacultyTitle(defaults.facultyTitle);
+  }, []);
+
   async function handleGenerate() {
     if (!form.recipientName.trim()) { setGenerateError('Recipient name is required'); return; }
     if (!form.recipientEmail.trim()) { setGenerateError('Recipient email is required'); return; }
@@ -530,17 +555,18 @@ export default function AdminCertificates() {
         facultyCustomImageUrl: !form.facultySignatoryId && form.facultyImageUrl ? form.facultyImageUrl : undefined,
         sendEmail: form.sendEmail,
       }, token!);
-      saveSignatoryDefaults({
+      const nextDefaults: SignatoryDefaults = {
         signatoryId: form.signatoryId,
         signatoryName: form.signatoryName,
         signatoryTitle: form.signatoryTitle,
         facultySignatoryId: form.facultySignatoryId,
         facultyName: form.facultyName,
         facultyTitle: form.facultyTitle,
-      });
+      };
+      saveSignatoryDefaults(nextDefaults);
       toast.success(`Certificate generated! ID: ${data.certId}`);
       setShowGenerate(false);
-      setForm(defaultForm);
+      setForm(createDefaultForm(nextDefaults));
       setGenerateError('');
       fetchCerts();
     } catch (err) {
@@ -645,14 +671,15 @@ export default function AdminCertificates() {
         description: bulkDescription || undefined,
         sendEmail: bulkSendEmail,
       }, token!);
-      saveSignatoryDefaults({
+      const nextDefaults: SignatoryDefaults = {
         signatoryId: bulkSignatoryId,
         signatoryName: bulkSignatory,
         signatoryTitle: bulkSignatoryTitle,
         facultySignatoryId: bulkFacultySignatoryId,
         facultyName: bulkFacultyName,
         facultyTitle: bulkFacultyTitle,
-      });
+      };
+      saveSignatoryDefaults(nextDefaults);
       toast.success(`Generated ${data.generated} certificates`);
       if (data.failed > 0) {
         toast.warning(`${data.failed} certificates failed to generate`);
@@ -666,6 +693,12 @@ export default function AdminCertificates() {
       setBulkParseErrors([]);
       setBulkSignatoryImageUrl('');
       setBulkFacultyImageUrl('');
+      setBulkSignatoryId(nextDefaults.signatoryId);
+      setBulkSignatory(nextDefaults.signatoryName);
+      setBulkSignatoryTitle(nextDefaults.signatoryTitle);
+      setBulkFacultySignatoryId(nextDefaults.facultySignatoryId);
+      setBulkFacultyName(nextDefaults.facultyName);
+      setBulkFacultyTitle(nextDefaults.facultyTitle);
       fetchCerts();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Bulk generation failed');

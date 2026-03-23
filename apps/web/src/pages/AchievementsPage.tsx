@@ -253,6 +253,8 @@ export default function AchievementsPage() {
   const [error, setError] = useState<string | null>(null);
   const { settings } = useSettings();
   const { isMobile, shouldReduceMotion } = useMotionConfig();
+  // TODO: Replace with a dynamic member impact count from the API or settings when available.
+  const memberImpactCount = '300+';
 
   useEffect(() => {
     const fetchAchievements = async () => {
@@ -438,7 +440,7 @@ export default function AchievementsPage() {
                   <div className="p-2.5 rounded-xl bg-gradient-to-br from-orange-50 to-amber-50 border border-orange-200 w-fit mb-3">
                     <Users className="h-5 w-5 text-orange-600" />
                   </div>
-                  <div className="text-3xl font-black text-gray-900 mb-1">300+</div>
+                  <div className="text-3xl font-black text-gray-900 mb-1">{memberImpactCount}</div>
                   <div className="text-xs text-amber-700 font-bold">Members</div>
                 </div>
               </motion.div>

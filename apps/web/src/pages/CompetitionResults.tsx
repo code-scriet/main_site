@@ -90,6 +90,18 @@ export default function CompetitionResults() {
 
         {!resultsQuery.isLoading && !errorMessage && (
           <>
+            {results.length === 0 && (
+              <Card className="border-amber-200 bg-amber-50/60">
+                <CardContent className="py-12 text-center space-y-3">
+                  <Trophy className="mx-auto h-10 w-10 text-amber-500/60" />
+                  <p className="text-lg font-semibold text-amber-900">No results yet</p>
+                  <p className="text-sm text-amber-700">
+                    Check back after judging is complete.
+                  </p>
+                </CardContent>
+              </Card>
+            )}
+
             {topThree.length > 0 && (
               <Card>
                 <CardHeader>
