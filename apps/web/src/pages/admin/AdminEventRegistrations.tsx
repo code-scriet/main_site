@@ -4,6 +4,16 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { Loader2, Calendar, Users, Search, Download, Mail, Trash2, Pencil, Phone, GraduationCap, RefreshCw, CheckCircle, AlertCircle, Lock, Unlock, Crown, LayoutList, LayoutGrid } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { api } from '@/lib/api';
@@ -56,6 +66,12 @@ export default function AdminEventRegistrations() {
   const [teamGroupView, setTeamGroupView] = useState<string | null>(null);
   const [teamData, setTeamData] = useState<Map<string, EventTeam[]>>(new Map());
   const [teamDataLoading, setTeamDataLoading] = useState<string | null>(null);
+  const [confirmDialog, setConfirmDialog] = useState<
+    | { type: 'event'; eventId: string; eventTitle: string }
+    | { type: 'registration'; eventId: string; registrationId: string; userName: string }
+    | { type: 'team'; eventId: string; teamId: string; teamName: string }
+    | null
+  >(null);
 
   useEffect(() => {
     loadEvents();
@@ -140,17 +156,13 @@ export default function AdminEventRegistrations() {
       setError('Authentication required');
       return;
     }
-    
-    const confirmed = window.confirm(
-      `Are you sure you want to delete "${eventTitle}"? This action cannot be undone and will remove all registrations for this event.`
-    );
-    
-    if (!confirmed) return;
-    
+
     try {
       setDeletingId(eventId);
       setError(null);
       await api.deleteEvent(eventId, token);
+      setConfirmDialog(null);
+      toast.success(`Deleted "${eventTitle}"`);
       await loadEvents();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to delete event');
@@ -164,13 +176,7 @@ export default function AdminEventRegistrations() {
       setError('Authentication required');
       return;
     }
-    
-    const confirmed = window.confirm(
-      `Are you sure you want to remove "${userName}" from this event?`
-    );
-    
-    if (!confirmed) return;
-    
+
     try {
       setDeletingRegId(registrationId);
       setError(null);
@@ -184,6 +190,8 @@ export default function AdminEventRegistrations() {
         throw new Error('Failed to delete registration');
       }
       
+      setConfirmDialog(null);
+      toast.success(`Removed ${userName} from the event`);
       await loadEvents();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to remove participant');
@@ -224,14 +232,13 @@ export default function AdminEventRegistrations() {
   };
 
   const handleAdminDissolve = async (teamId: string, teamName: string, eventId: string) => {
-    const confirmed = window.confirm(`Dissolve team "${teamName}"? This will cancel all member registrations.`);
-    if (!confirmed) return;
     try {
       await api.adminDissolveTeam(teamId, token!);
       const result = await api.getEventTeams(eventId, token!);
       setTeamData(prev => new Map(prev).set(eventId, result.teams));
       await loadEvents();
-      toast.success('Team dissolved');
+      setConfirmDialog(null);
+      toast.success(`Dissolved "${teamName}"`);
     } catch (err) {
       toast.error(extractApiErrorMessage(err, 'Failed to dissolve team'));
     }
@@ -445,7 +452,7 @@ export default function AdminEventRegistrations() {
                       <Button
                         size="sm"
                         variant="outline"
-                        onClick={() => handleDeleteEvent(event.id, event.title)}
+                        onClick={() => setConfirmDialog({ type: 'event', eventId: event.id, eventTitle: event.title })}
                         disabled={deletingId === event.id}
                         className="text-red-600 hover:text-red-700 hover:bg-red-50"
                       >
@@ -493,7 +500,7 @@ export default function AdminEventRegistrations() {
                                     <Button size="sm" variant="ghost" className="h-7 px-2" onClick={() => handleAdminToggleLock(team.id, event.id)}>
                                       {team.isLocked ? <Unlock className="h-3.5 w-3.5" /> : <Lock className="h-3.5 w-3.5" />}
                                     </Button>
-                                    <Button size="sm" variant="ghost" className="h-7 px-2 text-red-600 hover:text-red-700 hover:bg-red-50" onClick={() => handleAdminDissolve(team.id, team.teamName, event.id)}>
+                                    <Button size="sm" variant="ghost" className="h-7 px-2 text-red-600 hover:text-red-700 hover:bg-red-50" onClick={() => setConfirmDialog({ type: 'team', teamId: team.id, teamName: team.teamName, eventId: event.id })}>
                                       <Trash2 className="h-3.5 w-3.5" />
                                     </Button>
                                   </div>
@@ -517,7 +524,7 @@ export default function AdminEventRegistrations() {
                                             <span className="text-xs text-gray-500">{registration.user.email}</span>
                                           </div>
                                         </div>
-                                        <Button size="sm" variant="ghost" onClick={() => handleDeleteRegistration(event.id, registration.id, registration.user.name)} disabled={deletingRegId === registration.id} className="text-red-600 hover:text-red-700 hover:bg-red-50 h-7">
+                                        <Button size="sm" variant="ghost" onClick={() => setConfirmDialog({ type: 'registration', eventId: event.id, registrationId: registration.id, userName: registration.user.name })} disabled={deletingRegId === registration.id} className="text-red-600 hover:text-red-700 hover:bg-red-50 h-7">
                                           {deletingRegId === registration.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
                                         </Button>
                                       </div>
@@ -553,7 +560,7 @@ export default function AdminEventRegistrations() {
                                           <span className="text-xs text-gray-500 ml-2">{registration.user.email}</span>
                                         </div>
                                       </div>
-                                      <Button size="sm" variant="ghost" onClick={() => handleDeleteRegistration(event.id, registration.id, registration.user.name)} disabled={deletingRegId === registration.id} className="text-red-600 hover:text-red-700 hover:bg-red-50 h-7">
+                                      <Button size="sm" variant="ghost" onClick={() => setConfirmDialog({ type: 'registration', eventId: event.id, registrationId: registration.id, userName: registration.user.name })} disabled={deletingRegId === registration.id} className="text-red-600 hover:text-red-700 hover:bg-red-50 h-7">
                                         {deletingRegId === registration.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
                                       </Button>
                                     </div>
@@ -617,7 +624,7 @@ export default function AdminEventRegistrations() {
                               <Button
                                 size="sm"
                                 variant="ghost"
-                                onClick={() => handleDeleteRegistration(event.id, registration.id, registration.user.name)}
+                                onClick={() => setConfirmDialog({ type: 'registration', eventId: event.id, registrationId: registration.id, userName: registration.user.name })}
                                 disabled={deletingRegId === registration.id}
                                 className="text-red-600 hover:text-red-700 hover:bg-red-50"
                               >
@@ -639,6 +646,55 @@ export default function AdminEventRegistrations() {
           ))
         )}
       </div>
+
+      <AlertDialog open={Boolean(confirmDialog)} onOpenChange={(open) => !open && setConfirmDialog(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {confirmDialog?.type === 'event'
+                ? 'Delete event?'
+                : confirmDialog?.type === 'team'
+                  ? 'Dissolve team?'
+                  : 'Remove registration?'}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {confirmDialog?.type === 'event' && (
+                `This will permanently delete "${confirmDialog.eventTitle}" and remove all registrations for this event.`
+              )}
+              {confirmDialog?.type === 'team' && (
+                `This will dissolve "${confirmDialog.teamName}" and cancel all member registrations.`
+              )}
+              {confirmDialog?.type === 'registration' && (
+                `This will remove "${confirmDialog.userName}" from this event.`
+              )}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-red-600 hover:bg-red-700"
+              onClick={() => {
+                if (!confirmDialog) return;
+                if (confirmDialog.type === 'event') {
+                  void handleDeleteEvent(confirmDialog.eventId, confirmDialog.eventTitle);
+                  return;
+                }
+                if (confirmDialog.type === 'team') {
+                  void handleAdminDissolve(confirmDialog.teamId, confirmDialog.teamName, confirmDialog.eventId);
+                  return;
+                }
+                void handleDeleteRegistration(confirmDialog.eventId, confirmDialog.registrationId, confirmDialog.userName);
+              }}
+            >
+              {confirmDialog?.type === 'event'
+                ? 'Delete Event'
+                : confirmDialog?.type === 'team'
+                  ? 'Dissolve Team'
+                  : 'Remove Registration'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

@@ -15,6 +15,16 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent as ConfirmDialogContent,
+  AlertDialogDescription as ConfirmDialogDescription,
+  AlertDialogFooter as ConfirmDialogFooter,
+  AlertDialogHeader as ConfirmDialogHeader,
+  AlertDialogTitle as ConfirmDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { Textarea } from '@/components/ui/textarea';
 import { Markdown } from '@/components/ui/markdown';
 import {
@@ -99,6 +109,10 @@ export default function AdminNetwork() {
   const [editSaving, setEditSaving] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
   const [exporting, setExporting] = useState(false);
+  const [pendingUserAction, setPendingUserAction] = useState<{
+    type: 'revert' | 'delete';
+    pendingUser: PendingNetworkUser;
+  } | null>(null);
 
   const fetchProfiles = async () => {
     if (!token) return;
@@ -186,14 +200,10 @@ export default function AdminNetwork() {
 
   const handleRevertPendingUser = async (pendingUser: PendingNetworkUser) => {
     if (!token) return;
-    const shouldProceed = window.confirm(
-      `Move ${pendingUser.email} back to normal user flow? They will no longer appear in pending onboarding.`
-    );
-    if (!shouldProceed) return;
-
     setActionLoading(true);
     try {
       await api.revertPendingNetworkUser(pendingUser.id, token);
+      setPendingUserAction(null);
       await fetchProfiles();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Failed to move user back to normal flow');
@@ -204,14 +214,10 @@ export default function AdminNetwork() {
 
   const handleDeletePendingUser = async (pendingUser: PendingNetworkUser) => {
     if (!token) return;
-    const shouldProceed = window.confirm(
-      `Delete ${pendingUser.email}? This cannot be undone.`
-    );
-    if (!shouldProceed) return;
-
     setActionLoading(true);
     try {
       await api.deletePendingNetworkUser(pendingUser.id, token);
+      setPendingUserAction(null);
       await fetchProfiles();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Failed to delete pending user');
@@ -540,7 +546,7 @@ export default function AdminNetwork() {
                           <Button
                             size="sm"
                             variant="outline"
-                            onClick={() => handleRevertPendingUser(pendingUser)}
+                            onClick={() => setPendingUserAction({ type: 'revert', pendingUser })}
                             disabled={actionLoading}
                           >
                             Move to Users
@@ -548,7 +554,7 @@ export default function AdminNetwork() {
                           <Button
                             size="sm"
                             variant="destructive"
-                            onClick={() => handleDeletePendingUser(pendingUser)}
+                            onClick={() => setPendingUserAction({ type: 'delete', pendingUser })}
                             disabled={actionLoading}
                           >
                             Delete
@@ -1303,6 +1309,39 @@ export default function AdminNetwork() {
             )}
           </DialogContent>
         </Dialog>
+
+        <AlertDialog open={Boolean(pendingUserAction)} onOpenChange={(open) => !open && setPendingUserAction(null)}>
+          <ConfirmDialogContent>
+            <ConfirmDialogHeader>
+              <ConfirmDialogTitle>
+                {pendingUserAction?.type === 'revert' ? 'Move user back to normal flow?' : 'Delete pending onboarding account?'}
+              </ConfirmDialogTitle>
+              <ConfirmDialogDescription>
+                {pendingUserAction?.type === 'revert' && pendingUserAction?.pendingUser
+                  ? `${pendingUserAction.pendingUser.email} will no longer appear in pending onboarding.`
+                  : pendingUserAction?.pendingUser
+                    ? `This will permanently delete ${pendingUserAction.pendingUser.email}.`
+                    : 'Confirm this pending user action.'}
+              </ConfirmDialogDescription>
+            </ConfirmDialogHeader>
+            <ConfirmDialogFooter>
+              <AlertDialogCancel>Cancel</AlertDialogCancel>
+              <AlertDialogAction
+                className={pendingUserAction?.type === 'delete' ? 'bg-red-600 hover:bg-red-700' : ''}
+                onClick={() => {
+                  if (!pendingUserAction) return;
+                  if (pendingUserAction.type === 'revert') {
+                    void handleRevertPendingUser(pendingUserAction.pendingUser);
+                    return;
+                  }
+                  void handleDeletePendingUser(pendingUserAction.pendingUser);
+                }}
+              >
+                {pendingUserAction?.type === 'revert' ? 'Move to Users' : 'Delete Account'}
+              </AlertDialogAction>
+            </ConfirmDialogFooter>
+          </ConfirmDialogContent>
+        </AlertDialog>
     </div>
   );
 }

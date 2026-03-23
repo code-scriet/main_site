@@ -17,6 +17,16 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent as ConfirmDialogContent,
+  AlertDialogDescription as ConfirmDialogDescription,
+  AlertDialogFooter as ConfirmDialogFooter,
+  AlertDialogHeader as ConfirmDialogHeader,
+  AlertDialogTitle as ConfirmDialogTitle,
+} from '@/components/ui/alert-dialog';
+import {
   ArrowLeft,
   ClipboardCheck,
   Copy,
@@ -108,6 +118,7 @@ export default function CompetitionJudge() {
   const [codeModalOpen, setCodeModalOpen] = useState(false);
   const [activeCodeSubmission, setActiveCodeSubmission] = useState<CompetitionSubmission | null>(null);
   const [savingAll, setSavingAll] = useState(false);
+  const [publishDialogOpen, setPublishDialogOpen] = useState(false);
 
   const load = useCallback(async () => {
     if (!token || !roundId) return;
@@ -268,10 +279,6 @@ export default function CompetitionJudge() {
   const publishResults = async () => {
     if (!token) return;
     if (unsavedIds.length > 0) {
-      const confirmed = window.confirm(
-        `You have ${unsavedIds.length} unsaved score(s). Save all and publish results?\n\nRanks will be auto-computed from scores (highest = #1).`,
-      );
-      if (!confirmed) return;
       // Save all unsaved scores first, then publish
       setSavingAll(true);
       try {
@@ -291,15 +298,12 @@ export default function CompetitionJudge() {
       }
       setSavingAll(false);
     } else {
-      const confirmed = window.confirm(
-        'Publish results? Ranks will be auto-computed from scores (highest = #1).\n\nThis makes results visible to participants.',
-      );
-      if (!confirmed) return;
     }
 
     try {
       await api.finishCompetition(roundId, token);
       setSuccess('Results published — ranks computed from scores');
+      setPublishDialogOpen(false);
       await load();
     } catch (err) {
       setError(extractApiErrorMessage(err, 'Failed to publish results'));
@@ -639,7 +643,7 @@ export default function CompetitionJudge() {
             <Button
               className="gap-2"
               disabled={!allScored || round.status !== 'JUDGING'}
-              onClick={() => void publishResults()}
+              onClick={() => setPublishDialogOpen(true)}
             >
               <Trophy className="h-4 w-4" />
               Publish Results
@@ -675,6 +679,25 @@ export default function CompetitionJudge() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <AlertDialog open={publishDialogOpen} onOpenChange={setPublishDialogOpen}>
+        <ConfirmDialogContent>
+          <ConfirmDialogHeader>
+            <ConfirmDialogTitle>Publish results?</ConfirmDialogTitle>
+            <ConfirmDialogDescription>
+              {unsavedIds.length > 0
+                ? `You have ${unsavedIds.length} unsaved score(s). They will be saved before results are published, and ranks will be auto-computed from scores.`
+                : 'Ranks will be auto-computed from scores and results will become visible to participants.'}
+            </ConfirmDialogDescription>
+          </ConfirmDialogHeader>
+          <ConfirmDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={() => void publishResults()}>
+              Publish Results
+            </AlertDialogAction>
+          </ConfirmDialogFooter>
+        </ConfirmDialogContent>
+      </AlertDialog>
     </div>
   );
 }

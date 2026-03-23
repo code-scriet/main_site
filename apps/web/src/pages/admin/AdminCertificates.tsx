@@ -11,6 +11,16 @@ import {
   DialogTitle,
   DialogFooter,
 } from '@/components/ui/dialog';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent as ConfirmDialogContent,
+  AlertDialogDescription as ConfirmDialogDescription,
+  AlertDialogFooter as ConfirmDialogFooter,
+  AlertDialogHeader as ConfirmDialogHeader,
+  AlertDialogTitle as ConfirmDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { useAuth } from '@/context/AuthContext';
 import { useSettings } from '@/context/SettingsContext';
 import { api } from '@/lib/api';
@@ -343,6 +353,7 @@ export default function AdminCertificates() {
   const [sigModalUploading, setSigModalUploading] = useState(false);
   const [sigModalSaving, setSigModalSaving] = useState(false);
   const [sigModalClearImg, setSigModalClearImg] = useState(false);
+  const [signatoryToDelete, setSignatoryToDelete] = useState<FullSignatory | null>(null);
 
   const fetchAllSignatories = useCallback(async () => {
     if (!token) return;
@@ -405,6 +416,7 @@ export default function AdminCertificates() {
       } else {
         toast.success('Signature deleted');
       }
+      setSignatoryToDelete(null);
       fetchAllSignatories();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Delete failed');
@@ -801,7 +813,7 @@ export default function AdminCertificates() {
                       <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-gray-400 hover:text-gray-700" onClick={() => openSigModal(sig)} title="Edit">
                         <PenLine className="w-3.5 h-3.5" />
                       </Button>
-                      <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-gray-400 hover:text-red-600" onClick={() => { if (window.confirm(`Delete signature "${sig.name}"?`)) void deleteSig(sig.id); }} title="Delete">
+                      <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-gray-400 hover:text-red-600" onClick={() => setSignatoryToDelete(sig)} title="Delete">
                         <Trash2 className="w-3.5 h-3.5" />
                       </Button>
                     </div>
@@ -812,6 +824,32 @@ export default function AdminCertificates() {
           )}
         </CardContent>
       </Card>
+
+      <AlertDialog open={Boolean(signatoryToDelete)} onOpenChange={(open) => !open && setSignatoryToDelete(null)}>
+        <ConfirmDialogContent>
+          <ConfirmDialogHeader>
+            <ConfirmDialogTitle>Delete saved signature?</ConfirmDialogTitle>
+            <ConfirmDialogDescription>
+              {signatoryToDelete
+                ? `This will delete "${signatoryToDelete.name}" unless it is referenced by existing certificates, in which case it will be deactivated.`
+                : 'This signature will be removed from the certificate picker.'}
+            </ConfirmDialogDescription>
+          </ConfirmDialogHeader>
+          <ConfirmDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-red-600 hover:bg-red-700"
+              onClick={() => {
+                if (signatoryToDelete) {
+                  void deleteSig(signatoryToDelete.id);
+                }
+              }}
+            >
+              Delete Signature
+            </AlertDialogAction>
+          </ConfirmDialogFooter>
+        </ConfirmDialogContent>
+      </AlertDialog>
 
       {/* Filters */}
       <Card>

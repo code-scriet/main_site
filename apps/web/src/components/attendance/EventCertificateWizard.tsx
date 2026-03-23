@@ -6,11 +6,15 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent as ConfirmDialogContent,
+  AlertDialogDescription as ConfirmDialogDescription,
+  AlertDialogFooter as ConfirmDialogFooter,
+  AlertDialogHeader as ConfirmDialogHeader,
+  AlertDialogTitle as ConfirmDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { motion, AnimatePresence } from 'framer-motion';
 import { toast } from 'sonner';
 import {
@@ -125,6 +129,7 @@ export default function EventCertificateWizard({
     certId: string;
     recipientName: string;
   } | null>(null);
+  const [generateConfirmOpen, setGenerateConfirmOpen] = useState(false);
   const [bulkResending, setBulkResending] = useState(false);
 
   // -----------------------------------------------------------------------
@@ -241,10 +246,6 @@ export default function EventCertificateWizard({
   // -----------------------------------------------------------------------
 
   async function handleGenerate() {
-    const confirmed = window.confirm(
-      `Generate ${selectedIds.size} certificate${selectedIds.size !== 1 ? 's' : ''}? This will create PDF files and cannot be easily undone.`
-    );
-    if (!confirmed) return;
     setGenerating(true);
     setGenerateError(null);
     try {
@@ -285,6 +286,7 @@ export default function EventCertificateWizard({
         emailSent: true,
       }));
       setGeneratedCerts(certs);
+      setGenerateConfirmOpen(false);
       setStep('manage');
     } catch (err: unknown) {
       const message =
@@ -1056,7 +1058,7 @@ export default function EventCertificateWizard({
             <ArrowLeft className="w-4 h-4 mr-1.5" />
             Back
           </Button>
-          <Button onClick={handleGenerate} disabled={generating}>
+          <Button onClick={() => setGenerateConfirmOpen(true)} disabled={generating}>
             {generating ? (
               <>
                 <Loader2 className="w-4 h-4 mr-1.5 animate-spin" />
@@ -1320,24 +1322,24 @@ export default function EventCertificateWizard({
     const loading = actionLoading[`confirm-${confirmDialog.certId}`];
 
     return (
-      <Dialog
+      <AlertDialog
         open={confirmDialog.open}
         onOpenChange={(open) => {
           if (!open && !loading) setConfirmDialog(null);
         }}
       >
-        <DialogContent className="max-w-sm">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
+        <ConfirmDialogContent className="max-w-sm">
+          <ConfirmDialogHeader>
+            <ConfirmDialogTitle className="flex items-center gap-2">
               {isRevoke ? (
                 <XCircle className="w-5 h-5 text-amber-500" />
               ) : (
                 <Trash2 className="w-5 h-5 text-red-500" />
               )}
               {isRevoke ? 'Revoke Certificate' : 'Delete Certificate'}
-            </DialogTitle>
-          </DialogHeader>
-          <p className="text-sm text-gray-600 dark:text-gray-400">
+            </ConfirmDialogTitle>
+          </ConfirmDialogHeader>
+          <ConfirmDialogDescription>
             Are you sure you want to {isRevoke ? 'revoke' : 'permanently delete'} the
             certificate for{' '}
             <span className="font-medium text-gray-900 dark:text-white">
@@ -1345,19 +1347,11 @@ export default function EventCertificateWizard({
             </span>
             ?
             {!isRevoke && ' This action cannot be undone.'}
-          </p>
-          <div className="flex justify-end gap-2 mt-4">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setConfirmDialog(null)}
-              disabled={loading}
-            >
-              Cancel
-            </Button>
-            <Button
-              variant={isRevoke ? 'default' : 'destructive'}
-              size="sm"
+          </ConfirmDialogDescription>
+          <ConfirmDialogFooter>
+            <AlertDialogCancel disabled={loading}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className={isRevoke ? '' : 'bg-red-600 hover:bg-red-700'}
               onClick={handleConfirmAction}
               disabled={loading}
             >
@@ -1365,10 +1359,10 @@ export default function EventCertificateWizard({
                 <Loader2 className="w-4 h-4 mr-1.5 animate-spin" />
               ) : null}
               {isRevoke ? 'Revoke' : 'Delete'}
-            </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
+            </AlertDialogAction>
+          </ConfirmDialogFooter>
+        </ConfirmDialogContent>
+      </AlertDialog>
     );
   }
 
@@ -1394,6 +1388,30 @@ export default function EventCertificateWizard({
           {step === 'manage' && renderManagement()}
         </AnimatePresence>
         {renderConfirmDialog()}
+
+        <AlertDialog open={generateConfirmOpen} onOpenChange={setGenerateConfirmOpen}>
+          <ConfirmDialogContent>
+            <ConfirmDialogHeader>
+              <ConfirmDialogTitle>Generate certificates?</ConfirmDialogTitle>
+              <ConfirmDialogDescription>
+                {`This will generate ${selectedIds.size} certificate${selectedIds.size !== 1 ? 's' : ''}, upload the PDF files, and email the selected recipients.`}
+              </ConfirmDialogDescription>
+            </ConfirmDialogHeader>
+            <ConfirmDialogFooter>
+              <AlertDialogCancel disabled={generating}>Cancel</AlertDialogCancel>
+              <AlertDialogAction onClick={() => void handleGenerate()} disabled={generating}>
+                {generating ? (
+                  <>
+                    <Loader2 className="w-4 h-4 mr-1.5 animate-spin" />
+                    Generating...
+                  </>
+                ) : (
+                  'Generate Certificates'
+                )}
+              </AlertDialogAction>
+            </ConfirmDialogFooter>
+          </ConfirmDialogContent>
+        </AlertDialog>
       </CardContent>
     </Card>
   );

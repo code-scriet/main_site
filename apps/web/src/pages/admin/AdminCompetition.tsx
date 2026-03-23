@@ -17,6 +17,16 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent as ConfirmDialogContent,
+  AlertDialogDescription as ConfirmDialogDescription,
+  AlertDialogFooter as ConfirmDialogFooter,
+  AlertDialogHeader as ConfirmDialogHeader,
+  AlertDialogTitle as ConfirmDialogTitle,
+} from '@/components/ui/alert-dialog';
+import {
   Calendar,
   Loader2,
   Plus,
@@ -93,6 +103,10 @@ export default function AdminCompetition() {
   const [editingRound, setEditingRound] = useState<CompetitionRound | null>(null);
   const [form, setForm] = useState<FormState>(DEFAULT_FORM);
   const [eventTeamsMap, setEventTeamsMap] = useState<Record<string, EventTeam[]>>({});
+  const [roundActionDialog, setRoundActionDialog] = useState<{
+    action: 'start' | 'lock' | 'delete';
+    round: CompetitionRound;
+  } | null>(null);
 
   const getCompetitionRoundUrl = (roundId: string) => {
     return `${BASE_PLAYGROUND_URL}/competition/${roundId}`;
@@ -240,11 +254,10 @@ export default function AdminCompetition() {
 
   const onStartRound = async (roundId: string) => {
     if (!token) return;
-    const confirmed = window.confirm('Start this round? Contestants will be able to see the editor and the countdown timer will begin.');
-    if (!confirmed) return;
     try {
       await api.startCompetitionRound(roundId, token);
       setSuccess('Round started');
+      setRoundActionDialog(null);
       await load();
     } catch (err) {
       setError(extractApiErrorMessage(err, 'Failed to start round'));
@@ -253,11 +266,10 @@ export default function AdminCompetition() {
 
   const onLockRound = async (roundId: string) => {
     if (!token) return;
-    const confirmed = window.confirm('Lock this round now? All unsaved work will be auto-submitted and contestants will no longer be able to edit.');
-    if (!confirmed) return;
     try {
       await api.lockCompetitionRound(roundId, token);
       setSuccess('Round locked');
+      setRoundActionDialog(null);
       await load();
     } catch (err) {
       setError(extractApiErrorMessage(err, 'Failed to lock round'));
@@ -288,11 +300,10 @@ export default function AdminCompetition() {
 
   const onDeleteRound = async (round: CompetitionRound) => {
     if (!token) return;
-    const confirmed = window.confirm(`Delete "${round.title}"?`);
-    if (!confirmed) return;
     try {
       await api.deleteCompetitionRound(round.id, token);
       setSuccess('Round deleted');
+      setRoundActionDialog(null);
       await load();
     } catch (err) {
       setError(extractApiErrorMessage(err, 'Failed to delete round'));
@@ -479,7 +490,7 @@ export default function AdminCompetition() {
                         <div className="flex flex-wrap gap-2">
                           {round.status === 'DRAFT' && (
                             <>
-                              <Button size="sm" className="gap-2" onClick={() => void onStartRound(round.id)}>
+                              <Button size="sm" className="gap-2" onClick={() => setRoundActionDialog({ action: 'start', round })}>
                                 <Play className="h-4 w-4" />
                                 Start Round
                               </Button>
@@ -498,7 +509,7 @@ export default function AdminCompetition() {
                                 <Pencil className="h-4 w-4" />
                                 Edit
                               </Button>
-                              <Button size="sm" variant="outline" className="gap-2 text-red-600" onClick={() => void onDeleteRound(round)}>
+                              <Button size="sm" variant="outline" className="gap-2 text-red-600" onClick={() => setRoundActionDialog({ action: 'delete', round })}>
                                 <Trash2 className="h-4 w-4" />
                                 Delete
                               </Button>
@@ -507,7 +518,7 @@ export default function AdminCompetition() {
 
                           {round.status === 'ACTIVE' && (
                             <>
-                              <Button size="sm" variant="outline" className="gap-2" onClick={() => void onLockRound(round.id)}>
+                              <Button size="sm" variant="outline" className="gap-2" onClick={() => setRoundActionDialog({ action: 'lock', round })}>
                                 <Square className="h-4 w-4" />
                                 Lock Now
                               </Button>
@@ -526,7 +537,7 @@ export default function AdminCompetition() {
                                 <Eye className="h-4 w-4" />
                                 View Submissions
                               </Button>
-                              <Button size="sm" variant="outline" className="gap-2 text-red-600" onClick={() => void onDeleteRound(round)}>
+                              <Button size="sm" variant="outline" className="gap-2 text-red-600" onClick={() => setRoundActionDialog({ action: 'delete', round })}>
                                 <Trash2 className="h-4 w-4" />
                                 Delete
                               </Button>
@@ -554,7 +565,7 @@ export default function AdminCompetition() {
                                 <Eye className="h-4 w-4" />
                                 View Submissions
                               </Button>
-                              <Button size="sm" variant="outline" className="gap-2 text-red-600" onClick={() => void onDeleteRound(round)}>
+                              <Button size="sm" variant="outline" className="gap-2 text-red-600" onClick={() => setRoundActionDialog({ action: 'delete', round })}>
                                 <Trash2 className="h-4 w-4" />
                                 Delete
                               </Button>
@@ -571,7 +582,7 @@ export default function AdminCompetition() {
                                  <CheckCircle2 className="h-4 w-4" />
                                  Publish Results
                                </Button>
-                               <Button size="sm" variant="outline" className="gap-2 text-red-600" onClick={() => void onDeleteRound(round)}>
+                               <Button size="sm" variant="outline" className="gap-2 text-red-600" onClick={() => setRoundActionDialog({ action: 'delete', round })}>
                                  <Trash2 className="h-4 w-4" />
                                  Delete
                                </Button>
@@ -588,7 +599,7 @@ export default function AdminCompetition() {
                                   <Download className="h-4 w-4" />
                                   Export Results
                                 </Button>
-                                <Button size="sm" variant="outline" className="gap-2 text-red-600" onClick={() => void onDeleteRound(round)}>
+                                <Button size="sm" variant="outline" className="gap-2 text-red-600" onClick={() => setRoundActionDialog({ action: 'delete', round })}>
                                   <Trash2 className="h-4 w-4" />
                                   Delete
                                 </Button>
@@ -756,6 +767,53 @@ export default function AdminCompetition() {
           </form>
         </DialogContent>
       </Dialog>
+
+      <AlertDialog open={Boolean(roundActionDialog)} onOpenChange={(open) => !open && setRoundActionDialog(null)}>
+        <ConfirmDialogContent>
+          <ConfirmDialogHeader>
+            <ConfirmDialogTitle>
+              {roundActionDialog?.action === 'start'
+                ? 'Start round?'
+                : roundActionDialog?.action === 'lock'
+                  ? 'Lock round now?'
+                  : 'Delete round?'}
+            </ConfirmDialogTitle>
+            <ConfirmDialogDescription>
+              {roundActionDialog?.action === 'start' && 'Contestants will be able to see the editor and the countdown timer will begin.'}
+              {roundActionDialog?.action === 'lock' && 'All unsaved work will be auto-submitted and contestants will no longer be able to edit.'}
+              {roundActionDialog?.action === 'delete' && (
+                roundActionDialog.round
+                  ? `This will permanently delete "${roundActionDialog.round.title}".`
+                  : 'This round will be permanently deleted.'
+              )}
+            </ConfirmDialogDescription>
+          </ConfirmDialogHeader>
+          <ConfirmDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className={roundActionDialog?.action === 'delete' ? 'bg-red-600 hover:bg-red-700' : ''}
+              onClick={() => {
+                if (!roundActionDialog) return;
+                if (roundActionDialog.action === 'start') {
+                  void onStartRound(roundActionDialog.round.id);
+                  return;
+                }
+                if (roundActionDialog.action === 'lock') {
+                  void onLockRound(roundActionDialog.round.id);
+                  return;
+                }
+                void onDeleteRound(roundActionDialog.round);
+              }}
+            >
+              {roundActionDialog?.action === 'start'
+                ? 'Start Round'
+                : roundActionDialog?.action === 'lock'
+                  ? 'Lock Round'
+                  : 'Delete Round'}
+            </AlertDialogAction>
+          </ConfirmDialogFooter>
+        </ConfirmDialogContent>
+      </AlertDialog>
     </div>
   );
 }
