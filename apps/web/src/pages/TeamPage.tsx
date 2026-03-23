@@ -5,7 +5,7 @@ import { SEO } from '@/components/SEO';
 import { BreadcrumbSchema } from '@/components/ui/schema';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Button } from '@/components/ui/button';
-import { Github, Linkedin, Twitter, Instagram, Loader2 } from 'lucide-react';
+import { Github, Linkedin, Twitter, Instagram, Loader2, type LucideIcon } from 'lucide-react';
 import { api, type TeamMember } from '@/lib/api';
 import { useMotionConfig } from '@/hooks/useMotionConfig';
 
@@ -488,7 +488,7 @@ function MemberCard({
           {member.github && (
             <SocialLink 
               href={member.github.startsWith('http') ? member.github : `https://github.com/${member.github}`}
-              icon={<Github className="h-4 w-4" />}
+              icon={Github}
               hoverColor="hover:text-gray-800 hover:bg-gray-100"
               delay={0}
               isMobile={isMobile}
@@ -497,7 +497,7 @@ function MemberCard({
           {member.linkedin && (
             <SocialLink 
               href={member.linkedin.startsWith('http') ? member.linkedin : `https://linkedin.com/in/${member.linkedin}`}
-              icon={<Linkedin className="h-4 w-4" />}
+              icon={Linkedin}
               hoverColor="hover:text-blue-600 hover:bg-blue-50"
               delay={0.05}
               isMobile={isMobile}
@@ -506,7 +506,7 @@ function MemberCard({
           {member.twitter && (
             <SocialLink 
               href={member.twitter.startsWith('http') ? member.twitter : `https://twitter.com/${member.twitter}`}
-              icon={<Twitter className="h-4 w-4" />}
+              icon={Twitter}
               hoverColor="hover:text-sky-500 hover:bg-sky-50"
               delay={0.1}
               isMobile={isMobile}
@@ -515,7 +515,7 @@ function MemberCard({
           {member.instagram && (
             <SocialLink 
               href={member.instagram.startsWith('http') ? member.instagram : `https://instagram.com/${member.instagram}`}
-              icon={<Instagram className="h-4 w-4" />}
+              icon={Instagram}
               hoverColor="hover:text-pink-500 hover:bg-pink-50"
               delay={0.15}
               isMobile={isMobile}
@@ -564,11 +564,12 @@ function SocialLink({
   isMobile,
 }: { 
   href: string; 
-  icon: React.ReactNode; 
+  icon: LucideIcon;
   hoverColor: string;
   delay: number;
   isMobile: boolean;
 }) {
+  const Icon = icon;
   return (
     <motion.a
       href={href}
@@ -576,14 +577,14 @@ function SocialLink({
       rel="noopener noreferrer"
       onClick={(e) => e.stopPropagation()}
       onKeyDown={(e) => e.stopPropagation()}
-      className={`p-2 rounded-full text-gray-400 transition-all duration-300 ${hoverColor}`}
+      className={`inline-flex h-8 w-8 items-center justify-center rounded-full text-gray-400 transition-all duration-300 ${hoverColor}`}
       whileHover={isMobile ? undefined : { scale: 1.2, rotate: 5 }}
       whileTap={{ scale: 0.9 }}
       initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay }}
     >
-      {icon}
+      <Icon size={16} strokeWidth={1.9} className="shrink-0" />
     </motion.a>
   );
 }
