@@ -49,7 +49,18 @@ const breadcrumbNames: Record<string, string> = {
   '/dashboard/quiz': 'Quiz Manager',
   '/dashboard/upload': 'Upload Image',
   '/dashboard/attendance': 'Take Attendance',
+  '/admin/users': 'User Management',
+  '/admin/team': 'Team Management',
+  '/admin/achievements': 'Achievements',
+  '/admin/credits': 'Credits',
+  '/admin/hiring': 'Hiring Applications',
+  '/admin/network': 'Network Management',
+  '/admin/audit-log': 'Audit Log',
+  '/admin/event-registrations': 'Event Registrations',
   '/admin/competition': 'Competition',
+  '/admin/certificates': 'Certificates',
+  '/admin/mail': 'Send Mail',
+  '/admin/settings': 'Settings',
 };
 
 const PROFILE_EXEMPT_PATHS = new Set(['/dashboard/profile', '/dashboard/certificates']);
@@ -102,6 +113,9 @@ const getAdminNavItems = (
     items.push({ id: 'admin-certificates', name: 'Certificates', href: '/admin/certificates', icon: Award });
   }
 
+  // TODO: Enable when tech blogs feature is built.
+  // items.push({ id: 'admin-tech-blogs', name: 'Tech Blogs', href: '/admin/tech-blogs', icon: FileText });
+
   items.push(
     { id: 'admin-mail', name: 'Send Mail', href: '/admin/mail', icon: Mail },
     { id: 'admin-settings', name: 'Settings', href: '/admin/settings', icon: Settings }
@@ -134,7 +148,10 @@ function resolveActiveNavId(items: NavItem[], pathname: string, search: string):
 
 export default function DashboardLayout() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
+    if (typeof window === 'undefined') return false;
+    return window.localStorage.getItem('sidebar-collapsed') === 'true';
+  });
   const [clickedNavId, setClickedNavId] = useState<string | null>(null);
   const { user, logout } = useAuth();
   const { settings, loading: settingsLoading } = useSettings();
@@ -149,6 +166,10 @@ export default function DashboardLayout() {
       navigate('/dashboard/profile');
     }
   }, [needsProfileCompletion, location.pathname, navigate]);
+
+  useEffect(() => {
+    window.localStorage.setItem('sidebar-collapsed', String(sidebarCollapsed));
+  }, [sidebarCollapsed]);
 
   const isCoreMember = user?.role === 'CORE_MEMBER' || user?.role === 'ADMIN' || user?.role === 'PRESIDENT';
   const isAdmin = user?.role === 'ADMIN' || user?.role === 'PRESIDENT';
@@ -203,11 +224,19 @@ export default function DashboardLayout() {
 
   return (
     <div className="min-h-screen bg-gray-50">
+      <a
+        href="#main-content"
+        className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-[70] focus:rounded focus:bg-amber-500 focus:px-4 focus:py-2 focus:text-white"
+      >
+        Skip to content
+      </a>
+
       {/* Mobile overlay */}
       {sidebarOpen && (
         <div
           className="fixed inset-0 z-40 bg-black/40 backdrop-blur-sm lg:hidden"
           onClick={() => setSidebarOpen(false)}
+          aria-hidden="true"
         />
       )}
 
@@ -238,6 +267,7 @@ export default function DashboardLayout() {
           <button
             onClick={() => setSidebarOpen(false)}
             className="lg:hidden p-1.5 hover:bg-amber-50 rounded-lg transition-colors"
+            aria-label="Close sidebar"
           >
             <X className="h-5 w-5 text-amber-400" />
           </button>
@@ -356,6 +386,7 @@ export default function DashboardLayout() {
               sidebarCollapsed ? 'justify-center px-2' : 'justify-start'
             )}
             onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
+            aria-label={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
           >
             {sidebarCollapsed ? (
               <PanelLeft className="h-5 w-5" />
@@ -374,6 +405,7 @@ export default function DashboardLayout() {
               sidebarCollapsed ? 'justify-center px-2' : 'justify-start'
             )}
             onClick={logout}
+            aria-label="Log out"
           >
             <LogOut className="h-5 w-5" />
             {!sidebarCollapsed && <span className="ml-2 text-sm">Logout</span>}
@@ -388,6 +420,7 @@ export default function DashboardLayout() {
           <button
             onClick={() => setSidebarOpen(true)}
             className="lg:hidden p-2 hover:bg-gray-100 rounded-lg"
+            aria-label="Open sidebar"
           >
             <Menu className="h-5 w-5 text-gray-600" />
           </button>
@@ -409,7 +442,7 @@ export default function DashboardLayout() {
         </header>
 
         {/* Page content */}
-        <main className="p-4 sm:p-6 lg:p-8 w-full min-w-0">
+        <main id="main-content" className="p-4 sm:p-6 lg:p-8 w-full min-w-0">
           <Outlet />
         </main>
       </div>
