@@ -653,7 +653,7 @@ export default function AdminMail() {
                     title="HTML Preview"
                     srcDoc={body || '<p style="color:#aaa;padding:16px">Nothing to preview</p>'}
                     className="w-full h-64 border-0"
-                    sandbox="allow-same-origin"
+                    sandbox=""
                   />
                 </div>
               ) : (

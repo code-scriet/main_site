@@ -179,7 +179,7 @@ export default function CreditsPage() {
           ))}
           {/* Gradient blobs */}
           <div className="absolute -left-32 -top-16 h-80 w-80 rounded-full bg-amber-500/10 blur-3xl" />
-          <div className="absolute -right-32 bottom-0 h-96 w-96 rounded-full bg-orange-500/8 blur-3xl" />
+          <div className="absolute -right-32 bottom-0 h-96 w-96 rounded-full bg-orange-500/[0.08] blur-3xl" />
           <div className="absolute left-1/2 top-1/2 h-64 w-64 -translate-x-1/2 -translate-y-1/2 rounded-full bg-amber-600/5 blur-3xl" />
         </div>
 

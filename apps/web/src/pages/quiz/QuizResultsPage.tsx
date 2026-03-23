@@ -682,7 +682,7 @@ export default function QuizResultsPage() {
                           </p>
                           <div className="flex items-center gap-3 mt-1.5 flex-wrap">
                             <Badge variant="outline" className="border-amber-200 text-amber-600 text-[10px] py-0 px-1.5">
-                              {q.questionType.replace('_', ' ')}
+                              {q.questionType.replace(/_/g, ' ')}
                             </Badge>
                             {!isUnscoredQuestion && (
                               <Badge

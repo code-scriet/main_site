@@ -3,6 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { useAuth } from '@/context/AuthContext';
 import { api, type CompetitionRound, type CompetitionSubmission, type CompetitionMissingTeam } from '@/lib/api';
 import { extractApiErrorMessage } from '@/lib/error';
+import { formatDateTime } from '@/lib/dateUtils';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -50,13 +51,6 @@ type DraftScore = {
   dirty: boolean;
   saving: boolean;
 };
-
-function formatDateTime(value?: string) {
-  if (!value) return '--';
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return '--';
-  return date.toLocaleString();
-}
 
 function scoreToInput(value: number | null | undefined) {
   return value === null || value === undefined ? '' : String(value);
@@ -297,7 +291,6 @@ export default function CompetitionJudge() {
         return;
       }
       setSavingAll(false);
-    } else {
     }
 
     try {

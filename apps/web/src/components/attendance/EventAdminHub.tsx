@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { useParams, Link, useSearchParams, useLocation } from 'react-router-dom';
 import { useAuth } from '@/context/AuthContext';
 import { api, type Event } from '@/lib/api';
+import { formatDateTime } from '@/lib/dateUtils';
 
 import AdminScanner from '@/components/attendance/AdminScanner';
 import AttendanceManager from '@/components/attendance/AttendanceManager';
@@ -196,14 +197,14 @@ export default function EventAdminHub() {
                 <div>
                   <dt className="font-medium text-gray-500">Start Date</dt>
                   <dd className="text-gray-900">
-                    {new Date(event.startDate).toLocaleString()}
+                    {formatDateTime(event.startDate)}
                   </dd>
                 </div>
                 {event.endDate && (
                   <div>
                     <dt className="font-medium text-gray-500">End Date</dt>
                     <dd className="text-gray-900">
-                      {new Date(event.endDate).toLocaleString()}
+                      {formatDateTime(event.endDate)}
                     </dd>
                   </div>
                 )}

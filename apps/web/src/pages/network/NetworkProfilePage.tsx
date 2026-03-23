@@ -368,7 +368,7 @@ export default function NetworkProfilePage() {
             ))}
             {/* Soft blobs */}
             <div className="absolute -left-16 top-0 h-40 w-40 rounded-full bg-amber-500/8 blur-2xl sm:-left-24 sm:h-64 sm:w-64 sm:blur-3xl" />
-            <div className="absolute -right-16 bottom-0 h-52 w-52 rounded-full bg-orange-500/8 blur-2xl sm:-right-24 sm:h-80 sm:w-80 sm:blur-3xl" />
+            <div className="absolute -right-16 bottom-0 h-52 w-52 rounded-full bg-orange-500/[0.08] blur-2xl sm:-right-24 sm:h-80 sm:w-80 sm:blur-3xl" />
             <div className="absolute left-1/2 top-1/3 h-56 w-56 -translate-x-1/2 rounded-full bg-amber-600/5 blur-3xl" />
           </div>
 
