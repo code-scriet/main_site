@@ -3,14 +3,13 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
+import { api } from '@/lib/api';
 import { 
   Upload, Image as ImageIcon, Copy, Check, X, Loader2, 
   ExternalLink, AlertCircle
 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
-import { extractApiErrorMessage } from '@/lib/error';
-
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5001/api';
+import { toast } from 'sonner';
 
 interface UploadedImage {
   url: string;
@@ -29,8 +28,7 @@ export default function ImageUploadTool() {
   const [copied, setCopied] = useState(false);
   const [dragActive, setDragActive] = useState(false);
 
-  // Check if user is admin/coordinator
-  const canUpload = user?.role === 'ADMIN' || user?.role === 'COORDINATOR';
+  const canUpload = ['ADMIN', 'PRESIDENT', 'CORE_MEMBER'].includes(user?.role || '');
 
   const handleUpload = useCallback(async (file: File) => {
     if (!token) {
@@ -53,28 +51,18 @@ export default function ImageUploadTool() {
     setError(null);
 
     try {
-      const formData = new FormData();
-      formData.append('image', file);
-
-      const response = await fetch(`${API_URL}/upload/image`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-        },
-        body: formData,
+      const url = await api.uploadImage(file, token);
+      const dimensions = await new Promise<{ width: number; height: number }>((resolve) => {
+        const image = new Image();
+        image.onload = () => resolve({ width: image.naturalWidth, height: image.naturalHeight });
+        image.onerror = () => resolve({ width: 0, height: 0 });
+        image.src = url;
       });
-
-      const data = await response.json().catch(() => null);
-
-      if (!response.ok) {
-        throw new Error(extractApiErrorMessage(data, 'Upload failed'));
-      }
-
       setUploadedImage({
-        url: data.data.url,
-        publicId: data.data.publicId,
-        width: data.data.width,
-        height: data.data.height,
+        url,
+        publicId: '',
+        width: dimensions.width,
+        height: dimensions.height,
       });
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Upload failed');
@@ -122,8 +110,8 @@ export default function ImageUploadTool() {
       await navigator.clipboard.writeText(uploadedImage.url);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
-    } catch (err) {
-      console.error('Failed to copy:', err);
+    } catch {
+      toast.error('Failed to copy image URL');
     }
   };
 

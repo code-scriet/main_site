@@ -25,6 +25,7 @@ import {
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
+import { toast } from 'sonner';
 import {
   Download,
   BarChart3,
@@ -94,8 +95,8 @@ export const PollResultsView = memo(function PollResultsView({
       link.download = `poll-${questionText.slice(0, 30).replace(/[^a-z0-9]/gi, '-')}-${Date.now()}.png`;
       link.href = canvas.toDataURL('image/png');
       link.click();
-    } catch (err) {
-      console.error('PNG export failed:', err);
+    } catch {
+      toast.error('PNG export failed');
     }
     setExportOpen(false);
   }, [questionText]);
@@ -150,8 +151,8 @@ export const PollResultsView = memo(function PollResultsView({
           setTimeout(() => setCopied(false), 2000);
         }
       });
-    } catch (err) {
-      console.error('Copy failed:', err);
+    } catch {
+      toast.error('Copy failed');
     }
     setExportOpen(false);
   }, []);

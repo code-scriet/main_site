@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useNavigate, useSearchParams, Link } from 'react-router-dom';
+import { useLocation, useNavigate, useSearchParams, Link } from 'react-router-dom';
 import { Layout } from '@/components/layout/Layout';
 import { SEO } from '@/components/SEO';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -10,6 +10,7 @@ import { Chrome, Github, Mail, AlertCircle, Loader2, Eye, EyeOff, Lock, User, Ar
 import { api } from '@/lib/api';
 import type { AuthProviders } from '@/lib/api';
 import { useAuth } from '@/context/AuthContext';
+import { useSettings } from '@/context/SettingsContext';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5001/api';
 
@@ -59,8 +60,11 @@ const redirectToNext = (navigate: ReturnType<typeof useNavigate>, targetUrl: str
 export default function SignInPage() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
+  const location = useLocation();
   const { user, loginWithEmail, register, isLoading: authLoading } = useAuth();
+  const { settings, loading: settingsLoading } = useSettings();
   const nextUrl = getSafeNextUrl(searchParams.get('next'));
+  const registrationOpen = settings?.registrationOpen !== false;
   
   const [providers, setProviders] = useState<AuthProviders | null>(null);
   const [loading, setLoading] = useState(true);
@@ -104,16 +108,24 @@ export default function SignInPage() {
   useEffect(() => {
     api.getProviders()
       .then((data) => {
-        console.log('Providers fetched:', data);
         setProviders(data);
       })
-      .catch((err) => {
-        console.error('Failed to fetch providers:', err);
+      .catch(() => {
         // Fallback: show all OAuth options if API fails
         setProviders({ google: true, github: true, devLogin: false, emailPassword: true });
       })
       .finally(() => setLoading(false));
   }, []);
+
+  useEffect(() => {
+    setName('');
+    setEmail('');
+    setPassword('');
+    setConfirmPassword('');
+    setError(null);
+    setShowPassword(false);
+    setAuthMode(location.pathname === '/signup' ? 'register' : 'options');
+  }, [location.pathname]);
 
   const handleGoogleSignIn = () => {
     setError(null);
@@ -368,10 +380,16 @@ export default function SignInPage() {
                         onClick={() => switchMode('register')}
                         variant="outline"
                         className="w-full h-12 text-base font-medium border-amber-300 hover:bg-amber-50"
+                        disabled={settingsLoading}
                       >
                         <User className="h-5 w-5 mr-3" />
-                        Create new account
+                        {registrationOpen ? 'Create new account' : 'Registration Closed'}
                       </Button>
+                      {!settingsLoading && !registrationOpen && (
+                        <p className="text-center text-sm text-amber-700">
+                          Registration is currently closed. Use an existing account or contact the club admins.
+                        </p>
+                      )}
                     </motion.div>
                   )}
 
@@ -398,10 +416,11 @@ export default function SignInPage() {
                       </Button>
 
                       <div className="space-y-2">
-                        <label className="text-sm font-medium text-gray-700">Email</label>
+                        <label htmlFor="signin-email" className="text-sm font-medium text-gray-700">Email</label>
                         <div className="relative">
                           <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" />
                           <Input
+                            id="signin-email"
                             type="email"
                             placeholder="you@example.com"
                             value={email}
@@ -413,10 +432,11 @@ export default function SignInPage() {
                       </div>
 
                       <div className="space-y-2">
-                        <label className="text-sm font-medium text-gray-700">Password</label>
+                        <label htmlFor="signin-password" className="text-sm font-medium text-gray-700">Password</label>
                         <div className="relative">
                           <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" />
                           <Input
+                            id="signin-password"
                             type={showPassword ? 'text' : 'password'}
                             placeholder="••••••••"
                             value={password}
@@ -428,6 +448,7 @@ export default function SignInPage() {
                             type="button"
                             onClick={() => setShowPassword(!showPassword)}
                             className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                            aria-label={showPassword ? 'Hide password' : 'Show password'}
                           >
                             {showPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
                           </button>
@@ -484,99 +505,126 @@ export default function SignInPage() {
                         Back
                       </Button>
 
-                      <div className="space-y-2">
-                        <label className="text-sm font-medium text-gray-700">Full Name</label>
-                        <div className="relative">
-                          <User className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" />
-                          <Input
-                            type="text"
-                            placeholder="John Doe"
-                            value={name}
-                            onChange={(e) => setName(e.target.value)}
-                            className="pl-10 h-12"
-                            required
-                          />
-                        </div>
-                      </div>
-
-                      <div className="space-y-2">
-                        <label className="text-sm font-medium text-gray-700">Email</label>
-                        <div className="relative">
-                          <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" />
-                          <Input
-                            type="email"
-                            placeholder="you@example.com"
-                            value={email}
-                            onChange={(e) => setEmail(e.target.value)}
-                            className="pl-10 h-12"
-                            required
-                          />
-                        </div>
-                      </div>
-
-                      <div className="space-y-2">
-                        <label className="text-sm font-medium text-gray-700">Password</label>
-                        <div className="relative">
-                          <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" />
-                          <Input
-                            type={showPassword ? 'text' : 'password'}
-                            placeholder="At least 6 characters"
-                            value={password}
-                            onChange={(e) => setPassword(e.target.value)}
-                            className="pl-10 pr-10 h-12"
-                            required
-                            minLength={6}
-                          />
-                          <button
+                      {!registrationOpen ? (
+                        <div className="space-y-4 rounded-xl border border-amber-200 bg-amber-50 p-5 text-center">
+                          <AlertCircle className="mx-auto h-10 w-10 text-amber-600" />
+                          <div className="space-y-1">
+                            <h3 className="text-lg font-semibold text-amber-900">Registration is currently closed</h3>
+                            <p className="text-sm text-amber-800">
+                              New account creation is disabled right now. Use an existing account or check back later.
+                            </p>
+                          </div>
+                          <Button
                             type="button"
-                            onClick={() => setShowPassword(!showPassword)}
-                            className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                            variant="outline"
+                            className="w-full"
+                            onClick={() => switchMode('login')}
                           >
-                            {showPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
-                          </button>
+                            Go to Sign In
+                          </Button>
                         </div>
-                      </div>
+                      ) : (
+                        <>
+                          <div className="space-y-2">
+                            <label htmlFor="signup-name" className="text-sm font-medium text-gray-700">Full Name</label>
+                            <div className="relative">
+                              <User className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" />
+                              <Input
+                                id="signup-name"
+                                type="text"
+                                placeholder="John Doe"
+                                value={name}
+                                onChange={(e) => setName(e.target.value)}
+                                className="pl-10 h-12"
+                                required
+                              />
+                            </div>
+                          </div>
 
-                      <div className="space-y-2">
-                        <label className="text-sm font-medium text-gray-700">Confirm Password</label>
-                        <div className="relative">
-                          <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" />
-                          <Input
-                            type={showPassword ? 'text' : 'password'}
-                            placeholder="Confirm your password"
-                            value={confirmPassword}
-                            onChange={(e) => setConfirmPassword(e.target.value)}
-                            className="pl-10 h-12"
-                            required
-                          />
-                        </div>
-                      </div>
+                          <div className="space-y-2">
+                            <label htmlFor="signup-email" className="text-sm font-medium text-gray-700">Email</label>
+                            <div className="relative">
+                              <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" />
+                              <Input
+                                id="signup-email"
+                                type="email"
+                                placeholder="you@example.com"
+                                value={email}
+                                onChange={(e) => setEmail(e.target.value)}
+                                className="pl-10 h-12"
+                                required
+                              />
+                            </div>
+                          </div>
 
-                      <Button 
-                        type="submit" 
-                        className="w-full h-12 text-base bg-amber-600 hover:bg-amber-700"
-                        disabled={formLoading}
-                      >
-                        {formLoading ? (
-                          <>
-                            <Loader2 className="h-5 w-5 mr-2 animate-spin" />
-                            Creating account...
-                          </>
-                        ) : (
-                          'Create Account'
-                        )}
-                      </Button>
+                          <div className="space-y-2">
+                            <label htmlFor="signup-password" className="text-sm font-medium text-gray-700">Password</label>
+                            <div className="relative">
+                              <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" />
+                              <Input
+                                id="signup-password"
+                                type={showPassword ? 'text' : 'password'}
+                                placeholder="At least 6 characters"
+                                value={password}
+                                onChange={(e) => setPassword(e.target.value)}
+                                className="pl-10 pr-10 h-12"
+                                required
+                                minLength={6}
+                              />
+                              <button
+                                type="button"
+                                onClick={() => setShowPassword(!showPassword)}
+                                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                                aria-label={showPassword ? 'Hide password' : 'Show password'}
+                              >
+                                {showPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
+                              </button>
+                            </div>
+                          </div>
 
-                      <p className="text-center text-sm text-gray-600">
-                        Already have an account?{' '}
-                        <button
-                          type="button"
-                          onClick={() => switchMode('login')}
-                          className="text-amber-600 hover:text-amber-700 font-medium hover:underline"
-                        >
-                          Sign in
-                        </button>
-                      </p>
+                          <div className="space-y-2">
+                            <label htmlFor="signup-confirm-password" className="text-sm font-medium text-gray-700">Confirm Password</label>
+                            <div className="relative">
+                              <Lock className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" />
+                              <Input
+                                id="signup-confirm-password"
+                                type={showPassword ? 'text' : 'password'}
+                                placeholder="Confirm your password"
+                                value={confirmPassword}
+                                onChange={(e) => setConfirmPassword(e.target.value)}
+                                className="pl-10 h-12"
+                                required
+                              />
+                            </div>
+                          </div>
+
+                          <Button 
+                            type="submit" 
+                            className="w-full h-12 text-base bg-amber-600 hover:bg-amber-700"
+                            disabled={formLoading}
+                          >
+                            {formLoading ? (
+                              <>
+                                <Loader2 className="h-5 w-5 mr-2 animate-spin" />
+                                Creating account...
+                              </>
+                            ) : (
+                              'Create Account'
+                            )}
+                          </Button>
+
+                          <p className="text-center text-sm text-gray-600">
+                            Already have an account?{' '}
+                            <button
+                              type="button"
+                              onClick={() => switchMode('login')}
+                              className="text-amber-600 hover:text-amber-700 font-medium hover:underline"
+                            >
+                              Sign in
+                            </button>
+                          </p>
+                        </>
+                      )}
                     </motion.form>
                   )}
                 </AnimatePresence>

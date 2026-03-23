@@ -1,16 +1,33 @@
-import { lazy, Suspense } from 'react';
+import { lazy, Suspense, type ReactNode } from 'react';
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { Loader2 } from 'lucide-react';
+import { Toaster } from 'sonner';
 import { AuthProvider } from '@/context/AuthContext';
 import { SettingsProvider } from '@/context/SettingsContext';
+import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { SEO } from '@/components/SEO';
 
 // Loading fallback component
 const PageLoader = () => (
   <div className="min-h-screen flex items-center justify-center bg-amber-50">
-    <div className="animate-spin rounded-full h-12 w-12 border-4 border-amber-600 border-t-transparent" />
+    <Loader2 className="h-12 w-12 animate-spin text-amber-600" />
   </div>
 );
+
+function RouteBoundary({ children }: { children: ReactNode }) {
+  return (
+    <ErrorBoundary>
+      <Suspense fallback={<PageLoader />}>
+        {children}
+      </Suspense>
+    </ErrorBoundary>
+  );
+}
+
+function withRouteBoundary(element: ReactNode) {
+  return <RouteBoundary>{element}</RouteBoundary>;
+}
 
 // Lazy load all pages for code splitting
 const HomePage = lazy(() => import('@/pages/HomePage'));
@@ -97,92 +114,93 @@ function App() {
     <QueryClientProvider client={queryClient}>
       <AuthProvider>
         <SettingsProvider>
-          <Router>
-            <Suspense fallback={<PageLoader />}>
+          <ErrorBoundary>
+            <Router>
+              <Toaster position="top-right" richColors />
               <Routes>
                   {/* Public Routes */}
-                  <Route path="/" element={<HomePage />} />
-                  <Route path="/about" element={<AboutPage />} />
-                  <Route path="/events" element={<EventsPage />} />
-                  <Route path="/events/:id" element={<EventDetailPage />} />
-                  <Route path="/announcements" element={<AnnouncementsPage />} />
-                  <Route path="/announcements/:id" element={<AnnouncementDetailPage />} />
-                  <Route path="/team" element={<TeamPage />} />
-                  <Route path="/team/:slug" element={<TeamMemberProfilePage />} />
-                  <Route path="/achievements" element={<AchievementsPage />} />
-                  <Route path="/achievements/:id" element={<AchievementDetailPage />} />
-                  <Route path="/signin" element={<SignInPage />} />
-                  <Route path="/signup" element={<SignInPage />} />
-                  <Route path="/join-us" element={<JoinUsPage />} />
-                  <Route path="/auth/callback" element={<AuthCallbackPage />} />
-                  <Route path="/network" element={<NetworkPage />} />
-                  <Route path="/network/onboarding" element={<NetworkOnboarding />} />
-                  <Route path="/verify" element={<VerifyCertificatePage />} />
-                  <Route path="/verify/:certId" element={<VerifyCertificatePage />} />
-                  <Route path="/network/status" element={<NetworkStatusPage />} />
-                  <Route path="/network/:slug" element={<NetworkProfilePage />} />
-                  <Route path="/join-our-network" element={<JoinOurNetworkPage />} />
-                  <Route path="/privacy-policy" element={<PrivacyPolicyPage />} />
-                  <Route path="/credits" element={<CreditsPage />} />
-                  <Route path="/competition/:roundId/results" element={<CompetitionResults />} />
-                  <Route path="/contact" element={<ContactPage />} />
+                  <Route path="/" element={withRouteBoundary(<HomePage />)} />
+                  <Route path="/about" element={withRouteBoundary(<AboutPage />)} />
+                  <Route path="/events" element={withRouteBoundary(<EventsPage />)} />
+                  <Route path="/events/:id" element={withRouteBoundary(<EventDetailPage />)} />
+                  <Route path="/announcements" element={withRouteBoundary(<AnnouncementsPage />)} />
+                  <Route path="/announcements/:id" element={withRouteBoundary(<AnnouncementDetailPage />)} />
+                  <Route path="/team" element={withRouteBoundary(<TeamPage />)} />
+                  <Route path="/team/:slug" element={withRouteBoundary(<TeamMemberProfilePage />)} />
+                  <Route path="/achievements" element={withRouteBoundary(<AchievementsPage />)} />
+                  <Route path="/achievements/:id" element={withRouteBoundary(<AchievementDetailPage />)} />
+                  <Route path="/signin" element={withRouteBoundary(<SignInPage />)} />
+                  <Route path="/signup" element={withRouteBoundary(<SignInPage />)} />
+                  <Route path="/join-us" element={withRouteBoundary(<JoinUsPage />)} />
+                  <Route path="/auth/callback" element={withRouteBoundary(<AuthCallbackPage />)} />
+                  <Route path="/network" element={withRouteBoundary(<NetworkPage />)} />
+                  <Route path="/network/onboarding" element={withRouteBoundary(<NetworkOnboarding />)} />
+                  <Route path="/verify" element={withRouteBoundary(<VerifyCertificatePage />)} />
+                  <Route path="/verify/:certId" element={withRouteBoundary(<VerifyCertificatePage />)} />
+                  <Route path="/network/status" element={withRouteBoundary(<NetworkStatusPage />)} />
+                  <Route path="/network/:slug" element={withRouteBoundary(<NetworkProfilePage />)} />
+                  <Route path="/join-our-network" element={withRouteBoundary(<JoinOurNetworkPage />)} />
+                  <Route path="/privacy-policy" element={withRouteBoundary(<PrivacyPolicyPage />)} />
+                  <Route path="/credits" element={withRouteBoundary(<CreditsPage />)} />
+                  <Route path="/competition/:roundId/results" element={withRouteBoundary(<CompetitionResults />)} />
+                  <Route path="/contact" element={withRouteBoundary(<ContactPage />)} />
 
                   {/* Quiz Routes (public listing, auth for participation) */}
-                  <Route path="/quiz" element={<ActiveQuizList />} />
-                  <Route path="/quiz/join" element={<QuizJoinPage />} />
+                  <Route path="/quiz" element={withRouteBoundary(<ActiveQuizList />)} />
+                  <Route path="/quiz/join" element={withRouteBoundary(<QuizJoinPage />)} />
 
                   {/* Protected User Routes */}
                   <Route element={<ProtectedRoute minRole="USER" />}>
-                    <Route path="/quiz/:quizId" element={<QuizPage />} />
-                    <Route path="/quiz/:quizId/results" element={<QuizResultsPage />} />
-                    <Route path="/dashboard" element={<DashboardLayout />}>
-                      <Route index element={<DashboardOverview />} />
-                      <Route path="events" element={<DashboardEvents />} />
-                      <Route path="announcements" element={<DashboardAnnouncements />} />
-                      <Route path="leaderboard" element={<DashboardLeaderboard />} />
-                      <Route path="events/new" element={<CreateEvent />} />
-                      <Route path="announcements/new" element={<CreateAnnouncement />} />
-                      <Route path="qotd" element={<CreateQOTD />} />
-                      <Route path="quiz" element={<QuizManager />} />
-                      <Route path="upload" element={<ImageUploadTool />} />
-                      <Route path="profile" element={<ProfilePage />} />
-                      <Route path="team/:id/edit" element={<EditTeamProfile />} />
-                      <Route path="network/edit/:id?" element={<EditNetworkProfile />} />
-                      <Route path="certificates" element={<DashboardCertificates />} />
+                    <Route path="/quiz/:quizId" element={withRouteBoundary(<QuizPage />)} />
+                    <Route path="/quiz/:quizId/results" element={withRouteBoundary(<QuizResultsPage />)} />
+                    <Route path="/dashboard" element={withRouteBoundary(<DashboardLayout />)}>
+                      <Route index element={withRouteBoundary(<DashboardOverview />)} />
+                      <Route path="events" element={withRouteBoundary(<DashboardEvents />)} />
+                      <Route path="announcements" element={withRouteBoundary(<DashboardAnnouncements />)} />
+                      <Route path="leaderboard" element={withRouteBoundary(<DashboardLeaderboard />)} />
+                      <Route path="events/new" element={withRouteBoundary(<CreateEvent />)} />
+                      <Route path="announcements/new" element={withRouteBoundary(<CreateAnnouncement />)} />
+                      <Route path="qotd" element={withRouteBoundary(<CreateQOTD />)} />
+                      <Route path="quiz" element={withRouteBoundary(<QuizManager />)} />
+                      <Route path="upload" element={withRouteBoundary(<ImageUploadTool />)} />
+                      <Route path="profile" element={withRouteBoundary(<ProfilePage />)} />
+                      <Route path="team/:id/edit" element={withRouteBoundary(<EditTeamProfile />)} />
+                      <Route path="network/edit/:id?" element={withRouteBoundary(<EditNetworkProfile />)} />
+                      <Route path="certificates" element={withRouteBoundary(<DashboardCertificates />)} />
                       <Route element={<ProtectedRoute minRole="CORE_MEMBER" />}>
-                        <Route path="attendance" element={<AttendancePage />} />
-                        <Route path="events/:eventId/attendance" element={<EventAdminHub />} />
+                        <Route path="attendance" element={withRouteBoundary(<AttendancePage />)} />
+                        <Route path="events/:eventId/attendance" element={withRouteBoundary(<EventAdminHub />)} />
                       </Route>
                     </Route>
-                    <Route path="/quiz/create" element={<AdminQuizCreator />} />
+                    <Route path="/quiz/create" element={withRouteBoundary(<AdminQuizCreator />)} />
                   </Route>
 
                   {/* Protected Admin Routes */}
                   <Route element={<ProtectedRoute minRole="ADMIN" />}>
-                    <Route path="/admin" element={<DashboardLayout />}>
-                      <Route path="users" element={<AdminUsersRealtime />} />
-                      <Route path="team" element={<AdminTeam />} />
-                      <Route path="achievements" element={<AdminAchievements />} />
-                      <Route path="event-registrations" element={<AdminEventRegistrations />} />
-                      <Route path="events/:id/edit" element={<EditEvent />} />
-                      <Route path="hiring" element={<AdminHiring />} />
-                      <Route path="network" element={<AdminNetwork />} />
-                      <Route path="credits" element={<AdminCredits />} />
-                      <Route path="competition" element={<AdminCompetition />} />
-                      <Route path="competition/:roundId/judge" element={<CompetitionJudge />} />
-                      <Route path="settings" element={<AdminSettings />} />
-                      <Route path="audit-log" element={<AdminAuditLog />} />
-                      <Route path="mail" element={<AdminMail />} />
-                      <Route path="certificates" element={<AdminCertificates />} />
-                      <Route path="events/:eventId/attendance" element={<EventAdminHub />} />
+                    <Route path="/admin" element={withRouteBoundary(<DashboardLayout />)}>
+                      <Route path="users" element={withRouteBoundary(<AdminUsersRealtime />)} />
+                      <Route path="team" element={withRouteBoundary(<AdminTeam />)} />
+                      <Route path="achievements" element={withRouteBoundary(<AdminAchievements />)} />
+                      <Route path="event-registrations" element={withRouteBoundary(<AdminEventRegistrations />)} />
+                      <Route path="events/:id/edit" element={withRouteBoundary(<EditEvent />)} />
+                      <Route path="hiring" element={withRouteBoundary(<AdminHiring />)} />
+                      <Route path="network" element={withRouteBoundary(<AdminNetwork />)} />
+                      <Route path="credits" element={withRouteBoundary(<AdminCredits />)} />
+                      <Route path="competition" element={withRouteBoundary(<AdminCompetition />)} />
+                      <Route path="competition/:roundId/judge" element={withRouteBoundary(<CompetitionJudge />)} />
+                      <Route path="settings" element={withRouteBoundary(<AdminSettings />)} />
+                      <Route path="audit-log" element={withRouteBoundary(<AdminAuditLog />)} />
+                      <Route path="mail" element={withRouteBoundary(<AdminMail />)} />
+                      <Route path="certificates" element={withRouteBoundary(<AdminCertificates />)} />
+                      <Route path="events/:eventId/attendance" element={withRouteBoundary(<EventAdminHub />)} />
                     </Route>
                   </Route>
 
                   {/* 404 */}
                   <Route path="*" element={<NotFound />} />
               </Routes>
-            </Suspense>
-          </Router>
+            </Router>
+          </ErrorBoundary>
         </SettingsProvider>
       </AuthProvider>
     </QueryClientProvider>

@@ -7,13 +7,13 @@
  * - Single API call fetches all data (optimized)
  */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { api } from '@/lib/api';
-import { Zap, Trophy, ArrowRight, CheckCircle, Loader2 } from 'lucide-react';
+import { Zap, Trophy, ArrowRight, CheckCircle, Loader2, AlertCircle } from 'lucide-react';
 import { formatDate } from '@/lib/dateUtils';
 
 interface QuizDashboardWidgetProps {
@@ -43,22 +43,31 @@ export function QuizDashboardWidget({ token }: QuizDashboardWidgetProps) {
   const [liveQuizzes, setLiveQuizzes] = useState<LiveQuiz[]>([]);
   const [history, setHistory] = useState<QuizHistoryItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
+  const loadData = useCallback(async () => {
     if (!token) {
       setLoading(false);
+      setError(null);
       return;
     }
 
-    // Single optimized API call for all quiz data
-    api.getMyQuizDashboard(token)
-      .then((data) => {
-        setLiveQuizzes(data.liveQuizzes);
-        setHistory(data.history.slice(0, 5)); // Show top 5 recent
-      })
-      .catch(() => {})
-      .finally(() => setLoading(false));
+    try {
+      setLoading(true);
+      setError(null);
+      const data = await api.getMyQuizDashboard(token);
+      setLiveQuizzes(data.liveQuizzes);
+      setHistory(data.history.slice(0, 5));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load quiz activity');
+    } finally {
+      setLoading(false);
+    }
   }, [token]);
+
+  useEffect(() => {
+    void loadData();
+  }, [loadData]);
 
   if (loading) {
     return (
@@ -79,6 +88,28 @@ export function QuizDashboardWidget({ token }: QuizDashboardWidgetProps) {
   }
 
   const hasContent = liveQuizzes.length > 0 || history.length > 0;
+
+  if (error) {
+    return (
+      <Card className="border-gray-100 shadow-sm">
+        <CardHeader>
+          <CardTitle className="text-base font-semibold text-gray-900 flex items-center gap-2">
+            <div className="p-2 rounded-lg bg-blue-50">
+              <Zap className="h-4 w-4 text-blue-600" />
+            </div>
+            My Quizzes
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3 py-6 text-center">
+          <AlertCircle className="mx-auto h-8 w-8 text-red-400" />
+          <p className="text-sm text-red-700">{error}</p>
+          <Button variant="outline" size="sm" onClick={() => void loadData()}>
+            Retry
+          </Button>
+        </CardContent>
+      </Card>
+    );
+  }
 
   return (
     <Card className="border-gray-100 shadow-sm">
@@ -111,7 +142,7 @@ export function QuizDashboardWidget({ token }: QuizDashboardWidgetProps) {
               {liveQuizzes.map((quiz) => (
                 <Link
                   key={quiz.id}
-                  to="/quiz"
+                  to={`/quiz/${quiz.id}`}
                   className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between p-4 rounded-lg bg-green-50 border border-green-200 hover:bg-green-100 transition-colors"
                 >
                   <div className="flex items-center gap-3 min-w-0">
@@ -161,7 +192,7 @@ export function QuizDashboardWidget({ token }: QuizDashboardWidgetProps) {
                   </div>
                   <div className="text-right">
                     <p className="font-bold text-gray-900 text-base">{item.finalScore} pts</p>
-                    {item.finalRank && (
+                    {item.finalRank != null && item.finalRank > 0 && (
                       <p className="text-sm text-gray-500">
                         #{item.finalRank} of {item.totalParticipants}
                       </p>

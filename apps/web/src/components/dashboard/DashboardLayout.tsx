@@ -63,7 +63,14 @@ const coreMemberNavItems = [
   { id: 'core-upload', name: 'Upload Image', href: '/dashboard/upload', icon: Upload },
 ] satisfies NavItem[];
 
-const getAdminNavItems = (hiringEnabled: boolean, showNetwork: boolean, certificatesEnabled: boolean, isSuperAdmin?: boolean, isPresident?: boolean) => {
+const getAdminNavItems = (
+  hiringEnabled: boolean,
+  showNetwork: boolean,
+  certificatesEnabled: boolean,
+  competitionEnabled: boolean,
+  isSuperAdmin?: boolean,
+  isPresident?: boolean,
+) => {
   const items = [
     { id: 'admin-users', name: 'User Management', href: '/admin/users', icon: Users },
     { id: 'admin-team', name: 'Team Management', href: '/admin/team', icon: Shield },
@@ -85,8 +92,11 @@ const getAdminNavItems = (hiringEnabled: boolean, showNetwork: boolean, certific
 
   items.push(
     { id: 'admin-registrations', name: 'Event Registrations', href: '/admin/event-registrations', icon: Calendar },
-    { id: 'admin-competition', name: 'Competition', href: '/admin/competition', icon: Trophy },
   );
+
+  if (competitionEnabled) {
+    items.push({ id: 'admin-competition', name: 'Competition', href: '/admin/competition', icon: Trophy });
+  }
 
   if (certificatesEnabled !== false) {
     items.push({ id: 'admin-certificates', name: 'Certificates', href: '/admin/certificates', icon: Award });
@@ -159,10 +169,11 @@ export default function DashboardLayout() {
       !settingsLoading && settings?.hiringEnabled === true,
       !settingsLoading && settings?.showNetwork !== false,
       !settingsLoading && settings?.certificatesEnabled !== false,
+      settings?.competitionEnabled === true,
       user?.isSuperAdmin,
       user?.role === 'PRESIDENT',
     );
-  }, [isAdmin, settingsLoading, settings?.hiringEnabled, settings?.showNetwork, settings?.certificatesEnabled, user?.isSuperAdmin, user?.role]);
+  }, [isAdmin, settingsLoading, settings?.hiringEnabled, settings?.showNetwork, settings?.certificatesEnabled, settings?.competitionEnabled, user?.isSuperAdmin, user?.role]);
 
   const allNavItems = useMemo(
     () => [

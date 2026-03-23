@@ -156,20 +156,20 @@ export default function EventAdminHub() {
       {/* Tabs */}
       <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as TabValue)}>
         <TabsList className={`grid w-full ${isAdmin ? 'grid-cols-4' : 'grid-cols-3'} h-auto`}>
-          <TabsTrigger value="details" className="gap-1.5">
+          <TabsTrigger value="details" className="gap-1.5" aria-label="Open event details tab">
             <Settings className="h-4 w-4" />
             <span className="hidden sm:inline">Details</span>
           </TabsTrigger>
-          <TabsTrigger value="scanner" className="gap-1.5">
+          <TabsTrigger value="scanner" className="gap-1.5" aria-label="Open scanner tab">
             <QrCode className="h-4 w-4" />
             <span className="hidden sm:inline">Scanner</span>
           </TabsTrigger>
-          <TabsTrigger value="manage" className="gap-1.5">
+          <TabsTrigger value="manage" className="gap-1.5" aria-label="Open attendee management tab">
             <Users className="h-4 w-4" />
             <span className="hidden sm:inline">Manage</span>
           </TabsTrigger>
           {isAdmin && (
-            <TabsTrigger value="certificates" className="gap-1.5">
+            <TabsTrigger value="certificates" className="gap-1.5" aria-label="Open certificates tab">
               <Award className="h-4 w-4" />
               <span className="hidden sm:inline">Certificates</span>
             </TabsTrigger>

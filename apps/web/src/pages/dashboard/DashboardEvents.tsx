@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { motion } from 'framer-motion';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -10,7 +10,7 @@ import { useAuth } from '@/context/AuthContext';
 import { api } from '@/lib/api';
 import type { Registration, Event, EventTeam } from '@/lib/api';
 import { Calendar, MapPin, Clock, Loader2, Plus, QrCode, Users, MoreVertical, ExternalLink } from 'lucide-react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { formatDate, formatTime } from '@/lib/dateUtils';
 import { toast } from 'sonner';
 import EventCard from '@/components/home/EventCard';
@@ -21,6 +21,7 @@ import { TeamDashboard } from '@/components/teams';
 export default function DashboardEvents() {
   const { user, token } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
 
   const [registrations, setRegistrations] = useState<Registration[]>([]);
   const [availableEvents, setAvailableEvents] = useState<Event[]>([]);
@@ -37,11 +38,44 @@ export default function DashboardEvents() {
   const isCoreMember = user?.role === 'CORE_MEMBER' || user?.role === 'ADMIN' || user?.role === 'PRESIDENT';
   const hasCompleteAcademicDetails = user?.phone && user?.course && user?.branch && user?.year;
 
-  useEffect(() => {
-    loadData();
-  }, []);
+  const loadTeamsForEvents = useCallback(async (eventIds: string[]) => {
+    if (!token) return;
 
-  const loadData = async () => {
+    setTeamsLoading((prev) => {
+      const next = new Map(prev);
+      eventIds.forEach((eventId) => next.set(eventId, true));
+      return next;
+    });
+
+    const teamEntries = await Promise.all(eventIds.map(async (eventId) => {
+      try {
+        const team = await api.getMyTeam(eventId, token);
+        return [eventId, team] as const;
+      } catch {
+        return [eventId, null] as const;
+      }
+    }));
+
+    setMyTeams((prev) => {
+      const next = new Map(prev);
+      teamEntries.forEach(([eventId, team]) => {
+        if (team) {
+          next.set(eventId, team);
+        } else {
+          next.delete(eventId);
+        }
+      });
+      return next;
+    });
+
+    setTeamsLoading((prev) => {
+      const next = new Map(prev);
+      eventIds.forEach((eventId) => next.set(eventId, false));
+      return next;
+    });
+  }, [token]);
+
+  const loadData = useCallback(async () => {
     if (!token) {
       setLoading(false);
       return;
@@ -59,9 +93,8 @@ export default function DashboardEvents() {
       const registeredEventIds = new Set(regs.map(r => r.eventId));
       setAvailableEvents(events.filter(e => !registeredEventIds.has(e.id) && e.status !== 'PAST'));
 
-      // Load team data for team events
       const teamEventIds = regs.filter(r => r.event.teamRegistration).map(r => r.eventId);
-      if (teamEventIds.length > 0 && token) {
+      if (teamEventIds.length > 0) {
         await loadTeamsForEvents(teamEventIds);
       }
     } catch (err) {
@@ -69,25 +102,27 @@ export default function DashboardEvents() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [loadTeamsForEvents, token]);
 
-  const loadTeamsForEvents = async (eventIds: string[]) => {
-    if (!token) return;
+  useEffect(() => {
+    void loadData();
+  }, [loadData]);
 
-    for (const eventId of eventIds) {
-      try {
-        setTeamsLoading(prev => new Map(prev).set(eventId, true));
-        const team = await api.getMyTeam(eventId, token);
-        if (team) {
-          setMyTeams(prev => new Map(prev).set(eventId, team));
-        }
-      } catch {
-        // User might not be in a team yet
-      } finally {
-        setTeamsLoading(prev => new Map(prev).set(eventId, false));
-      }
+  useEffect(() => {
+    const state = location.state as { openQrForEventId?: string } | null;
+    if (!state?.openQrForEventId || registrations.length === 0) {
+      return;
     }
-  };
+
+    const matchingRegistration = registrations.find((registration) => registration.eventId === state.openQrForEventId);
+    if (!matchingRegistration) {
+      return;
+    }
+
+    setActiveTab('my-events');
+    setQrDialogReg(matchingRegistration);
+    navigate(location.pathname, { replace: true, state: null });
+  }, [location.pathname, location.state, navigate, registrations]);
 
   const handleTeamChange = async (eventId: string) => {
     if (!token) return;

@@ -1,50 +1,35 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { motion } from 'framer-motion';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { useAuth } from '@/context/AuthContext';
 import { useSettings } from '@/context/SettingsContext';
+import { Button } from '@/components/ui/button';
+import { api, type QOTDLeaderboardEntry } from '@/lib/api';
 import { Trophy, Medal, Award, Loader2, Crown, Flame, AlertCircle } from 'lucide-react';
-
-interface LeaderboardEntry {
-  user: {
-    id: string;
-    name: string;
-    avatar?: string | null;
-  };
-  submissions: number;
-}
-
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5001/api';
 
 export default function DashboardLeaderboard() {
   const { user } = useAuth();
   const { settings } = useSettings();
-  const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
+  const [leaderboard, setLeaderboard] = useState<QOTDLeaderboardEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    loadLeaderboard();
-  }, []);
-
-  const loadLeaderboard = async () => {
+  const loadLeaderboard = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
-      const response = await fetch(`${API_URL}/qotd/stats/leaderboard?limit=50`);
-      if (response.ok) {
-        const result = await response.json();
-        // API returns { success: true, data: [...] }
-        setLeaderboard(result.data || []);
-      } else {
-        throw new Error('Failed to fetch leaderboard');
-      }
+      const result = await api.getQOTDLeaderboard(50);
+      setLeaderboard(result);
     } catch (err) {
-      setError('Failed to load leaderboard');
+      setError(err instanceof Error ? err.message : 'Failed to load leaderboard');
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    void loadLeaderboard();
+  }, [loadLeaderboard]);
 
   const getRankIcon = (rank: number) => {
     switch (rank) {
@@ -170,7 +155,13 @@ export default function DashboardLeaderboard() {
         </CardHeader>
         <CardContent>
           {error ? (
-            <div className="text-center py-8 text-red-500">{error}</div>
+            <div className="text-center py-8">
+              <AlertCircle className="h-10 w-10 text-red-400 mx-auto mb-3" />
+              <p className="text-red-600 font-medium">{error}</p>
+              <Button variant="outline" className="mt-4" onClick={() => void loadLeaderboard()}>
+                Try Again
+              </Button>
+            </div>
           ) : leaderboard.length === 0 ? (
             <div className="text-center py-12 text-gray-500">
               <Trophy className="h-16 w-16 mx-auto mb-4 text-gray-300" />
@@ -186,7 +177,7 @@ export default function DashboardLeaderboard() {
                     key={entry.user.id}
                     initial={{ opacity: 0, x: -20 }}
                     animate={{ opacity: 1, x: 0 }}
-                    transition={{ delay: index * 0.05 }}
+                    transition={{ delay: Math.min(index * 0.05, 0.3) }}
                     className={`flex items-center justify-between gap-3 p-4 rounded-lg border ${getRankBg(rank)} ${
                       entry.user.id === user?.id ? 'ring-2 ring-amber-500' : ''
                     }`}

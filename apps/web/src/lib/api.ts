@@ -92,6 +92,39 @@ export interface AuthProviders {
   emailPassword: boolean;
 }
 
+export interface QOTDHistoryEntry {
+  id: string;
+  date: string;
+  question: string;
+  problemLink: string;
+  difficulty: 'Easy' | 'Medium' | 'Hard';
+}
+
+export interface QOTDLeaderboardEntry {
+  user: {
+    id: string;
+    name: string;
+    avatar?: string | null;
+  };
+  submissions: number;
+}
+
+export interface QuizAdminSummary {
+  id: string;
+  title: string;
+  description: string | null;
+  status: 'WAITING' | 'ACTIVE' | 'FINISHED' | 'DRAFT' | 'ABANDONED';
+  questionCount: number;
+  participantCount: number;
+  createdBy?: { id: string; name: string };
+  createdAt: string;
+  startedAt?: string | null;
+  endedAt?: string | null;
+  pin?: string;
+  creator?: { name: string };
+  _count?: { participants: number };
+}
+
 export interface User {
   id: string;
   name: string;
@@ -124,6 +157,7 @@ export interface Settings {
   hiringDesigning?: boolean;
   hiringSocialMedia?: boolean;
   hiringManagement?: boolean;
+  competitionEnabled?: boolean;
   showNetwork?: boolean;
   mailingEnabled?: boolean;
   certificatesEnabled?: boolean;
@@ -946,8 +980,10 @@ export const api = {
     if (limit) params.append('limit', limit.toString());
     if (offset) params.append('offset', offset.toString());
     const query = params.toString() ? `?${params.toString()}` : '';
-    return request(`/qotd/history${query}`);
+    return request<QOTDHistoryEntry[]>(`/qotd/history${query}`);
   },
+  getQOTDLeaderboard: (limit = 50) =>
+    request<QOTDLeaderboardEntry[]>(`/qotd/stats/leaderboard?limit=${limit}`),
   createQOTD: (data: { date: string; question: string; problemLink: string; difficulty: string }, token: string) =>
     request('/qotd', { method: 'POST', body: JSON.stringify(data), token }),
   submitQOTD: (id: string, token: string) =>
@@ -1052,6 +1088,23 @@ export const api = {
         createdAt: string;
       };
     } | null>('/hiring/my-application', { token }),
+  submitHiringApplication: (
+    data: {
+      name: string;
+      email: string;
+      phone?: string;
+      department: string;
+      year: string;
+      skills?: string;
+      applyingRole: string;
+    },
+    token?: string
+  ) =>
+    request<{ message?: string }>('/hiring/apply', {
+      method: 'POST',
+      body: JSON.stringify(data),
+      token,
+    }),
 
   // Network (public)
   getNetworkProfiles: (filters?: { industry?: string; connectionType?: string; search?: string }) => {
@@ -1177,8 +1230,61 @@ export const api = {
         finalRank: number | null;
         correctCount: number;
         totalParticipants: number;
+        joinedMidQuiz: boolean;
       }>;
     }>('/quiz/my-dashboard', { token }),
+  getQuizAdminList: (token: string) =>
+    request<QuizAdminSummary[]>('/quiz/admin/list', { token }),
+  joinQuizByPin: (pin: string, token?: string) =>
+    request<{
+      quizId: string;
+      title: string;
+      quizAccessToken: string;
+    }>('/quiz/join', {
+      method: 'POST',
+      body: JSON.stringify({ pin }),
+      token,
+    }),
+  deleteQuiz: (quizId: string, token: string) =>
+    request<{ message?: string }>(`/quiz/${quizId}`, {
+      method: 'DELETE',
+      token,
+    }),
+  openQuiz: (quizId: string, token: string) =>
+    request<{ pin?: string }>(`/quiz/${quizId}/open`, {
+      method: 'POST',
+      token,
+    }),
+  checkQuizHost: (quizId: string, token: string) =>
+    request<{ isHost: boolean; quizAccessToken?: string }>(`/quiz/${quizId}/check-host`, {
+      token,
+    }),
+
+  // Playground
+  getPlaygroundSnippets: (token: string) =>
+    request<Array<{
+      id: string;
+      title: string;
+      language: string;
+      createdAt: string;
+    }>>('/playground/snippets', { token }),
+  getPlaygroundStats: (token: string) =>
+    request<{
+      languageStats: Array<{ language: string; count: number }>;
+      totalExecutions: number;
+      todayCount: number;
+      dailyLimit: number;
+    }>('/playground/stats', { token }),
+  getPlaygroundHistory: (token: string) =>
+    request<Array<{
+      id: string;
+      language: string;
+      code: string;
+      output: string;
+      durationMs: number;
+      status: string;
+      executedAt: string;
+    }>>('/playground/history', { token }),
 
   // Signatories (admin)
   getActiveSignatories: (token: string) =>

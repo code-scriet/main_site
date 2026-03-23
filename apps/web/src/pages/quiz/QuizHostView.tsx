@@ -14,7 +14,7 @@
 
 import { useState, useMemo, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
 import { QRCodeSVG } from 'qrcode.react';
 import { useQuizStore } from '@/lib/quizStore';
 import { useQuizTimer } from '@/hooks/useQuizTimer';
@@ -45,6 +45,7 @@ import {
   QrCode,
   LayoutDashboard,
   Home,
+  AlertCircle,
 } from 'lucide-react';
 
 /* SVG circular progress ring */
@@ -108,8 +109,10 @@ export function QuizHostView({
   const [pinCopied, setPinCopied] = useState(false);
   const [showQR, setShowQR] = useState(false);
   const [showParticipants, setShowParticipants] = useState(true);
+  const prefersReducedMotion = useReducedMotion();
 
   const quizStatus = useQuizStore((s) => s.quizStatus);
+  const socketStatus = useQuizStore((s) => s.socketStatus);
   const title = useQuizStore((s) => s.title);
   const pin = useQuizStore((s) => s.pin);
   const participants = useQuizStore((s) => s.players); // Store uses 'players'
@@ -241,6 +244,19 @@ export function QuizHostView({
           </Badge>
         </div>
       </div>
+
+      {(socketStatus === 'connecting' || socketStatus === 'disconnected') && (
+        <div className="border-b border-amber-200 bg-amber-50/90">
+          <div className="max-w-7xl mx-auto px-4 py-2 flex items-center gap-2 text-sm text-amber-900">
+            <AlertCircle className="h-4 w-4 text-amber-600" />
+            <span>
+              {socketStatus === 'disconnected'
+                ? 'Realtime connection lost. Controls will resume once the quiz reconnects.'
+                : 'Reconnecting to the quiz server...'}
+            </span>
+          </div>
+        </div>
+      )}
 
       {/* Live stats bar */}
       {(quizStatus === 'question' || quizStatus === 'revealing') && (
@@ -505,7 +521,8 @@ export function QuizHostView({
                       onClick={onNextQuestion}
                       className={cn(
                         'col-span-2 shadow-md bg-gradient-to-r from-orange-500 to-amber-600 hover:from-orange-600 hover:to-amber-700 text-white',
-                        allAnswered && 'ring-2 ring-amber-400 ring-offset-2 animate-pulse',
+                        allAnswered && 'ring-2 ring-amber-400 ring-offset-2',
+                        allAnswered && !prefersReducedMotion && 'animate-pulse',
                       )}
                       size="lg"
                     >
@@ -572,7 +589,7 @@ export function QuizHostView({
                         animate={{ opacity: 1 }}
                         className="text-xs font-medium text-green-600 flex items-center gap-1"
                       >
-                        <span className="inline-block w-2 h-2 rounded-full bg-green-500 animate-pulse" />
+                        <span className={cn('inline-block w-2 h-2 rounded-full bg-green-500', !prefersReducedMotion && 'animate-pulse')} />
                         All answered!
                       </motion.p>
                     )}

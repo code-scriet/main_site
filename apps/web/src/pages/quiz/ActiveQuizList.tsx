@@ -4,7 +4,7 @@
  * Admins have a separate management section for their quizzes.
  */
 
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useState, useMemo, useCallback } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '@/context/AuthContext';
@@ -12,7 +12,18 @@ import { Layout } from '@/components/layout/Layout';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { api, type QuizAdminSummary } from '@/lib/api';
 import {
   Plus,
   Play,
@@ -35,23 +46,13 @@ import {
   FileDown,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-
-interface QuizSummary {
-  id: string;
-  title: string;
-  description: string | null;
-  status: string;
-  questionCount: number;
-  createdAt: string;
-  pin?: string;
-  creator?: { name: string };
-  _count?: { participants: number };
-}
+import { persistQuizAccessToken, storePendingQuizJoin } from '@/lib/quizAccess';
+import { toast } from 'sonner';
 
 interface QuizHistoryItem {
   quizId: string;
   title: string;
-  endedAt: string;
+  endedAt: string | null;
   finalRank: number | null;
   finalScore: number;
   correctCount: number;
@@ -68,18 +69,20 @@ export default function ActiveQuizList() {
   const { user } = useAuth();
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState('join');
-  const [adminQuizzes, setAdminQuizzes] = useState<QuizSummary[]>([]);
+  const [adminQuizzes, setAdminQuizzes] = useState<QuizAdminSummary[]>([]);
   const [myHistory, setMyHistory] = useState<QuizHistoryItem[]>([]);
   const [liveQuizCount, setLiveQuizCount] = useState(0);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('ALL');
   const [copiedPin, setCopiedPin] = useState<string | null>(null);
+  const [quizToDelete, setQuizToDelete] = useState<QuizAdminSummary | null>(null);
 
   // PIN entry state
   const [pin, setPin] = useState(['', '', '', '', '', '']);
   const [joinLoading, setJoinLoading] = useState(false);
   const [joinError, setJoinError] = useState('');
   const [joinSuccess, setJoinSuccess] = useState<{ quizId: string; title: string } | null>(null);
+  const [pinPasteNotice, setPinPasteNotice] = useState('');
 
   const isAdmin = Boolean(user?.role && ['ADMIN', 'PRESIDENT', 'CORE_MEMBER'].includes(user.role));
 
@@ -98,6 +101,35 @@ export default function ActiveQuizList() {
     return counts;
   }, [adminQuizzes]);
 
+  const fetchDashboardData = useCallback(async () => {
+    if (!user) return;
+    const token = localStorage.getItem('token');
+    if (!token) return;
+
+    setHistoryLoading(true);
+    try {
+      const data = await api.getMyQuizDashboard(token);
+      setLiveQuizCount(data.liveQuizzes.length);
+      setMyHistory(data.history);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to load your quiz dashboard');
+    } finally {
+      setHistoryLoading(false);
+    }
+  }, [user]);
+
+  const fetchAdminQuizzes = useCallback(async () => {
+    const token = localStorage.getItem('token');
+    if (!token) return;
+
+    try {
+      const data = await api.getQuizAdminList(token);
+      setAdminQuizzes(data);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to load your quizzes');
+    }
+  }, []);
+
   useEffect(() => {
     if (!user) {
       setLiveQuizCount(0);
@@ -105,46 +137,11 @@ export default function ActiveQuizList() {
       return;
     }
 
-    fetchDashboardData();
+    void fetchDashboardData();
     if (isAdmin) {
-      fetchAdminQuizzes();
+      void fetchAdminQuizzes();
     }
-  }, [isAdmin, user]);
-
-  const fetchDashboardData = async () => {
-    if (!user) return;
-    setHistoryLoading(true);
-    try {
-      const token = localStorage.getItem('token');
-      const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:5001/api';
-      const res = await fetch(`${apiUrl}/quiz/my-dashboard`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      const data = await res.json();
-      if (data.success) {
-        setLiveQuizCount(data.data?.liveQuizzes?.length || 0);
-        setMyHistory(data.data?.history || []);
-      }
-    } catch {
-      // ignore
-    } finally {
-      setHistoryLoading(false);
-    }
-  };
-
-  const fetchAdminQuizzes = async () => {
-    try {
-      const token = localStorage.getItem('token');
-      const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:5001/api';
-      const res = await fetch(`${apiUrl}/quiz/admin/list`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      const data = await res.json();
-      if (data.success) setAdminQuizzes(data.data || []);
-    } catch {
-      // ignore
-    }
-  };
+  }, [fetchAdminQuizzes, fetchDashboardData, isAdmin, user]);
 
   // PIN input handlers
   const handlePinChange = (index: number, value: string) => {
@@ -174,7 +171,13 @@ export default function ActiveQuizList() {
 
   const handlePinPaste = (e: React.ClipboardEvent) => {
     e.preventDefault();
-    const pasted = e.clipboardData.getData('text').replace(/\D/g, '').slice(0, 6);
+    const digits = e.clipboardData.getData('text').replace(/\D/g, '');
+    const pasted = digits.slice(0, 6);
+    if (digits.length > 6) {
+      setPinPasteNotice('PIN was trimmed to the first 6 digits.');
+    } else {
+      setPinPasteNotice('');
+    }
     if (pasted.length === 6) {
       setPin(pasted.split(''));
     }
@@ -192,78 +195,73 @@ export default function ActiveQuizList() {
 
     try {
       const token = localStorage.getItem('token');
-      const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:5001/api';
-      const res = await fetch(`${apiUrl}/quiz/join`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
-        body: JSON.stringify({ pin: pinStr }),
-      });
-      const data = await res.json();
+      const data = await api.joinQuizByPin(pinStr, token ?? undefined);
 
-      if (!data.success) {
-        setJoinError(data.error?.message || 'Quiz not found');
-        return;
-      }
-      if (!data.data?.quizAccessToken) {
+      if (!data.quizAccessToken) {
         setJoinError('Failed to issue secure quiz access token. Please try again.');
         return;
       }
 
       // Store server-minted access token for secure socket join.
-      sessionStorage.setItem(`quiz_access_token_${data.data.quizId}`, data.data.quizAccessToken);
+      persistQuizAccessToken(data.quizId, data.quizAccessToken);
+      storePendingQuizJoin({
+        quizId: data.quizId,
+        quizAccessToken: data.quizAccessToken,
+      });
       
-      setJoinSuccess({ quizId: data.data.quizId, title: data.data.title });
+      setJoinSuccess({ quizId: data.quizId, title: data.title });
       
       // Navigate after brief success display
       setTimeout(() => {
-        navigate(`/quiz/${data.data.quizId}`);
+        navigate(`/quiz/${data.quizId}`);
       }, 500);
-    } catch {
-      setJoinError('Connection failed. Check your internet and try again.');
+    } catch (err) {
+      setJoinError(err instanceof Error ? err.message : 'Connection failed. Check your internet and try again.');
     } finally {
       setJoinLoading(false);
     }
   };
 
   const handleDelete = async (quizId: string) => {
-    if (!confirm('Delete this quiz? This action cannot be undone.')) return;
+    const token = localStorage.getItem('token');
+    if (!token) {
+      toast.error('You need to sign in again to delete quizzes');
+      return;
+    }
+
     try {
-      const token = localStorage.getItem('token');
-      const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:5001/api';
-      await fetch(`${apiUrl}/quiz/${quizId}`, {
-        method: 'DELETE',
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      await api.deleteQuiz(quizId, token);
       setAdminQuizzes((prev) => prev.filter((q) => q.id !== quizId));
-    } catch {
-      // ignore
+      setQuizToDelete(null);
+      toast.success('Quiz deleted');
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to delete quiz');
     }
   };
 
   const handleOpenQuiz = async (quizId: string) => {
+    const token = localStorage.getItem('token');
+    if (!token) {
+      toast.error('You need to sign in again to open quizzes');
+      return;
+    }
+
     try {
-      const token = localStorage.getItem('token');
-      const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:5001/api';
-      const res = await fetch(`${apiUrl}/quiz/${quizId}/open`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      const data = await res.json();
-      if (data.success) {
-        navigate(`/quiz/${quizId}`);
-      }
-    } catch {
-      // ignore
+      await api.openQuiz(quizId, token);
+      navigate(`/quiz/${quizId}`);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to open quiz');
     }
   };
 
   const copyPin = async (pinToCopy: string) => {
-    await navigator.clipboard.writeText(pinToCopy);
-    setCopiedPin(pinToCopy);
-    setTimeout(() => setCopiedPin(null), 1500);
+    try {
+      await navigator.clipboard.writeText(pinToCopy);
+      setCopiedPin(pinToCopy);
+      setTimeout(() => setCopiedPin(null), 1500);
+    } catch {
+      toast.error('Failed to copy the PIN');
+    }
   };
 
   // Export quiz history as CSV (#52 partial — user-side)
@@ -271,7 +269,7 @@ export default function ActiveQuizList() {
     if (myHistory.length === 0) return;
     const header = 'Title,Date,Rank,Score,Correct,Total Questions,Total Players,Joined Mid-Quiz\n';
     const rows = myHistory.map((h) =>
-      `"${h.title}",${new Date(h.endedAt).toLocaleDateString()},${h.finalRank || '-'},${h.finalScore},${h.correctCount},${h.questionCount},${h.totalParticipants},${h.joinedMidQuiz}`
+      `"${h.title}",${h.endedAt ? new Date(h.endedAt).toLocaleDateString() : '-'},${h.finalRank || '-'},${h.finalScore},${h.correctCount},${h.questionCount},${h.totalParticipants},${h.joinedMidQuiz}`
     ).join('\n');
     const blob = new Blob([header + rows], { type: 'text/csv' });
     const url = URL.createObjectURL(blob);
@@ -279,7 +277,7 @@ export default function ActiveQuizList() {
     link.download = `quiz-history-${Date.now()}.csv`;
     link.href = url;
     link.click();
-    URL.revokeObjectURL(url);
+    window.setTimeout(() => URL.revokeObjectURL(url), 0);
   };
 
   // Status badge styling — per opus4.6.md spec
@@ -361,6 +359,17 @@ export default function ActiveQuizList() {
 
               {/* Error / success messages */}
               <AnimatePresence>
+                {pinPasteNotice && (
+                  <motion.div
+                    initial={{ opacity: 0, y: -10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0 }}
+                    className="flex items-center justify-center gap-2 text-amber-700 text-sm mb-4"
+                  >
+                    <AlertCircle className="h-4 w-4 flex-shrink-0" />
+                    {pinPasteNotice}
+                  </motion.div>
+                )}
                 {joinError && (
                   <motion.div
                     initial={{ opacity: 0, y: -10 }}
@@ -467,11 +476,12 @@ export default function ActiveQuizList() {
                         onClick={exportHistoryCSV}
                         className="text-amber-700/50 hover:text-amber-700 h-8"
                         title="Export history as CSV"
+                        aria-label="Export quiz history as CSV"
                       >
                         <FileDown className="h-4 w-4" />
                       </Button>
                     )}
-                    <Button variant="ghost" size="sm" onClick={fetchDashboardData} className="h-8">
+                    <Button variant="ghost" size="sm" onClick={() => void fetchDashboardData()} className="h-8" aria-label="Refresh quiz history">
                       <RefreshCw className={cn('h-4 w-4 text-amber-700/50', historyLoading && 'animate-spin')} />
                     </Button>
                   </div>
@@ -510,7 +520,7 @@ export default function ActiveQuizList() {
                             <div className="flex items-center gap-3 mt-1 text-xs text-amber-700/50">
                               <span className="flex items-center gap-1">
                                 <Clock className="h-3 w-3" />
-                                {new Date(item.endedAt).toLocaleDateString()}
+                                {item.endedAt ? new Date(item.endedAt).toLocaleDateString() : 'Pending'}
                               </span>
                               <span className="flex items-center gap-1">
                                 <Users className="h-3 w-3" />
@@ -652,6 +662,7 @@ export default function ActiveQuizList() {
                                     <button
                                       onClick={() => copyPin(quiz.pin!)}
                                       className="flex items-center gap-1 font-mono font-bold text-amber-800 bg-amber-100 rounded-md px-2 py-0.5 hover:bg-amber-200 transition-colors"
+                                      aria-label={`Copy PIN ${quiz.pin} for ${quiz.title}`}
                                     >
                                       PIN: {quiz.pin}
                                       {copiedPin === quiz.pin ? (
@@ -702,8 +713,9 @@ export default function ActiveQuizList() {
                                   <Button
                                     size="sm"
                                     variant="ghost"
-                                    onClick={() => handleDelete(quiz.id)}
+                                    onClick={() => setQuizToDelete(quiz)}
                                     className="text-red-400 hover:text-red-600 hover:bg-red-50 h-8"
+                                    aria-label={`Delete ${quiz.title}`}
                                   >
                                     <Trash2 className="h-3.5 w-3.5" />
                                   </Button>
@@ -734,6 +746,32 @@ export default function ActiveQuizList() {
           </Card>
         )}
       </div>
+
+      <AlertDialog open={Boolean(quizToDelete)} onOpenChange={(open) => !open && setQuizToDelete(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete quiz?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {quizToDelete
+                ? `Delete "${quizToDelete.title}" permanently? This action cannot be undone.`
+                : 'This action cannot be undone.'}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-red-600 hover:bg-red-700 focus-visible:ring-red-500"
+              onClick={() => {
+                if (quizToDelete) {
+                  void handleDelete(quizToDelete.id);
+                }
+              }}
+            >
+              Delete Quiz
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
       </div>
     </Layout>
   );

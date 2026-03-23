@@ -1,11 +1,9 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { extractApiErrorMessage } from '@/lib/error';
 import { useAuth } from '@/context/AuthContext';
 import { useSettings } from '@/context/SettingsContext';
 import { api } from '@/lib/api';
-
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5001/api';
+import { Loader2 } from 'lucide-react';
 
 interface HiringIntent {
   role: string;
@@ -44,6 +42,8 @@ export default function AuthCallbackPage() {
       return;
     }
 
+    let redirectTimeout: number | null = null;
+
     const processCallback = async () => {
       try {
         const hashParams = new URLSearchParams(window.location.hash.replace(/^#/, ''));
@@ -56,7 +56,6 @@ export default function AuthCallbackPage() {
         let callbackNetworkType: 'professional' | 'alumni' | undefined;
 
         if (errorParam) {
-          console.error('Auth error:', errorParam);
           navigate('/signin?error=' + errorParam);
           return;
         }
@@ -69,7 +68,6 @@ export default function AuthCallbackPage() {
         }
 
         if (!token) {
-          console.error('No token or authorization code found in callback');
           navigate('/signin?error=invalid_oauth_callback');
           return;
         }
@@ -97,31 +95,27 @@ export default function AuthCallbackPage() {
             if (hiringIntent.role) {
               setStatus('Submitting your application...');
 
-              // Submit the hiring application
-              const applicationResponse = await fetch(`${API_URL}/hiring/apply`, {
-                method: 'POST',
-                headers: {
-                  'Content-Type': 'application/json',
-                  Authorization: `Bearer ${token}`,
-                },
-                body: JSON.stringify({
-                  name: hiringIntent.name || loggedInUser.name,
-                  email: loggedInUser.email,
-                  phone: hiringIntent.phone,
-                  department: hiringIntent.department || 'Not specified',
-                  year: hiringIntent.year || 'Not specified',
-                  skills: hiringIntent.skills,
-                  applyingRole: hiringIntent.role,
-                }),
-              });
-
-              if (applicationResponse.ok) {
+              try {
+                await api.submitHiringApplication(
+                  {
+                    name: hiringIntent.name || loggedInUser.name,
+                    email: loggedInUser.email,
+                    phone: hiringIntent.phone,
+                    department: hiringIntent.department || 'Not specified',
+                    year: hiringIntent.year || 'Not specified',
+                    skills: hiringIntent.skills,
+                    applyingRole: hiringIntent.role,
+                  },
+                  token,
+                );
                 // Redirect to join-us success (will redirect to home if hiring disabled)
                 navigate('/join-us?success=true');
                 return;
-              } else {
-                const errorData = await applicationResponse.json().catch(() => null);
-                const errorMessage = extractApiErrorMessage(errorData, 'Failed to submit application');
+              } catch (applicationError) {
+                const errorMessage =
+                  applicationError instanceof Error
+                    ? applicationError.message
+                    : 'Failed to submit application';
                 // If application already exists or other error, redirect to complete form
                 if (errorMessage.toLowerCase().includes('already exists')) {
                   navigate('/dashboard');
@@ -132,8 +126,8 @@ export default function AuthCallbackPage() {
                 return;
               }
             }
-          } catch (err) {
-            console.error('Error processing hiring intent:', err);
+          } catch {
+            localStorage.removeItem('hiring_intent');
           }
         }
 
@@ -196,10 +190,8 @@ export default function AuthCallbackPage() {
           }
           // Check if they already have a network profile
           try {
-            const profileRes = await fetch(`${API_URL}/network/profile/me`, {
-              headers: { Authorization: `Bearer ${token}` },
-            });
-            if (profileRes.ok) {
+            const profileData = await api.getMyNetworkProfile(token);
+            if (profileData?.data) {
               navigate('/network/status');
             } else {
               const onboardingUrl = resolvedNetworkType
@@ -243,13 +235,17 @@ export default function AuthCallbackPage() {
         setStatus('Redirecting to dashboard...');
         navigate('/dashboard');
       } catch (err) {
-        console.error('Callback processing error:', err);
         setError(err instanceof Error ? err.message : 'Authentication failed');
-        setTimeout(() => navigate('/signin'), 2000);
+        redirectTimeout = window.setTimeout(() => navigate('/signin'), 2000);
       }
     };
 
     processCallback();
+    return () => {
+      if (redirectTimeout) {
+        window.clearTimeout(redirectTimeout);
+      }
+    };
   }, [searchParams, navigate, login, settingsLoading, settings?.hiringEnabled, settings?.showNetwork]);
 
   return (
@@ -264,7 +260,7 @@ export default function AuthCallbackPage() {
           </>
         ) : (
           <>
-            <div className="animate-spin rounded-full h-16 w-16 border-b-4 border-amber-600 mx-auto mb-6"></div>
+            <Loader2 className="h-16 w-16 animate-spin text-amber-600 mx-auto mb-6" />
             <h2 className="text-xl font-semibold text-gray-800 mb-2">{status}</h2>
             <p className="text-sm text-gray-500">Please wait...</p>
           </>

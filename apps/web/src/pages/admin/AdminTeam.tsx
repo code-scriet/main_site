@@ -546,7 +546,7 @@ export default function AdminTeam() {
                                     website: prev.website.trim() === '' ? (fullUser.websiteUrl || '') : prev.website,
                                   }));
                                 } catch (err) {
-                                  console.error("Failed to fetch full user info", err);
+                                  setError('Failed to fetch linked user details');
                                 }
                               }
                             }}

@@ -1,35 +1,100 @@
-import { Link } from 'react-router-dom';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { AnimatePresence, motion } from 'framer-motion';
+import { Link, useLocation } from 'react-router-dom';
 import { Menu, X } from 'lucide-react';
-import { useState, useMemo } from 'react';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/context/AuthContext';
 import { useSettings } from '@/context/SettingsContext';
+import { cn } from '@/lib/utils';
 
 const BASE_PLAYGROUND_URL = import.meta.env.VITE_PLAYGROUND_URL ||
   (import.meta.env.DEV ? 'http://localhost:5174' : 'https://code.codescriet.dev');
+
+const FOCUSABLE_SELECTOR = 'a[href], button:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
+type NavigationItem = {
+  name: string;
+  href: string;
+  external?: boolean;
+};
 
 export function Header() {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const { user, logout } = useAuth();
   const { settings, loading: settingsLoading } = useSettings();
+  const location = useLocation();
+  const menuButtonRef = useRef<HTMLButtonElement>(null);
+  const menuPanelRef = useRef<HTMLDivElement>(null);
 
-  // Build playground URL with JWT hash so the playground auto-authenticates
-  const playgroundUrl = useMemo(() => {
-    const token = localStorage.getItem('token');
-    if (token) return `${BASE_PLAYGROUND_URL}/#token=${encodeURIComponent(token)}`;
-    return BASE_PLAYGROUND_URL;
-  }, [user]); // recalculate when user changes (login/logout)
+  const closeMenu = useCallback(() => {
+    setIsMenuOpen(false);
+  }, []);
 
-  const navigation = [
+  useEffect(() => {
+    closeMenu();
+  }, [location.pathname, closeMenu]);
+
+  useEffect(() => {
+    if (!isMenuOpen) return;
+
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+
+    const focusFirstItem = () => {
+      const focusableItems = menuPanelRef.current?.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR);
+      focusableItems?.[0]?.focus();
+    };
+
+    const frame = window.requestAnimationFrame(focusFirstItem);
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        closeMenu();
+        return;
+      }
+
+      if (event.key !== 'Tab') return;
+
+      const focusableItems = menuPanelRef.current?.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR);
+      if (!focusableItems || focusableItems.length === 0) return;
+
+      const firstItem = focusableItems[0];
+      const lastItem = focusableItems[focusableItems.length - 1];
+
+      if (event.shiftKey && document.activeElement === firstItem) {
+        event.preventDefault();
+        lastItem.focus();
+      } else if (!event.shiftKey && document.activeElement === lastItem) {
+        event.preventDefault();
+        firstItem.focus();
+      }
+    };
+
+    document.addEventListener('keydown', handleKeyDown);
+
+    return () => {
+      window.cancelAnimationFrame(frame);
+      document.body.style.overflow = previousOverflow;
+      document.removeEventListener('keydown', handleKeyDown);
+      menuButtonRef.current?.focus();
+    };
+  }, [isMenuOpen, closeMenu]);
+
+  const isActiveLink = useCallback((href: string, external?: boolean) => {
+    if (external) return false;
+    if (href === '/') return location.pathname === '/';
+    return location.pathname === href || location.pathname.startsWith(`${href}/`);
+  }, [location.pathname]);
+
+  const navigation: NavigationItem[] = [
     { name: 'Home', href: '/' },
     { name: 'About', href: '/about' },
     { name: 'Events', href: '/events' },
     { name: 'Announcements', href: '/announcements' },
     { name: 'Team', href: '/team' },
     { name: 'Achievements', href: '/achievements' },
-    // Playground link - conditionally shown based on settings
-    ...(settings?.playgroundEnabled !== false ? [{ name: 'Playground', href: playgroundUrl, external: true }] : []),
-    // Network link - conditionally shown based on settings
+    ...(settings?.playgroundEnabled !== false ? [{ name: 'Playground', href: BASE_PLAYGROUND_URL, external: true }] : []),
     ...(settings?.showNetwork !== false ? [{ name: 'Network', href: '/network' }] : []),
   ];
 
@@ -37,7 +102,6 @@ export function Header() {
     <header className="sticky top-0 z-50 w-full border-b border-amber-200 bg-white/95 backdrop-blur supports-[backdrop-filter]:bg-white/80">
       <nav className="container mx-auto px-4 py-4">
         <div className="flex items-center justify-between">
-          {/* Logo */}
           <Link to="/" className="flex items-center space-x-3 group">
             <div className="h-12 w-12 rounded-lg overflow-hidden shadow-md group-hover:shadow-lg transition-shadow">
               <img src="/logo.jpeg" alt="code.scriet" className="h-full w-full object-cover" />
@@ -45,32 +109,42 @@ export function Header() {
             <span className="text-xl font-bold text-amber-900 group-hover:text-amber-700 transition-colors">code.scriet</span>
           </Link>
 
-          {/* Desktop Navigation */}
-          <div className="hidden md:flex items-center space-x-8">
-            {navigation.map((item) => (
-              item.external ? (
-                <a
-                  key={item.name}
-                  href={item.href}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-gray-700 hover:text-amber-600 transition-colors duration-200 font-medium"
-                >
-                  {item.name}
-                </a>
-              ) : (
+          <div className="hidden md:flex items-center space-x-6">
+            {navigation.map((item) => {
+              const active = isActiveLink(item.href, item.external);
+
+              if (item.external) {
+                return (
+                  <a
+                    key={item.name}
+                    href={item.href}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-gray-700 hover:text-amber-600 transition-colors duration-200 font-medium"
+                  >
+                    {item.name}
+                  </a>
+                );
+              }
+
+              return (
                 <Link
                   key={item.name}
                   to={item.href}
-                  className="text-gray-700 hover:text-amber-600 transition-colors duration-200 font-medium"
+                  aria-current={active ? 'page' : undefined}
+                  className={cn(
+                    'border-b-2 pb-1 text-sm font-medium transition-colors duration-200',
+                    active
+                      ? 'border-amber-500 text-amber-700'
+                      : 'border-transparent text-gray-700 hover:text-amber-600'
+                  )}
                 >
                   {item.name}
                 </Link>
-              )
-            ))}
+              );
+            })}
           </div>
 
-          {/* Auth Buttons */}
           <div className="hidden md:flex items-center space-x-4">
             {user ? (
               <>
@@ -101,11 +175,14 @@ export function Header() {
             )}
           </div>
 
-          {/* Mobile Menu Button */}
           <button
+            ref={menuButtonRef}
+            type="button"
             className="md:hidden p-2.5 rounded-lg hover:bg-amber-50 active:bg-amber-100 transition-colors touch-target"
-            onClick={() => setIsMenuOpen(!isMenuOpen)}
+            onClick={() => setIsMenuOpen((open) => !open)}
             aria-label={isMenuOpen ? 'Close menu' : 'Open menu'}
+            aria-expanded={isMenuOpen}
+            aria-controls="mobile-menu"
           >
             {isMenuOpen ? (
               <X className="h-6 w-6 text-gray-700" />
@@ -114,65 +191,110 @@ export function Header() {
             )}
           </button>
         </div>
-
-        {/* Mobile Menu */}
-        {isMenuOpen && (
-          <div className="md:hidden mt-4 pb-4 space-y-3">
-            {navigation.map((item) => (
-              item.external ? (
-                <a
-                  key={item.name}
-                  href={item.href}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="block py-2.5 px-3 text-gray-700 hover:text-amber-600 hover:bg-amber-50 rounded-lg transition-colors duration-200 font-medium"
-                  onClick={() => setIsMenuOpen(false)}
-                >
-                  {item.name}
-                </a>
-              ) : (
-                <Link
-                  key={item.name}
-                  to={item.href}
-                  className="block py-2.5 px-3 text-gray-700 hover:text-amber-600 hover:bg-amber-50 rounded-lg transition-colors duration-200 font-medium"
-                  onClick={() => setIsMenuOpen(false)}
-                >
-                  {item.name}
-                </Link>
-              )
-            ))}
-            <div className="flex flex-col gap-2 pt-4 mt-2 border-t border-amber-200">
-              {user ? (
-                <>
-                  <Link to="/dashboard" onClick={() => setIsMenuOpen(false)}>
-                    <Button variant="outline" className="w-full">
-                      Dashboard
-                    </Button>
-                  </Link>
-                  <Button variant="ghost" className="w-full" onClick={() => { logout(); setIsMenuOpen(false); }}>
-                    Logout
-                  </Button>
-                </>
-              ) : (
-                <>
-                  <Link to="/signin" onClick={() => setIsMenuOpen(false)}>
-                    <Button variant="outline" className="w-full">
-                      Sign In
-                    </Button>
-                  </Link>
-                  {!settingsLoading && settings?.hiringEnabled === true && (
-                    <Link to="/join-us" onClick={() => setIsMenuOpen(false)}>
-                      <Button className="w-full">
-                        Join Us
-                      </Button>
-                    </Link>
-                  )}
-                </>
-              )}
-            </div>
-          </div>
-        )}
       </nav>
+
+      <AnimatePresence>
+        {isMenuOpen && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-40 bg-black/30 backdrop-blur-sm md:hidden"
+            onClick={closeMenu}
+          >
+            <div className="px-4 pt-[88px]">
+              <motion.div
+                id="mobile-menu"
+                ref={menuPanelRef}
+                role="dialog"
+                aria-modal="true"
+                aria-label="Site navigation"
+                initial={{ opacity: 0, y: -16 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -12 }}
+                transition={{ duration: 0.2 }}
+                className="rounded-2xl border border-amber-200 bg-white p-4 shadow-2xl"
+                onClick={(event) => event.stopPropagation()}
+              >
+                <div className="space-y-2">
+                  {navigation.map((item) => {
+                    const active = isActiveLink(item.href, item.external);
+
+                    if (item.external) {
+                      return (
+                        <a
+                          key={item.name}
+                          href={item.href}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="block rounded-xl px-3 py-3 text-sm font-medium text-gray-700 transition-colors duration-200 hover:bg-amber-50 hover:text-amber-600"
+                          onClick={closeMenu}
+                        >
+                          {item.name}
+                        </a>
+                      );
+                    }
+
+                    return (
+                      <Link
+                        key={item.name}
+                        to={item.href}
+                        aria-current={active ? 'page' : undefined}
+                        className={cn(
+                          'block rounded-xl px-3 py-3 text-sm font-medium transition-colors duration-200',
+                          active
+                            ? 'bg-amber-50 text-amber-700'
+                            : 'text-gray-700 hover:bg-amber-50 hover:text-amber-600'
+                        )}
+                        onClick={closeMenu}
+                      >
+                        {item.name}
+                      </Link>
+                    );
+                  })}
+                </div>
+
+                <div className="mt-4 flex flex-col gap-2 border-t border-amber-200 pt-4">
+                  {user ? (
+                    <>
+                      <Link to="/dashboard" onClick={closeMenu}>
+                        <Button variant="outline" className="w-full">
+                          Dashboard
+                        </Button>
+                      </Link>
+                      <Button
+                        variant="ghost"
+                        className="w-full"
+                        onClick={() => {
+                          logout();
+                          closeMenu();
+                        }}
+                      >
+                        Logout
+                      </Button>
+                    </>
+                  ) : (
+                    <>
+                      <Link to="/signin" onClick={closeMenu}>
+                        <Button variant="outline" className="w-full">
+                          Sign In
+                        </Button>
+                      </Link>
+                      {!settingsLoading && settings?.hiringEnabled === true && (
+                        <Link to="/join-us" onClick={closeMenu}>
+                          <Button className="w-full">
+                            Join Us
+                          </Button>
+                        </Link>
+                      )}
+                    </>
+                  )}
+                </div>
+              </motion.div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </header>
   );
 }

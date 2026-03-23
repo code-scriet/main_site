@@ -352,7 +352,7 @@ export default function ProfilePage() {
                 <div>
                   <p className="text-xs text-gray-500">Role</p>
                   <span className={`inline-flex items-center px-2 py-0.5 text-xs font-medium rounded border ${getRoleBadgeColor(profile?.role || '')}`}>
-                    {profile?.role?.replace('_', ' ')}
+                    {profile?.role?.replace(/_/g, ' ')}
                   </span>
                 </div>
               </div>

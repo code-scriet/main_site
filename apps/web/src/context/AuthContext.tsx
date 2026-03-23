@@ -46,7 +46,6 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         localStorage.removeItem('token');
         return null;
       }
-      console.error('Failed to fetch user:', err);
       localStorage.removeItem('token');
       return null;
     }

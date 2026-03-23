@@ -5,6 +5,16 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Markdown } from '@/components/ui/markdown';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { useAuth } from '@/context/AuthContext';
 import { api } from '@/lib/api';
 import type { Announcement } from '@/lib/api';
@@ -35,6 +45,7 @@ export default function DashboardAnnouncements() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editForm, setEditForm] = useState<Partial<Announcement>>({});
   const [deleting, setDeleting] = useState<string | null>(null);
+  const [announcementToDelete, setAnnouncementToDelete] = useState<Announcement | null>(null);
 
   const isCoreMember = user?.role === 'CORE_MEMBER' || user?.role === 'ADMIN' || user?.role === 'PRESIDENT';
   const isAdmin = user?.role === 'ADMIN' || user?.role === 'PRESIDENT';
@@ -86,7 +97,7 @@ export default function DashboardAnnouncements() {
     }
   };
 
-  const handleDelete = async (id: string) => {
+  const handleDelete = async (announcement: Announcement) => {
     if (!token) {
       setError('Authentication token not found. Please log in again.');
       return;
@@ -95,13 +106,13 @@ export default function DashboardAnnouncements() {
       setError('Only admins can delete announcements.');
       return;
     }
-    if (!window.confirm('Are you sure you want to delete this announcement?')) return;
     
     try {
-      setDeleting(id);
+      setDeleting(announcement.id);
       setError(null);
-      await api.deleteAnnouncement(id, token);
+      await api.deleteAnnouncement(announcement.id, token);
       await loadAnnouncements();
+      setAnnouncementToDelete(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to delete announcement');
     } finally {
@@ -260,7 +271,7 @@ export default function DashboardAnnouncements() {
                             {announcement.priority}
                           </Badge>
                           <Link to={`/announcements/${announcement.slug || announcement.id}`} target="_blank">
-                            <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
+                            <Button variant="ghost" size="sm" className="h-8 w-8 p-0" aria-label={`Open ${announcement.title} in a new tab`}>
                               <ExternalLink className="h-4 w-4" />
                             </Button>
                           </Link>
@@ -271,6 +282,7 @@ export default function DashboardAnnouncements() {
                                 size="sm"
                                 onClick={() => handleEdit(announcement)}
                                 className="h-8 w-8 p-0"
+                                aria-label={`Edit ${announcement.title}`}
                               >
                                 <Edit2 className="h-4 w-4" />
                               </Button>
@@ -278,9 +290,10 @@ export default function DashboardAnnouncements() {
                                 <Button
                                   variant="ghost"
                                   size="sm"
-                                  onClick={() => handleDelete(announcement.id)}
+                                  onClick={() => setAnnouncementToDelete(announcement)}
                                   disabled={deleting === announcement.id}
                                   className="h-8 w-8 p-0 text-red-600 hover:text-red-700 hover:bg-red-50"
+                                  aria-label={`Delete ${announcement.title}`}
                                 >
                                   {deleting === announcement.id ? (
                                     <Loader2 className="h-4 w-4 animate-spin" />
@@ -335,6 +348,39 @@ export default function DashboardAnnouncements() {
           )}
         </CardContent>
       </Card>
+
+      <AlertDialog open={Boolean(announcementToDelete)} onOpenChange={(open) => !open && setAnnouncementToDelete(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete announcement?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {announcementToDelete
+                ? `Delete "${announcementToDelete.title}" permanently? This action cannot be undone.`
+                : 'This action cannot be undone.'}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={Boolean(deleting)}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-red-600 hover:bg-red-700 focus-visible:ring-red-500"
+              onClick={() => {
+                if (announcementToDelete) {
+                  void handleDelete(announcementToDelete);
+                }
+              }}
+            >
+              {deleting && announcementToDelete?.id === deleting ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Deleting...
+                </>
+              ) : (
+                'Delete Announcement'
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

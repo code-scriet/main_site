@@ -6,12 +6,8 @@ import { motion } from 'framer-motion';
 const BASE_PLAYGROUND_URL = import.meta.env.VITE_PLAYGROUND_URL || 
   (import.meta.env.DEV ? 'http://localhost:5174' : 'https://code.codescriet.dev');
 
-/** Build playground URL with JWT in hash so the playground can auto-authenticate */
+/** Playground auth is handled by the shared session cookie across subdomains. */
 function getPlaygroundUrl(): string {
-  const token = localStorage.getItem('token');
-  if (token) {
-    return `${BASE_PLAYGROUND_URL}/#token=${encodeURIComponent(token)}`;
-  }
   return BASE_PLAYGROUND_URL;
 }
 

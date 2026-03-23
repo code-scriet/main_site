@@ -50,6 +50,7 @@ export default function DashboardOverview() {
   const [teamMemberId, setTeamMemberId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [partialError, setPartialError] = useState<string | null>(null);
   const [totalRegistrations, setTotalRegistrations] = useState(0);
   const [totalAnnouncements, setTotalAnnouncements] = useState(0);
 
@@ -57,12 +58,24 @@ export default function DashboardOverview() {
     const loadData = async () => {
       if (!token) { setLoading(false); return; }
       try {
-        const [regs, anns, hiring, myTeamProfile] = await Promise.all([
-          api.getMyRegistrations(token).catch(() => []),
-          api.getAnnouncements().catch(() => []),
-          api.getMyHiringApplication(token).catch(() => null),
-          api.getMyTeamProfile(token).catch(() => null),
+        const [regsResult, annsResult, hiringResult, myTeamProfileResult] = await Promise.allSettled([
+          api.getMyRegistrations(token),
+          api.getAnnouncements(),
+          api.getMyHiringApplication(token),
+          api.getMyTeamProfile(token),
         ]);
+
+        const regs = regsResult.status === 'fulfilled' ? regsResult.value : [];
+        const anns = annsResult.status === 'fulfilled' ? annsResult.value : [];
+        const hiring = hiringResult.status === 'fulfilled' ? hiringResult.value : null;
+        const myTeamProfile = myTeamProfileResult.status === 'fulfilled' ? myTeamProfileResult.value : null;
+
+        setPartialError(
+          [regsResult, annsResult, hiringResult, myTeamProfileResult].some((result) => result.status === 'rejected')
+            ? 'Some dashboard data could not be loaded. You can still use the rest of the dashboard.'
+            : null
+        );
+
         setTotalRegistrations(regs.length);
         setTotalAnnouncements(anns.length);
         setRegistrations(regs.slice(0, 5));
@@ -167,9 +180,20 @@ export default function DashboardOverview() {
           icon={<LayoutDashboard className="h-5 w-5 text-blue-500" />}
           iconBg="bg-blue-50"
           label="Your Role"
-          valueText={user?.role?.replace('_', ' ')}
+          valueText={user?.role?.replace(/_/g, ' ')}
         />
       </motion.div>
+
+      {partialError && (
+        <motion.div {...stagger(2)}>
+          <Card className="border-amber-200 bg-amber-50">
+            <CardContent className="flex items-center gap-3 px-4 py-3 text-sm text-amber-900">
+              <AlertCircle className="h-4 w-4 shrink-0" />
+              <p>{partialError}</p>
+            </CardContent>
+          </Card>
+        </motion.div>
+      )}
 
       {/* ─── Quick Actions ───────────────────────────────────────────── */}
       <motion.div {...stagger(2)} className="flex gap-2 flex-wrap">

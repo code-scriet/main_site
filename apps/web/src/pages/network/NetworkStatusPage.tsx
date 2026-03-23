@@ -65,7 +65,6 @@ export default function NetworkStatusPage() {
           setHasProfile(false);
           setProfile(null);
         } else {
-          console.error('Failed to load network profile');
           setHasProfile(false);
         }
       } finally {

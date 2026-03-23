@@ -302,8 +302,7 @@ export default function NetworkOnboarding() {
         } else if (user?.name) {
           setValue('fullName', user.name);
         }
-      } catch (err) {
-        console.error('Error fetching profile:', err);
+      } catch {
       } finally {
         setLoadingProfile(false);
       }

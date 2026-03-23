@@ -28,13 +28,10 @@ export default function AnnouncementsPage() {
   useEffect(() => {
     const loadAnnouncements = async () => {
       try {
-        console.log('Fetching announcements...');
         const data = await api.getAnnouncements();
-        console.log('Announcements loaded:', data);
         setAnnouncements(data);
         setError(null);
       } catch (err) {
-        console.error('Failed to load announcements:', err);
         setError(err instanceof Error ? err.message : 'Failed to load announcements');
       } finally {
         setLoading(false);

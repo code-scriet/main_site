@@ -41,6 +41,7 @@ import {
   Video,
   Download,
 } from 'lucide-react';
+import { toast } from 'sonner';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5001/api';
 
@@ -64,6 +65,12 @@ const statusIcons: Record<NetworkStatus, typeof Clock> = {
   PENDING: Clock,
   VERIFIED: CheckCircle2,
   REJECTED: XCircle,
+};
+
+const colorClasses: Record<string, { ring: string; text: string }> = {
+  amber: { ring: 'ring-amber-500', text: 'text-amber-500' },
+  green: { ring: 'ring-green-500', text: 'text-green-500' },
+  red: { ring: 'ring-red-500', text: 'text-red-500' },
 };
 
 type NetworkCategoryFilter = 'ANY' | 'PROFESSIONAL' | 'ALUMNI';
@@ -140,7 +147,7 @@ export default function AdminNetwork() {
       await fetchProfiles();
       setViewProfile(null);
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Failed to verify');
+      toast.error(err instanceof Error ? err.message : 'Failed to verify');
     } finally {
       setActionLoading(false);
     }
@@ -156,7 +163,7 @@ export default function AdminNetwork() {
       setRejectReason('');
       setViewProfile(null);
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Failed to reject');
+      toast.error(err instanceof Error ? err.message : 'Failed to reject');
     } finally {
       setActionLoading(false);
     }
@@ -171,7 +178,7 @@ export default function AdminNetwork() {
       setDeleteDialog(null);
       setViewProfile(null);
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Failed to delete');
+      toast.error(err instanceof Error ? err.message : 'Failed to delete');
     } finally {
       setActionLoading(false);
     }
@@ -189,7 +196,7 @@ export default function AdminNetwork() {
       await api.revertPendingNetworkUser(pendingUser.id, token);
       await fetchProfiles();
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Failed to move user back to normal flow');
+      toast.error(err instanceof Error ? err.message : 'Failed to move user back to normal flow');
     } finally {
       setActionLoading(false);
     }
@@ -207,7 +214,7 @@ export default function AdminNetwork() {
       await api.deletePendingNetworkUser(pendingUser.id, token);
       await fetchProfiles();
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Failed to delete pending user');
+      toast.error(err instanceof Error ? err.message : 'Failed to delete pending user');
     } finally {
       setActionLoading(false);
     }
@@ -291,7 +298,7 @@ export default function AdminNetwork() {
       await fetchProfiles();
       setEditDialog(null);
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Failed to save changes');
+      toast.error(err instanceof Error ? err.message : 'Failed to save changes');
     } finally {
       setEditSaving(false);
     }
@@ -448,7 +455,7 @@ export default function AdminNetwork() {
             <Card
               key={item.status}
               className={`cursor-pointer transition-all ${
-                activeTab === item.status ? `ring-2 ring-${item.color}-500` : ''
+                activeTab === item.status ? `ring-2 ${colorClasses[item.color]?.ring ?? 'ring-gray-500'}` : ''
               }`}
               onClick={() => setActiveTab(item.status)}
             >
@@ -457,7 +464,7 @@ export default function AdminNetwork() {
                   <p className="text-sm text-gray-500">{item.label}</p>
                   <p className="text-2xl font-bold">{counts[item.status]}</p>
                 </div>
-                <item.icon className={`h-8 w-8 text-${item.color}-500 opacity-50`} />
+                <item.icon className={`h-8 w-8 ${colorClasses[item.color]?.text ?? 'text-gray-500'} opacity-50`} />
               </CardContent>
             </Card>
           ))}

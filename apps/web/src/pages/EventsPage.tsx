@@ -6,13 +6,14 @@ import { motion } from 'framer-motion';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Calendar, MapPin, Users, Loader2, Clock, AlertCircle, CheckCircle, LogIn, ArrowRight, Star } from 'lucide-react';
+import { Calendar, MapPin, Users, Loader2, Clock, CheckCircle, LogIn, ArrowRight, Star } from 'lucide-react';
 import { api, type Event } from '@/lib/api';
 import { useAuth } from '@/context/AuthContext';
 import { useNavigate, Link } from 'react-router-dom';
 import { formatDate } from '@/lib/dateUtils';
 import { processImageUrl } from '@/lib/imageUtils';
 import { getRegistrationStatus } from '@/lib/registrationStatus';
+import { toast } from 'sonner';
 
 type EventStatus = 'UPCOMING' | 'ONGOING' | 'PAST';
 
@@ -35,8 +36,6 @@ export default function EventsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [registering, setRegistering] = useState<string | null>(null);
-  const [registrationSuccess, setRegistrationSuccess] = useState<string | null>(null);
-  const [registrationError, setRegistrationError] = useState<string | null>(null);
   
   const [registeredEventIds, setRegisteredEventIds] = useState<Set<string>>(new Set());
   
@@ -58,8 +57,8 @@ export default function EventsPage() {
           try {
             const registrations = await api.getMyRegistrations(token);
             setRegisteredEventIds(new Set(registrations.map(r => r.eventId)));
-          } catch (err) {
-            console.error('Failed to fetch user registrations', err);
+          } catch {
+            toast.error('Could not load your event registrations');
           }
         }
       } catch (err) {
@@ -75,8 +74,7 @@ export default function EventsPage() {
     const regStatus = getRegistrationStatus(event);
     
     if (!regStatus.canRegister) {
-      setRegistrationError(regStatus.message);
-      setTimeout(() => setRegistrationError(null), 3000);
+      toast.error(regStatus.message);
       return;
     }
 
@@ -111,9 +109,8 @@ export default function EventsPage() {
 
     try {
       setRegistering(event.id);
-      setRegistrationError(null);
       await api.registerForEvent(event.id, token);
-      setRegistrationSuccess(`Successfully registered for "${event.title}"!`);
+      toast.success(`Successfully registered for "${event.title}"!`);
       
       // Refresh events to update registration count
       const updatedEvents = await api.getEvents();
@@ -122,11 +119,8 @@ export default function EventsPage() {
       // Refresh user registrations
       const registrations = await api.getMyRegistrations(token);
       setRegisteredEventIds(new Set(registrations.map(r => r.eventId)));
-      
-      setTimeout(() => setRegistrationSuccess(null), 5000);
     } catch (err) {
-      setRegistrationError(err instanceof Error ? err.message : 'Failed to register');
-      setTimeout(() => setRegistrationError(null), 5000);
+      toast.error(err instanceof Error ? err.message : 'Failed to register');
     } finally {
       setRegistering(null);
     }
@@ -173,29 +167,6 @@ export default function EventsPage() {
         </div>
       </section>
 
-      {/* Success/Error Notifications */}
-      {(registrationSuccess || registrationError) && (
-        <div className="fixed top-under-header-gap left-1/2 transform -translate-x-1/2 z-50 w-full max-w-md px-4">
-          <motion.div
-            initial={{ opacity: 0, y: -20 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -20 }}
-            className={`flex items-center gap-3 p-4 rounded-lg shadow-lg ${
-              registrationSuccess 
-                ? 'bg-green-50 border border-green-200 text-green-700' 
-                : 'bg-red-50 border border-red-200 text-red-700'
-            }`}
-          >
-            {registrationSuccess ? (
-              <CheckCircle className="h-5 w-5 shrink-0" />
-            ) : (
-              <AlertCircle className="h-5 w-5 shrink-0" />
-            )}
-            <p className="text-sm font-medium">{registrationSuccess || registrationError}</p>
-          </motion.div>
-        </div>
-      )}
-
       {/* Filter Tabs */}
       <section className="py-6 sm:py-8 bg-white border-b border-amber-200 sticky top-under-header z-40">
         <div className="container mx-auto px-4">
@@ -238,16 +209,17 @@ export default function EventsPage() {
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6 lg:gap-8">
               {filteredEvents.map((event, index) => {
                 const regStatus = getRegistrationStatus(event);
+                const eventHref = `/events/${event.slug || event.id}`;
                 
                 return (
                   <motion.div
                     key={event.id}
                     initial={{ opacity: 0, y: 20 }}
                     animate={{ opacity: 1, y: 0 }}
-                    transition={{ duration: 0.6, delay: index * 0.1 }}
+                    transition={{ duration: 0.6, delay: Math.min(index * 0.1, 0.5) }}
                   >
-                    <Link to={`/events/${event.slug}`}>
-                      <Card className="h-full overflow-hidden group hover:shadow-xl transition-all duration-300 cursor-pointer">
+                    <Card className="h-full overflow-hidden group hover:shadow-xl transition-all duration-300">
+                      <Link to={eventHref} className="block">
                         <div className="relative overflow-hidden bg-gradient-to-br from-amber-200 to-orange-200" style={{ aspectRatio: '16/9' }}>
                           {event.imageUrl ? (
                             <img
@@ -280,9 +252,13 @@ export default function EventsPage() {
                             </div>
                           )}
                         </div>
+                      </Link>
+                      <Link to={eventHref} className="block">
                         <CardHeader>
                           <CardTitle className="line-clamp-1 group-hover:text-amber-600 transition-colors">{event.title}</CardTitle>
                         </CardHeader>
+                      </Link>
+                      <Link to={eventHref} className="block flex-1">
                         <CardContent className="space-y-4">
                           <p className="text-gray-600 line-clamp-2">{event.shortDescription || event.description}</p>
                           
@@ -320,70 +296,61 @@ export default function EventsPage() {
                             <Clock className="h-4 w-4" />
                             <span>{regStatus.message}</span>
                           </div>
-
-                          <div className="pt-2 flex flex-col gap-2">
-                            {event.status !== 'PAST' && regStatus.canRegister ? (
-                              registeredEventIds.has(event.id) ? (
-                                <Button 
-                                  variant="secondary" 
-                                  className="w-full bg-green-50 text-green-700 border border-green-200 opacity-100 cursor-default" 
-                                  disabled
-                                  onClick={(e) => e.preventDefault()}
-                                >
-                                  <CheckCircle className="h-4 w-4 mr-2" />
-                                  Registered
-                                </Button>
-                              ) : user ? (
-                                <Button 
-                                  className="w-full bg-amber-600 hover:bg-amber-700" 
-                                  onClick={(e) => {
-                                    e.preventDefault();
-                                    handleRegister(event);
-                                  }}
-                                  disabled={registering === event.id}
-                                >
-                                  {registering === event.id ? (
-                                    <>
-                                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                                      Registering...
-                                    </>
-                                  ) : (
-                                    'Register Now'
-                                  )}
-                                </Button>
-                              ) : (
-                                <Button 
-                                  className="w-full" 
-                                  variant="outline"
-                                  onClick={(e) => {
-                                    e.preventDefault();
-                                    navigate('/signin', { state: { from: '/events' } });
-                                  }}
-                                >
-                                  <LogIn className="h-4 w-4 mr-2" />
-                                  Sign In to Register
-                                </Button>
-                              )
-                            ) : event.status === 'ONGOING' ? (
-                              <Button variant="secondary" className="w-full" disabled onClick={(e) => e.preventDefault()}>
-                                Event in Progress
-                              </Button>
-                            ) : (
-                              <Button variant="outline" className="w-full" disabled onClick={(e) => e.preventDefault()}>
-                                {regStatus.message}
-                              </Button>
-                            )}
-                            <Button 
-                              variant="outline" 
-                              className="w-full"
-                            >
-                              View Details
-                              <ArrowRight className="h-4 w-4 ml-2" />
-                            </Button>
-                          </div>
                         </CardContent>
-                      </Card>
-                    </Link>
+                      </Link>
+                      <div className="px-6 pb-6 pt-2 flex flex-col gap-2">
+                        {event.status !== 'PAST' && regStatus.canRegister ? (
+                          registeredEventIds.has(event.id) ? (
+                            <Button 
+                              variant="secondary" 
+                              className="w-full bg-green-50 text-green-700 border border-green-200 opacity-100 cursor-default" 
+                              disabled
+                            >
+                              <CheckCircle className="h-4 w-4 mr-2" />
+                              Registered
+                            </Button>
+                          ) : user ? (
+                            <Button 
+                              className="w-full bg-amber-600 hover:bg-amber-700" 
+                              onClick={() => handleRegister(event)}
+                              disabled={registering === event.id}
+                            >
+                              {registering === event.id ? (
+                                <>
+                                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                                  Registering...
+                                </>
+                              ) : (
+                                'Register Now'
+                              )}
+                            </Button>
+                          ) : (
+                            <Button 
+                              className="w-full" 
+                              variant="outline"
+                              onClick={() => navigate('/signin', { state: { from: '/events' } })}
+                            >
+                              <LogIn className="h-4 w-4 mr-2" />
+                              Sign In to Register
+                            </Button>
+                          )
+                        ) : event.status === 'ONGOING' ? (
+                          <Button variant="secondary" className="w-full" disabled>
+                            Event in Progress
+                          </Button>
+                        ) : (
+                          <Button variant="outline" className="w-full" disabled>
+                            {regStatus.message}
+                          </Button>
+                        )}
+                        <Button asChild variant="outline" className="w-full">
+                          <Link to={eventHref}>
+                            View Details
+                            <ArrowRight className="h-4 w-4 ml-2" />
+                          </Link>
+                        </Button>
+                      </div>
+                    </Card>
                   </motion.div>
                 );
               })}

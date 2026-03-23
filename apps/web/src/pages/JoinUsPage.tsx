@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { Layout } from '@/components/layout/Layout';
 import { SEO } from '@/components/SEO';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -170,7 +170,14 @@ export default function JoinUsPage() {
   useEffect(() => {
     api.getProviders()
       .then(setProviders)
-      .catch(console.error)
+      .catch(() => {
+        setProviders({
+          google: false,
+          github: false,
+          devLogin: false,
+          emailPassword: true,
+        });
+      })
       .finally(() => setLoading(false));
   }, []);
 
@@ -196,34 +203,19 @@ export default function JoinUsPage() {
     setError(null);
 
     try {
-      const response = await fetch(`${API_URL}/hiring/apply`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(localStorage.getItem('token') && {
-            Authorization: `Bearer ${localStorage.getItem('token')}`,
-          }),
-        },
-        body: JSON.stringify({
-          name: name.trim(),
-          email: email.trim(),
-          phone: phone.trim() || undefined,
-          department: department.trim(),
-          year: year.trim(),
-          skills: skills.trim() || undefined,
-          applyingRole: selectedRole,
-        }),
-      });
-
-      const data = await response.json().catch(() => null);
-
-      if (!response.ok) {
-        throw new Error(extractApiErrorMessage(data, 'Failed to submit application'));
-      }
+      await api.submitHiringApplication({
+        name: name.trim(),
+        email: email.trim(),
+        phone: phone.trim() || undefined,
+        department: department.trim(),
+        year: year.trim(),
+        skills: skills.trim() || undefined,
+        applyingRole: selectedRole,
+      }, token ?? undefined);
 
       setFormStep('success');
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to submit application');
+      setError(extractApiErrorMessage(err, 'Failed to submit application'));
     } finally {
       setSubmitting(false);
     }
@@ -348,6 +340,15 @@ export default function JoinUsPage() {
                         <Card 
                           className={`cursor-pointer transition-all duration-300 hover:shadow-xl ${role.bgColor} ${role.borderColor} border-2 hover:border-amber-400`}
                           onClick={() => handleRoleSelect(role.id)}
+                          onKeyDown={(event) => {
+                            if (event.key === 'Enter' || event.key === ' ') {
+                              event.preventDefault();
+                              handleRoleSelect(role.id);
+                            }
+                          }}
+                          role="button"
+                          tabIndex={0}
+                          aria-label={`Apply for ${role.name}`}
                         >
                           <CardContent className="p-6">
                             <div className={`inline-flex items-center justify-center w-14 h-14 rounded-xl bg-gradient-to-r ${role.color} text-white mb-4 shadow-lg`}>
@@ -672,9 +673,9 @@ export default function JoinUsPage() {
             >
               <p className="text-gray-600">
                 Just want to attend events and be a member without joining the core team?{' '}
-                <a href="/signin" className="text-amber-600 hover:text-amber-700 font-medium underline">
+                <Link to="/signin" className="text-amber-600 hover:text-amber-700 font-medium underline">
                   Sign up as a regular member
-                </a>
+                </Link>
               </p>
             </motion.div>
           )}

@@ -97,7 +97,6 @@ export default function AdminSettings() {
       setSettings(data);
     } catch (err) {
       setError('Failed to load settings');
-      console.error(err);
     } finally {
       setLoading(false);
     }
@@ -119,7 +118,6 @@ export default function AdminSettings() {
       // Revert on failure
       setSettings((prev) => ({ ...prev, [key]: !value }));
       setError(`Failed to save ${key}`);
-      console.error(err);
     }
   };
 
@@ -352,7 +350,6 @@ export default function AdminSettings() {
                     await api.patchSetting('emailTestRecipients', settings.emailTestRecipients || '', token);
                   } catch (err) {
                     setError('Failed to save test recipients');
-                    console.error(err);
                   }
                 }}
                 placeholder="admin@example.com, dev@example.com"

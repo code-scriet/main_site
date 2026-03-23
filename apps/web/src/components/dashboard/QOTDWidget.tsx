@@ -1,8 +1,9 @@
-import { useState, useEffect } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Code, ExternalLink, Check, Loader2, Flame } from 'lucide-react';
+import { Code, ExternalLink, Check, Loader2, Flame, AlertCircle } from 'lucide-react';
+import { api } from '@/lib/api';
 
 interface QOTD {
   id: string;
@@ -10,6 +11,11 @@ interface QOTD {
   question: string;
   problemLink: string;
   difficulty: 'Easy' | 'Medium' | 'Hard';
+}
+
+interface QOTDStats {
+  currentStreak?: number;
+  recentSubmissions?: Array<{ date: string }>;
 }
 
 interface QOTDWidgetProps {
@@ -30,76 +36,71 @@ export function QOTDWidget({ token }: QOTDWidgetProps) {
   const [streak, setStreak] = useState(0);
   const [error, setError] = useState<string | null>(null);
 
-  const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5001/api';
-
-  useEffect(() => {
-    loadQOTD();
-    loadStreak();
+  const loadQOTD = useCallback(async () => {
+    try {
+      const result = await api.getTodayQOTD();
+      setQotd((result as QOTD | null) || null);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to load QOTD';
+      if (message.includes('404')) {
+        setQotd(null);
+        return;
+      }
+      throw err;
+    }
   }, []);
 
-  const loadQOTD = async () => {
+  const loadStreak = useCallback(async () => {
+    const data = await api.getQOTDStats(token) as QOTDStats;
+    setStreak(data.currentStreak || 0);
+
+    const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+    const hasSubmittedToday = data.recentSubmissions?.some((submission) => {
+      const subDate = new Date(submission.date).toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+      return subDate === today;
+    });
+
+    setSubmitted(hasSubmittedToday || false);
+  }, [token]);
+
+  const refresh = useCallback(async () => {
+    if (!token) {
+      setLoading(false);
+      return;
+    }
+
     try {
-      const response = await fetch(`${API_URL}/qotd/today`);
-      if (response.ok) {
-        const result = await response.json();
-        // API returns { success: true, data: {...} } or { success: true, data: null }
-        setQotd(result.data || null);
-      } else if (response.status === 404) {
-        setQotd(null);
-      }
+      setLoading(true);
+      setError(null);
+      await Promise.all([loadQOTD(), loadStreak()]);
     } catch {
       setError('Failed to load QOTD');
     } finally {
       setLoading(false);
     }
-  };
+  }, [loadQOTD, loadStreak, token]);
 
-  const loadStreak = async () => {
-    try {
-      const response = await fetch(`${API_URL}/users/me/qotd-stats`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (response.ok) {
-        const result = await response.json();
-        // API returns { success: true, data: { currentStreak, totalSubmissions, recentSubmissions } }
-        const data = result.data || result;
-        setStreak(data.currentStreak || 0);
-        // Check if there's a submission for today (in IST)
-        const today = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' }); // YYYY-MM-DD format
-        const hasSubmittedToday = data.recentSubmissions?.some((s: any) => {
-          const subDate = new Date(s.date).toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
-          return subDate === today;
-        });
-        setSubmitted(hasSubmittedToday || false);
-      }
-    } catch {
-      setError('Failed to load streak');
-    }
-  };
+  useEffect(() => {
+    void refresh();
+  }, [refresh]);
 
   const handleSubmit = async () => {
     if (!qotd) return;
-    
+
     setSubmitting(true);
+    setError(null);
+
     try {
-      const response = await fetch(`${API_URL}/qotd/${qotd.id}/submit`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      
-      if (response.ok) {
+      await api.submitQOTD(qotd.id, token);
+      setSubmitted(true);
+      await loadStreak();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to submit';
+      if (message.toLowerCase().includes('already submitted')) {
         setSubmitted(true);
-        await loadStreak(); // Reload from server to get the authoritative streak count
       } else {
-        const result = await response.json();
-        // Check both error formats
-        const errorMsg = result.error?.message || result.error;
-        if (errorMsg === 'Already submitted' || errorMsg === 'Already submitted today') {
-          setSubmitted(true);
-        }
+        setError(message);
       }
-    } catch {
-      setError('Failed to submit');
     } finally {
       setSubmitting(false);
     }
@@ -110,6 +111,30 @@ export function QOTDWidget({ token }: QOTDWidgetProps) {
       <Card className="border-gray-100 shadow-sm">
         <CardContent className="p-6 flex items-center justify-center">
           <Loader2 className="h-6 w-6 animate-spin text-amber-500" />
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (error && !qotd) {
+    return (
+      <Card className="border-gray-100 shadow-sm">
+        <CardHeader>
+          <CardTitle className="text-base font-semibold text-gray-900 flex items-center gap-2">
+            <div className="p-2 rounded-lg bg-amber-50">
+              <Code className="h-4 w-4 text-amber-600" />
+            </div>
+            Question of the Day
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-center">
+            <AlertCircle className="mx-auto h-5 w-5 text-red-500" />
+            <p className="mt-2 text-sm text-red-700">{error}</p>
+          </div>
+          <Button variant="outline" size="sm" className="w-full" onClick={() => void refresh()}>
+            Retry
+          </Button>
         </CardContent>
       </Card>
     );
@@ -159,7 +184,7 @@ export function QOTDWidget({ token }: QOTDWidgetProps) {
       </CardHeader>
       <CardContent className="p-5">
         <p className="text-gray-700 mb-4 line-clamp-2 text-base">{qotd.question}</p>
-        
+
         <div className="flex flex-col sm:flex-row gap-2">
           <a
             href={qotd.problemLink}
@@ -172,7 +197,7 @@ export function QOTDWidget({ token }: QOTDWidgetProps) {
               Solve on LeetCode
             </Button>
           </a>
-          
+
           {submitted ? (
             <Button disabled className="flex-1 bg-green-500 hover:bg-green-500">
               <Check className="h-4 w-4 mr-2" />
@@ -202,7 +227,9 @@ export function QOTDWidget({ token }: QOTDWidgetProps) {
         )}
 
         {error && (
-          <p className="text-red-500 text-sm mt-2">{error}</p>
+          <div className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+            {error}
+          </div>
         )}
       </CardContent>
     </Card>

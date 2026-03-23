@@ -4,6 +4,14 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { useAuth } from '@/context/AuthContext';
 import { 
   Users, 
@@ -521,30 +529,16 @@ export default function AdminHiring() {
         )}
       </div>
 
-      {/* Detail Modal */}
-      {selectedApplication && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <motion.div
-            initial={{ opacity: 0, scale: 0.95 }}
-            animate={{ opacity: 1, scale: 1 }}
-            className="bg-white rounded-xl shadow-xl max-w-lg w-full max-h-[90vh] overflow-y-auto"
-          >
-            <div className="p-4 sm:p-6">
-              <div className="flex items-start justify-between mb-6">
-                <div>
-                  <h2 className="text-xl font-bold text-gray-900">{selectedApplication.name}</h2>
-                  <p className="text-gray-500">{selectedApplication.email}</p>
-                </div>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => setSelectedApplication(null)}
-                >
-                  ✕
-                </Button>
-              </div>
+      <Dialog open={!!selectedApplication} onOpenChange={(open) => !open && setSelectedApplication(null)}>
+        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+          {selectedApplication && (
+            <>
+              <DialogHeader>
+                <DialogTitle>{selectedApplication.name}</DialogTitle>
+                <DialogDescription>{selectedApplication.email}</DialogDescription>
+              </DialogHeader>
 
-              <div className="space-y-4">
+              <div className="space-y-4 py-2">
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                     <label className="text-xs text-gray-500">Phone</label>
@@ -595,33 +589,33 @@ export default function AdminHiring() {
                     {formatDate(selectedApplication.createdAt)}
                   </p>
                 </div>
-              </div>
 
-              <div className="flex gap-3 mt-6 pt-6 border-t">
-                <Button
-                  variant="outline"
-                  className="flex-1"
-                  onClick={() => window.open(`mailto:${selectedApplication.email}`, '_blank')}
-                >
-                  <Mail className="h-4 w-4 mr-2" />
-                  Send Email
-                </Button>
-                {selectedApplication.phone && (
+                <div className="flex gap-3 pt-2">
                   <Button
                     variant="outline"
                     className="flex-1"
-                    onClick={() => window.open(`tel:${selectedApplication.phone}`, '_blank')}
+                    onClick={() => window.open(`mailto:${selectedApplication.email}`, '_blank')}
                   >
-                    <Phone className="h-4 w-4 mr-2" />
-                    Call
+                    <Mail className="h-4 w-4 mr-2" />
+                    Send Email
                   </Button>
-                )}
+                  {selectedApplication.phone && (
+                    <Button
+                      variant="outline"
+                      className="flex-1"
+                      onClick={() => window.open(`tel:${selectedApplication.phone}`, '_blank')}
+                    >
+                      <Phone className="h-4 w-4 mr-2" />
+                      Call
+                    </Button>
+                  )}
+                </div>
               </div>
 
-              <div className="flex gap-3 mt-3">
+              <DialogFooter>
                 <Button
                   variant="destructive"
-                  className="flex-1"
+                  className="w-full sm:w-auto"
                   onClick={() => handleDelete(selectedApplication.id)}
                   disabled={updatingId === selectedApplication.id}
                 >
@@ -631,11 +625,11 @@ export default function AdminHiring() {
                     'Delete Application'
                   )}
                 </Button>
-              </div>
-            </div>
-          </motion.div>
-        </div>
-      )}
+              </DialogFooter>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

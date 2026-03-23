@@ -6,7 +6,7 @@ import { Badge } from '@/components/ui/badge';
 import { useAuth } from '@/context/AuthContext';
 import { api } from '@/lib/api';
 import type { Event } from '@/lib/api';
-import { QrCode, Loader2, Calendar, MapPin, Users, ChevronRight } from 'lucide-react';
+import { QrCode, Loader2, Calendar, MapPin, Users, ChevronRight, AlertCircle } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { formatDate, formatTime } from '@/lib/dateUtils';
 
@@ -33,9 +33,12 @@ export default function AttendancePage() {
 
   const [events, setEvents] = useState<Event[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [selectedEventId, setSelectedEventId] = useState<string>('');
 
   useEffect(() => {
+    setLoading(true);
+    setError(null);
     api.getEvents()
       .then((all) => {
         // Use date-computed status to filter correctly even if DB is stale
@@ -55,7 +58,9 @@ export default function AttendancePage() {
         setEvents(active);
         if (active.length === 1) setSelectedEventId(active[0].id);
       })
-      .catch(() => {})
+      .catch(() => {
+        setError('Failed to load events for attendance.');
+      })
       .finally(() => setLoading(false));
   }, [token]);
 
@@ -70,6 +75,22 @@ export default function AttendancePage() {
     return (
       <div className="flex items-center justify-center py-20">
         <Loader2 className="h-8 w-8 animate-spin text-amber-600" />
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="max-w-xl w-full">
+        <Card className="border-red-200 bg-red-50">
+          <CardContent className="py-10 text-center space-y-3">
+            <AlertCircle className="mx-auto h-8 w-8 text-red-500" />
+            <p className="text-sm text-red-700">{error}</p>
+            <Button variant="outline" onClick={() => window.location.reload()}>
+              Retry
+            </Button>
+          </CardContent>
+        </Card>
       </div>
     );
   }
@@ -128,8 +149,7 @@ export default function AttendancePage() {
                 const status = computeEffectiveStatus(event);
                 return (
                   <option key={event.id} value={event.id}>
-                    {status === 'ONGOING' ? '🟡 ' : '🟢 '}
-                    {event.title} — {formatDate(event.startDate)}
+                    {status === 'ONGOING' ? 'Ongoing' : 'Upcoming'}: {event.title} — {formatDate(event.startDate)}
                   </option>
                 );
               })}

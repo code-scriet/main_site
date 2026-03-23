@@ -21,6 +21,7 @@ const defaultSettings: Settings = {
   showQOTD: true,
   showAchievements: true,
   hiringEnabled: true,
+  competitionEnabled: false,
   showNetwork: true,
   certificatesEnabled: true,
   playgroundEnabled: true,
@@ -59,8 +60,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
       setError(null);
       const data = await api.getSettings();
       setSettings(data);
-    } catch (err) {
-      console.error('Failed to load settings:', err);
+    } catch {
       setError('Failed to load settings');
       // Use default settings on error
       setSettings(defaultSettings);

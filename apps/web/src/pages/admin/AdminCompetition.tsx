@@ -95,8 +95,7 @@ export default function AdminCompetition() {
   const [eventTeamsMap, setEventTeamsMap] = useState<Record<string, EventTeam[]>>({});
 
   const getCompetitionRoundUrl = (roundId: string) => {
-    const base = `${BASE_PLAYGROUND_URL}/competition/${roundId}`;
-    return token ? `${base}#token=${encodeURIComponent(token)}` : base;
+    return `${BASE_PLAYGROUND_URL}/competition/${roundId}`;
   };
 
   const getCompetitionRoundPublicUrl = (roundId: string) => `${BASE_PLAYGROUND_URL}/competition/${roundId}`;

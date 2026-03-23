@@ -1,12 +1,15 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { motion } from 'framer-motion';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
-import { Code, Loader2, AlertCircle, Plus, Check, X, ExternalLink } from 'lucide-react';
+import { Label } from '@/components/ui/label';
+import { Code, Loader2, Plus, ExternalLink } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { formatDate } from '@/lib/dateUtils';
+import { api } from '@/lib/api';
+import { toast } from 'sonner';
 
 interface QOTD {
   id: string;
@@ -15,8 +18,6 @@ interface QOTD {
   problemLink: string;
   difficulty: 'Easy' | 'Medium' | 'Hard';
 }
-
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5001/api';
 
 const difficultyColors = {
   Easy: 'success',
@@ -29,8 +30,6 @@ export default function CreateQOTD() {
   
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [success, setSuccess] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
   const [recentQOTDs, setRecentQOTDs] = useState<QOTD[]>([]);
   
@@ -41,27 +40,25 @@ export default function CreateQOTD() {
     difficulty: 'Medium' as 'Easy' | 'Medium' | 'Hard',
   });
 
-  useEffect(() => {
-    loadRecentQOTDs();
-  }, []);
-
-  const loadRecentQOTDs = async () => {
+  const loadRecentQOTDs = useCallback(async () => {
+    if (!token) {
+      setLoading(false);
+      return;
+    }
     try {
       setLoading(true);
-      const response = await fetch(`${API_URL}/qotd/history?limit=10`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (response.ok) {
-        const result = await response.json();
-        // API returns { success: true, data: [...] }
-        setRecentQOTDs(result.data || []);
-      }
+      const result = await api.getQOTDHistory(10);
+      setRecentQOTDs(result);
     } catch (err) {
-      console.error('Failed to load recent QOTDs');
+      toast.error(err instanceof Error ? err.message : 'Failed to load recent QOTDs');
     } finally {
       setLoading(false);
     }
-  };
+  }, [token]);
+
+  useEffect(() => {
+    void loadRecentQOTDs();
+  }, [loadRecentQOTDs]);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
     setForm(prev => ({ ...prev, [e.target.name]: e.target.value }));
@@ -71,35 +68,25 @@ export default function CreateQOTD() {
     e.preventDefault();
     
     if (!form.question.trim() || !form.problemLink.trim()) {
-      setError('Please fill in all required fields');
+      toast.error('Please fill in all required fields');
+      return;
+    }
+
+    if (!token) {
+      toast.error('You need to sign in to create a QOTD');
       return;
     }
 
     try {
       setSaving(true);
-      setError(null);
-      
-      const response = await fetch(`${API_URL}/qotd`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          date: new Date(form.date).toISOString(),
-          question: form.question.trim(),
-          problemLink: form.problemLink.trim(),
-          difficulty: form.difficulty,
-        }),
-      });
+      await api.createQOTD({
+        date: new Date(form.date).toISOString(),
+        question: form.question.trim(),
+        problemLink: form.problemLink.trim(),
+        difficulty: form.difficulty,
+      }, token);
 
-      if (!response.ok) {
-        const result = await response.json();
-        const errorMsg = result.error?.message || result.error || 'Failed to create QOTD';
-        throw new Error(errorMsg);
-      }
-
-      setSuccess('QOTD created successfully!');
+      toast.success('QOTD created successfully');
       setForm({
         date: new Date().toISOString().split('T')[0],
         question: '',
@@ -108,9 +95,8 @@ export default function CreateQOTD() {
       });
       setShowForm(false);
       await loadRecentQOTDs();
-      setTimeout(() => setSuccess(null), 3000);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to create QOTD');
+      toast.error(err instanceof Error ? err.message : 'Failed to create QOTD');
     } finally {
       setSaving(false);
     }
@@ -130,31 +116,6 @@ export default function CreateQOTD() {
         </Button>
       </div>
 
-      {error && (
-        <motion.div
-          initial={{ opacity: 0, y: -10 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="flex items-start gap-3 p-4 bg-red-50 border border-red-200 rounded-lg text-red-700"
-        >
-          <AlertCircle className="h-5 w-5 shrink-0 mt-0.5" />
-          <p className="text-sm">{error}</p>
-          <button onClick={() => setError(null)} className="ml-auto">
-            <X className="h-4 w-4" />
-          </button>
-        </motion.div>
-      )}
-
-      {success && (
-        <motion.div
-          initial={{ opacity: 0, y: -10 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="flex items-start gap-3 p-4 bg-green-50 border border-green-200 rounded-lg text-green-700"
-        >
-          <Check className="h-5 w-5 shrink-0 mt-0.5" />
-          <p className="text-sm">{success}</p>
-        </motion.div>
-      )}
-
       {/* Create Form */}
       {showForm && (
         <motion.div
@@ -173,8 +134,9 @@ export default function CreateQOTD() {
               <form onSubmit={handleSubmit} className="space-y-4">
                 <div className="grid gap-4 sm:grid-cols-2">
                   <div className="space-y-2">
-                    <label className="text-sm font-medium">Date *</label>
+                    <Label htmlFor="qotd-date">Date *</Label>
                     <Input
+                      id="qotd-date"
                       name="date"
                       type="date"
                       value={form.date}
@@ -183,8 +145,9 @@ export default function CreateQOTD() {
                     />
                   </div>
                   <div className="space-y-2">
-                    <label className="text-sm font-medium">Difficulty *</label>
+                    <Label htmlFor="qotd-difficulty">Difficulty *</Label>
                     <select
+                      id="qotd-difficulty"
                       name="difficulty"
                       value={form.difficulty}
                       onChange={handleChange}
@@ -198,8 +161,9 @@ export default function CreateQOTD() {
                 </div>
 
                 <div className="space-y-2">
-                  <label className="text-sm font-medium">Problem Link *</label>
+                  <Label htmlFor="qotd-problem-link">Problem Link *</Label>
                   <Input
+                    id="qotd-problem-link"
                     name="problemLink"
                     type="url"
                     value={form.problemLink}
@@ -210,8 +174,9 @@ export default function CreateQOTD() {
                 </div>
 
                 <div className="space-y-2">
-                  <label className="text-sm font-medium">Question / Description *</label>
+                  <Label htmlFor="qotd-question">Question / Description *</Label>
                   <textarea
+                    id="qotd-question"
                     name="question"
                     value={form.question}
                     onChange={handleChange}
@@ -266,7 +231,7 @@ export default function CreateQOTD() {
                   key={qotd.id}
                   initial={{ opacity: 0, y: 10 }}
                   animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: index * 0.05 }}
+                  transition={{ delay: Math.min(index * 0.05, 0.3) }}
                   className="flex items-center justify-between p-4 rounded-lg border border-amber-200 bg-amber-50/50"
                 >
                   <div className="flex-1">
@@ -286,7 +251,7 @@ export default function CreateQOTD() {
                     rel="noopener noreferrer"
                     className="ml-4"
                   >
-                    <Button variant="ghost" size="sm">
+                    <Button variant="ghost" size="sm" aria-label={`Open problem link for QOTD on ${formatDate(qotd.date)}`}>
                       <ExternalLink className="h-4 w-4" />
                     </Button>
                   </a>

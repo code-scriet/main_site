@@ -192,8 +192,7 @@ export default function NetworkPage() {
         await api.joinNetwork(token);
         await refreshUser();
         navigate(`/network/onboarding?type=${type}`);
-      } catch (err) {
-        console.error('Failed to join network:', err);
+      } catch {
         const apiBase = (import.meta.env.VITE_API_URL || 'http://localhost:5001/api').replace(/\/api\/?$/, '');
         window.location.href = `${apiBase}/api/auth/google?intent=network&type=${type}`;
       } finally {

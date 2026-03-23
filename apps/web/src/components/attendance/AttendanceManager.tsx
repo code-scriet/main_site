@@ -15,6 +15,7 @@ import {
   DialogFooter,
 } from '@/components/ui/dialog';
 import { motion } from 'framer-motion';
+import { toast } from 'sonner';
 import {
   CheckCircle,
   XCircle,
@@ -28,6 +29,7 @@ import {
   QrCode,
   UserCheck,
   UserX,
+  AlertCircle,
 } from 'lucide-react';
 
 interface AttendanceManagerProps {
@@ -38,18 +40,11 @@ interface AttendanceManagerProps {
 type FilterMode = 'all' | 'present' | 'absent';
 type SortMode = 'name' | 'scanTime' | 'registrationTime';
 
-interface Toast {
-  id: number;
-  message: string;
-  type: 'success' | 'error';
-}
-
-let toastIdCounter = 0;
-
 export default function AttendanceManager({ eventId, token }: AttendanceManagerProps) {
   const [records, setRecords] = useState<AttendanceRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const [searchQuery, setSearchQuery] = useState('');
   const [filterMode, setFilterMode] = useState<FilterMode>('all');
@@ -71,30 +66,23 @@ export default function AttendanceManager({ eventId, token }: AttendanceManagerP
   const [editTimestamp, setEditTimestamp] = useState('');
   const [editSaving, setEditSaving] = useState(false);
 
-  const [toasts, setToasts] = useState<Toast[]>([]);
-
-  const showToast = useCallback((message: string, type: 'success' | 'error') => {
-    const id = ++toastIdCounter;
-    setToasts((prev) => [...prev, { id, message, type }]);
-    setTimeout(() => {
-      setToasts((prev) => prev.filter((t) => t.id !== id));
-    }, 4000);
-  }, []);
-
   const fetchData = useCallback(async () => {
     try {
+      setLoadError(null);
       const data = await api.getAttendanceFull(eventId, token);
       setRecords(data.registrations);
     } catch (err) {
-      showToast('Failed to load attendance data', 'error');
+      const message = err instanceof Error ? err.message : 'Failed to load attendance data';
+      setLoadError(message);
+      toast.error(message);
       throw err; // re-throw so callers know it failed
     }
-  }, [eventId, token, showToast]);
+  }, [eventId, token]);
 
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
-    fetchData().catch(() => {}).finally(() => {
+    void fetchData().finally(() => {
       if (!cancelled) setLoading(false);
     });
     return () => {
@@ -102,11 +90,15 @@ export default function AttendanceManager({ eventId, token }: AttendanceManagerP
     };
   }, [fetchData]);
 
+  useEffect(() => {
+    setSelectedIds(new Set());
+  }, [filterMode, searchQuery, sortMode]);
+
   const handleRefresh = async () => {
     setRefreshing(true);
     try {
       await fetchData();
-      showToast('Data refreshed', 'success');
+      toast.success('Data refreshed');
     } catch {
       // fetchData already showed error toast
     } finally {
@@ -189,10 +181,10 @@ export default function AttendanceManager({ eventId, token }: AttendanceManagerP
     setActionLoadingId(registrationId);
     try {
       await api.manualCheckin(registrationId, token);
-      showToast('Marked as present', 'success');
+      toast.success('Marked as present');
       await fetchData();
     } catch {
-      showToast('Failed to mark attendance', 'error');
+      toast.error('Failed to mark attendance');
     } finally {
       setActionLoadingId(null);
     }
@@ -202,10 +194,10 @@ export default function AttendanceManager({ eventId, token }: AttendanceManagerP
     setActionLoadingId(registrationId);
     try {
       await api.unmarkAttendance(registrationId, token);
-      showToast('Attendance unmarked', 'success');
+      toast.success('Attendance unmarked');
       await fetchData();
     } catch {
-      showToast('Failed to unmark attendance', 'error');
+      toast.error('Failed to unmark attendance');
     } finally {
       setActionLoadingId(null);
     }
@@ -215,10 +207,10 @@ export default function AttendanceManager({ eventId, token }: AttendanceManagerP
     setActionLoadingId(registrationId);
     try {
       await api.regenerateAttendanceToken(registrationId, token);
-      showToast('QR token regenerated', 'success');
+      toast.success('QR token regenerated');
       await fetchData();
     } catch {
-      showToast('Failed to regenerate token', 'error');
+      toast.error('Failed to regenerate token');
     } finally {
       setActionLoadingId(null);
     }
@@ -248,12 +240,12 @@ export default function AttendanceManager({ eventId, token }: AttendanceManagerP
         { scannedAt: editTimestamp || undefined, manualOverride: true },
         token
       );
-      showToast('Timestamp updated', 'success');
+      toast.success('Timestamp updated');
       setEditDialogOpen(false);
       setEditingRecord(null);
       await fetchData();
     } catch {
-      showToast('Failed to update timestamp', 'error');
+      toast.error('Failed to update timestamp');
     } finally {
       setEditSaving(false);
     }
@@ -269,14 +261,11 @@ export default function AttendanceManager({ eventId, token }: AttendanceManagerP
         action,
         token
       );
-      showToast(
-        `${result.updated} record${result.updated !== 1 ? 's' : ''} updated`,
-        'success'
-      );
+      toast.success(`${result.updated} record${result.updated !== 1 ? 's' : ''} updated`);
       setSelectedIds(new Set());
       await fetchData();
     } catch {
-      showToast('Bulk update failed', 'error');
+      toast.error('Bulk update failed');
     } finally {
       setBulkLoading(false);
     }
@@ -293,10 +282,10 @@ export default function AttendanceManager({ eventId, token }: AttendanceManagerP
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-      showToast('Export downloaded', 'success');
+      window.setTimeout(() => URL.revokeObjectURL(url), 0);
+      toast.success('Export downloaded');
     } catch {
-      showToast('Export failed', 'error');
+      toast.error('Export failed');
     }
   };
 
@@ -315,9 +304,9 @@ export default function AttendanceManager({ eventId, token }: AttendanceManagerP
     try {
       const result = await api.emailAbsentees(eventId, emailSubject, emailBody, token);
       setEmailResult(`Emailed ${result.emailed} absentee${result.emailed !== 1 ? 's' : ''}`);
-      showToast(`Emailed ${result.emailed} absentees`, 'success');
+      toast.success(`Emailed ${result.emailed} absentees`);
     } catch {
-      showToast('Failed to send emails', 'error');
+      toast.error('Failed to send emails');
     } finally {
       setEmailSending(false);
     }
@@ -344,24 +333,22 @@ export default function AttendanceManager({ eventId, token }: AttendanceManagerP
 
   return (
     <div className="space-y-6">
-      {/* Toast notifications */}
-      <div className="fixed top-4 right-4 z-50 space-y-2">
-        {toasts.map((toast) => (
-          <motion.div
-            key={toast.id}
-            initial={{ opacity: 0, x: 40 }}
-            animate={{ opacity: 1, x: 0 }}
-            exit={{ opacity: 0, x: 40 }}
-            className={`rounded-lg px-4 py-3 text-sm font-medium shadow-lg ${
-              toast.type === 'success'
-                ? 'bg-green-600 text-white'
-                : 'bg-red-600 text-white'
-            }`}
-          >
-            {toast.message}
-          </motion.div>
-        ))}
-      </div>
+      {loadError && (
+        <Card className="border-red-200 bg-red-50/80">
+          <CardContent className="p-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-start gap-3">
+              <AlertCircle className="h-5 w-5 text-red-500 mt-0.5" />
+              <div>
+                <p className="font-medium text-red-700">Attendance data could not be loaded.</p>
+                <p className="text-sm text-red-600">{loadError}</p>
+              </div>
+            </div>
+            <Button variant="outline" onClick={() => void handleRefresh()}>
+              Retry
+            </Button>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Summary Bar */}
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
@@ -549,6 +536,7 @@ export default function AttendanceManager({ eventId, token }: AttendanceManagerP
                       checked={allFilteredSelected}
                       onChange={toggleSelectAll}
                       className="h-4 w-4 rounded border-gray-300"
+                      aria-label="Select all visible attendance records"
                     />
                   </th>
                   <th className="px-4 py-3 text-left font-medium text-muted-foreground">
@@ -597,6 +585,7 @@ export default function AttendanceManager({ eventId, token }: AttendanceManagerP
                             checked={selectedIds.has(record.id)}
                             onChange={() => toggleSelect(record.id)}
                             className="h-4 w-4 rounded border-gray-300"
+                            aria-label={`Select ${record.user.name}`}
                           />
                         </td>
 
@@ -671,6 +660,7 @@ export default function AttendanceManager({ eventId, token }: AttendanceManagerP
                                 disabled={isLoading}
                                 title="Unmark attendance"
                                 className="text-red-600 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-950"
+                                aria-label={`Mark ${record.user.name} as absent`}
                               >
                                 {isLoading ? (
                                   <Loader2 className="h-4 w-4 animate-spin" />
@@ -686,6 +676,7 @@ export default function AttendanceManager({ eventId, token }: AttendanceManagerP
                                 disabled={isLoading}
                                 title="Mark as present"
                                 className="text-green-600 hover:text-green-700 hover:bg-green-50 dark:hover:bg-green-950"
+                                aria-label={`Mark ${record.user.name} as present`}
                               >
                                 {isLoading ? (
                                   <Loader2 className="h-4 w-4 animate-spin" />
@@ -701,6 +692,7 @@ export default function AttendanceManager({ eventId, token }: AttendanceManagerP
                               onClick={() => openEditDialog(record)}
                               disabled={isLoading}
                               title="Edit timestamp"
+                              aria-label={`Edit attendance timestamp for ${record.user.name}`}
                             >
                               <Edit className="h-4 w-4" />
                             </Button>
@@ -711,6 +703,7 @@ export default function AttendanceManager({ eventId, token }: AttendanceManagerP
                               onClick={() => handleRegenerateToken(record.id)}
                               disabled={isLoading}
                               title="Regenerate QR token"
+                              aria-label={`Regenerate QR token for ${record.user.name}`}
                             >
                               <QrCode className="h-4 w-4" />
                             </Button>

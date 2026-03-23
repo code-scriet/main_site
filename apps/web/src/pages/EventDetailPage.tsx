@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate, useSearchParams, Link } from 'react-router-dom';
 import { Layout } from '@/components/layout/Layout';
 import { SEO } from '@/components/SEO';
@@ -14,7 +14,7 @@ import {
   Calendar, MapPin, Users, Loader2, Clock, AlertCircle, CheckCircle, 
   LogIn, ArrowLeft, Target, BookOpen, User, ExternalLink, ChevronDown,
   ChevronUp, Play, Image as ImageIcon, Link as LinkIcon, FileText,
-  Github, Presentation, Video, HelpCircle, Tag, Star, Share2, X
+  Github, Presentation, Video, HelpCircle, Tag, Star, Share2, X, QrCode
 } from 'lucide-react';
 import {
   api,
@@ -30,6 +30,7 @@ import { formatTime, formatDateTime, getWeekdayShort, getDayOfMonth, getMonthSho
 import { processImageUrl, processImageGallery } from '@/lib/imageUtils';
 import { getRegistrationStatus } from '@/lib/registrationStatus';
 import { TeamCreateModal, TeamJoinModal, TeamDashboard } from '@/components/teams';
+import { toast } from 'sonner';
 
 type EventStatus = 'UPCOMING' | 'ONGOING' | 'PAST';
 
@@ -311,14 +312,13 @@ export default function EventDetailPage() {
   const [error, setError] = useState<string | null>(null);
   const [registering, setRegistering] = useState(false);
   const [isRegistered, setIsRegistered] = useState(false);
-  const [registrationSuccess, setRegistrationSuccess] = useState<string | null>(null);
-  const [registrationError, setRegistrationError] = useState<string | null>(null);
   const [showRegistrationFormPopup, setShowRegistrationFormPopup] = useState(false);
   const [registrationFieldValues, setRegistrationFieldValues] = useState<Record<string, string>>({});
   const [registrationFieldErrors, setRegistrationFieldErrors] = useState<Record<string, string>>({});
   const [registrationFormError, setRegistrationFormError] = useState<string | null>(null);
   const [autoRegisterTriggered, setAutoRegisterTriggered] = useState(false);
   const [attendanceSummary, setAttendanceSummary] = useState<{ total: number; attended: number } | null>(null);
+  const [showQrTicketCta, setShowQrTicketCta] = useState(false);
 
   // Team registration state
   const [myTeam, setMyTeam] = useState<EventTeam | null>(null);
@@ -337,8 +337,7 @@ export default function EventDetailPage() {
   >([]);
 
   const getCompetitionRoundUrl = (roundId: string) => {
-    const base = `${BASE_PLAYGROUND_URL}/competition/${roundId}`;
-    return token ? `${base}#token=${encodeURIComponent(token)}` : base;
+    return `${BASE_PLAYGROUND_URL}/competition/${roundId}`;
   };
 
   useEffect(() => {
@@ -361,8 +360,8 @@ export default function EventDetailPage() {
           try {
             const registrations = await api.getMyRegistrations(token);
             setIsRegistered(registrations.some(r => r.eventId === id));
-          } catch (err) {
-            console.error('Failed to fetch registrations', err);
+          } catch {
+            setIsRegistered(false);
           }
         }
       } catch (err) {
@@ -431,9 +430,14 @@ export default function EventDetailPage() {
     if (event?.status === 'PAST' && event.id) {
       api.getAttendanceSummary(event.id)
         .then(setAttendanceSummary)
-        .catch(() => {});
+        .catch(() => setAttendanceSummary(null));
     }
   }, [event?.id, event?.status]);
+
+  const openQrTicket = useCallback(() => {
+    if (!event) return;
+    navigate('/dashboard/events', { state: { openQrForEventId: event.id } });
+  }, [event, navigate]);
 
   const handleTeamChange = async () => {
     if (!event?.id || !token) return;
@@ -450,37 +454,39 @@ export default function EventDetailPage() {
     }
   };
 
-  const performRegistration = async (additionalFields?: RegistrationAdditionalFieldInput[]) => {
+  const performRegistration = useCallback(async (additionalFields?: RegistrationAdditionalFieldInput[]) => {
     if (!event || !token) {
       return;
     }
 
     try {
       setRegistering(true);
-      setRegistrationError(null);
       setRegistrationFormError(null);
 
       await api.registerForEvent(event.id, token, additionalFields);
-      setRegistrationSuccess(`Successfully registered for "${event.title}"!`);
       setIsRegistered(true);
+      setShowQrTicketCta(true);
       setShowRegistrationFormPopup(false);
 
       // Refresh event data
       const updatedEvent = await api.getEvent(event.id);
       setEvent(updatedEvent);
-
-      setTimeout(() => setRegistrationSuccess(null), 5000);
+      toast.success(`Successfully registered for "${event.title}"!`, {
+        action: {
+          label: 'View QR Ticket',
+          onClick: openQrTicket,
+        },
+      });
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Failed to register';
-      setRegistrationError(errorMessage);
       setRegistrationFormError(errorMessage);
-      setTimeout(() => setRegistrationError(null), 5000);
+      toast.error(errorMessage);
     } finally {
       setRegistering(false);
     }
-  };
+  }, [event, openQrTicket, token]);
 
-  const openRegistrationFormPopup = () => {
+  const openRegistrationFormPopup = useCallback(() => {
     if (!event?.registrationFields || event.registrationFields.length === 0) {
       return;
     }
@@ -494,9 +500,9 @@ export default function EventDetailPage() {
     setRegistrationFieldErrors({});
     setRegistrationFormError(null);
     setShowRegistrationFormPopup(true);
-  };
+  }, [event?.registrationFields]);
 
-  const handleRegister = async () => {
+  const handleRegister = useCallback(async () => {
     if (!event) return;
 
     if (authLoading) {
@@ -506,8 +512,7 @@ export default function EventDetailPage() {
     const regStatus = getRegistrationStatus(event);
     
     if (!regStatus.canRegister) {
-      setRegistrationError(regStatus.message);
-      setTimeout(() => setRegistrationError(null), 3000);
+      toast.error(regStatus.message);
       return;
     }
 
@@ -526,8 +531,7 @@ export default function EventDetailPage() {
     }
 
     if (event.teamRegistration) {
-      setRegistrationError('This is a team event. Please create a team or join a team to continue.');
-      setTimeout(() => setRegistrationError(null), 4000);
+      toast.error('This is a team event. Please create a team or join a team to continue.');
       return;
     }
 
@@ -539,7 +543,7 @@ export default function EventDetailPage() {
 
     localStorage.setItem('pendingEventRegistrationType', 'solo');
     await performRegistration();
-  };
+  }, [authLoading, event, navigate, openRegistrationFormPopup, performRegistration, token, user]);
 
   useEffect(() => {
     if (!event || isRegistered || autoRegisterTriggered || authLoading) {
@@ -602,6 +606,21 @@ export default function EventDetailPage() {
     await performRegistration(additionalFields);
   };
 
+  const qrTicketCta = event && showQrTicketCta && !event.teamRegistration ? (
+    <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 space-y-2">
+      <div>
+        <p className="text-sm font-semibold text-amber-900">Registration complete</p>
+        <p className="text-xs text-amber-700">
+          Your attendance QR ticket is ready in My Events.
+        </p>
+      </div>
+      <Button className="w-full" variant="outline" onClick={openQrTicket}>
+        <QrCode className="h-4 w-4 mr-2" />
+        View Your QR Ticket
+      </Button>
+    </div>
+  ) : null;
+
   const handleShare = async () => {
     const url = window.location.href;
     if (navigator.share) {
@@ -612,11 +631,11 @@ export default function EventDetailPage() {
           url,
         });
       } catch {
-        console.log('Share cancelled');
+        // User cancelled the native share sheet.
       }
     } else {
       await navigator.clipboard.writeText(url);
-      // Could show a toast here
+      toast.success('Event link copied to clipboard');
     }
   };
 
@@ -684,31 +703,6 @@ export default function EventDetailPage() {
           }))}
         />
       )}
-
-      {/* Notifications */}
-      <AnimatePresence>
-        {(registrationSuccess || registrationError) && (
-          <motion.div
-            initial={{ opacity: 0, y: -20 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -20 }}
-            className="fixed top-under-header-gap left-1/2 transform -translate-x-1/2 z-50 w-full max-w-md px-4"
-          >
-            <div className={`flex items-center gap-3 p-4 rounded-lg shadow-lg ${
-              registrationSuccess 
-                ? 'bg-green-50 border border-green-200 text-green-700' 
-                : 'bg-red-50 border border-red-200 text-red-700'
-            }`}>
-              {registrationSuccess ? (
-                <CheckCircle className="h-5 w-5 shrink-0" />
-              ) : (
-                <AlertCircle className="h-5 w-5 shrink-0" />
-              )}
-              <p className="text-sm font-medium">{registrationSuccess || registrationError}</p>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
 
       <AnimatePresence>
         {showRegistrationFormPopup && event?.registrationFields && event.registrationFields.length > 0 && (
@@ -987,9 +981,9 @@ export default function EventDetailPage() {
                         </Button>
                       )}
                     </>
-                  ) : (
-                    // Solo Registration UI (original)
-                    <>
+                    ) : (
+                      // Solo Registration UI (original)
+                      <>
                       {event.status !== 'PAST' && regStatus.canRegister ? (
                         isRegistered ? (
                           <Button 
@@ -1030,6 +1024,7 @@ export default function EventDetailPage() {
                           {event.status === 'PAST' ? 'Event Completed' : regStatus.message}
                         </Button>
                       )}
+                      {qrTicketCta}
                     </>
                   )}
                   {competitionRounds.length > 0 && (
@@ -1445,6 +1440,7 @@ export default function EventDetailPage() {
                             {event.status === 'PAST' ? 'Event Completed' : regStatus.message}
                           </Button>
                         )}
+                        {qrTicketCta}
                       </>
                     )}
                     {competitionRounds.length > 0 && (

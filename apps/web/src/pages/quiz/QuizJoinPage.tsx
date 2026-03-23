@@ -11,7 +11,9 @@ import { Layout } from '@/components/layout/Layout';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Loader2, Zap, ArrowLeft, AlertCircle } from 'lucide-react';
-import { cn, getApiBaseUrl } from '@/lib/utils';
+import { cn } from '@/lib/utils';
+import { api } from '@/lib/api';
+import { persistQuizAccessToken, storePendingQuizJoin } from '@/lib/quizAccess';
 
 const shakeKeyframes = {
   x: [0, -4, 4, -4, 4, -2, 2, 0],
@@ -51,6 +53,37 @@ export default function QuizJoinPage() {
     }
   }, []);
 
+  const handleJoin = useCallback(async () => {
+    if (fullPin.length !== 6) return;
+    setError('');
+    setLoading(true);
+
+    try {
+      const token = localStorage.getItem('token');
+      const data = await api.joinQuizByPin(fullPin, token ?? undefined);
+
+      if (!data.quizAccessToken) {
+        setError('Failed to issue secure quiz access token. Please try again.');
+        setShake(true);
+        setTimeout(() => setShake(false), 350);
+        return;
+      }
+
+      persistQuizAccessToken(data.quizId, data.quizAccessToken);
+      storePendingQuizJoin({
+        quizId: data.quizId,
+        quizAccessToken: data.quizAccessToken,
+      });
+      navigate(`/quiz/${data.quizId}`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to find quiz. Check your PIN.');
+      setShake(true);
+      setTimeout(() => setShake(false), 350);
+    } finally {
+      setLoading(false);
+    }
+  }, [fullPin, navigate]);
+
   const handleKeyDown = useCallback((index: number, e: React.KeyboardEvent) => {
     if (e.key === 'Backspace') {
       if (!pin[index] && index > 0) {
@@ -75,7 +108,7 @@ export default function QuizJoinPage() {
     } else if (e.key === 'Enter' && fullPin.length === 6) {
       handleJoin();
     }
-  }, [pin, fullPin]);
+  }, [pin, fullPin, handleJoin]);
 
   const handlePaste = useCallback((e: React.ClipboardEvent) => {
     e.preventDefault();
@@ -91,48 +124,6 @@ export default function QuizJoinPage() {
       inputRefs.current[nextIdx]?.focus();
     }
   }, []);
-
-  const handleJoin = async () => {
-    if (fullPin.length !== 6) return;
-    setError('');
-    setLoading(true);
-
-    try {
-      const token = localStorage.getItem('token');
-      const apiUrl = getApiBaseUrl();
-      const res = await fetch(`${apiUrl}/quiz/join`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
-        body: JSON.stringify({ pin: fullPin }),
-      });
-      const data = await res.json();
-      
-      if (!data.success) {
-        setError(data.error?.message || 'Quiz not found');
-        setShake(true);
-        setTimeout(() => setShake(false), 350);
-        return;
-      }
-      if (!data.data?.quizAccessToken) {
-        setError('Failed to issue secure quiz access token. Please try again.');
-        setShake(true);
-        setTimeout(() => setShake(false), 350);
-        return;
-      }
-
-      sessionStorage.setItem(`quiz_access_token_${data.data.quizId}`, data.data.quizAccessToken);
-      navigate(`/quiz/${data.data.quizId}`);
-    } catch {
-      setError('Failed to find quiz. Check your PIN.');
-      setShake(true);
-      setTimeout(() => setShake(false), 350);
-    } finally {
-      setLoading(false);
-    }
-  };
 
   const presetPin = searchParams.get('pin');
 

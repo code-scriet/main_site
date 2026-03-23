@@ -15,6 +15,8 @@ import { useQuizSocket } from '@/hooks/useQuizSocket';
 import { useQuizStore } from '@/lib/quizStore';
 import { useAuth } from '@/context/AuthContext';
 import { Layout } from '@/components/layout/Layout';
+import { clearQuizAccessToken, readQuizAccessToken, restorePendingQuizJoin } from '@/lib/quizAccess';
+import { api } from '@/lib/api';
 
 import { QuizLobby } from './QuizLobby';
 import { QuizQuestion } from './QuizQuestion';
@@ -52,17 +54,18 @@ export default function QuizPage() {
   const setMyUserId = useQuizStore((s) => s.setMyUserId);
 
   // Finale intro state: show 2s splash before leaderboard
-  const [showFinaleIntro, setShowFinaleIntro] = useState(false);
-  const [finaleShown, setFinaleShown] = useState(false);
+  const [finaleState, setFinaleState] = useState<'hidden' | 'showing' | 'shown'>('hidden');
 
   useEffect(() => {
-    if (quizStatus === 'finished' && !finaleShown) {
-      setShowFinaleIntro(true);
-      setFinaleShown(true);
-      const timer = setTimeout(() => setShowFinaleIntro(false), 2000);
+    if (quizStatus === 'finished' && finaleState === 'hidden') {
+      setFinaleState('showing');
+      const timer = setTimeout(() => setFinaleState('shown'), 2000);
       return () => clearTimeout(timer);
     }
-  }, [quizStatus, finaleShown]);
+    if (quizStatus !== 'finished' && finaleState !== 'hidden') {
+      setFinaleState('hidden');
+    }
+  }, [quizStatus, finaleState]);
 
   // Set user ID in store
   useEffect(() => {
@@ -76,21 +79,19 @@ export default function QuizPage() {
     const checkAccess = async () => {
       let resolvedToken: string | null = null;
       let resolvedHost = false;
-      const participantToken = sessionStorage.getItem(`quiz_access_token_${quizId}`);
+      const restoredPendingToken = restorePendingQuizJoin(quizId);
+      const participantToken = restoredPendingToken ?? readQuizAccessToken(quizId);
 
       // Privileged users can request host token (server-verified).
       if (user && ['ADMIN', 'PRESIDENT', 'CORE_MEMBER'].includes(user.role || '')) {
         try {
           const token = localStorage.getItem('token');
-          const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:5001/api';
-          const res = await fetch(`${apiUrl}/quiz/${quizId}/check-host`, {
-            headers: { Authorization: `Bearer ${token}` },
-          });
-          const data = await res.json();
-
-          if (data.success && data.data?.isHost && data.data?.quizAccessToken) {
-            resolvedToken = data.data.quizAccessToken;
-            resolvedHost = true;
+          if (token) {
+            const data = await api.checkQuizHost(quizId, token);
+            if (data.isHost && data.quizAccessToken) {
+              resolvedToken = data.quizAccessToken;
+              resolvedHost = true;
+            }
           }
         } catch {
           // Fallback to participant token below.
@@ -169,13 +170,12 @@ export default function QuizPage() {
 
   const handleDiscardQuiz = useCallback(() => {
     if (quizId) {
-      sessionStorage.removeItem(`quiz_access_token_${quizId}`);
+      clearQuizAccessToken(quizId);
     }
     setQuizAccessToken(null);
     setAccessGranted(false);
     setIsHost(false);
-    setShowFinaleIntro(false);
-    setFinaleShown(false);
+    setFinaleState('hidden');
     reset();
     navigate('/quiz');
   }, [quizId, navigate, reset]);
@@ -292,6 +292,7 @@ export default function QuizPage() {
                 variant="outline"
                 onClick={handleDiscardQuiz}
                 className="border-red-200 text-red-700 hover:bg-red-50 hover:text-red-800"
+                aria-label="Discard this quiz and return to the quiz hub"
               >
                 <LogOut className="h-4 w-4 mr-2" />
                 Discard Quiz
@@ -388,8 +389,8 @@ export default function QuizPage() {
 
           {quizStatus === 'finished' && (
             <motion.div key="finished" exit={{ opacity: 0, y: -20 }}>
-              {showFinaleIntro && <QuizFinaleIntro title={title || 'Quiz'} totalQuestions={totalQuestions} />}
-              {!showFinaleIntro && (
+              {finaleState === 'showing' && <QuizFinaleIntro title={title || 'Quiz'} totalQuestions={totalQuestions} />}
+              {finaleState !== 'showing' && (
                 <FinalResults userId={user?.id ?? ''} quizId={quizId || ''} isHost={isHost} leaderboard={leaderboard} totalQuestions={totalQuestions} title={title || 'Quiz'} />
               )}
             </motion.div>

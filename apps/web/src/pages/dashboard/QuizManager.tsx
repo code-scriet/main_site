@@ -10,14 +10,26 @@
  * Single DB call per page load (optimized).
  */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { useAuth } from '@/context/AuthContext';
+import { api, type QuizAdminSummary } from '@/lib/api';
 import { formatDate } from '@/lib/dateUtils';
+import { toast } from 'sonner';
 import {
   Zap,
   Plus,
@@ -32,68 +44,52 @@ import {
   BarChart3,
 } from 'lucide-react';
 
-interface QuizItem {
-  id: string;
-  title: string;
-  status: 'WAITING' | 'ACTIVE' | 'FINISHED' | 'DRAFT';
-  questionCount: number;
-  participantCount: number;
-  createdBy: { id: string; name: string };
-  createdAt: string;
-  startedAt: string | null;
-  endedAt: string | null;
-}
-
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5001/api';
-
 export default function QuizManager() {
   const { user, token } = useAuth();
-  const [quizzes, setQuizzes] = useState<QuizItem[]>([]);
+  const [quizzes, setQuizzes] = useState<QuizAdminSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
+  const [quizToDelete, setQuizToDelete] = useState<QuizAdminSummary | null>(null);
 
   const isAdmin = user?.role === 'ADMIN' || user?.role === 'PRESIDENT';
 
-  useEffect(() => {
+  const loadQuizzes = useCallback(async () => {
     if (!token) {
       setLoading(false);
       return;
     }
 
-    // Single optimized API call
-    fetch(`${API_URL}/quiz/admin/list`, {
-      headers: { Authorization: `Bearer ${token}` },
-    })
-      .then((res) => res.json())
-      .then((json) => {
-        if (json.success && json.data) {
-          setQuizzes(json.data);
-        } else {
-          setError(json.error?.message || 'Failed to load quizzes');
-        }
-      })
-      .catch((err) => setError(err.message))
-      .finally(() => setLoading(false));
+    try {
+      setLoading(true);
+      setError(null);
+      const data = await api.getQuizAdminList(token);
+      setQuizzes(data);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load quizzes');
+    } finally {
+      setLoading(false);
+    }
   }, [token]);
 
+  useEffect(() => {
+    void loadQuizzes();
+  }, [loadQuizzes]);
+
   const handleDelete = async (quizId: string) => {
-    if (!confirm('Are you sure you want to delete this quiz? This cannot be undone.')) return;
-    
+    if (!token) {
+      toast.error('You need to sign in again to manage quizzes');
+      return;
+    }
+
     setDeleting(quizId);
     try {
-      const res = await fetch(`${API_URL}/quiz/${quizId}`, {
-        method: 'DELETE',
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      const json = await res.json();
-      if (json.success) {
-        setQuizzes((prev) => prev.filter((q) => q.id !== quizId));
-      } else {
-        alert(json.error?.message || 'Failed to delete quiz');
-      }
+      await api.deleteQuiz(quizId, token);
+      setQuizzes((prev) => prev.filter((q) => q.id !== quizId));
+      setQuizToDelete(null);
+      toast.success('Quiz deleted');
     } catch (err) {
-      alert('Failed to delete quiz');
+      toast.error(err instanceof Error ? err.message : 'Failed to delete quiz');
     } finally {
       setDeleting(null);
     }
@@ -150,8 +146,11 @@ export default function QuizManager() {
       </motion.div>
 
       {error && (
-        <div className="p-4 bg-red-50 border border-red-200 rounded-lg text-red-700">
-          {error}
+        <div className="p-4 bg-red-50 border border-red-200 rounded-lg text-red-700 flex items-center justify-between gap-3">
+          <span>{error}</span>
+          <Button variant="outline" size="sm" onClick={() => void loadQuizzes()}>
+            Retry
+          </Button>
         </div>
       )}
 
@@ -255,7 +254,7 @@ export default function QuizManager() {
                         <td className="py-3 text-gray-600">{quiz.questionCount}</td>
                         <td className="py-3 text-gray-600">{quiz.participantCount}</td>
                         {isAdmin && (
-                          <td className="py-3 text-gray-600">{quiz.createdBy.name}</td>
+                          <td className="py-3 text-gray-600">{quiz.createdBy?.name ?? 'Unknown'}</td>
                         )}
                         <td className="py-3 text-gray-600 text-sm">
                           {formatDate(quiz.createdAt)}
@@ -264,21 +263,21 @@ export default function QuizManager() {
                           <div className="flex items-center justify-end gap-2">
                             {(quiz.status === 'WAITING' || quiz.status === 'ACTIVE') && (
                               <Link to={`/quiz/${quiz.id}?host=true`}>
-                                <Button size="sm" variant="outline" className="text-green-600 border-green-200">
+                                <Button size="sm" variant="outline" className="text-green-600 border-green-200" aria-label={`Open host dashboard for ${quiz.title}`}>
                                   <Eye className="h-4 w-4" />
                                 </Button>
                               </Link>
                             )}
                             {quiz.status === 'FINISHED' && (
                               <Link to={`/quiz/${quiz.id}/results`}>
-                                <Button size="sm" variant="outline">
+                                <Button size="sm" variant="outline" aria-label={`View results for ${quiz.title}`}>
                                   <BarChart3 className="h-4 w-4" />
                                 </Button>
                               </Link>
                             )}
                             {quiz.status !== 'ACTIVE' && (
                               <Link to={`/quiz/create?edit=${quiz.id}`}>
-                                <Button size="sm" variant="outline">
+                                <Button size="sm" variant="outline" aria-label={`Edit ${quiz.title}`}>
                                   <Edit className="h-4 w-4" />
                                 </Button>
                               </Link>
@@ -288,8 +287,9 @@ export default function QuizManager() {
                                 size="sm"
                                 variant="outline"
                                 className="text-red-600 border-red-200 hover:bg-red-50"
-                                onClick={() => handleDelete(quiz.id)}
+                                onClick={() => setQuizToDelete(quiz)}
                                 disabled={deleting === quiz.id}
+                                aria-label={`Delete ${quiz.title}`}
                               >
                                 {deleting === quiz.id ? (
                                   <Loader2 className="h-4 w-4 animate-spin" />
@@ -344,6 +344,39 @@ export default function QuizManager() {
           </CardContent>
         </Card>
       </motion.div>
+
+      <AlertDialog open={Boolean(quizToDelete)} onOpenChange={(open) => !open && setQuizToDelete(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete quiz?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {quizToDelete
+                ? `Delete "${quizToDelete.title}" permanently? This action cannot be undone.`
+                : 'This action cannot be undone.'}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={Boolean(deleting)}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-red-600 hover:bg-red-700 focus-visible:ring-red-500"
+              onClick={() => {
+                if (quizToDelete) {
+                  void handleDelete(quizToDelete.id);
+                }
+              }}
+            >
+              {deleting && quizToDelete?.id === deleting ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Deleting...
+                </>
+              ) : (
+                'Delete Quiz'
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
