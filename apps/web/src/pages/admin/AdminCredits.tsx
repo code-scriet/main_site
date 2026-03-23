@@ -192,8 +192,9 @@ export default function AdminCredits() {
           <CardContent>
             <form onSubmit={handleSubmit} className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Title *</label>
+                <label htmlFor="admin-credit-title" className="block text-sm font-medium text-gray-700 mb-1">Title *</label>
                 <Input
+                  id="admin-credit-title"
                   value={form.title}
                   onChange={(e) => setForm({ ...form, title: e.target.value })}
                   placeholder="e.g., Founded code.scriet"
@@ -202,8 +203,9 @@ export default function AdminCredits() {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Description</label>
+                <label htmlFor="admin-credit-description" className="block text-sm font-medium text-gray-700 mb-1">Description</label>
                 <Textarea
+                  id="admin-credit-description"
                   value={form.description}
                   onChange={(e) => setForm({ ...form, description: e.target.value })}
                   placeholder="A brief description of the contribution..."
@@ -212,7 +214,7 @@ export default function AdminCredits() {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Category *</label>
+                <p className="mb-1 block text-sm font-medium text-gray-700">Category *</p>
                 <div className="flex flex-wrap gap-2 mb-2">
                   {CATEGORY_PRESETS.map((cat) => (
                     <button
@@ -242,6 +244,7 @@ export default function AdminCredits() {
                 </div>
                 {form.category === 'custom' && (
                   <Input
+                    id="admin-credit-custom-category"
                     value={form.customCategory}
                     onChange={(e) => setForm({ ...form, customCategory: e.target.value })}
                     placeholder="Enter custom category"
@@ -251,14 +254,16 @@ export default function AdminCredits() {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Linked Team Member</label>
+                <label htmlFor="admin-credit-member-filter" className="block text-sm font-medium text-gray-700 mb-1">Linked Team Member</label>
                 <Input
+                  id="admin-credit-member-filter"
                   value={memberFilter}
                   onChange={(e) => setMemberFilter(e.target.value)}
                   placeholder="Search team members..."
                   className="mb-2"
                 />
                 <select
+                  id="admin-credit-member-id"
                   value={form.teamMemberId}
                   onChange={(e) => setForm({ ...form, teamMemberId: e.target.value })}
                   className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm focus:border-amber-500 focus:outline-none focus:ring-1 focus:ring-amber-500"
@@ -276,8 +281,9 @@ export default function AdminCredits() {
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Display Order</label>
+                <label htmlFor="admin-credit-order" className="block text-sm font-medium text-gray-700 mb-1">Display Order</label>
                 <Input
+                  id="admin-credit-order"
                   type="number"
                   value={form.order}
                   onChange={(e) => setForm({ ...form, order: parseInt(e.target.value) || 0 })}

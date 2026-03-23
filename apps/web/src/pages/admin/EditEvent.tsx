@@ -457,16 +457,20 @@ export default function EditEvent() {
           </CardHeader>
           <CardContent>
             <div className="flex items-center gap-4">
-              <select
-                name="status"
-                value={form.status}
-                onChange={handleChange}
-                className="h-10 px-3 border border-input rounded-md bg-background text-sm focus:outline-none focus:ring-2 focus:ring-amber-500"
-              >
-                <option value="UPCOMING">Upcoming</option>
-                <option value="ONGOING">Ongoing</option>
-                <option value="PAST">Past</option>
-              </select>
+              <div className="space-y-2">
+                <label htmlFor="edit-event-status" className="text-sm font-medium text-gray-700">Status</label>
+                <select
+                  id="edit-event-status"
+                  name="status"
+                  value={form.status}
+                  onChange={handleChange}
+                  className="h-10 px-3 border border-input rounded-md bg-background text-sm focus:outline-none focus:ring-2 focus:ring-amber-500"
+                >
+                  <option value="UPCOMING">Upcoming</option>
+                  <option value="ONGOING">Ongoing</option>
+                  <option value="PAST">Past</option>
+                </select>
+              </div>
               <div className="flex items-center gap-2">
                 <input
                   type="checkbox"
@@ -496,10 +500,11 @@ export default function EditEvent() {
           <CardContent className="space-y-4">
             <div className="grid gap-4 sm:grid-cols-3">
               <div className="sm:col-span-2 space-y-2">
-                <label className="text-sm font-medium text-gray-700">
+                <label htmlFor="edit-event-title" className="text-sm font-medium text-gray-700">
                   Title <span className="text-red-500">*</span>
                 </label>
                 <Input
+                  id="edit-event-title"
                   name="title"
                   value={form.title}
                   onChange={handleChange}
@@ -507,8 +512,9 @@ export default function EditEvent() {
                 />
               </div>
               <div className="space-y-2">
-                <label className="text-sm font-medium text-gray-700">Event Type</label>
+                <label htmlFor="edit-event-type" className="text-sm font-medium text-gray-700">Event Type</label>
                 <select
+                  id="edit-event-type"
                   name="eventType"
                   value={form.eventType}
                   onChange={handleChange}
@@ -522,10 +528,11 @@ export default function EditEvent() {
             </div>
 
             <div className="space-y-2">
-              <label className="text-sm font-medium text-gray-700">
+              <label htmlFor="edit-event-short-description" className="text-sm font-medium text-gray-700">
                 Short Description <span className="text-gray-400">(max 300 chars)</span>
               </label>
               <textarea
+                id="edit-event-short-description"
                 name="shortDescription"
                 value={form.shortDescription}
                 onChange={handleChange}
@@ -536,10 +543,11 @@ export default function EditEvent() {
             </div>
 
             <div className="space-y-2">
-              <label className="text-sm font-medium text-gray-700">
+              <label htmlFor="edit-event-description" className="text-sm font-medium text-gray-700">
                 Full Description <span className="text-red-500">*</span>
               </label>
               <textarea
+                id="edit-event-description"
                 name="description"
                 value={form.description}
                 onChange={handleChange}
@@ -561,10 +569,11 @@ export default function EditEvent() {
           <CardContent className="space-y-4">
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-2">
-                <label className="text-sm font-medium text-gray-700">
+                <label htmlFor="edit-event-start-date" className="text-sm font-medium text-gray-700">
                   Start Date & Time <span className="text-red-500">*</span>
                 </label>
                 <Input
+                  id="edit-event-start-date"
                   name="startDate"
                   type="datetime-local"
                   value={form.startDate}
@@ -573,8 +582,9 @@ export default function EditEvent() {
                 />
               </div>
               <div className="space-y-2">
-                <label className="text-sm font-medium text-gray-700">End Date & Time</label>
+                <label htmlFor="edit-event-end-date" className="text-sm font-medium text-gray-700">End Date & Time</label>
                 <Input
+                  id="edit-event-end-date"
                   name="endDate"
                   type="datetime-local"
                   value={form.endDate}
@@ -596,8 +606,9 @@ export default function EditEvent() {
           <CardContent className="space-y-4">
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-2">
-                <label className="text-sm font-medium text-gray-700">Registration Opens</label>
+                <label htmlFor="edit-event-registration-start" className="text-sm font-medium text-gray-700">Registration Opens</label>
                 <Input
+                  id="edit-event-registration-start"
                   name="registrationStartDate"
                   type="datetime-local"
                   value={form.registrationStartDate}
@@ -605,8 +616,9 @@ export default function EditEvent() {
                 />
               </div>
               <div className="space-y-2">
-                <label className="text-sm font-medium text-gray-700">Registration Closes</label>
+                <label htmlFor="edit-event-registration-end" className="text-sm font-medium text-gray-700">Registration Closes</label>
                 <Input
+                  id="edit-event-registration-end"
                   name="registrationEndDate"
                   type="datetime-local"
                   value={form.registrationEndDate}
@@ -625,7 +637,7 @@ export default function EditEvent() {
                   Let users register even after the event has started
                 </p>
               </div>
-              <label className="relative inline-flex cursor-pointer items-center">
+              <div className="relative inline-flex cursor-pointer items-center">
                 <input
                   type="checkbox"
                   name="allowLateRegistration"
@@ -635,7 +647,7 @@ export default function EditEvent() {
                   className="peer sr-only"
                 />
                 <div className="peer h-6 w-11 rounded-full bg-gray-200 after:absolute after:left-[2px] after:top-[2px] after:h-5 after:w-5 after:rounded-full after:border after:border-gray-300 after:bg-white after:transition-all after:content-[''] peer-checked:bg-amber-500 peer-checked:after:translate-x-full peer-checked:after:border-white peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-amber-300"></div>
-              </label>
+              </div>
             </div>
 
             {/* Team Registration Toggle */}
@@ -655,7 +667,7 @@ export default function EditEvent() {
                     </p>
                   )}
                 </div>
-                <label className={`relative inline-flex items-center ${hasRegistrations ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'}`}>
+                <div className={`relative inline-flex items-center ${hasRegistrations ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'}`}>
                   <input
                     type="checkbox"
                     name="teamRegistration"
@@ -666,7 +678,7 @@ export default function EditEvent() {
                     className="peer sr-only"
                   />
                   <div className="peer h-6 w-11 rounded-full bg-gray-200 after:absolute after:left-[2px] after:top-[2px] after:h-5 after:w-5 after:rounded-full after:border after:border-gray-300 after:bg-white after:transition-all after:content-[''] peer-checked:bg-amber-500 peer-checked:after:translate-x-full peer-checked:after:border-white peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-amber-300"></div>
-                </label>
+                </div>
               </div>
               
               {/* Team Size Configuration */}
@@ -787,18 +799,20 @@ export default function EditEvent() {
 
                     <div className="grid gap-4 sm:grid-cols-3">
                       <div className="sm:col-span-2 space-y-2">
-                        <label className="text-sm font-medium text-gray-700">
+                        <label htmlFor={`edit-event-registration-field-name-${field.id}`} className="text-sm font-medium text-gray-700">
                           Field Name <span className="text-red-500">*</span>
                         </label>
                         <Input
+                          id={`edit-event-registration-field-name-${field.id}`}
                           value={field.label}
                           onChange={(e) => updateRegistrationField(index, { label: e.target.value })}
                           placeholder="e.g., GitHub Profile URL"
                         />
                       </div>
                       <div className="space-y-2">
-                        <label className="text-sm font-medium text-gray-700">Type</label>
+                        <label htmlFor={`edit-event-registration-field-type-${field.id}`} className="text-sm font-medium text-gray-700">Type</label>
                         <select
+                          id={`edit-event-registration-field-type-${field.id}`}
                           value={field.type}
                           onChange={(e) =>
                             updateRegistrationField(index, { type: e.target.value as EventRegistrationFieldType })
@@ -815,8 +829,9 @@ export default function EditEvent() {
                     </div>
 
                     <div className="space-y-2">
-                      <label className="text-sm font-medium text-gray-700">Placeholder</label>
+                      <label htmlFor={`edit-event-registration-field-placeholder-${field.id}`} className="text-sm font-medium text-gray-700">Placeholder</label>
                       <Input
+                        id={`edit-event-registration-field-placeholder-${field.id}`}
                         value={field.placeholder || ''}
                         onChange={(e) => updateRegistrationField(index, { placeholder: e.target.value })}
                         placeholder="Hint shown in the popup input"
@@ -825,8 +840,9 @@ export default function EditEvent() {
 
                     <div className="grid gap-4 sm:grid-cols-2">
                       <div className="space-y-2">
-                        <label className="text-sm font-medium text-gray-700">Min Length</label>
+                        <label htmlFor={`edit-event-registration-field-min-length-${field.id}`} className="text-sm font-medium text-gray-700">Min Length</label>
                         <Input
+                          id={`edit-event-registration-field-min-length-${field.id}`}
                           type="number"
                           min={0}
                           value={field.minLength ?? ''}
@@ -839,8 +855,9 @@ export default function EditEvent() {
                         />
                       </div>
                       <div className="space-y-2">
-                        <label className="text-sm font-medium text-gray-700">Max Length</label>
+                        <label htmlFor={`edit-event-registration-field-max-length-${field.id}`} className="text-sm font-medium text-gray-700">Max Length</label>
                         <Input
+                          id={`edit-event-registration-field-max-length-${field.id}`}
                           type="number"
                           min={1}
                           value={field.maxLength ?? ''}
@@ -856,8 +873,9 @@ export default function EditEvent() {
 
                     <div className="grid gap-4 sm:grid-cols-2">
                       <div className="space-y-2">
-                        <label className="text-sm font-medium text-gray-700">Min Value (for number fields)</label>
+                        <label htmlFor={`edit-event-registration-field-min-value-${field.id}`} className="text-sm font-medium text-gray-700">Min Value (for number fields)</label>
                         <Input
+                          id={`edit-event-registration-field-min-value-${field.id}`}
                           type="number"
                           value={field.min ?? ''}
                           onChange={(e) =>
@@ -869,8 +887,9 @@ export default function EditEvent() {
                         />
                       </div>
                       <div className="space-y-2">
-                        <label className="text-sm font-medium text-gray-700">Max Value (for number fields)</label>
+                        <label htmlFor={`edit-event-registration-field-max-value-${field.id}`} className="text-sm font-medium text-gray-700">Max Value (for number fields)</label>
                         <Input
+                          id={`edit-event-registration-field-max-value-${field.id}`}
                           type="number"
                           value={field.max ?? ''}
                           onChange={(e) =>
@@ -884,8 +903,9 @@ export default function EditEvent() {
                     </div>
 
                     <div className="space-y-2">
-                      <label className="text-sm font-medium text-gray-700">Regex Pattern (optional)</label>
+                      <label htmlFor={`edit-event-registration-field-pattern-${field.id}`} className="text-sm font-medium text-gray-700">Regex Pattern (optional)</label>
                       <Input
+                        id={`edit-event-registration-field-pattern-${field.id}`}
                         value={field.pattern || ''}
                         onChange={(e) => updateRegistrationField(index, { pattern: e.target.value })}
                         placeholder="e.g., ^https://"
@@ -895,11 +915,12 @@ export default function EditEvent() {
                     <div className="flex items-center gap-2">
                       <input
                         type="checkbox"
+                        id={`edit-event-registration-field-required-${field.id}`}
                         checked={field.required}
                         onChange={(e) => updateRegistrationField(index, { required: e.target.checked })}
                         className="w-4 h-4 rounded text-amber-600 focus:ring-amber-500"
                       />
-                      <span className="text-sm font-medium text-gray-700">Required field</span>
+                      <label htmlFor={`edit-event-registration-field-required-${field.id}`} className="text-sm font-medium text-gray-700">Required field</label>
                     </div>
                   </div>
                 ))}
@@ -923,26 +944,35 @@ export default function EditEvent() {
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="grid gap-4 sm:grid-cols-2">
-              <Input
-                name="location"
-                value={form.location}
-                onChange={handleChange}
-                placeholder="Location"
-              />
-              <Input
-                name="venue"
-                value={form.venue}
-                onChange={handleChange}
-                placeholder="Venue"
-              />
+              <div className="space-y-2">
+                <label htmlFor="edit-event-location" className="text-sm font-medium text-gray-700">Location</label>
+                <Input
+                  id="edit-event-location"
+                  name="location"
+                  value={form.location}
+                  onChange={handleChange}
+                  placeholder="Location"
+                />
+              </div>
+              <div className="space-y-2">
+                <label htmlFor="edit-event-venue" className="text-sm font-medium text-gray-700">Venue</label>
+                <Input
+                  id="edit-event-venue"
+                  name="venue"
+                  value={form.venue}
+                  onChange={handleChange}
+                  placeholder="Venue"
+                />
+              </div>
             </div>
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-2">
-                <label className="text-sm font-medium text-gray-700 flex items-center gap-2">
+                <label htmlFor="edit-event-capacity" className="text-sm font-medium text-gray-700 flex items-center gap-2">
                   <Users className="h-4 w-4" />
                   Capacity
                 </label>
                 <Input
+                  id="edit-event-capacity"
                   name="capacity"
                   type="number"
                   min="1"
@@ -952,8 +982,9 @@ export default function EditEvent() {
                 />
               </div>
               <div className="space-y-2">
-                <label className="text-sm font-medium text-gray-700">Target Audience</label>
+                <label htmlFor="edit-event-target-audience" className="text-sm font-medium text-gray-700">Target Audience</label>
                 <Input
+                  id="edit-event-target-audience"
                   name="targetAudience"
                   value={form.targetAudience}
                   onChange={handleChange}
@@ -962,8 +993,9 @@ export default function EditEvent() {
               </div>
             </div>
             <div className="space-y-2">
-              <label className="text-sm font-medium text-gray-700">Prerequisites</label>
+              <label htmlFor="edit-event-prerequisites" className="text-sm font-medium text-gray-700">Prerequisites</label>
               <textarea
+                id="edit-event-prerequisites"
                 name="prerequisites"
                 value={form.prerequisites}
                 onChange={handleChange}
@@ -984,8 +1016,9 @@ export default function EditEvent() {
           <CardContent className="space-y-4">
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-2">
-                <label className="text-sm font-medium text-gray-700">Cover Image URL</label>
+                <label htmlFor="edit-event-image-url" className="text-sm font-medium text-gray-700">Cover Image URL</label>
                 <Input
+                  id="edit-event-image-url"
                   name="imageUrl"
                   type="url"
                   value={form.imageUrl}
@@ -994,11 +1027,12 @@ export default function EditEvent() {
                 />
               </div>
               <div className="space-y-2">
-                <label className="text-sm font-medium text-gray-700 flex items-center gap-2">
+                <label htmlFor="edit-event-video-url" className="text-sm font-medium text-gray-700 flex items-center gap-2">
                   <Video className="h-4 w-4" />
                   Video URL
                 </label>
                 <Input
+                  id="edit-event-video-url"
                   name="videoUrl"
                   type="url"
                   value={form.videoUrl}
@@ -1017,6 +1051,7 @@ export default function EditEvent() {
           defaultOpen={!!form.highlights}
         >
           <textarea
+            aria-label="Event highlights"
             name="highlights"
             value={form.highlights}
             onChange={handleChange}
@@ -1031,6 +1066,7 @@ export default function EditEvent() {
           defaultOpen={!!form.agenda}
         >
           <textarea
+            aria-label="Event agenda"
             name="agenda"
             value={form.agenda}
             onChange={handleChange}
@@ -1045,6 +1081,7 @@ export default function EditEvent() {
           defaultOpen={!!form.learningOutcomes}
         >
           <textarea
+            aria-label="Learning outcomes"
             name="learningOutcomes"
             value={form.learningOutcomes}
             onChange={handleChange}

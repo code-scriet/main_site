@@ -436,10 +436,11 @@ export default function JoinUsPage() {
                       <form onSubmit={handleSubmit} className="space-y-6">
                         <div className="grid md:grid-cols-2 gap-6">
                           <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-2">
+                            <label htmlFor="join-us-name" className="block text-sm font-medium text-gray-700 mb-2">
                               Full Name <span className="text-red-500">*</span>
                             </label>
                             <Input
+                              id="join-us-name"
                               type="text"
                               value={name}
                               onChange={(e) => setName(e.target.value)}
@@ -449,10 +450,11 @@ export default function JoinUsPage() {
                             />
                           </div>
                           <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-2">
+                            <label htmlFor="join-us-email" className="block text-sm font-medium text-gray-700 mb-2">
                               Email Address <span className="text-red-500">*</span>
                             </label>
                             <Input
+                              id="join-us-email"
                               type="email"
                               value={email}
                               onChange={(e) => setEmail(e.target.value)}
@@ -465,10 +467,11 @@ export default function JoinUsPage() {
 
                         <div className="grid md:grid-cols-2 gap-6">
                           <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-2">
+                            <label htmlFor="join-us-phone" className="block text-sm font-medium text-gray-700 mb-2">
                               Phone Number
                             </label>
                             <Input
+                              id="join-us-phone"
                               type="tel"
                               value={phone}
                               onChange={(e) => setPhone(e.target.value)}
@@ -477,10 +480,11 @@ export default function JoinUsPage() {
                             />
                           </div>
                           <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-2">
+                            <label htmlFor="join-us-department" className="block text-sm font-medium text-gray-700 mb-2">
                               Department/Branch <span className="text-red-500">*</span>
                             </label>
                             <Input
+                              id="join-us-department"
                               type="text"
                               value={department}
                               onChange={(e) => setDepartment(e.target.value)}
@@ -493,11 +497,12 @@ export default function JoinUsPage() {
 
                         <div className="grid md:grid-cols-2 gap-6">
                           <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-2">
+                            <label htmlFor="join-us-year" className="block text-sm font-medium text-gray-700 mb-2">
                               Academic Year <span className="text-red-500">*</span>
                             </label>
                             <div className="relative">
                               <select
+                                id="join-us-year"
                                 value={year}
                                 onChange={(e) => setYear(e.target.value)}
                                 required
@@ -513,10 +518,11 @@ export default function JoinUsPage() {
                             </div>
                           </div>
                           <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-2">
+                            <label htmlFor="join-us-skills" className="block text-sm font-medium text-gray-700 mb-2">
                               Skills (comma-separated)
                             </label>
                             <Input
+                              id="join-us-skills"
                               type="text"
                               value={skills}
                               onChange={(e) => setSkills(e.target.value)}

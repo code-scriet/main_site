@@ -5,6 +5,25 @@
 
 const IST_TIMEZONE = 'Asia/Kolkata';
 const LOCALE = 'en-IN';
+type DateFormatStyle = 'numeric' | 'short' | 'long';
+
+const DATE_STYLE_OPTIONS: Record<DateFormatStyle, Intl.DateTimeFormatOptions> = {
+  numeric: {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+  },
+  short: {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+  },
+  long: {
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+  },
+};
 
 /**
  * Format a date for datetime-local input field
@@ -34,15 +53,16 @@ export function formatDateTimeLocal(dateString: string | Date | undefined | null
 /**
  * Format a date as DD/MM/YYYY in IST
  */
-export function formatDate(dateString: string | Date | undefined | null): string {
+export function formatDate(
+  dateString: string | Date | undefined | null,
+  style: DateFormatStyle = 'numeric',
+): string {
   if (!dateString) return '';
   const date = new Date(dateString);
   
   return date.toLocaleDateString(LOCALE, {
     timeZone: IST_TIMEZONE,
-    day: '2-digit',
-    month: '2-digit',
-    year: 'numeric',
+    ...DATE_STYLE_OPTIONS[style],
   });
 }
 

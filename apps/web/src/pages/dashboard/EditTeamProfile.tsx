@@ -326,40 +326,44 @@ export default function EditTeamProfile() {
           <CardContent className="space-y-4">
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-2">
-                <label className="text-sm font-medium text-gray-600 flex items-center gap-2">
+                <label htmlFor="team-profile-github" className="text-sm font-medium text-gray-600 flex items-center gap-2">
                   <Github className="h-4 w-4" /> GitHub
                 </label>
                 <Input
+                  id="team-profile-github"
                   value={form.github}
                   onChange={(e) => setForm({ ...form, github: e.target.value })}
                   placeholder="username or URL"
                 />
               </div>
               <div className="space-y-2">
-                <label className="text-sm font-medium text-gray-600 flex items-center gap-2">
+                <label htmlFor="team-profile-linkedin" className="text-sm font-medium text-gray-600 flex items-center gap-2">
                   <Linkedin className="h-4 w-4" /> LinkedIn
                 </label>
                 <Input
+                  id="team-profile-linkedin"
                   value={form.linkedin}
                   onChange={(e) => setForm({ ...form, linkedin: e.target.value })}
                   placeholder="username or URL"
                 />
               </div>
               <div className="space-y-2">
-                <label className="text-sm font-medium text-gray-600 flex items-center gap-2">
+                <label htmlFor="team-profile-twitter" className="text-sm font-medium text-gray-600 flex items-center gap-2">
                   <Twitter className="h-4 w-4" /> Twitter
                 </label>
                 <Input
+                  id="team-profile-twitter"
                   value={form.twitter}
                   onChange={(e) => setForm({ ...form, twitter: e.target.value })}
                   placeholder="username or URL"
                 />
               </div>
               <div className="space-y-2">
-                <label className="text-sm font-medium text-gray-600 flex items-center gap-2">
+                <label htmlFor="team-profile-instagram" className="text-sm font-medium text-gray-600 flex items-center gap-2">
                   <Instagram className="h-4 w-4" /> Instagram
                 </label>
                 <Input
+                  id="team-profile-instagram"
                   value={form.instagram}
                   onChange={(e) => setForm({ ...form, instagram: e.target.value })}
                   placeholder="username or URL"
@@ -367,10 +371,11 @@ export default function EditTeamProfile() {
               </div>
             </div>
             <div className="space-y-2">
-              <label className="text-sm font-medium text-gray-600 flex items-center gap-2">
+              <label htmlFor="team-profile-website" className="text-sm font-medium text-gray-600 flex items-center gap-2">
                 <Globe className="h-4 w-4" /> Website
               </label>
               <Input
+                id="team-profile-website"
                 value={form.website}
                 onChange={(e) => setForm({ ...form, website: e.target.value })}
                 placeholder="https://..."

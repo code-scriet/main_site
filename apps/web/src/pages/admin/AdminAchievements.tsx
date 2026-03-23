@@ -83,6 +83,24 @@ export default function AdminAchievements() {
     setShowForm(false);
   };
 
+  const openCreateForm = () => {
+    setForm({
+      title: '',
+      description: '',
+      content: '',
+      shortDescription: '',
+      eventName: '',
+      achievedBy: '',
+      imageUrl: '',
+      imageGallery: '',
+      date: new Date().toISOString().split('T')[0],
+      tags: '',
+      featured: false,
+    });
+    setEditingId(null);
+    setShowForm(true);
+  };
+
   const handleEdit = (achievement: Achievement) => {
     setForm({
       title: achievement.title,
@@ -175,7 +193,7 @@ export default function AdminAchievements() {
           <h1 className="text-2xl font-bold text-gray-900">Achievements Management</h1>
           <p className="text-gray-500">Manage club achievements and milestones</p>
         </div>
-        <Button onClick={() => setShowForm(true)} className="bg-amber-500 hover:bg-amber-600">
+        <Button onClick={openCreateForm} className="bg-amber-500 hover:bg-amber-600">
           <Plus className="h-4 w-4 mr-2" />
           Add Achievement
         </Button>

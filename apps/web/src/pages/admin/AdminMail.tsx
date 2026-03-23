@@ -343,7 +343,7 @@ export default function AdminMail() {
             <div className="mt-4 space-y-4">
               {/* Manual email input */}
               <div className="space-y-2">
-                <label className="text-xs font-medium text-gray-500 flex items-center gap-1">
+                <label htmlFor="admin-mail-manual-email" className="text-xs font-medium text-gray-500 flex items-center gap-1">
                   <AtSign className="h-3 w-3" />
                   Add email manually
                 </label>
@@ -351,6 +351,7 @@ export default function AdminMail() {
                   <div className="relative flex-1">
                     <AtSign className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
                     <Input
+                      id="admin-mail-manual-email"
                       value={manualEmail}
                       onChange={e => setManualEmail(e.target.value)}
                       onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addManualEmail(); } }}
@@ -380,7 +381,7 @@ export default function AdminMail() {
 
               {/* Search type toggle */}
               <div className="flex items-center gap-2">
-                <span className="text-xs font-medium text-gray-500">Search in:</span>
+                <p className="text-xs font-medium text-gray-500">Search in:</p>
                 <div className="flex rounded-md border border-gray-200 overflow-hidden text-xs">
                   <button
                     onClick={() => { setSearchType('users'); setSearchResults([]); setHasSearched(false); }}
@@ -507,8 +508,9 @@ export default function AdminMail() {
         <CardContent className="space-y-4">
           {/* Subject */}
           <div className="space-y-2">
-            <label className="text-sm font-medium text-gray-700">Subject</label>
+            <label htmlFor="admin-mail-subject" className="text-sm font-medium text-gray-700">Subject</label>
             <Input
+              id="admin-mail-subject"
               value={subject}
               onChange={e => setSubject(e.target.value)}
               placeholder="Email subject line…"
@@ -536,9 +538,10 @@ export default function AdminMail() {
               <div className="mt-3 space-y-3 p-3 bg-gray-50 rounded-lg border border-gray-200">
                 {/* CC */}
                 <div className="space-y-1.5">
-                  <label className="text-xs font-medium text-gray-500">CC</label>
+                  <label htmlFor="admin-mail-cc" className="text-xs font-medium text-gray-500">CC</label>
                   <div className="flex gap-2">
                     <Input
+                      id="admin-mail-cc"
                       value={ccInput}
                       onChange={e => setCcInput(e.target.value)}
                       onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addCcBccEmail('cc'); } }}
@@ -573,9 +576,10 @@ export default function AdminMail() {
 
                 {/* BCC */}
                 <div className="space-y-1.5">
-                  <label className="text-xs font-medium text-gray-500">BCC</label>
+                  <label htmlFor="admin-mail-bcc" className="text-xs font-medium text-gray-500">BCC</label>
                   <div className="flex gap-2">
                     <Input
+                      id="admin-mail-bcc"
                       value={bccInput}
                       onChange={e => setBccInput(e.target.value)}
                       onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addCcBccEmail('bcc'); } }}
@@ -615,7 +619,7 @@ export default function AdminMail() {
           <div className="space-y-2">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <label className="text-sm font-medium text-gray-700">Body</label>
+                <label htmlFor="admin-mail-body" className="text-sm font-medium text-gray-700">Body</label>
                 <div className="flex rounded-md border border-gray-200 overflow-hidden text-xs">
                   <button
                     onClick={() => { setBodyType('markdown'); setShowPreview(false); }}
@@ -663,6 +667,7 @@ export default function AdminMail() {
               )
             ) : (
               <textarea
+                id="admin-mail-body"
                 value={body}
                 onChange={e => setBody(e.target.value)}
                 className="w-full min-h-[200px] px-3 py-2 border border-input rounded-md bg-background text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent font-mono resize-y"

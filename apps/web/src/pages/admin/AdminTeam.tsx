@@ -383,8 +383,9 @@ export default function AdminTeam() {
             <form onSubmit={handleSubmit} className="space-y-4">
               <div className="grid gap-4 sm:grid-cols-2">
                 <div className="space-y-2">
-                  <label className="text-sm font-medium">Name *</label>
+                  <label htmlFor="admin-team-name" className="text-sm font-medium">Name *</label>
                   <Input
+                    id="admin-team-name"
                     value={form.name}
                     onChange={(e) => setForm({ ...form, name: e.target.value })}
                     placeholder="Member name"
@@ -392,8 +393,9 @@ export default function AdminTeam() {
                   />
                 </div>
                 <div className="space-y-2">
-                  <label className="text-sm font-medium">Role/Position *</label>
+                  <label htmlFor="admin-team-role" className="text-sm font-medium">Role/Position *</label>
                   <Input
+                    id="admin-team-role"
                     value={form.role}
                     onChange={(e) => setForm({ ...form, role: e.target.value })}
                     placeholder="e.g., Technical Lead"
@@ -403,8 +405,9 @@ export default function AdminTeam() {
               </div>
               <div className="grid gap-4 sm:grid-cols-2">
                 <div className="space-y-2">
-                  <label className="text-sm font-medium">Team *</label>
+                  <label htmlFor="admin-team-team" className="text-sm font-medium">Team *</label>
                   <select
+                    id="admin-team-team"
                     value={form.team}
                     onChange={(e) => setForm({ ...form, team: e.target.value })}
                     className="w-full h-10 px-3 rounded-md border border-input bg-background text-sm"
@@ -419,8 +422,9 @@ export default function AdminTeam() {
                   </select>
                 </div>
                 <div className="space-y-2">
-                  <label className="text-sm font-medium">Display Order</label>
+                  <label htmlFor="admin-team-order" className="text-sm font-medium">Display Order</label>
                   <Input
+                    id="admin-team-order"
                     type="number"
                     value={form.order}
                     onChange={(e) => setForm({ ...form, order: parseInt(e.target.value) || 0 })}
@@ -429,8 +433,9 @@ export default function AdminTeam() {
                 </div>
               </div>
               <div className="space-y-2">
-                <label className="text-sm font-medium">Profile Image URL</label>
+                <label htmlFor="admin-team-image-url" className="text-sm font-medium">Profile Image URL</label>
                 <Input
+                  id="admin-team-image-url"
                   value={form.imageUrl}
                   onChange={(e) => setForm({ ...form, imageUrl: e.target.value })}
                   placeholder="Leave empty for auto-generated avatar"
@@ -439,32 +444,36 @@ export default function AdminTeam() {
               </div>
               <div className="grid gap-4 sm:grid-cols-4">
                 <div className="space-y-2">
-                  <label className="text-sm font-medium">GitHub Username</label>
+                  <label htmlFor="admin-team-github" className="text-sm font-medium">GitHub Username</label>
                   <Input
+                    id="admin-team-github"
                     value={form.github}
                     onChange={(e) => setForm({ ...form, github: e.target.value })}
                     placeholder="username"
                   />
                 </div>
                 <div className="space-y-2">
-                  <label className="text-sm font-medium">LinkedIn Username</label>
+                  <label htmlFor="admin-team-linkedin" className="text-sm font-medium">LinkedIn Username</label>
                   <Input
+                    id="admin-team-linkedin"
                     value={form.linkedin}
                     onChange={(e) => setForm({ ...form, linkedin: e.target.value })}
                     placeholder="username"
                   />
                 </div>
                 <div className="space-y-2">
-                  <label className="text-sm font-medium">Twitter Username</label>
+                  <label htmlFor="admin-team-twitter" className="text-sm font-medium">Twitter Username</label>
                   <Input
+                    id="admin-team-twitter"
                     value={form.twitter}
                     onChange={(e) => setForm({ ...form, twitter: e.target.value })}
                     placeholder="username"
                   />
                 </div>
                 <div className="space-y-2">
-                  <label className="text-sm font-medium">Instagram Username</label>
+                  <label htmlFor="admin-team-instagram" className="text-sm font-medium">Instagram Username</label>
                   <Input
+                    id="admin-team-instagram"
                     value={form.instagram}
                     onChange={(e) => setForm({ ...form, instagram: e.target.value })}
                     placeholder="username"
@@ -474,10 +483,10 @@ export default function AdminTeam() {
 
               {/* User Linking Section */}
               <div className="space-y-2 p-4 rounded-lg border border-amber-200 bg-amber-50/50">
-                <label className="text-sm font-medium flex items-center gap-2">
+                <p className="text-sm font-medium flex items-center gap-2">
                   <Link2 className="h-4 w-4" />
                   Link to User Account
-                </label>
+                </p>
                 {linkingUserId ? (
                   <div className="flex items-center gap-3 p-3 rounded-lg bg-white border border-amber-200">
                     <div className="h-8 w-8 rounded-full overflow-hidden bg-amber-200 flex-shrink-0">
@@ -593,21 +602,23 @@ export default function AdminTeam() {
               {/* Profile Content Section */}
               <div className="space-y-4 p-4 rounded-lg border border-gray-200 bg-gray-50/50">
                 <div className="flex items-center justify-between">
-                  <label className="text-sm font-medium">Profile Content (Optional)</label>
+                  <p className="text-sm font-medium">Profile Content (Optional)</p>
                   <Badge variant="secondary">Rich Text/Markdown</Badge>
                 </div>
                 <div className="grid gap-4 sm:grid-cols-2">
                   <div className="space-y-2">
-                    <label className="text-sm font-medium text-gray-600">URL Slug</label>
+                    <label htmlFor="admin-team-slug" className="text-sm font-medium text-gray-600">URL Slug</label>
                     <Input
+                      id="admin-team-slug"
                       value={form.slug}
                       onChange={(e) => setForm({ ...form, slug: e.target.value })}
                       placeholder="Auto-generated from name"
                     />
                   </div>
                   <div className="space-y-2">
-                    <label className="text-sm font-medium text-gray-600">Website</label>
+                    <label htmlFor="admin-team-website" className="text-sm font-medium text-gray-600">Website</label>
                     <Input
+                      id="admin-team-website"
                       value={form.website}
                       onChange={(e) => setForm({ ...form, website: e.target.value })}
                       placeholder="https://..."
@@ -615,8 +626,9 @@ export default function AdminTeam() {
                   </div>
                 </div>
                 <div className="space-y-2">
-                  <label className="text-sm font-medium text-gray-600">Bio</label>
+                  <label htmlFor="admin-team-bio" className="text-sm font-medium text-gray-600">Bio</label>
                   <Textarea
+                    id="admin-team-bio"
                     value={form.bio}
                     onChange={(e) => setForm({ ...form, bio: e.target.value })}
                     placeholder="A short bio about this team member..."
@@ -624,8 +636,9 @@ export default function AdminTeam() {
                   />
                 </div>
                 <div className="space-y-2">
-                  <label className="text-sm font-medium text-gray-600">Vision</label>
+                  <label htmlFor="admin-team-vision" className="text-sm font-medium text-gray-600">Vision</label>
                   <Textarea
+                    id="admin-team-vision"
                     value={form.vision}
                     onChange={(e) => setForm({ ...form, vision: e.target.value })}
                     placeholder="Personal or professional vision statement..."
@@ -633,8 +646,9 @@ export default function AdminTeam() {
                   />
                 </div>
                 <div className="space-y-2">
-                  <label className="text-sm font-medium text-gray-600">Story</label>
+                  <label htmlFor="admin-team-story" className="text-sm font-medium text-gray-600">Story</label>
                   <Textarea
+                    id="admin-team-story"
                     value={form.story}
                     onChange={(e) => setForm({ ...form, story: e.target.value })}
                     placeholder="Background, journey, how they joined..."
@@ -642,8 +656,9 @@ export default function AdminTeam() {
                   />
                 </div>
                 <div className="space-y-2">
-                  <label className="text-sm font-medium text-gray-600">Expertise</label>
+                  <label htmlFor="admin-team-expertise" className="text-sm font-medium text-gray-600">Expertise</label>
                   <Textarea
+                    id="admin-team-expertise"
                     value={form.expertise}
                     onChange={(e) => setForm({ ...form, expertise: e.target.value })}
                     placeholder="Skills, technologies, areas of focus..."
@@ -651,8 +666,9 @@ export default function AdminTeam() {
                   />
                 </div>
                 <div className="space-y-2">
-                  <label className="text-sm font-medium text-gray-600">Achievements</label>
+                  <label htmlFor="admin-team-achievements" className="text-sm font-medium text-gray-600">Achievements</label>
                   <Textarea
+                    id="admin-team-achievements"
                     value={form.achievements}
                     onChange={(e) => setForm({ ...form, achievements: e.target.value })}
                     placeholder="Notable accomplishments..."

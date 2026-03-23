@@ -183,10 +183,11 @@ export default function CreateAnnouncement() {
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="space-y-2">
-              <label className="text-sm font-medium text-gray-700">
+              <label htmlFor="create-announcement-title" className="text-sm font-medium text-gray-700">
                 Title <span className="text-red-500">*</span>
               </label>
               <Input
+                id="create-announcement-title"
                 name="title"
                 value={form.title}
                 onChange={handleChange}
@@ -196,10 +197,11 @@ export default function CreateAnnouncement() {
             </div>
 
             <div className="space-y-2">
-              <label className="text-sm font-medium text-gray-700">
+              <label htmlFor="create-announcement-short-description" className="text-sm font-medium text-gray-700">
                 Short Description <span className="text-gray-400">(optional)</span>
               </label>
               <Input
+                id="create-announcement-short-description"
                 name="shortDescription"
                 value={form.shortDescription}
                 onChange={handleChange}
@@ -210,10 +212,11 @@ export default function CreateAnnouncement() {
             </div>
 
             <div className="space-y-2">
-              <label className="text-sm font-medium text-gray-700">
+              <label htmlFor="create-announcement-body" className="text-sm font-medium text-gray-700">
                 Content <span className="text-red-500">*</span>
               </label>
               <textarea
+                id="create-announcement-body"
                 name="body"
                 value={form.body}
                 onChange={handleChange}
@@ -226,8 +229,9 @@ export default function CreateAnnouncement() {
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-2">
-                <label className="text-sm font-medium text-gray-700">Priority</label>
+                <label htmlFor="create-announcement-priority" className="text-sm font-medium text-gray-700">Priority</label>
                 <select
+                  id="create-announcement-priority"
                   name="priority"
                   value={form.priority}
                   onChange={handleChange}
@@ -241,11 +245,12 @@ export default function CreateAnnouncement() {
               </div>
 
               <div className="space-y-2">
-                <label className="text-sm font-medium text-gray-700 flex items-center gap-2">
+                <label htmlFor="create-announcement-expires-at" className="text-sm font-medium text-gray-700 flex items-center gap-2">
                   <Clock className="h-4 w-4" />
                   Expires At <span className="text-gray-400">(optional)</span>
                 </label>
                 <Input
+                  id="create-announcement-expires-at"
                   type="datetime-local"
                   name="expiresAt"
                   value={form.expiresAt}
@@ -255,8 +260,9 @@ export default function CreateAnnouncement() {
             </div>
 
             <div className="flex flex-wrap gap-6 pt-2">
-              <label className="flex items-center gap-2 cursor-pointer">
+              <label htmlFor="create-announcement-pinned" className="flex items-center gap-2 cursor-pointer">
                 <input
+                  id="create-announcement-pinned"
                   type="checkbox"
                   name="pinned"
                   checked={form.pinned}
@@ -267,8 +273,9 @@ export default function CreateAnnouncement() {
                 <span className="text-sm font-medium text-gray-700">Pin to top</span>
               </label>
               
-              <label className="flex items-center gap-2 cursor-pointer">
+              <label htmlFor="create-announcement-featured" className="flex items-center gap-2 cursor-pointer">
                 <input
+                  id="create-announcement-featured"
                   type="checkbox"
                   name="featured"
                   checked={form.featured}
@@ -306,8 +313,9 @@ export default function CreateAnnouncement() {
               </CardHeader>
               <CardContent className="space-y-4">
                 <div className="space-y-2">
-                  <label className="text-sm font-medium text-gray-700">Cover Image URL</label>
+                  <label htmlFor="create-announcement-image-url" className="text-sm font-medium text-gray-700">Cover Image URL</label>
                   <Input
+                    id="create-announcement-image-url"
                     name="imageUrl"
                     value={form.imageUrl}
                     onChange={handleChange}
@@ -329,9 +337,10 @@ export default function CreateAnnouncement() {
                 </div>
 
                 <div className="space-y-2">
-                  <label className="text-sm font-medium text-gray-700">Image Gallery</label>
+                  <label htmlFor="create-announcement-gallery-url" className="text-sm font-medium text-gray-700">Image Gallery</label>
                   <div className="flex gap-2">
                     <Input
+                      id="create-announcement-gallery-url"
                       value={newGalleryUrl}
                       onChange={(e) => setNewGalleryUrl(e.target.value)}
                       placeholder="https://example.com/image.jpg"

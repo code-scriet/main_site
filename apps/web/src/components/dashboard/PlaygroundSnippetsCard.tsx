@@ -18,6 +18,7 @@ import {
 import { useAuth } from '@/context/AuthContext';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { api } from '@/lib/api';
+import { formatDate } from '@/lib/dateUtils';
 
 const PLAYGROUND_URL = import.meta.env.VITE_PLAYGROUND_URL ||
   (import.meta.env.DEV ? 'http://localhost:5174' : 'https://code.codescriet.dev');
@@ -111,6 +112,7 @@ export function PlaygroundSnippetsCard() {
 
   const hasContent = snippets.length > 0 || stats.length > 0 || history.length > 0;
   const maxStat = Math.max(...stats.map((stat) => stat.count), 1);
+  const remainingExecutions = Math.max(dailyLimit - todayCount, 0);
 
   function getPlaygroundUrl(snippetId?: string): string {
     if (snippetId) return `${PLAYGROUND_URL}/?snippet=${snippetId}`;
@@ -172,8 +174,8 @@ export function PlaygroundSnippetsCard() {
             <div className="space-y-4">
               <div className="mb-4 p-4 rounded-lg bg-gray-50">
                 <div className="flex items-center justify-between text-sm">
-                  <span className="text-gray-600">Today's Usage</span>
-                  <span className="font-semibold text-gray-900">{todayCount} / {dailyLimit}</span>
+                  <span className="text-gray-600">Remaining today</span>
+                  <span className="font-semibold text-gray-900">{remainingExecutions} / {dailyLimit}</span>
                 </div>
                 <div className="mt-2.5 h-2 rounded-full bg-gray-200 overflow-hidden">
                   <div
@@ -191,8 +193,8 @@ export function PlaygroundSnippetsCard() {
             <>
               <div className="mb-4 p-4 rounded-lg bg-gray-50">
                 <div className="flex items-center justify-between text-sm">
-                  <span className="text-gray-600">Today's Usage</span>
-                  <span className="font-semibold text-gray-900">{todayCount} / {dailyLimit}</span>
+                  <span className="text-gray-600">Remaining today</span>
+                  <span className="font-semibold text-gray-900">{remainingExecutions} / {dailyLimit}</span>
                 </div>
                 <div className="mt-2.5 h-2 rounded-full bg-gray-200 overflow-hidden">
                   <div
@@ -279,7 +281,7 @@ export function PlaygroundSnippetsCard() {
                             <div className="min-w-0">
                               <p className="font-medium text-gray-900 text-sm truncate">{snippet.title}</p>
                               <p className="text-xs text-gray-500 mt-0.5">
-                                {new Date(snippet.createdAt).toLocaleDateString()}
+                                {formatDate(snippet.createdAt, 'short')}
                               </p>
                             </div>
                           </div>

@@ -266,6 +266,9 @@ export default function QuizPage() {
   }
 
   if (quizError) {
+    const canViewResults =
+      Boolean(quizId) &&
+      (quizError.code === 'QUIZ_ENDED' || quizError.message.toLowerCase().includes('ended'));
     return (
       <Layout>
         <div className="min-h-[70vh] flex items-center justify-center bg-gradient-to-br from-amber-50 to-orange-50">
@@ -273,9 +276,20 @@ export default function QuizPage() {
             <AlertCircle className="h-12 w-12 mx-auto text-red-400" />
             <h2 className="text-xl font-bold text-gray-700">Cannot Join Quiz</h2>
             <p className="text-sm text-gray-500">{quizError.message}</p>
-            <Button onClick={() => navigate('/quiz')} className="bg-amber-600 hover:bg-amber-700">
-              Back to Quizzes
-            </Button>
+            <div className="flex flex-col gap-3 sm:flex-row sm:justify-center">
+              {canViewResults && (
+                <Button
+                  variant="outline"
+                  onClick={() => navigate(`/quiz/${quizId}/results`)}
+                  className="border-amber-300 text-amber-700 hover:bg-amber-50"
+                >
+                  View Results
+                </Button>
+              )}
+              <Button onClick={() => navigate('/quiz')} className="bg-amber-600 hover:bg-amber-700">
+                Back to Quizzes
+              </Button>
+            </div>
           </div>
         </div>
       </Layout>

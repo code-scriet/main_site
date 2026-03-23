@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useId } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { Card, CardContent } from '@/components/ui/card';
@@ -46,6 +46,7 @@ import {
   ImageIcon,
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { formatDate } from '@/lib/dateUtils';
 
 const CERT_TYPES = ['PARTICIPATION', 'COMPLETION', 'WINNER', 'SPEAKER'] as const;
 
@@ -78,6 +79,7 @@ function SignatoryPicker({
   label, required, token, signatories, selectedId, name, title, defaultTitle,
   imageUrl, onSelect, onImageUrlChange,
 }: SignatoryPickerProps) {
+  const pickerId = useId();
   const [uploading, setUploading] = useState(false);
   const selected = signatories.find(s => s.id === selectedId);
   const isCustom = !selectedId;
@@ -106,6 +108,7 @@ function SignatoryPicker({
 
       {/* Dropdown */}
       <select
+        id={`${pickerId}-select`}
         className="w-full rounded-md border border-gray-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
         value={selectedId || '__custom__'}
         onChange={e => {
@@ -159,8 +162,9 @@ function SignatoryPicker({
         <div className="space-y-2.5">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
             <div>
-              <label className="text-xs text-gray-500 block mb-0.5">Name{required && ' *'}</label>
+              <label htmlFor={`${pickerId}-name`} className="text-xs text-gray-500 block mb-0.5">Name{required && ' *'}</label>
               <Input
+                id={`${pickerId}-name`}
                 value={name}
                 onChange={e => onSelect('', e.target.value, title)}
                 placeholder="e.g. Aarav Mehta"
@@ -168,8 +172,9 @@ function SignatoryPicker({
               />
             </div>
             <div>
-              <label className="text-xs text-gray-500 block mb-0.5">Title</label>
+              <label htmlFor={`${pickerId}-title`} className="text-xs text-gray-500 block mb-0.5">Title</label>
               <Input
+                id={`${pickerId}-title`}
                 value={title}
                 onChange={e => onSelect('', name, e.target.value)}
                 placeholder={defaultTitle}
@@ -195,7 +200,7 @@ function SignatoryPicker({
               </button>
             </div>
           ) : (
-            <label className={`flex items-center gap-2 cursor-pointer rounded-md border border-dashed px-3 py-2.5 text-sm transition-colors ${
+            <label htmlFor={`${pickerId}-signature-file`} className={`flex items-center gap-2 cursor-pointer rounded-md border border-dashed px-3 py-2.5 text-sm transition-colors ${
               uploading
                 ? 'border-amber-300 bg-amber-50 text-amber-600 cursor-not-allowed'
                 : 'border-gray-300 bg-white text-gray-500 hover:border-amber-400 hover:text-amber-600'
@@ -205,7 +210,7 @@ function SignatoryPicker({
               ) : (
                 <><ImageIcon className="w-4 h-4 shrink-0" /><span>Upload signature image <span className="text-xs text-gray-400">(PNG/JPG — optional)</span></span></>
               )}
-              <input type="file" accept="image/*" className="hidden" disabled={uploading} onChange={handleImageFile} />
+              <input id={`${pickerId}-signature-file`} type="file" accept="image/*" className="hidden" disabled={uploading} onChange={handleImageFile} />
             </label>
           )}
         </div>
@@ -961,7 +966,7 @@ export default function AdminCertificates() {
                       )}
                     </td>
                     <td className="px-4 py-3 text-gray-500 text-xs">
-                      {new Date(cert.issuedAt).toLocaleDateString()}
+                      {formatDate(cert.issuedAt, 'short')}
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex items-center justify-end gap-1.5">
@@ -1047,20 +1052,21 @@ export default function AdminCertificates() {
           <div className="flex-1 overflow-y-auto min-h-0 py-1 pr-1">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div className="col-span-full">
-                <label className="text-sm font-medium text-gray-700">Recipient Name *</label>
-                <Input value={form.recipientName} onChange={e => setForm(f => ({ ...f, recipientName: e.target.value }))} placeholder="Full name" className="mt-1" />
+                <label htmlFor="admin-certificates-recipient-name" className="text-sm font-medium text-gray-700">Recipient Name *</label>
+                <Input id="admin-certificates-recipient-name" value={form.recipientName} onChange={e => setForm(f => ({ ...f, recipientName: e.target.value }))} placeholder="Full name" className="mt-1" />
               </div>
               <div className="col-span-full">
-                <label className="text-sm font-medium text-gray-700">Recipient Email *</label>
-                <Input type="email" value={form.recipientEmail} onChange={e => setForm(f => ({ ...f, recipientEmail: e.target.value }))} placeholder="email@example.com" className="mt-1" />
+                <label htmlFor="admin-certificates-recipient-email" className="text-sm font-medium text-gray-700">Recipient Email *</label>
+                <Input id="admin-certificates-recipient-email" type="email" value={form.recipientEmail} onChange={e => setForm(f => ({ ...f, recipientEmail: e.target.value }))} placeholder="email@example.com" className="mt-1" />
               </div>
               <div className="col-span-full">
-                <label className="text-sm font-medium text-gray-700">Event Name *</label>
-                <Input value={form.eventName} onChange={e => setForm(f => ({ ...f, eventName: e.target.value }))} placeholder="e.g. Hackathon 2026" className="mt-1" />
+                <label htmlFor="admin-certificates-event-name" className="text-sm font-medium text-gray-700">Event Name *</label>
+                <Input id="admin-certificates-event-name" value={form.eventName} onChange={e => setForm(f => ({ ...f, eventName: e.target.value }))} placeholder="e.g. Hackathon 2026" className="mt-1" />
               </div>
               <div className="col-span-full">
-                <label className="text-sm font-medium text-gray-700">Certificate Type</label>
+                <label htmlFor="admin-certificates-type" className="text-sm font-medium text-gray-700">Certificate Type</label>
                 <select
+                  id="admin-certificates-type"
                   className="mt-1 w-full border border-gray-200 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
                   value={form.type}
                   onChange={e => setForm(f => ({ ...f, type: e.target.value as CertType }))}
@@ -1069,12 +1075,12 @@ export default function AdminCertificates() {
                 </select>
               </div>
               <div>
-                <label className="text-sm font-medium text-gray-700">Position / Rank</label>
-                <Input value={form.position} onChange={e => setForm(f => ({ ...f, position: e.target.value }))} placeholder="e.g. 1st Place" className="mt-1" />
+                <label htmlFor="admin-certificates-position" className="text-sm font-medium text-gray-700">Position / Rank</label>
+                <Input id="admin-certificates-position" value={form.position} onChange={e => setForm(f => ({ ...f, position: e.target.value }))} placeholder="e.g. 1st Place" className="mt-1" />
               </div>
               <div>
-                <label className="text-sm font-medium text-gray-700">Domain / Track</label>
-                <Input value={form.domain} onChange={e => setForm(f => ({ ...f, domain: e.target.value }))} placeholder="e.g. Web Dev" className="mt-1" />
+                <label htmlFor="admin-certificates-domain" className="text-sm font-medium text-gray-700">Domain / Track</label>
+                <Input id="admin-certificates-domain" value={form.domain} onChange={e => setForm(f => ({ ...f, domain: e.target.value }))} placeholder="e.g. Web Dev" className="mt-1" />
               </div>
               <SignatoryPicker
                 label="Signatory *"
@@ -1102,8 +1108,8 @@ export default function AdminCertificates() {
                 onImageUrlChange={url => setForm(f => ({ ...f, facultyImageUrl: url }))}
               />
               <div className="col-span-full">
-                <label className="text-sm font-medium text-gray-700">Description</label>
-                <Input value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} placeholder="Custom recognition text (optional)" className="mt-1" />
+                <label htmlFor="admin-certificates-description" className="text-sm font-medium text-gray-700">Description</label>
+                <Input id="admin-certificates-description" value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} placeholder="Custom recognition text (optional)" className="mt-1" />
               </div>
               <div className="col-span-full flex items-center gap-2">
                 <input
@@ -1138,12 +1144,12 @@ export default function AdminCertificates() {
           </DialogHeader>
           <div className="flex-1 overflow-y-auto min-h-0 space-y-4 py-1 pr-1">
             <div>
-              <label className="text-sm font-medium text-gray-700">Event Name *</label>
-              <Input value={bulkEventName} onChange={e => setBulkEventName(e.target.value)} placeholder="Hackathon 2026" className="mt-1" />
+              <label htmlFor="admin-certificates-bulk-event-name" className="text-sm font-medium text-gray-700">Event Name *</label>
+              <Input id="admin-certificates-bulk-event-name" value={bulkEventName} onChange={e => setBulkEventName(e.target.value)} placeholder="Hackathon 2026" className="mt-1" />
             </div>
             <div>
-              <label className="text-sm font-medium text-gray-700">Type</label>
-              <select className="mt-1 w-full border border-gray-200 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400" value={bulkType} onChange={e => setBulkType(e.target.value as CertType)}>
+              <label htmlFor="admin-certificates-bulk-type" className="text-sm font-medium text-gray-700">Type</label>
+              <select id="admin-certificates-bulk-type" className="mt-1 w-full border border-gray-200 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400" value={bulkType} onChange={e => setBulkType(e.target.value as CertType)}>
                 {CERT_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
               </select>
             </div>
@@ -1173,16 +1179,16 @@ export default function AdminCertificates() {
               onImageUrlChange={setBulkFacultyImageUrl}
             />
             <div>
-              <label className="text-sm font-medium text-gray-700">Domain / Track</label>
-              <Input value={bulkDomain} onChange={e => setBulkDomain(e.target.value)} placeholder="e.g. Web Development (optional)" className="mt-1" />
+              <label htmlFor="admin-certificates-bulk-domain" className="text-sm font-medium text-gray-700">Domain / Track</label>
+              <Input id="admin-certificates-bulk-domain" value={bulkDomain} onChange={e => setBulkDomain(e.target.value)} placeholder="e.g. Web Development (optional)" className="mt-1" />
             </div>
             <div>
-              <label className="text-sm font-medium text-gray-700">Description</label>
-              <Input value={bulkDescription} onChange={e => setBulkDescription(e.target.value)} placeholder="Custom recognition text (optional)" className="mt-1" />
+              <label htmlFor="admin-certificates-bulk-description" className="text-sm font-medium text-gray-700">Description</label>
+              <Input id="admin-certificates-bulk-description" value={bulkDescription} onChange={e => setBulkDescription(e.target.value)} placeholder="Custom recognition text (optional)" className="mt-1" />
             </div>
             <div>
               <div className="flex items-center justify-between mb-1">
-                <label className="text-sm font-medium text-gray-700">
+                <label htmlFor="admin-certificates-bulk-csv" className="text-sm font-medium text-gray-700">
                   Recipients (CSV) *
                 </label>
                 <Button variant="ghost" size="sm" onClick={downloadCsvTemplate} className="h-7 text-xs gap-1 text-amber-600 hover:text-amber-700">
@@ -1192,6 +1198,7 @@ export default function AdminCertificates() {
               </div>
               <p className="text-xs text-gray-400 mb-1">One per line: <code>Name, Email, Position (optional)</code></p>
               <textarea
+                id="admin-certificates-bulk-csv"
                 value={bulkCsv}
                 onChange={e => { setBulkCsv(e.target.value); setBulkPreview(null); setBulkParseErrors([]); }}
                 rows={6}
@@ -1252,8 +1259,8 @@ export default function AdminCertificates() {
               This action cannot be undone.
             </p>
             <div>
-              <label className="text-sm font-medium text-gray-700">Reason (optional)</label>
-              <Input value={revokeReason} onChange={e => setRevokeReason(e.target.value)} placeholder="Reason for revocation" className="mt-1" />
+              <label htmlFor="admin-certificates-revoke-reason" className="text-sm font-medium text-gray-700">Reason (optional)</label>
+              <Input id="admin-certificates-revoke-reason" value={revokeReason} onChange={e => setRevokeReason(e.target.value)} placeholder="Reason for revocation" className="mt-1" />
             </div>
           </div>
           <DialogFooter>
@@ -1301,15 +1308,15 @@ export default function AdminCertificates() {
           </DialogHeader>
           <div className="space-y-3 pt-1">
             <div>
-              <label className="text-xs text-gray-500 block mb-1">Name <span className="text-red-500">*</span></label>
-              <Input value={sigModalName} onChange={e => setSigModalName(e.target.value)} placeholder="e.g. Aarav Mehta" className="h-9" />
+              <label htmlFor="admin-certificates-signatory-name" className="text-xs text-gray-500 block mb-1">Name <span className="text-red-500">*</span></label>
+              <Input id="admin-certificates-signatory-name" value={sigModalName} onChange={e => setSigModalName(e.target.value)} placeholder="e.g. Aarav Mehta" className="h-9" />
             </div>
             <div>
-              <label className="text-xs text-gray-500 block mb-1">Title</label>
-              <Input value={sigModalTitle} onChange={e => setSigModalTitle(e.target.value)} placeholder="e.g. Club President" className="h-9" />
+              <label htmlFor="admin-certificates-signatory-title" className="text-xs text-gray-500 block mb-1">Title</label>
+              <Input id="admin-certificates-signatory-title" value={sigModalTitle} onChange={e => setSigModalTitle(e.target.value)} placeholder="e.g. Club President" className="h-9" />
             </div>
             <div>
-              <label className="text-xs text-gray-500 block mb-1">Signature Image <span className="text-gray-400">(optional, PNG/JPG)</span></label>
+              <label htmlFor="admin-certificates-signatory-file" className="text-xs text-gray-500 block mb-1">Signature Image <span className="text-gray-400">(optional, PNG/JPG)</span></label>
               {sigModalEdit?.signatureUrl && !sigModalUploadedUrl && !sigModalClearImg && (
                 <div className="flex items-center gap-2 rounded border p-2 bg-gray-50 mb-2">
                   <img src={sigModalEdit.signatureUrl} alt="Current" className="h-8 max-w-[100px] object-contain" onError={e => { (e.target as HTMLImageElement).src = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII='; }} />
@@ -1334,10 +1341,11 @@ export default function AdminCertificates() {
                   <button type="button" className="text-xs text-red-500 shrink-0" onClick={() => setSigModalUploadedUrl(null)}>Remove</button>
                 </div>
               ) : (
-                <label className="flex items-center gap-2 cursor-pointer rounded-md border border-dashed border-gray-300 bg-white px-3 py-2 text-sm text-gray-500 hover:border-amber-400 hover:text-amber-600 transition-colors">
+                <label htmlFor="admin-certificates-signatory-file" className="flex items-center gap-2 cursor-pointer rounded-md border border-dashed border-gray-300 bg-white px-3 py-2 text-sm text-gray-500 hover:border-amber-400 hover:text-amber-600 transition-colors">
                   <ImageIcon className="w-4 h-4 shrink-0" />
                   <span>Choose image file</span>
                   <input
+                    id="admin-certificates-signatory-file"
                     type="file"
                     accept="image/*"
                     className="hidden"

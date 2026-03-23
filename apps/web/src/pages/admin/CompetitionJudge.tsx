@@ -574,8 +574,9 @@ export default function CompetitionJudge() {
                 </div>
 
                 <div>
-                  <label className="text-xs text-gray-500 block mb-1">Score (0-100)</label>
+                  <label htmlFor={`judge-score-${submission.id}`} className="text-xs text-gray-500 block mb-1">Score (0-100)</label>
                   <Input
+                    id={`judge-score-${submission.id}`}
                     type="number"
                     min={0}
                     max={100}
@@ -588,8 +589,9 @@ export default function CompetitionJudge() {
                 </div>
 
                 <div>
-                  <label className="text-xs text-gray-500 block mb-1">Notes (optional)</label>
+                  <label htmlFor={`judge-notes-${submission.id}`} className="text-xs text-gray-500 block mb-1">Notes (optional)</label>
                   <Textarea
+                    id={`judge-notes-${submission.id}`}
                     value={draft.adminNotes}
                     onChange={(e) => onDraftChange(submission.id, 'adminNotes', e.target.value)}
                     rows={2}

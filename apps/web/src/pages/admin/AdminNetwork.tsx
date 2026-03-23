@@ -52,6 +52,7 @@ import {
   Download,
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { formatDate } from '@/lib/dateUtils';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5001/api';
 
@@ -541,7 +542,7 @@ export default function AdminNetwork() {
                     </div>
                     <div className="flex items-center gap-2 self-start sm:self-auto">
                       <div className="text-xs text-gray-500">
-                        Joined {new Date(pendingUser.createdAt).toLocaleDateString()}
+                        Joined {formatDate(pendingUser.createdAt, 'short')}
                       </div>
                           <Button
                             size="sm"
@@ -960,29 +961,33 @@ export default function AdminNetwork() {
                   {/* Basic Info */}
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div className="space-y-1.5">
-                      <Label>Full Name</Label>
+                      <Label htmlFor="admin-network-full-name">Full Name</Label>
                       <Input
+                        id="admin-network-full-name"
                         value={editForm.fullName || ''}
                         onChange={(e) => setEditForm({ ...editForm, fullName: e.target.value })}
                       />
                     </div>
                     <div className="space-y-1.5">
-                      <Label>Designation</Label>
+                      <Label htmlFor="admin-network-designation">Designation</Label>
                       <Input
+                        id="admin-network-designation"
                         value={editForm.designation || ''}
                         onChange={(e) => setEditForm({ ...editForm, designation: e.target.value })}
                       />
                     </div>
                     <div className="space-y-1.5">
-                      <Label>Company</Label>
+                      <Label htmlFor="admin-network-company">Company</Label>
                       <Input
+                        id="admin-network-company"
                         value={editForm.company || ''}
                         onChange={(e) => setEditForm({ ...editForm, company: e.target.value })}
                       />
                     </div>
                     <div className="space-y-1.5">
-                      <Label>Industry</Label>
+                      <Label htmlFor="admin-network-industry">Industry</Label>
                       <Input
+                        id="admin-network-industry"
                         value={editForm.industry || ''}
                         onChange={(e) => setEditForm({ ...editForm, industry: e.target.value })}
                       />
@@ -990,8 +995,9 @@ export default function AdminNetwork() {
                   </div>
 
                   <div className="space-y-1.5">
-                    <Label>Connection Type</Label>
+                    <Label htmlFor="admin-network-connection-type">Connection Type</Label>
                     <select
+                      id="admin-network-connection-type"
                       value={editForm.connectionType || ''}
                       onChange={(e) => setEditForm({ ...editForm, connectionType: e.target.value })}
                       className="flex h-10 w-full rounded-md border border-slate-300 bg-transparent px-3 py-2 text-sm placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-400 focus:border-transparent disabled:cursor-not-allowed disabled:opacity-50"
@@ -1009,8 +1015,9 @@ export default function AdminNetwork() {
                       <h4 className="font-semibold text-amber-900 text-sm">Alumni Details</h4>
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         <div className="space-y-1.5">
-                          <Label>Passout Year</Label>
+                          <Label htmlFor="admin-network-passout-year">Passout Year</Label>
                           <Input
+                            id="admin-network-passout-year"
                             type="number"
                             value={editForm.passoutYear || ''}
                             onChange={(e) => setEditForm({ ...editForm, passoutYear: e.target.value })}
@@ -1018,32 +1025,36 @@ export default function AdminNetwork() {
                           />
                         </div>
                         <div className="space-y-1.5">
-                          <Label>Current Location</Label>
+                          <Label htmlFor="admin-network-current-location">Current Location</Label>
                           <Input
+                            id="admin-network-current-location"
                             value={editForm.currentLocation || ''}
                             onChange={(e) => setEditForm({ ...editForm, currentLocation: e.target.value })}
                             placeholder="e.g. Bangalore, India"
                           />
                         </div>
                         <div className="space-y-1.5">
-                          <Label>Degree</Label>
+                          <Label htmlFor="admin-network-degree">Degree</Label>
                           <Input
+                            id="admin-network-degree"
                             value={editForm.degree || ''}
                             onChange={(e) => setEditForm({ ...editForm, degree: e.target.value })}
                             placeholder="e.g. B.Tech"
                           />
                         </div>
                         <div className="space-y-1.5">
-                          <Label>Branch</Label>
+                          <Label htmlFor="admin-network-branch">Branch</Label>
                           <Input
+                            id="admin-network-branch"
                             value={editForm.branch || ''}
                             onChange={(e) => setEditForm({ ...editForm, branch: e.target.value })}
                             placeholder="e.g. Computer Science"
                           />
                         </div>
                         <div className="space-y-1.5">
-                          <Label>College Roll Number</Label>
+                          <Label htmlFor="admin-network-roll-number">College Roll Number</Label>
                           <Input
+                            id="admin-network-roll-number"
                             value={editForm.rollNumber || ''}
                             onChange={(e) => setEditForm({ ...editForm, rollNumber: e.target.value })}
                             placeholder="Optional"
@@ -1051,8 +1062,9 @@ export default function AdminNetwork() {
                         </div>
                       </div>
                       <div className="space-y-1.5">
-                        <Label>Achievements / Highlights</Label>
+                        <Label htmlFor="admin-network-achievements">Achievements / Highlights</Label>
                         <Textarea
+                          id="admin-network-achievements"
                           value={editForm.achievements || ''}
                           onChange={(e) => setEditForm({ ...editForm, achievements: e.target.value })}
                           placeholder="Notable college achievements..."
@@ -1064,10 +1076,11 @@ export default function AdminNetwork() {
 
                   {/* Phone */}
                   <div className="space-y-1.5">
-                    <Label className="flex items-center gap-1">
+                    <Label htmlFor="admin-network-phone" className="flex items-center gap-1">
                       <Phone className="h-4 w-4" /> Phone Number
                     </Label>
                     <Input
+                      id="admin-network-phone"
                       value={editForm.phone || ''}
                       onChange={(e) => setEditForm({ ...editForm, phone: e.target.value })}
                       placeholder="+91 9876543210"
@@ -1077,8 +1090,9 @@ export default function AdminNetwork() {
 
                   {/* Bio */}
                   <div className="space-y-1.5">
-                    <Label>Bio</Label>
+                    <Label htmlFor="admin-network-bio">Bio</Label>
                     <Textarea
+                      id="admin-network-bio"
                       value={editForm.bio || ''}
                       onChange={(e) => setEditForm({ ...editForm, bio: e.target.value })}
                       rows={3}
@@ -1087,8 +1101,9 @@ export default function AdminNetwork() {
 
                   {/* Profile Photo */}
                   <div className="space-y-1.5">
-                    <Label>Profile Photo URL</Label>
+                    <Label htmlFor="admin-network-profile-photo">Profile Photo URL</Label>
                     <Input
+                      id="admin-network-profile-photo"
                       value={editForm.profilePhoto || ''}
                       onChange={(e) => setEditForm({ ...editForm, profilePhoto: e.target.value })}
                       placeholder="https://example.com/photo.jpg"
@@ -1098,40 +1113,44 @@ export default function AdminNetwork() {
                   {/* Social Links */}
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div className="space-y-1.5">
-                      <Label className="flex items-center gap-1 text-sm">
+                      <Label htmlFor="admin-network-linkedin" className="flex items-center gap-1 text-sm">
                         <Linkedin className="h-3 w-3 text-blue-600" /> LinkedIn
                       </Label>
                       <Input
+                        id="admin-network-linkedin"
                         value={editForm.linkedinUsername || ''}
                         onChange={(e) => setEditForm({ ...editForm, linkedinUsername: e.target.value })}
                         placeholder="username"
                       />
                     </div>
                     <div className="space-y-1.5">
-                      <Label className="flex items-center gap-1 text-sm">
+                      <Label htmlFor="admin-network-twitter" className="flex items-center gap-1 text-sm">
                         <Twitter className="h-3 w-3 text-sky-500" /> Twitter
                       </Label>
                       <Input
+                        id="admin-network-twitter"
                         value={editForm.twitterUsername || ''}
                         onChange={(e) => setEditForm({ ...editForm, twitterUsername: e.target.value })}
                         placeholder="username"
                       />
                     </div>
                     <div className="space-y-1.5">
-                      <Label className="flex items-center gap-1 text-sm">
+                      <Label htmlFor="admin-network-github" className="flex items-center gap-1 text-sm">
                         <Github className="h-3 w-3" /> GitHub
                       </Label>
                       <Input
+                        id="admin-network-github"
                         value={editForm.githubUsername || ''}
                         onChange={(e) => setEditForm({ ...editForm, githubUsername: e.target.value })}
                         placeholder="username"
                       />
                     </div>
                     <div className="space-y-1.5">
-                      <Label className="flex items-center gap-1 text-sm">
+                      <Label htmlFor="admin-network-website" className="flex items-center gap-1 text-sm">
                         <Globe className="h-3 w-3 text-green-600" /> Website
                       </Label>
                       <Input
+                        id="admin-network-website"
                         value={editForm.personalWebsite || ''}
                         onChange={(e) => setEditForm({ ...editForm, personalWebsite: e.target.value })}
                         placeholder="https://example.com"
@@ -1141,8 +1160,9 @@ export default function AdminNetwork() {
 
                   {/* Connection Note */}
                   <div className="space-y-1.5">
-                    <Label>Connection Details</Label>
+                    <Label htmlFor="admin-network-connection-note">Connection Details</Label>
                     <Textarea
+                      id="admin-network-connection-note"
                       value={editForm.connectionNote || ''}
                       onChange={(e) => setEditForm({ ...editForm, connectionNote: e.target.value })}
                       rows={2}
@@ -1152,8 +1172,9 @@ export default function AdminNetwork() {
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     {/* Connected Since */}
                     <div className="space-y-1.5">
-                      <Label>Connected Since (Year)</Label>
+                      <Label htmlFor="admin-network-connected-since">Connected Since (Year)</Label>
                       <Input
+                        id="admin-network-connected-since"
                         type="number"
                         value={editForm.connectedSince || ''}
                         onChange={(e) => setEditForm({ ...editForm, connectedSince: e.target.value })}
@@ -1163,8 +1184,9 @@ export default function AdminNetwork() {
                     </div>
                     {/* Display Order */}
                     <div className="space-y-1.5">
-                      <Label>Display Order Number</Label>
+                      <Label htmlFor="admin-network-display-order">Display Order Number</Label>
                       <Input
+                        id="admin-network-display-order"
                         type="number"
                         value={editForm.displayOrder || '0'}
                         onChange={(e) => setEditForm({ ...editForm, displayOrder: e.target.value })}
@@ -1178,14 +1200,15 @@ export default function AdminNetwork() {
 
                   {/* Admin Notes — Markdown */}
                   <div className="space-y-2 pt-4 border-t">
-                    <Label className="flex items-center gap-2 text-base font-semibold">
+                    <p className="flex items-center gap-2 text-base font-semibold">
                       <FileText className="h-4 w-4 text-amber-600" />
                       Highlights & Contributions (Admin Notes)
-                    </Label>
+                    </p>
                     <p className="text-xs text-gray-500">
                       Write in Markdown. This content will be displayed publicly on the profile page under "Highlights & Contributions". Use this to note what the person achieved, topics they covered in sessions, awards, etc.
                     </p>
                     <Textarea
+                      id="admin-network-admin-notes"
                       value={editForm.adminNotes || ''}
                       onChange={(e) => setEditForm({ ...editForm, adminNotes: e.target.value })}
                       rows={8}
@@ -1206,10 +1229,10 @@ export default function AdminNetwork() {
                   {/* Events / Sessions Management */}
                   <div className="space-y-3 pt-4 border-t">
                     <div className="flex items-center justify-between">
-                      <Label className="flex items-center gap-2 text-base font-semibold">
+                      <p className="flex items-center gap-2 text-base font-semibold">
                         <Calendar className="h-4 w-4 text-amber-600" />
                         Sessions & Events
-                      </Label>
+                      </p>
                       <Button type="button" variant="outline" size="sm" onClick={addEvent}>
                         <Plus className="h-3 w-3 mr-1" /> Add Event
                       </Button>
@@ -1241,8 +1264,9 @@ export default function AdminNetwork() {
                             </Button>
                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pr-8">
                               <div className="col-span-2 sm:col-span-1">
-                                <Label className="text-xs">Event Title *</Label>
+                                <Label htmlFor={`admin-network-event-title-${index}`} className="text-xs">Event Title *</Label>
                                 <Input
+                                  id={`admin-network-event-title-${index}`}
                                   value={event.title}
                                   onChange={(e) => updateEvent(index, 'title', e.target.value)}
                                   placeholder="React Server Components Workshop"
@@ -1250,8 +1274,9 @@ export default function AdminNetwork() {
                                 />
                               </div>
                               <div className="col-span-2 sm:col-span-1">
-                                <Label className="text-xs">Date</Label>
+                                <Label htmlFor={`admin-network-event-date-${index}`} className="text-xs">Date</Label>
                                 <Input
+                                  id={`admin-network-event-date-${index}`}
                                   value={event.date}
                                   onChange={(e) => updateEvent(index, 'date', e.target.value)}
                                   placeholder="January 2026"
@@ -1259,8 +1284,9 @@ export default function AdminNetwork() {
                                 />
                               </div>
                               <div className="col-span-2 sm:col-span-1">
-                                <Label className="text-xs">Type</Label>
+                                <Label htmlFor={`admin-network-event-type-${index}`} className="text-xs">Type</Label>
                                 <Input
+                                  id={`admin-network-event-type-${index}`}
                                   value={event.type || ''}
                                   onChange={(e) => updateEvent(index, 'type', e.target.value)}
                                   placeholder="GMeet Session, In-Person Talk, Workshop"
@@ -1268,8 +1294,9 @@ export default function AdminNetwork() {
                                 />
                               </div>
                               <div className="col-span-2 sm:col-span-1">
-                                <Label className="text-xs">Recording/Link (optional)</Label>
+                                <Label htmlFor={`admin-network-event-link-${index}`} className="text-xs">Recording/Link (optional)</Label>
                                 <Input
+                                  id={`admin-network-event-link-${index}`}
                                   value={event.link || ''}
                                   onChange={(e) => updateEvent(index, 'link', e.target.value)}
                                   placeholder="https://youtube.com/..."
@@ -1277,8 +1304,9 @@ export default function AdminNetwork() {
                                 />
                               </div>
                               <div className="col-span-2">
-                                <Label className="text-xs">Description (optional)</Label>
+                                <Label htmlFor={`admin-network-event-description-${index}`} className="text-xs">Description (optional)</Label>
                                 <Textarea
+                                  id={`admin-network-event-description-${index}`}
                                   value={event.description || ''}
                                   onChange={(e) => updateEvent(index, 'description', e.target.value)}
                                   placeholder="Topics covered, key takeaways, etc."

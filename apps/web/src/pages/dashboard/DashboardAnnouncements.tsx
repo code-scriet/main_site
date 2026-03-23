@@ -215,16 +215,18 @@ export default function DashboardAnnouncements() {
                     // Edit Mode
                     <div className="space-y-4">
                       <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">Title</label>
+                        <label htmlFor={`dashboard-announcement-title-${announcement.id}`} className="block text-sm font-medium text-gray-700 mb-1">Title</label>
                         <Input
+                          id={`dashboard-announcement-title-${announcement.id}`}
                           value={editForm.title || ''}
                           onChange={(e) => setEditForm({ ...editForm, title: e.target.value })}
                           placeholder="Title"
                         />
                       </div>
                       <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">Body</label>
+                        <label htmlFor={`dashboard-announcement-body-${announcement.id}`} className="block text-sm font-medium text-gray-700 mb-1">Body</label>
                         <textarea
+                          id={`dashboard-announcement-body-${announcement.id}`}
                           value={editForm.body || ''}
                           onChange={(e) => setEditForm({ ...editForm, body: e.target.value })}
                           placeholder="Body"
@@ -233,8 +235,9 @@ export default function DashboardAnnouncements() {
                         />
                       </div>
                       <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">Priority</label>
+                        <label htmlFor={`dashboard-announcement-priority-${announcement.id}`} className="block text-sm font-medium text-gray-700 mb-1">Priority</label>
                         <select
+                          id={`dashboard-announcement-priority-${announcement.id}`}
                           value={editForm.priority || 'LOW'}
                           onChange={(e) => setEditForm({ ...editForm, priority: e.target.value as AnnouncementPriority })}
                           className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-transparent"

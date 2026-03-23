@@ -86,9 +86,14 @@ export function useQuizSocket() {
     });
 
     socket.on('quiz_error', (err: { code?: string; message?: string } | string) => {
+      const message = typeof err === 'string' ? err : (err.message ?? 'A quiz error occurred.');
+      const normalizedCode =
+        typeof err === 'string'
+          ? (/ended/i.test(err) ? 'QUIZ_ENDED' : 'QUIZ_ERROR')
+          : (err.code ?? (/ended/i.test(message) ? 'QUIZ_ENDED' : 'QUIZ_ERROR'));
       useQuizStore.getState().setQuizError({
-        code: typeof err === 'string' ? 'QUIZ_ERROR' : (err.code ?? 'QUIZ_ERROR'),
-        message: typeof err === 'string' ? err : (err.message ?? 'A quiz error occurred.'),
+        code: normalizedCode,
+        message,
       });
     });
 

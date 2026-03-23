@@ -554,19 +554,19 @@ export default function AdminHiring() {
               <div className="space-y-4 py-2">
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
-                    <label className="text-xs text-gray-500">Phone</label>
+                    <p className="text-xs text-gray-500">Phone</p>
                     <p className="font-medium">{selectedApplication.phone || 'Not provided'}</p>
                   </div>
                   <div>
-                    <label className="text-xs text-gray-500">Department</label>
+                    <p className="text-xs text-gray-500">Department</p>
                     <p className="font-medium">{selectedApplication.department}</p>
                   </div>
                   <div>
-                    <label className="text-xs text-gray-500">Year</label>
+                    <p className="text-xs text-gray-500">Year</p>
                     <p className="font-medium">{selectedApplication.year}</p>
                   </div>
                   <div>
-                    <label className="text-xs text-gray-500">Applied For</label>
+                    <p className="text-xs text-gray-500">Applied For</p>
                     <p className="font-medium">
                       {roleConfig[selectedApplication.applyingRole as keyof typeof roleConfig]?.label || selectedApplication.applyingRole}
                     </p>
@@ -575,7 +575,7 @@ export default function AdminHiring() {
 
                 {selectedApplication.skills && (
                   <div>
-                    <label className="text-xs text-gray-500">Skills</label>
+                    <p className="text-xs text-gray-500">Skills</p>
                     <div className="flex flex-wrap gap-2 mt-1">
                       {selectedApplication.skills.split(',').map((skill, i) => (
                         <Badge key={i} variant="outline" className="text-xs">
@@ -588,7 +588,7 @@ export default function AdminHiring() {
                 )}
 
                 <div>
-                  <label className="text-xs text-gray-500">Status</label>
+                  <p className="text-xs text-gray-500">Status</p>
                   <div className="mt-1">
                     <Badge className={statusConfig[selectedApplication.status as keyof typeof statusConfig]?.color || ''}>
                       {statusConfig[selectedApplication.status as keyof typeof statusConfig]?.label || selectedApplication.status}
@@ -597,7 +597,7 @@ export default function AdminHiring() {
                 </div>
 
                 <div>
-                  <label className="text-xs text-gray-500">Applied On</label>
+                  <p className="text-xs text-gray-500">Applied On</p>
                   <p className="font-medium">
                     {formatDate(selectedApplication.createdAt)}
                   </p>

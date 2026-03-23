@@ -376,8 +376,9 @@ export default function AdminQuizCreator() {
               <Card className="border-amber-200/60 shadow-md">
                 <CardContent className="p-6 space-y-4">
                   <div>
-                    <label className="block text-sm font-semibold text-amber-800 mb-1.5">Title *</label>
+                    <label htmlFor="admin-quiz-title" className="block text-sm font-semibold text-amber-800 mb-1.5">Title *</label>
                     <Input
+                      id="admin-quiz-title"
                       value={title}
                       onChange={(e) => setTitle(e.target.value)}
                       placeholder="e.g. JavaScript Fundamentals Quiz"
@@ -385,8 +386,9 @@ export default function AdminQuizCreator() {
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-semibold text-amber-800 mb-1.5">Description</label>
+                    <label htmlFor="admin-quiz-description" className="block text-sm font-semibold text-amber-800 mb-1.5">Description</label>
                     <textarea
+                      id="admin-quiz-description"
                       value={description}
                       onChange={(e) => setDescription(e.target.value)}
                       placeholder="Optional description..."
@@ -513,7 +515,7 @@ export default function AdminQuizCreator() {
 
                       {/* Question type */}
                       <div>
-                        <label className="block text-sm font-semibold text-amber-800 mb-2">Type</label>
+                        <p className="block text-sm font-semibold text-amber-800 mb-2">Type</p>
                         <div className="flex gap-2 flex-wrap">
                           {([
                             { type: 'MCQ', label: 'Multiple Choice', icon: CircleDot },
@@ -570,8 +572,9 @@ export default function AdminQuizCreator() {
 
                       {/* Question text */}
                       <div>
-                        <label className="block text-sm font-semibold text-amber-800 mb-1.5">Question *</label>
+                        <label htmlFor={`admin-quiz-question-text-${activeQ.id}`} className="block text-sm font-semibold text-amber-800 mb-1.5">Question *</label>
                         <textarea
+                          id={`admin-quiz-question-text-${activeQ.id}`}
                           value={activeQ.questionText}
                           onChange={(e) => updateQuestion(activeQIndex, { questionText: e.target.value })}
                           placeholder="Enter question text..."
@@ -583,7 +586,7 @@ export default function AdminQuizCreator() {
                       {/* Options (MCQ / POLL / MULTI_SELECT) */}
                       {usesOptions(activeQ.questionType) && (
                         <div>
-                          <label className="block text-sm font-semibold text-amber-800 mb-2">
+                          <p className="block text-sm font-semibold text-amber-800 mb-2">
                             Options
                             {activeQ.questionType === 'MCQ' && (
                               <span className="font-normal text-amber-600/60 text-xs ml-1">— click the circle to mark the correct answer</span>
@@ -591,7 +594,7 @@ export default function AdminQuizCreator() {
                             {activeQ.questionType === 'MULTI_SELECT' && (
                               <span className="font-normal text-amber-600/60 text-xs ml-1">— click the circles to mark every correct answer</span>
                             )}
-                          </label>
+                          </p>
                           <div className="space-y-2">
                             {activeQ.options.map((opt, oi) => (
                               <div key={oi} className="flex items-center gap-2">
@@ -697,7 +700,7 @@ export default function AdminQuizCreator() {
                       {/* True/False correct answer */}
                       {activeQ.questionType === 'TRUE_FALSE' && (
                         <div>
-                          <label className="block text-sm font-semibold text-amber-800 mb-2">Correct Answer *</label>
+                          <p className="block text-sm font-semibold text-amber-800 mb-2">Correct Answer *</p>
                           <div className="flex gap-3">
                             {['True', 'False'].map((val) => (
                               <button
@@ -720,10 +723,11 @@ export default function AdminQuizCreator() {
                       {/* Short answer correct answer */}
                       {activeQ.questionType === 'SHORT_ANSWER' && (
                         <div>
-                          <label className="block text-sm font-semibold text-amber-800 mb-1.5">
+                          <label htmlFor={`admin-quiz-question-answer-${activeQ.id}`} className="block text-sm font-semibold text-amber-800 mb-1.5">
                             Correct Answer * <span className="font-normal text-amber-600/40 text-xs">(case-insensitive match)</span>
                           </label>
                           <Input
+                            id={`admin-quiz-question-answer-${activeQ.id}`}
                             value={activeQ.correctAnswer}
                             onChange={(e) => updateQuestion(activeQIndex, { correctAnswer: e.target.value })}
                             placeholder="Expected answer..."
@@ -775,10 +779,11 @@ export default function AdminQuizCreator() {
                       {/* Settings row */}
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         <div>
-                          <label className="block text-sm font-semibold text-amber-800 mb-1.5">
+                          <label htmlFor={`admin-quiz-time-limit-${activeQ.id}`} className="block text-sm font-semibold text-amber-800 mb-1.5">
                             Time Limit (seconds)
                           </label>
                           <Input
+                            id={`admin-quiz-time-limit-${activeQ.id}`}
                             type="number"
                             min={5}
                             max={120}
@@ -792,8 +797,9 @@ export default function AdminQuizCreator() {
                           />
                         </div>
                         <div>
-                          <label className="block text-sm font-semibold text-amber-800 mb-1.5">Points</label>
+                          <label htmlFor={`admin-quiz-points-${activeQ.id}`} className="block text-sm font-semibold text-amber-800 mb-1.5">Points</label>
                           <Input
+                            id={`admin-quiz-points-${activeQ.id}`}
                             type="number"
                             min={10}
                             max={500}
@@ -814,12 +820,13 @@ export default function AdminQuizCreator() {
 
                       {/* Media URL */}
                       <div>
-                        <label className="block text-sm font-semibold text-amber-800 mb-1.5">
+                        <label htmlFor={`admin-quiz-media-url-${activeQ.id}`} className="block text-sm font-semibold text-amber-800 mb-1.5">
                           Media URL <span className="font-normal text-amber-600/40 text-xs">(optional image)</span>
                         </label>
                         <div className="flex gap-2">
                           <Image className="h-5 w-5 text-amber-400 mt-2" />
                           <Input
+                            id={`admin-quiz-media-url-${activeQ.id}`}
                             value={activeQ.mediaUrl}
                             onChange={(e) => updateQuestion(activeQIndex, { mediaUrl: e.target.value })}
                             placeholder="https://example.com/image.png"

@@ -170,6 +170,12 @@ export default function AdminCompetition() {
     return () => window.clearInterval(id);
   }, [roundsByEvent, load]);
 
+  useEffect(() => {
+    if (!success) return;
+    const timer = window.setTimeout(() => setSuccess(null), 4000);
+    return () => window.clearTimeout(timer);
+  }, [success]);
+
   const openCreate = (eventId?: string) => {
     const resolvedEventId = eventId || selectedEventId || filteredEvents[0]?.id || '';
     setForm({
@@ -221,9 +227,6 @@ export default function AdminCompetition() {
       };
       if (!payload.eventId) {
         throw new Error('Please select an event');
-      }
-      if (payload.participantScope === 'SELECTED_TEAMS' && payload.allowedTeamIds.length === 0) {
-        throw new Error('Please select at least one team for selected teams mode');
       }
       if (payload.participantScope === 'SELECTED_TEAMS' && payload.allowedTeamIds.length === 0) {
         throw new Error('Please select at least one team for selected teams mode');
@@ -626,8 +629,9 @@ export default function AdminCompetition() {
             </DialogHeader>
             <form onSubmit={onSubmitForm} className="space-y-3">
             <div>
-              <label className="text-sm font-medium text-gray-700 mb-1 block">Event</label>
+              <label htmlFor="competition-event" className="text-sm font-medium text-gray-700 mb-1 block">Event</label>
               <select
+                id="competition-event"
                 value={form.eventId}
                 onChange={(e) => {
                   const nextEventId = e.target.value;
@@ -654,8 +658,9 @@ export default function AdminCompetition() {
 
             {selectedFormEvent?.teamRegistration && (
               <div>
-                <label className="text-sm font-medium text-gray-700 mb-1 block">Who can participate?</label>
+                <label htmlFor="competition-participant-scope" className="text-sm font-medium text-gray-700 mb-1 block">Who can participate?</label>
                 <select
+                  id="competition-participant-scope"
                   value={form.participantScope}
                   onChange={(e) => {
                     const nextScope = e.target.value as 'ALL' | 'SELECTED_TEAMS';
@@ -675,9 +680,9 @@ export default function AdminCompetition() {
 
             {selectedFormEvent?.teamRegistration && form.participantScope === 'SELECTED_TEAMS' && (
               <div>
-                <label className="text-sm font-medium text-gray-700 mb-1 block">
+                <p className="mb-1 block text-sm font-medium text-gray-700">
                   Selected teams ({form.allowedTeamIds.length})
-                </label>
+                </p>
                 {selectedFormTeams.length === 0 ? (
                   <div className="rounded-lg border border-dashed border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-800">
                     No teams found for this event yet.
@@ -687,9 +692,10 @@ export default function AdminCompetition() {
                     {selectedFormTeams.map((team) => {
                       const checked = form.allowedTeamIds.includes(team.id);
                       return (
-                        <label key={team.id} className="flex items-center justify-between gap-3 rounded-md border border-amber-100 bg-white px-3 py-2 text-sm">
+                        <div key={team.id} className="flex items-center justify-between gap-3 rounded-md border border-amber-100 bg-white px-3 py-2 text-sm">
                           <span className="min-w-0 truncate font-medium text-gray-800">{team.teamName}</span>
                           <input
+                            id={`admin-competition-team-${team.id}`}
                             type="checkbox"
                             checked={checked}
                             onChange={(e) => {
@@ -702,7 +708,7 @@ export default function AdminCompetition() {
                             }}
                             className="h-4 w-4 rounded border-amber-300 text-amber-600 focus:ring-amber-500"
                           />
-                        </label>
+                        </div>
                       );
                     })}
                   </div>
@@ -714,8 +720,9 @@ export default function AdminCompetition() {
             )}
 
             <div>
-              <label className="text-sm font-medium text-gray-700 mb-1 block">Title</label>
+              <label htmlFor="competition-title" className="text-sm font-medium text-gray-700 mb-1 block">Title</label>
               <Input
+                id="competition-title"
                 required
                 value={form.title}
                 onChange={(e) => setForm((prev) => ({ ...prev, title: e.target.value }))}
@@ -724,8 +731,9 @@ export default function AdminCompetition() {
             </div>
 
             <div>
-              <label className="text-sm font-medium text-gray-700 mb-1 block">Description (optional)</label>
+              <label htmlFor="competition-description" className="text-sm font-medium text-gray-700 mb-1 block">Description (optional)</label>
               <Textarea
+                id="competition-description"
                 value={form.description}
                 onChange={(e) => setForm((prev) => ({ ...prev, description: e.target.value }))}
                 placeholder="Round instructions"
@@ -734,8 +742,9 @@ export default function AdminCompetition() {
             </div>
 
             <div>
-              <label className="text-sm font-medium text-gray-700 mb-1 block">Duration (minutes)</label>
+              <label htmlFor="competition-duration" className="text-sm font-medium text-gray-700 mb-1 block">Duration (minutes)</label>
               <Input
+                id="competition-duration"
                 type="number"
                 min={5}
                 max={120}
@@ -746,8 +755,9 @@ export default function AdminCompetition() {
             </div>
 
             <div>
-              <label className="text-sm font-medium text-gray-700 mb-1 block">Reference image URL (optional)</label>
+              <label htmlFor="competition-target-image" className="text-sm font-medium text-gray-700 mb-1 block">Reference image URL (optional)</label>
               <Input
+                id="competition-target-image"
                 type="url"
                 value={form.targetImageUrl}
                 onChange={(e) => setForm((prev) => ({ ...prev, targetImageUrl: e.target.value }))}

@@ -15,6 +15,7 @@ import { PollResultsView } from './PollResultsView';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
+import { formatDate } from '@/lib/dateUtils';
 import {
   Loader2, Trophy, ArrowLeft, BookOpen, Clock, Users, LayoutDashboard,
   Download, ChevronDown, ChevronUp, Target, Zap, TrendingUp, BarChart3,
@@ -329,7 +330,7 @@ export default function QuizResultsPage() {
               {quiz.finishedAt && (
                 <span className="flex items-center gap-1">
                   <Clock className="h-3.5 w-3.5" />
-                  {new Date(quiz.finishedAt).toLocaleDateString()}
+                  {formatDate(quiz.finishedAt, 'short')}
                 </span>
               )}
               <Badge variant="outline" className="border-amber-300 text-amber-700 bg-amber-50 text-[10px]">

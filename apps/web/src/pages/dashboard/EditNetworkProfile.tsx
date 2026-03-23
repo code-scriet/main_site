@@ -288,34 +288,38 @@ export default function EditNetworkProfile() {
           <CardContent className="space-y-4">
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-2">
-                <label className="text-sm font-medium text-gray-600">Full Name</label>
+                <label htmlFor="edit-network-full-name" className="text-sm font-medium text-gray-600">Full Name</label>
                 <Input
+                  id="edit-network-full-name"
                   value={form.fullName}
                   onChange={(e) => setForm({ ...form, fullName: e.target.value })}
                   placeholder="Your full name"
                 />
               </div>
               <div className="space-y-2">
-                <label className="text-sm font-medium text-gray-600">Designation</label>
+                <label htmlFor="edit-network-designation" className="text-sm font-medium text-gray-600">Designation</label>
                 <Input
+                  id="edit-network-designation"
                   value={form.designation}
                   onChange={(e) => setForm({ ...form, designation: e.target.value })}
                   placeholder="e.g. Senior Engineer"
                 />
               </div>
               <div className="space-y-2">
-                <label className="text-sm font-medium text-gray-600 flex items-center gap-2">
+                <label htmlFor="edit-network-company" className="text-sm font-medium text-gray-600 flex items-center gap-2">
                   <Building2 className="h-4 w-4" /> Company
                 </label>
                 <Input
+                  id="edit-network-company"
                   value={form.company}
                   onChange={(e) => setForm({ ...form, company: e.target.value })}
                   placeholder="Your company"
                 />
               </div>
               <div className="space-y-2">
-                <label className="text-sm font-medium text-gray-600">Industry</label>
+                <label htmlFor="edit-network-industry" className="text-sm font-medium text-gray-600">Industry</label>
                 <Input
+                  id="edit-network-industry"
                   value={form.industry}
                   onChange={(e) => setForm({ ...form, industry: e.target.value })}
                   placeholder="e.g. FinTech, EdTech"
@@ -323,10 +327,11 @@ export default function EditNetworkProfile() {
               </div>
             </div>
             <div className="space-y-2">
-              <label className="text-sm font-medium text-gray-600 flex items-center gap-2">
+              <label htmlFor="edit-network-location" className="text-sm font-medium text-gray-600 flex items-center gap-2">
                 <MapPin className="h-4 w-4" /> Current Location
               </label>
               <Input
+                id="edit-network-location"
                 value={form.currentLocation}
                 onChange={(e) => setForm({ ...form, currentLocation: e.target.value })}
                 placeholder="City, Country"
@@ -476,8 +481,9 @@ export default function EditNetworkProfile() {
             <CardContent className="space-y-4">
               <div className="grid gap-4 sm:grid-cols-3">
                 <div className="space-y-2">
-                  <label className="text-sm font-medium text-gray-600">Passout Year</label>
+                  <label htmlFor="edit-network-passout-year" className="text-sm font-medium text-gray-600">Passout Year</label>
                   <Input
+                    id="edit-network-passout-year"
                     value={form.passoutYear}
                     onChange={(e) => setForm({ ...form, passoutYear: e.target.value })}
                     placeholder="e.g. 2022"
@@ -485,16 +491,18 @@ export default function EditNetworkProfile() {
                   />
                 </div>
                 <div className="space-y-2">
-                  <label className="text-sm font-medium text-gray-600">Degree</label>
+                  <label htmlFor="edit-network-degree" className="text-sm font-medium text-gray-600">Degree</label>
                   <Input
+                    id="edit-network-degree"
                     value={form.degree}
                     onChange={(e) => setForm({ ...form, degree: e.target.value })}
                     placeholder="e.g. B.Tech"
                   />
                 </div>
                 <div className="space-y-2">
-                  <label className="text-sm font-medium text-gray-600">Branch</label>
+                  <label htmlFor="edit-network-branch" className="text-sm font-medium text-gray-600">Branch</label>
                   <Input
+                    id="edit-network-branch"
                     value={form.branch}
                     onChange={(e) => setForm({ ...form, branch: e.target.value })}
                     placeholder="e.g. Computer Science"
@@ -518,40 +526,44 @@ export default function EditNetworkProfile() {
           <CardContent className="space-y-4">
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-2">
-                <label className="text-sm font-medium text-gray-600 flex items-center gap-2">
+                <label htmlFor="edit-network-github" className="text-sm font-medium text-gray-600 flex items-center gap-2">
                   <Github className="h-4 w-4" /> GitHub
                 </label>
                 <Input
+                  id="edit-network-github"
                   value={form.githubUsername}
                   onChange={(e) => setForm({ ...form, githubUsername: e.target.value })}
                   placeholder="username"
                 />
               </div>
               <div className="space-y-2">
-                <label className="text-sm font-medium text-gray-600 flex items-center gap-2">
+                <label htmlFor="edit-network-linkedin" className="text-sm font-medium text-gray-600 flex items-center gap-2">
                   <Linkedin className="h-4 w-4" /> LinkedIn
                 </label>
                 <Input
+                  id="edit-network-linkedin"
                   value={form.linkedinUsername}
                   onChange={(e) => setForm({ ...form, linkedinUsername: e.target.value })}
                   placeholder="username"
                 />
               </div>
               <div className="space-y-2">
-                <label className="text-sm font-medium text-gray-600 flex items-center gap-2">
+                <label htmlFor="edit-network-twitter" className="text-sm font-medium text-gray-600 flex items-center gap-2">
                   <Twitter className="h-4 w-4" /> Twitter
                 </label>
                 <Input
+                  id="edit-network-twitter"
                   value={form.twitterUsername}
                   onChange={(e) => setForm({ ...form, twitterUsername: e.target.value })}
                   placeholder="username"
                 />
               </div>
               <div className="space-y-2">
-                <label className="text-sm font-medium text-gray-600 flex items-center gap-2">
+                <label htmlFor="edit-network-website" className="text-sm font-medium text-gray-600 flex items-center gap-2">
                   <Lightbulb className="h-4 w-4" /> Website
                 </label>
                 <Input
+                  id="edit-network-website"
                   value={form.personalWebsite}
                   onChange={(e) => setForm({ ...form, personalWebsite: e.target.value })}
                   placeholder="https://..."

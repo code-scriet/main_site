@@ -6,6 +6,8 @@ import { Button } from '@/components/ui/button';
 import { useAuth } from '@/context/AuthContext';
 import { useSettings } from '@/context/SettingsContext';
 import { api } from '@/lib/api';
+import { copyTextToClipboard } from '@/lib/clipboard';
+import { formatDate } from '@/lib/dateUtils';
 import {
   Award,
   Loader2,
@@ -66,10 +68,13 @@ function CertCard({
 }) {
   const verifyUrl = `${window.location.origin}/verify/${cert.certId}`;
 
-  function copyLink() {
-    navigator.clipboard.writeText(verifyUrl)
-      .then(() => toast.success('Verify link copied!'))
-      .catch(() => toast.error('Copy failed'));
+  async function copyLink() {
+    const copied = await copyTextToClipboard(verifyUrl);
+    if (copied) {
+      toast.success('Verify link copied!');
+      return;
+    }
+    toast.error('Copy failed');
   }
 
   return (
@@ -105,7 +110,7 @@ function CertCard({
       </div>
 
       <p className={`text-xs mb-4 ${cert.template === 'dark' ? 'text-gray-400' : 'text-gray-500'}`}>
-        Issued {new Date(cert.issuedAt).toLocaleDateString('en-IN', { year: 'numeric', month: 'long', day: 'numeric' })}
+        Issued {formatDate(cert.issuedAt, 'long')}
       </p>
 
       <div className="flex gap-2 flex-wrap">

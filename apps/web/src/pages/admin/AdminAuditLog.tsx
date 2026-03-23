@@ -29,6 +29,7 @@ import {
 import { api } from '@/lib/api';
 import type { AuditLogEntry } from '@/lib/api';
 import { useAuth } from '@/context/AuthContext';
+import { formatDate, formatDateTime } from '@/lib/dateUtils';
 
 // Friendly labels for action types
 const ACTION_LABELS: Record<string, { label: string; color: string; icon: React.ComponentType<{ className?: string }> }> = {
@@ -97,16 +98,9 @@ function formatTimestamp(timestamp: string) {
   else if (diffMins < 60) relative = `${diffMins}m ago`;
   else if (diffHours < 24) relative = `${diffHours}h ago`;
   else if (diffDays < 7) relative = `${diffDays}d ago`;
-  else relative = date.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
+  else relative = formatDate(date, 'short');
 
-  const full = date.toLocaleString('en-IN', {
-    day: 'numeric',
-    month: 'short',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-    timeZone: 'Asia/Kolkata',
-  });
+  const full = formatDateTime(date);
 
   return { relative, full };
 }
@@ -248,8 +242,9 @@ export default function AdminAuditLog() {
             <CardContent className="pt-4 pb-4">
               <div className="grid gap-4 sm:grid-cols-3">
                 <div className="space-y-1">
-                  <label className="text-xs font-medium text-gray-500 uppercase tracking-wider">Entity</label>
+                  <label htmlFor="audit-log-entity" className="text-xs font-medium text-gray-500 uppercase tracking-wider">Entity</label>
                   <select
+                    id="audit-log-entity"
                     value={entityFilter}
                     onChange={(e) => setEntityFilter(e.target.value)}
                     className="w-full h-9 px-3 rounded-md border border-input bg-background text-sm focus:outline-none focus:ring-2 focus:ring-amber-500"
@@ -261,8 +256,9 @@ export default function AdminAuditLog() {
                   </select>
                 </div>
                 <div className="space-y-1">
-                  <label className="text-xs font-medium text-gray-500 uppercase tracking-wider">Action</label>
+                  <label htmlFor="audit-log-action" className="text-xs font-medium text-gray-500 uppercase tracking-wider">Action</label>
                   <select
+                    id="audit-log-action"
                     value={actionFilter}
                     onChange={(e) => setActionFilter(e.target.value)}
                     className="w-full h-9 px-3 rounded-md border border-input bg-background text-sm focus:outline-none focus:ring-2 focus:ring-amber-500"
@@ -274,10 +270,11 @@ export default function AdminAuditLog() {
                   </select>
                 </div>
                 <div className="space-y-1">
-                  <label className="text-xs font-medium text-gray-500 uppercase tracking-wider">Search</label>
+                  <label htmlFor="audit-log-search" className="text-xs font-medium text-gray-500 uppercase tracking-wider">Search</label>
                   <div className="relative">
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
                     <Input
+                      id="audit-log-search"
                       value={searchInput}
                       onChange={(e) => setSearchInput(e.target.value)}
                       placeholder="Search logs..."

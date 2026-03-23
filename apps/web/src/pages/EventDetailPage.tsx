@@ -743,13 +743,14 @@ export default function EventDetailPage() {
 
                 {event.registrationFields.map((field) => (
                   <div key={field.id} className="space-y-2">
-                    <label className="text-sm font-medium text-gray-800">
+                    <label htmlFor={`event-registration-field-${field.id}`} className="text-sm font-medium text-gray-800">
                       {field.label}
                       {field.required && <span className="text-red-500 ml-1">*</span>}
                     </label>
 
                     {field.type === 'TEXTAREA' ? (
                       <Textarea
+                        id={`event-registration-field-${field.id}`}
                         value={registrationFieldValues[field.id] || ''}
                         onChange={(e) => handleRegistrationFieldChange(field.id, e.target.value)}
                         placeholder={field.placeholder || `Enter ${field.label}`}
@@ -757,6 +758,7 @@ export default function EventDetailPage() {
                       />
                     ) : (
                       <Input
+                        id={`event-registration-field-${field.id}`}
                         type={
                           field.type === 'NUMBER'
                             ? 'number'

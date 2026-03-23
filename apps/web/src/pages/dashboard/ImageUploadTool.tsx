@@ -292,11 +292,12 @@ export default function ImageUploadTool() {
 
                 {/* URL Copy Area */}
                 <div className="space-y-2">
-                  <label className="text-sm font-medium text-gray-700">
+                  <label htmlFor="image-upload-tool-url" className="text-sm font-medium text-gray-700">
                     Image URL (click to copy)
                   </label>
                   <div className="flex gap-2">
                     <Input
+                      id="image-upload-tool-url"
                       value={uploadedImage.url}
                       readOnly
                       className="font-mono text-sm bg-white"

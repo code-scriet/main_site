@@ -5,6 +5,7 @@ import { Badge } from '@/components/ui/badge';
 import { Calendar, MapPin, Users, Clock, CheckCircle, Star } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import type { Event } from '@/lib/api';
+import { formatDate as formatDisplayDate } from '@/lib/dateUtils';
 
 interface EventCardProps {
   event: Event;
@@ -35,15 +36,6 @@ const statusBadgeVariant = (status: string) => {
     case 'PAST': return 'secondary';
     default: return 'default';
   }
-};
-
-const formatDate = (dateString: string) => {
-  return new Date(dateString).toLocaleDateString('en-IN', {
-    timeZone: 'Asia/Kolkata',
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric'
-  });
 };
 
 export default function EventCard({ 
@@ -106,8 +98,8 @@ export default function EventCard({
               <div className="flex items-center gap-2">
                 <Calendar className="h-4 w-4" />
                 <span>
-                  {formatDate(event.startDate)}
-                  {event.endDate && ` - ${formatDate(event.endDate)}`}
+                  {formatDisplayDate(event.startDate, 'short')}
+                  {event.endDate && ` - ${formatDisplayDate(event.endDate, 'short')}`}
                 </span>
               </div>
               {event.location && (

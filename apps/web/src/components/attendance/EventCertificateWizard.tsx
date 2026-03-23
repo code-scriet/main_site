@@ -84,8 +84,6 @@ type CertType = 'PARTICIPATION' | 'COMPLETION' | 'WINNER' | 'SPEAKER';
 type WizardStep = 1 | 2 | 3 | 'manage';
 type RecipientFilter = 'all' | 'attended' | 'no_cert';
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5001/api';
-
 const CERT_TYPE_OPTIONS: { value: CertType; label: string }[] = [
   { value: 'PARTICIPATION', label: 'Participation' },
   { value: 'COMPLETION', label: 'Completion' },
@@ -148,6 +146,7 @@ export default function EventCertificateWizard({
   } | null>(null);
   const [generateConfirmOpen, setGenerateConfirmOpen] = useState(false);
   const [bulkResending, setBulkResending] = useState(false);
+  const [bulkResendProgress, setBulkResendProgress] = useState({ completed: 0, total: 0, failed: 0 });
 
   // -----------------------------------------------------------------------
   // Data fetching
@@ -176,12 +175,8 @@ export default function EventCertificateWizard({
   const fetchSignatories = useCallback(async () => {
     setLoadingSignatories(true);
     try {
-      const res = await fetch(`${API_URL}/signatories`, {
-        headers: { Authorization: `Bearer ${token}` },
-        credentials: 'include',
-      });
-      const json = await res.json();
-      setSignatories((json.data as Signatory[]) || []);
+      const data = await api.getSignatories(token);
+      setSignatories(data as Signatory[]);
     } catch {
       setSignatories([]);
     } finally {
@@ -371,8 +366,10 @@ export default function EventCertificateWizard({
   }
 
   async function handleBulkResend() {
-    setBulkResending(true);
     const ids = Array.from(managementSelected);
+    let failed = 0;
+    setBulkResending(true);
+    setBulkResendProgress({ completed: 0, total: ids.length, failed: 0 });
     for (const certId of ids) {
       try {
         await api.resendCertificateEmail(certId, token);
@@ -380,11 +377,21 @@ export default function EventCertificateWizard({
           prev.map((c) => (c.certId === certId ? { ...c, emailSent: true } : c)),
         );
       } catch {
-        // continue with remaining
+        failed += 1;
+      } finally {
+        setBulkResendProgress((prev) => ({
+          ...prev,
+          completed: Math.min(prev.completed + 1, ids.length),
+          failed,
+        }));
       }
     }
     setBulkResending(false);
     setManagementSelected(new Set());
+    if (failed > 0) {
+      toast.warning(`Resent ${ids.length - failed} of ${ids.length} certificate email${ids.length === 1 ? '' : 's'}`);
+      return;
+    }
     toast.success(`Resent ${ids.length} certificate email${ids.length === 1 ? '' : 's'}`);
   }
 
@@ -689,7 +696,7 @@ export default function EventCertificateWizard({
       >
         {/* Certificate Type */}
         <div>
-          <Label className="text-sm font-medium mb-2 block">Certificate Type</Label>
+          <p className="mb-2 text-sm font-medium">Certificate Type</p>
           <div className="flex flex-wrap gap-2">
             {CERT_TYPE_OPTIONS.map((opt) => (
               <Button
@@ -706,7 +713,7 @@ export default function EventCertificateWizard({
 
         {/* Primary Signatory */}
         <div>
-          <Label className="text-sm font-medium mb-2 block">Primary Signatory</Label>
+          <p className="mb-2 text-sm font-medium">Primary Signatory</p>
           <div className="flex gap-2 mb-3">
             <Button
               variant={!useCustomPrimary ? 'default' : 'outline'}
@@ -815,10 +822,10 @@ export default function EventCertificateWizard({
 
         {/* Faculty Signatory (optional) */}
         <div>
-          <Label className="text-sm font-medium mb-2 block">
+          <p className="mb-2 text-sm font-medium">
             Faculty Signatory{' '}
             <span className="text-gray-400 font-normal">(optional)</span>
-          </Label>
+          </p>
           <div className="flex gap-2 mb-3">
             <Button
               variant={!useCustomFaculty && !facultyExistingMode ? 'default' : 'outline'}
@@ -1121,19 +1128,29 @@ export default function EventCertificateWizard({
           </div>
           <div className="flex gap-2">
             {managementSelected.size > 0 && (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={handleBulkResend}
-                disabled={bulkResending}
-              >
-                {bulkResending ? (
-                  <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />
-                ) : (
-                  <Mail className="w-3.5 h-3.5 mr-1.5" />
+              <div className="space-y-1 text-right">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleBulkResend}
+                  disabled={bulkResending}
+                >
+                  {bulkResending ? (
+                    <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />
+                  ) : (
+                    <Mail className="w-3.5 h-3.5 mr-1.5" />
+                  )}
+                  {bulkResending
+                    ? `Resending ${bulkResendProgress.completed}/${bulkResendProgress.total}`
+                    : `Resend Selected (${managementSelected.size})`}
+                </Button>
+                {bulkResending && (
+                  <p className="text-xs text-gray-500" aria-live="polite">
+                    Processing {bulkResendProgress.completed} of {bulkResendProgress.total}
+                    {bulkResendProgress.failed > 0 ? `, ${bulkResendProgress.failed} failed` : ''}
+                  </p>
                 )}
-                Resend Selected ({managementSelected.size})
-              </Button>
+              </div>
             )}
             <Button
               variant="outline"

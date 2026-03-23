@@ -665,13 +665,18 @@ export default function NetworkOnboarding() {
                     )}
 
                     <div className="space-y-3">
-                      <Label>How did you connect with code.scriet? *</Label>
-                      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                      <p id="network-connection-type-label" className="text-sm font-medium text-gray-900">
+                        How did you connect with code.scriet? *
+                      </p>
+                      <div
+                        className="grid grid-cols-1 gap-2 sm:grid-cols-2"
+                        role="radiogroup"
+                        aria-labelledby="network-connection-type-label"
+                      >
                         {visibleConnectionTypes.map((type) => {
                           const Icon = connectionTypeIcons[type.value];
                           return (
-                            <label
-                              key={type.value}
+                            <label htmlFor={`network-connection-type-${type.value}`} key={type.value}
                               className={`flex cursor-pointer items-start gap-3 rounded-xl border p-3 transition-all ${
                                 selectedConnectionType === type.value
                                   ? 'border-indigo-400 bg-indigo-50 shadow-sm'
@@ -679,6 +684,7 @@ export default function NetworkOnboarding() {
                               }`}
                             >
                               <input
+                                id={`network-connection-type-${type.value}`}
                                 type="radio"
                                 value={type.value}
                                 {...register('connectionType')}

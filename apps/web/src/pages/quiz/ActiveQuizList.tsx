@@ -46,6 +46,8 @@ import {
   FileDown,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { copyTextToClipboard } from '@/lib/clipboard';
+import { formatDate } from '@/lib/dateUtils';
 import { persistQuizAccessToken, storePendingQuizJoin } from '@/lib/quizAccess';
 import { toast } from 'sonner';
 
@@ -256,7 +258,10 @@ export default function ActiveQuizList() {
 
   const copyPin = async (pinToCopy: string) => {
     try {
-      await navigator.clipboard.writeText(pinToCopy);
+      const copied = await copyTextToClipboard(pinToCopy);
+      if (!copied) {
+        throw new Error('Copy failed');
+      }
       setCopiedPin(pinToCopy);
       setTimeout(() => setCopiedPin(null), 1500);
     } catch {
@@ -269,7 +274,7 @@ export default function ActiveQuizList() {
     if (myHistory.length === 0) return;
     const header = 'Title,Date,Rank,Score,Correct,Total Questions,Total Players,Joined Mid-Quiz\n';
     const rows = myHistory.map((h) =>
-      `"${h.title}",${h.endedAt ? new Date(h.endedAt).toLocaleDateString() : '-'},${h.finalRank || '-'},${h.finalScore},${h.correctCount},${h.questionCount},${h.totalParticipants},${h.joinedMidQuiz}`
+      `"${h.title}",${h.endedAt ? formatDate(h.endedAt, 'short') : '-'},${h.finalRank || '-'},${h.finalScore},${h.correctCount},${h.questionCount},${h.totalParticipants},${h.joinedMidQuiz}`
     ).join('\n');
     const blob = new Blob([header + rows], { type: 'text/csv' });
     const url = URL.createObjectURL(blob);
@@ -520,7 +525,7 @@ export default function ActiveQuizList() {
                             <div className="flex items-center gap-3 mt-1 text-xs text-amber-700/50">
                               <span className="flex items-center gap-1">
                                 <Clock className="h-3 w-3" />
-                                {item.endedAt ? new Date(item.endedAt).toLocaleDateString() : 'Pending'}
+                                {item.endedAt ? formatDate(item.endedAt, 'short') : 'Pending'}
                               </span>
                               <span className="flex items-center gap-1">
                                 <Users className="h-3 w-3" />
@@ -655,7 +660,7 @@ export default function ActiveQuizList() {
                                   )}
                                   <span className="flex items-center gap-1">
                                     <Clock className="h-3 w-3" />
-                                    {new Date(quiz.createdAt).toLocaleDateString()}
+                                    {formatDate(quiz.createdAt, 'short')}
                                   </span>
                                   {/* PIN display — bold monospace (#41) */}
                                   {quiz.pin && (quiz.status === 'WAITING' || quiz.status === 'ACTIVE') && (

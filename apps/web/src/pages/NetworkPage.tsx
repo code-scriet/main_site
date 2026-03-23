@@ -30,7 +30,7 @@ import {
   Trophy,
   Rocket,
 } from 'lucide-react';
-import { api, type NetworkProfile, type NetworkConnectionType } from '@/lib/api';
+import { api, type AuthProviders, type NetworkProfile, type NetworkConnectionType } from '@/lib/api';
 import { useSettings } from '@/context/SettingsContext';
 import { useAuth } from '@/context/AuthContext';
 import { useNavigate, Link } from 'react-router-dom';
@@ -161,6 +161,7 @@ export default function NetworkPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [joiningNetwork, setJoiningNetwork] = useState(false);
+  const [providers, setProviders] = useState<AuthProviders | null>(null);
 
   const [search, setSearch] = useState('');
   const [selectedIndustry, setSelectedIndustry] = useState<string>('');
@@ -176,13 +177,23 @@ export default function NetworkPage() {
     localStorage.setItem('network_onboarding_type', type);
   }, []);
 
+  const getNetworkAuthUrl = useCallback((type: 'professional' | 'alumni') => {
+    const apiBase = (import.meta.env.VITE_API_URL || 'http://localhost:5001/api').replace(/\/api\/?$/, '');
+    const provider = providers?.google ? 'google' : providers?.github ? 'github' : null;
+    return provider ? `${apiBase}/api/auth/${provider}?intent=network&type=${type}` : null;
+  }, [providers]);
+
   const handleJoinNetwork = useCallback(
     async (type: 'professional' | 'alumni') => {
       persistNetworkIntent(type);
 
       if (!isLoggedIn) {
-        const apiBase = (import.meta.env.VITE_API_URL || 'http://localhost:5001/api').replace(/\/api\/?$/, '');
-        window.location.href = `${apiBase}/api/auth/google?intent=network&type=${type}`;
+        const authUrl = getNetworkAuthUrl(type);
+        if (authUrl) {
+          window.location.href = authUrl;
+          return;
+        }
+        navigate('/join-our-network');
         return;
       }
 
@@ -192,13 +203,17 @@ export default function NetworkPage() {
         await refreshUser();
         navigate(`/network/onboarding?type=${type}`);
       } catch {
-        const apiBase = (import.meta.env.VITE_API_URL || 'http://localhost:5001/api').replace(/\/api\/?$/, '');
-        window.location.href = `${apiBase}/api/auth/google?intent=network&type=${type}`;
+        const authUrl = getNetworkAuthUrl(type);
+        if (authUrl) {
+          window.location.href = authUrl;
+          return;
+        }
+        navigate('/join-our-network');
       } finally {
         setJoiningNetwork(false);
       }
     },
-    [isLoggedIn, token, refreshUser, navigate, persistNetworkIntent]
+    [getNetworkAuthUrl, isLoggedIn, token, refreshUser, navigate, persistNetworkIntent]
   );
 
   useEffect(() => {
@@ -206,6 +221,23 @@ export default function NetworkPage() {
       navigate('/');
     }
   }, [settings?.showNetwork, settingsLoading, navigate]);
+
+  useEffect(() => {
+    let mounted = true;
+    void api.getProviders()
+      .then((data) => {
+        if (mounted) setProviders(data);
+      })
+      .catch(() => {
+        if (mounted) {
+          setProviders({ google: false, github: false, devLogin: false, emailPassword: true });
+        }
+      });
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   useEffect(() => {
     const fetchProfiles = async () => {
