@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, Link } from 'react-router-dom';
 import { flushSync } from 'react-dom';
 import { motion } from 'framer-motion';
+import { Layout } from '@/components/layout/Layout';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -19,6 +20,7 @@ import {
   Download,
   AlertCircle,
 } from 'lucide-react';
+import { formatDate } from '@/lib/dateUtils';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5001/api';
 
@@ -54,6 +56,13 @@ const typeLabels: Record<CertType, string> = {
   SPEAKER: 'Speaker Certificate',
 };
 
+const typeDescriptions: Record<CertType, string> = {
+  PARTICIPATION: 'for participation in',
+  COMPLETION: 'for completing',
+  WINNER: 'for outstanding performance in',
+  SPEAKER: 'for speaking at',
+};
+
 function ValidResult({ result }: { result: VerifyResult }) {
   const type = result.type as CertType;
   return (
@@ -74,7 +83,7 @@ function ValidResult({ result }: { result: VerifyResult }) {
                 {result.recipientName}
               </h2>
               <p className="text-gray-600 text-sm mb-3">
-                {type && typeLabels[type]} for participation in{' '}
+                {type && typeLabels[type]} {type ? typeDescriptions[type] : 'for participation in'}{' '}
                 <strong>{result.eventName}</strong>
               </p>
 
@@ -105,9 +114,7 @@ function ValidResult({ result }: { result: VerifyResult }) {
                   <div className="flex justify-between">
                     <span className="text-gray-500">Issued On</span>
                     <span className="text-gray-800">
-                      {new Date(result.issuedAt).toLocaleDateString('en-IN', {
-                        year: 'numeric', month: 'long', day: 'numeric',
-                      })}
+                      {formatDate(result.issuedAt)}
                     </span>
                   </div>
                 )}
@@ -526,22 +533,9 @@ export default function VerifyCertificatePage() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-amber-50 via-white to-orange-50 flex flex-col">
-      {/* Header */}
-      <header className="border-b bg-white/80 backdrop-blur-sm sticky top-0 z-10">
-        <div className="max-w-3xl mx-auto px-4 py-3 flex items-center justify-between">
-          <a href="/" className="flex items-center gap-2 text-gray-900 font-bold text-lg">
-            <Award className="w-5 h-5 text-amber-500" />
-            Code.Scriet
-          </a>
-          <a href="/" className="text-sm text-gray-500 hover:text-gray-800 flex items-center gap-1">
-            <ExternalLink className="w-3.5 h-3.5" />
-            Home
-          </a>
-        </div>
-      </header>
-
-      <main className="flex-1 py-12 px-4">
+    <Layout>
+      <div className="bg-gradient-to-br from-amber-50 via-white to-orange-50">
+      <main className="py-12 px-4">
         <div className="max-w-lg mx-auto space-y-8">
           {/* Hero */}
           <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} className="text-center">
@@ -552,6 +546,16 @@ export default function VerifyCertificatePage() {
             <p className="text-gray-500 text-sm">
               Enter a certificate ID or scan the QR code to verify its authenticity
             </p>
+            <div className="mt-4 flex items-center justify-center gap-4 text-sm">
+              <Link to="/" className="inline-flex items-center gap-1 text-amber-700 hover:text-amber-900">
+                <Award className="w-4 h-4" />
+                Home
+              </Link>
+              <Link to="/dashboard/certificates" className="inline-flex items-center gap-1 text-gray-600 hover:text-gray-900">
+                <ExternalLink className="w-4 h-4" />
+                Certificates
+              </Link>
+            </div>
           </motion.div>
 
           {/* Search Box */}
@@ -625,18 +629,14 @@ export default function VerifyCertificatePage() {
                 <div key={item.label} className="rounded-xl border bg-white p-3">
                   <item.icon className="w-5 h-5 mx-auto mb-1.5 text-amber-500" />
                   <p className="text-xs font-medium text-gray-800">{item.label}</p>
-                  <p className="text-[11px] text-gray-500 mt-0.5">{item.desc}</p>
+                  <p className="text-xs text-gray-500 mt-0.5">{item.desc}</p>
                 </div>
               ))}
             </div>
           )}
         </div>
       </main>
-
-      {/* Footer */}
-      <footer className="border-t py-4 text-center text-xs text-gray-400">
-        © {new Date().getFullYear()} Code.Scriet Club. All rights reserved.
-      </footer>
-    </div>
+      </div>
+    </Layout>
   );
 }

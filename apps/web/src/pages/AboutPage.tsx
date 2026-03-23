@@ -24,11 +24,13 @@ export default function AboutPage() {
       <section className="py-14 sm:py-24 bg-gradient-to-br from-amber-400 via-orange-500 to-amber-600 text-white relative overflow-hidden">
         <div className="absolute inset-0 opacity-10">
           <div
+            aria-hidden="true"
             className={`absolute top-10 left-10 rounded-full bg-white animate-pulse ${
               isMobile ? 'h-40 w-40 blur-2xl' : 'h-72 w-72 blur-3xl'
             }`}
           />
           <div
+            aria-hidden="true"
             className={`absolute bottom-10 right-10 rounded-full bg-white animate-pulse ${
               isMobile ? 'h-56 w-56 blur-2xl' : 'h-96 w-96 blur-3xl'
             }`}
@@ -91,7 +93,7 @@ export default function AboutPage() {
                 </p>
                 <p className="text-gray-600 text-base">
                   Our club name, codescriet, combines "code" WITH "SCRIET", code for 
-                  COMMUNITY OF DEVELOPERS AND ENGINNERSS.
+                  COMMUNITY OF DEVELOPERS AND ENGINEERS.
                   You may also find us as code.scriet or code scriet across social media.
                   We are the official coding club of SCRIET, CCS University Meerut.
                 </p>

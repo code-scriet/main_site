@@ -34,6 +34,7 @@ export function TeamCreateModal({ open, onOpenChange, event, onSuccess }: TeamCr
   const [customFieldResponses, setCustomFieldResponses] = useState<Record<string, string>>({});
   const [createdTeam, setCreatedTeam] = useState<EventTeam | null>(null);
   const [copied, setCopied] = useState(false);
+  const [validationError, setValidationError] = useState<string | null>(null);
 
   const createMutation = useMutation({
     mutationFn: () => {
@@ -64,16 +65,21 @@ export function TeamCreateModal({ open, onOpenChange, event, onSuccess }: TeamCr
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!teamName.trim()) return;
+    if (!teamName.trim()) {
+      setValidationError('Team name is required.');
+      return;
+    }
 
     // Validate required custom fields
     const registrationFields = event.registrationFields || [];
     for (const field of registrationFields) {
       if (field.required && !customFieldResponses[field.id]?.trim()) {
-        return; // Form validation will handle this
+        setValidationError(`Please fill in "${field.label}".`);
+        return;
       }
     }
 
+    setValidationError(null);
     createMutation.mutate();
   };
 
@@ -98,6 +104,7 @@ export function TeamCreateModal({ open, onOpenChange, event, onSuccess }: TeamCr
     setTeamName('');
     setCustomFieldResponses({});
     setCreatedTeam(null);
+    setValidationError(null);
     createMutation.reset();
     onOpenChange(false);
   };
@@ -181,6 +188,9 @@ export function TeamCreateModal({ open, onOpenChange, event, onSuccess }: TeamCr
                 Your team needs at least {event.teamMinSize} member{event.teamMinSize !== 1 ? 's' : ''} to be complete.
               </p>
             </div>
+            <p className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+              Make sure you copy the invite code before closing this dialog.
+            </p>
           </div>
 
           <DialogFooter>
@@ -233,6 +243,12 @@ export function TeamCreateModal({ open, onOpenChange, event, onSuccess }: TeamCr
               {renderCustomFieldInput(field)}
             </div>
           ))}
+
+          {validationError && (
+            <div className="bg-destructive/10 text-destructive px-3 py-2 rounded-md text-sm">
+              {validationError}
+            </div>
+          )}
 
           {createMutation.isError && (
             <div className="bg-destructive/10 text-destructive px-3 py-2 rounded-md text-sm">

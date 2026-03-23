@@ -113,6 +113,8 @@ export default function CompetitionJudge() {
   const [activeCodeSubmission, setActiveCodeSubmission] = useState<CompetitionSubmission | null>(null);
   const [savingAll, setSavingAll] = useState(false);
   const [publishDialogOpen, setPublishDialogOpen] = useState(false);
+  const [referenceDialogOpen, setReferenceDialogOpen] = useState(false);
+  const [referenceImageUrl, setReferenceImageUrl] = useState('');
 
   const load = useCallback(async () => {
     if (!token || !roundId) return;
@@ -320,12 +322,11 @@ export default function CompetitionJudge() {
 
   const updateReferenceUrl = async () => {
     if (!token || !round) return;
-    const value = window.prompt('Enter reference image URL', round.targetImageUrl || '');
-    if (value === null) return;
     try {
-      await api.updateCompetitionRound(round.id, { targetImageUrl: value.trim() || null }, token);
+      await api.updateCompetitionRound(round.id, { targetImageUrl: referenceImageUrl.trim() || null }, token);
       await load();
       setSuccess('Reference updated');
+      setReferenceDialogOpen(false);
     } catch (err) {
       setError(extractApiErrorMessage(err, 'Failed to update reference image'));
     }
@@ -458,7 +459,15 @@ export default function CompetitionJudge() {
           )}
 
           <div className="flex flex-wrap gap-2">
-            <Button variant="outline" size="sm" onClick={updateReferenceUrl} className="gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-2"
+              onClick={() => {
+                setReferenceImageUrl(round.targetImageUrl || '');
+                setReferenceDialogOpen(true);
+              }}
+            >
               <ImageIcon className="h-4 w-4" />
               Set/Update Reference
             </Button>
@@ -668,6 +677,30 @@ export default function CompetitionJudge() {
             <Button className="gap-2" onClick={() => void copyCode()}>
               <Copy className="h-4 w-4" />
               Copy Code
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={referenceDialogOpen} onOpenChange={setReferenceDialogOpen}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Update Reference Image</DialogTitle>
+            <DialogDescription>
+              Paste the reference image URL for this round. Leave it blank to remove the current reference image.
+            </DialogDescription>
+          </DialogHeader>
+          <Input
+            value={referenceImageUrl}
+            onChange={(event) => setReferenceImageUrl(event.target.value)}
+            placeholder="https://example.com/reference-image.png"
+          />
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setReferenceDialogOpen(false)}>
+              Cancel
+            </Button>
+            <Button onClick={() => void updateReferenceUrl()}>
+              Save Reference
             </Button>
           </DialogFooter>
         </DialogContent>

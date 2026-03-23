@@ -82,8 +82,8 @@ export function TeamJoinModal({ open, onOpenChange, event, onSuccess }: TeamJoin
   };
 
   const handleCodeChange = (value: string) => {
-    // Only allow alphanumeric, auto-uppercase, max 8 chars
-    const cleaned = value.replace(/[^A-Za-z0-9]/g, '').toUpperCase().slice(0, 8);
+    // Only allow alphanumeric, max 8 chars. Visual uppercase is handled by CSS.
+    const cleaned = value.replace(/[^A-Za-z0-9]/g, '').slice(0, 8);
     setInviteCode(cleaned);
   };
 

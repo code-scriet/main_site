@@ -73,12 +73,23 @@ function CollapsibleSection({
   badge?: string;
 }) {
   const [isOpen, setIsOpen] = useState(defaultOpen);
+  const sectionId = `${title.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-section`;
   
   return (
     <Card className={isOpen ? 'border-amber-200' : ''}>
       <CardHeader 
         className="cursor-pointer hover:bg-amber-50/50 transition-colors"
         onClick={() => setIsOpen(!isOpen)}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault();
+            setIsOpen((prev) => !prev);
+          }
+        }}
+        role="button"
+        tabIndex={0}
+        aria-expanded={isOpen}
+        aria-controls={sectionId}
       >
         <div className="flex items-center justify-between">
           <CardTitle className="flex items-center gap-2 text-lg">
@@ -99,6 +110,7 @@ function CollapsibleSection({
       <AnimatePresence>
         {isOpen && (
           <motion.div
+            id={sectionId}
             initial={{ height: 0, opacity: 0 }}
             animate={{ height: 'auto', opacity: 1 }}
             exit={{ height: 0, opacity: 0 }}

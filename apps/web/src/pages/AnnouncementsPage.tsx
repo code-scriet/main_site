@@ -107,6 +107,7 @@ export default function AnnouncementsPage() {
               <button
                 key={priority}
                 onClick={() => setFilter(priority)}
+                aria-pressed={filter === priority}
                 className={`px-4 py-2 rounded-full font-medium transition-all ${
                   filter === priority
                     ? 'bg-amber-600 text-white shadow-lg'

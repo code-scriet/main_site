@@ -29,6 +29,9 @@ function CinematicGallery({ images }: { images: string[] }) {
   const [loadedImages, setLoadedImages] = useState<Set<number>>(new Set());
   const [activeSlide, setActiveSlide] = useState(0);
   const [zoomLevel, setZoomLevel] = useState(1);
+  const [isPageVisible, setIsPageVisible] = useState(
+    typeof document === 'undefined' ? true : document.visibilityState !== 'hidden',
+  );
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   
   const processedImages = processImageGallery(images, 'gallery');
@@ -36,7 +39,7 @@ function CinematicGallery({ images }: { images: string[] }) {
   
   // Auto slideshow effect
   useEffect(() => {
-    if (isPlaying && selectedImage === null) {
+    if (isPlaying && selectedImage === null && isPageVisible) {
       intervalRef.current = setInterval(() => {
         setActiveSlide((prev) => (prev + 1) % processedImages.length);
       }, 4000);
@@ -44,7 +47,15 @@ function CinematicGallery({ images }: { images: string[] }) {
     return () => {
       if (intervalRef.current) clearInterval(intervalRef.current);
     };
-  }, [isPlaying, selectedImage, processedImages.length]);
+  }, [isPageVisible, isPlaying, selectedImage, processedImages.length]);
+
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      setIsPageVisible(document.visibilityState !== 'hidden');
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+  }, []);
 
   const handleImageLoad = (index: number) => {
     setLoadedImages(prev => new Set([...prev, index]));

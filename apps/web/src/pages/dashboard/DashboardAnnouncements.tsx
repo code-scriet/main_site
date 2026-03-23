@@ -4,7 +4,6 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Markdown } from '@/components/ui/markdown';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -37,6 +36,14 @@ const priorityBgColors = {
 };
 
 type AnnouncementPriority = Announcement['priority'];
+
+function getAnnouncementPreview(body: string): string {
+  return body
+    .replace(/[#*_`~[\]]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 180);
+}
 
 export default function DashboardAnnouncements() {
   const { user, token } = useAuth();
@@ -311,9 +318,10 @@ export default function DashboardAnnouncements() {
                       {announcement.shortDescription && (
                         <p className="text-sm text-gray-600 italic mb-2">{announcement.shortDescription}</p>
                       )}
-                      <div className="text-gray-700 mb-4 line-clamp-3">
-                        <Markdown>{announcement.body}</Markdown>
-                      </div>
+                      <p className="text-gray-700 mb-4 line-clamp-3">
+                        {getAnnouncementPreview(announcement.body)}
+                        {announcement.body.length > 180 ? '...' : ''}
+                      </p>
                       {/* Tags */}
                       {announcement.tags && announcement.tags.length > 0 && (
                         <div className="flex flex-wrap gap-1.5 mb-3">

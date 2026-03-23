@@ -1,5 +1,6 @@
 import { Layout } from '@/components/layout/Layout';
 import { SEO } from '@/components/SEO';
+import { useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { Button } from '@/components/ui/button';
 import {
@@ -97,15 +98,18 @@ export default function JoinOurNetworkPage() {
     localStorage.setItem('network_onboarding_type', type);
   };
 
-  // If network feature is disabled, redirect home
-  if (!settingsLoading && settings?.showNetwork === false) {
-    navigate('/');
-    return null;
-  }
+  useEffect(() => {
+    if (settingsLoading) return;
+    if (settings?.showNetwork === false) {
+      navigate('/');
+      return;
+    }
+    if (user?.role === 'NETWORK') {
+      navigate('/network/status');
+    }
+  }, [navigate, settings?.showNetwork, settingsLoading, user?.role]);
 
-  // If user is already NETWORK role, redirect to status page
-  if (user?.role === 'NETWORK') {
-    navigate('/network/status');
+  if (!settingsLoading && (settings?.showNetwork === false || user?.role === 'NETWORK')) {
     return null;
   }
 

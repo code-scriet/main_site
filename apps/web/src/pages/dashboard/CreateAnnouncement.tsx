@@ -47,12 +47,16 @@ export default function CreateAnnouncement() {
   const [newTag, setNewTag] = useState('');
   const [newAttachment, setNewAttachment] = useState<AttachmentItem>({ title: '', url: '', type: 'link' });
   const [newLink, setNewLink] = useState<LinkItem>({ title: '', url: '' });
+  const [coverPreviewError, setCoverPreviewError] = useState(false);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
     const { name, value, type } = e.target;
     if (type === 'checkbox') {
       setForm(prev => ({ ...prev, [name]: (e.target as HTMLInputElement).checked }));
     } else {
+      if (name === 'imageUrl') {
+        setCoverPreviewError(false);
+      }
       setForm(prev => ({ ...prev, [name]: value }));
     }
   };
@@ -309,17 +313,18 @@ export default function CreateAnnouncement() {
                     onChange={handleChange}
                     placeholder="https://example.com/image.jpg"
                   />
-                  {form.imageUrl && (
+                  {form.imageUrl && !coverPreviewError && (
                     <div className="mt-2 relative rounded-lg overflow-hidden">
                       <img
                         src={form.imageUrl}
                         alt="Cover preview"
                         className="w-full h-40 object-cover"
-                        onError={(e) => {
-                          (e.target as HTMLImageElement).style.display = 'none';
-                        }}
+                        onError={() => setCoverPreviewError(true)}
                       />
                     </div>
+                  )}
+                  {coverPreviewError && (
+                    <p className="text-sm text-amber-700">Preview unavailable for this image URL.</p>
                   )}
                 </div>
 
