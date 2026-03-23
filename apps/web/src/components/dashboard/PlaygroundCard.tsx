@@ -2,13 +2,11 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Code2, ArrowRight, Zap, FileCode2, PlayCircle } from 'lucide-react';
 import { motion } from 'framer-motion';
-
-const BASE_PLAYGROUND_URL = import.meta.env.VITE_PLAYGROUND_URL || 
-  (import.meta.env.DEV ? 'http://localhost:5174' : 'https://code.codescriet.dev');
+import { getPlaygroundLaunchUrl } from '@/lib/playgroundUrl';
 
 /** Playground auth is handled by the shared session cookie across subdomains. */
 function getPlaygroundUrl(): string {
-  return BASE_PLAYGROUND_URL;
+  return getPlaygroundLaunchUrl('/');
 }
 
 export function PlaygroundCard() {

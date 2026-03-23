@@ -1,9 +1,16 @@
-import { useAuth, getLoginUrl, getRegisterUrl } from '@/context/AuthContext';
+import { useAuth, getLoginUrl, getPlaygroundReturnUrl, getRegisterUrl, shouldAutoRedirectToLogin } from '@/context/AuthContext';
 import { Lock, ArrowRight, UserPlus, Loader2, Code2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { useEffect } from 'react';
 
 export function AuthGate({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, isLoading } = useAuth();
+
+  useEffect(() => {
+    if (isLoading || isAuthenticated) return;
+    if (!shouldAutoRedirectToLogin()) return;
+    window.location.assign(getLoginUrl(getPlaygroundReturnUrl()));
+  }, [isLoading, isAuthenticated]);
 
   if (isLoading) {
     return (
@@ -50,14 +57,14 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
                 asChild
                 className="w-full gap-2 bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white"
               >
-                <a href={getLoginUrl()}>
+                <a href={getLoginUrl(getPlaygroundReturnUrl())}>
                   <ArrowRight className="h-4 w-4" />
                   Sign in to Code.Scriet
                 </a>
               </Button>
 
               <Button asChild variant="outline" className="w-full gap-2">
-                <a href={getRegisterUrl()}>
+                <a href={getRegisterUrl(getPlaygroundReturnUrl())}>
                   <UserPlus className="h-4 w-4" />
                   Create free account
                 </a>

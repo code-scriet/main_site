@@ -6,9 +6,7 @@ import { Button } from '@/components/ui/button';
 import { useAuth } from '@/context/AuthContext';
 import { useSettings } from '@/context/SettingsContext';
 import { cn } from '@/lib/utils';
-
-const BASE_PLAYGROUND_URL = import.meta.env.VITE_PLAYGROUND_URL ||
-  (import.meta.env.DEV ? 'http://localhost:5174' : 'https://code.codescriet.dev');
+import { getPlaygroundLaunchUrl } from '@/lib/playgroundUrl';
 
 const FOCUSABLE_SELECTOR = 'a[href], button:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
@@ -105,7 +103,7 @@ export function Header() {
     { name: 'Announcements', href: '/announcements' },
     { name: 'Team', href: '/team' },
     { name: 'Achievements', href: '/achievements' },
-    ...(settings?.playgroundEnabled !== false ? [{ name: 'Playground', href: BASE_PLAYGROUND_URL, external: true }] : []),
+    ...(settings?.playgroundEnabled !== false ? [{ name: 'Playground', href: getPlaygroundLaunchUrl('/'), external: true }] : []),
     ...(settings?.showNetwork !== false ? [{ name: 'Network', href: '/network' }] : []),
   ];
 

@@ -30,12 +30,10 @@ import { formatTime, formatDateTime, getWeekdayShort, getDayOfMonth, getMonthSho
 import { processImageUrl, processImageGallery } from '@/lib/imageUtils';
 import { getRegistrationStatus } from '@/lib/registrationStatus';
 import { TeamCreateModal, TeamJoinModal, TeamDashboard } from '@/components/teams';
+import { getPlaygroundLaunchUrl } from '@/lib/playgroundUrl';
 import { toast } from 'sonner';
 
 type EventStatus = 'UPCOMING' | 'ONGOING' | 'PAST';
-
-const BASE_PLAYGROUND_URL = import.meta.env.VITE_PLAYGROUND_URL ||
-  (import.meta.env.DEV ? 'http://localhost:5174' : 'https://code.codescriet.dev');
 
 const statusConfig: Record<EventStatus, { label: string; variant: 'success' | 'warning' | 'secondary'; color: string }> = {
   UPCOMING: { label: 'Upcoming', variant: 'success', color: 'bg-green-100 text-green-800 border-green-200' },
@@ -336,7 +334,7 @@ export default function EventDetailPage() {
   >([]);
 
   const getCompetitionRoundUrl = (roundId: string) => {
-    return `${BASE_PLAYGROUND_URL}/competition/${roundId}`;
+    return getPlaygroundLaunchUrl(`/competition/${roundId}`);
   };
 
   useEffect(() => {

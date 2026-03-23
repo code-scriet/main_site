@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/context/AuthContext';
 import { api, type CompetitionRound, type Event, type EventTeam } from '@/lib/api';
 import { extractApiErrorMessage } from '@/lib/error';
+import { getPlaygroundLaunchUrl, getPlaygroundPublicUrl } from '@/lib/playgroundUrl';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -72,9 +73,6 @@ const statusBadgeClass: Record<CompetitionRound['status'], string> = {
   FINISHED: 'bg-amber-100 text-amber-800 border-amber-300',
 };
 
-const BASE_PLAYGROUND_URL = import.meta.env.VITE_PLAYGROUND_URL ||
-  (import.meta.env.DEV ? 'http://localhost:5174' : 'https://code.codescriet.dev');
-
 function formatDuration(seconds: number): string {
   const minutes = Math.max(1, Math.floor(seconds / 60));
   return `${minutes} min`;
@@ -109,10 +107,10 @@ export default function AdminCompetition() {
   } | null>(null);
 
   const getCompetitionRoundUrl = (roundId: string) => {
-    return `${BASE_PLAYGROUND_URL}/competition/${roundId}`;
+    return getPlaygroundLaunchUrl(`/competition/${roundId}`);
   };
 
-  const getCompetitionRoundPublicUrl = (roundId: string) => `${BASE_PLAYGROUND_URL}/competition/${roundId}`;
+  const getCompetitionRoundPublicUrl = (roundId: string) => getPlaygroundPublicUrl(`/competition/${roundId}`);
 
   const filteredEvents = useMemo(() => {
     const query = eventFilter.trim().toLowerCase();

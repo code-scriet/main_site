@@ -25,6 +25,8 @@ interface AuthContextType {
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
+const AUTH_RETRY_KEY = 'pg_auth_retry_done';
+const RETURN_PARAM_KEY = 'pg_return';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -88,23 +90,42 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const fetchUser = useCallback(async (jwt?: string | null): Promise<FetchUserResult> => {
     try {
-      const headers: Record<string, string> = {};
-      if (jwt) {
-        headers.Authorization = `Bearer ${jwt}`;
+      const requestMe = async (withJwt?: string | null) => {
+        const headers: Record<string, string> = {};
+        if (withJwt) {
+          headers.Authorization = `Bearer ${withJwt}`;
+        }
+        const res = await fetch(`${MAIN_SITE_API}/api/auth/me`, {
+          headers,
+          credentials: 'include',
+        });
+        if (!res.ok) {
+          return { ok: false as const, status: res.status };
+        }
+        const data = await res.json();
+        const user = data.data || data.user || null;
+        return {
+          ok: true as const,
+          user: user || null,
+          token: typeof data.token === 'string' ? data.token : undefined,
+        };
+      };
+
+      const primary = await requestMe(jwt);
+      if (primary.ok) {
+        return { user: primary.user, token: primary.token };
       }
 
-      const res = await fetch(`${MAIN_SITE_API}/api/auth/me`, {
-        headers,
-        credentials: 'include',
-      });
-      if (!res.ok) {
-        // Treat 401 as invalid auth; all other failures can be transient/network.
-        return { user: null, authFailed: res.status === 401 };
+      // If bearer token is stale, retry once without Authorization so cookie auth can succeed.
+      if (jwt && primary.status === 401) {
+        const cookieFallback = await requestMe(null);
+        if (cookieFallback.ok) {
+          return { user: cookieFallback.user, token: cookieFallback.token };
+        }
       }
-      const data = await res.json();
-      // The main API returns { success: true, data: { ...user }, token?: string }
-      const user = data.data || data.user || null;
-      return { user: user || null, token: data.token };
+
+      // Treat 401 as invalid auth; all other failures can be transient/network.
+      return { user: null, authFailed: primary.status === 401 };
     } catch {
       // Network/CORS/server issues should not wipe a valid local session cookie.
       return { user: null, authFailed: false };
@@ -128,11 +149,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const result = await fetchUser(jwt);
       if (result.user) {
         setUser(result.user);
-        // Prefer the token we already had; fall back to the one returned by /auth/me
-        const resolvedToken = jwt || result.token || null;
+        // Prefer a fresh token returned by /auth/me (prevents stale bearer loops).
+        const resolvedToken = result.token || jwt || null;
         setToken(resolvedToken);
         // Ensure session token is always kept for refresh
         if (resolvedToken) sessionStorage.setItem('pg_token', resolvedToken);
+        markAuthRecovered();
       } else if (jwt && result.authFailed) {
         // Invalid token — clean up
         clearCookie('scriet_session');
@@ -149,9 +171,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const result = await fetchUser(jwt);
     if (result.user) {
       setUser(result.user);
-      const resolvedToken = jwt || result.token || null;
+      const resolvedToken = result.token || jwt || null;
       setToken(resolvedToken);
       if (resolvedToken) sessionStorage.setItem('pg_token', resolvedToken);
+      markAuthRecovered();
     } else if (jwt && result.authFailed) {
       clearCookie('scriet_session');
       localStorage.removeItem('token');
@@ -193,8 +216,40 @@ export function useAuth() {
 }
 
 /** URL to redirect to for login on the main site */
-export const getLoginUrl = () =>
-  `${MAIN_SITE_URL}/signin?next=${encodeURIComponent(window.location.href)}`;
+export const getLoginUrl = (nextUrl?: string) =>
+  `${MAIN_SITE_URL}/signin?next=${encodeURIComponent(nextUrl || window.location.href)}`;
 
-export const getRegisterUrl = () =>
-  `${MAIN_SITE_URL}/signin?tab=register&next=${encodeURIComponent(window.location.href)}`;
+export const getRegisterUrl = (nextUrl?: string) =>
+  `${MAIN_SITE_URL}/signin?tab=register&next=${encodeURIComponent(nextUrl || window.location.href)}`;
+
+export const getPlaygroundReturnUrl = (): string => {
+  const url = new URL(window.location.href);
+  url.searchParams.set(RETURN_PARAM_KEY, '1');
+  return url.toString();
+};
+
+export const shouldAutoRedirectToLogin = (): boolean => {
+  try {
+    const params = new URLSearchParams(window.location.search);
+    const hasReturnMarker = params.get(RETURN_PARAM_KEY) === '1';
+    if (!hasReturnMarker) return false;
+    if (sessionStorage.getItem(AUTH_RETRY_KEY) === '1') return false;
+    sessionStorage.setItem(AUTH_RETRY_KEY, '1');
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+export const markAuthRecovered = (): void => {
+  try {
+    sessionStorage.removeItem(AUTH_RETRY_KEY);
+    const url = new URL(window.location.href);
+    if (url.searchParams.has(RETURN_PARAM_KEY)) {
+      url.searchParams.delete(RETURN_PARAM_KEY);
+      window.history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`);
+    }
+  } catch {
+    // no-op
+  }
+};

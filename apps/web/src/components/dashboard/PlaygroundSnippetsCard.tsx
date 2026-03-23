@@ -19,9 +19,7 @@ import { useAuth } from '@/context/AuthContext';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { api } from '@/lib/api';
 import { formatDate } from '@/lib/dateUtils';
-
-const PLAYGROUND_URL = import.meta.env.VITE_PLAYGROUND_URL ||
-  (import.meta.env.DEV ? 'http://localhost:5174' : 'https://code.codescriet.dev');
+import { getPlaygroundLaunchUrl } from '@/lib/playgroundUrl';
 
 const LANG_COLORS: Record<string, string> = {
   python: 'bg-blue-500',
@@ -115,8 +113,8 @@ export function PlaygroundSnippetsCard() {
   const remainingExecutions = Math.max(dailyLimit - todayCount, 0);
 
   function getPlaygroundUrl(snippetId?: string): string {
-    if (snippetId) return `${PLAYGROUND_URL}/?snippet=${snippetId}`;
-    return PLAYGROUND_URL;
+    if (snippetId) return getPlaygroundLaunchUrl(`/?snippet=${encodeURIComponent(snippetId)}`);
+    return getPlaygroundLaunchUrl('/');
   }
 
   function formatDuration(ms: number): string {
