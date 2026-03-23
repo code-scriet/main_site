@@ -181,6 +181,7 @@ export const PollResultsView = memo(function PollResultsView({
           <div className="flex bg-amber-100/60 rounded-lg p-0.5">
             <button
               onClick={() => setChartType('bar')}
+              aria-pressed={chartType === 'bar'}
               className={cn(
                 'px-2.5 py-1 rounded-md text-xs font-semibold transition-all duration-200 flex items-center gap-1.5',
                 chartType === 'bar'
@@ -193,6 +194,7 @@ export const PollResultsView = memo(function PollResultsView({
             </button>
             <button
               onClick={() => setChartType('pie')}
+              aria-pressed={chartType === 'pie'}
               className={cn(
                 'px-2.5 py-1 rounded-md text-xs font-semibold transition-all duration-200 flex items-center gap-1.5',
                 chartType === 'pie'

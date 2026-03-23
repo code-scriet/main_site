@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { useAuth } from '@/context/AuthContext';
@@ -73,6 +73,9 @@ export default function ProfilePage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const redirectTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+
+  useEffect(() => () => { clearTimeout(redirectTimerRef.current); }, []);
   
   // Form fields
   const [name, setName] = useState('');
@@ -186,14 +189,14 @@ export default function ProfilePage() {
           type: 'success',
           text: 'Profile updated! Redirecting you to complete event registration.',
         });
-        setTimeout(() => {
+        redirectTimerRef.current = setTimeout(() => {
           navigate(getPendingEventRedirectPath(pendingEventId, pendingEventType));
         }, 1000);
         return;
       } else {
         setMessage({ type: 'success', text: 'Profile updated successfully! Redirecting...' });
         // Redirect to dashboard after a short delay
-        setTimeout(() => {
+        redirectTimerRef.current = setTimeout(() => {
           navigate('/dashboard');
         }, 1500);
       }

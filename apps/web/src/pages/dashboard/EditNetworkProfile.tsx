@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useNavigate, useParams, Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -43,6 +43,9 @@ export default function EditNetworkProfile() {
   const [saving, setSaving] = useState(false);
   const [success, setSuccess] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const successTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+
+  useEffect(() => () => { clearTimeout(successTimerRef.current); }, []);
 
   const [form, setForm] = useState({
     fullName: '',
@@ -183,7 +186,7 @@ export default function EditNetworkProfile() {
       }
 
       setSuccess('Profile updated successfully!');
-      setTimeout(() => setSuccess(null), 3000);
+      successTimerRef.current = setTimeout(() => setSuccess(null), 3000);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to save profile');
     } finally {
