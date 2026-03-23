@@ -1,14 +1,45 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { motion } from 'framer-motion';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Switch } from '@/components/ui/switch';
 import { Save, AlertCircle, CheckCircle, Globe, Mail, Shield, Loader2, RefreshCw, Share2, FileText, Eye, Code, Search, Clock, AlertTriangle } from 'lucide-react';
 import { api } from '@/lib/api';
 import type { Settings } from '@/lib/api';
 import { useAuth } from '@/context/AuthContext';
 import { useSettings } from '@/context/SettingsContext';
 import { Markdown } from '@/components/ui/markdown';
+import { formatDateTime } from '@/lib/dateUtils';
+
+type ToggleRowProps = {
+  id: string;
+  label: string;
+  description: string;
+  checked: boolean;
+  onCheckedChange: (checked: boolean) => void;
+  compact?: boolean;
+};
+
+function ToggleRow({ id, label, description, checked, onCheckedChange, compact = false }: ToggleRowProps) {
+  return (
+    <div className={`flex items-center justify-between rounded-lg border border-amber-100 ${compact ? 'bg-white p-3' : 'bg-amber-50 p-4'}`}>
+      <div className="pr-4">
+        <Label htmlFor={id} className="font-medium text-amber-900">
+          {label}
+        </Label>
+        <p className={`mt-1 ${compact ? 'text-xs text-gray-400' : 'text-sm text-gray-500'}`}>{description}</p>
+      </div>
+      <Switch
+        id={id}
+        checked={checked}
+        onCheckedChange={onCheckedChange}
+        className={compact ? 'scale-90' : ''}
+      />
+    </div>
+  );
+}
 
 export default function AdminSettings() {
   const { token } = useAuth();
@@ -66,8 +97,9 @@ export default function AdminSettings() {
   const [eventSyncResult, setEventSyncResult] = useState<
     { toOngoing: number; toPastFromOngoing: number; toPastFromUpcoming: number; error?: string } | null
   >(null);
+  const savedTimerRef = useRef<number | null>(null);
 
-  const fetchSettings = async () => {
+  const fetchSettings = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
@@ -95,15 +127,21 @@ export default function AdminSettings() {
       // Fallback: public endpoint (admin-only fields will show initial defaults)
       const data = await api.getSettings();
       setSettings(data);
-    } catch (err) {
+    } catch {
       setError('Failed to load settings');
     } finally {
       setLoading(false);
     }
-  };
+  }, [token]);
 
   useEffect(() => {
-    fetchSettings();
+    void fetchSettings();
+  }, [fetchSettings]);
+
+  useEffect(() => () => {
+    if (savedTimerRef.current) {
+      window.clearTimeout(savedTimerRef.current);
+    }
   }, []);
 
   // Auto-save a single boolean toggle immediately via PATCH
@@ -114,7 +152,7 @@ export default function AdminSettings() {
     try {
       await api.patchSetting(key as string, value, token);
       await refreshGlobalSettings();
-    } catch (err) {
+    } catch {
       // Revert on failure
       setSettings((prev) => ({ ...prev, [key]: !value }));
       setError(`Failed to save ${key}`);
@@ -129,7 +167,15 @@ export default function AdminSettings() {
     setSaving(true);
     setError(null);
     try {
-      const { id, updatedAt, emailWelcomeBody, emailAnnouncementBody, emailEventBody, emailFooterText, ...updateData } = settings;
+      const {
+        id: _id,
+        updatedAt: _updatedAt,
+        emailWelcomeBody,
+        emailAnnouncementBody,
+        emailEventBody,
+        emailFooterText,
+        ...updateData
+      } = settings;
       
       // Update regular settings
       const updated = await api.updateSettings(updateData, token);
@@ -157,7 +203,10 @@ export default function AdminSettings() {
       // Refresh global settings so all components get the update
       await refreshGlobalSettings();
       setSaved(true);
-      setTimeout(() => setSaved(false), 3000);
+      if (savedTimerRef.current) {
+        window.clearTimeout(savedTimerRef.current);
+      }
+      savedTimerRef.current = window.setTimeout(() => setSaved(false), 3000);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to save settings');
     } finally {
@@ -226,16 +275,18 @@ export default function AdminSettings() {
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="space-y-2">
-            <label className="text-sm font-medium text-gray-700">Club Name</label>
+            <Label htmlFor="club-name">Club Name</Label>
             <Input
+              id="club-name"
               value={settings.clubName}
               onChange={(e) => setSettings({ ...settings, clubName: e.target.value })}
               placeholder="Enter club name"
             />
           </div>
           <div className="space-y-2">
-            <label className="text-sm font-medium text-gray-700">Contact Email</label>
+            <Label htmlFor="club-email">Contact Email</Label>
             <Input
+              id="club-email"
               type="email"
               value={settings.clubEmail}
               onChange={(e) => setSettings({ ...settings, clubEmail: e.target.value })}
@@ -243,8 +294,9 @@ export default function AdminSettings() {
             />
           </div>
           <div className="space-y-2">
-            <label className="text-sm font-medium text-gray-700">Description</label>
+            <Label htmlFor="club-description">Description</Label>
             <textarea
+              id="club-description"
               value={settings.clubDescription}
               onChange={(e) => setSettings({ ...settings, clubDescription: e.target.value })}
               className="w-full min-h-[100px] px-3 py-2 border border-input rounded-md bg-background text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent"
@@ -265,24 +317,17 @@ export default function AdminSettings() {
           <CardDescription>Control event registration settings</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="flex items-center justify-between p-4 bg-amber-50 rounded-lg">
-            <div>
-              <p className="font-medium text-amber-900">Event Registration</p>
-              <p className="text-sm text-gray-500">Allow users to register for events</p>
-            </div>
-            <label className="relative inline-flex items-center cursor-pointer">
-              <input
-                type="checkbox"
-                checked={settings.registrationOpen}
-                onChange={(e) => setSettings({ ...settings, registrationOpen: e.target.checked })}
-                className="sr-only peer"
-              />
-              <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-amber-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-amber-500"></div>
-            </label>
-          </div>
+          <ToggleRow
+            id="registration-open"
+            label="Event Registration"
+            description="Allow users to register for events"
+            checked={settings.registrationOpen}
+            onCheckedChange={(checked) => setSettings({ ...settings, registrationOpen: checked })}
+          />
           <div className="space-y-2">
-            <label className="text-sm font-medium text-gray-700">Max Events Per User</label>
+            <Label htmlFor="max-events-per-user">Max Events Per User</Label>
             <Input
+              id="max-events-per-user"
               type="number"
               min="1"
               max="50"
@@ -321,34 +366,27 @@ export default function AdminSettings() {
           )}
 
           {/* Testing Mode Toggle */}
-          <div className="flex items-center justify-between p-4 bg-amber-50 rounded-lg">
-            <div>
-              <p className="font-medium text-amber-900">Testing Mode</p>
-              <p className="text-sm text-gray-500">Redirect all emails to test addresses instead of real users</p>
-            </div>
-            <label className="relative inline-flex items-center cursor-pointer">
-              <input
-                type="checkbox"
-                checked={settings.emailTestingMode ?? false}
-                onChange={(e) => handleToggle('emailTestingMode', e.target.checked)}
-                className="sr-only peer"
-              />
-              <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-amber-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-amber-500"></div>
-            </label>
-          </div>
+          <ToggleRow
+            id="email-testing-mode"
+            label="Testing Mode"
+            description="Redirect all emails to test addresses instead of real users"
+            checked={settings.emailTestingMode ?? false}
+            onCheckedChange={(checked) => void handleToggle('emailTestingMode', checked)}
+          />
 
           {/* Test Recipients Input */}
           {settings.emailTestingMode && (
             <div className="ml-4 border-l-2 border-amber-200 pl-4 space-y-2">
-              <label className="text-sm font-medium text-gray-700">Test Recipients</label>
+              <Label htmlFor="email-test-recipients">Test Recipients</Label>
               <Input
+                id="email-test-recipients"
                 value={settings.emailTestRecipients || ''}
                 onChange={(e) => setSettings({ ...settings, emailTestRecipients: e.target.value })}
                 onBlur={async () => {
                   if (!token) return;
                   try {
                     await api.patchSetting('emailTestRecipients', settings.emailTestRecipients || '', token);
-                  } catch (err) {
+                  } catch {
                     setError('Failed to save test recipients');
                   }
                 }}
@@ -359,21 +397,13 @@ export default function AdminSettings() {
           )}
 
           {/* Announcements Feature Toggle */}
-          <div className="flex items-center justify-between p-4 bg-amber-50 rounded-lg">
-            <div>
-              <p className="font-medium text-amber-900">Announcements</p>
-              <p className="text-sm text-gray-500">Enable announcement notifications</p>
-            </div>
-            <label className="relative inline-flex items-center cursor-pointer">
-              <input
-                type="checkbox"
-                checked={settings.announcementsEnabled}
-                onChange={(e) => setSettings({ ...settings, announcementsEnabled: e.target.checked })}
-                className="sr-only peer"
-              />
-              <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-amber-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-amber-500"></div>
-            </label>
-          </div>
+          <ToggleRow
+            id="announcements-enabled"
+            label="Announcements"
+            description="Enable announcement notifications"
+            checked={settings.announcementsEnabled}
+            onCheckedChange={(checked) => setSettings({ ...settings, announcementsEnabled: checked })}
+          />
 
           {/* Email Category Toggles */}
           <div className="space-y-1 pt-2">
@@ -387,21 +417,15 @@ export default function AdminSettings() {
               { key: 'emailReminderEnabled' as const, label: 'Event Reminders', desc: 'Automated reminders before events start' },
               { key: 'mailingEnabled' as const, label: 'Admin Bulk Mail', desc: 'Enable the admin email composer to send emails to users' },
             ].map(({ key, label, desc }) => (
-              <div key={key} className="flex items-center justify-between p-3 bg-white rounded-lg border border-amber-100">
-                <div>
-                  <p className="text-sm font-medium text-amber-900">{label}</p>
-                  <p className="text-xs text-gray-400">{desc}</p>
-                </div>
-                <label className="relative inline-flex items-center cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={settings[key] ?? true}
-                    onChange={(e) => handleToggle(key, e.target.checked)}
-                    className="sr-only peer"
-                  />
-                  <div className="w-9 h-5 bg-gray-200 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-amber-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-amber-500"></div>
-                </label>
-              </div>
+              <ToggleRow
+                key={key}
+                id={key}
+                label={label}
+                description={desc}
+                checked={settings[key] ?? true}
+                onCheckedChange={(checked) => void handleToggle(key, checked)}
+                compact
+              />
             ))}
           </div>
         </CardContent>
@@ -417,66 +441,34 @@ export default function AdminSettings() {
           <CardDescription>Show or hide features on user dashboard</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="flex items-center justify-between p-4 bg-amber-50 rounded-lg">
-            <div>
-              <p className="font-medium text-amber-900">Leaderboard</p>
-              <p className="text-sm text-gray-500">Show leaderboard on user dashboard</p>
-            </div>
-            <label className="relative inline-flex items-center cursor-pointer">
-              <input
-                type="checkbox"
-                checked={settings.showLeaderboard ?? false}
-                onChange={(e) => handleToggle('showLeaderboard', e.target.checked)}
-                className="sr-only peer"
-              />
-              <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-amber-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-amber-500"></div>
-            </label>
-          </div>
-          <div className="flex items-center justify-between p-4 bg-amber-50 rounded-lg">
-            <div>
-              <p className="font-medium text-amber-900">Question of the Day (QOTD)</p>
-              <p className="text-sm text-gray-500">Show QOTD widget on dashboard</p>
-            </div>
-            <label className="relative inline-flex items-center cursor-pointer">
-              <input
-                type="checkbox"
-                checked={settings.showQOTD ?? true}
-                onChange={(e) => handleToggle('showQOTD', e.target.checked)}
-                className="sr-only peer"
-              />
-              <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-amber-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-amber-500"></div>
-            </label>
-          </div>
-          <div className="flex items-center justify-between p-4 bg-amber-50 rounded-lg">
-            <div>
-              <p className="font-medium text-amber-900">Achievements Section</p>
-              <p className="text-sm text-gray-500">Show achievements on dashboard overview</p>
-            </div>
-            <label className="relative inline-flex items-center cursor-pointer">
-              <input
-                type="checkbox"
-                checked={settings.showAchievements ?? true}
-                onChange={(e) => handleToggle('showAchievements', e.target.checked)}
-                className="sr-only peer"
-              />
-              <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-amber-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-amber-500"></div>
-            </label>
-          </div>
-          <div className="flex items-center justify-between p-4 bg-amber-50 rounded-lg">
-            <div>
-              <p className="font-medium text-amber-900">Hiring/Recruitment</p>
-              <p className="text-sm text-gray-500">Allow users to apply for team positions</p>
-            </div>
-            <label className="relative inline-flex items-center cursor-pointer">
-              <input
-                type="checkbox"
-                checked={settings.hiringEnabled ?? true}
-                onChange={(e) => handleToggle('hiringEnabled', e.target.checked)}
-                className="sr-only peer"
-              />
-              <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-amber-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-amber-500"></div>
-            </label>
-          </div>
+          <ToggleRow
+            id="show-leaderboard"
+            label="Leaderboard"
+            description="Show leaderboard on user dashboard"
+            checked={settings.showLeaderboard ?? false}
+            onCheckedChange={(checked) => void handleToggle('showLeaderboard', checked)}
+          />
+          <ToggleRow
+            id="show-qotd"
+            label="Question of the Day (QOTD)"
+            description="Show QOTD widget on dashboard"
+            checked={settings.showQOTD ?? true}
+            onCheckedChange={(checked) => void handleToggle('showQOTD', checked)}
+          />
+          <ToggleRow
+            id="show-achievements"
+            label="Achievements Section"
+            description="Show achievements on dashboard overview"
+            checked={settings.showAchievements ?? true}
+            onCheckedChange={(checked) => void handleToggle('showAchievements', checked)}
+          />
+          <ToggleRow
+            id="hiring-enabled"
+            label="Hiring/Recruitment"
+            description="Allow users to apply for team positions"
+            checked={settings.hiringEnabled ?? true}
+            onCheckedChange={(checked) => void handleToggle('hiringEnabled', checked)}
+          />
           {/* Per-team hiring toggles */}
           {settings.hiringEnabled && (
             <div className="ml-4 mt-2 space-y-2 border-l-2 border-amber-200 pl-4">
@@ -488,72 +480,43 @@ export default function AdminSettings() {
                 { key: 'hiringSocialMedia' as const, label: 'Social Media', desc: 'Enable hiring for Social Media division' },
                 { key: 'hiringManagement' as const, label: 'Management', desc: 'Enable hiring for Management division' },
               ].map(({ key, label, desc }) => (
-                <div key={key} className="flex items-center justify-between p-3 bg-white rounded-lg border border-amber-100">
-                  <div>
-                    <p className="text-sm font-medium text-amber-900">{label}</p>
-                    <p className="text-xs text-gray-400">{desc}</p>
-                  </div>
-                  <label className="relative inline-flex items-center cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={settings[key] ?? true}
-                      onChange={(e) => handleToggle(key, e.target.checked)}
-                      className="sr-only peer"
-                    />
-                    <div className="w-9 h-5 bg-gray-200 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-amber-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-amber-500"></div>
-                  </label>
-                </div>
+                <ToggleRow
+                  key={key}
+                  id={key}
+                  label={label}
+                  description={desc}
+                  checked={settings[key] ?? true}
+                  onCheckedChange={(checked) => void handleToggle(key, checked)}
+                  compact
+                />
               ))}
             </div>
           )}
-          <div className="flex items-center justify-between p-4 bg-amber-50 rounded-lg">
-            <div>
-              <p className="font-medium text-amber-900">Network</p>
-              <p className="text-sm text-gray-500">Show industry network page and allow professionals to join</p>
-            </div>
-            <label className="relative inline-flex items-center cursor-pointer">
-              <input
-                type="checkbox"
-                checked={settings.showNetwork ?? true}
-                onChange={(e) => handleToggle('showNetwork', e.target.checked)}
-                className="sr-only peer"
-              />
-              <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-amber-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-amber-500"></div>
-            </label>
-          </div>
-          <div className="flex items-center justify-between p-4 bg-amber-50 rounded-lg">
-            <div>
-              <p className="font-medium text-amber-900">Certificate Generation</p>
-              <p className="text-sm text-gray-500">Allow admins to generate and issue certificates to participants</p>
-            </div>
-            <label className="relative inline-flex items-center cursor-pointer">
-              <input
-                type="checkbox"
-                checked={settings.certificatesEnabled ?? true}
-                onChange={(e) => handleToggle('certificatesEnabled', e.target.checked)}
-                className="sr-only peer"
-              />
-              <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-amber-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-amber-500"></div>
-            </label>
-          </div>
-          <div className="flex items-center justify-between p-4 bg-amber-50 rounded-lg">
-            <div>
-              <p className="font-medium text-amber-900">Code Playground</p>
-              <p className="text-sm text-gray-500">Show the Code Playground link and dashboard widgets for members</p>
-            </div>
-            <label className="relative inline-flex items-center cursor-pointer">
-              <input
-                type="checkbox"
-                checked={settings.playgroundEnabled ?? true}
-                onChange={(e) => handleToggle('playgroundEnabled', e.target.checked)}
-                className="sr-only peer"
-              />
-              <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-amber-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-amber-500"></div>
-            </label>
-          </div>
+          <ToggleRow
+            id="show-network"
+            label="Network"
+            description="Show industry network page and allow professionals to join"
+            checked={settings.showNetwork ?? true}
+            onCheckedChange={(checked) => void handleToggle('showNetwork', checked)}
+          />
+          <ToggleRow
+            id="certificates-enabled"
+            label="Certificate Generation"
+            description="Allow admins to generate and issue certificates to participants"
+            checked={settings.certificatesEnabled ?? true}
+            onCheckedChange={(checked) => void handleToggle('certificatesEnabled', checked)}
+          />
+          <ToggleRow
+            id="playground-enabled"
+            label="Code Playground"
+            description="Show the Code Playground link and dashboard widgets for members"
+            checked={settings.playgroundEnabled ?? true}
+            onCheckedChange={(checked) => void handleToggle('playgroundEnabled', checked)}
+          />
           <div className="space-y-2 p-4 bg-amber-50 rounded-lg">
-            <label className="text-sm font-medium text-gray-700">Playground Daily Execution Limit</label>
+            <Label htmlFor="playground-daily-limit">Playground Daily Execution Limit</Label>
             <Input
+              id="playground-daily-limit"
               type="number"
               min="1"
               max="10000"
@@ -582,16 +545,18 @@ export default function AdminSettings() {
         <CardContent className="space-y-4">
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-2">
-              <label className="text-sm font-medium text-gray-700">GitHub URL</label>
+              <Label htmlFor="github-url">GitHub URL</Label>
               <Input
+                id="github-url"
                 value={settings.githubUrl || ''}
                 onChange={(e) => setSettings({ ...settings, githubUrl: e.target.value })}
                 placeholder="https://github.com/your-org"
               />
             </div>
             <div className="space-y-2">
-              <label className="text-sm font-medium text-gray-700">LinkedIn URL</label>
+              <Label htmlFor="linkedin-url">LinkedIn URL</Label>
               <Input
+                id="linkedin-url"
                 value={settings.linkedinUrl || ''}
                 onChange={(e) => setSettings({ ...settings, linkedinUrl: e.target.value })}
                 placeholder="https://linkedin.com/company/your-org"
@@ -600,16 +565,18 @@ export default function AdminSettings() {
           </div>
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-2">
-              <label className="text-sm font-medium text-gray-700">Twitter URL</label>
+              <Label htmlFor="twitter-url">Twitter URL</Label>
               <Input
+                id="twitter-url"
                 value={settings.twitterUrl || ''}
                 onChange={(e) => setSettings({ ...settings, twitterUrl: e.target.value })}
                 placeholder="https://twitter.com/your-org"
               />
             </div>
             <div className="space-y-2">
-              <label className="text-sm font-medium text-gray-700">Instagram URL</label>
+              <Label htmlFor="instagram-url">Instagram URL</Label>
               <Input
+                id="instagram-url"
                 value={settings.instagramUrl || ''}
                 onChange={(e) => setSettings({ ...settings, instagramUrl: e.target.value })}
                 placeholder="https://instagram.com/your-org"
@@ -617,8 +584,9 @@ export default function AdminSettings() {
             </div>
           </div>
           <div className="space-y-2">
-            <label className="text-sm font-medium text-gray-700">Discord Invite URL</label>
+            <Label htmlFor="discord-url">Discord Invite URL</Label>
             <Input
+              id="discord-url"
               value={settings.discordUrl || ''}
               onChange={(e) => setSettings({ ...settings, discordUrl: e.target.value })}
               placeholder="https://discord.gg/invite-code"
@@ -643,8 +611,9 @@ export default function AdminSettings() {
         <CardContent className="space-y-6">
           {/* Email Footer Text */}
           <div className="space-y-2">
-            <label className="text-sm font-medium text-gray-700">Email Footer Text</label>
+            <Label htmlFor="email-footer-text">Email Footer Text</Label>
             <Input
+              id="email-footer-text"
               value={settings.emailFooterText || ''}
               onChange={(e) => setSettings({ ...settings, emailFooterText: e.target.value })}
               placeholder="Building the next generation of developers."
@@ -653,8 +622,12 @@ export default function AdminSettings() {
           </div>
           
           {/* Tab Navigation */}
-          <div className="flex gap-2 border-b border-gray-200">
+          <div className="flex gap-2 border-b border-gray-200" role="tablist" aria-label="Email templates">
             <button
+              type="button"
+              role="tab"
+              aria-selected={activeEmailTab === 'welcome'}
+              aria-controls="email-template-panel"
               onClick={() => setActiveEmailTab('welcome')}
               className={`px-4 py-2 text-sm font-medium transition-colors ${
                 activeEmailTab === 'welcome'
@@ -665,6 +638,10 @@ export default function AdminSettings() {
               Welcome Email
             </button>
             <button
+              type="button"
+              role="tab"
+              aria-selected={activeEmailTab === 'announcement'}
+              aria-controls="email-template-panel"
               onClick={() => setActiveEmailTab('announcement')}
               className={`px-4 py-2 text-sm font-medium transition-colors ${
                 activeEmailTab === 'announcement'
@@ -675,6 +652,10 @@ export default function AdminSettings() {
               Announcement
             </button>
             <button
+              type="button"
+              role="tab"
+              aria-selected={activeEmailTab === 'event'}
+              aria-controls="email-template-panel"
               onClick={() => setActiveEmailTab('event')}
               className={`px-4 py-2 text-sm font-medium transition-colors ${
                 activeEmailTab === 'event'
@@ -701,9 +682,9 @@ export default function AdminSettings() {
           
           {/* Welcome Email Template */}
           {activeEmailTab === 'welcome' && (
-            <div className="space-y-3">
+            <div id="email-template-panel" role="tabpanel" className="space-y-3">
               <div className="flex flex-col gap-2">
-                <label className="text-sm font-medium text-gray-700">Custom Welcome Message (Optional)</label>
+                <Label htmlFor="email-welcome-body">Custom Welcome Message (Optional)</Label>
                 <p className="text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded-md px-3 py-2">
                   💡 <strong>Note:</strong> This text will be added to the beginning of the premium welcome email (before the power-ups section). 
                   Leave empty to use only the default premium template shown in your screenshot.
@@ -721,6 +702,7 @@ export default function AdminSettings() {
                 </div>
               ) : (
                 <textarea
+                  id="email-welcome-body"
                   value={settings.emailWelcomeBody || ''}
                   onChange={(e) => setSettings({ ...settings, emailWelcomeBody: e.target.value })}
                   className="w-full min-h-[200px] px-3 py-2 border border-gray-300 rounded-md bg-white text-sm font-mono focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent"
@@ -742,9 +724,9 @@ Your journey with {{clubName}} starts now...
           
           {/* Announcement Email Template */}
           {activeEmailTab === 'announcement' && (
-            <div className="space-y-3">
+            <div id="email-template-panel" role="tabpanel" className="space-y-3">
               <div className="flex flex-col gap-2">
-                <label className="text-sm font-medium text-gray-700">Custom Announcement Intro (Optional)</label>
+                <Label htmlFor="email-announcement-body">Custom Announcement Intro (Optional)</Label>
                 <p className="text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded-md px-3 py-2">
                   💡 <strong>Note:</strong> This intro appears before the actual announcement content in emails.
                 </p>
@@ -757,6 +739,7 @@ Here's the latest update from **code.scriet**:`}</Markdown>
                 </div>
               ) : (
                 <textarea
+                  id="email-announcement-body"
                   value={settings.emailAnnouncementBody || ''}
                   onChange={(e) => setSettings({ ...settings, emailAnnouncementBody: e.target.value })}
                   className="w-full min-h-[150px] px-3 py-2 border border-gray-300 rounded-md bg-white text-sm font-mono focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent"
@@ -773,9 +756,9 @@ Here's the latest update from **code.scriet**:`}
           
           {/* Event Email Template */}
           {activeEmailTab === 'event' && (
-            <div className="space-y-3">
+            <div id="email-template-panel" role="tabpanel" className="space-y-3">
               <div className="flex flex-col gap-2">
-                <label className="text-sm font-medium text-gray-700">Custom Event Intro (Optional)</label>
+                <Label htmlFor="email-event-body">Custom Event Intro (Optional)</Label>
                 <p className="text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded-md px-3 py-2">
                   💡 <strong>Note:</strong> This intro appears before event details in notification emails.
                 </p>
@@ -788,6 +771,7 @@ We've got something exciting lined up for you:`}</Markdown>
                 </div>
               ) : (
                 <textarea
+                  id="email-event-body"
                   value={settings.emailEventBody || ''}
                   onChange={(e) => setSettings({ ...settings, emailEventBody: e.target.value })}
                   className="w-full min-h-[150px] px-3 py-2 border border-gray-300 rounded-md bg-white text-sm font-mono focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent"
@@ -978,7 +962,7 @@ We've got something exciting lined up for you:`}
       {/* Last Updated */}
       {settings.updatedAt && (
         <p className="text-xs text-gray-400 text-right">
-          Last updated: {new Date(settings.updatedAt).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })}
+          Last updated: {formatDateTime(settings.updatedAt)}
         </p>
       )}
     </div>
