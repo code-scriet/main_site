@@ -58,12 +58,16 @@ export default function QuizPage() {
 
   useEffect(() => {
     if (quizStatus === 'finished' && finaleState === 'hidden') {
-      setFinaleState('showing');
-      const timer = setTimeout(() => setFinaleState('shown'), 2000);
-      return () => clearTimeout(timer);
+      const showTimer = window.setTimeout(() => setFinaleState('showing'), 0);
+      const doneTimer = window.setTimeout(() => setFinaleState('shown'), 2000);
+      return () => {
+        window.clearTimeout(showTimer);
+        window.clearTimeout(doneTimer);
+      };
     }
     if (quizStatus !== 'finished' && finaleState !== 'hidden') {
-      setFinaleState('hidden');
+      const resetTimer = window.setTimeout(() => setFinaleState('hidden'), 0);
+      return () => window.clearTimeout(resetTimer);
     }
   }, [quizStatus, finaleState]);
 
@@ -74,9 +78,9 @@ export default function QuizPage() {
 
   useEffect(() => {
     if (!quizId) return;
-    setAccessChecking(true);
 
     const checkAccess = async () => {
+      setAccessChecking(true);
       let resolvedToken: string | null = null;
       let resolvedHost = false;
       const restoredPendingToken = restorePendingQuizJoin(quizId);
@@ -110,7 +114,7 @@ export default function QuizPage() {
       setAccessChecking(false);
     };
 
-    checkAccess();
+    void checkAccess();
   }, [quizId, user]);
 
   // Join quiz once socket connects and access is granted
@@ -389,7 +393,13 @@ export default function QuizPage() {
 
           {quizStatus === 'finished' && (
             <motion.div key="finished" exit={{ opacity: 0, y: -20 }}>
-              {finaleState === 'showing' && <QuizFinaleIntro title={title || 'Quiz'} totalQuestions={totalQuestions} />}
+              {finaleState === 'showing' && (
+                <QuizFinaleIntro
+                  title={title || 'Quiz'}
+                  totalQuestions={totalQuestions}
+                  onDismiss={() => setFinaleState('shown')}
+                />
+              )}
               {finaleState !== 'showing' && (
                 <FinalResults userId={user?.id ?? ''} quizId={quizId || ''} isHost={isHost} leaderboard={leaderboard} totalQuestions={totalQuestions} title={title || 'Quiz'} />
               )}

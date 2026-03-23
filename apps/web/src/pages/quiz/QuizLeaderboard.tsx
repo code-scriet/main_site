@@ -9,7 +9,7 @@
  */
 
 import { memo, useMemo } from 'react';
-import { motion } from 'framer-motion';
+import { motion, useReducedMotion } from 'framer-motion';
 import { cn } from '@/lib/utils';
 import { Card, CardContent } from '@/components/ui/card';
 import { Trophy, Zap } from 'lucide-react';
@@ -48,6 +48,7 @@ export const QuizLeaderboard = memo(function QuizLeaderboard({
   compact = false,
   totalQuestions,
 }: QuizLeaderboardProps) {
+  const shouldReduceMotion = useReducedMotion();
   const entries = compact ? leaderboard.slice(0, 5) : leaderboard;
 
   const tieGroups = new Map<number, string[]>();
@@ -67,6 +68,7 @@ export const QuizLeaderboard = memo(function QuizLeaderboard({
   );
 
   const showPodium = !compact && leaderboard.length >= 3;
+  const showConfetti = Boolean(meInTop3 && !compact && !shouldReduceMotion);
 
   // Podium animation delays: rank3 first (builds anticipation), then rank2, then rank1
   const podiumDelays = { 3: 0.5, 2: 0.8, 1: 1.1 };
@@ -74,7 +76,7 @@ export const QuizLeaderboard = memo(function QuizLeaderboard({
   return (
     <div className="w-full">
       {/* Confetti style injection */}
-      {meInTop3 && !compact && (
+      {showConfetti && (
         <style dangerouslySetInnerHTML={{ __html: confettiCSS }} />
       )}
 
@@ -82,8 +84,8 @@ export const QuizLeaderboard = memo(function QuizLeaderboard({
       {showPodium && (
         <div className="mb-8 relative">
           {/* Confetti particles */}
-          {meInTop3 && (
-            <div className="absolute inset-0 overflow-hidden pointer-events-none z-10" aria-hidden>
+          {showConfetti && (
+            <div className="absolute inset-0 overflow-hidden pointer-events-none z-10" aria-hidden="true">
               {Array.from({ length: 20 }).map((_, i) => (
                 <span
                   key={i}
@@ -117,8 +119,9 @@ export const QuizLeaderboard = memo(function QuizLeaderboard({
                   key={entry.userId}
                   initial={{ opacity: 0, y: 60 }}
                   animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay, type: 'spring', stiffness: 180, damping: 16 }}
+                  transition={shouldReduceMotion ? { duration: 0.2 } : { delay, type: 'spring', stiffness: 180, damping: 16 }}
                   className="flex flex-col items-center flex-1 max-w-[100px] sm:max-w-[150px]"
+                  aria-label={`Rank ${rank}: ${entry.displayName} with ${entry.score} points`}
                 >
                   {/* Crown for rank 1 */}
                   {rank === 1 && (
@@ -187,7 +190,7 @@ export const QuizLeaderboard = memo(function QuizLeaderboard({
           )}
 
           {/* Column headers */}
-          <div className="grid grid-cols-12 gap-2 px-4 py-1.5 text-[10px] sm:text-xs font-semibold text-amber-700/50 uppercase tracking-wider border-b border-amber-100">
+          <div className="grid grid-cols-12 gap-2 border-b border-amber-100 px-4 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-amber-700/50 sm:text-xs" role="row">
             <span className="col-span-1">#</span>
             <span className="col-span-3">Name</span>
             <span className="col-span-2 text-right">Score ↓</span>
@@ -197,7 +200,7 @@ export const QuizLeaderboard = memo(function QuizLeaderboard({
           </div>
 
           {/* Rows */}
-          <div className="divide-y divide-amber-50">
+          <div className="divide-y divide-amber-50" role="table" aria-label={compact ? 'Top quiz leaderboard' : 'Full quiz leaderboard'}>
             {entries.map((entry, idx) => {
               const isMe = entry.userId === myUserId;
               const avgSpeed = entry.correctCount > 0
@@ -212,7 +215,7 @@ export const QuizLeaderboard = memo(function QuizLeaderboard({
                   key={entry.userId}
                   initial={compact ? false : { opacity: 0, x: -10 }}
                   animate={{ opacity: 1, x: 0 }}
-                  transition={{ delay: compact ? 0 : 0.05 * idx }}
+                  transition={shouldReduceMotion ? { duration: 0.2 } : { delay: compact ? 0 : 0.05 * idx }}
                   className={cn(
                     'grid grid-cols-12 gap-2 px-4 py-2.5 text-sm transition-colors',
                     isMe
@@ -220,6 +223,7 @@ export const QuizLeaderboard = memo(function QuizLeaderboard({
                       : idx % 2 === 1 ? 'bg-amber-50/20' : '',
                     !isMe && 'hover:bg-amber-50/40',
                   )}
+                  role="row"
                 >
                   <span className="col-span-1 flex items-center font-bold text-amber-800 text-xs">
                     {entry.rank <= 3

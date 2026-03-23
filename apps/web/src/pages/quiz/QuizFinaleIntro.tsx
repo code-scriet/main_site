@@ -3,28 +3,49 @@
  * Features CSS confetti burst, scale animation, and quiz title.
  */
 
-import { memo } from 'react';
-import { motion } from 'framer-motion';
+import { memo, useEffect } from 'react';
+import { motion, useReducedMotion } from 'framer-motion';
 
 const CONFETTI_COLORS = ['#FFD700', '#f59e0b', '#fb923c', '#a855f7', '#3b82f6', '#ef4444', '#10b981', '#ec4899'];
 
 interface QuizFinaleIntroProps {
   title: string;
   totalQuestions: number;
+  onDismiss?: () => void;
 }
 
-export const QuizFinaleIntro = memo(function QuizFinaleIntro({ title, totalQuestions }: QuizFinaleIntroProps) {
+export const QuizFinaleIntro = memo(function QuizFinaleIntro({ title, totalQuestions, onDismiss }: QuizFinaleIntroProps) {
+  const shouldReduceMotion = useReducedMotion();
+
+  useEffect(() => {
+    if (!onDismiss) return;
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        onDismiss();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [onDismiss]);
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-gradient-to-br from-amber-900 via-orange-900 to-amber-950">
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-gradient-to-br from-amber-900 via-orange-900 to-amber-950"
+      role="status"
+      aria-live="polite"
+      onClick={onDismiss}
+    >
       {/* Confetti layer */}
-      <div className="absolute inset-0 overflow-hidden pointer-events-none" aria-hidden>
+      <div className="absolute inset-0 overflow-hidden pointer-events-none" aria-hidden="true">
         <style dangerouslySetInnerHTML={{ __html: `
           @keyframes finale-confetti {
             0% { transform: translateY(-20vh) rotate(0deg) scale(1); opacity: 1; }
             100% { transform: translateY(110vh) rotate(1080deg) scale(0.5); opacity: 0; }
           }
         ` }} />
-        {Array.from({ length: 30 }).map((_, i) => (
+        {!shouldReduceMotion && Array.from({ length: 30 }).map((_, i) => (
           <div
             key={i}
             className="absolute rounded-sm"
@@ -42,20 +63,20 @@ export const QuizFinaleIntro = memo(function QuizFinaleIntro({ title, totalQuest
       </div>
 
       {/* Center content */}
-      <div className="relative z-10 text-center px-6">
+      <div className="relative z-10 px-6 text-center" onClick={(event) => event.stopPropagation()}>
         <motion.div
-          initial={{ scale: 0.4, opacity: 0 }}
+          initial={shouldReduceMotion ? { opacity: 0 } : { scale: 0.4, opacity: 0 }}
           animate={{ scale: 1, opacity: 1 }}
-          transition={{ duration: 0.6, type: 'spring', stiffness: 150, damping: 12 }}
+          transition={shouldReduceMotion ? { duration: 0.2 } : { duration: 0.6, type: 'spring', stiffness: 150, damping: 12 }}
         >
           <p className="text-6xl sm:text-7xl mb-4">🏆</p>
           <h1 className="text-4xl sm:text-5xl md:text-6xl font-black text-white tracking-tight font-display mb-3">
             Quiz Complete!
           </h1>
           <motion.p
-            initial={{ opacity: 0, y: 10 }}
+            initial={shouldReduceMotion ? { opacity: 0 } : { opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.4, duration: 0.4 }}
+            transition={shouldReduceMotion ? { duration: 0.2 } : { delay: 0.4, duration: 0.4 }}
             className="text-lg sm:text-xl text-amber-200 font-medium max-w-md mx-auto"
           >
             {title}
@@ -63,7 +84,7 @@ export const QuizFinaleIntro = memo(function QuizFinaleIntro({ title, totalQuest
           <motion.p
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
-            transition={{ delay: 0.7 }}
+            transition={shouldReduceMotion ? { duration: 0.2 } : { delay: 0.7 }}
             className="text-sm text-amber-300/60 mt-2 tabular-nums"
           >
             {totalQuestions} questions completed

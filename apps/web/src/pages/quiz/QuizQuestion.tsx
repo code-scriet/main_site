@@ -44,11 +44,15 @@ export function QuizQuestion({ onSubmitAnswer }: QuizQuestionProps) {
 
   // Reset local inputs when question changes
   useEffect(() => {
-    setShortAnswer('');
-    setMultiSelectAnswers([]);
-    setOpenEndedAnswer('');
-    setRatingValue(0);
-    setHoverRating(0);
+    const resetTimer = window.setTimeout(() => {
+      setShortAnswer('');
+      setMultiSelectAnswers([]);
+      setOpenEndedAnswer('');
+      setRatingValue(0);
+      setHoverRating(0);
+    }, 0);
+
+    return () => window.clearTimeout(resetTimer);
   }, [currentQuestion?.questionIndex]);
 
   const handleSelect = useCallback(
@@ -219,6 +223,9 @@ export function QuizQuestion({ onSubmitAnswer }: QuizQuestionProps) {
       </Card>
 
       {/* Timer bar */}
+      <span role="status" aria-live="assertive" className="sr-only">
+        {isUrgent && !isExpired ? `${secondsLeft} seconds remaining` : ''}
+      </span>
       <QuizTimer progress={progress} secondsLeft={secondsLeft} isUrgent={isUrgent} isExpired={isExpired} />
 
       {/* Answer options */}

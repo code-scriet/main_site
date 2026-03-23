@@ -124,6 +124,7 @@ export const QuizAdminPanel = memo(function QuizAdminPanel({
                 <button
                   onClick={() => setShowPlayers(!showPlayers)}
                   className="p-1 rounded-md hover:bg-amber-50 text-amber-600 transition-colors"
+                  aria-label={showPlayers ? 'Hide player list' : 'Show player list'}
                 >
                   {showPlayers ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronUp className="h-3.5 w-3.5" />}
                 </button>
@@ -156,6 +157,7 @@ export const QuizAdminPanel = memo(function QuizAdminPanel({
                         size="sm"
                         onClick={() => onKickPlayer(p.userId)}
                         className="text-red-500 hover:text-red-700 hover:bg-red-50 h-6 px-2"
+                        aria-label={`Remove ${p.displayName} from the quiz`}
                       >
                         <UserX className="h-3 w-3" />
                       </Button>

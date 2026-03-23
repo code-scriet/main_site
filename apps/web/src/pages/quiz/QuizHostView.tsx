@@ -109,6 +109,8 @@ export function QuizHostView({
   const [pinCopied, setPinCopied] = useState(false);
   const [showQR, setShowQR] = useState(false);
   const [showParticipants, setShowParticipants] = useState(true);
+  const [velocityPoints, setVelocityPoints] = useState<{ t: number; count: number }[]>([]);
+  const [averageAccuracy, setAverageAccuracy] = useState(50);
   const prefersReducedMotion = useReducedMotion();
 
   const quizStatus = useQuizStore((s) => s.quizStatus);
@@ -125,7 +127,7 @@ export function QuizHostView({
 
   // ─── CP7: Velocity sparkline buffer ───
   const velocityBuffer = useRef<{ t: number; count: number }[]>([]);
-  const questionStartRef = useRef<number>(Date.now());
+  const questionStartRef = useRef<number>(0);
   const prevQuestionIdx = useRef<number>(-1);
 
   // Reset on new question
@@ -133,6 +135,7 @@ export function QuizHostView({
     const idx = currentQuestion?.questionIndex ?? -1;
     if (idx !== prevQuestionIdx.current) {
       velocityBuffer.current = [];
+      setVelocityPoints([]);
       questionStartRef.current = Date.now();
       prevQuestionIdx.current = idx;
     }
@@ -145,6 +148,7 @@ export function QuizHostView({
         t: Date.now() - questionStartRef.current,
         count: answeredCount,
       });
+      setVelocityPoints([...velocityBuffer.current]);
     }
   }, [answeredCount, quizStatus]);
 
@@ -169,6 +173,11 @@ export function QuizHostView({
         const idx = currentQuestion?.questionIndex ?? -1;
         if (accuracyHistory.current.length < idx + 1) {
           accuracyHistory.current.push(acc);
+          setAverageAccuracy(
+            Math.round(
+              accuracyHistory.current.reduce((sum, value) => sum + value, 0) / accuracyHistory.current.length,
+            ),
+          );
         }
       }
     }
@@ -599,18 +608,18 @@ export function QuizHostView({
             )}
 
             {/* CP7: Velocity sparkline */}
-            {quizStatus === 'question' && velocityBuffer.current.length >= 2 && (
+            {quizStatus === 'question' && velocityPoints.length >= 2 && (
               <Card className="border-amber-200/60 shadow-sm">
                 <CardContent className="p-4">
                   <p className="text-[10px] font-semibold text-amber-700/50 uppercase tracking-wide mb-2">Answer Velocity</p>
                   <svg width="100%" height={50} viewBox="0 0 200 50" preserveAspectRatio="none" style={{ overflow: 'visible' }}>
                     <polyline
                       points={(() => {
-                        const buf = velocityBuffer.current;
-                        if (buf.length < 2) return '';
-                        const maxT = Math.max(buf[buf.length - 1].t, 1);
-                        const maxC = Math.max(...buf.map(b => b.count), 1);
-                        return buf.map(b => `${(b.t / maxT) * 200},${50 - (b.count / maxC) * 50}`).join(' ');
+                        const maxT = Math.max(velocityPoints[velocityPoints.length - 1]?.t ?? 1, 1);
+                        const maxC = Math.max(...velocityPoints.map((point) => point.count), 1);
+                        return velocityPoints
+                          .map((point) => `${(point.t / maxT) * 200},${50 - (point.count / maxC) * 50}`)
+                          .join(' ');
                       })()}
                       fill="none"
                       stroke="#d97706"
@@ -637,18 +646,15 @@ export function QuizHostView({
                       ? 0
                       : total > 0 ? Math.round((correct / total) * 100) : 0;
                     const unanswered = participants.length - total;
-                    const runningMean = accuracyHistory.current.length > 0
-                      ? Math.round(accuracyHistory.current.reduce((a, b) => a + b, 0) / accuracyHistory.current.length)
-                      : 50;
                     const label = currentQuestion?.questionType === 'OPEN_ENDED'
                       ? 'Qualitative feedback collected'
-                      : accuracy > runningMean ? 'Easier than average' : 'Harder than average';
+                      : accuracy > averageAccuracy ? 'Easier than average' : 'Harder than average';
                     const labelColor = currentQuestion?.questionType === 'OPEN_ENDED'
                       ? 'text-emerald-600'
-                      : accuracy > runningMean ? 'text-green-600' : 'text-red-600';
+                      : accuracy > averageAccuracy ? 'text-green-600' : 'text-red-600';
 
                     return (
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-center">{/* responsive: stack on mobile */}
+                      <div className="grid grid-cols-1 gap-2 text-center sm:grid-cols-2">{/* responsive: stack on mobile */}
                         <div className="bg-amber-50 rounded-lg p-2">
                           <p className="text-lg font-black text-amber-900 tabular-nums">
                             {currentQuestion?.questionType === 'OPEN_ENDED' ? total : `${accuracy}%`}

@@ -7,6 +7,7 @@
 import { memo } from 'react';
 import { motion } from 'framer-motion';
 import { cn } from '@/lib/utils';
+import { Check } from 'lucide-react';
 
 interface QuizAnswerDistributionProps {
   distribution: Record<string, number>;
@@ -48,7 +49,7 @@ export const QuizAnswerDistribution = memo(function QuizAnswerDistribution({
         const isCorrect = questionType === 'MULTI_SELECT'
           ? correctAnswers.includes(entry.label)
           : !isPoll && entry.label === correctAnswer;
-        const barWidth = `${(entry.count / maxCount) * 100}%`;
+        const barWidth = `${maxCount > 0 ? (entry.count / maxCount) * 100 : 0}%`;
 
         return (
           <div key={entry.label} className="space-y-1">
@@ -58,7 +59,7 @@ export const QuizAnswerDistribution = memo(function QuizAnswerDistribution({
                 isCorrect ? 'text-green-700' : 'text-amber-800',
               )}>
                 {options ? `${letters[i] || ''}) ${entry.label}` : entry.label}
-                {isCorrect && ' ✓'}
+                {isCorrect && <Check className="ml-1 inline h-3 w-3" aria-hidden="true" />}
               </span>
               <span className="text-amber-700/50 tabular-nums font-medium">{entry.count} ({pct}%)</span>
             </div>

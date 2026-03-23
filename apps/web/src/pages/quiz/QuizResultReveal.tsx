@@ -27,7 +27,10 @@ import {
 function useCountUp(target: number, durationMs = 800): number {
   const [value, setValue] = useState(0);
   useEffect(() => {
-    if (target <= 0) { setValue(0); return; }
+    if (target <= 0) {
+      const resetTimer = window.setTimeout(() => setValue(0), 0);
+      return () => window.clearTimeout(resetTimer);
+    }
     const start = performance.now();
     let raf: number;
     const tick = (now: number) => {
@@ -107,10 +110,9 @@ function DistributionChart({ distribution, correctAnswer, options, questionType 
   questionType: string;
 }) {
   const isPoll = questionType === 'POLL' || questionType === 'RATING' || questionType === 'OPEN_ENDED';
-  const letters = ['A', 'B', 'C', 'D', 'E', 'F'];
-  const correctAnswers = questionType === 'MULTI_SELECT' ? parseAnswerList(correctAnswer) : [];
-
   const data = useMemo(() => {
+    const letters = ['A', 'B', 'C', 'D', 'E', 'F'];
+    const correctAnswers = questionType === 'MULTI_SELECT' ? parseAnswerList(correctAnswer) : [];
     const entries = options
       ? options.map((opt, i) => ({
           name: options.length <= 4 ? `${letters[i]}) ${opt}` : opt,
@@ -127,12 +129,15 @@ function DistributionChart({ distribution, correctAnswer, options, questionType 
             : !isPoll && label === correctAnswer,
         }));
     return entries;
-  }, [correctAnswer, correctAnswers, distribution, isPoll, options, questionType]);
+  }, [correctAnswer, distribution, isPoll, options, questionType]);
 
   const total = data.reduce((sum, d) => sum + d.count, 0) || 1;
 
   return (
     <div className="w-full">
+      <span className="sr-only" aria-live="polite">
+        Final score reveal updated.
+      </span>
       <h4 className="text-xs font-semibold text-amber-700/50 uppercase tracking-widest mb-3">
         Answer Distribution
       </h4>

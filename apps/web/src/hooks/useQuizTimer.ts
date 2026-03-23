@@ -13,8 +13,8 @@ export function useQuizTimer(questionStartTime: number | null, timeLimitSeconds:
 
   useEffect(() => {
     if (!questionStartTime || !timeLimitSeconds) {
-      setTimeLeftMs(0);
-      return;
+      const resetFrame = requestAnimationFrame(() => setTimeLeftMs(0));
+      return () => cancelAnimationFrame(resetFrame);
     }
 
     const endTime = questionStartTime + timeLimitSeconds * 1000;

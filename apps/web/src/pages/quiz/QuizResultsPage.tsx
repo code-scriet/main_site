@@ -343,10 +343,18 @@ export default function QuizResultsPage() {
           )}
 
           {/* Section tabs */}
-          <div className="flex items-center gap-1 bg-white/60 backdrop-blur-sm rounded-xl border border-amber-200/60 p-1">
+          <div
+            className="flex items-center gap-1 bg-white/60 backdrop-blur-sm rounded-xl border border-amber-200/60 p-1"
+            role="tablist"
+            aria-label="Quiz result sections"
+          >
             {tabs.map((t) => (
               <button
                 key={t.key}
+                type="button"
+                role="tab"
+                aria-selected={activeTab === t.key}
+                aria-controls={`quiz-results-panel-${t.key}`}
                 onClick={() => setActiveTab(t.key)}
                 className={cn(
                   'flex-1 flex items-center justify-center gap-2 px-3 py-2.5 text-sm font-semibold rounded-lg transition-all',
@@ -366,6 +374,8 @@ export default function QuizResultsPage() {
             {activeTab === 'overview' && (
               <motion.div
                 key="overview"
+                id="quiz-results-panel-overview"
+                role="tabpanel"
                 initial={{ opacity: 0, y: 12 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -12 }}
@@ -643,6 +653,8 @@ export default function QuizResultsPage() {
             {activeTab === 'questions' && (
               <motion.div
                 key="questions"
+                id="quiz-results-panel-questions"
+                role="tabpanel"
                 initial={{ opacity: 0, y: 12 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -12 }}
@@ -657,7 +669,10 @@ export default function QuizResultsPage() {
                   return (
                     <Card key={q.id} className="border-amber-200/60 shadow-sm overflow-hidden">
                       <button
+                        type="button"
                         onClick={() => setExpandedQ(isExpanded ? null : q.id)}
+                        aria-expanded={isExpanded}
+                        aria-controls={`question-details-${q.id}`}
                         className="w-full text-left p-4 flex items-start gap-3 hover:bg-amber-50/50 transition-colors"
                       >
                         {/* Question number */}
@@ -737,6 +752,7 @@ export default function QuizResultsPage() {
                       <AnimatePresence>
                         {isExpanded && (
                           <motion.div
+                            id={`question-details-${q.id}`}
                             initial={{ height: 0, opacity: 0 }}
                             animate={{ height: 'auto', opacity: 1 }}
                             exit={{ height: 0, opacity: 0 }}
@@ -927,6 +943,8 @@ export default function QuizResultsPage() {
             {activeTab === 'leaderboard' && (
               <motion.div
                 key="leaderboard"
+                id="quiz-results-panel-leaderboard"
+                role="tabpanel"
                 initial={{ opacity: 0, y: 12 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -12 }}
