@@ -9,6 +9,7 @@ import { Input } from '@/components/ui/input';
 import { Chrome, Github, Mail, AlertCircle, Loader2, Eye, EyeOff, Lock, User, ArrowLeft } from 'lucide-react';
 import { api } from '@/lib/api';
 import type { AuthProviders } from '@/lib/api';
+import { addPlaygroundAuthHandoff, isPlaygroundOrigin } from '@/lib/playgroundUrl';
 import { useAuth } from '@/context/AuthContext';
 import { useSettings } from '@/context/SettingsContext';
 
@@ -48,30 +49,10 @@ const getSafeNextUrl = (rawNext: string | null): string | null => {
   }
 };
 
-const getPlaygroundOrigins = (): Set<string> => {
-  const origins = new Set<string>();
-  const configured = (import.meta.env.VITE_PLAYGROUND_URL as string | undefined)?.trim();
-  if (configured) {
-    try {
-      origins.add(new URL(configured, window.location.origin).origin);
-    } catch {
-      // ignore invalid configured playground url
-    }
-  }
-  origins.add(import.meta.env.DEV ? 'http://localhost:5174' : 'https://code.codescriet.dev');
-  if (import.meta.env.DEV) {
-    origins.add('http://127.0.0.1:5174');
-  }
-  return origins;
-};
-
 const redirectToNext = (navigate: ReturnType<typeof useNavigate>, targetUrl: string) => {
   const parsed = new URL(targetUrl);
-  if (getPlaygroundOrigins().has(parsed.origin)) {
-    const token = localStorage.getItem('token');
-    if (token) {
-      parsed.hash = `token=${encodeURIComponent(token)}`;
-    }
+  if (isPlaygroundOrigin(parsed.origin)) {
+    addPlaygroundAuthHandoff(parsed);
   }
   if (parsed.origin === window.location.origin) {
     navigate(`${parsed.pathname}${parsed.search}${parsed.hash}`);

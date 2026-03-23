@@ -1,6 +1,6 @@
 import { createContext, useContext, useState, useEffect, useCallback, useMemo, type ReactNode } from 'react';
 import { endExecutionSession } from '@/utils/snippetsApi';
-import { getMainApiOrigin, getMainSiteOrigin } from '@/lib/utils';
+import { getMainApiCandidates, getMainSiteOrigin, rememberMainApiOrigin } from '@/lib/utils';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -32,13 +32,22 @@ const RETURN_PARAM_KEY = 'pg_return';
 // Helpers
 // ---------------------------------------------------------------------------
 
-const MAIN_SITE_API = getMainApiOrigin();
 const MAIN_SITE_URL = getMainSiteOrigin();
 
 type FetchUserResult = {
   user: PlaygroundUser | null;
   token?: string;
   authFailed?: boolean;
+};
+
+type AccessTokenPayload = {
+  id?: string;
+  userId?: string;
+  name?: string;
+  email?: string;
+  role?: string;
+  avatar?: string | null;
+  exp?: number;
 };
 
 /** Read a cookie value by name */
@@ -67,16 +76,56 @@ function consumeHashToken(): string | null {
     if (!hash) return null;
     const params = new URLSearchParams(hash.slice(1)); // strip leading '#'
     const token = params.get('token');
+    const apiOverride = params.get('api');
     if (token) {
       // Persist for the current browser session so refreshes still work
       sessionStorage.setItem('pg_token', token);
-      // Clean up URL so token doesn't stay visible
+    }
+    if (apiOverride) {
+      rememberMainApiOrigin(apiOverride);
+    }
+    if (token || apiOverride) {
+      // Clean up URL so auth handoff data doesn't stay visible
       window.history.replaceState(null, '', window.location.pathname + window.location.search);
     }
     return token;
   } catch {
     return null;
   }
+}
+
+function decodeJwtPayload(token: string): AccessTokenPayload | null {
+  try {
+    const [, payload = ''] = token.split('.');
+    if (!payload) return null;
+    const normalized = payload.replace(/-/g, '+').replace(/_/g, '/');
+    const decoded = atob(normalized);
+    const parsed = JSON.parse(decoded) as AccessTokenPayload;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function isExpiredToken(token: string): boolean {
+  const payload = decodeJwtPayload(token);
+  if (!payload || typeof payload.exp !== 'number') return false;
+  return payload.exp * 1000 <= Date.now();
+}
+
+function buildOptimisticUser(token: string): PlaygroundUser | null {
+  if (isExpiredToken(token)) return null;
+  const payload = decodeJwtPayload(token);
+  if (!payload) return null;
+  const id = payload.userId || payload.id;
+  if (!id || !payload.email || !payload.role) return null;
+  return {
+    id,
+    name: payload.name || payload.email.split('@')[0] || 'User',
+    email: payload.email,
+    role: payload.role,
+    avatar: payload.avatar ?? null,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -90,17 +139,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const fetchUser = useCallback(async (jwt?: string | null): Promise<FetchUserResult> => {
     try {
-      const requestMe = async (withJwt?: string | null) => {
+      const requestMe = async (apiOrigin: string, withJwt?: string | null) => {
         const headers: Record<string, string> = {};
         if (withJwt) {
           headers.Authorization = `Bearer ${withJwt}`;
         }
-        const res = await fetch(`${MAIN_SITE_API}/api/auth/me`, {
+        const res = await fetch(`${apiOrigin}/api/auth/me`, {
           headers,
           credentials: 'include',
         });
         if (!res.ok) {
-          return { ok: false as const, status: res.status };
+          return { ok: false as const, status: res.status, apiOrigin };
         }
         const data = await res.json();
         const user = data.data || data.user || null;
@@ -108,24 +157,38 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           ok: true as const,
           user: user || null,
           token: typeof data.token === 'string' ? data.token : undefined,
+          apiOrigin,
         };
       };
 
-      const primary = await requestMe(jwt);
-      if (primary.ok) {
-        return { user: primary.user, token: primary.token };
-      }
+      const candidates = getMainApiCandidates();
+      let sawUnauthorized = false;
+      for (const apiOrigin of candidates) {
+        const primary = await requestMe(apiOrigin, jwt);
+        if (primary.ok) {
+          rememberMainApiOrigin(primary.apiOrigin);
+          return { user: primary.user, token: primary.token };
+        }
 
-      // If bearer token is stale, retry once without Authorization so cookie auth can succeed.
-      if (jwt && primary.status === 401) {
-        const cookieFallback = await requestMe(null);
-        if (cookieFallback.ok) {
-          return { user: cookieFallback.user, token: cookieFallback.token };
+        // If bearer token is stale, retry once without Authorization so cookie auth can succeed.
+        if (jwt && primary.status === 401) {
+          const cookieFallback = await requestMe(apiOrigin, null);
+          if (cookieFallback.ok) {
+            rememberMainApiOrigin(cookieFallback.apiOrigin);
+            return { user: cookieFallback.user, token: cookieFallback.token };
+          }
+          if (cookieFallback.status === 401) {
+            sawUnauthorized = true;
+          }
+          continue;
+        }
+
+        if (primary.status === 401) {
+          sawUnauthorized = true;
         }
       }
 
-      // Treat 401 as invalid auth; all other failures can be transient/network.
-      return { user: null, authFailed: primary.status === 401 };
+      return { user: null, authFailed: sawUnauthorized };
     } catch {
       // Network/CORS/server issues should not wipe a valid local session cookie.
       return { user: null, authFailed: false };
@@ -145,6 +208,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const storageToken = localStorage.getItem('token');
 
       const jwt = hashToken || sessionToken || cookieToken || storageToken;
+      const optimisticUser = hashToken ? buildOptimisticUser(hashToken) : null;
+      if (optimisticUser && hashToken) {
+        setUser(optimisticUser);
+        setToken(hashToken);
+        sessionStorage.setItem('pg_token', hashToken);
+        markAuthRecovered();
+        setIsLoading(false);
+      }
 
       const result = await fetchUser(jwt);
       if (result.user) {
@@ -160,6 +231,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         clearCookie('scriet_session');
         localStorage.removeItem('token');
         sessionStorage.removeItem('pg_token');
+        setUser(null);
+        setToken(null);
+      } else if (!optimisticUser) {
+        setUser(null);
+        setToken(null);
       }
       setIsLoading(false);
     };
