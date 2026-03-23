@@ -100,10 +100,13 @@ export function TeamHighlight() {
                     <div className="absolute inset-0 bg-gradient-to-br from-amber-400 to-orange-500 rounded-full p-[3px]">
                       <div className="w-full h-full bg-white rounded-full overflow-hidden">
                         <img
-                          src={member.imageUrl || `https://api.dicebear.com/7.x/avataaars/svg?seed=${member.name}`}
+                          src={member.imageUrl || '/fallback-avatar.svg'}
                           alt={member.name}
                           loading="lazy"
                           className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"
+                          onError={(event) => {
+                            event.currentTarget.src = '/fallback-avatar.svg';
+                          }}
                         />
                       </div>
                     </div>

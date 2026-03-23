@@ -190,13 +190,14 @@ export function NetworkHighlight() {
                           <img
                             src={
                               profile.profilePhoto ||
-                              `https://api.dicebear.com/7.x/initials/svg?seed=${profile.fullName}&backgroundColor=${
-                                isAlumni ? 'fbbf24' : 'fbbf24'
-                              }&fontSize=36&textColor=ffffff`
+                              '/fallback-avatar.svg'
                             }
                             alt={profile.fullName}
                             loading="lazy"
                             className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-110"
+                            onError={(event) => {
+                              event.currentTarget.src = '/fallback-avatar.svg';
+                            }}
                           />
                         </div>
                         {isAlumni && profile.passoutYear && (

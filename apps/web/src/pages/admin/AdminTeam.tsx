@@ -156,7 +156,7 @@ export default function AdminTeam() {
     }
 
     // Generate avatar URL if not provided
-    const imageUrl = form.imageUrl.trim() || `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(form.name)}`;
+    const imageUrl = form.imageUrl.trim();
 
     try {
       setSaving(true);
@@ -166,7 +166,7 @@ export default function AdminTeam() {
         name: form.name.trim(),
         role: form.role.trim(),
         team: form.team,
-        imageUrl,
+        imageUrl: imageUrl || undefined,
         linkedin: form.linkedin.trim(),
         github: form.github.trim(),
         twitter: form.twitter.trim(),
@@ -482,9 +482,12 @@ export default function AdminTeam() {
                   <div className="flex items-center gap-3 p-3 rounded-lg bg-white border border-amber-200">
                     <div className="h-8 w-8 rounded-full overflow-hidden bg-amber-200 flex-shrink-0">
                       <img
-                        src={linkedUserInfo?.avatar || `https://api.dicebear.com/7.x/initials/svg?seed=${linkedUserInfo?.name || 'U'}`}
+                        src={linkedUserInfo?.avatar || '/fallback-avatar.svg'}
                         alt={linkedUserInfo?.name || 'Linked User'}
                         className="w-full h-full object-cover"
+                        onError={(event) => {
+                          event.currentTarget.src = '/fallback-avatar.svg';
+                        }}
                       />
                     </div>
                     <div className="flex-1 min-w-0">
@@ -565,9 +568,12 @@ export default function AdminTeam() {
                           >
                             <div className="h-8 w-8 rounded-full overflow-hidden bg-amber-200 flex-shrink-0">
                               <img
-                                src={user.avatar || `https://api.dicebear.com/7.x/initials/svg?seed=${user.name}`}
+                                src={user.avatar || '/fallback-avatar.svg'}
                                 alt={user.name}
                                 className="w-full h-full object-cover"
+                                onError={(event) => {
+                                  event.currentTarget.src = '/fallback-avatar.svg';
+                                }}
                               />
                             </div>
                             <div className="flex-1 min-w-0">
@@ -699,9 +705,12 @@ export default function AdminTeam() {
                     <div className="flex items-center gap-3">
                       <div className="h-12 w-12 rounded-full overflow-hidden bg-amber-200 flex-shrink-0 relative">
                         <img 
-                          src={member.imageUrl || `https://api.dicebear.com/7.x/avataaars/svg?seed=${member.name}`} 
+                          src={member.imageUrl || '/fallback-avatar.svg'} 
                           alt={member.name} 
                           className="w-full h-full object-cover" 
+                          onError={(event) => {
+                            event.currentTarget.src = '/fallback-avatar.svg';
+                          }}
                         />
                         {member.userId && (
                           <div className="absolute -bottom-0.5 -right-0.5 h-4 w-4 rounded-full bg-green-500 border-2 border-white flex items-center justify-center">

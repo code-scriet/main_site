@@ -145,9 +145,8 @@ const profileSocialLinks = (profile: NetworkProfile): SocialLink[] =>
 
 const profileUrlFor = (profile: NetworkProfile) => `/network/${profile.slug || profile.id}`;
 
-const profilePhotoFor = (profile: NetworkProfile, color = 'f3f4f6') =>
-  profile.profilePhoto ||
-  `https://api.dicebear.com/7.x/initials/svg?seed=${profile.fullName}&backgroundColor=${color}`;
+const profilePhotoFor = (profile: NetworkProfile, _color = 'f3f4f6') =>
+  profile.profilePhoto || '/fallback-avatar.svg';
 
 export default function NetworkPage() {
   const { settings, loading: settingsLoading } = useSettings();
@@ -981,6 +980,9 @@ function FeaturedCard({
                   src={profilePhotoFor(profile, '475569')}
                   alt={profile.fullName}
                   className="w-full h-full object-cover rounded-full transition-transform duration-500 group-hover:scale-110"
+                  onError={(event) => {
+                    event.currentTarget.src = '/fallback-avatar.svg';
+                  }}
                 />
               </div>
             </motion.div>
@@ -1157,6 +1159,9 @@ function MemberCard({
                   src={profilePhotoFor(profile, '475569')}
                   alt={profile.fullName}
                   className="w-full h-full object-cover rounded-full transition-transform duration-500 group-hover:scale-110"
+                  onError={(event) => {
+                    event.currentTarget.src = '/fallback-avatar.svg';
+                  }}
                 />
               </div>
             </motion.div>

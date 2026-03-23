@@ -88,8 +88,7 @@ const buildHeroParticles = (count: number): HeroParticle[] =>
   });
 
 const profilePhotoFor = (member: TeamMemberProfile) =>
-  member.imageUrl ||
-  `https://api.dicebear.com/7.x/initials/svg?seed=${member.name}&backgroundColor=f59e0b&fontSize=36`;
+  member.imageUrl || '/fallback-avatar.svg';
 
 export default function TeamMemberProfilePage() {
   const { slug } = useParams<{ slug: string }>();
@@ -372,6 +371,9 @@ export default function TeamMemberProfilePage() {
                     src={profilePhotoFor(member)}
                     alt={member.name}
                     className="h-full w-full object-cover bg-amber-800"
+                    onError={(event) => {
+                      event.currentTarget.src = '/fallback-avatar.svg';
+                    }}
                   />
                 </div>
               </div>

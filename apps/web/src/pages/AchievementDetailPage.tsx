@@ -250,8 +250,8 @@ function CinematicGallery({ images }: { images: string[] }) {
               alt={`Gallery ${index + 1}`}
               className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
               onLoad={() => handleImageLoad(index)}
-              onError={(e) => {
-                (e.target as HTMLImageElement).src = 'https://via.placeholder.com/400?text=Image';
+              onError={(event) => {
+                event.currentTarget.src = '/fallback-image.svg';
                 handleImageLoad(index);
               }}
             />

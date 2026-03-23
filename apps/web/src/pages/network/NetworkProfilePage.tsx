@@ -76,9 +76,8 @@ const getEventIcon = (eventType?: string) => {
   return Users2;
 };
 
-const profilePhotoFor = (profile: NetworkProfile, color = 'f3f4f6') =>
-  profile.profilePhoto ||
-  `https://api.dicebear.com/7.x/initials/svg?seed=${profile.fullName}&backgroundColor=${color}&fontSize=36`;
+const profilePhotoFor = (profile: NetworkProfile, _color = 'f3f4f6') =>
+  profile.profilePhoto || '/fallback-avatar.svg';
 
 const fallbackContributionCopy = (isAlumni: boolean) =>
   isAlumni
@@ -421,6 +420,9 @@ export default function NetworkProfilePage() {
                     src={profilePhotoFor(profile, profileTheme.avatarColor)}
                     alt={profile.fullName}
                     className="h-full w-full object-cover bg-slate-800"
+                    onError={(event) => {
+                      event.currentTarget.src = '/fallback-avatar.svg';
+                    }}
                   />
                 </div>
                 {profile.isFeatured && (

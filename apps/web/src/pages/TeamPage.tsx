@@ -430,10 +430,13 @@ function MemberCard({
             >
               <div className="w-full h-full rounded-full bg-white p-0.5">
                 <img
-                  src={member.imageUrl || `https://api.dicebear.com/7.x/avataaars/svg?seed=${member.name}`}
+                  src={member.imageUrl || '/fallback-avatar.svg'}
                   alt={member.name}
                   loading="lazy"
                   className="w-full h-full object-cover rounded-full transition-transform duration-500 group-hover:scale-110"
+                  onError={(event) => {
+                    event.currentTarget.src = '/fallback-avatar.svg';
+                  }}
                 />
               </div>
             </motion.div>

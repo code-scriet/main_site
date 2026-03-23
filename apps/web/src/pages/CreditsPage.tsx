@@ -376,9 +376,7 @@ function CreditCard({
 
   const avatarSrc =
     member?.imageUrl ||
-    (member
-      ? `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(member.name)}&backgroundColor=f59e0b&fontSize=36`
-      : null);
+    (member ? '/fallback-avatar.svg' : null);
 
   return (
     <motion.div
@@ -399,6 +397,9 @@ function CreditCard({
               src={avatarSrc}
               alt={member!.name}
               className={`h-14 w-14 rounded-xl border-2 border-white object-cover shadow-sm ring-2 ${style.ring} transition-transform duration-200 group-hover:scale-105`}
+              onError={(event) => {
+                event.currentTarget.src = '/fallback-avatar.svg';
+              }}
             />
           </Link>
         ) : (

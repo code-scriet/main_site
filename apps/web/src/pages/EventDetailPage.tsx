@@ -157,9 +157,8 @@ function ImageGallery({ images }: { images: string[] }) {
               src={thumb}
               alt={`Event image ${index + 1}`}
               className="w-full h-full object-cover"
-              onError={(e) => {
-                // Fallback for broken images
-                (e.target as HTMLImageElement).src = 'https://via.placeholder.com/400?text=Image+Not+Found';
+              onError={(event) => {
+                event.currentTarget.src = '/fallback-image.svg';
               }}
             />
           </motion.div>

@@ -317,9 +317,12 @@ export default function AdminCredits() {
                 <div className="flex items-center gap-4 min-w-0">
                   {credit.teamMember ? (
                     <img
-                      src={credit.teamMember.imageUrl || `https://api.dicebear.com/7.x/initials/svg?seed=${credit.teamMember.name}`}
+                      src={credit.teamMember.imageUrl || '/fallback-avatar.svg'}
                       alt={credit.teamMember.name}
                       className="h-10 w-10 rounded-full object-cover border"
+                      onError={(event) => {
+                        event.currentTarget.src = '/fallback-avatar.svg';
+                      }}
                     />
                   ) : (
                     <div className="flex h-10 w-10 items-center justify-center rounded-full bg-amber-100">

@@ -602,10 +602,13 @@ export default function AdminNetwork() {
                             <img
                               src={
                                 profile.profilePhoto ||
-                                `https://api.dicebear.com/7.x/initials/svg?seed=${profile.fullName}&backgroundColor=fbbf24`
+                                '/fallback-avatar.svg'
                               }
                               alt={profile.fullName}
                               className="w-full h-full object-cover"
+                              onError={(event) => {
+                                event.currentTarget.src = '/fallback-avatar.svg';
+                              }}
                             />
                           </div>
 
@@ -697,10 +700,13 @@ export default function AdminNetwork() {
                       <img
                         src={
                           viewProfile.profilePhoto ||
-                          `https://api.dicebear.com/7.x/initials/svg?seed=${viewProfile.fullName}&backgroundColor=fbbf24`
+                          '/fallback-avatar.svg'
                         }
                         alt={viewProfile.fullName}
                         className="w-full h-full object-cover"
+                        onError={(event) => {
+                          event.currentTarget.src = '/fallback-avatar.svg';
+                        }}
                       />
                     </div>
                     <div>
