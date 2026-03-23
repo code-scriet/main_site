@@ -69,20 +69,21 @@ export default function EventAdminHub() {
     if (!eventId) return;
 
     let cancelled = false;
-    setLoading(true);
-    setError(null);
+    const loadEvent = async () => {
+      setLoading(true);
+      setError(null);
 
-    api
-      .getEvent(eventId)
-      .then((data) => {
+      try {
+        const data = await api.getEvent(eventId);
         if (!cancelled) setEvent(data);
-      })
-      .catch(() => {
+      } catch {
         if (!cancelled) setError('Event not found or failed to load.');
-      })
-      .finally(() => {
+      } finally {
         if (!cancelled) setLoading(false);
-      });
+      }
+    };
+
+    void loadEvent();
 
     return () => {
       cancelled = true;

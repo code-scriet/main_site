@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { motion } from 'framer-motion';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -73,11 +73,7 @@ export default function AdminEventRegistrations() {
     | null
   >(null);
 
-  useEffect(() => {
-    loadEvents();
-  }, [token]);
-
-  const loadEvents = async () => {
+  const loadEvents = useCallback(async () => {
     if (!token) {
       setError('Authentication required');
       setLoading(false);
@@ -113,7 +109,11 @@ export default function AdminEventRegistrations() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [token]);
+
+  useEffect(() => {
+    void loadEvents();
+  }, [loadEvents]);
 
   const filteredEvents = events.filter(event =>
     event.title.toLowerCase().includes(searchQuery.toLowerCase()) ||

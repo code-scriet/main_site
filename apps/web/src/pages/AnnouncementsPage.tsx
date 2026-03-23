@@ -238,7 +238,7 @@ export default function AnnouncementsPage() {
                       </CardHeader>
                       <CardContent>
                         <p className="text-gray-600 text-sm leading-relaxed line-clamp-3">
-                          {displayText.replace(/[#*_`~\[\]]/g, '').slice(0, 150)}
+                          {displayText.replace(/[#*_`~[\]]/g, '').slice(0, 150)}
                           {displayText.length > 150 ? '...' : ''}
                         </p>
                         

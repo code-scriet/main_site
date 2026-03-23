@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { motion } from 'framer-motion';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -27,6 +27,14 @@ interface UserSearchResult {
   avatar?: string;
 }
 
+type LinkedUserInfo = UserSearchResult & {
+  bio?: string;
+  githubUrl?: string;
+  linkedinUrl?: string;
+  twitterUrl?: string;
+  websiteUrl?: string;
+};
+
 export default function AdminTeam() {
   const { token } = useAuth();
   const [members, setMembers] = useState<TeamMember[]>([]);
@@ -40,7 +48,7 @@ export default function AdminTeam() {
   const [userSearchResults, setUserSearchResults] = useState<UserSearchResult[]>([]);
   const [searchingUsers, setSearchingUsers] = useState(false);
   const [linkingUserId, setLinkingUserId] = useState<string | null>(null);
-  const [linkedUserInfo, setLinkedUserInfo] = useState<UserSearchResult | null>(null);
+  const [linkedUserInfo, setLinkedUserInfo] = useState<LinkedUserInfo | null>(null);
   const [memberToDelete, setMemberToDelete] = useState<TeamMember | null>(null);
   const [unlinkTarget, setUnlinkTarget] = useState<{ memberId: string; userName: string } | null>(null);
   const [form, setForm] = useState({
@@ -62,11 +70,7 @@ export default function AdminTeam() {
     achievements: '',
     website: '',
   });
-  useEffect(() => {
-    loadTeam();
-  }, []);
-
-  const loadTeam = async () => {
+  const loadTeam = useCallback(async () => {
     try {
       setLoading(true);
       const data = await api.getTeam();
@@ -76,7 +80,11 @@ export default function AdminTeam() {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    void loadTeam();
+  }, [loadTeam]);
 
   const resetForm = () => {
     setForm({
@@ -131,8 +139,8 @@ export default function AdminTeam() {
     setShowForm(true);
     setLinkingUserId(member.userId || null);
     // Store user info if linked (will show name/email in the UI)
-    if (member.userId && (member as any).user) {
-      setLinkedUserInfo((member as any).user);
+    if (member.userId && member.user) {
+      setLinkedUserInfo(member.user);
     } else if (member.userId) {
       setLinkedUserInfo({ id: member.userId, name: 'Linked User', email: '' });
     } else {
@@ -216,7 +224,7 @@ export default function AdminTeam() {
   };
 
   // Search users for linking
-  const searchUsers = async (query: string) => {
+  const searchUsers = useCallback(async (query: string) => {
     if (!token || query.length < 2) {
       setUserSearchResults([]);
       return;
@@ -230,27 +238,19 @@ export default function AdminTeam() {
     } finally {
       setSearchingUsers(false);
     }
-  };
+  }, [token]);
 
   const clearLinkedUserState = () => {
     if (linkedUserInfo) {
-      const userInfo = linkedUserInfo as UserSearchResult & {
-        linkedinUrl?: string;
-        githubUrl?: string;
-        twitterUrl?: string;
-        bio?: string;
-        websiteUrl?: string;
-      };
-
       setForm((prev) => ({
         ...prev,
-        name: prev.name === userInfo.name ? '' : prev.name,
-        imageUrl: prev.imageUrl === (userInfo.avatar || '') ? '' : prev.imageUrl,
-        linkedin: prev.linkedin === (userInfo.linkedinUrl || '') ? '' : prev.linkedin,
-        github: prev.github === (userInfo.githubUrl || '') ? '' : prev.github,
-        twitter: prev.twitter === (userInfo.twitterUrl || '') ? '' : prev.twitter,
-        bio: prev.bio === (userInfo.bio || '') ? '' : prev.bio,
-        website: prev.website === (userInfo.websiteUrl || '') ? '' : prev.website,
+        name: prev.name === linkedUserInfo.name ? '' : prev.name,
+        imageUrl: prev.imageUrl === (linkedUserInfo.avatar || '') ? '' : prev.imageUrl,
+        linkedin: prev.linkedin === (linkedUserInfo.linkedinUrl || '') ? '' : prev.linkedin,
+        github: prev.github === (linkedUserInfo.githubUrl || '') ? '' : prev.github,
+        twitter: prev.twitter === (linkedUserInfo.twitterUrl || '') ? '' : prev.twitter,
+        bio: prev.bio === (linkedUserInfo.bio || '') ? '' : prev.bio,
+        website: prev.website === (linkedUserInfo.websiteUrl || '') ? '' : prev.website,
       }));
     }
 
@@ -262,13 +262,13 @@ export default function AdminTeam() {
   useEffect(() => {
     const timer = setTimeout(() => {
       if (userSearchQuery.length >= 2) {
-        searchUsers(userSearchQuery);
+        void searchUsers(userSearchQuery);
       } else {
         setUserSearchResults([]);
       }
     }, 300);
     return () => clearTimeout(timer);
-  }, [userSearchQuery, token]);
+  }, [searchUsers, userSearchQuery]);
 
   // Link team member to user
   const handleLinkUser = async (memberId: string, userId: string) => {
@@ -288,7 +288,7 @@ export default function AdminTeam() {
         }
         
         try {
-          const fullUser = await api.getUser(userId, token) as any;
+          const fullUser = await api.getUser(userId, token);
           setForm(prev => ({
             ...prev,
             name: prev.name.trim() === '' ? fullUser.name : prev.name,
@@ -548,7 +548,7 @@ export default function AdminTeam() {
                                 
                                 try {
                                   if (!token) return;
-                                  const fullUser = await api.getUser(user.id, token) as any;
+                                  const fullUser = await api.getUser(user.id, token);
                                   setForm(prev => ({
                                     ...prev,
                                     name: prev.name.trim() === '' ? fullUser.name : prev.name,
@@ -559,7 +559,7 @@ export default function AdminTeam() {
                                     bio: prev.bio.trim() === '' ? (fullUser.bio || '') : prev.bio,
                                     website: prev.website.trim() === '' ? (fullUser.websiteUrl || '') : prev.website,
                                   }));
-                                } catch (err) {
+                                } catch {
                                   setError('Failed to fetch linked user details');
                                 }
                               }

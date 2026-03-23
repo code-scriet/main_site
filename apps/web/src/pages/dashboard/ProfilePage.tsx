@@ -99,15 +99,16 @@ export default function ProfilePage() {
 
   const [pendingEventId, setPendingEventId] = useState<string | null>(null);
   const [pendingEventType, setPendingEventType] = useState<'solo' | 'team'>('solo');
+  const navigationPendingEventId =
+    (location.state as { pendingEventId?: string } | null)?.pendingEventId ?? null;
 
   useEffect(() => {
     // Check for pending event registration on mount (storage OR navigation state)
     // Read once and store in state — avoid re-reading localStorage later
-    const statePendingId = location.state?.pendingEventId;
     const storagePendingId = localStorage.getItem('pendingEventRegistration');
     const storagePendingType = localStorage.getItem('pendingEventRegistrationType');
 
-    const pendingId = statePendingId || storagePendingId;
+    const pendingId = navigationPendingEventId || storagePendingId;
 
     if (pendingId) {
       // Ensure it's in localStorage for persistence if page refreshed
@@ -134,14 +135,14 @@ export default function ProfilePage() {
         setLinkedinUrl(data.linkedinUrl || '');
         setTwitterUrl(data.twitterUrl || '');
         setWebsiteUrl(data.websiteUrl || '');
-      } catch (error) {
+      } catch {
         setMessage({ type: 'error', text: 'Failed to load profile' });
       } finally {
         setLoading(false);
       }
     };
     fetchProfile();
-  }, [token]);
+  }, [navigationPendingEventId, token]);
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { motion } from 'framer-motion';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -150,11 +150,7 @@ export default function AdminHiring() {
   const [applicationToDelete, setApplicationToDelete] = useState<HiringApplication | null>(null);
   const [downloading, setDownloading] = useState(false);
 
-  useEffect(() => {
-    loadData();
-  }, [statusFilter, roleFilter]);
-
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     if (!token) {
       setError('Authentication required');
       setLoading(false);
@@ -192,7 +188,11 @@ export default function AdminHiring() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [roleFilter, statusFilter, token]);
+
+  useEffect(() => {
+    void loadData();
+  }, [loadData]);
 
   const handleStatusUpdate = async (applicationId: string, newStatus: string) => {
     if (!token) return;

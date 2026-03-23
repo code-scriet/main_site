@@ -138,7 +138,7 @@ export function EventSchema({
 
   // Use current time if dates not provided
   const start = startDate || new Date().toISOString();
-  const end = endDate || new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString();
+  const end = endDate || new Date(new Date(start).getTime() + 2 * 60 * 60 * 1000).toISOString();
 
   const schema = {
     '@context': 'https://schema.org',

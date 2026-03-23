@@ -53,13 +53,20 @@ interface ScanToast {
   message: string;
 }
 
+type AudioContextConstructor = typeof AudioContext;
+
 // ---------------------------------------------------------------------------
 // Audio helper
 // ---------------------------------------------------------------------------
 
 function playTone(frequency: number, duration: number) {
   try {
-    const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
+    const AudioContextCtor: AudioContextConstructor | undefined =
+      window.AudioContext ||
+      (window as Window & { webkitAudioContext?: AudioContextConstructor }).webkitAudioContext;
+    if (!AudioContextCtor) return;
+
+    const ctx = new AudioContextCtor();
     const osc = ctx.createOscillator();
     const gain = ctx.createGain();
     osc.connect(gain);
@@ -338,7 +345,7 @@ export default function AdminScanner({ eventId, token, onEndSession }: AdminScan
       startRetryRef.current = 0;
       setCameraRunning(true);
       setCameraReady(true);
-    } catch (err: any) {
+    } catch (err: unknown) {
       // html5-qrcode can reject its start() promise even when the camera feed IS
       // running (e.g. OverconstrainedError fallback on some mobile browsers).
       // The library may set isScanning asynchronously after the fallback succeeds,
@@ -367,10 +374,11 @@ export default function AdminScanner({ eventId, token, onEndSession }: AdminScan
         setCameraError(null);
         return;
       }
+      const errorMessage = err instanceof Error ? err.message : '';
       const msg =
-        err?.message?.includes('NotAllowedError') || err?.message?.includes('Permission')
+        errorMessage.includes('NotAllowedError') || errorMessage.includes('Permission')
           ? 'Camera permission denied. Please allow camera access in your browser settings and reload.'
-          : err?.message ?? 'Failed to start camera';
+          : errorMessage || 'Failed to start camera';
       setCameraError(msg);
       setCameraReady(false);
       forceReleaseCameraTracks();
@@ -380,7 +388,7 @@ export default function AdminScanner({ eventId, token, onEndSession }: AdminScan
       }
       startingRef.current = false;
     }
-  }, [cameraRunning, handleScan, forceReleaseCameraTracks]);
+  }, [cameraRunning, ensureCameraPermission, handleScan, forceReleaseCameraTracks]);
 
   const stopCamera = useCallback(async () => {
     stopRequestedRef.current = true;

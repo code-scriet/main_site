@@ -283,8 +283,8 @@ export default function AdminQuizCreator() {
       const pin = openData.data?.pin || data.data?.pin || '';
       setCreatedQuiz({ id: quizId, pin });
       setStep(4);
-    } catch (e: any) {
-      setError(e.message || 'Failed to create quiz');
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Failed to create quiz');
     } finally {
       setIsSubmitting(false);
     }

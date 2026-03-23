@@ -6,7 +6,7 @@ import { z } from 'zod';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useAuth } from '@/context/AuthContext';
 import { useSettings } from '@/context/SettingsContext';
-import { api, type NetworkProfileInput, type NetworkConnectionType } from '@/lib/api';
+import { api, type NetworkProfile, type NetworkProfileInput, type NetworkConnectionType } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -194,7 +194,7 @@ export default function NetworkOnboarding() {
   const defaultConnectionType: NetworkConnectionType =
     resolvedNetworkType === 'alumni' ? 'ALUMNI' : 'INDUSTRY_PARTNER';
 
-  const [existingProfile, setExistingProfile] = useState<any>(null);
+  const [existingProfile, setExistingProfile] = useState<NetworkProfile | null>(null);
   const [loadingProfile, setLoadingProfile] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [submitSuccess, setSubmitSuccess] = useState(false);

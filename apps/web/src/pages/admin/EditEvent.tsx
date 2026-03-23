@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -164,11 +164,7 @@ export default function EditEvent() {
   const [registrationFields, setRegistrationFields] = useState<EventRegistrationField[]>([]);
   const [newTag, setNewTag] = useState('');
 
-  useEffect(() => {
-    loadEvent();
-  }, [id]);
-
-  const loadEvent = async () => {
+  const loadEvent = useCallback(async () => {
     if (!id) {
       setError('Event ID not found');
       setLoading(false);
@@ -222,7 +218,11 @@ export default function EditEvent() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [id]);
+
+  useEffect(() => {
+    void loadEvent();
+  }, [loadEvent]);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
     const { name, value, type } = e.target;

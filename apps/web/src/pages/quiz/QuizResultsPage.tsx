@@ -4,6 +4,7 @@
  */
 
 import { useEffect, useState, useCallback } from 'react';
+import type { ReactNode } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '@/context/AuthContext';
@@ -92,6 +93,33 @@ interface QuizResult {
   }>;
 }
 
+type QuizResultPlayer = QuizResult['leaderboard'][number];
+
+interface QuizResultsApiResponse {
+  success: boolean;
+  data: QuizResult;
+  error?: { message?: string };
+}
+
+interface DifficultyCurvePoint {
+  name: string;
+  accuracy: number;
+  label: string;
+  avgTime: string;
+  answers: number;
+}
+
+interface DifficultyCurveDotPayload {
+  name?: string;
+}
+
+interface SpeedScatterPoint {
+  name: string;
+  accuracy: number;
+  avgTimeMs: number;
+  score: number;
+}
+
 /* ── Accuracy bar helper ── */
 function AccuracyBar({ accuracy, className }: { accuracy: number; className?: string }) {
   const color =
@@ -143,26 +171,32 @@ export default function QuizResultsPage() {
   const [expandedQ, setExpandedQ] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
 
-  useEffect(() => {
-    fetchResults();
-  }, [quizId]);
+  const fetchResults = useCallback(async () => {
+    if (!quizId) {
+      setError('Quiz not found');
+      setLoading(false);
+      return;
+    }
 
-  const fetchResults = async () => {
     try {
       const token = localStorage.getItem('token');
       const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:5001/api';
       const res = await fetch(`${apiUrl}/quiz/${quizId}/results`, {
         headers: token ? { Authorization: `Bearer ${token}` } : {},
       });
-      const data = await res.json();
+      const data = await res.json() as QuizResultsApiResponse;
       if (!data.success) throw new Error(data.error?.message || 'Failed to load results');
       setResult(data.data);
-    } catch (e: any) {
-      setError(e.message);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Failed to load results');
     } finally {
       setLoading(false);
     }
-  };
+  }, [quizId]);
+
+  useEffect(() => {
+    void fetchResults();
+  }, [fetchResults]);
 
   const handleExport = useCallback(async () => {
     if (!quizId) return;
@@ -555,7 +589,7 @@ export default function QuizResultsPage() {
                       <div style={{ width: '100%', height: 220 }}>
                         <ResponsiveContainer width="100%" height="100%">
                           <LineChart
-                            data={scoredQuestions.map(q => ({
+                            data={scoredQuestions.map<DifficultyCurvePoint>((q) => ({
                               name: `Q${q.position + 1}`,
                               accuracy: q.accuracy,
                               label: q.questionText.slice(0, 40),
@@ -568,10 +602,12 @@ export default function QuizResultsPage() {
                             <YAxis domain={[0, 100]} tick={{ fontSize: 11, fill: '#92400e' }} />
                             <Tooltip
                               contentStyle={{ backgroundColor: '#fffbeb', border: '1px solid #fcd34d', borderRadius: 8, fontSize: 12 }}
-                              formatter={(value: any) => [`${value}%`, 'Accuracy']}
-                              labelFormatter={(label: any) => {
-                                const q = scoredQuestions.find(sq => `Q${sq.position + 1}` === String(label));
-                                return q ? q.questionText.slice(0, 60) : String(label);
+                              formatter={(value: number | string | undefined) => [`${value ?? 0}%`, 'Accuracy']}
+                              labelFormatter={(label: ReactNode) => {
+                                const labelValue =
+                                  typeof label === 'string' || typeof label === 'number' ? label : '';
+                                const q = scoredQuestions.find(sq => `Q${sq.position + 1}` === String(labelValue));
+                                return q ? q.questionText.slice(0, 60) : String(labelValue);
                               }}
                             />
                             <ReferenceLine
@@ -585,9 +621,11 @@ export default function QuizResultsPage() {
                               dataKey="accuracy"
                               stroke="#10b981"
                               strokeWidth={2}
-                              dot={({ cx, cy, payload }: any) => {
-                                const isHardest = insights.hardestQuestion?.position === scoredQuestions.find(q => `Q${q.position + 1}` === payload.name)?.position;
-                                const isEasiest = insights.easiestQuestion?.position === scoredQuestions.find(q => `Q${q.position + 1}` === payload.name)?.position;
+                              dot={({ cx, cy, payload }: { cx?: number; cy?: number; payload?: DifficultyCurveDotPayload }) => {
+                                if (cx == null || cy == null) return null;
+                                const pointName = payload?.name;
+                                const isHardest = insights.hardestQuestion?.position === scoredQuestions.find(q => `Q${q.position + 1}` === pointName)?.position;
+                                const isEasiest = insights.easiestQuestion?.position === scoredQuestions.find(q => `Q${q.position + 1}` === pointName)?.position;
                                 return (
                                   <circle
                                     cx={cx} cy={cy} r={isHardest || isEasiest ? 6 : 4}
@@ -962,17 +1000,25 @@ export default function QuizResultsPage() {
                     <CardContent className="p-5">
                       <h3 className="text-sm font-bold text-amber-900 font-display mb-3">Accuracy vs Speed</h3>
                       {(() => {
-                        const data = leaderboard
-                          .filter((p: any) => (p.questionsAnswered ?? quiz.questionCount) > 0)
-                          .map((p: any) => {
-                            const qAnswered = p.questionsAnswered ?? quiz.questionCount;
-                            const acc = Math.round((p.correctCount / qAnswered) * 100);
-                            const avgMs = p.correctCount > 0 ? p.totalAnswerTimeMs / p.correctCount : p.totalAnswerTimeMs / Math.max(qAnswered, 1);
-                            return { name: p.displayName, accuracy: acc, avgTimeMs: Math.round(avgMs), score: p.score };
+                        const data: SpeedScatterPoint[] = leaderboard
+                          .filter((player) => (player.questionsAnswered ?? quiz.questionCount) > 0)
+                          .map((player) => {
+                            const qAnswered = player.questionsAnswered ?? quiz.questionCount;
+                            const acc = Math.round((player.correctCount / qAnswered) * 100);
+                            const avgMs =
+                              player.correctCount > 0
+                                ? player.totalAnswerTimeMs / player.correctCount
+                                : player.totalAnswerTimeMs / Math.max(qAnswered, 1);
+                            return {
+                              name: player.displayName,
+                              accuracy: acc,
+                              avgTimeMs: Math.round(avgMs),
+                              score: player.score,
+                            };
                           });
-                        const meanAcc = data.length > 0 ? Math.round(data.reduce((s: number, d: any) => s + d.accuracy, 0) / data.length) : 50;
-                        const meanTime = data.length > 0 ? Math.round(data.reduce((s: number, d: any) => s + d.avgTimeMs, 0) / data.length) : 5000;
-                        const maxTime = Math.max(...data.map((d: any) => d.avgTimeMs), 1);
+                        const meanAcc = data.length > 0 ? Math.round(data.reduce((sum, point) => sum + point.accuracy, 0) / data.length) : 50;
+                        const meanTime = data.length > 0 ? Math.round(data.reduce((sum, point) => sum + point.avgTimeMs, 0) / data.length) : 5000;
+                        const maxTime = Math.max(...data.map((point) => point.avgTimeMs), 1);
 
                         return (
                           <div style={{ width: '100%', height: 280 }} className="relative">
@@ -997,17 +1043,17 @@ export default function QuizResultsPage() {
                                 <ZAxis type="number" dataKey="score" range={[40, 200]} />
                                 <Tooltip
                                   contentStyle={{ backgroundColor: '#fffbeb', border: '1px solid #fcd34d', borderRadius: 8, fontSize: 11 }}
-                                  formatter={(value: any, name: any) => {
+                                  formatter={(value: number | string | undefined, name: string | number | undefined) => {
                                     if (name === 'Accuracy') return [`${value}%`, name];
                                     if (name === 'Avg Time') return [`${(Number(value) / 1000).toFixed(1)}s`, name];
-                                    return [value, name];
+                                    return [value ?? 0, name ?? 'Value'];
                                   }}
                                   labelFormatter={() => ''}
                                 />
                                 <ReferenceLine x={meanAcc} stroke="#d97706" strokeDasharray="4 4" />
                                 <ReferenceLine y={meanTime} stroke="#d97706" strokeDasharray="4 4" />
                                 <Scatter name="Players" data={data}>
-                                  {data.map((_: any, i: number) => (
+                                  {data.map((_, i) => (
                                     <Cell key={i} fill={i < 3 ? '#10b981' : '#f59e0b'} opacity={0.7} />
                                   ))}
                                 </Scatter>
@@ -1072,12 +1118,7 @@ interface HeatmapGridProps {
     isCorrect: boolean | null;
     answerTimeMs: number;
   }>;
-  leaderboard: Array<{
-    userId: string;
-    displayName: string;
-    score: number;
-    [k: string]: any;
-  }>;
+  leaderboard: QuizResultPlayer[];
   questionAnalytics: Array<QuestionAnalytic>;
 }
 

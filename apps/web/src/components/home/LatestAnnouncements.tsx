@@ -105,7 +105,7 @@ export function LatestAnnouncements() {
                       {announcement.title}
                     </h3>
                     <p className="text-gray-600 text-sm mb-4 line-clamp-3">
-                      {announcement.shortDescription || announcement.body.replace(/[#*_`~\[\]]/g, '').slice(0, 150)}
+                      {announcement.shortDescription || announcement.body.replace(/[#*_`~[\]]/g, '').slice(0, 150)}
                     </p>
                   
                     {/* Footer */}

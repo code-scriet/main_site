@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { api, type NetworkProfile, type NetworkStatus, type NetworkEvent, type PendingNetworkUser } from '@/lib/api';
 import { useAuth } from '@/context/AuthContext';
@@ -114,7 +114,7 @@ export default function AdminNetwork() {
     pendingUser: PendingNetworkUser;
   } | null>(null);
 
-  const fetchProfiles = async () => {
+  const fetchProfiles = useCallback(async () => {
     if (!token) return;
     try {
       setLoading(true);
@@ -131,11 +131,11 @@ export default function AdminNetwork() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [token]);
 
   useEffect(() => {
-    fetchProfiles();
-  }, [token]);
+    void fetchProfiles();
+  }, [fetchProfiles]);
 
   // Filter profiles
   const filteredProfiles = profiles.filter((p) => {
@@ -262,7 +262,7 @@ export default function AdminNetwork() {
     if (!token || !editDialog) return;
     setEditSaving(true);
     try {
-      const updates: Record<string, any> = {};
+      const updates: Record<string, unknown> = {};
       const stringFields = [
         'fullName', 'designation', 'company', 'industry', 'bio',
         'profilePhoto', 'phone', 'linkedinUsername', 'twitterUsername',

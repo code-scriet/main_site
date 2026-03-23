@@ -173,7 +173,7 @@ export default function AnnouncementDetailPage() {
     if (navigator.share) {
       try {
         await navigator.share({ title, url });
-      } catch (err) {
+      } catch {
         // User cancelled or error
       }
     } else {

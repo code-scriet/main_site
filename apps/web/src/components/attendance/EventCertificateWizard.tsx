@@ -63,6 +63,23 @@ interface GeneratedCert {
   isRevoked?: boolean;
 }
 
+interface BulkGeneratedCertResult {
+  certId: string;
+  name: string;
+  email: string;
+  pdfUrl?: string | null;
+}
+
+function isBulkGeneratedCertResult(value: unknown): value is BulkGeneratedCertResult {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    'certId' in value &&
+    'name' in value &&
+    'email' in value
+  );
+}
+
 type CertType = 'PARTICIPATION' | 'COMPLETION' | 'WINNER' | 'SPEAKER';
 type WizardStep = 1 | 2 | 3 | 'manage';
 type RecipientFilter = 'all' | 'attended' | 'no_cert';
@@ -278,11 +295,13 @@ export default function EventCertificateWizard({
       }
 
       const result = await api.bulkGenerateCertificates(body, token);
-      const certs: GeneratedCert[] = ((result as any).results ?? []).map((r: any) => ({
-        certId: r.certId,
-        recipientName: r.name,
-        recipientEmail: r.email,
-        pdfUrl: r.pdfUrl ?? null,
+      const certs: GeneratedCert[] = result.results
+        .filter(isBulkGeneratedCertResult)
+        .map((generated) => ({
+        certId: generated.certId,
+        recipientName: generated.name,
+        recipientEmail: generated.email,
+        pdfUrl: generated.pdfUrl ?? null,
         emailSent: true,
       }));
       setGeneratedCerts(certs);

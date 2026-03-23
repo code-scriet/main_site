@@ -59,9 +59,13 @@ export default function NetworkStatusPage() {
           setHasProfile(true);
           setProfile(data as unknown as NetworkProfile);
         }
-      } catch (err: any) {
+      } catch (err: unknown) {
+        const status =
+          typeof err === 'object' && err !== null && 'status' in err
+            ? (err as { status?: number }).status
+            : undefined;
         // 404 means no profile yet
-        if (err?.status === 404 || err?.message?.includes('404')) {
+        if (status === 404) {
           setHasProfile(false);
           setProfile(null);
         } else {

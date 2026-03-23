@@ -42,7 +42,6 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     } catch (err) {
       // ISSUE-013: Handle 401 by clearing auth state
       if (err instanceof UnauthorizedError) {
-        console.warn('Session expired or invalid');
         localStorage.removeItem('token');
         return null;
       }

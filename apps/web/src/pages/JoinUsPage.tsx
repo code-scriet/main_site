@@ -144,7 +144,7 @@ export default function JoinUsPage() {
           if (!profile.phone || !profile.branch || !profile.year) {
             setProfileIncomplete(true);
           }
-        } catch (err) {
+        } catch {
           // Fallback to basic user info
           setName(user.name || '');
           setEmail(user.email || '');

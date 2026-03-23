@@ -7,7 +7,7 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
 import { useAuth } from '@/context/AuthContext';
-import { api, type NetworkProfile } from '@/lib/api';
+import { api, type NetworkProfile, type NetworkProfileInput } from '@/lib/api';
 import {
   ArrowLeft,
   Save,
@@ -100,9 +100,8 @@ export default function EditNetworkProfile() {
 
         // Strategy 1: If we have a slug/id param, fetch that profile (admin editing someone else's)
         if (id) {
-          const result = await api.getNetworkProfile(id);
-          const data = (result as any)?.data || result;
-          if (data && data.id) {
+          const data = await api.getNetworkProfile(id);
+          if (data.id) {
             populateForm(data);
             setIsOwner(data.userId === user.id);
             return;
@@ -144,23 +143,43 @@ export default function EditNetworkProfile() {
       setSaving(true);
       setError(null);
 
-      const payload: Record<string, unknown> = { ...form };
+      const payload: Partial<NetworkProfileInput> = {
+        fullName: form.fullName,
+        designation: form.designation,
+        company: form.company,
+        industry: form.industry,
+        bio: form.bio,
+        vision: form.vision,
+        story: form.story,
+        expertise: form.expertise,
+        achievements: form.achievements,
+        connectionNote: form.connectionNote,
+        currentLocation: form.currentLocation,
+        degree: form.degree,
+        branch: form.branch,
+        linkedinUsername: form.linkedinUsername,
+        twitterUsername: form.twitterUsername,
+        githubUsername: form.githubUsername,
+        personalWebsite: form.personalWebsite,
+      };
       if (form.passoutYear) {
-        payload.passoutYear = parseInt(form.passoutYear, 10) || null;
-      } else {
-        payload.passoutYear = null;
+        const parsedPassoutYear = parseInt(form.passoutYear, 10);
+        if (Number.isFinite(parsedPassoutYear)) {
+          payload.passoutYear = parsedPassoutYear;
+        }
       }
       for (const key of Object.keys(payload)) {
-        if (payload[key] === '') {
-          payload[key] = null;
+        const value = payload[key as keyof NetworkProfileInput];
+        if (value === '') {
+          delete payload[key as keyof NetworkProfileInput];
         }
       }
 
       // Use admin endpoint if admin editing someone else's profile, owner endpoint otherwise
       if (isOwner) {
-        await api.updateNetworkProfile(payload as any, token);
+        await api.updateNetworkProfile(payload, token);
       } else if (isAdmin && profile.id) {
-        await api.updateNetworkProfileAdmin(profile.id, payload as any, token);
+        await api.updateNetworkProfileAdmin(profile.id, payload, token);
       }
 
       setSuccess('Profile updated successfully!');

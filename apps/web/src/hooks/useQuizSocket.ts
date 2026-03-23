@@ -20,7 +20,6 @@ function getAuthToken(): string | null {
 
 export function useQuizSocket() {
   const socketRef = useRef<Socket | null>(null);
-  const store = useQuizStore;
 
   useEffect(() => {
     const token = getAuthToken();
@@ -41,76 +40,81 @@ export function useQuizSocket() {
     socketRef.current = socket;
 
     // Status tracking
-    socket.on('connect', () => store.getState().setSocketStatus('connected'));
-    socket.on('disconnect', () => store.getState().setSocketStatus('disconnected'));
-    socket.on('connect_error', () => store.getState().setSocketStatus('disconnected'));
+    socket.on('connect', () => useQuizStore.getState().setSocketStatus('connected'));
+    socket.on('disconnect', () => useQuizStore.getState().setSocketStatus('disconnected'));
+    socket.on('connect_error', () => useQuizStore.getState().setSocketStatus('disconnected'));
 
     // Reconnect handling
     socket.io.on('reconnect', () => {
-      const { quizId, quizAccessToken } = store.getState();
+      const { quizId, quizAccessToken } = useQuizStore.getState();
       if (quizId && quizAccessToken) {
         socket.emit('join_quiz', { quizId, quizAccessToken });
       }
     });
 
     // Quiz events → Zustand
-    socket.on('join_confirmed', (data) => store.getState().joinedQuiz(data));
-    socket.on('quiz_started', (data) => store.getState().quizStarted(data));
-    socket.on('player_joined', (data) => store.getState().playerJoined(data));
-    socket.on('player_disconnected', (data) => store.getState().playerLeft(data));
-    socket.on('player_left', (data) => store.getState().playerLeft(data));
-    socket.on('show_question', (data) => store.getState().showQuestion(data));
-    socket.on('answer_received', (data) => store.getState().answerReceived(data));
-    socket.on('answer_result', (data) => store.getState().answerResultReceived(data));
-    socket.on('answer_count_update', (data) => store.getState().answerCountUpdate(data));
-    socket.on('all_answered', () => store.getState().allAnsweredReceived());
-    socket.on('poll_results_update', (data) => store.getState().pollResultsUpdate(data));
-    socket.on('question_results', (data) => store.getState().questionResultsReceived(data));
+    socket.on('join_confirmed', (data) => useQuizStore.getState().joinedQuiz(data));
+    socket.on('quiz_started', (data) => useQuizStore.getState().quizStarted(data));
+    socket.on('player_joined', (data) => useQuizStore.getState().playerJoined(data));
+    socket.on('player_disconnected', (data) => useQuizStore.getState().playerLeft(data));
+    socket.on('player_left', (data) => useQuizStore.getState().playerLeft(data));
+    socket.on('show_question', (data) => useQuizStore.getState().showQuestion(data));
+    socket.on('answer_received', (data) => useQuizStore.getState().answerReceived(data));
+    socket.on('answer_result', (data) => useQuizStore.getState().answerResultReceived(data));
+    socket.on('answer_count_update', (data) => useQuizStore.getState().answerCountUpdate(data));
+    socket.on('all_answered', () => useQuizStore.getState().allAnsweredReceived());
+    socket.on('poll_results_update', (data) => useQuizStore.getState().pollResultsUpdate(data));
+    socket.on('question_results', (data) => useQuizStore.getState().questionResultsReceived(data));
     socket.on('quiz_finishing', () => { /* signal that final leaderboard is coming */ });
-    socket.on('final_leaderboard', (data) => store.getState().finalLeaderboardReceived(data));
+    socket.on('final_leaderboard', (data) => useQuizStore.getState().finalLeaderboardReceived(data));
     socket.on('admin_disconnected', () => { /* Could show notice */ });
 
     // Admin control events
-    socket.on('quiz_paused', () => store.getState().quizPaused());
-    socket.on('quiz_resumed', (data) => store.getState().quizResumed(data));
-    socket.on('timer_extended', (data) => store.getState().timerExtended(data));
-    socket.on('player_kicked', () => store.getState().playerKicked());
-    socket.on('my_rank_update', (data) => store.getState().myRankUpdated(data));
-    socket.on('control_action_blocked', (data) => {
-      console.warn('[QuizControlBlocked]', data);
+    socket.on('quiz_paused', () => useQuizStore.getState().quizPaused());
+    socket.on('quiz_resumed', (data) => useQuizStore.getState().quizResumed(data));
+    socket.on('timer_extended', (data) => useQuizStore.getState().timerExtended(data));
+    socket.on('player_kicked', () => useQuizStore.getState().playerKicked());
+    socket.on('my_rank_update', (data) => useQuizStore.getState().myRankUpdated(data));
+    socket.on('control_action_blocked', (data: { code?: string; message?: string }) => {
+      useQuizStore.getState().setQuizError({
+        code: data.code ?? 'CONTROL_ACTION_BLOCKED',
+        message: data.message ?? 'This quiz action is currently unavailable.',
+      });
     });
     socket.on('player_status_update', (statuses: Array<{ userId: string; answered: boolean; connected: boolean }>) => {
-      store.getState().playerStatusUpdated(statuses);
+      useQuizStore.getState().playerStatusUpdated(statuses);
     });
 
-    socket.on('quiz_error', (err) => {
-      console.warn('[QuizSocket]', err);
-      store.getState().setQuizError(err);
+    socket.on('quiz_error', (err: { code?: string; message?: string } | string) => {
+      useQuizStore.getState().setQuizError({
+        code: typeof err === 'string' ? 'QUIZ_ERROR' : (err.code ?? 'QUIZ_ERROR'),
+        message: typeof err === 'string' ? err : (err.message ?? 'A quiz error occurred.'),
+      });
     });
 
     socket.connect();
-    store.getState().setSocketStatus('connecting');
+    useQuizStore.getState().setSocketStatus('connecting');
 
     return () => {
       socket.removeAllListeners();
       socket.disconnect();
       socketRef.current = null;
     };
-  }, [store]);
+  }, []);
 
   // Stable action functions
   const joinQuiz = useCallback((quizId: string, quizAccessToken: string) => {
-    store.getState().setQuizId(quizId);
-    store.getState().setQuizAccessToken(quizAccessToken);
-    store.getState().setJoining();
+    useQuizStore.getState().setQuizId(quizId);
+    useQuizStore.getState().setQuizAccessToken(quizAccessToken);
+    useQuizStore.getState().setJoining();
     socketRef.current?.emit('join_quiz', { quizId, quizAccessToken });
   }, []);
 
   // Join as host (observer only, doesn't participate in quiz)
   const joinAsHost = useCallback((quizId: string, quizAccessToken: string) => {
-    store.getState().setQuizId(quizId);
-    store.getState().setQuizAccessToken(quizAccessToken);
-    store.getState().setJoining();
+    useQuizStore.getState().setQuizId(quizId);
+    useQuizStore.getState().setQuizAccessToken(quizAccessToken);
+    useQuizStore.getState().setJoining();
     socketRef.current?.emit('join_quiz', { quizId, quizAccessToken });
   }, []);
 

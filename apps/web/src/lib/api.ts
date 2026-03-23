@@ -131,6 +131,7 @@ export interface User {
   email: string;
   role: string;
   avatar?: string;
+  bio?: string;
   phone?: string;
   course?: string;
   branch?: string;
@@ -138,6 +139,11 @@ export interface User {
   profileCompleted?: boolean;
   createdAt?: string;
   isSuperAdmin?: boolean; // ISSUE-014: Added to support audit log visibility
+  oauthProvider?: string;
+  githubUrl?: string;
+  linkedinUrl?: string;
+  twitterUrl?: string;
+  websiteUrl?: string;
 }
 
 export interface Settings {
@@ -693,6 +699,9 @@ export interface NetworkProfileInput {
   company: string;
   industry: string;
   bio?: string;
+  vision?: string;
+  story?: string;
+  expertise?: string;
   profilePhoto?: string;
   phone?: string;
   linkedinUsername?: string;
@@ -922,11 +931,14 @@ export const api = {
   
   // User search (admin)
   searchUsers: async (query: string, token: string) => {
-    const res = await request<Array<{ id: string; name: string; email: string; avatar?: string; role?: string }>>(
+    const res = await request<
+      Array<{ id: string; name: string; email: string; avatar?: string; role?: string }> |
+      { data?: Array<{ id: string; name: string; email: string; avatar?: string; role?: string }> }
+    >(
       `/users/search?q=${encodeURIComponent(query)}`,
       { token }
     );
-    return { users: Array.isArray(res) ? res : (res as any).data || [] };
+    return { users: Array.isArray(res) ? res : (Array.isArray(res.data) ? res.data : []) };
   },
 
   deleteTeamMember: (id: string, token: string) =>
@@ -997,7 +1009,7 @@ export const api = {
   
   // Users (Admin)
   getUsers: (token: string) => request('/users', { token }),
-  getUser: (id: string, token: string) => request(`/users/${id}`, { token }),
+  getUser: (id: string, token: string) => request<User>(`/users/${id}`, { token }),
   updateUser: (id: string, data: {
     name?: string;
     bio?: string;
@@ -1389,7 +1401,7 @@ export const api = {
     // ISSUE-036: Add error handling for blob() parsing
     try {
       return await res.blob();
-    } catch (err) {
+    } catch {
       throw new Error('Failed to parse export file');
     }
   },

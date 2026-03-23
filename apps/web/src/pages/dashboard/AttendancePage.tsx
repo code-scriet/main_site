@@ -37,15 +37,17 @@ export default function AttendancePage() {
   const [selectedEventId, setSelectedEventId] = useState<string>('');
 
   useEffect(() => {
-    setLoading(true);
-    setError(null);
-    api.getEvents()
-      .then((all) => {
+    const loadEvents = async () => {
+      setLoading(true);
+      setError(null);
+
+      try {
+        const all = await api.getEvents();
         // Use date-computed status to filter correctly even if DB is stale
         const active = all
-          .filter((e) => {
-            const s = computeEffectiveStatus(e);
-            return s === 'ONGOING' || s === 'UPCOMING';
+          .filter((event) => {
+            const status = computeEffectiveStatus(event);
+            return status === 'ONGOING' || status === 'UPCOMING';
           })
           .sort((a, b) => {
             const sa = computeEffectiveStatus(a);
@@ -55,13 +57,17 @@ export default function AttendancePage() {
             if (sb === 'ONGOING' && sa !== 'ONGOING') return 1;
             return new Date(a.startDate).getTime() - new Date(b.startDate).getTime();
           });
+
         setEvents(active);
         if (active.length === 1) setSelectedEventId(active[0].id);
-      })
-      .catch(() => {
+      } catch {
         setError('Failed to load events for attendance.');
-      })
-      .finally(() => setLoading(false));
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    void loadEvents();
   }, [token]);
 
   const selectedEvent = events.find((e) => e.id === selectedEventId) ?? null;

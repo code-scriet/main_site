@@ -109,7 +109,10 @@ export function QuizHostView({
   const [pinCopied, setPinCopied] = useState(false);
   const [showQR, setShowQR] = useState(false);
   const [showParticipants, setShowParticipants] = useState(true);
-  const [velocityPoints, setVelocityPoints] = useState<{ t: number; count: number }[]>([]);
+  const [velocitySeries, setVelocitySeries] = useState<{
+    questionIndex: number;
+    points: { t: number; count: number }[];
+  }>({ questionIndex: -1, points: [] });
   const [averageAccuracy, setAverageAccuracy] = useState(50);
   const prefersReducedMotion = useReducedMotion();
 
@@ -135,7 +138,6 @@ export function QuizHostView({
     const idx = currentQuestion?.questionIndex ?? -1;
     if (idx !== prevQuestionIdx.current) {
       velocityBuffer.current = [];
-      setVelocityPoints([]);
       questionStartRef.current = Date.now();
       prevQuestionIdx.current = idx;
     }
@@ -148,9 +150,12 @@ export function QuizHostView({
         t: Date.now() - questionStartRef.current,
         count: answeredCount,
       });
-      setVelocityPoints([...velocityBuffer.current]);
+      setVelocitySeries({
+        questionIndex: currentQuestion?.questionIndex ?? -1,
+        points: [...velocityBuffer.current],
+      });
     }
-  }, [answeredCount, quizStatus]);
+  }, [answeredCount, currentQuestion?.questionIndex, quizStatus]);
 
   // ─── CP8: Running mean accuracy for contextual label ───
   const accuracyHistory = useRef<number[]>([]);
@@ -206,6 +211,10 @@ export function QuizHostView({
     () => participants.length > 0 && answeredCount >= participants.length,
     [answeredCount, participants.length],
   );
+  const velocityPoints =
+    velocitySeries.questionIndex === (currentQuestion?.questionIndex ?? -1)
+      ? velocitySeries.points
+      : [];
 
   const statusLabel = {
     lobby: 'Waiting for players',
