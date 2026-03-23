@@ -25,19 +25,30 @@ export function Header() {
   const location = useLocation();
   const menuButtonRef = useRef<HTMLButtonElement>(null);
   const menuPanelRef = useRef<HTMLDivElement>(null);
+  const previousPathnameRef = useRef(location.pathname);
 
   const closeMenu = useCallback(() => {
     setIsMenuOpen(false);
   }, []);
 
   useEffect(() => {
-    closeMenu();
-  }, [location.pathname, closeMenu]);
+    if (previousPathnameRef.current === location.pathname) return;
+    previousPathnameRef.current = location.pathname;
+
+    if (!isMenuOpen) return;
+
+    const closeTimer = window.setTimeout(() => {
+      setIsMenuOpen(false);
+    }, 0);
+
+    return () => window.clearTimeout(closeTimer);
+  }, [location.pathname, isMenuOpen]);
 
   useEffect(() => {
     if (!isMenuOpen) return;
 
     const previousOverflow = document.body.style.overflow;
+    const menuButton = menuButtonRef.current;
     document.body.style.overflow = 'hidden';
 
     const focusFirstItem = () => {
@@ -77,7 +88,7 @@ export function Header() {
       window.cancelAnimationFrame(frame);
       document.body.style.overflow = previousOverflow;
       document.removeEventListener('keydown', handleKeyDown);
-      menuButtonRef.current?.focus();
+      menuButton?.focus();
     };
   }, [isMenuOpen, closeMenu]);
 
@@ -135,7 +146,7 @@ export function Header() {
                   className={cn(
                     'border-b-2 pb-1 text-sm font-medium transition-colors duration-200',
                     active
-                      ? 'border-amber-500 text-amber-700'
+                      ? 'border-amber-500 text-amber-500 font-semibold'
                       : 'border-transparent text-gray-700 hover:text-amber-600'
                   )}
                 >
@@ -243,7 +254,7 @@ export function Header() {
                         className={cn(
                           'block rounded-xl px-3 py-3 text-sm font-medium transition-colors duration-200',
                           active
-                            ? 'bg-amber-50 text-amber-700'
+                            ? 'bg-amber-50 text-amber-500 font-semibold'
                             : 'text-gray-700 hover:bg-amber-50 hover:text-amber-600'
                         )}
                         onClick={closeMenu}
