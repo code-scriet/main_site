@@ -35,6 +35,7 @@ import {
   Download
 } from 'lucide-react';
 import { formatDate } from '@/lib/dateUtils';
+import { toast } from 'sonner';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5001/api';
 const MAX_APPLICATIONS_LIMIT = 100; // Maximum allowed by backend API
@@ -201,8 +202,9 @@ export default function AdminHiring() {
       }
 
       await loadData();
+      toast.success('Application status updated');
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to update status');
+      toast.error(err instanceof Error ? err.message : 'Failed to update status');
     } finally {
       setUpdatingId(null);
     }
@@ -224,8 +226,9 @@ export default function AdminHiring() {
 
       await loadData();
       setSelectedApplication(null);
+      toast.success('Application deleted');
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to delete application');
+      toast.error(err instanceof Error ? err.message : 'Failed to delete application');
     } finally {
       setUpdatingId(null);
     }
@@ -302,14 +305,12 @@ export default function AdminHiring() {
       </div>
 
       {error && (
-        <motion.div
-          initial={{ opacity: 0, y: -10 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="flex items-start gap-3 p-4 bg-red-50 border border-red-200 rounded-lg text-red-700"
-        >
-          <AlertCircle className="h-5 w-5 shrink-0 mt-0.5" />
-          <p className="text-sm">{error}</p>
-        </motion.div>
+        <Card className="border-red-200 bg-red-50">
+          <CardContent className="flex items-start gap-3 pt-6 text-red-700">
+            <AlertCircle className="h-5 w-5 shrink-0 mt-0.5" />
+            <p className="text-sm">{error}</p>
+          </CardContent>
+        </Card>
       )}
 
       {/* Stats */}

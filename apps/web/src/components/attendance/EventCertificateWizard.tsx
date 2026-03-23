@@ -12,6 +12,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { motion, AnimatePresence } from 'framer-motion';
+import { toast } from 'sonner';
 import {
   Award,
   CheckCircle,
@@ -304,7 +305,7 @@ export default function EventCertificateWizard({
       const result = await api.downloadCertificate(certId, token);
       if (result?.url) window.open(result.url, '_blank');
     } catch {
-      alert('Failed to download certificate');
+      toast.error('Failed to download certificate');
     } finally {
       setActionLoading((p) => ({ ...p, [`dl-${certId}`]: false }));
     }
@@ -317,8 +318,9 @@ export default function EventCertificateWizard({
       setGeneratedCerts((prev) =>
         prev.map((c) => (c.certId === certId ? { ...c, emailSent: true } : c)),
       );
+      toast.success('Certificate email resent');
     } catch {
-      alert('Failed to resend email');
+      toast.error('Failed to resend email');
     } finally {
       setActionLoading((p) => ({ ...p, [`mail-${certId}`]: false }));
     }
@@ -338,8 +340,9 @@ export default function EventCertificateWizard({
         await api.deleteCertificate(certId, token);
         setGeneratedCerts((prev) => prev.filter((c) => c.certId !== certId));
       }
+      toast.success(action === 'revoke' ? 'Certificate revoked' : 'Certificate deleted');
     } catch {
-      alert(`Failed to ${action} certificate`);
+      toast.error(`Failed to ${action} certificate`);
     } finally {
       setActionLoading((p) => ({ ...p, [`confirm-${certId}`]: false }));
       setConfirmDialog(null);
@@ -361,6 +364,7 @@ export default function EventCertificateWizard({
     }
     setBulkResending(false);
     setManagementSelected(new Set());
+    toast.success(`Resent ${ids.length} certificate email${ids.length === 1 ? '' : 's'}`);
   }
 
   function toggleManagementCert(certId: string) {

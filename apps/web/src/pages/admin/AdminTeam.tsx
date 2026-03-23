@@ -5,9 +5,10 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
-import { Shield, Loader2, AlertCircle, Plus, Trash2, UserPlus, Edit2, X, Check, Link2, Unlink, Search } from 'lucide-react';
+import { Shield, Loader2, AlertCircle, Plus, Trash2, UserPlus, Edit2, X, Link2, Unlink, Search } from 'lucide-react';
 import { api, type TeamMember } from '@/lib/api';
 import { useAuth } from '@/context/AuthContext';
+import { toast } from 'sonner';
 
 interface UserSearchResult {
   id: string;
@@ -22,7 +23,6 @@ export default function AdminTeam() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [success, setSuccess] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
 
@@ -134,12 +134,12 @@ export default function AdminTeam() {
     e.preventDefault();
     
     if (!token) {
-      setError('Authentication required');
+      toast.error('Authentication required');
       return;
     }
     
     if (!form.name.trim() || !form.role.trim() || !form.team.trim()) {
-      setError('Name, role, and team are required');
+      toast.error('Name, role, and team are required');
       return;
     }
 
@@ -172,17 +172,16 @@ export default function AdminTeam() {
 
       if (editingId) {
         await api.updateTeamMember(editingId, data, token);
-        setSuccess('Team member updated successfully');
+        toast.success('Team member updated successfully');
       } else {
         await api.createTeamMember(data, token);
-        setSuccess('Team member added successfully');
+        toast.success('Team member added successfully');
       }
       
       resetForm();
       await loadTeam();
-      setTimeout(() => setSuccess(null), 3000);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to save member');
+      toast.error(err instanceof Error ? err.message : 'Failed to save member');
     } finally {
       setSaving(false);
     }
@@ -190,18 +189,17 @@ export default function AdminTeam() {
 
   const handleDelete = async (id: string) => {
     if (!token) {
-      setError('Authentication required');
+      toast.error('Authentication required');
       return;
     }
     if (!window.confirm('Are you sure you want to remove this member?')) return;
     
     try {
       await api.deleteTeamMember(id, token);
-      setSuccess('Team member removed');
+      toast.success('Team member removed');
       await loadTeam();
-      setTimeout(() => setSuccess(null), 3000);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to delete member');
+      toast.error(err instanceof Error ? err.message : 'Failed to delete member');
     }
   };
 
@@ -270,13 +268,12 @@ export default function AdminTeam() {
         }
       }
       
-      setSuccess('Team member linked to user account');
+      toast.success('Team member linked to user account');
       await loadTeam();
       setUserSearchQuery('');
       setUserSearchResults([]);
-      setTimeout(() => setSuccess(null), 3000);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to link user');
+      toast.error(err instanceof Error ? err.message : 'Failed to link user');
     } finally {
       setSaving(false);
     }
@@ -289,11 +286,10 @@ export default function AdminTeam() {
     try {
       setSaving(true);
       await api.linkTeamMemberToUser(memberId, null as unknown as string, token);
-      setSuccess('Team member unlinked from user account');
+      toast.success('Team member unlinked from user account');
       await loadTeam();
-      setTimeout(() => setSuccess(null), 3000);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to unlink user');
+      toast.error(err instanceof Error ? err.message : 'Failed to unlink user');
     } finally {
       setSaving(false);
     }
@@ -332,17 +328,6 @@ export default function AdminTeam() {
           <button onClick={() => setError(null)} className="ml-auto">
             <X className="h-4 w-4" />
           </button>
-        </motion.div>
-      )}
-
-      {success && (
-        <motion.div
-          initial={{ opacity: 0, y: -10 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="flex items-start gap-3 p-4 bg-green-50 border border-green-200 rounded-lg text-green-700"
-        >
-          <Check className="h-5 w-5 shrink-0 mt-0.5" />
-          <p className="text-sm">{success}</p>
         </motion.div>
       )}
 

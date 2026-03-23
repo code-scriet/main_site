@@ -1,13 +1,13 @@
 import { useState, useEffect } from 'react';
-import { motion } from 'framer-motion';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
-import { Award, Loader2, AlertCircle, Plus, Trash2, Edit2, X, Check } from 'lucide-react';
+import { Award, Loader2, AlertCircle, Plus, Trash2, Edit2 } from 'lucide-react';
 import { api, type Credit, type TeamMember } from '@/lib/api';
 import { useAuth } from '@/context/AuthContext';
+import { toast } from 'sonner';
 
 const CATEGORY_PRESETS = [
   'Founding',
@@ -26,7 +26,6 @@ export default function AdminCredits() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [success, setSuccess] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [memberFilter, setMemberFilter] = useState('');
@@ -87,13 +86,12 @@ export default function AdminCredits() {
 
     const category = form.category === 'custom' ? form.customCategory.trim() : form.category;
     if (!category) {
-      setError('Category is required');
+      toast.error('Category is required');
       return;
     }
 
     setSaving(true);
     setError(null);
-    setSuccess(null);
 
     try {
       const payload = {
@@ -106,15 +104,15 @@ export default function AdminCredits() {
 
       if (editingId) {
         await api.updateCredit(editingId, payload, token);
-        setSuccess('Credit updated successfully');
+        toast.success('Credit updated successfully');
       } else {
         await api.createCredit(payload, token);
-        setSuccess('Credit created successfully');
+        toast.success('Credit created successfully');
       }
       resetForm();
       await loadData();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to save credit');
+      toast.error(err instanceof Error ? err.message : 'Failed to save credit');
     } finally {
       setSaving(false);
     }
@@ -124,10 +122,10 @@ export default function AdminCredits() {
     if (!token || !window.confirm('Are you sure you want to delete this credit?')) return;
     try {
       await api.deleteCredit(id, token);
-      setSuccess('Credit deleted');
+      toast.success('Credit deleted');
       await loadData();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to delete credit');
+      toast.error(err instanceof Error ? err.message : 'Failed to delete credit');
     }
   };
 
@@ -162,18 +160,12 @@ export default function AdminCredits() {
       </div>
 
       {error && (
-        <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} className="flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-          <AlertCircle className="h-4 w-4 shrink-0" />
-          {error}
-          <button onClick={() => setError(null)} className="ml-auto"><X className="h-4 w-4" /></button>
-        </motion.div>
-      )}
-      {success && (
-        <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} className="flex items-center gap-2 rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700">
-          <Check className="h-4 w-4 shrink-0" />
-          {success}
-          <button onClick={() => setSuccess(null)} className="ml-auto"><X className="h-4 w-4" /></button>
-        </motion.div>
+        <Card className="border-red-200 bg-red-50">
+          <CardContent className="flex items-center gap-2 pt-6 text-sm text-red-700">
+            <AlertCircle className="h-4 w-4 shrink-0" />
+            {error}
+          </CardContent>
+        </Card>
       )}
 
       {/* Form */}

@@ -14,6 +14,7 @@ import {
 import { api, type Achievement } from '@/lib/api';
 import { useAuth } from '@/context/AuthContext';
 import { formatDate } from '@/lib/dateUtils';
+import { toast } from 'sonner';
 
 export default function AdminAchievements() {
   const { token } = useAuth();
@@ -21,7 +22,6 @@ export default function AdminAchievements() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [success, setSuccess] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState({
@@ -94,12 +94,12 @@ export default function AdminAchievements() {
     e.preventDefault();
     
     if (!token) {
-      setError('Authentication required');
+      toast.error('Authentication required');
       return;
     }
     
     if (!form.title.trim() || !form.description.trim() || !form.achievedBy.trim()) {
-      setError('Title, description, and achieved by are required');
+      toast.error('Title, description, and achieved by are required');
       return;
     }
 
@@ -127,16 +127,16 @@ export default function AdminAchievements() {
       
       if (editingId) {
         await api.updateAchievement(editingId, data, token);
-        setSuccess('Achievement updated successfully');
+        toast.success('Achievement updated successfully');
       } else {
         await api.createAchievement(data, token);
-        setSuccess('Achievement created successfully');
+        toast.success('Achievement created successfully');
       }
       
       resetForm();
-      loadAchievements();
+      await loadAchievements();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to save achievement');
+      toast.error(err instanceof Error ? err.message : 'Failed to save achievement');
     } finally {
       setSaving(false);
     }
@@ -149,27 +149,12 @@ export default function AdminAchievements() {
     try {
       setError(null);
       await api.deleteAchievement(id, token);
-      setSuccess('Achievement deleted successfully');
-      loadAchievements();
+      toast.success('Achievement deleted successfully');
+      await loadAchievements();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to delete achievement');
+      toast.error(err instanceof Error ? err.message : 'Failed to delete achievement');
     }
   };
-
-  // Clear messages after 5 seconds
-  useEffect(() => {
-    if (success) {
-      const timer = setTimeout(() => setSuccess(null), 5000);
-      return () => clearTimeout(timer);
-    }
-  }, [success]);
-
-  useEffect(() => {
-    if (error) {
-      const timer = setTimeout(() => setError(null), 5000);
-      return () => clearTimeout(timer);
-    }
-  }, [error]);
 
   return (
     <div className="space-y-6">
@@ -187,25 +172,12 @@ export default function AdminAchievements() {
 
       {/* Messages */}
       {error && (
-        <motion.div
-          initial={{ opacity: 0, y: -10 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="p-4 bg-red-50 border border-red-200 rounded-lg flex items-center gap-3"
-        >
-          <AlertCircle className="h-5 w-5 text-red-500 flex-shrink-0" />
-          <p className="text-red-700">{error}</p>
-        </motion.div>
-      )}
-
-      {success && (
-        <motion.div
-          initial={{ opacity: 0, y: -10 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="p-4 bg-green-50 border border-green-200 rounded-lg flex items-center gap-3"
-        >
-          <Check className="h-5 w-5 text-green-500 flex-shrink-0" />
-          <p className="text-green-700">{success}</p>
-        </motion.div>
+        <Card className="border-red-200 bg-red-50">
+          <CardContent className="flex items-center gap-3 pt-6">
+            <AlertCircle className="h-5 w-5 text-red-500 flex-shrink-0" />
+            <p className="text-red-700">{error}</p>
+          </CardContent>
+        </Card>
       )}
 
       {/* Form */}
