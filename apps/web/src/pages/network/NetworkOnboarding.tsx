@@ -199,6 +199,7 @@ export default function NetworkOnboarding() {
   const [submitting, setSubmitting] = useState(false);
   const [submitSuccess, setSubmitSuccess] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const [profileLoadError, setProfileLoadError] = useState<string | null>(null);
 
   const {
     register,
@@ -219,6 +220,7 @@ export default function NetworkOnboarding() {
   });
 
   const selectedConnectionType = watch('connectionType');
+  const bioValue = watch('bio') ?? '';
   const isAlumniIntent = !existingProfile && resolvedNetworkType === 'alumni';
   const isProfessionalIntent = !existingProfile && resolvedNetworkType === 'professional';
 
@@ -275,6 +277,7 @@ export default function NetworkOnboarding() {
       if (!token) return;
       try {
         setLoadingProfile(true);
+        setProfileLoadError(null);
         const response = await api.getMyNetworkProfile(token);
         if (response.hasProfile && response.data) {
           setExistingProfile(response.data);
@@ -302,7 +305,10 @@ export default function NetworkOnboarding() {
         } else if (user?.name) {
           setValue('fullName', user.name);
         }
-      } catch {
+      } catch (err) {
+        setProfileLoadError(
+          err instanceof Error ? err.message : 'We could not load your existing network profile right now.'
+        );
       } finally {
         setLoadingProfile(false);
       }
@@ -498,6 +504,20 @@ export default function NetworkOnboarding() {
             </motion.div>
           )}
 
+          {profileLoadError && (
+            <motion.div
+              initial={{ opacity: 0, y: -10 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="mb-6 flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 p-4"
+            >
+              <AlertCircle className="mt-0.5 h-5 w-5 flex-shrink-0 text-amber-600" />
+              <div>
+                <p className="font-medium text-amber-900">Couldn&apos;t load your existing draft</p>
+                <p className="mt-1 text-sm text-amber-700">{profileLoadError}</p>
+              </div>
+            </motion.div>
+          )}
+
           <div className="grid items-start gap-6 lg:grid-cols-[1.55fr_1fr]">
             <Card className="border-white/70 bg-white/95 shadow-xl">
               <CardHeader>
@@ -589,6 +609,10 @@ export default function NetworkOnboarding() {
                         {...register('bio')}
                         className={errors.bio ? 'border-red-500' : ''}
                       />
+                      <div className="flex items-center justify-between text-xs text-gray-500">
+                        <span>Keep it concrete: domain, years, focus areas, and what you can help with.</span>
+                        <span aria-live="polite">{bioValue.length}/2000</span>
+                      </div>
                       {errors.bio && <p className="text-xs text-red-500">{errors.bio.message}</p>}
                     </div>
 
