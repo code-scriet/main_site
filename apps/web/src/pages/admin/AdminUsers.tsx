@@ -5,6 +5,16 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { api } from '@/lib/api';
 import type { User } from '@/lib/api';
 import { Users, Loader2, AlertCircle, Shield, UserCheck, Crown, Trash2, Phone, GraduationCap, CheckCircle, XCircle, Edit, X, Eye, Calendar, Github, Linkedin, Twitter, Globe, Mail, Download, Search, RefreshCw } from 'lucide-react';
@@ -99,6 +109,8 @@ export default function AdminUsers() {
   const [exporting, setExporting] = useState(false);
   const [search, setSearch] = useState('');
   const [roleFilter, setRoleFilter] = useState<'ALL' | 'USER' | 'MEMBER' | 'CORE_MEMBER' | 'ADMIN' | 'PRESIDENT'>('ALL');
+  const [limitResetTarget, setLimitResetTarget] = useState<{ userId: string; userName: string } | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<{ userId: string; userName: string; userRole: string } | null>(null);
   
   const isSuperAdmin = currentUser?.isSuperAdmin === true;
 
@@ -165,7 +177,6 @@ export default function AdminUsers() {
 
   const handleResetLimit = async (userId: string, userName: string) => {
     if (!token) return;
-    if (!window.confirm(`Reset today's playground execution limit for ${userName}?`)) return;
     setResettingLimitId(userId);
     try {
       const res = await fetch(`${API_URL}/playground/admin/reset-limit/${userId}`, {
@@ -176,6 +187,7 @@ export default function AdminUsers() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to reset limit');
       toast.success(`Playground limit reset for ${userName}`);
+      setLimitResetTarget(null);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Failed to reset limit');
     } finally {
@@ -196,10 +208,6 @@ export default function AdminUsers() {
       return;
     }
 
-    if (!window.confirm(`Are you sure you want to delete ${userName}? This action cannot be undone.`)) {
-      return;
-    }
-
     if (!token) {
       setError('Authentication required');
       return;
@@ -209,6 +217,8 @@ export default function AdminUsers() {
       setDeletingId(userId);
       setError(null);
       await api.deleteUser(userId, token);
+      setDeleteTarget(null);
+      toast.success(`Deleted ${userName}`);
       await loadUsers();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to delete user');
@@ -532,7 +542,7 @@ export default function AdminUsers() {
                         <Button
                           variant="outline"
                           size="sm"
-                          onClick={() => handleResetLimit(user.id, user.name)}
+                          onClick={() => setLimitResetTarget({ userId: user.id, userName: user.name })}
                           disabled={resettingLimitId === user.id}
                           className="h-9 text-amber-600 border-amber-300 hover:bg-amber-50"
                           title="Reset today's playground execution limit"
@@ -547,7 +557,7 @@ export default function AdminUsers() {
                           <Button
                             variant="destructive"
                             size="sm"
-                            onClick={() => handleDeleteUser(user.id, user.name, user.role)}
+                            onClick={() => setDeleteTarget({ userId: user.id, userName: user.name, userRole: user.role })}
                             disabled={deletingId === user.id}
                             className="h-9"
                           >
@@ -847,6 +857,57 @@ export default function AdminUsers() {
           </motion.div>
         )}
       </AnimatePresence>
+
+      <AlertDialog open={Boolean(limitResetTarget)} onOpenChange={(open) => !open && setLimitResetTarget(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Reset playground limit?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {limitResetTarget
+                ? `This will reset today's playground execution allowance for ${limitResetTarget.userName}.`
+                : 'This will reset today’s playground execution allowance for the selected user.'}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                if (limitResetTarget) {
+                  void handleResetLimit(limitResetTarget.userId, limitResetTarget.userName);
+                }
+              }}
+            >
+              Reset Limit
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={Boolean(deleteTarget)} onOpenChange={(open) => !open && setDeleteTarget(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete user account?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {deleteTarget
+                ? `This will permanently delete ${deleteTarget.userName}'s account and cannot be undone.`
+                : 'This user account will be permanently deleted.'}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-red-600 hover:bg-red-700"
+              onClick={() => {
+                if (deleteTarget) {
+                  void handleDeleteUser(deleteTarget.userId, deleteTarget.userName, deleteTarget.userRole);
+                }
+              }}
+            >
+              Delete User
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

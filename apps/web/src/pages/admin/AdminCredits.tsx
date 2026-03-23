@@ -4,6 +4,16 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { Award, Loader2, AlertCircle, Plus, Trash2, Edit2 } from 'lucide-react';
 import { api, type Credit, type TeamMember } from '@/lib/api';
 import { useAuth } from '@/context/AuthContext';
@@ -29,6 +39,7 @@ export default function AdminCredits() {
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [memberFilter, setMemberFilter] = useState('');
+  const [creditToDelete, setCreditToDelete] = useState<Credit | null>(null);
 
   const [form, setForm] = useState({
     title: '',
@@ -119,10 +130,11 @@ export default function AdminCredits() {
   };
 
   const handleDelete = async (id: string) => {
-    if (!token || !window.confirm('Are you sure you want to delete this credit?')) return;
+    if (!token) return;
     try {
       await api.deleteCredit(id, token);
       toast.success('Credit deleted');
+      setCreditToDelete(null);
       await loadData();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Failed to delete credit');
@@ -336,7 +348,12 @@ export default function AdminCredits() {
                   <Button variant="ghost" size="sm" onClick={() => handleEdit(credit)}>
                     <Edit2 className="h-4 w-4" />
                   </Button>
-                  <Button variant="ghost" size="sm" className="text-red-500 hover:text-red-700 hover:bg-red-50" onClick={() => handleDelete(credit.id)}>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="text-red-500 hover:text-red-700 hover:bg-red-50"
+                    onClick={() => setCreditToDelete(credit)}
+                  >
                     <Trash2 className="h-4 w-4" />
                   </Button>
                 </div>
@@ -345,6 +362,32 @@ export default function AdminCredits() {
           ))}
         </div>
       )}
+
+      <AlertDialog open={Boolean(creditToDelete)} onOpenChange={(open) => !open && setCreditToDelete(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete credit?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {creditToDelete
+                ? `This will permanently remove "${creditToDelete.title}" from the public credits page.`
+                : 'This credit will be permanently removed.'}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-red-600 hover:bg-red-700"
+              onClick={() => {
+                if (creditToDelete) {
+                  void handleDelete(creditToDelete.id);
+                }
+              }}
+            >
+              Delete Credit
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

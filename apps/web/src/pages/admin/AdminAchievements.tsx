@@ -7,6 +7,16 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { 
   Trophy, Loader2, AlertCircle, Plus, Trash2, Edit2, X, Check, 
   Calendar, Users, Image as ImageIcon, Star, Tag
@@ -24,6 +34,7 @@ export default function AdminAchievements() {
   const [error, setError] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [achievementToDelete, setAchievementToDelete] = useState<Achievement | null>(null);
   const [form, setForm] = useState({
     title: '',
     description: '',
@@ -144,12 +155,12 @@ export default function AdminAchievements() {
 
   const handleDelete = async (id: string) => {
     if (!token) return;
-    if (!confirm('Are you sure you want to delete this achievement?')) return;
 
     try {
       setError(null);
       await api.deleteAchievement(id, token);
       toast.success('Achievement deleted successfully');
+      setAchievementToDelete(null);
       await loadAchievements();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Failed to delete achievement');
@@ -448,7 +459,7 @@ export default function AdminAchievements() {
                     <Button
                       variant="outline"
                       size="sm"
-                      onClick={() => handleDelete(achievement.id)}
+                      onClick={() => setAchievementToDelete(achievement)}
                       className="text-red-600 hover:text-red-700 hover:bg-red-50"
                     >
                       <Trash2 className="h-4 w-4" />
@@ -460,6 +471,32 @@ export default function AdminAchievements() {
           )}
         </CardContent>
       </Card>
+
+      <AlertDialog open={Boolean(achievementToDelete)} onOpenChange={(open) => !open && setAchievementToDelete(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete achievement?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {achievementToDelete
+                ? `This will permanently remove "${achievementToDelete.title}" and its detail content.`
+                : 'This achievement will be permanently removed.'}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-red-600 hover:bg-red-700"
+              onClick={() => {
+                if (achievementToDelete) {
+                  void handleDelete(achievementToDelete.id);
+                }
+              }}
+            >
+              Delete Achievement
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

@@ -12,6 +12,16 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent as ConfirmDialogContent,
+  AlertDialogDescription as ConfirmDialogDescription,
+  AlertDialogFooter as ConfirmDialogFooter,
+  AlertDialogHeader as ConfirmDialogHeader,
+  AlertDialogTitle as ConfirmDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { useAuth } from '@/context/AuthContext';
 import { 
   Users, 
@@ -137,6 +147,7 @@ export default function AdminHiring() {
   const [roleFilter, setRoleFilter] = useState<string>('');
   const [updatingId, setUpdatingId] = useState<string | null>(null);
   const [selectedApplication, setSelectedApplication] = useState<HiringApplication | null>(null);
+  const [applicationToDelete, setApplicationToDelete] = useState<HiringApplication | null>(null);
   const [downloading, setDownloading] = useState(false);
 
   useEffect(() => {
@@ -211,7 +222,7 @@ export default function AdminHiring() {
   };
 
   const handleDelete = async (applicationId: string) => {
-    if (!token || !confirm('Are you sure you want to delete this application?')) return;
+    if (!token) return;
     
     try {
       setUpdatingId(applicationId);
@@ -226,6 +237,7 @@ export default function AdminHiring() {
 
       await loadData();
       setSelectedApplication(null);
+      setApplicationToDelete(null);
       toast.success('Application deleted');
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Failed to delete application');
@@ -617,7 +629,7 @@ export default function AdminHiring() {
                 <Button
                   variant="destructive"
                   className="w-full sm:w-auto"
-                  onClick={() => handleDelete(selectedApplication.id)}
+                  onClick={() => setApplicationToDelete(selectedApplication)}
                   disabled={updatingId === selectedApplication.id}
                 >
                   {updatingId === selectedApplication.id ? (
@@ -631,6 +643,32 @@ export default function AdminHiring() {
           )}
         </DialogContent>
       </Dialog>
+
+      <AlertDialog open={Boolean(applicationToDelete)} onOpenChange={(open) => !open && setApplicationToDelete(null)}>
+        <ConfirmDialogContent>
+          <ConfirmDialogHeader>
+            <ConfirmDialogTitle>Delete application?</ConfirmDialogTitle>
+            <ConfirmDialogDescription>
+              {applicationToDelete
+                ? `This will permanently delete ${applicationToDelete.name}'s hiring application.`
+                : 'This hiring application will be permanently deleted.'}
+            </ConfirmDialogDescription>
+          </ConfirmDialogHeader>
+          <ConfirmDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-red-600 hover:bg-red-700"
+              onClick={() => {
+                if (applicationToDelete) {
+                  void handleDelete(applicationToDelete.id);
+                }
+              }}
+            >
+              Delete Application
+            </AlertDialogAction>
+          </ConfirmDialogFooter>
+        </ConfirmDialogContent>
+      </AlertDialog>
     </div>
   );
 }

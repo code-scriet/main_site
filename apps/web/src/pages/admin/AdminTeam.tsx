@@ -5,6 +5,16 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { Shield, Loader2, AlertCircle, Plus, Trash2, UserPlus, Edit2, X, Link2, Unlink, Search } from 'lucide-react';
 import { api, type TeamMember } from '@/lib/api';
 import { useAuth } from '@/context/AuthContext';
@@ -31,6 +41,8 @@ export default function AdminTeam() {
   const [searchingUsers, setSearchingUsers] = useState(false);
   const [linkingUserId, setLinkingUserId] = useState<string | null>(null);
   const [linkedUserInfo, setLinkedUserInfo] = useState<UserSearchResult | null>(null);
+  const [memberToDelete, setMemberToDelete] = useState<TeamMember | null>(null);
+  const [unlinkTarget, setUnlinkTarget] = useState<{ memberId: string; userName: string } | null>(null);
   const [form, setForm] = useState({
     name: '',
     role: '',
@@ -192,11 +204,11 @@ export default function AdminTeam() {
       toast.error('Authentication required');
       return;
     }
-    if (!window.confirm('Are you sure you want to remove this member?')) return;
     
     try {
       await api.deleteTeamMember(id, token);
       toast.success('Team member removed');
+      setMemberToDelete(null);
       await loadTeam();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Failed to delete member');
@@ -218,6 +230,32 @@ export default function AdminTeam() {
     } finally {
       setSearchingUsers(false);
     }
+  };
+
+  const clearLinkedUserState = () => {
+    if (linkedUserInfo) {
+      const userInfo = linkedUserInfo as UserSearchResult & {
+        linkedinUrl?: string;
+        githubUrl?: string;
+        twitterUrl?: string;
+        bio?: string;
+        websiteUrl?: string;
+      };
+
+      setForm((prev) => ({
+        ...prev,
+        name: prev.name === userInfo.name ? '' : prev.name,
+        imageUrl: prev.imageUrl === (userInfo.avatar || '') ? '' : prev.imageUrl,
+        linkedin: prev.linkedin === (userInfo.linkedinUrl || '') ? '' : prev.linkedin,
+        github: prev.github === (userInfo.githubUrl || '') ? '' : prev.github,
+        twitter: prev.twitter === (userInfo.twitterUrl || '') ? '' : prev.twitter,
+        bio: prev.bio === (userInfo.bio || '') ? '' : prev.bio,
+        website: prev.website === (userInfo.websiteUrl || '') ? '' : prev.website,
+      }));
+    }
+
+    setLinkingUserId(null);
+    setLinkedUserInfo(null);
   };
 
   // Debounced user search
@@ -282,11 +320,12 @@ export default function AdminTeam() {
   // Unlink team member from user
   const handleUnlinkUser = async (memberId: string) => {
     if (!token) return;
-    if (!window.confirm('Are you sure you want to unlink this user?')) return;
     try {
       setSaving(true);
       await api.linkTeamMemberToUser(memberId, null as unknown as string, token);
       toast.success('Team member unlinked from user account');
+      clearLinkedUserState();
+      setUnlinkTarget(null);
       await loadTeam();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Failed to unlink user');
@@ -460,26 +499,13 @@ export default function AdminTeam() {
                       size="sm"
                       onClick={() => {
                         if (editingId) {
-                          handleUnlinkUser(editingId);
+                          setUnlinkTarget({
+                            memberId: editingId,
+                            userName: linkedUserInfo?.name || form.name || 'this user',
+                          });
+                          return;
                         }
-                        
-                        // Clear form fields that match the linked user exactly
-                        if (linkedUserInfo) {
-                          const u = linkedUserInfo as any;
-                          setForm(prev => ({
-                            ...prev,
-                            name: prev.name === u.name ? '' : prev.name,
-                            imageUrl: prev.imageUrl === (u.avatar || '') ? '' : prev.imageUrl,
-                            linkedin: prev.linkedin === (u.linkedinUrl || '') ? '' : prev.linkedin,
-                            github: prev.github === (u.githubUrl || '') ? '' : prev.github,
-                            twitter: prev.twitter === (u.twitterUrl || '') ? '' : prev.twitter,
-                            bio: prev.bio === (u.bio || '') ? '' : prev.bio,
-                            website: prev.website === (u.websiteUrl || '') ? '' : prev.website,
-                          }));
-                        }
-
-                        setLinkingUserId(null);
-                        setLinkedUserInfo(null);
+                        clearLinkedUserState();
                       }}
                       className="text-red-600 hover:text-red-700"
                     >
@@ -713,7 +739,7 @@ export default function AdminTeam() {
                       <Button
                         variant="ghost"
                         size="icon"
-                        onClick={() => handleDelete(member.id)}
+                        onClick={() => setMemberToDelete(member)}
                         className="text-red-500 hover:text-red-700 hover:bg-red-50"
                       >
                         <Trash2 className="h-4 w-4" />
@@ -726,6 +752,58 @@ export default function AdminTeam() {
           )}
         </CardContent>
       </Card>
+
+      <AlertDialog open={Boolean(memberToDelete)} onOpenChange={(open) => !open && setMemberToDelete(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Remove team member?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {memberToDelete
+                ? `This will remove ${memberToDelete.name} from the team page and linked profile content.`
+                : 'This team member will be removed from the public team listing.'}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-red-600 hover:bg-red-700"
+              onClick={() => {
+                if (memberToDelete) {
+                  void handleDelete(memberToDelete.id);
+                }
+              }}
+            >
+              Remove Member
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={Boolean(unlinkTarget)} onOpenChange={(open) => !open && setUnlinkTarget(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Unlink user account?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {unlinkTarget
+                ? `${unlinkTarget.userName} will no longer stay synced with this team profile.`
+                : 'This user account will be unlinked from the team profile.'}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-red-600 hover:bg-red-700"
+              onClick={() => {
+                if (unlinkTarget) {
+                  void handleUnlinkUser(unlinkTarget.memberId);
+                }
+              }}
+            >
+              Unlink Account
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
