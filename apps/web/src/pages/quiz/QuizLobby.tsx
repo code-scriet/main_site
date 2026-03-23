@@ -10,6 +10,7 @@ import { Users, Loader2, Copy, Check, QrCode, Download, Link2, LogOut } from 'lu
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { copyTextToClipboard } from '@/lib/clipboard';
 import { useQuizStore } from '@/lib/quizStore';
 import { getWebAppOrigin } from '@/lib/utils';
 import { QRCodeSVG } from 'qrcode.react';
@@ -27,6 +28,7 @@ export const QuizLobby = memo(function QuizLobby({ onDiscardQuiz }: QuizLobbyPro
   const [copiedPin, setCopiedPin] = useState(false);
   const [copiedUrl, setCopiedUrl] = useState(false);
   const [showQr, setShowQr] = useState(false);
+  const [qrDownloading, setQrDownloading] = useState(false);
   const qrRef = useRef<HTMLDivElement>(null);
 
   const joinBaseOrigin = getWebAppOrigin();
@@ -43,31 +45,36 @@ export const QuizLobby = memo(function QuizLobby({ onDiscardQuiz }: QuizLobbyPro
 
   const handleCopyPin = useCallback(async () => {
     if (!pin) return;
-    try {
-      await navigator.clipboard.writeText(pin);
+    const copied = await copyTextToClipboard(pin);
+    if (copied) {
       setCopiedPin(true);
-      setTimeout(() => setCopiedPin(false), 2000);
-    } catch { /* fallback */ }
+      window.setTimeout(() => setCopiedPin(false), 2000);
+    }
   }, [pin]);
 
   const handleCopyUrl = useCallback(async () => {
-    try {
-      await navigator.clipboard.writeText(joinUrl);
+    const copied = await copyTextToClipboard(joinUrl);
+    if (copied) {
       setCopiedUrl(true);
-      setTimeout(() => setCopiedUrl(false), 2000);
-    } catch { /* fallback */ }
+      window.setTimeout(() => setCopiedUrl(false), 2000);
+    }
   }, [joinUrl]);
 
   const handleDownloadQr = useCallback(async () => {
     if (!qrRef.current) return;
     try {
+      setQrDownloading(true);
       const { default: html2canvas } = await import('html2canvas');
       const canvas = await html2canvas(qrRef.current, { backgroundColor: '#ffffff', scale: 2 });
       const link = document.createElement('a');
       link.download = `quiz-pin-${pin}.png`;
       link.href = canvas.toDataURL('image/png');
       link.click();
-    } catch { /* fallback */ }
+    } catch {
+      // Keep the QR visible for manual sharing if the export fails.
+    } finally {
+      setQrDownloading(false);
+    }
   }, [pin]);
 
   return (
@@ -103,6 +110,7 @@ export const QuizLobby = memo(function QuizLobby({ onDiscardQuiz }: QuizLobbyPro
                 size="icon"
                 onClick={handleCopyPin}
                 className="text-white hover:bg-white/20 h-10 w-10"
+                aria-label={copiedPin ? 'PIN copied' : 'Copy quiz PIN'}
               >
                 {copiedPin ? <Check className="h-5 w-5 text-green-200" /> : <Copy className="h-5 w-5" />}
               </Button>
@@ -123,9 +131,9 @@ export const QuizLobby = memo(function QuizLobby({ onDiscardQuiz }: QuizLobbyPro
               {copiedUrl ? 'Copied!' : 'Copy Link'}
             </Button>
             {showQr && (
-              <Button variant="outline" size="sm" onClick={handleDownloadQr}>
-                <Download className="h-4 w-4 mr-2" />
-                Download QR
+              <Button variant="outline" size="sm" onClick={handleDownloadQr} disabled={qrDownloading}>
+                {qrDownloading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Download className="h-4 w-4 mr-2" />}
+                {qrDownloading ? 'Preparing QR...' : 'Download QR'}
               </Button>
             )}
           </CardContent>

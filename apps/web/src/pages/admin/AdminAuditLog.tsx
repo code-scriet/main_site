@@ -146,6 +146,7 @@ export default function AdminAuditLog() {
   const [total, setTotal] = useState(0);
   const [entityFilter, setEntityFilter] = useState('');
   const [actionFilter, setActionFilter] = useState('');
+  const [searchInput, setSearchInput] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [availableEntities, setAvailableEntities] = useState<string[]>([]);
   const [availableActions, setAvailableActions] = useState<string[]>([]);
@@ -178,6 +179,11 @@ export default function AdminAuditLog() {
   useEffect(() => {
     fetchLogs();
   }, [fetchLogs]);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => setSearchQuery(searchInput.trim()), 300);
+    return () => window.clearTimeout(timer);
+  }, [searchInput]);
 
   // Reset to page 1 when filters change
   useEffect(() => {
@@ -272,19 +278,24 @@ export default function AdminAuditLog() {
                   <div className="relative">
                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
                     <Input
-                      value={searchQuery}
-                      onChange={(e) => setSearchQuery(e.target.value)}
+                      value={searchInput}
+                      onChange={(e) => setSearchInput(e.target.value)}
                       placeholder="Search logs..."
                       className="pl-9 h-9"
                     />
                   </div>
                 </div>
               </div>
-              {(entityFilter || actionFilter || searchQuery) && (
+              {(entityFilter || actionFilter || searchInput) && (
                 <div className="mt-3 flex items-center gap-2">
                   <span className="text-xs text-gray-500">{total} results</span>
                   <button
-                    onClick={() => { setEntityFilter(''); setActionFilter(''); setSearchQuery(''); }}
+                    onClick={() => {
+                      setEntityFilter('');
+                      setActionFilter('');
+                      setSearchInput('');
+                      setSearchQuery('');
+                    }}
                     className="text-xs text-amber-600 hover:text-amber-700 underline"
                   >
                     Clear all filters

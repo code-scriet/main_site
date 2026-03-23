@@ -1,7 +1,7 @@
 import { Layout } from '@/components/layout/Layout';
 import { SEO } from '@/components/SEO';
 import { useSettings } from '@/context/SettingsContext';
-import { Mail, MapPin, Github, Linkedin, Instagram } from 'lucide-react';
+import { Mail, MapPin, Github, Linkedin, Instagram, Twitter, MessageCircle } from 'lucide-react';
 
 export default function ContactPage() {
   const { settings } = useSettings();
@@ -9,7 +9,10 @@ export default function ContactPage() {
   const socialLinks = [
     settings?.githubUrl && { name: 'GitHub', icon: Github, href: settings.githubUrl },
     settings?.linkedinUrl && { name: 'LinkedIn', icon: Linkedin, href: settings.linkedinUrl },
+    { name: 'Twitter / X', icon: Twitter, href: settings?.twitterUrl || '#' },
     settings?.instagramUrl && { name: 'Instagram', icon: Instagram, href: settings.instagramUrl },
+    // TODO: Replace with the real Discord invite URL once it is finalized.
+    { name: 'Discord', icon: MessageCircle, href: settings?.discordUrl || '#' },
   ].filter(Boolean) as { name: string; icon: React.ComponentType<{ className?: string }>; href: string }[];
 
   return (
