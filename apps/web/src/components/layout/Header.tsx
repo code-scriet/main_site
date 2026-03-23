@@ -109,6 +109,11 @@ export function Header() {
     ...(settings?.showNetwork !== false ? [{ name: 'Network', href: '/network' }] : []),
   ];
 
+  const desktopNavBaseClass = 'border-b-2 pb-1 text-sm font-medium transition-colors duration-200';
+  const desktopNavInactiveClass = 'border-transparent text-gray-700 hover:text-amber-600';
+  const mobileNavBaseClass = 'block rounded-xl px-3 py-3 text-sm font-medium transition-colors duration-200';
+  const mobileNavInactiveClass = 'text-gray-700 hover:bg-amber-50 hover:text-amber-600';
+
   return (
     <header className="sticky top-0 z-50 w-full border-b border-amber-200 bg-white/95 backdrop-blur supports-[backdrop-filter]:bg-white/80">
       <nav className="container mx-auto px-4 py-4">
@@ -131,7 +136,7 @@ export function Header() {
                     href={item.href}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="text-gray-700 hover:text-amber-600 transition-colors duration-200 font-medium"
+                    className={cn(desktopNavBaseClass, desktopNavInactiveClass)}
                   >
                     {item.name}
                   </a>
@@ -144,10 +149,10 @@ export function Header() {
                   to={item.href}
                   aria-current={active ? 'page' : undefined}
                   className={cn(
-                    'border-b-2 pb-1 text-sm font-medium transition-colors duration-200',
+                    desktopNavBaseClass,
                     active
                       ? 'border-amber-500 text-amber-500 font-semibold'
-                      : 'border-transparent text-gray-700 hover:text-amber-600'
+                      : desktopNavInactiveClass
                   )}
                 >
                   {item.name}
@@ -238,7 +243,7 @@ export function Header() {
                           href={item.href}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="block rounded-xl px-3 py-3 text-sm font-medium text-gray-700 transition-colors duration-200 hover:bg-amber-50 hover:text-amber-600"
+                          className={cn(mobileNavBaseClass, mobileNavInactiveClass)}
                           onClick={closeMenu}
                         >
                           {item.name}
@@ -252,10 +257,10 @@ export function Header() {
                         to={item.href}
                         aria-current={active ? 'page' : undefined}
                         className={cn(
-                          'block rounded-xl px-3 py-3 text-sm font-medium transition-colors duration-200',
+                          mobileNavBaseClass,
                           active
                             ? 'bg-amber-50 text-amber-500 font-semibold'
-                            : 'text-gray-700 hover:bg-amber-50 hover:text-amber-600'
+                            : mobileNavInactiveClass
                         )}
                         onClick={closeMenu}
                       >
