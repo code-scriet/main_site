@@ -50,7 +50,7 @@ export interface QuizRoom {
   };
   joinCode: string | null;
   pin: string | null;
-  status: 'waiting' | 'active' | 'paused' | 'finished';
+  status: 'waiting' | 'active' | 'revealing' | 'paused' | 'finished';
   currentQuestionIndex: number;
   currentQuestionStartTime: number;
   pausedTimeRemaining: number | null; // ms remaining when paused

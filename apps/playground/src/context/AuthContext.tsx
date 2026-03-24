@@ -33,12 +33,29 @@ const RETURN_PARAM_KEY = 'pg_return';
 // ---------------------------------------------------------------------------
 
 const MAIN_SITE_URL = getMainSiteOrigin();
+const PLAYGROUND_API =
+  import.meta.env.VITE_API_URL ||
+  (import.meta.env.DEV ? 'http://localhost:5002' : 'https://playground-api.codescriet.dev');
 
 type FetchUserResult = {
   user: PlaygroundUser | null;
   token?: string;
   authFailed?: boolean;
 };
+
+type FetchAttempt =
+  | {
+      ok: true;
+      user: PlaygroundUser | null;
+      token?: string;
+      apiOrigin: string;
+    }
+  | {
+      ok: false;
+      status: number;
+      apiOrigin: string;
+      networkError?: boolean;
+    };
 
 type AccessTokenPayload = {
   id?: string;
@@ -138,8 +155,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [isLoading, setIsLoading] = useState(true);
 
   const fetchUser = useCallback(async (jwt?: string | null): Promise<FetchUserResult> => {
-    try {
-      const requestMe = async (apiOrigin: string, withJwt?: string | null) => {
+    const requestMe = async (apiOrigin: string, withJwt?: string | null): Promise<FetchAttempt> => {
+      try {
         const headers: Record<string, string> = {};
         if (withJwt) {
           headers.Authorization = `Bearer ${withJwt}`;
@@ -159,15 +176,28 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           token: typeof data.token === 'string' ? data.token : undefined,
           apiOrigin,
         };
-      };
+      } catch {
+        return {
+          ok: false as const,
+          status: 0,
+          apiOrigin,
+          networkError: true,
+        };
+      }
+    };
 
+    try {
       const candidates = getMainApiCandidates();
       let sawUnauthorized = false;
+      let sawReachableResponse = false;
       for (const apiOrigin of candidates) {
         const primary = await requestMe(apiOrigin, jwt);
         if (primary.ok) {
           rememberMainApiOrigin(primary.apiOrigin);
           return { user: primary.user, token: primary.token };
+        }
+        if (!primary.networkError) {
+          sawReachableResponse = true;
         }
 
         // If bearer token is stale, retry once without Authorization so cookie auth can succeed.
@@ -176,6 +206,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           if (cookieFallback.ok) {
             rememberMainApiOrigin(cookieFallback.apiOrigin);
             return { user: cookieFallback.user, token: cookieFallback.token };
+          }
+          if (!cookieFallback.networkError) {
+            sawReachableResponse = true;
           }
           if (cookieFallback.status === 401) {
             sawUnauthorized = true;
@@ -188,7 +221,31 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
       }
 
-      return { user: null, authFailed: sawUnauthorized };
+      // Local fallback via playground API to keep auth/profile functional even if main API origin is flaky.
+      const localPrimary = await requestMe(PLAYGROUND_API, jwt);
+      if (localPrimary.ok) {
+        return { user: localPrimary.user, token: localPrimary.token || jwt || undefined };
+      }
+      if (!localPrimary.networkError) {
+        sawReachableResponse = true;
+      }
+
+      if (jwt && localPrimary.status === 401) {
+        const localCookieFallback = await requestMe(PLAYGROUND_API, null);
+        if (localCookieFallback.ok) {
+          return { user: localCookieFallback.user, token: localCookieFallback.token || undefined };
+        }
+        if (!localCookieFallback.networkError) {
+          sawReachableResponse = true;
+        }
+        if (localCookieFallback.status === 401) {
+          sawUnauthorized = true;
+        }
+      } else if (localPrimary.status === 401) {
+        sawUnauthorized = true;
+      }
+
+      return { user: null, authFailed: sawUnauthorized && sawReachableResponse };
     } catch {
       // Network/CORS/server issues should not wipe a valid local session cookie.
       return { user: null, authFailed: false };

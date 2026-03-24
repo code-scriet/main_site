@@ -184,8 +184,8 @@ function MiniLeaderboard({ leaderboard, userId, myRank }: {
   userId: string;
   myRank: number;
 }) {
-  const top5 = leaderboard.slice(0, 5);
-  const imInTop5 = top5.some(e => e.userId === userId);
+  const top3 = leaderboard.slice(0, 3);
+  const imInTop3 = top3.some(e => e.userId === userId);
   const myEntry = leaderboard.find(e => e.userId === userId);
   const borderColors: Record<number, string> = {
     1: 'border-l-amber-400',
@@ -198,9 +198,9 @@ function MiniLeaderboard({ leaderboard, userId, myRank }: {
       <h4 className="text-xs font-semibold text-amber-700/50 uppercase tracking-widest mb-2 flex items-center gap-1.5">
         <Trophy className="h-3.5 w-3.5" /> Leaderboard
       </h4>
-      <Card className="border-amber-200/60 overflow-hidden">
-        <CardContent className="p-0 divide-y divide-amber-50">
-          {top5.map((entry, i) => {
+        <Card className="border-amber-200/60 overflow-hidden">
+          <CardContent className="p-0 divide-y divide-amber-50">
+          {top3.map((entry, i) => {
             const isMe = entry.userId === userId;
             return (
               <motion.div
@@ -232,8 +232,8 @@ function MiniLeaderboard({ leaderboard, userId, myRank }: {
               </motion.div>
             );
           })}
-          {/* Show player's rank if not in top 5 */}
-          {!imInTop5 && myEntry && (
+          {/* Always show player's own rank card unless already in top 3 */}
+          {!imInTop3 && myEntry && (
             <>
               <div className="text-center text-xs text-amber-400 py-1">• • •</div>
               <motion.div

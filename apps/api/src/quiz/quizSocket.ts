@@ -324,14 +324,32 @@ export function initQuizSocket(io: SocketIOServer) {
           pin: isAdmin ? room.pin : undefined,
         };
 
-        // If quiz is active (mid-question on rejoin), include current question
-        if (room.status === 'active' && room.currentQuestionIndex >= 0) {
+        // If quiz is active/revealing (mid-question on rejoin), include current question
+        if ((room.status === 'active' || room.status === 'revealing') && room.currentQuestionIndex >= 0) {
           const currentQ = room.questions[room.currentQuestionIndex];
           if (currentQ) {
             const timeElapsedMs = Date.now() - room.currentQuestionStartTime;
             confirmPayload.currentQuestion = {
               ...sanitizeQuestionForClient(currentQ, room.currentQuestionIndex, room.meta.totalQuestions),
               timeElapsedMs,
+            };
+          }
+        }
+
+        if (room.status === 'revealing' && room.currentQuestionIndex >= 0) {
+          const currentQ = room.questions[room.currentQuestionIndex];
+          if (currentQ) {
+            const fullLeaderboard = quizStore.getLeaderboard(quizId);
+            const myEntryIndex = fullLeaderboard.findIndex((entry) => entry.userId === socket.userId);
+            if (myEntryIndex >= 0) {
+              confirmPayload.yourRank = myEntryIndex + 1;
+              confirmPayload.yourScore = fullLeaderboard[myEntryIndex].score;
+            }
+            confirmPayload.questionReveal = {
+              correctAnswer: currentQ.correctAnswer,
+              leaderboard: fullLeaderboard.slice(0, 10),
+              answerDistribution: quizStore.getAnswerDistribution(quizId),
+              questionIndex: room.currentQuestionIndex,
             };
           }
         }
@@ -347,7 +365,7 @@ export function initQuizSocket(io: SocketIOServer) {
           });
 
           // Host-only: refresh player status list
-          if (room.adminSocketId && room.status === 'active') {
+          if (room.adminSocketId && (room.status === 'active' || room.status === 'revealing')) {
             const playerStatuses = [...room.players.entries()].map(([userId, player]) => ({
               userId,
               answered: player.answeredCurrentQuestion,
@@ -472,21 +490,21 @@ export function initQuizSocket(io: SocketIOServer) {
         return;
       }
 
-      const shouldRevealCurrentQuestion = canRevealCurrentQuestion(room);
-      const currentQ = room.questions[room.currentQuestionIndex];
-      const isUnscoredType = currentQ && ['POLL', 'RATING', 'OPEN_ENDED'].includes(currentQ.questionType);
+      // Stage 1: active question -> reveal
+      if (room.status === 'active') {
+        if (room.autoAdvanceTimer) {
+          clearTimeout(room.autoAdvanceTimer);
+          room.autoAdvanceTimer = null;
+        }
 
-      // Clear auto-advance timer
-      if (room.autoAdvanceTimer) {
-        clearTimeout(room.autoAdvanceTimer);
-        room.autoAdvanceTimer = null;
+        room.status = 'revealing';
+        emitQuestionResults(quizId, room);
+        return;
       }
 
-      // Emit results when timer has completed, OR always for unscored types
-      // (POLL/RATING/OPEN_ENDED have no correct answer to leak on early advance).
-      if (shouldRevealCurrentQuestion || isUnscoredType) {
-        emitQuestionResults(quizId, room);
-        await new Promise((resolve) => setTimeout(resolve, 3000));
+      // Stage 2: revealing -> advance to next question / finish quiz
+      if (room.status !== 'revealing') {
+        return;
       }
 
       const advancement = quizStore.advanceQuestion(quizId);
@@ -686,13 +704,24 @@ export function initQuizSocket(io: SocketIOServer) {
         return;
       }
 
+      if (room.status !== 'active' || room.currentQuestionIndex < 0) {
+        socket.emit('quiz_error', {
+          code: 'QUIZ_NOT_ACTIVE',
+          message: 'Time can only be extended during an active question',
+        });
+        return;
+      }
+
+      const normalizedExtraSeconds = Number.isFinite(extraSeconds) ? Math.floor(extraSeconds) : 15;
+      const clampedExtraSeconds = Math.min(Math.max(normalizedExtraSeconds, 1), 300);
+
       // Clear existing auto-advance timer
       if (room.autoAdvanceTimer) {
         clearTimeout(room.autoAdvanceTimer);
       }
 
-      // Extend the start time backwards to give more time
-      room.currentQuestionStartTime -= extraSeconds * 1000;
+      // Move start time forward so question end time shifts later.
+      room.currentQuestionStartTime += clampedExtraSeconds * 1000;
 
       // Set new auto-advance timer
       const question = room.questions[room.currentQuestionIndex];
@@ -704,7 +733,7 @@ export function initQuizSocket(io: SocketIOServer) {
         }, Math.max(remaining, 3000));
       }
 
-      quizNamespace.to(quizId).emit('timer_extended', { extraSeconds });
+      quizNamespace.to(quizId).emit('timer_extended', { extraSeconds: clampedExtraSeconds });
     });
 
     // ─── skip_question ───────────────────────────────────────────────────
@@ -717,48 +746,70 @@ export function initQuizSocket(io: SocketIOServer) {
         return;
       }
 
-      const shouldRevealCurrentQuestion = canRevealCurrentQuestion(room);
-      const currentQ = room.questions[room.currentQuestionIndex];
-      const isUnscoredType = currentQ && ['POLL', 'RATING', 'OPEN_ENDED'].includes(currentQ.questionType);
-
-      // Clear auto-advance timer
-      if (room.autoAdvanceTimer) {
-        clearTimeout(room.autoAdvanceTimer);
-        room.autoAdvanceTimer = null;
-      }
-
-      // Emit results when timer completed, OR always for unscored types
-      // (POLL/RATING/OPEN_ENDED have no correct answer to leak on early skip).
-      if (shouldRevealCurrentQuestion || isUnscoredType) {
-        emitQuestionResults(quizId, room);
-      }
-
-      // Immediately advance (no 3s delay for skip)
-      const advancement = quizStore.advanceQuestion(quizId);
-      if (advancement.done) {
-        const leaderboard = quizStore.getLeaderboard(quizId);
-        quizNamespace.to(quizId).emit('quiz_finishing', {});
-        quizNamespace.to(quizId).emit('final_leaderboard', { leaderboard, totalQuestions: room.meta.totalQuestions });
-        await quizStore.persistResultsAndCleanup(quizId, 'FINISHED');
-      } else if (advancement.question) {
-        const q = advancement.question;
-        room.currentQuestionStartTime = Date.now();
-        quizNamespace.to(quizId).emit('show_question', sanitizeQuestionForClient(
-          q, advancement.questionIndex!, room.meta.totalQuestions,
-        ));
-
-        // Host-only: reset status
-        if (room.adminSocketId) {
-          const playerStatuses = [...room.players.entries()].map(([userId, player]) => ({
-            userId,
-            answered: false,
-            connected: player.connected,
-          }));
-          quizNamespace.to(room.adminSocketId).emit('player_status_update', playerStatuses);
+      if (room.status === 'active') {
+        if (room.autoAdvanceTimer) {
+          clearTimeout(room.autoAdvanceTimer);
+          room.autoAdvanceTimer = null;
         }
-        room.autoAdvanceTimer = setTimeout(() => {
-          handleAutoAdvance(quizId);
-        }, (q.timeLimitSeconds + 3) * 1000);
+
+        // Active-stage skip: jump directly to next question / finish (bypasses reveal).
+        const advancement = quizStore.advanceQuestion(quizId);
+        if (advancement.done) {
+          const leaderboard = quizStore.getLeaderboard(quizId);
+          quizNamespace.to(quizId).emit('quiz_finishing', {});
+          quizNamespace.to(quizId).emit('final_leaderboard', { leaderboard, totalQuestions: room.meta.totalQuestions });
+          await quizStore.persistResultsAndCleanup(quizId, 'FINISHED');
+        } else if (advancement.question) {
+          const q = advancement.question;
+          room.currentQuestionStartTime = Date.now();
+          room.status = 'active';
+          quizNamespace.to(quizId).emit('show_question', sanitizeQuestionForClient(
+            q, advancement.questionIndex!, room.meta.totalQuestions,
+          ));
+
+          if (room.adminSocketId) {
+            const playerStatuses = [...room.players.entries()].map(([userId, player]) => ({
+              userId,
+              answered: false,
+              connected: player.connected,
+            }));
+            quizNamespace.to(room.adminSocketId).emit('player_status_update', playerStatuses);
+          }
+          room.autoAdvanceTimer = setTimeout(() => {
+            handleAutoAdvance(quizId);
+          }, (q.timeLimitSeconds + 3) * 1000);
+        }
+        return;
+      }
+
+      // Reveal-stage skip behaves like "Next".
+      if (room.status === 'revealing') {
+        const advancement = quizStore.advanceQuestion(quizId);
+        if (advancement.done) {
+          const leaderboard = quizStore.getLeaderboard(quizId);
+          quizNamespace.to(quizId).emit('quiz_finishing', {});
+          quizNamespace.to(quizId).emit('final_leaderboard', { leaderboard, totalQuestions: room.meta.totalQuestions });
+          await quizStore.persistResultsAndCleanup(quizId, 'FINISHED');
+        } else if (advancement.question) {
+          const q = advancement.question;
+          room.currentQuestionStartTime = Date.now();
+          room.status = 'active';
+          quizNamespace.to(quizId).emit('show_question', sanitizeQuestionForClient(
+            q, advancement.questionIndex!, room.meta.totalQuestions,
+          ));
+
+          if (room.adminSocketId) {
+            const playerStatuses = [...room.players.entries()].map(([userId, player]) => ({
+              userId,
+              answered: false,
+              connected: player.connected,
+            }));
+            quizNamespace.to(room.adminSocketId).emit('player_status_update', playerStatuses);
+          }
+          room.autoAdvanceTimer = setTimeout(() => {
+            handleAutoAdvance(quizId);
+          }, (q.timeLimitSeconds + 3) * 1000);
+        }
       }
     });
 
@@ -809,49 +860,12 @@ export function initQuizSocket(io: SocketIOServer) {
     const room = quizStore.getRoom(quizId);
     if (!room) return;
 
-    // Emit results for current question
+    if (room.status !== 'active') return;
+
+    // Auto transition to reveal only; progression to next question is host-controlled.
     if (canRevealCurrentQuestion(room)) {
+      room.status = 'revealing';
       emitQuestionResults(quizId, room);
-    }
-
-    // Wait 3 seconds before advancing
-    await new Promise((resolve) => setTimeout(resolve, 3000));
-
-    const advancement = quizStore.advanceQuestion(quizId);
-
-    if (advancement.done) {
-      const leaderboard = quizStore.getLeaderboard(quizId);
-      const totalQuestions = room.meta.totalQuestions;
-
-      quizNamespace.to(quizId).emit('quiz_finishing', {});
-      quizNamespace.to(quizId).emit('final_leaderboard', { leaderboard, totalQuestions });
-
-      await quizStore.persistResultsAndCleanup(quizId, 'FINISHED');
-    } else if (advancement.question) {
-      const q = advancement.question;
-      // We need room reference again since advanceQuestion mutates
-      const updatedRoom = quizStore.getRoom(quizId);
-      if (updatedRoom) {
-        updatedRoom.currentQuestionStartTime = Date.now();
-
-        quizNamespace.to(quizId).emit('show_question', sanitizeQuestionForClient(
-          q, advancement.questionIndex!, updatedRoom.meta.totalQuestions,
-        ));
-
-        // Host-only: reset status
-        if (updatedRoom.adminSocketId) {
-          const playerStatuses = [...updatedRoom.players.entries()].map(([userId, player]) => ({
-            userId,
-            answered: false,
-            connected: player.connected,
-          }));
-          quizNamespace.to(updatedRoom.adminSocketId).emit('player_status_update', playerStatuses);
-        }
-
-        updatedRoom.autoAdvanceTimer = setTimeout(() => {
-          handleAutoAdvance(quizId);
-        }, (q.timeLimitSeconds + 3) * 1000);
-      }
     }
   }
 

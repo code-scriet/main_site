@@ -506,6 +506,18 @@ export function QuizHostView({
                   {quizStatus === 'question' && (
                     <>
                       <Button
+                        onClick={onNextQuestion}
+                        className={cn(
+                          'col-span-2 shadow-md bg-gradient-to-r from-orange-500 to-amber-600 hover:from-orange-600 hover:to-amber-700 text-white',
+                          allAnswered && 'ring-2 ring-amber-400 ring-offset-2',
+                          allAnswered && !prefersReducedMotion && 'animate-pulse',
+                        )}
+                        size="lg"
+                      >
+                        <ChevronRight className="h-5 w-5 mr-2" />
+                        Reveal Results
+                      </Button>
+                      <Button
                         onClick={onPauseQuiz}
                         variant="outline"
                         className="border-orange-300 text-orange-600 hover:bg-orange-50"

@@ -135,6 +135,7 @@ interface QuizState {
     joinCode?: string | null;
     pin?: string | null;
     currentQuestion?: QuizQuestion;
+    questionReveal?: QuestionReveal;
   }) => void;
 
   playerJoined: (data: { userId: string; displayName: string; totalPlayers: number }) => void;
@@ -213,14 +214,24 @@ export const useQuizStore = create<QuizState>()(
     setJoining: () => set({ quizStatus: 'joining' }),
 
     joinedQuiz: (data) => {
-      const status = data.status === 'active' ? (data.currentQuestion ? 'question' : 'lobby') : 'lobby';
+      const normalizedStatus = data.status.toLowerCase();
+      const derivedStatus: QuizStatus =
+        normalizedStatus === 'active'
+          ? (data.currentQuestion ? 'question' : 'lobby')
+          : normalizedStatus === 'revealing'
+            ? 'revealing'
+            : normalizedStatus === 'paused'
+              ? 'paused'
+              : 'lobby';
+
       set({
         quizId: data.quizId,
         title: data.title,
-        quizStatus: status,
+        quizStatus: derivedStatus,
         players: data.players,
         totalQuestions: data.totalQuestions,
         myScore: data.yourScore ?? 0,
+        myRank: data.yourRank ?? null,
         isAdmin: data.isAdmin,
         joinCode: data.joinCode || null,
         pin: data.pin || null,
@@ -229,6 +240,8 @@ export const useQuizStore = create<QuizState>()(
           ? Date.now() - (data.currentQuestion.timeElapsedMs || 0)
           : null,
         questionIndex: data.currentQuestion?.questionIndex ?? 0,
+        questionReveal: data.questionReveal ?? null,
+        leaderboard: data.questionReveal?.leaderboard ?? [],
       });
     },
 
@@ -331,7 +344,7 @@ export const useQuizStore = create<QuizState>()(
     timerExtended: (data) =>
       set((s) => ({
         questionStartTime: s.questionStartTime
-          ? s.questionStartTime - (data.extraSeconds * 1000)
+          ? s.questionStartTime + (data.extraSeconds * 1000)
           : s.questionStartTime,
       })),
 

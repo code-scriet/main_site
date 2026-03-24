@@ -428,7 +428,11 @@ quizRouter.post('/join', authMiddleware, quizJoinLimiter, async (req: Request, r
     // Check in-memory store first for speed
     for (const quizId of quizStore.getAllActiveQuizIds()) {
       const room = quizStore.getRoom(quizId);
-      if (room && room.pin === normalizedPin && (room.status === 'waiting' || room.status === 'active' || room.status === 'paused')) {
+      if (
+        room &&
+        room.pin === normalizedPin &&
+        (room.status === 'waiting' || room.status === 'active' || room.status === 'revealing' || room.status === 'paused')
+      ) {
         const quizAccessToken = signQuizAccessToken({
           userId: user.id,
           quizId: room.quizId,

@@ -889,6 +889,38 @@ app.get('/api/auth/status', (req, res) => {
   return res.json({ authenticated: false });
 });
 
+// Auth profile endpoint used by playground UI fallback when main API auth check is unstable.
+app.get('/api/auth/me', requireAuth, async (req, res) => {
+  try {
+    if (!pool || !dbReady) {
+      return res.status(503).json({ success: false, error: 'Database unavailable' });
+    }
+    const rows = await dbQuery(
+      `SELECT id, name, email, role, avatar
+       FROM users
+       WHERE id = $1
+       LIMIT 1`,
+      [req.user.id]
+    );
+    if (!rows.length) {
+      return res.status(401).json({ success: false, error: 'User not found' });
+    }
+    const user = rows[0];
+    return res.json({
+      success: true,
+      data: {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        avatar: user.avatar || null,
+      },
+    });
+  } catch (error) {
+    return res.status(500).json({ success: false, error: 'Failed to load auth profile' });
+  }
+});
+
 // ---------------------------------------------------------------------------
 // DB-backed Snippets
 // ---------------------------------------------------------------------------

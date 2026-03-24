@@ -11,27 +11,26 @@ export function getWebAppOrigin(): string {
     return configuredOrigin.replace(/\/+$/, '');
   }
 
+  // In browser runtime, always trust the current web origin.
+  // This prevents leaking backend/API hosts (for example in quiz QR/join links).
+  if (typeof window !== 'undefined' && window.location?.origin) {
+    return window.location.origin.replace(/\/+$/, '');
+  }
+
   const apiUrl = (import.meta.env.VITE_API_URL as string | undefined)?.trim();
   if (apiUrl) {
     try {
       const parsedApiUrl = new URL(apiUrl);
       const isLocalApi = parsedApiUrl.hostname === 'localhost' || parsedApiUrl.hostname === '127.0.0.1';
-      if (!isLocalApi) {
-        const webPort = typeof window !== 'undefined' && window.location?.port
-          ? window.location.port
-          : '5173';
-        return `${parsedApiUrl.protocol}//${parsedApiUrl.hostname}:${webPort}`;
+      if (isLocalApi) {
+        return 'http://localhost:5173';
       }
     } catch {
       // Ignore invalid env value and continue to browser origin fallback.
     }
   }
 
-  if (typeof window !== 'undefined' && window.location?.origin) {
-    return window.location.origin;
-  }
-
-  return 'http://localhost:5173';
+  return 'https://codescriet.dev';
 }
 
 export function getApiBaseUrl(): string {

@@ -55,6 +55,7 @@ export default function QuizPage() {
 
   // Finale intro state: show 2s splash before leaderboard
   const [finaleState, setFinaleState] = useState<'hidden' | 'showing' | 'shown'>('hidden');
+  const [finalRedirectState, setFinalRedirectState] = useState<'idle' | 'navigating' | 'error'>('idle');
 
   useEffect(() => {
     if (quizStatus === 'finished' && finaleState === 'hidden') {
@@ -127,6 +128,38 @@ export default function QuizPage() {
       }
     }
   }, [quizId, socketStatus, accessGranted, isHost, quizAccessToken, joinQuiz, joinAsHost]);
+
+  // Participant auto-redirect to detailed results once quiz is finished.
+  useEffect(() => {
+    if (isHost || !quizId || quizStatus !== 'finished') return;
+    let cancelled = false;
+    const timeout = window.setTimeout(async () => {
+      if (cancelled) return;
+      setFinalRedirectState('navigating');
+      try {
+        const token = localStorage.getItem('token');
+        const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:5001/api';
+        const res = await fetch(`${apiUrl}/quiz/${quizId}/results`, {
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+        });
+        if (!cancelled && res.ok) {
+          navigate(`/quiz/${quizId}/results`, { replace: true });
+          return;
+        }
+      } catch {
+        // Fallback below.
+      }
+      if (!cancelled) {
+        setFinalRedirectState('error');
+      }
+    }, 2500);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timeout);
+      setFinalRedirectState('idle');
+    };
+  }, [isHost, quizId, quizStatus, navigate]);
 
   // Cleanup on unmount
   useEffect(() => {
@@ -415,7 +448,15 @@ export default function QuizPage() {
                 />
               )}
               {finaleState !== 'showing' && (
-                <FinalResults userId={user?.id ?? ''} quizId={quizId || ''} isHost={isHost} leaderboard={leaderboard} totalQuestions={totalQuestions} title={title || 'Quiz'} />
+                <FinalResults
+                  userId={user?.id ?? ''}
+                  quizId={quizId || ''}
+                  isHost={isHost}
+                  leaderboard={leaderboard}
+                  totalQuestions={totalQuestions}
+                  title={title || 'Quiz'}
+                  redirectState={finalRedirectState}
+                />
               )}
             </motion.div>
           )}
@@ -466,6 +507,7 @@ function FinalResults({
   leaderboard,
   totalQuestions,
   title,
+  redirectState,
 }: {
   userId: string;
   quizId: string;
@@ -473,11 +515,11 @@ function FinalResults({
   leaderboard: LeaderboardEntry[];
   totalQuestions: number;
   title: string;
+  redirectState?: 'idle' | 'navigating' | 'error';
 }) {
   const navigate = useNavigate();
   const myEntry = leaderboard.find((e) => e.userId === userId);
   const [copied, setCopied] = useState(false);
-  const [countdown, setCountdown] = useState(5);
 
   const handleCopyResult = useCallback(async () => {
     if (!myEntry) return;
@@ -491,22 +533,6 @@ function FinalResults({
 
   const contextMsg = myEntry ? getContextualMessage(myEntry.rank, leaderboard.length) : null;
   const accuracy = myEntry && totalQuestions > 0 ? Math.round((myEntry.correctCount / totalQuestions) * 100) : 0;
-
-  // Auto-redirect to results page after 5s (players only, not host)
-  useEffect(() => {
-    if (isHost || !quizId) return;
-    const interval = setInterval(() => {
-      setCountdown((prev) => {
-        if (prev <= 1) {
-          clearInterval(interval);
-          navigate(`/quiz/${quizId}/results`);
-          return 0;
-        }
-        return prev - 1;
-      });
-    }, 1000);
-    return () => clearInterval(interval);
-  }, [isHost, quizId, navigate]);
 
   return (
     <motion.div
@@ -588,9 +614,14 @@ function FinalResults({
           View Full Results
           <ArrowRight className="h-4 w-4 ml-2" />
         </Button>
-        {!isHost && countdown > 0 && (
+        {!isHost && redirectState === 'navigating' && (
           <p className="text-xs text-amber-600/60 font-medium tabular-nums">
-            Redirecting in {countdown}s…
+            Opening full results…
+          </p>
+        )}
+        {!isHost && redirectState === 'error' && (
+          <p className="text-xs text-red-600/70 font-medium">
+            Auto-open failed, use “View Full Results”.
           </p>
         )}
         <div className="flex items-center gap-3">
