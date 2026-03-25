@@ -149,6 +149,11 @@ function App() {
                   <Route path="/quiz" element={withRouteBoundary(<ActiveQuizList />)} />
                   <Route path="/quiz/join" element={withRouteBoundary(<QuizJoinPage />)} />
 
+                  {/* Network edit route (separate from dashboard to avoid role-guard conflicts) */}
+                  <Route element={<ProtectedRoute minRole="USER" />}>
+                    <Route path="/network/edit/:id?" element={withRouteBoundary(<EditNetworkProfile />)} />
+                  </Route>
+
                   {/* Protected User Routes */}
                   <Route element={<ProtectedRoute minRole="USER" />}>
                     <Route path="/quiz/:quizId" element={withRouteBoundary(<QuizPage />)} />
@@ -165,7 +170,6 @@ function App() {
                       <Route path="upload" element={withRouteBoundary(<ImageUploadTool />)} />
                       <Route path="profile" element={withRouteBoundary(<ProfilePage />)} />
                       <Route path="team/:id/edit" element={withRouteBoundary(<EditTeamProfile />)} />
-                      <Route path="network/edit/:id?" element={withRouteBoundary(<EditNetworkProfile />)} />
                       <Route path="certificates" element={withRouteBoundary(<DashboardCertificates />)} />
                       <Route element={<ProtectedRoute minRole="CORE_MEMBER" />}>
                         <Route path="attendance" element={withRouteBoundary(<AttendancePage />)} />

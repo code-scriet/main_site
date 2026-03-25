@@ -214,7 +214,7 @@ export default function NetworkStatusPage() {
                     <Button
                       variant="outline"
                       className="w-full sm:w-auto border-amber-200 text-amber-700 hover:bg-amber-50"
-                      onClick={() => navigate(`/dashboard/network/edit/${profile.slug || profile.id}`)}
+                      onClick={() => navigate(`/network/edit/${profile.slug || profile.id}`)}
                     >
                       Edit Profile
                     </Button>
@@ -225,7 +225,7 @@ export default function NetworkStatusPage() {
                   <Button
                     variant="outline"
                     className="w-full sm:w-auto border-amber-200 text-amber-700 hover:bg-amber-50"
-                    onClick={() => navigate(`/dashboard/network/edit/${profile.slug || profile.id}`)}
+                    onClick={() => navigate(`/network/edit/${profile.slug || profile.id}`)}
                   >
                     Edit Profile
                   </Button>

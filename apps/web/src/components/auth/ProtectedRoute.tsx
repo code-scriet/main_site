@@ -35,7 +35,7 @@ export function ProtectedRoute({ minRole = 'USER' }: ProtectedRouteProps) {
     return <Navigate to={`/signin?next=${encodeURIComponent(nextPath)}`} replace />;
   }
 
-  // NETWORK users should never access /dashboard routes — redirect to network status
+  // NETWORK users should never access dashboard routes.
   if (user.role === 'NETWORK') {
     return <Navigate to="/network/status" replace />;
   }

@@ -395,7 +395,7 @@ export default function NetworkProfilePage() {
                 {canEdit && (
                   <Button
                     size="sm"
-                    onClick={() => navigate(`/dashboard/network/edit/${profile?.slug || profile?.id}`)}
+                    onClick={() => navigate(`/network/edit/${profile?.slug || profile?.id}`)}
                     className="gap-2 bg-white text-amber-600 hover:bg-amber-50"
                   >
                     <Edit3 className="h-4 w-4" />
@@ -834,7 +834,7 @@ export default function NetworkProfilePage() {
                       {isProfileOwner ? 'Keep it updated so visitors see the latest info.' : 'You can edit this profile as an administrator.'}
                     </p>
                     <Button
-                      onClick={() => navigate(`/dashboard/network/edit/${profile?.slug || profile?.id}`)}
+                      onClick={() => navigate(`/network/edit/${profile?.slug || profile?.id}`)}
                       className="w-full bg-emerald-600 text-white hover:bg-emerald-700"
                     >
                       <Edit3 className="mr-2 h-4 w-4" />
