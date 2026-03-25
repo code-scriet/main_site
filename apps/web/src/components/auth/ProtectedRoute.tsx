@@ -18,6 +18,7 @@ interface ProtectedRouteProps {
 export function ProtectedRoute({ minRole = 'USER' }: ProtectedRouteProps) {
   const { user, isLoading } = useAuth();
   const location = useLocation();
+  const isNetworkEditPath = location.pathname.startsWith('/network/edit');
 
   if (isLoading) {
     return (
@@ -36,7 +37,7 @@ export function ProtectedRoute({ minRole = 'USER' }: ProtectedRouteProps) {
   }
 
   // NETWORK users should never access dashboard routes.
-  if (user.role === 'NETWORK') {
+  if (user.role === 'NETWORK' && !isNetworkEditPath) {
     return <Navigate to="/network/status" replace />;
   }
 

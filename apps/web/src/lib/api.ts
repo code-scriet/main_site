@@ -61,11 +61,28 @@ async function request<T>(endpoint: string, options: RequestOptions = {}): Promi
     headers.Authorization = `Bearer ${token}`;
   }
 
-  const response = await fetch(`${API_URL}${endpoint}`, {
-    ...fetchOptions,
-    credentials: 'include',   // send & receive cookies for cross-origin session
-    headers,
-  });
+  const executeRequest = (requestHeaders: Record<string, string>) =>
+    fetch(`${API_URL}${endpoint}`, {
+      ...fetchOptions,
+      credentials: 'include', // send & receive cookies for cross-origin session
+      headers: requestHeaders,
+    });
+
+  const withoutAuthHeader = (requestHeaders: Record<string, string>) => {
+    const sanitized = { ...requestHeaders };
+    for (const headerName of Object.keys(sanitized)) {
+      if (headerName.toLowerCase() === 'authorization') {
+        delete sanitized[headerName];
+      }
+    }
+    return sanitized;
+  };
+
+  let response = await executeRequest(headers);
+  // If a stale local token triggers 401 but a fresh session cookie exists, retry once using cookie auth only.
+  if (response.status === 401 && token) {
+    response = await executeRequest(withoutAuthHeader(headers));
+  }
 
   if (!response.ok) {
     const errorData = await readErrorPayload(response);

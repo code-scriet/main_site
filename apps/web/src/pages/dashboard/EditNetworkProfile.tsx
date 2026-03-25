@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { useNavigate, useParams, Link } from 'react-router-dom';
+import { useNavigate, useParams, Link, useLocation } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -7,7 +7,7 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
 import { useAuth } from '@/context/AuthContext';
-import { api, type NetworkProfile, type NetworkProfileInput } from '@/lib/api';
+import { api, UnauthorizedError, type NetworkProfile, type NetworkProfileInput } from '@/lib/api';
 import {
   ArrowLeft,
   Save,
@@ -34,6 +34,7 @@ import {
 
 export default function EditNetworkProfile() {
   const navigate = useNavigate();
+  const location = useLocation();
   const { id } = useParams<{ id: string }>();
   const { user, token } = useAuth();
 
@@ -44,6 +45,10 @@ export default function EditNetworkProfile() {
   const [success, setSuccess] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const successTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const [redirectingToSignIn, setRedirectingToSignIn] = useState(false);
+  const nextPath = `${location.pathname}${location.search}${location.hash}`;
+  const backPath = user?.role === 'NETWORK' ? '/network/status' : '/dashboard';
+  const backLabel = user?.role === 'NETWORK' ? 'Network Status' : 'Dashboard';
 
   useEffect(() => () => { clearTimeout(successTimerRef.current); }, []);
 
@@ -101,8 +106,23 @@ export default function EditNetworkProfile() {
       try {
         setLoading(true);
 
-        // Strategy 1: If we have a slug/id param, fetch that profile (admin editing someone else's)
-        if (id) {
+        // Always resolve owner profile first via authenticated endpoint.
+        const myProfileResult = await api.getMyNetworkProfile(token);
+        const myProfile = myProfileResult?.data || null;
+
+        if (myProfile) {
+          const ownerMatch = id
+            ? id === myProfile.id || id === myProfile.slug
+            : true;
+          if (ownerMatch) {
+            populateForm(myProfile);
+            setIsOwner(true);
+            return;
+          }
+        }
+
+        // Admin-only path: edit any profile by slug/id.
+        if (id && isAdmin) {
           const data = await api.getNetworkProfile(id);
           if (data.id) {
             populateForm(data);
@@ -111,23 +131,18 @@ export default function EditNetworkProfile() {
           }
         }
 
-        // Strategy 2: Fetch my own profile
-        const result = await api.getMyNetworkProfile(token);
-        const data = result?.data || null;
-
-        if (data) {
-          populateForm(data);
-          setIsOwner(true);
-          return;
-        }
-
-        // No profile found at all
+        // No profile found at all for owner.
         if (!isAdmin) {
           navigate('/network/onboarding');
         } else {
           setError('Could not find the network profile to edit.');
         }
-      } catch {
+      } catch (err) {
+        if (err instanceof UnauthorizedError) {
+          setRedirectingToSignIn(true);
+          navigate(`/signin?next=${encodeURIComponent(nextPath)}`, { replace: true });
+          return;
+        }
         setError('Failed to load the network profile.');
       } finally {
         setLoading(false);
@@ -188,13 +203,18 @@ export default function EditNetworkProfile() {
       setSuccess('Profile updated successfully!');
       successTimerRef.current = setTimeout(() => setSuccess(null), 3000);
     } catch (err) {
+      if (err instanceof UnauthorizedError) {
+        setRedirectingToSignIn(true);
+        navigate(`/signin?next=${encodeURIComponent(nextPath)}`, { replace: true });
+        return;
+      }
       setError(err instanceof Error ? err.message : 'Failed to save profile');
     } finally {
       setSaving(false);
     }
   };
 
-  if (loading) {
+  if (loading || redirectingToSignIn) {
     return (
       <div className="flex items-center justify-center py-20">
         <Loader2 className="h-8 w-8 animate-spin text-amber-600" />
@@ -206,9 +226,9 @@ export default function EditNetworkProfile() {
     return (
       <div className="flex flex-col items-center justify-center py-20 gap-4">
         <p className="text-red-600">{error}</p>
-        <Button variant="outline" onClick={() => navigate('/dashboard')}>
+        <Button variant="outline" onClick={() => navigate(backPath)}>
           <ArrowLeft className="h-4 w-4 mr-2" />
-          Back to Dashboard
+          Back
         </Button>
       </div>
     );
@@ -224,7 +244,7 @@ export default function EditNetworkProfile() {
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
           <div className="flex items-center gap-2 text-sm text-gray-500 mb-2">
-            <Link to="/dashboard" className="hover:text-amber-600 transition-colors">Dashboard</Link>
+            <Link to={backPath} className="hover:text-amber-600 transition-colors">{backLabel}</Link>
             <span>›</span>
             <span className="text-amber-600 font-medium">Edit Network Profile</span>
           </div>

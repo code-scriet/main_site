@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useForm } from 'react-hook-form';
 import { z } from 'zod';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useAuth } from '@/context/AuthContext';
 import { useSettings } from '@/context/SettingsContext';
-import { api, type NetworkProfile, type NetworkProfileInput, type NetworkConnectionType } from '@/lib/api';
+import { api, UnauthorizedError, type NetworkProfile, type NetworkProfileInput, type NetworkConnectionType } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -184,8 +184,10 @@ export default function NetworkOnboarding() {
   const { user, token, isLoading: authLoading } = useAuth();
   const { settings, loading: settingsLoading } = useSettings();
   const { isMobile, shouldReduceMotion } = useMotionConfig();
+  const location = useLocation();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
+  const nextPath = `${location.pathname}${location.search}${location.hash}`;
 
   const networkTypeFromUrl = normalizeNetworkType(searchParams.get('type'));
   const networkTypeFromStorage = normalizeNetworkType(localStorage.getItem('network_onboarding_type'));
@@ -263,14 +265,14 @@ export default function NetworkOnboarding() {
   useEffect(() => {
     if (!authLoading && !settingsLoading) {
       if (!user || !token) {
-        navigate('/signin');
+        navigate(`/signin?next=${encodeURIComponent(nextPath)}`, { replace: true });
         return;
       }
       if (settings?.showNetwork === false) {
         navigate('/');
       }
     }
-  }, [authLoading, settingsLoading, user, token, settings?.showNetwork, navigate]);
+  }, [authLoading, settingsLoading, user, token, settings?.showNetwork, navigate, nextPath]);
 
   useEffect(() => {
     const fetchProfile = async () => {
@@ -302,10 +304,17 @@ export default function NetworkOnboarding() {
           setValue('rollNumber', profile.rollNumber || '');
           setValue('achievements', profile.achievements || '');
           setValue('currentLocation', profile.currentLocation || '');
-        } else if (user?.name) {
-          setValue('fullName', user.name);
+        } else {
+          setExistingProfile(null);
+          if (user?.name) {
+            setValue('fullName', user.name);
+          }
         }
       } catch (err) {
+        if (err instanceof UnauthorizedError) {
+          navigate(`/signin?next=${encodeURIComponent(nextPath)}`, { replace: true });
+          return;
+        }
         setProfileLoadError(
           err instanceof Error ? err.message : 'We could not load your existing network profile right now.'
         );
@@ -315,7 +324,7 @@ export default function NetworkOnboarding() {
     };
 
     fetchProfile();
-  }, [token, user, setValue]);
+  }, [token, user, setValue, navigate, nextPath]);
 
   const onSubmit = async (data: ProfileFormData) => {
     if (!token) return;
@@ -351,13 +360,33 @@ export default function NetworkOnboarding() {
       if (existingProfile) {
         await api.updateNetworkProfile(input, token);
       } else {
-        await api.createNetworkProfile(input, token);
+        try {
+          await api.createNetworkProfile(input, token);
+        } catch (err) {
+          if (err instanceof UnauthorizedError) {
+            navigate(`/signin?next=${encodeURIComponent(nextPath)}`, { replace: true });
+            return;
+          }
+          const profileExists = err instanceof Error && /profile already exists/i.test(err.message);
+          if (!profileExists) {
+            throw err;
+          }
+          await api.updateNetworkProfile(input, token);
+          const refreshed = await api.getMyNetworkProfile(token);
+          if (refreshed?.hasProfile && refreshed.data) {
+            setExistingProfile(refreshed.data);
+          }
+        }
       }
 
       localStorage.removeItem('network_onboarding_type');
       localStorage.removeItem('network_intent');
       setSubmitSuccess(true);
     } catch (err) {
+      if (err instanceof UnauthorizedError) {
+        navigate(`/signin?next=${encodeURIComponent(nextPath)}`, { replace: true });
+        return;
+      }
       setSubmitError(err instanceof Error ? err.message : 'Failed to submit profile');
     } finally {
       setSubmitting(false);
