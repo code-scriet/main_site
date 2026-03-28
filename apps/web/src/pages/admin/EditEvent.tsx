@@ -196,11 +196,11 @@ export default function EditEvent() {
         targetAudience: event.targetAudience || '',
         videoUrl: event.videoUrl || '',
         featured: event.featured || false,
-        allowLateRegistration: event.allowLateRegistration || false,
+        allowLateRegistration: event.allowLateRegistration ?? false,
         // Team registration
-        teamRegistration: event.teamRegistration || false,
-        teamMinSize: event.teamMinSize || 2,
-        teamMaxSize: event.teamMaxSize || 4,
+        teamRegistration: event.teamRegistration ?? false,
+        teamMinSize: event.teamMinSize ?? 2,
+        teamMaxSize: event.teamMaxSize ?? 4,
       });
       
       // Check if event has registrations
@@ -227,7 +227,8 @@ export default function EditEvent() {
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
     const { name, value, type } = e.target;
     if (type === 'checkbox') {
-      setForm(prev => ({ ...prev, [name]: (e.target as HTMLInputElement).checked }));
+      const checked = (e.target as HTMLInputElement).checked;
+      setForm(prev => ({ ...prev, [name]: checked }));
     } else {
       setForm(prev => ({ ...prev, [name]: value }));
     }
@@ -630,14 +631,14 @@ export default function EditEvent() {
             {/* Late Registration Toggle */}
             <div className="flex items-center justify-between rounded-lg border border-amber-200 bg-amber-100/50 p-4">
               <div className="space-y-0.5">
-                <label htmlFor="allowLateRegistration" className="text-sm font-medium text-gray-700">
+                <label htmlFor="allowLateRegistration" className="text-sm font-medium text-gray-700 cursor-pointer">
                   Allow Late Registration
                 </label>
                 <p className="text-xs text-gray-500">
                   Let users register even after the event has started
                 </p>
               </div>
-              <div className="relative inline-flex cursor-pointer items-center">
+              <label htmlFor="allowLateRegistration" className="relative inline-flex cursor-pointer items-center">
                 <input
                   type="checkbox"
                   name="allowLateRegistration"
@@ -647,14 +648,14 @@ export default function EditEvent() {
                   className="peer sr-only"
                 />
                 <div className="peer h-6 w-11 rounded-full bg-gray-200 after:absolute after:left-[2px] after:top-[2px] after:h-5 after:w-5 after:rounded-full after:border after:border-gray-300 after:bg-white after:transition-all after:content-[''] peer-checked:bg-amber-500 peer-checked:after:translate-x-full peer-checked:after:border-white peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-amber-300"></div>
-              </div>
+              </label>
             </div>
 
             {/* Team Registration Toggle */}
             <div className="rounded-lg border border-amber-200 bg-amber-100/50 p-4 space-y-4">
               <div className="flex items-center justify-between">
                 <div className="space-y-0.5">
-                  <label htmlFor="teamRegistration" className="text-sm font-medium text-gray-700 flex items-center gap-2">
+                  <label htmlFor="teamRegistration" className="text-sm font-medium text-gray-700 flex items-center gap-2 cursor-pointer">
                     <Users className="h-4 w-4 text-amber-600" />
                     Enable Team Registration
                   </label>
@@ -667,7 +668,7 @@ export default function EditEvent() {
                     </p>
                   )}
                 </div>
-                <div className={`relative inline-flex items-center ${hasRegistrations ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'}`}>
+                <label htmlFor="teamRegistration" className={`relative inline-flex items-centers ${hasRegistrations ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'}`}>
                   <input
                     type="checkbox"
                     name="teamRegistration"
@@ -677,8 +678,8 @@ export default function EditEvent() {
                     disabled={hasRegistrations}
                     className="peer sr-only"
                   />
-                  <div className="peer h-6 w-11 rounded-full bg-gray-200 after:absolute after:left-[2px] after:top-[2px] after:h-5 after:w-5 after:rounded-full after:border after:border-gray-300 after:bg-white after:transition-all after:content-[''] peer-checked:bg-amber-500 peer-checked:after:translate-x-full peer-checked:after:border-white peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-amber-300"></div>
-                </div>
+                  <div className="peer h-6 w-11 rounded-full bg-gray-200 after:absolute after:left-[2px] after:top-[2px] after:h-5 after:w-5 after:rounded-full after:border after:border-gray-300 after:bg-white after:transition-all after:content-[''] peer-checked:bg-amber-500 peer-checked:after:translate-x-full peer-checked:after:border-white peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-amber-300 peer-disabled:cursor-not-allowed peer-disabled:opacity-50"></div>
+                </label>
               </div>
               
               {/* Team Size Configuration */}
