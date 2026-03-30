@@ -123,7 +123,7 @@ export function Header() {
             <span className="text-xl font-bold text-amber-900 group-hover:text-amber-700 transition-colors">code.scriet</span>
           </Link>
 
-          <div className="hidden md:flex items-center space-x-6">
+          <div className="hidden xl:flex items-center space-x-4 2xl:space-x-6">
             {navigation.map((item) => {
               const active = isActiveLink(item.href, item.external);
 
@@ -159,7 +159,7 @@ export function Header() {
             })}
           </div>
 
-          <div className="hidden md:flex items-center space-x-4">
+          <div className="hidden xl:flex items-center space-x-3 2xl:space-x-4">
             {user ? (
               <>
                 <Link to="/dashboard">
@@ -192,7 +192,7 @@ export function Header() {
           <button
             ref={menuButtonRef}
             type="button"
-            className="md:hidden p-2.5 rounded-lg hover:bg-amber-50 active:bg-amber-100 transition-colors touch-target"
+            className="xl:hidden p-2.5 rounded-lg hover:bg-amber-50 active:bg-amber-100 transition-colors touch-target"
             onClick={() => setIsMenuOpen((open) => !open)}
             aria-label={isMenuOpen ? 'Close menu' : 'Open menu'}
             aria-expanded={isMenuOpen}
@@ -213,7 +213,7 @@ export function Header() {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 z-40 bg-black/30 backdrop-blur-sm md:hidden"
+            className="fixed inset-0 z-40 bg-black/30 backdrop-blur-sm xl:hidden"
             onClick={closeMenu}
           >
             <div className="px-4 pt-[88px]">
