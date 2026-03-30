@@ -232,7 +232,7 @@ export default function AchievementDetailPage() {
       />
 
       {/* CINEMATIC HERO SECTION */}
-      <section className="relative min-h-[55vh] md:min-h-[65vh] overflow-hidden">
+      <section className="relative min-h-[58vh] sm:min-h-[64vh] lg:min-h-[72vh] overflow-hidden">
         {/* Parallax Cover Image */}
         {coverImage ? (
           <motion.div 
@@ -281,7 +281,7 @@ export default function AchievementDetailPage() {
           initial={{ opacity: 0, x: -30 }}
           animate={{ opacity: 1, x: 0 }}
           transition={{ delay: 0.3 }}
-          className="absolute top-6 left-6 z-20"
+          className="absolute left-4 top-4 z-20 sm:left-6 sm:top-6"
         >
           <Button
             variant="ghost"
@@ -298,7 +298,7 @@ export default function AchievementDetailPage() {
           initial={{ opacity: 0, x: 30 }}
           animate={{ opacity: 1, x: 0 }}
           transition={{ delay: 0.3 }}
-          className="absolute top-6 right-6 z-20"
+          className="absolute right-4 top-4 z-20 sm:right-6 sm:top-6"
         >
           <Button
             variant="ghost"
@@ -312,23 +312,23 @@ export default function AchievementDetailPage() {
         </motion.div>
 
         {/* Hero Content */}
-        <div className="absolute bottom-0 left-0 right-0 p-6 sm:p-10 md:p-14 z-10">
-          <div className="container mx-auto max-w-5xl">
+        <div className="absolute bottom-0 left-0 right-0 z-10 p-4 sm:p-8 md:p-12">
+          <div className="container mx-auto max-w-6xl">
             {/* Badges Row */}
             <motion.div
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 0.2 }}
-              className="flex flex-wrap items-center gap-3 mb-5"
+              className="mb-4 flex flex-wrap items-center gap-2.5 sm:mb-5 sm:gap-3"
             >
               {achievement.featured && (
-                <span className="inline-flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-amber-500 to-orange-500 rounded-full shadow-lg shadow-amber-500/40">
+                <span className="inline-flex items-center gap-2 rounded-full bg-gradient-to-r from-amber-500 to-orange-500 px-3 py-1.5 shadow-lg shadow-amber-500/40 sm:px-4 sm:py-2">
                   <Sparkles className="h-4 w-4 text-white" />
-                  <span className="text-white text-sm font-bold tracking-wide">FEATURED</span>
+                  <span className="text-xs font-bold tracking-wide text-white sm:text-sm">FEATURED</span>
                 </span>
               )}
               {achievement.eventName && (
-                <Badge className="bg-white/20 text-white border-white/30 backdrop-blur-md text-sm px-4 py-2 rounded-full">
+                <Badge className="rounded-full border-white/30 bg-white/20 px-3 py-1.5 text-xs text-white backdrop-blur-md sm:px-4 sm:py-2 sm:text-sm">
                   <Award className="h-4 w-4 mr-2" />
                   {achievement.eventName}
                 </Badge>
@@ -340,7 +340,7 @@ export default function AchievementDetailPage() {
               initial={{ opacity: 0, y: 40 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 0.3, duration: 0.7 }}
-              className="text-balance mb-6 text-[clamp(2rem,5vw,4.25rem)] font-black leading-[1.1] tracking-tight text-white drop-shadow-2xl font-display"
+              className="text-balance mb-5 max-w-[22ch] text-[clamp(1.75rem,4vw,3.5rem)] font-black leading-[1.08] tracking-tight text-white drop-shadow-2xl font-display sm:mb-6"
             >
               {achievement.title}
             </motion.h1>
@@ -350,27 +350,27 @@ export default function AchievementDetailPage() {
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 0.4 }}
-              className="flex flex-wrap items-center gap-4"
+              className="flex flex-wrap items-center gap-3 sm:gap-4"
             >
-              <div className="flex items-center gap-3 bg-white/15 backdrop-blur-md px-5 py-3 rounded-2xl border border-white/20">
-                <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center text-white font-bold text-lg shadow-lg">
+              <div className="flex items-center gap-3 rounded-xl border border-white/20 bg-white/15 px-3 py-2 backdrop-blur-md sm:rounded-2xl sm:px-4 sm:py-2.5">
+                <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-gradient-to-br from-amber-400 to-orange-500 text-base font-bold text-white shadow-lg sm:h-10 sm:w-10 sm:rounded-xl sm:text-lg">
                   {achievement.achievedBy?.charAt(0) || '?'}
                 </div>
                 <div>
-                  <p className="font-bold text-white">{achievement.achievedBy}</p>
-                  <p className="text-xs text-white/60">Achiever</p>
+                  <p className="text-sm font-bold text-white sm:text-base">{achievement.achievedBy}</p>
+                  <p className="text-[11px] text-white/60 sm:text-xs">Achiever</p>
                 </div>
               </div>
               
-              <div className="flex items-center gap-2 bg-white/15 backdrop-blur-md px-5 py-3 rounded-2xl border border-white/20">
+              <div className="flex items-center gap-2 rounded-xl border border-white/20 bg-white/15 px-3 py-2 backdrop-blur-md sm:rounded-2xl sm:px-4 sm:py-2.5">
                 <Calendar className="h-5 w-5 text-amber-300" />
-                <span className="font-semibold text-white">{formatDate(achievement.date)}</span>
+                <span className="text-sm font-semibold text-white sm:text-base">{formatDate(achievement.date)}</span>
               </div>
               
               {hasGallery && (
-                <div className="flex items-center gap-2 bg-white/15 backdrop-blur-md px-5 py-3 rounded-2xl border border-white/20">
+                <div className="flex items-center gap-2 rounded-xl border border-white/20 bg-white/15 px-3 py-2 backdrop-blur-md sm:rounded-2xl sm:px-4 sm:py-2.5">
                   <ImageIcon className="h-5 w-5 text-amber-300" />
-                  <span className="font-semibold text-white">{achievement.imageGallery!.length} Photos</span>
+                  <span className="text-sm font-semibold text-white sm:text-base">{achievement.imageGallery!.length} Photos</span>
                 </div>
               )}
             </motion.div>
