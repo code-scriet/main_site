@@ -108,6 +108,9 @@ model Settings {
   emailTestingMode          Boolean  @default(false) @map("email_testing_mode")
   emailTestRecipients       String?  @map("email_test_recipients")
 
+  // Competition feature toggle
+  competitionEnabled        Boolean  @default(false) @map("competition_enabled")
+
   @@map("settings")
 }
 

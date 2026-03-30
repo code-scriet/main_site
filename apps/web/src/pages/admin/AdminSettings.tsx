@@ -513,6 +513,13 @@ export default function AdminSettings() {
             checked={settings.playgroundEnabled ?? true}
             onCheckedChange={(checked) => void handleToggle('playgroundEnabled', checked)}
           />
+          <ToggleRow
+            id="competition-enabled"
+            label="Competition System"
+            description="Enable competition rounds for events (admin panel link and management)"
+            checked={settings.competitionEnabled ?? false}
+            onCheckedChange={(checked) => void handleToggle('competitionEnabled', checked)}
+          />
           <div className="space-y-2 p-4 bg-amber-50 rounded-lg">
             <Label htmlFor="playground-daily-limit">Playground Daily Execution Limit</Label>
             <Input
