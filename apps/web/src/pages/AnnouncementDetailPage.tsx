@@ -8,14 +8,15 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Markdown } from '@/components/ui/markdown';
+import { LightboxGallery } from '@/components/media/LightboxGallery';
 import { 
   Calendar, Loader2, ArrowLeft, AlertCircle, Info, AlertTriangle, 
-  Bell, X, User, ExternalLink, Image as ImageIcon, FileText, 
+  Bell, User, ExternalLink, Image as ImageIcon, FileText, 
   Link as LinkIcon, Tag, Pin, Star, Share2, Clock
 } from 'lucide-react';
 import { api, type Announcement } from '@/lib/api';
 import { formatDate, formatDateTime } from '@/lib/dateUtils';
-import { processImageUrl, processImageGallery } from '@/lib/imageUtils';
+import { processImageUrl } from '@/lib/imageUtils';
 
 const priorityConfig = {
   LOW: { label: 'Low Priority', color: 'bg-gray-100 text-gray-700 border-gray-300', icon: Info, bgClass: 'from-gray-500 to-slate-600' },
@@ -26,103 +27,8 @@ const priorityConfig = {
 
 // Image Gallery Component with Lightbox
 function ImageGallery({ images }: { images: string[] }) {
-  const [selectedImage, setSelectedImage] = useState<number | null>(null);
-  
-  const processedImages = processImageGallery(images, 'gallery');
-  const thumbnails = processImageGallery(images, 'square');
-  
-  if (!images || !images.length) {
-    return (
-      <div className="text-center py-8 text-gray-500">
-        <ImageIcon className="h-12 w-12 mx-auto mb-2 text-gray-400" />
-        <p>No images in gallery</p>
-      </div>
-    );
-  }
-
   return (
-    <>
-      {/* Gallery Grid */}
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-        {thumbnails.map((thumb, index) => (
-          <motion.div
-            key={index}
-            whileHover={{ scale: 1.02 }}
-            whileTap={{ scale: 0.98 }}
-            className="aspect-square rounded-lg overflow-hidden cursor-pointer shadow-md hover:shadow-xl transition-shadow"
-            onClick={() => setSelectedImage(index)}
-          >
-            <img
-              src={thumb}
-              alt={`Image ${index + 1}`}
-              className="w-full h-full object-cover"
-              onError={(event) => {
-                event.currentTarget.src = '/fallback-image.svg';
-              }}
-            />
-          </motion.div>
-        ))}
-      </div>
-
-      {/* Lightbox */}
-      <AnimatePresence>
-        {selectedImage !== null && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 z-50 bg-black/90 flex items-center justify-center p-4"
-            onClick={() => setSelectedImage(null)}
-          >
-            <button
-              className="absolute top-4 right-4 text-white hover:text-gray-300 z-10"
-              onClick={() => setSelectedImage(null)}
-            >
-              <X className="h-8 w-8" />
-            </button>
-            
-            {/* Navigation */}
-            <button
-              className="absolute left-4 text-white hover:text-gray-300 p-2 disabled:opacity-30"
-              disabled={selectedImage === 0}
-              onClick={(e) => {
-                e.stopPropagation();
-                setSelectedImage(prev => prev !== null ? prev - 1 : null);
-              }}
-            >
-              <ArrowLeft className="h-8 w-8" />
-            </button>
-            
-            <motion.img
-              key={selectedImage}
-              initial={{ opacity: 0, scale: 0.9 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.9 }}
-              src={processedImages[selectedImage]}
-              alt={`Image ${selectedImage + 1}`}
-              className="max-w-full max-h-[85vh] object-contain rounded-lg"
-              onClick={(e) => e.stopPropagation()}
-            />
-            
-            <button
-              className="absolute right-4 text-white hover:text-gray-300 p-2 disabled:opacity-30"
-              disabled={selectedImage === processedImages.length - 1}
-              onClick={(e) => {
-                e.stopPropagation();
-                setSelectedImage(prev => prev !== null ? prev + 1 : null);
-              }}
-            >
-              <ArrowLeft className="h-8 w-8 rotate-180" />
-            </button>
-            
-            {/* Image counter */}
-            <div className="absolute bottom-4 text-white text-sm">
-              {selectedImage + 1} / {processedImages.length}
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-    </>
+    <LightboxGallery images={images} imageAltPrefix="Announcement image" />
   );
 }
 

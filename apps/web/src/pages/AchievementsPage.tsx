@@ -157,7 +157,7 @@ function AchievementCard({
                   <div className="h-px flex-1 bg-gradient-to-l from-amber-400/80 to-transparent" />
                 </motion.div>
               )}
-              <h3 className="text-white font-bold text-xl leading-tight line-clamp-2 drop-shadow-2xl group-hover:text-amber-100 transition-colors">
+              <h3 className="text-lg font-bold leading-tight text-white line-clamp-2 drop-shadow-2xl transition-colors group-hover:text-amber-100 sm:text-xl">
                 {achievement.title}
               </h3>
             </div>
@@ -314,7 +314,7 @@ export default function AchievementsPage() {
           />
         </div>
         
-        <div className="container mx-auto px-4 relative z-10">
+        <div className="container relative z-10 mx-auto max-w-7xl px-4">
           <div className="grid lg:grid-cols-2 gap-12 lg:gap-16 items-center max-w-7xl mx-auto">
             {/* Left Column - Content */}
             <motion.div
@@ -341,7 +341,7 @@ export default function AchievementsPage() {
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.6, delay: 0.3 }}
               >
-                <h1 className="text-4xl sm:text-5xl lg:text-6xl font-black text-gray-900 leading-tight">
+                <h1 className="text-balance text-[clamp(2rem,5vw,3.75rem)] font-black leading-tight text-gray-900">
                   Learning
                   <br />
                   <span className="text-transparent bg-clip-text bg-gradient-to-r from-amber-600 to-orange-600">
@@ -355,7 +355,7 @@ export default function AchievementsPage() {
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.6, delay: 0.4 }}
-                className="text-lg text-gray-700 leading-relaxed"
+                className="text-base leading-relaxed text-gray-700 sm:text-lg"
               >
                 These aren't just milestones—they're proof of what happens when students commit 
                 to learning together. Every workshop taught, every project built, every problem 
@@ -401,7 +401,7 @@ export default function AchievementsPage() {
                       <Zap className="h-5 w-5 text-orange-500" />
                     </motion.div>
                   </div>
-                  <div className="text-4xl font-black text-gray-900 mb-1">
+                  <div className="mb-1 text-3xl font-black text-gray-900 sm:text-4xl">
                     {achievements.length || "0"}
                   </div>
                   <div className="text-amber-700 font-bold text-sm">Milestones</div>
@@ -421,7 +421,7 @@ export default function AchievementsPage() {
                   <div className="p-2.5 rounded-xl bg-gradient-to-br from-amber-50 to-orange-50 border border-amber-200 w-fit mb-3">
                     <Star className="h-5 w-5 text-amber-600" />
                   </div>
-                  <div className="text-3xl font-black text-gray-900 mb-1">
+                  <div className="mb-1 text-2xl font-black text-gray-900 sm:text-3xl">
                     {featuredAchievements.length || "0"}
                   </div>
                   <div className="text-xs text-amber-700 font-bold">Featured</div>
@@ -440,7 +440,7 @@ export default function AchievementsPage() {
                   <div className="p-2.5 rounded-xl bg-gradient-to-br from-orange-50 to-amber-50 border border-orange-200 w-fit mb-3">
                     <Users className="h-5 w-5 text-orange-600" />
                   </div>
-                  <div className="text-3xl font-black text-gray-900 mb-1">{memberImpactCount}</div>
+                  <div className="mb-1 text-2xl font-black text-gray-900 sm:text-3xl">{memberImpactCount}</div>
                   <div className="text-xs text-amber-700 font-bold">Members</div>
                 </div>
               </motion.div>
@@ -451,7 +451,7 @@ export default function AchievementsPage() {
 
       {/* ACHIEVEMENT CARDS SECTION */}
       <section className="py-16 sm:py-20 bg-gradient-to-b from-white via-amber-50/30 to-white">
-        <div className="container mx-auto px-4">
+        <div className="container mx-auto max-w-7xl px-4">
           {/* Section Header */}
           <motion.div
             initial={{ opacity: 0, y: 20 }}
@@ -464,13 +464,13 @@ export default function AchievementsPage() {
               <Award className="h-4 w-4 mr-2" />
               Our Milestones
             </Badge>
-            <h2 className="text-4xl sm:text-5xl font-black text-gray-900 mb-4">
+            <h2 className="text-balance mb-4 text-[clamp(1.9rem,4.8vw,3.2rem)] font-black text-gray-900">
               What We've{' '}
               <span className="text-transparent bg-clip-text bg-gradient-to-r from-amber-500 to-orange-500">
                 Achieved
               </span>
             </h2>
-            <p className="text-gray-600 text-lg max-w-2xl mx-auto">
+            <p className="mx-auto max-w-2xl text-base text-gray-600 sm:text-lg">
               Click on any achievement to explore the full story, photos, and details
             </p>
           </motion.div>
@@ -544,8 +544,8 @@ export default function AchievementsPage() {
               <div className="inline-flex items-center justify-center w-28 h-28 rounded-3xl bg-gradient-to-br from-amber-100 to-orange-100 mb-6 shadow-xl">
                 <Trophy className="h-14 w-14 text-amber-400" />
               </div>
-              <h3 className="text-3xl font-bold text-gray-900 mb-3">No achievements yet</h3>
-              <p className="text-gray-500 text-lg max-w-md mx-auto">
+              <h3 className="mb-3 text-2xl font-bold text-gray-900 sm:text-3xl">No achievements yet</h3>
+              <p className="mx-auto max-w-md text-base text-gray-500 sm:text-lg">
                 We're working on amazing things. Check back soon!
               </p>
             </motion.div>
@@ -565,7 +565,7 @@ export default function AchievementsPage() {
                       <Sparkles className="h-5 w-5 animate-pulse" />
                       <span className="font-bold text-lg">Featured Achievements</span>
                     </div>
-                    <h3 className="text-3xl font-bold text-gray-900">Our Proudest Moments</h3>
+                    <h3 className="text-2xl font-bold text-gray-900 sm:text-3xl">Our Proudest Moments</h3>
                   </motion.div>
                   
                   <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-8">
@@ -594,8 +594,8 @@ export default function AchievementsPage() {
                       viewport={{ once: true }}
                       className="text-center mb-10"
                     >
-                      <h3 className="text-3xl font-bold text-gray-900">All Achievements</h3>
-                      <p className="text-gray-600 mt-2 text-lg">Every milestone matters in our journey</p>
+                      <h3 className="text-2xl font-bold text-gray-900 sm:text-3xl">All Achievements</h3>
+                      <p className="mt-2 text-base text-gray-600 sm:text-lg">Every milestone matters in our journey</p>
                     </motion.div>
                   )}
                   
@@ -645,7 +645,7 @@ export default function AchievementsPage() {
           />
         </div>
         
-        <div className="container mx-auto px-4 relative z-10">
+        <div className="container relative z-10 mx-auto max-w-7xl px-4">
           <motion.div
             initial={{ opacity: 0, y: 30 }}
             whileInView={{ opacity: 1, y: 0 }}
@@ -664,11 +664,11 @@ export default function AchievementsPage() {
                 <Users className="h-8 w-8 text-amber-300" />
               </motion.div>
               
-              <h2 className="text-3xl sm:text-4xl md:text-5xl font-black text-white mb-6 leading-tight">
+              <h2 className="mb-6 text-balance text-[clamp(2rem,4.4vw,3.2rem)] font-black leading-tight text-white">
                 Partner With Us
               </h2>
               
-              <p className="text-gray-300 text-lg max-w-3xl mx-auto leading-relaxed mb-10">
+              <p className="mx-auto mb-10 max-w-3xl text-base leading-relaxed text-gray-300 sm:text-lg">
                 Looking to sponsor events, collaborate on projects, or support our community? 
                 We're always open to partnerships that help students learn and grow. Let's build something meaningful together.
               </p>

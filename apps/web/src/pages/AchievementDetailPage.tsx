@@ -1,18 +1,19 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { Layout } from '@/components/layout/Layout';
 import { SEO } from '@/components/SEO';
 import { AchievementSchema, BreadcrumbSchema } from '@/components/ui/schema';
-import { motion, AnimatePresence, type PanInfo } from 'framer-motion';
+import { motion } from 'framer-motion';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Markdown } from '@/components/ui/markdown';
 import { InlineMarkdown } from '@/components/ui/inline-markdown';
+import { LightboxGallery } from '@/components/media/LightboxGallery';
 import { 
-  Trophy, Calendar, Loader2, ArrowLeft, Tag, Share2, X,
+  Trophy, Calendar, Loader2, ArrowLeft, Tag, Share2,
   ChevronLeft, ChevronRight, Image as ImageIcon, Sparkles, Award, Star,
-  Play, Pause, Maximize2, ZoomIn, ZoomOut
+  Play, Pause
 } from 'lucide-react';
 import { api, type Achievement } from '@/lib/api';
 import { formatDate } from '@/lib/dateUtils';
@@ -24,459 +25,84 @@ import { processImageUrl, processImageGallery } from '@/lib/imageUtils';
 // ============================================
 
 function CinematicGallery({ images }: { images: string[] }) {
-  const [selectedImage, setSelectedImage] = useState<number | null>(null);
-  const [isPlaying, setIsPlaying] = useState(false);
-  const [loadedImages, setLoadedImages] = useState<Set<number>>(new Set());
   const [activeSlide, setActiveSlide] = useState(0);
-  const [zoomLevel, setZoomLevel] = useState(1);
-  const [isPageVisible, setIsPageVisible] = useState(
-    typeof document === 'undefined' ? true : document.visibilityState !== 'hidden',
-  );
-  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  
+  const [isPlaying, setIsPlaying] = useState(false);
+
   const processedImages = processImageGallery(images, 'gallery');
-  const thumbnails = processImageGallery(images, 'square');
-  
-  // Auto slideshow effect
+  const hasImages = processedImages.length > 0;
+
   useEffect(() => {
-    if (isPlaying && selectedImage === null && isPageVisible) {
-      intervalRef.current = setInterval(() => {
+    if (!isPlaying || processedImages.length <= 1) return;
+
+    const intervalId = window.setInterval(() => {
         setActiveSlide((prev) => (prev + 1) % processedImages.length);
-      }, 4000);
-    }
-    return () => {
-      if (intervalRef.current) clearInterval(intervalRef.current);
-    };
-  }, [isPageVisible, isPlaying, selectedImage, processedImages.length]);
+      }, 4500);
+
+    return () => window.clearInterval(intervalId);
+  }, [isPlaying, processedImages.length]);
 
   useEffect(() => {
-    const handleVisibilityChange = () => {
-      setIsPageVisible(document.visibilityState !== 'hidden');
-    };
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
-  }, []);
+    if (activeSlide < processedImages.length) return;
+    setActiveSlide(0);
+  }, [activeSlide, processedImages.length]);
 
-  const handleImageLoad = (index: number) => {
-    setLoadedImages(prev => new Set([...prev, index]));
-  };
-
-  const handleDragEnd = (_: MouseEvent | TouchEvent | PointerEvent, info: PanInfo) => {
-    if (selectedImage === null) return;
-    const threshold = 100;
-    if (info.offset.x > threshold && selectedImage > 0) {
-      setSelectedImage(selectedImage - 1);
-    } else if (info.offset.x < -threshold && selectedImage < processedImages.length - 1) {
-      setSelectedImage(selectedImage + 1);
-    }
-  };
-
-  const handleKeyDown = useCallback((e: KeyboardEvent) => {
-    if (selectedImage === null) return;
-    if (e.key === 'ArrowLeft' && selectedImage > 0) {
-      setSelectedImage(selectedImage - 1);
-    } else if (e.key === 'ArrowRight' && selectedImage < processedImages.length - 1) {
-      setSelectedImage(selectedImage + 1);
-    } else if (e.key === 'Escape') {
-      setSelectedImage(null);
-      setZoomLevel(1);
-    }
-  }, [selectedImage, processedImages.length]);
-
-  useEffect(() => {
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [handleKeyDown]);
-  
-  if (!images || !images.length) {
-    return (
-      <div className="text-center py-16 bg-gradient-to-br from-amber-50/80 via-orange-50/80 to-amber-50/80 rounded-3xl border border-amber-200/50 backdrop-blur-sm">
-        <motion.div 
-          initial={{ scale: 0 }}
-          animate={{ scale: 1 }}
-          transition={{ type: "spring", duration: 0.6 }}
-          className="inline-flex items-center justify-center w-20 h-20 rounded-full bg-gradient-to-br from-amber-100 to-orange-100 mb-4 shadow-lg"
-        >
-          <ImageIcon className="h-10 w-10 text-amber-400" />
-        </motion.div>
-        <p className="text-gray-500 font-medium text-lg">No images in gallery</p>
-      </div>
-    );
+  if (!hasImages) {
+    return <LightboxGallery images={[]} imageAltPrefix="Achievement photo" />;
   }
 
-  // Ken Burns animation variants for slideshow
-  const kenBurnsVariants = [
-    { scale: 1, x: 0, y: 0 },
-    { scale: 1.15, x: '-3%', y: '-2%' },
-    { scale: 1.1, x: '2%', y: '-3%' },
-    { scale: 1.2, x: '-2%', y: '2%' },
-  ];
-
   return (
-    <>
-      {/* FEATURED SLIDESHOW HERO */}
-      <div className="relative mb-8 rounded-3xl overflow-hidden shadow-2xl">
-        {/* Main Slideshow Display */}
-        <div className="relative aspect-[16/9] overflow-hidden bg-gradient-to-br from-gray-900 to-black">
-          <AnimatePresence mode="wait">
-            <motion.div
-              key={activeSlide}
-              initial={{ opacity: 0 }}
-              animate={{ 
-                opacity: 1,
-                ...kenBurnsVariants[activeSlide % kenBurnsVariants.length]
-              }}
-              exit={{ opacity: 0 }}
-              transition={{ 
-                opacity: { duration: 0.8 },
-                scale: { duration: 8, ease: "linear" },
-                x: { duration: 8, ease: "linear" },
-                y: { duration: 8, ease: "linear" }
-              }}
-              className="absolute inset-0"
-            >
-              <img
-                src={processedImages[activeSlide]}
-                alt={`Slide ${activeSlide + 1}`}
-                className="w-full h-full object-cover"
-              />
-            </motion.div>
-          </AnimatePresence>
-
-          {/* Cinematic Gradient Overlays */}
-          <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-black/30" />
-          <div className="absolute inset-0 bg-gradient-to-r from-black/30 via-transparent to-black/30" />
-          
-          {/* Elegant Vignette Effect */}
-          <div className="absolute inset-0 shadow-[inset_0_0_150px_rgba(0,0,0,0.7)]" />
-
-          {/* Slide Navigation Arrows */}
-          <motion.button
-            whileHover={{ scale: 1.1, x: -2 }}
-            whileTap={{ scale: 0.95 }}
-            className="absolute left-4 top-1/2 -translate-y-1/2 w-12 h-12 rounded-full bg-white/10 backdrop-blur-md border border-white/20 flex items-center justify-center text-white hover:bg-white/20 transition-all z-10 shadow-lg"
-            onClick={() => {
-              setIsPlaying(false);
-              setActiveSlide((prev) => (prev - 1 + processedImages.length) % processedImages.length);
-            }}
-          >
-            <ChevronLeft className="h-6 w-6" />
-          </motion.button>
-          
-          <motion.button
-            whileHover={{ scale: 1.1, x: 2 }}
-            whileTap={{ scale: 0.95 }}
-            className="absolute right-4 top-1/2 -translate-y-1/2 w-12 h-12 rounded-full bg-white/10 backdrop-blur-md border border-white/20 flex items-center justify-center text-white hover:bg-white/20 transition-all z-10 shadow-lg"
-            onClick={() => {
-              setIsPlaying(false);
-              setActiveSlide((prev) => (prev + 1) % processedImages.length);
-            }}
-          >
-            <ChevronRight className="h-6 w-6" />
-          </motion.button>
-
-          {/* Slideshow Controls */}
-          <div className="absolute bottom-4 left-1/2 -translate-x-1/2 flex items-center gap-3 z-10">
-            {/* Play/Pause Button */}
-            <motion.button
-              whileHover={{ scale: 1.1 }}
-              whileTap={{ scale: 0.95 }}
-              onClick={() => setIsPlaying(!isPlaying)}
-              className="w-10 h-10 rounded-full bg-white/20 backdrop-blur-md border border-white/30 flex items-center justify-center text-white hover:bg-white/30 transition-all"
-            >
-              {isPlaying ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4 ml-0.5" />}
-            </motion.button>
-            
-            {/* Slide Indicators */}
-            <div className="flex items-center gap-2 px-4 py-2 rounded-full bg-black/40 backdrop-blur-md">
-              {processedImages.slice(0, 8).map((_, index) => (
-                <motion.button
-                  key={index}
-                  whileHover={{ scale: 1.3 }}
-                  onClick={() => {
-                    setIsPlaying(false);
-                    setActiveSlide(index);
-                  }}
-                  className={`transition-all duration-300 ${
-                    index === activeSlide 
-                      ? 'w-8 h-2 rounded-full bg-gradient-to-r from-amber-400 to-orange-400' 
-                      : 'w-2 h-2 rounded-full bg-white/50 hover:bg-white/80'
-                  }`}
-                />
-              ))}
-              {processedImages.length > 8 && (
-                <span className="text-white/70 text-xs ml-1">+{processedImages.length - 8}</span>
-              )}
-            </div>
-
-            {/* Fullscreen Button */}
-            <motion.button
-              whileHover={{ scale: 1.1 }}
-              whileTap={{ scale: 0.95 }}
-              onClick={() => setSelectedImage(activeSlide)}
-              className="w-10 h-10 rounded-full bg-white/20 backdrop-blur-md border border-white/30 flex items-center justify-center text-white hover:bg-white/30 transition-all"
-            >
-              <Maximize2 className="h-4 w-4" />
-            </motion.button>
-          </div>
-
-          {/* Image Counter */}
-          <div className="absolute top-4 right-4 px-4 py-2 rounded-full bg-black/40 backdrop-blur-md border border-white/10 z-10">
-            <span className="text-white font-medium text-sm">
-              {activeSlide + 1} / {processedImages.length}
-            </span>
-          </div>
-
-          {/* Click to expand */}
-          <button
-            className="absolute inset-0 cursor-pointer z-0"
-            onClick={() => setSelectedImage(activeSlide)}
-            aria-label="View full image"
+    <div className="space-y-5">
+      <div className="relative overflow-hidden rounded-3xl border border-amber-200 bg-black shadow-xl">
+        <div className="relative aspect-[16/9]">
+          <img
+            src={processedImages[activeSlide]}
+            alt={`Slide ${activeSlide + 1}`}
+            className="h-full w-full object-cover"
           />
+
+          <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/15 to-black/25" />
+
+          <button
+            type="button"
+            className="absolute left-3 top-1/2 z-10 -translate-y-1/2 rounded-full border border-white/25 bg-black/35 p-2 text-white transition hover:bg-black/60 disabled:opacity-35"
+            disabled={activeSlide === 0}
+            onClick={() => {
+              setIsPlaying(false);
+              setActiveSlide((prev) => Math.max(0, prev - 1));
+            }}
+          >
+            <ChevronLeft className="h-5 w-5" />
+          </button>
+
+          <button
+            type="button"
+            className="absolute right-3 top-1/2 z-10 -translate-y-1/2 rounded-full border border-white/25 bg-black/35 p-2 text-white transition hover:bg-black/60 disabled:opacity-35"
+            disabled={activeSlide === processedImages.length - 1}
+            onClick={() => {
+              setIsPlaying(false);
+              setActiveSlide((prev) => Math.min(processedImages.length - 1, prev + 1));
+            }}
+          >
+            <ChevronRight className="h-5 w-5" />
+          </button>
+
+          <div className="absolute left-3 top-3 z-10 rounded-full border border-white/20 bg-black/40 px-3 py-1 text-sm text-white">
+            {activeSlide + 1} / {processedImages.length}
+          </div>
+
+          <button
+            type="button"
+            onClick={() => setIsPlaying((prev) => !prev)}
+            className="absolute right-3 top-3 z-10 rounded-full border border-white/20 bg-black/40 p-2 text-white transition hover:bg-black/60"
+            aria-label={isPlaying ? 'Pause slideshow' : 'Play slideshow'}
+          >
+            {isPlaying ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
+          </button>
         </div>
       </div>
 
-      {/* THUMBNAIL GRID with Stagger Animation */}
-      <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 gap-3">
-        {thumbnails.map((thumb, index) => (
-          <motion.button
-            key={index}
-            initial={{ opacity: 0, scale: 0.8, y: 20 }}
-            animate={{ opacity: 1, scale: 1, y: 0 }}
-            transition={{ duration: 0.4, delay: index * 0.05, ease: [0.22, 1, 0.36, 1] }}
-            whileHover={{ scale: 1.05, y: -4, zIndex: 10 }}
-            whileTap={{ scale: 0.98 }}
-            onClick={() => setSelectedImage(index)}
-            className={`group relative aspect-square rounded-xl overflow-hidden shadow-lg hover:shadow-2xl transition-all duration-300 ${
-              index === activeSlide ? 'ring-2 ring-amber-400 ring-offset-2' : ''
-            }`}
-          >
-            {/* Loading Shimmer */}
-            {!loadedImages.has(index) && (
-              <div className="absolute inset-0 bg-gradient-to-r from-amber-100 via-orange-50 to-amber-100 animate-pulse" />
-            )}
-            
-            <img
-              src={thumb}
-              alt={`Gallery ${index + 1}`}
-              className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
-              onLoad={() => handleImageLoad(index)}
-              onError={(event) => {
-                event.currentTarget.src = '/fallback-image.svg';
-                handleImageLoad(index);
-              }}
-            />
-            
-            {/* Hover Overlay */}
-            <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/20 to-transparent opacity-0 group-hover:opacity-100 transition-all duration-300">
-              <div className="absolute bottom-2 left-2 right-2 flex items-center justify-between">
-                <span className="text-white text-xs font-medium bg-black/40 px-2 py-1 rounded-full backdrop-blur-sm">
-                  {index + 1}
-                </span>
-                <ZoomIn className="h-4 w-4 text-white" />
-              </div>
-            </div>
-
-            {/* Active indicator dot */}
-            {index === activeSlide && (
-              <motion.div 
-                layoutId="activeIndicator"
-                className="absolute top-2 right-2 w-3 h-3 rounded-full bg-amber-400 shadow-lg shadow-amber-400/50"
-              />
-            )}
-          </motion.button>
-        ))}
-      </div>
-
-      {/* PREMIUM LIGHTBOX with Gestures */}
-      <AnimatePresence>
-        {selectedImage !== null && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 z-[100] bg-black/98 backdrop-blur-xl flex items-center justify-center"
-            onClick={() => {
-              setSelectedImage(null);
-              setZoomLevel(1);
-            }}
-          >
-            {/* Ambient background glow */}
-            <div className="absolute inset-0 overflow-hidden">
-              <motion.div 
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 0.3 }}
-                className="absolute inset-0 scale-150 blur-3xl"
-                style={{
-                  backgroundImage: `url(${processedImages[selectedImage]})`,
-                  backgroundSize: 'cover',
-                  backgroundPosition: 'center'
-                }}
-              />
-            </div>
-
-            {/* Close Button */}
-            <motion.button
-              initial={{ opacity: 0, scale: 0.8 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.8 }}
-              whileHover={{ scale: 1.1, rotate: 90 }}
-              className="absolute top-6 right-6 w-12 h-12 rounded-full bg-white/10 backdrop-blur-md border border-white/20 flex items-center justify-center text-white hover:bg-white/20 transition-all z-50"
-              onClick={(e) => {
-                e.stopPropagation();
-                setSelectedImage(null);
-                setZoomLevel(1);
-              }}
-            >
-              <X className="h-6 w-6" />
-            </motion.button>
-
-            {/* Navigation - Previous */}
-            <motion.button
-              initial={{ opacity: 0, x: -30 }}
-              animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: -30 }}
-              whileHover={{ scale: 1.1, x: -4 }}
-              whileTap={{ scale: 0.95 }}
-              className="absolute left-4 md:left-8 top-1/2 -translate-y-1/2 w-14 h-14 rounded-full bg-white/10 backdrop-blur-md border border-white/20 flex items-center justify-center text-white hover:bg-white/20 transition-all z-50 disabled:opacity-30 disabled:cursor-not-allowed"
-              disabled={selectedImage === 0}
-              onClick={(e) => {
-                e.stopPropagation();
-                setSelectedImage(selectedImage - 1);
-                setZoomLevel(1);
-              }}
-            >
-              <ChevronLeft className="h-7 w-7" />
-            </motion.button>
-
-            {/* Main Image with Pan & Zoom */}
-            <motion.div
-              drag={zoomLevel === 1}
-              dragConstraints={{ left: 0, right: 0, top: 0, bottom: 0 }}
-              dragElastic={0.2}
-              onDragEnd={handleDragEnd}
-              className="relative max-w-[90vw] max-h-[85vh] z-10"
-              onClick={(e) => e.stopPropagation()}
-            >
-              <motion.img
-                key={selectedImage}
-                initial={{ opacity: 0, scale: 0.9 }}
-                animate={{ opacity: 1, scale: zoomLevel }}
-                exit={{ opacity: 0, scale: 0.9 }}
-                transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
-                src={processedImages[selectedImage]}
-                alt={`Full view ${selectedImage + 1}`}
-                className="max-w-full max-h-[85vh] object-contain rounded-2xl shadow-2xl cursor-grab active:cursor-grabbing"
-                draggable={false}
-              />
-            </motion.div>
-
-            {/* Navigation - Next */}
-            <motion.button
-              initial={{ opacity: 0, x: 30 }}
-              animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: 30 }}
-              whileHover={{ scale: 1.1, x: 4 }}
-              whileTap={{ scale: 0.95 }}
-              className="absolute right-4 md:right-8 top-1/2 -translate-y-1/2 w-14 h-14 rounded-full bg-white/10 backdrop-blur-md border border-white/20 flex items-center justify-center text-white hover:bg-white/20 transition-all z-50 disabled:opacity-30 disabled:cursor-not-allowed"
-              disabled={selectedImage === processedImages.length - 1}
-              onClick={(e) => {
-                e.stopPropagation();
-                setSelectedImage(selectedImage + 1);
-                setZoomLevel(1);
-              }}
-            >
-              <ChevronRight className="h-7 w-7" />
-            </motion.button>
-
-            {/* Bottom Controls Bar */}
-            <motion.div
-              initial={{ opacity: 0, y: 30 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: 30 }}
-              className="absolute bottom-6 left-1/2 -translate-x-1/2 flex items-center gap-4 px-5 py-3 rounded-2xl bg-white/10 backdrop-blur-2xl border border-white/10 shadow-2xl shadow-black/30 z-50"
-            >
-              {/* Zoom Controls */}
-              <div className="flex items-center gap-2">
-                <motion.button
-                  whileHover={{ scale: 1.1 }}
-                  whileTap={{ scale: 0.95 }}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setZoomLevel(Math.max(1, zoomLevel - 0.5));
-                  }}
-                  className="w-8 h-8 rounded-lg bg-white/10 flex items-center justify-center text-white hover:bg-white/20 transition-all disabled:opacity-50"
-                  disabled={zoomLevel <= 1}
-                >
-                  <ZoomOut className="h-4 w-4" />
-                </motion.button>
-                <span className="text-white/70 text-sm w-12 text-center">{Math.round(zoomLevel * 100)}%</span>
-                <motion.button
-                  whileHover={{ scale: 1.1 }}
-                  whileTap={{ scale: 0.95 }}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setZoomLevel(Math.min(3, zoomLevel + 0.5));
-                  }}
-                  className="w-8 h-8 rounded-lg bg-white/10 flex items-center justify-center text-white hover:bg-white/20 transition-all disabled:opacity-50"
-                  disabled={zoomLevel >= 3}
-                >
-                  <ZoomIn className="h-4 w-4" />
-                </motion.button>
-              </div>
-
-              <div className="w-px h-6 bg-white/20" />
-
-              {/* Thumbnail Strip */}
-              <div className="flex items-center gap-2 max-w-[52vw] overflow-x-auto scrollbar-hide rounded-xl px-2 py-1 bg-white/5 border border-white/10">
-                {thumbnails.slice(0, 10).map((thumb, index) => (
-                  <motion.button
-                    key={index}
-                    whileHover={{ scale: 1.15 }}
-                    whileTap={{ scale: 0.95 }}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setSelectedImage(index);
-                      setZoomLevel(1);
-                    }}
-                    className={`w-11 h-11 rounded-xl overflow-hidden flex-shrink-0 transition-all duration-300 ${
-                      index === selectedImage 
-                        ? 'ring-2 ring-amber-400/80 shadow-lg shadow-amber-400/30 scale-105 bg-white/10' 
-                        : 'opacity-60 hover:opacity-100 hover:ring-1 hover:ring-white/30'
-                    }`}
-                  >
-                    <img src={thumb} alt="" className="w-full h-full object-cover" />
-                  </motion.button>
-                ))}
-              </div>
-
-              <div className="w-px h-6 bg-white/20" />
-
-              {/* Counter */}
-              <div className="flex items-center gap-2 text-white">
-                <span className="text-amber-400 font-bold">{selectedImage + 1}</span>
-                <span className="text-white/50">/</span>
-                <span className="text-white/70">{processedImages.length}</span>
-              </div>
-            </motion.div>
-
-            {/* Keyboard hints */}
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              transition={{ delay: 1 }}
-              className="absolute top-6 left-6 flex items-center gap-3 text-white/40 text-xs z-50"
-            >
-              <span className="px-2 py-1 rounded bg-white/10">←</span>
-              <span className="px-2 py-1 rounded bg-white/10">→</span>
-              <span>Navigate</span>
-              <span className="px-2 py-1 rounded bg-white/10">ESC</span>
-              <span>Close</span>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-    </>
+      <LightboxGallery images={images} imageAltPrefix="Achievement photo" />
+    </div>
   );
 }
 
@@ -661,10 +287,10 @@ export default function AchievementDetailPage() {
             variant="ghost"
             size="sm"
             onClick={() => navigate('/achievements')}
-            className="bg-white/90 hover:bg-white text-gray-900 backdrop-blur-md shadow-xl border border-white/20 rounded-xl px-4"
+            className="bg-white/90 hover:bg-white text-gray-900 backdrop-blur-md shadow-xl border border-white/20 rounded-xl px-3 sm:px-4"
           >
             <ArrowLeft className="h-4 w-4 mr-2" />
-            Back
+            <span className="hidden sm:inline">Back</span>
           </Button>
         </motion.div>
 
@@ -678,10 +304,10 @@ export default function AchievementDetailPage() {
             variant="ghost"
             size="sm"
             onClick={handleShare}
-            className="bg-white/90 hover:bg-white text-gray-900 backdrop-blur-md shadow-xl border border-white/20 rounded-xl px-4"
+            className="bg-white/90 hover:bg-white text-gray-900 backdrop-blur-md shadow-xl border border-white/20 rounded-xl px-3 sm:px-4"
           >
             <Share2 className="h-4 w-4 mr-2" />
-            Share
+            <span className="hidden sm:inline">Share</span>
           </Button>
         </motion.div>
 
@@ -714,7 +340,7 @@ export default function AchievementDetailPage() {
               initial={{ opacity: 0, y: 40 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 0.3, duration: 0.7 }}
-              className="text-4xl sm:text-5xl md:text-6xl lg:text-7xl font-black text-white mb-6 leading-[1.1] tracking-tight drop-shadow-2xl font-display"
+              className="text-balance mb-6 text-[clamp(2rem,5vw,4.25rem)] font-black leading-[1.1] tracking-tight text-white drop-shadow-2xl font-display"
             >
               {achievement.title}
             </motion.h1>
@@ -815,7 +441,7 @@ export default function AchievementDetailPage() {
                       </motion.div>
                       <div className="flex-1">
                         <h2 className="text-sm font-bold text-amber-700 mb-2 uppercase tracking-wider">Highlights</h2>
-                        <div className="text-gray-800 text-lg sm:text-xl font-medium leading-relaxed">
+                        <div className="text-base font-medium leading-relaxed text-gray-800 sm:text-lg">
                           <InlineMarkdown>{achievement.shortDescription}</InlineMarkdown>
                         </div>
                       </div>
