@@ -100,7 +100,7 @@ function buildPyodideWorkerCode(): string {
             } catch(e) { /* ignore */ }
           }
           if (!self.__inputInt32) {
-            throw new Error('No input available');
+            throw new Error('No interactive input channel available. Provide stdin upfront or use an environment with SharedArrayBuffer support.');
           }
           Atomics.store(self.__inputInt32, 0, 0);
           self.postMessage({
@@ -116,6 +116,13 @@ function buildPyodideWorkerCode(): string {
           return new TextDecoder().decode(bytes);
         };
 
+        const stdinLines = typeof stdin === 'string'
+          ? stdin.replace(/\r\n/g, '\n').split('\n')
+          : [];
+        if (stdinLines.length > 0 && stdinLines[stdinLines.length - 1] === '') {
+          stdinLines.pop();
+        }
+
         // Setup stdout/stderr capture + stdin simulation with interactive fallback
         const setupCode = \`
 import sys, io, builtins, js
@@ -126,7 +133,7 @@ sys.stdout = __stdout_capture
 sys.stderr = __stderr_capture
 
 __original_input = builtins.input
-__stdin_lines = \${JSON.stringify((stdin || '').split('\\n'))}.copy()
+__stdin_lines = \${JSON.stringify(stdinLines)}.copy()
 __stdin_index = [0]
 
 def __patched_input(prompt=''):
@@ -231,7 +238,7 @@ function writeInputToBuffer(text: string): void {
   const encoded = new TextEncoder().encode(text);
   const len = Math.min(encoded.length, data.length);
   data.set(encoded.subarray(0, len));
-  Atomics.store(int32, 0, len || 1);
+  Atomics.store(int32, 0, len);
   Atomics.notify(int32, 0);
 }
 

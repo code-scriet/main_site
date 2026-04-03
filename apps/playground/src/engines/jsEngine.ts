@@ -59,7 +59,7 @@ function writeInputToBuffer(text: string): void {
   const encoded = new TextEncoder().encode(text);
   const len = Math.min(encoded.length, data.length);
   data.set(encoded.subarray(0, len));
-  Atomics.store(int32, 0, len || 1); // min 1 so worker wakes (0 = still waiting)
+  Atomics.store(int32, 0, len);
   Atomics.notify(int32, 0);
 }
 
@@ -106,6 +106,16 @@ function buildWorkerCode(): string {
           }
           return String(a);
         }).join(' ');
+      }
+
+      function parseStdinLines(rawStdin) {
+        if (!rawStdin) return [];
+        const normalized = String(rawStdin).replace(/\r\n/g, '\n');
+        const lines = normalized.split('\n');
+        if (lines.length > 0 && lines[lines.length - 1] === '') {
+          lines.pop();
+        }
+        return lines;
       }
 
       console.log = (...args) => { _output.push(stringify(...args)); };
@@ -158,7 +168,7 @@ function buildWorkerCode(): string {
         _currentId = id;
         _output.length = 0;
         _errors.length = 0;
-        _stdinLines = stdin ? stdin.split('\\n') : [];
+        _stdinLines = parseStdinLines(stdin);
         _stdinIndex = 0;
 
         if (inputBuffer) {

@@ -1,5 +1,5 @@
-import { lazy, Suspense, type ReactNode } from 'react';
-import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
+import { lazy, Suspense, useEffect, type ReactNode } from 'react';
+import { BrowserRouter as Router, Routes, Route, useLocation } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Loader2 } from 'lucide-react';
 import { Toaster } from 'sonner';
@@ -27,6 +27,16 @@ function RouteBoundary({ children }: { children: ReactNode }) {
 
 function withRouteBoundary(element: ReactNode) {
   return <RouteBoundary>{element}</RouteBoundary>;
+}
+
+function ScrollToTopOnNavigation() {
+  const location = useLocation();
+
+  useEffect(() => {
+    window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
+  }, [location.pathname, location.search]);
+
+  return null;
 }
 
 // Lazy load all pages for code splitting
@@ -116,6 +126,7 @@ function App() {
         <SettingsProvider>
           <ErrorBoundary>
             <Router>
+              <ScrollToTopOnNavigation />
               <Toaster position="top-right" richColors />
               <Routes>
                   {/* Public Routes */}
