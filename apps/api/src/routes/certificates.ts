@@ -16,14 +16,13 @@ import { uploadCertificate } from '../utils/uploadCertificate.js';
 import { emailService } from '../utils/email.js';
 import { sanitizeText } from '../utils/sanitize.js';
 import { auditLog } from '../utils/audit.js';
-import { buildPublicCertificateDownloadUrl, buildLegacyCertificateFileUrl } from '../utils/publicUrl.js';
+import { buildPublicCertificateDownloadUrl } from '../utils/publicUrl.js';
 import { cloudinary, isCloudinaryConfigured } from '../config/cloudinary.js';
 
 const FRONTEND_URL = (process.env.FRONTEND_URL || 'https://codescriet.dev').replace(/\/+$/, '');
 const RESEND_COOLDOWN_MS = 10 * 60 * 1000; // 10 minutes
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const LOCAL_CERT_DIR = path.join(__dirname, '..', '..', 'uploads', 'certificates');
 const LOGOS_DIR = path.join(__dirname, '..', '..', 'public', 'logos');
 
 // Pre-load logos as base64 at startup so they're available to PDF generation.
@@ -136,10 +135,6 @@ function buildCertificateVerifyUrl(certId: string): string {
   return `${FRONTEND_URL}/verify/${certId}`;
 }
 
-function buildCertificateLocalPath(certId: string): string {
-  return path.join(LOCAL_CERT_DIR, `${certId}.pdf`);
-}
-
 function extractCertIdFromFilename(filename: string): string | null {
   const match = filename.match(/^([A-Z0-9-]{10,20})\.pdf$/i);
   return match?.[1]?.toUpperCase() ?? null;
@@ -169,6 +164,99 @@ function isLegacyLocalCertificateUrl(certId: string, pdfUrl: string): boolean {
   } catch {
     return false;
   }
+}
+
+function isCloudinaryUrl(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+    const hostname = parsed.hostname.toLowerCase();
+    return hostname.endsWith('res.cloudinary.com') || hostname.endsWith('api.cloudinary.com');
+  } catch {
+    return false;
+  }
+}
+
+function extractCloudinaryPublicIdFromUrl(url: string): string | null {
+  try {
+    const parsed = new URL(url);
+    if (!parsed.hostname.toLowerCase().endsWith('cloudinary.com')) {
+      return null;
+    }
+
+    const segments = parsed.pathname.split('/').filter(Boolean);
+    const uploadIndex = segments.findIndex((segment) => ['upload', 'private', 'authenticated'].includes(segment));
+    if (uploadIndex === -1) {
+      return null;
+    }
+
+    let publicIdSegments = segments.slice(uploadIndex + 1);
+    if (publicIdSegments[0] && /^v\d+$/.test(publicIdSegments[0])) {
+      publicIdSegments = publicIdSegments.slice(1);
+    }
+    if (publicIdSegments.length === 0) {
+      return null;
+    }
+
+    const lastIndex = publicIdSegments.length - 1;
+    publicIdSegments[lastIndex] = publicIdSegments[lastIndex].replace(/\.[a-z0-9]+$/i, '');
+    return decodeURIComponent(publicIdSegments.join('/'));
+  } catch {
+    return null;
+  }
+}
+
+function buildCanonicalCloudinaryPublicId(certId: string): string {
+  return `certificates/${certId}`;
+}
+
+function buildCanonicalCloudinaryUrl(certId: string): string {
+  return cloudinary.url(buildCanonicalCloudinaryPublicId(certId), {
+    resource_type: 'raw',
+    type: 'upload',
+    secure: true,
+    format: 'pdf',
+  });
+}
+
+async function resolveCertificateCloudUrl(
+  cert: Pick<CertificateFileRecord, 'certId' | 'pdfUrl'>,
+): Promise<string | null> {
+  if (!isCloudinaryConfigured) {
+    return null;
+  }
+
+  const candidatePublicIds = new Set<string>([buildCanonicalCloudinaryPublicId(cert.certId)]);
+  if (cert.pdfUrl && !isLegacyLocalCertificateUrl(cert.certId, cert.pdfUrl)) {
+    const parsedPublicId = extractCloudinaryPublicIdFromUrl(cert.pdfUrl);
+    if (parsedPublicId) {
+      candidatePublicIds.add(parsedPublicId);
+    }
+  }
+
+  let hadTransientLookupError = false;
+
+  for (const publicId of candidatePublicIds) {
+    try {
+      const resource = await cloudinary.api.resource(publicId, { resource_type: 'raw' }) as { secure_url?: string };
+      if (resource.secure_url) {
+        return resource.secure_url;
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (!message.toLowerCase().includes('not found')) {
+        hadTransientLookupError = true;
+        logger.warn('Cloudinary certificate lookup failed', { certId: cert.certId, publicId, error: message });
+      }
+    }
+  }
+
+  if (cert.pdfUrl && isCloudinaryUrl(cert.pdfUrl)) {
+    return cert.pdfUrl;
+  }
+
+  // If Cloudinary API lookup is temporarily unavailable, return deterministic URL.
+  // For confirmed missing resources, return null so callers can provide a clear error.
+  return hadTransientLookupError ? buildCanonicalCloudinaryUrl(cert.certId) : null;
 }
 
 async function findRecipientIdByEmail(recipientEmail: string): Promise<string | null> {
@@ -239,39 +327,106 @@ async function fetchCertificateFileRecord(certId: string): Promise<CertificateFi
   });
 }
 
+async function recoverMissingCertificateCloudAsset(certId: string): Promise<string | null> {
+  if (!isCloudinaryConfigured) {
+    return null;
+  }
+
+  try {
+    const certificate = await prisma.certificate.findUnique({
+      where: { certId },
+      select: {
+        certId: true,
+        recipientName: true,
+        eventName: true,
+        type: true,
+        position: true,
+        domain: true,
+        description: true,
+        issuedAt: true,
+        signatoryName: true,
+        signatoryTitle: true,
+        signatoryImageUrl: true,
+        facultyName: true,
+        facultyTitle: true,
+        facultySignatoryImageUrl: true,
+      },
+    });
+
+    if (!certificate) {
+      return null;
+    }
+
+    const pdfBuffer = await generateCertificatePDF({
+      recipientName: sanitizeText(certificate.recipientName),
+      eventName: sanitizeText(certificate.eventName),
+      type: certificate.type,
+      position: certificate.position ? sanitizeText(certificate.position) : undefined,
+      domain: certificate.domain ? sanitizeText(certificate.domain) : undefined,
+      description: certificate.description ? sanitizeText(certificate.description) : undefined,
+      certId: certificate.certId,
+      issuedAt: certificate.issuedAt,
+      signatoryName: sanitizeText(certificate.signatoryName),
+      signatoryTitle: sanitizeText(certificate.signatoryTitle),
+      signatoryImageUrl: certificate.signatoryImageUrl || undefined,
+      facultyName: certificate.facultyName ? sanitizeText(certificate.facultyName) : undefined,
+      facultyTitle: certificate.facultyTitle ? sanitizeText(certificate.facultyTitle) : undefined,
+      facultySignatoryImageUrl: certificate.facultySignatoryImageUrl || undefined,
+      codescrietLogoUrl: CODESCRIET_LOGO,
+      ccsuLogoUrl: CCSU_LOGO,
+    });
+
+    const cloudUrl = await uploadCertificate(certificate.certId, pdfBuffer);
+    await prisma.certificate.update({
+      where: { certId: certificate.certId },
+      data: { pdfUrl: cloudUrl },
+    });
+
+    logger.info('Recovered missing certificate cloud asset by regeneration', { certId: certificate.certId });
+    return cloudUrl;
+  } catch (error) {
+    logger.error('Failed to recover missing certificate cloud asset', {
+      certId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return null;
+  }
+}
+
 async function sendCertificateFile(
   res: Response,
   cert: Pick<CertificateFileRecord, 'certId' | 'pdfUrl'>,
   source: 'authenticated-download' | 'public-verify-download' | 'legacy-file-link',
 ) {
-  const localPath = buildCertificateLocalPath(cert.certId);
-
-  // Always try local disk first — we now save every certificate locally.
-  if (fs.existsSync(localPath)) {
-    if (source === 'authenticated-download') {
-      // For authenticated downloads, return a JSON object with a server-relative URL.
-      // The frontend will open this in a new tab.
-      return res.status(200).json({ url: buildLegacyCertificateFileUrl(cert.certId) });
-    }
-    // For public verification & legacy links, serve the file directly with proper headers
-    res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', `inline; filename="${cert.certId}.pdf"`);
-    res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
-    return res.sendFile(localPath);
+  let cloudUrl = await resolveCertificateCloudUrl(cert);
+  if (!cloudUrl) {
+    cloudUrl = await recoverMissingCertificateCloudAsset(cert.certId);
   }
 
-  // Fallback: no local file available
-  if (!cert.pdfUrl) {
+  if (!cloudUrl) {
     if (source === 'authenticated-download') {
-      return res.status(404).json({ error: 'No PDF available for this certificate.' });
+      return res.status(404).json({ error: 'No Cloudinary URL available for this certificate.' });
     }
-    return res.status(404).send('No PDF available for this certificate.');
+    return res.status(404).send('No Cloudinary URL available for this certificate.');
+  }
+
+  if (cert.pdfUrl !== cloudUrl) {
+    prisma.certificate.update({
+      where: { certId: cert.certId },
+      data: { pdfUrl: cloudUrl },
+    }).catch((error) => {
+      logger.warn('Failed to backfill certificate pdfUrl', {
+        certId: cert.certId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    });
   }
 
   if (source === 'authenticated-download') {
-    return res.status(404).json({ error: 'Certificate file is stored in the cloud but delivery is blocked. Please regenerate the certificate.' });
+    return res.status(200).json({ url: cloudUrl });
   }
-  return res.status(404).send('Certificate file unavailable. Please contact the administrator.');
+
+  return res.redirect(302, cloudUrl);
 }
 
 function buildCertificateEventScope(eventName: string, eventId?: string | null) {
@@ -397,6 +552,7 @@ async function updateCertificateWithSchemaFallback(
 
 // ──────────────────────────────────────────────────────────────────
 // PUBLIC: Legacy certificate file endpoint retained for backward compatibility.
+// Internally resolves to a Cloudinary URL and redirects.
 // GET /api/certificates/files/:filename
 // ──────────────────────────────────────────────────────────────────
 certificatesRouter.get('/files/:filename', certificateDownloadLimiter, async (req: Request, res: Response) => {
@@ -423,7 +579,7 @@ certificatesRouter.get('/files/:filename', certificateDownloadLimiter, async (re
 });
 
 // ──────────────────────────────────────────────────────────────────
-// PRIVATE: Download a certificate PDF by certId — proxies local file or Cloudinary.
+// PRIVATE: Download a certificate PDF by certId — cloud-only delivery.
 // Only the certificate's recipient (by userId/email) or an ADMIN/PRESIDENT may download.
 // GET /api/certificates/download/:certId
 // ──────────────────────────────────────────────────────────────────

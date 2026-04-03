@@ -25,10 +25,6 @@ export function getPublicApiBaseUrl(): string {
   throw new Error('Missing public API base URL. Set API_BASE_URL or RENDER_EXTERNAL_URL for production certificate links.');
 }
 
-export function buildLegacyCertificateFileUrl(certId: string): string {
-  return `${getPublicApiBaseUrl()}/certificates/files/${certId}.pdf`;
-}
-
 export function buildPublicCertificateDownloadUrl(certId: string): string {
   return `${getPublicApiBaseUrl()}/certificates/verify/${certId}/download`;
 }
