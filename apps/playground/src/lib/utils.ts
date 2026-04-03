@@ -9,6 +9,13 @@ const CODESCRIET_API_ORIGIN = 'https://api.codescriet.dev';
 const CODESCRIET_MAIN_SITE_ORIGIN = 'https://codescriet.dev';
 const MAIN_API_ORIGIN_STORAGE_KEY = 'pg_main_api_origin';
 
+type MainApiJsonResult<T> = {
+  apiOrigin: string;
+  response: Response;
+  payload: unknown;
+  data: T;
+};
+
 function parseOrigin(raw: string | undefined): string | null {
   if (!raw) return null;
   const value = raw.trim();
@@ -58,8 +65,7 @@ function getStoredMainApiOrigin(): string | null {
 
 /**
  * Resolve the main API origin used for shared auth (/api/auth/me) and competition calls.
- * When running on *.codescriet.dev, force the API origin to api.codescriet.dev if an
- * off-domain env value is provided so browser cookie auth can work cross-subdomain.
+ * Prefer explicit runtime hints first, then fall back to the canonical domain.
  */
 export function getMainApiOrigin(): string {
   return getMainApiCandidates()[0] || CODESCRIET_API_ORIGIN;
@@ -76,14 +82,14 @@ export function getMainApiCandidates(): string[] {
   const currentHostname = typeof window !== 'undefined' ? window.location.hostname.toLowerCase() : '';
   const onCodescrietHost = !!currentHostname && isCodescrietHost(currentHostname);
 
-  // On production codescriet domains, always try the canonical API first.
-  if (onCodescrietHost) {
-    push(CODESCRIET_API_ORIGIN);
-  }
-
   push(getHashApiOverride());
   push(getStoredMainApiOrigin());
   push(getConfiguredMainApiOrigin());
+
+  // Keep the canonical API as a fallback for existing cross-subdomain deployments.
+  if (onCodescrietHost) {
+    push(CODESCRIET_API_ORIGIN);
+  }
 
   if (currentHostname && isLocalHost(currentHostname)) {
     push('http://localhost:5001');
@@ -105,6 +111,38 @@ export function rememberMainApiOrigin(origin: string): void {
   } catch {
     // no-op
   }
+}
+
+export async function requestMainApiJson<T>(path: string, init: RequestInit = {}): Promise<MainApiJsonResult<T>> {
+  const normalizedPath = path.startsWith('/') ? path : `/${path}`;
+  let lastNetworkError: Error | null = null;
+
+  for (const apiOrigin of getMainApiCandidates()) {
+    try {
+      const response = await fetch(`${apiOrigin}${normalizedPath}`, init);
+      rememberMainApiOrigin(apiOrigin);
+
+      let payload: unknown = null;
+      const contentType = response.headers.get('content-type') || '';
+      if (contentType.includes('application/json')) {
+        payload = await response.json().catch(() => null);
+      } else {
+        const text = await response.text().catch(() => '');
+        payload = text.trim() ? text : null;
+      }
+
+      return {
+        apiOrigin,
+        response,
+        payload,
+        data: ((payload as { data?: T } | null)?.data ?? payload) as T,
+      };
+    } catch (error) {
+      lastNetworkError = error instanceof Error ? error : new Error('Network request failed');
+    }
+  }
+
+  throw lastNetworkError || new Error('Unable to reach the main API');
 }
 
 /**

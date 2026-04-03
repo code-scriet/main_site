@@ -8,7 +8,7 @@ import { useTheme } from '@/context/ThemeContext';
 import { Loader2, Trophy, AlertCircle, CheckCircle2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
-import { getMainApiOrigin, getMainSiteOrigin } from '@/lib/utils';
+import { getMainSiteOrigin, requestMainApiJson } from '@/lib/utils';
 import { toast } from 'sonner';
 
 type CompetitionStatus = 'DRAFT' | 'ACTIVE' | 'LOCKED' | 'JUDGING' | 'FINISHED';
@@ -46,7 +46,6 @@ type SubmissionResponse = {
 
 type SaveState = 'idle' | 'saving' | 'saved' | 'failed' | 'offline';
 
-const API_URL = getMainApiOrigin();
 const MAIN_SITE_URL = getMainSiteOrigin();
 const STORAGE_PREFIX = 'competition_autosave:';
 const HTML_BOILERPLATE = `<!DOCTYPE html>
@@ -117,37 +116,43 @@ export default function CompetitionPage() {
     if (!token || !roundId) {
       throw new Error('Authentication is required');
     }
-    const response = await fetch(`${API_URL}/api/competition/${roundId}`, {
+    const { response, payload, data } = await requestMainApiJson<RoundResponse>(`/api/competition/${roundId}`, {
       headers: { Authorization: `Bearer ${token}` },
       credentials: 'include',
     });
-    const payload = await response.json();
     if (!response.ok) {
-      throw new Error(payload?.error?.message || 'Failed to load round');
+      throw new Error(
+        (payload as { error?: { message?: string } } | null)?.error?.message || 'Failed to load round',
+      );
     }
-    return payload.data as RoundResponse;
+    return data;
   };
 
   const loadSubmission = async (): Promise<SubmissionResponse> => {
     if (!token || !roundId) {
       throw new Error('Authentication is required');
     }
-    const response = await fetch(`${API_URL}/api/competition/${roundId}/my-submission`, {
+    const { response, payload, data } = await requestMainApiJson<SubmissionResponse>(`/api/competition/${roundId}/my-submission`, {
       headers: { Authorization: `Bearer ${token}` },
       credentials: 'include',
     });
-    const payload = await response.json();
     if (!response.ok) {
-      throw new Error(payload?.error?.message || 'Failed to load submission');
+      throw new Error(
+        (payload as { error?: { message?: string } } | null)?.error?.message || 'Failed to load submission',
+      );
     }
-    return payload.data as SubmissionResponse;
+    return data;
   };
 
   const saveServer = async (nextCode: string): Promise<boolean> => {
     if (!token || !round || !['ACTIVE', 'LOCKED', 'JUDGING'].includes(round.status)) return false;
     try {
       setSaveState('saving');
-      const response = await fetch(`${API_URL}/api/competition/${roundId}/save`, {
+      const { response, payload } = await requestMainApiJson<{
+        submitted?: boolean;
+        submission?: { id?: string; submittedAt?: string };
+        serverTime?: string;
+      }>(`/api/competition/${roundId}/save`, {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${token}`,
@@ -156,9 +161,9 @@ export default function CompetitionPage() {
         credentials: 'include',
         body: JSON.stringify({ code: nextCode }),
       });
-      const payload = await response.json();
       if (!response.ok) {
-        const message = payload?.error?.message || 'Save failed';
+        const message =
+          (payload as { error?: { message?: string } } | null)?.error?.message || 'Save failed';
         if (response.status === 409 && /already submitted/i.test(message)) {
           setIsDirty(false);
           setSaveState('saved');
@@ -171,11 +176,18 @@ export default function CompetitionPage() {
         }
         throw new Error(message);
       }
-      if (payload?.data?.submitted) {
+      const payloadData = payload as {
+        data?: {
+          submitted?: boolean;
+          submission?: { id?: string; submittedAt?: string };
+          serverTime?: string;
+        };
+      } | null;
+      if (payloadData?.data?.submitted) {
         setSubmission({
-          id: payload.data?.submission?.id || `auto-${roundId}`,
+          id: payloadData.data?.submission?.id || `auto-${roundId}`,
           code: nextCode,
-          submittedAt: payload.data?.submission?.submittedAt || new Date().toISOString(),
+          submittedAt: payloadData.data?.submission?.submittedAt || new Date().toISOString(),
           isAutoSubmit: true,
           score: null,
           rank: null,
@@ -183,7 +195,7 @@ export default function CompetitionPage() {
         });
         setRound((prev) => (prev ? { ...prev, hasSubmitted: true } : prev));
       }
-      const serverTime = payload.data?.serverTime ? new Date(payload.data.serverTime).getTime() : null;
+      const serverTime = payloadData?.data?.serverTime ? new Date(payloadData.data.serverTime).getTime() : null;
       if (serverTime) setClockOffsetMs(serverTime - Date.now());
       setSaveState('saved');
       setLastSavedAt(Date.now());
@@ -440,7 +452,7 @@ export default function CompetitionPage() {
     if (!token || !round) return;
     try {
       setIsSubmitting(true);
-      const response = await fetch(`${API_URL}/api/competition/${roundId}/submit`, {
+      const { response, payload } = await requestMainApiJson(`/api/competition/${roundId}/submit`, {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${token}`,
@@ -449,9 +461,10 @@ export default function CompetitionPage() {
         credentials: 'include',
         body: JSON.stringify({ code: latestCodeRef.current }),
       });
-      const payload = await response.json();
       if (!response.ok) {
-        throw new Error(payload?.error?.message || 'Submit failed');
+        throw new Error(
+          (payload as { error?: { message?: string } } | null)?.error?.message || 'Submit failed',
+        );
       }
       toast.success('Submitted successfully');
       setShowSubmitConfirm(false);
