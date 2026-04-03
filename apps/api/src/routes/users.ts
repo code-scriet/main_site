@@ -483,27 +483,92 @@ usersRouter.get('/export', authMiddleware, requireRole('ADMIN'), async (_req: Re
 });
 
 // Get all users (admin)
-usersRouter.get('/', authMiddleware, requireRole('ADMIN'), async (_req: Request, res: Response) => {
+usersRouter.get('/', authMiddleware, requireRole('ADMIN'), async (req: Request, res: Response) => {
   try {
-    const users = await prisma.user.findMany({
-      where: { role: { not: 'NETWORK' } },
-      orderBy: { createdAt: 'desc' },
-      take: 100,
-      select: { 
-        id: true, 
-        name: true, 
-        email: true, 
-        role: true, 
-        avatar: true, 
-        phone: true,
-        course: true,
-        branch: true,
-        year: true,
-        profileCompleted: true,
-        createdAt: true 
+    const includeAllValue = String(req.query.includeAll ?? '').toLowerCase();
+    const includeAll = includeAllValue === 'true' || includeAllValue === '1' || includeAllValue === 'yes';
+    const parsedLimit = Number(req.query.limit);
+    const requestedLimit = Number.isFinite(parsedLimit) ? Math.trunc(parsedLimit) : 100;
+    const regularLimit = Math.min(2000, Math.max(1, requestedLimit));
+
+    const userListSelect = {
+      id: true,
+      name: true,
+      email: true,
+      role: true,
+      avatar: true,
+      phone: true,
+      course: true,
+      branch: true,
+      year: true,
+      profileCompleted: true,
+      createdAt: true,
+    } as const;
+
+    const [totalUsers, privilegedUsersCount, regularUsersTotal] = await Promise.all([
+      prisma.user.count({ where: { role: { not: 'NETWORK' } } }),
+      prisma.user.count({ where: { role: { in: ['ADMIN', 'PRESIDENT'] } } }),
+      prisma.user.count({ where: { role: { notIn: ['NETWORK', 'ADMIN', 'PRESIDENT'] } } }),
+    ]);
+
+    if (includeAll) {
+      const users = await prisma.user.findMany({
+        where: { role: { not: 'NETWORK' } },
+        orderBy: { createdAt: 'desc' },
+        select: userListSelect,
+      });
+
+      return res.json({
+        success: true,
+        data: {
+          users,
+          meta: {
+            totalUsers,
+            privilegedUsers: privilegedUsersCount,
+            regularUsersTotal,
+            regularUsersReturned: regularUsersTotal,
+            regularLimit: null,
+            includeAll: true,
+            hasMoreRegular: false,
+          },
+        },
+      });
+    }
+
+    // Keep payload bounded for regular users while always including privileged roles.
+    const [privilegedUsers, recentRegularUsers] = await Promise.all([
+      prisma.user.findMany({
+        where: { role: { in: ['ADMIN', 'PRESIDENT'] } },
+        orderBy: { createdAt: 'desc' },
+        select: userListSelect,
+      }),
+      prisma.user.findMany({
+        where: { role: { notIn: ['NETWORK', 'ADMIN', 'PRESIDENT'] } },
+        orderBy: { createdAt: 'desc' },
+        take: regularLimit,
+        select: userListSelect,
+      }),
+    ]);
+
+    const users = [...privilegedUsers, ...recentRegularUsers].sort(
+      (a, b) => b.createdAt.getTime() - a.createdAt.getTime()
+    );
+
+    res.json({
+      success: true,
+      data: {
+        users,
+        meta: {
+          totalUsers,
+          privilegedUsers: privilegedUsersCount,
+          regularUsersTotal,
+          regularUsersReturned: recentRegularUsers.length,
+          regularLimit,
+          includeAll: false,
+          hasMoreRegular: regularLimit < regularUsersTotal,
+        },
       },
     });
-    res.json({ success: true, data: users });
   } catch (error) {
     res.status(500).json({ success: false, error: { message: 'Failed to fetch users' } });
   }

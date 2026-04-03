@@ -16,7 +16,7 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { api } from '@/lib/api';
-import type { User } from '@/lib/api';
+import type { User, UserListMeta } from '@/lib/api';
 import { formatDate } from '@/lib/dateUtils';
 import { Users, Loader2, AlertCircle, Shield, UserCheck, Crown, Trash2, Phone, GraduationCap, CheckCircle, XCircle, Edit, X, Eye, Calendar, Github, Linkedin, Twitter, Globe, Mail, Download, Search, RefreshCw } from 'lucide-react';
 
@@ -51,6 +51,8 @@ const roleIcons = {
   ADMIN: Crown,
   PRESIDENT: Crown,
 };
+
+const REGULAR_USERS_STEP = 100;
 
 export default function AdminUsers() {
   const { token, user: currentUser } = useAuth();
@@ -110,6 +112,17 @@ export default function AdminUsers() {
   const [exporting, setExporting] = useState(false);
   const [search, setSearch] = useState('');
   const [roleFilter, setRoleFilter] = useState<'ALL' | 'USER' | 'MEMBER' | 'CORE_MEMBER' | 'ADMIN' | 'PRESIDENT'>('ALL');
+  const [regularLimit, setRegularLimit] = useState(REGULAR_USERS_STEP);
+  const [includeAllUsers, setIncludeAllUsers] = useState(false);
+  const [usersMeta, setUsersMeta] = useState<UserListMeta>({
+    totalUsers: 0,
+    privilegedUsers: 0,
+    regularUsersTotal: 0,
+    regularUsersReturned: 0,
+    regularLimit: REGULAR_USERS_STEP,
+    includeAll: false,
+    hasMoreRegular: false,
+  });
   const [limitResetTarget, setLimitResetTarget] = useState<{ userId: string; userName: string } | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<{ userId: string; userName: string; userRole: string } | null>(null);
   
@@ -124,14 +137,18 @@ export default function AdminUsers() {
     try {
       setLoading(true);
       setError(null);
-      const data = await api.getUsers(token) as User[];
-      setUsers(data);
+      const response = await api.getUsers(token, {
+        limit: regularLimit,
+        includeAll: includeAllUsers,
+      });
+      setUsers(response.users);
+      setUsersMeta(response.meta);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load users');
     } finally {
       setLoading(false);
     }
-  }, [token]);
+  }, [token, regularLimit, includeAllUsers]);
 
   useEffect(() => {
     void loadUsers();
@@ -299,6 +316,19 @@ export default function AdminUsers() {
     }
   };
 
+  const handleViewMoreUsers = () => {
+    setRegularLimit((prev) => prev + REGULAR_USERS_STEP);
+  };
+
+  const handleViewAllUsers = () => {
+    setIncludeAllUsers(true);
+  };
+
+  const handleShowRecentUsers = () => {
+    setIncludeAllUsers(false);
+    setRegularLimit(REGULAR_USERS_STEP);
+  };
+
   const filteredUsers = users.filter((user) => {
     if (roleFilter !== 'ALL' && user.role !== roleFilter) return false;
     if (search.trim()) {
@@ -315,6 +345,8 @@ export default function AdminUsers() {
     return true;
   });
 
+  const totalKnownUsers = usersMeta.totalUsers || users.length;
+
   const availableBranches = editForm.course ? (BRANCH_OPTIONS[editForm.course] || []) : [];
 
   if (loading) {
@@ -328,15 +360,46 @@ export default function AdminUsers() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold text-amber-900">User Management</h1>
           <p className="text-gray-600">Manage user roles and permissions</p>
         </div>
-        <Button onClick={handleExportUsers} disabled={exporting} className="bg-green-600 hover:bg-green-700">
-          {exporting ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Download className="h-4 w-4 mr-2" />}
-          Export to Excel
-        </Button>
+        <div className="flex flex-wrap items-center gap-2">
+          {!includeAllUsers && usersMeta.hasMoreRegular && (
+            <Button
+              variant="outline"
+              onClick={handleViewMoreUsers}
+              disabled={loading}
+              className="border-amber-300 text-amber-800 hover:bg-amber-50"
+            >
+              View More Users
+            </Button>
+          )}
+          {!includeAllUsers ? (
+            <Button
+              variant="outline"
+              onClick={handleViewAllUsers}
+              disabled={loading}
+              className="border-amber-300 text-amber-800 hover:bg-amber-50"
+            >
+              View All Users
+            </Button>
+          ) : (
+            <Button
+              variant="outline"
+              onClick={handleShowRecentUsers}
+              disabled={loading}
+              className="border-amber-300 text-amber-800 hover:bg-amber-50"
+            >
+              Back to Recent View
+            </Button>
+          )}
+          <Button onClick={handleExportUsers} disabled={exporting} className="bg-green-600 hover:bg-green-700">
+            {exporting ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Download className="h-4 w-4 mr-2" />}
+            Export to Excel
+          </Button>
+        </div>
       </div>
 
       {error && (
@@ -421,6 +484,11 @@ export default function AdminUsers() {
           />
         </div>
       </div>
+      <p className="text-xs text-gray-600">
+        {usersMeta.includeAll
+          ? `Viewing all ${usersMeta.totalUsers} users.`
+          : `Viewing all admin/president accounts and ${usersMeta.regularUsersReturned} of ${usersMeta.regularUsersTotal} regular users.`}
+      </p>
 
       {/* User List */}
       <Card>
@@ -430,7 +498,7 @@ export default function AdminUsers() {
             All Users
           </CardTitle>
           <CardDescription>
-            Showing {filteredUsers.length} of {users.length} users
+            Showing {filteredUsers.length} of {users.length} loaded users ({totalKnownUsers} total)
           </CardDescription>
         </CardHeader>
         <CardContent>

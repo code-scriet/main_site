@@ -178,6 +178,21 @@ export interface User {
   websiteUrl?: string;
 }
 
+export interface UserListMeta {
+  totalUsers: number;
+  privilegedUsers: number;
+  regularUsersTotal: number;
+  regularUsersReturned: number;
+  regularLimit: number | null;
+  includeAll: boolean;
+  hasMoreRegular: boolean;
+}
+
+export interface UserListResponse {
+  users: User[];
+  meta: UserListMeta;
+}
+
 export interface Settings {
   id: string;
   clubName: string;
@@ -1048,7 +1063,13 @@ export const api = {
   getDashboardStats: (token: string) => request('/stats/dashboard', { token }),
   
   // Users (Admin)
-  getUsers: (token: string) => request('/users', { token }),
+  getUsers: (token: string, options?: { limit?: number; includeAll?: boolean }) => {
+    const params = new URLSearchParams();
+    if (typeof options?.limit === 'number') params.append('limit', String(options.limit));
+    if (options?.includeAll) params.append('includeAll', 'true');
+    const query = params.toString() ? `?${params.toString()}` : '';
+    return request<UserListResponse>(`/users${query}`, { token });
+  },
   getUser: (id: string, token: string) => request<User>(`/users/${id}`, { token }),
   updateUser: (id: string, data: {
     name?: string;
