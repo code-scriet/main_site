@@ -288,6 +288,7 @@ export interface CompetitionRoundPreview {
   duration: number;
   status: 'DRAFT' | 'ACTIVE' | 'LOCKED' | 'JUDGING' | 'FINISHED';
   participantScope?: 'ALL' | 'SELECTED_TEAMS';
+  leadersOnly?: boolean;
   allowedTeamIds?: string[];
   startedAt?: string;
   lockedAt?: string;
@@ -556,6 +557,7 @@ export interface CompetitionRound {
   duration: number;
   status: 'DRAFT' | 'ACTIVE' | 'LOCKED' | 'JUDGING' | 'FINISHED';
   participantScope?: 'ALL' | 'SELECTED_TEAMS';
+  leadersOnly?: boolean;
   allowedTeamIds?: string[];
   isEligible?: boolean;
   eligibilityReason?: string;
@@ -1539,6 +1541,7 @@ export const api = {
     description?: string;
     duration: number;
     participantScope?: 'ALL' | 'SELECTED_TEAMS';
+    leadersOnly?: boolean;
     allowedTeamIds?: string[];
     targetImageUrl?: string;
   }, token: string) =>
@@ -1581,6 +1584,7 @@ export const api = {
     description?: string;
     duration?: number;
     participantScope?: 'ALL' | 'SELECTED_TEAMS';
+    leadersOnly?: boolean;
     allowedTeamIds?: string[];
     targetImageUrl?: string | null;
   }, token: string) =>

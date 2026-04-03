@@ -117,7 +117,7 @@ function buildPyodideWorkerCode(): string {
         };
 
         const stdinLines = typeof stdin === 'string'
-          ? stdin.replace(/\r\n/g, '\n').split('\n')
+          ? stdin.replace(/\\r\\n/g, '\\n').split('\\n')
           : [];
         if (stdinLines.length > 0 && stdinLines[stdinLines.length - 1] === '') {
           stdinLines.pop();

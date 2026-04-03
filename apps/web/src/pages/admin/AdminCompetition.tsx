@@ -51,6 +51,7 @@ type FormState = {
   description: string;
   durationMinutes: number;
   participantScope: 'ALL' | 'SELECTED_TEAMS';
+  leadersOnly: boolean;
   allowedTeamIds: string[];
   targetImageUrl: string;
 };
@@ -61,6 +62,7 @@ const DEFAULT_FORM: FormState = {
   description: '',
   durationMinutes: 30,
   participantScope: 'ALL',
+  leadersOnly: false,
   allowedTeamIds: [],
   targetImageUrl: '',
 };
@@ -180,6 +182,7 @@ export default function AdminCompetition() {
       ...DEFAULT_FORM,
       eventId: resolvedEventId,
       participantScope: 'ALL',
+      leadersOnly: false,
       allowedTeamIds: [],
     });
     setEditingRound(null);
@@ -194,6 +197,7 @@ export default function AdminCompetition() {
       description: round.description || '',
       durationMinutes: Math.max(5, Math.floor(round.duration / 60)),
       participantScope: round.participantScope || 'ALL',
+      leadersOnly: round.leadersOnly || false,
       allowedTeamIds: round.allowedTeamIds || [],
       targetImageUrl: round.targetImageUrl || '',
     });
@@ -220,6 +224,7 @@ export default function AdminCompetition() {
         description: form.description.trim() || undefined,
         duration: Math.max(5, form.durationMinutes) * 60,
         participantScope: form.participantScope,
+        leadersOnly: selectedFormEvent?.teamRegistration ? form.leadersOnly : false,
         allowedTeamIds: form.participantScope === 'SELECTED_TEAMS' ? form.allowedTeamIds : [],
         targetImageUrl: form.targetImageUrl.trim() || undefined,
       };
@@ -236,6 +241,7 @@ export default function AdminCompetition() {
           description: payload.description,
           duration: payload.duration,
           participantScope: payload.participantScope,
+          leadersOnly: payload.leadersOnly,
           allowedTeamIds: payload.allowedTeamIds,
           targetImageUrl: payload.targetImageUrl || null,
         }, token);
@@ -469,10 +475,19 @@ export default function AdminCompetition() {
                           Submissions: {round.submissionCount ?? 0}
                         </div>
                         <div className="text-xs text-gray-500">
-                          Participants: {round.participantScope === 'SELECTED_TEAMS'
-                            ? `Selected teams (${round.allowedTeamIds?.length || 0})`
-                            : 'All eligible participants'}
+                          Teams: {event.teamRegistration
+                            ? (
+                                round.participantScope === 'SELECTED_TEAMS'
+                                  ? `Selected teams (${round.allowedTeamIds?.length || 0})`
+                                  : 'All teams'
+                              )
+                            : 'All registered participants'}
                         </div>
+                        {event.teamRegistration && (
+                          <div className="text-xs text-gray-500">
+                            Access: {round.leadersOnly ? 'Only team leaders' : 'All team members'}
+                          </div>
+                        )}
 
                         {(round.status === 'DRAFT' || round.status === 'ACTIVE' || round.status === 'LOCKED' || round.status === 'JUDGING' || round.status === 'FINISHED') && (
                           <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
@@ -622,7 +637,7 @@ export default function AdminCompetition() {
             <DialogHeader>
               <DialogTitle>{editingRound ? 'Edit Round' : 'Create Competition Round'}</DialogTitle>
               <DialogDescription>
-                Configure round settings and participant scope. Contestants never see the reference image.
+                Configure team access, leader restrictions, and round settings. Contestants never see the reference image.
               </DialogDescription>
             </DialogHeader>
             <form onSubmit={onSubmitForm} className="space-y-3">
@@ -638,6 +653,7 @@ export default function AdminCompetition() {
                     ...prev,
                     eventId: nextEventId,
                     participantScope: nextEvent?.teamRegistration ? prev.participantScope : 'ALL',
+                    leadersOnly: nextEvent?.teamRegistration ? prev.leadersOnly : false,
                     allowedTeamIds: [],
                   }));
                 }}
@@ -656,7 +672,7 @@ export default function AdminCompetition() {
 
             {selectedFormEvent?.teamRegistration && (
               <div>
-                <label htmlFor="competition-participant-scope" className="text-sm font-medium text-gray-700 mb-1 block">Who can participate?</label>
+                <label htmlFor="competition-participant-scope" className="text-sm font-medium text-gray-700 mb-1 block">Which teams can participate?</label>
                 <select
                   id="competition-participant-scope"
                   value={form.participantScope}
@@ -672,6 +688,26 @@ export default function AdminCompetition() {
                 >
                   <option value="ALL">Allow all teams</option>
                   <option value="SELECTED_TEAMS">Allow only selected teams</option>
+                </select>
+              </div>
+            )}
+
+            {selectedFormEvent?.teamRegistration && (
+              <div>
+                <label htmlFor="competition-leaders-only" className="text-sm font-medium text-gray-700 mb-1 block">Who can open the round?</label>
+                <select
+                  id="competition-leaders-only"
+                  value={form.leadersOnly ? 'LEADERS_ONLY' : 'ALL_MEMBERS'}
+                  onChange={(e) => {
+                    setForm((prev) => ({
+                      ...prev,
+                      leadersOnly: e.target.value === 'LEADERS_ONLY',
+                    }));
+                  }}
+                  className="h-10 w-full rounded-lg border-2 border-amber-200 bg-white px-3 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-amber-400/20"
+                >
+                  <option value="ALL_MEMBERS">Everyone on an eligible team</option>
+                  <option value="LEADERS_ONLY">Only the team leader</option>
                 </select>
               </div>
             )}
@@ -712,7 +748,9 @@ export default function AdminCompetition() {
                   </div>
                 )}
                 <p className="mt-1 text-xs text-gray-500">
-                  Only selected teams can open and submit this round.
+                  {form.leadersOnly
+                    ? 'Only selected team leaders can open and submit this round.'
+                    : 'Only selected teams can open and submit this round.'}
                 </p>
               </div>
             )}

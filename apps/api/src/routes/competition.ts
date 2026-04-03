@@ -44,6 +44,7 @@ const createRoundSchema = z.object({
   description: z.string().max(2000).optional(),
   duration: z.number().int().min(300).max(7200),
   participantScope: z.enum(['ALL', 'SELECTED_TEAMS']).optional(),
+  leadersOnly: z.boolean().optional(),
   allowedTeamIds: z.array(z.string().uuid()).max(500).optional(),
   targetImageUrl: z.string().url().optional(),
 });
@@ -53,6 +54,7 @@ const updateRoundSchema = z.object({
   description: z.string().max(2000).optional(),
   duration: z.number().int().min(300).max(7200).optional(),
   participantScope: z.enum(['ALL', 'SELECTED_TEAMS']).optional(),
+  leadersOnly: z.boolean().optional(),
   allowedTeamIds: z.array(z.string().uuid()).max(500).optional(),
   targetImageUrl: z.string().url().nullable().optional(),
 }).refine((value) => Object.keys(value).length > 0, {
@@ -104,9 +106,12 @@ async function getMyTeamInEvent(eventId: string, userId: string) {
       userId,
       team: { eventId },
     },
-    include: {
+    select: {
       team: {
-        include: {
+        select: {
+          id: true,
+          teamName: true,
+          leaderId: true,
           members: { select: { id: true } },
         },
       },
@@ -117,6 +122,8 @@ async function getMyTeamInEvent(eventId: string, userId: string) {
     id: membership.team.id,
     teamName: membership.team.teamName,
     memberCount: membership.team.members.length,
+    leaderId: membership.team.leaderId,
+    isLeader: membership.team.leaderId === userId,
   };
 }
 
@@ -136,6 +143,7 @@ async function ensureRegisteredForRound(roundId: string, userId: string) {
       updatedAt: true,
       targetImageUrl: true,
       participantScope: true,
+      leadersOnly: true,
       allowedTeamIds: true,
       event: {
         select: {
@@ -179,6 +187,9 @@ function getRoundParticipationError(
   if (round.participantScope === 'SELECTED_TEAMS' && !round.allowedTeamIds.includes(myTeam.id)) {
     return 'Your team is not selected for this round.';
   }
+  if (round.leadersOnly && !myTeam.isLeader) {
+    return 'Only the team leader can access this round.';
+  }
   return null;
 }
 
@@ -187,7 +198,7 @@ async function autoLockRound(roundId: string): Promise<boolean> {
     await prisma.$transaction(async (tx) => {
       const round = await tx.competitionRound.findUnique({
         where: { id: roundId },
-        select: { id: true, status: true, participantScope: true, allowedTeamIds: true },
+        select: { id: true, status: true, participantScope: true, leadersOnly: true, allowedTeamIds: true },
       });
       if (!round || round.status !== 'ACTIVE') return;
 
@@ -206,8 +217,9 @@ async function autoLockRound(roundId: string): Promise<boolean> {
         const teamIds = autoSaves
           .map((item) => item.teamId)
           .filter((id): id is string => Boolean(id));
+        const uniqueTeamIds = Array.from(new Set(teamIds));
 
-        const [existingByUser, existingByTeam] = await Promise.all([
+        const [existingByUser, existingByTeam, leadersByTeam] = await Promise.all([
           tx.competitionSubmission.findMany({
             where: {
               roundId,
@@ -224,6 +236,12 @@ async function autoLockRound(roundId: string): Promise<boolean> {
                 select: { teamId: true },
               })
             : Promise.resolve([] as Array<{ teamId: string | null }>),
+          round.leadersOnly && uniqueTeamIds.length > 0
+            ? tx.eventTeam.findMany({
+                where: { id: { in: uniqueTeamIds } },
+                select: { id: true, leaderId: true },
+              })
+            : Promise.resolve([] as Array<{ id: string; leaderId: string }>),
         ]);
 
         const existingUserSet = new Set(existingByUser.map((item) => item.userId));
@@ -232,12 +250,16 @@ async function autoLockRound(roundId: string): Promise<boolean> {
             .map((item) => item.teamId)
             .filter((teamId): teamId is string => Boolean(teamId)),
         );
+        const leaderByTeamId = new Map(leadersByTeam.map((team) => [team.id, team.leaderId]));
         const seenTeamSet = new Set<string>();
         const createOps: Prisma.PrismaPromise<unknown>[] = [];
 
         for (const save of autoSaves) {
           if (round.participantScope === 'SELECTED_TEAMS') {
             if (!save.teamId || !round.allowedTeamIds.includes(save.teamId)) continue;
+          }
+          if (round.leadersOnly) {
+            if (!save.teamId || leaderByTeamId.get(save.teamId) !== save.userId) continue;
           }
           if (existingUserSet.has(save.userId)) continue;
 
@@ -328,9 +350,13 @@ competitionRouter.post('/', authMiddleware, requireRole('ADMIN'), async (req: Re
     }
 
     const requestedScope = parsed.data.participantScope || 'ALL';
+    const leadersOnly = event.teamRegistration ? Boolean(parsed.data.leadersOnly) : false;
     let allowedTeamIds = normalizeTeamIds(parsed.data.allowedTeamIds);
     if (!event.teamRegistration && requestedScope === 'SELECTED_TEAMS') {
       return ApiResponse.badRequest(res, 'Selected teams mode is only available for team events.');
+    }
+    if (!event.teamRegistration && parsed.data.leadersOnly) {
+      return ApiResponse.badRequest(res, 'Leader-only mode is only available for team events.');
     }
     if (requestedScope === 'SELECTED_TEAMS') {
       if (allowedTeamIds.length === 0) {
@@ -357,6 +383,7 @@ competitionRouter.post('/', authMiddleware, requireRole('ADMIN'), async (req: Re
         description: parsed.data.description ? sanitizeText(parsed.data.description).trim() : null,
         duration: parsed.data.duration,
         participantScope: requestedScope,
+        leadersOnly,
         allowedTeamIds,
         targetImageUrl: parsed.data.targetImageUrl || null,
         status: 'DRAFT',
@@ -438,6 +465,7 @@ competitionRouter.get('/event/:eventId', optionalAuthMiddleware, async (req: Req
       duration: round.duration,
       status: round.status,
       participantScope: round.participantScope,
+      leadersOnly: round.leadersOnly,
       allowedTeamIds: canViewTeamSelection ? round.allowedTeamIds : undefined,
       startedAt: round.startedAt?.toISOString(),
       lockedAt: round.lockedAt?.toISOString(),
@@ -455,6 +483,7 @@ competitionRouter.get('/event/:eventId', optionalAuthMiddleware, async (req: Req
                   round.participantScope !== 'SELECTED_TEAMS'
                   || round.allowedTeamIds.includes(myTeam.id)
                 )
+                && (!round.leadersOnly || myTeam.isLeader)
               )
             )
           )
@@ -471,6 +500,8 @@ competitionRouter.get('/event/:eventId', optionalAuthMiddleware, async (req: Req
                           : (
                               round.participantScope === 'SELECTED_TEAMS' && !round.allowedTeamIds.includes(myTeam.id)
                                 ? 'Your team is not selected for this round.'
+                                : (round.leadersOnly && !myTeam.isLeader)
+                                  ? 'Only the team leader can access this round.'
                                 : undefined
                             )
                       )
@@ -539,6 +570,7 @@ competitionRouter.get('/:roundId', authMiddleware, async (req: Request, res: Res
       duration: round.duration,
       status: round.status,
       participantScope: round.participantScope,
+      leadersOnly: round.leadersOnly,
       allowedTeamIds: round.allowedTeamIds,
       startedAt: round.startedAt?.toISOString(),
       lockedAt: round.lockedAt?.toISOString(),
@@ -1114,6 +1146,7 @@ competitionRouter.get('/:roundId/submissions', authMiddleware, requireRole('ADMI
         status: true,
         targetImageUrl: true,
         participantScope: true,
+        leadersOnly: true,
         allowedTeamIds: true,
         event: {
           select: {
@@ -1179,6 +1212,7 @@ competitionRouter.get('/:roundId/submissions', authMiddleware, requireRole('ADMI
         eventTitle: round.event.title,
         status: round.status,
         participantScope: round.participantScope,
+        leadersOnly: round.leadersOnly,
         allowedTeamIds: round.allowedTeamIds,
         targetImageUrl: round.targetImageUrl,
       },
@@ -1531,6 +1565,7 @@ competitionRouter.put('/:roundId', authMiddleware, requireRole('ADMIN'), async (
         eventId: true,
         title: true,
         participantScope: true,
+        leadersOnly: true,
         allowedTeamIds: true,
         event: {
           select: {
@@ -1547,6 +1582,9 @@ competitionRouter.put('/:roundId', authMiddleware, requireRole('ADMIN'), async (
     if (!round.event.teamRegistration && parsed.data.participantScope === 'SELECTED_TEAMS') {
       return ApiResponse.badRequest(res, 'Selected teams mode is only available for team events.');
     }
+    if (!round.event.teamRegistration && parsed.data.leadersOnly === true) {
+      return ApiResponse.badRequest(res, 'Leader-only mode is only available for team events.');
+    }
     if (
       parsed.data.allowedTeamIds !== undefined
       && parsed.data.participantScope === undefined
@@ -1559,6 +1597,7 @@ competitionRouter.put('/:roundId', authMiddleware, requireRole('ADMIN'), async (
     }
 
     const requestedScope = parsed.data.participantScope ?? round.participantScope;
+    const nextLeadersOnly = round.event.teamRegistration ? (parsed.data.leadersOnly ?? round.leadersOnly) : false;
     let nextAllowedTeamIds = round.allowedTeamIds;
     if (!round.event.teamRegistration || requestedScope === 'ALL') {
       nextAllowedTeamIds = [];
@@ -1591,6 +1630,7 @@ competitionRouter.put('/:roundId', authMiddleware, requireRole('ADMIN'), async (
         ...(parsed.data.description !== undefined ? { description: sanitizeText(parsed.data.description).trim() || null } : {}),
         ...(parsed.data.duration !== undefined ? { duration: parsed.data.duration } : {}),
         participantScope: (!round.event.teamRegistration || requestedScope === 'ALL') ? 'ALL' : 'SELECTED_TEAMS',
+        leadersOnly: nextLeadersOnly,
         allowedTeamIds: nextAllowedTeamIds,
         ...(parsed.data.targetImageUrl !== undefined ? { targetImageUrl: parsed.data.targetImageUrl || null } : {}),
       },

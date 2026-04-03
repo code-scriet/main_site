@@ -45,6 +45,7 @@ type SubmissionResponse = {
 };
 
 type SaveState = 'idle' | 'saving' | 'saved' | 'failed' | 'offline';
+type ApiRequestError = Error & { status?: number };
 
 const MAIN_SITE_URL = getMainSiteOrigin();
 const STORAGE_PREFIX = 'competition_autosave:';
@@ -84,6 +85,20 @@ function getLocalAutoSave(roundId: string): { code: string; savedAt: number } | 
   }
 }
 
+function createApiRequestError(message: string, status?: number): ApiRequestError {
+  const error = new Error(message) as ApiRequestError;
+  error.status = status;
+  return error;
+}
+
+function isForbiddenRequestError(error: unknown): error is ApiRequestError {
+  return (
+    error instanceof Error
+    && typeof (error as ApiRequestError).status === 'number'
+    && (error as ApiRequestError).status === 403
+  );
+}
+
 export default function CompetitionPage() {
   const { roundId = '' } = useParams();
   const { token, isAuthenticated } = useAuth();
@@ -91,6 +106,7 @@ export default function CompetitionPage() {
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [accessDenied, setAccessDenied] = useState(false);
   const [round, setRound] = useState<RoundResponse | null>(null);
   const [submission, setSubmission] = useState<SubmissionResponse['submission']>(null);
   const [code, setCode] = useState(HTML_BOILERPLATE);
@@ -121,8 +137,9 @@ export default function CompetitionPage() {
       credentials: 'include',
     });
     if (!response.ok) {
-      throw new Error(
+      throw createApiRequestError(
         (payload as { error?: { message?: string } } | null)?.error?.message || 'Failed to load round',
+        response.status,
       );
     }
     return data;
@@ -137,8 +154,9 @@ export default function CompetitionPage() {
       credentials: 'include',
     });
     if (!response.ok) {
-      throw new Error(
+      throw createApiRequestError(
         (payload as { error?: { message?: string } } | null)?.error?.message || 'Failed to load submission',
+        response.status,
       );
     }
     return data;
@@ -230,6 +248,7 @@ export default function CompetitionPage() {
     try {
       setLoading(true);
       setError(null);
+      setAccessDenied(false);
       const [roundData, myData] = await Promise.all([loadRound(), loadSubmission()]);
       setRound(roundData);
       setSubmission(myData.submission);
@@ -273,6 +292,7 @@ export default function CompetitionPage() {
         void saveServer(local.code);
       }
     } catch (err) {
+      setAccessDenied(isForbiddenRequestError(err));
       setError(err instanceof Error ? err.message : 'Failed to initialize competition page');
     } finally {
       setLoading(false);
@@ -307,8 +327,12 @@ export default function CompetitionPage() {
           setClockOffsetMs(new Date(data.serverTime).getTime() - Date.now());
         }
         setRemainingSeconds(data.remainingSeconds ?? 0);
-      } catch {
-        // no-op for polling errors
+      } catch (err) {
+        if (isForbiddenRequestError(err)) {
+          setAccessDenied(true);
+          setError(err.message || 'Not authorized');
+          setRound(null);
+        }
       }
     };
     void run();
@@ -500,7 +524,7 @@ export default function CompetitionPage() {
     return (
       <div className="h-screen flex items-center justify-center bg-background px-4">
         <div className="max-w-2xl w-full rounded-xl border border-red-300 bg-red-50 p-6 space-y-2">
-          <h1 className="text-lg font-semibold text-red-700">Unable to load round</h1>
+          <h1 className="text-lg font-semibold text-red-700">{accessDenied ? 'Not authorized' : 'Unable to load round'}</h1>
           <p className="text-sm text-red-600">{error || 'Unknown error'}</p>
         </div>
       </div>

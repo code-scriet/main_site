@@ -239,6 +239,7 @@ model CompetitionRound {
   duration      Int
   status        CompetitionStatus @default(DRAFT)
   participantScope CompetitionParticipantScope @default(ALL) @map("participant_scope")
+  leadersOnly   Boolean           @default(false) @map("leaders_only")
   allowedTeamIds String[]         @default([]) @map("allowed_team_ids")
   targetImageUrl String?          @map("target_image_url")
   startedAt     DateTime?         @map("started_at")
