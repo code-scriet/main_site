@@ -171,14 +171,20 @@ async function sendEventReminders(): Promise<void> {
 }
 
 let reminderInterval: NodeJS.Timeout | null = null;
+let reminderStartupTimeout: NodeJS.Timeout | null = null;
 
 /**
  * Start the reminder scheduler
  * Checks every 6 hours for events needing reminders
  */
 export function startReminderScheduler(): void {
+  if (reminderInterval || reminderStartupTimeout) {
+    return;
+  }
+
   // Run immediately on startup
-  setTimeout(() => {
+  reminderStartupTimeout = setTimeout(() => {
+    reminderStartupTimeout = null;
     sendEventReminders();
   }, 10000); // Wait 10 seconds after startup
   
@@ -194,6 +200,10 @@ export function startReminderScheduler(): void {
  * Stop the reminder scheduler
  */
 export function stopReminderScheduler(): void {
+  if (reminderStartupTimeout) {
+    clearTimeout(reminderStartupTimeout);
+    reminderStartupTimeout = null;
+  }
   if (reminderInterval) {
     clearInterval(reminderInterval);
     reminderInterval = null;

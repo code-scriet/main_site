@@ -60,6 +60,7 @@ export default function AdminSettings() {
     showLeaderboard: false,
     showQOTD: true,
     showAchievements: true,
+    show_tech_blogs: true,
     hiringEnabled: true,
     hiringTechnical: true,
     hiringDsaChamps: true,
@@ -461,6 +462,13 @@ export default function AdminSettings() {
             description="Show achievements on dashboard overview"
             checked={settings.showAchievements ?? true}
             onCheckedChange={(checked) => void handleToggle('showAchievements', checked)}
+          />
+          <ToggleRow
+            id="show-tech-blogs"
+            label="Tech Blogs"
+            description="Show the tech blogs section wherever this frontend feature is enabled"
+            checked={settings.show_tech_blogs ?? true}
+            onCheckedChange={(checked) => void handleToggle('show_tech_blogs', checked)}
           />
           <ToggleRow
             id="hiring-enabled"

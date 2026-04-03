@@ -1,6 +1,7 @@
 import { Server as SocketIOServer } from 'socket.io';
 import { Server as HTTPServer } from 'http';
 import { logger } from './logger.js';
+import { authenticateSocketConnection } from './socketAuth.js';
 
 let io: SocketIOServer | null = null;
 
@@ -57,14 +58,22 @@ export function initializeSocket(httpServer: HTTPServer) {
     upgradeTimeout: 10000,
   });
 
+  io.use((socket, next) => {
+    void authenticateSocketConnection(socket, { requireAdmin: true })
+      .then(() => next())
+      .catch((error) => {
+        next(new Error(error instanceof Error ? error.message : 'AUTH_INVALID'));
+      });
+  });
+
   io.on('connection', (socket) => {
-    logger.debug('Client connected', { socketId: socket.id });
-    
-    // Send a test ping to the client
+    const authUser = socket.data.authUser as { id: string; role: string } | undefined;
+    logger.debug('Client connected', { socketId: socket.id, userId: authUser?.id, role: authUser?.role });
+
     socket.emit('ping', { message: 'Hello from server', time: new Date().toISOString() });
-    
+
     socket.on('disconnect', () => {
-      logger.debug('Client disconnected', { socketId: socket.id });
+      logger.debug('Client disconnected', { socketId: socket.id, userId: authUser?.id });
     });
   });
 

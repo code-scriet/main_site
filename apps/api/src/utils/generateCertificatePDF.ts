@@ -22,53 +22,80 @@ const CORMORANT_ITALIC_PATH  = path.join(LOGOS_DIR, 'CormorantGaramond-Italic.tt
 const PLAYFAIR_BOLD_PATH     = path.join(LOGOS_DIR, 'PlayfairDisplay-Bold.woff');
 
 let fontsInitialized = false;
+let fontInitPromise: Promise<void> | null = null;
 export async function initFonts(): Promise<void> {
   if (fontsInitialized) return;
-  try {
-    Font.register({
-      family: 'GreatVibes',
-      src: GREAT_VIBES_PATH,
+
+  if (!fontInitPromise) {
+    fontInitPromise = (async () => {
+      const failures: string[] = [];
+
+      const attemptRegistration = (
+        name: string,
+        register: () => void,
+      ) => {
+        try {
+          register();
+        } catch (err) {
+          failures.push(name);
+          logger.error(`Failed to register ${name}`, { error: err });
+        }
+      };
+
+      attemptRegistration('GreatVibes', () => {
+        Font.register({
+          family: 'GreatVibes',
+          src: GREAT_VIBES_PATH,
+        });
+      });
+
+      attemptRegistration('Cinzel', () => {
+        Font.register({
+          family: 'Cinzel',
+          fonts: [
+            { src: CINZEL_REG_PATH, fontWeight: 400 },
+            { src: CINZEL_BOLD_PATH, fontWeight: 700 },
+          ],
+        });
+      });
+
+      attemptRegistration('CormorantGaramond', () => {
+        Font.register({
+          family: 'CormorantGaramond',
+          fonts: [
+            { src: CORMORANT_PATH },
+            { src: CORMORANT_ITALIC_PATH, fontStyle: 'italic' },
+          ],
+        });
+      });
+
+      attemptRegistration('PlayfairDisplay', () => {
+        Font.register({
+          family: 'PlayfairDisplay',
+          fonts: [{ src: PLAYFAIR_BOLD_PATH, fontWeight: 700 }],
+        });
+      });
+
+      if (failures.length > 0) {
+        throw new Error(`Certificate font initialization failed for: ${failures.join(', ')}`);
+      }
+
+      Font.registerHyphenationCallback((word: string) => [word]);
+      fontsInitialized = true;
+      logger.info('Certificate fonts initialized from local assets');
+    })().catch((error) => {
+      fontInitPromise = null;
+      fontsInitialized = false;
+      throw error;
     });
-  } catch (err) {
-    logger.error('Failed to register GreatVibes', { error: err });
   }
 
-  try {
-    Font.register({
-      family: 'Cinzel',
-      fonts: [
-        { src: CINZEL_REG_PATH, fontWeight: 400 },
-        { src: CINZEL_BOLD_PATH, fontWeight: 700 },
-      ],
-    });
-  } catch (err) {
-    logger.error('Failed to register Cinzel', { error: err });
-  }
+  await fontInitPromise;
+}
 
-  try {
-    Font.register({
-      family: 'CormorantGaramond',
-      fonts: [
-        { src: CORMORANT_PATH },
-        { src: CORMORANT_ITALIC_PATH, fontStyle: 'italic' },
-      ],
-    });
-  } catch (err) {
-    logger.error('Failed to register CormorantGaramond', { error: err });
-  }
-
-  try {
-    Font.register({
-      family: 'PlayfairDisplay',
-      fonts: [{ src: PLAYFAIR_BOLD_PATH, fontWeight: 700 }],
-    });
-  } catch (err) {
-    logger.error('Failed to register PlayfairDisplay', { error: err });
-  }
-
-  Font.registerHyphenationCallback((word: string) => [word]);
-  fontsInitialized = true;
-  logger.info('Certificate fonts initialized from local assets');
+export function resetFontInitializationForTests(): void {
+  fontsInitialized = false;
+  fontInitPromise = null;
 }
 
 const FRONTEND_URL = (process.env.FRONTEND_URL || 'https://codescriet.dev').replace(/\/+$/, '');

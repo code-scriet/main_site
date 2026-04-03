@@ -21,3 +21,26 @@ test('generateCertificatePDF returns a non-empty PDF buffer', async () => {
   assert.ok(pdfBuffer.length > 0, 'expected PDF buffer to be non-empty');
   assert.equal(pdfBuffer.subarray(0, 4).toString('utf8'), '%PDF');
 });
+
+test('generateCertificatePDF can render repeatedly after fonts initialize', async () => {
+  const first = await generateCertificatePDF({
+    recipientName: 'Lakshya Pandey',
+    eventName: 'Hackathon 2026',
+    type: 'PARTICIPATION',
+    certId: 'WXYZ-1234-ABCD',
+    issuedAt: new Date('2026-03-13T00:00:00.000Z'),
+    signatoryName: 'Test Signatory',
+  });
+
+  const second = await generateCertificatePDF({
+    recipientName: 'Lakshya Pandey',
+    eventName: 'Hackathon 2026',
+    type: 'PARTICIPATION',
+    certId: 'LMNO-5678-PQRS',
+    issuedAt: new Date('2026-03-13T00:00:00.000Z'),
+    signatoryName: 'Test Signatory',
+  });
+
+  assert.equal(first.subarray(0, 4).toString('utf8'), '%PDF');
+  assert.equal(second.subarray(0, 4).toString('utf8'), '%PDF');
+});

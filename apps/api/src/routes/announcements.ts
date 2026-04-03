@@ -242,7 +242,7 @@ announcementsRouter.post('/', authMiddleware, requireRole('CORE_MEMBER'), async 
     if (announcement.slug) submitUrl(`/announcements/${announcement.slug}`);
 
     // Send email notification to all users (async, don't wait)
-    sendAnnouncementEmailsAsync(announcement);
+    void sendAnnouncementEmailsAsync(announcement);
 
     res.status(201).json({ success: true, data: announcement, message: 'Announcement created successfully' });
   } catch (error) {

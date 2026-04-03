@@ -13,6 +13,13 @@ interface RequestOptions extends RequestInit {
   token?: string;
 }
 
+interface ApiEnvelope<T> {
+  success?: boolean;
+  data?: T;
+  token?: string;
+  [key: string]: unknown;
+}
+
 async function readErrorPayload(response: Response): Promise<unknown> {
   const contentType = response.headers.get('content-type') || '';
 
@@ -32,7 +39,7 @@ async function readErrorPayload(response: Response): Promise<unknown> {
   }
 }
 
-async function request<T>(endpoint: string, options: RequestOptions = {}): Promise<T> {
+async function executeJsonRequest(endpoint: string, options: RequestOptions = {}): Promise<unknown> {
   const { token, ...fetchOptions } = options;
   const method = (fetchOptions.method ?? 'GET').toUpperCase();
   const hasRequestBody =
@@ -94,9 +101,17 @@ async function request<T>(endpoint: string, options: RequestOptions = {}): Promi
     throw new Error(message);
   }
 
-  const json = await response.json();
+  return response.json();
+}
+
+async function request<T>(endpoint: string, options: RequestOptions = {}): Promise<T> {
+  const json = await executeJsonRequest(endpoint, options) as ApiEnvelope<T>;
   // Extract data from the API response format { success: true, data: ... }
-  return json.data !== undefined ? json.data : json;
+  return json.data !== undefined ? json.data : json as T;
+}
+
+async function requestEnvelope<T>(endpoint: string, options: RequestOptions = {}): Promise<ApiEnvelope<T>> {
+  return executeJsonRequest(endpoint, options) as Promise<ApiEnvelope<T>>;
 }
 
 
@@ -174,6 +189,7 @@ export interface Settings {
   showLeaderboard?: boolean;
   showQOTD?: boolean;
   showAchievements?: boolean;
+  show_tech_blogs?: boolean;
   hiringEnabled?: boolean;
   hiringTechnical?: boolean;
   hiringDsaChamps?: boolean;
@@ -780,7 +796,7 @@ export interface HomeAnnouncementPreview {
   id: string;
   title: string;
   slug?: string | null;
-  body: string;
+  body?: string | null;
   shortDescription?: string | null;
   priority: 'LOW' | 'MEDIUM' | 'HIGH' | 'URGENT';
   createdAt: string;
@@ -852,6 +868,13 @@ export const api = {
   // Auth
   getProviders: () => request<AuthProviders>('/auth/providers'),
   getMe: (token: string) => request<User>('/auth/me', { token }),
+  getMeWithToken: async (token?: string | null) => {
+    const response = await requestEnvelope<User>('/auth/me', token ? { token } : {});
+    return {
+      user: response.data ?? null,
+      token: typeof response.token === 'string' ? response.token : undefined,
+    };
+  },
   devLogin: (email: string, name?: string) => 
     request<{ token: string; user: User }>('/auth/dev-login', { 
       method: 'POST', 

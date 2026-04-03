@@ -49,6 +49,7 @@ model User {
   ledTeams           EventTeam[]       @relation("teamLeader")
   teamMemberships    EventTeamMember[] @relation("teamMemberships")
   competitionSubmissions CompetitionSubmission[]
+  competitionAutoSaves CompetitionAutoSave[]
 
   @@map("users")
   @@index([role, createdAt(sort: Desc)], map: "users_role_created_at_desc_idx")
@@ -206,6 +207,7 @@ model EventTeam {
   leader      User     @relation("teamLeader", fields: [leaderId], references: [id], onDelete: Restrict)
   members     EventTeamMember[]
   competitionSubmissions CompetitionSubmission[]
+  competitionAutoSaves CompetitionAutoSave[]
 
   @@unique([eventId, teamName])
   @@index([inviteCode])
@@ -271,6 +273,7 @@ model CompetitionSubmission {
   team         EventTeam?       @relation(fields: [teamId], references: [id], onDelete: SetNull)
   user         User             @relation(fields: [userId], references: [id], onDelete: Cascade)
 
+  // PostgreSQL treats NULL as distinct in unique constraints, so this only applies to team submissions.
   @@unique([roundId, teamId])
   @@unique([roundId, userId])
   @@index([roundId])
@@ -288,6 +291,8 @@ model CompetitionAutoSave {
   savedAt   DateTime @default(now()) @map("saved_at")
 
   round     CompetitionRound @relation(fields: [roundId], references: [id], onDelete: Cascade)
+  team      EventTeam?       @relation(fields: [teamId], references: [id], onDelete: SetNull)
+  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([roundId, userId])
   @@index([roundId])
@@ -435,7 +440,7 @@ model HiringApplication {
   userId       String?           @map("user_id")
   createdAt    DateTime          @default(now()) @map("created_at")
   updatedAt    DateTime          @updatedAt @map("updated_at")
-  user         User?             @relation(fields: [userId], references: [id])
+  user         User?             @relation(fields: [userId], references: [id], onDelete: SetNull)
 
   @@index([status, createdAt])
   @@index([applyingRole, createdAt])

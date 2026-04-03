@@ -34,6 +34,14 @@ const priorityConfig = {
   },
 };
 
+function getAnnouncementPreview(shortDescription?: string | null, body?: string | null): string {
+  if (shortDescription?.trim()) {
+    return shortDescription;
+  }
+
+  return body?.replace(/[#*_`~[\]]/g, '').slice(0, 150) ?? '';
+}
+
 export function LatestAnnouncements() {
   const { data: homeData, isLoading } = useHomePageData();
   const announcements = homeData?.latestAnnouncements ?? [];
@@ -105,7 +113,7 @@ export function LatestAnnouncements() {
                       {announcement.title}
                     </h3>
                     <p className="text-gray-600 text-sm mb-4 line-clamp-3">
-                      {announcement.shortDescription || announcement.body.replace(/[#*_`~[\]]/g, '').slice(0, 150)}
+                      {getAnnouncementPreview(announcement.shortDescription, announcement.body)}
                     </p>
                   
                     {/* Footer */}

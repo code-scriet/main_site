@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { io, Socket } from 'socket.io-client';
 import { toast } from 'sonner';
+import { useAuth } from '@/context/AuthContext';
 
 interface SocketContextType {
   socket: Socket | null;
@@ -12,26 +13,24 @@ const SocketContext = createContext<SocketContextType>({
   isConnected: false,
 });
 
-function createSocket(): Socket | null {
-  if (typeof window === 'undefined') {
-    return null;
-  }
-
+function createSocket(token: string): Socket {
   let socketUrl = import.meta.env.VITE_API_URL || 'http://localhost:5001';
   socketUrl = socketUrl.replace(/\/api\/?$/, '');
 
   return io(socketUrl, {
     transports: ['websocket'], // Force WebSocket to avoid polling sticky session issues
-    autoConnect: true,
+    autoConnect: false,
     withCredentials: true,
+    auth: { token },
     reconnectionAttempts: 6,
     reconnectionDelay: 1000,
   });
 }
 
 export function SocketProvider({ children }: { children: ReactNode }) {
-  const [socket] = useState<Socket | null>(createSocket);
-  const [isConnected, setIsConnected] = useState(false);
+  const { token } = useAuth();
+  const socket = useMemo(() => (token ? createSocket(token) : null), [token]);
+  const [connectedSocketId, setConnectedSocketId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!socket) {
@@ -41,7 +40,7 @@ export function SocketProvider({ children }: { children: ReactNode }) {
     let hadSuccessfulConnection = false;
 
     socket.on('connect', () => {
-      setIsConnected(true);
+      setConnectedSocketId(socket.id ?? null);
       if (!hadSuccessfulConnection) {
         toast.success('Real-time connection established');
       }
@@ -49,18 +48,20 @@ export function SocketProvider({ children }: { children: ReactNode }) {
     });
 
     socket.on('connect_error', (err) => {
-      setIsConnected(false);
+      setConnectedSocketId(null);
       if (hadSuccessfulConnection) {
         toast.error(`Connection lost: ${err.message}`);
       }
     });
 
     socket.on('disconnect', (reason) => {
-      setIsConnected(false);
+      setConnectedSocketId(null);
       if (hadSuccessfulConnection) {
         toast.warning(`Real-time connection lost: ${reason}`);
       }
     });
+
+    socket.connect();
 
     return () => {
       socket.removeAllListeners();
@@ -68,7 +69,13 @@ export function SocketProvider({ children }: { children: ReactNode }) {
     };
   }, [socket]);
 
-  const value = useMemo(() => ({ socket, isConnected }), [socket, isConnected]);
+  const value = useMemo(
+    () => ({
+      socket,
+      isConnected: Boolean(socket?.id && connectedSocketId === socket.id),
+    }),
+    [connectedSocketId, socket],
+  );
 
   return (
     <SocketContext.Provider value={value}>

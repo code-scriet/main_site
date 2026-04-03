@@ -29,26 +29,86 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+interface DecodedAccessTokenPayload {
+  userId?: string;
+  id?: string;
+  name?: string;
+  email?: string;
+  role?: string;
+  exp?: number;
+}
+
+function decodeBase64Url(value: string): string {
+  const normalized = value.replace(/-/g, '+').replace(/_/g, '/');
+  const padding = '='.repeat((4 - (normalized.length % 4)) % 4);
+  return window.atob(`${normalized}${padding}`);
+}
+
+function readUserFromToken(token: string): ExtendedUser | null {
+  const [, payloadSegment] = token.split('.');
+  if (!payloadSegment) {
+    return null;
+  }
+
+  try {
+    const payload = JSON.parse(decodeBase64Url(payloadSegment)) as DecodedAccessTokenPayload;
+    if (typeof payload.exp === 'number' && payload.exp * 1000 <= Date.now()) {
+      return null;
+    }
+
+    const id = typeof payload.userId === 'string'
+      ? payload.userId
+      : typeof payload.id === 'string'
+        ? payload.id
+        : null;
+
+    if (!id || typeof payload.email !== 'string' || typeof payload.role !== 'string') {
+      return null;
+    }
+
+    return {
+      id,
+      name: typeof payload.name === 'string' ? payload.name : payload.email.split('@')[0],
+      email: payload.email,
+      role: payload.role,
+    };
+  } catch {
+    return null;
+  }
+}
+
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [user, setUser] = useState<ExtendedUser | null>(null);
   const [token, setToken] = useState<string | null>(localStorage.getItem('token'));
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const fetchUser = useCallback(async (token: string): Promise<ExtendedUser | null> => {
+  const persistToken = useCallback((nextToken: string) => {
+    localStorage.setItem('token', nextToken);
+    setToken(nextToken);
+  }, []);
+
+  const fetchUser = useCallback(async (authToken: string | null): Promise<ExtendedUser | null> => {
     try {
-      const userData = await api.getMe(token);
-      return userData as ExtendedUser;
+      const response = await api.getMeWithToken(authToken);
+      if (response.token) {
+        persistToken(response.token);
+      }
+      return response.user as ExtendedUser | null;
     } catch (err) {
-      // ISSUE-013: Handle 401 by clearing auth state
       if (err instanceof UnauthorizedError) {
         localStorage.removeItem('token');
         return null;
       }
-      localStorage.removeItem('token');
-      return null;
+
+      const fallbackUser = authToken ? readUserFromToken(authToken) : null;
+      if (fallbackUser) {
+        return fallbackUser;
+      }
+
+      throw err;
     }
-  }, []);
+  }, [persistToken]);
 
   // ISSUE-035: Use ref to track component mount status for cleanup
   const isMountedRef = useRef(true);
@@ -57,15 +117,19 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     isMountedRef.current = true;
     
     const initAuth = async () => {
-      const token = localStorage.getItem('token');
-      if (token) {
-        const userData = await fetchUser(token);
+      try {
+        const storedToken = localStorage.getItem('token');
+        const userData = await fetchUser(storedToken);
         // Only update state if still mounted
         if (isMountedRef.current) {
           if (!userData) {
             setToken(null);
           }
           setUser(userData);
+        }
+      } catch (err) {
+        if (isMountedRef.current) {
+          setError(err instanceof Error ? err.message : 'Failed to restore session');
         }
       }
       if (isMountedRef.current) {
@@ -83,9 +147,14 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
   const refreshUser = useCallback(async () => {
     const currentToken = localStorage.getItem('token');
-    if (currentToken) {
+    try {
       const userData = await fetchUser(currentToken);
       setUser(userData);
+      if (!userData) {
+        setToken(null);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to refresh session');
     }
   }, [fetchUser]);
 
@@ -93,8 +162,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     setIsLoading(true);
     setError(null);
     try {
-      localStorage.setItem('token', newToken);
-      setToken(newToken);
+      persistToken(newToken);
       const userData = await fetchUser(newToken);
       if (userData) {
         setUser(userData);
@@ -110,7 +178,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     } finally {
       setIsLoading(false);
     }
-  }, [fetchUser]);
+  }, [fetchUser, persistToken]);
 
   const loginWithEmail = useCallback(async (email: string, password: string) => {
     setIsLoading(true);

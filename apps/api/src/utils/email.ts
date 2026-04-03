@@ -5,6 +5,7 @@ import { marked } from 'marked';
 import { logger } from './logger.js';
 import { prisma } from '../lib/prisma.js';
 import QRCode from 'qrcode';
+import { sanitizeHtml } from './sanitize.js';
 
 // ============================================
 // Email Category & Notification Settings
@@ -229,8 +230,9 @@ interface BrevoRecipient {
 
 function markdownToEmailHtml(markdown: string): string {
   const rawHtml = marked.parse(markdown, { async: false }) as string;
+  const safeHtml = sanitizeHtml(rawHtml);
 
-  return rawHtml
+  return safeHtml
     .replace(/<p>/g, '<p style="margin: 0 0 16px 0; font-size: 15px; color: #d1d5db; line-height: 1.7;">')
     .replace(/<h1>/g, '<h1 style="margin: 24px 0 12px 0; font-size: 24px; font-weight: 700; color: #f9fafb;">')
     .replace(/<h2>/g, '<h2 style="margin: 20px 0 10px 0; font-size: 20px; font-weight: 600; color: #f9fafb;">')
@@ -245,6 +247,10 @@ function markdownToEmailHtml(markdown: string): string {
     .replace(/<code>/g, '<code style="font-family: \'JetBrains Mono\', \'Fira Code\', monospace; font-size: 13px; color: #34d399;">')
     .replace(/<blockquote>/g, '<blockquote style="margin: 16px 0; padding: 12px 20px; border-left: 4px solid #fbbf24; background-color: #1f2937; color: #9ca3af; font-style: italic;">');
 }
+
+export const emailTemplateTestUtils = {
+  markdownToEmailHtml,
+};
 
 function htmlToPlainText(html: string): string {
   return html

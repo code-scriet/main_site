@@ -218,7 +218,7 @@ registrationsRouter.post('/events/:eventId', authMiddleware, async (req: Request
 
     // Send registration confirmation email (async, don't wait)
     if (authUser.email) {
-      sendRegistrationConfirmationEmail(
+      void sendRegistrationConfirmationEmail(
         authUser.email,
         authUser.name || 'Member',
         registration.event,

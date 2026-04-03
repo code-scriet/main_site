@@ -11,6 +11,7 @@ import { prisma } from '../lib/prisma.js';
 import { quizStore } from './quizStore.js';
 import type { QuizQuestionData } from './quizStore.js';
 import type { QuizRoom } from './quizStore.js';
+import { authenticateSocketConnection } from '../utils/socketAuth.js';
 
 // ─── Throttle map for answer_count_update broadcasts ─────────────────────────
 const answerCountThrottles = new Map<string, NodeJS.Timeout>();
@@ -102,29 +103,25 @@ function verifyQuizAccessToken(
   }
 }
 
+function extendQuestionStartTime(currentQuestionStartTime: number, extraSeconds: number): number {
+  return currentQuestionStartTime - (extraSeconds * 1000);
+}
+
 export function initQuizSocket(io: SocketIOServer) {
   // ─── Authentication middleware ──────────────────────────────────────────
   const quizNamespace = io.of('/quiz');
 
   quizNamespace.use((socket: QuizSocket, next) => {
-    const token = socket.handshake.auth?.token;
-    if (!token) return next(new Error('AUTH_REQUIRED'));
-    try {
-      const decoded = jwt.verify(token, getJwtSecret(), { algorithms: ['HS256'] }) as {
-        userId?: string;
-        id?: string;
-        email?: string;
-        role?: string;
-        name?: string;
-      };
-      socket.userId = decoded.userId || decoded.id;
-      socket.userDisplayName = decoded.name || decoded.email || 'Anonymous';
-      socket.userRole = decoded.role;
-      if (!socket.userId) return next(new Error('AUTH_INVALID'));
-      next();
-    } catch {
-      next(new Error('AUTH_INVALID'));
-    }
+    void authenticateSocketConnection(socket)
+      .then((authUser) => {
+        socket.userId = authUser.id;
+        socket.userDisplayName = authUser.name || authUser.email || 'Anonymous';
+        socket.userRole = authUser.role;
+        next();
+      })
+      .catch((error) => {
+        next(new Error(error instanceof Error ? error.message : 'AUTH_INVALID'));
+      });
   });
 
   // ─── Performance: discard raw HTTP request reference ────────────────────
@@ -185,6 +182,10 @@ export function initQuizSocket(io: SocketIOServer) {
 
   quizNamespace.on('connection', (socket: QuizSocket) => {
     logger.debug('Quiz socket connected', { socketId: socket.id, userId: socket.userId });
+
+    const emitBlockedControlAction = (code: string, message: string) => {
+      socket.emit('control_action_blocked', { code, message });
+    };
 
     // ─── join_quiz ────────────────────────────────────────────────────────
     socket.on('join_quiz', async ({ quizId, quizAccessToken }: { quizId: string; quizAccessToken?: string }) => {
@@ -403,7 +404,7 @@ export function initQuizSocket(io: SocketIOServer) {
 
           const isPrivilegedAdmin = ['ADMIN', 'PRESIDENT'].includes(socket.userRole || '');
           if (quiz.createdBy !== socket.userId && !isPrivilegedAdmin) {
-            socket.emit('quiz_error', { code: 'FORBIDDEN', message: 'Only quiz hosts can start it' });
+            emitBlockedControlAction('FORBIDDEN', 'Only quiz hosts can start it');
             return;
           }
 
@@ -423,7 +424,7 @@ export function initQuizSocket(io: SocketIOServer) {
         } else {
           // Verify admin
           if (!canControlQuiz(room, socket)) {
-            socket.emit('quiz_error', { code: 'FORBIDDEN', message: 'Only quiz hosts can start it' });
+            emitBlockedControlAction('FORBIDDEN', 'Only quiz hosts can start it');
             return;
           }
         }
@@ -486,7 +487,7 @@ export function initQuizSocket(io: SocketIOServer) {
       }
 
       if (!canControlQuiz(room, socket)) {
-        socket.emit('quiz_error', { code: 'FORBIDDEN', message: 'Only quiz hosts can advance questions' });
+        emitBlockedControlAction('FORBIDDEN', 'Only quiz hosts can advance questions');
         return;
       }
 
@@ -605,7 +606,7 @@ export function initQuizSocket(io: SocketIOServer) {
       }
 
       if (!canControlQuiz(room, socket)) {
-        socket.emit('quiz_error', { code: 'FORBIDDEN', message: 'Only quiz hosts can end the quiz' });
+        emitBlockedControlAction('FORBIDDEN', 'Only quiz hosts can end the quiz');
         return;
       }
 
@@ -631,7 +632,7 @@ export function initQuizSocket(io: SocketIOServer) {
 
       const room = quizStore.getRoom(quizId);
       if (!room || !canControlQuiz(room, socket)) {
-        socket.emit('quiz_error', { code: 'FORBIDDEN', message: 'Only admin can kick players' });
+        emitBlockedControlAction('FORBIDDEN', 'Only admin can kick players');
         return;
       }
 
@@ -661,7 +662,7 @@ export function initQuizSocket(io: SocketIOServer) {
 
       const room = quizStore.getRoom(quizId);
       if (!room || !canControlQuiz(room, socket)) {
-        socket.emit('quiz_error', { code: 'FORBIDDEN', message: 'Only admin can pause' });
+        emitBlockedControlAction('FORBIDDEN', 'Only admin can pause');
         return;
       }
 
@@ -676,7 +677,7 @@ export function initQuizSocket(io: SocketIOServer) {
 
       const room = quizStore.getRoom(quizId);
       if (!room || !canControlQuiz(room, socket)) {
-        socket.emit('quiz_error', { code: 'FORBIDDEN', message: 'Only admin can resume' });
+        emitBlockedControlAction('FORBIDDEN', 'Only admin can resume');
         return;
       }
 
@@ -700,15 +701,12 @@ export function initQuizSocket(io: SocketIOServer) {
 
       const room = quizStore.getRoom(quizId);
       if (!room || !canControlQuiz(room, socket)) {
-        socket.emit('quiz_error', { code: 'FORBIDDEN', message: 'Only admin can extend time' });
+        emitBlockedControlAction('FORBIDDEN', 'Only admin can extend time');
         return;
       }
 
       if (room.status !== 'active' || room.currentQuestionIndex < 0) {
-        socket.emit('quiz_error', {
-          code: 'QUIZ_NOT_ACTIVE',
-          message: 'Time can only be extended during an active question',
-        });
+        emitBlockedControlAction('QUIZ_NOT_ACTIVE', 'Time can only be extended during an active question');
         return;
       }
 
@@ -720,8 +718,10 @@ export function initQuizSocket(io: SocketIOServer) {
         clearTimeout(room.autoAdvanceTimer);
       }
 
-      // Move start time forward so question end time shifts later.
-      room.currentQuestionStartTime += clampedExtraSeconds * 1000;
+      room.currentQuestionStartTime = extendQuestionStartTime(
+        room.currentQuestionStartTime,
+        clampedExtraSeconds,
+      );
 
       // Set new auto-advance timer
       const question = room.questions[room.currentQuestionIndex];
@@ -742,7 +742,7 @@ export function initQuizSocket(io: SocketIOServer) {
 
       const room = quizStore.getRoom(quizId);
       if (!room || !canControlQuiz(room, socket)) {
-        socket.emit('quiz_error', { code: 'FORBIDDEN', message: 'Only admin can skip questions' });
+        emitBlockedControlAction('FORBIDDEN', 'Only admin can skip questions');
         return;
       }
 
@@ -871,3 +871,7 @@ export function initQuizSocket(io: SocketIOServer) {
 
   return quizNamespace;
 }
+
+export const quizSocketTestUtils = {
+  extendQuestionStartTime,
+};

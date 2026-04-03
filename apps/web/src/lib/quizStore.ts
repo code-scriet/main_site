@@ -203,6 +203,14 @@ const initialState = {
   pausedTimeRemaining: null,
 };
 
+function extendQuestionStartTime(currentQuestionStartTime: number | null, extraSeconds: number): number | null {
+  if (!currentQuestionStartTime) {
+    return currentQuestionStartTime;
+  }
+
+  return currentQuestionStartTime - (extraSeconds * 1000);
+}
+
 export const useQuizStore = create<QuizState>()(
   subscribeWithSelector((set) => ({
     ...initialState,
@@ -343,9 +351,7 @@ export const useQuizStore = create<QuizState>()(
 
     timerExtended: (data) =>
       set((s) => ({
-        questionStartTime: s.questionStartTime
-          ? s.questionStartTime + (data.extraSeconds * 1000)
-          : s.questionStartTime,
+        questionStartTime: extendQuestionStartTime(s.questionStartTime, data.extraSeconds),
       })),
 
     playerKicked: () =>
@@ -354,7 +360,15 @@ export const useQuizStore = create<QuizState>()(
         quizStatus: 'idle',
       }),
 
-    setQuizError: (err) => set({ quizError: err, quizStatus: err ? 'idle' : 'idle' }),
+    setQuizError: (err) =>
+      set((s) => ({
+        ...initialState,
+        socketStatus: s.socketStatus,
+        quizId: s.quizId,
+        quizAccessToken: s.quizAccessToken,
+        myUserId: s.myUserId,
+        quizError: err,
+      })),
 
     myRankUpdated: (data) => set({ myRank: data.rank, totalPlayers: data.totalPlayers, myScore: data.score }),
 
@@ -370,3 +384,7 @@ export const useQuizStore = create<QuizState>()(
     reset: () => set(initialState),
   })),
 );
+
+export const quizStoreTestUtils = {
+  extendQuestionStartTime,
+};
