@@ -53,6 +53,8 @@ const roleIcons = {
 };
 
 const REGULAR_USERS_STEP = 100;
+const USERS_PER_PAGE = 20;
+const MAX_PAGE_BUTTONS = 7;
 
 export default function AdminUsers() {
   const { token, user: currentUser } = useAuth();
@@ -112,6 +114,7 @@ export default function AdminUsers() {
   const [exporting, setExporting] = useState(false);
   const [search, setSearch] = useState('');
   const [roleFilter, setRoleFilter] = useState<'ALL' | 'USER' | 'MEMBER' | 'CORE_MEMBER' | 'ADMIN' | 'PRESIDENT'>('ALL');
+  const [currentPage, setCurrentPage] = useState(1);
   const [regularLimit, setRegularLimit] = useState(REGULAR_USERS_STEP);
   const [includeAllUsers, setIncludeAllUsers] = useState(false);
   const [usersMeta, setUsersMeta] = useState<UserListMeta>({
@@ -282,7 +285,17 @@ export default function AdminUsers() {
     try {
       setSaving(true);
       setError(null);
-      await api.updateUser(editingUser.id, editForm, token);
+      const password = editForm.password.trim();
+      const payload = {
+        name: editForm.name,
+        phone: editForm.phone,
+        course: editForm.course,
+        branch: editForm.branch,
+        year: editForm.year,
+        ...(password && { password }),
+      };
+
+      await api.updateUser(editingUser.id, payload, token);
       await loadUsers();
       setEditingUser(null);
     } catch (err) {
@@ -322,11 +335,13 @@ export default function AdminUsers() {
 
   const handleViewAllUsers = () => {
     setIncludeAllUsers(true);
+    setCurrentPage(1);
   };
 
   const handleShowRecentUsers = () => {
     setIncludeAllUsers(false);
     setRegularLimit(REGULAR_USERS_STEP);
+    setCurrentPage(1);
   };
 
   const filteredUsers = users.filter((user) => {
@@ -344,6 +359,36 @@ export default function AdminUsers() {
     }
     return true;
   });
+
+  const totalPages = Math.max(1, Math.ceil(filteredUsers.length / USERS_PER_PAGE));
+  const safeCurrentPage = Math.min(currentPage, totalPages);
+  const pageStartIndex = (safeCurrentPage - 1) * USERS_PER_PAGE;
+  const paginatedUsers = filteredUsers.slice(pageStartIndex, pageStartIndex + USERS_PER_PAGE);
+  const pageStart = filteredUsers.length === 0 ? 0 : pageStartIndex + 1;
+  const pageEnd = Math.min(filteredUsers.length, pageStartIndex + USERS_PER_PAGE);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [search, roleFilter]);
+
+  useEffect(() => {
+    if (currentPage > totalPages) {
+      setCurrentPage(totalPages);
+    }
+  }, [currentPage, totalPages]);
+
+  const visiblePageNumbers = (() => {
+    if (totalPages <= MAX_PAGE_BUTTONS) {
+      return Array.from({ length: totalPages }, (_, index) => index + 1);
+    }
+
+    const half = Math.floor(MAX_PAGE_BUTTONS / 2);
+    let start = Math.max(1, safeCurrentPage - half);
+    const end = Math.min(totalPages, start + MAX_PAGE_BUTTONS - 1);
+    start = Math.max(1, end - MAX_PAGE_BUTTONS + 1);
+
+    return Array.from({ length: end - start + 1 }, (_, index) => start + index);
+  })();
 
   const totalKnownUsers = usersMeta.totalUsers || users.length;
 
@@ -498,7 +543,9 @@ export default function AdminUsers() {
             All Users
           </CardTitle>
           <CardDescription>
-            Showing {filteredUsers.length} of {users.length} loaded users ({totalKnownUsers} total)
+            {filteredUsers.length === 0
+              ? `Showing 0 of ${users.length} loaded users (${totalKnownUsers} total)`
+              : `Showing ${pageStart}-${pageEnd} of ${filteredUsers.length} matching users (${users.length} loaded, ${totalKnownUsers} total)`}
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -509,7 +556,7 @@ export default function AdminUsers() {
             </div>
           ) : (
             <div className="space-y-3">
-              {filteredUsers.map((user, index) => {
+              {paginatedUsers.map((user, index) => {
                 const RoleIcon = roleIcons[user.role as keyof typeof roleIcons] || UserCheck;
                 return (
                   <motion.div
@@ -642,6 +689,64 @@ export default function AdminUsers() {
                   </motion.div>
                 );
               })}
+
+              {totalPages > 1 && (
+                <div className="mt-6 flex flex-col gap-3 border-t border-amber-200 pt-4 sm:flex-row sm:items-center sm:justify-between">
+                  <p className="text-xs text-gray-600">
+                    Page {safeCurrentPage} of {totalPages}
+                  </p>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setCurrentPage(safeCurrentPage - 1)}
+                      disabled={safeCurrentPage === 1}
+                    >
+                      Previous
+                    </Button>
+
+                    {visiblePageNumbers[0] > 1 && (
+                      <>
+                        <Button variant="outline" size="sm" onClick={() => setCurrentPage(1)}>
+                          1
+                        </Button>
+                        {visiblePageNumbers[0] > 2 && <span className="px-1 text-sm text-gray-500">...</span>}
+                      </>
+                    )}
+
+                    {visiblePageNumbers.map((pageNumber) => (
+                      <Button
+                        key={pageNumber}
+                        size="sm"
+                        variant={safeCurrentPage === pageNumber ? 'default' : 'outline'}
+                        onClick={() => setCurrentPage(pageNumber)}
+                      >
+                        {pageNumber}
+                      </Button>
+                    ))}
+
+                    {visiblePageNumbers[visiblePageNumbers.length - 1] < totalPages && (
+                      <>
+                        {visiblePageNumbers[visiblePageNumbers.length - 1] < totalPages - 1 && (
+                          <span className="px-1 text-sm text-gray-500">...</span>
+                        )}
+                        <Button variant="outline" size="sm" onClick={() => setCurrentPage(totalPages)}>
+                          {totalPages}
+                        </Button>
+                      </>
+                    )}
+
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setCurrentPage(safeCurrentPage + 1)}
+                      disabled={safeCurrentPage === totalPages}
+                    >
+                      Next
+                    </Button>
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </CardContent>

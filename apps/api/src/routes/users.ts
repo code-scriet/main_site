@@ -30,7 +30,14 @@ const profileUpdateSchema = z.object({
 });
 
 const adminProfileUpdateSchema = profileUpdateSchema.extend({
-  password: z.string().min(8).max(128).optional(),
+  password: z.preprocess(
+    (value) => {
+      if (typeof value !== 'string') return value;
+      const trimmed = value.trim();
+      return trimmed === '' ? undefined : trimmed;
+    },
+    z.string().min(8).max(128).optional()
+  ),
 });
 
 const roleUpdateSchema = z.object({
