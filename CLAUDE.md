@@ -1220,7 +1220,7 @@ A comprehensive security audit was performed covering CORS, XSS, auth guards, ra
 ### High Priority Fixes
 - **Signature image size** — Added 3MB base64 limit validation
 - **Network rejectionReason** — Applied `sanitizeHtml()` before storage
-- **Mail external emails** — Validates specific emails exist in User table
+- **Mail external emails** — Specific-audience admin mail supports any valid email address (registered or external)
 - **Upload MIME validation** — Server-side magic bytes check (not client mimetype)
 - **Stack trace filtering** — Strips stack traces from error responses in production
 - **dev-login discoverability** — Returns 404 (not 403) when disabled

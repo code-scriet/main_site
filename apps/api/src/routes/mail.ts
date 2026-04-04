@@ -160,23 +160,16 @@ mailRouter.post('/send', authMiddleware, requireRole('ADMIN'), async (req: Reque
           error: { message: 'No recipients specified' },
         });
       }
-      // ISSUE-018: Validate that specific emails exist in the User table
-      // This prevents admins from using the mail system to send to arbitrary external addresses
-      const validUsers = await prisma.user.findMany({
-        where: { email: { in: emails, mode: 'insensitive' } },
-        select: { email: true },
-      });
-      const validEmails = new Set(validUsers.map(u => u.email.toLowerCase()));
-      const invalidEmails = emails.filter(e => !validEmails.has(e.toLowerCase()));
-      if (invalidEmails.length > 0) {
-        return res.status(400).json({
-          success: false,
-          error: { 
-            message: `Some email addresses are not registered users: ${invalidEmails.slice(0, 5).join(', ')}${invalidEmails.length > 5 ? ` and ${invalidEmails.length - 5} more` : ''}`,
-          },
-        });
+      // Accept external recipients for admin mail while preventing duplicate sends.
+      const seen = new Set<string>();
+      recipientEmails = [];
+      for (const email of emails) {
+        const normalized = email.trim();
+        const key = normalized.toLowerCase();
+        if (seen.has(key)) continue;
+        seen.add(key);
+        recipientEmails.push(normalized);
       }
-      recipientEmails = validUsers.map(u => u.email);
     }
 
     if (recipientEmails.length === 0) {
