@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button';
 import { useAuth } from '@/context/AuthContext';
 import { useSettings } from '@/context/SettingsContext';
 import { api } from '@/lib/api';
-import type { Registration, Announcement } from '@/lib/api';
+import type { Registration, Announcement, Poll } from '@/lib/api';
 import {
   Calendar, Bell, ArrowRight, Loader2, Users, CheckCircle,
   Clock, XCircle, Zap, AlertCircle, Award, ExternalLink,
@@ -16,6 +16,7 @@ import { Link } from 'react-router-dom';
 import { QuizDashboardWidget } from '@/components/dashboard/QuizDashboardWidget';
 import { PlaygroundCard } from '@/components/dashboard/PlaygroundCard';
 import { PlaygroundSnippetsCard } from '@/components/dashboard/PlaygroundSnippetsCard';
+import { PollCard } from '@/components/polls/PollCard';
 import AttendanceHistory from '@/components/attendance/AttendanceHistory';
 import { formatDate } from '@/lib/dateUtils';
 
@@ -41,6 +42,7 @@ export default function DashboardOverview() {
   const { settings, loading: settingsLoading } = useSettings();
   const [registrations, setRegistrations] = useState<Registration[]>([]);
   const [announcements, setAnnouncements] = useState<Announcement[]>([]);
+  const [polls, setPolls] = useState<Poll[]>([]);
   const [hiringStatus, setHiringStatus] = useState<{
     hasApplied: boolean;
     hasApplication?: boolean;
@@ -58,20 +60,22 @@ export default function DashboardOverview() {
     const loadData = async () => {
       if (!token) { setLoading(false); return; }
       try {
-        const [regsResult, annsResult, hiringResult, myTeamProfileResult] = await Promise.allSettled([
+        const [regsResult, annsResult, pollsResult, hiringResult, myTeamProfileResult] = await Promise.allSettled([
           api.getMyRegistrations(token),
           api.getAnnouncements(),
+          api.getPolls({ limit: 2 }, token),
           api.getMyHiringApplication(token),
           api.getMyTeamProfile(token),
         ]);
 
         const regs = regsResult.status === 'fulfilled' ? regsResult.value : [];
         const anns = annsResult.status === 'fulfilled' ? annsResult.value : [];
+        const pollData = pollsResult.status === 'fulfilled' ? pollsResult.value : [];
         const hiring = hiringResult.status === 'fulfilled' ? hiringResult.value : null;
         const myTeamProfile = myTeamProfileResult.status === 'fulfilled' ? myTeamProfileResult.value : null;
 
         setPartialError(
-          [regsResult, annsResult, hiringResult, myTeamProfileResult].some((result) => result.status === 'rejected')
+          [regsResult, annsResult, pollsResult, hiringResult, myTeamProfileResult].some((result) => result.status === 'rejected')
             ? 'Some dashboard data could not be loaded. You can still use the rest of the dashboard.'
             : null
         );
@@ -80,6 +84,7 @@ export default function DashboardOverview() {
         setTotalAnnouncements(anns.length);
         setRegistrations(regs.slice(0, 5));
         setAnnouncements(anns.slice(0, 10));
+        setPolls(pollData.slice(0, 2));
         setHiringStatus(hiring);
         setIsTeamMember(!!myTeamProfile);
         if (myTeamProfile && 'id' in myTeamProfile) {
@@ -313,6 +318,39 @@ export default function DashboardOverview() {
 
         {/* RIGHT COLUMN: Announcements → Hiring CTA → Playground Activity */}
         <div className="flex flex-col gap-6">
+
+          {/* Polls */}
+          <motion.div {...stagger(4)}>
+            <Card className="rounded-2xl border-gray-100 shadow-sm overflow-hidden">
+              <CardHeader className="flex flex-row items-center justify-between px-4 sm:px-5 py-4 border-b border-gray-50">
+                <CardTitle className="text-[15px] font-semibold text-gray-900 flex items-center gap-2.5">
+                  <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-amber-50">
+                    <Zap className="h-4 w-4 text-amber-600" />
+                  </span>
+                  Active Polls
+                </CardTitle>
+                <Link to="/dashboard/announcements">
+                  <Button variant="ghost" size="sm" className="h-8 text-sm text-gray-400 hover:text-amber-600 rounded-lg gap-1">
+                    All <ArrowRight className="h-3.5 w-3.5" />
+                  </Button>
+                </Link>
+              </CardHeader>
+              <CardContent className="space-y-4 p-4">
+                {polls.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center py-8 gap-2 text-center">
+                    <div className="h-12 w-12 rounded-2xl bg-gray-50 flex items-center justify-center">
+                      <Zap className="h-6 w-6 text-gray-300" />
+                    </div>
+                    <p className="text-sm text-gray-400 font-medium">No active polls right now</p>
+                  </div>
+                ) : (
+                  polls.map((poll) => (
+                    <PollCard key={poll.id} poll={poll} compact actionLabel="Vote" />
+                  ))
+                )}
+              </CardContent>
+            </Card>
+          </motion.div>
 
           {/* Announcements — stretched vertically with more items */}
           <motion.div {...stagger(4)}>

@@ -1,9 +1,20 @@
-import { useState, useEffect } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
+import { Link } from 'react-router-dom';
+import {
+  AlertCircle,
+  Bell,
+  Edit2,
+  ExternalLink,
+  Loader2,
+  Pin,
+  Plus,
+  Save,
+  Star,
+  Trash2,
+  Vote,
+  X,
+} from 'lucide-react';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -14,16 +25,19 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { Input } from '@/components/ui/input';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { PollCard } from '@/components/polls/PollCard';
 import { useAuth } from '@/context/AuthContext';
-import { api } from '@/lib/api';
-import type { Announcement } from '@/lib/api';
-import { Bell, Loader2, AlertCircle, Plus, User, Clock, Edit2, Trash2, X, Save, Pin, Star, ExternalLink } from 'lucide-react';
-import { Link } from 'react-router-dom';
+import { api, type Announcement, type Poll } from '@/lib/api';
 import { formatDate } from '@/lib/dateUtils';
 
 const priorityColors = {
   URGENT: 'destructive',
-  HIGH: 'destructive', 
+  HIGH: 'destructive',
   MEDIUM: 'warning',
   LOW: 'secondary',
 } as const;
@@ -36,6 +50,8 @@ const priorityBgColors = {
 };
 
 type AnnouncementPriority = Announcement['priority'];
+type ActiveTab = 'announcements' | 'polls';
+type PollFilter = 'ALL' | 'OPEN' | 'CLOSED';
 
 function getAnnouncementPreview(body: string): string {
   return body
@@ -47,10 +63,13 @@ function getAnnouncementPreview(body: string): string {
 
 export default function DashboardAnnouncements() {
   const { user, token } = useAuth();
+  const [activeTab, setActiveTab] = useState<ActiveTab>('announcements');
   const [announcements, setAnnouncements] = useState<Announcement[]>([]);
+  const [polls, setPolls] = useState<Poll[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [filter, setFilter] = useState<string>('ALL');
+  const [announcementFilter, setAnnouncementFilter] = useState<string>('ALL');
+  const [pollFilter, setPollFilter] = useState<PollFilter>('ALL');
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editForm, setEditForm] = useState<Partial<Announcement>>({});
   const [deleting, setDeleting] = useState<string | null>(null);
@@ -59,22 +78,26 @@ export default function DashboardAnnouncements() {
   const isCoreMember = user?.role === 'CORE_MEMBER' || user?.role === 'ADMIN' || user?.role === 'PRESIDENT';
   const isAdmin = user?.role === 'ADMIN' || user?.role === 'PRESIDENT';
 
-  useEffect(() => {
-    loadAnnouncements();
-  }, []);
-
-  const loadAnnouncements = async () => {
+  const loadData = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
-      const data = await api.getAnnouncements();
-      setAnnouncements(data);
+      const [announcementData, pollData] = await Promise.all([
+        api.getAnnouncements(),
+        api.getPolls({ includeClosed: true, limit: 50 }, token ?? undefined),
+      ]);
+      setAnnouncements(announcementData);
+      setPolls(pollData);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load announcements');
     } finally {
       setLoading(false);
     }
-  };
+  }, [token]);
+
+  useEffect(() => {
+    void loadData();
+  }, [loadData]);
 
   const handleEdit = (announcement: Announcement) => {
     setEditingId(announcement.id);
@@ -95,12 +118,13 @@ export default function DashboardAnnouncements() {
       setError('Authentication token not found. Please log in again.');
       return;
     }
+
     try {
       setError(null);
       await api.updateAnnouncement(id, editForm, token);
       setEditingId(null);
       setEditForm({});
-      await loadAnnouncements();
+      await loadData();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to update announcement');
     }
@@ -115,12 +139,12 @@ export default function DashboardAnnouncements() {
       setError('Only admins can delete announcements.');
       return;
     }
-    
+
     try {
       setDeleting(announcement.id);
       setError(null);
       await api.deleteAnnouncement(announcement.id, token);
-      await loadAnnouncements();
+      await loadData();
       setAnnouncementToDelete(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to delete announcement');
@@ -129,9 +153,16 @@ export default function DashboardAnnouncements() {
     }
   };
 
-  const filteredAnnouncements = filter === 'ALL' 
-    ? announcements 
-    : announcements.filter(a => a.priority === filter);
+  const filteredAnnouncements =
+    announcementFilter === 'ALL'
+      ? announcements
+      : announcements.filter((announcement) => announcement.priority === announcementFilter);
+
+  const filteredPolls = polls.filter((poll) => {
+    if (pollFilter === 'OPEN') return !poll.isClosed;
+    if (pollFilter === 'CLOSED') return poll.isClosed;
+    return true;
+  });
 
   if (loading) {
     return (
@@ -143,168 +174,184 @@ export default function DashboardAnnouncements() {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold text-amber-900">Announcements</h1>
-          <p className="text-gray-600">Stay updated with the latest news</p>
+          <p className="text-gray-600">
+            News, updates, and now async polls that members can vote on anytime.
+          </p>
         </div>
-        {isCoreMember && (
+
+        {activeTab === 'announcements' && isCoreMember ? (
           <Link to="/dashboard/announcements/new">
             <Button>
-              <Plus className="h-4 w-4 mr-2" />
+              <Plus className="mr-2 h-4 w-4" />
               New Announcement
             </Button>
           </Link>
-        )}
+        ) : activeTab === 'polls' && isAdmin ? (
+          <Link to="/admin/public-view">
+            <Button>
+              <Vote className="mr-2 h-4 w-4" />
+              Public View
+            </Button>
+          </Link>
+        ) : null}
       </div>
 
       {error && (
         <motion.div
           initial={{ opacity: 0, y: -10 }}
           animate={{ opacity: 1, y: 0 }}
-          className="flex items-start gap-3 p-4 bg-red-50 border border-red-200 rounded-lg text-red-700"
+          className="flex items-start gap-3 rounded-lg border border-red-200 bg-red-50 p-4 text-red-700"
         >
-          <AlertCircle className="h-5 w-5 shrink-0 mt-0.5" />
+          <AlertCircle className="mt-0.5 h-5 w-5 shrink-0" />
           <p className="text-sm">{error}</p>
         </motion.div>
       )}
 
-      {/* Filters */}
-      <div className="flex flex-wrap gap-2">
-        {['ALL', 'URGENT', 'HIGH', 'MEDIUM', 'LOW'].map((priority) => (
-          <Button
-            key={priority}
-            variant={filter === priority ? 'default' : 'outline'}
-            size="sm"
-            onClick={() => setFilter(priority)}
-          >
-            {priority === 'ALL' ? 'All' : priority.charAt(0) + priority.slice(1).toLowerCase()}
-          </Button>
-        ))}
-      </div>
+      <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as ActiveTab)}>
+        <TabsList className="grid w-full max-w-md grid-cols-2">
+          <TabsTrigger value="announcements">Announcements</TabsTrigger>
+          <TabsTrigger value="polls">Polls</TabsTrigger>
+        </TabsList>
 
-      {/* Announcements List */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Bell className="h-5 w-5 text-amber-600" />
-            All Announcements
-          </CardTitle>
-          <CardDescription>
-            {filteredAnnouncements.length} announcement{filteredAnnouncements.length !== 1 ? 's' : ''}
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          {filteredAnnouncements.length === 0 ? (
-            <div className="text-center py-8 text-gray-500">
-              <Bell className="h-12 w-12 mx-auto mb-4 text-gray-300" />
-              <p>No announcements found.</p>
-            </div>
-          ) : (
-            <div className="space-y-4">
-              {filteredAnnouncements.map((announcement, index) => (
-                <motion.div
-                  key={announcement.id}
-                  initial={{ opacity: 0, y: 20 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: index * 0.05 }}
-                  className={`p-4 rounded-lg border ${priorityBgColors[announcement.priority]} transition-all hover:shadow-md`}
-                >
-                  {editingId === announcement.id ? (
-                    // Edit Mode
-                    <div className="space-y-4">
-                      <div>
-                        <label htmlFor={`dashboard-announcement-title-${announcement.id}`} className="block text-sm font-medium text-gray-700 mb-1">Title</label>
-                        <Input
-                          id={`dashboard-announcement-title-${announcement.id}`}
-                          value={editForm.title || ''}
-                          onChange={(e) => setEditForm({ ...editForm, title: e.target.value })}
-                          placeholder="Title"
-                        />
-                      </div>
-                      <div>
-                        <label htmlFor={`dashboard-announcement-body-${announcement.id}`} className="block text-sm font-medium text-gray-700 mb-1">Body</label>
-                        <textarea
-                          id={`dashboard-announcement-body-${announcement.id}`}
-                          value={editForm.body || ''}
-                          onChange={(e) => setEditForm({ ...editForm, body: e.target.value })}
-                          placeholder="Body"
-                          rows={4}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-transparent"
-                        />
-                      </div>
-                      <div>
-                        <label htmlFor={`dashboard-announcement-priority-${announcement.id}`} className="block text-sm font-medium text-gray-700 mb-1">Priority</label>
-                        <select
-                          id={`dashboard-announcement-priority-${announcement.id}`}
-                          value={editForm.priority || 'LOW'}
-                          onChange={(e) => setEditForm({ ...editForm, priority: e.target.value as AnnouncementPriority })}
-                          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-transparent"
-                        >
-                          <option value="LOW">Low</option>
-                          <option value="MEDIUM">Medium</option>
-                          <option value="HIGH">High</option>
-                          <option value="URGENT">Urgent</option>
-                        </select>
-                      </div>
-                      <div className="flex gap-2">
-                        <Button onClick={() => handleSaveEdit(announcement.id)} size="sm">
-                          <Save className="h-4 w-4 mr-1" />
-                          Save
-                        </Button>
-                        <Button onClick={handleCancelEdit} variant="outline" size="sm">
-                          <X className="h-4 w-4 mr-1" />
-                          Cancel
-                        </Button>
-                      </div>
-                    </div>
-                  ) : (
-                    // View Mode
-                    <>
-                      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 mb-3">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <h3 className="font-semibold text-amber-900 break-words">{announcement.title}</h3>
-                          {announcement.pinned && (
-                            <Badge variant="outline" className="bg-amber-50 text-amber-700 border-amber-300">
-                              <Pin className="h-3 w-3 mr-1" />
-                              Pinned
-                            </Badge>
-                          )}
-                          {announcement.featured && (
-                            <Badge variant="outline" className="bg-purple-50 text-purple-700 border-purple-300">
-                              <Star className="h-3 w-3 mr-1" />
-                              Featured
-                            </Badge>
-                          )}
-                        </div>
-                        <div className="flex items-center gap-2 shrink-0 flex-wrap">
-                          <Badge variant={priorityColors[announcement.priority]}>
-                            {announcement.priority}
-                          </Badge>
-                          <Link to={`/announcements/${announcement.slug || announcement.id}`} target="_blank">
-                            <Button variant="ghost" size="sm" className="h-8 w-8 p-0" aria-label={`Open ${announcement.title} in a new tab`}>
-                              <ExternalLink className="h-4 w-4" />
+        <TabsContent value="announcements" className="space-y-6">
+          <div className="flex flex-wrap gap-2">
+            {['ALL', 'URGENT', 'HIGH', 'MEDIUM', 'LOW'].map((priority) => (
+              <Button
+                key={priority}
+                variant={announcementFilter === priority ? 'default' : 'outline'}
+                size="sm"
+                onClick={() => setAnnouncementFilter(priority)}
+              >
+                {priority === 'ALL' ? 'All' : priority.charAt(0) + priority.slice(1).toLowerCase()}
+              </Button>
+            ))}
+          </div>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Bell className="h-5 w-5 text-amber-600" />
+                All Announcements
+              </CardTitle>
+              <CardDescription>
+                {filteredAnnouncements.length} announcement{filteredAnnouncements.length !== 1 ? 's' : ''}
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {filteredAnnouncements.length === 0 ? (
+                <div className="py-8 text-center text-gray-500">
+                  <Bell className="mx-auto mb-4 h-12 w-12 text-gray-300" />
+                  <p>No announcements found.</p>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {filteredAnnouncements.map((announcement, index) => (
+                    <motion.div
+                      key={announcement.id}
+                      initial={{ opacity: 0, y: 20 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ delay: index * 0.04 }}
+                      className={`rounded-lg border p-4 transition-all hover:shadow-md ${priorityBgColors[announcement.priority]}`}
+                    >
+                      {editingId === announcement.id ? (
+                        <div className="space-y-4">
+                          <div>
+                            <label htmlFor={`announcement-title-${announcement.id}`} className="mb-1 block text-sm font-medium text-gray-700">
+                              Title
+                            </label>
+                            <Input
+                              id={`announcement-title-${announcement.id}`}
+                              value={editForm.title || ''}
+                              onChange={(event) => setEditForm({ ...editForm, title: event.target.value })}
+                              placeholder="Title"
+                            />
+                          </div>
+                          <div>
+                            <label htmlFor={`announcement-body-${announcement.id}`} className="mb-1 block text-sm font-medium text-gray-700">
+                              Body
+                            </label>
+                            <textarea
+                              id={`announcement-body-${announcement.id}`}
+                              value={editForm.body || ''}
+                              onChange={(event) => setEditForm({ ...editForm, body: event.target.value })}
+                              rows={4}
+                              className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:border-transparent focus:ring-2 focus:ring-amber-500"
+                            />
+                          </div>
+                          <div>
+                            <label htmlFor={`announcement-priority-${announcement.id}`} className="mb-1 block text-sm font-medium text-gray-700">
+                              Priority
+                            </label>
+                            <select
+                              id={`announcement-priority-${announcement.id}`}
+                              value={editForm.priority || 'LOW'}
+                              onChange={(event) => setEditForm({ ...editForm, priority: event.target.value as AnnouncementPriority })}
+                              className="w-full rounded-lg border border-gray-300 px-3 py-2 focus:border-transparent focus:ring-2 focus:ring-amber-500"
+                            >
+                              <option value="LOW">Low</option>
+                              <option value="MEDIUM">Medium</option>
+                              <option value="HIGH">High</option>
+                              <option value="URGENT">Urgent</option>
+                            </select>
+                          </div>
+                          <div className="flex gap-2">
+                            <Button onClick={() => void handleSaveEdit(announcement.id)} size="sm">
+                              <Save className="mr-1 h-4 w-4" />
+                              Save
                             </Button>
-                          </Link>
-                          {isCoreMember && (
-                            <div className="flex gap-1">
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => handleEdit(announcement)}
-                                className="h-8 w-8 p-0"
-                                aria-label={`Edit ${announcement.title}`}
-                              >
-                                <Edit2 className="h-4 w-4" />
-                              </Button>
+                            <Button onClick={handleCancelEdit} variant="outline" size="sm">
+                              <X className="mr-1 h-4 w-4" />
+                              Cancel
+                            </Button>
+                          </div>
+                        </div>
+                      ) : (
+                        <>
+                          <div className="mb-3 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <h3 className="break-words font-semibold text-amber-900">{announcement.title}</h3>
+                              {announcement.pinned && (
+                                <Badge variant="outline" className="border-amber-300 bg-amber-50 text-amber-700">
+                                  <Pin className="mr-1 h-3 w-3" />
+                                  Pinned
+                                </Badge>
+                              )}
+                              {announcement.featured && (
+                                <Badge variant="outline" className="border-purple-300 bg-purple-50 text-purple-700">
+                                  <Star className="mr-1 h-3 w-3" />
+                                  Featured
+                                </Badge>
+                              )}
+                            </div>
+
+                            <div className="flex flex-wrap items-center gap-2">
+                              <Badge variant={priorityColors[announcement.priority]}>{announcement.priority}</Badge>
+                              <Link to={`/announcements/${announcement.slug || announcement.id}`} target="_blank">
+                                <Button variant="ghost" size="sm" className="h-8 w-8 p-0" aria-label={`Open ${announcement.title}`}>
+                                  <ExternalLink className="h-4 w-4" />
+                                </Button>
+                              </Link>
+                              {isCoreMember && (
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => handleEdit(announcement)}
+                                  className="h-8 w-8 p-0"
+                                  aria-label={`Edit ${announcement.title}`}
+                                >
+                                  <Edit2 className="h-4 w-4" />
+                                </Button>
+                              )}
                               {isAdmin && (
                                 <Button
                                   variant="ghost"
                                   size="sm"
                                   onClick={() => setAnnouncementToDelete(announcement)}
                                   disabled={deleting === announcement.id}
-                                  className="h-8 w-8 p-0 text-red-600 hover:text-red-700 hover:bg-red-50"
+                                  className="h-8 w-8 p-0 text-red-600 hover:bg-red-50 hover:text-red-700"
                                   aria-label={`Delete ${announcement.title}`}
                                 >
                                   {deleting === announcement.id ? (
@@ -315,52 +362,84 @@ export default function DashboardAnnouncements() {
                                 </Button>
                               )}
                             </div>
+                          </div>
+
+                          {announcement.shortDescription && (
+                            <p className="mb-2 text-sm italic text-gray-600">{announcement.shortDescription}</p>
                           )}
-                        </div>
-                      </div>
-                      {announcement.shortDescription && (
-                        <p className="text-sm text-gray-600 italic mb-2">{announcement.shortDescription}</p>
+                          <p className="mb-4 line-clamp-3 text-gray-700">
+                            {getAnnouncementPreview(announcement.body)}
+                            {announcement.body.length > 180 ? '...' : ''}
+                          </p>
+
+                          <div className="flex flex-wrap items-center gap-4 text-sm text-gray-500">
+                            {announcement.creator && <span>{announcement.creator.name}</span>}
+                            <span>{formatDate(announcement.createdAt)}</span>
+                            {announcement.tags && announcement.tags.length > 0 && (
+                              <span>{announcement.tags.length} tag{announcement.tags.length === 1 ? '' : 's'}</span>
+                            )}
+                          </div>
+                        </>
                       )}
-                      <p className="text-gray-700 mb-4 line-clamp-3">
-                        {getAnnouncementPreview(announcement.body)}
-                        {announcement.body.length > 180 ? '...' : ''}
-                      </p>
-                      {/* Tags */}
-                      {announcement.tags && announcement.tags.length > 0 && (
-                        <div className="flex flex-wrap gap-1.5 mb-3">
-                          {announcement.tags.map((tag, idx) => (
-                            <span key={idx} className="text-xs bg-white/50 text-gray-600 px-2 py-0.5 rounded-full border">
-                              {tag}
-                            </span>
-                          ))}
-                        </div>
-                      )}
-                      <div className="flex flex-wrap items-center gap-4 text-sm text-gray-500">
-                        {announcement.creator && (
-                          <span className="flex items-center gap-1">
-                            <User className="h-4 w-4" />
-                            {announcement.creator.name}
-                          </span>
-                        )}
-                        <span className="flex items-center gap-1">
-                          <Clock className="h-4 w-4" />
-                          {formatDate(announcement.createdAt)}
-                        </span>
-                        {announcement.imageUrl && (
-                          <span className="text-xs text-amber-600">Has cover image</span>
-                        )}
-                        {announcement.imageGallery && (announcement.imageGallery as string[]).length > 0 && (
-                          <span className="text-xs text-amber-600">{(announcement.imageGallery as string[]).length} gallery images</span>
-                        )}
-                      </div>
-                    </>
-                  )}
-                </motion.div>
-              ))}
-            </div>
-          )}
-        </CardContent>
-      </Card>
+                    </motion.div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="polls" className="space-y-6">
+          <div className="flex flex-wrap gap-2">
+            {(['ALL', 'OPEN', 'CLOSED'] as const).map((status) => (
+              <Button
+                key={status}
+                variant={pollFilter === status ? 'default' : 'outline'}
+                size="sm"
+                onClick={() => setPollFilter(status)}
+              >
+                {status === 'ALL' ? 'All polls' : status === 'OPEN' ? 'Open polls' : 'Closed polls'}
+              </Button>
+            ))}
+          </div>
+
+          <Card>
+            <CardHeader className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <CardTitle className="flex items-center gap-2">
+                  <Vote className="h-5 w-5 text-amber-600" />
+                  Polls
+                </CardTitle>
+                <CardDescription>
+                  {filteredPolls.length} poll{filteredPolls.length !== 1 ? 's' : ''} available to members
+                </CardDescription>
+              </div>
+
+              {isAdmin && (
+                <Link to="/admin/public-view">
+                  <Button variant="outline" size="sm">
+                    Manage in Public View
+                  </Button>
+                </Link>
+              )}
+            </CardHeader>
+            <CardContent>
+              {filteredPolls.length === 0 ? (
+                <div className="py-10 text-center text-gray-500">
+                  <Vote className="mx-auto mb-4 h-12 w-12 text-gray-300" />
+                  <p>No polls found for this filter.</p>
+                </div>
+              ) : (
+                <div className="grid gap-4 xl:grid-cols-2">
+                  {filteredPolls.map((poll) => (
+                    <PollCard key={poll.id} poll={poll} actionLabel="Open poll" />
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
+      </Tabs>
 
       <AlertDialog open={Boolean(announcementToDelete)} onOpenChange={(open) => !open && setAnnouncementToDelete(null)}>
         <AlertDialogContent>
@@ -384,7 +463,7 @@ export default function DashboardAnnouncements() {
             >
               {deleting && announcementToDelete?.id === deleting ? (
                 <>
-                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                   Deleting...
                 </>
               ) : (

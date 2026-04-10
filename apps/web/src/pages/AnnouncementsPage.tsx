@@ -8,7 +8,8 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Bell, Calendar, AlertCircle, Info, AlertTriangle, Megaphone, Pin, Star, ArrowRight } from 'lucide-react';
 import { api } from '@/lib/api';
-import type { Announcement } from '@/lib/api';
+import type { Announcement, Poll } from '@/lib/api';
+import { PollCard } from '@/components/polls/PollCard';
 import { formatDate } from '@/lib/dateUtils';
 import { processImageUrl } from '@/lib/imageUtils';
 
@@ -21,6 +22,7 @@ const priorityConfig = {
 
 export default function AnnouncementsPage() {
   const [announcements, setAnnouncements] = useState<Announcement[]>([]);
+  const [polls, setPolls] = useState<Poll[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState<'ALL' | 'URGENT' | 'HIGH' | 'MEDIUM' | 'LOW'>('ALL');
@@ -28,8 +30,12 @@ export default function AnnouncementsPage() {
   useEffect(() => {
     const loadAnnouncements = async () => {
       try {
-        const data = await api.getAnnouncements();
-        setAnnouncements(data);
+        const [announcementData, pollData] = await Promise.all([
+          api.getAnnouncements(),
+          api.getPolls({ limit: 6 }),
+        ]);
+        setAnnouncements(announcementData);
+        setPolls(pollData);
         setError(null);
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Failed to load announcements');
@@ -139,7 +145,7 @@ export default function AnnouncementsPage() {
           )}
 
           {/* Empty State */}
-          {!loading && !error && filteredAnnouncements.length === 0 && (
+          {!loading && !error && filteredAnnouncements.length === 0 && polls.length === 0 && (
             <motion.div
               initial={{ opacity: 0, scale: 0.9 }}
               animate={{ opacity: 1, scale: 1 }}
@@ -154,6 +160,29 @@ export default function AnnouncementsPage() {
                   ? 'Check back later for updates!' 
                   : `No ${filter.toLowerCase()} priority announcements at the moment.`}
               </p>
+            </motion.div>
+          )}
+
+          {!loading && !error && polls.length > 0 && (
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.15 }}
+              className="mb-10"
+            >
+              <div className="mb-5 flex items-center justify-between gap-3">
+                <div>
+                  <h2 className="text-2xl font-bold text-amber-900">Open Polls</h2>
+                  <p className="text-sm text-gray-600">
+                    Vote anytime, then leave feedback below each poll.
+                  </p>
+                </div>
+              </div>
+              <div className="grid gap-4 lg:grid-cols-2">
+                {polls.map((poll) => (
+                  <PollCard key={poll.id} poll={poll} actionLabel="Vote now" />
+                ))}
+              </div>
             </motion.div>
           )}
 

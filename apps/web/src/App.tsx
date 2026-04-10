@@ -50,6 +50,7 @@ const AchievementsPage = lazy(() => import('@/pages/AchievementsPage'));
 const AchievementDetailPage = lazy(() => import('@/pages/AchievementDetailPage'));
 const AnnouncementsPage = lazy(() => import('@/pages/AnnouncementsPage'));
 const AnnouncementDetailPage = lazy(() => import('@/pages/AnnouncementDetailPage'));
+const PollDetailPage = lazy(() => import('@/pages/PollDetailPage'));
 const SignInPage = lazy(() => import('@/pages/SignInPage'));
 const JoinUsPage = lazy(() => import('@/pages/JoinUsPage'));
 const AuthCallbackPage = lazy(() => import('@/pages/AuthCallbackPage'));
@@ -95,6 +96,7 @@ const AdminCompetition = lazy(() => import('@/pages/admin/AdminCompetition'));
 const CompetitionJudge = lazy(() => import('@/pages/admin/CompetitionJudge'));
 const AdminAuditLog = lazy(() => import('@/pages/admin/AdminAuditLog'));
 const AdminMail = lazy(() => import('@/pages/admin/AdminMail'));
+const AdminPublicView = lazy(() => import('@/pages/admin/AdminPublicView'));
 const EventAdminHub = lazy(() => import('@/components/attendance/EventAdminHub'));
 const CompetitionResults = lazy(() => import('@/pages/CompetitionResults'));
 
@@ -136,6 +138,7 @@ function App() {
                   <Route path="/events/:id" element={withRouteBoundary(<EventDetailPage />)} />
                   <Route path="/announcements" element={withRouteBoundary(<AnnouncementsPage />)} />
                   <Route path="/announcements/:id" element={withRouteBoundary(<AnnouncementDetailPage />)} />
+                  <Route path="/polls/:slug" element={withRouteBoundary(<PollDetailPage />)} />
                   <Route path="/team" element={withRouteBoundary(<TeamPage />)} />
                   <Route path="/team/:slug" element={withRouteBoundary(<TeamMemberProfilePage />)} />
                   <Route path="/achievements" element={withRouteBoundary(<AchievementsPage />)} />
@@ -206,6 +209,7 @@ function App() {
                       <Route path="settings" element={withRouteBoundary(<AdminSettings />)} />
                       <Route path="audit-log" element={withRouteBoundary(<AdminAuditLog />)} />
                       <Route path="mail" element={withRouteBoundary(<AdminMail />)} />
+                      <Route path="public-view" element={withRouteBoundary(<AdminPublicView />)} />
                       <Route path="certificates" element={withRouteBoundary(<AdminCertificates />)} />
                       <Route path="events/:eventId/attendance" element={withRouteBoundary(<EventAdminHub />)} />
                     </Route>

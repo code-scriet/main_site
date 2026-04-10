@@ -26,6 +26,7 @@ import {
   QrCode,
   PanelLeftClose,
   PanelLeft,
+  BarChart3,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -60,6 +61,7 @@ const breadcrumbNames: Record<string, string> = {
   '/admin/competition': 'Competition',
   '/admin/certificates': 'Certificates',
   '/admin/mail': 'Send Mail',
+  '/admin/public-view': 'Public View',
   '/admin/settings': 'Settings',
 };
 
@@ -87,6 +89,7 @@ const getAdminNavItems = (
     { id: 'admin-team', name: 'Team Management', href: '/admin/team', icon: Shield },
     { id: 'admin-achievements', name: 'Achievements', href: '/admin/achievements', icon: Trophy },
     { id: 'admin-credits', name: 'Credits', href: '/admin/credits', icon: Award },
+    { id: 'admin-public-view', name: 'Public View', href: '/admin/public-view', icon: BarChart3 },
   ] satisfies NavItem[];
 
   if (hiringEnabled !== false) {

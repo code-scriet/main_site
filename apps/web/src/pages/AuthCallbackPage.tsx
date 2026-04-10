@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '@/context/AuthContext';
 import { useSettings } from '@/context/SettingsContext';
@@ -36,11 +36,13 @@ export default function AuthCallbackPage() {
   const { settings, loading: settingsLoading } = useSettings();
   const [status, setStatus] = useState('Completing sign in...');
   const [error, setError] = useState<string | null>(null);
+  const hasProcessedCallback = useRef(false);
 
   useEffect(() => {
-    if (settingsLoading) {
+    if (settingsLoading || hasProcessedCallback.current) {
       return;
     }
+    hasProcessedCallback.current = true;
 
     let redirectTimeout: number | null = null;
 

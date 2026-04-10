@@ -430,11 +430,12 @@ pollsRouter.get('/admin/public-view', authMiddleware, requireRole('ADMIN'), asyn
     if (search) {
       conditions.push({
         OR: [
-          { question: { contains: search, mode: 'insensitive' } },
-          { description: { contains: search, mode: 'insensitive' } },
-          { slug: { contains: search, mode: 'insensitive' } },
-          { creator: { name: { contains: search, mode: 'insensitive' } } },
-          { options: { some: { text: { contains: search, mode: 'insensitive' } } } },
+          { question: { contains: search, mode: Prisma.QueryMode.insensitive } },
+          { description: { contains: search, mode: Prisma.QueryMode.insensitive } },
+          { slug: { contains: search, mode: Prisma.QueryMode.insensitive } },
+          { creator: { is: { name: { contains: search, mode: Prisma.QueryMode.insensitive } } } },
+          { creator: { is: { email: { contains: search, mode: Prisma.QueryMode.insensitive } } } },
+          { options: { some: { text: { contains: search, mode: Prisma.QueryMode.insensitive } } } },
         ],
       });
     }
@@ -938,9 +939,9 @@ pollsRouter.get('/', optionalAuthMiddleware, async (req: Request, res: Response)
           ? [
               {
                 OR: [
-                  { question: { contains: search, mode: 'insensitive' } },
-                  { description: { contains: search, mode: 'insensitive' } },
-                  { options: { some: { text: { contains: search, mode: 'insensitive' } } } },
+                  { question: { contains: search, mode: Prisma.QueryMode.insensitive } },
+                  { description: { contains: search, mode: Prisma.QueryMode.insensitive } },
+                  { options: { some: { text: { contains: search, mode: Prisma.QueryMode.insensitive } } } },
                 ],
               },
             ]
