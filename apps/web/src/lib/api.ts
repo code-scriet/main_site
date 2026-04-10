@@ -114,6 +114,52 @@ async function requestEnvelope<T>(endpoint: string, options: RequestOptions = {}
   return executeJsonRequest(endpoint, options) as Promise<ApiEnvelope<T>>;
 }
 
+async function requestBlob(endpoint: string, options: RequestOptions = {}): Promise<Blob> {
+  const { token, ...fetchOptions } = options;
+  const method = (fetchOptions.method ?? 'GET').toUpperCase();
+  const hasRequestBody =
+    fetchOptions.body !== undefined &&
+    fetchOptions.body !== null &&
+    method !== 'GET' &&
+    method !== 'HEAD';
+
+  const headers: Record<string, string> = {
+    ...(fetchOptions.headers as Record<string, string>),
+  };
+
+  const hasHeader = (name: string) =>
+    Object.keys(headers).some((headerName) => headerName.toLowerCase() === name.toLowerCase());
+
+  if (hasRequestBody && !hasHeader('Content-Type')) {
+    headers['Content-Type'] = 'application/json';
+  }
+
+  if (!hasHeader('Accept')) {
+    headers.Accept = 'application/octet-stream';
+  }
+
+  if (token) {
+    headers.Authorization = `Bearer ${token}`;
+  }
+
+  const response = await fetch(`${API_URL}${endpoint}`, {
+    ...fetchOptions,
+    credentials: 'include',
+    headers,
+  });
+
+  if (!response.ok) {
+    const errorData = await readErrorPayload(response);
+    const message = extractApiErrorMessage(errorData, `Request failed (${response.status})`);
+    if (response.status === 401) {
+      throw new UnauthorizedError(message);
+    }
+    throw new Error(message);
+  }
+
+  return response.blob();
+}
+
 
 
 
@@ -482,6 +528,122 @@ export interface Announcement {
   createdBy: string;
   createdAt: string;
   creator?: { id: string; name: string; avatar?: string };
+}
+
+export interface PollOptionResult {
+  id: string;
+  text: string;
+  sortOrder: number;
+  voteCount: number;
+  percentage: number;
+}
+
+export interface PollCurrentVote {
+  id: string;
+  optionIds: string[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface PollCurrentFeedback {
+  id: string;
+  message: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface Poll {
+  id: string;
+  question: string;
+  description?: string | null;
+  slug: string;
+  shareUrl: string;
+  allowMultipleChoices: boolean;
+  allowVoteChange: boolean;
+  isAnonymous: boolean;
+  isPublished: boolean;
+  deadline?: string | null;
+  createdAt: string;
+  updatedAt: string;
+  isClosed: boolean;
+  totalVotes: number;
+  totalFeedback: number;
+  creator?: { id: string; name: string; email?: string; avatar?: string | null };
+  options: PollOptionResult[];
+  currentUserVote: PollCurrentVote | null;
+  currentUserFeedback: PollCurrentFeedback | null;
+}
+
+export interface PollInput {
+  question: string;
+  description?: string | null;
+  options: string[];
+  allowMultipleChoices?: boolean;
+  allowVoteChange?: boolean;
+  isAnonymous?: boolean;
+  deadline?: string | null;
+  isPublished?: boolean;
+}
+
+export interface AdminPollListItem {
+  id: string;
+  question: string;
+  slug: string;
+  shareUrl: string;
+  allowMultipleChoices: boolean;
+  allowVoteChange: boolean;
+  isAnonymous: boolean;
+  isPublished: boolean;
+  deadline?: string | null;
+  createdAt: string;
+  updatedAt: string;
+  isClosed: boolean;
+  totalVotes: number;
+  totalFeedback: number;
+  optionCount: number;
+  creator: { id: string; name: string; email: string };
+}
+
+export interface AdminPollResponse {
+  id: string;
+  createdAt: string;
+  updatedAt: string;
+  user: {
+    id: string;
+    name: string;
+    email: string;
+    avatar?: string | null;
+    role: string;
+  };
+  optionIds: string[];
+  optionLabels: string[];
+}
+
+export interface AdminPollFeedbackEntry {
+  id: string;
+  message: string;
+  createdAt: string;
+  updatedAt: string;
+  user: {
+    id: string;
+    name: string;
+    email: string;
+    avatar?: string | null;
+    role: string;
+  };
+}
+
+export interface AdminPollDetail extends Poll {
+  creator: { id: string; name: string; email: string; avatar?: string | null };
+  responses: AdminPollResponse[];
+  feedback: AdminPollFeedbackEntry[];
+}
+
+export interface AdminPollListResponse {
+  polls: AdminPollListItem[];
+  total: number;
+  limit: number;
+  offset: number;
 }
 
 export interface TeamMember {
@@ -962,6 +1124,63 @@ export const api = {
     request<Announcement>(`/announcements/${id}`, { method: 'PUT', body: JSON.stringify(data), token }),
   deleteAnnouncement: (id: string, token: string) =>
     request(`/announcements/${id}`, { method: 'DELETE', token }),
+
+  // Polls
+  getPolls: (
+    options?: { search?: string; includeClosed?: boolean; limit?: number; offset?: number },
+    token?: string,
+  ) => {
+    const params = new URLSearchParams();
+    if (options?.search) params.set('search', options.search);
+    if (options?.includeClosed) params.set('includeClosed', 'true');
+    if (options?.limit !== undefined) params.set('limit', String(options.limit));
+    if (options?.offset !== undefined) params.set('offset', String(options.offset));
+    const queryString = params.toString();
+    return request<Poll[]>(`/polls${queryString ? `?${queryString}` : ''}`, token ? { token } : {});
+  },
+  getPoll: (idOrSlug: string, token?: string) =>
+    request<Poll>(`/polls/${idOrSlug}`, token ? { token } : {}),
+  createPoll: (data: PollInput, token: string) =>
+    request<AdminPollDetail>('/polls', { method: 'POST', body: JSON.stringify(data), token }),
+  updatePoll: (id: string, data: Partial<PollInput>, token: string) =>
+    request<AdminPollDetail>(`/polls/${id}`, { method: 'PUT', body: JSON.stringify(data), token }),
+  deletePoll: (id: string, token: string) =>
+    request<{ id: string }>(`/polls/${id}`, { method: 'DELETE', token }),
+  voteOnPoll: (idOrSlug: string, optionIds: string[], token: string) =>
+    request<Poll>(`/polls/${idOrSlug}/vote`, {
+      method: 'POST',
+      body: JSON.stringify({ optionIds }),
+      token,
+    }),
+  submitPollFeedback: (idOrSlug: string, message: string, token: string) =>
+    request<PollCurrentFeedback>(`/polls/${idOrSlug}/feedback`, {
+      method: 'POST',
+      body: JSON.stringify({ message }),
+      token,
+    }),
+  getAdminPolls: (
+    token: string,
+    filters?: {
+      search?: string;
+      status?: 'ALL' | 'OPEN' | 'CLOSED' | 'DRAFT';
+      anonymity?: 'ALL' | 'ANONYMOUS' | 'NAMED';
+      limit?: number;
+      offset?: number;
+    },
+  ) => {
+    const params = new URLSearchParams();
+    if (filters?.search) params.set('search', filters.search);
+    if (filters?.status) params.set('status', filters.status);
+    if (filters?.anonymity) params.set('anonymity', filters.anonymity);
+    if (filters?.limit !== undefined) params.set('limit', String(filters.limit));
+    if (filters?.offset !== undefined) params.set('offset', String(filters.offset));
+    const queryString = params.toString();
+    return request<AdminPollListResponse>(`/polls/admin/public-view${queryString ? `?${queryString}` : ''}`, { token });
+  },
+  getAdminPollDetail: (id: string, token: string) =>
+    request<AdminPollDetail>(`/polls/admin/public-view/${id}`, { token }),
+  downloadPollExport: (id: string, token: string) =>
+    requestBlob(`/polls/${id}/admin/export.xlsx`, { token }),
   
   // Team
   getTeam: (team?: string, options?: { compact?: boolean }) => {

@@ -674,6 +674,90 @@ export const EmailTemplates = {
     };
   },
 
+  // New Poll notification
+  newPoll: (
+    question: string,
+    slug: string,
+    description?: string,
+    deadline?: Date | null,
+    allowMultipleChoices?: boolean,
+    customIntro?: string,
+    customFooter?: string,
+  ): EmailTemplate => {
+    const detailLines = [
+      allowMultipleChoices ? 'Multiple options can be selected.' : 'Choose one option and submit your vote.',
+      deadline
+        ? `Voting closes on ${deadline.toLocaleString('en-IN', {
+            timeZone: 'Asia/Kolkata',
+            year: 'numeric',
+            month: 'long',
+            day: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit',
+            hour12: true,
+          })}.`
+        : 'Voting stays open until an admin closes the poll.',
+      'You can also share feedback below the poll after voting.',
+    ];
+
+    const introBlock = customIntro
+      ? `<div style="margin-bottom: 16px;">${markdownToEmailHtml(customIntro)}</div>`
+      : '';
+
+    const descriptionBlock = description
+      ? `<p style="margin: 0 0 18px; font-size: 15px; color: #d1d5db; line-height: 1.7;">${description}</p>`
+      : '';
+
+    const detailBlock = `
+      <div style="padding: 18px 20px; background: linear-gradient(135deg, #0f766e15, #0f766e08); border: 1px solid #0f766e30; border-radius: 12px; margin: 18px 0;">
+        <p style="margin: 0 0 10px; font-size: 12px; color: #14b8a6; font-weight: 700; text-transform: uppercase; letter-spacing: 1px;">How This Poll Works</p>
+        <ul style="margin: 0; padding-left: 18px; color: #d1d5db;">
+          ${detailLines.map((line) => `<li style="margin: 6px 0; line-height: 1.6;">${line}</li>`).join('')}
+        </ul>
+      </div>
+    `;
+
+    return {
+      subject: `[Poll] ${question}`,
+      html: generateEmailTemplate({
+        preheader: description || 'A new community poll is now live on code.scriet.',
+        accentColor: '#0f766e',
+        badge: { text: allowMultipleChoices ? 'Multi-select Poll' : 'Community Poll', icon: '🗳️' },
+        title: question,
+        subtitle: description || 'Cast your vote and share your thoughts with the club.',
+        infoCards: [
+          {
+            icon: allowMultipleChoices ? '☑️' : '🔘',
+            label: 'Vote Type',
+            value: allowMultipleChoices ? 'Multiple choices allowed' : 'Single choice only',
+          },
+          {
+            icon: deadline ? '⏳' : '🕒',
+            label: 'Deadline',
+            value: deadline
+              ? deadline.toLocaleString('en-IN', {
+                  timeZone: 'Asia/Kolkata',
+                  year: 'numeric',
+                  month: 'short',
+                  day: 'numeric',
+                  hour: '2-digit',
+                  minute: '2-digit',
+                  hour12: true,
+                })
+              : 'No closing date set',
+          },
+        ],
+        body: `${introBlock}${descriptionBlock}${detailBlock}`,
+        cta: { text: 'Open Poll', url: `${SITE_URL}/polls/${slug}` },
+        secondaryCta: { text: 'Go to dashboard', url: `${SITE_URL}/dashboard/announcements` },
+        footer: customFooter || 'Your vote helps shape the direction of the club.',
+      }),
+      text: `A new poll is live on code.scriet.\n\nQuestion: ${question}\n${description ? `\n${description}\n` : ''}\nVote type: ${
+        allowMultipleChoices ? 'Multiple choices allowed' : 'Single choice only'
+      }\nDeadline: ${deadline ? deadline.toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }) : 'No deadline set'}\n\nVote here: ${SITE_URL}/polls/${slug}`,
+    };
+  },
+
   // New Event notification
   newEvent: (title: string, description: string, startDate: Date, slug: string, shortDescription?: string, location?: string, imageUrl?: string, tags?: string[], eventType?: string, customIntro?: string, customFooter?: string): EmailTemplate => {
     const descriptionHtml = markdownToEmailHtml(description.length > 600 ? description.substring(0, 600) + '...' : description);
@@ -1329,6 +1413,27 @@ class EmailService {
   async sendAnnouncementToAll(emails: string[], title: string, body: string, priority: string, slug: string, shortDescription?: string, imageUrl?: string, tags?: string[]): Promise<boolean> {
     const config = await getEmailTemplateConfig();
     const template = EmailTemplates.newAnnouncement(title, body, priority, slug, shortDescription, imageUrl, tags, config.announcementIntro, config.footerText);
+    return this.sendBulk(emails, template.subject, template.html, template.text, 'announcement');
+  }
+
+  async sendPollToAll(
+    emails: string[],
+    question: string,
+    slug: string,
+    description?: string,
+    deadline?: Date | null,
+    allowMultipleChoices?: boolean,
+  ): Promise<boolean> {
+    const config = await getEmailTemplateConfig();
+    const template = EmailTemplates.newPoll(
+      question,
+      slug,
+      description,
+      deadline,
+      allowMultipleChoices,
+      config.announcementIntro,
+      config.footerText,
+    );
     return this.sendBulk(emails, template.subject, template.html, template.text, 'announcement');
   }
 

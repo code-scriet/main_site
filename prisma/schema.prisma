@@ -13,151 +13,154 @@ datasource db {
 // - DATABASE_URL can use the pooler for application queries
 
 model User {
-  id                 String              @id @default(uuid())
-  name               String
-  email              String              @unique
-  avatar             String?
-  oauthProvider      String?             @map("oauth_provider")
-  oauthId            String?             @map("oauth_id")
-  role               Role                @default(USER)
-  createdAt          DateTime            @default(now()) @map("created_at")
-  updatedAt          DateTime            @updatedAt @map("updated_at")
-  password           String?
-  bio                String?
-  githubUrl          String?             @map("github_url")
-  linkedinUrl        String?             @map("linkedin_url")
-  twitterUrl         String?             @map("twitter_url")
-  websiteUrl         String?             @map("website_url")
-  branch             String?
-  course             String?
-  phone              String?
-  profileCompleted   Boolean             @default(false) @map("profile_completed")
-  year               String?
-  announcements      Announcement[]
-  registrations      EventRegistration[]
-  hiringApplications HiringApplication[]
-  qotdSubmissions    QOTDSubmission[]
-  networkProfile     NetworkProfile?
-  teamMember         TeamMember?
+  id                     String                  @id @default(uuid())
+  name                   String
+  email                  String                  @unique
+  avatar                 String?
+  oauthProvider          String?                 @map("oauth_provider")
+  oauthId                String?                 @map("oauth_id")
+  role                   Role                    @default(USER)
+  createdAt              DateTime                @default(now()) @map("created_at")
+  updatedAt              DateTime                @updatedAt @map("updated_at")
+  password               String?
+  bio                    String?
+  githubUrl              String?                 @map("github_url")
+  linkedinUrl            String?                 @map("linkedin_url")
+  twitterUrl             String?                 @map("twitter_url")
+  websiteUrl             String?                 @map("website_url")
+  branch                 String?
+  course                 String?
+  phone                  String?
+  profileCompleted       Boolean                 @default(false) @map("profile_completed")
+  year                   String?
+  announcements          Announcement[]
+  registrations          EventRegistration[]
+  hiringApplications     HiringApplication[]
+  qotdSubmissions        QOTDSubmission[]
+  networkProfile         NetworkProfile?
+  teamMember             TeamMember?
   // Quiz relations
-  createdQuizzes     Quiz[]
-  quizParticipants   QuizParticipant[]
-  quizAnswers        QuizAnswer[]
+  createdQuizzes         Quiz[]
+  quizParticipants       QuizParticipant[]
+  quizAnswers            QuizAnswer[]
   // Certificate relations
-  certificates       Certificate[]
+  certificates           Certificate[]
   // Team registration relations
-  ledTeams           EventTeam[]       @relation("teamLeader")
-  teamMemberships    EventTeamMember[] @relation("teamMemberships")
+  ledTeams               EventTeam[]             @relation("teamLeader")
+  teamMemberships        EventTeamMember[]       @relation("teamMemberships")
   competitionSubmissions CompetitionSubmission[]
-  competitionAutoSaves CompetitionAutoSave[]
+  competitionAutoSaves   CompetitionAutoSave[]
+  createdPolls           Poll[]
+  pollVotes              PollVote[]
+  pollFeedback           PollFeedback[]
 
-  @@map("users")
   @@index([role, createdAt(sort: Desc)], map: "users_role_created_at_desc_idx")
+  @@map("users")
 }
 
 model Settings {
-  id                    String   @id @default("default")
-  clubName              String   @default("code.scriet") @map("club_name")
-  clubEmail             String   @default("contact@codescriet.com") @map("club_email")
-  clubDescription       String   @default("Building tomorrow's problem solvers through collaborative learning and hands-on coding experiences.") @map("club_description")
-  registrationOpen      Boolean  @default(true) @map("registration_open")
-  maxEventsPerUser      Int      @default(5) @map("max_events_per_user")
-  announcementsEnabled  Boolean  @default(true) @map("announcements_enabled")
-  updatedAt             DateTime @updatedAt @map("updated_at")
-  showAchievements      Boolean  @default(true) @map("show_achievements")
-  showLeaderboard       Boolean  @default(false) @map("show_leaderboard")
-  showQOTD              Boolean  @default(true) @map("show_qotd")
-  discordUrl            String?  @map("discord_url")
-  githubUrl             String?  @map("github_url")
-  instagramUrl          String?  @map("instagram_url")
-  linkedinUrl           String?  @map("linkedin_url")
-  twitterUrl            String?  @map("twitter_url")
-  hiringEnabled         Boolean  @default(true) @map("hiring_enabled")
-  emailAnnouncementBody String?  @map("email_announcement_body")
-  emailEventBody        String?  @map("email_event_body")
-  emailFooterText       String?  @map("email_footer_text")
-  emailWelcomeBody          String?  @map("email_welcome_body")
-  show_tech_blogs           Boolean  @default(true)
-  showNetwork               Boolean  @default(true) @map("show_network")
-  emailNetworkVerifiedBody  String?  @map("email_network_verified_body")
-  emailNetworkRejectedBody  String?  @map("email_network_rejected_body")
+  id                       String   @id @default("default")
+  clubName                 String   @default("code.scriet") @map("club_name")
+  clubEmail                String   @default("contact@codescriet.com") @map("club_email")
+  clubDescription          String   @default("Building tomorrow's problem solvers through collaborative learning and hands-on coding experiences.") @map("club_description")
+  registrationOpen         Boolean  @default(true) @map("registration_open")
+  maxEventsPerUser         Int      @default(5) @map("max_events_per_user")
+  announcementsEnabled     Boolean  @default(true) @map("announcements_enabled")
+  updatedAt                DateTime @updatedAt @map("updated_at")
+  showAchievements         Boolean  @default(true) @map("show_achievements")
+  showLeaderboard          Boolean  @default(false) @map("show_leaderboard")
+  showQOTD                 Boolean  @default(true) @map("show_qotd")
+  discordUrl               String?  @map("discord_url")
+  githubUrl                String?  @map("github_url")
+  instagramUrl             String?  @map("instagram_url")
+  linkedinUrl              String?  @map("linkedin_url")
+  twitterUrl               String?  @map("twitter_url")
+  hiringEnabled            Boolean  @default(true) @map("hiring_enabled")
+  emailAnnouncementBody    String?  @map("email_announcement_body")
+  emailEventBody           String?  @map("email_event_body")
+  emailFooterText          String?  @map("email_footer_text")
+  emailWelcomeBody         String?  @map("email_welcome_body")
+  show_tech_blogs          Boolean  @default(true)
+  showNetwork              Boolean  @default(true) @map("show_network")
+  emailNetworkVerifiedBody String?  @map("email_network_verified_body")
+  emailNetworkRejectedBody String?  @map("email_network_rejected_body")
 
   // Per-team hiring toggles (only apply when hiringEnabled is true)
-  hiringTechnical           Boolean  @default(true) @map("hiring_technical")
-  hiringDsaChamps           Boolean  @default(true) @map("hiring_dsa_champs")
-  hiringDesigning           Boolean  @default(true) @map("hiring_designing")
-  hiringSocialMedia         Boolean  @default(true) @map("hiring_social_media")
-  hiringManagement          Boolean  @default(true) @map("hiring_management")
+  hiringTechnical   Boolean @default(true) @map("hiring_technical")
+  hiringDsaChamps   Boolean @default(true) @map("hiring_dsa_champs")
+  hiringDesigning   Boolean @default(true) @map("hiring_designing")
+  hiringSocialMedia Boolean @default(true) @map("hiring_social_media")
+  hiringManagement  Boolean @default(true) @map("hiring_management")
 
   // Mailing system toggle
-  mailingEnabled            Boolean  @default(true) @map("mailing_enabled")
+  mailingEnabled Boolean @default(true) @map("mailing_enabled")
 
   // Feature toggles (President / Super Admin only)
-  certificatesEnabled       Boolean  @default(true) @map("certificates_enabled")
-  playgroundEnabled         Boolean  @default(true) @map("playground_enabled")
-  playgroundDailyLimit      Int      @default(100) @map("playground_daily_limit")
+  certificatesEnabled  Boolean @default(true) @map("certificates_enabled")
+  playgroundEnabled    Boolean @default(true) @map("playground_enabled")
+  playgroundDailyLimit Int     @default(100) @map("playground_daily_limit")
 
   // Email notification category toggles
-  emailWelcomeEnabled       Boolean  @default(true) @map("email_welcome_enabled")
-  emailEventCreationEnabled Boolean  @default(true) @map("email_event_creation_enabled")
-  emailRegistrationEnabled  Boolean  @default(true) @map("email_registration_enabled")
-  emailAnnouncementEnabled  Boolean  @default(true) @map("email_announcement_enabled")
-  emailCertificateEnabled   Boolean  @default(true) @map("email_certificate_enabled")
-  emailReminderEnabled      Boolean  @default(true) @map("email_reminder_enabled")
+  emailWelcomeEnabled       Boolean @default(true) @map("email_welcome_enabled")
+  emailEventCreationEnabled Boolean @default(true) @map("email_event_creation_enabled")
+  emailRegistrationEnabled  Boolean @default(true) @map("email_registration_enabled")
+  emailAnnouncementEnabled  Boolean @default(true) @map("email_announcement_enabled")
+  emailCertificateEnabled   Boolean @default(true) @map("email_certificate_enabled")
+  emailReminderEnabled      Boolean @default(true) @map("email_reminder_enabled")
 
   // Email testing mode
-  emailTestingMode          Boolean  @default(false) @map("email_testing_mode")
-  emailTestRecipients       String?  @map("email_test_recipients")
+  emailTestingMode    Boolean @default(false) @map("email_testing_mode")
+  emailTestRecipients String? @map("email_test_recipients")
 
   // Competition feature toggle
-  competitionEnabled        Boolean  @default(false) @map("competition_enabled")
+  competitionEnabled Boolean @default(false) @map("competition_enabled")
 
   @@map("settings")
 }
 
 model Event {
-  id                    String              @id @default(uuid())
+  id                    String      @id @default(uuid())
   title                 String
   description           String
-  status                EventStatus         @default(UPCOMING)
-  startDate             DateTime            @map("start_date")
-  endDate               DateTime?           @map("end_date")
+  status                EventStatus @default(UPCOMING)
+  startDate             DateTime    @map("start_date")
+  endDate               DateTime?   @map("end_date")
   location              String?
   capacity              Int?
-  imageUrl              String?             @map("image_url")
-  createdBy             String              @map("created_by")
-  createdAt             DateTime            @default(now()) @map("created_at")
-  updatedAt             DateTime            @updatedAt @map("updated_at")
-  eventType             String?             @map("event_type")
+  imageUrl              String?     @map("image_url")
+  createdBy             String      @map("created_by")
+  createdAt             DateTime    @default(now()) @map("created_at")
+  updatedAt             DateTime    @updatedAt @map("updated_at")
+  eventType             String?     @map("event_type")
   prerequisites         String?
-  registrationEndDate   DateTime?           @map("registration_end_date")
-  registrationStartDate DateTime?           @map("registration_start_date")
-  registrationFields    Json?               @map("registration_fields")
+  registrationEndDate   DateTime?   @map("registration_end_date")
+  registrationStartDate DateTime?   @map("registration_start_date")
+  registrationFields    Json?       @map("registration_fields")
   venue                 String?
   agenda                String?
   faqs                  Json?
-  featured              Boolean             @default(false)
+  featured              Boolean     @default(false)
   highlights            String?
-  imageGallery          Json?               @map("image_gallery")
-  learningOutcomes      String?             @map("learning_outcomes")
+  imageGallery          Json?       @map("image_gallery")
+  learningOutcomes      String?     @map("learning_outcomes")
   resources             Json?
-  shortDescription      String?             @map("short_description") @db.VarChar(300)
+  shortDescription      String?     @map("short_description") @db.VarChar(300)
   speakers              Json?
-  tags                  String[]            @default([])
-  targetAudience        String?             @map("target_audience")
-  videoUrl              String?             @map("video_url")
-  slug                  String              @unique @default("")
-  allowLateRegistration Boolean             @default(false) @map("allow_late_registration")
+  tags                  String[]    @default([])
+  targetAudience        String?     @map("target_audience")
+  videoUrl              String?     @map("video_url")
+  slug                  String      @unique @default("")
+  allowLateRegistration Boolean     @default(false) @map("allow_late_registration")
 
   // Team registration fields
-  teamRegistration      Boolean             @default(false) @map("team_registration")
-  teamMinSize           Int                 @default(1) @map("team_min_size")
-  teamMaxSize           Int                 @default(4) @map("team_max_size")
+  teamRegistration Boolean @default(false) @map("team_registration")
+  teamMinSize      Int     @default(1) @map("team_min_size")
+  teamMaxSize      Int     @default(4) @map("team_max_size")
 
-  registrations         EventRegistration[]
-  certificates          Certificate[]
-  teams                 EventTeam[]
-  competitionRounds     CompetitionRound[]
+  registrations     EventRegistration[]
+  certificates      Certificate[]
+  teams             EventTeam[]
+  competitionRounds CompetitionRound[]
 
   @@index([status, startDate])
   @@index([startDate])
@@ -166,22 +169,22 @@ model Event {
 }
 
 model EventRegistration {
-  id                   String   @id @default(uuid())
-  userId               String   @map("user_id")
-  eventId              String   @map("event_id")
-  timestamp            DateTime @default(now())
-  customFieldResponses Json?    @map("custom_field_responses")
+  id                   String    @id @default(uuid())
+  userId               String    @map("user_id")
+  eventId              String    @map("event_id")
+  timestamp            DateTime  @default(now())
+  customFieldResponses Json?     @map("custom_field_responses")
   reminderSentAt       DateTime? @map("reminder_sent_at")
 
   // Attendance fields
-  attendanceToken      String?   @unique @map("attendance_token")
-  attended             Boolean   @default(false)
-  scannedAt            DateTime? @map("scanned_at")
-  manualOverride       Boolean   @default(false) @map("manual_override")
+  attendanceToken String?   @unique @map("attendance_token")
+  attended        Boolean   @default(false)
+  scannedAt       DateTime? @map("scanned_at")
+  manualOverride  Boolean   @default(false) @map("manual_override")
 
-  event                Event    @relation(fields: [eventId], references: [id], onDelete: Cascade)
-  user                 User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  teamMember           EventTeamMember?
+  event      Event            @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  user       User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  teamMember EventTeamMember?
 
   @@unique([userId, eventId])
   @@index([eventId])
@@ -195,19 +198,19 @@ model EventRegistration {
 
 // Team Registration Models
 model EventTeam {
-  id          String   @id @default(uuid())
-  eventId     String   @map("event_id")
-  teamName    String   @map("team_name") @db.VarChar(100)
-  inviteCode  String   @unique @map("invite_code") @db.VarChar(8)
-  leaderId    String   @map("leader_id")
-  isLocked    Boolean  @default(false) @map("is_locked")
-  createdAt   DateTime @default(now()) @map("created_at")
+  id         String   @id @default(uuid())
+  eventId    String   @map("event_id")
+  teamName   String   @map("team_name") @db.VarChar(100)
+  inviteCode String   @unique @map("invite_code") @db.VarChar(8)
+  leaderId   String   @map("leader_id")
+  isLocked   Boolean  @default(false) @map("is_locked")
+  createdAt  DateTime @default(now()) @map("created_at")
 
-  event       Event    @relation(fields: [eventId], references: [id], onDelete: Cascade)
-  leader      User     @relation("teamLeader", fields: [leaderId], references: [id], onDelete: Restrict)
-  members     EventTeamMember[]
+  event                  Event                   @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  leader                 User                    @relation("teamLeader", fields: [leaderId], references: [id], onDelete: Restrict)
+  members                EventTeamMember[]
   competitionSubmissions CompetitionSubmission[]
-  competitionAutoSaves CompetitionAutoSave[]
+  competitionAutoSaves   CompetitionAutoSave[]
 
   @@unique([eventId, teamName])
   @@index([inviteCode])
@@ -223,33 +226,33 @@ model EventTeamMember {
   role           String   @default("MEMBER") @db.VarChar(10)
   joinedAt       DateTime @default(now()) @map("joined_at")
 
-  team           EventTeam         @relation(fields: [teamId], references: [id], onDelete: Cascade)
-  user           User              @relation("teamMemberships", fields: [userId], references: [id], onDelete: Cascade)
-  registration   EventRegistration @relation(fields: [registrationId], references: [id], onDelete: Cascade)
+  team         EventTeam         @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  user         User              @relation("teamMemberships", fields: [userId], references: [id], onDelete: Cascade)
+  registration EventRegistration @relation(fields: [registrationId], references: [id], onDelete: Cascade)
 
   @@unique([teamId, userId])
   @@map("event_team_members")
 }
 
 model CompetitionRound {
-  id            String            @id @default(uuid())
-  eventId       String            @map("event_id")
-  title         String            @db.VarChar(200)
-  description   String?           @db.Text
-  duration      Int
-  status        CompetitionStatus @default(DRAFT)
+  id               String                      @id @default(uuid())
+  eventId          String                      @map("event_id")
+  title            String                      @db.VarChar(200)
+  description      String?                     @db.Text
+  duration         Int
+  status           CompetitionStatus           @default(DRAFT)
   participantScope CompetitionParticipantScope @default(ALL) @map("participant_scope")
-  leadersOnly   Boolean           @default(false) @map("leaders_only")
-  allowedTeamIds String[]         @default([]) @map("allowed_team_ids")
-  targetImageUrl String?          @map("target_image_url")
-  startedAt     DateTime?         @map("started_at")
-  lockedAt      DateTime?         @map("locked_at")
-  createdAt     DateTime          @default(now()) @map("created_at")
-  updatedAt     DateTime          @updatedAt @map("updated_at")
+  leadersOnly      Boolean                     @default(false) @map("leaders_only")
+  allowedTeamIds   String[]                    @default([]) @map("allowed_team_ids")
+  targetImageUrl   String?                     @map("target_image_url")
+  startedAt        DateTime?                   @map("started_at")
+  lockedAt         DateTime?                   @map("locked_at")
+  createdAt        DateTime                    @default(now()) @map("created_at")
+  updatedAt        DateTime                    @updatedAt @map("updated_at")
 
-  event         Event                   @relation(fields: [eventId], references: [id], onDelete: Cascade)
-  submissions   CompetitionSubmission[]
-  autoSaves     CompetitionAutoSave[]
+  event       Event                   @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  submissions CompetitionSubmission[]
+  autoSaves   CompetitionAutoSave[]
 
   @@index([eventId])
   @@index([status, startedAt])
@@ -257,22 +260,22 @@ model CompetitionRound {
 }
 
 model CompetitionSubmission {
-  id           String           @id @default(uuid())
-  roundId      String           @map("round_id")
-  teamId       String?          @map("team_id")
-  userId       String           @map("user_id")
-  code         String           @db.Text
-  submittedAt  DateTime         @default(now()) @map("submitted_at")
-  isAutoSubmit Boolean          @default(false) @map("is_auto_submit")
+  id           String   @id @default(uuid())
+  roundId      String   @map("round_id")
+  teamId       String?  @map("team_id")
+  userId       String   @map("user_id")
+  code         String   @db.Text
+  submittedAt  DateTime @default(now()) @map("submitted_at")
+  isAutoSubmit Boolean  @default(false) @map("is_auto_submit")
   score        Float?
   rank         Int?
-  adminNotes   String?          @map("admin_notes") @db.Text
-  createdAt    DateTime         @default(now()) @map("created_at")
-  updatedAt    DateTime         @updatedAt @map("updated_at")
+  adminNotes   String?  @map("admin_notes") @db.Text
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
 
-  round        CompetitionRound @relation(fields: [roundId], references: [id], onDelete: Cascade)
-  team         EventTeam?       @relation(fields: [teamId], references: [id], onDelete: SetNull)
-  user         User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  round CompetitionRound @relation(fields: [roundId], references: [id], onDelete: Cascade)
+  team  EventTeam?       @relation(fields: [teamId], references: [id], onDelete: SetNull)
+  user  User             @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   // PostgreSQL treats NULL as distinct in unique constraints, so this only applies to team submissions.
   @@unique([roundId, teamId])
@@ -284,16 +287,16 @@ model CompetitionSubmission {
 }
 
 model CompetitionAutoSave {
-  id        String   @id @default(uuid())
-  roundId   String   @map("round_id")
-  teamId    String?  @map("team_id")
-  userId    String   @map("user_id")
-  code      String   @db.Text
-  savedAt   DateTime @default(now()) @map("saved_at")
+  id      String   @id @default(uuid())
+  roundId String   @map("round_id")
+  teamId  String?  @map("team_id")
+  userId  String   @map("user_id")
+  code    String   @db.Text
+  savedAt DateTime @default(now()) @map("saved_at")
 
-  round     CompetitionRound @relation(fields: [roundId], references: [id], onDelete: Cascade)
-  team      EventTeam?       @relation(fields: [teamId], references: [id], onDelete: SetNull)
-  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  round CompetitionRound @relation(fields: [roundId], references: [id], onDelete: Cascade)
+  team  EventTeam?       @relation(fields: [teamId], references: [id], onDelete: SetNull)
+  user  User             @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([roundId, userId])
   @@index([roundId])
@@ -328,6 +331,87 @@ model Announcement {
   @@index([pinned(sort: Desc), createdAt(sort: Desc)], map: "announcements_pinned_created_at_desc_idx")
   @@index([expiresAt, pinned(sort: Desc), createdAt(sort: Desc)], map: "announcements_expires_pinned_created_idx")
   @@map("announcements")
+}
+
+model Poll {
+  id                   String         @id @default(uuid())
+  question             String         @db.VarChar(500)
+  description          String?        @db.Text
+  slug                 String         @unique
+  allowMultipleChoices Boolean        @default(false) @map("allow_multiple_choices")
+  allowVoteChange      Boolean        @default(true) @map("allow_vote_change")
+  isAnonymous          Boolean        @default(false) @map("is_anonymous")
+  deadline             DateTime?
+  isPublished          Boolean        @default(true) @map("is_published")
+  createdBy            String         @map("created_by")
+  createdAt            DateTime       @default(now()) @map("created_at")
+  updatedAt            DateTime       @updatedAt @map("updated_at")
+  creator              User           @relation(fields: [createdBy], references: [id], onDelete: Restrict)
+  options              PollOption[]
+  votes                PollVote[]
+  feedbackEntries      PollFeedback[]
+
+  @@index([createdBy])
+  @@index([isPublished, createdAt(sort: Desc)], map: "polls_published_created_at_desc_idx")
+  @@index([deadline, isPublished], map: "polls_deadline_published_idx")
+  @@map("polls")
+}
+
+model PollOption {
+  id         String              @id @default(uuid())
+  pollId     String              @map("poll_id")
+  text       String              @db.VarChar(240)
+  sortOrder  Int                 @map("sort_order")
+  createdAt  DateTime            @default(now()) @map("created_at")
+  poll       Poll                @relation(fields: [pollId], references: [id], onDelete: Cascade)
+  selections PollVoteSelection[]
+
+  @@unique([pollId, sortOrder])
+  @@index([pollId])
+  @@map("poll_options")
+}
+
+model PollVote {
+  id         String              @id @default(uuid())
+  pollId     String              @map("poll_id")
+  userId     String              @map("user_id")
+  createdAt  DateTime            @default(now()) @map("created_at")
+  updatedAt  DateTime            @updatedAt @map("updated_at")
+  poll       Poll                @relation(fields: [pollId], references: [id], onDelete: Cascade)
+  user       User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  selections PollVoteSelection[]
+
+  @@unique([pollId, userId])
+  @@index([pollId])
+  @@index([userId])
+  @@map("poll_votes")
+}
+
+model PollVoteSelection {
+  voteId   String     @map("vote_id")
+  optionId String     @map("option_id")
+  vote     PollVote   @relation(fields: [voteId], references: [id], onDelete: Cascade)
+  option   PollOption @relation(fields: [optionId], references: [id], onDelete: Cascade)
+
+  @@id([voteId, optionId])
+  @@index([optionId])
+  @@map("poll_vote_selections")
+}
+
+model PollFeedback {
+  id        String   @id @default(uuid())
+  pollId    String   @map("poll_id")
+  userId    String   @map("user_id")
+  message   String   @db.Text
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  poll      Poll     @relation(fields: [pollId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([pollId, userId])
+  @@index([pollId, createdAt(sort: Desc)], map: "poll_feedback_poll_created_at_desc_idx")
+  @@index([userId])
+  @@map("poll_feedback")
 }
 
 model TeamMember {
@@ -501,70 +585,70 @@ enum CompetitionParticipantScope {
 
 // Network Feature - Industry Professionals & Alumni
 model NetworkProfile {
-  id               String                @id @default(cuid())
-  userId           String                @unique @map("user_id")
-  user             User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id     String @id @default(cuid())
+  userId String @unique @map("user_id")
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   // URL slug (name-XXXX format for unique public URLs)
-  slug             String?               @unique
+  slug        String?  @unique
   // Legacy slugs kept for backward-compatible URL resolution
-  legacySlugs      String[]              @default([]) @map("legacy_slugs")
+  legacySlugs String[] @default([]) @map("legacy_slugs")
 
   // Professional details
-  fullName         String                @map("full_name")
-  designation      String                // e.g. "CEO", "Senior Engineer"
-  company          String
-  industry         String                // e.g. "FinTech", "EdTech", "Product"
-  bio              String?               @db.Text
-  profilePhoto     String?               @map("profile_photo")
-  phone            String?               // Private — only for admin contact
+  fullName     String  @map("full_name")
+  designation  String // e.g. "CEO", "Senior Engineer"
+  company      String
+  industry     String // e.g. "FinTech", "EdTech", "Product"
+  bio          String? @db.Text
+  profilePhoto String? @map("profile_photo")
+  phone        String? // Private — only for admin contact
 
   // Social/professional links
-  linkedinUsername String?               @map("linkedin_username")
-  twitterUsername  String?               @map("twitter_username")
-  githubUsername   String?               @map("github_username")
-  personalWebsite  String?               @map("personal_website")
+  linkedinUsername String? @map("linkedin_username")
+  twitterUsername  String? @map("twitter_username")
+  githubUsername   String? @map("github_username")
+  personalWebsite  String? @map("personal_website")
 
   // Connection context
-  connectionType   NetworkConnectionType @map("connection_type")
-  connectionNote   String?               @db.Text @map("connection_note")
-  connectedSince   Int?                  @map("connected_since") // Year they first connected
+  connectionType NetworkConnectionType @map("connection_type")
+  connectionNote String?               @map("connection_note") @db.Text
+  connectedSince Int?                  @map("connected_since") // Year they first connected
 
   // Alumni-specific fields (only relevant when connectionType is ALUMNI)
-  passoutYear      Int?                  @map("passout_year")    // Graduation year
-  degree           String?               // e.g. "B.Tech", "M.Tech", "MCA"
-  branch           String?               // e.g. "Computer Science", "Electronics"
-  rollNumber       String?               @map("roll_number")     // Optional college roll
-  achievements     String?               @db.Text               // Notable achievements
-  currentLocation  String?               @map("current_location") // City, Country
+  passoutYear     Int?    @map("passout_year") // Graduation year
+  degree          String? // e.g. "B.Tech", "M.Tech", "MCA"
+  branch          String? // e.g. "Computer Science", "Electronics"
+  rollNumber      String? @map("roll_number") // Optional college roll
+  achievements    String? @db.Text // Notable achievements
+  currentLocation String? @map("current_location") // City, Country
 
   // Rich personal profile fields (supports Markdown/HTML)
-  vision           String?               @db.Text  // Personal/professional vision
-  story            String?               @db.Text  // Background/journey story
-  expertise        String?               @db.Text  // Skills and expertise areas
+  vision    String? @db.Text // Personal/professional vision
+  story     String? @db.Text // Background/journey story
+  expertise String? @db.Text // Skills and expertise areas
 
   // Admin-managed rich content (markdown)
-  adminNotes       String?               @db.Text @map("admin_notes")
+  adminNotes String? @map("admin_notes") @db.Text
 
   // Event participation history (JSON array of events they attended/hosted)
   // Format: [{ title: string, date: string, description?: string, type?: string, link?: string }]
-  events           Json?                 @default("[]")
+  events Json? @default("[]")
 
   // Featured flag for homepage showcase
-  isFeatured       Boolean               @default(false) @map("is_featured")
+  isFeatured Boolean @default(false) @map("is_featured")
 
   // Verification
-  status           NetworkStatus         @default(PENDING)
-  verifiedAt       DateTime?             @map("verified_at")
-  verifiedBy       String?               @map("verified_by")
-  rejectionReason  String?               @map("rejection_reason")
+  status          NetworkStatus @default(PENDING)
+  verifiedAt      DateTime?     @map("verified_at")
+  verifiedBy      String?       @map("verified_by")
+  rejectionReason String?       @map("rejection_reason")
 
   // Visibility
-  isPublic         Boolean               @default(true) @map("is_public")
-  displayOrder     Int                   @default(0) @map("display_order")
+  isPublic     Boolean @default(true) @map("is_public")
+  displayOrder Int     @default(0) @map("display_order")
 
-  createdAt        DateTime              @default(now()) @map("created_at")
-  updatedAt        DateTime              @updatedAt @map("updated_at")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
 
   @@index([status, createdAt])
   @@index([connectionType])
@@ -580,25 +664,25 @@ model NetworkProfile {
 // ──────────────── Live Quiz System ────────────────
 
 model Quiz {
-  id                    String          @id @default(uuid())
-  title                 String          @db.VarChar(255)
-  description           String?         @db.Text
-  joinCode              String?         @unique @map("join_code") @db.VarChar(6)
-  pin                   String?         @unique @db.VarChar(6)
-  pinActive             Boolean         @default(true) @map("pin_active")
-  createdBy             String          @map("created_by")
-  creator               User            @relation(fields: [createdBy], references: [id], onDelete: Cascade)
-  status                QuizStatus      @default(DRAFT)
-  currentQuestionIndex  Int             @default(-1) @map("current_question_index")
-  questionCount         Int             @default(0) @map("question_count")
-  totalParticipants     Int             @default(0) @map("total_participants")
-  startedAt             DateTime?       @map("started_at")
-  endedAt               DateTime?       @map("ended_at")
-  createdAt             DateTime        @default(now()) @map("created_at")
-  updatedAt             DateTime        @updatedAt @map("updated_at")
-  questions             QuizQuestion[]
-  participants          QuizParticipant[]
-  answers               QuizAnswer[]
+  id                   String            @id @default(uuid())
+  title                String            @db.VarChar(255)
+  description          String?           @db.Text
+  joinCode             String?           @unique @map("join_code") @db.VarChar(6)
+  pin                  String?           @unique @db.VarChar(6)
+  pinActive            Boolean           @default(true) @map("pin_active")
+  createdBy            String            @map("created_by")
+  creator              User              @relation(fields: [createdBy], references: [id], onDelete: Cascade)
+  status               QuizStatus        @default(DRAFT)
+  currentQuestionIndex Int               @default(-1) @map("current_question_index")
+  questionCount        Int               @default(0) @map("question_count")
+  totalParticipants    Int               @default(0) @map("total_participants")
+  startedAt            DateTime?         @map("started_at")
+  endedAt              DateTime?         @map("ended_at")
+  createdAt            DateTime          @default(now()) @map("created_at")
+  updatedAt            DateTime          @updatedAt @map("updated_at")
+  questions            QuizQuestion[]
+  participants         QuizParticipant[]
+  answers              QuizAnswer[]
 
   @@index([status], map: "idx_quizzes_status")
   @@index([createdBy], map: "idx_quizzes_created_by")
@@ -607,23 +691,23 @@ model Quiz {
 }
 
 model QuizQuestion {
-  id                String        @id @default(uuid())
-  quizId            String        @map("quiz_id")
-  quiz              Quiz          @relation(fields: [quizId], references: [id], onDelete: Cascade)
-  position          Int
-  questionText      String        @map("question_text") @db.Text
-  questionType      QuizQuestionType @default(MCQ) @map("question_type")
-  options           Json?         // string array for mcq/true_false/poll
-  correctAnswer     String?       @map("correct_answer")
-  timeLimitSeconds  Int           @default(20) @map("time_limit_seconds")
-  points            Int           @default(100)
-  mediaUrl          String?       @map("media_url")
-  totalAnswers      Int           @default(0) @map("total_answers")
-  correctCount      Int           @default(0) @map("correct_count")
-  avgAnswerTimeMs   Int           @default(0) @map("avg_answer_time_ms")
-  answerDistribution Json?        @map("answer_distribution")
-  createdAt         DateTime      @default(now()) @map("created_at")
-  answers           QuizAnswer[]
+  id                 String           @id @default(uuid())
+  quizId             String           @map("quiz_id")
+  quiz               Quiz             @relation(fields: [quizId], references: [id], onDelete: Cascade)
+  position           Int
+  questionText       String           @map("question_text") @db.Text
+  questionType       QuizQuestionType @default(MCQ) @map("question_type")
+  options            Json? // string array for mcq/true_false/poll
+  correctAnswer      String?          @map("correct_answer")
+  timeLimitSeconds   Int              @default(20) @map("time_limit_seconds")
+  points             Int              @default(100)
+  mediaUrl           String?          @map("media_url")
+  totalAnswers       Int              @default(0) @map("total_answers")
+  correctCount       Int              @default(0) @map("correct_count")
+  avgAnswerTimeMs    Int              @default(0) @map("avg_answer_time_ms")
+  answerDistribution Json?            @map("answer_distribution")
+  createdAt          DateTime         @default(now()) @map("created_at")
+  answers            QuizAnswer[]
 
   @@index([quizId, position], map: "idx_quiz_questions_quiz_position")
   @@map("quiz_questions")
@@ -751,7 +835,7 @@ model Snippet {
 
 model PlaygroundDailyUsage {
   userId    String   @map("user_id")
-  usageDate DateTime @db.Date @map("usage_date")
+  usageDate DateTime @map("usage_date") @db.Date
   count     Int      @default(0)
   updatedAt DateTime @updatedAt @map("updated_at")
 
@@ -786,7 +870,7 @@ model Signatory {
   signatureUrl String?  @map("signature_url") // Cloudinary URL or base64 data URI of transparent-bg PNG
   isActive     Boolean  @default(true) @map("is_active")
   createdAt    DateTime @default(now()) @map("created_at")
-  updatedAt    DateTime @updatedAt      @map("updated_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
 
   certificatesAsPrimary Certificate[] @relation("PrimarySignatory")
   certificatesAsFaculty Certificate[] @relation("FacultySignatory")
@@ -804,79 +888,79 @@ enum CertType {
 }
 
 model Certificate {
-  id             String    @id @default(cuid())
-  certId         String    @unique @map("cert_id") // Public human-readable ID e.g. "ABCD-EFGH-IJKL"
+  id     String @id @default(cuid())
+  certId String @unique @map("cert_id") // Public human-readable ID e.g. "ABCD-EFGH-IJKL"
 
-  recipientId    String?   @map("recipient_id")
-  recipient      User?     @relation(fields: [recipientId], references: [id], onDelete: SetNull)
+  recipientId String? @map("recipient_id")
+  recipient   User?   @relation(fields: [recipientId], references: [id], onDelete: SetNull)
 
-  recipientName  String    @map("recipient_name")
-  recipientEmail String    @map("recipient_email")
+  recipientName  String @map("recipient_name")
+  recipientEmail String @map("recipient_email")
 
-  eventId        String?   @map("event_id")
-  event          Event?    @relation(fields: [eventId], references: [id], onDelete: SetNull)
-  eventName      String    @map("event_name")
+  eventId   String? @map("event_id")
+  event     Event?  @relation(fields: [eventId], references: [id], onDelete: SetNull)
+  eventName String  @map("event_name")
 
-  type           CertType
-  position       String?   // e.g. "1st Place" — only for WINNER type
-  domain         String?   // e.g. "Web Development"
-  description    String?   // Optional description rendered on the certificate
+  type        CertType
+  position    String? // e.g. "1st Place" — only for WINNER type
+  domain      String? // e.g. "Web Development"
+  description String? // Optional description rendered on the certificate
 
-  template       String    @default("gold") // gold | dark | white | emerald
+  template String @default("gold") // gold | dark | white | emerald
 
-  pdfUrl         String?   @map("pdf_url")
+  pdfUrl String? @map("pdf_url")
 
   // Signatory — snapshot denormalized at generation time for historical accuracy
-  signatoryId        String?   @map("signatory_id")
-  signatory          Signatory? @relation("PrimarySignatory", fields: [signatoryId], references: [id], onDelete: SetNull)
-  signatoryName      String?   @map("signatory_name")       // denormalized
-  signatoryTitle     String?   @map("signatory_title")      // denormalized
-  signatoryImageUrl  String?   @map("signatory_image_url")  // denormalized (Cloudinary URL)
+  signatoryId       String?    @map("signatory_id")
+  signatory         Signatory? @relation("PrimarySignatory", fields: [signatoryId], references: [id], onDelete: SetNull)
+  signatoryName     String?    @map("signatory_name") // denormalized
+  signatoryTitle    String?    @map("signatory_title") // denormalized
+  signatoryImageUrl String?    @map("signatory_image_url") // denormalized (Cloudinary URL)
 
   // Faculty signatory — optional second signer
-  facultySignatoryId      String?   @map("faculty_signatory_id")
-  facultySignatory        Signatory? @relation("FacultySignatory", fields: [facultySignatoryId], references: [id], onDelete: SetNull)
-  facultyName             String?   @map("faculty_name")
-  facultyTitle            String?   @map("faculty_title")
-  facultySignatoryImageUrl String?  @map("faculty_signatory_image_url")
+  facultySignatoryId       String?    @map("faculty_signatory_id")
+  facultySignatory         Signatory? @relation("FacultySignatory", fields: [facultySignatoryId], references: [id], onDelete: SetNull)
+  facultyName              String?    @map("faculty_name")
+  facultyTitle             String?    @map("faculty_title")
+  facultySignatoryImageUrl String?    @map("faculty_signatory_image_url")
 
-  issuedBy       String    @map("issued_by")
-  issuedAt       DateTime  @default(now()) @map("issued_at")
+  issuedBy String   @map("issued_by")
+  issuedAt DateTime @default(now()) @map("issued_at")
 
-  emailSent      Boolean   @default(false) @map("email_sent")
-  emailSentAt    DateTime? @map("email_sent_at")
+  emailSent   Boolean   @default(false) @map("email_sent")
+  emailSentAt DateTime? @map("email_sent_at")
 
   lastEmailResentAt DateTime? @map("last_email_resent_at")
 
-  isRevoked      Boolean   @default(false) @map("is_revoked")
-  revokedAt      DateTime? @map("revoked_at")
-  revokedBy      String?   @map("revoked_by")
-  revokedReason  String?   @map("revoked_reason")
+  isRevoked     Boolean   @default(false) @map("is_revoked")
+  revokedAt     DateTime? @map("revoked_at")
+  revokedBy     String?   @map("revoked_by")
+  revokedReason String?   @map("revoked_reason")
 
-  viewCount      Int       @default(0) @map("view_count")
+  viewCount Int @default(0) @map("view_count")
 
-  createdAt      DateTime  @default(now()) @map("created_at")
-  updatedAt      DateTime  @updatedAt @map("updated_at")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
 
+  @@unique([recipientEmail, eventId, type], name: "unique_cert_per_event")
   @@index([recipientId])
   @@index([eventId])
   @@index([certId])
   @@index([recipientEmail])
   @@index([eventId, issuedAt])
-  @@unique([recipientEmail, eventId, type], name: "unique_cert_per_event")
   @@map("certificates")
 }
 
 model Credit {
-  id            String      @id @default(uuid())
-  title         String
-  description   String?     @db.Text
-  category      String
-  teamMemberId  String?     @map("team_member_id")
-  teamMember    TeamMember? @relation(fields: [teamMemberId], references: [id], onDelete: SetNull)
-  order         Int         @default(0)
-  createdAt     DateTime    @default(now()) @map("created_at")
-  updatedAt     DateTime    @updatedAt @map("updated_at")
+  id           String      @id @default(uuid())
+  title        String
+  description  String?     @db.Text
+  category     String
+  teamMemberId String?     @map("team_member_id")
+  teamMember   TeamMember? @relation(fields: [teamMemberId], references: [id], onDelete: SetNull)
+  order        Int         @default(0)
+  createdAt    DateTime    @default(now()) @map("created_at")
+  updatedAt    DateTime    @updatedAt @map("updated_at")
 
   @@index([category, order])
   @@index([teamMemberId])
