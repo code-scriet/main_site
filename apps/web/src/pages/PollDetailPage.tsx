@@ -5,10 +5,8 @@ import {
   CalendarClock,
   CheckCircle2,
   Loader2,
-  MessageSquare,
   ShieldCheck,
   Share2,
-  Users,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Layout } from '@/components/layout/Layout';
@@ -256,14 +254,9 @@ export default function PollDetailPage() {
                 )}
               </div>
 
-              <div className="grid gap-3 text-sm text-gray-600 sm:grid-cols-3">
+              <div className="grid gap-3 text-sm text-gray-600 sm:grid-cols-2">
                 <div className="flex items-center gap-2 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2">
-                  <Users className="h-4 w-4 text-amber-600" />
-                  <span>{poll.totalVotes} vote{poll.totalVotes === 1 ? '' : 's'}</span>
-                </div>
-                <div className="flex items-center gap-2 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2">
-                  <MessageSquare className="h-4 w-4 text-amber-600" />
-                  <span>{poll.totalFeedback} thought{poll.totalFeedback === 1 ? '' : 's'}</span>
+                  <span>Feedback enabled</span>
                 </div>
                 <div className="flex items-center gap-2 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2">
                   <CalendarClock className="h-4 w-4 text-amber-600" />
@@ -274,6 +267,10 @@ export default function PollDetailPage() {
 
             <CardContent className="grid gap-6 pt-6 lg:grid-cols-[minmax(0,1fr)_320px]">
               <div className="space-y-4">
+                <p className="text-sm text-gray-500">
+                  Public results are shown as percentages only. Raw counts and submission totals stay visible to admins only.
+                </p>
+
                 <div className="space-y-3">
                   {poll.options.map((option) => {
                     const isSelected = selectedOptionIds.includes(option.id);
@@ -312,7 +309,6 @@ export default function PollDetailPage() {
                           </div>
                           <div className="shrink-0 text-right text-sm text-gray-500">
                             <div className="font-medium text-gray-900">{option.percentage}%</div>
-                            <div>{option.voteCount} vote{option.voteCount === 1 ? '' : 's'}</div>
                           </div>
                         </div>
 

@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom';
-import { BarChart3, CalendarClock, CheckCircle2, MessageSquare, Users } from 'lucide-react';
+import { BarChart3, CalendarClock, CheckCircle2 } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -56,14 +56,9 @@ export function PollCard({
       </CardHeader>
 
       <CardContent className="space-y-5 pt-5">
-        <div className="grid gap-3 text-sm text-gray-600 sm:grid-cols-3">
+        <div className="grid gap-3 text-sm text-gray-600 sm:grid-cols-2">
           <div className="flex items-center gap-2 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2">
-            <Users className="h-4 w-4 text-amber-600" />
-            <span>{poll.totalVotes} vote{poll.totalVotes === 1 ? '' : 's'}</span>
-          </div>
-          <div className="flex items-center gap-2 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2">
-            <MessageSquare className="h-4 w-4 text-amber-600" />
-            <span>{poll.totalFeedback} thought{poll.totalFeedback === 1 ? '' : 's'}</span>
+            <span>Thoughts welcome</span>
           </div>
           <div className="flex items-center gap-2 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2">
             <CalendarClock className="h-4 w-4 text-amber-600" />
@@ -74,7 +69,7 @@ export function PollCard({
         <div className="space-y-2.5">
           <div className="flex items-center gap-2 text-sm font-medium text-gray-900">
             <BarChart3 className="h-4 w-4 text-amber-600" />
-            Live breakdown
+            Public results
           </div>
           <div className="space-y-2.5">
             {visibleOptions.map((option) => {
@@ -86,7 +81,7 @@ export function PollCard({
                       {option.text}
                     </span>
                     <span className="shrink-0 text-xs font-medium text-gray-500">
-                      {option.percentage}% · {option.voteCount}
+                      {option.percentage}%
                     </span>
                   </div>
                   <div className="h-2 overflow-hidden rounded-full bg-gray-100">

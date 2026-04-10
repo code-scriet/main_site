@@ -126,6 +126,24 @@ export default function AdminPublicView() {
     void loadDetail();
   }, [selectedPollId, token, editorMode]);
 
+  useEffect(() => {
+    if (detailTab !== 'editor' || !selectedPoll || editorMode !== 'create') {
+      return;
+    }
+
+    setEditorMode('edit');
+    setForm({
+      question: selectedPoll.question,
+      description: selectedPoll.description || '',
+      options: selectedPoll.options.map((option) => option.text),
+      allowMultipleChoices: selectedPoll.allowMultipleChoices,
+      allowVoteChange: selectedPoll.allowVoteChange,
+      isAnonymous: selectedPoll.isAnonymous,
+      deadline: selectedPoll.deadline ? formatDateTimeLocal(selectedPoll.deadline) : '',
+      isPublished: selectedPoll.isPublished,
+    });
+  }, [detailTab, editorMode, selectedPoll]);
+
   const hydrateForm = (detail: AdminPollDetail) => {
     setForm({
       question: detail.question,
@@ -743,6 +761,14 @@ function PollEditor({
         <CardDescription>{description}</CardDescription>
       </CardHeader>
       <CardContent className="space-y-5">
+        {lockedStructure && (
+          <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+            This poll already has votes, so its structure is locked. You can still update the description,
+            deadline, publish state, and vote-change rule, but options, anonymity, and choice mode stay fixed
+            to protect existing results.
+          </div>
+        )}
+
         <div className="space-y-2">
           <Label htmlFor="poll-question">Question</Label>
           <Input
@@ -766,7 +792,12 @@ function PollEditor({
 
         <div className="space-y-3">
           <div className="flex items-center justify-between">
-            <Label>Options</Label>
+            <div className="space-y-1">
+              <Label>Options</Label>
+              {lockedStructure && (
+                <p className="text-xs text-amber-700">Options are locked after the first vote is cast.</p>
+              )}
+            </div>
             <Button type="button" variant="outline" size="sm" onClick={onAddOption} disabled={lockedStructure}>
               <Plus className="h-4 w-4" />
               Add option
