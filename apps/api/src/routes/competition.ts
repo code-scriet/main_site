@@ -884,7 +884,8 @@ competitionRouter.patch('/:roundId/finish', authMiddleware, requireRole('ADMIN')
       return ApiResponse.badRequest(res, 'All submissions must have a score before publishing results');
     }
 
-    // Auto-compute ranks from scores: highest score = rank 1, ties broken by earlier submission time
+    // Auto-compute ranks from scores using standard competition ranking (1224).
+    // Earlier submissions still sort first for display, but equal scores share the same rank.
     const submissions = await prisma.competitionSubmission.findMany({
       where: { roundId: round.id },
       select: { id: true, score: true, submittedAt: true },
@@ -894,12 +895,24 @@ competitionRouter.patch('/:roundId/finish', authMiddleware, requireRole('ADMIN')
       ],
     });
 
+    let currentRank = 1;
+    const rankedSubmissions = submissions.map((submission, index) => {
+      if (index > 0 && submission.score !== submissions[index - 1].score) {
+        currentRank = index + 1;
+      }
+
+      return {
+        id: submission.id,
+        rank: currentRank,
+      };
+    });
+
     // Assign ranks and update round status in a single transaction
     await prisma.$transaction([
-      ...submissions.map((sub, index) =>
+      ...rankedSubmissions.map((submission) =>
         prisma.competitionSubmission.update({
-          where: { id: sub.id },
-          data: { rank: index + 1 },
+          where: { id: submission.id },
+          data: { rank: submission.rank },
         }),
       ),
       prisma.competitionRound.update({

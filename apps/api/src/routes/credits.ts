@@ -8,6 +8,7 @@ import { sanitizeHtml } from '../utils/sanitize.js';
 import { logger } from '../utils/logger.js';
 
 export const creditsRouter = Router();
+const uuidSchema = z.string().uuid();
 
 const teamMemberSelect = {
   id: true,
@@ -35,19 +36,26 @@ const updateCreditSchema = createCreditSchema
 const reorderSchema = z.object({
   credits: z.array(
     z.object({
-      id: z.string().min(1),
+      id: z.string().uuid(),
       order: z.coerce.number().int().min(0).max(10000),
     })
   ).max(500),
 });
 
+function isValidUuid(value: unknown): value is string {
+  return typeof value === 'string' && uuidSchema.safeParse(value).success;
+}
+
 // GET /api/credits — list all credits (public)
 creditsRouter.get('/', async (req: Request, res: Response) => {
   try {
-    const { teamMemberId } = req.query;
+    const teamMemberId = req.query.teamMemberId;
 
     const where: Record<string, unknown> = {};
-    if (teamMemberId && typeof teamMemberId === 'string') {
+    if (teamMemberId !== undefined) {
+      if (!isValidUuid(teamMemberId)) {
+        return res.status(400).json({ success: false, error: { message: 'Invalid team member ID format' } });
+      }
       where.teamMemberId = teamMemberId;
     }
 
@@ -67,6 +75,10 @@ creditsRouter.get('/', async (req: Request, res: Response) => {
 // GET /api/credits/:id — get single credit (public)
 creditsRouter.get('/:id', async (req: Request, res: Response) => {
   try {
+    if (!isValidUuid(req.params.id)) {
+      return res.status(400).json({ success: false, error: { message: 'Invalid credit ID format' } });
+    }
+
     const credit = await prisma.credit.findUnique({
       where: { id: req.params.id },
       include: { teamMember: { select: teamMemberSelect } },
@@ -127,6 +139,10 @@ creditsRouter.post('/', authMiddleware, requireRole('ADMIN'), async (req: Reques
 // PUT /api/credits/:id — update credit (admin only)
 creditsRouter.put('/:id', authMiddleware, requireRole('ADMIN'), async (req: Request, res: Response) => {
   try {
+    if (!isValidUuid(req.params.id)) {
+      return res.status(400).json({ success: false, error: { message: 'Invalid credit ID format' } });
+    }
+
     const parsed = updateCreditSchema.safeParse(req.body);
     if (!parsed.success) {
       return res.status(400).json({ success: false, error: { message: parsed.error.errors[0]?.message || 'Validation failed' } });
@@ -175,6 +191,10 @@ creditsRouter.put('/:id', authMiddleware, requireRole('ADMIN'), async (req: Requ
 // DELETE /api/credits/:id — delete credit (admin only)
 creditsRouter.delete('/:id', authMiddleware, requireRole('ADMIN'), async (req: Request, res: Response) => {
   try {
+    if (!isValidUuid(req.params.id)) {
+      return res.status(400).json({ success: false, error: { message: 'Invalid credit ID format' } });
+    }
+
     const existing = await prisma.credit.findUnique({ where: { id: req.params.id } });
     if (!existing) {
       return res.status(404).json({ success: false, error: { message: 'Credit not found' } });
@@ -200,6 +220,20 @@ creditsRouter.patch('/reorder', authMiddleware, requireRole('ADMIN'), async (req
     const parsed = reorderSchema.safeParse(req.body);
     if (!parsed.success) {
       return res.status(400).json({ success: false, error: { message: parsed.error.errors[0]?.message || 'Validation failed' } });
+    }
+
+    const creditIds = Array.from(new Set(parsed.data.credits.map(({ id }) => id)));
+    const existingCredits = await prisma.credit.findMany({
+      where: { id: { in: creditIds } },
+      select: { id: true },
+    });
+    const existingCreditIds = new Set(existingCredits.map(({ id }) => id));
+    const invalidIds = creditIds.filter((id) => !existingCreditIds.has(id));
+    if (invalidIds.length > 0) {
+      return res.status(400).json({
+        success: false,
+        error: { message: `Unknown credit IDs: ${invalidIds.join(', ')}` },
+      });
     }
 
     await prisma.$transaction(

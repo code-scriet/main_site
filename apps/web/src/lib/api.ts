@@ -904,6 +904,7 @@ export interface CertificateRecipient {
   hasCertificate: boolean;
   certificateDbId: string | null;
   certificateId: string | null;
+  certificateType: CertType | null;
   certificatePdfUrl: string | null;
   emailSent: boolean;
   emailSentAt: string | null;

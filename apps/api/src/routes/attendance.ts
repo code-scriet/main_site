@@ -1,8 +1,8 @@
 import { Router, Request, Response } from 'express';
 import express from 'express';
 import rateLimit from 'express-rate-limit';
-import jwt from 'jsonwebtoken';
 import ExcelJS from 'exceljs';
+import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
 import { authMiddleware, getAuthUser } from '../middleware/auth.js';
 import { requireRole } from '../middleware/role.js';
@@ -11,7 +11,7 @@ import { auditLog } from '../utils/audit.js';
 import { logger } from '../utils/logger.js';
 import { getIO } from '../utils/socket.js';
 import { emailService } from '../utils/email.js';
-import { getJwtSecret } from '../utils/jwt.js';
+import { verifyToken } from '../utils/jwt.js';
 import { withRetry } from '../lib/prisma.js';
 import { generateAttendanceToken, verifyAttendanceToken } from '../utils/attendanceToken.js';
 import { sanitizeHtml } from '../utils/sanitize.js';
@@ -25,6 +25,48 @@ const beaconLimiter = rateLimit({
   legacyHeaders: false,
 });
 
+const uuidSchema = z.string().uuid();
+const jwtLikePattern = /^[A-Za-z0-9-_]+\.[A-Za-z0-9-_]+\.[A-Za-z0-9-_]+$/;
+const CLIENT_SCAN_FUTURE_TOLERANCE_MS = 5 * 60 * 1000;
+const CLIENT_SCAN_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+const ATTENDANCE_FULL_LIST_LIMIT = 5000;
+const ATTENDANCE_EXPORT_LIMIT = 10000;
+const ATTENDANCE_BACKFILL_BATCH_SIZE = 1000;
+
+class AttendanceBulkUpdateConflictError extends Error {}
+
+function requireUuid(res: Response, value: unknown, label: string): value is string {
+  if (typeof value !== 'string' || !uuidSchema.safeParse(value).success) {
+    ApiResponse.badRequest(res, `Invalid ${label} format`);
+    return false;
+  }
+
+  return true;
+}
+
+function resolveClientScannedAt(scannedAtLocal?: string): Date {
+  const now = new Date();
+  if (!scannedAtLocal?.trim()) {
+    return now;
+  }
+
+  const parsed = new Date(scannedAtLocal);
+  if (Number.isNaN(parsed.getTime())) {
+    return now;
+  }
+
+  const nowMs = now.getTime();
+  const parsedMs = parsed.getTime();
+  if (
+    parsedMs > nowMs + CLIENT_SCAN_FUTURE_TOLERANCE_MS ||
+    parsedMs < nowMs - CLIENT_SCAN_MAX_AGE_MS
+  ) {
+    return now;
+  }
+
+  return parsed;
+}
+
 // ────────────────────────────────────────────────────────────
 // 1. GET /my-qr/:eventId — Get user's attendance QR token
 // ────────────────────────────────────────────────────────────
@@ -34,12 +76,16 @@ router.get('/my-qr/:eventId', authMiddleware, async (req: Request, res: Response
     if (!user) {
       return ApiResponse.unauthorized(res);
     }
+    const { eventId } = req.params;
+    if (!requireUuid(res, eventId, 'event ID')) {
+      return;
+    }
 
     const registration = await prisma.eventRegistration.findUnique({
       where: {
         userId_eventId: {
           userId: user.id,
-          eventId: req.params.eventId,
+          eventId,
         },
       },
       include: {
@@ -186,6 +232,9 @@ router.post('/scan-batch', authMiddleware, requireRole('CORE_MEMBER'), async (re
     if (!eventId || typeof eventId !== 'string') {
       return ApiResponse.badRequest(res, 'eventId is required');
     }
+    if (!requireUuid(res, eventId, 'event ID')) {
+      return;
+    }
 
     const results: Array<{ localId: string; status: 'ok' | 'duplicate' | 'error'; name?: string; message?: string }> = [];
 
@@ -270,7 +319,7 @@ router.post('/scan-batch', authMiddleware, requireRole('CORE_MEMBER'), async (re
         }
       }
 
-      const scannedAt = item.scannedAtLocal ? new Date(item.scannedAtLocal) : new Date();
+      const scannedAt = resolveClientScannedAt(item.scannedAtLocal);
 
       // ATOMIC: check + update in one DB call. Zero race window.
       const updated = await withRetry(() => prisma.eventRegistration.updateMany({
@@ -322,14 +371,23 @@ router.post('/scan-beacon', beaconLimiter, express.text({ type: '*/*' }), async 
 
     const { authToken, scans, eventId } = body;
 
-    if (!authToken || !scans || !Array.isArray(scans) || !eventId) {
+    if (
+      typeof authToken !== 'string' ||
+      !jwtLikePattern.test(authToken) ||
+      !Array.isArray(scans) ||
+      scans.length === 0 ||
+      typeof eventId !== 'string'
+    ) {
+      return res.status(400).send();
+    }
+    if (!uuidSchema.safeParse(eventId).success) {
       return res.status(400).send();
     }
 
     // Verify the auth token manually (beacon cannot set Authorization header)
     let decoded;
     try {
-      decoded = jwt.verify(authToken, getJwtSecret(), { algorithms: ['HS256'] }) as { userId?: string; id?: string; role?: string };
+      decoded = verifyToken(authToken);
     } catch {
       return res.status(401).send();
     }
@@ -349,55 +407,82 @@ router.post('/scan-beacon', beaconLimiter, express.text({ type: '*/*' }), async 
     res.status(204).send();
 
     const adminId = user.id;
+    let processedCount = 0;
+    let skippedCount = 0;
+    let failedCount = 0;
 
-    // Process scans in the background (fire-and-forget)
-    for (const scan of scans) {
-      try {
-        let payload;
+    try {
+      // sendBeacon is intentionally fire-and-forget, so per-item failures are logged
+      // server-side and not surfaced back to the client after the 204 response.
+      for (const scan of scans) {
         try {
-          payload = verifyAttendanceToken(scan.token);
-        } catch {
-          continue;
-        }
+          if (!scan || typeof scan !== 'object' || typeof scan.token !== 'string') {
+            failedCount++;
+            continue;
+          }
 
-        if (payload.eventId !== eventId) {
-          continue;
-        }
+          let payload;
+          try {
+            payload = verifyAttendanceToken(scan.token);
+          } catch {
+            failedCount++;
+            continue;
+          }
 
-        const scannedAt = scan.scannedAtLocal ? new Date(scan.scannedAtLocal) : new Date();
+          if (payload.eventId !== eventId) {
+            failedCount++;
+            continue;
+          }
 
-        // ATOMIC: check + update in one DB call. Zero race window.
-        const atomicResult = await withRetry(() => prisma.eventRegistration.updateMany({
-          where: { id: payload.registrationId, attended: false },
-          data: { attended: true, scannedAt },
-        }));
+          const scannedAt = resolveClientScannedAt(
+            typeof scan.scannedAtLocal === 'string' ? scan.scannedAtLocal : undefined,
+          );
 
-        if (atomicResult.count === 0) {
-          // Already attended or registration not found — skip
-          continue;
-        }
+          // ATOMIC: check + update in one DB call. Zero race window.
+          const atomicResult = await withRetry(() => prisma.eventRegistration.updateMany({
+            where: { id: payload.registrationId, attended: false },
+            data: { attended: true, scannedAt },
+          }));
 
-        // Fetch user name for socket emit (only for successful updates)
-        const reg = await prisma.eventRegistration.findUnique({
-          where: { id: payload.registrationId },
-          select: { user: { select: { name: true } } },
-        });
+          if (atomicResult.count === 0) {
+            skippedCount++;
+            continue;
+          }
 
-        if (reg?.user.name) {
-          getIO()?.of('/attendance').to(`event:${eventId}`).emit('attendance:marked', {
-            userId: payload.userId,
-            userName: reg.user.name,
-            scannedAt,
+          processedCount++;
+
+          // Fetch user name for socket emit (only for successful updates)
+          const reg = await prisma.eventRegistration.findUnique({
+            where: { id: payload.registrationId },
+            select: { user: { select: { name: true } } },
           });
+
+          if (reg?.user.name) {
+            getIO()?.of('/attendance').to(`event:${eventId}`).emit('attendance:marked', {
+              userId: payload.userId,
+              userName: reg.user.name,
+              scannedAt,
+            });
+          }
+        } catch (err) {
+          failedCount++;
+          logger.error('Beacon scan item failed', { error: err instanceof Error ? err.message : String(err) });
         }
-      } catch (err) {
-        logger.error('Beacon scan item failed', { error: err instanceof Error ? err.message : String(err) });
+      }
+    } finally {
+      try {
+        await auditLog(adminId, 'ATTENDANCE_BEACON_SCAN', 'eventRegistration', eventId, {
+          total: scans.length,
+          processed: processedCount,
+          skipped: skippedCount,
+          failed: failedCount,
+        });
+      } catch (auditError) {
+        logger.error('Failed to write beacon attendance audit log', {
+          error: auditError instanceof Error ? auditError.message : String(auditError),
+        });
       }
     }
-
-    await auditLog(adminId, 'ATTENDANCE_BEACON_SCAN', 'eventRegistration', eventId, {
-      total: scans.length,
-    });
   } catch (error) {
     logger.error('Failed to process beacon scan', { error: error instanceof Error ? error.message : String(error) });
     if (!res.headersSent) {
@@ -418,8 +503,8 @@ router.post('/manual-checkin', authMiddleware, requireRole('CORE_MEMBER'), async
 
     const { registrationId } = req.body as { registrationId?: string };
 
-    if (!registrationId || typeof registrationId !== 'string') {
-      return ApiResponse.badRequest(res, 'registrationId is required');
+    if (!requireUuid(res, registrationId, 'registration ID')) {
+      return;
     }
 
     const registration = await prisma.eventRegistration.findUnique({
@@ -479,8 +564,8 @@ router.patch('/unmark', authMiddleware, requireRole('CORE_MEMBER'), async (req: 
 
     const { registrationId } = req.body as { registrationId?: string };
 
-    if (!registrationId || typeof registrationId !== 'string') {
-      return ApiResponse.badRequest(res, 'registrationId is required');
+    if (!requireUuid(res, registrationId, 'registration ID')) {
+      return;
     }
 
     const registration = await prisma.eventRegistration.findUnique({
@@ -498,33 +583,33 @@ router.patch('/unmark', authMiddleware, requireRole('CORE_MEMBER'), async (req: 
       return ApiResponse.badRequest(res, `${registration.user.name} is not marked as attended`);
     }
 
-    const updated = await prisma.eventRegistration.update({
-      where: { id: registrationId },
+    const updated = await withRetry(() => prisma.eventRegistration.updateMany({
+      where: { id: registrationId, attended: true },
       data: {
         attended: false,
         scannedAt: null,
         manualOverride: false,
       },
-      include: {
-        user: { select: { id: true, name: true } },
-      },
-    });
+    }));
+    if (updated.count === 0) {
+      return ApiResponse.conflict(res, 'Attendance state changed while unmarking. Please retry.');
+    }
 
     getIO()?.of('/attendance').to(`event:${registration.eventId}`).emit('attendance:unmarked', {
       userId: registration.user.id,
-      userName: updated.user.name,
+      userName: registration.user.name,
     });
 
     await auditLog(admin.id, 'ATTENDANCE_UNMARK', 'eventRegistration', registrationId, {
       eventId: registration.eventId,
       userId: registration.user.id,
-      userName: updated.user.name,
+      userName: registration.user.name,
     });
 
     return ApiResponse.success(res, {
-      registrationId: updated.id,
-      userName: updated.user.name,
-      attended: updated.attended,
+      registrationId,
+      userName: registration.user.name,
+      attended: false,
     });
   } catch (error) {
     logger.error('Failed to unmark attendance', { error: error instanceof Error ? error.message : String(error) });
@@ -551,71 +636,80 @@ router.patch('/bulk-update', authMiddleware, requireRole('CORE_MEMBER'), async (
     if (action !== 'mark' && action !== 'unmark') {
       return ApiResponse.badRequest(res, 'action must be "mark" or "unmark"');
     }
-
-    let updated = 0;
-    let skipped = 0;
+    const invalidRegistrationId = registrationIds.find((registrationId) => !uuidSchema.safeParse(registrationId).success);
+    if (invalidRegistrationId) {
+      return ApiResponse.badRequest(res, `Invalid registration ID format: ${invalidRegistrationId}`);
+    }
 
     // Batch read all registrations upfront to avoid N+1
     const registrations = await prisma.eventRegistration.findMany({
       where: { id: { in: registrationIds } },
       include: { user: { select: { id: true, name: true } } },
     });
-    const regMap = new Map(registrations.map(r => [r.id, r]));
-
-    for (const regId of registrationIds) {
-      const registration = regMap.get(regId);
-
-      if (!registration) {
-        skipped++;
-        continue;
-      }
-
-      if (action === 'mark') {
-        if (registration.attended) {
-          skipped++;
-          continue;
+    const regMap = new Map(registrations.map((registration) => [registration.id, registration]));
+    const registrationsToUpdate = registrationIds
+      .map((registrationId) => regMap.get(registrationId))
+      .filter((registration): registration is (typeof registrations)[number] => {
+        if (!registration) {
+          return false;
         }
 
-        await prisma.eventRegistration.update({
-          where: { id: regId },
-          data: {
-            attended: true,
-            scannedAt: new Date(),
-            manualOverride: true,
-          },
-        });
+        return action === 'mark' ? !registration.attended : registration.attended;
+      });
 
+    const skipped = registrationIds.length - registrationsToUpdate.length;
+    const markScannedAt = action === 'mark' ? new Date() : null;
+
+    try {
+      await withRetry(() => prisma.$transaction(async (tx) => {
+        for (const registration of registrationsToUpdate) {
+          const result = await tx.eventRegistration.updateMany({
+            where: {
+              id: registration.id,
+              attended: action === 'mark' ? false : true,
+            },
+            data: action === 'mark'
+              ? {
+                  attended: true,
+                  scannedAt: markScannedAt,
+                  manualOverride: true,
+                }
+              : {
+                  attended: false,
+                  scannedAt: null,
+                  manualOverride: false,
+                },
+          });
+
+          if (result.count === 0) {
+            throw new AttendanceBulkUpdateConflictError('Attendance state changed during bulk update');
+          }
+        }
+      }));
+    } catch (error) {
+      if (error instanceof AttendanceBulkUpdateConflictError) {
+        return ApiResponse.conflict(res, 'Attendance changed while the bulk update was running. Please retry.');
+      }
+
+      throw error;
+    }
+
+    for (const registration of registrationsToUpdate) {
+      if (action === 'mark' && markScannedAt) {
         getIO()?.of('/attendance').to(`event:${registration.eventId}`).emit('attendance:marked', {
           userId: registration.user.id,
           userName: registration.user.name,
-          scannedAt: new Date(),
+          scannedAt: markScannedAt,
         });
-
-        updated++;
       } else {
-        // action === 'unmark'
-        if (!registration.attended) {
-          skipped++;
-          continue;
-        }
-
-        await prisma.eventRegistration.update({
-          where: { id: regId },
-          data: {
-            attended: false,
-            scannedAt: null,
-            manualOverride: false,
-          },
-        });
-
         getIO()?.of('/attendance').to(`event:${registration.eventId}`).emit('attendance:unmarked', {
           userId: registration.user.id,
           userName: registration.user.name,
         });
-
-        updated++;
       }
     }
+
+    const updated = registrationsToUpdate.length;
 
     await auditLog(admin.id, 'ATTENDANCE_BULK_UPDATE', 'eventRegistration', undefined, {
       action,
@@ -752,6 +846,9 @@ router.get('/search', authMiddleware, requireRole('CORE_MEMBER'), async (req: Re
     if (!eventId || typeof eventId !== 'string') {
       return ApiResponse.badRequest(res, 'eventId is required');
     }
+    if (!requireUuid(res, eventId, 'event ID')) {
+      return;
+    }
 
     const searchTerm = q.trim();
     const page = Math.max(1, parseInt(pageParam || '1') || 1);
@@ -805,6 +902,9 @@ router.get('/search', authMiddleware, requireRole('CORE_MEMBER'), async (req: Re
 router.get('/live/:eventId', authMiddleware, requireRole('CORE_MEMBER'), async (req: Request, res: Response) => {
   try {
     const { eventId } = req.params;
+    if (!requireUuid(res, eventId, 'event ID')) {
+      return;
+    }
 
     const [total, attended, recentScans] = await Promise.all([
       prisma.eventRegistration.count({
@@ -854,6 +954,17 @@ router.get('/live/:eventId', authMiddleware, requireRole('CORE_MEMBER'), async (
 router.get('/event/:eventId/full', authMiddleware, requireRole('CORE_MEMBER'), async (req: Request, res: Response) => {
   try {
     const { eventId } = req.params;
+    if (!requireUuid(res, eventId, 'event ID')) {
+      return;
+    }
+
+    const totalRegistrations = await prisma.eventRegistration.count({ where: { eventId } });
+    if (totalRegistrations > ATTENDANCE_FULL_LIST_LIMIT) {
+      return ApiResponse.badRequest(
+        res,
+        `Full attendance list is limited to ${ATTENDANCE_FULL_LIST_LIMIT} registrations. Use search or export for larger events.`,
+      );
+    }
 
     const registrations = await prisma.eventRegistration.findMany({
       where: { eventId },
@@ -889,6 +1000,9 @@ router.get('/event/:eventId/full', authMiddleware, requireRole('CORE_MEMBER'), a
 router.get('/event/:eventId/export', authMiddleware, requireRole('CORE_MEMBER'), async (req: Request, res: Response) => {
   try {
     const { eventId } = req.params;
+    if (!requireUuid(res, eventId, 'event ID')) {
+      return;
+    }
 
     const event = await prisma.event.findUnique({
       where: { id: eventId },
@@ -897,6 +1011,14 @@ router.get('/event/:eventId/export', authMiddleware, requireRole('CORE_MEMBER'),
 
     if (!event) {
       return ApiResponse.notFound(res, 'Event not found');
+    }
+
+    const totalRegistrations = await prisma.eventRegistration.count({ where: { eventId } });
+    if (totalRegistrations > ATTENDANCE_EXPORT_LIMIT) {
+      return ApiResponse.badRequest(
+        res,
+        `Attendance export is limited to ${ATTENDANCE_EXPORT_LIMIT} registrations per request.`,
+      );
     }
 
     const registrations = await prisma.eventRegistration.findMany({
@@ -980,6 +1102,9 @@ router.post('/email-absentees/:eventId', authMiddleware, requireRole('ADMIN'), a
 
     const { eventId } = req.params;
     const { subject, body } = req.body as { subject?: string; body?: string };
+    if (!requireUuid(res, eventId, 'event ID')) {
+      return;
+    }
 
     if (!subject || typeof subject !== 'string' || subject.trim().length === 0) {
       return ApiResponse.badRequest(res, 'subject is required');
@@ -987,6 +1112,14 @@ router.post('/email-absentees/:eventId', authMiddleware, requireRole('ADMIN'), a
 
     if (!body || typeof body !== 'string' || body.trim().length === 0) {
       return ApiResponse.badRequest(res, 'body is required');
+    }
+
+    const settings = await prisma.settings.findUnique({
+      where: { id: 'default' },
+      select: { mailingEnabled: true },
+    });
+    if (settings && settings.mailingEnabled === false) {
+      return ApiResponse.forbidden(res, 'Mailing is currently disabled');
     }
 
     const absentees = await prisma.eventRegistration.findMany({
@@ -1028,11 +1161,15 @@ router.post('/email-absentees/:eventId', authMiddleware, requireRole('ADMIN'), a
             .replace(/\{\{name\}\}/g, reg.user.name)
             .replace(/\{\{event\}\}/g, reg.event.title);
 
-          await emailService.send({
+          const sent = await emailService.send({
             to: reg.user.email,
             subject: subject.trim(),
             html: personalizedBody,
+            category: 'admin_mail',
           });
+          if (!sent) {
+            throw new Error('Email delivery is currently unavailable');
+          }
 
           return reg.user.email;
         }),
@@ -1077,6 +1214,9 @@ router.post('/email-absentees/:eventId', authMiddleware, requireRole('ADMIN'), a
 router.get('/event/:eventId/certificate-recipients', authMiddleware, requireRole('ADMIN'), async (req: Request, res: Response) => {
   try {
     const { eventId } = req.params;
+    if (!requireUuid(res, eventId, 'event ID')) {
+      return;
+    }
 
     const [registrations, existingCerts] = await Promise.all([
       prisma.eventRegistration.findMany({
@@ -1095,25 +1235,32 @@ router.get('/event/:eventId/certificate-recipients', authMiddleware, requireRole
       prisma.certificate.findMany({
         where: {
           eventId,
-          type: 'PARTICIPATION',
-          description: null,
           isRevoked: false,
         },
+        orderBy: { issuedAt: 'desc' },
         select: {
+          id: true,
           recipientEmail: true,
           certId: true,
+          type: true,
+          pdfUrl: true,
+          emailSent: true,
+          emailSentAt: true,
         },
       }),
     ]);
 
     // Map existing certs by email for quick lookup
-    const certsByEmail = new Map<string, string>();
+    const certsByEmail = new Map<string, (typeof existingCerts)[number]>();
     for (const cert of existingCerts) {
-      certsByEmail.set(cert.recipientEmail.toLowerCase(), cert.certId);
+      const normalizedEmail = cert.recipientEmail.toLowerCase();
+      if (!certsByEmail.has(normalizedEmail)) {
+        certsByEmail.set(normalizedEmail, cert);
+      }
     }
 
     const recipients = registrations.map((reg) => {
-      const existingCertId = certsByEmail.get(reg.user.email.toLowerCase()) || null;
+      const existingCert = certsByEmail.get(reg.user.email.toLowerCase()) || null;
       return {
         registrationId: reg.id,
         userId: reg.user.id,
@@ -1123,18 +1270,19 @@ router.get('/event/:eventId/certificate-recipients', authMiddleware, requireRole
         attended: reg.attended,
         scannedAt: reg.scannedAt,
         manualOverride: reg.manualOverride,
-        hasCertificate: !!existingCertId,
-        certificateId: existingCertId,
-        certificateDbId: null,
-        certificatePdfUrl: null,
-        emailSent: false,
-        emailSentAt: null,
+        hasCertificate: !!existingCert,
+        certificateId: existingCert?.certId || null,
+        certificateType: existingCert?.type || null,
+        certificateDbId: existingCert?.id || null,
+        certificatePdfUrl: existingCert?.pdfUrl || null,
+        emailSent: existingCert?.emailSent || false,
+        emailSentAt: existingCert?.emailSentAt || null,
       };
     });
 
     const totalRegistered = registrations.length;
     const totalAttended = registrations.filter((r) => r.attended).length;
-    const alreadyCertified = existingCerts.length;
+    const alreadyCertified = certsByEmail.size;
 
     return ApiResponse.success(res, {
       recipients,
@@ -1204,6 +1352,9 @@ router.get('/my-history', authMiddleware, async (req: Request, res: Response) =>
 router.get('/event/:eventId/summary', async (req: Request, res: Response) => {
   try {
     const { eventId } = req.params;
+    if (!requireUuid(res, eventId, 'event ID')) {
+      return;
+    }
 
     const [total, attended] = await Promise.all([
       prisma.eventRegistration.count({
@@ -1235,6 +1386,7 @@ router.post('/backfill-tokens', authMiddleware, requireRole('ADMIN'), async (req
       where: {
         attendanceToken: null,
       },
+      take: ATTENDANCE_BACKFILL_BATCH_SIZE + 1,
       include: {
         user: {
           select: { id: true },
@@ -1242,7 +1394,12 @@ router.post('/backfill-tokens', authMiddleware, requireRole('ADMIN'), async (req
       },
     });
 
-    if (registrations.length === 0) {
+    const hasMore = registrations.length > ATTENDANCE_BACKFILL_BATCH_SIZE;
+    const batch = hasMore
+      ? registrations.slice(0, ATTENDANCE_BACKFILL_BATCH_SIZE)
+      : registrations;
+
+    if (batch.length === 0) {
       return ApiResponse.success(res, { backfilled: 0, message: 'No registrations need token backfill' });
     }
 
@@ -1250,7 +1407,7 @@ router.post('/backfill-tokens', authMiddleware, requireRole('ADMIN'), async (req
 
     // Sequential to avoid overwhelming the DB
     // N+1: acceptable for one-time admin backfill operation
-    for (const reg of registrations) {
+    for (const reg of batch) {
       const token = generateAttendanceToken(reg.userId, reg.eventId, reg.id);
 
       await prisma.eventRegistration.update({
@@ -1263,11 +1420,15 @@ router.post('/backfill-tokens', authMiddleware, requireRole('ADMIN'), async (req
 
     await auditLog(admin.id, 'ATTENDANCE_BACKFILL', 'eventRegistration', undefined, {
       totalBackfilled: backfilled,
+      hasMore,
     });
 
     return ApiResponse.success(res, {
       backfilled,
-      message: `Backfilled ${backfilled} attendance tokens`,
+      hasMore,
+      message: hasMore
+        ? `Backfilled ${backfilled} attendance tokens. Run this again to continue.`
+        : `Backfilled ${backfilled} attendance tokens`,
     });
   } catch (error) {
     logger.error('Failed to backfill attendance tokens', { error: error instanceof Error ? error.message : String(error) });

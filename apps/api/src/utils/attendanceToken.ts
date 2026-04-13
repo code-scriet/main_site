@@ -8,24 +8,68 @@ interface AttendancePayload {
   purpose: 'attendance';
 }
 
+const ATTENDANCE_JWT_SECRET_ENV_CANDIDATES = [
+  'ATTENDANCE_JWT_SECRET',
+  'ATTENDANCE_TOKEN_SECRET',
+] as const;
+
+const DEFAULT_ATTENDANCE_TOKEN_EXPIRES_IN =
+  (process.env.ATTENDANCE_TOKEN_EXPIRES_IN || '90d') as jwt.SignOptions['expiresIn'];
+
+function getConfiguredAttendanceJwtSecret(): string | undefined {
+  for (const key of ATTENDANCE_JWT_SECRET_ENV_CANDIDATES) {
+    const value = process.env[key]?.trim();
+    if (value) {
+      return value;
+    }
+  }
+
+  return undefined;
+}
+
+export function getAttendanceJwtSecret(): string {
+  return getConfiguredAttendanceJwtSecret() || getJwtSecret();
+}
+
+function getAttendanceVerificationSecrets(): string[] {
+  const attendanceSecret = getAttendanceJwtSecret();
+  const authSecret = getJwtSecret();
+
+  return attendanceSecret === authSecret
+    ? [attendanceSecret]
+    : [attendanceSecret, authSecret];
+}
+
+function verifyAttendancePayload(token: string, secret: string): AttendancePayload {
+  const decoded = jwt.verify(token, secret, { algorithms: ['HS256'] }) as AttendancePayload;
+  if (decoded.purpose !== 'attendance') {
+    throw new Error('Invalid token purpose');
+  }
+
+  return decoded;
+}
+
 export function generateAttendanceToken(userId: string, eventId: string, registrationId: string): string {
   return jwt.sign(
     { userId, eventId, registrationId, purpose: 'attendance' } satisfies AttendancePayload,
-    getJwtSecret(),
+    getAttendanceJwtSecret(),
     {
       algorithm: 'HS256',
-      // No expiresIn — token validity is controlled by:
-      // 1. attended flag (single-use)
-      // 2. eventId in payload (event-scoped)
-      // 3. scan window check in scan endpoint (time-scoped)
+      expiresIn: DEFAULT_ATTENDANCE_TOKEN_EXPIRES_IN,
     },
   );
 }
 
 export function verifyAttendanceToken(token: string): AttendancePayload {
-  const decoded = jwt.verify(token, getJwtSecret(), { algorithms: ['HS256'] }) as AttendancePayload;
-  if (decoded.purpose !== 'attendance') {
-    throw new Error('Invalid token purpose');
+  let lastError: Error | undefined;
+
+  for (const secret of getAttendanceVerificationSecrets()) {
+    try {
+      return verifyAttendancePayload(token, secret);
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error(String(error));
+    }
   }
-  return decoded;
+
+  throw lastError || new Error('Invalid attendance token');
 }

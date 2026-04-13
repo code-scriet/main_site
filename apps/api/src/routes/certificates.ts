@@ -383,7 +383,7 @@ async function findRecipientIdsByEmail(recipientEmails: string[]): Promise<Map<s
         },
       })),
     },
-    take: 100,
+    take: 300,
     select: {
       id: true,
       email: true,
@@ -1056,7 +1056,7 @@ certificatesRouter.post('/bulk', authMiddleware, requireRole('ADMIN'), async (re
     providedUserIds.length
       ? (await prisma.user.findMany({
         where: { id: { in: providedUserIds } },
-        take: 100,
+        take: 300,
         select: { id: true },
       })).map((user) => user.id)
       : [],
@@ -1074,7 +1074,7 @@ certificatesRouter.post('/bulk', authMiddleware, requireRole('ADMIN'), async (re
       type: { in: involvedTypes },
       ...buildCertificateEventScope(safeEventName, eventId),
     },
-    take: 100,
+    take: 300,
     select: {
       recipientEmail: true,
       certId: true,
@@ -1095,7 +1095,7 @@ certificatesRouter.post('/bulk', authMiddleware, requireRole('ADMIN'), async (re
       certificate.certId,
     ]),
   );
-  const queuedEmails = new Set<string>();
+  const queuedRecipientKeys = new Set<string>();
   const recipientsToProcess = resolvedRecipients.filter((recipient) => {
     const duplicateKey = buildRecipientDuplicateKey(
       source,
@@ -1114,7 +1114,7 @@ certificatesRouter.post('/bulk', authMiddleware, requireRole('ADMIN'), async (re
       return false;
     }
 
-    if (queuedEmails.has(recipient.normalizedEmail)) {
+    if (queuedRecipientKeys.has(duplicateKey)) {
       failures.push({
         name: recipient.name,
         email: recipient.email,
@@ -1123,7 +1123,7 @@ certificatesRouter.post('/bulk', authMiddleware, requireRole('ADMIN'), async (re
       return false;
     }
 
-    queuedEmails.add(recipient.normalizedEmail);
+    queuedRecipientKeys.add(duplicateKey);
 
     const existingCertId = existingByEmail.get(duplicateKey);
     if (existingCertId) {
@@ -1140,7 +1140,7 @@ certificatesRouter.post('/bulk', authMiddleware, requireRole('ADMIN'), async (re
   const recipientIdByEmail = await findRecipientIdsByEmail(recipientsToProcess.map((recipient) => recipient.email));
 
   // Process in batches of 5 to limit memory/concurrency
-  const BATCH_SIZE = 5;
+  const BATCH_SIZE = 3;
   for (let i = 0; i < recipientsToProcess.length; i += BATCH_SIZE) {
     const batch = recipientsToProcess.slice(i, i + BATCH_SIZE);
     await Promise.allSettled(

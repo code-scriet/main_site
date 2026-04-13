@@ -930,7 +930,7 @@ export default function EventCertificateWizard({
                         {recipient.hasCertificate ? (
                           <Badge className="bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400">
                             <Award className="mr-1 h-3 w-3" />
-                            {recipient.certificateId || 'Issued'}
+                            {recipient.certificateType || recipient.certificateId || 'Issued'}
                           </Badge>
                         ) : (
                           <span className="text-xs text-gray-400">None</span>

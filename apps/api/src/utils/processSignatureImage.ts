@@ -18,6 +18,7 @@ import { logger } from './logger.js';
  */
 const MAX_INPUT_BYTES = 10 * 1024 * 1024; // 10 MB
 const SHARP_TIMEOUT_MS = 15_000; // 15 seconds — prevents hanging on corrupted images
+const ALLOWED_SIGNATURE_IMAGE_HOSTS = new Set(['res.cloudinary.com']);
 
 function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
   return Promise.race([
@@ -161,7 +162,25 @@ async function resolveImageToBuffer(source: string): Promise<Buffer | undefined>
 
   // HTTP(S) URL — fetch the image
   if (source.startsWith('http://') || source.startsWith('https://')) {
-    const response = await fetch(source, { signal: AbortSignal.timeout(10_000) });
+    let parsedUrl: URL;
+    try {
+      parsedUrl = new URL(source);
+    } catch {
+      return undefined;
+    }
+
+    if (
+      parsedUrl.protocol !== 'https:' ||
+      !ALLOWED_SIGNATURE_IMAGE_HOSTS.has(parsedUrl.hostname)
+    ) {
+      logger.warn('Blocked signature image URL outside allowed hosts', {
+        url: source,
+        hostname: parsedUrl.hostname,
+      });
+      return undefined;
+    }
+
+    const response = await fetch(parsedUrl, { signal: AbortSignal.timeout(10_000) });
     if (!response.ok) {
       logger.warn('Failed to fetch signature image', { url: source, status: response.status });
       return undefined;
