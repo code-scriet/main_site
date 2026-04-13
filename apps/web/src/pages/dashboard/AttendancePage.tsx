@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { motion } from 'framer-motion';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -6,7 +6,7 @@ import { Badge } from '@/components/ui/badge';
 import { useAuth } from '@/context/AuthContext';
 import { api } from '@/lib/api';
 import type { Event } from '@/lib/api';
-import { QrCode, Loader2, Calendar, MapPin, Users, ChevronRight, AlertCircle } from 'lucide-react';
+import { QrCode, Loader2, Calendar, MapPin, Users, ChevronRight, AlertCircle, History } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { formatDate, formatTime } from '@/lib/dateUtils';
 
@@ -27,6 +27,30 @@ function computeEffectiveStatus(event: Event): 'UPCOMING' | 'ONGOING' | 'PAST' {
   return 'ONGOING';
 }
 
+function compareAttendanceEvents(a: Event, b: Event): number {
+  const order: Record<ReturnType<typeof computeEffectiveStatus>, number> = {
+    ONGOING: 0,
+    UPCOMING: 1,
+    PAST: 2,
+  };
+
+  const statusA = computeEffectiveStatus(a);
+  const statusB = computeEffectiveStatus(b);
+
+  if (order[statusA] !== order[statusB]) {
+    return order[statusA] - order[statusB];
+  }
+
+  const timeA = new Date(a.startDate).getTime();
+  const timeB = new Date(b.startDate).getTime();
+
+  if (statusA === 'PAST') {
+    return timeB - timeA;
+  }
+
+  return timeA - timeB;
+}
+
 export default function AttendancePage() {
   const { token } = useAuth();
   const navigate = useNavigate();
@@ -43,23 +67,15 @@ export default function AttendancePage() {
 
       try {
         const all = await api.getEvents();
-        // Use date-computed status to filter correctly even if DB is stale
-        const active = all
-          .filter((event) => {
-            const status = computeEffectiveStatus(event);
-            return status === 'ONGOING' || status === 'UPCOMING';
-          })
-          .sort((a, b) => {
-            const sa = computeEffectiveStatus(a);
-            const sb = computeEffectiveStatus(b);
-            // ONGOING first
-            if (sa === 'ONGOING' && sb !== 'ONGOING') return -1;
-            if (sb === 'ONGOING' && sa !== 'ONGOING') return 1;
-            return new Date(a.startDate).getTime() - new Date(b.startDate).getTime();
-          });
+        const sorted = [...all].sort(compareAttendanceEvents);
+        setEvents(sorted);
+        setSelectedEventId((current) => {
+          if (current && sorted.some((event) => event.id === current)) {
+            return current;
+          }
 
-        setEvents(active);
-        if (active.length === 1) setSelectedEventId(active[0].id);
+          return sorted[0]?.id ?? '';
+        });
       } catch {
         setError('Failed to load events for attendance.');
       } finally {
@@ -70,11 +86,27 @@ export default function AttendancePage() {
     void loadEvents();
   }, [token]);
 
-  const selectedEvent = events.find((e) => e.id === selectedEventId) ?? null;
+  const selectedEvent = useMemo(
+    () => events.find((event) => event.id === selectedEventId) ?? null,
+    [events, selectedEventId],
+  );
+  const activeEvents = useMemo(
+    () => events.filter((event) => computeEffectiveStatus(event) !== 'PAST'),
+    [events],
+  );
+  const pastEvents = useMemo(
+    () => events.filter((event) => computeEffectiveStatus(event) === 'PAST'),
+    [events],
+  );
+  const selectedEventStatus = selectedEvent ? computeEffectiveStatus(selectedEvent) : null;
 
   const openScanner = () => {
-    if (!selectedEventId) return;
+    if (!selectedEventId || selectedEventStatus === 'PAST') return;
     navigate(`/dashboard/events/${selectedEventId}/attendance?tab=scanner`);
+  };
+
+  const openAttendanceManager = (eventId: string) => {
+    navigate(`/dashboard/events/${eventId}/attendance?tab=manage`);
   };
 
   if (loading) {
@@ -101,8 +133,30 @@ export default function AttendancePage() {
     );
   }
 
+  if (events.length === 0) {
+    return (
+      <div className="max-w-xl w-full">
+        <motion.div
+          initial={{ opacity: 0, y: 12 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.3, delay: 0.1 }}
+        >
+          <Card className="border-gray-100 shadow-sm">
+            <CardContent className="py-16 text-center">
+              <QrCode className="h-10 w-10 mx-auto mb-3 text-gray-300" />
+              <p className="text-gray-500 font-medium">No events found</p>
+              <p className="text-sm text-gray-400 mt-1">
+                Once events are created, you can scan live attendance and review past attendance from here.
+              </p>
+            </CardContent>
+          </Card>
+        </motion.div>
+      </div>
+    );
+  }
+
   return (
-    <div className="max-w-xl w-full">
+    <div className="max-w-3xl w-full">
       {/* Header */}
       <motion.div
         initial={{ opacity: 0, y: 12 }}
@@ -112,153 +166,197 @@ export default function AttendancePage() {
       >
         <h1 className="text-2xl font-semibold text-gray-900">Take Attendance</h1>
         <p className="text-sm text-gray-500 mt-1">
-          Select an event and open the QR scanner.
+          Open the scanner for live events, or review attendance records for past ones.
         </p>
       </motion.div>
 
-      {events.length === 0 ? (
-        <motion.div
-          initial={{ opacity: 0, y: 12 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.3, delay: 0.1 }}
-        >
+      <motion.div
+        initial={{ opacity: 0, y: 12 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.3, delay: 0.1 }}
+        className="space-y-6"
+      >
+        {activeEvents.length === 0 && (
           <Card className="border-gray-100 shadow-sm">
-            <CardContent className="py-16 text-center">
-              <QrCode className="h-10 w-10 mx-auto mb-3 text-gray-300" />
-              <p className="text-gray-500 font-medium">No active events</p>
+            <CardContent className="py-6 text-center">
+              <History className="h-8 w-8 mx-auto mb-3 text-gray-300" />
+              <p className="text-gray-700 font-medium">No live attendance sessions right now</p>
               <p className="text-sm text-gray-400 mt-1">
-                Attendance scanning is only available for upcoming and ongoing events.
+                You can still review and export attendance for past events below.
               </p>
             </CardContent>
           </Card>
-        </motion.div>
-      ) : (
-        <motion.div
-          initial={{ opacity: 0, y: 12 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.3, delay: 0.1 }}
-          className="space-y-4"
-        >
-          {/* Event selector */}
-          <div>
-            <label htmlFor="event-select" className="block text-sm font-medium text-gray-700 mb-2">
-              Choose event
-            </label>
-            <select
-              id="event-select"
-              value={selectedEventId}
-              onChange={(e) => setSelectedEventId(e.target.value)}
-              className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2.5 text-sm text-gray-900 shadow-sm focus:border-amber-400 focus:outline-none focus:ring-2 focus:ring-amber-400/30 transition"
-            >
-              <option value="">— Select an event —</option>
-              {events.map((event) => {
-                const status = computeEffectiveStatus(event);
-                return (
-                  <option key={event.id} value={event.id}>
-                    {status === 'ONGOING' ? 'Ongoing' : 'Upcoming'}: {event.title} — {formatDate(event.startDate)}
-                  </option>
-                );
-              })}
-            </select>
-          </div>
+        )}
 
-          {/* Selected event preview */}
-          {selectedEvent && (
-            <motion.div
-              key={selectedEvent.id}
-              initial={{ opacity: 0, y: 8 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 0.2 }}
-              className="rounded-xl border border-gray-100 bg-white shadow-sm p-5"
-            >
-              <div className="flex items-start justify-between gap-3 mb-3">
-                <h3 className="font-semibold text-gray-900 text-base leading-snug break-words">
-                  {selectedEvent.title}
-                </h3>
-                {(() => {
-                  const s = computeEffectiveStatus(selectedEvent);
-                  return (
-                    <Badge
-                      variant={s === 'ONGOING' ? 'warning' : 'success'}
-                      className="shrink-0 text-xs whitespace-nowrap"
-                    >
-                      {s}
-                    </Badge>
-                  );
-                })()}
-              </div>
-
-               <div className="space-y-1.5 text-sm text-gray-500">
-                 <div className="flex flex-wrap items-center gap-2">
-                   <Calendar className="h-3.5 w-3.5 shrink-0" />
-                   {formatDate(selectedEvent.startDate)} at {formatTime(selectedEvent.startDate)}
-                   {selectedEvent.endDate && (
-                    <span className="text-gray-400">→ {formatTime(selectedEvent.endDate)}</span>
-                  )}
-                </div>
-                {selectedEvent.location && (
-                   <div className="flex items-center gap-2 min-w-0">
-                     <MapPin className="h-3.5 w-3.5 shrink-0" />
-                     <span className="truncate">{selectedEvent.location}</span>
-                   </div>
-                 )}
-                {selectedEvent.capacity && (
-                  <div className="flex items-center gap-2">
-                    <Users className="h-3.5 w-3.5 shrink-0" />
-                    {selectedEvent._count?.registrations ?? 0} / {selectedEvent.capacity} registered
-                  </div>
-                )}
-              </div>
-            </motion.div>
-          )}
-
-          {/* Open Scanner CTA */}
-          <Button
-            onClick={openScanner}
-            disabled={!selectedEventId}
-            className="w-full h-11 text-sm font-medium"
+        <div>
+          <label htmlFor="event-select" className="block text-sm font-medium text-gray-700 mb-2">
+            Choose event
+          </label>
+          <select
+            id="event-select"
+            value={selectedEventId}
+            onChange={(e) => setSelectedEventId(e.target.value)}
+            className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2.5 text-sm text-gray-900 shadow-sm focus:border-amber-400 focus:outline-none focus:ring-2 focus:ring-amber-400/30 transition"
           >
-            <QrCode className="h-4 w-4 mr-2" />
-            Open Scanner
-            <ChevronRight className="h-4 w-4 ml-1" />
-          </Button>
-
-          {/* Quick-access list for all active events */}
-          {events.length > 1 && (
-            <div className="pt-2">
-              <p className="text-xs font-medium text-gray-400 uppercase tracking-wider mb-2">
-                All active events
-              </p>
-              <div className="space-y-1">
-                {events.map((event) => {
-                  const s = computeEffectiveStatus(event);
+            <option value="">— Select an event —</option>
+            {activeEvents.length > 0 && (
+              <optgroup label="Upcoming & ongoing">
+                {activeEvents.map((event) => {
+                  const status = computeEffectiveStatus(event);
                   return (
-                    <button
-                      key={event.id}
-                      onClick={() => navigate(`/dashboard/events/${event.id}/attendance?tab=scanner`)}
-                      className="w-full flex items-center justify-between rounded-lg px-4 py-3 bg-gray-50 hover:bg-gray-100 transition-colors text-left group"
-                    >
-                      <div className="flex items-center gap-3 min-w-0">
-                        <Badge
-                          variant={s === 'ONGOING' ? 'warning' : 'success'}
-                          className="shrink-0 text-xs whitespace-nowrap"
-                        >
-                          {s}
-                        </Badge>
-                        <div className="min-w-0">
-                          <p className="text-sm font-medium text-gray-900 truncate">{event.title}</p>
-                          <p className="text-xs text-gray-400">{formatDate(event.startDate)}</p>
-                        </div>
-                      </div>
-                      <ChevronRight className="h-4 w-4 text-gray-300 group-hover:text-gray-500 shrink-0 transition-colors" />
-                    </button>
+                    <option key={event.id} value={event.id}>
+                      {status}: {event.title} — {formatDate(event.startDate)}
+                    </option>
                   );
                 })}
-              </div>
+              </optgroup>
+            )}
+            {pastEvents.length > 0 && (
+              <optgroup label="Past events">
+                {pastEvents.map((event) => (
+                  <option key={event.id} value={event.id}>
+                    Past: {event.title} — {formatDate(event.startDate)}
+                  </option>
+                ))}
+              </optgroup>
+            )}
+          </select>
+        </div>
+
+        {selectedEvent && selectedEventStatus && (
+          <motion.div
+            key={selectedEvent.id}
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.2 }}
+            className="rounded-xl border border-gray-100 bg-white shadow-sm p-5"
+          >
+            <div className="flex items-start justify-between gap-3 mb-3">
+              <h3 className="font-semibold text-gray-900 text-base leading-snug break-words">
+                {selectedEvent.title}
+              </h3>
+              <Badge
+                variant={
+                  selectedEventStatus === 'ONGOING'
+                    ? 'warning'
+                    : selectedEventStatus === 'UPCOMING'
+                      ? 'success'
+                      : 'secondary'
+                }
+                className="shrink-0 text-xs whitespace-nowrap"
+              >
+                {selectedEventStatus}
+              </Badge>
             </div>
-          )}
-        </motion.div>
-      )}
+
+            <div className="space-y-1.5 text-sm text-gray-500">
+              <div className="flex flex-wrap items-center gap-2">
+                <Calendar className="h-3.5 w-3.5 shrink-0" />
+                {formatDate(selectedEvent.startDate)} at {formatTime(selectedEvent.startDate)}
+                {selectedEvent.endDate && (
+                  <span className="text-gray-400">→ {formatTime(selectedEvent.endDate)}</span>
+                )}
+              </div>
+              {selectedEvent.location && (
+                <div className="flex items-center gap-2 min-w-0">
+                  <MapPin className="h-3.5 w-3.5 shrink-0" />
+                  <span className="truncate">{selectedEvent.location}</span>
+                </div>
+              )}
+              {selectedEvent.capacity && (
+                <div className="flex items-center gap-2">
+                  <Users className="h-3.5 w-3.5 shrink-0" />
+                  {selectedEvent._count?.registrations ?? 0} / {selectedEvent.capacity} registered
+                </div>
+              )}
+            </div>
+
+            <div className="mt-5 flex flex-col gap-3 sm:flex-row">
+              {selectedEventStatus !== 'PAST' && (
+                <Button onClick={openScanner} className="h-11 text-sm font-medium sm:flex-1">
+                  <QrCode className="h-4 w-4 mr-2" />
+                  Open Scanner
+                  <ChevronRight className="h-4 w-4 ml-1" />
+                </Button>
+              )}
+              <Button
+                variant={selectedEventStatus === 'PAST' ? 'default' : 'outline'}
+                onClick={() => openAttendanceManager(selectedEvent.id)}
+                className="h-11 text-sm font-medium sm:flex-1"
+              >
+                <History className="h-4 w-4 mr-2" />
+                View Attendance
+                <ChevronRight className="h-4 w-4 ml-1" />
+              </Button>
+            </div>
+          </motion.div>
+        )}
+
+        {activeEvents.length > 1 && (
+          <div>
+            <p className="text-xs font-medium text-gray-400 uppercase tracking-wider mb-2">
+              Live & upcoming events
+            </p>
+            <div className="space-y-1">
+              {activeEvents.map((event) => {
+                const status = computeEffectiveStatus(event);
+                return (
+                  <button
+                    key={event.id}
+                    onClick={() => navigate(`/dashboard/events/${event.id}/attendance?tab=scanner`)}
+                    className="w-full flex items-center justify-between rounded-lg px-4 py-3 bg-gray-50 hover:bg-gray-100 transition-colors text-left group"
+                  >
+                    <div className="flex items-center gap-3 min-w-0">
+                      <Badge
+                        variant={status === 'ONGOING' ? 'warning' : 'success'}
+                        className="shrink-0 text-xs whitespace-nowrap"
+                      >
+                        {status}
+                      </Badge>
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium text-gray-900 truncate">{event.title}</p>
+                        <p className="text-xs text-gray-400">{formatDate(event.startDate)}</p>
+                      </div>
+                    </div>
+                    <ChevronRight className="h-4 w-4 text-gray-300 group-hover:text-gray-500 shrink-0 transition-colors" />
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {pastEvents.length > 0 && (
+          <div>
+            <p className="text-xs font-medium text-gray-400 uppercase tracking-wider mb-2">
+              Past events
+            </p>
+            <div className="space-y-1">
+              {pastEvents.map((event) => (
+                <button
+                  key={event.id}
+                  onClick={() => openAttendanceManager(event.id)}
+                  className="w-full flex items-center justify-between rounded-lg px-4 py-3 bg-gray-50 hover:bg-gray-100 transition-colors text-left group"
+                >
+                  <div className="flex items-center gap-3 min-w-0">
+                    <Badge variant="secondary" className="shrink-0 text-xs whitespace-nowrap">
+                      PAST
+                    </Badge>
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium text-gray-900 truncate">{event.title}</p>
+                      <p className="text-xs text-gray-400">{formatDate(event.startDate)}</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 text-xs text-gray-400">
+                    <span className="hidden sm:inline">View attendance</span>
+                    <ChevronRight className="h-4 w-4 text-gray-300 group-hover:text-gray-500 shrink-0 transition-colors" />
+                  </div>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+      </motion.div>
     </div>
   );
 }

@@ -47,11 +47,13 @@ export default function EventAdminHub() {
   const [hasCompetitionRounds, setHasCompetitionRounds] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const isPastEvent = event?.status === 'PAST';
 
   const rawTab = searchParams.get('tab') as TabValue | null;
   const activeTab: TabValue = (() => {
-    if (!rawTab || !VALID_TABS.includes(rawTab)) return 'details';
-    if (rawTab === 'certificates' && !isAdmin) return 'details';
+    if (!rawTab || !VALID_TABS.includes(rawTab)) return isPastEvent ? 'manage' : 'details';
+    if (rawTab === 'certificates' && !isAdmin) return isPastEvent ? 'manage' : 'details';
+    if (rawTab === 'scanner' && isPastEvent) return 'manage';
     return rawTab;
   })();
 
@@ -130,6 +132,10 @@ export default function EventAdminHub() {
     );
   }
 
+  const tabGridClassName = isAdmin
+    ? (isPastEvent ? 'grid-cols-3' : 'grid-cols-4')
+    : (isPastEvent ? 'grid-cols-2' : 'grid-cols-3');
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 12 }}
@@ -175,15 +181,17 @@ export default function EventAdminHub() {
 
       {/* Tabs */}
       <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as TabValue)}>
-        <TabsList className={`grid w-full ${isAdmin ? 'grid-cols-4' : 'grid-cols-3'} h-auto`}>
+        <TabsList className={`grid w-full ${tabGridClassName} h-auto`}>
           <TabsTrigger value="details" className="gap-1.5" aria-label="Open event details tab">
             <Settings className="h-4 w-4" />
             <span className="hidden sm:inline">Details</span>
           </TabsTrigger>
-          <TabsTrigger value="scanner" className="gap-1.5" aria-label="Open scanner tab">
-            <QrCode className="h-4 w-4" />
-            <span className="hidden sm:inline">Scanner</span>
-          </TabsTrigger>
+          {!isPastEvent && (
+            <TabsTrigger value="scanner" className="gap-1.5" aria-label="Open scanner tab">
+              <QrCode className="h-4 w-4" />
+              <span className="hidden sm:inline">Scanner</span>
+            </TabsTrigger>
+          )}
           <TabsTrigger value="manage" className="gap-1.5" aria-label="Open attendee management tab">
             <Users className="h-4 w-4" />
             <span className="hidden sm:inline">Manage</span>
@@ -203,6 +211,12 @@ export default function EventAdminHub() {
               <h2 className="text-lg font-semibold text-gray-800">
                 Event Information
               </h2>
+
+              {isPastEvent && (
+                <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                  This event has ended. Use the <span className="font-semibold">Manage</span> tab to review, export, or correct attendance records.
+                </div>
+              )}
 
               <dl className="grid gap-3 text-sm sm:grid-cols-2">
                 <div>
@@ -258,13 +272,15 @@ export default function EventAdminHub() {
         </TabsContent>
 
         {/* Scanner Tab */}
-        <TabsContent value="scanner">
-          <AdminScanner
-            eventId={eventId}
-            token={token!}
-            onEndSession={handleEndSession}
-          />
-        </TabsContent>
+        {!isPastEvent && (
+          <TabsContent value="scanner">
+            <AdminScanner
+              eventId={eventId}
+              token={token!}
+              onEndSession={handleEndSession}
+            />
+          </TabsContent>
+        )}
 
         {/* Manage Tab */}
         <TabsContent value="manage">
