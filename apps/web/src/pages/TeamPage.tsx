@@ -136,7 +136,7 @@ export default function TeamPage() {
 
       {/* Filter Tabs */}
       {teams.length > 1 && (
-        <section className="py-6 sm:py-8 bg-white/90 backdrop-blur-sm border-b border-amber-200 sticky top-under-header z-40">
+        <section className="sticky top-under-header z-40 border-b border-amber-200 bg-white/90 py-6 backdrop-blur-sm dark:border-zinc-800 dark:bg-[#08090d]/95 sm:py-8">
           <div className="container mx-auto px-4">
             <motion.div 
               className="no-scrollbar flex flex-nowrap items-center justify-start gap-2 overflow-x-auto pb-1 sm:flex-wrap sm:justify-center sm:overflow-visible sm:pb-0 sm:gap-3"
@@ -171,7 +171,7 @@ export default function TeamPage() {
       )}
 
       {/* Team Grid */}
-      <section className="py-16 bg-gradient-to-b from-amber-50 to-orange-50/50 min-h-[60vh]">
+      <section className="min-h-[60vh] bg-gradient-to-b from-amber-50 to-orange-50/50 py-16 dark:from-[#05060a] dark:via-[#090b11] dark:to-[#07080d]">
         <div className="container mx-auto px-4">
           {loading ? (
             <motion.div 
@@ -201,7 +201,7 @@ export default function TeamPage() {
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
             >
-              <p className="text-gray-500 text-lg">No team members yet. Check back soon!</p>
+              <p className="text-lg text-gray-500 dark:text-zinc-400">No team members yet. Check back soon!</p>
             </motion.div>
           ) : activeTeam !== 'All' ? (
             <AnimatePresence mode="wait">
@@ -213,7 +213,7 @@ export default function TeamPage() {
                 transition={{ duration: 0.4 }}
               >
                 <motion.h2 
-                  className="text-3xl font-bold text-amber-900 mb-12 text-center"
+                  className="mb-12 text-center text-3xl font-bold text-amber-900 dark:text-zinc-100"
                   initial={{ opacity: 0, y: 20 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ duration: shouldReduceMotion ? 0.3 : 0.5 }}
@@ -243,7 +243,7 @@ export default function TeamPage() {
                     className="mb-20"
                   >
                     <motion.h2 
-                      className="text-3xl font-bold text-amber-900 mb-12 text-center relative"
+                      className="relative mb-12 text-center text-3xl font-bold text-amber-900 dark:text-zinc-100"
                       initial={{ opacity: 0 }}
                       whileInView={{ opacity: 1 }}
                       viewport={{ once: true }}
@@ -251,7 +251,7 @@ export default function TeamPage() {
                       <span className="relative">
                         {teamName} Team
                         <motion.div 
-                          className="absolute -bottom-2 left-1/2 -translate-x-1/2 h-1 bg-gradient-to-r from-amber-400 to-orange-500 rounded-full"
+                          className="absolute -bottom-2 left-1/2 h-1 -translate-x-1/2 rounded-full bg-gradient-to-r from-amber-400 to-orange-500 dark:from-red-700 dark:to-orange-700"
                           initial={{ width: 0 }}
                           whileInView={{ width: '60%' }}
                           transition={{ duration: shouldReduceMotion ? 0.3 : 0.6, delay: 0.3 }}
@@ -385,26 +385,18 @@ function MemberCard({
         onClick={handleCardClick}
         onKeyDown={hasProfile ? handleKeyDown : undefined}
         aria-label={hasProfile ? `View ${member.name}'s profile` : member.name}
-        className={`relative group h-full min-h-[200px] sm:min-h-[260px] md:min-h-[300px] rounded-2xl border p-3 sm:p-5 flex flex-col transition-all duration-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2 ${
+        className={`relative group flex h-full min-h-[200px] flex-col rounded-2xl border p-3 transition-all duration-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 focus-visible:ring-offset-2 dark:focus-visible:ring-rose-500 dark:focus-visible:ring-offset-[#07080d] sm:min-h-[260px] sm:p-5 md:min-h-[300px] ${
           hasProfile ? 'cursor-pointer' : 'cursor-default'
         } ${
           isMobile
-            ? 'bg-white border-white/90 shadow-md'
-            : 'bg-white/70 backdrop-blur-sm border-white/80 shadow-lg hover:shadow-2xl hover:shadow-amber-500/20'
+            ? 'border-white/90 bg-white shadow-md dark:border-zinc-800 dark:bg-[#0e1016] dark:shadow-black/40'
+            : 'border-white/80 bg-white/70 shadow-lg backdrop-blur-sm hover:shadow-2xl hover:shadow-amber-500/20 dark:border-zinc-800/90 dark:bg-[#0f1117]/95 dark:shadow-black/45 dark:hover:shadow-red-950/35'
         }`}
       >
         {/* Animated gradient border on hover */}
         {!isMobile && (
           <motion.div
-            className="absolute inset-0 rounded-2xl opacity-0 group-hover:opacity-100 transition-opacity duration-500"
-            style={{
-              background: 'linear-gradient(135deg, rgba(251,191,36,0.3), rgba(249,115,22,0.3), rgba(251,191,36,0.3))',
-              backgroundSize: '200% 200%',
-            }}
-            animate={isHovered ? {
-              backgroundPosition: ['0% 50%', '100% 50%', '0% 50%']
-            } : {}}
-            transition={{ duration: 3, repeat: Infinity, ease: "linear" }}
+            className="pointer-events-none absolute inset-0 rounded-2xl bg-gradient-to-br from-amber-300/18 via-orange-400/10 to-amber-300/18 opacity-0 transition-opacity duration-500 group-hover:opacity-100 dark:from-red-700/12 dark:via-orange-700/8 dark:to-red-900/10"
           />
         )}
         
@@ -428,7 +420,7 @@ function MemberCard({
               } : {}}
               transition={{ duration: 2, repeat: Infinity, ease: "linear" }}
             >
-              <div className="w-full h-full rounded-full bg-white p-0.5">
+              <div className="h-full w-full rounded-full bg-white p-0.5 dark:bg-[#171922]">
                 <img
                   src={member.imageUrl || '/fallback-avatar.svg'}
                   alt={member.name}
@@ -444,7 +436,7 @@ function MemberCard({
             {/* Glow effect on hover */}
             {!isMobile && (
               <motion.div
-                className="absolute inset-0 rounded-full bg-amber-400/30 blur-xl -z-10"
+                className="absolute inset-0 -z-10 rounded-full bg-amber-400/30 blur-xl dark:bg-red-700/20"
                 initial={{ opacity: 0, scale: 0.8 }}
                 animate={isHovered ? { opacity: 1, scale: 1.2 } : { opacity: 0, scale: 0.8 }}
                 transition={{ duration: 0.4 }}
@@ -456,14 +448,14 @@ function MemberCard({
         {/* Member info - flex-grow to push icons to bottom */}
         <div className="flex-grow flex flex-col justify-center">
           <motion.h3 
-            className="font-bold text-amber-900 text-sm sm:text-base md:text-lg mb-1 relative z-10 line-clamp-2 min-h-[2rem] sm:min-h-[2.5rem] flex items-center justify-center"
+            className="relative z-10 mb-1 flex min-h-[2rem] items-center justify-center line-clamp-2 text-sm font-bold text-amber-900 dark:text-zinc-100 sm:min-h-[2.5rem] sm:text-base md:text-lg"
             animate={interactiveHover && isHovered ? { scale: 1.02 } : { scale: 1 }}
             transition={{ duration: 0.3 }}
           >
             {member.name}
           </motion.h3>
           <motion.p 
-            className="text-xs md:text-sm text-gray-600 mb-3 relative z-10 line-clamp-1"
+            className="relative z-10 mb-3 line-clamp-1 text-xs text-gray-600 dark:text-zinc-400 md:text-sm"
             initial={{ opacity: isMobile ? 1 : 0.85 }}
             animate={interactiveHover && isHovered ? { opacity: 1 } : { opacity: isMobile ? 1 : 0.85 }}
             transition={{ duration: 0.3 }}
@@ -489,7 +481,7 @@ function MemberCard({
             <SocialLink 
               href={member.github.startsWith('http') ? member.github : `https://github.com/${member.github}`}
               icon={Github}
-              hoverColor="hover:text-gray-800 hover:bg-gray-100"
+              hoverColor="hover:text-gray-800 hover:bg-gray-100 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
               delay={0}
               isMobile={isMobile}
             />
@@ -498,7 +490,7 @@ function MemberCard({
             <SocialLink 
               href={member.linkedin.startsWith('http') ? member.linkedin : `https://linkedin.com/in/${member.linkedin}`}
               icon={Linkedin}
-              hoverColor="hover:text-blue-600 hover:bg-blue-50"
+              hoverColor="hover:bg-blue-50 hover:text-blue-600 dark:hover:bg-sky-950/60 dark:hover:text-sky-300"
               delay={0.05}
               isMobile={isMobile}
             />
@@ -507,7 +499,7 @@ function MemberCard({
             <SocialLink 
               href={member.twitter.startsWith('http') ? member.twitter : `https://twitter.com/${member.twitter}`}
               icon={Twitter}
-              hoverColor="hover:text-sky-500 hover:bg-sky-50"
+              hoverColor="hover:bg-sky-50 hover:text-sky-500 dark:hover:bg-sky-950/60 dark:hover:text-sky-300"
               delay={0.1}
               isMobile={isMobile}
             />
@@ -516,7 +508,7 @@ function MemberCard({
             <SocialLink 
               href={member.instagram.startsWith('http') ? member.instagram : `https://instagram.com/${member.instagram}`}
               icon={Instagram}
-              hoverColor="hover:text-pink-500 hover:bg-pink-50"
+              hoverColor="hover:bg-pink-50 hover:text-pink-500 dark:hover:bg-pink-950/60 dark:hover:text-pink-300"
               delay={0.15}
               isMobile={isMobile}
             />
@@ -537,7 +529,7 @@ function MemberCard({
               transition={{ duration: 0.3 }}
             >
               {hasProfile ? (
-                <span className="inline-flex items-center gap-1 rounded-full bg-gradient-to-r from-amber-500 to-orange-500 px-3 py-1 text-[11px] font-semibold text-white shadow-sm shadow-amber-500/30">
+                <span className="inline-flex items-center gap-1 rounded-full bg-gradient-to-r from-amber-500 to-orange-500 px-3 py-1 text-[11px] font-semibold text-white shadow-sm shadow-amber-500/30 dark:from-red-700 dark:to-orange-700 dark:shadow-red-950/45">
                   Get to know
                   <svg className="h-3 w-3" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2">
                     <path d="M2 6h8M6 2l4 4-4 4" strokeLinecap="round" strokeLinejoin="round"/>
@@ -577,7 +569,7 @@ function SocialLink({
       rel="noopener noreferrer"
       onClick={(e) => e.stopPropagation()}
       onKeyDown={(e) => e.stopPropagation()}
-      className={`inline-flex h-8 w-8 items-center justify-center rounded-full text-gray-400 transition-all duration-300 ${hoverColor}`}
+      className={`inline-flex h-8 w-8 items-center justify-center rounded-full text-gray-400 transition-all duration-300 dark:text-zinc-500 ${hoverColor}`}
       whileHover={isMobile ? undefined : { scale: 1.2, rotate: 5 }}
       whileTap={{ scale: 0.9 }}
       initial={{ opacity: 0, y: 10 }}

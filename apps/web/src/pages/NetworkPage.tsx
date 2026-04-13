@@ -869,10 +869,10 @@ function SectionHeader({
         <span className={`inline-flex rounded-xl bg-gradient-to-br p-2.5 text-white ${iconClassName}`}>
           <Icon className="h-5 w-5" />
         </span>
-        <h3 className="text-2xl font-bold text-gray-900 sm:text-3xl">{title}</h3>
-        <span className="rounded-full bg-gray-100 px-2.5 py-1 text-xs text-gray-500">{count}</span>
+        <h3 className="text-2xl font-bold text-gray-900 dark:text-zinc-100 sm:text-3xl">{title}</h3>
+        <span className="rounded-full bg-gray-100 px-2.5 py-1 text-xs text-gray-500 dark:bg-zinc-900 dark:text-zinc-400">{count}</span>
       </div>
-      <p className="max-w-2xl text-sm text-gray-600 sm:text-base">{description}</p>
+      <p className="max-w-2xl text-sm text-gray-600 dark:text-zinc-400 sm:text-base">{description}</p>
     </motion.div>
   );
 }
@@ -892,17 +892,17 @@ function EmptyState({
     <motion.div
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
-      className="rounded-2xl border border-gray-100 bg-white p-10 text-center shadow-sm"
+      className="rounded-2xl border border-gray-100 bg-white p-10 text-center shadow-sm dark:border-zinc-800 dark:bg-[#0d0f14] dark:shadow-black/30"
     >
       {hasFilters ? (
         <>
-          <p className="text-gray-500">{message}</p>
-          <Button variant="outline" onClick={onClear} className="mt-4 border-gray-200 bg-white text-gray-600 hover:bg-gray-50">
+          <p className="text-gray-500 dark:text-zinc-400">{message}</p>
+          <Button variant="outline" onClick={onClear} className="mt-4 border-gray-200 bg-white text-gray-600 hover:bg-gray-50 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-300 dark:hover:bg-zinc-900">
             Clear Filters
           </Button>
         </>
       ) : (
-        <p className="text-gray-500">{fallback}</p>
+        <p className="text-gray-500 dark:text-zinc-400">{fallback}</p>
       )}
     </motion.div>
   );
@@ -955,23 +955,15 @@ function FeaturedCard({
         onClick={openProfile}
         onKeyDown={onCardKeyDown}
         aria-label={`View ${profile.fullName} profile`}
-        className={`performance-surface relative flex h-full cursor-pointer flex-col overflow-hidden rounded-3xl border p-6 transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 ${
+        className={`performance-surface relative flex h-full cursor-pointer flex-col overflow-hidden rounded-3xl border p-6 transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 dark:focus-visible:ring-rose-500 dark:focus-visible:ring-offset-2 dark:focus-visible:ring-offset-[#05060a] ${
           isMobile
-            ? 'min-h-[280px] sm:min-h-[360px] border-gray-200 bg-white shadow-md'
-            : 'min-h-[320px] sm:min-h-[420px] border-white/80 bg-white/70 shadow-lg backdrop-blur-sm hover:shadow-2xl hover:shadow-amber-500/20'
+            ? 'min-h-[280px] border-gray-200 bg-white shadow-md dark:border-zinc-800 dark:bg-[#0d0f15] dark:shadow-black/40 sm:min-h-[360px]'
+            : 'min-h-[320px] border-white/80 bg-white/70 shadow-lg backdrop-blur-sm hover:shadow-2xl hover:shadow-amber-500/20 dark:border-zinc-800/90 dark:bg-[#0e1016]/95 dark:shadow-black/45 dark:hover:shadow-red-950/35 sm:min-h-[420px]'
         }`}
       >
         {/* Animated gradient border on hover */}
         <motion.div
-          className="absolute inset-0 rounded-3xl opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none"
-          style={{
-            background: 'linear-gradient(135deg, rgba(251,191,36,0.3), rgba(249,115,22,0.3), rgba(251,191,36,0.3))',
-            backgroundSize: '200% 200%',
-          }}
-          animate={!isMobile && isHovered ? {
-            backgroundPosition: ['0% 50%', '100% 50%', '0% 50%']
-          } : {}}
-          transition={{ duration: shouldReduceMotion ? 4.5 : 3, repeat: Infinity, ease: "linear" }}
+          className="pointer-events-none absolute inset-0 rounded-3xl bg-gradient-to-br from-amber-300/18 via-orange-400/10 to-amber-300/18 opacity-0 transition-opacity duration-500 group-hover:opacity-100 dark:from-red-700/12 dark:via-orange-700/8 dark:to-red-900/10"
         />
 
         {/* Featured badge */}
@@ -1007,7 +999,7 @@ function FeaturedCard({
               } : {}}
               transition={{ duration: shouldReduceMotion ? 3.5 : 2, repeat: Infinity, ease: "linear" }}
             >
-              <div className="w-full h-full rounded-full bg-white p-1">
+              <div className="h-full w-full rounded-full bg-white p-1 dark:bg-[#171922]">
                 <img
                   src={profilePhotoFor(profile, '475569')}
                   alt={profile.fullName}
@@ -1021,7 +1013,7 @@ function FeaturedCard({
 
             {/* Glow effect on hover */}
             <motion.div
-              className="absolute inset-0 rounded-full bg-amber-400/40 blur-xl -z-10"
+              className="absolute inset-0 -z-10 rounded-full bg-amber-400/40 blur-xl dark:bg-red-700/20"
               initial={{ opacity: 0, scale: 0.8 }}
               animate={!isMobile && isHovered ? { opacity: 1, scale: 1.3 } : { opacity: 0, scale: 0.8 }}
               transition={{ duration: 0.4 }}
@@ -1032,24 +1024,24 @@ function FeaturedCard({
         {/* Member info */}
         <div className="flex-grow flex flex-col text-center relative z-10">
           <motion.h4
-            className="font-bold text-gray-900 text-xl mb-1 line-clamp-2"
+            className="mb-1 line-clamp-2 text-xl font-bold text-gray-900 dark:text-zinc-100"
             animate={isHovered ? { scale: 1.02 } : { scale: 1 }}
             transition={{ duration: 0.3 }}
           >
             {profile.fullName}
           </motion.h4>
-          <p className="text-sm text-amber-700 font-semibold mb-1">{profile.designation}</p>
+          <p className="mb-1 text-sm font-semibold text-amber-700 dark:text-rose-300">{profile.designation}</p>
           {profile.company && (
-            <p className="text-xs text-gray-600 mb-3">{profile.company}</p>
+            <p className="mb-3 text-xs text-gray-600 dark:text-zinc-400">{profile.company}</p>
           )}
 
           <div className="flex flex-wrap items-center justify-center gap-2 mb-4">
-            <span className="inline-flex items-center gap-1.5 rounded-lg border border-amber-200/50 bg-gradient-to-r from-amber-50 to-orange-50 px-2.5 py-1 text-xs font-semibold text-amber-700">
+            <span className="inline-flex items-center gap-1.5 rounded-lg border border-amber-200/50 bg-gradient-to-r from-amber-50 to-orange-50 px-2.5 py-1 text-xs font-semibold text-amber-700 dark:border-red-950/70 dark:from-red-950/45 dark:to-orange-950/35 dark:text-rose-200">
               <TypeIcon className="h-3 w-3" />
               {connectionTypeLabels[profile.connectionType]}
             </span>
             {profile.industry && (
-              <span className="rounded-lg border border-gray-200 bg-white/80 px-2.5 py-1 text-xs font-medium text-gray-600">
+              <span className="rounded-lg border border-gray-200 bg-white/80 px-2.5 py-1 text-xs font-medium text-gray-600 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300">
                 {profile.industry}
               </span>
             )}
@@ -1057,7 +1049,7 @@ function FeaturedCard({
 
           {profile.bio && (
             <motion.p
-              className="text-sm text-gray-600 leading-relaxed line-clamp-3 mb-4"
+              className="mb-4 line-clamp-3 text-sm leading-relaxed text-gray-600 dark:text-zinc-400"
               initial={{ opacity: 0.8 }}
               animate={isHovered ? { opacity: 1 } : { opacity: 0.8 }}
               transition={{ duration: 0.3 }}
@@ -1069,7 +1061,7 @@ function FeaturedCard({
 
         {/* Social links at bottom */}
         <motion.div
-          className="flex justify-center items-center gap-3 mt-auto pt-4 border-t border-amber-100/50 relative z-10"
+          className="relative z-10 mt-auto flex items-center justify-center gap-3 border-t border-amber-100/50 pt-4 dark:border-zinc-800"
           initial={{ opacity: 0.7 }}
           animate={isHovered ? { opacity: 1 } : { opacity: 0.7 }}
           transition={{ duration: 0.4 }}
@@ -1077,7 +1069,7 @@ function FeaturedCard({
           <SocialRow socials={socials} />
           <motion.div
             whileHover={isMobile ? undefined : { x: 4, scale: 1.05 }}
-            className="ml-auto flex items-center gap-1 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 px-3 py-2 text-white shadow-md"
+            className="ml-auto flex items-center gap-1 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 px-3 py-2 text-white shadow-md dark:from-red-700 dark:to-orange-700 dark:shadow-red-950/45"
           >
             <span className="text-xs font-bold">View</span>
             <ChevronRight className="h-3.5 w-3.5" />
@@ -1147,23 +1139,15 @@ function MemberCard({
         onClick={openProfile}
         onKeyDown={onCardKeyDown}
         aria-label={`View ${profile.fullName} profile`}
-        className={`performance-surface relative flex h-full cursor-pointer flex-col overflow-hidden rounded-2xl border p-5 transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 ${
+        className={`performance-surface relative flex h-full cursor-pointer flex-col overflow-hidden rounded-2xl border p-5 transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400 dark:focus-visible:ring-rose-500 dark:focus-visible:ring-offset-2 dark:focus-visible:ring-offset-[#05060a] ${
           isMobile
-            ? 'min-h-[260px] sm:min-h-[330px] border-gray-200 bg-white shadow-md'
-            : 'min-h-[280px] sm:min-h-[360px] border-white/80 bg-white/70 shadow-lg backdrop-blur-sm hover:shadow-2xl hover:shadow-amber-500/20'
+            ? 'min-h-[260px] border-gray-200 bg-white shadow-md dark:border-zinc-800 dark:bg-[#0d0f14] dark:shadow-black/40 sm:min-h-[330px]'
+            : 'min-h-[280px] border-white/80 bg-white/70 shadow-lg backdrop-blur-sm hover:shadow-2xl hover:shadow-amber-500/20 dark:border-zinc-800/90 dark:bg-[#0e1015]/95 dark:shadow-black/45 dark:hover:shadow-red-950/35 sm:min-h-[360px]'
         }`}
       >
         {/* Animated gradient border on hover */}
         <motion.div
-          className="absolute inset-0 rounded-2xl opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none"
-          style={{
-            background: 'linear-gradient(135deg, rgba(251,191,36,0.3), rgba(249,115,22,0.3), rgba(251,191,36,0.3))',
-            backgroundSize: '200% 200%',
-          }}
-          animate={!isMobile && isHovered ? {
-            backgroundPosition: ['0% 50%', '100% 50%', '0% 50%']
-          } : {}}
-          transition={{ duration: shouldReduceMotion ? 4.5 : 3, repeat: Infinity, ease: "linear" }}
+          className="pointer-events-none absolute inset-0 rounded-2xl bg-gradient-to-br from-amber-300/18 via-orange-400/10 to-amber-300/18 opacity-0 transition-opacity duration-500 group-hover:opacity-100 dark:from-red-700/12 dark:via-orange-700/8 dark:to-red-900/10"
         />
 
         {/* Avatar container with animated ring */}
@@ -1186,7 +1170,7 @@ function MemberCard({
               } : {}}
               transition={{ duration: shouldReduceMotion ? 3.5 : 2, repeat: Infinity, ease: "linear" }}
             >
-              <div className="w-full h-full rounded-full bg-white p-0.5">
+              <div className="h-full w-full rounded-full bg-white p-0.5 dark:bg-[#171922]">
                 <img
                   src={profilePhotoFor(profile, '475569')}
                   alt={profile.fullName}
@@ -1200,7 +1184,7 @@ function MemberCard({
 
             {/* Glow effect on hover */}
             <motion.div
-              className="absolute inset-0 rounded-full bg-amber-400/40 blur-xl -z-10"
+              className="absolute inset-0 -z-10 rounded-full bg-amber-400/40 blur-xl dark:bg-red-700/20"
               initial={{ opacity: 0, scale: 0.8 }}
               animate={!isMobile && isHovered ? { opacity: 1, scale: 1.3 } : { opacity: 0, scale: 0.8 }}
               transition={{ duration: 0.4 }}
@@ -1211,30 +1195,30 @@ function MemberCard({
         {/* Member info */}
         <div className="flex-grow flex flex-col text-center relative z-10">
           <motion.h4
-            className="font-bold text-gray-900 text-base mb-1 line-clamp-2"
+            className="mb-1 line-clamp-2 text-base font-bold text-gray-900 dark:text-zinc-100"
             animate={isHovered ? { scale: 1.02 } : { scale: 1 }}
             transition={{ duration: 0.3 }}
           >
             {profile.fullName}
           </motion.h4>
-          <p className="text-sm text-amber-700 font-semibold">{profile.designation}</p>
+          <p className="text-sm font-semibold text-amber-700 dark:text-rose-300">{profile.designation}</p>
           {profile.company && (
-            <p className="text-xs text-gray-600 mt-0.5">{profile.company}</p>
+            <p className="mt-0.5 text-xs text-gray-600 dark:text-zinc-400">{profile.company}</p>
           )}
           {subline && (
-            <p className="mt-1 flex items-center justify-center gap-1 text-xs text-gray-500">
+            <p className="mt-1 flex items-center justify-center gap-1 text-xs text-gray-500 dark:text-zinc-500">
               {profile.currentLocation && <MapPin className="h-3 w-3 shrink-0" />}
               <span className="line-clamp-1">{subline}</span>
             </p>
           )}
 
           <div className="mt-3 flex flex-wrap items-center justify-center gap-2">
-            <span className="inline-flex items-center gap-1 rounded-lg border border-amber-200/50 bg-gradient-to-r from-amber-50 to-orange-50 px-2 py-0.5 text-xs font-semibold text-amber-700">
+            <span className="inline-flex items-center gap-1 rounded-lg border border-amber-200/50 bg-gradient-to-r from-amber-50 to-orange-50 px-2 py-0.5 text-xs font-semibold text-amber-700 dark:border-red-950/70 dark:from-red-950/45 dark:to-orange-950/35 dark:text-rose-200">
               <TypeIcon className="h-3 w-3" />
               {connectionTypeLabels[profile.connectionType]}
             </span>
             {profile.industry && (
-              <span className="rounded-lg border border-gray-200 bg-white/80 px-2 py-0.5 text-xs font-medium text-gray-600">
+              <span className="rounded-lg border border-gray-200 bg-white/80 px-2 py-0.5 text-xs font-medium text-gray-600 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300">
                 {profile.industry}
               </span>
             )}
@@ -1242,7 +1226,7 @@ function MemberCard({
 
           {profile.bio && (
             <motion.p
-              className="mt-3 text-sm text-gray-600 leading-relaxed line-clamp-2"
+              className="mt-3 line-clamp-2 text-sm leading-relaxed text-gray-600 dark:text-zinc-400"
               initial={{ opacity: 0.8 }}
               animate={isHovered ? { opacity: 1 } : { opacity: 0.8 }}
               transition={{ duration: 0.3 }}
@@ -1254,7 +1238,7 @@ function MemberCard({
 
         {/* Social links at bottom */}
         <motion.div
-          className="flex justify-center items-center gap-3 mt-auto pt-3 border-t border-amber-100/50 relative z-10"
+          className="relative z-10 mt-auto flex items-center justify-center gap-3 border-t border-amber-100/50 pt-3 dark:border-zinc-800"
           initial={{ opacity: 0.7 }}
           animate={isHovered ? { opacity: 1 } : { opacity: 0.7 }}
           transition={{ duration: 0.4 }}
@@ -1262,7 +1246,7 @@ function MemberCard({
           <SocialRow socials={socials} />
           <motion.div
             whileHover={isMobile ? undefined : { x: 3, scale: 1.05 }}
-            className="ml-auto flex items-center gap-0.5 rounded-lg bg-gradient-to-r from-amber-500 to-orange-500 px-2.5 py-1.5 text-white shadow-md"
+            className="ml-auto flex items-center gap-0.5 rounded-lg bg-gradient-to-r from-amber-500 to-orange-500 px-2.5 py-1.5 text-white shadow-md dark:from-red-700 dark:to-orange-700 dark:shadow-red-950/45"
           >
             <span className="text-xs font-bold">View</span>
             <ChevronRight className="h-3 w-3" />
@@ -1275,7 +1259,7 @@ function MemberCard({
 
 function SocialRow({ socials }: { socials: SocialLink[] }) {
   if (socials.length === 0) {
-    return <span className="text-[11px] italic text-gray-300">No links</span>;
+    return <span className="text-[11px] italic text-gray-300 dark:text-zinc-600">No links</span>;
   }
 
   return (
@@ -1287,7 +1271,7 @@ function SocialRow({ socials }: { socials: SocialLink[] }) {
           target="_blank"
           rel="noopener noreferrer"
           onClick={(event) => event.stopPropagation()}
-          className={`rounded-xl border border-gray-100 bg-gray-50/80 p-1.5 text-gray-400 shadow-sm transition-all hover:border-amber-200 hover:bg-amber-50 hover:text-amber-600 hover:shadow ${social.hoverClass}`}
+          className={`rounded-xl border border-gray-100 bg-gray-50/80 p-1.5 text-gray-400 shadow-sm transition-all hover:border-amber-200 hover:bg-amber-50 hover:text-amber-600 hover:shadow dark:border-zinc-800 dark:bg-zinc-900/80 dark:text-zinc-500 dark:hover:border-red-950/80 dark:hover:bg-zinc-800 ${social.hoverClass}`}
           aria-label={social.label}
         >
           <social.icon className="h-3.5 w-3.5" />
