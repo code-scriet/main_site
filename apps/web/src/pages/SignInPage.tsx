@@ -10,6 +10,7 @@ import { Chrome, Github, Mail, AlertCircle, Loader2, Eye, EyeOff, Lock, User, Ar
 import { api } from '@/lib/api';
 import type { AuthProviders } from '@/lib/api';
 import { addPlaygroundAuthHandoff, isPlaygroundOrigin } from '@/lib/playgroundUrl';
+import { getStoredAuthToken } from '@/lib/authToken';
 import { useAuth } from '@/context/AuthContext';
 import { useSettings } from '@/context/SettingsContext';
 
@@ -178,7 +179,7 @@ export default function SignInPage() {
       const pendingEventId = localStorage.getItem('pendingEventRegistration');
       const pendingEventType = localStorage.getItem('pendingEventRegistrationType');
       const normalizedPendingType: 'solo' | 'team' = pendingEventType === 'team' ? 'team' : 'solo';
-      const token = localStorage.getItem('token');
+      const token = getStoredAuthToken();
       
       if (token) {
         try {

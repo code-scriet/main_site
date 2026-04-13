@@ -48,6 +48,7 @@ import {
 import { cn } from '@/lib/utils';
 import { copyTextToClipboard } from '@/lib/clipboard';
 import { formatDate } from '@/lib/dateUtils';
+import { getStoredAuthToken } from '@/lib/authToken';
 import { persistQuizAccessToken, storePendingQuizJoin } from '@/lib/quizAccess';
 import { toast } from 'sonner';
 
@@ -105,7 +106,7 @@ export default function ActiveQuizList() {
 
   const fetchDashboardData = useCallback(async () => {
     if (!user) return;
-    const token = localStorage.getItem('token');
+    const token = getStoredAuthToken();
     if (!token) return;
 
     setHistoryLoading(true);
@@ -121,7 +122,7 @@ export default function ActiveQuizList() {
   }, [user]);
 
   const fetchAdminQuizzes = useCallback(async () => {
-    const token = localStorage.getItem('token');
+    const token = getStoredAuthToken();
     if (!token) return;
 
     try {
@@ -196,7 +197,7 @@ export default function ActiveQuizList() {
     setJoinLoading(true);
 
     try {
-      const token = localStorage.getItem('token');
+      const token = getStoredAuthToken();
       const data = await api.joinQuizByPin(pinStr, token ?? undefined);
 
       if (!data.quizAccessToken) {
@@ -225,7 +226,7 @@ export default function ActiveQuizList() {
   };
 
   const handleDelete = async (quizId: string) => {
-    const token = localStorage.getItem('token');
+    const token = getStoredAuthToken();
     if (!token) {
       toast.error('You need to sign in again to delete quizzes');
       return;
@@ -242,7 +243,7 @@ export default function ActiveQuizList() {
   };
 
   const handleOpenQuiz = async (quizId: string) => {
-    const token = localStorage.getItem('token');
+    const token = getStoredAuthToken();
     if (!token) {
       toast.error('You need to sign in again to open quizzes');
       return;

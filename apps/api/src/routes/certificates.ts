@@ -593,6 +593,26 @@ async function resolveSignatory(
   };
 }
 
+function getUniqueConstraintTargets(error: unknown): string[] {
+  if (!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== 'P2002') {
+    return [];
+  }
+
+  const rawTarget = (error.meta as { target?: unknown } | undefined)?.target;
+  if (Array.isArray(rawTarget)) {
+    return rawTarget.map((value) => String(value).toLowerCase());
+  }
+  if (typeof rawTarget === 'string') {
+    return [rawTarget.toLowerCase()];
+  }
+  return [];
+}
+
+function isCertificateIdCollisionError(error: unknown): boolean {
+  const targets = getUniqueConstraintTargets(error);
+  return targets.some((target) => target.includes('cert_id') || target.includes('certid'));
+}
+
 async function createCertificateWithSchemaFallback(
   certId: string,
   fullData: Prisma.CertificateUncheckedCreateInput,
@@ -847,17 +867,6 @@ certificatesRouter.post('/generate', authMiddleware, requireRole('ADMIN'), async
         )
       : null;
 
-    // Generate unique cert ID, retry on collision (extremely rare)
-    let certId = generateCertId();
-    for (let attempt = 1; attempt <= 5; attempt++) {
-      const exists = await prisma.certificate.findUnique({ where: { certId }, select: { certId: true } });
-      if (!exists) break;
-      if (attempt === 5) {
-        return ApiResponse.error(res, { code: ErrorCodes.INTERNAL_ERROR, message: 'Failed to generate unique certificate ID. Please try again.', status: 500 });
-      }
-      certId = generateCertId();
-    }
-
     // Sanitize text fields before PDF rendering
     const safeRecipientName = sanitizeText(recipientName);
     const safeEventName = sanitizeText(eventName);
@@ -885,62 +894,91 @@ certificatesRouter.post('/generate', authMiddleware, requireRole('ADMIN'), async
       );
     }
 
-    // Generate PDF — signature images are passed when available, PDF renderer
-    // automatically falls back to GreatVibes cursive text when images are absent
-    const pdfBuffer = await generateCertificatePDF({
-      recipientName: safeRecipientName,
-      eventName: safeEventName,
-      type,
-      position: safePosition,
-      domain: safeDomain,
-      description: safeDescription,
-      certId,
-      issuedAt: new Date(),
-      signatoryName: primarySig.name,
-      signatoryTitle: primarySig.title,
-      signatoryImageUrl: primarySig.processedImageUrl,
-      facultyName: facultySig?.name || undefined,
-      facultyTitle: facultySig?.title || undefined,
-      facultySignatoryImageUrl: facultySig?.processedImageUrl,
-      codescrietLogoUrl: CODESCRIET_LOGO,
-      ccsuLogoUrl: CCSU_LOGO,
-    });
+    const MAX_CERT_ID_CREATE_RETRIES = 3;
+    let certId = '';
+    let pdfUrl = '';
+    let certificateCreated = false;
 
-    // Upload to storage
-    const pdfUrl = await uploadCertificate(certId, pdfBuffer);
-    const downloadUrl = buildPublicCertificateDownloadUrl(certId);
+    for (let attempt = 1; attempt <= MAX_CERT_ID_CREATE_RETRIES; attempt++) {
+      certId = generateCertId();
 
-    // Persist to database with signatory snapshot
-    const legacyCertificateData: Prisma.CertificateUncheckedCreateInput = {
-      certId,
-      recipientName: safeRecipientName,
-      recipientEmail,
-      recipientId: resolvedRecipientId,
-      eventId: eventId || null,
-      eventName: safeEventName,
-      type: normalizedCertType,
-      position: safePosition || null,
-      domain: safeDomain || null,
-      template,
-      pdfUrl,
-      issuedBy: authUser.id,
-    };
-    const certificate = await createCertificateWithSchemaFallback(
-      certId,
-      {
-        ...legacyCertificateData,
-        description: safeDescription || null,
-        signatoryId: primarySig.id,
+      // Generate PDF — signature images are passed when available, PDF renderer
+      // automatically falls back to GreatVibes cursive text when images are absent
+      const pdfBuffer = await generateCertificatePDF({
+        recipientName: safeRecipientName,
+        eventName: safeEventName,
+        type,
+        position: safePosition,
+        domain: safeDomain,
+        description: safeDescription,
+        certId,
+        issuedAt: new Date(),
         signatoryName: primarySig.name,
         signatoryTitle: primarySig.title,
-        signatoryImageUrl: primarySig.rawImageUrl,
-        facultySignatoryId: facultySig?.id || null,
-        facultyName: facultySig?.name || null,
-        facultyTitle: facultySig?.title || null,
-        facultySignatoryImageUrl: facultySig?.rawImageUrl || null,
-      },
-      legacyCertificateData,
-    );
+        signatoryImageUrl: primarySig.processedImageUrl,
+        facultyName: facultySig?.name || undefined,
+        facultyTitle: facultySig?.title || undefined,
+        facultySignatoryImageUrl: facultySig?.processedImageUrl,
+        codescrietLogoUrl: CODESCRIET_LOGO,
+        ccsuLogoUrl: CCSU_LOGO,
+      });
+
+      // Upload to storage
+      pdfUrl = await uploadCertificate(certId, pdfBuffer);
+
+      // Persist to database with signatory snapshot
+      const legacyCertificateData: Prisma.CertificateUncheckedCreateInput = {
+        certId,
+        recipientName: safeRecipientName,
+        recipientEmail,
+        recipientId: resolvedRecipientId,
+        eventId: eventId || null,
+        eventName: safeEventName,
+        type: normalizedCertType,
+        position: safePosition || null,
+        domain: safeDomain || null,
+        template,
+        pdfUrl,
+        issuedBy: authUser.id,
+      };
+
+      try {
+        await createCertificateWithSchemaFallback(
+          certId,
+          {
+            ...legacyCertificateData,
+            description: safeDescription || null,
+            signatoryId: primarySig.id,
+            signatoryName: primarySig.name,
+            signatoryTitle: primarySig.title,
+            signatoryImageUrl: primarySig.rawImageUrl,
+            facultySignatoryId: facultySig?.id || null,
+            facultyName: facultySig?.name || null,
+            facultyTitle: facultySig?.title || null,
+            facultySignatoryImageUrl: facultySig?.rawImageUrl || null,
+          },
+          legacyCertificateData,
+        );
+        certificateCreated = true;
+        break;
+      } catch (createError) {
+        if (isCertificateIdCollisionError(createError) && attempt < MAX_CERT_ID_CREATE_RETRIES) {
+          logger.warn('Certificate ID collision detected during create; retrying', { certId, attempt });
+          continue;
+        }
+        throw createError;
+      }
+    }
+
+    if (!certificateCreated) {
+      return ApiResponse.error(res, {
+        code: ErrorCodes.INTERNAL_ERROR,
+        message: 'Failed to generate unique certificate ID. Please try again.',
+        status: 500,
+      });
+    }
+
+    const downloadUrl = buildPublicCertificateDownloadUrl(certId);
 
     // Optionally send email
     if (sendEmail) {
@@ -964,13 +1002,20 @@ certificatesRouter.post('/generate', authMiddleware, requireRole('ADMIN'), async
     await auditLog(authUser.id, 'CERTIFICATE_GENERATE', 'certificate', certId, { recipientEmail, eventName, type });
 
     return ApiResponse.success(res, {
-      certId: certificate.certId,
+      certId,
       pdfUrl,
       downloadUrl,
       verifyUrl: buildCertificateVerifyUrl(certId),
     }, 'Certificate generated successfully');
   } catch (error: unknown) {
     if ((error as any)?.code === 'P2002') {
+      if (isCertificateIdCollisionError(error)) {
+        return ApiResponse.error(res, {
+          code: ErrorCodes.INTERNAL_ERROR,
+          message: 'Failed to generate unique certificate ID. Please try again.',
+          status: 500,
+        });
+      }
       return ApiResponse.badRequest(res, 'A certificate for this recipient/event/type combination already exists');
     }
     const err = error as Error;
@@ -1146,72 +1191,91 @@ certificatesRouter.post('/bulk', authMiddleware, requireRole('ADMIN'), async (re
     await Promise.allSettled(
       batch.map(async (r) => {
         try {
-          // Generate unique cert ID with collision retry
-          let certId = generateCertId();
-          for (let attempt = 1; attempt <= 5; attempt++) {
-            const exists = await prisma.certificate.findUnique({ where: { certId }, select: { certId: true } });
-            if (!exists) break;
-            if (attempt === 5) {
-              failures.push({ name: r.name, email: r.email, reason: 'Could not generate unique certificate ID' });
-              return;
-            }
-            certId = generateCertId();
-          }
-
-          const pdfBuffer = await generateCertificatePDF({
-            recipientName: r.name,
-            eventName: safeEventName,
-            type: r.type,
-            position: r.position || undefined,
-            domain: r.domain || undefined,
-            description: r.description || undefined,
-            teamName: r.teamName || undefined,
-            certId,
-            issuedAt: new Date(),
-            signatoryName: primarySig.name,
-            signatoryTitle: primarySig.title,
-            signatoryImageUrl: primarySig.processedImageUrl,
-            facultyName: facultySig?.name || undefined,
-            facultyTitle: facultySig?.title || undefined,
-            facultySignatoryImageUrl: facultySig?.processedImageUrl,
-            codescrietLogoUrl: CODESCRIET_LOGO,
-            ccsuLogoUrl: CCSU_LOGO,
-          });
-
-          const pdfUrl = await uploadCertificate(certId, pdfBuffer);
-          const downloadUrl = buildPublicCertificateDownloadUrl(certId);
           const resolvedRecipientId = r.userId || recipientIdByEmail.get(r.normalizedEmail) || null;
+          const MAX_CERT_ID_CREATE_RETRIES = 3;
+          let certId = '';
+          let pdfUrl = '';
+          let certificateCreated = false;
 
-          const legacyCertificateData: Prisma.CertificateUncheckedCreateInput = {
-            certId,
-            recipientName: r.name,
-            recipientEmail: r.email,
-            recipientId: resolvedRecipientId,
-            eventId: eventId || null,
-            eventName: safeEventName,
-            type: r.type,
-            position: r.position,
-            domain: r.domain,
-            template: r.template,
-            pdfUrl,
-            issuedBy: authUser.id,
-          };
-          await createCertificateWithSchemaFallback(
-            certId,
-            {
-              ...legacyCertificateData,
-              description: r.description,
-              signatoryId: primarySig.id,
+          for (let attempt = 1; attempt <= MAX_CERT_ID_CREATE_RETRIES; attempt++) {
+            certId = generateCertId();
+
+            const pdfBuffer = await generateCertificatePDF({
+              recipientName: r.name,
+              eventName: safeEventName,
+              type: r.type,
+              position: r.position || undefined,
+              domain: r.domain || undefined,
+              description: r.description || undefined,
+              teamName: r.teamName || undefined,
+              certId,
+              issuedAt: new Date(),
               signatoryName: primarySig.name,
               signatoryTitle: primarySig.title,
-              signatoryImageUrl: primarySig.rawImageUrl,
-              facultySignatoryId: facultySig?.id || null,
-              facultyName: facultySig?.name || null,
-              facultyTitle: facultySig?.title || null,
-              facultySignatoryImageUrl: facultySig?.rawImageUrl || null,
-            },
-            legacyCertificateData,
-          );
+              signatoryImageUrl: primarySig.processedImageUrl,
+              facultyName: facultySig?.name || undefined,
+              facultyTitle: facultySig?.title || undefined,
+              facultySignatoryImageUrl: facultySig?.processedImageUrl,
+              codescrietLogoUrl: CODESCRIET_LOGO,
+              ccsuLogoUrl: CCSU_LOGO,
+            });
+
+            const uploadedPdfUrl = await uploadCertificate(certId, pdfBuffer);
+
+            const legacyCertificateData: Prisma.CertificateUncheckedCreateInput = {
+              certId,
+              recipientName: r.name,
+              recipientEmail: r.email,
+              recipientId: resolvedRecipientId,
+              eventId: eventId || null,
+              eventName: safeEventName,
+              type: r.type,
+              position: r.position,
+              domain: r.domain,
+              template: r.template,
+              pdfUrl: uploadedPdfUrl,
+              issuedBy: authUser.id,
+            };
+
+            try {
+              await createCertificateWithSchemaFallback(
+                certId,
+                {
+                  ...legacyCertificateData,
+                  description: r.description,
+                  signatoryId: primarySig.id,
+                  signatoryName: primarySig.name,
+                  signatoryTitle: primarySig.title,
+                  signatoryImageUrl: primarySig.rawImageUrl,
+                  facultySignatoryId: facultySig?.id || null,
+                  facultyName: facultySig?.name || null,
+                  facultyTitle: facultySig?.title || null,
+                  facultySignatoryImageUrl: facultySig?.rawImageUrl || null,
+                },
+                legacyCertificateData,
+              );
+              pdfUrl = uploadedPdfUrl;
+              certificateCreated = true;
+              break;
+            } catch (createError) {
+              if (isCertificateIdCollisionError(createError) && attempt < MAX_CERT_ID_CREATE_RETRIES) {
+                logger.warn('Certificate ID collision detected during bulk create; retrying', {
+                  certId,
+                  attempt,
+                  recipientEmail: r.email,
+                });
+                continue;
+              }
+              throw createError;
+            }
+          }
+
+          if (!certificateCreated) {
+            failures.push({ name: r.name, email: r.email, reason: 'Could not generate unique certificate ID' });
+            return;
+          }
+
+          const downloadUrl = buildPublicCertificateDownloadUrl(certId);
 
           if (sendEmail) {
             try {
@@ -1236,6 +1300,14 @@ certificatesRouter.post('/bulk', authMiddleware, requireRole('ADMIN'), async (re
         } catch (err) {
           const code = (err as { code?: string } | null)?.code;
           if (code === 'P2002') {
+            if (isCertificateIdCollisionError(err)) {
+              failures.push({
+                name: r.name,
+                email: r.email,
+                reason: 'Could not generate unique certificate ID',
+              });
+              return;
+            }
             failures.push({
               name: r.name,
               email: r.email,

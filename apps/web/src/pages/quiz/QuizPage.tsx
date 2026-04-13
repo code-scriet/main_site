@@ -17,6 +17,7 @@ import { useAuth } from '@/context/AuthContext';
 import { Layout } from '@/components/layout/Layout';
 import { clearQuizAccessToken, readQuizAccessToken, restorePendingQuizJoin } from '@/lib/quizAccess';
 import { api } from '@/lib/api';
+import { getStoredAuthToken } from '@/lib/authToken';
 
 import { QuizLobby } from './QuizLobby';
 import { QuizQuestion } from './QuizQuestion';
@@ -90,7 +91,7 @@ export default function QuizPage() {
       // Privileged users can request host token (server-verified).
       if (user && ['ADMIN', 'PRESIDENT', 'CORE_MEMBER'].includes(user.role || '')) {
         try {
-          const token = localStorage.getItem('token');
+          const token = getStoredAuthToken();
           if (token) {
             const data = await api.checkQuizHost(quizId, token);
             if (data.isHost && data.quizAccessToken) {
@@ -137,7 +138,7 @@ export default function QuizPage() {
       if (cancelled) return;
       setFinalRedirectState('navigating');
       try {
-        const token = localStorage.getItem('token');
+        const token = getStoredAuthToken();
         await api.getQuizResults(quizId, token || undefined);
         if (!cancelled) {
           navigate(`/quiz/${quizId}/results`, { replace: true });

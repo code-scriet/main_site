@@ -1,6 +1,7 @@
 import { createContext, useContext, useState, useEffect, useCallback, useMemo, type ReactNode } from 'react';
 import { endExecutionSession } from '@/utils/snippetsApi';
 import { getMainApiCandidates, getMainSiteOrigin, rememberMainApiOrigin } from '@/lib/utils';
+import { clearPlaygroundToken, getPlaygroundStoredToken, storePlaygroundToken } from '@/lib/authToken';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -252,24 +253,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
-  // On mount, look for token in URL hash → sessionStorage → cookie → localStorage
+  // On mount, look for token in URL hash → sessionStorage (with legacy migration) → cookie
   useEffect(() => {
     const init = async () => {
       // 1. Hash token passed from main-site dashboard (highest priority, cleared after read)
       const hashToken = consumeHashToken();
-      // 2. Session-scoped token (survives refresh within same browser tab session)
-      const sessionToken = sessionStorage.getItem('pg_token');
+        // 2. Session-scoped token (survives refresh within same browser tab session)
+        const sessionToken = getPlaygroundStoredToken();
       // 3. scriet_session cookie (readable when httpOnly:false, domain=localhost)
       const cookieToken = getCookie('scriet_session');
-      // 4. localStorage token (dev fallback — same origin only)
-      const storageToken = localStorage.getItem('token');
 
-      const jwt = hashToken || sessionToken || cookieToken || storageToken;
+        const jwt = hashToken || sessionToken || cookieToken;
       const optimisticUser = hashToken ? buildOptimisticUser(hashToken) : null;
       if (optimisticUser && hashToken) {
         setUser(optimisticUser);
         setToken(hashToken);
-        sessionStorage.setItem('pg_token', hashToken);
+          storePlaygroundToken(hashToken);
         markAuthRecovered();
         setIsLoading(false);
       }
@@ -281,13 +280,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const resolvedToken = result.token || jwt || null;
         setToken(resolvedToken);
         // Ensure session token is always kept for refresh
-        if (resolvedToken) sessionStorage.setItem('pg_token', resolvedToken);
+        if (resolvedToken) storePlaygroundToken(resolvedToken);
         markAuthRecovered();
       } else if (jwt && result.authFailed) {
         // Invalid token — clean up
         clearCookie('scriet_session');
-        localStorage.removeItem('token');
-        sessionStorage.removeItem('pg_token');
+        clearPlaygroundToken();
         setUser(null);
         setToken(null);
       } else if (!optimisticUser) {
@@ -300,18 +298,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [fetchUser]);
 
   const refreshUser = useCallback(async () => {
-    const jwt = sessionStorage.getItem('pg_token') || getCookie('scriet_session') || localStorage.getItem('token');
+    const jwt = getPlaygroundStoredToken() || getCookie('scriet_session');
     const result = await fetchUser(jwt);
     if (result.user) {
       setUser(result.user);
       const resolvedToken = result.token || jwt || null;
       setToken(resolvedToken);
-      if (resolvedToken) sessionStorage.setItem('pg_token', resolvedToken);
+      if (resolvedToken) storePlaygroundToken(resolvedToken);
       markAuthRecovered();
     } else if (jwt && result.authFailed) {
       clearCookie('scriet_session');
-      localStorage.removeItem('token');
-      sessionStorage.removeItem('pg_token');
+      clearPlaygroundToken();
       setUser(null);
       setToken(null);
     }
@@ -321,8 +318,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // Flush buffered execution history/usage before removing auth token
     endExecutionSession();
     clearCookie('scriet_session');
-    localStorage.removeItem('token');
-    sessionStorage.removeItem('pg_token');
+    clearPlaygroundToken();
     setUser(null);
     setToken(null);
   }, []);

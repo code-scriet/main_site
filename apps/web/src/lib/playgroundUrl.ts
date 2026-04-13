@@ -1,3 +1,5 @@
+import { getStoredAuthToken } from './authToken';
+
 const BASE_PLAYGROUND_URL =
   import.meta.env.VITE_PLAYGROUND_URL ||
   (import.meta.env.DEV ? 'http://localhost:5174' : 'https://code.codescriet.dev');
@@ -36,7 +38,7 @@ export function addPlaygroundAuthHandoff(url: URL): void {
   if (!isPlaygroundOrigin(url.origin) || typeof window === 'undefined') return;
 
   const hashParams = new URLSearchParams(url.hash.replace(/^#/, ''));
-  const token = localStorage.getItem('token');
+  const token = getStoredAuthToken();
   if (token) {
     hashParams.set('token', token);
   }

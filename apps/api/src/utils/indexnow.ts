@@ -1,14 +1,20 @@
 import { logger } from './logger.js';
 import { prisma } from '../lib/prisma.js';
 
-const INDEXNOW_KEY = process.env.INDEXNOW_KEY?.trim() || '';
 const INDEXNOW_ENDPOINT = 'https://api.indexnow.org/indexnow';
 const HOST = 'codescriet.dev';
-const KEY_LOCATION = INDEXNOW_KEY ? `https://${HOST}/${INDEXNOW_KEY}.txt` : '';
 const BASE_URL = `https://${HOST}`;
 
+function getIndexNowKey(): string {
+  return process.env.INDEXNOW_KEY?.trim() || '';
+}
+
+function getIndexNowKeyLocation(key: string): string {
+  return `https://${HOST}/${key}.txt`;
+}
+
 function isIndexNowConfigured(): boolean {
-  return INDEXNOW_KEY.length > 0;
+  return getIndexNowKey().length > 0;
 }
 
 /**
@@ -21,9 +27,11 @@ export function submitUrl(path: string): void {
     return;
   }
 
+  const indexNowKey = getIndexNowKey();
+
   const url = path.startsWith('http') ? path : `${BASE_URL}${path}`;
 
-  fetch(`${INDEXNOW_ENDPOINT}?url=${encodeURIComponent(url)}&key=${INDEXNOW_KEY}`, {
+  fetch(`${INDEXNOW_ENDPOINT}?url=${encodeURIComponent(url)}&key=${indexNowKey}`, {
     method: 'GET',
   })
     .then((res) => {
@@ -52,12 +60,14 @@ export async function submitUrls(paths: string[]): Promise<{ submitted: number; 
     return { submitted: 0, status: 503 };
   }
 
+  const indexNowKey = getIndexNowKey();
+
   const urlList = paths.map((p) => (p.startsWith('http') ? p : `${BASE_URL}${p}`));
 
   const body = {
     host: HOST,
-    key: INDEXNOW_KEY,
-    keyLocation: KEY_LOCATION,
+    key: indexNowKey,
+    keyLocation: getIndexNowKeyLocation(indexNowKey),
     urlList,
   };
 

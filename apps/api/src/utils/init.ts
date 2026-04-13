@@ -75,6 +75,7 @@ export async function initializeDatabase() {
     // Create default settings if they don't exist
     const existingSettings = await prisma.settings.findUnique({
       where: { id: 'default' },
+      select: { id: true },
     });
 
     if (!existingSettings) {

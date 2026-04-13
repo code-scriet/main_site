@@ -6,6 +6,7 @@ import rateLimit from 'express-rate-limit';
 import dotenv from 'dotenv';
 import passport from 'passport';
 import { createServer } from 'http';
+import { Prisma } from '@prisma/client';
 
 import { authRouter } from './routes/auth.js';
 import { eventsRouter } from './routes/events.js';
@@ -46,7 +47,7 @@ import { emailService } from './utils/email.js';
 import { prisma } from './lib/prisma.js';
 import { startReminderScheduler, stopReminderScheduler } from './utils/scheduler.js';
 import { getJwtSecret } from './utils/jwt.js';
-import { getAttendanceJwtSecret } from './utils/attendanceToken.js';
+import { setRuntimeAttendanceJwtSecret } from './utils/attendanceToken.js';
 import { updateEventStatuses } from './utils/eventStatus.js';
 
 // Load monorepo root .env first, then local .env (local overrides root).
@@ -58,10 +59,50 @@ const app = express();
 const httpServer = createServer(app);
 const PORT = process.env.PORT || 5001;
 const NODE_ENV = process.env.NODE_ENV === 'development' ? 'development' : 'production';
+const ALLOWED_CODESCRIET_ORIGINS = [
+  'https://codescriet.dev',
+  'https://www.codescriet.dev',
+  'https://api.codescriet.dev',
+  'https://code.codescriet.dev',
+  'https://app.codescriet.dev',
+];
+const SAFE_HTTP_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
 
-// Fail fast if auth secret is insecure/missing
+const isAllowedBrowserOrigin = (origin: string): boolean => {
+  if (
+    NODE_ENV === 'development' &&
+    (
+      origin.startsWith('http://localhost:') ||
+      origin.startsWith('http://127.0.0.1:') ||
+      /^http:\/\/(192\.168\.|10\.|172\.(1[6-9]|2\d|3[0-1])\.)/.test(origin)
+    )
+  ) {
+    return true;
+  }
+
+  if (process.env.FRONTEND_URL && origin === process.env.FRONTEND_URL) {
+    return true;
+  }
+
+  return ALLOWED_CODESCRIET_ORIGINS.includes(origin);
+};
+
+const hasSessionCookie = (cookieHeader?: string): boolean => {
+  if (!cookieHeader) return false;
+  return cookieHeader.split(';').some((cookie) => cookie.trim().startsWith('scriet_session='));
+};
+
+const parseRefererOrigin = (referer?: string): string | null => {
+  if (!referer) return null;
+  try {
+    return new URL(referer).origin;
+  } catch {
+    return null;
+  }
+};
+
+// Fail fast if primary auth secret is insecure/missing
 getJwtSecret();
-getAttendanceJwtSecret();
 
 // Warn about missing optional-but-important config
 if (!process.env.BREVO_API_KEY) {
@@ -70,6 +111,72 @@ if (!process.env.BREVO_API_KEY) {
 if (!process.env.CLOUDINARY_CLOUD_NAME || !process.env.CLOUDINARY_API_KEY || !process.env.CLOUDINARY_API_SECRET) {
   logger.warn('Cloudinary not fully configured — certificate PDF upload and image upload will fail');
 }
+
+const hydrateRuntimeSecurityEnvFromSettings = async () => {
+  try {
+    const securityColumns = await prisma.$queryRaw<Array<{ column_name: string }>>`
+      SELECT column_name
+      FROM information_schema.columns
+      WHERE table_schema = 'public'
+        AND table_name = 'settings'
+        AND column_name IN ('attendance_jwt_secret', 'indexnow_key')
+    `;
+
+    const availableColumns = new Set(securityColumns.map((row) => row.column_name));
+    if (!availableColumns.has('attendance_jwt_secret') || !availableColumns.has('indexnow_key')) {
+      logger.info('Security env columns are not present in this database yet; skipping runtime hydrate.', {
+        hasAttendanceSecretColumn: availableColumns.has('attendance_jwt_secret'),
+        hasIndexNowKeyColumn: availableColumns.has('indexnow_key'),
+      });
+      return;
+    }
+
+    const settings = await prisma.settings.findUnique({
+      where: { id: 'default' },
+      select: {
+        attendanceJwtSecret: true,
+        indexNowKey: true,
+      },
+    });
+
+    if (!settings) {
+      return;
+    }
+
+    const envAttendanceSecret = process.env.ATTENDANCE_JWT_SECRET?.trim();
+    const envIndexNowKey = process.env.INDEXNOW_KEY?.trim();
+    const storedAttendanceSecret = settings.attendanceJwtSecret?.trim();
+    const storedIndexNowKey = settings.indexNowKey?.trim();
+
+    if (!envAttendanceSecret && storedAttendanceSecret) {
+      setRuntimeAttendanceJwtSecret(storedAttendanceSecret);
+      logger.info('Loaded attendance JWT secret from settings for runtime usage', {
+        source: 'settings',
+      });
+    }
+
+    if (!envIndexNowKey && storedIndexNowKey) {
+      process.env.INDEXNOW_KEY = storedIndexNowKey;
+      logger.info('Loaded IndexNow key from settings for runtime usage', {
+        source: 'settings',
+      });
+    }
+  } catch (error) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2022') {
+      const missingColumn = String((error.meta as { column?: unknown } | undefined)?.column || '');
+      if (missingColumn.includes('attendance_jwt_secret') || missingColumn.includes('indexnow_key')) {
+        logger.info('Security env columns are not present in this database yet; skipping runtime hydrate.', {
+          missingColumn,
+        });
+        return;
+      }
+    }
+
+    logger.warn('Failed to hydrate runtime security env values from settings', {
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+};
 
 let eventStatusInterval: NodeJS.Timeout | null = null;
 const MAX_LISTEN_RETRIES = 5;
@@ -139,41 +246,46 @@ app.use(cors({
   origin: (origin, callback) => {
     // Allow requests with no origin (mobile apps, Postman, etc.)
     if (!origin) return callback(null, true);
-    
-    // Allow localhost and private LAN origins in development
-    if (
-      NODE_ENV === 'development' &&
-      (
-        origin.startsWith('http://localhost:') ||
-        origin.startsWith('http://127.0.0.1:') ||
-        /^http:\/\/(192\.168\.|10\.|172\.(1[6-9]|2\d|3[0-1])\.)/.test(origin)
-      )
-    ) {
+
+    if (isAllowedBrowserOrigin(origin)) {
       return callback(null, true);
     }
-    
-    // Allow production frontend URL
-    if (process.env.FRONTEND_URL && origin === process.env.FRONTEND_URL) {
-      return callback(null, true);
-    }
-    
-    // Allow codescriet.dev domains - explicit allowlist to prevent subdomain takeover
-    const ALLOWED_CODESCRIET_ORIGINS = [
-      'https://codescriet.dev',
-      'https://www.codescriet.dev',
-      'https://api.codescriet.dev',
-      'https://code.codescriet.dev',
-      'https://app.codescriet.dev',
-    ];
-    if (ALLOWED_CODESCRIET_ORIGINS.includes(origin)) {
-      return callback(null, true);
-    }
-    
+
     callback(new Error('Not allowed by CORS'));
   },
   credentials: true,
 }));
-app.use(express.json({ limit: '10mb' }));
+app.use(express.json({ limit: '2mb' }));
+
+// CSRF protection for cookie-authenticated writes:
+// mutating requests must come from an allowed browser origin unless they use Bearer auth.
+app.use('/api', (req, res, next) => {
+  if (SAFE_HTTP_METHODS.has(req.method.toUpperCase())) {
+    return next();
+  }
+
+  if (req.headers.authorization?.startsWith('Bearer ')) {
+    return next();
+  }
+
+  if (!hasSessionCookie(req.headers.cookie)) {
+    return next();
+  }
+
+  const origin = typeof req.headers.origin === 'string' ? req.headers.origin : null;
+  const refererOrigin = origin ? null : parseRefererOrigin(typeof req.headers.referer === 'string' ? req.headers.referer : undefined);
+  const requestOrigin = origin || refererOrigin;
+
+  if (requestOrigin && isAllowedBrowserOrigin(requestOrigin)) {
+    return next();
+  }
+
+  return ApiResponse.error(res, {
+    code: ErrorCodes.FORBIDDEN,
+    message: 'Cross-site cookie-authenticated requests are not allowed',
+    status: 403,
+  });
+});
 
 // Request logging (only in development or if explicitly enabled)
 if (NODE_ENV === 'development' || process.env.ENABLE_REQUEST_LOGGING === 'true') {
@@ -305,7 +417,9 @@ app.post('/api/test-email', authMiddleware, requireRole('ADMIN'), async (req: ex
     }
 
     const user = getAuthUser(req);
-    const settings = await prisma.settings.findFirst();
+    const settings = await prisma.settings.findFirst({
+      select: { clubName: true },
+    });
     const success = await emailService.sendWelcome(
       email,
       user?.name || 'Test User',
@@ -344,6 +458,19 @@ app.use((req, res) => {
 
 // Global error handler
 app.use((err: Error, req: express.Request, res: express.Response, _next: express.NextFunction) => {
+  const bodyError = err as Error & { type?: string; status?: number; statusCode?: number };
+  if (bodyError.type === 'entity.too.large' || bodyError.status === 413 || bodyError.statusCode === 413) {
+    return ApiResponse.error(res, {
+      code: ErrorCodes.BAD_REQUEST,
+      message: 'Request payload is too large',
+      status: 413,
+    });
+  }
+
+  if (bodyError instanceof SyntaxError && bodyError.message.toLowerCase().includes('json')) {
+    return ApiResponse.badRequest(res, 'Invalid JSON payload');
+  }
+
   logger.error('Unhandled error', { 
     error: err.message, 
     stack: err.stack,
@@ -447,6 +574,7 @@ const startHttpServerWithRetry = (attempt = 1) => {
 
 // Initialize database (create admin and settings if needed)
 initializeDatabase()
+  .then(() => hydrateRuntimeSecurityEnvFromSettings())
   .then(() => populateAnnouncementSlugs())
   .then(() => populateProfileSlugs())
   .then(() => {

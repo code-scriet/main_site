@@ -13,6 +13,7 @@ import { Button } from '@/components/ui/button';
 import { Loader2, Zap, ArrowLeft, AlertCircle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { api } from '@/lib/api';
+import { getStoredAuthToken } from '@/lib/authToken';
 import { persistQuizAccessToken, storePendingQuizJoin } from '@/lib/quizAccess';
 
 const shakeKeyframes = {
@@ -59,7 +60,7 @@ export default function QuizJoinPage() {
     setLoading(true);
 
     try {
-      const token = localStorage.getItem('token');
+      const token = getStoredAuthToken();
       const data = await api.joinQuizByPin(fullPin, token ?? undefined);
 
       if (!data.quizAccessToken) {

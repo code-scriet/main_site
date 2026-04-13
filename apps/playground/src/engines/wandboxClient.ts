@@ -7,6 +7,7 @@
 // ---------------------------------------------------------------------------
 
 import type { ExecutionResult, CloudExecutionRequest } from './types';
+import { getPlaygroundStoredToken } from '@/lib/authToken';
 
 const BACKEND_URL = import.meta.env.VITE_API_URL || 'http://localhost:5002';
 const CLOUD_TIMEOUT = 15_000; // 15 seconds (matches server timeout)
@@ -27,7 +28,7 @@ function getAuthHeaders(): HeadersInit {
     .find((row) => row.startsWith('scriet_session='));
   const token = cookieMatch
     ? decodeURIComponent(cookieMatch.split('=').slice(1).join('='))
-    : (sessionStorage.getItem('pg_token') || localStorage.getItem('token'));
+    : getPlaygroundStoredToken();
 
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
   if (token && !isExpiredJwt(token)) headers.Authorization = `Bearer ${token}`;

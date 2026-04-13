@@ -1,4 +1,5 @@
 import { Router, Request, Response } from 'express';
+import { Prisma } from '@prisma/client';
 import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
 import { authMiddleware, getAuthUser } from '../middleware/auth.js';
@@ -7,6 +8,7 @@ import { auditLog } from '../utils/audit.js';
 import { logger } from '../utils/logger.js';
 import { invalidateEmailTemplateConfigCache, invalidateNotificationSettingsCache } from '../utils/email.js';
 import { updateEventStatuses } from '../utils/eventStatus.js';
+import { setRuntimeAttendanceJwtSecret } from '../utils/attendanceToken.js';
 
 export const settingsRouter = Router();
 
@@ -107,6 +109,10 @@ function buildSecurityEnvStatus(settings: {
   return {
     attendanceJwtSecretConfigured: Boolean(storedAttendanceJwtSecret),
     indexNowKeyConfigured: Boolean(storedIndexNowKey),
+    runtimeStatus: {
+      attendanceJwtSecretAppliedFromSettings: !envAttendanceJwtSecret && Boolean(storedAttendanceJwtSecret),
+      indexNowKeyAppliedFromSettings: !envIndexNowKey && Boolean(storedIndexNowKey),
+    },
     envStatus: {
       nodeEnv: process.env.NODE_ENV || 'development',
       attendanceJwtSecretPresent: Boolean(envAttendanceJwtSecret),
@@ -120,6 +126,53 @@ function buildSecurityEnvStatus(settings: {
     },
     updatedAt: settings?.updatedAt?.toISOString() || null,
   };
+}
+
+async function supportsSecurityEnvPersistence(): Promise<boolean> {
+  try {
+    const columns = await prisma.$queryRaw<Array<{ column_name: string }>>`
+      SELECT column_name
+      FROM information_schema.columns
+      WHERE table_schema = 'public'
+        AND table_name = 'settings'
+        AND column_name IN ('attendance_jwt_secret', 'indexnow_key')
+    `;
+    const available = new Set(columns.map((column) => column.column_name));
+    return available.has('attendance_jwt_secret') && available.has('indexnow_key');
+  } catch (error) {
+    logger.warn('Failed to inspect settings table columns for security-env support', {
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return false;
+  }
+}
+
+function applyRuntimeSecurityEnvValues(options: {
+  attendanceJwtSecret?: string | null;
+  indexNowKey?: string | null;
+}): void {
+  const { attendanceJwtSecret, indexNowKey } = options;
+
+  if (attendanceJwtSecret !== undefined && !process.env.ATTENDANCE_JWT_SECRET?.trim()) {
+    setRuntimeAttendanceJwtSecret(attendanceJwtSecret);
+    logger.info('Updated runtime attendance secret from settings', {
+      source: 'settings',
+      configured: Boolean(attendanceJwtSecret),
+    });
+  }
+
+  if (indexNowKey !== undefined && !process.env.INDEXNOW_KEY?.trim()) {
+    if (indexNowKey) {
+      process.env.INDEXNOW_KEY = indexNowKey;
+    } else {
+      delete process.env.INDEXNOW_KEY;
+    }
+
+    logger.info('Updated runtime IndexNow key from settings', {
+      source: 'settings',
+      configured: Boolean(indexNowKey),
+    });
+  }
 }
 
 // Get public settings (for frontend)
@@ -400,6 +453,18 @@ settingsRouter.get('/security-env', authMiddleware, requireRole('ADMIN'), async 
       return;
     }
 
+    const persistenceSupported = await supportsSecurityEnvPersistence();
+    if (!persistenceSupported) {
+      return res.json({
+        success: true,
+        data: {
+          ...buildSecurityEnvStatus(null),
+          persistenceSupported: false,
+          runtimeOnlyMode: true,
+        },
+      });
+    }
+
     const settings = await prisma.settings.findUnique({
       where: { id: 'default' },
       select: {
@@ -411,9 +476,23 @@ settingsRouter.get('/security-env', authMiddleware, requireRole('ADMIN'), async 
 
     res.json({
       success: true,
-      data: buildSecurityEnvStatus(settings),
+      data: {
+        ...buildSecurityEnvStatus(settings),
+        persistenceSupported: true,
+      },
     });
   } catch (error) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2022') {
+      return res.json({
+        success: true,
+        data: {
+          ...buildSecurityEnvStatus(null),
+          persistenceSupported: false,
+          runtimeOnlyMode: true,
+        },
+      });
+    }
+
     res.status(500).json({ success: false, error: { message: 'Failed to verify security env configuration' } });
   }
 });
@@ -441,6 +520,30 @@ settingsRouter.patch('/security-env', authMiddleware, requireRole('ADMIN'), asyn
       ? undefined
       : (parsed.data.indexNowKey?.trim() || null);
 
+    const updatedFields: string[] = [];
+    if (attendanceJwtSecret !== undefined) updatedFields.push('attendanceJwtSecret');
+    if (indexNowKey !== undefined) updatedFields.push('indexNowKey');
+
+    const persistenceSupported = await supportsSecurityEnvPersistence();
+    if (!persistenceSupported) {
+      applyRuntimeSecurityEnvValues({ attendanceJwtSecret, indexNowKey });
+
+      await auditLog(authUser.id, 'UPDATE', 'settings', 'security-env', {
+        updatedFields,
+        persistence: 'runtime-only',
+      });
+
+      return res.json({
+        success: true,
+        data: {
+          ...buildSecurityEnvStatus(null),
+          persistenceSupported: false,
+          runtimeOnlyApplied: true,
+        },
+        message: 'Security env values applied for current runtime. Apply database migrations to persist them.',
+      });
+    }
+
     const settings = await prisma.settings.upsert({
       where: { id: 'default' },
       create: {
@@ -459,20 +562,28 @@ settingsRouter.patch('/security-env', authMiddleware, requireRole('ADMIN'), asyn
       },
     });
 
-    const updatedFields: string[] = [];
-    if (attendanceJwtSecret !== undefined) updatedFields.push('attendanceJwtSecret');
-    if (indexNowKey !== undefined) updatedFields.push('indexNowKey');
-
     await auditLog(authUser.id, 'UPDATE', 'settings', 'security-env', {
       updatedFields,
     });
 
+    applyRuntimeSecurityEnvValues({ attendanceJwtSecret, indexNowKey });
+
     res.json({
       success: true,
-      data: buildSecurityEnvStatus(settings),
+      data: {
+        ...buildSecurityEnvStatus(settings),
+        persistenceSupported: true,
+      },
       message: 'Security env references updated successfully',
     });
   } catch (error) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2022') {
+      return res.status(409).json({
+        success: false,
+        error: { message: 'Security env columns are missing in database. Apply migrations, then retry.' },
+      });
+    }
+
     res.status(500).json({ success: false, error: { message: 'Failed to update security env configuration' } });
   }
 });

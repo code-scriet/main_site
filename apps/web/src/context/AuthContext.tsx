@@ -2,6 +2,7 @@ import { createContext, useContext, useState, useEffect, useCallback, useMemo, u
 import type { ReactNode } from 'react';
 import { api, UnauthorizedError } from '@/lib/api';
 import type { User } from '@/lib/api';
+import { clearStoredAuthToken, getStoredAuthToken, storeAuthToken } from '@/lib/authToken';
 
 interface ExtendedUser extends User {
   profileCompleted?: boolean;
@@ -79,12 +80,12 @@ function readUserFromToken(token: string): ExtendedUser | null {
 
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [user, setUser] = useState<ExtendedUser | null>(null);
-  const [token, setToken] = useState<string | null>(localStorage.getItem('token'));
+  const [token, setToken] = useState<string | null>(getStoredAuthToken());
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const persistToken = useCallback((nextToken: string) => {
-    localStorage.setItem('token', nextToken);
+    storeAuthToken(nextToken);
     setToken(nextToken);
   }, []);
 
@@ -97,7 +98,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       return response.user as ExtendedUser | null;
     } catch (err) {
       if (err instanceof UnauthorizedError) {
-        localStorage.removeItem('token');
+        clearStoredAuthToken();
         return null;
       }
 
@@ -118,7 +119,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     
     const initAuth = async () => {
       try {
-        const storedToken = localStorage.getItem('token');
+        const storedToken = getStoredAuthToken();
         const userData = await fetchUser(storedToken);
         // Only update state if still mounted
         if (isMountedRef.current) {
@@ -146,7 +147,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   }, [fetchUser]);
 
   const refreshUser = useCallback(async () => {
-    const currentToken = localStorage.getItem('token');
+    const currentToken = getStoredAuthToken();
     try {
       const userData = await fetchUser(currentToken);
       setUser(userData);
@@ -172,7 +173,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Login failed');
-      localStorage.removeItem('token');
+      clearStoredAuthToken();
       setToken(null);
       throw err;
     } finally {
@@ -185,7 +186,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     setError(null);
     try {
       const response = await api.login(email, password);
-      localStorage.setItem('token', response.token);
+      storeAuthToken(response.token);
       setToken(response.token);
       setUser(response.user);
     } catch (err) {
@@ -202,7 +203,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     setError(null);
     try {
       const response = await api.register(name, email, password);
-      localStorage.setItem('token', response.token);
+      storeAuthToken(response.token);
       setToken(response.token);
       setUser(response.user);
     } catch (err) {
@@ -219,7 +220,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     setError(null);
     try {
       const response = await api.devLogin(email, name);
-      localStorage.setItem('token', response.token);
+      storeAuthToken(response.token);
       setToken(response.token);
       setUser(response.user);
     } catch (err) {
@@ -235,7 +236,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     void api.logout().catch(() => {
       // Local state is still cleared even if server-side cookie cleanup fails.
     });
-    localStorage.removeItem('token');
+    clearStoredAuthToken();
     localStorage.removeItem('network_intent');
     localStorage.removeItem('network_onboarding_type');
     setToken(null);

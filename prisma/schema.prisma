@@ -56,6 +56,11 @@ model User {
   eventsCreated          Event[]                 @relation("eventCreator")
   qotdsCreated           QOTD[]                  @relation("qotdCreator")
   auditLogs              AuditLog[]
+  executions             Execution[]
+  snippets               Snippet[]
+  playgroundPrefs        UserPlaygroundPrefs?
+  playgroundDailyUsage   PlaygroundDailyUsage[]
+  playgroundLimitResets  PlaygroundLimitReset[]
 
   @@index([role, createdAt(sort: Desc)], map: "users_role_created_at_desc_idx")
   @@map("users")
@@ -808,6 +813,7 @@ enum NetworkStatus {
 model Execution {
   id         String          @id @default(uuid())
   userId     String          @map("user_id")
+  user       User            @relation(fields: [userId], references: [id], onDelete: Cascade)
   language   String
   code       String?         @db.Text
   outputText String?         @map("output_text") @db.Text
@@ -822,6 +828,7 @@ model Execution {
 
 model UserPlaygroundPrefs {
   userId       String @id @map("user_id")
+  user         User   @relation(fields: [userId], references: [id], onDelete: Cascade)
   theme        String @default("dark")
   fontSize     Int    @default(14)
   keybinding   String @default("default") // 'vim' | 'emacs' | 'default'
@@ -833,6 +840,7 @@ model UserPlaygroundPrefs {
 model Snippet {
   id         String   @id @default(uuid())
   userId     String   @map("user_id")
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   title      String
   language   String
   code       String   @db.Text
@@ -849,6 +857,7 @@ model Snippet {
 
 model PlaygroundDailyUsage {
   userId    String   @map("user_id")
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   usageDate DateTime @map("usage_date") @db.Date
   count     Int      @default(0)
   updatedAt DateTime @updatedAt @map("updated_at")
@@ -861,6 +870,7 @@ model PlaygroundDailyUsage {
 model PlaygroundLimitReset {
   id      String   @id @default(uuid())
   userId  String   @map("user_id")
+  user    User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   resetBy String   @map("reset_by")
   resetAt DateTime @default(now()) @map("reset_at")
   note    String?

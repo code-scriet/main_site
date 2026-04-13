@@ -1,4 +1,5 @@
 import jwt from 'jsonwebtoken';
+import { logger } from './logger.js';
 
 interface AttendancePayload {
   userId: string;
@@ -21,6 +22,14 @@ const ATTENDANCE_PREVIOUS_SECRET_ENV_CANDIDATES = [
 const DEFAULT_ATTENDANCE_TOKEN_EXPIRES_IN =
   (process.env.ATTENDANCE_TOKEN_EXPIRES_IN || '90d') as jwt.SignOptions['expiresIn'];
 
+// Temporary safety net to prevent total auth outage when ATTENDANCE_JWT_SECRET is missing.
+// Replace via env or super-admin settings as soon as possible.
+const TEMPORARY_ATTENDANCE_JWT_SECRET = 'codescriet-temporary-attendance-secret-rotate-immediately';
+
+let runtimeAttendanceJwtSecret: string | null = null;
+const runtimePreviousAttendanceSecrets = new Set<string>();
+let warnedAboutTemporarySecret = false;
+
 function getConfiguredAttendanceJwtSecret(): string | undefined {
   for (const key of ATTENDANCE_JWT_SECRET_ENV_CANDIDATES) {
     const value = process.env[key]?.trim();
@@ -29,7 +38,7 @@ function getConfiguredAttendanceJwtSecret(): string | undefined {
     }
   }
 
-  return undefined;
+  return runtimeAttendanceJwtSecret ?? undefined;
 }
 
 function getConfiguredPreviousAttendanceSecrets(): string[] {
@@ -55,21 +64,48 @@ function getConfiguredPreviousAttendanceSecrets(): string[] {
 export function getAttendanceJwtSecret(): string {
   const secret = getConfiguredAttendanceJwtSecret();
 
-  if (!secret) {
-    throw new Error(
-      'ATTENDANCE_JWT_SECRET must be configured. Attendance tokens cannot share JWT_SECRET.',
+  if (secret) {
+    return secret;
+  }
+
+  if (!warnedAboutTemporarySecret) {
+    warnedAboutTemporarySecret = true;
+    logger.warn(
+      'ATTENDANCE_JWT_SECRET is missing. Using temporary hardcoded fallback until a super admin sets attendanceJwtSecret in settings or env.',
     );
   }
 
-  return secret;
+  return TEMPORARY_ATTENDANCE_JWT_SECRET;
+}
+
+export function setRuntimeAttendanceJwtSecret(secret: string | null | undefined): void {
+  const normalized = secret?.trim() || null;
+
+  if (runtimeAttendanceJwtSecret && normalized && runtimeAttendanceJwtSecret !== normalized) {
+    runtimePreviousAttendanceSecrets.add(runtimeAttendanceJwtSecret);
+  }
+
+  runtimeAttendanceJwtSecret = normalized;
+
+  if (normalized) {
+    runtimePreviousAttendanceSecrets.delete(normalized);
+  }
+
+  warnedAboutTemporarySecret = false;
 }
 
 function getAttendanceVerificationSecrets(): string[] {
   const attendanceSecret = getAttendanceJwtSecret();
   const previousSecrets = getConfiguredPreviousAttendanceSecrets()
     .filter((secret) => secret !== attendanceSecret);
+  const runtimePreviousSecrets = Array.from(runtimePreviousAttendanceSecrets)
+    .filter((secret) => secret !== attendanceSecret);
 
-  return [attendanceSecret, ...previousSecrets];
+  const fallbackSecret = attendanceSecret === TEMPORARY_ATTENDANCE_JWT_SECRET
+    ? []
+    : [TEMPORARY_ATTENDANCE_JWT_SECRET];
+
+  return Array.from(new Set([attendanceSecret, ...runtimePreviousSecrets, ...previousSecrets, ...fallbackSecret]));
 }
 
 function verifyAttendancePayload(token: string, secret: string): AttendancePayload {

@@ -16,6 +16,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent } from '@/components/ui/card';
 import { formatDate } from '@/lib/dateUtils';
+import { getStoredAuthToken } from '@/lib/authToken';
 import {
   Loader2, Trophy, ArrowLeft, BookOpen, Clock, Users, LayoutDashboard,
   Download, ChevronDown, ChevronUp, Target, Zap, TrendingUp, BarChart3,
@@ -180,7 +181,7 @@ export default function QuizResultsPage() {
     }
 
     try {
-      const token = localStorage.getItem('token');
+      const token = getStoredAuthToken();
       const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:5001/api';
       const res = await fetch(`${apiUrl}/quiz/${quizId}/results`, {
         headers: token ? { Authorization: `Bearer ${token}` } : {},
@@ -203,7 +204,7 @@ export default function QuizResultsPage() {
     if (!quizId) return;
     setExporting(true);
     try {
-      const token = localStorage.getItem('token');
+      const token = getStoredAuthToken();
       const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:5001/api';
       const res = await fetch(`${apiUrl}/quiz/${quizId}/export`, {
         headers: token ? { Authorization: `Bearer ${token}` } : {},

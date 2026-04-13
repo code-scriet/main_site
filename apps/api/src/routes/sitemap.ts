@@ -5,9 +5,12 @@ import { submitAllUrls } from '../utils/indexnow.js';
 import { authMiddleware } from '../middleware/auth.js';
 import { requireRole } from '../middleware/role.js';
 
-const INDEXNOW_KEY = process.env.INDEXNOW_KEY?.trim() || '';
 export const sitemapRouter = express.Router();
 export const robotsRouter = express.Router();
+
+function getIndexNowKey(): string {
+  return process.env.INDEXNOW_KEY?.trim() || '';
+}
 
 /**
  * Generate dynamic sitemap.xml with all events, achievements, and announcements
@@ -222,15 +225,20 @@ export const indexNowRouter = express.Router();
  * Serve the IndexNow key verification file
  * GET /<INDEXNOW_KEY>.txt
  */
-if (INDEXNOW_KEY) {
-  indexNowRouter.get(`/${INDEXNOW_KEY}.txt`, (_req: Request, res: Response) => {
-    res.setHeader('Content-Type', 'text/plain; charset=utf-8');
-    res.setHeader('Cache-Control', 'public, max-age=86400');
-    res.send(INDEXNOW_KEY);
-  });
-} else {
-  logger.warn('[IndexNow] INDEXNOW_KEY is not configured; key verification endpoint is disabled.');
-}
+indexNowRouter.get('/:key.txt', (req: Request, res: Response) => {
+  const configuredKey = getIndexNowKey();
+  if (!configuredKey) {
+    return res.status(404).send('Not found');
+  }
+
+  if (req.params.key !== configuredKey) {
+    return res.status(404).send('Not found');
+  }
+
+  res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+  res.setHeader('Cache-Control', 'public, max-age=86400');
+  return res.send(configuredKey);
+});
 
 /**
  * Submit all indexable URLs to IndexNow (admin-only)
