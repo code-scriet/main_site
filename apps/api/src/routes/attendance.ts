@@ -33,6 +33,12 @@ const ATTENDANCE_FULL_LIST_LIMIT = 5000;
 const ATTENDANCE_EXPORT_LIMIT = 10000;
 const ATTENDANCE_BACKFILL_BATCH_SIZE = 1000;
 
+type AttendanceTokenPayload = {
+  userId: string;
+  eventId: string;
+  registrationId: string;
+};
+
 class AttendanceBulkUpdateConflictError extends Error {}
 
 function requireUuid(res: Response, value: unknown, label: string): value is string {
@@ -83,6 +89,60 @@ function resolveClientScannedAt(scannedAtLocal?: string): Date {
   }
 
   return parsed;
+}
+
+async function resolveStoredAttendanceTokenPayloads(tokens: string[]): Promise<Map<string, AttendanceTokenPayload>> {
+  const normalizedTokens = Array.from(new Set(
+    tokens
+      .map((token) => token.trim())
+      .filter((token) => token.length > 0),
+  ));
+
+  if (normalizedTokens.length === 0) {
+    return new Map();
+  }
+
+  const registrations = await prisma.eventRegistration.findMany({
+    where: {
+      attendanceToken: { in: normalizedTokens },
+    },
+    select: {
+      attendanceToken: true,
+      id: true,
+      userId: true,
+      eventId: true,
+    },
+  });
+
+  const payloadMap = new Map<string, AttendanceTokenPayload>();
+  for (const registration of registrations) {
+    const storedToken = registration.attendanceToken?.trim();
+    if (!storedToken) {
+      continue;
+    }
+
+    payloadMap.set(storedToken, {
+      userId: registration.userId,
+      eventId: registration.eventId,
+      registrationId: registration.id,
+    });
+  }
+
+  return payloadMap;
+}
+
+async function resolveAttendancePayloadFromToken(token: string): Promise<AttendanceTokenPayload | null> {
+  const normalizedToken = token.trim();
+  if (!normalizedToken) {
+    return null;
+  }
+
+  try {
+    return verifyAttendanceToken(normalizedToken);
+  } catch {
+    const fallbackMap = await resolveStoredAttendanceTokenPayloads([normalizedToken]);
+    return fallbackMap.get(normalizedToken) || null;
+  }
 }
 
 // ────────────────────────────────────────────────────────────
@@ -149,10 +209,13 @@ router.post('/scan', authMiddleware, requireRole('CORE_MEMBER'), async (req: Req
       return ApiResponse.badRequest(res, 'Token is required');
     }
 
-    let payload;
-    try {
-      payload = verifyAttendanceToken(token);
-    } catch {
+    const normalizedToken = token.trim();
+    if (!normalizedToken) {
+      return ApiResponse.badRequest(res, 'Invalid or expired attendance token');
+    }
+
+    const payload = await resolveAttendancePayloadFromToken(normalizedToken);
+    if (!payload) {
       return ApiResponse.badRequest(res, 'Invalid or expired attendance token');
     }
 
@@ -266,14 +329,31 @@ router.post('/scan-batch', authMiddleware, requireRole('CORE_MEMBER'), async (re
       scannedAtLocal?: string;
       payload: { userId: string; eventId: string; registrationId: string };
     }> = [];
+    const fallbackCandidates: Array<{ localId: string; token: string; scannedAtLocal?: string }> = [];
 
     for (const scan of scans) {
-      let payload;
-      try {
-        payload = verifyAttendanceToken(scan.token);
-      } catch {
+      if (!scan || typeof scan !== 'object' || typeof scan.token !== 'string' || typeof scan.localId !== 'string') {
+        results.push({ localId: typeof scan?.localId === 'string' ? scan.localId : 'unknown', status: 'error', message: 'Invalid scan payload' });
+        errCount++;
+        continue;
+      }
+
+      const normalizedToken = scan.token.trim();
+      if (!normalizedToken) {
         results.push({ localId: scan.localId, status: 'error', message: 'Invalid or expired token' });
         errCount++;
+        continue;
+      }
+
+      let payload;
+      try {
+        payload = verifyAttendanceToken(normalizedToken);
+      } catch {
+        fallbackCandidates.push({
+          localId: scan.localId,
+          token: normalizedToken,
+          scannedAtLocal: scan.scannedAtLocal,
+        });
         continue;
       }
 
@@ -284,6 +364,29 @@ router.post('/scan-batch', authMiddleware, requireRole('CORE_MEMBER'), async (re
       }
 
       verified.push({ localId: scan.localId, scannedAtLocal: scan.scannedAtLocal, payload });
+    }
+
+    if (fallbackCandidates.length > 0) {
+      const fallbackPayloadMap = await resolveStoredAttendanceTokenPayloads(
+        fallbackCandidates.map((scan) => scan.token),
+      );
+
+      for (const scan of fallbackCandidates) {
+        const payload = fallbackPayloadMap.get(scan.token);
+        if (!payload) {
+          results.push({ localId: scan.localId, status: 'error', message: 'Invalid or expired token' });
+          errCount++;
+          continue;
+        }
+
+        if (payload.eventId !== eventId) {
+          results.push({ localId: scan.localId, status: 'error', message: 'Token does not match event' });
+          errCount++;
+          continue;
+        }
+
+        verified.push({ localId: scan.localId, scannedAtLocal: scan.scannedAtLocal, payload });
+      }
     }
 
     if (verified.length === 0) {
@@ -437,6 +540,14 @@ router.post('/scan-beacon', beaconLimiter, express.text({ type: '*/*' }), async 
     let skippedCount = 0;
     let failedCount = 0;
 
+    const fallbackPayloadMap = await resolveStoredAttendanceTokenPayloads(
+      scans
+        .filter((scan): scan is { token: string; scannedAtLocal?: string; localId: string } =>
+          Boolean(scan && typeof scan === 'object' && typeof scan.token === 'string'),
+        )
+        .map((scan) => scan.token),
+    );
+
     try {
       // sendBeacon is intentionally fire-and-forget, so per-item failures are logged
       // server-side and not surfaced back to the client after the 204 response.
@@ -447,12 +558,21 @@ router.post('/scan-beacon', beaconLimiter, express.text({ type: '*/*' }), async 
             continue;
           }
 
-          let payload;
-          try {
-            payload = verifyAttendanceToken(scan.token);
-          } catch {
+          const normalizedToken = scan.token.trim();
+          if (!normalizedToken) {
             failedCount++;
             continue;
+          }
+
+          let payload;
+          try {
+            payload = verifyAttendanceToken(normalizedToken);
+          } catch {
+            payload = fallbackPayloadMap.get(normalizedToken);
+            if (!payload) {
+              failedCount++;
+              continue;
+            }
           }
 
           if (payload.eventId !== eventId) {

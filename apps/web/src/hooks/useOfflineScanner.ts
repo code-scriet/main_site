@@ -80,6 +80,45 @@ function isValidAttendanceToken(token: string): boolean {
   return true;
 }
 
+function normalizeScannedAttendanceToken(rawValue: string): string {
+  const trimmed = rawValue.trim();
+  if (!trimmed) return '';
+
+  if (isValidAttendanceToken(trimmed)) {
+    return trimmed;
+  }
+
+  // Some scanners return URLs (query/hash/path) instead of the raw JWT.
+  try {
+    const parsedUrl = new URL(trimmed);
+    const candidates: string[] = [
+      parsedUrl.searchParams.get('token') || '',
+      parsedUrl.searchParams.get('attendanceToken') || '',
+    ];
+
+    if (parsedUrl.hash) {
+      const hashValue = parsedUrl.hash.startsWith('#') ? parsedUrl.hash.slice(1) : parsedUrl.hash;
+      const hashParams = new URLSearchParams(hashValue);
+      candidates.push(hashParams.get('token') || '');
+      candidates.push(hashParams.get('attendanceToken') || '');
+    }
+
+    const pathLastSegment = parsedUrl.pathname.split('/').filter(Boolean).pop() || '';
+    candidates.push(pathLastSegment);
+
+    for (const candidate of candidates) {
+      const normalizedCandidate = candidate.trim();
+      if (isValidAttendanceToken(normalizedCandidate)) {
+        return normalizedCandidate;
+      }
+    }
+  } catch {
+    // Not a URL — keep using raw scanned text.
+  }
+
+  return trimmed;
+}
+
 function readScans(eventId: string): LocalScanEntry[] {
   try {
     const raw = localStorage.getItem(storageKey(eventId));
@@ -201,18 +240,63 @@ export function useOfflineScanner(
     }
   }, [eventId, authToken, bypassWindow, flush]);
 
+  const syncSingleScan = useCallback(async (entry: LocalScanEntry) => {
+    try {
+      const res = await api.scanAttendance(entry.token, authToken, bypassWindow);
+      // Find entry in ref (it may have been batch-synced already).
+      const target = scansRef.current.find((s) => s.localId === entry.localId);
+      if (target && !target.synced) {
+        target.synced = true;
+        target.result = 'ok';
+        target.userName = res.userName;
+        target.errorMessage = undefined;
+        flush();
+      }
+    } catch (err: unknown) {
+      const message =
+        err instanceof Error ? err.message : typeof err === 'string' ? err : '';
+      const lower = message.toLowerCase();
+      const isDuplicate =
+        lower.includes('duplicate') ||
+        lower.includes('already marked') ||
+        lower.includes('already scanned');
+      const isDefinitiveError =
+        lower.includes('forbidden') ||
+        lower.includes('outside the allowed window') ||
+        lower.includes('unauthorized') ||
+        lower.includes('invalid') ||
+        lower.includes('not found') ||
+        lower.includes('required') ||
+        lower.includes('conflict');
+
+      if (isDuplicate || isDefinitiveError) {
+        const target = scansRef.current.find((s) => s.localId === entry.localId);
+        if (target && !target.synced) {
+          target.synced = true;
+          target.result = isDuplicate ? 'duplicate' : 'error';
+          target.errorMessage = message || (isDuplicate ? 'Already scanned' : 'Scan failed');
+          flush();
+        }
+      }
+      // Network errors are silently ignored — the scan stays unsynced and
+      // will be picked up by the 3-second batch interval or other triggers.
+    }
+  }, [authToken, bypassWindow, flush]);
+
   // -----------------------------------------------------------------------
   // addScan — called when a QR code is scanned
   // -----------------------------------------------------------------------
 
   const addScan = useCallback(
     (qrToken: string): LocalScanEntry | null => {
+      const normalizedToken = normalizeScannedAttendanceToken(qrToken);
+
       // Validate: only accept tokens that look like valid JWT attendance tokens
-      if (!isValidAttendanceToken(qrToken)) {
+      if (!isValidAttendanceToken(normalizedToken)) {
         // Return a synthetic rejected entry (not stored) so caller can show error toast
         return {
           localId: 'rejected',
-          token: qrToken,
+          token: normalizedToken,
           scannedAtLocal: new Date().toISOString(),
           synced: true,
           result: 'error',
@@ -221,77 +305,41 @@ export function useOfflineScanner(
       }
 
       // Dedup: if this token was already scanned, return existing entry.
-      if (seenTokensRef.current.has(qrToken)) {
-        const existing = scansRef.current.find((s) => s.token === qrToken);
-        if (existing) return existing;
+      if (seenTokensRef.current.has(normalizedToken)) {
+        const existing = scansRef.current.find((s) => s.token === normalizedToken);
+        if (existing) {
+          // Allow retrying previously failed scans in the same session.
+          if (existing.result === 'error') {
+            existing.scannedAtLocal = new Date().toISOString();
+            existing.synced = false;
+            existing.result = undefined;
+            existing.userName = undefined;
+            existing.errorMessage = undefined;
+            flush();
+            void syncSingleScan(existing);
+          }
+
+          return existing;
+        }
       }
 
       const entry: LocalScanEntry = {
         localId: generateLocalId(),
-        token: qrToken,
+        token: normalizedToken,
         scannedAtLocal: new Date().toISOString(),
         synced: false,
       };
 
-      seenTokensRef.current.add(qrToken);
+      seenTokensRef.current.add(normalizedToken);
       scansRef.current = [...scansRef.current, entry];
       flush();
 
       // Trigger 1 — Immediate single-scan attempt.
-      (async () => {
-        try {
-          const res = await api.scanAttendance(qrToken, authToken, bypassWindow);
-          // Find entry in ref (it may have been batch-synced already).
-          const target = scansRef.current.find((s) => s.localId === entry.localId);
-          if (target && !target.synced) {
-            target.synced = true;
-            target.result = 'ok';
-            target.userName = res.userName;
-            flush();
-          }
-        } catch (err: unknown) {
-          // Check if the error indicates a duplicate rather than a network failure.
-          const message =
-            err instanceof Error ? err.message : typeof err === 'string' ? err : '';
-          const isDuplicate =
-            message.toLowerCase().includes('duplicate') ||
-            message.toLowerCase().includes('already marked');
-
-          const lower = message.toLowerCase();
-          const isDefinitiveError =
-            lower.includes('forbidden') ||
-            lower.includes('outside the allowed window') ||
-            lower.includes('unauthorized') ||
-            lower.includes('invalid') ||
-            lower.includes('not found') ||
-            lower.includes('required') ||
-            lower.includes('conflict');
-
-          if (isDuplicate) {
-            const target = scansRef.current.find((s) => s.localId === entry.localId);
-            if (target && !target.synced) {
-              target.synced = true;
-              target.result = 'duplicate';
-              target.errorMessage = message;
-              flush();
-            }
-          } else if (isDefinitiveError) {
-            const target = scansRef.current.find((s) => s.localId === entry.localId);
-            if (target && !target.synced) {
-              target.synced = true;
-              target.result = 'error';
-              target.errorMessage = message || 'Scan failed';
-              flush();
-            }
-          }
-          // Network errors are silently ignored — the scan stays unsynced and
-          // will be picked up by the 3-second batch interval or other triggers.
-        }
-      })();
+      void syncSingleScan(entry);
 
       return entry;
     },
-    [authToken, bypassWindow, flush],
+    [flush, syncSingleScan],
   );
 
   // -----------------------------------------------------------------------

@@ -537,11 +537,7 @@ export default function AdminScanner({ eventId, token, onEndSession }: AdminScan
   // Derived values
   // --------------------------------------------------------------------------
 
-  // Filter out error scans without a userName (invalid QR codes that shouldn't be displayed)
-  const recentScans = [...scans]
-    .filter((scan) => !(scan.result === 'error' && !scan.userName))
-    .reverse()
-    .slice(0, 15);
+  const recentScans = [...scans].reverse().slice(0, 15);
   const totalRegistered = liveData?.total ?? 0;
   const attendedCount = liveData?.attended ?? scans.filter((scan) => scan.synced && scan.result === 'ok').length;
   const attendanceRate = totalRegistered > 0 ? Math.round((attendedCount / totalRegistered) * 100) : 0;
@@ -874,10 +870,11 @@ export default function AdminScanner({ eventId, token, onEndSession }: AdminScan
                     >
                       <div className="flex-1 min-w-0">
                         <p className="text-sm font-medium truncate">
-                          {scan.userName ?? 'Unknown'}
+                          {scan.userName ?? (scan.result === 'error' ? 'Scan failed' : 'Unknown attendee')}
                         </p>
-                        <p className="text-xs text-muted-foreground">
+                        <p className="text-xs text-muted-foreground truncate" title={scan.errorMessage || undefined}>
                           {formatTime(scan.scannedAtLocal)}
+                          {scan.result === 'error' && scan.errorMessage ? ` · ${scan.errorMessage}` : ''}
                         </p>
                       </div>
                       {scan.synced && scan.result !== 'error' && (
