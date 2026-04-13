@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '@/context/AuthContext';
 import { useSettings } from '@/context/SettingsContext';
+import { ThemeToggle } from '@/components/theme/ThemeToggle';
 import { Button } from '@/components/ui/button';
 import {
   Home,
@@ -226,10 +227,10 @@ export default function DashboardLayout() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-gray-50 text-gray-900 transition-colors duration-300 dark:bg-zinc-950 dark:text-zinc-100">
       <a
         href="#main-content"
-        className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-[70] focus:rounded focus:bg-amber-500 focus:px-4 focus:py-2 focus:text-white"
+        className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-[70] focus:rounded focus:bg-amber-500 focus:px-4 focus:py-2 focus:text-white dark:focus:bg-red-500"
       >
         Skip to content
       </a>
@@ -237,7 +238,7 @@ export default function DashboardLayout() {
       {/* Mobile overlay */}
       {sidebarOpen && (
         <div
-          className="fixed inset-0 z-40 bg-black/40 backdrop-blur-sm lg:hidden"
+          className="fixed inset-0 z-40 bg-black/40 backdrop-blur-sm lg:hidden dark:bg-black/60"
           onClick={() => setSidebarOpen(false)}
           aria-hidden="true"
         />
@@ -246,53 +247,53 @@ export default function DashboardLayout() {
       {/* ── Sidebar ────────────────────────────────────────────────── */}
       <aside
         className={cn(
-          'fixed inset-y-0 left-0 z-50 bg-white border-r border-amber-100/80 shadow-sm transform transition-all duration-300 ease-in-out lg:translate-x-0 flex flex-col',
+          'fixed inset-y-0 left-0 z-50 bg-white border-r border-amber-100/80 shadow-sm transform transition-all duration-300 ease-in-out lg:translate-x-0 flex flex-col dark:border-zinc-800 dark:bg-zinc-950 dark:shadow-black/20',
           sidebarCollapsed ? 'w-[86px]' : 'w-64',
           sidebarOpen ? 'translate-x-0' : '-translate-x-full'
         )}
       >
         {/* Logo */}
         <div className={cn(
-          'flex items-center border-b border-amber-100 shrink-0',
+          'flex items-center border-b border-amber-100 shrink-0 dark:border-zinc-800',
           sidebarCollapsed ? 'justify-center py-4' : 'justify-between px-5 py-4'
         )}>
           <Link to="/" className={cn('flex items-center', sidebarCollapsed ? 'w-full justify-center' : 'gap-3 min-w-0')}>
             <div className={cn(
-              'rounded-xl overflow-hidden shrink-0 ring-1 ring-amber-200 bg-white',
+              'rounded-xl overflow-hidden shrink-0 ring-1 ring-amber-200 bg-white dark:ring-zinc-700 dark:bg-zinc-900',
               sidebarCollapsed ? 'h-12 w-12' : 'h-10 w-10'
             )}>
               <img src="/logo.jpeg" alt="code.scriet" className="h-full w-full object-contain p-0.5" />
             </div>
             {!sidebarCollapsed && (
-              <span className="text-base font-bold text-amber-900 tracking-tight">code.scriet</span>
+              <span className="text-base font-bold text-amber-900 tracking-tight dark:text-amber-100">code.scriet</span>
             )}
           </Link>
           <button
             onClick={() => setSidebarOpen(false)}
-            className="lg:hidden p-1.5 hover:bg-amber-50 rounded-lg transition-colors"
+            className="lg:hidden p-1.5 hover:bg-amber-50 rounded-lg transition-colors dark:hover:bg-zinc-900"
             aria-label="Close sidebar"
           >
-            <X className="h-5 w-5 text-amber-400" />
+            <X className="h-5 w-5 text-amber-400 dark:text-amber-300" />
           </button>
         </div>
 
         {/* User info */}
         {!sidebarCollapsed ? (
-          <div className="px-4 py-3 border-b border-amber-100 shrink-0">
+          <div className="px-4 py-3 border-b border-amber-100 shrink-0 dark:border-zinc-800">
             <div className="flex items-center gap-3">
-              <div className="h-9 w-9 rounded-full overflow-hidden bg-amber-50 ring-1 ring-amber-200 shrink-0">
+              <div className="h-9 w-9 rounded-full overflow-hidden bg-amber-50 ring-1 ring-amber-200 shrink-0 dark:bg-zinc-900 dark:ring-zinc-700">
                 {user?.avatar ? (
                   <img src={user.avatar} alt={user.name} className="w-full h-full object-cover" />
                 ) : (
-                  <div className="w-full h-full flex items-center justify-center text-amber-700 font-semibold text-sm">
+                  <div className="w-full h-full flex items-center justify-center text-amber-700 font-semibold text-sm dark:text-amber-200">
                     {user?.name?.charAt(0)?.toUpperCase()}
                   </div>
                 )}
               </div>
               <div className="min-w-0 flex-1">
-                <p className="font-semibold text-gray-900 text-sm truncate leading-tight">{user?.name}</p>
+                <p className="font-semibold text-gray-900 text-sm truncate leading-tight dark:text-zinc-100">{user?.name}</p>
                 <p
-                  className="text-xs text-amber-600 font-medium mt-0.5 truncate"
+                  className="text-xs text-amber-600 font-medium mt-0.5 truncate dark:text-amber-300"
                   title={user?.role?.replace(/_/g, ' ')}
                 >
                   {user?.role?.replace(/_/g, ' ')}
@@ -301,12 +302,12 @@ export default function DashboardLayout() {
             </div>
           </div>
         ) : (
-          <div className="p-3 border-b border-amber-100 flex justify-center shrink-0">
-            <div className="h-10 w-10 rounded-full overflow-hidden bg-amber-50 ring-1 ring-amber-200">
+          <div className="p-3 border-b border-amber-100 flex justify-center shrink-0 dark:border-zinc-800">
+            <div className="h-10 w-10 rounded-full overflow-hidden bg-amber-50 ring-1 ring-amber-200 dark:bg-zinc-900 dark:ring-zinc-700">
               {user?.avatar ? (
                 <img src={user.avatar} alt={user.name} className="w-full h-full object-cover" />
               ) : (
-                <div className="w-full h-full flex items-center justify-center text-amber-700 font-semibold text-sm">
+                <div className="w-full h-full flex items-center justify-center text-amber-700 font-semibold text-sm dark:text-amber-200">
                   {user?.name?.charAt(0)?.toUpperCase()}
                 </div>
               )}
@@ -318,7 +319,7 @@ export default function DashboardLayout() {
         <nav className="flex-1 overflow-y-auto py-4 px-3 space-y-0.5">
           {/* User section */}
           {!sidebarCollapsed && (
-            <p className="text-xs font-bold text-amber-500 uppercase tracking-wide px-3 pb-2 pt-1">
+            <p className="text-xs font-bold text-amber-500 uppercase tracking-wide px-3 pb-2 pt-1 dark:text-amber-300">
               Dashboard
             </p>
           )}
@@ -336,9 +337,9 @@ export default function DashboardLayout() {
           {isCoreMember && (
             <>
               <div className={cn('pt-4 pb-1', sidebarCollapsed && 'pt-3 pb-0.5')}>
-                <div className="border-t border-amber-100" />
+                <div className="border-t border-amber-100 dark:border-zinc-800" />
                 {!sidebarCollapsed && (
-                  <p className="text-xs font-bold text-amber-500 uppercase tracking-wide px-3 pt-3 pb-1">
+                  <p className="text-xs font-bold text-amber-500 uppercase tracking-wide px-3 pt-3 pb-1 dark:text-amber-300">
                     Core Member
                   </p>
                 )}
@@ -359,9 +360,9 @@ export default function DashboardLayout() {
           {isAdmin && (
             <>
               <div className={cn('pt-4 pb-1', sidebarCollapsed && 'pt-3 pb-0.5')}>
-                <div className="border-t border-amber-100" />
+                <div className="border-t border-amber-100 dark:border-zinc-800" />
                 {!sidebarCollapsed && (
-                  <p className="text-xs font-bold text-amber-500 uppercase tracking-wide px-3 pt-3 pb-1">
+                  <p className="text-xs font-bold text-amber-500 uppercase tracking-wide px-3 pt-3 pb-1 dark:text-amber-300">
                     Admin
                   </p>
                 )}
@@ -380,12 +381,12 @@ export default function DashboardLayout() {
         </nav>
 
         {/* Bottom actions */}
-        <div className="p-3 border-t border-amber-100 space-y-1 shrink-0">
+        <div className="p-3 border-t border-amber-100 space-y-1 shrink-0 dark:border-zinc-800">
           <Button
             variant="ghost"
             size="sm"
             className={cn(
-              'hidden lg:flex w-full text-gray-400 hover:text-gray-700 hover:bg-amber-50 transition-colors',
+              'hidden lg:flex w-full text-gray-400 hover:text-gray-700 hover:bg-amber-50 transition-colors dark:text-zinc-500 dark:hover:bg-zinc-900 dark:hover:text-zinc-100',
               sidebarCollapsed ? 'justify-center px-2' : 'justify-start'
             )}
             onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
@@ -404,7 +405,7 @@ export default function DashboardLayout() {
           <Button
             variant="ghost"
             className={cn(
-              'w-full text-gray-400 hover:text-red-600 hover:bg-red-50 font-medium transition-colors',
+              'w-full text-gray-400 hover:text-red-600 hover:bg-red-50 font-medium transition-colors dark:text-zinc-500 dark:hover:bg-red-950/30 dark:hover:text-red-300',
               sidebarCollapsed ? 'justify-center px-2' : 'justify-start'
             )}
             onClick={logout}
@@ -419,28 +420,32 @@ export default function DashboardLayout() {
       {/* ── Main area ──────────────────────────────────────────────── */}
       <div className={cn('transition-all duration-300', sidebarCollapsed ? 'lg:pl-[86px]' : 'lg:pl-64')}>
         {/* Top bar */}
-        <header className="sticky top-0 z-30 backdrop-blur-md bg-white/90 border-b border-gray-200/60 h-14 flex items-center px-3 sm:px-5 lg:px-7 gap-3 sm:gap-4">
+        <header className="sticky top-0 z-30 h-14 flex items-center gap-3 border-b border-gray-200/60 bg-white/90 px-3 backdrop-blur-md sm:gap-4 sm:px-5 lg:px-7 dark:border-zinc-800 dark:bg-zinc-950/90">
           <button
             onClick={() => setSidebarOpen(true)}
-            className="lg:hidden p-2 hover:bg-gray-100 rounded-lg"
+            className="lg:hidden p-2 hover:bg-gray-100 rounded-lg dark:hover:bg-zinc-900"
             aria-label="Open sidebar"
           >
-            <Menu className="h-5 w-5 text-gray-600" />
+            <Menu className="h-5 w-5 text-gray-600 dark:text-zinc-200" />
           </button>
 
-          <div className="flex min-w-0 items-center text-sm text-gray-500">
-            <Link to="/dashboard" className="hover:text-gray-800 transition-colors font-medium">
+          <div className="flex min-w-0 items-center text-sm text-gray-500 dark:text-zinc-400">
+            <Link to="/dashboard" className="hover:text-gray-800 transition-colors font-medium dark:hover:text-zinc-100">
               Dashboard
             </Link>
             {location.pathname !== '/dashboard' && (
               <>
-                <ChevronRight className="h-3.5 w-3.5 mx-1.5 text-gray-300 shrink-0" />
-                <span className="truncate text-gray-900 font-semibold">
+                <ChevronRight className="h-3.5 w-3.5 mx-1.5 text-gray-300 shrink-0 dark:text-zinc-600" />
+                <span className="truncate text-gray-900 font-semibold dark:text-zinc-100">
                   {breadcrumbNames[location.pathname] ||
                     location.pathname.split('/').pop()?.replace(/-/g, ' ').replace(/^\w/, (c) => c.toUpperCase())}
                 </span>
               </>
             )}
+          </div>
+
+          <div className="ml-auto">
+            <ThemeToggle />
           </div>
         </header>
 
@@ -474,14 +479,14 @@ function NavLink({
         'flex items-center rounded-xl transition-all duration-150',
         collapsed ? 'justify-center p-2.5' : 'gap-3 px-3 py-2.5',
         isActive
-          ? 'bg-amber-500 text-white font-semibold shadow-sm shadow-amber-200'
-          : 'text-gray-700 hover:bg-amber-50 hover:text-amber-900'
+          ? 'bg-amber-500 text-white font-semibold shadow-sm shadow-amber-200 dark:bg-red-500 dark:shadow-red-950/30'
+          : 'text-gray-700 hover:bg-amber-50 hover:text-amber-900 dark:text-zinc-300 dark:hover:bg-zinc-900 dark:hover:text-amber-100'
       )}
     >
       <Icon
         className={cn(
           'h-[18px] w-[18px] shrink-0 transition-colors',
-          isActive ? 'text-white' : 'text-amber-500'
+          isActive ? 'text-white' : 'text-amber-500 dark:text-amber-300'
         )}
       />
       {!collapsed && <span className="text-sm leading-none">{item.name}</span>}

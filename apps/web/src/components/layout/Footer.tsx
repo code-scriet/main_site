@@ -43,7 +43,7 @@ export function Footer() {
   ].filter(Boolean) as { name: string; icon: React.ComponentType<{ className?: string }>; href: string }[];
 
   return (
-    <footer className="bg-amber-950 text-amber-50 safe-area-pb">
+    <footer className="bg-amber-950 text-amber-50 safe-area-pb dark:border-t dark:border-zinc-800 dark:bg-zinc-950 dark:text-zinc-100">
       <div className="container mx-auto px-4 py-8 sm:py-12">
         <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-3 gap-6 sm:gap-8">
           {/* Logo & Description */}
@@ -54,7 +54,7 @@ export function Footer() {
               </div>
               <span className="text-lg sm:text-xl font-bold">{settings?.clubName || 'code.scriet'}</span>
             </div>
-            <p className="text-amber-200 text-xs sm:text-sm">
+            <p className="text-amber-200 text-xs sm:text-sm dark:text-zinc-400">
               {settings?.clubDescription || 'Building tomorrow\'s problem solvers through collaborative learning and hands-on coding experiences.'}
             </p>
           </div>
@@ -67,7 +67,7 @@ export function Footer() {
                 <li key={link.name}>
                   <Link
                     to={link.href}
-                    className="text-amber-200 hover:text-amber-400 transition-colors duration-200 text-sm"
+                    className="text-amber-200 hover:text-amber-400 transition-colors duration-200 text-sm dark:text-zinc-400 dark:hover:text-amber-300"
                   >
                     {link.name}
                   </Link>
@@ -88,7 +88,7 @@ export function Footer() {
                     href={social.href}
                     target={social.name === 'Email' ? undefined : '_blank'}
                     rel={social.name === 'Email' ? undefined : 'noopener noreferrer'}
-                    className="p-2 rounded-lg bg-amber-900 hover:bg-amber-800 transition-colors duration-200 touch-target"
+                    className="p-2 rounded-lg bg-amber-900 hover:bg-amber-800 transition-colors duration-200 touch-target dark:bg-zinc-900 dark:hover:bg-zinc-800"
                     aria-label={social.name}
                     title={social.name}
                   >
@@ -101,7 +101,7 @@ export function Footer() {
         </div>
 
         {/* Copyright */}
-        <div className="mt-6 sm:mt-8 pt-6 sm:pt-8 border-t border-amber-900 text-center text-amber-200 text-xs sm:text-sm">
+        <div className="mt-6 sm:mt-8 pt-6 sm:pt-8 border-t border-amber-900 text-center text-amber-200 text-xs sm:text-sm dark:border-zinc-800 dark:text-zinc-400">
           <p>&copy; {new Date().getFullYear()} {settings?.clubName || 'code.scriet'}. All rights reserved.</p>
         </div>
       </div>

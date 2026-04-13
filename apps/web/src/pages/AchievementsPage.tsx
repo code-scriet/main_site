@@ -56,12 +56,12 @@ function AchievementCard({
       className={`group h-full ${featured ? 'md:col-span-2 lg:col-span-1' : ''}`}
     >
       <Link to={`/achievements/${achievement.slug || achievement.id}`} className="block h-full">
-        <div className="relative h-full bg-white rounded-3xl overflow-hidden shadow-lg hover:shadow-2xl transition-all duration-500 border border-amber-100/50">
+        <div className="relative h-full overflow-hidden rounded-3xl border border-amber-100/50 bg-white shadow-lg transition-all duration-500 hover:shadow-2xl dark:border-zinc-800 dark:bg-[#0c0d12] dark:hover:shadow-black/30">
           {/* Animated gradient border on hover */}
           <div className="absolute inset-0 rounded-3xl opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none">
             <div className="absolute inset-[-2px] rounded-3xl bg-gradient-to-r from-amber-400 via-orange-500 to-amber-400 blur-sm" />
           </div>
-          <div className="absolute inset-[1px] bg-white rounded-3xl" />
+            <div className="absolute inset-[1px] rounded-3xl bg-white dark:bg-[#0f1015]" />
           
           {/* Image Container */}
           <div className="relative aspect-[4/3] overflow-hidden">
@@ -80,7 +80,7 @@ function AchievementCard({
                 <div className="absolute inset-0 bg-gradient-to-br from-amber-600/20 to-orange-600/20 mix-blend-overlay" />
               </>
             ) : (
-              <div className="w-full h-full bg-gradient-to-br from-amber-400 via-orange-500 to-amber-600 flex items-center justify-center relative overflow-hidden">
+                <div className="relative flex h-full w-full items-center justify-center overflow-hidden bg-gradient-to-br from-amber-400 via-orange-500 to-amber-600 dark:from-rose-700 dark:via-red-600 dark:to-orange-600">
                 {/* Animated background orbs */}
                 <motion.div 
                   animate={
@@ -125,7 +125,7 @@ function AchievementCard({
                 transition={{ delay: 0.2, type: "spring" }}
                 className="absolute top-4 left-4 z-10"
               >
-                <div className="flex items-center gap-1.5 px-4 py-2 bg-gradient-to-r from-amber-500 to-orange-500 rounded-full shadow-lg shadow-amber-500/40 backdrop-blur-sm">
+                <div className="flex items-center gap-1.5 rounded-full bg-gradient-to-r from-amber-500 to-orange-500 px-4 py-2 shadow-lg shadow-amber-500/40 backdrop-blur-sm dark:from-rose-600 dark:to-orange-500 dark:shadow-red-950/40">
                   <Sparkles className="h-4 w-4 text-white animate-pulse" />
                   <span className="text-white text-xs font-bold tracking-wider">FEATURED</span>
                 </div>
@@ -168,12 +168,12 @@ function AchievementCard({
             </div>
           </div>
           
-          <CardContent className="p-5 relative bg-white">
+          <CardContent className="relative bg-white p-5 dark:bg-[#0f1015]">
             {/* Subtle top accent line */}
             <div className="absolute top-0 left-5 right-5 h-px bg-gradient-to-r from-transparent via-amber-300/50 to-transparent" />
             
             {/* Description */}
-            <div className="text-gray-600 text-sm line-clamp-2 mb-4 min-h-[2.5rem] leading-relaxed">
+            <div className="mb-4 min-h-[2.5rem] line-clamp-2 text-sm leading-relaxed text-gray-600 dark:text-zinc-400">
               <InlineMarkdown>{achievement.shortDescription || achievement.description}</InlineMarkdown>
             </div>
             
@@ -181,16 +181,16 @@ function AchievementCard({
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center gap-3">
                 <div className="relative">
-                  <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center text-white font-bold text-sm shadow-lg shadow-amber-500/20 group-hover:shadow-amber-500/40 transition-shadow">
+                  <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-gradient-to-br from-amber-400 to-orange-500 text-sm font-bold text-white shadow-lg shadow-amber-500/20 transition-shadow group-hover:shadow-amber-500/40 dark:from-rose-600 dark:to-orange-500 dark:shadow-red-950/30">
                     {achievement.achievedBy?.charAt(0) || '?'}
                   </div>
-                  <div className="absolute -bottom-1 -right-1 w-4 h-4 bg-gradient-to-br from-green-400 to-emerald-500 rounded-full border-2 border-white flex items-center justify-center shadow-sm">
+                  <div className="absolute -bottom-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full border-2 border-white bg-gradient-to-br from-green-400 to-emerald-500 shadow-sm dark:border-[#0f1015]">
                     <Star className="h-2 w-2 text-white" />
                   </div>
                 </div>
                 <div>
-                  <p className="text-sm font-semibold text-gray-900 line-clamp-1">{achievement.achievedBy}</p>
-                  <div className="flex items-center gap-1 text-gray-500">
+                  <p className="line-clamp-1 text-sm font-semibold text-gray-900 dark:text-zinc-100">{achievement.achievedBy}</p>
+                  <div className="flex items-center gap-1 text-gray-500 dark:text-zinc-500">
                     <Calendar className="h-3 w-3" />
                     <span className="text-xs">{formatDate(achievement.date)}</span>
                   </div>
@@ -198,9 +198,9 @@ function AchievementCard({
               </div>
               <motion.div 
                 whileHover={isMobile ? undefined : { rotate: 12, scale: 1.1 }}
-                className="p-2 rounded-xl bg-amber-50 group-hover:bg-amber-100 transition-colors"
+                className="rounded-xl bg-amber-50 p-2 transition-colors group-hover:bg-amber-100 dark:bg-zinc-900 dark:group-hover:bg-zinc-800"
               >
-                <Trophy className="h-5 w-5 text-amber-500" />
+                <Trophy className="h-5 w-5 text-amber-500 dark:text-rose-400" />
               </motion.div>
             </div>
             
@@ -210,13 +210,13 @@ function AchievementCard({
                 {achievement.tags.slice(0, 3).map((tag, i) => (
                   <span 
                     key={i} 
-                    className="inline-flex items-center px-2.5 py-1 text-xs font-medium rounded-lg bg-gradient-to-r from-amber-50 to-orange-50 text-amber-700 border border-amber-200/50"
+                    className="inline-flex items-center rounded-lg border border-amber-200/50 bg-gradient-to-r from-amber-50 to-orange-50 px-2.5 py-1 text-xs font-medium text-amber-700 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-300"
                   >
                     {tag}
                   </span>
                 ))}
                 {achievement.tags.length > 3 && (
-                  <span className="inline-flex items-center px-2.5 py-1 text-xs font-medium rounded-lg bg-gray-100 text-gray-500">
+                  <span className="inline-flex items-center rounded-lg bg-gray-100 px-2.5 py-1 text-xs font-medium text-gray-500 dark:bg-zinc-900 dark:text-zinc-500">
                     +{achievement.tags.length - 3}
                   </span>
                 )}
@@ -224,15 +224,15 @@ function AchievementCard({
             )}
             
             {/* Premium CTA */}
-            <div className="flex items-center justify-between pt-4 border-t border-amber-100/50">
-              <span className="text-sm font-semibold text-amber-600 group-hover:text-amber-700 transition-colors">
+            <div className="flex items-center justify-between border-t border-amber-100/50 pt-4 dark:border-zinc-800">
+              <span className="text-sm font-semibold text-amber-600 transition-colors group-hover:text-amber-700 dark:text-rose-400 dark:group-hover:text-rose-300">
                 Explore Achievement
               </span>
               <motion.div 
                 whileHover={isMobile ? undefined : { x: 4 }}
-                className="flex items-center justify-center w-9 h-9 rounded-xl bg-amber-100 group-hover:bg-gradient-to-br group-hover:from-amber-500 group-hover:to-orange-500 transition-all duration-300"
+                className="flex h-9 w-9 items-center justify-center rounded-xl bg-amber-100 transition-all duration-300 group-hover:bg-gradient-to-br group-hover:from-amber-500 group-hover:to-orange-500 dark:bg-zinc-900 dark:group-hover:from-rose-600 dark:group-hover:to-orange-500"
               >
-                <ChevronRight className="h-5 w-5 text-amber-600 group-hover:text-white transition-colors duration-300" />
+                <ChevronRight className="h-5 w-5 text-amber-600 transition-colors duration-300 group-hover:text-white dark:text-rose-400" />
               </motion.div>
             </div>
           </CardContent>
@@ -302,9 +302,9 @@ export default function AchievementsPage() {
       />
       
       {/* REFINED HERO - Compact two-column layout */}
-      <section className="relative overflow-hidden bg-gradient-to-br from-amber-50 via-orange-50/50 to-amber-100/50 py-14 sm:py-20">
+      <section className="relative overflow-hidden bg-gradient-to-br from-amber-50 via-orange-50/50 to-amber-100/50 py-14 dark:from-[#07080c] dark:via-[#0b0c11] dark:to-[#101116] sm:py-20">
         {/* Background texture */}
-        <div className="absolute inset-0 opacity-20">
+        <div className="absolute inset-0 opacity-20 dark:opacity-10">
           <div 
             className="absolute inset-0"
             style={{
@@ -329,7 +329,7 @@ export default function AchievementsPage() {
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.6, delay: 0.2 }}
               >
-                <Badge className="bg-amber-100 border-amber-200 text-amber-700 px-4 py-2 shadow-lg">
+                <Badge className="border-amber-200 bg-amber-100 px-4 py-2 text-amber-700 shadow-lg dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200">
                   <Sparkles className="h-4 w-4 mr-2" />
                   Our Journey
                 </Badge>
@@ -341,10 +341,10 @@ export default function AchievementsPage() {
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.6, delay: 0.3 }}
               >
-                <h1 className="text-balance text-[clamp(2rem,5vw,3.75rem)] font-black leading-tight text-gray-900">
+                <h1 className="text-balance text-[clamp(2rem,5vw,3.75rem)] font-black leading-tight text-gray-900 dark:text-zinc-100">
                   Learning
                   <br />
-                  <span className="text-transparent bg-clip-text bg-gradient-to-r from-amber-600 to-orange-600">
+                  <span className="bg-gradient-to-r from-amber-600 to-orange-600 bg-clip-text text-transparent dark:from-rose-500 dark:to-red-400">
                     Through Doing
                   </span>
                 </h1>
@@ -355,7 +355,7 @@ export default function AchievementsPage() {
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.6, delay: 0.4 }}
-                className="text-base leading-relaxed text-gray-700 sm:text-lg"
+                className="text-base leading-relaxed text-gray-700 dark:text-zinc-400 sm:text-lg"
               >
                 These aren't just milestones—they're proof of what happens when students commit 
                 to learning together. Every workshop taught, every project built, every problem 
@@ -367,7 +367,7 @@ export default function AchievementsPage() {
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.6, delay: 0.5 }}
-                className="flex items-center gap-2 text-amber-700 font-bold"
+                className="flex items-center gap-2 font-bold text-amber-700 dark:text-rose-400"
               >
                 <Target className="h-5 w-5" />
                 <span>Growth over glory</span>
@@ -389,23 +389,23 @@ export default function AchievementsPage() {
                 whileHover={isMobile ? undefined : { y: -4, scale: 1.02 }}
                 className="col-span-2 relative group"
               >
-                <div className="relative bg-white backdrop-blur-sm rounded-2xl p-6 shadow-xl border border-amber-100 hover:shadow-2xl transition-all duration-300">
+                <div className="relative rounded-2xl border border-amber-100 bg-white p-6 shadow-xl transition-all duration-300 hover:shadow-2xl dark:border-zinc-800 dark:bg-[#0c0d12] dark:hover:shadow-black/30">
                   <div className="flex items-start justify-between mb-3">
-                    <div className="p-3 rounded-xl bg-gradient-to-br from-amber-50 to-orange-50 border border-amber-200">
-                      <Trophy className="h-7 w-7 text-amber-600" />
+                    <div className="rounded-xl border border-amber-200 bg-gradient-to-br from-amber-50 to-orange-50 p-3 dark:border-zinc-700 dark:bg-zinc-900">
+                      <Trophy className="h-7 w-7 text-amber-600 dark:text-rose-400" />
                     </div>
                     <motion.div
                       animate={shouldReduceMotion ? undefined : { rotate: [0, 5, -5, 0] }}
                       transition={shouldReduceMotion ? undefined : { duration: 2, repeat: Infinity, ease: "easeInOut" }}
                     >
-                      <Zap className="h-5 w-5 text-orange-500" />
+                      <Zap className="h-5 w-5 text-orange-500 dark:text-orange-400" />
                     </motion.div>
                   </div>
-                  <div className="mb-1 text-3xl font-black text-gray-900 sm:text-4xl">
+                  <div className="mb-1 text-3xl font-black text-gray-900 dark:text-zinc-100 sm:text-4xl">
                     {achievements.length || "0"}
                   </div>
-                  <div className="text-amber-700 font-bold text-sm">Milestones</div>
-                  <div className="text-xs text-gray-600 mt-1">Learning moments captured</div>
+                  <div className="text-sm font-bold text-amber-700 dark:text-rose-400">Milestones</div>
+                  <div className="mt-1 text-xs text-gray-600 dark:text-zinc-500">Learning moments captured</div>
                 </div>
               </motion.div>
               
@@ -417,14 +417,14 @@ export default function AchievementsPage() {
                 whileHover={isMobile ? undefined : { y: -4, scale: 1.05 }}
                 className="relative group"
               >
-                <div className="bg-white backdrop-blur-sm rounded-2xl p-5 shadow-lg border border-amber-100 h-full hover:shadow-xl transition-all duration-300">
-                  <div className="p-2.5 rounded-xl bg-gradient-to-br from-amber-50 to-orange-50 border border-amber-200 w-fit mb-3">
-                    <Star className="h-5 w-5 text-amber-600" />
+                <div className="h-full rounded-2xl border border-amber-100 bg-white p-5 shadow-lg transition-all duration-300 hover:shadow-xl dark:border-zinc-800 dark:bg-[#0c0d12] dark:hover:shadow-black/30">
+                  <div className="mb-3 w-fit rounded-xl border border-amber-200 bg-gradient-to-br from-amber-50 to-orange-50 p-2.5 dark:border-zinc-700 dark:bg-zinc-900">
+                    <Star className="h-5 w-5 text-amber-600 dark:text-rose-400" />
                   </div>
-                  <div className="mb-1 text-2xl font-black text-gray-900 sm:text-3xl">
+                  <div className="mb-1 text-2xl font-black text-gray-900 dark:text-zinc-100 sm:text-3xl">
                     {featuredAchievements.length || "0"}
                   </div>
-                  <div className="text-xs text-amber-700 font-bold">Featured</div>
+                  <div className="text-xs font-bold text-amber-700 dark:text-rose-400">Featured</div>
                 </div>
               </motion.div>
               
@@ -436,12 +436,12 @@ export default function AchievementsPage() {
                 whileHover={isMobile ? undefined : { y: -4, scale: 1.05 }}
                 className="relative group"
               >
-                <div className="bg-white backdrop-blur-sm rounded-2xl p-5 shadow-lg border border-amber-100 h-full hover:shadow-xl transition-all duration-300">
-                  <div className="p-2.5 rounded-xl bg-gradient-to-br from-orange-50 to-amber-50 border border-orange-200 w-fit mb-3">
-                    <Users className="h-5 w-5 text-orange-600" />
+                <div className="h-full rounded-2xl border border-amber-100 bg-white p-5 shadow-lg transition-all duration-300 hover:shadow-xl dark:border-zinc-800 dark:bg-[#0c0d12] dark:hover:shadow-black/30">
+                  <div className="mb-3 w-fit rounded-xl border border-orange-200 bg-gradient-to-br from-orange-50 to-amber-50 p-2.5 dark:border-zinc-700 dark:bg-zinc-900">
+                    <Users className="h-5 w-5 text-orange-600 dark:text-orange-400" />
                   </div>
-                  <div className="mb-1 text-2xl font-black text-gray-900 sm:text-3xl">{memberImpactCount}</div>
-                  <div className="text-xs text-amber-700 font-bold">Members</div>
+                  <div className="mb-1 text-2xl font-black text-gray-900 dark:text-zinc-100 sm:text-3xl">{memberImpactCount}</div>
+                  <div className="text-xs font-bold text-amber-700 dark:text-rose-400">Members</div>
                 </div>
               </motion.div>
             </motion.div>
@@ -450,7 +450,7 @@ export default function AchievementsPage() {
       </section>
 
       {/* ACHIEVEMENT CARDS SECTION */}
-      <section className="py-16 sm:py-20 bg-gradient-to-b from-white via-amber-50/30 to-white">
+      <section className="bg-gradient-to-b from-white via-amber-50/30 to-white py-16 dark:from-[#08090d] dark:via-[#0b0c11] dark:to-[#090a0e] sm:py-20">
         <div className="container mx-auto max-w-7xl px-4">
           {/* Section Header */}
           <motion.div
@@ -460,17 +460,17 @@ export default function AchievementsPage() {
             viewport={{ once: true }}
             className="text-center mb-12"
           >
-            <Badge className="bg-gradient-to-r from-amber-100 to-orange-100 text-amber-700 border-amber-200 mb-4 px-4 py-2">
+            <Badge className="mb-4 border-amber-200 bg-gradient-to-r from-amber-100 to-orange-100 px-4 py-2 text-amber-700 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200">
               <Award className="h-4 w-4 mr-2" />
               Our Milestones
             </Badge>
-            <h2 className="text-balance mb-4 text-[clamp(1.9rem,4.8vw,3.2rem)] font-black text-gray-900">
+            <h2 className="text-balance mb-4 text-[clamp(1.9rem,4.8vw,3.2rem)] font-black text-gray-900 dark:text-zinc-100">
               What We've{' '}
-              <span className="text-transparent bg-clip-text bg-gradient-to-r from-amber-500 to-orange-500">
+              <span className="bg-gradient-to-r from-amber-500 to-orange-500 bg-clip-text text-transparent dark:from-rose-500 dark:to-red-400">
                 Achieved
               </span>
             </h2>
-            <p className="mx-auto max-w-2xl text-base text-gray-600 sm:text-lg">
+            <p className="mx-auto max-w-2xl text-base text-gray-600 dark:text-zinc-400 sm:text-lg">
               Click on any achievement to explore the full story, photos, and details
             </p>
           </motion.div>
@@ -497,7 +497,7 @@ export default function AchievementsPage() {
                     className={`rounded-xl transition-all duration-300 ${
                       activeYear === year 
                         ? 'bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 shadow-lg shadow-amber-500/30 border-0' 
-                        : 'border-amber-300 text-amber-700 hover:bg-amber-50 hover:border-amber-400'
+                        : 'border-amber-300 text-amber-700 hover:bg-amber-50 hover:border-amber-400 dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-900 dark:hover:border-zinc-600'
                     }`}
                     size="sm"
                   >
@@ -516,19 +516,19 @@ export default function AchievementsPage() {
                 transition={{ duration: 2, repeat: Infinity, ease: "linear" }}
                 className="mb-6"
               >
-                <Trophy className="h-16 w-16 text-amber-400" />
+                <Trophy className="h-16 w-16 text-amber-400 dark:text-rose-400" />
               </motion.div>
-              <Loader2 className="h-10 w-10 animate-spin text-amber-500 mb-4" />
-              <p className="text-gray-500 text-lg">Loading achievements...</p>
+              <Loader2 className="mb-4 h-10 w-10 animate-spin text-amber-500 dark:text-rose-400" />
+              <p className="text-lg text-gray-500 dark:text-zinc-500">Loading achievements...</p>
             </div>
           ) : error ? (
             <div className="text-center py-24">
               <motion.div 
                 initial={{ scale: 0 }}
                 animate={{ scale: 1 }}
-                className="inline-flex h-24 w-24 items-center justify-center rounded-3xl bg-red-100 mb-6"
+              className="mb-6 inline-flex h-24 w-24 items-center justify-center rounded-3xl bg-red-100 dark:bg-red-950/30"
               >
-                <Trophy className="h-12 w-12 text-red-400" />
+                <Trophy className="h-12 w-12 text-red-400 dark:text-rose-400" />
               </motion.div>
               <p className="text-red-500 mb-4 text-lg">{error}</p>
               <Button onClick={() => window.location.reload()} className="bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600">
@@ -541,11 +541,11 @@ export default function AchievementsPage() {
               animate={{ opacity: 1, y: 0 }}
               className="text-center py-24"
             >
-              <div className="inline-flex items-center justify-center w-28 h-28 rounded-3xl bg-gradient-to-br from-amber-100 to-orange-100 mb-6 shadow-xl">
-                <Trophy className="h-14 w-14 text-amber-400" />
+              <div className="mb-6 inline-flex h-28 w-28 items-center justify-center rounded-3xl bg-gradient-to-br from-amber-100 to-orange-100 shadow-xl dark:bg-zinc-900">
+                <Trophy className="h-14 w-14 text-amber-400 dark:text-rose-400" />
               </div>
-              <h3 className="mb-3 text-2xl font-bold text-gray-900 sm:text-3xl">No achievements yet</h3>
-              <p className="mx-auto max-w-md text-base text-gray-500 sm:text-lg">
+              <h3 className="mb-3 text-2xl font-bold text-gray-900 dark:text-zinc-100 sm:text-3xl">No achievements yet</h3>
+              <p className="mx-auto max-w-md text-base text-gray-500 dark:text-zinc-500 sm:text-lg">
                 We're working on amazing things. Check back soon!
               </p>
             </motion.div>
@@ -561,11 +561,11 @@ export default function AchievementsPage() {
                     viewport={{ once: true }}
                     className="text-center mb-10"
                   >
-                    <div className="inline-flex items-center gap-2 bg-gradient-to-r from-amber-500 to-orange-500 text-white px-6 py-3 rounded-2xl shadow-xl shadow-amber-500/30 mb-4">
+                    <div className="mb-4 inline-flex items-center gap-2 rounded-2xl bg-gradient-to-r from-amber-500 to-orange-500 px-6 py-3 text-white shadow-xl shadow-amber-500/30 dark:from-rose-600 dark:to-orange-500 dark:shadow-red-950/40">
                       <Sparkles className="h-5 w-5 animate-pulse" />
                       <span className="font-bold text-lg">Featured Achievements</span>
                     </div>
-                    <h3 className="text-2xl font-bold text-gray-900 sm:text-3xl">Our Proudest Moments</h3>
+                    <h3 className="text-2xl font-bold text-gray-900 dark:text-zinc-100 sm:text-3xl">Our Proudest Moments</h3>
                   </motion.div>
                   
                   <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-8">
@@ -594,8 +594,8 @@ export default function AchievementsPage() {
                       viewport={{ once: true }}
                       className="text-center mb-10"
                     >
-                      <h3 className="text-2xl font-bold text-gray-900 sm:text-3xl">All Achievements</h3>
-                      <p className="mt-2 text-base text-gray-600 sm:text-lg">Every milestone matters in our journey</p>
+                      <h3 className="text-2xl font-bold text-gray-900 dark:text-zinc-100 sm:text-3xl">All Achievements</h3>
+                      <p className="mt-2 text-base text-gray-600 dark:text-zinc-400 sm:text-lg">Every milestone matters in our journey</p>
                     </motion.div>
                   )}
                   

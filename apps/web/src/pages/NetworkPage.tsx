@@ -346,15 +346,15 @@ export default function NetworkPage() {
         ]}
       />
 
-      <div className="relative min-h-screen bg-gradient-to-b from-white via-gray-50/30 to-gray-50/50">
+      <div className="relative min-h-screen bg-gradient-to-b from-white via-gray-50/30 to-gray-50/50 dark:from-[#06070a] dark:via-[#0b0c11] dark:to-[#090a0e]">
         {/* Subtle background decoration */}
         <div className="pointer-events-none absolute inset-0 overflow-hidden">
-          <div className="absolute -right-24 -top-24 h-[260px] w-[260px] rounded-full bg-amber-50 blur-[64px] sm:-right-40 sm:-top-40 sm:h-[600px] sm:w-[600px] sm:blur-[120px]" />
-          <div className="absolute -left-24 top-[420px] h-[220px] w-[220px] rounded-full bg-orange-50/60 blur-[64px] sm:-left-40 sm:top-[500px] sm:h-[400px] sm:w-[400px] sm:blur-[100px]" />
+          <div className="absolute -right-24 -top-24 h-[260px] w-[260px] rounded-full bg-amber-50 blur-[64px] dark:bg-red-950/20 sm:-right-40 sm:-top-40 sm:h-[600px] sm:w-[600px] sm:blur-[120px]" />
+          <div className="absolute -left-24 top-[420px] h-[220px] w-[220px] rounded-full bg-orange-50/60 blur-[64px] dark:bg-orange-950/15 sm:-left-40 sm:top-[500px] sm:h-[400px] sm:w-[400px] sm:blur-[100px]" />
         </div>
 
         {/* ══════════ HERO — light, clean ══════════ */}
-        <section className="relative overflow-hidden border-b border-gray-100 bg-white pt-14 pb-16 sm:pt-18 sm:pb-20">
+        <section className="relative overflow-hidden border-b border-gray-100 bg-white pt-14 pb-16 dark:border-zinc-800 dark:bg-[#08090d] sm:pt-18 sm:pb-20">
           <div className="container relative z-10 mx-auto max-w-6xl px-4 sm:px-6 lg:px-8">
             <div className="grid items-center gap-10 lg:grid-cols-[1.2fr_1fr] xl:gap-16">
 
@@ -368,21 +368,21 @@ export default function NetworkPage() {
                   initial={{ opacity: 0, x: -16 }}
                   animate={{ opacity: 1, x: 0 }}
                   transition={{ delay: 0.1 }}
-                  className="mb-5 inline-flex items-center gap-2 rounded-full border border-amber-200 bg-amber-50 px-4 py-1.5 text-sm font-semibold text-amber-700"
+                  className="mb-5 inline-flex items-center gap-2 rounded-full border border-amber-200 bg-amber-50 px-4 py-1.5 text-sm font-semibold text-amber-700 dark:border-zinc-700 dark:bg-zinc-900 dark:text-zinc-200"
                 >
                   <Sparkles className="h-3.5 w-3.5" />
                   code.scriet Network
                 </motion.div>
 
-                <h1 className="max-w-xl text-4xl font-extrabold leading-[1.1] tracking-tight text-gray-900 sm:text-5xl lg:text-6xl">
+                <h1 className="max-w-xl text-4xl font-extrabold leading-[1.1] tracking-tight text-gray-900 dark:text-zinc-100 sm:text-5xl lg:text-6xl">
                   Connect with{' '}
-                  <span className="bg-gradient-to-r from-amber-500 to-orange-500 bg-clip-text text-transparent">
+                  <span className="bg-gradient-to-r from-amber-500 to-orange-500 bg-clip-text text-transparent dark:from-rose-500 dark:to-red-400">
                     Alumni &amp; Professionals
                   </span>{' '}
                   who shape careers.
                 </h1>
 
-                <p className="mt-5 max-w-lg text-base leading-relaxed text-gray-500 sm:text-lg">
+                <p className="mt-5 max-w-lg text-base leading-relaxed text-gray-500 dark:text-zinc-400 sm:text-lg">
                   Industry professionals, mentors, and alumni who actively support students through
                   guidance, sessions, and real-world opportunities.
                 </p>
@@ -391,7 +391,7 @@ export default function NetworkPage() {
                   <div className="mt-8 flex flex-col gap-3 sm:flex-row">
                     <Button
                       size="lg"
-                      className="gap-2 bg-gradient-to-r from-amber-500 to-orange-500 px-7 text-white shadow-lg shadow-amber-200 hover:from-amber-600 hover:to-orange-600"
+                      className="gap-2 bg-gradient-to-r from-amber-500 to-orange-500 px-7 text-white shadow-lg shadow-amber-200 hover:from-amber-600 hover:to-orange-600 dark:from-rose-600 dark:to-orange-500 dark:shadow-red-950/40 dark:hover:from-rose-500 dark:hover:to-orange-400"
                       onClick={() => handleJoinNetwork('professional')}
                       disabled={joiningNetwork}
                     >
@@ -401,7 +401,7 @@ export default function NetworkPage() {
                     <Button
                       size="lg"
                       variant="outline"
-                      className="gap-2 border-gray-300 bg-white text-gray-700 hover:bg-gray-50"
+                      className="gap-2 border-gray-300 bg-white text-gray-700 hover:bg-gray-50 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-200 dark:hover:bg-zinc-900"
                       onClick={() => handleJoinNetwork('alumni')}
                       disabled={joiningNetwork}
                     >
@@ -412,7 +412,7 @@ export default function NetworkPage() {
                 ) : (
                   <div className="mt-8">
                     <Link to="/network/status">
-                      <Button size="lg" className="gap-2 bg-gradient-to-r from-amber-500 to-orange-500 text-white shadow-lg shadow-amber-200 hover:from-amber-600 hover:to-orange-600">
+                      <Button size="lg" className="gap-2 bg-gradient-to-r from-amber-500 to-orange-500 text-white shadow-lg shadow-amber-200 hover:from-amber-600 hover:to-orange-600 dark:from-rose-600 dark:to-orange-500 dark:shadow-red-950/40 dark:hover:from-rose-500 dark:hover:to-orange-400">
                         <Heart className="h-5 w-5 fill-white text-white" />
                         View Your Network Status
                         <ChevronRight className="h-5 w-5" />
@@ -422,7 +422,7 @@ export default function NetworkPage() {
                 )}
 
                 {/* Stats row */}
-                <div className="mt-8 flex flex-wrap gap-5 border-t border-gray-100 pt-8">
+                <div className="mt-8 flex flex-wrap gap-5 border-t border-gray-100 pt-8 dark:border-zinc-800">
                   {[
                     { label: 'Professionals', value: networkStats.totalProfessionals, icon: Briefcase },
                     { label: 'Alumni', value: networkStats.totalAlumni, icon: GraduationCap },
@@ -436,12 +436,12 @@ export default function NetworkPage() {
                       transition={{ delay: 0.3 + i * 0.06 }}
                       className="flex items-center gap-2.5"
                     >
-                      <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-amber-50">
-                        <s.icon className="h-4 w-4 text-amber-600" />
+                      <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-amber-50 dark:bg-zinc-900">
+                        <s.icon className="h-4 w-4 text-amber-600 dark:text-rose-400" />
                       </div>
                       <div>
-                        <p className="text-xl font-bold leading-none text-gray-900">{s.value}</p>
-                        <p className="mt-0.5 text-xs text-gray-400">{s.label}</p>
+                        <p className="text-xl font-bold leading-none text-gray-900 dark:text-zinc-100">{s.value}</p>
+                        <p className="mt-0.5 text-xs text-gray-400 dark:text-zinc-500">{s.label}</p>
                       </div>
                     </motion.div>
                   ))}
@@ -453,10 +453,10 @@ export default function NetworkPage() {
                 initial={{ opacity: 0, y: 28, scale: 0.97 }}
                 animate={{ opacity: 1, y: 0, scale: 1 }}
                 transition={{ duration: 0.6, delay: 0.15, ease: [0.22, 1, 0.36, 1] }}
-                className="relative overflow-hidden rounded-3xl border border-gray-100 bg-white p-7 shadow-2xl shadow-gray-200/60"
+                className="relative overflow-hidden rounded-3xl border border-gray-100 bg-white p-7 shadow-2xl shadow-gray-200/60 dark:border-zinc-800 dark:bg-[#0d0f14] dark:shadow-black/30"
               >
                 {/* Decorative corner blob */}
-                <div className="pointer-events-none absolute -right-10 -top-10 h-40 w-40 rounded-full bg-amber-50 blur-3xl" />
+                <div className="pointer-events-none absolute -right-10 -top-10 h-40 w-40 rounded-full bg-amber-50 blur-3xl dark:bg-red-950/20" />
 
                 <div className="relative z-10">
                   <div className="mb-5 flex items-center gap-3">
@@ -464,8 +464,8 @@ export default function NetworkPage() {
                       <Handshake className="h-5 w-5" />
                     </div>
                     <div>
-                      <p className="text-[11px] font-bold uppercase tracking-widest text-amber-600">How You Can Help</p>
-                      <p className="text-sm font-semibold text-gray-900">Make a meaningful impact</p>
+                      <p className="text-[11px] font-bold uppercase tracking-widest text-amber-600 dark:text-rose-400">How You Can Help</p>
+                      <p className="text-sm font-semibold text-gray-900 dark:text-zinc-100">Make a meaningful impact</p>
                     </div>
                   </div>
 
@@ -476,14 +476,14 @@ export default function NetworkPage() {
                         initial={{ opacity: 0, x: 14 }}
                         animate={{ opacity: 1, x: 0 }}
                         transition={{ delay: 0.25 + index * 0.08 }}
-                        className="flex items-start gap-3 rounded-2xl border border-gray-100 p-4 transition-colors hover:border-amber-100 hover:bg-amber-50/40"
+                        className="flex items-start gap-3 rounded-2xl border border-gray-100 p-4 transition-colors hover:border-amber-100 hover:bg-amber-50/40 dark:border-zinc-800 dark:hover:border-zinc-700 dark:hover:bg-zinc-900/60"
                       >
-                        <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-amber-50 text-amber-600">
+                        <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-amber-50 text-amber-600 dark:bg-zinc-900 dark:text-rose-400">
                           <item.icon className="h-4 w-4" />
                         </div>
                         <div>
-                          <p className="text-sm font-semibold text-gray-900">{item.title}</p>
-                          <p className="mt-0.5 text-xs leading-relaxed text-gray-500">{item.description}</p>
+                          <p className="text-sm font-semibold text-gray-900 dark:text-zinc-100">{item.title}</p>
+                          <p className="mt-0.5 text-xs leading-relaxed text-gray-500 dark:text-zinc-400">{item.description}</p>
                         </div>
                       </motion.div>
                     ))}

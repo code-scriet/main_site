@@ -3,6 +3,7 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { Link, useLocation } from 'react-router-dom';
 import { Menu, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { ThemeToggle } from '@/components/theme/ThemeToggle';
 import { useAuth } from '@/context/AuthContext';
 import { useSettings } from '@/context/SettingsContext';
 import { cn } from '@/lib/utils';
@@ -108,19 +109,19 @@ export function Header() {
   ];
 
   const desktopNavBaseClass = 'border-b-2 pb-1 text-sm font-medium transition-colors duration-200';
-  const desktopNavInactiveClass = 'border-transparent text-gray-700 hover:text-amber-600';
+  const desktopNavInactiveClass = 'border-transparent text-gray-700 hover:text-amber-600 dark:text-zinc-300 dark:hover:text-amber-300';
   const mobileNavBaseClass = 'block rounded-xl px-3 py-3 text-sm font-medium transition-colors duration-200';
-  const mobileNavInactiveClass = 'text-gray-700 hover:bg-amber-50 hover:text-amber-600';
+  const mobileNavInactiveClass = 'text-gray-700 hover:bg-amber-50 hover:text-amber-600 dark:text-zinc-300 dark:hover:bg-zinc-900 dark:hover:text-amber-300';
 
   return (
-    <header className="sticky top-0 z-50 w-full border-b border-amber-200 bg-white/95 backdrop-blur supports-[backdrop-filter]:bg-white/80">
+    <header className="sticky top-0 z-50 w-full border-b border-amber-200 bg-white/95 backdrop-blur supports-[backdrop-filter]:bg-white/80 dark:border-zinc-800 dark:bg-zinc-950/90 dark:supports-[backdrop-filter]:bg-zinc-950/80">
       <nav className="container mx-auto px-4 py-4">
         <div className="flex items-center justify-between">
           <Link to="/" className="flex items-center space-x-3 group">
             <div className="h-12 w-12 rounded-lg overflow-hidden shadow-md group-hover:shadow-lg transition-shadow">
               <img src="/logo.jpeg" alt="code.scriet" className="h-full w-full object-cover" />
             </div>
-            <span className="text-xl font-bold text-amber-900 group-hover:text-amber-700 transition-colors">code.scriet</span>
+            <span className="text-xl font-bold text-amber-900 group-hover:text-amber-700 transition-colors dark:text-amber-100 dark:group-hover:text-amber-300">code.scriet</span>
           </Link>
 
           <div className="hidden xl:flex items-center space-x-4 2xl:space-x-6">
@@ -149,7 +150,7 @@ export function Header() {
                   className={cn(
                     desktopNavBaseClass,
                     active
-                      ? 'border-amber-500 text-amber-500 font-semibold'
+                      ? 'border-amber-500 text-amber-500 font-semibold dark:border-amber-400 dark:text-amber-300'
                       : desktopNavInactiveClass
                   )}
                 >
@@ -160,6 +161,7 @@ export function Header() {
           </div>
 
           <div className="hidden xl:flex items-center space-x-3 2xl:space-x-4">
+            <ThemeToggle />
             {user ? (
               <>
                 <Link to="/dashboard">
@@ -189,21 +191,24 @@ export function Header() {
             )}
           </div>
 
-          <button
-            ref={menuButtonRef}
-            type="button"
-            className="xl:hidden p-2.5 rounded-lg hover:bg-amber-50 active:bg-amber-100 transition-colors touch-target"
-            onClick={() => setIsMenuOpen((open) => !open)}
-            aria-label={isMenuOpen ? 'Close menu' : 'Open menu'}
-            aria-expanded={isMenuOpen}
-            aria-controls="mobile-menu"
-          >
-            {isMenuOpen ? (
-              <X className="h-6 w-6 text-gray-700" />
-            ) : (
-              <Menu className="h-6 w-6 text-gray-700" />
-            )}
-          </button>
+          <div className="flex items-center gap-2 xl:hidden">
+            <ThemeToggle />
+            <button
+              ref={menuButtonRef}
+              type="button"
+              className="p-2.5 rounded-lg hover:bg-amber-50 active:bg-amber-100 transition-colors touch-target dark:hover:bg-zinc-900 dark:active:bg-zinc-800"
+              onClick={() => setIsMenuOpen((open) => !open)}
+              aria-label={isMenuOpen ? 'Close menu' : 'Open menu'}
+              aria-expanded={isMenuOpen}
+              aria-controls="mobile-menu"
+            >
+              {isMenuOpen ? (
+                <X className="h-6 w-6 text-gray-700 dark:text-zinc-100" />
+              ) : (
+                <Menu className="h-6 w-6 text-gray-700 dark:text-zinc-100" />
+              )}
+            </button>
+          </div>
         </div>
       </nav>
 
@@ -213,7 +218,7 @@ export function Header() {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 z-40 bg-black/30 backdrop-blur-sm xl:hidden"
+            className="fixed inset-0 z-40 bg-black/30 backdrop-blur-sm xl:hidden dark:bg-black/60"
             onClick={closeMenu}
           >
             <div className="px-4 pt-[88px]">
@@ -227,7 +232,7 @@ export function Header() {
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -12 }}
                 transition={{ duration: 0.2 }}
-                className="rounded-2xl border border-amber-200 bg-white p-4 shadow-2xl"
+                className="rounded-2xl border border-amber-200 bg-white p-4 shadow-2xl dark:border-zinc-800 dark:bg-zinc-950 dark:shadow-black/40"
                 onClick={(event) => event.stopPropagation()}
               >
                 <div className="space-y-2">
@@ -257,7 +262,7 @@ export function Header() {
                         className={cn(
                           mobileNavBaseClass,
                           active
-                            ? 'bg-amber-50 text-amber-500 font-semibold'
+                            ? 'bg-amber-50 text-amber-500 font-semibold dark:bg-zinc-900 dark:text-amber-300'
                             : mobileNavInactiveClass
                         )}
                         onClick={closeMenu}
@@ -268,7 +273,7 @@ export function Header() {
                   })}
                 </div>
 
-                <div className="mt-4 flex flex-col gap-2 border-t border-amber-200 pt-4">
+                <div className="mt-4 flex flex-col gap-2 border-t border-amber-200 pt-4 dark:border-zinc-800">
                   {user ? (
                     <>
                       <Link to="/dashboard" onClick={closeMenu}>

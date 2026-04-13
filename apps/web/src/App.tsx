@@ -5,13 +5,14 @@ import { Loader2 } from 'lucide-react';
 import { Toaster } from 'sonner';
 import { AuthProvider } from '@/context/AuthContext';
 import { SettingsProvider } from '@/context/SettingsContext';
+import { ThemeProvider } from '@/context/ThemeContext';
 import { ErrorBoundary } from '@/components/ErrorBoundary';
 import { SEO } from '@/components/SEO';
 
 // Loading fallback component
 const PageLoader = () => (
-  <div className="min-h-screen flex items-center justify-center bg-amber-50">
-    <Loader2 className="h-12 w-12 animate-spin text-amber-600" />
+  <div className="min-h-screen flex items-center justify-center bg-amber-50 dark:bg-zinc-950">
+    <Loader2 className="h-12 w-12 animate-spin text-amber-600 dark:text-amber-300" />
   </div>
 );
 
@@ -124,13 +125,14 @@ const queryClient = new QueryClient({
 function App() {
   return (
     <QueryClientProvider client={queryClient}>
-      <AuthProvider>
-        <SettingsProvider>
-          <ErrorBoundary>
-            <Router>
-              <ScrollToTopOnNavigation />
-              <Toaster position="top-right" richColors />
-              <Routes>
+      <ThemeProvider>
+        <AuthProvider>
+          <SettingsProvider>
+            <ErrorBoundary>
+              <Router>
+                <ScrollToTopOnNavigation />
+                <Toaster position="top-right" richColors />
+                <Routes>
                   {/* Public Routes */}
                   <Route path="/" element={withRouteBoundary(<HomePage />)} />
                   <Route path="/about" element={withRouteBoundary(<AboutPage />)} />
@@ -217,23 +219,24 @@ function App() {
 
                   {/* 404 */}
                   <Route path="*" element={<NotFound />} />
-              </Routes>
-            </Router>
-          </ErrorBoundary>
-        </SettingsProvider>
-      </AuthProvider>
+                </Routes>
+              </Router>
+            </ErrorBoundary>
+          </SettingsProvider>
+        </AuthProvider>
+      </ThemeProvider>
     </QueryClientProvider>
   );
 }
 
 function NotFound() {
   return (
-    <div className="min-h-screen flex items-center justify-center bg-amber-50">
+    <div className="min-h-screen flex items-center justify-center bg-amber-50 dark:bg-zinc-950">
       <SEO title="Page Not Found" noIndex={true} />
       <div className="text-center">
-        <h1 className="text-6xl font-bold text-amber-600 mb-4">404</h1>
-        <p className="text-xl text-gray-600 mb-8">Page not found</p>
-        <a href="/" className="text-amber-600 hover:underline">Go back home</a>
+        <h1 className="text-6xl font-bold text-amber-600 dark:text-amber-300 mb-4">404</h1>
+        <p className="text-xl text-gray-600 dark:text-zinc-400 mb-8">Page not found</p>
+        <a href="/" className="text-amber-600 dark:text-amber-300 hover:underline">Go back home</a>
       </div>
     </div>
   );

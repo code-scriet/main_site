@@ -27,6 +27,28 @@
     --site-header-height: 80px;
     --site-header-offset: calc(var(--site-header-height) + 8px);
   }
+
+  .dark {
+    --background: 12 18% 6%;
+    --foreground: 36 33% 96%;
+    --card: 12 16% 9%;
+    --card-foreground: 36 33% 96%;
+    --popover: 12 16% 9%;
+    --popover-foreground: 36 33% 96%;
+    --primary: 2 68% 52%;
+    --primary-foreground: 36 33% 96%;
+    --secondary: 18 72% 45%;
+    --secondary-foreground: 20 14% 4%;
+    --muted: 12 14% 12%;
+    --muted-foreground: 28 10% 72%;
+    --accent: 12 18% 14%;
+    --accent-foreground: 36 33% 96%;
+    --destructive: 0 72% 56%;
+    --destructive-foreground: 36 33% 96%;
+    --border: 18 14% 22%;
+    --input: 18 14% 18%;
+    --ring: 2 86% 62%;
+  }
 }
 
 @layer base {
@@ -40,12 +62,15 @@
   }
   
   body {
-    @apply bg-amber-50 text-gray-800 font-sans antialiased;
+    @apply font-sans antialiased;
+    background-color: hsl(var(--background));
+    color: hsl(var(--foreground));
     -webkit-tap-highlight-color: transparent;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     text-rendering: optimizeLegibility;
     overflow-x: hidden;
+    transition: background-color 200ms ease, color 200ms ease;
   }
 
   html,
@@ -60,7 +85,8 @@
   }
   
   h1, h2, h3, h4, h5, h6 {
-    @apply font-display font-bold text-amber-900 tracking-tight;
+    @apply font-display font-bold tracking-tight;
+    color: #78350f;
     text-wrap: balance;
     overflow-wrap: anywhere;
   }
@@ -88,6 +114,39 @@
   }
 }
 
+html.dark {
+  color-scheme: dark;
+  --surface-0: 6 7 10;
+  --surface-1: 12 13 18;
+  --surface-2: 19 20 27;
+  --surface-3: 33 35 43;
+  --text-1: 244 244 245;
+  --text-2: 212 212 216;
+  --text-3: 161 161 170;
+  --warm-1: 244 244 245;
+  --warm-2: 228 228 231;
+  --warm-3: 212 212 216;
+  --accent-red: 239 68 68;
+  --accent-orange: 220 38 38;
+  --accent-amber: 194 65 12;
+  --border-warm: 63 63 70;
+}
+
+html.dark body {
+  background-image:
+    radial-gradient(circle at top, rgb(239 68 68 / 0.08), transparent 30%),
+    radial-gradient(circle at bottom right, rgb(194 65 12 / 0.06), transparent 26%);
+}
+
+html.dark h1,
+html.dark h2,
+html.dark h3,
+html.dark h4,
+html.dark h5,
+html.dark h6 {
+  color: rgb(var(--warm-1));
+}
+
 /* Smooth scrolling with reduced motion preference */
 @media (prefers-reduced-motion: no-preference) {
   html {
@@ -98,6 +157,11 @@
 /* Selection styling */
 ::selection {
   @apply bg-amber-200 text-amber-900;
+}
+
+html.dark ::selection {
+  background: rgb(248 113 113 / 0.28);
+  color: rgb(255 237 213);
 }
 
 /* Mobile-friendly touch targets */
@@ -158,6 +222,11 @@
   .glass {
     @apply bg-white/70 backdrop-blur-xl border border-white/20 shadow-xl;
   }
+
+  html.dark .glass {
+    @apply bg-zinc-900/70 border-zinc-700/50;
+    box-shadow: 0 24px 60px rgb(0 0 0 / 0.3);
+  }
   
   .glass-dark {
     @apply bg-black/30 backdrop-blur-xl border border-white/10;
@@ -185,6 +254,350 @@
   .top-under-header-gap {
     top: var(--site-header-offset);
   }
+}
+
+html.dark [data-sonner-toaster] [data-sonner-toast] {
+  background: rgb(var(--surface-1)) !important;
+  border-color: rgb(var(--border-warm) / 0.55) !important;
+  color: rgb(var(--text-1)) !important;
+}
+
+html.dark [data-sonner-toaster] [data-button] {
+  background: rgb(var(--surface-2)) !important;
+  border-color: rgb(var(--border-warm) / 0.55) !important;
+  color: rgb(var(--warm-1)) !important;
+}
+
+html.dark :is(
+  [class~="bg-white"],
+  [class~="bg-gray-50"],
+  [class~="bg-amber-50"],
+  [class~="bg-red-50"],
+  [class~="bg-orange-50"],
+  [class~="bg-purple-50"],
+  [class~="bg-blue-50"],
+  [class~="bg-green-50"],
+  [class~="bg-emerald-50"]
+) {
+  background-color: rgb(var(--surface-1)) !important;
+}
+
+html.dark :is(
+  [class~="bg-white/95"],
+  [class~="bg-white/90"],
+  [class~="bg-white/80"]
+) {
+  background-color: rgb(var(--surface-0) / 0.92) !important;
+}
+
+html.dark :is(
+  [class~="bg-amber-50/50"],
+  [class~="bg-amber-50/60"],
+  [class~="bg-amber-50/80"],
+  [class~="bg-amber-50/90"],
+  [class~="bg-gray-50/50"],
+  [class~="bg-gray-50/60"],
+  [class~="bg-gray-50/80"],
+  [class~="bg-red-50/40"],
+  [class~="bg-red-50/50"],
+  [class~="bg-red-50/80"],
+  [class~="bg-orange-50/60"]
+) {
+  background-color: rgb(var(--surface-1) / 0.74) !important;
+}
+
+html.dark :is(
+  [class~="bg-gray-100"],
+  [class~="bg-amber-100"],
+  [class~="bg-red-100"],
+  [class~="bg-orange-100"],
+  [class~="bg-purple-100"],
+  [class~="bg-blue-100"],
+  [class~="bg-green-100"]
+) {
+  background-color: rgb(var(--surface-2)) !important;
+}
+
+html.dark :is(
+  [class~="bg-gray-200"],
+  [class~="bg-amber-200"],
+  [class~="bg-gray-300"]
+) {
+  background-color: rgb(var(--surface-3)) !important;
+}
+
+html.dark :is(
+  [class~="bg-gray-800"],
+  [class~="bg-gray-900"],
+  [class~="bg-amber-950"],
+  [class~="bg-red-950"]
+) {
+  background-color: rgb(var(--surface-0)) !important;
+}
+
+html.dark :is(
+  [class~="text-gray-950"],
+  [class~="text-gray-900"]
+) {
+  color: rgb(var(--text-1)) !important;
+}
+
+html.dark :is(
+  [class~="text-gray-800"],
+  [class~="text-gray-700"],
+  [class~="text-gray-600"],
+  [class~="text-gray-300"],
+  [class~="text-gray-100"]
+) {
+  color: rgb(var(--text-2)) !important;
+}
+
+html.dark :is(
+  [class~="text-gray-500"],
+  [class~="text-gray-400"],
+  [class~="text-stone-500"]
+) {
+  color: rgb(var(--text-3)) !important;
+}
+
+html.dark [class~="text-amber-900"] {
+  color: rgb(var(--warm-1)) !important;
+}
+
+html.dark [class~="text-amber-800"] {
+  color: rgb(var(--warm-2)) !important;
+}
+
+html.dark [class~="text-amber-700"] {
+  color: rgb(var(--warm-3)) !important;
+}
+
+html.dark :is(
+  [class~="text-amber-600"],
+  [class~="text-orange-600"],
+  [class~="text-orange-700"]
+) {
+  color: rgb(var(--accent-orange)) !important;
+}
+
+html.dark :is(
+  [class~="text-amber-500"],
+  [class~="text-red-500"],
+  [class~="text-red-600"],
+  [class~="text-red-700"],
+  [class~="text-red-800"]
+) {
+  color: rgb(var(--accent-red)) !important;
+}
+
+html.dark :is(
+  [class~="text-amber-400"],
+  [class~="text-orange-500"],
+  [class~="text-orange-400"]
+) {
+  color: rgb(var(--accent-amber)) !important;
+}
+
+html.dark :is(
+  [class~="text-amber-300"],
+  [class~="text-amber-200"],
+  [class~="text-amber-100"]
+) {
+  color: rgb(var(--warm-1)) !important;
+}
+
+html.dark :is(
+  [class~="border-gray-100"],
+  [class~="border-gray-200"],
+  [class~="border-gray-300"],
+  [class~="border-amber-100"],
+  [class~="border-amber-200"],
+  [class~="border-amber-300"],
+  [class~="border-amber-200/60"],
+  [class~="border-amber-200/50"],
+  [class~="border-amber-200/90"]
+) {
+  border-color: rgb(var(--border-warm) / 0.55) !important;
+}
+
+html.dark :is(
+  [class~="border-amber-400"],
+  [class~="border-amber-500"],
+  [class~="border-orange-300"],
+  [class~="border-orange-200"]
+) {
+  border-color: rgb(var(--accent-orange) / 0.45) !important;
+}
+
+html.dark :is(
+  [class~="border-red-200"],
+  [class~="border-red-300"],
+  [class~="border-red-500"]
+) {
+  border-color: rgb(var(--accent-red) / 0.45) !important;
+}
+
+html.dark :is(
+  [class~="border-blue-200"],
+  [class~="border-green-200"],
+  [class~="border-emerald-200"],
+  [class~="border-purple-200"]
+) {
+  border-color: rgb(var(--surface-3)) !important;
+}
+
+html.dark :is(
+  [class~="hover:bg-amber-50"],
+  [class~="hover:bg-amber-50/50"],
+  [class~="hover:bg-gray-50"],
+  [class~="hover:bg-gray-100"]
+):hover {
+  background-color: rgb(var(--surface-2)) !important;
+}
+
+html.dark [class~="hover:bg-amber-100"]:hover {
+  background-color: rgb(var(--surface-3)) !important;
+}
+
+html.dark [class~="hover:bg-red-50"]:hover {
+  background-color: rgb(127 29 29 / 0.25) !important;
+}
+
+html.dark :is(
+  [class~="hover:bg-amber-600"],
+  [class~="hover:bg-amber-700"]
+):hover {
+  background-color: rgb(194 65 12) !important;
+}
+
+html.dark :is(
+  [class~="hover:bg-red-600"],
+  [class~="hover:bg-red-700"]
+):hover {
+  background-color: rgb(185 28 28) !important;
+}
+
+html.dark :is(
+  [class~="hover:text-gray-700"],
+  [class~="hover:text-gray-800"],
+  [class~="hover:text-gray-900"]
+):hover {
+  color: rgb(var(--text-1)) !important;
+}
+
+html.dark :is(
+  [class~="hover:text-amber-600"],
+  [class~="hover:text-amber-700"],
+  [class~="hover:text-amber-800"],
+  [class~="hover:text-amber-900"]
+):hover {
+  color: rgb(var(--warm-2)) !important;
+}
+
+html.dark :is(
+  [class~="hover:text-red-600"],
+  [class~="hover:text-red-700"],
+  [class~="hover:text-red-800"]
+):hover {
+  color: rgb(252 165 165) !important;
+}
+
+html.dark :is(
+  [class~="focus:ring-amber-500"],
+  [class~="focus-visible:ring-amber-500"],
+  [class~="focus:ring-amber-400"],
+  [class~="focus-visible:ring-amber-400"],
+  [class~="ring-amber-500"],
+  [class~="ring-amber-400"]
+) {
+  --tw-ring-color: rgb(var(--accent-red) / 0.45) !important;
+}
+
+html.dark :is(
+  [class~="ring-amber-200"],
+  [class~="ring-amber-300"]
+) {
+  --tw-ring-color: rgb(var(--accent-orange) / 0.3) !important;
+}
+
+html.dark :is(
+  [class~="placeholder:text-gray-300"],
+  [class~="placeholder:text-gray-400"],
+  [class~="placeholder:text-gray-500"]
+)::placeholder {
+  color: rgb(var(--text-3)) !important;
+}
+
+html.dark :is(
+  [class~="from-white"],
+  [class~="from-amber-50"],
+  [class~="from-gray-50"],
+  [class~="from-orange-50"],
+  [class~="from-red-50"]
+) {
+  --tw-gradient-from: rgb(var(--surface-1)) var(--tw-gradient-from-position) !important;
+  --tw-gradient-to: rgb(var(--surface-1) / 0) var(--tw-gradient-to-position) !important;
+}
+
+html.dark [class~="from-amber-100"] {
+  --tw-gradient-from: rgb(var(--surface-2)) var(--tw-gradient-from-position) !important;
+  --tw-gradient-to: rgb(var(--surface-2) / 0) var(--tw-gradient-to-position) !important;
+}
+
+html.dark [class~="from-amber-400"] {
+  --tw-gradient-from: rgb(var(--accent-amber)) var(--tw-gradient-from-position) !important;
+  --tw-gradient-to: rgb(var(--accent-amber) / 0) var(--tw-gradient-to-position) !important;
+}
+
+html.dark :is(
+  [class~="from-amber-500"],
+  [class~="from-orange-500"]
+) {
+  --tw-gradient-from: rgb(var(--accent-red)) var(--tw-gradient-from-position) !important;
+  --tw-gradient-to: rgb(var(--accent-red) / 0) var(--tw-gradient-to-position) !important;
+}
+
+html.dark :is(
+  [class~="from-amber-600"],
+  [class~="from-orange-600"]
+) {
+  --tw-gradient-from: rgb(239 68 68) var(--tw-gradient-from-position) !important;
+  --tw-gradient-to: rgb(239 68 68 / 0) var(--tw-gradient-to-position) !important;
+}
+
+html.dark :is(
+  [class~="to-orange-500"],
+  [class~="to-orange-600"]
+) {
+  --tw-gradient-to: rgb(var(--accent-orange)) var(--tw-gradient-to-position) !important;
+}
+
+html.dark :is(
+  [class~="to-white"],
+  [class~="to-orange-50"],
+  [class~="to-orange-100"],
+  [class~="to-amber-100"]
+) {
+  --tw-gradient-to: rgb(var(--surface-2)) var(--tw-gradient-to-position) !important;
+}
+
+html.dark [class~="via-white"] {
+  --tw-gradient-stops: var(--tw-gradient-from), rgb(var(--surface-1)) var(--tw-gradient-via-position), var(--tw-gradient-to) !important;
+}
+
+html.dark :is(
+  [class~="to-amber-600"],
+  [class~="to-amber-700"]
+) {
+  --tw-gradient-to: rgb(var(--accent-amber)) var(--tw-gradient-to-position) !important;
+}
+
+html.dark [class~="via-orange-50"] {
+  --tw-gradient-stops: var(--tw-gradient-from), rgb(var(--surface-2)) var(--tw-gradient-via-position), var(--tw-gradient-to) !important;
+}
+
+html.dark [class~="via-orange-500"] {
+  --tw-gradient-stops: var(--tw-gradient-from), rgb(var(--accent-orange)) var(--tw-gradient-via-position), var(--tw-gradient-to) !important;
 }
 
 @media (max-width: 767px), ((hover: none) and (pointer: coarse)) {

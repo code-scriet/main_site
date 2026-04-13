@@ -80,9 +80,9 @@ export function UpcomingEvents() {
   const staggerDelay = shouldReduceMotion ? 0.05 : 0.15;
 
   return (
-    <section className="py-24 bg-gradient-to-b from-amber-50/50 to-white relative overflow-hidden">
+    <section className="relative overflow-hidden bg-gradient-to-b from-amber-50/50 to-white py-24 dark:from-[#09090c] dark:to-[#111116]">
       {/* Background Decoration */}
-      <div className="absolute top-1/2 left-0 w-64 h-64 bg-amber-100 rounded-full blur-3xl -translate-x-1/2 -translate-y-1/2 opacity-50" />
+      <div className="absolute top-1/2 left-0 h-64 w-64 -translate-x-1/2 -translate-y-1/2 rounded-full bg-amber-100 opacity-50 blur-3xl dark:bg-rose-500/12" />
       
       <div className="container mx-auto px-4 relative">
         {/* Section Header */}
@@ -90,21 +90,21 @@ export function UpcomingEvents() {
           initial={{ opacity: 0, y: animationY }}
           whileInView={{ opacity: 1, y: 0 }}
           transition={{ duration: animationDuration }}
-          viewport={{ once: true }}
-          className="flex flex-col md:flex-row justify-between items-start md:items-end mb-12 gap-6"
-        >
+            viewport={{ once: true }}
+            className="flex flex-col md:flex-row justify-between items-start md:items-end mb-12 gap-6"
+          >
           <div>
-            <h2 className="text-2xl sm:text-4xl md:text-5xl font-bold text-gray-900 mb-2 sm:mb-3">
+            <h2 className="mb-2 text-2xl font-bold text-gray-900 sm:mb-3 sm:text-4xl md:text-5xl dark:text-zinc-100">
               Upcoming{' '}
-              <span className="text-transparent bg-clip-text bg-gradient-to-r from-orange-500 to-amber-600">
+              <span className="bg-gradient-to-r from-orange-500 to-amber-600 bg-clip-text text-transparent dark:from-rose-400 dark:to-orange-400">
                 Events
               </span>
             </h2>
-            <p className="text-gray-600 text-sm sm:text-lg">Join us for exciting workshops, hackathons, and learning sessions</p>
+            <p className="text-sm text-gray-600 dark:text-zinc-400 sm:text-lg">Join us for exciting workshops, hackathons, and learning sessions</p>
           </div>
           
           <Link to="/events" className="hidden sm:block">
-            <Button variant="outline" size="lg" className="group border-gray-300 hover:border-amber-500 hover:bg-amber-50">
+            <Button variant="outline" size="lg" className="group border-gray-300 hover:border-amber-500 hover:bg-amber-50 dark:border-zinc-700 dark:text-zinc-100 dark:hover:border-rose-400 dark:hover:bg-zinc-900">
               View All Events
               <ArrowRight className="ml-2 h-4 w-4 group-hover:translate-x-1 transition-transform" />
             </Button>
@@ -114,7 +114,7 @@ export function UpcomingEvents() {
         {/* Events Grid */}
         {isLoading ? (
           <div className="flex justify-center py-20">
-            <Loader2 className="h-10 w-10 animate-spin text-amber-600" />
+            <Loader2 className="h-10 w-10 animate-spin text-amber-600 dark:text-rose-300" />
           </div>
         ) : events.length === 0 ? (
           <motion.div 
@@ -122,11 +122,11 @@ export function UpcomingEvents() {
             animate={{ opacity: 1 }}
             className="text-center py-20"
           >
-            <div className="inline-flex items-center justify-center w-20 h-20 rounded-full bg-amber-100 mb-6">
-              <Calendar className="h-10 w-10 text-amber-500" />
+            <div className="mb-6 inline-flex h-20 w-20 items-center justify-center rounded-full bg-amber-100 dark:bg-zinc-900">
+              <Calendar className="h-10 w-10 text-amber-500 dark:text-rose-300" />
             </div>
-            <h3 className="text-xl font-semibold text-gray-900 mb-2">No upcoming events</h3>
-            <p className="text-gray-500">Check back soon for exciting new events!</p>
+            <h3 className="mb-2 text-xl font-semibold text-gray-900 dark:text-zinc-100">No upcoming events</h3>
+            <p className="text-gray-500 dark:text-zinc-400">Check back soon for exciting new events!</p>
           </motion.div>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6 lg:gap-8">
@@ -150,7 +150,7 @@ export function UpcomingEvents() {
                   className="group"
                 >
                   <Link to={eventUrl} className="block h-full">
-                    <div className="h-full bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden hover:shadow-xl transition-all duration-500">
+                    <div className="h-full overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm transition-all duration-500 hover:shadow-xl dark:border-zinc-800 dark:bg-[#0f0f14] dark:hover:shadow-black/30">
                       {/* Image Container - 16:9 aspect ratio for wide posters */}
                       <div className="relative overflow-hidden" style={{ aspectRatio: '16/9' }}>
                         {event.imageUrl ? (
@@ -161,7 +161,7 @@ export function UpcomingEvents() {
                             className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700"
                           />
                         ) : (
-                          <div className="w-full h-full bg-gradient-to-br from-amber-400 via-orange-500 to-amber-600 flex items-center justify-center">
+                          <div className="flex h-full w-full items-center justify-center bg-gradient-to-br from-amber-400 via-orange-500 to-amber-600 dark:from-rose-500 dark:via-red-500 dark:to-orange-500">
                             <Calendar className="h-20 w-20 text-white/30" />
                           </div>
                         )}
@@ -193,15 +193,15 @@ export function UpcomingEvents() {
                       </div>
                       
                       {/* Date Badge */}
-                      <div className="absolute bottom-4 left-4">
-                        <div className="bg-white rounded-xl px-4 py-2 shadow-lg">
-                          <p className="text-xs text-gray-500 uppercase tracking-wider">
+                        <div className="absolute bottom-4 left-4">
+                        <div className="rounded-xl bg-white px-4 py-2 shadow-lg dark:bg-zinc-900">
+                          <p className="text-xs uppercase tracking-wider text-gray-500 dark:text-zinc-400">
                             {getWeekdayShort(event.startDate)}
                           </p>
-                          <p className="text-2xl font-bold text-gray-900">
+                          <p className="text-2xl font-bold text-gray-900 dark:text-zinc-100">
                             {getDayOfMonth(event.startDate)}
                           </p>
-                          <p className="text-xs text-amber-600 font-medium">
+                          <p className="text-xs font-medium text-amber-600 dark:text-rose-300">
                             {getMonthShort(event.startDate)}
                           </p>
                         </div>
@@ -210,28 +210,28 @@ export function UpcomingEvents() {
                     
                     {/* Content */}
                     <div className="p-6">
-                      <h3 className="text-xl font-bold text-gray-900 mb-2 line-clamp-1 group-hover:text-amber-600 transition-colors">
+                      <h3 className="mb-2 line-clamp-1 text-xl font-bold text-gray-900 transition-colors group-hover:text-amber-600 dark:text-zinc-100 dark:group-hover:text-rose-300">
                         {event.title}
                       </h3>
-                      <p className="text-gray-600 text-sm mb-4 line-clamp-2">
+                      <p className="mb-4 line-clamp-2 text-sm text-gray-600 dark:text-zinc-400">
                         {event.shortDescription || event.description}
                       </p>
                       
                       {/* Meta Info */}
                       <div className="space-y-2 mb-4">
-                        <div className="flex items-center gap-2 text-sm text-gray-500">
-                          <Clock className="h-4 w-4 text-amber-500" />
+                        <div className="flex items-center gap-2 text-sm text-gray-500 dark:text-zinc-400">
+                          <Clock className="h-4 w-4 text-amber-500 dark:text-rose-300" />
                           <span>{formatTime(event.startDate)}</span>
                         </div>
                         {event.location && (
-                          <div className="flex items-center gap-2 text-sm text-gray-500">
-                            <MapPin className="h-4 w-4 text-amber-500" />
+                          <div className="flex items-center gap-2 text-sm text-gray-500 dark:text-zinc-400">
+                            <MapPin className="h-4 w-4 text-amber-500 dark:text-rose-300" />
                             <span className="line-clamp-1">{event.location}</span>
                           </div>
                         )}
                         {event.capacity && (
-                          <div className="flex items-center gap-2 text-sm text-gray-500">
-                            <Users className="h-4 w-4 text-amber-500" />
+                          <div className="flex items-center gap-2 text-sm text-gray-500 dark:text-zinc-400">
+                            <Users className="h-4 w-4 text-amber-500 dark:text-rose-300" />
                             <span>{event._count?.registrations || 0}/{event.capacity} spots filled</span>
                           </div>
                         )}
@@ -240,7 +240,7 @@ export function UpcomingEvents() {
                       {/* CTA */}
                       {isRegistered ? (
                         <Button 
-                          className="w-full bg-green-50 text-green-700 hover:bg-green-100 border border-green-200"
+                          className="w-full border border-green-200 bg-green-50 text-green-700 hover:bg-green-100 dark:border-emerald-500/30 dark:bg-emerald-500/15 dark:text-emerald-200 dark:hover:bg-emerald-500/20"
                         >
                           Registered - View Details
                         </Button>
@@ -248,8 +248,8 @@ export function UpcomingEvents() {
                         <Button 
                           className={`w-full ${
                             regStatus.canRegister 
-                              ? 'bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white'
-                              : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+                              ? 'bg-gradient-to-r from-amber-500 to-orange-500 text-white hover:from-amber-600 hover:to-orange-600 dark:from-rose-500 dark:to-orange-400 dark:hover:from-rose-400 dark:hover:to-orange-300'
+                              : 'bg-gray-100 text-gray-500 hover:bg-gray-200 dark:bg-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800'
                           }`}
                         >
                           {regStatus.canRegister ? 'View & Register' : 'View Details'}

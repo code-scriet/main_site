@@ -22,6 +22,22 @@
     <meta name="googlebot" content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1" />
     <meta name="bingbot" content="index, follow" />
     <meta name="theme-color" content="#f97316" />
+    <script>
+      (function () {
+        try {
+          var theme = localStorage.getItem('codescriet-theme') === 'dark' ? 'dark' : 'light';
+          var root = document.documentElement;
+          root.classList.toggle('dark', theme === 'dark');
+          root.style.colorScheme = theme;
+          var metaThemeColor = document.querySelector('meta[name="theme-color"]');
+          if (metaThemeColor) {
+            metaThemeColor.setAttribute('content', theme === 'dark' ? '#05060a' : '#f97316');
+          }
+        } catch (error) {
+          document.documentElement.classList.remove('dark');
+        }
+      })();
+    </script>
     <meta name="geo.region" content="IN-UP" />
     <meta name="geo.placename" content="Meerut" />
     <link rel="canonical" href="https://codescriet.dev/" />
