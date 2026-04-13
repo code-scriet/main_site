@@ -523,6 +523,149 @@ competitionRouter.get('/event/:eventId', optionalAuthMiddleware, async (req: Req
   }
 });
 
+competitionRouter.get('/event/:eventId/results-summary', authMiddleware, requireRole('ADMIN'), async (req: Request, res: Response) => {
+  try {
+    const { eventId } = req.params;
+
+    const event = await prisma.event.findUnique({
+      where: { id: eventId },
+      select: {
+        id: true,
+        teamRegistration: true,
+      },
+    });
+
+    if (!event) {
+      return ApiResponse.notFound(res, 'Event not found');
+    }
+
+    const rounds = await withRetry(() => prisma.competitionRound.findMany({
+      where: {
+        eventId,
+        status: 'FINISHED',
+      },
+      orderBy: { createdAt: 'asc' },
+      select: {
+        id: true,
+        title: true,
+        submissions: {
+          orderBy: [
+            { rank: 'asc' },
+            { score: 'desc' },
+            { submittedAt: 'asc' },
+          ],
+          select: {
+            id: true,
+            rank: true,
+            score: true,
+            submittedAt: true,
+            teamId: true,
+            team: {
+              select: {
+                id: true,
+                teamName: true,
+                members: {
+                  orderBy: [
+                    { role: 'asc' },
+                    { joinedAt: 'asc' },
+                  ],
+                  select: {
+                    userId: true,
+                    user: {
+                      select: {
+                        id: true,
+                        name: true,
+                        email: true,
+                      },
+                    },
+                    registration: {
+                      select: {
+                        attended: true,
+                      },
+                    },
+                  },
+                },
+              },
+            },
+            user: {
+              select: {
+                id: true,
+                name: true,
+                email: true,
+              },
+            },
+          },
+        },
+      },
+    }));
+
+    const individualUserIds = Array.from(new Set(
+      rounds.flatMap((round) => round.submissions)
+        .filter((submission) => !submission.teamId)
+        .map((submission) => submission.user.id),
+    ));
+
+    const individualAttendance = individualUserIds.length
+      ? await prisma.eventRegistration.findMany({
+          where: {
+            eventId,
+            userId: { in: individualUserIds },
+          },
+          select: {
+            userId: true,
+            attended: true,
+          },
+        })
+      : [];
+
+    const attendanceByUserId = new Map(
+      individualAttendance.map((registration) => [registration.userId, registration.attended]),
+    );
+
+    return ApiResponse.success(res, {
+      rounds: rounds.map((round) => ({
+        roundId: round.id,
+        title: round.title,
+        submissions: round.submissions.map((submission) => {
+          if (event.teamRegistration && submission.team) {
+            return {
+              submissionId: submission.id,
+              rank: submission.rank,
+              score: submission.score,
+              submittedAt: submission.submittedAt.toISOString(),
+              teamId: submission.team.id,
+              teamName: submission.team.teamName,
+              members: submission.team.members.map((member) => ({
+                userId: member.user.id,
+                name: member.user.name,
+                email: member.user.email,
+                attended: member.registration.attended,
+              })),
+            };
+          }
+
+          return {
+            submissionId: submission.id,
+            rank: submission.rank,
+            score: submission.score,
+            submittedAt: submission.submittedAt.toISOString(),
+            userId: submission.user.id,
+            userName: submission.user.name,
+            userEmail: submission.user.email,
+            attended: attendanceByUserId.get(submission.user.id) ?? false,
+          };
+        }),
+      })),
+    });
+  } catch (error) {
+    logger.error('Failed to fetch competition results summary', {
+      eventId: req.params.eventId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return ApiResponse.internal(res, 'Failed to fetch competition results summary');
+  }
+});
+
 competitionRouter.get('/:roundId', authMiddleware, async (req: Request, res: Response) => {
   try {
     const user = getAuthUser(req)!;

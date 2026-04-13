@@ -1096,6 +1096,7 @@ router.get('/event/:eventId/certificate-recipients', authMiddleware, requireRole
         where: {
           eventId,
           type: 'PARTICIPATION',
+          description: null,
           isRevoked: false,
         },
         select: {

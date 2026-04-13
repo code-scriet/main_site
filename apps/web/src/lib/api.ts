@@ -771,6 +771,95 @@ export interface CompetitionResult {
   userName?: string;
 }
 
+export type CertType = 'PARTICIPATION' | 'COMPLETION' | 'WINNER' | 'SPEAKER';
+export type CertificateTemplate = 'gold' | 'dark' | 'white' | 'emerald';
+export type CompetitionGenerationStrategy = 'specific_round' | 'best_selected_rounds' | 'average_selected_rounds';
+export type CertificateBulkSource = 'attendance' | 'competition' | 'generic';
+
+export interface CompetitionResultsSummaryMember {
+  userId: string;
+  name: string;
+  email: string;
+  attended: boolean;
+}
+
+export interface CompetitionResultsSummarySubmission {
+  submissionId: string;
+  rank: number | null;
+  score: number | null;
+  submittedAt: string;
+  teamId?: string;
+  teamName?: string;
+  members?: CompetitionResultsSummaryMember[];
+  userId?: string;
+  userName?: string;
+  userEmail?: string;
+  attended?: boolean;
+}
+
+export interface CompetitionResultsSummaryRound {
+  roundId: string;
+  title: string;
+  submissions: CompetitionResultsSummarySubmission[];
+}
+
+export interface CompetitionResultsSummaryResponse {
+  rounds: CompetitionResultsSummaryRound[];
+}
+
+export interface CertificateBulkRecipientInput {
+  name: string;
+  email: string;
+  userId?: string | null;
+  type?: CertType | null;
+  position?: string | null;
+  description?: string | null;
+  template?: CertificateTemplate | null;
+  domain?: string | null;
+  teamName?: string | null;
+}
+
+export interface CertificateBulkGenerateInput {
+  recipients: CertificateBulkRecipientInput[];
+  eventId?: string | null;
+  eventName: string;
+  type?: CertType | null;
+  template?: CertificateTemplate;
+  signatoryId?: string | null;
+  signatoryName?: string | null;
+  signatoryTitle?: string | null;
+  signatoryCustomImageUrl?: string | null;
+  facultySignatoryId?: string | null;
+  facultyName?: string | null;
+  facultyTitle?: string | null;
+  facultyCustomImageUrl?: string | null;
+  description?: string | null;
+  domain?: string | null;
+  source?: CertificateBulkSource;
+  generationStrategy?: CompetitionGenerationStrategy | null;
+  selectedRoundIds?: string[];
+  sendEmail?: boolean;
+}
+
+export interface CertificateBulkGenerateResponse {
+  generated: number;
+  failed: number;
+  results: Array<{
+    certId: string;
+    pdfUrl: string;
+    name: string;
+    email: string;
+    type?: CertType;
+  }>;
+  errors: Array<{
+    name: string;
+    email: string;
+    reason: string;
+  }>;
+  emailsSent?: number;
+  emailsFailed?: number;
+}
+
 // Attendance types
 export interface AttendanceQR {
   attendanceToken: string;
@@ -1631,8 +1720,8 @@ export const api = {
   },
   generateCertificate: (data: Record<string, unknown>, token: string) =>
     request<{ certId: string; pdfUrl: string; downloadUrl: string; verifyUrl: string }>('/certificates/generate', { method: 'POST', body: JSON.stringify(data), token }),
-  bulkGenerateCertificates: (data: Record<string, unknown>, token: string) =>
-    request<{ generated: number; failed: number; results: unknown[]; errors: unknown[] }>('/certificates/bulk', { method: 'POST', body: JSON.stringify(data), token }),
+  bulkGenerateCertificates: (data: CertificateBulkGenerateInput, token: string) =>
+    request<CertificateBulkGenerateResponse>('/certificates/bulk', { method: 'POST', body: JSON.stringify(data), token }),
   downloadCertificate: (certId: string, token: string) =>
     request<{ url: string }>(`/certificates/download/${certId}`, { token }),
   getMyCertificates: (token: string, params?: { page?: number; limit?: number; type?: string; sort?: string }) => {
@@ -1796,6 +1885,8 @@ export const api = {
     request<{ submission: CompetitionSubmission }>(`/competition/${roundId}/score/${submissionId}`, { method: 'PATCH', body: JSON.stringify(data), token }),
   getCompetitionResults: (roundId: string) =>
     request<{ round: CompetitionRound; results: CompetitionResult[] }>(`/competition/${roundId}/results`),
+  getCompetitionResultsSummary: (eventId: string, token: string) =>
+    request<CompetitionResultsSummaryResponse>(`/competition/event/${eventId}/results-summary`, { token }),
   deleteCompetitionRound: (roundId: string, token: string) =>
     request<{ message: string }>(`/competition/${roundId}`, { method: 'DELETE', token }),
   updateCompetitionRound: (roundId: string, data: {

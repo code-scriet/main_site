@@ -44,6 +44,7 @@ export default function EventAdminHub() {
   const backHref = isAdminPath ? `/admin/events/${eventId}/edit` : '/dashboard/events';
 
   const [event, setEvent] = useState<Event | null>(null);
+  const [hasCompetitionRounds, setHasCompetitionRounds] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -72,10 +73,27 @@ export default function EventAdminHub() {
     const loadEvent = async () => {
       setLoading(true);
       setError(null);
+      setHasCompetitionRounds(false);
 
       try {
-        const data = await api.getEvent(eventId);
-        if (!cancelled) setEvent(data);
+        const [eventResult, competitionResult] = await Promise.allSettled([
+          api.getEvent(eventId),
+          isAdmin && token
+            ? api.getCompetitionRoundsAdmin(eventId, token)
+            : Promise.resolve({ rounds: [] }),
+        ]);
+
+        if (eventResult.status === 'rejected') {
+          throw eventResult.reason;
+        }
+
+        if (!cancelled) {
+          setEvent(eventResult.value);
+          setHasCompetitionRounds(
+            competitionResult.status === 'fulfilled'
+            && competitionResult.value.rounds.some((round) => round.status === 'FINISHED'),
+          );
+        }
       } catch {
         if (!cancelled) setError('Event not found or failed to load.');
       } finally {
@@ -88,7 +106,7 @@ export default function EventAdminHub() {
     return () => {
       cancelled = true;
     };
-  }, [eventId]);
+  }, [eventId, isAdmin, token]);
 
   if (loading) {
     return (
@@ -260,6 +278,7 @@ export default function EventAdminHub() {
               eventId={eventId}
               eventName={event.title}
               token={token!}
+              hasCompetitionRounds={hasCompetitionRounds}
             />
           </TabsContent>
         )}

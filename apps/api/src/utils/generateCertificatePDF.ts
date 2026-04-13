@@ -102,6 +102,7 @@ const FRONTEND_URL = (process.env.FRONTEND_URL || 'https://codescriet.dev').repl
 
 export interface CertData {
   recipientName:            string;
+  teamName?:                string;
   eventName:                string;
   type:                     string;
   position?:                string;
@@ -162,11 +163,11 @@ function nameFontSize(name: string): number {
   return 38;
 }
 
-function formatPosition(pos: string): string {
+export function formatPosition(pos: string): string {
   const p = pos.trim().toLowerCase();
-  if (p === '1' || p === '1st' || p === 'first') return 'First Place';
-  if (p === '2' || p === '2nd' || p === 'second') return 'Second Place';
-  if (p === '3' || p === '3rd' || p === 'third') return 'Third Place';
+  if (p === '1' || p === '1st' || p === '1st place' || p === 'first' || p === 'first place') return 'First Place';
+  if (p === '2' || p === '2nd' || p === '2nd place' || p === 'second' || p === 'second place') return 'Second Place';
+  if (p === '3' || p === '3rd' || p === '3rd place' || p === 'third' || p === 'third place') return 'Third Place';
   if (p === '4' || p === '4th' || p === 'fourth') return 'Fourth Place';
   if (p === '5' || p === '5th' || p === 'fifth') return 'Fifth Place';
   
@@ -177,7 +178,7 @@ function formatPosition(pos: string): string {
 }
 
 // ── DESCRIPTION BUILDER ────────────────────────────────────────────────────────
-function buildDescription(data: CertData, type: string): React.ReactNode[] {
+export function buildDescription(data: CertData, type: string): React.ReactNode[] {
   if (data.description) {
     return [data.description];
   }
@@ -227,6 +228,7 @@ export async function generateCertificatePDF(data: CertData): Promise<Buffer> {
   const hasFaculty  = Boolean(data.facultyName);
   const verifyDomain = FRONTEND_URL.replace(/^https?:\/\//, '');
   const descElements = buildDescription(data, type);
+  const teamLine = data.teamName ? `Member of Team ${data.teamName}` : null;
 
   if (!data.codescrietLogoUrl) {
     logger.warn('Certificate PDF rendering without CodeScriet logo', { certId: data.certId });
@@ -372,7 +374,7 @@ export async function generateCertificatePDF(data: CertData): Promise<Buffer> {
           React.createElement(View, {
             style: {
               alignItems: 'center', justifyContent: 'center',
-              height: 115, width: '100%',
+              height: 140, width: '100%',
             },
           },
             React.createElement(Text, {
@@ -390,6 +392,21 @@ export async function generateCertificatePDF(data: CertData): Promise<Buffer> {
                 textAlign: 'center', maxWidth: 680,
               },
             }, data.recipientName),
+            ...(teamLine
+              ? [
+                  React.createElement(Text, {
+                    key: 'team-line',
+                    style: {
+                      fontFamily: 'CormorantGaramond',
+                      fontSize: 18,
+                      color: C.textMuted,
+                      marginTop: 6,
+                      textAlign: 'center',
+                      maxWidth: 620,
+                    },
+                  }, teamLine),
+                ]
+              : []),
             React.createElement(View, {
               style: {
                 width: 400, height: 1,

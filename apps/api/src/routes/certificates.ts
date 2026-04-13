@@ -63,6 +63,8 @@ const certificateDownloadLimiter = rateLimit({
 
 const certTypes = ['PARTICIPATION', 'COMPLETION', 'WINNER', 'SPEAKER'] as const;
 const certTemplates = ['gold', 'dark', 'white', 'emerald'] as const;
+const certificateSources = ['attendance', 'competition', 'generic'] as const;
+const competitionGenerationStrategies = ['specific_round', 'best_selected_rounds', 'average_selected_rounds'] as const;
 
 const generateSchema = z.object({
   recipientName: z.string().min(2).max(100),
@@ -86,16 +88,23 @@ const generateSchema = z.object({
   sendEmail: z.boolean().default(false),
 });
 
+const bulkRecipientSchema = z.object({
+  name: z.string().min(2).max(100),
+  email: z.string().email().transform(v => v.trim().toLowerCase()),
+  userId: z.string().optional().nullable(),
+  type: z.enum(certTypes).optional().nullable(),
+  position: z.string().max(100).optional().nullable(),
+  description: z.string().max(400).optional().nullable(),
+  template: z.enum(certTemplates).optional().nullable(),
+  domain: z.string().max(100).optional().nullable(),
+  teamName: z.string().max(100).optional().nullable(),
+});
+
 const bulkSchema = z.object({
-  recipients: z.array(z.object({
-    name: z.string().min(2).max(100),
-    email: z.string().email().transform(v => v.trim().toLowerCase()),
-    userId: z.string().optional().nullable(),
-    position: z.string().max(100).optional().nullable(),
-  })).min(1).max(200),
+  recipients: z.array(bulkRecipientSchema).min(1).max(200),
   eventId: z.string().optional().nullable(),
   eventName: z.string().min(2).max(200),
-  type: z.enum(certTypes),
+  type: z.enum(certTypes).optional().nullable(),
   template: z.enum(certTemplates).default('gold'),
   signatoryId: z.string().optional().nullable(),
   signatoryName: z.string().max(100).optional().nullable(),
@@ -107,7 +116,18 @@ const bulkSchema = z.object({
   facultyCustomImageUrl: z.string().url().optional().nullable(),
   description: z.string().max(400).optional().nullable(),
   domain: z.string().max(100).optional().nullable(),
+  source: z.enum(certificateSources).optional().default('generic'),
+  generationStrategy: z.enum(competitionGenerationStrategies).optional().nullable(),
+  selectedRoundIds: z.array(z.string()).max(50).optional(),
   sendEmail: z.boolean().default(false),
+}).superRefine((value, ctx) => {
+  if (!value.type && value.recipients.some((recipient) => !recipient.type)) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: 'A certificate type is required either at the batch level or for each recipient',
+      path: ['type'],
+    });
+  }
 });
 
 const revokeSchema = z.object({
@@ -126,9 +146,72 @@ type CertificateFileRecord = {
   recipientEmail: string;
 };
 
+type CertificateSource = (typeof certificateSources)[number];
+type BulkValidationData = z.infer<typeof bulkSchema>;
+type BulkRecipientInput = BulkValidationData['recipients'][number];
+
+type ResolvedBulkRecipient = {
+  name: string;
+  email: string;
+  normalizedEmail: string;
+  userId: string | null;
+  type: CertType;
+  template: (typeof certTemplates)[number];
+  position: string | null;
+  domain: string | null;
+  description: string | null;
+  teamName: string | null;
+};
+
 function normalizeEmail(value?: string | null): string | null {
   const normalized = value?.trim().toLowerCase();
   return normalized ? normalized : null;
+}
+
+function sanitizeOptionalText(value?: string | null): string | null {
+  const sanitized = sanitizeText(value).trim();
+  return sanitized || null;
+}
+
+function buildRecipientDuplicateKey(
+  source: CertificateSource,
+  recipientEmail: string,
+  type: CertType,
+  position?: string | null,
+  description?: string | null,
+): string {
+  const normalizedEmail = normalizeEmail(recipientEmail) ?? recipientEmail.trim().toLowerCase();
+
+  if (source === 'competition') {
+    return [
+      normalizedEmail,
+      type,
+      (position || '').trim().toLowerCase(),
+      (description || '').trim().toLowerCase(),
+    ].join('::');
+  }
+
+  return [normalizedEmail, type].join('::');
+}
+
+function resolveBulkRecipient(
+  recipient: BulkRecipientInput,
+  defaults: Pick<BulkValidationData, 'type' | 'template' | 'description' | 'domain'>,
+): ResolvedBulkRecipient {
+  const resolvedType = (recipient.type || defaults.type) as CertType;
+
+  return {
+    name: sanitizeText(recipient.name),
+    email: recipient.email,
+    normalizedEmail: normalizeEmail(recipient.email) ?? recipient.email,
+    userId: recipient.userId || null,
+    type: resolvedType,
+    template: recipient.template || defaults.template,
+    position: sanitizeOptionalText(recipient.position),
+    domain: sanitizeOptionalText(recipient.domain ?? defaults.domain),
+    description: sanitizeOptionalText(recipient.description ?? defaults.description),
+    teamName: sanitizeOptionalText(recipient.teamName),
+  };
 }
 
 function buildCertificateVerifyUrl(certId: string): string {
@@ -922,7 +1005,7 @@ certificatesRouter.post('/bulk', authMiddleware, requireRole('ADMIN'), async (re
     recipients, eventId, eventName, type, template,
     signatoryId, signatoryName, signatoryTitle, signatoryCustomImageUrl,
     facultySignatoryId, facultyName, facultyTitle, facultyCustomImageUrl,
-    description, domain, sendEmail,
+    description, domain, sendEmail, source, generationStrategy, selectedRoundIds,
   } = validation.data;
 
   // Validate eventId if provided
@@ -949,16 +1032,25 @@ certificatesRouter.post('/bulk', authMiddleware, requireRole('ADMIN'), async (re
 
   // Sanitize shared text fields once
   const safeEventName   = sanitizeText(eventName);
-  const safeDomain      = domain ? sanitizeText(domain) : undefined;
-  const safeDescription = description ? sanitizeText(description) : undefined;
-  const normalizedCertType = type.toUpperCase() as CertType;
+  const resolvedRecipients = recipients.map((recipient) =>
+    resolveBulkRecipient(recipient, {
+      type,
+      template,
+      description,
+      domain,
+    }),
+  );
 
-  const successes: Array<{ certId: string; pdfUrl: string; name: string; email: string }> = [];
+  if (source === 'competition' && resolvedRecipients.some((recipient) => !recipient.description)) {
+    return ApiResponse.badRequest(res, 'Competition certificates require a non-empty description for every recipient');
+  }
+
+  const successes: Array<{ certId: string; pdfUrl: string; name: string; email: string; type: CertType }> = [];
   const failures: Array<{ name: string; email: string; reason: string }> = [];
   let emailsSent = 0;
   let emailsFailed = 0;
   const providedUserIds = Array.from(
-    new Set(recipients.map((recipient) => recipient.userId).filter((userId): userId is string => Boolean(userId))),
+    new Set(resolvedRecipients.map((recipient) => recipient.userId).filter((userId): userId is string => Boolean(userId))),
   );
   const validUserIds = new Set(
     providedUserIds.length
@@ -970,29 +1062,48 @@ certificatesRouter.post('/bulk', authMiddleware, requireRole('ADMIN'), async (re
       : [],
   );
 
+  const involvedTypes = Array.from(new Set(resolvedRecipients.map((recipient) => recipient.type)));
   const existingCertificates = await prisma.certificate.findMany({
     where: {
-      OR: Array.from(new Set(recipients.map((recipient) => recipient.email))).map((email) => ({
+      OR: Array.from(new Set(resolvedRecipients.map((recipient) => recipient.email))).map((email) => ({
         recipientEmail: {
           equals: email,
           mode: 'insensitive',
         },
       })),
-      type: normalizedCertType,
+      type: { in: involvedTypes },
       ...buildCertificateEventScope(safeEventName, eventId),
     },
     take: 100,
     select: {
       recipientEmail: true,
       certId: true,
+      type: true,
+      position: true,
+      description: true,
     },
   });
   const existingByEmail = new Map(
-    existingCertificates.map((certificate) => [normalizeEmail(certificate.recipientEmail) ?? certificate.recipientEmail, certificate.certId]),
+    existingCertificates.map((certificate) => [
+      buildRecipientDuplicateKey(
+        source,
+        certificate.recipientEmail,
+        certificate.type,
+        certificate.position,
+        certificate.description,
+      ),
+      certificate.certId,
+    ]),
   );
   const queuedEmails = new Set<string>();
-  const recipientsToProcess = recipients.filter((recipient) => {
-    const normalizedRecipientEmail = normalizeEmail(recipient.email) ?? recipient.email;
+  const recipientsToProcess = resolvedRecipients.filter((recipient) => {
+    const duplicateKey = buildRecipientDuplicateKey(
+      source,
+      recipient.email,
+      recipient.type,
+      recipient.position,
+      recipient.description,
+    );
 
     if (recipient.userId && !validUserIds.has(recipient.userId)) {
       failures.push({
@@ -1003,7 +1114,7 @@ certificatesRouter.post('/bulk', authMiddleware, requireRole('ADMIN'), async (re
       return false;
     }
 
-    if (queuedEmails.has(normalizedRecipientEmail)) {
+    if (queuedEmails.has(recipient.normalizedEmail)) {
       failures.push({
         name: recipient.name,
         email: recipient.email,
@@ -1012,9 +1123,9 @@ certificatesRouter.post('/bulk', authMiddleware, requireRole('ADMIN'), async (re
       return false;
     }
 
-    queuedEmails.add(normalizedRecipientEmail);
+    queuedEmails.add(recipient.normalizedEmail);
 
-    const existingCertId = existingByEmail.get(normalizedRecipientEmail);
+    const existingCertId = existingByEmail.get(duplicateKey);
     if (existingCertId) {
       failures.push({
         name: recipient.name,
@@ -1035,9 +1146,6 @@ certificatesRouter.post('/bulk', authMiddleware, requireRole('ADMIN'), async (re
     await Promise.allSettled(
       batch.map(async (r) => {
         try {
-          const safeName = sanitizeText(r.name);
-          const safePosition = r.position ? sanitizeText(r.position) : undefined;
-
           // Generate unique cert ID with collision retry
           let certId = generateCertId();
           for (let attempt = 1; attempt <= 5; attempt++) {
@@ -1051,12 +1159,13 @@ certificatesRouter.post('/bulk', authMiddleware, requireRole('ADMIN'), async (re
           }
 
           const pdfBuffer = await generateCertificatePDF({
-            recipientName: safeName,
+            recipientName: r.name,
             eventName: safeEventName,
-            type,
-            position: safePosition,
-            domain: safeDomain,
-            description: safeDescription,
+            type: r.type,
+            position: r.position || undefined,
+            domain: r.domain || undefined,
+            description: r.description || undefined,
+            teamName: r.teamName || undefined,
             certId,
             issuedAt: new Date(),
             signatoryName: primarySig.name,
@@ -1071,19 +1180,19 @@ certificatesRouter.post('/bulk', authMiddleware, requireRole('ADMIN'), async (re
 
           const pdfUrl = await uploadCertificate(certId, pdfBuffer);
           const downloadUrl = buildPublicCertificateDownloadUrl(certId);
-          const resolvedRecipientId = r.userId || recipientIdByEmail.get(normalizeEmail(r.email) ?? r.email) || null;
+          const resolvedRecipientId = r.userId || recipientIdByEmail.get(r.normalizedEmail) || null;
 
           const legacyCertificateData: Prisma.CertificateUncheckedCreateInput = {
             certId,
-            recipientName: safeName,
+            recipientName: r.name,
             recipientEmail: r.email,
             recipientId: resolvedRecipientId,
             eventId: eventId || null,
             eventName: safeEventName,
-            type: normalizedCertType,
-            position: safePosition || null,
-            domain: safeDomain || null,
-            template,
+            type: r.type,
+            position: r.position,
+            domain: r.domain,
+            template: r.template,
             pdfUrl,
             issuedBy: authUser.id,
           };
@@ -1091,7 +1200,7 @@ certificatesRouter.post('/bulk', authMiddleware, requireRole('ADMIN'), async (re
             certId,
             {
               ...legacyCertificateData,
-              description: safeDescription || null,
+              description: r.description,
               signatoryId: primarySig.id,
               signatoryName: primarySig.name,
               signatoryTitle: primarySig.title,
@@ -1106,7 +1215,7 @@ certificatesRouter.post('/bulk', authMiddleware, requireRole('ADMIN'), async (re
 
           if (sendEmail) {
             try {
-              const sent = await emailService.sendCertificateIssued(r.email, r.name, eventName, certId, downloadUrl);
+              const sent = await emailService.sendCertificateIssued(r.email, r.name, safeEventName, certId, downloadUrl);
               if (sent) {
                 emailsSent++;
                 await updateCertificateWithSchemaFallback(
@@ -1123,7 +1232,7 @@ certificatesRouter.post('/bulk', authMiddleware, requireRole('ADMIN'), async (re
             }
           }
 
-          successes.push({ certId, pdfUrl, name: r.name, email: r.email });
+          successes.push({ certId, pdfUrl, name: r.name, email: r.email, type: r.type });
         } catch (err) {
           const msg = err instanceof Error ? err.message : 'Unknown error';
           failures.push({ name: r.name, email: r.email, reason: msg });
@@ -1138,10 +1247,27 @@ certificatesRouter.post('/bulk', authMiddleware, requireRole('ADMIN'), async (re
     failed: failures.length,
     eventName,
     issuedBy: authUser.id,
+    source,
   });
 
+  const generatedByType = successes.reduce<Record<string, number>>((accumulator, success) => {
+    const nextCount = accumulator[success.type] ?? 0;
+    return {
+      ...accumulator,
+      [success.type]: nextCount + 1,
+    };
+  }, {});
+
   await auditLog(authUser.id, 'CERTIFICATE_BULK_GENERATE', 'certificate', undefined, {
-    eventName, type, generated: successes.length, failed: failures.length, total: recipients.length,
+    eventName,
+    type: type || null,
+    generated: successes.length,
+    failed: failures.length,
+    total: recipients.length,
+    source,
+    generationStrategy: generationStrategy || null,
+    selectedRoundIds: selectedRoundIds || [],
+    generatedByType,
   });
 
   return ApiResponse.success(res, {
