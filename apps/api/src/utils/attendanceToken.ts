@@ -8,17 +8,6 @@ interface AttendancePayload {
   purpose: 'attendance';
 }
 
-const ATTENDANCE_JWT_SECRET_ENV_CANDIDATES = [
-  'ATTENDANCE_JWT_SECRET',
-  'ATTENDANCE_TOKEN_SECRET',
-] as const;
-
-const ATTENDANCE_PREVIOUS_SECRET_ENV_CANDIDATES = [
-  'ATTENDANCE_JWT_PREVIOUS_SECRET',
-  'ATTENDANCE_JWT_PREVIOUS_SECRETS',
-  'ATTENDANCE_TOKEN_PREVIOUS_SECRET',
-] as const;
-
 const DEFAULT_ATTENDANCE_TOKEN_EXPIRES_IN =
   (process.env.ATTENDANCE_TOKEN_EXPIRES_IN || '90d') as jwt.SignOptions['expiresIn'];
 
@@ -31,34 +20,7 @@ const runtimePreviousAttendanceSecrets = new Set<string>();
 let warnedAboutTemporarySecret = false;
 
 function getConfiguredAttendanceJwtSecret(): string | undefined {
-  for (const key of ATTENDANCE_JWT_SECRET_ENV_CANDIDATES) {
-    const value = process.env[key]?.trim();
-    if (value) {
-      return value;
-    }
-  }
-
   return runtimeAttendanceJwtSecret ?? undefined;
-}
-
-function getConfiguredPreviousAttendanceSecrets(): string[] {
-  const values: string[] = [];
-
-  for (const key of ATTENDANCE_PREVIOUS_SECRET_ENV_CANDIDATES) {
-    const raw = process.env[key]?.trim();
-    if (!raw) {
-      continue;
-    }
-
-    const parts = raw
-      .split(',')
-      .map((value) => value.trim())
-      .filter(Boolean);
-
-    values.push(...parts);
-  }
-
-  return Array.from(new Set(values));
 }
 
 export function getAttendanceJwtSecret(): string {
@@ -71,7 +33,7 @@ export function getAttendanceJwtSecret(): string {
   if (!warnedAboutTemporarySecret) {
     warnedAboutTemporarySecret = true;
     logger.warn(
-      'ATTENDANCE_JWT_SECRET is missing. Using temporary hardcoded fallback until a super admin sets attendanceJwtSecret in settings or env.',
+      'Attendance secret is missing. Using temporary hardcoded fallback until a super admin sets attendanceJwtSecret in settings.',
     );
   }
 
@@ -94,10 +56,12 @@ export function setRuntimeAttendanceJwtSecret(secret: string | null | undefined)
   warnedAboutTemporarySecret = false;
 }
 
+export function hasRuntimeAttendanceJwtSecret(): boolean {
+  return Boolean(runtimeAttendanceJwtSecret);
+}
+
 function getAttendanceVerificationSecrets(): string[] {
   const attendanceSecret = getAttendanceJwtSecret();
-  const previousSecrets = getConfiguredPreviousAttendanceSecrets()
-    .filter((secret) => secret !== attendanceSecret);
   const runtimePreviousSecrets = Array.from(runtimePreviousAttendanceSecrets)
     .filter((secret) => secret !== attendanceSecret);
 
@@ -105,7 +69,7 @@ function getAttendanceVerificationSecrets(): string[] {
     ? []
     : [TEMPORARY_ATTENDANCE_JWT_SECRET];
 
-  return Array.from(new Set([attendanceSecret, ...runtimePreviousSecrets, ...previousSecrets, ...fallbackSecret]));
+  return Array.from(new Set([attendanceSecret, ...runtimePreviousSecrets, ...fallbackSecret]));
 }
 
 function verifyAttendancePayload(token: string, secret: string): AttendancePayload {

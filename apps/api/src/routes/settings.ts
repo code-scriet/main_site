@@ -8,7 +8,7 @@ import { auditLog } from '../utils/audit.js';
 import { logger } from '../utils/logger.js';
 import { invalidateEmailTemplateConfigCache, invalidateNotificationSettingsCache } from '../utils/email.js';
 import { updateEventStatuses } from '../utils/eventStatus.js';
-import { setRuntimeAttendanceJwtSecret } from '../utils/attendanceToken.js';
+import { hasRuntimeAttendanceJwtSecret, setRuntimeAttendanceJwtSecret } from '../utils/attendanceToken.js';
 
 export const settingsRouter = Router();
 
@@ -101,28 +101,25 @@ function buildSecurityEnvStatus(settings: {
   indexNowKey: string | null;
   updatedAt: Date;
 } | null) {
-  const envAttendanceJwtSecret = process.env.ATTENDANCE_JWT_SECRET?.trim() || '';
-  const envIndexNowKey = process.env.INDEXNOW_KEY?.trim() || '';
+  const envAttendanceJwtSecret = process.env.ATTENDANCE_JWT_SECRET?.trim() || ''; // legacy only
+  const envIndexNowKey = process.env.INDEXNOW_KEY?.trim() || ''; // legacy only
   const storedAttendanceJwtSecret = settings?.attendanceJwtSecret?.trim() || '';
   const storedIndexNowKey = settings?.indexNowKey?.trim() || '';
+  const runtimeAttendanceJwtSecretActive = Boolean(storedAttendanceJwtSecret) || hasRuntimeAttendanceJwtSecret();
+  const runtimeIndexNowKeyActive = Boolean(storedIndexNowKey) || Boolean(envIndexNowKey);
 
   return {
     attendanceJwtSecretConfigured: Boolean(storedAttendanceJwtSecret),
     indexNowKeyConfigured: Boolean(storedIndexNowKey),
+    mode: 'settings-only' as const,
     runtimeStatus: {
-      attendanceJwtSecretAppliedFromSettings: !envAttendanceJwtSecret && Boolean(storedAttendanceJwtSecret),
-      indexNowKeyAppliedFromSettings: !envIndexNowKey && Boolean(storedIndexNowKey),
-    },
-    envStatus: {
+      attendanceJwtSecretActive: runtimeAttendanceJwtSecretActive,
+      indexNowKeyActive: runtimeIndexNowKeyActive,
       nodeEnv: process.env.NODE_ENV || 'development',
-      attendanceJwtSecretPresent: Boolean(envAttendanceJwtSecret),
-      indexNowKeyPresent: Boolean(envIndexNowKey),
-      attendanceJwtSecretMatchesStored: storedAttendanceJwtSecret
-        ? envAttendanceJwtSecret === storedAttendanceJwtSecret
-        : null,
-      indexNowKeyMatchesStored: storedIndexNowKey
-        ? envIndexNowKey === storedIndexNowKey
-        : null,
+      legacyEnvDetected: {
+        attendanceJwtSecret: Boolean(envAttendanceJwtSecret),
+        indexNowKey: Boolean(envIndexNowKey),
+      },
     },
     updatedAt: settings?.updatedAt?.toISOString() || null,
   };
@@ -153,7 +150,7 @@ function applyRuntimeSecurityEnvValues(options: {
 }): void {
   const { attendanceJwtSecret, indexNowKey } = options;
 
-  if (attendanceJwtSecret !== undefined && !process.env.ATTENDANCE_JWT_SECRET?.trim()) {
+  if (attendanceJwtSecret !== undefined) {
     setRuntimeAttendanceJwtSecret(attendanceJwtSecret);
     logger.info('Updated runtime attendance secret from settings', {
       source: 'settings',
@@ -161,7 +158,7 @@ function applyRuntimeSecurityEnvValues(options: {
     });
   }
 
-  if (indexNowKey !== undefined && !process.env.INDEXNOW_KEY?.trim()) {
+  if (indexNowKey !== undefined) {
     if (indexNowKey) {
       process.env.INDEXNOW_KEY = indexNowKey;
     } else {

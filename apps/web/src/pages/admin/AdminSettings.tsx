@@ -158,7 +158,7 @@ export default function AdminSettings() {
       const status = await api.getSecurityEnvStatus(token);
       setSecurityEnvStatus(status);
     } catch {
-      setError('Failed to verify ATTENDANCE_JWT_SECRET / INDEXNOW_KEY status');
+      setError('Failed to refresh security key status');
     } finally {
       setSecurityEnvChecking(false);
     }
@@ -986,11 +986,11 @@ We've got something exciting lined up for you:`}
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <Shield className="h-5 w-5 text-amber-600" />
-              Security Env Verification
+              Security Keys (Settings)
             </CardTitle>
             <CardDescription>
-              Set secure reference values and verify production env presence/match for ATTENDANCE_JWT_SECRET and INDEXNOW_KEY.
-              This section is visible only to super admin and PRESIDENT.
+              ATTENDANCE_JWT_SECRET and INDEXNOW_KEY are managed from privileged settings.
+              Env variables are optional legacy fallbacks, not required.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -1030,7 +1030,7 @@ We've got something exciting lined up for you:`}
                 onClick={() => void fetchSecurityEnvStatus()}
               >
                 {securityEnvChecking ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
-                Verify Production Env
+                Refresh Key Status
               </Button>
               <Button
                 className="gap-2 bg-amber-600 hover:bg-amber-700"
@@ -1075,25 +1075,39 @@ We've got something exciting lined up for you:`}
 
             {securityEnvStatus && (
               <div className="rounded-lg border border-amber-100 bg-amber-50 p-4 space-y-2 text-sm">
-                <p className="font-medium text-amber-900">Verification Status ({securityEnvStatus.envStatus.nodeEnv})</p>
-                <p className="text-gray-700">
-                  ATTENDANCE_JWT_SECRET: {securityEnvStatus.envStatus.attendanceJwtSecretPresent ? 'Env present' : 'Env missing'}
-                  {securityEnvStatus.envStatus.attendanceJwtSecretMatchesStored === null
-                    ? ' · no stored reference'
-                    : securityEnvStatus.envStatus.attendanceJwtSecretMatchesStored
-                      ? ' · matches stored reference'
-                      : ' · does not match stored reference'}
+                <p className="font-medium text-amber-900">
+                  Security Status ({securityEnvStatus.runtimeStatus.nodeEnv})
                 </p>
                 <p className="text-gray-700">
-                  INDEXNOW_KEY: {securityEnvStatus.envStatus.indexNowKeyPresent ? 'Env present' : 'Env missing'}
-                  {securityEnvStatus.envStatus.indexNowKeyMatchesStored === null
-                    ? ' · no stored reference'
-                    : securityEnvStatus.envStatus.indexNowKeyMatchesStored
-                      ? ' · matches stored reference'
-                      : ' · does not match stored reference'}
+                  ATTENDANCE_JWT_SECRET: {securityEnvStatus.attendanceJwtSecretConfigured ? 'configured in settings' : 'not configured'}
+                  {securityEnvStatus.runtimeStatus.attendanceJwtSecretActive ? ' · active at runtime' : ' · not active yet'}
+                </p>
+                <p className="text-gray-700">
+                  INDEXNOW_KEY: {securityEnvStatus.indexNowKeyConfigured ? 'configured in settings' : 'not configured'}
+                  {securityEnvStatus.runtimeStatus.indexNowKeyActive ? ' · active at runtime' : ' · not active yet'}
                 </p>
                 <p className="text-xs text-gray-500">
-                  Stored refs: attendance {securityEnvStatus.attendanceJwtSecretConfigured ? 'configured' : 'not configured'} · indexnow {securityEnvStatus.indexNowKeyConfigured ? 'configured' : 'not configured'}
+                  Mode: settings-only.
+                  {securityEnvStatus.persistenceSupported === false ? ' Database persistence unavailable (runtime-only mode).' : ' Database persistence available.'}
+                </p>
+                {securityEnvStatus.runtimeStatus.legacyEnvDetected.attendanceJwtSecret || securityEnvStatus.runtimeStatus.legacyEnvDetected.indexNowKey ? (
+                  <p className="text-xs text-amber-700">
+                    Legacy env values were detected. Settings values remain the primary source.
+                  </p>
+                ) : null}
+                {securityEnvStatus.runtimeOnlyApplied ? (
+                  <p className="text-xs text-amber-700">
+                    Values were applied for current runtime only. Run migrations to persist them.
+                  </p>
+                ) : null}
+                {securityEnvStatus.updatedAt ? (
+                  <p className="text-xs text-gray-500">Last updated: {formatDateTime(securityEnvStatus.updatedAt)}</p>
+                ) : null}
+                {!securityEnvStatus.updatedAt ? (
+                  <p className="text-xs text-gray-500">No persisted keys yet.</p>
+                ) : null}
+                <p className="text-xs text-gray-500">
+                  This section is visible only to super admin and PRESIDENT.
                 </p>
               </div>
             )}

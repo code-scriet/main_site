@@ -289,13 +289,19 @@ export interface Settings {
 export interface SecurityEnvStatus {
   attendanceJwtSecretConfigured: boolean;
   indexNowKeyConfigured: boolean;
-  envStatus: {
+  mode: 'settings-only';
+  runtimeStatus: {
     nodeEnv: string;
-    attendanceJwtSecretPresent: boolean;
-    indexNowKeyPresent: boolean;
-    attendanceJwtSecretMatchesStored: boolean | null;
-    indexNowKeyMatchesStored: boolean | null;
+    attendanceJwtSecretActive: boolean;
+    indexNowKeyActive: boolean;
+    legacyEnvDetected: {
+      attendanceJwtSecret: boolean;
+      indexNowKey: boolean;
+    };
   };
+  persistenceSupported?: boolean;
+  runtimeOnlyMode?: boolean;
+  runtimeOnlyApplied?: boolean;
   updatedAt: string | null;
 }
 

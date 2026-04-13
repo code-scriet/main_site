@@ -143,19 +143,17 @@ const hydrateRuntimeSecurityEnvFromSettings = async () => {
       return;
     }
 
-    const envAttendanceSecret = process.env.ATTENDANCE_JWT_SECRET?.trim();
-    const envIndexNowKey = process.env.INDEXNOW_KEY?.trim();
     const storedAttendanceSecret = settings.attendanceJwtSecret?.trim();
     const storedIndexNowKey = settings.indexNowKey?.trim();
 
-    if (!envAttendanceSecret && storedAttendanceSecret) {
+    if (storedAttendanceSecret) {
       setRuntimeAttendanceJwtSecret(storedAttendanceSecret);
       logger.info('Loaded attendance JWT secret from settings for runtime usage', {
         source: 'settings',
       });
     }
 
-    if (!envIndexNowKey && storedIndexNowKey) {
+    if (storedIndexNowKey) {
       process.env.INDEXNOW_KEY = storedIndexNowKey;
       logger.info('Loaded IndexNow key from settings for runtime usage', {
         source: 'settings',
