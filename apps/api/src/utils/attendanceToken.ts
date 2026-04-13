@@ -1,5 +1,4 @@
 import jwt from 'jsonwebtoken';
-import { getJwtSecret } from './jwt.js';
 
 interface AttendancePayload {
   userId: string;
@@ -11,6 +10,12 @@ interface AttendancePayload {
 const ATTENDANCE_JWT_SECRET_ENV_CANDIDATES = [
   'ATTENDANCE_JWT_SECRET',
   'ATTENDANCE_TOKEN_SECRET',
+] as const;
+
+const ATTENDANCE_PREVIOUS_SECRET_ENV_CANDIDATES = [
+  'ATTENDANCE_JWT_PREVIOUS_SECRET',
+  'ATTENDANCE_JWT_PREVIOUS_SECRETS',
+  'ATTENDANCE_TOKEN_PREVIOUS_SECRET',
 ] as const;
 
 const DEFAULT_ATTENDANCE_TOKEN_EXPIRES_IN =
@@ -27,17 +32,44 @@ function getConfiguredAttendanceJwtSecret(): string | undefined {
   return undefined;
 }
 
+function getConfiguredPreviousAttendanceSecrets(): string[] {
+  const values: string[] = [];
+
+  for (const key of ATTENDANCE_PREVIOUS_SECRET_ENV_CANDIDATES) {
+    const raw = process.env[key]?.trim();
+    if (!raw) {
+      continue;
+    }
+
+    const parts = raw
+      .split(',')
+      .map((value) => value.trim())
+      .filter(Boolean);
+
+    values.push(...parts);
+  }
+
+  return Array.from(new Set(values));
+}
+
 export function getAttendanceJwtSecret(): string {
-  return getConfiguredAttendanceJwtSecret() || getJwtSecret();
+  const secret = getConfiguredAttendanceJwtSecret();
+
+  if (!secret) {
+    throw new Error(
+      'ATTENDANCE_JWT_SECRET must be configured. Attendance tokens cannot share JWT_SECRET.',
+    );
+  }
+
+  return secret;
 }
 
 function getAttendanceVerificationSecrets(): string[] {
   const attendanceSecret = getAttendanceJwtSecret();
-  const authSecret = getJwtSecret();
+  const previousSecrets = getConfiguredPreviousAttendanceSecrets()
+    .filter((secret) => secret !== attendanceSecret);
 
-  return attendanceSecret === authSecret
-    ? [attendanceSecret]
-    : [attendanceSecret, authSecret];
+  return [attendanceSecret, ...previousSecrets];
 }
 
 function verifyAttendancePayload(token: string, secret: string): AttendancePayload {

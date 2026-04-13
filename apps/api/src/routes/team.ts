@@ -522,7 +522,7 @@ teamRouter.put('/:id/profile', authMiddleware, async (req: Request, res: Respons
     const isOwner = existing.userId === authUser.id;
 
     if (!isAdmin && !isOwner) {
-      return res.status(403).json({ success: false, error: { message: 'Not authorized to edit this profile' } });
+      return res.status(404).json({ success: false, error: { message: 'Team member not found' } });
     }
 
     const parsed = profileUpdateSchema.safeParse(req.body);

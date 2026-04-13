@@ -110,6 +110,7 @@ const QuizJoinPage = lazy(() => import('@/pages/quiz/QuizJoinPage'));
 
 // Auth Components - keep synchronous for faster auth checks
 import { ProtectedRoute } from '@/components/auth/ProtectedRoute';
+import { SuperAdminOrPresidentRoute } from '@/components/auth/SuperAdminOrPresidentRoute';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -208,7 +209,9 @@ function App() {
                       <Route path="credits" element={withRouteBoundary(<AdminCredits />)} />
                       <Route path="competition" element={withRouteBoundary(<AdminCompetition />)} />
                       <Route path="competition/:roundId/judge" element={withRouteBoundary(<CompetitionJudge />)} />
-                      <Route path="settings" element={withRouteBoundary(<AdminSettings />)} />
+                      <Route element={<SuperAdminOrPresidentRoute />}>
+                        <Route path="settings" element={withRouteBoundary(<AdminSettings />)} />
+                      </Route>
                       <Route path="audit-log" element={withRouteBoundary(<AdminAuditLog />)} />
                       <Route path="mail" element={withRouteBoundary(<AdminMail />)} />
                       <Route path="public-view" element={withRouteBoundary(<AdminPublicView />)} />

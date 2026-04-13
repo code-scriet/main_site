@@ -7,6 +7,7 @@
 // ---------------------------------------------------------------------------
 
 import { Router, Request, Response, NextFunction } from 'express';
+import rateLimit from 'express-rate-limit';
 import { prisma } from '../lib/prisma.js';
 import { authMiddleware } from '../middleware/auth.js';
 import { getAuthUser } from '../middleware/auth.js';
@@ -14,8 +15,16 @@ import { requireRole } from '../middleware/role.js';
 import { logger } from '../utils/logger.js';
 
 const router = Router();
-const SETTINGS_CACHE_TTL_MS = 60 * 1000;
+const SETTINGS_CACHE_TTL_MS = 15 * 1000;
 const DEFAULT_PLAYGROUND_DAILY_LIMIT = 100;
+
+const executionCountsLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { success: false, error: 'Too many requests. Try again in a minute.' },
+});
 
 const playgroundSettingsCache: {
   expiresAt: number;
@@ -282,19 +291,27 @@ router.post('/admin/reset-limit/:userId', authMiddleware, requireRole('ADMIN'), 
 });
 
 /** Get users with their today's execution counts */
-router.get('/admin/execution-counts', requireRole('ADMIN'), async (req: Request, res: Response) => {
+router.get('/admin/execution-counts', requireRole('ADMIN'), executionCountsLimiter, async (req: Request, res: Response) => {
   try {
     const settings = await getCachedPlaygroundSettings();
     const usageDate = getUsageDate();
-    const counts = await prisma.playgroundDailyUsage.findMany({
-      where: { usageDate },
-      orderBy: { count: 'desc' },
-      take: 100,
-      select: {
-        userId: true,
-        count: true,
-      },
-    });
+    const page = Math.max(1, parseInt((req.query.page as string) || '1', 10) || 1);
+    const limit = Math.min(100, Math.max(1, parseInt((req.query.limit as string) || '50', 10) || 50));
+    const skip = (page - 1) * limit;
+
+    const [counts, total] = await Promise.all([
+      prisma.playgroundDailyUsage.findMany({
+        where: { usageDate },
+        orderBy: { count: 'desc' },
+        skip,
+        take: limit,
+        select: {
+          userId: true,
+          count: true,
+        },
+      }),
+      prisma.playgroundDailyUsage.count({ where: { usageDate } }),
+    ]);
 
     const userIds = counts.map((row) => row.userId);
     const latestExecutions = userIds.length
@@ -318,6 +335,12 @@ router.get('/admin/execution-counts', requireRole('ADMIN'), async (req: Request,
         dailyLimit: settings.dailyLimit,
         lastRunAt: latestByUser.get(r.userId) || null,
       })),
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages: Math.max(1, Math.ceil(total / limit)),
+      },
     });
   } catch (error) {
     logger.error('[Playground] Failed to get execution counts', { error: error instanceof Error ? error.message : String(error) });

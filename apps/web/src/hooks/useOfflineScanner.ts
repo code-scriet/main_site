@@ -371,7 +371,6 @@ export function useOfflineScanner(
 
       const payload = JSON.stringify({
         eventId,
-        authToken,
         bypassWindow: bypassWindow ?? false,
         scans: pending.map((s) => ({
           token: s.token,
@@ -388,7 +387,7 @@ export function useOfflineScanner(
     return () => {
       window.removeEventListener('beforeunload', handleBeforeUnload);
     };
-  }, [eventId, authToken, bypassWindow]);
+  }, [eventId, bypassWindow]);
 
   // -----------------------------------------------------------------------
   // Return

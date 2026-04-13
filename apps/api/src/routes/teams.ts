@@ -18,6 +18,7 @@ import { sanitizeEventRegistrationFields, validateRegistrationFieldSubmissions }
 export const teamsRouter = Router();
 
 const TEAM_TRANSACTION_RETRIES = 3;
+const MAX_CUSTOM_FIELD_COUNT = 50;
 
 // Generate an 8-character uppercase hex invite code
 function generateInviteCode(): string {
@@ -109,17 +110,33 @@ function validateEventForRegistration(
 
 function normalizeCustomFieldResponses(input: unknown): Array<{ fieldId: string; value: unknown }> {
   if (Array.isArray(input)) {
-    return input
+    const normalized = input
       .filter((entry): entry is Record<string, unknown> => Boolean(entry) && typeof entry === 'object')
       .map((entry) => ({
         fieldId: typeof entry.fieldId === 'string' ? entry.fieldId : '',
         value: entry.value,
       }))
       .filter((entry) => entry.fieldId.trim().length > 0);
+
+    if (normalized.length > MAX_CUSTOM_FIELD_COUNT) {
+      throw {
+        status: 400,
+        message: `Too many custom fields. Maximum allowed is ${MAX_CUSTOM_FIELD_COUNT}.`,
+      };
+    }
+
+    return normalized;
   }
 
   if (input && typeof input === 'object') {
-    return Object.entries(input as Record<string, unknown>).map(([fieldId, value]) => ({ fieldId, value }));
+    const entries = Object.entries(input as Record<string, unknown>);
+    if (entries.length > MAX_CUSTOM_FIELD_COUNT) {
+      throw {
+        status: 400,
+        message: `Too many custom fields. Maximum allowed is ${MAX_CUSTOM_FIELD_COUNT}.`,
+      };
+    }
+    return entries.map(([fieldId, value]) => ({ fieldId, value }));
   }
 
   return [];

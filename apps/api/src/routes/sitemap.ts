@@ -5,7 +5,7 @@ import { submitAllUrls } from '../utils/indexnow.js';
 import { authMiddleware } from '../middleware/auth.js';
 import { requireRole } from '../middleware/role.js';
 
-const INDEXNOW_KEY = '7e55c45349934674ab69e23e318c47c0';
+const INDEXNOW_KEY = process.env.INDEXNOW_KEY?.trim() || '';
 export const sitemapRouter = express.Router();
 export const robotsRouter = express.Router();
 
@@ -220,13 +220,17 @@ export const indexNowRouter = express.Router();
 
 /**
  * Serve the IndexNow key verification file
- * GET /7e55c45349934674ab69e23e318c47c0.txt
+ * GET /<INDEXNOW_KEY>.txt
  */
-indexNowRouter.get(`/${INDEXNOW_KEY}.txt`, (_req: Request, res: Response) => {
-  res.setHeader('Content-Type', 'text/plain; charset=utf-8');
-  res.setHeader('Cache-Control', 'public, max-age=86400');
-  res.send(INDEXNOW_KEY);
-});
+if (INDEXNOW_KEY) {
+  indexNowRouter.get(`/${INDEXNOW_KEY}.txt`, (_req: Request, res: Response) => {
+    res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+    res.setHeader('Cache-Control', 'public, max-age=86400');
+    res.send(INDEXNOW_KEY);
+  });
+} else {
+  logger.warn('[IndexNow] INDEXNOW_KEY is not configured; key verification endpoint is disabled.');
+}
 
 /**
  * Submit all indexable URLs to IndexNow (admin-only)

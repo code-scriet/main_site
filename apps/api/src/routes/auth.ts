@@ -3,16 +3,22 @@ import passport from 'passport';
 import bcrypt from 'bcryptjs';
 import { randomUUID } from 'crypto';
 import { z } from 'zod';
+import rateLimit from 'express-rate-limit';
 import { authMiddleware, getAuthUser } from '../middleware/auth.js';
 import { prisma } from '../lib/prisma.js';
 import { socketEvents } from '../utils/socket.js';
 import { emailService } from '../utils/email.js';
 import { logger } from '../utils/logger.js';
 import { signAccessToken } from '../utils/jwt.js';
+import { auditLog } from '../utils/audit.js';
 
 export const authRouter = Router();
 
 const isDevLoginEnabled = (): boolean => process.env.NODE_ENV === 'development' && process.env.ENABLE_DEV_AUTH === 'true';
+
+if (process.env.NODE_ENV === 'production' && process.env.ENABLE_DEV_AUTH === 'true') {
+  logger.warn('ENABLE_DEV_AUTH is true in production env; dev login route remains disabled by code guard.');
+}
 
 const getFrontendUrl = (): string => process.env.FRONTEND_URL || 'http://localhost:5173';
 
@@ -157,6 +163,24 @@ const exchangeCodeSchema = z.object({
   code: z.string().uuid(),
 });
 
+const registerLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  skipSuccessfulRequests: true,
+  message: { error: 'Too many registration attempts, please try again later.' },
+});
+
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  skipSuccessfulRequests: true,
+  message: { error: 'Too many login attempts, please try again later.' },
+});
+
 authRouter.get('/providers', (_req: Request, res: Response) => {
   res.json({
     google: !!(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_ID !== 'your_google_client_id'),
@@ -166,7 +190,7 @@ authRouter.get('/providers', (_req: Request, res: Response) => {
   });
 });
 
-authRouter.post('/register', async (req: Request, res: Response) => {
+authRouter.post('/register', registerLimiter, async (req: Request, res: Response) => {
   try {
     const validation = registerSchema.safeParse(req.body);
     if (!validation.success) {
@@ -214,7 +238,7 @@ authRouter.post('/register', async (req: Request, res: Response) => {
   }
 });
 
-authRouter.post('/login', async (req: Request, res: Response) => {
+authRouter.post('/login', loginLimiter, async (req: Request, res: Response) => {
   try {
     const validation = loginSchema.safeParse(req.body);
     if (!validation.success) {
@@ -232,7 +256,7 @@ authRouter.post('/login', async (req: Request, res: Response) => {
     }
 
     if (!fetchedUser.password) {
-      return res.status(401).json({ error: 'This account uses OAuth sign-in only. Please sign in with OAuth or add a password first.' });
+      return res.status(401).json({ error: 'Invalid email or password' });
     }
 
     const isValid = await bcrypt.compare(password, fetchedUser.password);
@@ -332,6 +356,12 @@ const handleOAuthCallback = (provider: 'google' | 'github') =>
         intent: isNetworkIntent ? 'network' : undefined,
         networkType: isNetworkIntent ? networkType : undefined,
       });
+
+      await auditLog(user.id, 'LOGIN', 'auth', user.id, {
+        provider,
+        intent: isNetworkIntent ? 'network' : 'standard',
+      });
+
       return res.redirect(buildAuthCallbackUrl(code));
     } catch (error) {
       logger.error(`${provider} callback error:`, { error: error instanceof Error ? error.message : String(error) });

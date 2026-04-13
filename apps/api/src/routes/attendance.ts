@@ -44,6 +44,24 @@ function requireUuid(res: Response, value: unknown, label: string): value is str
   return true;
 }
 
+function getCookie(req: Request, name: string): string | undefined {
+  const raw = req.headers.cookie;
+  if (!raw) {
+    return undefined;
+  }
+
+  const match = raw
+    .split(';')
+    .map((part) => part.trim())
+    .find((part) => part.startsWith(`${name}=`));
+
+  if (!match) {
+    return undefined;
+  }
+
+  return decodeURIComponent(match.split('=').slice(1).join('='));
+}
+
 function resolveClientScannedAt(scannedAtLocal?: string): Date {
   const now = new Date();
   if (!scannedAtLocal?.trim()) {
@@ -372,8 +390,6 @@ router.post('/scan-beacon', beaconLimiter, express.text({ type: '*/*' }), async 
     const { authToken, scans, eventId } = body;
 
     if (
-      typeof authToken !== 'string' ||
-      !jwtLikePattern.test(authToken) ||
       !Array.isArray(scans) ||
       scans.length === 0 ||
       typeof eventId !== 'string'
@@ -385,9 +401,19 @@ router.post('/scan-beacon', beaconLimiter, express.text({ type: '*/*' }), async 
     }
 
     // Verify the auth token manually (beacon cannot set Authorization header)
+    const cookieToken = getCookie(req, 'scriet_session');
+    const bodyToken = typeof authToken === 'string' && jwtLikePattern.test(authToken)
+      ? authToken
+      : undefined;
+    const effectiveToken = cookieToken || bodyToken;
+
+    if (!effectiveToken) {
+      return res.status(401).send();
+    }
+
     let decoded;
     try {
-      decoded = verifyToken(authToken);
+      decoded = verifyToken(effectiveToken);
     } catch {
       return res.status(401).send();
     }
@@ -741,6 +767,9 @@ router.patch('/edit/:registrationId', authMiddleware, requireRole('CORE_MEMBER')
     }
 
     const { registrationId } = req.params;
+    if (!requireUuid(res, registrationId, 'registration ID')) {
+      return;
+    }
 
     const registration = await prisma.eventRegistration.findUnique({
       where: { id: registrationId },
@@ -750,12 +779,32 @@ router.patch('/edit/:registrationId', authMiddleware, requireRole('CORE_MEMBER')
       return ApiResponse.notFound(res, 'Registration not found');
     }
 
-    const { scannedAt, manualOverride } = req.body as { scannedAt?: string; manualOverride?: boolean };
+    const { scannedAt, manualOverride } = req.body as { scannedAt?: string | null; manualOverride?: boolean };
 
     const updateData: Record<string, unknown> = {};
 
     if (scannedAt !== undefined) {
-      updateData.scannedAt = scannedAt ? new Date(scannedAt) : null;
+      if (scannedAt === null || scannedAt === '') {
+        updateData.scannedAt = null;
+      } else if (typeof scannedAt !== 'string') {
+        return ApiResponse.badRequest(res, 'scannedAt must be an ISO string, empty string, or null');
+      } else {
+        const parsed = new Date(scannedAt);
+        if (Number.isNaN(parsed.getTime())) {
+          return ApiResponse.badRequest(res, 'scannedAt must be a valid ISO date string');
+        }
+
+        const nowMs = Date.now();
+        const parsedMs = parsed.getTime();
+        if (
+          parsedMs > nowMs + CLIENT_SCAN_FUTURE_TOLERANCE_MS ||
+          parsedMs < nowMs - CLIENT_SCAN_MAX_AGE_MS
+        ) {
+          return ApiResponse.badRequest(res, 'scannedAt must be within the last 24 hours and not in the future');
+        }
+
+        updateData.scannedAt = parsed;
+      }
     }
 
     if (manualOverride !== undefined) {

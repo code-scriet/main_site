@@ -281,8 +281,10 @@ export function initQuizSocket(io: SocketIOServer) {
         if (hostJoin || isCreator) {
           if (socket.userId === room.adminUserId) {
             quizStore.updateAdminSocket(quizId, socket.userId, socket.id);
-          } else {
+          } else if (hostJoin && ['ADMIN', 'PRESIDENT'].includes(socket.userRole || '')) {
             room.adminSocketId = socket.id;
+          } else if (hostJoin) {
+            socket.emit('quiz_error', { code: 'FORBIDDEN', message: 'Host access denied for this account' });
           }
         }
 

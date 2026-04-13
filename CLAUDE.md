@@ -269,7 +269,7 @@ npm run lint:web
 | `/api/qotd/*` | qotdRouter | Some |
 | `/api/users/*` | usersRouter | Yes |
 | `/api/stats/*` | statsRouter | No (public) |
-| `/api/settings/*` | settingsRouter | Some |
+| `/api/settings/*` | settingsRouter | Some (`/settings`, `/settings/email-templates`, `/settings/security-env` are superAdmin/PRESIDENT only) |
 | `/api/hiring/*` | hiringRouter | Some |
 | `/api/certificates/*` | certificatesRouter | Some |
 | `/api/signatories/*` | signatoriesRouter | Admin |
@@ -511,7 +511,8 @@ show_tech_blogs, showNetwork, mailingEnabled,
 certificatesEnabled, playgroundEnabled, playgroundDailyLimit,
 emailWelcomeEnabled, emailEventCreationEnabled, emailRegistrationEnabled,
 emailAnnouncementEnabled, emailCertificateEnabled, emailReminderEnabled,
-emailTestingMode, emailTestRecipients?
+emailTestingMode, emailTestRecipients?,
+attendanceJwtSecret?, indexNowKey?
 ```
 
 ### Event
@@ -1091,7 +1092,7 @@ All pages are lazy-loaded with `React.lazy()` + `<Suspense>`.
 | `/admin/certificates` | AdminCertificates |
 | `/admin/audit-log` | AdminAuditLog (PRESIDENT/superAdmin only) |
 | `/admin/mail` | AdminMail |
-| `/admin/settings` | AdminSettings |
+| `/admin/settings` | AdminSettings (superAdmin/PRESIDENT only) |
 
 ---
 
@@ -1114,7 +1115,7 @@ All pages are lazy-loaded with `React.lazy()` + `<Suspense>`.
 8. Event Registrations
 9. Certificates (if `certificatesEnabled`)
 10. Send Mail
-11. Settings
+11. Settings (superAdmin/PRESIDENT only)
 
 ---
 
@@ -1137,7 +1138,7 @@ All requests use `fetch` with `credentials: 'include'` for cross-origin cookie s
 - QOTD: `getTodayQOTD`, `getQOTDHistory`, `createQOTD`, `submitQOTD`, `getQOTDStats`
 - Stats: `getPublicStats`, `getHomePageData`, `getDashboardStats`
 - Users (Admin): `getUsers`, `getUser`, `updateUser`, `updateUserRole`, `deleteUser`
-- Settings: `getSettings`, `updateSettings`, `patchSetting`
+- Settings: `getSettings`, `updateSettings`, `patchSetting`, `getSecurityEnvStatus`, `updateSecurityEnvSettings`
 - Profile: `getProfile`, `updateProfile`, `changePassword`, `addPassword`
 - Hiring: `getMyHiringApplication`
 - Network (public): `getNetworkProfiles`, `getNetworkProfile`

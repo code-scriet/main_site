@@ -7,7 +7,7 @@ import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Save, AlertCircle, CheckCircle, Globe, Mail, Shield, Loader2, RefreshCw, Share2, FileText, Eye, Code, Search, Clock, AlertTriangle } from 'lucide-react';
 import { api } from '@/lib/api';
-import type { Settings } from '@/lib/api';
+import type { Settings, SecurityEnvStatus } from '@/lib/api';
 import { useAuth } from '@/context/AuthContext';
 import { useSettings } from '@/context/SettingsContext';
 import { Markdown } from '@/components/ui/markdown';
@@ -42,7 +42,7 @@ function ToggleRow({ id, label, description, checked, onCheckedChange, compact =
 }
 
 export default function AdminSettings() {
-  const { token } = useAuth();
+  const { user, token } = useAuth();
   const { refreshSettings: refreshGlobalSettings } = useSettings();
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -98,7 +98,12 @@ export default function AdminSettings() {
   const [eventSyncResult, setEventSyncResult] = useState<
     { toOngoing: number; toPastFromOngoing: number; toPastFromUpcoming: number; error?: string } | null
   >(null);
+  const [securityEnvValues, setSecurityEnvValues] = useState({ attendanceJwtSecret: '', indexNowKey: '' });
+  const [securityEnvStatus, setSecurityEnvStatus] = useState<SecurityEnvStatus | null>(null);
+  const [securityEnvSaving, setSecurityEnvSaving] = useState(false);
+  const [securityEnvChecking, setSecurityEnvChecking] = useState(false);
   const savedTimerRef = useRef<number | null>(null);
+  const canManageSecurityEnv = Boolean(user?.isSuperAdmin || user?.role === 'PRESIDENT');
 
   const fetchSettings = useCallback(async () => {
     setLoading(true);
@@ -144,6 +149,26 @@ export default function AdminSettings() {
       window.clearTimeout(savedTimerRef.current);
     }
   }, []);
+
+  const fetchSecurityEnvStatus = useCallback(async () => {
+    if (!token || !canManageSecurityEnv) return;
+
+    setSecurityEnvChecking(true);
+    try {
+      const status = await api.getSecurityEnvStatus(token);
+      setSecurityEnvStatus(status);
+    } catch {
+      setError('Failed to verify ATTENDANCE_JWT_SECRET / INDEXNOW_KEY status');
+    } finally {
+      setSecurityEnvChecking(false);
+    }
+  }, [token, canManageSecurityEnv]);
+
+  useEffect(() => {
+    if (canManageSecurityEnv) {
+      void fetchSecurityEnvStatus();
+    }
+  }, [canManageSecurityEnv, fetchSecurityEnvStatus]);
 
   // Auto-save a single boolean toggle immediately via PATCH
   const handleToggle = async (key: keyof Settings, value: boolean) => {
@@ -954,6 +979,127 @@ We've got something exciting lined up for you:`}
           </p>
         </CardContent>
       </Card>
+
+      {/* Security Env Settings (super admin / president only) */}
+      {canManageSecurityEnv && (
+        <Card className="border-amber-100">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Shield className="h-5 w-5 text-amber-600" />
+              Security Env Verification
+            </CardTitle>
+            <CardDescription>
+              Set secure reference values and verify production env presence/match for ATTENDANCE_JWT_SECRET and INDEXNOW_KEY.
+              This section is visible only to super admin and PRESIDENT.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-2">
+                <Label htmlFor="attendance-jwt-secret">ATTENDANCE_JWT_SECRET Reference</Label>
+                <Input
+                  id="attendance-jwt-secret"
+                  type="password"
+                  value={securityEnvValues.attendanceJwtSecret}
+                  onChange={(e) =>
+                    setSecurityEnvValues((prev) => ({ ...prev, attendanceJwtSecret: e.target.value }))
+                  }
+                  placeholder="Paste new attendance JWT secret"
+                />
+                <p className="text-xs text-gray-500">Saved as a privileged settings reference. Leave empty to keep current stored value.</p>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="indexnow-key">INDEXNOW_KEY Reference</Label>
+                <Input
+                  id="indexnow-key"
+                  value={securityEnvValues.indexNowKey}
+                  onChange={(e) =>
+                    setSecurityEnvValues((prev) => ({ ...prev, indexNowKey: e.target.value }))
+                  }
+                  placeholder="Paste new IndexNow key"
+                />
+                <p className="text-xs text-gray-500">Saved as a privileged settings reference. Leave empty to keep current stored value.</p>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-3">
+              <Button
+                variant="outline"
+                className="gap-2"
+                disabled={securityEnvChecking}
+                onClick={() => void fetchSecurityEnvStatus()}
+              >
+                {securityEnvChecking ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+                Verify Production Env
+              </Button>
+              <Button
+                className="gap-2 bg-amber-600 hover:bg-amber-700"
+                disabled={securityEnvSaving}
+                onClick={async () => {
+                  if (!token) return;
+
+                  const payload: { attendanceJwtSecret?: string | null; indexNowKey?: string | null } = {};
+                  const attendanceValue = securityEnvValues.attendanceJwtSecret.trim();
+                  const indexNowValue = securityEnvValues.indexNowKey.trim();
+
+                  if (attendanceValue) payload.attendanceJwtSecret = attendanceValue;
+                  if (indexNowValue) payload.indexNowKey = indexNowValue;
+
+                  if (!payload.attendanceJwtSecret && !payload.indexNowKey) {
+                    setError('Enter at least one security value before saving.');
+                    return;
+                  }
+
+                  setSecurityEnvSaving(true);
+                  setError(null);
+                  try {
+                    const status = await api.updateSecurityEnvSettings(payload, token);
+                    setSecurityEnvStatus(status);
+                    setSecurityEnvValues({ attendanceJwtSecret: '', indexNowKey: '' });
+                    setSaved(true);
+                    if (savedTimerRef.current) {
+                      window.clearTimeout(savedTimerRef.current);
+                    }
+                    savedTimerRef.current = window.setTimeout(() => setSaved(false), 3000);
+                  } catch {
+                    setError('Failed to save security env references');
+                  } finally {
+                    setSecurityEnvSaving(false);
+                  }
+                }}
+              >
+                {securityEnvSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                Save Security Values
+              </Button>
+            </div>
+
+            {securityEnvStatus && (
+              <div className="rounded-lg border border-amber-100 bg-amber-50 p-4 space-y-2 text-sm">
+                <p className="font-medium text-amber-900">Verification Status ({securityEnvStatus.envStatus.nodeEnv})</p>
+                <p className="text-gray-700">
+                  ATTENDANCE_JWT_SECRET: {securityEnvStatus.envStatus.attendanceJwtSecretPresent ? 'Env present' : 'Env missing'}
+                  {securityEnvStatus.envStatus.attendanceJwtSecretMatchesStored === null
+                    ? ' · no stored reference'
+                    : securityEnvStatus.envStatus.attendanceJwtSecretMatchesStored
+                      ? ' · matches stored reference'
+                      : ' · does not match stored reference'}
+                </p>
+                <p className="text-gray-700">
+                  INDEXNOW_KEY: {securityEnvStatus.envStatus.indexNowKeyPresent ? 'Env present' : 'Env missing'}
+                  {securityEnvStatus.envStatus.indexNowKeyMatchesStored === null
+                    ? ' · no stored reference'
+                    : securityEnvStatus.envStatus.indexNowKeyMatchesStored
+                      ? ' · matches stored reference'
+                      : ' · does not match stored reference'}
+                </p>
+                <p className="text-xs text-gray-500">
+                  Stored refs: attendance {securityEnvStatus.attendanceJwtSecretConfigured ? 'configured' : 'not configured'} · indexnow {securityEnvStatus.indexNowKeyConfigured ? 'configured' : 'not configured'}
+                </p>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       <div className="flex justify-end gap-4">
         <Button variant="outline" onClick={fetchSettings} disabled={saving}>

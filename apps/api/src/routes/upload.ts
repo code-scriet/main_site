@@ -7,6 +7,7 @@ import { ApiResponse, ErrorCodes } from '../utils/response.js';
 import { logger } from '../utils/logger.js';
 
 export const uploadRouter = Router();
+const CLOUDINARY_PUBLIC_ID_REGEX = /^[a-zA-Z0-9_\/-]+$/;
 
 // ISSUE-020: Server-side MIME validation using magic bytes
 // Don't trust client-sent mimetype header - validate actual file content
@@ -34,15 +35,6 @@ const upload = multer({
   storage: multer.memoryStorage(),
   limits: {
     fileSize: 5 * 1024 * 1024, // 5MB limit
-  },
-  fileFilter: (_req, file, cb) => {
-    // Only allow known image MIME types
-    const allowedMimeTypes = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
-    if (!allowedMimeTypes.includes(file.mimetype)) {
-      cb(new Error('Only image files are allowed'));
-      return;
-    }
-    cb(null, true);
   },
 });
 
@@ -185,6 +177,13 @@ uploadRouter.delete(
       }
 
       const publicId = decodeURIComponent(req.params.publicId);
+      if (!CLOUDINARY_PUBLIC_ID_REGEX.test(publicId)) {
+        return ApiResponse.error(res, {
+          code: ErrorCodes.VALIDATION_ERROR,
+          message: 'Invalid publicId format',
+          status: 400,
+        });
+      }
 
       // Delete from Cloudinary
       const result = await cloudinary.uploader.destroy(publicId);

@@ -102,6 +102,7 @@ const answerRateLimit = new Map<string, number>();
 const MAX_ANSWER_LENGTH = 200;
 const MAX_OPEN_ENDED_LENGTH = 1000;
 const MAX_ANALYTICS_KEY_LENGTH = 80;
+const NETWORK_GRACE_PERIOD_MS = 500;
 const UNSCORED_QUESTION_TYPES = new Set<QuizQuestionData['questionType']>(['POLL', 'RATING', 'OPEN_ENDED']);
 
 function normalizeWhitespace(value: string): string {
@@ -283,6 +284,7 @@ export const quizStore = {
     const player = room.players.get(userId);
     if (!player) return { error: 'NOT_A_PARTICIPANT' };
     if (player.answeredCurrentQuestion) return { error: 'ALREADY_ANSWERED' };
+    if (room.currentAnswers.has(userId)) return { error: 'ALREADY_ANSWERED' };
 
     const question = room.questions[room.currentQuestionIndex];
     if (!question) return { error: 'INVALID_QUESTION' };
@@ -314,8 +316,8 @@ export const quizStore = {
     const timeMs = Date.now() - room.currentQuestionStartTime;
     const timeLimitMs = question.timeLimitSeconds * 1000;
 
-    if (timeMs > timeLimitMs + 3000) {
-      // +3s grace period for network latency
+    if (timeMs > timeLimitMs + NETWORK_GRACE_PERIOD_MS) {
+      // Small grace window for network jitter
       return { error: 'TIME_EXPIRED' };
     }
 

@@ -120,10 +120,11 @@ const getAdminNavItems = (
   // TODO: Enable when tech blogs feature is built.
   // items.push({ id: 'admin-tech-blogs', name: 'Tech Blogs', href: '/admin/tech-blogs', icon: FileText });
 
-  items.push(
-    { id: 'admin-mail', name: 'Send Mail', href: '/admin/mail', icon: Mail },
-    { id: 'admin-settings', name: 'Settings', href: '/admin/settings', icon: Settings }
-  );
+  items.push({ id: 'admin-mail', name: 'Send Mail', href: '/admin/mail', icon: Mail });
+
+  if (isSuperAdmin || isPresident) {
+    items.push({ id: 'admin-settings', name: 'Settings', href: '/admin/settings', icon: Settings });
+  }
 
   return items;
 };

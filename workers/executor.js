@@ -40,8 +40,6 @@ function getAllowedOrigin(request) {
   const origin = request.headers.get('Origin') || '';
   if (ALLOWED_ORIGINS.includes(origin)) return origin;
   if (DEV_ORIGINS.includes(origin)) return origin;
-  // Allow requests with no origin (server-to-server from our backend)
-  if (!origin) return ALLOWED_ORIGINS[0];
   return null;
 }
 

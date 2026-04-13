@@ -30,7 +30,15 @@ auditRouter.get('/', authMiddleware, requireRole('ADMIN'), async (req: Request, 
     const entity = req.query.entity as string | undefined;
     const action = req.query.action as string | undefined;
     const userId = req.query.userId as string | undefined;
-    const search = req.query.search as string | undefined;
+    const rawSearch = req.query.search;
+    const search = typeof rawSearch === 'string' ? rawSearch.trim() : undefined;
+
+    if (search && search.length > 500) {
+      return res.status(400).json({
+        success: false,
+        error: { message: 'search must be at most 500 characters' },
+      });
+    }
 
     // Build where clause
     const where: Record<string, unknown> = {};
@@ -66,7 +74,7 @@ auditRouter.get('/', authMiddleware, requireRole('ADMIN'), async (req: Request, 
     ]);
 
     // Fetch user details for all unique userIds
-    const userIds = [...new Set(logs.map(log => log.userId))];
+    const userIds = [...new Set(logs.map((log) => log.userId).filter((id): id is string => Boolean(id)))];
     const users = await prisma.user.findMany({
       where: { id: { in: userIds } },
       take: 100,
@@ -77,7 +85,9 @@ auditRouter.get('/', authMiddleware, requireRole('ADMIN'), async (req: Request, 
     // Attach user info to logs
     const logsWithUser = logs.map(log => ({
       ...log,
-      user: userMap.get(log.userId) || { id: log.userId, name: 'Unknown', email: '', avatar: null },
+      user: log.userId
+        ? (userMap.get(log.userId) || { id: log.userId, name: 'Unknown', email: '', avatar: null })
+        : { id: 'deleted-user', name: 'Deleted User', email: '', avatar: null },
     }));
 
     // Get distinct entities and actions for filter dropdowns (scoped to last 90 days for performance)

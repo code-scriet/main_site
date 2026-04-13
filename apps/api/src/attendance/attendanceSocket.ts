@@ -38,6 +38,8 @@ export function initializeAttendanceSocket(io: Server): void {
 
     socket.on('disconnect', () => {
       logger.debug('Attendance socket disconnected', { userId: socket.data.userId });
+      delete socket.data.userId;
+      delete socket.data.role;
     });
   });
 

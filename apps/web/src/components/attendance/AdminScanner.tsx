@@ -124,8 +124,7 @@ export default function AdminScanner({ eventId, token, onEndSession }: AdminScan
 
   // ---- Refs ----
   const html5QrRef = useRef<Html5Qrcode | null>(null);
-  const lastScannedRef = useRef<string | null>(null);
-  const dedupTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const recentScanMapRef = useRef<Map<string, number>>(new Map());
   const liveIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const startingRef = useRef(false); // concurrency guard for startCamera
@@ -215,18 +214,24 @@ export default function AdminScanner({ eventId, token, onEndSession }: AdminScan
 
   const handleScan = useCallback(
     (decodedText: string) => {
+      const now = Date.now();
+      const recentScans = recentScanMapRef.current;
+
+      for (const [token, timestamp] of recentScans.entries()) {
+        if (now - timestamp > DEDUP_MS) {
+          recentScans.delete(token);
+        }
+      }
+
       // Dedup: skip if same code scanned within DEDUP_MS
-      if (lastScannedRef.current === decodedText) {
+      const lastSeenAt = recentScans.get(decodedText);
+      if (typeof lastSeenAt === 'number' && now - lastSeenAt < DEDUP_MS) {
         if (audioEnabled) playTone(400, 150);
         showToast('duplicate', 'Already scanned');
         return;
       }
 
-      lastScannedRef.current = decodedText;
-      if (dedupTimerRef.current) clearTimeout(dedupTimerRef.current);
-      dedupTimerRef.current = setTimeout(() => {
-        lastScannedRef.current = null;
-      }, DEDUP_MS);
+      recentScans.set(decodedText, now);
 
       // addScan returns LocalScanEntry or null for invalid tokens.
       const result = addScan(decodedText);
@@ -423,7 +428,7 @@ export default function AdminScanner({ eventId, token, onEndSession }: AdminScan
     return () => {
       mountedRef.current = false;
       void stopCamera();
-      if (dedupTimerRef.current) clearTimeout(dedupTimerRef.current);
+      recentScanMapRef.current.clear();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -538,7 +543,7 @@ export default function AdminScanner({ eventId, token, onEndSession }: AdminScan
     .reverse()
     .slice(0, 15);
   const totalRegistered = liveData?.total ?? 0;
-  const attendedCount = liveData?.attended ?? scans.length;
+  const attendedCount = liveData?.attended ?? scans.filter((scan) => scan.synced && scan.result === 'ok').length;
   const attendanceRate = totalRegistered > 0 ? Math.round((attendedCount / totalRegistered) * 100) : 0;
 
   const toastColors: Record<ToastStatus, string> = {

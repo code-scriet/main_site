@@ -1234,6 +1234,16 @@ certificatesRouter.post('/bulk', authMiddleware, requireRole('ADMIN'), async (re
 
           successes.push({ certId, pdfUrl, name: r.name, email: r.email, type: r.type });
         } catch (err) {
+          const code = (err as { code?: string } | null)?.code;
+          if (code === 'P2002') {
+            failures.push({
+              name: r.name,
+              email: r.email,
+              reason: 'A certificate for this recipient already exists (concurrent request detected).',
+            });
+            return;
+          }
+
           const msg = err instanceof Error ? err.message : 'Unknown error';
           failures.push({ name: r.name, email: r.email, reason: msg });
           logger.error('Bulk cert generation failed for recipient', { name: r.name, email: r.email, error: msg });

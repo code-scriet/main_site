@@ -5,7 +5,7 @@ import { marked } from 'marked';
 import { logger } from './logger.js';
 import { prisma } from '../lib/prisma.js';
 import QRCode from 'qrcode';
-import { sanitizeHtml } from './sanitize.js';
+import { sanitizeHtml, sanitizeText } from './sanitize.js';
 
 // ============================================
 // Email Category & Notification Settings
@@ -262,6 +262,40 @@ function htmlToPlainText(html: string): string {
     .replace(/&gt;/g, '>')
     .replace(/\n\s*\n/g, '\n\n')
     .trim();
+}
+
+const EMAIL_ADDRESS_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+function normalizeEmailAddress(value: string): string | null {
+  const normalized = value.trim().toLowerCase();
+  if (!normalized || !EMAIL_ADDRESS_REGEX.test(normalized)) {
+    return null;
+  }
+  return normalized;
+}
+
+function normalizeEmailList(input?: string | string[]): { valid: boolean; values: string[] } {
+  if (input === undefined) {
+    return { valid: true, values: [] };
+  }
+
+  const values = Array.isArray(input) ? input : [input];
+  const normalized: string[] = [];
+
+  for (const value of values) {
+    if (typeof value !== 'string') {
+      return { valid: false, values: [] };
+    }
+
+    const parsed = normalizeEmailAddress(value);
+    if (!parsed) {
+      return { valid: false, values: [] };
+    }
+
+    normalized.push(parsed);
+  }
+
+  return { valid: true, values: Array.from(new Set(normalized)) };
 }
 
 // ============================================
@@ -1199,18 +1233,23 @@ class EmailService {
       options.html = debugHeader + options.html;
     }
 
+    const normalizedTo = normalizeEmailList(options.to);
+    const normalizedCc = normalizeEmailList(options.cc);
+    const normalizedBcc = normalizeEmailList(options.bcc);
+
+    if (!normalizedTo.valid || normalizedTo.values.length === 0 || !normalizedCc.valid || !normalizedBcc.valid) {
+      logger.warn('Invalid recipient email address in send()', {
+        to: options.to,
+        cc: options.cc,
+        bcc: options.bcc,
+      });
+      return false;
+    }
+
     try {
-      const recipients: BrevoRecipient[] = Array.isArray(options.to)
-        ? options.to.map(email => ({ email }))
-        : [{ email: options.to }];
-
-      const ccRecipients: BrevoRecipient[] = options.cc
-        ? (Array.isArray(options.cc) ? options.cc : [options.cc]).map(email => ({ email }))
-        : [];
-
-      const bccRecipients: BrevoRecipient[] = options.bcc
-        ? (Array.isArray(options.bcc) ? options.bcc : [options.bcc]).map(email => ({ email }))
-        : [];
+      const recipients: BrevoRecipient[] = normalizedTo.values.map(email => ({ email }));
+      const ccRecipients: BrevoRecipient[] = normalizedCc.values.map(email => ({ email }));
+      const bccRecipients: BrevoRecipient[] = normalizedBcc.values.map(email => ({ email }));
 
       const payload = {
         sender: { name: this.fromName, email: this.fromEmail },
@@ -1272,6 +1311,14 @@ class EmailService {
   async sendBulk(emails: string[], subject: string, html: string, text?: string, category: EmailCategory = 'other'): Promise<boolean> {
     if (!this.configured || emails.length === 0) return false;
 
+    const normalizedEmails = normalizeEmailList(emails);
+    if (!normalizedEmails.valid || normalizedEmails.values.length === 0) {
+      logger.warn('Invalid recipient email address in sendBulk()', {
+        sample: emails.slice(0, 10),
+      });
+      return false;
+    }
+
     // ── Notification guard: category toggle + testing mode ──
     const ns = await getNotificationSettings();
 
@@ -1279,7 +1326,7 @@ class EmailService {
     if (toggleKey && !ns[toggleKey]) {
       logger.info(`📧 Bulk email suppressed by ${toggleKey} toggle`, {
         category,
-        recipientCount: emails.length,
+        recipientCount: normalizedEmails.values.length,
         subject,
       });
       return false;
@@ -1294,7 +1341,7 @@ class EmailService {
       if (testEmails.length === 0) {
         logger.warn('📧 Bulk email testing mode active but no test recipients — suppressing', {
           category,
-          originalCount: emails.length,
+          originalCount: normalizedEmails.values.length,
           subject,
         });
         return false;
@@ -1302,27 +1349,27 @@ class EmailService {
 
       logger.info('📧 Bulk email testing mode: redirecting', {
         category,
-        originalCount: emails.length,
+        originalCount: normalizedEmails.values.length,
         redirectedTo: testEmails,
         subject,
       });
 
-      const debugHeader = `<div style="background:#fef08a;color:#854d0e;padding:12px 16px;border-radius:8px;margin-bottom:16px;font-size:13px;font-family:sans-serif;"><strong>🧪 TEST MODE</strong> — Would have sent to ${emails.length} recipients</div>`;
+      const debugHeader = `<div style="background:#fef08a;color:#854d0e;padding:12px 16px;border-radius:8px;margin-bottom:16px;font-size:13px;font-family:sans-serif;"><strong>🧪 TEST MODE</strong> — Would have sent to ${normalizedEmails.values.length} recipients</div>`;
       return this.send({
         to: testEmails,
         subject: `[TEST] ${subject}`,
         html: debugHeader + html,
-        text: `[TEST MODE - Would send to ${emails.length} recipients] ${text || ''}`,
+        text: `[TEST MODE - Would send to ${normalizedEmails.values.length} recipients] ${text || ''}`,
       });
     }
 
     const BATCH_SIZE = 1000;
     const batches: string[][] = [];
-    for (let i = 0; i < emails.length; i += BATCH_SIZE) {
-      batches.push(emails.slice(i, i + BATCH_SIZE));
+    for (let i = 0; i < normalizedEmails.values.length; i += BATCH_SIZE) {
+      batches.push(normalizedEmails.values.slice(i, i + BATCH_SIZE));
     }
 
-    logger.info(`📧 Sending bulk email to ${emails.length} recipients in ${batches.length} batches`);
+    logger.info(`📧 Sending bulk email to ${normalizedEmails.values.length} recipients in ${batches.length} batches`);
 
     let allSuccessful = true;
     for (const batch of batches) {
@@ -1391,7 +1438,9 @@ class EmailService {
   // Convenience methods
   async sendWelcome(email: string, name: string, clubName: string = 'code.scriet'): Promise<boolean> {
     const config = await getEmailTemplateConfig();
-    const template = EmailTemplates.welcome(name, clubName, config.welcomeBody, config.footerText);
+    const safeName = sanitizeText(name);
+    const safeClubName = sanitizeText(clubName);
+    const template = EmailTemplates.welcome(safeName, safeClubName, config.welcomeBody, config.footerText);
     return this.send({ to: email, ...template, category: 'welcome' });
   }
 
@@ -1406,7 +1455,25 @@ class EmailService {
     attendanceToken?: string,
     context?: EventRegistrationContext
   ): Promise<boolean> {
-    const template = await EmailTemplates.eventRegistration(name, eventTitle, eventDate, eventSlug, location, imageUrl, attendanceToken, context);
+    const safeName = sanitizeText(name);
+    const safeEventTitle = sanitizeText(eventTitle);
+    const safeLocation = location ? sanitizeText(location) : undefined;
+    const safeContext = context
+      ? {
+          ...context,
+          teamName: context.teamName ? sanitizeText(context.teamName) : context.teamName,
+        }
+      : undefined;
+    const template = await EmailTemplates.eventRegistration(
+      safeName,
+      safeEventTitle,
+      eventDate,
+      eventSlug,
+      safeLocation,
+      imageUrl,
+      attendanceToken,
+      safeContext,
+    );
     return this.send({ to: email, ...template, category: 'registration' });
   }
 
@@ -1444,32 +1511,38 @@ class EmailService {
   }
 
   async sendPasswordReset(email: string, name: string, resetLink: string): Promise<boolean> {
-    const template = EmailTemplates.passwordReset(name, resetLink);
+    const template = EmailTemplates.passwordReset(sanitizeText(name), resetLink);
     return this.send({ to: email, ...template });
   }
 
   async sendEventReminder(email: string, name: string, eventTitle: string, eventDate: Date, eventSlug: string): Promise<boolean> {
-    const template = EmailTemplates.eventReminder(name, eventTitle, eventDate, eventSlug);
+    const template = EmailTemplates.eventReminder(sanitizeText(name), sanitizeText(eventTitle), eventDate, eventSlug);
     return this.send({ to: email, ...template, category: 'reminder' });
   }
 
   async sendRegistrationOpens(emails: string[], eventTitle: string, startDate: Date, slug: string, shortDescription?: string, imageUrl?: string): Promise<boolean> {
-    const template = EmailTemplates.registrationOpens(eventTitle, startDate, slug, shortDescription, imageUrl);
+    const template = EmailTemplates.registrationOpens(
+      sanitizeText(eventTitle),
+      startDate,
+      slug,
+      shortDescription ? sanitizeText(shortDescription) : undefined,
+      imageUrl,
+    );
     return this.sendBulk(emails, template.subject, template.html, template.text);
   }
 
   async sendHiringApplication(email: string, name: string, applyingRole: string): Promise<boolean> {
-    const template = EmailTemplates.hiringApplication(name, email, applyingRole);
+    const template = EmailTemplates.hiringApplication(sanitizeText(name), email, sanitizeText(applyingRole));
     return this.send({ to: email, ...template });
   }
 
   async sendHiringSelected(email: string, name: string, applyingRole: string): Promise<boolean> {
-    const template = EmailTemplates.hiringSelected(name, applyingRole);
+    const template = EmailTemplates.hiringSelected(sanitizeText(name), sanitizeText(applyingRole));
     return this.send({ to: email, ...template });
   }
 
   async sendHiringRejected(email: string, name: string, applyingRole: string): Promise<boolean> {
-    const template = EmailTemplates.hiringRejected(name, applyingRole);
+    const template = EmailTemplates.hiringRejected(sanitizeText(name), sanitizeText(applyingRole));
     return this.send({ to: email, ...template });
   }
 
@@ -1477,6 +1550,9 @@ class EmailService {
   
   // Sent when someone creates/submits their network profile for review
   async sendNetworkWelcome(email: string, name: string, designation: string, company: string, connectionType: string): Promise<boolean> {
+    const safeName = sanitizeText(name);
+    const safeDesignation = sanitizeText(designation);
+    const safeCompany = sanitizeText(company);
     // Format connection type for display
     const connectionLabels: Record<string, string> = {
       GUEST_SPEAKER: 'Guest Speaker',
@@ -1492,10 +1568,10 @@ class EmailService {
     const template = {
       subject: `🙏 Thank You for Joining Our Network · code.scriet`,
       html: generateEmailTemplate({
-        preheader: `Thank you for being part of the code.scriet network, ${name}!`,
+        preheader: `Thank you for being part of the code.scriet network, ${safeName}!`,
         accentColor: '#f59e0b',
         badge: { text: roleLabel, icon: '✨' },
-        title: `Thank You, ${name}!`,
+        title: `Thank You, ${safeName}!`,
         subtitle: `We're honored to have you in our network.`,
         body: `
           <p style="margin: 0 0 20px; font-size: 16px; color: #e5e7eb; line-height: 1.8;">
@@ -1504,8 +1580,8 @@ class EmailService {
           
           <div style="padding: 20px; background: linear-gradient(135deg, #f59e0b15, #ea580c10); border: 1px solid #f59e0b30; border-radius: 12px; margin: 20px 0;">
             <p style="margin: 0 0 12px; font-size: 14px; color: #fbbf24; font-weight: 600; text-transform: uppercase; letter-spacing: 1px;">Your Profile</p>
-            <p style="margin: 0; font-size: 18px; color: #ffffff; font-weight: 600;">${designation}</p>
-            <p style="margin: 4px 0 0; font-size: 14px; color: #a1a1aa;">${company}</p>
+            <p style="margin: 0; font-size: 18px; color: #ffffff; font-weight: 600;">${safeDesignation}</p>
+            <p style="margin: 4px 0 0; font-size: 14px; color: #a1a1aa;">${safeCompany}</p>
           </div>
           
           <p style="margin: 0 0 20px; font-size: 15px; color: #d1d5db; line-height: 1.7;">
@@ -1529,13 +1605,16 @@ class EmailService {
         cta: { text: 'Learn More About Us', url: `${SITE_URL}/about` },
         footer: 'Thank you for believing in our mission.',
       }),
-      text: `Hi ${name}, thank you for joining the code.scriet network as a ${roleLabel}! Your profile as ${designation} at ${company} is pending review. We'll notify you once it's verified.`,
+      text: `Hi ${safeName}, thank you for joining the code.scriet network as a ${roleLabel}! Your profile as ${safeDesignation} at ${safeCompany} is pending review. We'll notify you once it's verified.`,
     };
     return this.send({ to: email, ...template });
   }
 
   // Sent when admin verifies the profile
   async sendNetworkVerified(email: string, name: string, designation: string, company: string, profileId: string): Promise<boolean> {
+    const safeName = sanitizeText(name);
+    const safeDesignation = sanitizeText(designation);
+    const safeCompany = sanitizeText(company);
     const profileUrl = `${SITE_URL}/network/${profileId}`;
     const template = {
       subject: `✅ Your Network Profile is Now Live · code.scriet`,
@@ -1543,8 +1622,8 @@ class EmailService {
         preheader: `Your professional profile has been verified and is now visible on code.scriet`,
         accentColor: '#10b981',
         badge: { text: 'Profile Verified', icon: '✓' },
-        title: `Welcome to Our Network, ${name}!`,
-        subtitle: `Your profile as ${designation} at ${company} is now live.`,
+        title: `Welcome to Our Network, ${safeName}!`,
+        subtitle: `Your profile as ${safeDesignation} at ${safeCompany} is now live.`,
         body: `
           <p style="margin: 0 0 20px; font-size: 16px; color: #e5e7eb; line-height: 1.8;">
             Thank you for connecting with <strong style="color: #fbbf24;">code.scriet</strong>! Your professional profile has been reviewed and approved by our team.
@@ -1563,29 +1642,31 @@ class EmailService {
         cta: { text: 'View Your Profile', url: profileUrl },
         footer: 'Thank you for being part of our journey.',
       }),
-      text: `Hi ${name}, your profile as ${designation} at ${company} has been verified and is now live on code.scriet! View it here: ${profileUrl}`,
+      text: `Hi ${safeName}, your profile as ${safeDesignation} at ${safeCompany} has been verified and is now live on code.scriet! View it here: ${profileUrl}`,
     };
     return this.send({ to: email, ...template });
   }
 
   async sendNetworkRejected(email: string, name: string, reason?: string): Promise<boolean> {
+    const safeName = sanitizeText(name);
+    const safeReason = reason ? sanitizeText(reason) : undefined;
     const template = {
       subject: `Update on Your Network Profile · code.scriet`,
       html: generateEmailTemplate({
         preheader: `An update regarding your network profile submission`,
         accentColor: '#f59e0b',
         badge: { text: 'Profile Status Update', icon: '○' },
-        title: `Hi ${name}`,
+        title: `Hi ${safeName}`,
         subtitle: `We've reviewed your network profile submission.`,
         body: `
           <p style="margin: 0 0 20px; font-size: 15px; color: #d1d5db; line-height: 1.8;">
             Thank you for your interest in joining the <strong style="color: #fbbf24;">code.scriet</strong> network. After reviewing your submission, we're unable to verify your profile at this time.
           </p>
           
-          ${reason ? `
+          ${safeReason ? `
           <div style="padding: 16px 20px; background: #18181b; border: 1px solid #27272a; border-radius: 12px; margin: 20px 0;">
             <p style="margin: 0 0 8px; font-size: 12px; color: #f59e0b; font-weight: 700; text-transform: uppercase; letter-spacing: 1px;">Feedback</p>
-            <p style="margin: 0; font-size: 14px; color: #a1a1aa; line-height: 1.6;">${reason}</p>
+            <p style="margin: 0; font-size: 14px; color: #a1a1aa; line-height: 1.6;">${safeReason}</p>
           </div>
           ` : ''}
           
@@ -1596,24 +1677,28 @@ class EmailService {
         cta: { text: 'Contact Us', url: `${SITE_URL}/about` },
         footer: 'We appreciate your understanding.',
       }),
-      text: `Hi ${name}, we've reviewed your network profile submission. Unfortunately, we're unable to verify it at this time.${reason ? ` Feedback: ${reason}` : ''} If you have questions, please contact us.`,
+      text: `Hi ${safeName}, we've reviewed your network profile submission. Unfortunately, we're unable to verify it at this time.${safeReason ? ` Feedback: ${safeReason}` : ''} If you have questions, please contact us.`,
     };
     return this.send({ to: email, ...template });
   }
 
   // Special email for Alumni with WhatsApp group invitation (only if verified)
   async sendAlumniWelcome(email: string, name: string, designation: string, company: string, isVerified: boolean = false, passoutYear?: number, branch?: string): Promise<boolean> {
+    const safeName = sanitizeText(name);
+    const safeDesignation = sanitizeText(designation);
+    const safeCompany = sanitizeText(company);
+    const safeBranch = branch ? sanitizeText(branch) : undefined;
     const whatsappInviteLink = isVerified ? (process.env.INVITE_LINK_WH || '') : '';
-    const alumniInfo = passoutYear ? `Class of ${passoutYear}${branch ? ` · ${branch}` : ''}` : '';
+    const alumniInfo = passoutYear ? `Class of ${passoutYear}${safeBranch ? ` · ${safeBranch}` : ''}` : '';
     
     const template = {
       subject: isVerified ? `✅ Your Alumni Profile is Now Live · code.scriet` : `🎓 Welcome Back, Alumni! · code.scriet`,
       html: generateEmailTemplate({
-        preheader: isVerified ? `Your alumni profile has been verified and is now live!` : `Thank you for reconnecting with code.scriet, ${name}!`,
+        preheader: isVerified ? `Your alumni profile has been verified and is now live!` : `Thank you for reconnecting with code.scriet, ${safeName}!`,
         accentColor: '#f43f5e',
         badge: { text: isVerified ? 'Profile Verified' : 'Alumni Network', icon: isVerified ? '✓' : '🎓' },
-        title: isVerified ? `Welcome to Our Network, ${name}!` : `Welcome Back, ${name}!`,
-        subtitle: isVerified ? `Your profile as ${designation} at ${company} is now live.` : (alumniInfo || `We're honored to have you in our alumni network.`),
+        title: isVerified ? `Welcome to Our Network, ${safeName}!` : `Welcome Back, ${safeName}!`,
+        subtitle: isVerified ? `Your profile as ${safeDesignation} at ${safeCompany} is now live.` : (alumniInfo || `We're honored to have you in our alumni network.`),
         body: `
           <p style="margin: 0 0 20px; font-size: 16px; color: #e5e7eb; line-height: 1.8;">
             Thank you for reconnecting with <strong style="color: #fbbf24;">code.scriet</strong>! ${isVerified ? 'Your alumni profile has been reviewed and approved by our team.' : "As an alumni, you're a vital part of our growing community, and we're thrilled to have you back."}
@@ -1621,8 +1706,8 @@ class EmailService {
           
           <div style="padding: 20px; background: linear-gradient(135deg, #f43f5e15, #ec489915); border: 1px solid #f43f5e30; border-radius: 12px; margin: 20px 0;">
             <p style="margin: 0 0 12px; font-size: 14px; color: #fb7185; font-weight: 600; text-transform: uppercase; letter-spacing: 1px;">Your Profile</p>
-            <p style="margin: 0; font-size: 18px; color: #ffffff; font-weight: 600;">${designation}</p>
-            <p style="margin: 4px 0 0; font-size: 14px; color: #a1a1aa;">${company}</p>
+            <p style="margin: 0; font-size: 18px; color: #ffffff; font-weight: 600;">${safeDesignation}</p>
+            <p style="margin: 4px 0 0; font-size: 14px; color: #a1a1aa;">${safeCompany}</p>
             ${alumniInfo ? `<p style="margin: 8px 0 0; font-size: 13px; color: #fb7185;">${alumniInfo}</p>` : ''}
           </div>
           
@@ -1667,7 +1752,7 @@ class EmailService {
         cta: { text: 'Learn More About Us', url: `${SITE_URL}/about` },
         footer: 'Thank you for being part of our story.',
       }),
-      text: `Hi ${name}, thank you for reconnecting with code.scriet as an alumni! Your profile as ${designation} at ${company} is pending review. We'll notify you once it's verified.${whatsappInviteLink ? ` Join our Alumni WhatsApp Group: ${whatsappInviteLink}` : ''}`,
+      text: `Hi ${safeName}, thank you for reconnecting with code.scriet as an alumni! Your profile as ${safeDesignation} at ${safeCompany} is pending review. We'll notify you once it's verified.${whatsappInviteLink ? ` Join our Alumni WhatsApp Group: ${whatsappInviteLink}` : ''}`,
     };
     return this.send({ to: email, ...template });
   }
@@ -1679,17 +1764,20 @@ class EmailService {
     certId: string,
     downloadUrl: string,
   ): Promise<boolean> {
+    const safeName = sanitizeText(name);
+    const safeEventName = sanitizeText(eventName);
+    const safeCertId = sanitizeText(certId);
     const verifyUrl = `${SITE_URL}/verify/${certId}`;
     const template = {
-      subject: `🎓 Your Certificate for ${eventName} is Ready!`,
+      subject: `🎓 Your Certificate for ${safeEventName} is Ready!`,
       html: generateEmailTemplate({
-        preheader: `Congratulations, ${name}! Your certificate for ${eventName} has been issued.`,
+        preheader: `Congratulations, ${safeName}! Your certificate for ${safeEventName} has been issued.`,
         accentColor: '#fbbf24',
         badge: { text: 'Certificate Issued', icon: '🎓' },
-        title: `Congratulations, ${name}!`,
-        subtitle: `Your certificate for "${eventName}" has been issued by code.scriet.`,
+        title: `Congratulations, ${safeName}!`,
+        subtitle: `Your certificate for "${safeEventName}" has been issued by code.scriet.`,
         infoCards: [
-          { icon: '🆔', label: 'Certificate ID', value: certId },
+          { icon: '🆔', label: 'Certificate ID', value: safeCertId },
           { icon: '📅', label: 'Issued On', value: new Date().toLocaleDateString('en-IN', { day: 'numeric', month: 'long', year: 'numeric' }) },
         ],
         body: `
@@ -1706,7 +1794,7 @@ class EmailService {
         secondaryCta: { text: '🔍 Verify Certificate', url: verifyUrl },
         footer: 'This certificate is permanently verifiable at codescriet.dev',
       }),
-      text: `Hi ${name}, your certificate for ${eventName} is ready! Certificate ID: ${certId}. Download PDF: ${downloadUrl}. Verify at: ${verifyUrl}`,
+      text: `Hi ${safeName}, your certificate for ${safeEventName} is ready! Certificate ID: ${safeCertId}. Download PDF: ${downloadUrl}. Verify at: ${verifyUrl}`,
     };
     return this.send({ to: email, ...template, category: 'certificate' });
   }

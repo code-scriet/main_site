@@ -59,6 +59,8 @@ const sendMailSchema = z.object({
   bodyType: z.enum(['markdown', 'html']).default('markdown'),
 });
 
+const MAIL_AUDIENCE_BATCH_SIZE = 500;
+
 // Search users / network for recipient picker
 mailRouter.get('/recipients', authMiddleware, requireRole('ADMIN'), async (req: Request, res: Response) => {
   try {
@@ -140,19 +142,100 @@ mailRouter.post('/send', authMiddleware, requireRole('ADMIN'), async (req: Reque
     if (bodyType === 'html') {
       safeBody = sanitizeEmailHtml(body);
     }
+    const template = EmailTemplates.adminMail(subject, safeBody, bodyType);
 
     let recipientEmails: string[] = [];
+    let recipientCount = 0;
+    let bulkAudienceSuccess = true;
 
     if (audience === 'all_users') {
-      const users = await prisma.user.findMany({ select: { email: true }, take: 100000 }); // ISSUE-024: limit unbounded query
-      recipientEmails = users.map(u => u.email);
+      let cursor: string | undefined;
+
+      while (true) {
+        const users = await prisma.user.findMany({
+          where: {
+            email: { not: '' },
+            role: { not: 'NETWORK' },
+          },
+          select: { id: true, email: true },
+          orderBy: { id: 'asc' },
+          take: MAIL_AUDIENCE_BATCH_SIZE,
+          ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+        });
+
+        if (users.length === 0) {
+          break;
+        }
+
+        cursor = users[users.length - 1].id;
+
+        const batchEmails = Array.from(
+          new Set(users.map((user) => user.email.trim().toLowerCase()).filter(Boolean)),
+        );
+
+        if (batchEmails.length > 0) {
+          recipientCount += batchEmails.length;
+          const sent = await emailService.sendBulk(
+            batchEmails,
+            template.subject,
+            template.html,
+            template.text,
+            'admin_mail',
+          );
+          if (!sent) {
+            bulkAudienceSuccess = false;
+          }
+        }
+
+        if (users.length < MAIL_AUDIENCE_BATCH_SIZE) {
+          break;
+        }
+      }
     } else if (audience === 'all_network') {
-      const profiles = await prisma.networkProfile.findMany({
-        where: { status: 'VERIFIED' },
-        select: { user: { select: { email: true } } },
-        take: 100000, // ISSUE-024: limit unbounded query
-      });
-      recipientEmails = profiles.map(p => p.user.email);
+      let cursor: string | undefined;
+
+      while (true) {
+        const profiles = await prisma.networkProfile.findMany({
+          where: {
+            status: 'VERIFIED',
+            user: {
+              email: { not: '' },
+            },
+          },
+          select: { id: true, user: { select: { email: true } } },
+          orderBy: { id: 'asc' },
+          take: MAIL_AUDIENCE_BATCH_SIZE,
+          ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+        });
+
+        if (profiles.length === 0) {
+          break;
+        }
+
+        cursor = profiles[profiles.length - 1].id;
+
+        const batchEmails = Array.from(
+          new Set(profiles.map((profile) => profile.user.email.trim().toLowerCase()).filter(Boolean)),
+        );
+
+        if (batchEmails.length > 0) {
+          recipientCount += batchEmails.length;
+          const sent = await emailService.sendBulk(
+            batchEmails,
+            template.subject,
+            template.html,
+            template.text,
+            'admin_mail',
+          );
+          if (!sent) {
+            bulkAudienceSuccess = false;
+          }
+        }
+
+        if (profiles.length < MAIL_AUDIENCE_BATCH_SIZE) {
+          break;
+        }
+      }
     } else if (audience === 'specific') {
       if (!emails || emails.length === 0) {
         return res.status(400).json({
@@ -170,40 +253,42 @@ mailRouter.post('/send', authMiddleware, requireRole('ADMIN'), async (req: Reque
         seen.add(key);
         recipientEmails.push(normalized);
       }
+      recipientCount = recipientEmails.length;
     }
 
-    if (recipientEmails.length === 0) {
+    if (recipientCount === 0) {
       return res.status(400).json({
         success: false,
         error: { message: 'No recipients found for this audience' },
       });
     }
 
-    // Build email using the general-purpose admin template
-    const template = EmailTemplates.adminMail(subject, safeBody, bodyType);
-
     const hasCcBcc = (cc && cc.length > 0) || (bcc && bcc.length > 0);
     let success: boolean;
 
-    if (audience === 'specific' && hasCcBcc) {
-      // For specific recipients with CC/BCC, use send() so TO/CC/BCC headers are correct
-      success = await emailService.send({
-        to: recipientEmails,
-        cc: cc && cc.length > 0 ? cc : undefined,
-        bcc: bcc && bcc.length > 0 ? bcc : undefined,
-        subject: template.subject,
-        html: template.html,
-        text: template.text,
-        category: 'admin_mail',
-      });
+    if (audience === 'specific') {
+      if (hasCcBcc) {
+        // For specific recipients with CC/BCC, use send() so TO/CC/BCC headers are correct
+        success = await emailService.send({
+          to: recipientEmails,
+          cc: cc && cc.length > 0 ? cc : undefined,
+          bcc: bcc && bcc.length > 0 ? bcc : undefined,
+          subject: template.subject,
+          html: template.html,
+          text: template.text,
+          category: 'admin_mail',
+        });
+      } else {
+        success = await emailService.sendBulk(
+          recipientEmails,
+          template.subject,
+          template.html,
+          template.text,
+          'admin_mail',
+        );
+      }
     } else {
-      // For bulk audiences or no CC/BCC, use sendBulk (individual emails via messageVersions)
-      success = await emailService.sendBulk(
-        recipientEmails,
-        template.subject,
-        template.html,
-        template.text,
-      );
+      success = bulkAudienceSuccess;
 
       // For bulk audiences, send a separate copy to CC/BCC recipients
       if (hasCcBcc && success) {
@@ -221,7 +306,7 @@ mailRouter.post('/send', authMiddleware, requireRole('ADMIN'), async (req: Reque
 
     await auditLog(authUser.id, 'SEND_EMAIL', 'mail', undefined, {
       audience,
-      recipientCount: recipientEmails.length,
+      recipientCount,
       ccCount: cc?.length || 0,
       bccCount: bcc?.length || 0,
       subject,
@@ -236,8 +321,8 @@ mailRouter.post('/send', authMiddleware, requireRole('ADMIN'), async (req: Reque
 
       res.json({
         success: true,
-        message: `Email sent to ${recipientEmails.length} recipient(s)${ccBccSuffix ? ` + ${ccBccSuffix}` : ''}`,
-        data: { recipientCount: recipientEmails.length, ccCount: cc?.length || 0, bccCount: bcc?.length || 0 },
+        message: `Email sent to ${recipientCount} recipient(s)${ccBccSuffix ? ` + ${ccBccSuffix}` : ''}`,
+        data: { recipientCount, ccCount: cc?.length || 0, bccCount: bcc?.length || 0 },
       });
     } else {
       res.status(500).json({

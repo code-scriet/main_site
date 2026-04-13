@@ -1,17 +1,26 @@
 import { logger } from './logger.js';
 import { prisma } from '../lib/prisma.js';
 
-const INDEXNOW_KEY = '7e55c45349934674ab69e23e318c47c0';
+const INDEXNOW_KEY = process.env.INDEXNOW_KEY?.trim() || '';
 const INDEXNOW_ENDPOINT = 'https://api.indexnow.org/indexnow';
 const HOST = 'codescriet.dev';
-const KEY_LOCATION = `https://${HOST}/${INDEXNOW_KEY}.txt`;
+const KEY_LOCATION = INDEXNOW_KEY ? `https://${HOST}/${INDEXNOW_KEY}.txt` : '';
 const BASE_URL = `https://${HOST}`;
+
+function isIndexNowConfigured(): boolean {
+  return INDEXNOW_KEY.length > 0;
+}
 
 /**
  * Submit a single URL to IndexNow (fire-and-forget).
  * Logs success/failure but never throws.
  */
 export function submitUrl(path: string): void {
+  if (!isIndexNowConfigured()) {
+    logger.debug('[IndexNow] Skipping submitUrl because INDEXNOW_KEY is not configured');
+    return;
+  }
+
   const url = path.startsWith('http') ? path : `${BASE_URL}${path}`;
 
   fetch(`${INDEXNOW_ENDPOINT}?url=${encodeURIComponent(url)}&key=${INDEXNOW_KEY}`, {
@@ -38,6 +47,10 @@ export function submitUrl(path: string): void {
  */
 export async function submitUrls(paths: string[]): Promise<{ submitted: number; status: number }> {
   if (paths.length === 0) return { submitted: 0, status: 200 };
+  if (!isIndexNowConfigured()) {
+    logger.warn('[IndexNow] Skipping bulk submission because INDEXNOW_KEY is not configured');
+    return { submitted: 0, status: 503 };
+  }
 
   const urlList = paths.map((p) => (p.startsWith('http') ? p : `${BASE_URL}${p}`));
 

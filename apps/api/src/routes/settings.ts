@@ -58,6 +58,70 @@ const updateEmailTemplatesSchema = z.object({
   emailFooterText: z.string().max(5000).nullable().optional(),
 });
 
+const updateSecurityEnvSchema = z.object({
+  attendanceJwtSecret: z.string().trim().min(16).max(512).nullable().optional(),
+  indexNowKey: z.string().trim().min(8).max(128).nullable().optional(),
+}).refine((value) => Object.keys(value).length > 0, {
+  message: 'At least one security env value must be provided',
+});
+
+function isSuperAdminOrPresident(authUser: { email: string; role: string }): boolean {
+  const superAdminEmail = process.env.SUPER_ADMIN_EMAIL;
+  const isSuperAdmin = Boolean(superAdminEmail) && authUser.email === superAdminEmail;
+  const isPresident = authUser.role === 'PRESIDENT';
+  return isSuperAdmin || isPresident;
+}
+
+function enforceSuperAdminOrPresident(authUser: { email: string; role: string }, res: Response): boolean {
+  if (!isSuperAdminOrPresident(authUser)) {
+    res.status(403).json({
+      success: false,
+      error: { message: 'Only the super admin or president can access settings' },
+    });
+    return false;
+  }
+
+  return true;
+}
+
+function sanitizeSettingsForResponse<T extends Record<string, unknown>>(settings: T): Omit<T, 'attendanceJwtSecret' | 'indexNowKey'> {
+  const {
+    attendanceJwtSecret: _attendanceJwtSecret,
+    indexNowKey: _indexNowKey,
+    ...safeSettings
+  } = settings as T & { attendanceJwtSecret?: unknown; indexNowKey?: unknown };
+
+  return safeSettings as Omit<T, 'attendanceJwtSecret' | 'indexNowKey'>;
+}
+
+function buildSecurityEnvStatus(settings: {
+  attendanceJwtSecret: string | null;
+  indexNowKey: string | null;
+  updatedAt: Date;
+} | null) {
+  const envAttendanceJwtSecret = process.env.ATTENDANCE_JWT_SECRET?.trim() || '';
+  const envIndexNowKey = process.env.INDEXNOW_KEY?.trim() || '';
+  const storedAttendanceJwtSecret = settings?.attendanceJwtSecret?.trim() || '';
+  const storedIndexNowKey = settings?.indexNowKey?.trim() || '';
+
+  return {
+    attendanceJwtSecretConfigured: Boolean(storedAttendanceJwtSecret),
+    indexNowKeyConfigured: Boolean(storedIndexNowKey),
+    envStatus: {
+      nodeEnv: process.env.NODE_ENV || 'development',
+      attendanceJwtSecretPresent: Boolean(envAttendanceJwtSecret),
+      indexNowKeyPresent: Boolean(envIndexNowKey),
+      attendanceJwtSecretMatchesStored: storedAttendanceJwtSecret
+        ? envAttendanceJwtSecret === storedAttendanceJwtSecret
+        : null,
+      indexNowKeyMatchesStored: storedIndexNowKey
+        ? envIndexNowKey === storedIndexNowKey
+        : null,
+    },
+    updatedAt: settings?.updatedAt?.toISOString() || null,
+  };
+}
+
 // Get public settings (for frontend)
 settingsRouter.get('/public', async (req: Request, res: Response) => {
   try {
@@ -137,6 +201,11 @@ settingsRouter.get('/public', async (req: Request, res: Response) => {
 // Get all settings (admin only)
 settingsRouter.get('/', authMiddleware, requireRole('ADMIN'), async (req: Request, res: Response) => {
   try {
+    const authUser = getAuthUser(req)!;
+    if (!enforceSuperAdminOrPresident(authUser, res)) {
+      return;
+    }
+
     let settings = await prisma.settings.findFirst({
       where: { id: 'default' },
     });
@@ -148,7 +217,7 @@ settingsRouter.get('/', authMiddleware, requireRole('ADMIN'), async (req: Reques
       });
     }
 
-    res.json({ success: true, data: settings });
+    res.json({ success: true, data: sanitizeSettingsForResponse(settings) });
   } catch (error) {
     res.status(500).json({ success: false, error: { message: 'Failed to fetch settings' } });
   }
@@ -159,15 +228,8 @@ settingsRouter.put('/', authMiddleware, requireRole('PRESIDENT'), async (req: Re
   try {
     const authUser = getAuthUser(req)!;
 
-    // Only Super Admin or President can modify settings
-    const superAdminEmail = process.env.SUPER_ADMIN_EMAIL;
-    const isSuperAdmin = superAdminEmail && authUser.email === superAdminEmail;
-    const isPresident = authUser.role === 'PRESIDENT';
-    if (!isSuperAdmin && !isPresident) {
-      return res.status(403).json({
-        success: false,
-        error: { message: 'Only the super admin or president can modify settings' },
-      });
+    if (!enforceSuperAdminOrPresident(authUser, res)) {
+      return;
     }
 
     const parsed = updateSettingsSchema.safeParse(req.body);
@@ -265,7 +327,7 @@ settingsRouter.put('/', authMiddleware, requireRole('PRESIDENT'), async (req: Re
 
     invalidateNotificationSettingsCache();
     await auditLog(authUser.id, 'UPDATE', 'settings', 'default', parsed.data);
-    res.json({ success: true, data: settings, message: 'Settings updated successfully' });
+    res.json({ success: true, data: sanitizeSettingsForResponse(settings), message: 'Settings updated successfully' });
   } catch (error) {
     res.status(500).json({ success: false, error: { message: 'Failed to update settings' } });
   }
@@ -277,13 +339,8 @@ settingsRouter.patch('/email-templates', authMiddleware, requireRole('ADMIN'), a
   try {
     const authUser = getAuthUser(req)!;
 
-    // Only Super Admin or President can update email templates
-    const superAdminEmail = process.env.SUPER_ADMIN_EMAIL;
-    if (authUser.email !== superAdminEmail && authUser.role !== 'PRESIDENT') {
-      return res.status(403).json({
-        success: false,
-        error: { message: 'Only the super admin or president can update email templates' },
-      });
+    if (!enforceSuperAdminOrPresident(authUser, res)) {
+      return;
     }
 
     const parsed = updateEmailTemplatesSchema.safeParse(req.body);
@@ -335,20 +392,98 @@ settingsRouter.patch('/email-templates', authMiddleware, requireRole('ADMIN'), a
   }
 });
 
+// Get and verify security env configuration (super admin / president only)
+settingsRouter.get('/security-env', authMiddleware, requireRole('ADMIN'), async (req: Request, res: Response) => {
+  try {
+    const authUser = getAuthUser(req)!;
+    if (!enforceSuperAdminOrPresident(authUser, res)) {
+      return;
+    }
+
+    const settings = await prisma.settings.findUnique({
+      where: { id: 'default' },
+      select: {
+        attendanceJwtSecret: true,
+        indexNowKey: true,
+        updatedAt: true,
+      },
+    });
+
+    res.json({
+      success: true,
+      data: buildSecurityEnvStatus(settings),
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, error: { message: 'Failed to verify security env configuration' } });
+  }
+});
+
+// Save security env reference values in settings (super admin / president only)
+settingsRouter.patch('/security-env', authMiddleware, requireRole('ADMIN'), async (req: Request, res: Response) => {
+  try {
+    const authUser = getAuthUser(req)!;
+    if (!enforceSuperAdminOrPresident(authUser, res)) {
+      return;
+    }
+
+    const parsed = updateSecurityEnvSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({
+        success: false,
+        error: { message: parsed.error.errors[0]?.message || 'Invalid security env payload' },
+      });
+    }
+
+    const attendanceJwtSecret = parsed.data.attendanceJwtSecret === undefined
+      ? undefined
+      : (parsed.data.attendanceJwtSecret?.trim() || null);
+    const indexNowKey = parsed.data.indexNowKey === undefined
+      ? undefined
+      : (parsed.data.indexNowKey?.trim() || null);
+
+    const settings = await prisma.settings.upsert({
+      where: { id: 'default' },
+      create: {
+        id: 'default',
+        ...(attendanceJwtSecret !== undefined && { attendanceJwtSecret }),
+        ...(indexNowKey !== undefined && { indexNowKey }),
+      },
+      update: {
+        ...(attendanceJwtSecret !== undefined && { attendanceJwtSecret }),
+        ...(indexNowKey !== undefined && { indexNowKey }),
+      },
+      select: {
+        attendanceJwtSecret: true,
+        indexNowKey: true,
+        updatedAt: true,
+      },
+    });
+
+    const updatedFields: string[] = [];
+    if (attendanceJwtSecret !== undefined) updatedFields.push('attendanceJwtSecret');
+    if (indexNowKey !== undefined) updatedFields.push('indexNowKey');
+
+    await auditLog(authUser.id, 'UPDATE', 'settings', 'security-env', {
+      updatedFields,
+    });
+
+    res.json({
+      success: true,
+      data: buildSecurityEnvStatus(settings),
+      message: 'Security env references updated successfully',
+    });
+  } catch (error) {
+    res.status(500).json({ success: false, error: { message: 'Failed to update security env configuration' } });
+  }
+});
+
 // Update specific setting
 settingsRouter.patch('/:key', authMiddleware, requireRole('ADMIN'), async (req: Request, res: Response) => {
   try {
     const authUser = getAuthUser(req)!;
 
-    // Only Super Admin or President can modify settings
-    const superAdminEmail = process.env.SUPER_ADMIN_EMAIL;
-    const isSuperAdmin = superAdminEmail && authUser.email === superAdminEmail;
-    const isPresident = authUser.role === 'PRESIDENT';
-    if (!isSuperAdmin && !isPresident) {
-      return res.status(403).json({
-        success: false,
-        error: { message: 'Only the super admin or president can modify settings' },
-      });
+    if (!enforceSuperAdminOrPresident(authUser, res)) {
+      return;
     }
 
     const { key } = req.params;
@@ -510,7 +645,7 @@ settingsRouter.patch('/:key', authMiddleware, requireRole('ADMIN'), async (req: 
 
     invalidateNotificationSettingsCache();
     await auditLog(authUser.id, 'UPDATE', 'settings', 'default', { [key]: normalizedValue });
-    res.json({ success: true, data: settings, message: `Setting ${key} updated successfully` });
+    res.json({ success: true, data: sanitizeSettingsForResponse(settings), message: `Setting ${key} updated successfully` });
   } catch (error) {
     res.status(500).json({ success: false, error: { message: 'Failed to update setting' } });
   }
@@ -521,13 +656,8 @@ settingsRouter.post('/reset', authMiddleware, requireRole('ADMIN'), async (req: 
   try {
     const authUser = getAuthUser(req)!;
 
-    // Only Super Admin or President can reset settings
-    const superAdminEmail = process.env.SUPER_ADMIN_EMAIL;
-    if (authUser.email !== superAdminEmail && authUser.role !== 'PRESIDENT') {
-      return res.status(403).json({
-        success: false,
-        error: { message: 'Only the super admin or president can reset settings' },
-      });
+    if (!enforceSuperAdminOrPresident(authUser, res)) {
+      return;
     }
 
     await prisma.settings.delete({ where: { id: 'default' } }).catch(() => {});
@@ -537,7 +667,7 @@ settingsRouter.post('/reset', authMiddleware, requireRole('ADMIN'), async (req: 
     });
 
     await auditLog(authUser.id, 'UPDATE', 'settings', 'default', { action: 'reset' });
-    res.json({ success: true, data: settings, message: 'Settings reset to defaults' });
+    res.json({ success: true, data: sanitizeSettingsForResponse(settings), message: 'Settings reset to defaults' });
   } catch (error) {
     res.status(500).json({ success: false, error: { message: 'Failed to reset settings' } });
   }
@@ -546,6 +676,11 @@ settingsRouter.post('/reset', authMiddleware, requireRole('ADMIN'), async (req: 
 // Get email template configuration
 settingsRouter.get('/email-templates', authMiddleware, requireRole('ADMIN'), async (req: Request, res: Response) => {
   try {
+    const authUser = getAuthUser(req)!;
+    if (!enforceSuperAdminOrPresident(authUser, res)) {
+      return;
+    }
+
     const settings = await prisma.settings.findUnique({
       where: { id: 'default' },
       select: {

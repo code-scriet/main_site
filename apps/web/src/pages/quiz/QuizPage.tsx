@@ -138,11 +138,8 @@ export default function QuizPage() {
       setFinalRedirectState('navigating');
       try {
         const token = localStorage.getItem('token');
-        const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:5001/api';
-        const res = await fetch(`${apiUrl}/quiz/${quizId}/results`, {
-          headers: token ? { Authorization: `Bearer ${token}` } : {},
-        });
-        if (!cancelled && res.ok) {
+        await api.getQuizResults(quizId, token || undefined);
+        if (!cancelled) {
           navigate(`/quiz/${quizId}/results`, { replace: true });
           return;
         }

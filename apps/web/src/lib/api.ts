@@ -286,6 +286,19 @@ export interface Settings {
   updatedAt: string;
 }
 
+export interface SecurityEnvStatus {
+  attendanceJwtSecretConfigured: boolean;
+  indexNowKeyConfigured: boolean;
+  envStatus: {
+    nodeEnv: string;
+    attendanceJwtSecretPresent: boolean;
+    indexNowKeyPresent: boolean;
+    attendanceJwtSecretMatchesStored: boolean | null;
+    indexNowKeyMatchesStored: boolean | null;
+  };
+  updatedAt: string | null;
+}
+
 // Extended types for event details
 export interface Speaker {
   name: string;
@@ -1033,7 +1046,7 @@ export interface PendingNetworkUser {
 
 export interface AuditLogEntry {
   id: string;
-  userId: string;
+  userId: string | null;
   action: string;
   entity: string;
   entityId?: string | null;
@@ -1408,6 +1421,12 @@ export const api = {
     request<Settings>('/settings', { method: 'PUT', body: JSON.stringify(data), token }),
   patchSetting: (key: string, value: boolean | string | number, token: string) =>
     request<Settings>(`/settings/${key}`, { method: 'PATCH', body: JSON.stringify({ value }), token }),
+  getSecurityEnvStatus: (token: string) =>
+    request<SecurityEnvStatus>('/settings/security-env', { token }),
+  updateSecurityEnvSettings: (
+    data: { attendanceJwtSecret?: string | null; indexNowKey?: string | null },
+    token: string,
+  ) => request<SecurityEnvStatus>('/settings/security-env', { method: 'PATCH', body: JSON.stringify(data), token }),
   
   // Profile
   getProfile: (token: string) => request<{
@@ -1641,6 +1660,10 @@ export const api = {
     }),
   checkQuizHost: (quizId: string, token: string) =>
     request<{ isHost: boolean; quizAccessToken?: string }>(`/quiz/${quizId}/check-host`, {
+      token,
+    }),
+  getQuizResults: (quizId: string, token?: string) =>
+    request<unknown>(`/quiz/${quizId}/results`, {
       token,
     }),
 

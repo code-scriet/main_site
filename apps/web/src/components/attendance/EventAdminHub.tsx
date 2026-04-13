@@ -7,6 +7,7 @@ import { formatDateTime } from '@/lib/dateUtils';
 import AdminScanner from '@/components/attendance/AdminScanner';
 import AttendanceManager from '@/components/attendance/AttendanceManager';
 import EventCertificateWizard from '@/components/attendance/EventCertificateWizard';
+import { ErrorBoundary } from '@/components/ErrorBoundary';
 
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Card, CardContent } from '@/components/ui/card';
@@ -274,28 +275,34 @@ export default function EventAdminHub() {
         {/* Scanner Tab */}
         {!isPastEvent && (
           <TabsContent value="scanner">
-            <AdminScanner
-              eventId={eventId}
-              token={token!}
-              onEndSession={handleEndSession}
-            />
+            <ErrorBoundary resetKey={`${eventId}-scanner`}>
+              <AdminScanner
+                eventId={eventId}
+                token={token!}
+                onEndSession={handleEndSession}
+              />
+            </ErrorBoundary>
           </TabsContent>
         )}
 
         {/* Manage Tab */}
         <TabsContent value="manage">
-          <AttendanceManager eventId={eventId} token={token!} />
+          <ErrorBoundary resetKey={`${eventId}-manage`}>
+            <AttendanceManager eventId={eventId} token={token!} />
+          </ErrorBoundary>
         </TabsContent>
 
         {/* Certificates Tab — admin only */}
         {isAdmin && (
           <TabsContent value="certificates">
-            <EventCertificateWizard
-              eventId={eventId}
-              eventName={event.title}
-              token={token!}
-              hasCompetitionRounds={hasCompetitionRounds}
-            />
+            <ErrorBoundary resetKey={`${eventId}-certificates`}>
+              <EventCertificateWizard
+                eventId={eventId}
+                eventName={event.title}
+                token={token!}
+                hasCompetitionRounds={hasCompetitionRounds}
+              />
+            </ErrorBoundary>
           </TabsContent>
         )}
       </Tabs>

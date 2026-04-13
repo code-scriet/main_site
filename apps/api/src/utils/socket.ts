@@ -1,9 +1,45 @@
-import { Server as SocketIOServer } from 'socket.io';
+import { Server as SocketIOServer, Socket } from 'socket.io';
 import { Server as HTTPServer } from 'http';
 import { logger } from './logger.js';
 import { authenticateSocketConnection } from './socketAuth.js';
 
 let io: SocketIOServer | null = null;
+
+const SOCKET_CONNECT_WINDOW_MS = 60 * 1000;
+const SOCKET_CONNECT_MAX_PER_WINDOW = 30;
+const socketConnectionRateMap = new Map<string, { count: number; windowStart: number }>();
+
+function getSocketClientIp(socket: Socket): string {
+  const forwardedFor = socket.handshake.headers['x-forwarded-for'];
+  if (typeof forwardedFor === 'string' && forwardedFor.trim()) {
+    return forwardedFor.split(',')[0].trim();
+  }
+
+  return socket.handshake.address || 'unknown';
+}
+
+function isConnectionAllowed(ip: string): boolean {
+  const now = Date.now();
+  const current = socketConnectionRateMap.get(ip);
+
+  if (!current || now - current.windowStart > SOCKET_CONNECT_WINDOW_MS) {
+    socketConnectionRateMap.set(ip, { count: 1, windowStart: now });
+    return true;
+  }
+
+  current.count += 1;
+  socketConnectionRateMap.set(ip, current);
+  return current.count <= SOCKET_CONNECT_MAX_PER_WINDOW;
+}
+
+setInterval(() => {
+  const now = Date.now();
+  for (const [ip, entry] of socketConnectionRateMap.entries()) {
+    if (now - entry.windowStart > SOCKET_CONNECT_WINDOW_MS * 2) {
+      socketConnectionRateMap.delete(ip);
+    }
+  }
+}, SOCKET_CONNECT_WINDOW_MS).unref();
 
 export function initializeSocket(httpServer: HTTPServer) {
   const isDevelopment = process.env.NODE_ENV === 'development';
@@ -59,6 +95,13 @@ export function initializeSocket(httpServer: HTTPServer) {
   });
 
   io.use((socket, next) => {
+    const ip = getSocketClientIp(socket);
+    if (!isConnectionAllowed(ip)) {
+      logger.warn('Socket connection rate limit exceeded', { ip });
+      next(new Error('RATE_LIMITED'));
+      return;
+    }
+
     void authenticateSocketConnection(socket, { requireAdmin: true })
       .then(() => next())
       .catch((error) => {

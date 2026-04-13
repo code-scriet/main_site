@@ -161,6 +161,14 @@ hiringRouter.get('/applications', authMiddleware, requireRole('ADMIN'), async (r
     }
 
     const where: any = {};
+
+    if (status && !applicationStatuses.includes(status as (typeof applicationStatuses)[number])) {
+      return ApiResponse.badRequest(res, 'Invalid status filter');
+    }
+
+    if (role && !applyingRoles.includes(role as (typeof applyingRoles)[number])) {
+      return ApiResponse.badRequest(res, 'Invalid role filter');
+    }
     
     if (status && applicationStatuses.includes(status as any)) {
       where.status = status;
@@ -388,6 +396,14 @@ hiringRouter.get('/stats', authMiddleware, requireRole('ADMIN'), async (req: Req
 hiringRouter.get('/export', authMiddleware, requireRole('ADMIN'), async (req: Request, res: Response) => {
   try {
     const { status, role } = req.query;
+
+    if (typeof status === 'string' && !applicationStatuses.includes(status as (typeof applicationStatuses)[number])) {
+      return ApiResponse.badRequest(res, 'Invalid status filter');
+    }
+
+    if (typeof role === 'string' && !applyingRoles.includes(role as (typeof applyingRoles)[number])) {
+      return ApiResponse.badRequest(res, 'Invalid role filter');
+    }
 
     // Build filter conditions
     const where: any = {};

@@ -571,8 +571,12 @@ function checkSecurityPatterns(code) {
 // ---------------------------------------------------------------------------
 
 const EXECUTOR_URL = process.env.EXECUTOR_URL || 'https://codescriet-executor.developer-aary.workers.dev/execute';
+const EXECUTOR_ORIGIN_HEADER = process.env.EXECUTOR_ORIGIN_HEADER
+  || (NODE_ENV === 'development' ? 'http://localhost:5002' : 'https://code.codescriet.dev');
 const EXECUTION_TIMEOUT = 15_000; // 15 seconds
 const MAX_OUTPUT_SIZE = 50_000; // 50 KB
+const MAX_STDIN_SIZE = 10 * 1024; // 10 KB
+const COMPILER_OPTIONS_REGEX = /^[a-zA-Z0-9,+\-_. ]{0,120}$/;
 
 // ---------------------------------------------------------------------------
 // Execution Result Cache — avoids redundant cloud calls for identical code
@@ -581,14 +585,14 @@ const EXEC_CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 const EXEC_CACHE_MAX_SIZE = 500;
 const execCache = new Map(); // key → { result, expiresAt }
 
-function execCacheKey(language, code, stdin) {
+function execCacheKey(language, code, stdin, cacheScope = 'anonymous') {
   // Use a fast hash: language + code length + first/last chars + stdin
   // Full collision avoidance via full code comparison in get()
-  return `${language}:${code.length}:${crypto.createHash('sha256').update(code + (stdin || '')).digest('hex').slice(0, 16)}`;
+  return `${cacheScope}:${language}:${code.length}:${crypto.createHash('sha256').update(code + (stdin || '')).digest('hex').slice(0, 16)}`;
 }
 
-function getCachedExecution(language, code, stdin) {
-  const key = execCacheKey(language, code, stdin);
+function getCachedExecution(language, code, stdin, cacheScope) {
+  const key = execCacheKey(language, code, stdin, cacheScope);
   const entry = execCache.get(key);
   if (!entry) return null;
   if (Date.now() > entry.expiresAt) {
@@ -598,7 +602,7 @@ function getCachedExecution(language, code, stdin) {
   return entry.result;
 }
 
-function setCachedExecution(language, code, stdin, result) {
+function setCachedExecution(language, code, stdin, result, cacheScope) {
   // Only cache successful executions
   if (result.run.code !== 0) return;
   // Evict oldest entries if at capacity
@@ -606,7 +610,7 @@ function setCachedExecution(language, code, stdin, result) {
     const firstKey = execCache.keys().next().value;
     execCache.delete(firstKey);
   }
-  const key = execCacheKey(language, code, stdin);
+  const key = execCacheKey(language, code, stdin, cacheScope);
   execCache.set(key, { result, expiresAt: Date.now() + EXEC_CACHE_TTL_MS });
 }
 
@@ -671,8 +675,8 @@ async function executeCode(language, code, stdin) {
       stdin: stdin || '',
     };
 
-    // Add compiler options if specified
-    if (config.options) {
+    // Add compiler options if specified and valid
+    if (config.options && COMPILER_OPTIONS_REGEX.test(config.options)) {
       body.options = config.options;
     }
 
@@ -680,7 +684,10 @@ async function executeCode(language, code, stdin) {
 
     const response = await fetch(EXECUTOR_URL, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        'Origin': EXECUTOR_ORIGIN_HEADER,
+      },
       body: JSON.stringify(body),
       signal: controller.signal,
     });
@@ -758,9 +765,18 @@ async function executeCode(language, code, stdin) {
 app.post('/api/execute', async (req, res) => {
   try {
     const { language, code, stdin = '' } = req.body;
+    const requestIp = req.ip || req.socket.remoteAddress || 'unknown';
 
     if (!language || !code) {
       return res.status(400).json({ success: false, error: 'Language and code are required' });
+    }
+
+    if (typeof stdin !== 'string') {
+      return res.status(400).json({ success: false, error: 'stdin must be a string' });
+    }
+
+    if (stdin.length > MAX_STDIN_SIZE) {
+      return res.status(400).json({ success: false, error: 'stdin is too large (max 10KB)' });
     }
 
     if (!COMPILERS[language]) {
@@ -819,8 +835,7 @@ app.post('/api/execute', async (req, res) => {
         }
       }
     } else {
-      const ip = req.ip || req.socket.remoteAddress || 'unknown';
-      const limit = checkIpRateLimit(ip);
+      const limit = checkIpRateLimit(requestIp);
       res.setHeader('X-RateLimit-Remaining', limit.remaining);
       if (!limit.allowed) {
         return res.status(429).json({
@@ -831,9 +846,10 @@ app.post('/api/execute', async (req, res) => {
     }
 
     const startMs = Date.now();
+    const cacheScope = req.user?.id ? `user:${req.user.id}` : `ip:${requestIp}`;
 
     // Check execution cache — return cached result if identical code was run recently
-    const cached = getCachedExecution(language, code, stdin);
+    const cached = getCachedExecution(language, code, stdin, cacheScope);
     let result;
     let fromCache = false;
     if (cached) {
@@ -842,7 +858,7 @@ app.post('/api/execute', async (req, res) => {
       console.log(`[Execute] Cache hit for ${language} (${code.length} chars)`);
     } else {
       result = await executeCode(language, code, stdin);
-      setCachedExecution(language, code, stdin, result);
+      setCachedExecution(language, code, stdin, result, cacheScope);
     }
     const durationMs = fromCache ? 0 : (Date.now() - startMs);
 

@@ -500,6 +500,27 @@ eventsRouter.put('/:id', authMiddleware, requireRole('CORE_MEMBER'), async (req:
           error: { message: 'Maximum team size cannot exceed 10' },
         });
       }
+
+      if (data.teamMaxSize !== undefined) {
+        const existingTeams = await prisma.eventTeam.findMany({
+          where: { eventId: req.params.id },
+          select: {
+            teamName: true,
+            _count: { select: { members: true } },
+          },
+          take: 2000,
+        });
+
+        const oversizedTeam = existingTeams.find((team) => team._count.members > maxSize);
+        if (oversizedTeam) {
+          return res.status(409).json({
+            success: false,
+            error: {
+              message: `Cannot set teamMaxSize to ${maxSize}. Team "${oversizedTeam.teamName}" currently has ${oversizedTeam._count.members} members.`,
+            },
+          });
+        }
+      }
     }
     // --- END TEAM REGISTRATION TOGGLE GUARD ---
 

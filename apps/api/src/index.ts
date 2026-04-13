@@ -46,6 +46,7 @@ import { emailService } from './utils/email.js';
 import { prisma } from './lib/prisma.js';
 import { startReminderScheduler, stopReminderScheduler } from './utils/scheduler.js';
 import { getJwtSecret } from './utils/jwt.js';
+import { getAttendanceJwtSecret } from './utils/attendanceToken.js';
 import { updateEventStatuses } from './utils/eventStatus.js';
 
 // Load monorepo root .env first, then local .env (local overrides root).
@@ -60,6 +61,7 @@ const NODE_ENV = process.env.NODE_ENV === 'development' ? 'development' : 'produ
 
 // Fail fast if auth secret is insecure/missing
 getJwtSecret();
+getAttendanceJwtSecret();
 
 // Warn about missing optional-but-important config
 if (!process.env.BREVO_API_KEY) {

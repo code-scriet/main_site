@@ -18,7 +18,9 @@ const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-
 const optionalUrl = z.union([z.string().url('Must be a valid URL'), z.literal(''), z.null()]).optional();
 
 const announcementLinkSchema = z.object({
-  title: z.string().trim().min(1).max(120),
+  title: z.string().trim().min(1).max(120).refine((value) => !/[<>"&]/.test(value), {
+    message: 'Link title contains invalid characters',
+  }),
   url: z.string().url('Link URL must be valid'),
 });
 
@@ -75,6 +77,13 @@ announcementsRouter.get('/', async (req: Request, res: Response) => {
 
     if (offset === null) {
       return res.status(400).json({ success: false, error: { message: 'offset must be a non-negative integer' } });
+    }
+
+    if (offset + limit > 10000) {
+      return res.status(400).json({
+        success: false,
+        error: { message: 'offset + limit must be at most 10000' },
+      });
     }
 
     const where: Record<string, unknown> = {};

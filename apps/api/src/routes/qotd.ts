@@ -188,7 +188,13 @@ qotdRouter.post('/', authMiddleware, requireRole('CORE_MEMBER'), async (req: Req
     const { question, difficulty, problemLink, date } = parsed.data;
 
     const qotd = await prisma.qOTD.create({
-      data: { question, difficulty, problemLink, date },
+      data: {
+        question,
+        difficulty,
+        problemLink,
+        date,
+        createdById: authUser.id,
+      },
     });
 
     await auditLog(authUser.id, 'CREATE', 'qotd', qotd.id, { question: qotd.question });
@@ -207,6 +213,21 @@ qotdRouter.put('/:id', authMiddleware, requireRole('CORE_MEMBER'), async (req: R
       return res.status(400).json({ success: false, error: { message: parsed.error.errors[0]?.message || 'Invalid QOTD payload' } });
     }
     const { question, difficulty, problemLink, date } = parsed.data;
+
+    const existingQotd = await prisma.qOTD.findUnique({
+      where: { id: req.params.id },
+      select: { id: true, createdById: true },
+    });
+
+    if (!existingQotd) {
+      return res.status(404).json({ success: false, error: { message: 'QOTD not found' } });
+    }
+
+    const isAdmin = authUser.role === 'ADMIN' || authUser.role === 'PRESIDENT';
+    const isOwner = existingQotd.createdById === authUser.id;
+    if (!isAdmin && !isOwner) {
+      return res.status(403).json({ success: false, error: { message: 'You can only edit QOTDs created by you' } });
+    }
 
     const qotd = await prisma.qOTD.update({
       where: { id: req.params.id },
