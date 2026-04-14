@@ -4,6 +4,8 @@ import { motion } from 'framer-motion';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
+import { InlineMarkdown } from '@/components/ui/inline-markdown';
 import {
   Dialog,
   DialogContent,
@@ -1109,7 +1111,24 @@ export default function AdminCertificates() {
               />
               <div className="col-span-full">
                 <label htmlFor="admin-certificates-description" className="text-sm font-medium text-gray-700">Description</label>
-                <Input id="admin-certificates-description" value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} placeholder="Custom recognition text (optional)" className="mt-1" />
+                <Textarea
+                  id="admin-certificates-description"
+                  value={form.description}
+                  onChange={e => setForm(f => ({ ...f, description: e.target.value }))}
+                  placeholder="Custom recognition text (optional). Markdown supported: **bold**, *italic*, ***bold italic***"
+                  className="mt-1 min-h-[92px]"
+                />
+                <p className="mt-1 text-xs text-gray-500">
+                  Supports Markdown formatting like <code>**bold**</code>, <code>*italic*</code>, <code>***bold italic***</code>, and <code>~~strikethrough~~</code>.
+                </p>
+                {form.description.trim() && (
+                  <div className="mt-2 rounded-md border border-gray-200 bg-gray-50 px-3 py-2">
+                    <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">Preview</p>
+                    <div className="mt-1 text-sm text-gray-700 leading-relaxed">
+                      <InlineMarkdown>{form.description}</InlineMarkdown>
+                    </div>
+                  </div>
+                )}
               </div>
               <div className="col-span-full flex items-center gap-2">
                 <input
@@ -1184,7 +1203,24 @@ export default function AdminCertificates() {
             </div>
             <div>
               <label htmlFor="admin-certificates-bulk-description" className="text-sm font-medium text-gray-700">Description</label>
-              <Input id="admin-certificates-bulk-description" value={bulkDescription} onChange={e => setBulkDescription(e.target.value)} placeholder="Custom recognition text (optional)" className="mt-1" />
+              <Textarea
+                id="admin-certificates-bulk-description"
+                value={bulkDescription}
+                onChange={e => setBulkDescription(e.target.value)}
+                placeholder="Custom recognition text (optional). Markdown supported: **bold**, *italic*, ***bold italic***"
+                className="mt-1 min-h-[92px]"
+              />
+              <p className="mt-1 text-xs text-gray-500">
+                Supports Markdown formatting like <code>**bold**</code>, <code>*italic*</code>, <code>***bold italic***</code>, and <code>~~strikethrough~~</code>.
+              </p>
+              {bulkDescription.trim() && (
+                <div className="mt-2 rounded-md border border-gray-200 bg-gray-50 px-3 py-2">
+                  <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">Preview</p>
+                  <div className="mt-1 text-sm text-gray-700 leading-relaxed">
+                    <InlineMarkdown>{bulkDescription}</InlineMarkdown>
+                  </div>
+                </div>
+              )}
             </div>
             <div>
               <div className="flex items-center justify-between mb-1">

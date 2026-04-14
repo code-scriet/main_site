@@ -85,3 +85,27 @@ test('buildDescription passes through custom descriptions without modification',
     [description],
   );
 });
+
+test('buildDescription supports markdown emphasis for custom descriptions', () => {
+  const nodes = buildDescription({
+    recipientName: 'Lakshya Pandey',
+    eventName: 'Hackathon 2026',
+    type: 'WINNER',
+    description: 'Awarded to **Lakshya** for *excellent* and ~~legacy~~ contributions.',
+    certId: 'DESC-MD-TEST',
+    issuedAt: new Date('2026-03-13T00:00:00.000Z'),
+    signatoryName: 'Test Signatory',
+  }, 'WINNER');
+
+  const textNodes = nodes.filter((node) => typeof node === 'object' && node !== null) as Array<{
+    props?: { style?: { fontWeight?: number; fontStyle?: string; textDecoration?: string } };
+  }>;
+
+  const hasBold = textNodes.some((node) => node.props?.style?.fontWeight === 700);
+  const hasItalic = textNodes.some((node) => node.props?.style?.fontStyle === 'italic');
+  const hasStrikethrough = textNodes.some((node) => node.props?.style?.textDecoration === 'line-through');
+
+  assert.ok(hasBold, 'expected markdown **bold** text to render with bold style');
+  assert.ok(hasItalic, 'expected markdown *italic* text to render with italic style');
+  assert.ok(hasStrikethrough, 'expected markdown ~~strikethrough~~ text to render with line-through style');
+});

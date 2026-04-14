@@ -3,6 +3,7 @@ import {
   api,
   type CertificateBulkGenerateInput,
   type CertificateBulkGenerateResponse,
+  type CertificateTemplate,
   type CertificateRecipient,
   type CertType,
   type CompetitionGenerationStrategy,
@@ -15,6 +16,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Switch } from '@/components/ui/switch';
+import { InlineMarkdown } from '@/components/ui/inline-markdown';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -194,6 +196,11 @@ export default function EventCertificateWizard({
   const [useCustomFaculty, setUseCustomFaculty] = useState(false);
   const [facultyExistingMode, setFacultyExistingMode] = useState(false);
   const [attendanceCertType, setAttendanceCertType] = useState<CertType>('PARTICIPATION');
+  const [attendanceTemplate, setAttendanceTemplate] = useState<CertificateTemplate>('gold');
+  const [attendancePosition, setAttendancePosition] = useState('');
+  const [attendanceDomain, setAttendanceDomain] = useState('');
+  const [attendanceDescription, setAttendanceDescription] = useState('');
+  const [competitionDomain, setCompetitionDomain] = useState('');
   const [sendEmail, setSendEmail] = useState(true);
 
   const [generating, setGenerating] = useState(false);
@@ -394,6 +401,12 @@ export default function EventCertificateWizard({
     setManagementSelected(new Set());
     setGenerationSummary(null);
     setSendEmail(true);
+    setAttendanceCertType('PARTICIPATION');
+    setAttendanceTemplate('gold');
+    setAttendancePosition('');
+    setAttendanceDomain('');
+    setAttendanceDescription('');
+    setCompetitionDomain('');
   }
 
   function selectMode(nextMode: CertificateMode) {
@@ -496,15 +509,18 @@ export default function EventCertificateWizard({
           source: 'competition',
           generationStrategy: competitionStrategy,
           selectedRoundIds,
+          domain: competitionDomain.trim() || undefined,
           sendEmail,
         };
       } else {
+        const attendancePositionValue = attendancePosition.trim();
         const selectedRecipients = recipients
           .filter((recipient) => selectedIds.has(recipient.registrationId))
           .map((recipient) => ({
             name: recipient.userName,
             email: recipient.userEmail,
             userId: recipient.userId,
+            ...(attendancePositionValue ? { position: attendancePositionValue } : {}),
           }));
 
         body = {
@@ -512,7 +528,10 @@ export default function EventCertificateWizard({
           eventName,
           recipients: selectedRecipients,
           type: attendanceCertType,
-          sendEmail: true,
+          template: attendanceTemplate,
+          domain: attendanceDomain.trim() || undefined,
+          description: attendanceDescription.trim() || undefined,
+          sendEmail,
           source: 'attendance',
         };
       }
@@ -1226,6 +1245,9 @@ export default function EventCertificateWizard({
       >
         <div className="rounded-lg border border-blue-200 bg-blue-50 p-4 text-sm text-blue-800">
           Supported placeholders: <code>{'{name}'}</code>, <code>{'{teamName}'}</code>, <code>{'{position}'}</code>, <code>{'{eventName}'}</code>, <code>{'{roundTitle}'}</code>
+          <p className="mt-2 text-xs text-blue-700">
+            Description templates also support Markdown (<code>**bold**</code>, <code>*italic*</code>, <code>***bold italic***</code>, <code>~~strikethrough~~</code>).
+          </p>
         </div>
 
         {competitionTierConfigs && COMPETITION_TIER_KEYS.map((tierKey) => (
@@ -1287,7 +1309,9 @@ export default function EventCertificateWizard({
 
               <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
                 <p className="text-xs font-medium uppercase tracking-wide text-gray-500">Preview</p>
-                <p className="mt-2 text-sm text-gray-700">{samplePreviewByTier[tierKey]}</p>
+                <div className="mt-2 text-sm text-gray-700 leading-relaxed">
+                  <InlineMarkdown>{samplePreviewByTier[tierKey]}</InlineMarkdown>
+                </div>
               </div>
             </CardContent>
           </Card>
@@ -1330,25 +1354,103 @@ export default function EventCertificateWizard({
         className="space-y-6"
       >
         {mode === 'attendance' ? (
-          <div>
-            <p className="mb-2 text-sm font-medium">Certificate Type</p>
-            <div className="flex flex-wrap gap-2">
-              {CERT_TYPE_OPTIONS.map((option) => (
-                <Button
-                  key={option.value}
-                  variant={attendanceCertType === option.value ? 'default' : 'outline'}
-                  size="sm"
-                  onClick={() => setAttendanceCertType(option.value)}
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base">Certificate Options</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div>
+                <p className="mb-2 text-sm font-medium">Certificate Type</p>
+                <div className="flex flex-wrap gap-2">
+                  {CERT_TYPE_OPTIONS.map((option) => (
+                    <Button
+                      key={option.value}
+                      variant={attendanceCertType === option.value ? 'default' : 'outline'}
+                      size="sm"
+                      onClick={() => setAttendanceCertType(option.value)}
+                    >
+                      {option.label}
+                    </Button>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <Label htmlFor="attendance-template" className="text-xs">Template</Label>
+                <select
+                  id="attendance-template"
+                  className="mt-1 w-full rounded-md border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
+                  value={attendanceTemplate}
+                  onChange={(event) => setAttendanceTemplate(event.target.value as CertificateTemplate)}
                 >
-                  {option.label}
-                </Button>
-              ))}
-            </div>
-          </div>
+                  {TEMPLATE_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>{option.label}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <div>
+                  <Label htmlFor="attendance-position" className="text-xs">Position / Rank (optional)</Label>
+                  <Input
+                    id="attendance-position"
+                    value={attendancePosition}
+                    onChange={(event) => setAttendancePosition(event.target.value)}
+                    placeholder="e.g. 1st Place"
+                    className="mt-1"
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="attendance-domain" className="text-xs">Domain / Track (optional)</Label>
+                  <Input
+                    id="attendance-domain"
+                    value={attendanceDomain}
+                    onChange={(event) => setAttendanceDomain(event.target.value)}
+                    placeholder="e.g. Web Development"
+                    className="mt-1"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <Label htmlFor="attendance-description" className="text-xs">Description (optional)</Label>
+                <Textarea
+                  id="attendance-description"
+                  value={attendanceDescription}
+                  onChange={(event) => setAttendanceDescription(event.target.value)}
+                  className="mt-1 min-h-[96px]"
+                  placeholder="Custom recognition text. Markdown supported: **bold**, *italic*, ***bold italic***"
+                />
+                <p className="mt-1 text-xs text-gray-500">
+                  Supports Markdown formatting like <code>**bold**</code>, <code>*italic*</code>, <code>***bold italic***</code>, and <code>~~strikethrough~~</code>.
+                </p>
+                {attendanceDescription.trim() && (
+                  <div className="mt-2 rounded-md border border-gray-200 bg-gray-50 p-3">
+                    <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">Preview</p>
+                    <div className="mt-1 text-sm text-gray-700 leading-relaxed">
+                      <InlineMarkdown>{attendanceDescription}</InlineMarkdown>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </CardContent>
+          </Card>
         ) : (
-          <div className="rounded-lg border border-blue-200 bg-blue-50 p-4 text-sm text-blue-800">
-            <p className="font-medium">{getStrategyLabel(competitionStrategy)}</p>
-            <p className="mt-1">{competitionPreview.previewRows.length} certificates ready with the current tier settings.</p>
+          <div className="space-y-3">
+            <div className="rounded-lg border border-blue-200 bg-blue-50 p-4 text-sm text-blue-800">
+              <p className="font-medium">{getStrategyLabel(competitionStrategy)}</p>
+              <p className="mt-1">{competitionPreview.previewRows.length} certificates ready with the current tier settings.</p>
+            </div>
+            <div>
+              <Label htmlFor="competition-domain" className="text-xs">Domain / Track (optional)</Label>
+              <Input
+                id="competition-domain"
+                value={competitionDomain}
+                onChange={(event) => setCompetitionDomain(event.target.value)}
+                placeholder="Applied to all generated competition certificates"
+                className="mt-1"
+              />
+            </div>
           </div>
         )}
 
@@ -1612,6 +1714,32 @@ export default function EventCertificateWizard({
                 <>
                   <span className="text-gray-500">Certificate Type</span>
                   <Badge variant="outline" className="w-fit">{attendanceCertType}</Badge>
+
+                  <span className="text-gray-500">Template</span>
+                  <span className="font-medium capitalize">{attendanceTemplate}</span>
+
+                  {attendancePosition.trim() ? (
+                    <>
+                      <span className="text-gray-500">Position</span>
+                      <span className="font-medium">{attendancePosition.trim()}</span>
+                    </>
+                  ) : null}
+
+                  {attendanceDomain.trim() ? (
+                    <>
+                      <span className="text-gray-500">Domain</span>
+                      <span className="font-medium">{attendanceDomain.trim()}</span>
+                    </>
+                  ) : null}
+
+                  {attendanceDescription.trim() ? (
+                    <>
+                      <span className="text-gray-500">Description</span>
+                      <span className="font-medium text-gray-700">
+                        <InlineMarkdown>{attendanceDescription.trim()}</InlineMarkdown>
+                      </span>
+                    </>
+                  ) : null}
                 </>
               ) : (
                 <>
@@ -1625,6 +1753,13 @@ export default function EventCertificateWizard({
                       .map((round) => round.title)
                       .join(', ')}
                   </span>
+
+                  {competitionDomain.trim() ? (
+                    <>
+                      <span className="text-gray-500">Domain</span>
+                      <span className="font-medium">{competitionDomain.trim()}</span>
+                    </>
+                  ) : null}
                 </>
               )}
 
@@ -1640,20 +1775,24 @@ export default function EventCertificateWizard({
           </CardContent>
         </Card>
 
+        <Card>
+          <CardContent className="pt-6">
+            <div className="flex items-center justify-between rounded-lg border border-gray-200 px-4 py-3">
+              <div>
+                <p className="font-medium text-gray-900">Send email notifications</p>
+                <p className="text-sm text-gray-500">Toggle whether generated certificates should be emailed immediately.</p>
+              </div>
+              <Switch checked={sendEmail} onCheckedChange={setSendEmail} />
+            </div>
+          </CardContent>
+        </Card>
+
         {mode === 'competition' && (
           <Card>
             <CardHeader className="pb-3">
-              <CardTitle className="text-base">Review & Confirm</CardTitle>
+              <CardTitle className="text-base">Competition Recipient Preview</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="flex items-center justify-between rounded-lg border border-gray-200 px-4 py-3">
-                <div>
-                  <p className="font-medium text-gray-900">Send email notifications</p>
-                  <p className="text-sm text-gray-500">Toggle whether the generated certificates should be emailed immediately.</p>
-                </div>
-                <Switch checked={sendEmail} onCheckedChange={setSendEmail} />
-              </div>
-
               <div className="overflow-hidden rounded-lg border dark:border-gray-700">
                 <div className="max-h-80 overflow-x-auto overflow-y-auto">
                   <table className="min-w-[760px] w-full text-sm">
@@ -1682,7 +1821,9 @@ export default function EventCertificateWizard({
                           </td>
                           <td className="p-3">{row.position || '-'}</td>
                           <td className="p-3">{row.strategySource}</td>
-                          <td className="p-3 text-xs text-gray-600">{row.description}</td>
+                          <td className="p-3 text-xs text-gray-600 leading-relaxed">
+                            <InlineMarkdown>{row.description}</InlineMarkdown>
+                          </td>
                         </tr>
                       ))}
                     </tbody>
@@ -1702,7 +1843,11 @@ export default function EventCertificateWizard({
                 <ul className="list-disc list-inside space-y-0.5 text-blue-700 dark:text-blue-400">
                   <li>{selectedRecipientEmails.length} PDF certificate{selectedRecipientEmails.length !== 1 ? 's' : ''} will be generated.</li>
                   <li>Each certificate will be uploaded to cloud storage.</li>
-                  <li>Email notifications will be sent to all selected recipients.</li>
+                  <li>
+                    {sendEmail
+                      ? 'Email notifications will be sent to all selected recipients.'
+                      : 'Certificates will be stored without sending email notifications yet.'}
+                  </li>
                   <li>Recipients who already have an attendance certificate for this event are skipped.</li>
                 </ul>
               </div>
@@ -1778,7 +1923,7 @@ export default function EventCertificateWizard({
                 </div>
                 <div className="rounded-lg border border-blue-200 bg-blue-50 p-3">
                   <p className="text-xs uppercase tracking-wide text-blue-700">Emails Sent</p>
-                  <p className="text-2xl font-bold text-blue-800">{generationSummary.emailsSent ?? generatedCerts.length}</p>
+                  <p className="text-2xl font-bold text-blue-800">{generationSummary.emailsSent ?? 0}</p>
                 </div>
               </div>
               {generationSummary.errors.length > 0 && (
@@ -2062,7 +2207,7 @@ export default function EventCertificateWizard({
               <ConfirmDialogDescription>
                 {mode === 'competition'
                   ? `This will generate ${competitionPreview.previewRows.length} certificate${competitionPreview.previewRows.length !== 1 ? 's' : ''}, upload the PDF files, and ${sendEmail ? 'email the selected recipients.' : 'store them without sending email notifications yet.'}`
-                  : `This will generate ${selectedIds.size} certificate${selectedIds.size !== 1 ? 's' : ''}, upload the PDF files, and email the selected recipients.`}
+                  : `This will generate ${selectedIds.size} certificate${selectedIds.size !== 1 ? 's' : ''}, upload the PDF files, and ${sendEmail ? 'email the selected recipients.' : 'store them without sending email notifications yet.'}`}
               </ConfirmDialogDescription>
             </ConfirmDialogHeader>
             <ConfirmDialogFooter>

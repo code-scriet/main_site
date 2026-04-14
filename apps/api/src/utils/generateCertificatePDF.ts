@@ -8,6 +8,7 @@ import {
 import QRCode from 'qrcode';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { marked, type Token, type Tokens } from 'marked';
 import { logger } from './logger.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -177,10 +178,219 @@ export function formatPosition(pos: string): string {
   return pos.trim();
 }
 
+type MarkdownInlineTextStyle = {
+  fontWeight?: 700;
+  fontStyle?: 'italic';
+  textDecoration?: 'line-through';
+};
+
+function hasInlineTokens(token: Token): token is Token & { tokens: Token[] } {
+  return Array.isArray((token as { tokens?: unknown }).tokens);
+}
+
+function hasInlineText(token: Token): token is Token & { text: string } {
+  return typeof (token as { text?: unknown }).text === 'string';
+}
+
+function getNestedTokens(token: Token): Token[] {
+  return hasInlineTokens(token) ? token.tokens : [];
+}
+
+function getListItems(token: Token): Tokens.ListItem[] {
+  const rawItems = (token as { items?: unknown }).items;
+  if (!Array.isArray(rawItems)) {
+    return [];
+  }
+
+  return rawItems.filter((item): item is Tokens.ListItem => {
+    if (!item || typeof item !== 'object') {
+      return false;
+    }
+
+    const candidate = item as { raw?: unknown; text?: unknown; tokens?: unknown };
+    return (
+      typeof candidate.raw === 'string'
+      && typeof candidate.text === 'string'
+      && Array.isArray(candidate.tokens)
+    );
+  });
+}
+
+function getListStart(token: Token): number {
+  const start = (token as { start?: unknown }).start;
+  return typeof start === 'number' ? start : 1;
+}
+
+function isOrderedList(token: Token): boolean {
+  return (token as { ordered?: unknown }).ordered === true;
+}
+
+function pushStyledText(
+  nodes: React.ReactNode[],
+  text: string,
+  key: string,
+  style: MarkdownInlineTextStyle,
+) {
+  if (!text) {
+    return;
+  }
+
+  const hasStyle = Boolean(style.fontWeight || style.fontStyle || style.textDecoration);
+  if (!hasStyle) {
+    nodes.push(text);
+    return;
+  }
+
+  nodes.push(React.createElement(Text, { key, style }, text));
+}
+
+function renderMarkdownInlineTokens(
+  tokens: Token[],
+  keyPrefix: string,
+  style: MarkdownInlineTextStyle = {},
+): React.ReactNode[] {
+  const nodes: React.ReactNode[] = [];
+
+  tokens.forEach((token, tokenIndex) => {
+    const tokenKey = `${keyPrefix}-${tokenIndex}`;
+
+    switch (token.type) {
+      case 'strong': {
+        nodes.push(...renderMarkdownInlineTokens(getNestedTokens(token), tokenKey, { ...style, fontWeight: 700 }));
+        break;
+      }
+      case 'em': {
+        nodes.push(...renderMarkdownInlineTokens(getNestedTokens(token), tokenKey, { ...style, fontStyle: 'italic' }));
+        break;
+      }
+      case 'del': {
+        nodes.push(...renderMarkdownInlineTokens(getNestedTokens(token), tokenKey, { ...style, textDecoration: 'line-through' }));
+        break;
+      }
+      case 'br': {
+        nodes.push('\n');
+        break;
+      }
+      case 'link': {
+        nodes.push(...renderMarkdownInlineTokens(getNestedTokens(token), tokenKey, style));
+        break;
+      }
+      case 'text': {
+        const nestedTokens = getNestedTokens(token);
+        if (nestedTokens.length > 0) {
+          nodes.push(...renderMarkdownInlineTokens(nestedTokens, tokenKey, style));
+          break;
+        }
+        pushStyledText(nodes, token.text, tokenKey, style);
+        break;
+      }
+      case 'escape':
+      case 'codespan': {
+        pushStyledText(nodes, token.text, tokenKey, style);
+        break;
+      }
+      default: {
+        const nestedTokens = getNestedTokens(token);
+        if (nestedTokens.length > 0) {
+          nodes.push(...renderMarkdownInlineTokens(nestedTokens, tokenKey, style));
+          break;
+        }
+
+        if (hasInlineText(token)) {
+          pushStyledText(nodes, token.text, tokenKey, style);
+        }
+      }
+    }
+  });
+
+  return nodes;
+}
+
+function parseMarkdownDescription(description: string): React.ReactNode[] {
+  try {
+    const blockTokens = marked.lexer(description, { gfm: true, breaks: true });
+    const nodes: React.ReactNode[] = [];
+
+    blockTokens.forEach((token, tokenIndex) => {
+      const tokenKey = `md-block-${tokenIndex}`;
+
+      switch (token.type) {
+        case 'paragraph': {
+          nodes.push(...renderMarkdownInlineTokens(getNestedTokens(token), tokenKey));
+          break;
+        }
+        case 'heading': {
+          nodes.push(...renderMarkdownInlineTokens(getNestedTokens(token), tokenKey, { fontWeight: 700 }));
+          break;
+        }
+        case 'text': {
+          const nestedTokens = getNestedTokens(token);
+          if (nestedTokens.length > 0) {
+            nodes.push(...renderMarkdownInlineTokens(nestedTokens, tokenKey));
+          } else {
+            nodes.push(token.text);
+          }
+          break;
+        }
+        case 'list': {
+          const listItems = getListItems(token);
+          const listStart = getListStart(token);
+          listItems.forEach((item, itemIndex) => {
+            const marker = isOrderedList(token) ? `${listStart + itemIndex}. ` : '• ';
+            nodes.push(marker);
+            nodes.push(...renderMarkdownInlineTokens(item.tokens, `${tokenKey}-item-${itemIndex}`));
+            if (itemIndex < listItems.length - 1) {
+              nodes.push('\n');
+            }
+          });
+          break;
+        }
+        case 'blockquote': {
+          nodes.push('"');
+          nodes.push(...renderMarkdownInlineTokens(getNestedTokens(token), `${tokenKey}-quote`));
+          nodes.push('"');
+          break;
+        }
+        case 'code': {
+          nodes.push(token.text);
+          break;
+        }
+        case 'space': {
+          nodes.push('\n');
+          break;
+        }
+        default: {
+          const nestedTokens = getNestedTokens(token);
+          if (nestedTokens.length > 0) {
+            nodes.push(...renderMarkdownInlineTokens(nestedTokens, tokenKey));
+          } else if (hasInlineText(token)) {
+            nodes.push(token.text);
+          }
+        }
+      }
+
+      if (tokenIndex < blockTokens.length - 1) {
+        nodes.push('\n');
+      }
+    });
+
+    while (nodes.length > 0 && nodes[nodes.length - 1] === '\n') {
+      nodes.pop();
+    }
+
+    return nodes.length > 0 ? nodes : [description];
+  } catch (error) {
+    logger.warn('Failed to parse markdown description for certificate PDF; using plain text', {
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return [description];
+  }
+}
+
 // ── DESCRIPTION BUILDER ────────────────────────────────────────────────────────
 export function buildDescription(data: CertData, type: string): React.ReactNode[] {
   if (data.description) {
-    return [data.description];
+    return parseMarkdownDescription(data.description);
   }
 
   const highlightStyle = {
