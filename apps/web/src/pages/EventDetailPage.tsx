@@ -31,6 +31,7 @@ import { processImageUrl } from '@/lib/imageUtils';
 import { getRegistrationStatus } from '@/lib/registrationStatus';
 import { TeamCreateModal, TeamJoinModal, TeamDashboard } from '@/components/teams';
 import { getPlaygroundLaunchUrl } from '@/lib/playgroundUrl';
+import { normalizeTrustedVideoEmbedUrl } from '@/lib/videoEmbed';
 import { LightboxGallery } from '@/components/media/LightboxGallery';
 import { toast } from 'sonner';
 
@@ -238,6 +239,7 @@ export default function EventDetailPage() {
       eligibilityReason?: string;
     }>
   >([]);
+  const trustedVideoUrl = event?.videoUrl ? normalizeTrustedVideoEmbedUrl(event.videoUrl) : null;
 
   const getCompetitionRoundUrl = (roundId: string) => {
     return getPlaygroundLaunchUrl(`/competition/${roundId}`);
@@ -1127,7 +1129,7 @@ export default function EventDetailPage() {
               )}
 
               {/* Video Embed */}
-              {event.videoUrl && (
+              {trustedVideoUrl && (
                 <Card>
                   <CardHeader>
                     <CardTitle className="flex items-center gap-2">
@@ -1138,10 +1140,13 @@ export default function EventDetailPage() {
                   <CardContent>
                     <div className="aspect-video rounded-lg overflow-hidden bg-gray-100">
                       <iframe
-                        src={event.videoUrl}
+                        src={trustedVideoUrl}
                         title="Event video"
                         className="w-full h-full"
+                        loading="lazy"
                         allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                        sandbox="allow-scripts allow-same-origin allow-presentation"
+                        referrerPolicy="strict-origin-when-cross-origin"
                         allowFullScreen
                       />
                     </div>

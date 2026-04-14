@@ -12,11 +12,28 @@ import { submitUrl } from '../utils/indexnow.js';
 import { sanitizeEventRegistrationFields } from '../utils/eventRegistrationFields.js';
 import { getRegistrationStatus } from '../utils/registrationStatus.js';
 import { sanitizeHtml } from '../utils/sanitize.js';
+import { normalizeTrustedVideoEmbedUrl } from '../utils/videoEmbed.js';
 
 export const eventsRouter = Router();
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 const optionalUrl = z.union([z.string().url('Must be a valid URL'), z.literal('')]).optional().nullable();
+const optionalVideoUrl = z.union([z.string().trim().max(2000), z.literal('')]).optional().nullable().transform((value, ctx) => {
+  if (value === undefined || value === null || value === '') {
+    return value;
+  }
+
+  const normalized = normalizeTrustedVideoEmbedUrl(value);
+  if (!normalized) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: 'Video URL must be a supported YouTube, Vimeo, or Loom link',
+    });
+    return z.NEVER;
+  }
+
+  return normalized;
+});
 
 type EventValidationInput = {
   startDate: Date;
@@ -75,7 +92,7 @@ const eventSchemaBase = z.object({
   resources: z.array(z.any()).max(100).optional().nullable(),
   faqs: z.array(z.any()).max(100).optional().nullable(),
   imageGallery: z.array(z.string().url('Image URL must be valid')).max(50).optional().nullable(),
-  videoUrl: optionalUrl,
+  videoUrl: optionalVideoUrl,
   tags: z.array(z.string().trim().min(1).max(40)).max(40).optional(),
   featured: z.boolean().optional(),
   allowLateRegistration: z.boolean().optional(),

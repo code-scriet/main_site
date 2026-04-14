@@ -41,6 +41,17 @@ type AttendanceTokenPayload = {
 
 class AttendanceBulkUpdateConflictError extends Error {}
 
+function isRegistrationBoundToPayload(
+  registration: { id: string; userId: string; eventId: string },
+  payload: AttendanceTokenPayload,
+): boolean {
+  return (
+    registration.id === payload.registrationId &&
+    registration.userId === payload.userId &&
+    registration.eventId === payload.eventId
+  );
+}
+
 function requireUuid(res: Response, value: unknown, label: string): value is string {
   if (typeof value !== 'string' || !uuidSchema.safeParse(value).success) {
     ApiResponse.badRequest(res, `Invalid ${label} format`);
@@ -235,6 +246,18 @@ router.post('/scan', authMiddleware, requireRole('CORE_MEMBER'), async (req: Req
       return ApiResponse.notFound(res, 'Registration not found');
     }
 
+    if (!isRegistrationBoundToPayload(registration, payload)) {
+      logger.warn('Attendance token payload mismatch during scan', {
+        registrationId: registration.id,
+        registrationUserId: registration.userId,
+        registrationEventId: registration.eventId,
+        tokenRegistrationId: payload.registrationId,
+        tokenUserId: payload.userId,
+        tokenEventId: payload.eventId,
+      });
+      return ApiResponse.badRequest(res, 'Invalid or expired attendance token');
+    }
+
     // Event status check: only allow scans for ONGOING events.
     // Admins can bypass to scan UPCOMING events only when explicitly requested.
     const isOngoingEvent = registration.event.status === 'ONGOING';
@@ -417,6 +440,20 @@ router.post('/scan-batch', authMiddleware, requireRole('CORE_MEMBER'), async (re
         continue;
       }
 
+      if (!isRegistrationBoundToPayload(registration, item.payload)) {
+        logger.warn('Attendance token payload mismatch during batch scan', {
+          registrationId: registration.id,
+          registrationUserId: registration.userId,
+          registrationEventId: registration.eventId,
+          tokenRegistrationId: item.payload.registrationId,
+          tokenUserId: item.payload.userId,
+          tokenEventId: item.payload.eventId,
+        });
+        results.push({ localId: item.localId, status: 'error', message: 'Invalid or expired token' });
+        errCount++;
+        continue;
+      }
+
       const isOngoingEvent = registration.event.status === 'ONGOING';
       const canBypassUpcoming = bypassWindow === true && registration.event.status === 'UPCOMING';
       if (!isOngoingEvent && !canBypassUpcoming) {
@@ -580,13 +617,28 @@ router.post('/scan-beacon', beaconLimiter, express.text({ type: '*/*' }), async 
             continue;
           }
 
+          const registration = await prisma.eventRegistration.findUnique({
+            where: { id: payload.registrationId },
+            select: {
+              id: true,
+              userId: true,
+              eventId: true,
+              user: { select: { name: true } },
+            },
+          });
+
+          if (!registration || !isRegistrationBoundToPayload(registration, payload)) {
+            failedCount++;
+            continue;
+          }
+
           const scannedAt = resolveClientScannedAt(
             typeof scan.scannedAtLocal === 'string' ? scan.scannedAtLocal : undefined,
           );
 
           // ATOMIC: check + update in one DB call. Zero race window.
           const atomicResult = await withRetry(() => prisma.eventRegistration.updateMany({
-            where: { id: payload.registrationId, attended: false },
+            where: { id: registration.id, attended: false },
             data: { attended: true, scannedAt },
           }));
 
@@ -597,16 +649,10 @@ router.post('/scan-beacon', beaconLimiter, express.text({ type: '*/*' }), async 
 
           processedCount++;
 
-          // Fetch user name for socket emit (only for successful updates)
-          const reg = await prisma.eventRegistration.findUnique({
-            where: { id: payload.registrationId },
-            select: { user: { select: { name: true } } },
-          });
-
-          if (reg?.user.name) {
+          if (registration.user.name) {
             getIO()?.of('/attendance').to(`event:${eventId}`).emit('attendance:marked', {
               userId: payload.userId,
-              userName: reg.user.name,
+              userName: registration.user.name,
               scannedAt,
             });
           }

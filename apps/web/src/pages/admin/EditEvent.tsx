@@ -1038,8 +1038,9 @@ export default function EditEvent() {
                   type="url"
                   value={form.videoUrl}
                   onChange={handleChange}
-                  placeholder="YouTube embed URL"
+                  placeholder="YouTube, Vimeo, or Loom link"
                 />
+                <p className="text-xs text-gray-500">We convert supported video links into a safe embed URL automatically.</p>
               </div>
             </div>
           </CardContent>

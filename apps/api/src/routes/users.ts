@@ -893,11 +893,11 @@ usersRouter.delete('/:id', authMiddleware, requireRole('ADMIN'), async (req: Req
       });
     }
 
-    // Only super admin can delete other admins
-    if (targetUser.role === 'ADMIN' && !isSuperAdmin) {
+    // Only super admin can delete other admins or presidents
+    if ((targetUser.role === 'ADMIN' || targetUser.role === 'PRESIDENT') && !isSuperAdmin) {
       return res.status(403).json({ 
         success: false, 
-        error: { message: 'Only super admin can delete admin accounts' } 
+        error: { message: 'Only super admin can delete admin or president accounts' } 
       });
     }
 

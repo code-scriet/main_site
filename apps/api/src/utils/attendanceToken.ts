@@ -1,3 +1,4 @@
+import { randomBytes } from 'crypto';
 import jwt from 'jsonwebtoken';
 import { logger } from './logger.js';
 
@@ -11,11 +12,8 @@ interface AttendancePayload {
 const DEFAULT_ATTENDANCE_TOKEN_EXPIRES_IN =
   (process.env.ATTENDANCE_TOKEN_EXPIRES_IN || '90d') as jwt.SignOptions['expiresIn'];
 
-// Temporary safety net to prevent total auth outage when ATTENDANCE_JWT_SECRET is missing.
-// Replace via env or super-admin settings as soon as possible.
-const TEMPORARY_ATTENDANCE_JWT_SECRET = 'codescriet-temporary-attendance-secret-rotate-immediately';
-
 let runtimeAttendanceJwtSecret: string | null = null;
+let ephemeralAttendanceJwtSecret: string | null = null;
 const runtimePreviousAttendanceSecrets = new Set<string>();
 let warnedAboutTemporarySecret = false;
 
@@ -33,11 +31,15 @@ export function getAttendanceJwtSecret(): string {
   if (!warnedAboutTemporarySecret) {
     warnedAboutTemporarySecret = true;
     logger.warn(
-      'Attendance secret is missing. Using temporary hardcoded fallback until a super admin sets attendanceJwtSecret in settings.',
+      'Attendance secret is missing. Using an ephemeral in-memory fallback until a super admin sets attendanceJwtSecret in settings.',
     );
   }
 
-  return TEMPORARY_ATTENDANCE_JWT_SECRET;
+  if (!ephemeralAttendanceJwtSecret) {
+    ephemeralAttendanceJwtSecret = randomBytes(32).toString('hex');
+  }
+
+  return ephemeralAttendanceJwtSecret;
 }
 
 export function setRuntimeAttendanceJwtSecret(secret: string | null | undefined): void {
@@ -65,11 +67,7 @@ function getAttendanceVerificationSecrets(): string[] {
   const runtimePreviousSecrets = Array.from(runtimePreviousAttendanceSecrets)
     .filter((secret) => secret !== attendanceSecret);
 
-  const fallbackSecret = attendanceSecret === TEMPORARY_ATTENDANCE_JWT_SECRET
-    ? []
-    : [TEMPORARY_ATTENDANCE_JWT_SECRET];
-
-  return Array.from(new Set([attendanceSecret, ...runtimePreviousSecrets, ...fallbackSecret]));
+  return Array.from(new Set([attendanceSecret, ...runtimePreviousSecrets]));
 }
 
 function verifyAttendancePayload(token: string, secret: string): AttendancePayload {

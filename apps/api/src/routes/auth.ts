@@ -9,7 +9,7 @@ import { prisma } from '../lib/prisma.js';
 import { socketEvents } from '../utils/socket.js';
 import { emailService } from '../utils/email.js';
 import { logger } from '../utils/logger.js';
-import { signAccessToken } from '../utils/jwt.js';
+import { signAccessToken, signOAuthExchangeCode, verifyOAuthExchangeCode } from '../utils/jwt.js';
 import { auditLog } from '../utils/audit.js';
 
 export const authRouter = Router();
@@ -21,45 +21,6 @@ if (process.env.NODE_ENV === 'production' && process.env.ENABLE_DEV_AUTH === 'tr
 }
 
 const getFrontendUrl = (): string => process.env.FRONTEND_URL || 'http://localhost:5173';
-
-type OAuthExchangePayload = {
-  token: string;
-  intent?: 'network';
-  networkType?: 'professional' | 'alumni';
-  expiresAt: number;
-};
-
-const OAUTH_CODE_TTL_MS = 30 * 1000;
-const oauthCodeStore = new Map<string, OAuthExchangePayload>();
-
-const pruneExpiredOAuthCodes = () => {
-  const now = Date.now();
-  for (const [code, payload] of oauthCodeStore.entries()) {
-    if (payload.expiresAt <= now) {
-      oauthCodeStore.delete(code);
-    }
-  }
-};
-
-const issueOAuthCode = (payload: Omit<OAuthExchangePayload, 'expiresAt'>): string => {
-  pruneExpiredOAuthCodes();
-  const code = randomUUID();
-  oauthCodeStore.set(code, { ...payload, expiresAt: Date.now() + OAUTH_CODE_TTL_MS });
-  return code;
-};
-
-const consumeOAuthCode = (code: string): OAuthExchangePayload | null => {
-  pruneExpiredOAuthCodes();
-  const payload = oauthCodeStore.get(code);
-  if (!payload) {
-    return null;
-  }
-  oauthCodeStore.delete(code);
-  if (payload.expiresAt <= Date.now()) {
-    return null;
-  }
-  return payload;
-};
 
 const buildAuthCallbackUrl = (code: string): string => {
   const callbackUrl = new URL('/auth/callback', getFrontendUrl());
@@ -160,7 +121,7 @@ const devLoginSchema = z.object({
 });
 
 const exchangeCodeSchema = z.object({
-  code: z.string().uuid(),
+  code: z.string().trim().regex(/^[A-Za-z0-9-_]+\.[A-Za-z0-9-_]+\.[A-Za-z0-9-_]+$/, 'Invalid authorization code'),
 });
 
 const registerLimiter = rateLimit({
@@ -351,8 +312,8 @@ const handleOAuthCallback = (provider: 'google' | 'github') =>
 
       const token = generateToken(user);
       setSessionCookie(res, token);
-      const code = issueOAuthCode({
-        token,
+      const code = signOAuthExchangeCode({
+        userId: user.id,
         intent: isNetworkIntent ? 'network' : undefined,
         networkType: isNetworkIntent ? networkType : undefined,
       });
@@ -467,19 +428,30 @@ authRouter.get('/me', authMiddleware, (req: Request, res: Response) => {
   res.json({ success: true, data: withSuperAdmin(authUser), token });
 });
 
-authRouter.post('/exchange-code', (req: Request, res: Response) => {
+authRouter.post('/exchange-code', authMiddleware, (req: Request, res: Response) => {
   const parsed = exchangeCodeSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ error: 'Invalid authorization code' });
   }
 
-  const payload = consumeOAuthCode(parsed.data.code);
-  if (!payload) {
+  const authUser = getAuthUser(req);
+  if (!authUser) {
+    return res.status(401).json({ error: 'Authentication required' });
+  }
+
+  let payload;
+  try {
+    payload = verifyOAuthExchangeCode(parsed.data.code);
+  } catch {
     return res.status(400).json({ error: 'Authorization code expired or invalid' });
   }
 
+  if (payload.userId !== authUser.id) {
+    return res.status(403).json({ error: 'Authorization code does not match the current session' });
+  }
+
   return res.json({
-    token: payload.token,
+    token: generateToken(authUser),
     intent: payload.intent,
     network_type: payload.networkType,
   });

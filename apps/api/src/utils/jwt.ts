@@ -8,6 +8,12 @@ export interface AccessTokenPayload {
   role: string;
 }
 
+export interface OAuthExchangeCodePayload {
+  userId: string;
+  intent?: 'network';
+  networkType?: 'professional' | 'alumni';
+}
+
 const INSECURE_DEFAULT_SECRETS = new Set([
   'secret',
   'your_super_secret_key_change_this_in_production',
@@ -61,6 +67,33 @@ export const getJwtSecret = (): string => {
 export const signAccessToken = (payload: AccessTokenPayload): string => {
   const expiresIn = (process.env.JWT_EXPIRES_IN || '7d') as jwt.SignOptions['expiresIn'];
   return jwt.sign(payload, getJwtSecret(), { algorithm: 'HS256', expiresIn });
+};
+
+export const signOAuthExchangeCode = (payload: OAuthExchangeCodePayload): string => (
+  jwt.sign(
+    { ...payload, purpose: 'oauth_exchange' },
+    getJwtSecret(),
+    { algorithm: 'HS256', expiresIn: '30s' },
+  )
+);
+
+export const verifyOAuthExchangeCode = (code: string): OAuthExchangeCodePayload => {
+  const decoded = jwt.verify(code, getJwtSecret(), { algorithms: ['HS256'] }) as Partial<OAuthExchangeCodePayload> & {
+    purpose?: string;
+  };
+
+  if (decoded.purpose !== 'oauth_exchange' || typeof decoded.userId !== 'string') {
+    throw new Error('Invalid authorization code');
+  }
+
+  return {
+    userId: decoded.userId,
+    intent: decoded.intent === 'network' ? 'network' : undefined,
+    networkType:
+      decoded.networkType === 'professional' || decoded.networkType === 'alumni'
+        ? decoded.networkType
+        : undefined,
+  };
 };
 
 export const verifyToken = (token: string): AccessTokenPayload => {
