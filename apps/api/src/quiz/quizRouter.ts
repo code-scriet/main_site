@@ -64,6 +64,13 @@ interface QuizAccessTokenPayload {
 
 type SupportedQuestionType = 'MCQ' | 'TRUE_FALSE' | 'SHORT_ANSWER' | 'POLL' | 'RATING' | 'MULTI_SELECT' | 'OPEN_ENDED';
 
+class QuizImportParseError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'QuizImportParseError';
+  }
+}
+
 function signQuizAccessToken(payload: QuizAccessTokenPayload): string {
   return jwt.sign(payload, getJwtSecret(), { algorithm: 'HS256', expiresIn: '20m' });
 }
@@ -113,6 +120,12 @@ function parseJsonArrayString(raw: string): string[] | null {
 
 const IMPORT_FILE_EXTENSIONS = new Set(['.csv', '.xlsx']);
 const IMPORT_DELIMITER_REGEX = /[|;,]/;
+
+function getImportFileExtension(filename: string): string {
+  const lastDotIndex = filename.lastIndexOf('.');
+  if (lastDotIndex < 0) return '';
+  return filename.slice(lastDotIndex).toLowerCase();
+}
 
 const IMPORT_HEADER_ALIASES: Record<string, string> = {
   question: 'questionText',
@@ -210,6 +223,110 @@ function parseNumberOrDefault(raw: string, fallback: number): number {
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
+function decodeCsvBuffer(buffer: Buffer): string {
+  if (buffer.length === 0) return '';
+
+  let decoded = buffer.toString('utf8');
+
+  // UTF-8 BOM
+  if (decoded.charCodeAt(0) === 0xfeff) {
+    decoded = decoded.slice(1);
+  }
+
+  // If text has many null bytes, it is likely UTF-16LE from Excel.
+  const nullByteCount = (decoded.match(/\u0000/g) || []).length;
+  const nullByteRatio = nullByteCount / Math.max(decoded.length, 1);
+
+  if (nullByteRatio > 0.1) {
+    decoded = buffer.toString('utf16le');
+    if (decoded.charCodeAt(0) === 0xfeff) {
+      decoded = decoded.slice(1);
+    }
+  }
+
+  return decoded
+    .replace(/\r\n/g, '\n')
+    .replace(/\r/g, '\n');
+}
+
+function detectCsvDelimiter(csvText: string): string {
+  const firstNonEmptyLine = csvText
+    .split('\n')
+    .find((line) => line.trim().length > 0);
+
+  if (!firstNonEmptyLine) return ',';
+
+  const delimiters = [',', ';', '\t', '|'] as const;
+  let bestDelimiter: string = ',';
+  let bestCount = -1;
+
+  for (const delimiter of delimiters) {
+    const parts = firstNonEmptyLine.split(delimiter);
+    const score = parts.length - 1;
+    if (score > bestCount) {
+      bestCount = score;
+      bestDelimiter = delimiter;
+    }
+  }
+
+  return bestCount > 0 ? bestDelimiter : ',';
+}
+
+function parseCsvText(csvText: string, delimiter: string): string[][] {
+  const rows: string[][] = [];
+  let currentRow: string[] = [];
+  let currentCell = '';
+  let inQuotes = false;
+
+  for (let i = 0; i < csvText.length; i++) {
+    const char = csvText[i];
+    const nextChar = csvText[i + 1];
+
+    if (inQuotes) {
+      if (char === '"' && nextChar === '"') {
+        currentCell += '"';
+        i += 1;
+      } else if (char === '"') {
+        inQuotes = false;
+      } else {
+        currentCell += char;
+      }
+      continue;
+    }
+
+    if (char === '"') {
+      inQuotes = true;
+      continue;
+    }
+
+    if (char === delimiter) {
+      currentRow.push(currentCell.trim());
+      currentCell = '';
+      continue;
+    }
+
+    if (char === '\n') {
+      currentRow.push(currentCell.trim());
+      currentCell = '';
+      rows.push(currentRow);
+      currentRow = [];
+      continue;
+    }
+
+    currentCell += char;
+  }
+
+  // Flush trailing cell/row.
+  currentRow.push(currentCell.trim());
+  const hasAnyContent = currentRow.some((cell) => cell.length > 0);
+  if (hasAnyContent || rows.length === 0) {
+    rows.push(currentRow);
+  }
+
+  // Remove fully empty rows.
+  return rows.filter((row) => row.some((cell) => cell.trim().length > 0));
+}
+
 function normalizeImportTitle(filename: string): string {
   const withoutExtension = filename.replace(/\.[^.]+$/, '');
   const normalized = withoutExtension.replace(/[_-]+/g, ' ').trim();
@@ -224,20 +341,34 @@ function normalizeTrueFalseCorrectAnswer(raw: string): string {
 }
 
 async function readImportRows(file: Express.Multer.File): Promise<string[][]> {
-  const extension = file.originalname.slice(file.originalname.lastIndexOf('.')).toLowerCase();
-  const ExcelJS = await import('exceljs');
-  const workbook = new ExcelJS.default.Workbook();
+  const extension = getImportFileExtension(file.originalname);
+
+  if (extension === '.csv') {
+    try {
+      const csvText = decodeCsvBuffer(file.buffer);
+      const delimiter = detectCsvDelimiter(csvText);
+      return parseCsvText(csvText, delimiter);
+    } catch {
+      throw new QuizImportParseError('Could not parse CSV file. Please verify the file format and try again.');
+    }
+  }
+
+  const ExcelJSImport = await import('exceljs');
+  const ExcelJS = ExcelJSImport.default || ExcelJSImport;
+  const workbook = new ExcelJS.Workbook();
   let worksheet;
 
   if (extension === '.xlsx') {
-    await workbook.xlsx.read(Readable.from([file.buffer]));
-    worksheet = workbook.worksheets[0];
-  } else {
-    worksheet = await workbook.csv.read(Readable.from([file.buffer]));
+    try {
+      await workbook.xlsx.read(Readable.from([file.buffer]));
+      worksheet = workbook.worksheets[0];
+    } catch {
+      throw new QuizImportParseError('Could not parse XLSX file. Please upload a valid .xlsx file.');
+    }
   }
 
   if (!worksheet) {
-    throw new Error('Could not read worksheet data from file');
+    throw new QuizImportParseError('Could not read worksheet data from file');
   }
 
   let maxColumns = 0;
@@ -426,7 +557,7 @@ quizRouter.post(
         return ApiResponse.badRequest(res, 'Quiz file is required (field name: "file")');
       }
 
-      const extension = req.file.originalname.slice(req.file.originalname.lastIndexOf('.')).toLowerCase();
+      const extension = getImportFileExtension(req.file.originalname);
       if (!IMPORT_FILE_EXTENSIONS.has(extension)) {
         return ApiResponse.badRequest(res, 'Only .csv and .xlsx quiz files are supported');
       }
@@ -589,6 +720,9 @@ quizRouter.post(
         'Quiz file parsed successfully',
       );
     } catch (error) {
+      if (error instanceof QuizImportParseError) {
+        return ApiResponse.badRequest(res, error.message);
+      }
       logger.error('POST /api/quiz/import error', { error: error instanceof Error ? error.message : String(error) });
       return ApiResponse.internal(res);
     }

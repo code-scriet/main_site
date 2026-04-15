@@ -85,6 +85,36 @@ function createEmptyQuestion(): QuestionDraft {
 
 const STEP_LABELS = ['Details', 'Questions', 'Review'];
 
+const QUIZ_IMPORT_TEMPLATE_FILENAME = 'quiz-import-template.csv';
+const QUIZ_IMPORT_TEMPLATE_HEADERS = [
+  'questionText',
+  'questionType',
+  'option1',
+  'option2',
+  'option3',
+  'option4',
+  'option5',
+  'option6',
+  'correctAnswer',
+  'timeLimitSeconds',
+  'points',
+  'mediaUrl',
+];
+const QUIZ_IMPORT_TEMPLATE_EXAMPLE = [
+  'What is 2+2?',
+  'MCQ',
+  '1',
+  '2',
+  '3',
+  '4',
+  '',
+  '',
+  '4',
+  '20',
+  '100',
+  '',
+];
+
 export default function AdminQuizCreator() {
   const navigate = useNavigate();
   const { token } = useAuth(); // ensure authenticated
@@ -272,6 +302,23 @@ export default function AdminQuizCreator() {
       setImporting(false);
     }
   };
+
+  const handleDownloadImportTemplate = useCallback(() => {
+    const csvContent = [
+      QUIZ_IMPORT_TEMPLATE_HEADERS.join(','),
+      QUIZ_IMPORT_TEMPLATE_EXAMPLE.join(','),
+    ].join('\n');
+
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = QUIZ_IMPORT_TEMPLATE_FILENAME;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  }, []);
 
   // Copy PIN handler
   const handleCopyPin = async () => {
@@ -499,6 +546,15 @@ export default function AdminQuizCreator() {
                             Import Questions
                           </>
                         )}
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={handleDownloadImportTemplate}
+                        className="border-amber-300 text-amber-700 hover:bg-amber-100"
+                      >
+                        <Download className="h-4 w-4 mr-2" />
+                        Download Template
                       </Button>
                     </div>
                     {importError && (
