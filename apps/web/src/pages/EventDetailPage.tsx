@@ -269,7 +269,16 @@ export default function EventDetailPage() {
         if (token) {
           try {
             const registrations = await api.getMyRegistrations(token);
-            setIsRegistered(registrations.some(r => r.eventId === id));
+            const currentEventId = eventData.id;
+            setIsRegistered(
+              registrations.some((registration) => {
+                return (
+                  registration.eventId === currentEventId ||
+                  registration.event?.id === currentEventId ||
+                  registration.event?.slug === id
+                );
+              })
+            );
           } catch {
             setIsRegistered(false);
           }
