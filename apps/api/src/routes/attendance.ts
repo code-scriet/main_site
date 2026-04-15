@@ -102,6 +102,55 @@ function resolveClientScannedAt(scannedAtLocal?: string): Date {
   return parsed;
 }
 
+function normalizeEventDays(eventDays: number | null | undefined): number {
+  if (!Number.isInteger(eventDays) || !eventDays || eventDays < 1) return 1;
+  return Math.min(eventDays, 10);
+}
+
+function parseDayLabels(value: unknown, eventDays: number): string[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .slice(0, eventDays)
+    .map((label) => (typeof label === 'string' ? label.trim() : ''))
+    .map((label, index) => label || `Day ${index + 1}`);
+}
+
+function parseRequestedDayNumber(dayNumber: unknown): number | null {
+  if (dayNumber === undefined || dayNumber === null || dayNumber === '') return null;
+  if (typeof dayNumber === 'number' && Number.isInteger(dayNumber)) return dayNumber;
+  if (typeof dayNumber === 'string') {
+    const parsed = Number.parseInt(dayNumber, 10);
+    if (Number.isInteger(parsed)) return parsed;
+  }
+  return Number.NaN;
+}
+
+function resolveEffectiveDayNumber(dayNumber: unknown, eventDays: number, defaultToOne = true): number | null {
+  const parsed = parseRequestedDayNumber(dayNumber);
+  if (parsed === null) return defaultToOne ? 1 : null;
+  if (!Number.isInteger(parsed) || parsed < 1 || parsed > eventDays) return Number.NaN;
+  return parsed;
+}
+
+async function syncRegistrationAttendance(registrationId: string): Promise<void> {
+  const latestAttendedDay = await prisma.dayAttendance.findFirst({
+    where: { registrationId, attended: true },
+    orderBy: [
+      { scannedAt: 'desc' },
+      { dayNumber: 'desc' },
+    ],
+  });
+
+  await prisma.eventRegistration.update({
+    where: { id: registrationId },
+    data: {
+      attended: !!latestAttendedDay,
+      scannedAt: latestAttendedDay?.scannedAt ?? null,
+      manualOverride: latestAttendedDay?.manualOverride ?? false,
+    },
+  });
+}
+
 async function resolveStoredAttendanceTokenPayloads(tokens: string[]): Promise<Map<string, AttendanceTokenPayload>> {
   const normalizedTokens = Array.from(new Set(
     tokens
@@ -183,6 +232,16 @@ router.get('/my-qr/:eventId', authMiddleware, async (req: Request, res: Response
             title: true,
             startDate: true,
             endDate: true,
+            eventDays: true,
+            dayLabels: true,
+          },
+        },
+        dayAttendances: {
+          orderBy: { dayNumber: 'asc' },
+          select: {
+            dayNumber: true,
+            attended: true,
+            scannedAt: true,
           },
         },
       },
@@ -192,11 +251,17 @@ router.get('/my-qr/:eventId', authMiddleware, async (req: Request, res: Response
       return ApiResponse.notFound(res, 'Registration not found for this event');
     }
 
+    const eventDays = normalizeEventDays(registration.event.eventDays);
+    const dayLabels = parseDayLabels(registration.event.dayLabels, eventDays);
+
     return ApiResponse.success(res, {
       attendanceToken: registration.attendanceToken,
       attended: registration.attended,
       scannedAt: registration.scannedAt,
       event: registration.event,
+      eventDays,
+      dayLabels,
+      dayAttendances: registration.dayAttendances,
     });
   } catch (error) {
     logger.error('Failed to get attendance QR', { error: error instanceof Error ? error.message : String(error) });
@@ -214,7 +279,7 @@ router.post('/scan', authMiddleware, requireRole('CORE_MEMBER'), async (req: Req
       return ApiResponse.unauthorized(res);
     }
 
-    const { token, bypassWindow } = req.body as { token?: string; bypassWindow?: boolean };
+    const { token, bypassWindow, dayNumber } = req.body as { token?: string; bypassWindow?: boolean; dayNumber?: number };
 
     if (!token || typeof token !== 'string') {
       return ApiResponse.badRequest(res, 'Token is required');
@@ -234,10 +299,10 @@ router.post('/scan', authMiddleware, requireRole('CORE_MEMBER'), async (req: Req
       where: { id: payload.registrationId },
       include: {
         user: {
-          select: { name: true },
+          select: { id: true, name: true },
         },
         event: {
-          select: { title: true, startDate: true, endDate: true, status: true },
+          select: { title: true, startDate: true, endDate: true, status: true, eventDays: true },
         },
       },
     });
@@ -256,6 +321,12 @@ router.post('/scan', authMiddleware, requireRole('CORE_MEMBER'), async (req: Req
         tokenEventId: payload.eventId,
       });
       return ApiResponse.badRequest(res, 'Invalid or expired attendance token');
+    }
+
+    const eventDays = normalizeEventDays(registration.event.eventDays);
+    const effectiveDayNumber = resolveEffectiveDayNumber(dayNumber, eventDays, true);
+    if (!effectiveDayNumber || Number.isNaN(effectiveDayNumber)) {
+      return ApiResponse.badRequest(res, `dayNumber must be between 1 and ${eventDays}`);
     }
 
     // Event status check: only allow scans for ONGOING events.
@@ -279,32 +350,68 @@ router.post('/scan', authMiddleware, requireRole('CORE_MEMBER'), async (req: Req
       }
     }
 
-    // ATOMIC: check + update in one DB call. Zero race window.
     const scannedAt = new Date();
-    const updated = await withRetry(() => prisma.eventRegistration.updateMany({
-      where: { id: registration.id, attended: false },
-      data: { attended: true, scannedAt },
+    const marked = await withRetry(() => prisma.dayAttendance.updateMany({
+      where: {
+        registrationId: registration.id,
+        dayNumber: effectiveDayNumber,
+        attended: false,
+      },
+      data: {
+        attended: true,
+        scannedAt,
+        scannedBy: admin.id,
+      },
     }));
-    if (updated.count === 0) {
-      return ApiResponse.conflict(res, `${registration.user.name} has already been scanned`);
+
+    if (marked.count === 0) {
+      const existingDay = await prisma.dayAttendance.findUnique({
+        where: {
+          registrationId_dayNumber: {
+            registrationId: registration.id,
+            dayNumber: effectiveDayNumber,
+          },
+        },
+      });
+
+      if (existingDay?.attended) {
+        return ApiResponse.conflict(res, `${registration.user.name} is already marked present for day ${effectiveDayNumber}`);
+      }
+
+      await prisma.dayAttendance.create({
+        data: {
+          registrationId: registration.id,
+          dayNumber: effectiveDayNumber,
+          attended: true,
+          scannedAt,
+          scannedBy: admin.id,
+        },
+      });
     }
+
+    await syncRegistrationAttendance(registration.id);
 
     // Socket emit
     getIO()?.of('/attendance').to(`event:${registration.eventId}`).emit('attendance:marked', {
+      registrationId: registration.id,
       userId: payload.userId,
       userName: registration.user.name,
+      dayNumber: effectiveDayNumber,
       scannedAt,
+      scannedBy: admin.id,
     });
 
     await auditLog(admin.id, 'ATTENDANCE_SCAN', 'eventRegistration', registration.id, {
       eventId: registration.eventId,
       userId: payload.userId,
       userName: registration.user.name,
+      dayNumber: effectiveDayNumber,
     });
 
     return ApiResponse.success(res, {
       registrationId: registration.id,
       userName: registration.user.name,
+      dayNumber: effectiveDayNumber,
       scannedAt,
     });
   } catch (error) {
@@ -324,7 +431,7 @@ router.post('/scan-batch', authMiddleware, requireRole('CORE_MEMBER'), async (re
     }
 
     const { scans, eventId, bypassWindow } = req.body as {
-      scans?: Array<{ token: string; scannedAtLocal?: string; localId: string }>;
+      scans?: Array<{ token: string; scannedAtLocal?: string; localId: string; dayNumber?: number }>;
       eventId?: string;
       bypassWindow?: boolean;
     };
@@ -350,9 +457,10 @@ router.post('/scan-batch', authMiddleware, requireRole('CORE_MEMBER'), async (re
     const verified: Array<{
       localId: string;
       scannedAtLocal?: string;
+      dayNumber?: number;
       payload: { userId: string; eventId: string; registrationId: string };
     }> = [];
-    const fallbackCandidates: Array<{ localId: string; token: string; scannedAtLocal?: string }> = [];
+    const fallbackCandidates: Array<{ localId: string; token: string; scannedAtLocal?: string; dayNumber?: number }> = [];
 
     for (const scan of scans) {
       if (!scan || typeof scan !== 'object' || typeof scan.token !== 'string' || typeof scan.localId !== 'string') {
@@ -376,6 +484,7 @@ router.post('/scan-batch', authMiddleware, requireRole('CORE_MEMBER'), async (re
           localId: scan.localId,
           token: normalizedToken,
           scannedAtLocal: scan.scannedAtLocal,
+          dayNumber: scan.dayNumber,
         });
         continue;
       }
@@ -386,7 +495,7 @@ router.post('/scan-batch', authMiddleware, requireRole('CORE_MEMBER'), async (re
         continue;
       }
 
-      verified.push({ localId: scan.localId, scannedAtLocal: scan.scannedAtLocal, payload });
+      verified.push({ localId: scan.localId, scannedAtLocal: scan.scannedAtLocal, dayNumber: scan.dayNumber, payload });
     }
 
     if (fallbackCandidates.length > 0) {
@@ -408,7 +517,7 @@ router.post('/scan-batch', authMiddleware, requireRole('CORE_MEMBER'), async (re
           continue;
         }
 
-        verified.push({ localId: scan.localId, scannedAtLocal: scan.scannedAtLocal, payload });
+        verified.push({ localId: scan.localId, scannedAtLocal: scan.scannedAtLocal, dayNumber: scan.dayNumber, payload });
       }
     }
 
@@ -425,7 +534,7 @@ router.post('/scan-batch', authMiddleware, requireRole('CORE_MEMBER'), async (re
       where: { id: { in: regIds } },
       include: {
         user: { select: { name: true } },
-        event: { select: { startDate: true, endDate: true, status: true } },
+        event: { select: { startDate: true, endDate: true, status: true, eventDays: true } },
       },
     });
     const regMap = new Map(registrations.map((r) => [r.id, r]));
@@ -478,23 +587,63 @@ router.post('/scan-batch', authMiddleware, requireRole('CORE_MEMBER'), async (re
       }
 
       const scannedAt = resolveClientScannedAt(item.scannedAtLocal);
-
-      // ATOMIC: check + update in one DB call. Zero race window.
-      const updated = await withRetry(() => prisma.eventRegistration.updateMany({
-        where: { id: registration.id, attended: false },
-        data: { attended: true, scannedAt },
-      }));
-
-      if (updated.count === 0) {
-        results.push({ localId: item.localId, status: 'duplicate', name: registration.user.name, message: 'Already scanned' });
-        dupCount++;
+      const eventDays = normalizeEventDays(registration.event.eventDays);
+      const effectiveDayNumber = resolveEffectiveDayNumber(item.dayNumber, eventDays, true);
+      if (!effectiveDayNumber || Number.isNaN(effectiveDayNumber)) {
+        results.push({ localId: item.localId, status: 'error', message: `Invalid dayNumber. Allowed range: 1-${eventDays}` });
+        errCount++;
         continue;
       }
 
+      const updated = await withRetry(() => prisma.dayAttendance.updateMany({
+        where: {
+          registrationId: registration.id,
+          dayNumber: effectiveDayNumber,
+          attended: false,
+        },
+        data: {
+          attended: true,
+          scannedAt,
+          scannedBy: admin.id,
+        },
+      }));
+
+      if (updated.count === 0) {
+        const existingDay = await prisma.dayAttendance.findUnique({
+          where: {
+            registrationId_dayNumber: {
+              registrationId: registration.id,
+              dayNumber: effectiveDayNumber,
+            },
+          },
+        });
+
+        if (existingDay?.attended) {
+          results.push({ localId: item.localId, status: 'duplicate', name: registration.user.name, message: `Already present for day ${effectiveDayNumber}` });
+          dupCount++;
+          continue;
+        }
+
+        await prisma.dayAttendance.create({
+          data: {
+            registrationId: registration.id,
+            dayNumber: effectiveDayNumber,
+            attended: true,
+            scannedAt,
+            scannedBy: admin.id,
+          },
+        });
+      }
+
+      await syncRegistrationAttendance(registration.id);
+
       getIO()?.of('/attendance').to(`event:${eventId}`).emit('attendance:marked', {
+        registrationId: registration.id,
         userId: item.payload.userId,
         userName: registration.user.name,
+        dayNumber: effectiveDayNumber,
         scannedAt,
+        scannedBy: admin.id,
       });
 
       results.push({ localId: item.localId, status: 'ok', name: registration.user.name });
@@ -520,14 +669,19 @@ router.post('/scan-batch', authMiddleware, requireRole('CORE_MEMBER'), async (re
 // ────────────────────────────────────────────────────────────
 router.post('/scan-beacon', beaconLimiter, express.text({ type: '*/*' }), async (req: Request, res: Response) => {
   try {
-    let body: { authToken?: string; scans?: Array<{ token: string; scannedAtLocal?: string; localId: string }>; eventId?: string };
+    let body: {
+      authToken?: string;
+      scans?: Array<{ token: string; scannedAtLocal?: string; localId: string; dayNumber?: number }>;
+      eventId?: string;
+      bypassWindow?: boolean;
+    };
     try {
       body = JSON.parse(typeof req.body === 'string' ? req.body : JSON.stringify(req.body));
     } catch {
       return res.status(400).send();
     }
 
-    const { authToken, scans, eventId } = body;
+    const { authToken, scans, eventId, bypassWindow } = body;
 
     if (
       !Array.isArray(scans) ||
@@ -579,7 +733,7 @@ router.post('/scan-beacon', beaconLimiter, express.text({ type: '*/*' }), async 
 
     const fallbackPayloadMap = await resolveStoredAttendanceTokenPayloads(
       scans
-        .filter((scan): scan is { token: string; scannedAtLocal?: string; localId: string } =>
+        .filter((scan): scan is { token: string; scannedAtLocal?: string; localId: string; dayNumber?: number } =>
           Boolean(scan && typeof scan === 'object' && typeof scan.token === 'string'),
         )
         .map((scan) => scan.token),
@@ -623,6 +777,7 @@ router.post('/scan-beacon', beaconLimiter, express.text({ type: '*/*' }), async 
               id: true,
               userId: true,
               eventId: true,
+              event: { select: { startDate: true, endDate: true, status: true, eventDays: true } },
               user: { select: { name: true } },
             },
           });
@@ -632,28 +787,85 @@ router.post('/scan-beacon', beaconLimiter, express.text({ type: '*/*' }), async 
             continue;
           }
 
-          const scannedAt = resolveClientScannedAt(
-            typeof scan.scannedAtLocal === 'string' ? scan.scannedAtLocal : undefined,
-          );
-
-          // ATOMIC: check + update in one DB call. Zero race window.
-          const atomicResult = await withRetry(() => prisma.eventRegistration.updateMany({
-            where: { id: registration.id, attended: false },
-            data: { attended: true, scannedAt },
-          }));
-
-          if (atomicResult.count === 0) {
-            skippedCount++;
+          const isOngoingEvent = registration.event.status === 'ONGOING';
+          const canBypassUpcoming = bypassWindow === true && registration.event.status === 'UPCOMING';
+          if (!isOngoingEvent && !canBypassUpcoming) {
+            failedCount++;
             continue;
           }
 
+          if (bypassWindow !== true) {
+            const now = new Date();
+            const windowStart = new Date(registration.event.startDate.getTime() - 30 * 60 * 1000);
+            const windowEnd = registration.event.endDate
+              ? new Date(registration.event.endDate)
+              : new Date(registration.event.startDate.getTime() + 4 * 60 * 60 * 1000);
+
+            if (now < windowStart || now > windowEnd) {
+              failedCount++;
+              continue;
+            }
+          }
+
+          const scannedAt = resolveClientScannedAt(
+            typeof scan.scannedAtLocal === 'string' ? scan.scannedAtLocal : undefined,
+          );
+          const eventDays = normalizeEventDays(registration.event.eventDays);
+          const effectiveDayNumber = resolveEffectiveDayNumber(scan.dayNumber, eventDays, true);
+          if (!effectiveDayNumber || Number.isNaN(effectiveDayNumber)) {
+            failedCount++;
+            continue;
+          }
+
+          const atomicResult = await withRetry(() => prisma.dayAttendance.updateMany({
+            where: {
+              registrationId: registration.id,
+              dayNumber: effectiveDayNumber,
+              attended: false,
+            },
+            data: {
+              attended: true,
+              scannedAt,
+              scannedBy: adminId,
+            },
+          }));
+
+          if (atomicResult.count === 0) {
+            const existingDay = await prisma.dayAttendance.findUnique({
+              where: {
+                registrationId_dayNumber: {
+                  registrationId: registration.id,
+                  dayNumber: effectiveDayNumber,
+                },
+              },
+            });
+            if (existingDay?.attended) {
+              skippedCount++;
+              continue;
+            }
+
+            await prisma.dayAttendance.create({
+              data: {
+                registrationId: registration.id,
+                dayNumber: effectiveDayNumber,
+                attended: true,
+                scannedAt,
+                scannedBy: adminId,
+              },
+            });
+          }
+
+          await syncRegistrationAttendance(registration.id);
           processedCount++;
 
           if (registration.user.name) {
             getIO()?.of('/attendance').to(`event:${eventId}`).emit('attendance:marked', {
+              registrationId: registration.id,
               userId: payload.userId,
               userName: registration.user.name,
+              dayNumber: effectiveDayNumber,
               scannedAt,
+              scannedBy: adminId,
             });
           }
         } catch (err) {
@@ -693,7 +905,7 @@ router.post('/manual-checkin', authMiddleware, requireRole('CORE_MEMBER'), async
       return ApiResponse.unauthorized(res);
     }
 
-    const { registrationId } = req.body as { registrationId?: string };
+    const { registrationId, dayNumber } = req.body as { registrationId?: string; dayNumber?: number };
 
     if (!requireUuid(res, registrationId, 'registration ID')) {
       return;
@@ -703,6 +915,7 @@ router.post('/manual-checkin', authMiddleware, requireRole('CORE_MEMBER'), async
       where: { id: registrationId },
       include: {
         user: { select: { id: true, name: true } },
+        event: { select: { eventDays: true } },
       },
     });
 
@@ -710,31 +923,74 @@ router.post('/manual-checkin', authMiddleware, requireRole('CORE_MEMBER'), async
       return ApiResponse.notFound(res, 'Registration not found');
     }
 
-    // ATOMIC: check + update in one DB call. Zero race window.
-    const scannedAt = new Date();
-    const updated = await withRetry(() => prisma.eventRegistration.updateMany({
-      where: { id: registrationId, attended: false },
-      data: { attended: true, scannedAt, manualOverride: true },
-    }));
-    if (updated.count === 0) {
-      return ApiResponse.conflict(res, `${registration.user.name} has already been checked in`);
+    const eventDays = normalizeEventDays(registration.event.eventDays);
+    const effectiveDayNumber = resolveEffectiveDayNumber(dayNumber, eventDays, true);
+    if (!effectiveDayNumber || Number.isNaN(effectiveDayNumber)) {
+      return ApiResponse.badRequest(res, `dayNumber must be between 1 and ${eventDays}`);
     }
 
+    const scannedAt = new Date();
+    const updated = await withRetry(() => prisma.dayAttendance.updateMany({
+      where: {
+        registrationId,
+        dayNumber: effectiveDayNumber,
+        attended: false,
+      },
+      data: {
+        attended: true,
+        scannedAt,
+        scannedBy: admin.id,
+        manualOverride: true,
+      },
+    }));
+    if (updated.count === 0) {
+      const existingDay = await prisma.dayAttendance.findUnique({
+        where: {
+          registrationId_dayNumber: {
+            registrationId,
+            dayNumber: effectiveDayNumber,
+          },
+        },
+      });
+
+      if (existingDay?.attended) {
+        return ApiResponse.conflict(res, `${registration.user.name} is already checked in for day ${effectiveDayNumber}`);
+      }
+
+      await prisma.dayAttendance.create({
+        data: {
+          registrationId,
+          dayNumber: effectiveDayNumber,
+          attended: true,
+          scannedAt,
+          scannedBy: admin.id,
+          manualOverride: true,
+        },
+      });
+    }
+
+    await syncRegistrationAttendance(registrationId);
+
     getIO()?.of('/attendance').to(`event:${registration.eventId}`).emit('attendance:marked', {
+      registrationId: registration.id,
       userId: registration.user.id,
       userName: registration.user.name,
+      dayNumber: effectiveDayNumber,
       scannedAt,
+      scannedBy: admin.id,
     });
 
     await auditLog(admin.id, 'ATTENDANCE_MANUAL', 'eventRegistration', registrationId, {
       eventId: registration.eventId,
       userId: registration.user.id,
       userName: registration.user.name,
+      dayNumber: effectiveDayNumber,
     });
 
     return ApiResponse.success(res, {
       registrationId: registration.id,
       userName: registration.user.name,
+      dayNumber: effectiveDayNumber,
       scannedAt,
       manualOverride: true,
     });
@@ -754,7 +1010,7 @@ router.patch('/unmark', authMiddleware, requireRole('CORE_MEMBER'), async (req: 
       return ApiResponse.unauthorized(res);
     }
 
-    const { registrationId } = req.body as { registrationId?: string };
+    const { registrationId, dayNumber } = req.body as { registrationId?: string; dayNumber?: number };
 
     if (!requireUuid(res, registrationId, 'registration ID')) {
       return;
@@ -764,6 +1020,7 @@ router.patch('/unmark', authMiddleware, requireRole('CORE_MEMBER'), async (req: 
       where: { id: registrationId },
       include: {
         user: { select: { id: true, name: true } },
+        event: { select: { eventDays: true } },
       },
     });
 
@@ -771,37 +1028,50 @@ router.patch('/unmark', authMiddleware, requireRole('CORE_MEMBER'), async (req: 
       return ApiResponse.notFound(res, 'Registration not found');
     }
 
-    if (!registration.attended) {
-      return ApiResponse.badRequest(res, `${registration.user.name} is not marked as attended`);
+    const eventDays = normalizeEventDays(registration.event.eventDays);
+    const effectiveDayNumber = resolveEffectiveDayNumber(dayNumber, eventDays, true);
+    if (!effectiveDayNumber || Number.isNaN(effectiveDayNumber)) {
+      return ApiResponse.badRequest(res, `dayNumber must be between 1 and ${eventDays}`);
     }
 
-    const updated = await withRetry(() => prisma.eventRegistration.updateMany({
-      where: { id: registrationId, attended: true },
+    const updated = await withRetry(() => prisma.dayAttendance.updateMany({
+      where: {
+        registrationId,
+        dayNumber: effectiveDayNumber,
+        attended: true,
+      },
       data: {
-        attended: false,
         scannedAt: null,
+        scannedBy: null,
         manualOverride: false,
+        attended: false,
       },
     }));
     if (updated.count === 0) {
-      return ApiResponse.conflict(res, 'Attendance state changed while unmarking. Please retry.');
+      return ApiResponse.badRequest(res, `${registration.user.name} is not marked as attended for day ${effectiveDayNumber}`);
     }
 
+    await syncRegistrationAttendance(registrationId);
+
     getIO()?.of('/attendance').to(`event:${registration.eventId}`).emit('attendance:unmarked', {
+      registrationId,
       userId: registration.user.id,
       userName: registration.user.name,
+      dayNumber: effectiveDayNumber,
     });
 
     await auditLog(admin.id, 'ATTENDANCE_UNMARK', 'eventRegistration', registrationId, {
       eventId: registration.eventId,
       userId: registration.user.id,
       userName: registration.user.name,
+      dayNumber: effectiveDayNumber,
     });
 
     return ApiResponse.success(res, {
       registrationId,
       userName: registration.user.name,
       attended: false,
+      dayNumber: effectiveDayNumber,
     });
   } catch (error) {
     logger.error('Failed to unmark attendance', { error: error instanceof Error ? error.message : String(error) });
@@ -819,7 +1089,7 @@ router.patch('/bulk-update', authMiddleware, requireRole('CORE_MEMBER'), async (
       return ApiResponse.unauthorized(res);
     }
 
-    const { registrationIds, action } = req.body as { registrationIds?: string[]; action?: 'mark' | 'unmark' };
+    const { registrationIds, action, dayNumber } = req.body as { registrationIds?: string[]; action?: 'mark' | 'unmark'; dayNumber?: number };
 
     if (!registrationIds || !Array.isArray(registrationIds) || registrationIds.length === 0) {
       return ApiResponse.badRequest(res, 'registrationIds array is required and must not be empty');
@@ -828,17 +1098,48 @@ router.patch('/bulk-update', authMiddleware, requireRole('CORE_MEMBER'), async (
     if (action !== 'mark' && action !== 'unmark') {
       return ApiResponse.badRequest(res, 'action must be "mark" or "unmark"');
     }
+    const requestedDayNumber = parseRequestedDayNumber(dayNumber);
+    if (Number.isNaN(requestedDayNumber)) {
+      return ApiResponse.badRequest(res, 'dayNumber must be a positive integer');
+    }
+    const defaultDayNumber = requestedDayNumber ?? 1;
+
     const invalidRegistrationId = registrationIds.find((registrationId) => !uuidSchema.safeParse(registrationId).success);
     if (invalidRegistrationId) {
       return ApiResponse.badRequest(res, `Invalid registration ID format: ${invalidRegistrationId}`);
     }
 
-    // Batch read all registrations upfront to avoid N+1
     const registrations = await prisma.eventRegistration.findMany({
       where: { id: { in: registrationIds } },
-      include: { user: { select: { id: true, name: true } } },
+      include: {
+        user: { select: { id: true, name: true } },
+        event: { select: { eventDays: true } },
+        dayAttendances: {
+          where: { dayNumber: defaultDayNumber },
+          select: { dayNumber: true, attended: true },
+        },
+      },
     });
+
     const regMap = new Map(registrations.map((registration) => [registration.id, registration]));
+    const registrationsWithDay = registrationIds
+      .map((registrationId) => regMap.get(registrationId))
+      .filter((registration): registration is (typeof registrations)[number] => !!registration)
+      .map((registration) => {
+        const eventDays = normalizeEventDays(registration.event.eventDays);
+        const effectiveDayNumber = resolveEffectiveDayNumber(defaultDayNumber, eventDays, true);
+        return { registration, effectiveDayNumber };
+      });
+
+    const invalidDayTarget = registrationsWithDay.find((item) => !item.effectiveDayNumber || Number.isNaN(item.effectiveDayNumber));
+    if (invalidDayTarget) {
+      const maxEventDays = normalizeEventDays(invalidDayTarget.registration.event.eventDays);
+      return ApiResponse.badRequest(
+        res,
+        `dayNumber must be between 1 and ${maxEventDays} for ${invalidDayTarget.registration.user.name}`,
+      );
+    }
+
     const registrationsToUpdate = registrationIds
       .map((registrationId) => regMap.get(registrationId))
       .filter((registration): registration is (typeof registrations)[number] => {
@@ -846,36 +1147,85 @@ router.patch('/bulk-update', authMiddleware, requireRole('CORE_MEMBER'), async (
           return false;
         }
 
-        return action === 'mark' ? !registration.attended : registration.attended;
+        const currentDay = registration.dayAttendances[0];
+        return action === 'mark'
+          ? !currentDay?.attended
+          : !!currentDay?.attended;
       });
 
     const skipped = registrationIds.length - registrationsToUpdate.length;
     const markScannedAt = action === 'mark' ? new Date() : null;
+    const applied: Array<{ registration: (typeof registrations)[number]; dayNumber: number }> = [];
 
     try {
       await withRetry(() => prisma.$transaction(async (tx) => {
         for (const registration of registrationsToUpdate) {
-          const result = await tx.eventRegistration.updateMany({
-            where: {
-              id: registration.id,
-              attended: action === 'mark' ? false : true,
-            },
-            data: action === 'mark'
-              ? {
+          const eventDays = normalizeEventDays(registration.event.eventDays);
+          const effectiveDayNumber = resolveEffectiveDayNumber(defaultDayNumber, eventDays, true);
+          if (!effectiveDayNumber || Number.isNaN(effectiveDayNumber)) {
+            throw new AttendanceBulkUpdateConflictError('Invalid day number for one or more selected registrations');
+          }
+
+          if (action === 'mark' && markScannedAt) {
+            const result = await tx.dayAttendance.updateMany({
+              where: {
+                registrationId: registration.id,
+                dayNumber: effectiveDayNumber,
+                attended: false,
+              },
+              data: {
+                attended: true,
+                scannedAt: markScannedAt,
+                scannedBy: admin.id,
+                manualOverride: true,
+              },
+            });
+
+            if (result.count === 0) {
+              const existingDay = await tx.dayAttendance.findUnique({
+                where: {
+                  registrationId_dayNumber: {
+                    registrationId: registration.id,
+                    dayNumber: effectiveDayNumber,
+                  },
+                },
+              });
+
+              if (existingDay?.attended) {
+                throw new AttendanceBulkUpdateConflictError('Attendance state changed during bulk update');
+              }
+
+              await tx.dayAttendance.create({
+                data: {
+                  registrationId: registration.id,
+                  dayNumber: effectiveDayNumber,
                   attended: true,
                   scannedAt: markScannedAt,
+                  scannedBy: admin.id,
                   manualOverride: true,
-                }
-              : {
-                  attended: false,
-                  scannedAt: null,
-                  manualOverride: false,
                 },
-          });
-
-          if (result.count === 0) {
-            throw new AttendanceBulkUpdateConflictError('Attendance state changed during bulk update');
+              });
+            }
+          } else {
+            const result = await tx.dayAttendance.updateMany({
+              where: {
+                registrationId: registration.id,
+                dayNumber: effectiveDayNumber,
+                attended: true,
+              },
+              data: {
+                attended: false,
+                scannedAt: null,
+                scannedBy: null,
+                manualOverride: false,
+              },
+            });
+            if (result.count === 0) {
+              throw new AttendanceBulkUpdateConflictError('Attendance state changed during bulk update');
+            }
           }
+
+          applied.push({ registration, dayNumber: effectiveDayNumber });
         }
       }));
     } catch (error) {
@@ -886,25 +1236,47 @@ router.patch('/bulk-update', authMiddleware, requireRole('CORE_MEMBER'), async (
       throw error;
     }
 
-    for (const registration of registrationsToUpdate) {
+    for (const item of applied) {
+      await syncRegistrationAttendance(item.registration.id);
       if (action === 'mark' && markScannedAt) {
-        getIO()?.of('/attendance').to(`event:${registration.eventId}`).emit('attendance:marked', {
-          userId: registration.user.id,
-          userName: registration.user.name,
+        getIO()?.of('/attendance').to(`event:${item.registration.eventId}`).emit('attendance:marked', {
+          registrationId: item.registration.id,
+          userId: item.registration.user.id,
+          userName: item.registration.user.name,
+          dayNumber: item.dayNumber,
           scannedAt: markScannedAt,
+          scannedBy: admin.id,
         });
       } else {
-        getIO()?.of('/attendance').to(`event:${registration.eventId}`).emit('attendance:unmarked', {
-          userId: registration.user.id,
-          userName: registration.user.name,
+        getIO()?.of('/attendance').to(`event:${item.registration.eventId}`).emit('attendance:unmarked', {
+          registrationId: item.registration.id,
+          userId: item.registration.user.id,
+          userName: item.registration.user.name,
+          dayNumber: item.dayNumber,
         });
       }
     }
 
-    const updated = registrationsToUpdate.length;
+    const updated = applied.length;
+    if (applied.length > 0) {
+      const byEvent = new Map<string, string[]>();
+      for (const item of applied) {
+        const ids = byEvent.get(item.registration.eventId) || [];
+        ids.push(item.registration.id);
+        byEvent.set(item.registration.eventId, ids);
+      }
+      for (const [eventKey, ids] of byEvent.entries()) {
+        getIO()?.of('/attendance').to(`event:${eventKey}`).emit('attendance:bulk', {
+          registrationIds: ids,
+          action,
+          dayNumber: defaultDayNumber,
+        });
+      }
+    }
 
     await auditLog(admin.id, 'ATTENDANCE_BULK_UPDATE', 'eventRegistration', undefined, {
       action,
+      dayNumber: defaultDayNumber,
       total: registrationIds.length,
       updated,
       skipped,
@@ -939,19 +1311,29 @@ router.patch('/edit/:registrationId', authMiddleware, requireRole('CORE_MEMBER')
 
     const registration = await prisma.eventRegistration.findUnique({
       where: { id: registrationId },
+      include: {
+        event: { select: { eventDays: true } },
+      },
     });
 
     if (!registration) {
       return ApiResponse.notFound(res, 'Registration not found');
     }
 
-    const { scannedAt, manualOverride } = req.body as { scannedAt?: string | null; manualOverride?: boolean };
+    const { scannedAt, manualOverride, dayNumber } = req.body as { scannedAt?: string | null; manualOverride?: boolean; dayNumber?: number };
+    const eventDays = normalizeEventDays(registration.event.eventDays);
+    const effectiveDayNumber = resolveEffectiveDayNumber(dayNumber, eventDays, true);
+    if (!effectiveDayNumber || Number.isNaN(effectiveDayNumber)) {
+      return ApiResponse.badRequest(res, `dayNumber must be between 1 and ${eventDays}`);
+    }
 
     const updateData: Record<string, unknown> = {};
+    let shouldMarkAttended: boolean | undefined;
 
     if (scannedAt !== undefined) {
       if (scannedAt === null || scannedAt === '') {
         updateData.scannedAt = null;
+        shouldMarkAttended = false;
       } else if (typeof scannedAt !== 'string') {
         return ApiResponse.badRequest(res, 'scannedAt must be an ISO string, empty string, or null');
       } else {
@@ -970,6 +1352,7 @@ router.patch('/edit/:registrationId', authMiddleware, requireRole('CORE_MEMBER')
         }
 
         updateData.scannedAt = parsed;
+        shouldMarkAttended = true;
       }
     }
 
@@ -981,13 +1364,58 @@ router.patch('/edit/:registrationId', authMiddleware, requireRole('CORE_MEMBER')
       return ApiResponse.badRequest(res, 'At least one field (scannedAt, manualOverride) must be provided');
     }
 
-    const updated = await prisma.eventRegistration.update({
+    const existingDay = await prisma.dayAttendance.findUnique({
+      where: {
+        registrationId_dayNumber: {
+          registrationId,
+          dayNumber: effectiveDayNumber,
+        },
+      },
+    });
+
+    if (!existingDay) {
+      await prisma.dayAttendance.create({
+        data: {
+          registrationId,
+          dayNumber: effectiveDayNumber,
+          attended: shouldMarkAttended ?? false,
+          scannedAt: (updateData.scannedAt as Date | null | undefined) ?? null,
+          scannedBy: shouldMarkAttended ? admin.id : null,
+          manualOverride: typeof updateData.manualOverride === 'boolean' ? updateData.manualOverride : false,
+        },
+      });
+    } else {
+      await prisma.dayAttendance.update({
+        where: {
+          registrationId_dayNumber: {
+            registrationId,
+            dayNumber: effectiveDayNumber,
+          },
+        },
+        data: {
+          ...(updateData.scannedAt !== undefined && { scannedAt: updateData.scannedAt as Date | null }),
+          ...(updateData.manualOverride !== undefined && { manualOverride: updateData.manualOverride as boolean }),
+          ...(shouldMarkAttended !== undefined && { attended: shouldMarkAttended }),
+          ...(shouldMarkAttended === false && { scannedBy: null }),
+          ...(shouldMarkAttended === true && { scannedBy: admin.id }),
+        },
+      });
+    }
+
+    await syncRegistrationAttendance(registrationId);
+
+    const updated = await prisma.eventRegistration.findUnique({
       where: { id: registrationId },
-      data: updateData,
+      include: {
+        dayAttendances: {
+          orderBy: { dayNumber: 'asc' },
+        },
+      },
     });
 
     await auditLog(admin.id, 'ATTENDANCE_EDIT', 'eventRegistration', registrationId, {
       eventId: registration.eventId,
+      dayNumber: effectiveDayNumber,
       changes: updateData,
     });
 
@@ -1121,18 +1549,39 @@ router.get('/live/:eventId', authMiddleware, requireRole('CORE_MEMBER'), async (
       return;
     }
 
-    const [total, attended, recentScans] = await Promise.all([
+    const [event, total, attended, dayStats, recentScans] = await Promise.all([
+      prisma.event.findUnique({
+        where: { id: eventId },
+        select: { eventDays: true, dayLabels: true },
+      }),
       prisma.eventRegistration.count({
         where: { eventId },
       }),
       prisma.eventRegistration.count({
         where: { eventId, attended: true },
       }),
-      prisma.eventRegistration.findMany({
-        where: { eventId, attended: true },
+      prisma.dayAttendance.groupBy({
+        by: ['dayNumber'],
+        where: {
+          attended: true,
+          registration: { eventId },
+        },
+        _count: { id: true },
+        orderBy: { dayNumber: 'asc' },
+      }),
+      prisma.dayAttendance.findMany({
+        where: {
+          registration: { eventId },
+          attended: true,
+        },
         include: {
-          user: {
-            select: { id: true, name: true, avatar: true },
+          registration: {
+            select: {
+              id: true,
+              user: {
+                select: { id: true, name: true, avatar: true },
+              },
+            },
           },
         },
         orderBy: { scannedAt: 'desc' },
@@ -1140,6 +1589,12 @@ router.get('/live/:eventId', authMiddleware, requireRole('CORE_MEMBER'), async (
       }),
     ]);
 
+    if (!event) {
+      return ApiResponse.notFound(res, 'Event not found');
+    }
+
+    const eventDays = normalizeEventDays(event.eventDays);
+    const dayLabels = parseDayLabels(event.dayLabels, eventDays);
     const notAttended = total - attended;
     const attendanceRate = total > 0 ? Math.round((attended / total) * 100 * 100) / 100 : 0;
 
@@ -1147,11 +1602,18 @@ router.get('/live/:eventId', authMiddleware, requireRole('CORE_MEMBER'), async (
       total,
       attended,
       notAttended,
+      eventDays,
+      dayLabels,
+      dayStats: dayStats.map((day) => ({
+        dayNumber: day.dayNumber,
+        count: day._count.id,
+      })),
       recentScans: recentScans.map((r) => ({
-        registrationId: r.id,
-        userId: r.user.id,
-        userName: r.user.name,
-        userAvatar: r.user.avatar,
+        registrationId: r.registration.id,
+        userId: r.registration.user.id,
+        userName: r.registration.user.name,
+        userAvatar: r.registration.user.avatar,
+        dayNumber: r.dayNumber,
         scannedAt: r.scannedAt,
         manualOverride: r.manualOverride,
       })),
@@ -1173,7 +1635,18 @@ router.get('/event/:eventId/full', authMiddleware, requireRole('CORE_MEMBER'), a
       return;
     }
 
-    const totalRegistrations = await prisma.eventRegistration.count({ where: { eventId } });
+    const [event, totalRegistrations] = await Promise.all([
+      prisma.event.findUnique({
+        where: { id: eventId },
+        select: { eventDays: true, dayLabels: true },
+      }),
+      prisma.eventRegistration.count({ where: { eventId } }),
+    ]);
+
+    if (!event) {
+      return ApiResponse.notFound(res, 'Event not found');
+    }
+
     if (totalRegistrations > ATTENDANCE_FULL_LIST_LIMIT) {
       return ApiResponse.badRequest(
         res,
@@ -1194,6 +1667,9 @@ router.get('/event/:eventId/full', authMiddleware, requireRole('CORE_MEMBER'), a
             year: true,
           },
         },
+        dayAttendances: {
+          orderBy: { dayNumber: 'asc' },
+        },
       },
       orderBy: [
         { attended: 'desc' },
@@ -1202,7 +1678,10 @@ router.get('/event/:eventId/full', authMiddleware, requireRole('CORE_MEMBER'), a
       ],
     });
 
-    return ApiResponse.success(res, { registrations });
+    const eventDays = normalizeEventDays(event.eventDays);
+    const dayLabels = parseDayLabels(event.dayLabels, eventDays);
+
+    return ApiResponse.success(res, { registrations, eventDays, dayLabels });
   } catch (error) {
     logger.error('Failed to get full attendance list', { error: error instanceof Error ? error.message : String(error) });
     return ApiResponse.internal(res, 'Failed to get full attendance list');
@@ -1221,11 +1700,18 @@ router.get('/event/:eventId/export', authMiddleware, requireRole('CORE_MEMBER'),
 
     const event = await prisma.event.findUnique({
       where: { id: eventId },
-      select: { title: true },
+      select: { title: true, eventDays: true, dayLabels: true },
     });
 
     if (!event) {
       return ApiResponse.notFound(res, 'Event not found');
+    }
+
+    const eventDays = normalizeEventDays(event.eventDays);
+    const dayLabels = parseDayLabels(event.dayLabels, eventDays);
+    const requestedDayNumber = resolveEffectiveDayNumber(req.query.dayNumber, eventDays, false);
+    if (Number.isNaN(requestedDayNumber)) {
+      return ApiResponse.badRequest(res, `dayNumber must be between 1 and ${eventDays}`);
     }
 
     const totalRegistrations = await prisma.eventRegistration.count({ where: { eventId } });
@@ -1248,6 +1734,9 @@ router.get('/event/:eventId/export', authMiddleware, requireRole('CORE_MEMBER'),
             phone: true,
           },
         },
+        dayAttendances: {
+          orderBy: { dayNumber: 'asc' },
+        },
       },
       orderBy: [
         { attended: 'desc' },
@@ -1259,7 +1748,7 @@ router.get('/event/:eventId/export', authMiddleware, requireRole('CORE_MEMBER'),
     const workbook = new ExcelJS.Workbook();
     const worksheet = workbook.addWorksheet('Attendance');
 
-    worksheet.columns = [
+    const columns: Array<{ header: string; key: string; width: number }> = [
       { header: 'Name', key: 'name', width: 25 },
       { header: 'Email', key: 'email', width: 30 },
       { header: 'Branch', key: 'branch', width: 20 },
@@ -1271,13 +1760,35 @@ router.get('/event/:eventId/export', authMiddleware, requireRole('CORE_MEMBER'),
       { header: 'Registered At', key: 'registeredAt', width: 22 },
     ];
 
+    const includeDayColumns = eventDays > 1 || !!requestedDayNumber;
+    const targetDays = requestedDayNumber
+      ? [requestedDayNumber]
+      : Array.from({ length: eventDays }, (_, index) => index + 1);
+
+    if (includeDayColumns) {
+      for (const dayNumber of targetDays) {
+        const dayKeyPrefix = `day${dayNumber}`;
+        const dayLabel = dayLabels[dayNumber - 1] || `Day ${dayNumber}`;
+        columns.push(
+          { header: `${dayLabel} Present`, key: `${dayKeyPrefix}Attended`, width: 16 },
+          { header: `${dayLabel} Scanned At`, key: `${dayKeyPrefix}ScannedAt`, width: 24 },
+          { header: `${dayLabel} Manual`, key: `${dayKeyPrefix}Manual`, width: 16 },
+        );
+      }
+      if (!requestedDayNumber && eventDays > 1) {
+        columns.push({ header: 'Days Attended', key: 'daysAttended', width: 14 });
+      }
+    }
+
+    worksheet.columns = columns;
+
     // Style header row bold
     const headerRow = worksheet.getRow(1);
     headerRow.font = { bold: true };
     headerRow.commit();
 
     for (const reg of registrations) {
-      worksheet.addRow({
+      const row: Record<string, string> = {
         name: reg.user.name,
         email: reg.user.email,
         branch: reg.user.branch || '',
@@ -1287,13 +1798,35 @@ router.get('/event/:eventId/export', authMiddleware, requireRole('CORE_MEMBER'),
         scannedAt: reg.scannedAt ? reg.scannedAt.toISOString() : '',
         manualOverride: reg.manualOverride ? 'Yes' : 'No',
         registeredAt: reg.timestamp.toISOString(),
-      });
+      };
+
+      if (includeDayColumns) {
+        const dayMap = new Map(reg.dayAttendances.map((dayAttendance) => [dayAttendance.dayNumber, dayAttendance]));
+        let daysAttended = 0;
+        for (const dayNumber of targetDays) {
+          const dayKeyPrefix = `day${dayNumber}`;
+          const dayAttendance = dayMap.get(dayNumber);
+          const isAttended = dayAttendance?.attended === true;
+          if (isAttended) {
+            daysAttended += 1;
+          }
+          row[`${dayKeyPrefix}Attended`] = isAttended ? 'Yes' : 'No';
+          row[`${dayKeyPrefix}ScannedAt`] = dayAttendance?.scannedAt ? dayAttendance.scannedAt.toISOString() : '';
+          row[`${dayKeyPrefix}Manual`] = dayAttendance?.manualOverride ? 'Yes' : 'No';
+        }
+        if (!requestedDayNumber && eventDays > 1) {
+          row.daysAttended = String(daysAttended);
+        }
+      }
+
+      worksheet.addRow(row);
     }
 
     const safeTitle = event.title.replace(/[^a-zA-Z0-9_-]/g, '_').substring(0, 50);
+    const daySuffix = requestedDayNumber ? `_day_${requestedDayNumber}` : '';
 
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-    res.setHeader('Content-Disposition', `attachment; filename="attendance_${safeTitle}.xlsx"`);
+    res.setHeader('Content-Disposition', `attachment; filename="attendance_${safeTitle}${daySuffix}.xlsx"`);
 
     await workbook.xlsx.write(res);
     res.end();
@@ -1316,7 +1849,7 @@ router.post('/email-absentees/:eventId', authMiddleware, requireRole('ADMIN'), a
     }
 
     const { eventId } = req.params;
-    const { subject, body } = req.body as { subject?: string; body?: string };
+    const { subject, body, dayNumber } = req.body as { subject?: string; body?: string; dayNumber?: number };
     if (!requireUuid(res, eventId, 'event ID')) {
       return;
     }
@@ -1327,6 +1860,20 @@ router.post('/email-absentees/:eventId', authMiddleware, requireRole('ADMIN'), a
 
     if (!body || typeof body !== 'string' || body.trim().length === 0) {
       return ApiResponse.badRequest(res, 'body is required');
+    }
+
+    const event = await prisma.event.findUnique({
+      where: { id: eventId },
+      select: { eventDays: true },
+    });
+    if (!event) {
+      return ApiResponse.notFound(res, 'Event not found');
+    }
+
+    const eventDays = normalizeEventDays(event.eventDays);
+    const effectiveDayNumber = resolveEffectiveDayNumber(dayNumber, eventDays, false);
+    if (Number.isNaN(effectiveDayNumber)) {
+      return ApiResponse.badRequest(res, `dayNumber must be between 1 and ${eventDays}`);
     }
 
     const settings = await prisma.settings.findUnique({
@@ -1340,7 +1887,18 @@ router.post('/email-absentees/:eventId', authMiddleware, requireRole('ADMIN'), a
     const absentees = await prisma.eventRegistration.findMany({
       where: {
         eventId,
-        attended: false,
+        ...(effectiveDayNumber
+          ? {
+              dayAttendances: {
+                none: {
+                  dayNumber: effectiveDayNumber,
+                  attended: true,
+                },
+              },
+            }
+          : {
+              attended: false,
+            }),
       },
       include: {
         user: {
@@ -1353,7 +1911,12 @@ router.post('/email-absentees/:eventId', authMiddleware, requireRole('ADMIN'), a
     });
 
     if (absentees.length === 0) {
-      return ApiResponse.success(res, { sent: 0, message: 'No absentees found' });
+      return ApiResponse.success(res, {
+        emailed: 0,
+        sent: 0,
+        message: 'No absentees found',
+        ...(effectiveDayNumber ? { dayNumber: effectiveDayNumber } : {}),
+      });
     }
 
     // Safety cap to prevent accidental mass email
@@ -1409,13 +1972,16 @@ router.post('/email-absentees/:eventId', authMiddleware, requireRole('ADMIN'), a
       sent: sentCount,
       failed: failedCount,
       subject: subject.trim(),
+      ...(effectiveDayNumber ? { dayNumber: effectiveDayNumber } : {}),
     });
 
     return ApiResponse.success(res, {
-      totalAbsentees: absentees.length,
+      emailed: sentCount,
       sent: sentCount,
+      totalAbsentees: absentees.length,
       failed: failedCount,
       failedEmails,
+      ...(effectiveDayNumber ? { dayNumber: effectiveDayNumber } : {}),
     });
   } catch (error) {
     logger.error('Failed to email absentees', { error: error instanceof Error ? error.message : String(error) });
@@ -1433,6 +1999,22 @@ router.get('/event/:eventId/certificate-recipients', authMiddleware, requireRole
       return;
     }
 
+    const event = await prisma.event.findUnique({
+      where: { id: eventId },
+      select: { eventDays: true, dayLabels: true },
+    });
+
+    if (!event) {
+      return ApiResponse.notFound(res, 'Event not found');
+    }
+
+    const eventDays = normalizeEventDays(event.eventDays);
+    const dayLabels = parseDayLabels(event.dayLabels, eventDays);
+    const minDaysValue = resolveEffectiveDayNumber(req.query.minDays, eventDays, false);
+    if (Number.isNaN(minDaysValue)) {
+      return ApiResponse.badRequest(res, `minDays must be between 1 and ${eventDays}`);
+    }
+
     const [registrations, existingCerts] = await Promise.all([
       prisma.eventRegistration.findMany({
         where: { eventId },
@@ -1444,6 +2026,9 @@ router.get('/event/:eventId/certificate-recipients', authMiddleware, requireRole
               email: true,
               avatar: true,
             },
+          },
+          dayAttendances: {
+            orderBy: { dayNumber: 'asc' },
           },
         },
       }),
@@ -1474,8 +2059,9 @@ router.get('/event/:eventId/certificate-recipients', authMiddleware, requireRole
       }
     }
 
-    const recipients = registrations.map((reg) => {
+    const allRecipients = registrations.map((reg) => {
       const existingCert = certsByEmail.get(reg.user.email.toLowerCase()) || null;
+      const daysAttended = reg.dayAttendances.filter((attendanceDay) => attendanceDay.attended).length;
       return {
         registrationId: reg.id,
         userId: reg.user.id,
@@ -1485,6 +2071,8 @@ router.get('/event/:eventId/certificate-recipients', authMiddleware, requireRole
         attended: reg.attended,
         scannedAt: reg.scannedAt,
         manualOverride: reg.manualOverride,
+        dayAttendances: reg.dayAttendances,
+        daysAttended,
         hasCertificate: !!existingCert,
         certificateId: existingCert?.certId || null,
         certificateType: existingCert?.type || null,
@@ -1494,6 +2082,10 @@ router.get('/event/:eventId/certificate-recipients', authMiddleware, requireRole
         emailSentAt: existingCert?.emailSentAt || null,
       };
     });
+
+    const recipients = minDaysValue
+      ? allRecipients.filter((recipient) => recipient.daysAttended >= minDaysValue)
+      : allRecipients;
 
     const totalRegistered = registrations.length;
     const totalAttended = registrations.filter((r) => r.attended).length;
@@ -1505,7 +2097,11 @@ router.get('/event/:eventId/certificate-recipients', authMiddleware, requireRole
         totalRegistered,
         totalAttended,
         alreadyCertified,
+        eligibleRecipients: recipients.length,
       },
+      eventDays,
+      dayLabels,
+      ...(minDaysValue ? { minDays: minDaysValue } : {}),
     });
   } catch (error) {
     logger.error('Failed to get certificate recipients', { error: error instanceof Error ? error.message : String(error) });
@@ -1526,7 +2122,9 @@ router.get('/my-history', authMiddleware, async (req: Request, res: Response) =>
     const registrations = await prisma.eventRegistration.findMany({
       where: {
         userId: user.id,
-        attended: true,
+        dayAttendances: {
+          some: { attended: true },
+        },
       },
       include: {
         event: {
@@ -1536,15 +2134,34 @@ router.get('/my-history', authMiddleware, async (req: Request, res: Response) =>
             slug: true,
             startDate: true,
             imageUrl: true,
+            eventDays: true,
+            dayLabels: true,
           },
+        },
+        dayAttendances: {
+          where: { attended: true },
+          orderBy: { dayNumber: 'asc' },
         },
       },
       orderBy: { scannedAt: 'desc' },
     });
 
     const events = registrations.map((reg) => ({
+      ...(() => {
+        const eventDays = normalizeEventDays(reg.event.eventDays);
+        const dayLabels = parseDayLabels(reg.event.dayLabels, eventDays);
+        const latestScannedAt = reg.dayAttendances
+          .filter((dayAttendance) => dayAttendance.scannedAt)
+          .sort((a, b) => (b.scannedAt?.getTime() || 0) - (a.scannedAt?.getTime() || 0))[0]?.scannedAt;
+        return {
+          eventDays,
+          dayLabels,
+          dayAttendances: reg.dayAttendances,
+          daysAttended: reg.dayAttendances.length,
+          scannedAt: (latestScannedAt ?? reg.scannedAt ?? reg.event.startDate),
+        };
+      })(),
       id: reg.id,
-      scannedAt: reg.scannedAt ?? reg.event.startDate,
       event: {
         id: reg.event.id,
         title: reg.event.title,
@@ -1571,16 +2188,42 @@ router.get('/event/:eventId/summary', async (req: Request, res: Response) => {
       return;
     }
 
-    const [total, attended] = await Promise.all([
+    const event = await prisma.event.findUnique({
+      where: { id: eventId },
+      select: { eventDays: true, dayLabels: true },
+    });
+
+    if (!event) {
+      return ApiResponse.notFound(res, 'Event not found');
+    }
+
+    const eventDays = normalizeEventDays(event.eventDays);
+    const dayLabels = parseDayLabels(event.dayLabels, eventDays);
+
+    const [total, attended, daySummary] = await Promise.all([
       prisma.eventRegistration.count({
         where: { eventId },
       }),
       prisma.eventRegistration.count({
         where: { eventId, attended: true },
       }),
+      Promise.all(
+        Array.from({ length: eventDays }, (_, index) => index + 1).map(async (dayNumber) => ({
+          dayNumber,
+          attended: await prisma.dayAttendance.count({
+            where: {
+              dayNumber,
+              attended: true,
+              registration: {
+                eventId,
+              },
+            },
+          }),
+        })),
+      ),
     ]);
 
-    return ApiResponse.success(res, { total, attended });
+    return ApiResponse.success(res, { total, attended, eventDays, dayLabels, daySummary });
   } catch (error) {
     logger.error('Failed to get attendance summary', { error: error instanceof Error ? error.message : String(error) });
     return ApiResponse.internal(res, 'Failed to get attendance summary');

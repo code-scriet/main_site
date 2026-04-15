@@ -112,6 +112,7 @@ export default function AdminScanner({ eventId, token, onEndSession }: AdminScan
   const [audioEnabled, setAudioEnabled] = useState(true);
   const [bypassWindow, setBypassWindow] = useState(true);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [selectedDay, setSelectedDay] = useState(1);
 
   // ---- Offline scanner hook ----
   const {
@@ -120,7 +121,7 @@ export default function AdminScanner({ eventId, token, onEndSession }: AdminScan
     addScan,
     syncPending,
     syncStatus,
-  } = useOfflineScanner({ eventId, authToken: token, bypassWindow });
+  } = useOfflineScanner({ eventId, authToken: token, dayNumber: selectedDay, bypassWindow });
 
   // ---- Refs ----
   const html5QrRef = useRef<Html5Qrcode | null>(null);
@@ -143,6 +144,12 @@ export default function AdminScanner({ eventId, token, onEndSession }: AdminScan
   // ---- Live data ----
   const [liveData, setLiveData] = useState<AttendanceLiveData | null>(null);
   const [isOnline, setIsOnline] = useState(navigator.onLine);
+  const eventDays = Math.max(1, liveData?.eventDays ?? 1);
+  const dayLabels = liveData?.dayLabels ?? [];
+
+  useEffect(() => {
+    setSelectedDay((prev) => Math.min(Math.max(prev, 1), eventDays));
+  }, [eventDays]);
 
   // ---- Toast overlay ----
   const [toast, setToast] = useState<ScanToast | null>(null);
@@ -216,6 +223,7 @@ export default function AdminScanner({ eventId, token, onEndSession }: AdminScan
     (decodedText: string) => {
       const now = Date.now();
       const recentScans = recentScanMapRef.current;
+      const dedupeKey = `${decodedText}::${selectedDay}`;
 
       for (const [token, timestamp] of recentScans.entries()) {
         if (now - timestamp > DEDUP_MS) {
@@ -224,14 +232,14 @@ export default function AdminScanner({ eventId, token, onEndSession }: AdminScan
       }
 
       // Dedup: skip if same code scanned within DEDUP_MS
-      const lastSeenAt = recentScans.get(decodedText);
+      const lastSeenAt = recentScans.get(dedupeKey);
       if (typeof lastSeenAt === 'number' && now - lastSeenAt < DEDUP_MS) {
         if (audioEnabled) playTone(400, 150);
-        showToast('duplicate', 'Already scanned');
+        showToast('duplicate', `Already scanned for Day ${selectedDay}`);
         return;
       }
 
-      recentScans.set(decodedText, now);
+      recentScans.set(dedupeKey, now);
 
       // addScan returns LocalScanEntry or null for invalid tokens.
       const result = addScan(decodedText);
@@ -245,7 +253,7 @@ export default function AdminScanner({ eventId, token, onEndSession }: AdminScan
 
       if (result?.synced && result.result === 'duplicate') {
         if (audioEnabled) playTone(400, 150);
-        showToast('duplicate', result.errorMessage || result.userName || 'Already scanned');
+        showToast('duplicate', result.errorMessage || result.userName || `Already scanned for Day ${selectedDay}`);
         return;
       }
 
@@ -256,9 +264,9 @@ export default function AdminScanner({ eventId, token, onEndSession }: AdminScan
       }
 
       if (audioEnabled) playTone(800, 150);
-      showToast('success', 'Scan captured, syncing...');
+      showToast('success', `Scan captured for Day ${selectedDay}, syncing...`);
     },
-    [addScan, audioEnabled, showToast],
+    [addScan, audioEnabled, selectedDay, showToast],
   );
 
   // --------------------------------------------------------------------------
@@ -425,10 +433,11 @@ export default function AdminScanner({ eventId, token, onEndSession }: AdminScan
   // only when camera access is initiated by a user gesture.
   useEffect(() => {
     mountedRef.current = true;
+    const recentScanMap = recentScanMapRef.current;
     return () => {
       mountedRef.current = false;
       void stopCamera();
-      recentScanMapRef.current.clear();
+      recentScanMap.clear();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -486,9 +495,9 @@ export default function AdminScanner({ eventId, token, onEndSession }: AdminScan
   const handleManualCheckin = async (registrationId: string) => {
     setCheckinLoading(registrationId);
     try {
-      await api.manualCheckin(registrationId, token);
+      await api.manualCheckin(registrationId, token, selectedDay);
       if (audioEnabled) playTone(800, 150);
-      showToast('success', 'Checked in');
+      showToast('success', `Checked in for Day ${selectedDay}`);
       // Refresh search results to reflect the updated status
       if (searchQuery.trim().length >= 2) {
         const data = await api.searchAttendance(eventId, searchQuery.trim(), token);
@@ -541,6 +550,7 @@ export default function AdminScanner({ eventId, token, onEndSession }: AdminScan
   const totalRegistered = liveData?.total ?? 0;
   const attendedCount = liveData?.attended ?? scans.filter((scan) => scan.synced && scan.result === 'ok').length;
   const attendanceRate = totalRegistered > 0 ? Math.round((attendedCount / totalRegistered) * 100) : 0;
+  const dayStatsMap = new Map((liveData?.dayStats ?? []).map((dayStat) => [dayStat.dayNumber, dayStat.count]));
 
   const toastColors: Record<ToastStatus, string> = {
     success: 'bg-green-500/90',
@@ -598,6 +608,25 @@ export default function AdminScanner({ eventId, token, onEndSession }: AdminScan
                 </Button>
               </div>
             </div>
+            {eventDays > 1 && (
+              <div className="mt-3 flex items-center gap-2">
+                <Label htmlFor="attendance-day-select" className="text-sm whitespace-nowrap">
+                  Taking attendance for:
+                </Label>
+                <select
+                  id="attendance-day-select"
+                  value={selectedDay}
+                  onChange={(e) => setSelectedDay(Number.parseInt(e.target.value, 10) || 1)}
+                  className="h-9 rounded-md border border-input bg-background px-3 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring"
+                >
+                  {Array.from({ length: eventDays }, (_, index) => index + 1).map((day) => (
+                    <option key={day} value={day}>
+                      {dayLabels[day - 1] || `Day ${day}`}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
           </CardHeader>
 
           <CardContent className="relative">
@@ -821,6 +850,29 @@ export default function AdminScanner({ eventId, token, onEndSession }: AdminScan
           </Card>
         </div>
 
+        {eventDays > 1 && (
+          <Card className="p-3">
+            <p className="text-xs text-muted-foreground mb-2">Day-wise attendance</p>
+            <div className="space-y-1.5">
+              {Array.from({ length: eventDays }, (_, index) => index + 1).map((day) => {
+                const count = dayStatsMap.get(day) ?? 0;
+                const label = dayLabels[day - 1] || `Day ${day}`;
+                return (
+                  <p
+                    key={day}
+                    className={cn(
+                      'text-sm',
+                      day === selectedDay ? 'font-semibold text-amber-700 dark:text-amber-300' : 'text-muted-foreground',
+                    )}
+                  >
+                    {label}: {count}/{totalRegistered}
+                  </p>
+                );
+              })}
+            </div>
+          </Card>
+        )}
+
         {/* Sync button (visible when pending) */}
         {scanStats.pending > 0 && isOnline && (
           <Button
@@ -874,6 +926,7 @@ export default function AdminScanner({ eventId, token, onEndSession }: AdminScan
                         </p>
                         <p className="text-xs text-muted-foreground truncate" title={scan.errorMessage || undefined}>
                           {formatTime(scan.scannedAtLocal)}
+                          {scan.dayNumber ? ` · Day ${scan.dayNumber}` : ''}
                           {scan.result === 'error' && scan.errorMessage ? ` · ${scan.errorMessage}` : ''}
                         </p>
                       </div>

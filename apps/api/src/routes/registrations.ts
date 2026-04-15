@@ -173,6 +173,16 @@ registrationsRouter.post('/events/:eventId', authMiddleware, async (req: Request
             },
           });
 
+          const normalizedEventDays = Number.isInteger(event.eventDays) && event.eventDays > 0
+            ? Math.min(event.eventDays, 10)
+            : 1;
+          const dayRows = Array.from({ length: normalizedEventDays }, (_, index) => ({
+            registrationId: createdRegistration.id,
+            dayNumber: index + 1,
+            attended: false,
+          }));
+          await tx.dayAttendance.createMany({ data: dayRows });
+
           return { createdRegistration, eventTitle: event.title, attendanceToken };
         }, {
           isolationLevel: Prisma.TransactionIsolationLevel.Serializable,

@@ -42,6 +42,9 @@ type SortMode = 'name' | 'scanTime' | 'registrationTime';
 
 export default function AttendanceManager({ eventId, token }: AttendanceManagerProps) {
   const [records, setRecords] = useState<AttendanceRecord[]>([]);
+  const [eventDays, setEventDays] = useState(1);
+  const [dayLabels, setDayLabels] = useState<string[]>([]);
+  const [selectedDay, setSelectedDay] = useState(1);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -65,12 +68,16 @@ export default function AttendanceManager({ eventId, token }: AttendanceManagerP
   const [editingRecord, setEditingRecord] = useState<AttendanceRecord | null>(null);
   const [editTimestamp, setEditTimestamp] = useState('');
   const [editSaving, setEditSaving] = useState(false);
+  const selectedDayLabel = dayLabels[selectedDay - 1] || `Day ${selectedDay}`;
 
   const fetchData = useCallback(async () => {
     try {
       setLoadError(null);
       const data = await api.getAttendanceFull(eventId, token);
       setRecords(data.registrations);
+      const normalizedEventDays = Math.min(Math.max(data.eventDays ?? 1, 1), 10);
+      setEventDays(normalizedEventDays);
+      setDayLabels(Array.isArray(data.dayLabels) ? data.dayLabels : []);
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to load attendance data';
       setLoadError(message);
@@ -92,7 +99,28 @@ export default function AttendanceManager({ eventId, token }: AttendanceManagerP
 
   useEffect(() => {
     setSelectedIds(new Set());
-  }, [filterMode, searchQuery, sortMode]);
+  }, [filterMode, searchQuery, sortMode, selectedDay]);
+
+  useEffect(() => {
+    setSelectedDay((prev) => Math.min(Math.max(prev, 1), eventDays));
+  }, [eventDays]);
+
+  const getDayState = useCallback((record: AttendanceRecord) => {
+    if (eventDays <= 1) {
+      return {
+        attended: record.attended,
+        scannedAt: record.scannedAt,
+        manualOverride: record.manualOverride,
+      };
+    }
+
+    const dayAttendance = record.dayAttendances?.find((day) => day.dayNumber === selectedDay);
+    return {
+      attended: dayAttendance?.attended ?? false,
+      scannedAt: dayAttendance?.scannedAt ?? null,
+      manualOverride: dayAttendance?.manualOverride ?? false,
+    };
+  }, [eventDays, selectedDay]);
 
   const handleRefresh = async () => {
     setRefreshing(true);
@@ -109,21 +137,21 @@ export default function AttendanceManager({ eventId, token }: AttendanceManagerP
   // --- Summary stats ---
   const summary = useMemo(() => {
     const total = records.length;
-    const present = records.filter((r) => r.attended).length;
+    const present = records.filter((r) => getDayState(r).attended).length;
     const absent = total - present;
-    const manualOverrides = records.filter((r) => r.manualOverride).length;
+    const manualOverrides = records.filter((r) => getDayState(r).manualOverride).length;
     const percentage = total > 0 ? Math.round((present / total) * 100) : 0;
     return { total, present, absent, manualOverrides, percentage };
-  }, [records]);
+  }, [getDayState, records]);
 
   // --- Filtering, searching, sorting ---
   const filteredRecords = useMemo(() => {
     let result = [...records];
 
     if (filterMode === 'present') {
-      result = result.filter((r) => r.attended);
+      result = result.filter((r) => getDayState(r).attended);
     } else if (filterMode === 'absent') {
-      result = result.filter((r) => !r.attended);
+      result = result.filter((r) => !getDayState(r).attended);
     }
 
     if (searchQuery.trim()) {
@@ -140,8 +168,10 @@ export default function AttendanceManager({ eventId, token }: AttendanceManagerP
         return a.user.name.localeCompare(b.user.name);
       }
       if (sortMode === 'scanTime') {
-        const aTime = a.scannedAt ? new Date(a.scannedAt).getTime() : 0;
-        const bTime = b.scannedAt ? new Date(b.scannedAt).getTime() : 0;
+        const aScan = getDayState(a).scannedAt;
+        const bScan = getDayState(b).scannedAt;
+        const aTime = aScan ? new Date(aScan).getTime() : 0;
+        const bTime = bScan ? new Date(bScan).getTime() : 0;
         return bTime - aTime;
       }
       // registrationTime
@@ -149,7 +179,7 @@ export default function AttendanceManager({ eventId, token }: AttendanceManagerP
     });
 
     return result;
-  }, [records, filterMode, searchQuery, sortMode]);
+  }, [filterMode, getDayState, records, searchQuery, sortMode]);
 
   // --- Selection ---
   const allFilteredSelected =
@@ -180,8 +210,8 @@ export default function AttendanceManager({ eventId, token }: AttendanceManagerP
   const handleManualCheckin = async (registrationId: string) => {
     setActionLoadingId(registrationId);
     try {
-      await api.manualCheckin(registrationId, token);
-      toast.success('Marked as present');
+      await api.manualCheckin(registrationId, token, selectedDay);
+      toast.success(`Marked present for ${selectedDayLabel}`);
       await fetchData();
     } catch {
       toast.error('Failed to mark attendance');
@@ -193,8 +223,8 @@ export default function AttendanceManager({ eventId, token }: AttendanceManagerP
   const handleUnmark = async (registrationId: string) => {
     setActionLoadingId(registrationId);
     try {
-      await api.unmarkAttendance(registrationId, token);
-      toast.success('Attendance unmarked');
+      await api.unmarkAttendance(registrationId, token, selectedDay);
+      toast.success(`Attendance unmarked for ${selectedDayLabel}`);
       await fetchData();
     } catch {
       toast.error('Failed to unmark attendance');
@@ -219,8 +249,9 @@ export default function AttendanceManager({ eventId, token }: AttendanceManagerP
   // --- Edit timestamp ---
   const openEditDialog = (record: AttendanceRecord) => {
     setEditingRecord(record);
-    if (record.scannedAt) {
-      const date = new Date(record.scannedAt);
+    const dayState = getDayState(record);
+    if (dayState.scannedAt) {
+      const date = new Date(dayState.scannedAt);
       const local = new Date(date.getTime() - date.getTimezoneOffset() * 60000)
         .toISOString()
         .slice(0, 16);
@@ -237,10 +268,10 @@ export default function AttendanceManager({ eventId, token }: AttendanceManagerP
     try {
       await api.editAttendance(
         editingRecord.id,
-        { scannedAt: editTimestamp || undefined, manualOverride: true },
+        { scannedAt: editTimestamp || undefined, manualOverride: true, dayNumber: selectedDay },
         token
       );
-      toast.success('Timestamp updated');
+      toast.success(`Timestamp updated for ${selectedDayLabel}`);
       setEditDialogOpen(false);
       setEditingRecord(null);
       await fetchData();
@@ -259,9 +290,10 @@ export default function AttendanceManager({ eventId, token }: AttendanceManagerP
       const result = await api.bulkUpdateAttendance(
         Array.from(selectedIds),
         action,
-        token
+        token,
+        selectedDay,
       );
-      toast.success(`${result.updated} record${result.updated !== 1 ? 's' : ''} updated`);
+      toast.success(`${result.updated} record${result.updated !== 1 ? 's' : ''} updated for ${selectedDayLabel}`);
       setSelectedIds(new Set());
       await fetchData();
     } catch {
@@ -274,11 +306,11 @@ export default function AttendanceManager({ eventId, token }: AttendanceManagerP
   // --- Export ---
   const handleExport = async () => {
     try {
-      const blob = await api.exportAttendanceExcel(eventId, token);
+      const blob = await api.exportAttendanceExcel(eventId, token, eventDays > 1 ? selectedDay : undefined);
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `attendance-${eventId}.xlsx`;
+      a.download = `attendance-${eventId}${eventDays > 1 ? `-day-${selectedDay}` : ''}.xlsx`;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
@@ -302,7 +334,7 @@ export default function AttendanceManager({ eventId, token }: AttendanceManagerP
   const handleSendEmail = async () => {
     setEmailSending(true);
     try {
-      const result = await api.emailAbsentees(eventId, emailSubject, emailBody, token);
+      const result = await api.emailAbsentees(eventId, emailSubject, emailBody, token, eventDays > 1 ? selectedDay : undefined);
       setEmailResult(`Emailed ${result.emailed} absentee${result.emailed !== 1 ? 's' : ''}`);
       toast.success(`Emailed ${result.emailed} absentees`);
     } catch {
@@ -346,6 +378,26 @@ export default function AttendanceManager({ eventId, token }: AttendanceManagerP
             <Button variant="outline" onClick={() => void handleRefresh()}>
               Retry
             </Button>
+          </CardContent>
+        </Card>
+      )}
+
+      {eventDays > 1 && (
+        <Card className="border-amber-200">
+          <CardContent className="flex flex-col gap-2 p-4 sm:flex-row sm:items-center sm:justify-between">
+            <p className="text-sm font-medium text-gray-700">Managing attendance for:</p>
+            <select
+              value={selectedDay}
+              onChange={(e) => setSelectedDay(Math.min(Math.max(parseInt(e.target.value, 10) || 1, 1), eventDays))}
+              className="h-9 rounded-md border border-input bg-background px-3 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring"
+              aria-label="Select attendance day"
+            >
+              {Array.from({ length: eventDays }, (_, index) => index + 1).map((day) => (
+                <option key={day} value={day}>
+                  {dayLabels[day - 1] || `Day ${day}`}
+                </option>
+              ))}
+            </select>
           </CardContent>
         </Card>
       )}
@@ -469,7 +521,7 @@ export default function AttendanceManager({ eventId, token }: AttendanceManagerP
         </Button>
         <Button variant="outline" size="sm" onClick={handleExport}>
           <Download className="mr-2 h-4 w-4" />
-          Export Excel
+          Export {eventDays > 1 ? selectedDayLabel : 'Excel'}
         </Button>
         <Button variant="outline" size="sm" onClick={openEmailDialog}>
           <Mail className="mr-2 h-4 w-4" />
@@ -551,9 +603,9 @@ export default function AttendanceManager({ eventId, token }: AttendanceManagerP
                   <th className="px-4 py-3 text-left font-medium text-muted-foreground">
                     Status
                   </th>
-                  <th className="hidden px-4 py-3 text-left font-medium text-muted-foreground sm:table-cell">
-                    Scanned At
-                  </th>
+                        <th className="hidden px-4 py-3 text-left font-medium text-muted-foreground sm:table-cell">
+                          Scanned At {eventDays > 1 ? `(${selectedDayLabel})` : ''}
+                        </th>
                   <th className="px-4 py-3 text-right font-medium text-muted-foreground">
                     Actions
                   </th>
@@ -571,6 +623,7 @@ export default function AttendanceManager({ eventId, token }: AttendanceManagerP
                 ) : (
                   filteredRecords.map((record) => {
                     const isLoading = actionLoadingId === record.id;
+                    const dayState = getDayState(record);
                     return (
                       <tr
                         key={record.id}
@@ -627,7 +680,7 @@ export default function AttendanceManager({ eventId, token }: AttendanceManagerP
                         {/* Status */}
                         <td className="px-4 py-3">
                           <div className="flex items-center gap-1.5">
-                            {record.attended ? (
+                            {dayState.attended ? (
                               <Badge className="bg-green-100 text-green-700 hover:bg-green-100 dark:bg-green-900/40 dark:text-green-400">
                                 Present
                               </Badge>
@@ -636,7 +689,7 @@ export default function AttendanceManager({ eventId, token }: AttendanceManagerP
                                 Absent
                               </Badge>
                             )}
-                            {record.manualOverride && (
+                            {dayState.manualOverride && (
                               <Badge variant="outline" className="text-xs text-orange-600 border-orange-300 dark:text-orange-400 dark:border-orange-700">
                                 Manual
                               </Badge>
@@ -646,13 +699,13 @@ export default function AttendanceManager({ eventId, token }: AttendanceManagerP
 
                         {/* Scanned At */}
                         <td className="hidden px-4 py-3 text-muted-foreground sm:table-cell">
-                          {record.scannedAt ? formatDateTime(record.scannedAt) : '-'}
+                          {dayState.scannedAt ? formatDateTime(dayState.scannedAt) : '-'}
                         </td>
 
                         {/* Actions */}
                         <td className="px-4 py-3">
                           <div className="flex items-center justify-end gap-1">
-                            {record.attended ? (
+                            {dayState.attended ? (
                               <Button
                                 variant="ghost"
                                 size="sm"
@@ -722,6 +775,7 @@ export default function AttendanceManager({ eventId, token }: AttendanceManagerP
       {/* Showing count */}
       <p className="text-sm text-muted-foreground">
         Showing {filteredRecords.length} of {records.length} registrations
+        {eventDays > 1 ? ` for ${selectedDayLabel}` : ''}
       </p>
 
       {/* Edit Timestamp Dialog */}
@@ -732,12 +786,13 @@ export default function AttendanceManager({ eventId, token }: AttendanceManagerP
           </DialogHeader>
           {editingRecord && (
             <div className="space-y-4">
-              <p className="text-sm text-muted-foreground">
-                Editing timestamp for{' '}
-                <span className="font-medium text-foreground">
-                  {editingRecord.user.name}
-                </span>
-              </p>
+                <p className="text-sm text-muted-foreground">
+                  Editing timestamp for{' '}
+                  <span className="font-medium text-foreground">
+                    {editingRecord.user.name}
+                  </span>
+                  {eventDays > 1 ? ` (${selectedDayLabel})` : ''}
+                </p>
               <div className="space-y-2">
                 <Label htmlFor="edit-timestamp">Scanned At</Label>
                 <Input
@@ -787,6 +842,7 @@ export default function AttendanceManager({ eventId, token }: AttendanceManagerP
                 <p className="text-sm text-muted-foreground">
                   This will send an email to all {summary.absent} absent registrant
                   {summary.absent !== 1 ? 's' : ''}.
+                  {eventDays > 1 ? ` (${selectedDayLabel})` : ''}
                 </p>
                 <div className="space-y-2">
                   <Label htmlFor="email-subject">Subject</Label>

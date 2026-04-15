@@ -168,7 +168,24 @@ export default function AttendanceHistory({ token }: AttendanceHistoryProps) {
                         <span>
                           Scanned at {formatDateTime(record.scannedAt)}
                         </span>
+                        {record.eventDays && record.eventDays > 1 && (
+                          <span>
+                            {record.daysAttended ?? 0}/{record.eventDays} day{record.eventDays === 1 ? '' : 's'} attended
+                          </span>
+                        )}
                       </div>
+
+                      {record.eventDays && record.eventDays > 1 && (record.dayAttendances?.length ?? 0) > 0 && (
+                        <div className="mt-2 flex flex-wrap gap-1.5">
+                          {record.dayAttendances
+                            ?.filter((day) => day.attended)
+                            .map((day) => (
+                              <Badge key={`${record.id}-day-${day.dayNumber}`} variant="outline" className="text-[10px]">
+                                {record.dayLabels?.[day.dayNumber - 1] || `Day ${day.dayNumber}`}
+                              </Badge>
+                            ))}
+                        </div>
+                      )}
                     </div>
                   </div>
                 </motion.li>

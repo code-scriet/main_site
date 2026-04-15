@@ -139,6 +139,7 @@ export default function CreateEvent() {
     eventType: 'Workshop',
     startDate: '',
     endDate: '',
+    eventDays: '1',
     registrationStartDate: '',
     registrationEndDate: '',
     location: '',
@@ -290,6 +291,12 @@ export default function CreateEvent() {
       return;
     }
 
+    const parsedEventDays = Number.parseInt(form.eventDays, 10);
+    if (!Number.isInteger(parsedEventDays) || parsedEventDays < 1 || parsedEventDays > 10) {
+      setError('Attendance days must be between 1 and 10');
+      return;
+    }
+
     // Only validate registration closing before event start if late registration is NOT allowed
     if (!form.allowLateRegistration && regEndDate && regEndDate > startDate) {
       setError('Registration should close before or when the event starts');
@@ -320,6 +327,7 @@ export default function CreateEvent() {
         eventType: form.eventType,
         startDate: startDate.toISOString(),
         endDate: endDate?.toISOString(),
+        eventDays: parsedEventDays,
         registrationStartDate: regStartDate?.toISOString(),
         registrationEndDate: regEndDate?.toISOString(),
         location: form.location.trim() || undefined,
@@ -506,6 +514,21 @@ export default function CreateEvent() {
                   onChange={handleChange}
                 />
                 <p className="text-xs text-gray-500">Leave empty for single-day events</p>
+              </div>
+              <div className="space-y-2">
+                <label htmlFor="create-event-days" className="text-sm font-medium text-gray-700">
+                  Attendance Days
+                </label>
+                <Input
+                  id="create-event-days"
+                  name="eventDays"
+                  type="number"
+                  min="1"
+                  max="10"
+                  value={form.eventDays}
+                  onChange={handleChange}
+                />
+                <p className="text-xs text-gray-500">Use more than 1 for multi-day attendance tracking.</p>
               </div>
             </div>
           </CardContent>

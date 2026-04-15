@@ -471,6 +471,8 @@ export interface Event {
   tags?: string[];
   featured?: boolean;
   allowLateRegistration?: boolean;
+  eventDays?: number;
+  dayLabels?: string[];
   registrationFields?: EventRegistrationField[];
   // Team registration fields
   teamRegistration?: boolean;
@@ -880,11 +882,22 @@ export interface CertificateBulkGenerateResponse {
 }
 
 // Attendance types
+export interface DayAttendance {
+  dayNumber: number;
+  attended: boolean;
+  scannedAt: string | null;
+  scannedBy?: string | null;
+  manualOverride?: boolean;
+}
+
 export interface AttendanceQR {
   attendanceToken: string;
   attended: boolean;
   scannedAt: string | null;
   event: { title: string; startDate: string; endDate: string | null };
+  eventDays?: number;
+  dayLabels?: string[];
+  dayAttendances?: DayAttendance[];
 }
 
 export interface AttendanceLiveData {
@@ -892,10 +905,17 @@ export interface AttendanceLiveData {
   attended: number;
   notAttended: number;
   attendanceRate: number;
+  eventDays?: number;
+  dayLabels?: string[];
+  dayStats?: Array<{ dayNumber: number; count: number }>;
   recentScans: Array<{
-    id: string;
-    scannedAt: string;
-    user: { name: string; email: string };
+    registrationId: string;
+    userId: string;
+    userName: string;
+    userAvatar?: string | null;
+    dayNumber?: number;
+    scannedAt: string | null;
+    manualOverride?: boolean;
   }>;
 }
 
@@ -908,6 +928,7 @@ export interface AttendanceRecord {
   scannedAt: string | null;
   manualOverride: boolean;
   attendanceToken: string | null;
+  dayAttendances?: DayAttendance[];
   user: { id: string; name: string; email: string; avatar: string | null; branch: string | null; year: string | null };
 }
 
@@ -920,6 +941,8 @@ export interface CertificateRecipient {
   attended: boolean;
   scannedAt: string | null;
   manualOverride: boolean;
+  dayAttendances?: DayAttendance[];
+  daysAttended?: number;
   hasCertificate: boolean;
   certificateDbId: string | null;
   certificateId: string | null;
@@ -942,6 +965,10 @@ export interface AttendanceSearchResult {
 export interface AttendanceHistoryEvent {
   id: string;
   scannedAt: string;
+  eventDays?: number;
+  dayLabels?: string[];
+  dayAttendances?: DayAttendance[];
+  daysAttended?: number;
   event: { id: string; title: string; slug: string; startDate: string; imageUrl: string | null };
 }
 
@@ -1773,17 +1800,17 @@ export const api = {
   // === Attendance ===
   getMyQR: (eventId: string, token: string) =>
     request<AttendanceQR>(`/attendance/my-qr/${eventId}`, { token }),
-  scanAttendance: (qrToken: string, token: string, bypassWindow?: boolean) =>
-    request<{ userId: string; userName: string; scannedAt: string }>('/attendance/scan', { method: 'POST', body: JSON.stringify({ token: qrToken, bypassWindow }), token }),
-  scanAttendanceBatch: (scans: Array<{ token: string; scannedAtLocal: string; localId: string }>, eventId: string, token: string, bypassWindow?: boolean) =>
+  scanAttendance: (qrToken: string, token: string, dayNumber: number, bypassWindow?: boolean) =>
+    request<{ userId: string; userName: string; scannedAt: string; dayNumber: number }>('/attendance/scan', { method: 'POST', body: JSON.stringify({ token: qrToken, dayNumber, bypassWindow }), token }),
+  scanAttendanceBatch: (scans: Array<{ token: string; scannedAtLocal: string; localId: string; dayNumber?: number }>, eventId: string, token: string, bypassWindow?: boolean) =>
     request<{ results: Array<{ localId: string; status: 'ok' | 'duplicate' | 'error'; name?: string; message?: string }> }>('/attendance/scan-batch', { method: 'POST', body: JSON.stringify({ scans, eventId, bypassWindow }), token }),
-  manualCheckin: (registrationId: string, token: string) =>
-    request<{ registrationId: string }>('/attendance/manual-checkin', { method: 'POST', body: JSON.stringify({ registrationId }), token }),
-  unmarkAttendance: (registrationId: string, token: string) =>
-    request<{ registrationId: string }>('/attendance/unmark', { method: 'PATCH', body: JSON.stringify({ registrationId }), token }),
-  bulkUpdateAttendance: (registrationIds: string[], action: 'mark' | 'unmark', token: string) =>
-    request<{ updated: number }>('/attendance/bulk-update', { method: 'PATCH', body: JSON.stringify({ registrationIds, action }), token }),
-  editAttendance: (registrationId: string, data: { scannedAt?: string; manualOverride?: boolean }, token: string) =>
+  manualCheckin: (registrationId: string, token: string, dayNumber = 1) =>
+    request<{ registrationId: string; dayNumber: number }>('/attendance/manual-checkin', { method: 'POST', body: JSON.stringify({ registrationId, dayNumber }), token }),
+  unmarkAttendance: (registrationId: string, token: string, dayNumber = 1) =>
+    request<{ registrationId: string; dayNumber: number }>('/attendance/unmark', { method: 'PATCH', body: JSON.stringify({ registrationId, dayNumber }), token }),
+  bulkUpdateAttendance: (registrationIds: string[], action: 'mark' | 'unmark', token: string, dayNumber = 1) =>
+    request<{ updated: number }>('/attendance/bulk-update', { method: 'PATCH', body: JSON.stringify({ registrationIds, action, dayNumber }), token }),
+  editAttendance: (registrationId: string, data: { scannedAt?: string; manualOverride?: boolean; dayNumber?: number }, token: string) =>
     request<{ registrationId: string }>(`/attendance/edit/${registrationId}`, { method: 'PATCH', body: JSON.stringify(data), token }),
   regenerateAttendanceToken: (registrationId: string, token: string) =>
     request<{ attendanceToken: string }>(`/attendance/regenerate-token/${registrationId}`, { method: 'POST', token }),
@@ -1792,9 +1819,10 @@ export const api = {
   getAttendanceLive: (eventId: string, token: string) =>
     request<AttendanceLiveData>(`/attendance/live/${eventId}`, { token }),
   getAttendanceFull: (eventId: string, token: string) =>
-    request<{ registrations: AttendanceRecord[] }>(`/attendance/event/${eventId}/full`, { token }),
-  exportAttendanceExcel: async (eventId: string, token: string) => {
-    const res = await fetch(`${API_URL}/attendance/event/${eventId}/export`, {
+    request<{ registrations: AttendanceRecord[]; eventDays?: number; dayLabels?: string[] }>(`/attendance/event/${eventId}/full`, { token }),
+  exportAttendanceExcel: async (eventId: string, token: string, dayNumber?: number) => {
+    const dayQuery = typeof dayNumber === 'number' ? `?dayNumber=${dayNumber}` : '';
+    const res = await fetch(`${API_URL}/attendance/event/${eventId}/export${dayQuery}`, {
       headers: { Authorization: `Bearer ${token}` },
       credentials: 'include',
     });
@@ -1806,14 +1834,14 @@ export const api = {
       throw new Error('Failed to parse export file');
     }
   },
-  emailAbsentees: (eventId: string, subject: string, body: string, token: string) =>
-    request<{ emailed: number }>(`/attendance/email-absentees/${eventId}`, { method: 'POST', body: JSON.stringify({ subject, body }), token }),
-  getAttendanceCertRecipients: (eventId: string, token: string) =>
-    request<{ recipients: CertificateRecipient[]; stats: { totalRegistered: number; totalAttended: number; alreadyCertified: number } }>(`/attendance/event/${eventId}/certificate-recipients`, { token }),
+  emailAbsentees: (eventId: string, subject: string, body: string, token: string, dayNumber?: number) =>
+    request<{ emailed: number; sent?: number; dayNumber?: number }>(`/attendance/email-absentees/${eventId}`, { method: 'POST', body: JSON.stringify({ subject, body, dayNumber }), token }),
+  getAttendanceCertRecipients: (eventId: string, token: string, minDays?: number) =>
+    request<{ recipients: CertificateRecipient[]; stats: { totalRegistered: number; totalAttended: number; alreadyCertified: number; eligibleRecipients?: number }; eventDays?: number; dayLabels?: string[] }>(`/attendance/event/${eventId}/certificate-recipients${typeof minDays === 'number' ? `?minDays=${minDays}` : ''}`, { token }),
   getMyAttendanceHistory: (token: string) =>
     request<{ events: AttendanceHistoryEvent[] }>('/attendance/my-history', { token }),
   getAttendanceSummary: (eventId: string) =>
-    request<{ total: number; attended: number }>(`/attendance/event/${eventId}/summary`),
+    request<{ total: number; attended: number; eventDays?: number; dayLabels?: string[]; daySummary?: Array<{ dayNumber: number; attended: number }> }>(`/attendance/event/${eventId}/summary`),
   backfillAttendanceTokens: (token: string) =>
     request<{ backfilled: number }>('/attendance/backfill-tokens', { method: 'POST', token }),
 

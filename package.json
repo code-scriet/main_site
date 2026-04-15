@@ -23,6 +23,7 @@
     "build:all": "npm run build --workspace=apps/web && npm run build --workspace=apps/api && npm run build --workspace=apps/playground",
     "db:migrate": "prisma migrate dev",
     "db:migrate:deploy": "prisma migrate deploy",
+    "db:migrate:day-attendance": "npx tsx scripts/migrate-day-attendance.ts",
     "db:audit:competition-autosaves": "tsx scripts/audit-competition-autosaves.ts",
     "db:seed": "prisma db seed",
     "db:studio": "prisma studio",

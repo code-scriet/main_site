@@ -96,6 +96,8 @@ const eventSchemaBase = z.object({
   tags: z.array(z.string().trim().min(1).max(40)).max(40).optional(),
   featured: z.boolean().optional(),
   allowLateRegistration: z.boolean().optional(),
+  eventDays: z.coerce.number().int().min(1).max(10).optional(),
+  dayLabels: z.array(z.string().trim().min(1).max(100)).max(10).optional().nullable(),
   registrationFields: z.unknown().optional(),
   // Team registration fields
   teamRegistration: z.boolean().optional(),
@@ -109,6 +111,14 @@ const createEventSchema = eventSchemaBase.superRefine((value, ctx) => {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
       message: timelineError,
+    });
+  }
+
+  if (value.dayLabels && value.dayLabels.length !== (value.eventDays ?? 1)) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: 'dayLabels length must match eventDays',
+      path: ['dayLabels'],
     });
   }
 });
@@ -197,6 +207,8 @@ eventsRouter.get('/', optionalAuthMiddleware, async (req: Request, res: Response
       shortDescription: true,
       featured: true,
       allowLateRegistration: true,
+      eventDays: true,
+      dayLabels: true,
       registrationFields: true,
       teamRegistration: true,
       teamMinSize: true,
@@ -335,6 +347,13 @@ eventsRouter.post('/', authMiddleware, requireRole('CORE_MEMBER'), async (req: R
     const teamRegistrationEnabled = data.teamRegistration ?? false;
     const teamMinSize = data.teamMinSize ?? 1;
     const teamMaxSize = data.teamMaxSize ?? 4;
+    const eventDays = data.eventDays ?? 1;
+    if (data.dayLabels && data.dayLabels.length !== eventDays) {
+      return res.status(400).json({
+        success: false,
+        error: { message: 'dayLabels length must match eventDays' },
+      });
+    }
     if (teamRegistrationEnabled && teamMinSize > teamMaxSize) {
       return res.status(400).json({
         success: false,
@@ -383,6 +402,12 @@ eventsRouter.post('/', authMiddleware, requireRole('CORE_MEMBER'), async (req: R
         tags: data.tags || [],
         featured: data.featured || false,
         allowLateRegistration: data.allowLateRegistration || false,
+        eventDays,
+        ...(data.dayLabels !== undefined && {
+          dayLabels: data.dayLabels === null
+            ? Prisma.DbNull
+            : (data.dayLabels as unknown as Prisma.InputJsonValue),
+        }),
         // Team registration fields
         teamRegistration: teamRegistrationEnabled,
         teamMinSize,
@@ -441,6 +466,7 @@ eventsRouter.put('/:id', authMiddleware, requireRole('CORE_MEMBER'), async (req:
         registrationStartDate: true,
         registrationEndDate: true,
         allowLateRegistration: true,
+        eventDays: true,
         teamRegistration: true,
         teamMinSize: true,
         teamMaxSize: true,
@@ -494,6 +520,14 @@ eventsRouter.put('/:id', authMiddleware, requireRole('CORE_MEMBER'), async (req:
     const nextTeamRegistration = data.teamRegistration ?? existingEvent.teamRegistration;
     const nextTeamMinSize = data.teamMinSize ?? existingEvent.teamMinSize;
     const nextTeamMaxSize = data.teamMaxSize ?? existingEvent.teamMaxSize;
+    const nextEventDays = data.eventDays ?? existingEvent.eventDays;
+
+    if (data.dayLabels && data.dayLabels.length !== nextEventDays) {
+      return res.status(400).json({
+        success: false,
+        error: { message: 'dayLabels length must match eventDays' },
+      });
+    }
 
     // Validate team size constraints whenever team registration is enabled in resulting state
     if (nextTeamRegistration) {
@@ -576,43 +610,112 @@ eventsRouter.put('/:id', authMiddleware, requireRole('CORE_MEMBER'), async (req:
       }
     }
 
-    const event = await prisma.event.update({
-      where: { id: req.params.id },
-      data: {
-        ...(data.title && { title: data.title }),
-        ...slugUpdate,
-        ...(data.description !== undefined && { description: sanitizeHtml(data.description) }),
-        ...(data.startDate !== undefined && { startDate: data.startDate }),
-        ...(data.endDate !== undefined && { endDate: data.endDate || null }),
-        ...(data.registrationStartDate !== undefined && { registrationStartDate: data.registrationStartDate || null }),
-        ...(data.registrationEndDate !== undefined && { registrationEndDate: data.registrationEndDate || null }),
-        ...(data.location !== undefined && { location: normalizeOptionalText(data.location) }),
-        ...(data.venue !== undefined && { venue: normalizeOptionalText(data.venue) }),
-        ...(data.eventType !== undefined && { eventType: normalizeOptionalText(data.eventType) }),
-        ...(data.prerequisites !== undefined && { prerequisites: normalizeOptionalText(sanitizeHtml(data.prerequisites)) }),
-        ...(data.capacity !== undefined && { capacity: data.capacity || null }),
-        ...(data.imageUrl !== undefined && { imageUrl: normalizeOptionalText(data.imageUrl) }),
-        ...(data.status && { status: data.status }),
-        // Extended event fields
-        ...(data.shortDescription !== undefined && { shortDescription: normalizeOptionalText(data.shortDescription) }),
-        ...(data.agenda !== undefined && { agenda: normalizeOptionalText(sanitizeHtml(data.agenda)) }),
-        ...(data.highlights !== undefined && { highlights: normalizeOptionalText(sanitizeHtml(data.highlights)) }),
-        ...(data.learningOutcomes !== undefined && { learningOutcomes: normalizeOptionalText(sanitizeHtml(data.learningOutcomes)) }),
-        ...(data.targetAudience !== undefined && { targetAudience: normalizeOptionalText(sanitizeHtml(data.targetAudience)) }),
-        ...(data.speakers !== undefined && { speakers: toNullableJsonValue(data.speakers) }),
-        ...(data.resources !== undefined && { resources: toNullableJsonValue(data.resources) }),
-        ...(data.faqs !== undefined && { faqs: toNullableJsonValue(data.faqs) }),
-        ...(data.imageGallery !== undefined && { imageGallery: toNullableJsonValue(data.imageGallery) }),
-        ...(data.videoUrl !== undefined && { videoUrl: normalizeOptionalText(data.videoUrl) }),
-        ...(data.tags !== undefined && { tags: data.tags }),
-        ...(data.featured !== undefined && { featured: data.featured }),
-        ...(data.allowLateRegistration !== undefined && { allowLateRegistration: data.allowLateRegistration }),
-        // Team registration fields
-        ...(data.teamRegistration !== undefined && { teamRegistration: data.teamRegistration }),
-        ...(data.teamMinSize !== undefined && { teamMinSize: data.teamMinSize }),
-        ...(data.teamMaxSize !== undefined && { teamMaxSize: data.teamMaxSize }),
-        ...registrationFieldsUpdate,
-      },
+    const event = await prisma.$transaction(async (tx) => {
+      if (data.eventDays !== undefined && data.eventDays !== existingEvent.eventDays) {
+        const registrationCount = await tx.eventRegistration.count({
+          where: { eventId: req.params.id },
+        });
+
+        if (registrationCount > 0 && data.eventDays > existingEvent.eventDays) {
+          const registrations = await tx.eventRegistration.findMany({
+            where: { eventId: req.params.id },
+            select: {
+              id: true,
+              dayAttendances: {
+                select: { dayNumber: true },
+              },
+            },
+          });
+
+          const rowsToCreate: Array<{ registrationId: string; dayNumber: number; attended: boolean }> = [];
+          for (const registration of registrations) {
+            const existingDays = new Set(registration.dayAttendances.map((day) => day.dayNumber));
+            for (let dayNumber = 1; dayNumber <= data.eventDays; dayNumber += 1) {
+              if (!existingDays.has(dayNumber)) {
+                rowsToCreate.push({
+                  registrationId: registration.id,
+                  dayNumber,
+                  attended: false,
+                });
+              }
+            }
+          }
+
+          const BATCH_SIZE = 500;
+          for (let index = 0; index < rowsToCreate.length; index += BATCH_SIZE) {
+            await tx.dayAttendance.createMany({
+              data: rowsToCreate.slice(index, index + BATCH_SIZE),
+              skipDuplicates: true,
+            });
+          }
+        }
+
+        if (registrationCount > 0 && data.eventDays < existingEvent.eventDays) {
+          const attendedHigherDays = await tx.dayAttendance.count({
+            where: {
+              registration: { eventId: req.params.id },
+              dayNumber: { gt: data.eventDays },
+              attended: true,
+            },
+          });
+
+          if (attendedHigherDays > 0) {
+            throw new Error('Cannot reduce days — attendance already recorded for removed days');
+          }
+
+          await tx.dayAttendance.deleteMany({
+            where: {
+              registration: { eventId: req.params.id },
+              dayNumber: { gt: data.eventDays },
+            },
+          });
+        }
+      }
+
+      return tx.event.update({
+        where: { id: req.params.id },
+        data: {
+          ...(data.title && { title: data.title }),
+          ...slugUpdate,
+          ...(data.description !== undefined && { description: sanitizeHtml(data.description) }),
+          ...(data.startDate !== undefined && { startDate: data.startDate }),
+          ...(data.endDate !== undefined && { endDate: data.endDate || null }),
+          ...(data.registrationStartDate !== undefined && { registrationStartDate: data.registrationStartDate || null }),
+          ...(data.registrationEndDate !== undefined && { registrationEndDate: data.registrationEndDate || null }),
+          ...(data.location !== undefined && { location: normalizeOptionalText(data.location) }),
+          ...(data.venue !== undefined && { venue: normalizeOptionalText(data.venue) }),
+          ...(data.eventType !== undefined && { eventType: normalizeOptionalText(data.eventType) }),
+          ...(data.prerequisites !== undefined && { prerequisites: normalizeOptionalText(sanitizeHtml(data.prerequisites)) }),
+          ...(data.capacity !== undefined && { capacity: data.capacity || null }),
+          ...(data.imageUrl !== undefined && { imageUrl: normalizeOptionalText(data.imageUrl) }),
+          ...(data.status && { status: data.status }),
+          // Extended event fields
+          ...(data.shortDescription !== undefined && { shortDescription: normalizeOptionalText(data.shortDescription) }),
+          ...(data.agenda !== undefined && { agenda: normalizeOptionalText(sanitizeHtml(data.agenda)) }),
+          ...(data.highlights !== undefined && { highlights: normalizeOptionalText(sanitizeHtml(data.highlights)) }),
+          ...(data.learningOutcomes !== undefined && { learningOutcomes: normalizeOptionalText(sanitizeHtml(data.learningOutcomes)) }),
+          ...(data.targetAudience !== undefined && { targetAudience: normalizeOptionalText(sanitizeHtml(data.targetAudience)) }),
+          ...(data.speakers !== undefined && { speakers: toNullableJsonValue(data.speakers) }),
+          ...(data.resources !== undefined && { resources: toNullableJsonValue(data.resources) }),
+          ...(data.faqs !== undefined && { faqs: toNullableJsonValue(data.faqs) }),
+          ...(data.imageGallery !== undefined && { imageGallery: toNullableJsonValue(data.imageGallery) }),
+          ...(data.videoUrl !== undefined && { videoUrl: normalizeOptionalText(data.videoUrl) }),
+          ...(data.tags !== undefined && { tags: data.tags }),
+          ...(data.featured !== undefined && { featured: data.featured }),
+          ...(data.allowLateRegistration !== undefined && { allowLateRegistration: data.allowLateRegistration }),
+          ...(data.eventDays !== undefined && { eventDays: data.eventDays }),
+          ...(data.dayLabels !== undefined && {
+            dayLabels: data.dayLabels === null
+              ? Prisma.DbNull
+              : (data.dayLabels as unknown as Prisma.InputJsonValue),
+          }),
+          // Team registration fields
+          ...(data.teamRegistration !== undefined && { teamRegistration: data.teamRegistration }),
+          ...(data.teamMinSize !== undefined && { teamMinSize: data.teamMinSize }),
+          ...(data.teamMaxSize !== undefined && { teamMaxSize: data.teamMaxSize }),
+          ...registrationFieldsUpdate,
+        },
+      });
     });
 
     await auditLog(authUser.id, 'UPDATE', 'event', event.id);
@@ -622,6 +725,9 @@ eventsRouter.put('/:id', authMiddleware, requireRole('CORE_MEMBER'), async (req:
 
     res.json({ success: true, data: event, message: 'Event updated successfully' });
   } catch (error) {
+    if (error instanceof Error && error.message === 'Cannot reduce days — attendance already recorded for removed days') {
+      return res.status(400).json({ success: false, error: { message: error.message } });
+    }
     logger.error('Failed to update event', { error: error instanceof Error ? error.message : error, eventId: req.params.id });
     res.status(500).json({ success: false, error: { message: 'Failed to update event' } });
   }

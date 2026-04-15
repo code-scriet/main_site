@@ -130,6 +130,7 @@ export default function EditEvent() {
     eventType: 'Workshop',
     startDate: '',
     endDate: '',
+    eventDays: '1',
     registrationStartDate: '',
     registrationEndDate: '',
     location: '',
@@ -182,6 +183,7 @@ export default function EditEvent() {
         eventType: event.eventType || 'Workshop',
         startDate: formatDateTimeLocal(event.startDate),
         endDate: formatDateTimeLocal(event.endDate),
+        eventDays: (event.eventDays ?? 1).toString(),
         registrationStartDate: formatDateTimeLocal(event.registrationStartDate),
         registrationEndDate: formatDateTimeLocal(event.registrationEndDate),
         location: event.location || '',
@@ -345,6 +347,12 @@ export default function EditEvent() {
       return;
     }
 
+    const parsedEventDays = Number.parseInt(form.eventDays, 10);
+    if (!Number.isInteger(parsedEventDays) || parsedEventDays < 1 || parsedEventDays > 10) {
+      setError('Attendance days must be between 1 and 10');
+      return;
+    }
+
     // Only validate registration closing before event start if late registration is NOT allowed
     if (!form.allowLateRegistration && regEndDate && regEndDate > startDate) {
       setError('Registration should close before or when the event starts');
@@ -375,6 +383,7 @@ export default function EditEvent() {
         eventType: form.eventType,
         startDate: startDate.toISOString(),
         endDate: endDate?.toISOString(),
+        eventDays: parsedEventDays,
         registrationStartDate: regStartDate?.toISOString(),
         registrationEndDate: regEndDate?.toISOString(),
         location: form.location.trim() || undefined,
@@ -591,6 +600,24 @@ export default function EditEvent() {
                   value={form.endDate}
                   onChange={handleChange}
                 />
+              </div>
+              <div className="space-y-2">
+                <label htmlFor="edit-event-days" className="text-sm font-medium text-gray-700">
+                  Attendance Days
+                </label>
+                <Input
+                  id="edit-event-days"
+                  name="eventDays"
+                  type="number"
+                  min="1"
+                  max="10"
+                  value={form.eventDays}
+                  onChange={handleChange}
+                />
+                <p className="text-xs text-gray-500">
+                  Set how many attendance days this event should track.
+                  {hasRegistrations ? ' Reducing days may be blocked if attendance exists on removed days.' : ''}
+                </p>
               </div>
             </div>
           </CardContent>

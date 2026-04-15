@@ -163,6 +163,8 @@ model Event {
   videoUrl              String?     @map("video_url")
   slug                  String      @unique @default("")
   allowLateRegistration Boolean     @default(false) @map("allow_late_registration")
+  eventDays             Int         @default(1) @map("event_days")
+  dayLabels             Json?       @map("day_labels")
 
   // Team registration fields
   teamRegistration Boolean @default(false) @map("team_registration")
@@ -198,6 +200,7 @@ model EventRegistration {
   event      Event            @relation(fields: [eventId], references: [id], onDelete: Cascade)
   user       User             @relation(fields: [userId], references: [id], onDelete: Cascade)
   teamMember EventTeamMember?
+  dayAttendances DayAttendance[]
 
   @@unique([userId, eventId])
   @@index([eventId])
@@ -207,6 +210,22 @@ model EventRegistration {
   @@index([timestamp])
   @@index([reminderSentAt])
   @@map("event_registrations")
+}
+
+model DayAttendance {
+  id             String            @id @default(uuid())
+  registrationId String            @map("registration_id")
+  registration   EventRegistration @relation(fields: [registrationId], references: [id], onDelete: Cascade)
+  dayNumber      Int               @map("day_number")
+  attended       Boolean           @default(false)
+  scannedAt      DateTime?         @map("scanned_at")
+  scannedBy      String?           @map("scanned_by")
+  manualOverride Boolean           @default(false) @map("manual_override")
+  createdAt      DateTime          @default(now()) @map("created_at")
+
+  @@unique([registrationId, dayNumber])
+  @@index([registrationId])
+  @@map("day_attendances")
 }
 
 // Team Registration Models

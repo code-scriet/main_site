@@ -221,7 +221,13 @@ export default function EventDetailPage() {
   const [registrationFieldErrors, setRegistrationFieldErrors] = useState<Record<string, string>>({});
   const [registrationFormError, setRegistrationFormError] = useState<string | null>(null);
   const [autoRegisterTriggered, setAutoRegisterTriggered] = useState(false);
-  const [attendanceSummary, setAttendanceSummary] = useState<{ total: number; attended: number } | null>(null);
+  const [attendanceSummary, setAttendanceSummary] = useState<{
+    total: number;
+    attended: number;
+    eventDays?: number;
+    dayLabels?: string[];
+    daySummary?: Array<{ dayNumber: number; attended: number }>;
+  } | null>(null);
   const [showQrTicketCta, setShowQrTicketCta] = useState(false);
 
   // Team registration state
@@ -572,6 +578,15 @@ export default function EventDetailPage() {
   const regStatus = getRegistrationStatus(event);
   const statusInfo = statusConfig[event.status];
   const coverImage = event.imageUrl ? processImageUrl(event.imageUrl, 'event-cover') : null;
+  const showAttendanceSummary = event.status === 'PAST' && !!attendanceSummary && attendanceSummary.attended > 0;
+  const attendanceDayBreakdown = showAttendanceSummary
+    && (attendanceSummary.eventDays ?? 1) > 1
+    && (attendanceSummary.daySummary?.length ?? 0) > 0
+    ? attendanceSummary.daySummary
+      ?.filter((summary) => summary.attended > 0)
+      .map((summary) => `${attendanceSummary.dayLabels?.[summary.dayNumber - 1] || `Day ${summary.dayNumber}`}: ${summary.attended}`)
+      .join(' • ')
+    : null;
 
   return (
     <Layout>
@@ -985,10 +1000,15 @@ export default function EventDetailPage() {
                       ))}
                     </div>
                   )}
-                  {event.status === 'PAST' && attendanceSummary && attendanceSummary.attended > 0 && (
+                  {showAttendanceSummary && (
                     <p className="text-sm text-center text-gray-500 mt-2">
                       <Users className="inline h-4 w-4 mr-1" />
                       {attendanceSummary.attended} {attendanceSummary.attended === 1 ? 'person' : 'people'} attended
+                    </p>
+                  )}
+                  {attendanceDayBreakdown && (
+                    <p className="text-xs text-center text-gray-400 mt-1">
+                      {attendanceDayBreakdown}
                     </p>
                   )}
                 </CardContent>
@@ -1404,10 +1424,15 @@ export default function EventDetailPage() {
                         ))}
                       </div>
                     )}
-                    {event.status === 'PAST' && attendanceSummary && attendanceSummary.attended > 0 && (
+                    {showAttendanceSummary && (
                       <p className="text-sm text-center text-gray-500 mt-2">
                         <Users className="inline h-4 w-4 mr-1" />
                         {attendanceSummary.attended} {attendanceSummary.attended === 1 ? 'person' : 'people'} attended
+                      </p>
+                    )}
+                    {attendanceDayBreakdown && (
+                      <p className="text-xs text-center text-gray-400 mt-1">
+                        {attendanceDayBreakdown}
                       </p>
                     )}
                   </CardContent>

@@ -7,7 +7,7 @@ import { ApiResponse, ErrorCodes } from '../utils/response.js';
 import { logger } from '../utils/logger.js';
 
 export const uploadRouter = Router();
-const CLOUDINARY_PUBLIC_ID_REGEX = /^[a-zA-Z0-9_\/-]+$/;
+const CLOUDINARY_PUBLIC_ID_REGEX = /^[a-zA-Z0-9_/-]+$/;
 
 // ISSUE-020: Server-side MIME validation using magic bytes
 // Don't trust client-sent mimetype header - validate actual file content

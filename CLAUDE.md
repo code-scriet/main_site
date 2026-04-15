@@ -520,6 +520,7 @@ attendanceJwtSecret?, indexNowKey?
 id, title, slug (unique), description, status (EventStatus),
 startDate, endDate?, registrationStartDate?, registrationEndDate?,
 location?, venue?, capacity?, imageUrl, createdBy,
+eventDays (default 1), dayLabels (JSON string[])?,
 eventType?, prerequisites?, registrationFields (JSON)?,
 agenda?, faqs (JSON)?, featured, highlights?, imageGallery (JSON)?,
 learningOutcomes?, resources (JSON)?, shortDescription (varchar 300)?,
@@ -535,6 +536,14 @@ reminderSentAt?, attendanceToken? (unique), attended (default false),
 scannedAt?, manualOverride (default false)
 Unique: [userId, eventId]
 Index: [eventId, attended]
+```
+
+### DayAttendance
+```
+id, registrationId, dayNumber, attended (default false),
+scannedAt?, scannedBy?, manualOverride (default false), createdAt, updatedAt
+Unique: [registrationId, dayNumber]
+Index: [dayNumber, attended]
 ```
 
 ### CompetitionRound / CompetitionSubmission / CompetitionAutoSave
@@ -858,7 +867,8 @@ players: Record<string, QuizPlayer>;
 
 - **QR payload:** Long-lived JWT (30-day expiry), containing `{ userId, eventId, registrationId, purpose: 'attendance' }`. Generated once per registration, stored in `EventRegistration.attendanceToken`.
 - **Token generation:** Automatic on event registration (in `registrations.ts`, after the serializable transaction). Utility: `apps/api/src/utils/attendanceToken.ts`.
-- **Scanning:** Core members (CORE_MEMBER+) can scan. `POST /api/attendance/scan` verifies the JWT, marks attendance. Offline scans batch-synced via `POST /api/attendance/scan-batch`.
+- **Multi-day source of truth:** Day-level attendance is stored in `DayAttendance` (`dayNumber` 1..10). Legacy `EventRegistration.attended/scannedAt/manualOverride` remains synced for compatibility.
+- **Scanning:** Core members (CORE_MEMBER+) can scan. `POST /api/attendance/scan` verifies the JWT, marks attendance for a target `dayNumber`. Offline scans batch-synced via `POST /api/attendance/scan-batch`.
 - **Offline support:** `useOfflineScanner` hook stores scans in localStorage (`attendance_scans:${eventId}`), syncs via 5 triggers: immediate, 3s interval batch, mount sync, visibilitychange, and `sendBeacon` on unload.
 - **QR scanner:** `html5-qrcode` (installed) with `{ fps: 10, qrbox: 280 }`, rear camera preference.
 - **QR display:** `qrcode.react` renders student's QR ticket. Visible from 30 min before event start to endDate (or startDate + 4h fallback).
@@ -874,6 +884,24 @@ manualOverride   Boolean   @default(false) @map("manual_override")
 @@index([eventId, attended])
 ```
 
+### DB Fields (on Event + DayAttendance)
+
+```prisma
+Event.eventDays   Int      @default(1)
+Event.dayLabels   Json?
+
+model DayAttendance {
+  registrationId  String
+  dayNumber       Int
+  attended        Boolean  @default(false)
+  scannedAt       DateTime?
+  scannedBy       String?
+  manualOverride  Boolean  @default(false)
+  @@unique([registrationId, dayNumber])
+  @@index([dayNumber, attended])
+}
+```
+
 ### API Endpoints (`/api/attendance/*`)
 
 | Route | Method | Auth | Purpose |
@@ -882,19 +910,19 @@ manualOverride   Boolean   @default(false) @map("manual_override")
 | `/scan` | POST | CORE_MEMBER+ | Single QR scan (with `bypassWindow` option) |
 | `/scan-batch` | POST | CORE_MEMBER+ | Batch sync from offline scanner |
 | `/scan-beacon` | POST | Token-in-body (CORE_MEMBER+) | Beacon API fire-and-forget |
-| `/manual-checkin` | POST | CORE_MEMBER+ | Manual mark present by registrationId |
-| `/unmark` | PATCH | CORE_MEMBER+ | Undo check-in |
-| `/bulk-update` | PATCH | CORE_MEMBER+ | Bulk mark/unmark selected |
-| `/edit/:registrationId` | PATCH | CORE_MEMBER+ | Edit scannedAt timestamp |
+| `/manual-checkin` | POST | CORE_MEMBER+ | Manual mark present by registrationId (+ optional `dayNumber`) |
+| `/unmark` | PATCH | CORE_MEMBER+ | Undo check-in (+ optional `dayNumber`) |
+| `/bulk-update` | PATCH | CORE_MEMBER+ | Bulk mark/unmark selected (+ optional `dayNumber`) |
+| `/edit/:registrationId` | PATCH | CORE_MEMBER+ | Edit scannedAt timestamp (+ optional `dayNumber`) |
 | `/regenerate-token/:registrationId` | POST | Admin | Generate new QR token |
 | `/search` | GET | CORE_MEMBER+ | Search attendees by name/email |
 | `/live/:eventId` | GET | CORE_MEMBER+ | Live stats + recent scans |
 | `/event/:eventId/full` | GET | CORE_MEMBER+ | Full attendance table data |
-| `/event/:eventId/export` | GET | CORE_MEMBER+ | Excel download (ExcelJS) |
-| `/email-absentees/:eventId` | POST | Admin | Email non-attendees via Brevo |
-| `/event/:eventId/certificate-recipients` | GET | Admin | Attendees + cert status for wizard |
+| `/event/:eventId/export` | GET | CORE_MEMBER+ | Excel download (ExcelJS, optional `dayNumber`) |
+| `/email-absentees/:eventId` | POST | Admin | Email non-attendees via Brevo (optional `dayNumber`) |
+| `/event/:eventId/certificate-recipients` | GET | Admin | Attendees + cert status (optional `minDays`) |
 | `/my-history` | GET | User | Student attendance history |
-| `/event/:eventId/summary` | GET | Public | Attendance count for event detail |
+| `/event/:eventId/summary` | GET | Public | Attendance count + per-day summary for event detail |
 | `/backfill-tokens` | POST | Admin | Backfill tokens for existing registrations |
 
 ### Socket.io `/attendance` Namespace
@@ -911,12 +939,12 @@ manualOverride   Boolean   @default(false) @map("manual_override")
 
 | Component | Path | Purpose |
 |-----------|------|---------|
-| QRTicket | `apps/web/src/components/attendance/QRTicket.tsx` | Student QR display (countdown → QR → attended badge) |
-| AdminScanner | `apps/web/src/components/attendance/AdminScanner.tsx` | Offline-first camera scanner with audio feedback, manual check-in, live dashboard |
-| AttendanceManager | `apps/web/src/components/attendance/AttendanceManager.tsx` | Full CRUD data table (mark/unmark, bulk, export Excel, email absentees) |
-| EventCertificateWizard | `apps/web/src/components/attendance/EventCertificateWizard.tsx` | 3-step wizard: select recipients → configure signatory → generate. Post-generation management table |
+| QRTicket | `apps/web/src/components/attendance/QRTicket.tsx` | Student QR display (countdown → QR → attended badge + day breakdown when available) |
+| AdminScanner | `apps/web/src/components/attendance/AdminScanner.tsx` | Offline-first camera scanner with day selector, audio feedback, manual check-in, live dashboard |
+| AttendanceManager | `apps/web/src/components/attendance/AttendanceManager.tsx` | Full CRUD data table with day selector (mark/unmark, bulk, export, absentees email by day) |
+| EventCertificateWizard | `apps/web/src/components/attendance/EventCertificateWizard.tsx` | Attendance/competition certificate wizard with optional minimum attendance-days filter |
 | EventAdminHub | `apps/web/src/components/attendance/EventAdminHub.tsx` | Tab page: Details, Scanner, Manage (all roles), + Certificates (admin only). Accessible via `/admin/events/:eventId/attendance` (Admin) or `/dashboard/events/:eventId/attendance` (CORE_MEMBER+) |
-| AttendanceHistory | `apps/web/src/components/attendance/AttendanceHistory.tsx` | Student attendance history (dashboard widget) |
+| AttendanceHistory | `apps/web/src/components/attendance/AttendanceHistory.tsx` | Student attendance history with day-count/day-label breakdown for multi-day events |
 | useOfflineScanner | `apps/web/src/hooks/useOfflineScanner.ts` | localStorage offline sync hook (5 sync triggers) |
 
 ---

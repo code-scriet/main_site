@@ -8,6 +8,7 @@ import { api } from '@/lib/api';
 export interface LocalScanEntry {
   localId: string;
   token: string;
+  dayNumber: number;
   scannedAtLocal: string;
   synced: boolean;
   result?: 'ok' | 'duplicate' | 'error';
@@ -18,6 +19,7 @@ export interface LocalScanEntry {
 interface UseOfflineScannerOptions {
   eventId: string;
   authToken: string;
+  dayNumber: number;
   bypassWindow?: boolean;
 }
 
@@ -123,7 +125,13 @@ function readScans(eventId: string): LocalScanEntry[] {
   try {
     const raw = localStorage.getItem(storageKey(eventId));
     if (!raw) return [];
-    return JSON.parse(raw) as LocalScanEntry[];
+    const parsed = JSON.parse(raw) as Array<LocalScanEntry & { dayNumber?: number }>;
+    return parsed.map((entry) => ({
+      ...entry,
+      dayNumber: Number.isInteger(entry.dayNumber) && (entry.dayNumber as number) > 0
+        ? (entry.dayNumber as number)
+        : 1,
+    }));
   } catch {
     return [];
   }
@@ -165,7 +173,7 @@ function computeStats(scans: LocalScanEntry[]): ScanStats {
 export function useOfflineScanner(
   options: UseOfflineScannerOptions,
 ): UseOfflineScannerReturn {
-  const { eventId, authToken, bypassWindow } = options;
+  const { eventId, authToken, dayNumber, bypassWindow } = options;
 
   // Canonical state lives in a ref so callbacks never go stale.
   // React state is a mirror used purely to trigger re-renders.
@@ -174,7 +182,7 @@ export function useOfflineScanner(
   const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'error'>('idle');
 
   // Dedup set — tracks QR tokens already scanned in this session.
-  const seenTokensRef = useRef<Set<string>>(new Set(scansRef.current.map((s) => s.token)));
+  const seenTokensRef = useRef<Set<string>>(new Set(scansRef.current.map((s) => `${s.token}::${s.dayNumber}`)));
 
   // Guard against concurrent syncs.
   const syncingRef = useRef(false);
@@ -206,6 +214,7 @@ export function useOfflineScanner(
       const response = await api.scanAttendanceBatch(
         pending.map((s) => ({
           token: s.token,
+          dayNumber: s.dayNumber,
           scannedAtLocal: s.scannedAtLocal,
           localId: s.localId,
         })),
@@ -242,7 +251,7 @@ export function useOfflineScanner(
 
   const syncSingleScan = useCallback(async (entry: LocalScanEntry) => {
     try {
-      const res = await api.scanAttendance(entry.token, authToken, bypassWindow);
+      const res = await api.scanAttendance(entry.token, authToken, entry.dayNumber, bypassWindow);
       // Find entry in ref (it may have been batch-synced already).
       const target = scansRef.current.find((s) => s.localId === entry.localId);
       if (target && !target.synced) {
@@ -297,6 +306,7 @@ export function useOfflineScanner(
         return {
           localId: 'rejected',
           token: normalizedToken,
+          dayNumber: Math.max(1, Math.floor(dayNumber || 1)),
           scannedAtLocal: new Date().toISOString(),
           synced: true,
           result: 'error',
@@ -305,8 +315,10 @@ export function useOfflineScanner(
       }
 
       // Dedup: if this token was already scanned, return existing entry.
-      if (seenTokensRef.current.has(normalizedToken)) {
-        const existing = scansRef.current.find((s) => s.token === normalizedToken);
+      const effectiveDayNumber = Math.max(1, Math.floor(dayNumber || 1));
+      const dedupeKey = `${normalizedToken}::${effectiveDayNumber}`;
+      if (seenTokensRef.current.has(dedupeKey)) {
+        const existing = scansRef.current.find((s) => s.token === normalizedToken && s.dayNumber === effectiveDayNumber);
         if (existing) {
           // Allow retrying previously failed scans in the same session.
           if (existing.result === 'error') {
@@ -326,11 +338,12 @@ export function useOfflineScanner(
       const entry: LocalScanEntry = {
         localId: generateLocalId(),
         token: normalizedToken,
+        dayNumber: effectiveDayNumber,
         scannedAtLocal: new Date().toISOString(),
         synced: false,
       };
 
-      seenTokensRef.current.add(normalizedToken);
+      seenTokensRef.current.add(dedupeKey);
       scansRef.current = [...scansRef.current, entry];
       flush();
 
@@ -339,7 +352,7 @@ export function useOfflineScanner(
 
       return entry;
     },
-    [flush, syncSingleScan],
+    [dayNumber, flush, syncSingleScan],
   );
 
   // -----------------------------------------------------------------------
@@ -422,6 +435,7 @@ export function useOfflineScanner(
         bypassWindow: bypassWindow ?? false,
         scans: pending.map((s) => ({
           token: s.token,
+          dayNumber: s.dayNumber,
           scannedAtLocal: s.scannedAtLocal,
           localId: s.localId,
         })),

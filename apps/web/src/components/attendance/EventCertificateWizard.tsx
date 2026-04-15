@@ -172,7 +172,10 @@ export default function EventCertificateWizard({
   const [step, setStep] = useState<WizardStep>('mode');
 
   const [recipients, setRecipients] = useState<CertificateRecipient[]>([]);
-  const [stats, setStats] = useState({ totalRegistered: 0, totalAttended: 0, alreadyCertified: 0 });
+  const [stats, setStats] = useState({ totalRegistered: 0, totalAttended: 0, alreadyCertified: 0, eligibleRecipients: 0 });
+  const [attendanceEventDays, setAttendanceEventDays] = useState(1);
+  const [attendanceDayLabels, setAttendanceDayLabels] = useState<string[]>([]);
+  const [minAttendanceDays, setMinAttendanceDays] = useState<number | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [recipientFilter, setRecipientFilter] = useState<RecipientFilter>('no_cert');
   const [recipientSearch, setRecipientSearch] = useState('');
@@ -304,21 +307,42 @@ export default function EventCertificateWizard({
   const fetchRecipients = useCallback(async () => {
     setLoadingRecipients(true);
     try {
-      const data = await api.getAttendanceCertRecipients(eventId, token);
+      const data = await api.getAttendanceCertRecipients(
+        eventId,
+        token,
+        typeof minAttendanceDays === 'number' ? minAttendanceDays : undefined,
+      );
+      const eventDays = Math.min(Math.max(data.eventDays ?? 1, 1), 10);
+      if (eventDays <= 1 && minAttendanceDays !== null) {
+        setMinAttendanceDays(null);
+      }
+      setAttendanceEventDays(eventDays);
+      setAttendanceDayLabels(Array.isArray(data.dayLabels) ? data.dayLabels : []);
       setRecipients(data.recipients);
-      setStats(data.stats);
+      setStats({
+        totalRegistered: data.stats.totalRegistered,
+        totalAttended: data.stats.totalAttended,
+        alreadyCertified: data.stats.alreadyCertified,
+        eligibleRecipients: data.stats.eligibleRecipients ?? data.recipients.length,
+      });
       setSelectedIds(new Set(
         data.recipients
-          .filter((recipient) => recipient.attended && !recipient.hasCertificate)
+          .filter((recipient) =>
+            recipient.attended
+            && !recipient.hasCertificate
+            && (typeof minAttendanceDays !== 'number'
+              || (recipient.daysAttended ?? 0) >= minAttendanceDays))
           .map((recipient) => recipient.registrationId),
       ));
     } catch {
       setRecipients([]);
-      setStats({ totalRegistered: 0, totalAttended: 0, alreadyCertified: 0 });
+      setStats({ totalRegistered: 0, totalAttended: 0, alreadyCertified: 0, eligibleRecipients: 0 });
+      setAttendanceEventDays(1);
+      setAttendanceDayLabels([]);
     } finally {
       setLoadingRecipients(false);
     }
-  }, [eventId, token]);
+  }, [eventId, minAttendanceDays, token]);
 
   const fetchCompetitionSummary = useCallback(async () => {
     setLoadingCompetition(true);
@@ -407,6 +431,9 @@ export default function EventCertificateWizard({
     setAttendanceDomain('');
     setAttendanceDescription('');
     setCompetitionDomain('');
+    setMinAttendanceDays(null);
+    setAttendanceEventDays(1);
+    setAttendanceDayLabels([]);
   }
 
   function selectMode(nextMode: CertificateMode) {
@@ -851,6 +878,35 @@ export default function EventCertificateWizard({
           </Card>
         </div>
 
+        {attendanceEventDays > 1 && (
+          <div className="mb-4 flex flex-col gap-2 rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm text-blue-800 sm:flex-row sm:items-center sm:justify-between">
+            <p>
+              Multi-day event: {attendanceEventDays} day{attendanceEventDays === 1 ? '' : 's'} tracked.
+            </p>
+            <div className="flex items-center gap-2">
+              <label htmlFor="min-attendance-days" className="text-xs font-medium text-blue-900">
+                Minimum days for eligibility
+              </label>
+              <select
+                id="min-attendance-days"
+                value={minAttendanceDays ?? ''}
+                onChange={(event) => {
+                  const value = event.target.value;
+                  setMinAttendanceDays(value ? Number.parseInt(value, 10) : null);
+                }}
+                className="h-8 rounded-md border border-blue-300 bg-white px-2 text-xs text-blue-900 focus:outline-none focus:ring-2 focus:ring-blue-300"
+              >
+                <option value="">Any</option>
+                {Array.from({ length: attendanceEventDays }, (_, index) => index + 1).map((dayCount) => (
+                  <option key={dayCount} value={dayCount}>
+                    {dayCount} day{dayCount === 1 ? '' : 's'}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+        )}
+
         <div className="mb-4 flex flex-col gap-3 sm:flex-row">
           <div className="flex gap-1">
             {filterOptions.map((option) => (
@@ -890,13 +946,14 @@ export default function EventCertificateWizard({
                   </th>
                   <th className="p-3 text-left">Recipient</th>
                   <th className="hidden p-3 text-left sm:table-cell">Status</th>
+                  {attendanceEventDays > 1 && <th className="hidden p-3 text-left sm:table-cell">Days</th>}
                   <th className="hidden p-3 text-left md:table-cell">Certificate</th>
                 </tr>
               </thead>
               <tbody className="divide-y dark:divide-gray-700">
                 {filteredRecipients.length === 0 ? (
                   <tr>
-                    <td colSpan={4} className="p-8 text-center text-gray-400">
+                    <td colSpan={attendanceEventDays > 1 ? 5 : 4} className="p-8 text-center text-gray-400">
                       No recipients match the current filter.
                     </td>
                   </tr>
@@ -945,6 +1002,23 @@ export default function EventCertificateWizard({
                           </Badge>
                         )}
                       </td>
+                      {attendanceEventDays > 1 && (
+                        <td className="hidden p-3 sm:table-cell">
+                          <div className="flex flex-col gap-1">
+                            <Badge variant="outline" className="w-fit">
+                              {recipient.daysAttended ?? 0}/{attendanceEventDays} day{attendanceEventDays === 1 ? '' : 's'}
+                            </Badge>
+                            {(recipient.dayAttendances?.length ?? 0) > 0 && (
+                              <p className="max-w-[220px] truncate text-xs text-gray-500">
+                                {recipient.dayAttendances
+                                  ?.filter((day) => day.attended)
+                                  .map((day) => attendanceDayLabels[day.dayNumber - 1] || `Day ${day.dayNumber}`)
+                                  .join(', ')}
+                              </p>
+                            )}
+                          </div>
+                        </td>
+                      )}
                       <td className="hidden p-3 md:table-cell">
                         {recipient.hasCertificate ? (
                           <Badge className="bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400">
