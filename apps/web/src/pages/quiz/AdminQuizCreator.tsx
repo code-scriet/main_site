@@ -34,9 +34,10 @@ import {
   Check,
   Loader2,
   Sparkles,
+  Upload,
 } from 'lucide-react';
 import { cn, getWebAppOrigin } from '@/lib/utils';
-import { getStoredAuthToken } from '@/lib/authToken';
+import { api, type QuizQuestionInput } from '@/lib/api';
 
 type QuestionType = 'MCQ' | 'TRUE_FALSE' | 'SHORT_ANSWER' | 'POLL' | 'RATING' | 'MULTI_SELECT' | 'OPEN_ENDED';
 
@@ -86,15 +87,19 @@ const STEP_LABELS = ['Details', 'Questions', 'Review'];
 
 export default function AdminQuizCreator() {
   const navigate = useNavigate();
-  useAuth(); // ensure authenticated
+  const { token } = useAuth(); // ensure authenticated
   const { quizId: editId } = useParams<{ quizId: string }>();
 
   const [step, setStep] = useState(1);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState('');
+  const [importError, setImportError] = useState('');
+  const [importing, setImporting] = useState(false);
+  const [importFile, setImportFile] = useState<File | null>(null);
+  const [submitMode, setSubmitMode] = useState<'draft' | 'open'>('draft');
 
   // Success screen state
-  const [createdQuiz, setCreatedQuiz] = useState<{ id: string; pin: string } | null>(null);
+  const [createdQuiz, setCreatedQuiz] = useState<{ id: string; pin: string | null; status: 'DRAFT' | 'WAITING' } | null>(null);
   const [pinCopied, setPinCopied] = useState(false);
   const qrRef = useRef<HTMLDivElement>(null);
 
@@ -197,6 +202,77 @@ export default function AdminQuizCreator() {
     return null;
   };
 
+  const mapImportedQuestionToDraft = (question: QuizQuestionInput): QuestionDraft => {
+    const normalizedOptions = Array.isArray(question.options) ? question.options : [];
+    const normalizedCorrectAnswer = question.correctAnswer?.trim() || '';
+    const parsedMultiSelectAnswers = question.questionType === 'MULTI_SELECT' && normalizedCorrectAnswer
+      ? (() => {
+        try {
+          const parsed = JSON.parse(normalizedCorrectAnswer);
+          return Array.isArray(parsed)
+            ? parsed
+              .map((entry) => (typeof entry === 'string' ? entry.trim() : ''))
+              .filter(Boolean)
+            : [];
+        } catch {
+          return normalizedCorrectAnswer
+            .split(/[|,;]/)
+            .map((entry) => entry.trim())
+            .filter(Boolean);
+        }
+      })()
+      : [];
+
+    const nextOptions = usesOptions(question.questionType as QuestionType)
+      ? (normalizedOptions.length > 0 ? normalizedOptions : ['', '', '', ''])
+      : (question.questionType === 'TRUE_FALSE' ? ['True', 'False'] : []);
+
+    return {
+      id: crypto.randomUUID(),
+      questionText: question.questionText,
+      questionType: question.questionType as QuestionType,
+      options: nextOptions,
+      correctAnswer: question.questionType === 'MULTI_SELECT' ? '' : normalizedCorrectAnswer,
+      correctAnswers: question.questionType === 'MULTI_SELECT' ? parsedMultiSelectAnswers : [],
+      timeLimitSeconds: question.timeLimitSeconds,
+      points: question.points,
+      mediaUrl: question.mediaUrl || '',
+    };
+  };
+
+  const handleImportQuestions = async () => {
+    if (!token) {
+      setImportError('You need to sign in again to import quiz files.');
+      return;
+    }
+    if (!importFile) {
+      setImportError('Please select a CSV or XLSX file first.');
+      return;
+    }
+
+    setImportError('');
+    setImporting(true);
+    try {
+      const parsed = await api.importQuizFile(importFile, token);
+      const importedDrafts = parsed.questions.map(mapImportedQuestionToDraft);
+      if (importedDrafts.length === 0) {
+        setImportError('No valid questions were found in the uploaded file.');
+        return;
+      }
+
+      setQuestions(importedDrafts);
+      setActiveQIndex(0);
+      if (!title.trim() && parsed.titleSuggestion) {
+        setTitle(parsed.titleSuggestion);
+      }
+      setStep(2);
+    } catch (err: unknown) {
+      setImportError(err instanceof Error ? err.message : 'Failed to import quiz file');
+    } finally {
+      setImporting(false);
+    }
+  };
+
   // Copy PIN handler
   const handleCopyPin = async () => {
     if (!createdQuiz?.pin) return;
@@ -219,18 +295,22 @@ export default function AdminQuizCreator() {
   };
 
   // Submit
-  const handleSubmit = async () => {
+  const handleSubmit = async (mode: 'draft' | 'open') => {
+    if (!token) {
+      setError('You need to sign in again to create quizzes.');
+      return;
+    }
+
     const err = validateQuiz();
     if (err) {
       setError(err);
       return;
     }
     setError('');
+    setSubmitMode(mode);
     setIsSubmitting(true);
 
     try {
-      const token = getStoredAuthToken();
-      const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:5001/api';
       const body = {
         title: title.trim(),
         description: description.trim() || undefined,
@@ -258,41 +338,27 @@ export default function AdminQuizCreator() {
         })),
       };
 
-      const res = await fetch(`${apiUrl}/quiz`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify(body),
-      });
+      const created = editId
+        ? await api.updateQuiz(editId, body, token).then(() => ({ id: editId }))
+        : await api.createQuiz(body, token);
 
-      const data = await res.json();
-      if (!data.success) throw new Error(data.error?.message || 'Failed to create quiz');
-
-      const quizId = data.data.id;
-
-      // Immediately open the quiz (DRAFT → WAITING) so the lobby is ready
-      const openRes = await fetch(`${apiUrl}/quiz/${quizId}/open`, {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      const openData = await openRes.json();
-      if (!openData.success) throw new Error(openData.error?.message || 'Failed to open quiz');
-
-      // Show success screen instead of navigating
-      const pin = openData.data?.pin || data.data?.pin || '';
-      setCreatedQuiz({ id: quizId, pin });
+      if (mode === 'open') {
+        const opened = await api.openQuiz(created.id, token);
+        const openedPin = opened.pin || null;
+        setCreatedQuiz({ id: created.id, pin: openedPin, status: 'WAITING' });
+      } else {
+        setCreatedQuiz({ id: created.id, pin: null, status: 'DRAFT' });
+      }
       setStep(4);
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Failed to create quiz');
+      setError(err instanceof Error ? err.message : 'Failed to save quiz');
     } finally {
       setIsSubmitting(false);
     }
   };
 
   const joinBaseOrigin = getWebAppOrigin();
-  const joinUrl = createdQuiz
+  const joinUrl = createdQuiz?.pin
     ? `${joinBaseOrigin}/quiz/join?pin=${createdQuiz.pin}`
     : '';
 
@@ -396,6 +462,48 @@ export default function AdminQuizCreator() {
                       rows={3}
                       className="w-full rounded-lg border-2 border-amber-200 px-3 py-2 text-sm focus:outline-none focus:border-amber-400 focus:ring-2 focus:ring-amber-400/20 transition-colors duration-200"
                     />
+                  </div>
+                  <div className="rounded-lg border border-dashed border-amber-300 bg-amber-50/60 p-4 space-y-3">
+                    <p className="text-sm font-semibold text-amber-800">Import from CSV/XLSX</p>
+                    <p className="text-xs text-amber-700/70">
+                      Headers: <span className="font-mono">questionText</span> (required), optional
+                      {' '}<span className="font-mono">questionType</span>, <span className="font-mono">option1..option6</span>,
+                      {' '}<span className="font-mono">correctAnswer</span>, <span className="font-mono">timeLimitSeconds</span>,
+                      {' '}<span className="font-mono">points</span>, <span className="font-mono">mediaUrl</span>.
+                    </p>
+                    <div className="flex flex-col sm:flex-row gap-2">
+                      <Input
+                        type="file"
+                        accept=".csv,.xlsx"
+                        onChange={(event) => {
+                          setImportFile(event.target.files?.[0] || null);
+                          setImportError('');
+                        }}
+                        className="border-amber-200 focus:border-amber-400 focus:ring-amber-400/20"
+                      />
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={handleImportQuestions}
+                        disabled={!importFile || importing}
+                        className="border-amber-300 text-amber-700 hover:bg-amber-100"
+                      >
+                        {importing ? (
+                          <>
+                            <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                            Importing...
+                          </>
+                        ) : (
+                          <>
+                            <Upload className="h-4 w-4 mr-2" />
+                            Import Questions
+                          </>
+                        )}
+                      </Button>
+                    </div>
+                    {importError && (
+                      <p className="text-xs text-red-600 font-medium">{importError}</p>
+                    )}
                   </div>
                 </CardContent>
               </Card>
@@ -936,24 +1044,45 @@ export default function AdminQuizCreator() {
                   <ArrowLeft className="h-4 w-4 mr-2" />
                   Edit Questions
                 </Button>
-                <Button
-                  onClick={handleSubmit}
-                  disabled={isSubmitting}
-                  className="bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 text-white shadow-md active:scale-[0.98] transition-all duration-300"
-                  size="lg"
-                >
-                  {isSubmitting ? (
-                    <>
-                      <Loader2 className="h-5 w-5 mr-2 animate-spin" />
-                      Creating...
-                    </>
-                  ) : (
-                    <>
-                      <Save className="h-5 w-5 mr-2" />
-                      Create & Open Quiz
-                    </>
-                  )}
-                </Button>
+                <div className="flex flex-col sm:flex-row gap-2">
+                  <Button
+                    onClick={() => void handleSubmit('draft')}
+                    disabled={isSubmitting}
+                    variant="outline"
+                    className="border-amber-300 text-amber-700 hover:bg-amber-50"
+                    size="lg"
+                  >
+                    {isSubmitting && submitMode === 'draft' ? (
+                      <>
+                        <Loader2 className="h-5 w-5 mr-2 animate-spin" />
+                        Saving...
+                      </>
+                    ) : (
+                      <>
+                        <Save className="h-5 w-5 mr-2" />
+                        Save Draft
+                      </>
+                    )}
+                  </Button>
+                  <Button
+                    onClick={() => void handleSubmit('open')}
+                    disabled={isSubmitting}
+                    className="bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 text-white shadow-md active:scale-[0.98] transition-all duration-300"
+                    size="lg"
+                  >
+                    {isSubmitting && submitMode === 'open' ? (
+                      <>
+                        <Loader2 className="h-5 w-5 mr-2 animate-spin" />
+                        Opening...
+                      </>
+                    ) : (
+                      <>
+                        <Save className="h-5 w-5 mr-2" />
+                        Save & Open Now
+                      </>
+                    )}
+                  </Button>
+                </div>
               </div>
             </motion.div>
           )}
@@ -984,77 +1113,85 @@ export default function AdminQuizCreator() {
                 transition={{ delay: 0.35 }}
                 className="text-center"
               >
-                <h2 className="text-2xl sm:text-3xl font-bold text-amber-900 font-display">Quiz Created!</h2>
-                <p className="text-amber-700/60 mt-1">"{title}" is ready. Share the PIN to get started.</p>
+                <h2 className="text-2xl sm:text-3xl font-bold text-amber-900 font-display">
+                  {createdQuiz.status === 'WAITING' ? 'Quiz Opened!' : 'Draft Saved!'}
+                </h2>
+                <p className="text-amber-700/60 mt-1">
+                  {createdQuiz.status === 'WAITING'
+                    ? `"${title}" is live. Share the PIN to get started.`
+                    : `"${title}" is saved as a draft. Open it from Quiz Manager when you're ready.`}
+                </p>
               </motion.div>
 
-              {/* Huge PIN card */}
-              <motion.div
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.5 }}
-                className="w-full max-w-md"
-              >
-                <Card className="border-amber-300/60 shadow-xl overflow-hidden">
-                  <div className="bg-gradient-to-r from-amber-400 via-orange-500 to-amber-600 p-1" />
-                  <CardContent className="p-6 sm:p-8 text-center">
-                    <p className="text-xs font-semibold text-amber-700/50 uppercase tracking-widest mb-3">Your Game PIN</p>
-                    <div className="flex items-center justify-center gap-2 sm:gap-3">
-                      {createdQuiz.pin.split('').map((digit, i) => (
-                        <motion.span
-                          key={i}
-                          initial={{ opacity: 0, y: 20 }}
-                          animate={{ opacity: 1, y: 0 }}
-                          transition={{ delay: 0.6 + i * 0.08 }}
-                          className="w-11 h-14 sm:w-14 sm:h-16 rounded-xl bg-amber-50 border-2 border-amber-200 flex items-center justify-center text-2xl sm:text-3xl font-black text-amber-900 font-mono"
-                        >
-                          {digit}
-                        </motion.span>
-                      ))}
-                    </div>
-                    <button
-                      onClick={handleCopyPin}
-                      className="mt-4 inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-amber-100 text-amber-800 text-sm font-semibold hover:bg-amber-200 transition-colors duration-200"
-                    >
-                      {pinCopied ? (
-                        <>
-                          <Check className="h-4 w-4 text-green-600" />
-                          Copied!
-                        </>
-                      ) : (
-                        <>
-                          <Copy className="h-4 w-4" />
-                          Copy PIN
-                        </>
-                      )}
-                    </button>
-                  </CardContent>
-                </Card>
-              </motion.div>
+              {createdQuiz.status === 'WAITING' && createdQuiz.pin && (
+                <motion.div
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.5 }}
+                  className="w-full max-w-md"
+                >
+                  <Card className="border-amber-300/60 shadow-xl overflow-hidden">
+                    <div className="bg-gradient-to-r from-amber-400 via-orange-500 to-amber-600 p-1" />
+                    <CardContent className="p-6 sm:p-8 text-center">
+                      <p className="text-xs font-semibold text-amber-700/50 uppercase tracking-widest mb-3">Your Game PIN</p>
+                      <div className="flex items-center justify-center gap-2 sm:gap-3">
+                        {createdQuiz.pin.split('').map((digit, i) => (
+                          <motion.span
+                            key={i}
+                            initial={{ opacity: 0, y: 20 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            transition={{ delay: 0.6 + i * 0.08 }}
+                            className="w-11 h-14 sm:w-14 sm:h-16 rounded-xl bg-amber-50 border-2 border-amber-200 flex items-center justify-center text-2xl sm:text-3xl font-black text-amber-900 font-mono"
+                          >
+                            {digit}
+                          </motion.span>
+                        ))}
+                      </div>
+                      <button
+                        onClick={handleCopyPin}
+                        className="mt-4 inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-amber-100 text-amber-800 text-sm font-semibold hover:bg-amber-200 transition-colors duration-200"
+                      >
+                        {pinCopied ? (
+                          <>
+                            <Check className="h-4 w-4 text-green-600" />
+                            Copied!
+                          </>
+                        ) : (
+                          <>
+                            <Copy className="h-4 w-4" />
+                            Copy PIN
+                          </>
+                        )}
+                      </button>
+                    </CardContent>
+                  </Card>
+                </motion.div>
+              )}
 
-              {/* QR Code */}
-              <motion.div
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ delay: 0.7 }}
-                className="w-full max-w-xs"
-              >
-                <Card className="border-amber-200/60 shadow-md">
-                  <CardContent className="p-5 flex flex-col items-center">
-                    <div ref={qrRef} className="bg-white p-3 rounded-xl">
-                      <QRCodeSVG value={joinUrl} size={160} level="M" />
-                    </div>
-                    <p className="text-[10px] text-amber-600/40 mt-2 text-center break-all">{joinUrl}</p>
-                    <button
-                      onClick={handleDownloadQR}
-                      className="mt-3 inline-flex items-center gap-1.5 text-xs font-semibold text-amber-700 hover:text-amber-900 transition-colors"
-                    >
-                      <Download className="h-3.5 w-3.5" />
-                      Download QR
-                    </button>
-                  </CardContent>
-                </Card>
-              </motion.div>
+              {createdQuiz.status === 'WAITING' && createdQuiz.pin && (
+                <motion.div
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.7 }}
+                  className="w-full max-w-xs"
+                >
+                  <Card className="border-amber-200/60 shadow-md">
+                    <CardContent className="p-5 flex flex-col items-center">
+                      <div ref={qrRef} className="bg-white p-3 rounded-xl">
+                        <QRCodeSVG value={joinUrl} size={160} level="M" />
+                      </div>
+                      <p className="text-[10px] text-amber-600/40 mt-2 text-center break-all">{joinUrl}</p>
+                      <button
+                        onClick={handleDownloadQR}
+                        className="mt-3 inline-flex items-center gap-1.5 text-xs font-semibold text-amber-700 hover:text-amber-900 transition-colors"
+                      >
+                        <Download className="h-3.5 w-3.5" />
+                        Download QR
+                      </button>
+                    </CardContent>
+                  </Card>
+                </motion.div>
+              )}
 
               {/* Action buttons */}
               <motion.div
@@ -1068,9 +1205,9 @@ export default function AdminQuizCreator() {
                   className="w-full sm:flex-1 bg-gradient-to-r from-orange-500 to-amber-600 hover:from-orange-600 hover:to-amber-700 text-white shadow-md"
                   size="lg"
                 >
-                  <Link to={`/quiz/${createdQuiz.id}`}>
+                  <Link to={createdQuiz.status === 'WAITING' ? `/quiz/${createdQuiz.id}` : '/dashboard/quiz'}>
                     <ExternalLink className="h-5 w-5 mr-2" />
-                    Go to Lobby
+                    {createdQuiz.status === 'WAITING' ? 'Go to Lobby' : 'Go to Quiz Manager'}
                   </Link>
                 </Button>
                 <Button

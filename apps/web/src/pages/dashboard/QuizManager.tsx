@@ -50,6 +50,7 @@ export default function QuizManager() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
+  const [opening, setOpening] = useState<string | null>(null);
   const [quizToDelete, setQuizToDelete] = useState<QuizAdminSummary | null>(null);
 
   const isAdmin = user?.role === 'ADMIN' || user?.role === 'PRESIDENT';
@@ -92,6 +93,24 @@ export default function QuizManager() {
       toast.error(err instanceof Error ? err.message : 'Failed to delete quiz');
     } finally {
       setDeleting(null);
+    }
+  };
+
+  const handleOpenDraft = async (quizId: string) => {
+    if (!token) {
+      toast.error('You need to sign in again to manage quizzes');
+      return;
+    }
+
+    setOpening(quizId);
+    try {
+      await api.openQuiz(quizId, token);
+      toast.success('Quiz opened successfully');
+      await loadQuizzes();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to open quiz');
+    } finally {
+      setOpening(null);
     }
   };
 
@@ -267,6 +286,22 @@ export default function QuizManager() {
                                   <Eye className="h-4 w-4" />
                                 </Button>
                               </Link>
+                            )}
+                            {quiz.status === 'DRAFT' && (
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="text-blue-700 border-blue-200 hover:bg-blue-50"
+                                onClick={() => void handleOpenDraft(quiz.id)}
+                                disabled={opening === quiz.id}
+                                aria-label={`Open draft quiz ${quiz.title}`}
+                              >
+                                {opening === quiz.id ? (
+                                  <Loader2 className="h-4 w-4 animate-spin" />
+                                ) : (
+                                  <Play className="h-4 w-4" />
+                                )}
+                              </Button>
                             )}
                             {quiz.status === 'FINISHED' && (
                               <Link to={`/quiz/${quiz.id}/results`}>

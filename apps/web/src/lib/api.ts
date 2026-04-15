@@ -114,6 +114,43 @@ async function requestEnvelope<T>(endpoint: string, options: RequestOptions = {}
   return executeJsonRequest(endpoint, options) as Promise<ApiEnvelope<T>>;
 }
 
+async function requestForm<T>(endpoint: string, formData: FormData, options: Omit<RequestOptions, 'body'> = {}): Promise<T> {
+  const { token, ...fetchOptions } = options;
+  const headers: Record<string, string> = {
+    ...(fetchOptions.headers as Record<string, string>),
+  };
+
+  const hasHeader = (name: string) =>
+    Object.keys(headers).some((headerName) => headerName.toLowerCase() === name.toLowerCase());
+
+  if (token && !hasHeader('Authorization')) {
+    headers.Authorization = `Bearer ${token}`;
+  }
+  if (!hasHeader('Accept')) {
+    headers.Accept = 'application/json';
+  }
+
+  const response = await fetch(`${API_URL}${endpoint}`, {
+    ...fetchOptions,
+    method: fetchOptions.method ?? 'POST',
+    credentials: 'include',
+    headers,
+    body: formData,
+  });
+
+  if (!response.ok) {
+    const errorData = await readErrorPayload(response);
+    const message = extractApiErrorMessage(errorData, `Request failed (${response.status})`);
+    if (response.status === 401) {
+      throw new UnauthorizedError(message);
+    }
+    throw new Error(message);
+  }
+
+  const json = await response.json() as ApiEnvelope<T>;
+  return json.data !== undefined ? json.data : json as T;
+}
+
 async function requestBlob(endpoint: string, options: RequestOptions = {}): Promise<Blob> {
   const { token, ...fetchOptions } = options;
   const method = (fetchOptions.method ?? 'GET').toUpperCase();
@@ -201,6 +238,39 @@ export interface QuizAdminSummary {
   pin?: string;
   creator?: { name: string };
   _count?: { participants: number };
+}
+
+export type QuizQuestionType =
+  | 'MCQ'
+  | 'TRUE_FALSE'
+  | 'SHORT_ANSWER'
+  | 'POLL'
+  | 'RATING'
+  | 'MULTI_SELECT'
+  | 'OPEN_ENDED';
+
+export interface QuizQuestionInput {
+  position: number;
+  questionText: string;
+  questionType: QuizQuestionType;
+  options?: string[] | null;
+  correctAnswer?: string | null;
+  timeLimitSeconds: number;
+  points: number;
+  mediaUrl?: string | null;
+}
+
+export interface QuizCreateInput {
+  title: string;
+  description?: string;
+  questions: QuizQuestionInput[];
+}
+
+export interface QuizImportResult {
+  titleSuggestion: string;
+  importedCount: number;
+  skippedBlankRows: number;
+  questions: QuizQuestionInput[];
 }
 
 export interface User {
@@ -1671,6 +1741,32 @@ export const api = {
     }>('/quiz/my-dashboard', { token }),
   getQuizAdminList: (token: string) =>
     request<QuizAdminSummary[]>('/quiz/admin/list', { token }),
+  importQuizFile: async (file: File, token: string) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    return requestForm<QuizImportResult>('/quiz/import', formData, { token, method: 'POST' });
+  },
+  createQuiz: (data: QuizCreateInput, token: string) =>
+    request<{ id: string; title: string }>('/quiz', {
+      method: 'POST',
+      body: JSON.stringify(data),
+      token,
+    }),
+  updateQuiz: (quizId: string, data: QuizCreateInput, token: string) =>
+    request<{ id: string }>(`/quiz/${quizId}`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+      token,
+    }),
+  getQuiz: (quizId: string, token: string) =>
+    request<{
+      id: string;
+      title: string;
+      description: string | null;
+      status: 'WAITING' | 'ACTIVE' | 'FINISHED' | 'DRAFT' | 'ABANDONED';
+      questionCount: number;
+      questions: QuizQuestionInput[];
+    }>(`/quiz/${quizId}`, { token }),
   joinQuizByPin: (pin: string, token?: string) =>
     request<{
       quizId: string;

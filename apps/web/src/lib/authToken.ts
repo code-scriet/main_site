@@ -1,21 +1,45 @@
 const TOKEN_STORAGE_KEY = 'token';
 
+function safeGet(storage: Storage): string | null {
+  try {
+    return storage.getItem(TOKEN_STORAGE_KEY);
+  } catch {
+    return null;
+  }
+}
+
+function safeSet(storage: Storage, value: string): void {
+  try {
+    storage.setItem(TOKEN_STORAGE_KEY, value);
+  } catch {
+    // Ignore storage write failures (private mode / blocked storage).
+  }
+}
+
+function safeRemove(storage: Storage): void {
+  try {
+    storage.removeItem(TOKEN_STORAGE_KEY);
+  } catch {
+    // Ignore storage cleanup failures.
+  }
+}
+
 export function getStoredAuthToken(): string | null {
   if (typeof window === 'undefined') {
     return null;
   }
 
-  const sessionToken = window.sessionStorage.getItem(TOKEN_STORAGE_KEY);
+  const sessionToken = safeGet(window.sessionStorage);
   if (sessionToken) {
     return sessionToken;
   }
 
-  // One-time migration from legacy localStorage token to sessionStorage.
-  const legacyToken = window.localStorage.getItem(TOKEN_STORAGE_KEY);
-  if (legacyToken) {
-    window.sessionStorage.setItem(TOKEN_STORAGE_KEY, legacyToken);
-    window.localStorage.removeItem(TOKEN_STORAGE_KEY);
-    return legacyToken;
+  // Fallback to persistent localStorage token and mirror to sessionStorage
+  // so auth survives reloads and reopened tabs.
+  const persistentToken = safeGet(window.localStorage);
+  if (persistentToken) {
+    safeSet(window.sessionStorage, persistentToken);
+    return persistentToken;
   }
 
   return null;
@@ -26,9 +50,8 @@ export function storeAuthToken(token: string): void {
     return;
   }
 
-  window.sessionStorage.setItem(TOKEN_STORAGE_KEY, token);
-  // Ensure token is not persisted across browser restarts.
-  window.localStorage.removeItem(TOKEN_STORAGE_KEY);
+  safeSet(window.sessionStorage, token);
+  safeSet(window.localStorage, token);
 }
 
 export function clearStoredAuthToken(): void {
@@ -36,6 +59,6 @@ export function clearStoredAuthToken(): void {
     return;
   }
 
-  window.sessionStorage.removeItem(TOKEN_STORAGE_KEY);
-  window.localStorage.removeItem(TOKEN_STORAGE_KEY);
+  safeRemove(window.sessionStorage);
+  safeRemove(window.localStorage);
 }

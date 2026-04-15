@@ -778,6 +778,8 @@ Certificates support two signature rendering methods per signatory slot (primary
 
 - **In-memory during active quiz** — `quizStore.ts` uses `Map<string, QuizRoom>`. No DB writes until quiz ends.
 - **Socket.io namespace:** `/quiz` with JWT auth middleware.
+- **Draft-first persistence:** Quizzes are stored in PostgreSQL first (`status: DRAFT`) and only become joinable when `POST /api/quiz/:quizId/open` transitions them to `WAITING`.
+- **File import support:** `POST /api/quiz/import` parses `.csv`/`.xlsx` files into normalized question payloads (validation + row-level errors) for draft creation flows.
 - **Phase transitions are server-authoritative.** See Hard Constraint #10 — never client-clock based.
 - **Scoring:** Base points (1000) + time bonus (faster = more) + streak bonus (consecutive correct). Logic in `apps/api/src/quiz/quizSocket.ts`.
 - **Auto-advance:** Server-side timers advance questions. Pausing clears timers.
@@ -818,6 +820,7 @@ All files in `apps/web/src/pages/quiz/`:
 - **`QuizLeaderboard.tsx`** — Mid-quiz: compact top-5. Final: animated 3-tier podium (rank 3 @ 500ms, rank 2 @ 800ms, rank 1 @ 1100ms) with pure CSS confetti keyframes (no external library).
 - **`QuizFinaleIntro.tsx`** — Full-screen 2s splash overlay triggered on `quiz_end`.
 - **`QuizResultsPage.tsx`** — Post-quiz analytics (creator/admin only): `HeatmapGrid` inline component (player × question accuracy), difficulty curve (`LineChart`), drop-off analysis, performance scatter (`ScatterChart`). Uses Recharts.
+- **`AdminQuizCreator.tsx`** — Quiz authoring wizard supporting manual questions, CSV/XLSX import parsing, and explicit submit modes (`Save Draft` vs `Save & Open Now`).
 - **`QuizQuestion.tsx`** — Active question with countdown timer.
 - **`QuizResultReveal.tsx`** — Per-question result reveal with answer distribution.
 - **`QuizAnswerDistribution.tsx`** — Answer choice bar visualization.
@@ -1173,7 +1176,7 @@ All requests use `fetch` with `credentials: 'include'` for cross-origin cookie s
 - Network (user): `joinNetwork`, `getMyNetworkProfile`, `createNetworkProfile`, `updateNetworkProfile`
 - Network (admin): `getNetworkPending`, `getNetworkAll`, `getNetworkPendingUsers`, `revertPendingNetworkUser`, `deletePendingNetworkUser`, `verifyNetworkProfile`, `rejectNetworkProfile`, `updateNetworkProfileAdmin`, `deleteNetworkProfile`, `getNetworkStats`
 - Audit Logs: `getAuditLogs`
-- Quiz: `getMyQuizDashboard`
+- Quiz: `getMyQuizDashboard`, `getQuizAdminList`, `importQuizFile`, `createQuiz`, `updateQuiz`, `getQuiz`, `joinQuizByPin`, `openQuiz`, `checkQuizHost`, `getQuizResults`, `deleteQuiz`
 - Certificates: `getCertificates`, `generateCertificate`, `bulkGenerateCertificates`, `downloadCertificate`, `getMyCertificates`, `revokeCertificate`, `deleteCertificate`, `resendCertificateEmail`
 
 ---

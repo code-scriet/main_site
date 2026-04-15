@@ -8,6 +8,8 @@ import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
 import { Prisma } from '@prisma/client';
 import jwt from 'jsonwebtoken';
+import multer from 'multer';
+import { Readable } from 'node:stream';
 import { authMiddleware, getAuthUser } from '../middleware/auth.js';
 import { requireRole } from '../middleware/role.js';
 import { ApiResponse, ErrorCodes } from '../utils/response.js';
@@ -43,6 +45,13 @@ const quizJoinLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   skipSuccessfulRequests: true,
+});
+
+const quizImportUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: 2 * 1024 * 1024, // 2MB
+  },
 });
 
 type QuizAccessRole = 'participant' | 'host';
@@ -100,6 +109,158 @@ function parseJsonArrayString(raw: string): string[] | null {
   } catch {
     return null;
   }
+}
+
+const IMPORT_FILE_EXTENSIONS = new Set(['.csv', '.xlsx']);
+const IMPORT_DELIMITER_REGEX = /[|;,]/;
+
+const IMPORT_HEADER_ALIASES: Record<string, string> = {
+  question: 'questionText',
+  questiontext: 'questionText',
+  text: 'questionText',
+  questiontype: 'questionType',
+  type: 'questionType',
+  options: 'options',
+  choices: 'options',
+  option1: 'option1',
+  option2: 'option2',
+  option3: 'option3',
+  option4: 'option4',
+  option5: 'option5',
+  option6: 'option6',
+  correctanswer: 'correctAnswer',
+  correctanswers: 'correctAnswer',
+  answer: 'correctAnswer',
+  correct: 'correctAnswer',
+  timelimitseconds: 'timeLimitSeconds',
+  timelimit: 'timeLimitSeconds',
+  time: 'timeLimitSeconds',
+  seconds: 'timeLimitSeconds',
+  points: 'points',
+  point: 'points',
+  marks: 'points',
+  mediaurl: 'mediaUrl',
+  media: 'mediaUrl',
+  imageurl: 'mediaUrl',
+  image: 'mediaUrl',
+};
+
+function normalizeImportToken(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9]/g, '');
+}
+
+function normalizeImportHeader(value: string): string | null {
+  const normalized = normalizeImportToken(value);
+  if (!normalized) return null;
+  return IMPORT_HEADER_ALIASES[normalized] || null;
+}
+
+function normalizeImportQuestionType(raw: string): SupportedQuestionType | null {
+  const normalized = normalizeImportToken(raw);
+  if (!normalized) return null;
+
+  if (normalized === 'mcq' || normalized === 'multiplechoice' || normalized === 'singlechoice') {
+    return 'MCQ';
+  }
+  if (normalized === 'truefalse' || normalized === 'trueorfalse' || normalized === 'tof') {
+    return 'TRUE_FALSE';
+  }
+  if (normalized === 'shortanswer' || normalized === 'short') {
+    return 'SHORT_ANSWER';
+  }
+  if (normalized === 'poll') {
+    return 'POLL';
+  }
+  if (normalized === 'rating' || normalized === 'scale') {
+    return 'RATING';
+  }
+  if (normalized === 'multiselect' || normalized === 'multichoice' || normalized === 'msq') {
+    return 'MULTI_SELECT';
+  }
+  if (normalized === 'openended' || normalized === 'descriptive' || normalized === 'open') {
+    return 'OPEN_ENDED';
+  }
+  return null;
+}
+
+function parseDelimitedValues(raw: string): string[] {
+  return raw
+    .split(IMPORT_DELIMITER_REGEX)
+    .map((value) => value.trim())
+    .filter(Boolean);
+}
+
+function dedupeValues(values: string[]): string[] {
+  const result: string[] = [];
+  const seen = new Set<string>();
+  for (const value of values) {
+    if (seen.has(value)) continue;
+    seen.add(value);
+    result.push(value);
+  }
+  return result;
+}
+
+function clampNumber(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, value));
+}
+
+function parseNumberOrDefault(raw: string, fallback: number): number {
+  const parsed = Number.parseInt(raw.trim(), 10);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function normalizeImportTitle(filename: string): string {
+  const withoutExtension = filename.replace(/\.[^.]+$/, '');
+  const normalized = withoutExtension.replace(/[_-]+/g, ' ').trim();
+  return normalized || 'Imported Quiz';
+}
+
+function normalizeTrueFalseCorrectAnswer(raw: string): string {
+  const normalized = normalizeImportToken(raw);
+  if (['true', 't', 'yes', '1'].includes(normalized)) return 'True';
+  if (['false', 'f', 'no', '0'].includes(normalized)) return 'False';
+  return raw.trim();
+}
+
+async function readImportRows(file: Express.Multer.File): Promise<string[][]> {
+  const extension = file.originalname.slice(file.originalname.lastIndexOf('.')).toLowerCase();
+  const ExcelJS = await import('exceljs');
+  const workbook = new ExcelJS.default.Workbook();
+  let worksheet;
+
+  if (extension === '.xlsx') {
+    await workbook.xlsx.read(Readable.from([file.buffer]));
+    worksheet = workbook.worksheets[0];
+  } else {
+    worksheet = await workbook.csv.read(Readable.from([file.buffer]));
+  }
+
+  if (!worksheet) {
+    throw new Error('Could not read worksheet data from file');
+  }
+
+  let maxColumns = 0;
+  worksheet.eachRow({ includeEmpty: false }, (row) => {
+    maxColumns = Math.max(maxColumns, row.cellCount, row.actualCellCount);
+  });
+
+  if (maxColumns === 0 || worksheet.rowCount === 0) {
+    return [];
+  }
+
+  const rows: string[][] = [];
+  for (let rowNumber = 1; rowNumber <= worksheet.rowCount; rowNumber++) {
+    const row = worksheet.getRow(rowNumber);
+    const cells: string[] = [];
+    for (let column = 1; column <= maxColumns; column++) {
+      const cellText = row.getCell(column).text;
+      cells.push(typeof cellText === 'string' ? cellText.trim() : '');
+    }
+    rows.push(cells);
+  }
+
+  return rows;
 }
 
 function validateQuizQuestions(questions: z.infer<typeof questionSchema>[]): string | null {
@@ -232,6 +393,207 @@ quizRouter.post('/', authMiddleware, requireRole('CORE_MEMBER'), quizCreateLimit
     return ApiResponse.internal(res);
   }
 });
+
+// ─── POST /api/quiz/import — Parse quiz questions from CSV/XLSX ────────────
+
+quizRouter.post(
+  '/import',
+  authMiddleware,
+  requireRole('CORE_MEMBER'),
+  quizCreateLimiter,
+  (req: Request, res: Response, next: () => void) => {
+    quizImportUpload.single('file')(req, res, (err: unknown) => {
+      if (err instanceof multer.MulterError && err.code === 'LIMIT_FILE_SIZE') {
+        return ApiResponse.error(res, {
+          code: ErrorCodes.VALIDATION_ERROR,
+          message: 'Quiz file is too large. Maximum supported size is 2MB.',
+          status: 400,
+        });
+      }
+      if (err instanceof Error) {
+        return ApiResponse.error(res, {
+          code: ErrorCodes.VALIDATION_ERROR,
+          message: err.message,
+          status: 400,
+        });
+      }
+      next();
+    });
+  },
+  async (req: Request, res: Response) => {
+    try {
+      if (!req.file) {
+        return ApiResponse.badRequest(res, 'Quiz file is required (field name: "file")');
+      }
+
+      const extension = req.file.originalname.slice(req.file.originalname.lastIndexOf('.')).toLowerCase();
+      if (!IMPORT_FILE_EXTENSIONS.has(extension)) {
+        return ApiResponse.badRequest(res, 'Only .csv and .xlsx quiz files are supported');
+      }
+
+      const rows = await readImportRows(req.file);
+      if (rows.length < 2) {
+        return ApiResponse.badRequest(res, 'Import file must include a header row and at least one question row');
+      }
+
+      const headerRow = rows[0];
+      const headerIndexes = new Map<string, number>();
+      headerRow.forEach((headerCell, index) => {
+        const canonicalHeader = normalizeImportHeader(headerCell);
+        if (canonicalHeader && !headerIndexes.has(canonicalHeader)) {
+          headerIndexes.set(canonicalHeader, index);
+        }
+      });
+
+      if (!headerIndexes.has('questionText')) {
+        return ApiResponse.badRequest(
+          res,
+          'Missing required "questionText" column in header row',
+          { requiredColumns: ['questionText'] },
+        );
+      }
+
+      const validationErrors: Array<{ field: string; message: string }> = [];
+      const importedQuestions: z.infer<typeof questionSchema>[] = [];
+      let skippedBlankRows = 0;
+
+      const getCellValue = (row: string[], key: string): string => {
+        const index = headerIndexes.get(key);
+        if (index === undefined) return '';
+        return row[index]?.trim() || '';
+      };
+
+      for (let index = 1; index < rows.length; index++) {
+        const row = rows[index];
+        const rowNumber = index + 1;
+
+        const questionText = getCellValue(row, 'questionText');
+        const questionTypeRaw = getCellValue(row, 'questionType');
+        const optionsRaw = getCellValue(row, 'options');
+        const correctAnswerRaw = getCellValue(row, 'correctAnswer');
+        const timeLimitRaw = getCellValue(row, 'timeLimitSeconds');
+        const pointsRaw = getCellValue(row, 'points');
+        const mediaUrlRaw = getCellValue(row, 'mediaUrl');
+
+        const optionColumns = [1, 2, 3, 4, 5, 6]
+          .map((optionIndex) => getCellValue(row, `option${optionIndex}`))
+          .filter(Boolean);
+
+        const hasAnyContent = [questionText, questionTypeRaw, optionsRaw, correctAnswerRaw, timeLimitRaw, pointsRaw, mediaUrlRaw, ...optionColumns]
+          .some((value) => value.trim().length > 0);
+
+        if (!hasAnyContent) {
+          skippedBlankRows += 1;
+          continue;
+        }
+
+        if (!questionText) {
+          validationErrors.push({
+            field: `row.${rowNumber}`,
+            message: `Row ${rowNumber}: questionText is required`,
+          });
+          continue;
+        }
+
+        const questionType = normalizeImportQuestionType(questionTypeRaw) || 'MCQ';
+        const options = dedupeValues([
+          ...optionColumns,
+          ...parseDelimitedValues(optionsRaw),
+        ]);
+
+        let normalizedOptions = options;
+        if (questionType === 'TRUE_FALSE') {
+          normalizedOptions = ['True', 'False'];
+        } else if (questionType === 'RATING') {
+          normalizedOptions = ['1', '2', '3', '4', '5'];
+        } else if (
+          questionType === 'SHORT_ANSWER' ||
+          questionType === 'OPEN_ENDED'
+        ) {
+          normalizedOptions = [];
+        }
+
+        const isUnscoredType = UNSCORED_QUESTION_TYPES.has(questionType);
+        let normalizedCorrectAnswer = correctAnswerRaw.trim();
+
+        if (questionType === 'MULTI_SELECT') {
+          const parsedMultiSelect = parseJsonArrayString(correctAnswerRaw)
+            || dedupeValues(parseDelimitedValues(correctAnswerRaw));
+          normalizedCorrectAnswer = parsedMultiSelect.length > 0 ? JSON.stringify(parsedMultiSelect) : '';
+        } else if (questionType === 'TRUE_FALSE') {
+          normalizedCorrectAnswer = normalizeTrueFalseCorrectAnswer(correctAnswerRaw);
+        } else if (isUnscoredType) {
+          normalizedCorrectAnswer = '';
+        }
+
+        const timeLimitSeconds = clampNumber(parseNumberOrDefault(timeLimitRaw, 20), 5, 120);
+        const points = isUnscoredType ? 0 : Math.max(0, parseNumberOrDefault(pointsRaw, 100));
+        const mediaUrl = mediaUrlRaw || null;
+
+        const candidateQuestion: z.infer<typeof questionSchema> = {
+          position: importedQuestions.length,
+          questionText,
+          questionType,
+          options: normalizedOptions,
+          correctAnswer: normalizedCorrectAnswer,
+          timeLimitSeconds,
+          points,
+          mediaUrl,
+        };
+
+        const parsedRow = questionSchema.safeParse(candidateQuestion);
+        if (!parsedRow.success) {
+          for (const error of parsedRow.error.errors) {
+            validationErrors.push({
+              field: `row.${rowNumber}.${error.path.join('.')}`,
+              message: `Row ${rowNumber}: ${error.message}`,
+            });
+          }
+          continue;
+        }
+
+        importedQuestions.push(parsedRow.data);
+      }
+
+      if (importedQuestions.length === 0) {
+        return ApiResponse.badRequest(res, 'No valid question rows found in import file');
+      }
+
+      if (importedQuestions.length > 50) {
+        validationErrors.push({
+          field: 'questions',
+          message: `Imported ${importedQuestions.length} questions; maximum allowed is 50`,
+        });
+      }
+
+      const questionValidationError = validateQuizQuestions(importedQuestions);
+      if (questionValidationError) {
+        validationErrors.push({
+          field: 'questions',
+          message: questionValidationError,
+        });
+      }
+
+      if (validationErrors.length > 0) {
+        return ApiResponse.validationError(res, validationErrors);
+      }
+
+      return ApiResponse.success(
+        res,
+        {
+          titleSuggestion: normalizeImportTitle(req.file.originalname),
+          importedCount: importedQuestions.length,
+          skippedBlankRows,
+          questions: importedQuestions,
+        },
+        'Quiz file parsed successfully',
+      );
+    } catch (error) {
+      logger.error('POST /api/quiz/import error', { error: error instanceof Error ? error.message : String(error) });
+      return ApiResponse.internal(res);
+    }
+  },
+);
 
 // ─── GET /api/quiz/active — List active/waiting quizzes (auth users) ────
 
