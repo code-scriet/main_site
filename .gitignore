@@ -57,6 +57,9 @@ desktop.ini
 coverage/
 .nyc_output/
 *.lcov
+playwright-report/
+test-results/
+blob-report/
 
 # Prisma - keep migrations, ignore local db files
 prisma/*.db

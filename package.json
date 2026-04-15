@@ -28,12 +28,16 @@
     "db:seed": "prisma db seed",
     "db:studio": "prisma studio",
     "db:reset": "prisma migrate reset --force",
+    "test:e2e": "playwright test",
+    "test:e2e:headed": "playwright test --headed",
+    "test:e2e:ui": "playwright test --ui",
     "test:stability": "node --import tsx --test apps/api/src/quiz/*.test.ts apps/api/src/utils/*.test.ts apps/web/tests/*.test.ts",
     "setup": "npm install && npm run db:migrate && npm run db:seed"
   },
   "devDependencies": {
     "@fontsource/cinzel": "^5.2.8",
     "@fontsource/playfair-display": "^5.2.8",
+    "@playwright/test": "^1.59.1",
     "@types/node": "^20.19.27",
     "concurrently": "^9.2.1",
     "dotenv": "^17.2.3",
