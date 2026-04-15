@@ -104,7 +104,8 @@ function verifyQuizAccessToken(
 }
 
 function extendQuestionStartTime(currentQuestionStartTime: number, extraSeconds: number): number {
-  return currentQuestionStartTime - (extraSeconds * 1000);
+  // Extending time means reducing elapsed time, so the effective start moves forward.
+  return currentQuestionStartTime + (extraSeconds * 1000);
 }
 
 export function initQuizSocket(io: SocketIOServer) {

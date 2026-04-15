@@ -208,7 +208,8 @@ function extendQuestionStartTime(currentQuestionStartTime: number | null, extraS
     return currentQuestionStartTime;
   }
 
-  return currentQuestionStartTime - (extraSeconds * 1000);
+  // Keep client timer aligned with server: extending shifts effective start forward.
+  return currentQuestionStartTime + (extraSeconds * 1000);
 }
 
 export const useQuizStore = create<QuizState>()(
