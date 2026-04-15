@@ -28,6 +28,7 @@ const JWT_SECRET_ENV_CANDIDATES = [
 
 const DEV_FALLBACK_SECRET = 'dev_local_jwt_secret_change_me_before_production';
 let hasWarnedAboutDevSecret = false;
+const ACCESS_TOKEN_EXPIRES_IN: jwt.SignOptions['expiresIn'] = '7d';
 
 const getConfiguredJwtSecret = (): string | undefined => {
   for (const key of JWT_SECRET_ENV_CANDIDATES) {
@@ -65,8 +66,10 @@ export const getJwtSecret = (): string => {
 };
 
 export const signAccessToken = (payload: AccessTokenPayload): string => {
-  const expiresIn = (process.env.JWT_EXPIRES_IN || '7d') as jwt.SignOptions['expiresIn'];
-  return jwt.sign(payload, getJwtSecret(), { algorithm: 'HS256', expiresIn });
+  return jwt.sign(payload, getJwtSecret(), {
+    algorithm: 'HS256',
+    expiresIn: ACCESS_TOKEN_EXPIRES_IN,
+  });
 };
 
 export const signOAuthExchangeCode = (payload: OAuthExchangeCodePayload): string => (
