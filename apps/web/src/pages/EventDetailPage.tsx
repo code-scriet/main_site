@@ -11,7 +11,7 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Markdown } from '@/components/ui/markdown';
 import { 
-  Calendar, MapPin, Users, Loader2, Clock, AlertCircle, CheckCircle, 
+  Calendar, MapPin, Users, Loader2, Clock, AlertCircle,
   LogIn, ArrowLeft, Target, BookOpen, User, ExternalLink, ChevronDown,
   ChevronUp, Play, Image as ImageIcon, Link as LinkIcon, FileText,
   Github, Presentation, Video, HelpCircle, Tag, Star, Share2, X, QrCode
@@ -228,7 +228,6 @@ export default function EventDetailPage() {
     dayLabels?: string[];
     daySummary?: Array<{ dayNumber: number; attended: number }>;
   } | null>(null);
-  const [showQrTicketCta, setShowQrTicketCta] = useState(false);
 
   // Team registration state
   const [myTeam, setMyTeam] = useState<EventTeam | null>(null);
@@ -376,7 +375,6 @@ export default function EventDetailPage() {
 
       await api.registerForEvent(event.id, token, additionalFields);
       setIsRegistered(true);
-      setShowQrTicketCta(true);
       setShowRegistrationFormPopup(false);
 
       // Refresh event data
@@ -517,20 +515,16 @@ export default function EventDetailPage() {
     await performRegistration(additionalFields);
   };
 
-  const qrTicketCta = event && showQrTicketCta && !event.teamRegistration ? (
-    <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 space-y-2">
-      <div>
-        <p className="text-sm font-semibold text-amber-900">Registration complete</p>
-        <p className="text-xs text-amber-700">
-          Your attendance QR ticket is ready in My Events.
-        </p>
-      </div>
-      <Button className="w-full" variant="outline" onClick={openQrTicket}>
-        <QrCode className="h-4 w-4 mr-2" />
-        View Your QR Ticket
-      </Button>
-    </div>
-  ) : null;
+  const qrTicketCta = (
+    <Button
+      className="w-full bg-green-50 text-green-700 border border-green-200 hover:bg-green-100"
+      variant="outline"
+      onClick={openQrTicket}
+    >
+      <QrCode className="h-4 w-4 mr-2" />
+      View Your QR Ticket
+    </Button>
+  );
 
   const handleShare = async () => {
     const url = window.location.href;
@@ -861,7 +855,12 @@ export default function EventDetailPage() {
                         </div>
                       ) : myTeam ? (
                         // User has a team - show dashboard
-                        <TeamDashboard team={myTeam} event={event} onTeamChange={handleTeamChange} />
+                        <>
+                          <TeamDashboard team={myTeam} event={event} onTeamChange={handleTeamChange} />
+                          <div className="mt-3">{qrTicketCta}</div>
+                        </>
+                      ) : isRegistered ? (
+                        qrTicketCta
                       ) : event.status !== 'PAST' && regStatus.canRegister ? (
                         // User can register - show create/join buttons
                         user ? (
@@ -906,17 +905,10 @@ export default function EventDetailPage() {
                     ) : (
                       // Solo Registration UI (original)
                       <>
-                      {event.status !== 'PAST' && regStatus.canRegister ? (
-                        isRegistered ? (
-                          <Button 
-                            variant="secondary" 
-                            className="w-full bg-green-50 text-green-700 border border-green-200 cursor-default" 
-                            disabled
-                          >
-                            <CheckCircle className="h-4 w-4 mr-2" />
-                            You're Registered!
-                          </Button>
-                        ) : user ? (
+                      {isRegistered ? (
+                        qrTicketCta
+                      ) : event.status !== 'PAST' && regStatus.canRegister ? (
+                        user ? (
                           <Button 
                             className="w-full bg-amber-600 hover:bg-amber-700 text-white" 
                             onClick={handleRegister}
@@ -946,7 +938,6 @@ export default function EventDetailPage() {
                           {event.status === 'PAST' ? 'Event Completed' : regStatus.message}
                         </Button>
                       )}
-                      {qrTicketCta}
                     </>
                   )}
                   {competitionRounds.length > 0 && (
@@ -1286,7 +1277,12 @@ export default function EventDetailPage() {
                             <span className="ml-2 text-sm text-gray-600">Loading team...</span>
                           </div>
                         ) : myTeam ? (
-                          <TeamDashboard team={myTeam} event={event} onTeamChange={handleTeamChange} />
+                          <>
+                            <TeamDashboard team={myTeam} event={event} onTeamChange={handleTeamChange} />
+                            <div className="mt-3">{qrTicketCta}</div>
+                          </>
+                        ) : isRegistered ? (
+                          qrTicketCta
                         ) : event.status !== 'PAST' && regStatus.canRegister ? (
                           user ? (
                             <div className="space-y-3">
@@ -1330,17 +1326,10 @@ export default function EventDetailPage() {
                     ) : (
                       // Solo Registration UI (Desktop)
                       <>
-                        {event.status !== 'PAST' && regStatus.canRegister ? (
-                          isRegistered ? (
-                            <Button
-                              variant="secondary"
-                              className="w-full bg-green-50 text-green-700 border border-green-200 cursor-default"
-                              disabled
-                            >
-                              <CheckCircle className="h-4 w-4 mr-2" />
-                              You're Registered!
-                            </Button>
-                          ) : user ? (
+                        {isRegistered ? (
+                          qrTicketCta
+                        ) : event.status !== 'PAST' && regStatus.canRegister ? (
+                          user ? (
                             <Button
                               className="w-full bg-amber-600 hover:bg-amber-700 text-white"
                               onClick={handleRegister}
@@ -1370,7 +1359,6 @@ export default function EventDetailPage() {
                             {event.status === 'PAST' ? 'Event Completed' : regStatus.message}
                           </Button>
                         )}
-                        {qrTicketCta}
                       </>
                     )}
                     {competitionRounds.length > 0 && (
