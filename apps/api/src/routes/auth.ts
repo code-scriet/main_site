@@ -428,15 +428,10 @@ authRouter.get('/me', authMiddleware, (req: Request, res: Response) => {
   res.json({ success: true, data: withSuperAdmin(authUser), token });
 });
 
-authRouter.post('/exchange-code', authMiddleware, (req: Request, res: Response) => {
+authRouter.post('/exchange-code', async (req: Request, res: Response) => {
   const parsed = exchangeCodeSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ error: 'Invalid authorization code' });
-  }
-
-  const authUser = getAuthUser(req);
-  if (!authUser) {
-    return res.status(401).json({ error: 'Authentication required' });
   }
 
   let payload;
@@ -446,15 +441,44 @@ authRouter.post('/exchange-code', authMiddleware, (req: Request, res: Response) 
     return res.status(400).json({ error: 'Authorization code expired or invalid' });
   }
 
-  if (payload.userId !== authUser.id) {
-    return res.status(403).json({ error: 'Authorization code does not match the current session' });
-  }
+  try {
+    const fetchedUser = await prisma.user.findUnique({
+      where: { id: payload.userId },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        role: true,
+        avatar: true,
+        phone: true,
+        course: true,
+        branch: true,
+        year: true,
+        profileCompleted: true,
+      },
+    });
 
-  return res.json({
-    token: generateToken(authUser),
-    intent: payload.intent,
-    network_type: payload.networkType,
-  });
+    if (!fetchedUser) {
+      return res.status(401).json({ error: 'User not found' });
+    }
+
+    // Standard sign-ins should not remain on NETWORK if no profile exists.
+    const authUser = payload.intent === 'network'
+      ? fetchedUser
+      : await demoteOrphanNetworkUser(fetchedUser);
+
+    const token = generateToken(authUser);
+    setSessionCookie(res, token);
+
+    return res.json({
+      token,
+      intent: payload.intent,
+      network_type: payload.networkType,
+    });
+  } catch (error) {
+    logger.error('OAuth code exchange error:', { error: error instanceof Error ? error.message : String(error) });
+    return res.status(500).json({ error: 'Authorization code exchange failed' });
+  }
 });
 
 authRouter.post('/logout', (_req: Request, res: Response) => {
