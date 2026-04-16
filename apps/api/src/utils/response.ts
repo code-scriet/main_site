@@ -4,7 +4,7 @@ import { Response } from 'express';
 const isProduction = process.env.NODE_ENV === 'production';
 
 // Filter potentially sensitive information from error details in production
-function sanitizeErrorDetails(details: unknown): unknown {
+function sanitizeErrorDetails(details: unknown, seen?: WeakSet<object>): unknown {
   if (!isProduction || details === undefined) {
     return details;
   }
@@ -19,17 +19,24 @@ function sanitizeErrorDetails(details: unknown): unknown {
   }
 
   if (typeof details === 'object' && details !== null) {
+    // Guard against circular references
+    const visited = seen || new WeakSet();
+    if (visited.has(details as object)) {
+      return '[Circular]';
+    }
+    visited.add(details as object);
+
     // If it's an Error-like object, strip the stack
     if ('stack' in details) {
       const { stack: _stack, ...rest } = details as { stack?: string };
-      return sanitizeErrorDetails(rest);
+      return sanitizeErrorDetails(rest, visited);
     }
     // Recursively sanitize object properties
     const sanitized: Record<string, unknown> = {};
     for (const [key, value] of Object.entries(details)) {
       // Skip stack-like keys
       if (key === 'stack' || key === 'stackTrace') continue;
-      sanitized[key] = sanitizeErrorDetails(value);
+      sanitized[key] = sanitizeErrorDetails(value, visited);
     }
     return Object.keys(sanitized).length > 0 ? sanitized : undefined;
   }

@@ -18,9 +18,54 @@ type ProcessReminderOptions = {
   emptyLogMessage?: string;
 };
 
+async function rollbackReminderReservation(registrationId: string, reservationTimestamp: Date): Promise<void> {
+  // Only clear the marker if it still matches OUR reservation timestamp.
+  // If another process overwrote it (race), their marker may represent a
+  // successful send — clearing it would cause a duplicate email next run.
+  const exactRollback = await prisma.eventRegistration.updateMany({
+    where: {
+      id: registrationId,
+      reminderSentAt: reservationTimestamp,
+      event: {
+        status: 'UPCOMING',
+        startDate: { gte: new Date() },
+      },
+    },
+    data: {
+      reminderSentAt: null,
+    },
+  });
+
+  if (exactRollback.count === 0) {
+    logger.warn('Reminder rollback skipped — reservation marker was overwritten (likely by a concurrent process)', {
+      registrationId,
+    });
+  }
+}
+
+async function isEmailTestingModeActive(): Promise<boolean> {
+  try {
+    const settings = await prisma.settings.findUnique({
+      where: { id: 'default' },
+      select: { emailTestingMode: true },
+    });
+    return settings?.emailTestingMode ?? false;
+  } catch {
+    return false;
+  }
+}
+
 async function processReminders(window: ReminderWindow, options: ProcessReminderOptions): Promise<{ sent: number; events: string[] }> {
   const events: string[] = [];
   let sent = 0;
+
+  // Skip processing entirely when testing mode is active to avoid permanently
+  // marking reminderSentAt on real registrations (the email would go to test
+  // recipients, but the marker would prevent real delivery after testing ends).
+  if (await isEmailTestingModeActive()) {
+    logger.info('⏭️ Email testing mode active — skipping reminder processing to avoid marking real registrations as sent');
+    return { sent: 0, events };
+  }
 
   const now = new Date();
   const minTime = new Date(now.getTime() + window.minHours * 60 * 60 * 1000);
@@ -108,28 +153,12 @@ async function processReminders(window: ReminderWindow, options: ProcessReminder
         sent++;
         logger.info(`✅ Reminder sent to ${registration.user.email} for "${registration.event.title}"`);
       } else {
-        await prisma.eventRegistration.updateMany({
-          where: {
-            id: registration.id,
-            reminderSentAt: reservationTimestamp,
-          },
-          data: {
-            reminderSentAt: null,
-          },
-        });
+        await rollbackReminderReservation(registration.id, reservationTimestamp);
       }
 
       await new Promise(resolve => setTimeout(resolve, 200));
     } catch (error) {
-      await prisma.eventRegistration.updateMany({
-        where: {
-          id: registration.id,
-          reminderSentAt: reservationTimestamp,
-        },
-        data: {
-          reminderSentAt: null,
-        },
-      });
+      await rollbackReminderReservation(registration.id, reservationTimestamp);
 
       logger.error(`❌ Failed to send reminder to ${registration.user.email}`, {
         error: error instanceof Error ? error.message : String(error),
