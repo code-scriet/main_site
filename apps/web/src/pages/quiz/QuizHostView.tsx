@@ -208,9 +208,14 @@ export function QuizHostView({
     }
   };
 
+  const connectedCount = useMemo(
+    () => participants.filter((p) => p.connected !== false).length,
+    [participants],
+  );
+
   const allAnswered = useMemo(
-    () => participants.length > 0 && answeredCount >= participants.length,
-    [answeredCount, participants.length],
+    () => connectedCount > 0 && answeredCount >= connectedCount,
+    [answeredCount, connectedCount],
   );
   const velocityPoints =
     velocitySeries.questionIndex === (currentQuestion?.questionIndex ?? -1)
@@ -286,15 +291,15 @@ export function QuizHostView({
                 <span className="absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75 animate-ping" />
                 <span className="relative inline-flex h-2 w-2 rounded-full bg-green-500" />
               </span>
-              <span className="tabular-nums font-semibold">{participants.length}</span>
+              <span className="tabular-nums font-semibold">{connectedCount}</span>
               <span className="text-amber-700/50">connected</span>
             </div>
             <div className="flex items-center gap-2 flex-1 max-w-[120px] sm:max-w-[200px]">{/* responsive: narrower on mobile */}
-              <span className="text-amber-700 tabular-nums font-semibold">{answeredCount}/{participants.length}</span>
+              <span className="text-amber-700 tabular-nums font-semibold">{answeredCount}/{connectedCount}</span>
               <div className="flex-1 h-1.5 bg-amber-100 rounded-full overflow-hidden">
                 <div
                   className="h-full bg-amber-500 rounded-full transition-all duration-300"
-                  style={{ width: `${participants.length > 0 ? (answeredCount / participants.length) * 100 : 0}%` }}
+                  style={{ width: `${connectedCount > 0 ? (answeredCount / connectedCount) * 100 : 0}%` }}
                 />
               </div>
               <span className="text-amber-700/50">answered</span>
@@ -578,31 +583,38 @@ export function QuizHostView({
                 {quizStatus === 'question' && (
                   <div className="mt-4 pt-4 border-t border-amber-100">
                     <p className="text-xs text-amber-700/50 font-semibold uppercase tracking-wide mb-2">Adjust Time</p>
-                    <div className="flex flex-wrap gap-2">
-                      {[10, 30, 60].map((s) => (
-                        <Button
-                          key={s}
-                          size="sm"
-                          variant="outline"
-                          onClick={() => onExtendTime(s)}
-                          className="border-amber-200 text-amber-700 hover:bg-amber-50"
-                        >
-                          <Plus className="h-3 w-3 mr-1" />
-                          {s < 60 ? `${s}s` : '1m'}
-                        </Button>
-                      ))}
-                      {[10, 30].map((s) => (
-                        <Button
-                          key={`reduce-${s}`}
-                          size="sm"
-                          variant="outline"
-                          onClick={() => onExtendTime(-s)}
-                          className="border-orange-200 text-orange-700 hover:bg-orange-50"
-                        >
-                          <Minus className="h-3 w-3 mr-1" />
-                          -{s}s
-                        </Button>
-                      ))}
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-[10px] font-semibold text-amber-700/60 uppercase tracking-wide">Add</span>
+                        {[10, 30, 60].map((s) => (
+                          <Button
+                            key={s}
+                            size="sm"
+                            variant="outline"
+                            onClick={() => onExtendTime(s)}
+                            className="border-amber-200 text-amber-700 hover:bg-amber-50"
+                          >
+                            <Plus className="h-3 w-3 mr-1" />
+                            {s < 60 ? `${s}s` : '1m'}
+                          </Button>
+                        ))}
+                      </div>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-[10px] font-semibold text-orange-700/70 uppercase tracking-wide">Reduce</span>
+                        {[10, 30].map((s) => (
+                          <Button
+                            key={`reduce-${s}`}
+                            size="sm"
+                            variant="outline"
+                            onClick={() => onExtendTime(-s)}
+                            className="border-orange-300 text-orange-700 hover:bg-orange-50"
+                            aria-label={`Reduce quiz timer by ${s} seconds`}
+                          >
+                            <Minus className="h-3 w-3 mr-1" />
+                            -{s}s
+                          </Button>
+                        ))}
+                      </div>
                     </div>
                   </div>
                 )}
@@ -617,14 +629,14 @@ export function QuizHostView({
               <Card className="border-amber-200/60 shadow-sm">
                 <CardContent className="p-5 flex items-center gap-4">
                   <div className="relative">
-                    <ProgressRing value={answeredCount} max={participants.length} size={56} />
+                    <ProgressRing value={answeredCount} max={connectedCount} size={56} />
                     <span className="absolute inset-0 flex items-center justify-center text-xs font-bold text-amber-800 tabular-nums">
                       {answeredCount}
                     </span>
                   </div>
                   <div>
                     <p className="text-sm font-semibold text-amber-900">
-                      {answeredCount} / {participants.length} answered
+                      {answeredCount} / {connectedCount} answered
                     </p>
                     {allAnswered && (
                       <motion.p
@@ -679,7 +691,7 @@ export function QuizHostView({
                     const accuracy = currentQuestion?.questionType === 'OPEN_ENDED'
                       ? 0
                       : total > 0 ? Math.round((correct / total) * 100) : 0;
-                    const unanswered = participants.length - total;
+                    const unanswered = connectedCount - total;
                     const label = currentQuestion?.questionType === 'OPEN_ENDED'
                       ? 'Qualitative feedback collected'
                       : accuracy > averageAccuracy ? 'Easier than average' : 'Harder than average';

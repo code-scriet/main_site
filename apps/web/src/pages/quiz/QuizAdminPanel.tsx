@@ -118,7 +118,7 @@ export const QuizAdminPanel = memo(function QuizAdminPanel({
             <div className="flex items-center gap-2 text-sm">
               <div className="flex items-center gap-1.5 text-amber-700/60 font-medium">
                 <Users className="h-3.5 w-3.5" />
-                <span className="tabular-nums">{connectedCount || players.length}</span>
+                <span className="tabular-nums">{connectedCount}</span>
               </div>
               {/* Player list toggle */}
               {onKickPlayer && players.length > 0 && (
@@ -146,10 +146,12 @@ export const QuizAdminPanel = memo(function QuizAdminPanel({
                   {players.map((p) => (
                     <div key={p.userId} className="flex items-center justify-between px-3 py-1.5 text-sm">
                       <div className="flex items-center gap-2 min-w-0">
-                        {/* Connected/disconnected dot (#64) */}
+                        {/* Connected/disconnected dot */}
                         <span className="relative flex h-2 w-2 flex-shrink-0">
-                          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75" />
-                          <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500" />
+                          {p.connected !== false && (
+                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75" />
+                          )}
+                          <span className={cn('relative inline-flex rounded-full h-2 w-2', p.connected !== false ? 'bg-green-500' : 'bg-gray-300')} />
                         </span>
                         <span className="truncate text-amber-800 font-medium">{p.displayName}</span>
                       </div>
@@ -320,13 +322,13 @@ function QuestionControls({
       </div>
 
       {/* Secondary controls */}
-      <div className="flex gap-1.5">
+      <div className="flex flex-wrap gap-1.5">
         {onPauseQuiz && (
           <Button
             onClick={onPauseQuiz}
             variant="outline"
             size="sm"
-            className="flex-1 text-xs border-amber-200 text-amber-700 hover:bg-amber-50"
+            className="flex-1 min-w-[72px] text-xs border-amber-200 text-amber-700 hover:bg-amber-50"
           >
             <Pause className="h-3 w-3 mr-1" />
             Pause
@@ -340,21 +342,25 @@ function QuestionControls({
                 onClick={() => onExtendTime(s)}
                 variant="outline"
                 size="sm"
-                className="flex-1 text-xs border-amber-200 text-amber-600 hover:bg-amber-50 font-mono"
+                className="flex-1 min-w-[72px] text-xs border-amber-200 text-amber-600 hover:bg-amber-50 font-mono"
               >
                 <Timer className="h-3 w-3 mr-1" />
                 +{s}s
               </Button>
             ))}
-            <Button
-              onClick={() => onExtendTime(-10)}
-              variant="outline"
-              size="sm"
-              className="flex-1 text-xs border-orange-200 text-orange-600 hover:bg-orange-50 font-mono"
-            >
-              <Minus className="h-3 w-3 mr-1" />
-              -10s
-            </Button>
+            {[10, 30].map((s) => (
+              <Button
+                key={`reduce-${s}`}
+                onClick={() => onExtendTime(-s)}
+                variant="outline"
+                size="sm"
+                className="flex-1 min-w-[72px] text-xs border-orange-300 text-orange-600 hover:bg-orange-50 font-mono"
+                aria-label={`Reduce quiz timer by ${s} seconds`}
+              >
+                <Minus className="h-3 w-3 mr-1" />
+                -{s}s
+              </Button>
+            ))}
           </>
         )}
         {onSkipQuestion && (
@@ -362,7 +368,7 @@ function QuestionControls({
             onClick={onSkipQuestion}
             variant="outline"
             size="sm"
-            className="flex-1 text-xs text-orange-600 border-orange-300 hover:bg-orange-50"
+            className="flex-1 min-w-[72px] text-xs text-orange-600 border-orange-300 hover:bg-orange-50"
           >
             <FastForward className="h-3 w-3 mr-1" />
             Skip
