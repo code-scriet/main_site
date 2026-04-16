@@ -192,6 +192,9 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Login failed';
       setError(message);
+      clearStoredAuthToken();
+      setToken(null);
+      setUser(null);
       throw err;
     } finally {
       setIsLoading(false);
@@ -209,6 +212,9 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Registration failed';
       setError(message);
+      clearStoredAuthToken();
+      setToken(null);
+      setUser(null);
       throw err;
     } finally {
       setIsLoading(false);
@@ -226,6 +232,9 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Login failed';
       setError(message);
+      clearStoredAuthToken();
+      setToken(null);
+      setUser(null);
       throw err;
     } finally {
       setIsLoading(false);

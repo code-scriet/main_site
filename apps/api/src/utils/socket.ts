@@ -8,6 +8,8 @@ let io: SocketIOServer | null = null;
 const SOCKET_CONNECT_WINDOW_MS = 60 * 1000;
 const SOCKET_CONNECT_MAX_PER_WINDOW = 30;
 const socketConnectionRateMap = new Map<string, { count: number; windowStart: number }>();
+const SOCKET_PING_TIMEOUT_MS = Number(process.env.SOCKET_PING_TIMEOUT_MS || 30000);
+const SOCKET_PING_INTERVAL_MS = Number(process.env.SOCKET_PING_INTERVAL_MS || 10000);
 
 function getSocketClientIp(socket: Socket): string {
   const forwardedFor = socket.handshake.headers['x-forwarded-for'];
@@ -87,8 +89,9 @@ export function initializeSocket(httpServer: HTTPServer) {
       },
       credentials: true,
     },
-    pingTimeout: 60000,
-    pingInterval: 25000,
+    // Lower defaults tighten stale-connection detection for large live quizzes.
+    pingTimeout: SOCKET_PING_TIMEOUT_MS,
+    pingInterval: SOCKET_PING_INTERVAL_MS,
     transports: ['websocket'],
     maxHttpBufferSize: 1e6,
     upgradeTimeout: 10000,

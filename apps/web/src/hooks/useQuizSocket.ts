@@ -82,7 +82,7 @@ export function useQuizSocket() {
     socket.on('admin_disconnected', () => { /* Could show notice */ });
 
     // Admin control events
-    socket.on('quiz_paused', () => useQuizStore.getState().quizPaused());
+    socket.on('quiz_paused', (data) => useQuizStore.getState().quizPaused(data));
     socket.on('quiz_resumed', (data) => useQuizStore.getState().quizResumed(data));
     socket.on('timer_extended', (data) => useQuizStore.getState().timerExtended(data));
     socket.on('player_kicked', () => useQuizStore.getState().playerKicked());

@@ -1184,8 +1184,8 @@ certificatesRouter.post('/bulk', authMiddleware, requireRole('ADMIN'), async (re
   });
   const recipientIdByEmail = await findRecipientIdsByEmail(recipientsToProcess.map((recipient) => recipient.email));
 
-  // Process in batches of 5 to limit memory/concurrency
-  const BATCH_SIZE = 3;
+  // Process sequentially to avoid concurrent PDF buffer spikes on 512 MB instances.
+  const BATCH_SIZE = 1;
   for (let i = 0; i < recipientsToProcess.length; i += BATCH_SIZE) {
     const batch = recipientsToProcess.slice(i, i + BATCH_SIZE);
     await Promise.allSettled(

@@ -14,10 +14,11 @@ const sampleQuestion = {
   questionId: 'question-1',
 };
 
-test('frontend timer extension moves question start backward', () => {
+test('frontend timer extension shifts start time for signed adjustments', () => {
   const currentStartTime = 1_000_000;
 
-  assert.equal(quizStoreTestUtils.extendQuestionStartTime(currentStartTime, 15), currentStartTime - 15_000);
+  assert.equal(quizStoreTestUtils.extendQuestionStartTime(currentStartTime, 15), currentStartTime + 15_000);
+  assert.equal(quizStoreTestUtils.extendQuestionStartTime(currentStartTime, -10), currentStartTime - 10_000);
   assert.equal(quizStoreTestUtils.extendQuestionStartTime(null, 15), null);
 });
 

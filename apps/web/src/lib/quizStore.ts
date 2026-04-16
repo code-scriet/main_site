@@ -134,6 +134,8 @@ interface QuizState {
     isAdmin: boolean;
     joinCode?: string | null;
     pin?: string | null;
+    hasAnsweredCurrentQuestion?: boolean;
+    pausedTimeRemaining?: number | null;
     currentQuestion?: QuizQuestion;
     questionReveal?: QuestionReveal;
   }) => void;
@@ -156,9 +158,9 @@ interface QuizState {
   questionResultsReceived: (data: QuestionReveal) => void;
   finalLeaderboardReceived: (data: { leaderboard: LeaderboardEntry[]; totalQuestions: number }) => void;
 
-  quizPaused: () => void;
+  quizPaused: (data: { remainingMs: number }) => void;
   quizResumed: (data: { remainingMs: number }) => void;
-  timerExtended: (data: { extraSeconds: number }) => void;
+  timerExtended: (data: { extraSeconds: number; remainingMs?: number }) => void;
   playerKicked: () => void;
 
   myRankUpdated: (data: { rank: number; totalPlayers: number; score: number }) => void;
@@ -246,17 +248,28 @@ export const useQuizStore = create<QuizState>()(
         pin: data.pin || null,
         currentQuestion: data.currentQuestion || null,
         questionStartTime: data.currentQuestion
-          ? Date.now() - (data.currentQuestion.timeElapsedMs || 0)
+          ? (derivedStatus === 'paused' && typeof data.pausedTimeRemaining === 'number'
+            ? Date.now() - ((data.currentQuestion.timeLimitSeconds * 1000) - data.pausedTimeRemaining)
+            : Date.now() - (data.currentQuestion.timeElapsedMs || 0))
           : null,
         questionIndex: data.currentQuestion?.questionIndex ?? 0,
+        hasAnswered: data.hasAnsweredCurrentQuestion ?? false,
+        myAnswer: null,
+        lastAnswerResult: null,
         questionReveal: data.questionReveal ?? null,
         leaderboard: data.questionReveal?.leaderboard ?? [],
+        pausedTimeRemaining: derivedStatus === 'paused'
+          ? (typeof data.pausedTimeRemaining === 'number' ? data.pausedTimeRemaining : null)
+          : null,
       });
     },
 
     playerJoined: (data) =>
       set((s) => ({
-        players: [...s.players.filter((p) => p.userId !== data.userId), { userId: data.userId, displayName: data.displayName }],
+        players: [
+          ...s.players.filter((p) => p.userId !== data.userId),
+          { userId: data.userId, displayName: data.displayName, connected: true, answered: false },
+        ],
         connectedCount: data.totalPlayers,
       })),
 
@@ -333,12 +346,13 @@ export const useQuizStore = create<QuizState>()(
         };
       }),
 
-    quizPaused: () =>
+    quizPaused: (data) =>
       set((s) => ({
         quizStatus: 'paused',
-        pausedTimeRemaining: s.questionStartTime && s.currentQuestion
-          ? Math.max(0, (s.currentQuestion.timeLimitSeconds * 1000) - (Date.now() - s.questionStartTime))
-          : null,
+        pausedTimeRemaining: data.remainingMs,
+        questionStartTime: s.currentQuestion
+          ? Date.now() - ((s.currentQuestion.timeLimitSeconds * 1000) - data.remainingMs)
+          : s.questionStartTime,
       })),
 
     quizResumed: (data) =>
@@ -351,9 +365,16 @@ export const useQuizStore = create<QuizState>()(
       })),
 
     timerExtended: (data) =>
-      set((s) => ({
-        questionStartTime: extendQuestionStartTime(s.questionStartTime, data.extraSeconds),
-      })),
+      set((s) => {
+        if (typeof data.remainingMs === 'number' && s.currentQuestion) {
+          return {
+            questionStartTime: Date.now() - ((s.currentQuestion.timeLimitSeconds * 1000) - data.remainingMs),
+          };
+        }
+        return {
+          questionStartTime: extendQuestionStartTime(s.questionStartTime, data.extraSeconds),
+        };
+      }),
 
     playerKicked: () =>
       set({
@@ -374,13 +395,16 @@ export const useQuizStore = create<QuizState>()(
     myRankUpdated: (data) => set({ myRank: data.rank, totalPlayers: data.totalPlayers, myScore: data.score }),
 
     playerStatusUpdated: (statuses) =>
-      set((state) => ({
-        players: state.players.map(p => {
-          const status = statuses.find(s => s.userId === p.userId);
-          if (!status) return p;
-          return { ...p, answered: status.answered, connected: status.connected };
-        }),
-      })),
+      set((state) => {
+        const statusByUserId = new Map(statuses.map((status) => [status.userId, status]));
+        return {
+          players: state.players.map((player) => {
+            const status = statusByUserId.get(player.userId);
+            if (!status) return player;
+            return { ...player, answered: status.answered, connected: status.connected };
+          }),
+        };
+      }),
 
     reset: () => set(initialState),
   })),

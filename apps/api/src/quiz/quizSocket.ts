@@ -30,16 +30,6 @@ function scheduleAnswerCountBroadcast(quizId: string, ns: { to: (room: string) =
 
     ns.to(quizId).emit('answer_count_update', { answered, total });
 
-    // Host-only unicast — per-player answered + connected status
-    if (room.adminSocketId) {
-      const playerStatuses = [...room.players.entries()].map(([userId, player]) => ({
-        userId,
-        answered: player.answeredCurrentQuestion,
-        connected: player.connected,
-      }));
-      ns.to(room.adminSocketId).emit('player_status_update', playerStatuses);
-    }
-
     if (answered >= total && total > 0 && room.adminSocketId) {
       ns.to(room.adminSocketId).emit('all_answered', {});
     }
@@ -104,7 +94,7 @@ function verifyQuizAccessToken(
 }
 
 function extendQuestionStartTime(currentQuestionStartTime: number, extraSeconds: number): number {
-  // Extending time means reducing elapsed time, so the effective start moves forward.
+  // Positive values extend time, negative values reduce remaining time.
   return currentQuestionStartTime + (extraSeconds * 1000);
 }
 
@@ -133,6 +123,30 @@ export function initQuizSocket(io: SocketIOServer) {
   // ─── Connection handler ────────────────────────────────────────────────
   const canControlQuiz = (room: { adminUserId: string }, socket: QuizSocket) =>
     socket.userId === room.adminUserId || ['ADMIN', 'PRESIDENT'].includes(socket.userRole || '');
+
+  const emitHostPlayerStatusSnapshot = (room: QuizRoom): void => {
+    if (!room.adminSocketId) return;
+
+    const statuses = [...room.players.entries()].map(([userId, player]) => ({
+      userId,
+      answered: player.answeredCurrentQuestion,
+      connected: player.connected,
+    }));
+    quizNamespace.to(room.adminSocketId).emit('player_status_update', statuses);
+  };
+
+  const emitHostPlayerStatusDelta = (room: QuizRoom, userId: string): void => {
+    if (!room.adminSocketId) return;
+
+    const player = room.players.get(userId);
+    if (!player) return;
+
+    quizNamespace.to(room.adminSocketId).emit('player_status_update', [{
+      userId,
+      answered: player.answeredCurrentQuestion,
+      connected: player.connected,
+    }]);
+  };
 
   const getCurrentQuestionRemainingMs = (room: QuizRoom): number => {
     const currentQ = room.questions[room.currentQuestionIndex];
@@ -166,6 +180,26 @@ export function initQuizSocket(io: SocketIOServer) {
       answerDistribution,
       questionIndex: room.currentQuestionIndex,
     });
+
+    const isUnscoredType =
+      currentQ.questionType === 'POLL' ||
+      currentQ.questionType === 'RATING' ||
+      currentQ.questionType === 'OPEN_ENDED';
+
+    // Reveal per-player correctness/points only after question time is over.
+    for (const [userId, answerRecord] of room.currentAnswers.entries()) {
+      const player = room.players.get(userId);
+      if (!player?.socketId || !player.connected) continue;
+
+      quizNamespace.to(player.socketId).emit('answer_result', {
+        isCorrect: answerRecord.isCorrect,
+        isPoll: isUnscoredType,
+        pointsAwarded: answerRecord.pointsAwarded,
+        timeMs: answerRecord.timeMs,
+        newScore: player.score,
+        newStreak: player.streak,
+      });
+    }
 
     // Send each player their personal rank (targeted, not broadcast)
     for (let i = 0; i < fullLeaderboard.length; i++) {
@@ -322,17 +356,21 @@ export function initQuizSocket(io: SocketIOServer) {
           players,
           totalQuestions: room.meta.totalQuestions,
           yourScore: playerState?.score ?? 0,
+          hasAnsweredCurrentQuestion: playerState?.answeredCurrentQuestion ?? false,
           yourRank: null,
           isAdmin,
           joinCode: isAdmin ? room.joinCode : undefined,
           pin: isAdmin ? room.pin : undefined,
+          pausedTimeRemaining: room.status === 'paused' ? room.pausedTimeRemaining : null,
         };
 
-        // If quiz is active/revealing (mid-question on rejoin), include current question
-        if ((room.status === 'active' || room.status === 'revealing') && room.currentQuestionIndex >= 0) {
+        // If quiz is mid-question (including paused), include current question for rejoin sync.
+        if ((room.status === 'active' || room.status === 'revealing' || room.status === 'paused') && room.currentQuestionIndex >= 0) {
           const currentQ = room.questions[room.currentQuestionIndex];
           if (currentQ) {
-            const timeElapsedMs = Date.now() - room.currentQuestionStartTime;
+            const timeElapsedMs = room.status === 'paused' && room.pausedTimeRemaining !== null
+              ? Math.max(0, (currentQ.timeLimitSeconds * 1000) - room.pausedTimeRemaining)
+              : Date.now() - room.currentQuestionStartTime;
             confirmPayload.currentQuestion = {
               ...sanitizeQuestionForClient(currentQ, room.currentQuestionIndex, room.meta.totalQuestions),
               timeElapsedMs,
@@ -360,6 +398,14 @@ export function initQuizSocket(io: SocketIOServer) {
 
         socket.emit('join_confirmed', confirmPayload);
 
+        if (isAdmin && (room.status === 'active' || room.status === 'revealing')) {
+          emitHostPlayerStatusSnapshot(room);
+        }
+
+        if (!hostJoin && !isCreator && (room.status === 'active' || room.status === 'revealing')) {
+          emitHostPlayerStatusDelta(room, socket.userId);
+        }
+
         // Notify others if new player
         if (!hostJoin && result?.isNew) {
           socket.to(quizId).emit('player_joined', {
@@ -367,16 +413,6 @@ export function initQuizSocket(io: SocketIOServer) {
             displayName: socket.userDisplayName,
             totalPlayers: players.length,
           });
-
-          // Host-only: refresh player status list
-          if (room.adminSocketId && (room.status === 'active' || room.status === 'revealing')) {
-            const playerStatuses = [...room.players.entries()].map(([userId, player]) => ({
-              userId,
-              answered: player.answeredCurrentQuestion,
-              connected: player.connected,
-            }));
-            quizNamespace.to(room.adminSocketId).emit('player_status_update', playerStatuses);
-          }
         }
       } catch (error) {
         logger.error('join_quiz error', { error: error instanceof Error ? error.message : String(error) });
@@ -459,14 +495,7 @@ export function initQuizSocket(io: SocketIOServer) {
           ));
 
           // Host-only: reset status — everyone is ⏳ at question start
-          if (room.adminSocketId) {
-            const playerStatuses = [...room.players.entries()].map(([userId, player]) => ({
-              userId,
-              answered: false,
-              connected: player.connected,
-            }));
-            quizNamespace.to(room.adminSocketId).emit('player_status_update', playerStatuses);
-          }
+          emitHostPlayerStatusSnapshot(room);
 
           // Auto-advance timer
           room.autoAdvanceTimer = setTimeout(() => {
@@ -514,6 +543,7 @@ export function initQuizSocket(io: SocketIOServer) {
       const advancement = quizStore.advanceQuestion(quizId);
 
       if (advancement.done) {
+        room.status = 'finished';
         const leaderboard = quizStore.getLeaderboard(quizId);
         const totalQuestions = room.meta.totalQuestions;
 
@@ -532,14 +562,7 @@ export function initQuizSocket(io: SocketIOServer) {
         ));
 
         // Host-only: reset status
-        if (room.adminSocketId) {
-          const playerStatuses = [...room.players.entries()].map(([userId, player]) => ({
-            userId,
-            answered: false,
-            connected: player.connected,
-          }));
-          quizNamespace.to(room.adminSocketId).emit('player_status_update', playerStatuses);
-        }
+        emitHostPlayerStatusSnapshot(room);
 
         room.autoAdvanceTimer = setTimeout(() => {
           handleAutoAdvance(quizId);
@@ -548,11 +571,11 @@ export function initQuizSocket(io: SocketIOServer) {
     });
 
     // ─── submit_answer ───────────────────────────────────────────────────
-    socket.on('submit_answer', ({ quizId, answer, questionId }: { quizId: string; answer: string; questionId: string }) => {
+    socket.on('submit_answer', ({ quizId, answer }: { quizId: string; answer: string; questionId?: string }) => {
       if (!socket.userId || !quizId) return;
 
       // Rate limit
-      if (!quizStore.checkRateLimit(socket.userId)) {
+      if (!quizStore.checkRateLimit(quizId, socket.userId)) {
         socket.emit('quiz_error', { code: 'RATE_LIMITED', message: 'Too fast, slow down' });
         return;
       }
@@ -569,19 +592,11 @@ export function initQuizSocket(io: SocketIOServer) {
         accepted: true,
       });
 
-      // Unicast per-player scoring feedback
-      socket.emit('answer_result', {
-        isCorrect: result.isCorrect,
-        isPoll: result.isPoll,
-        pointsAwarded: result.pointsAwarded,
-        timeMs: result.timeMs,
-        newScore: result.newScore,
-        newStreak: result.newStreak,
-      });
-
       // Throttled broadcast of answer count to room
       const room = quizStore.getRoom(quizId);
       if (room) {
+        emitHostPlayerStatusDelta(room, socket.userId);
+
         const currentQ = room.questions[room.currentQuestionIndex];
         const isPollOrRating = currentQ && (currentQ.questionType === 'POLL' || currentQ.questionType === 'RATING');
 
@@ -617,6 +632,8 @@ export function initQuizSocket(io: SocketIOServer) {
         clearTimeout(room.autoAdvanceTimer);
         room.autoAdvanceTimer = null;
       }
+
+      room.status = 'finished';
 
       const leaderboard = quizStore.getLeaderboard(quizId);
       const totalQuestions = room.meta.totalQuestions;
@@ -670,7 +687,9 @@ export function initQuizSocket(io: SocketIOServer) {
       }
 
       if (quizStore.pauseQuiz(quizId)) {
-        quizNamespace.to(quizId).emit('quiz_paused', {});
+        quizNamespace.to(quizId).emit('quiz_paused', {
+          remainingMs: room.pausedTimeRemaining ?? 0,
+        });
       }
     });
 
@@ -704,17 +723,23 @@ export function initQuizSocket(io: SocketIOServer) {
 
       const room = quizStore.getRoom(quizId);
       if (!room || !canControlQuiz(room, socket)) {
-        emitBlockedControlAction('FORBIDDEN', 'Only admin can extend time');
+        emitBlockedControlAction('FORBIDDEN', 'Only admin can adjust time');
         return;
       }
 
       if (room.status !== 'active' || room.currentQuestionIndex < 0) {
-        emitBlockedControlAction('QUIZ_NOT_ACTIVE', 'Time can only be extended during an active question');
+        emitBlockedControlAction('QUIZ_NOT_ACTIVE', 'Time can only be adjusted during an active question');
         return;
       }
 
-      const normalizedExtraSeconds = Number.isFinite(extraSeconds) ? Math.floor(extraSeconds) : 15;
-      const clampedExtraSeconds = Math.min(Math.max(normalizedExtraSeconds, 1), 300);
+      const normalizedExtraSeconds = Number.isFinite(extraSeconds) ? Math.trunc(extraSeconds) : 15;
+      if (normalizedExtraSeconds === 0) {
+        emitBlockedControlAction('INVALID_TIME_DELTA', 'Adjustment must be at least 1 second');
+        return;
+      }
+
+      const clampedMagnitude = Math.min(Math.max(Math.abs(normalizedExtraSeconds), 1), 300);
+      const signedDeltaSeconds = Math.sign(normalizedExtraSeconds) * clampedMagnitude;
 
       // Clear existing auto-advance timer
       if (room.autoAdvanceTimer) {
@@ -723,20 +748,25 @@ export function initQuizSocket(io: SocketIOServer) {
 
       room.currentQuestionStartTime = extendQuestionStartTime(
         room.currentQuestionStartTime,
-        clampedExtraSeconds,
+        signedDeltaSeconds,
       );
 
       // Set new auto-advance timer
       const question = room.questions[room.currentQuestionIndex];
+      let remainingMs = 0;
       if (question) {
         const elapsed = Date.now() - room.currentQuestionStartTime;
-        const remaining = (question.timeLimitSeconds * 1000) - elapsed + 3000;
+        remainingMs = Math.max((question.timeLimitSeconds * 1000) - elapsed, 0);
+        const remaining = remainingMs + 3000;
         room.autoAdvanceTimer = setTimeout(() => {
           handleAutoAdvance(quizId);
         }, Math.max(remaining, 3000));
       }
 
-      quizNamespace.to(quizId).emit('timer_extended', { extraSeconds: clampedExtraSeconds });
+      quizNamespace.to(quizId).emit('timer_extended', {
+        extraSeconds: signedDeltaSeconds,
+        remainingMs,
+      });
     });
 
     // ─── skip_question ───────────────────────────────────────────────────
@@ -758,6 +788,7 @@ export function initQuizSocket(io: SocketIOServer) {
         // Active-stage skip: jump directly to next question / finish (bypasses reveal).
         const advancement = quizStore.advanceQuestion(quizId);
         if (advancement.done) {
+          room.status = 'finished';
           const leaderboard = quizStore.getLeaderboard(quizId);
           quizNamespace.to(quizId).emit('quiz_finishing', {});
           quizNamespace.to(quizId).emit('final_leaderboard', { leaderboard, totalQuestions: room.meta.totalQuestions });
@@ -770,14 +801,7 @@ export function initQuizSocket(io: SocketIOServer) {
             q, advancement.questionIndex!, room.meta.totalQuestions,
           ));
 
-          if (room.adminSocketId) {
-            const playerStatuses = [...room.players.entries()].map(([userId, player]) => ({
-              userId,
-              answered: false,
-              connected: player.connected,
-            }));
-            quizNamespace.to(room.adminSocketId).emit('player_status_update', playerStatuses);
-          }
+          emitHostPlayerStatusSnapshot(room);
           room.autoAdvanceTimer = setTimeout(() => {
             handleAutoAdvance(quizId);
           }, (q.timeLimitSeconds + 3) * 1000);
@@ -789,6 +813,7 @@ export function initQuizSocket(io: SocketIOServer) {
       if (room.status === 'revealing') {
         const advancement = quizStore.advanceQuestion(quizId);
         if (advancement.done) {
+          room.status = 'finished';
           const leaderboard = quizStore.getLeaderboard(quizId);
           quizNamespace.to(quizId).emit('quiz_finishing', {});
           quizNamespace.to(quizId).emit('final_leaderboard', { leaderboard, totalQuestions: room.meta.totalQuestions });
@@ -801,14 +826,7 @@ export function initQuizSocket(io: SocketIOServer) {
             q, advancement.questionIndex!, room.meta.totalQuestions,
           ));
 
-          if (room.adminSocketId) {
-            const playerStatuses = [...room.players.entries()].map(([userId, player]) => ({
-              userId,
-              answered: false,
-              connected: player.connected,
-            }));
-            quizNamespace.to(room.adminSocketId).emit('player_status_update', playerStatuses);
-          }
+          emitHostPlayerStatusSnapshot(room);
           room.autoAdvanceTimer = setTimeout(() => {
             handleAutoAdvance(quizId);
           }, (q.timeLimitSeconds + 3) * 1000);
@@ -824,7 +842,7 @@ export function initQuizSocket(io: SocketIOServer) {
       const room = quizStore.getRoom(quizId);
       if (!room) return;
 
-      const result = quizStore.markPlayerDisconnected(quizId, socket.userId);
+      const result = quizStore.markPlayerDisconnected(quizId, socket.userId, socket.id);
       if (socket.userId === room.adminUserId) {
         if (room.adminSocketId === socket.id) {
           room.adminSocketId = null;
@@ -840,15 +858,8 @@ export function initQuizSocket(io: SocketIOServer) {
           connectedPlayers: result.connectedPlayers,
         });
 
-        // Host-only: refresh player status to show 🔴 immediately
-        if (room.adminSocketId) {
-          const playerStatuses = [...room.players.entries()].map(([userId, player]) => ({
-            userId,
-            answered: player.answeredCurrentQuestion,
-            connected: player.connected,
-          }));
-          quizNamespace.to(room.adminSocketId).emit('player_status_update', playerStatuses);
-        }
+        // Host-only: delta status for this user
+        emitHostPlayerStatusDelta(room, socket.userId);
       }
 
       // Schedule cleanup if no participants are connected

@@ -56,6 +56,7 @@ export interface QuizRoom {
   pausedTimeRemaining: number | null; // ms remaining when paused
   questions: QuizQuestionData[];
   players: Map<string, PlayerState>;
+  answerSubmissionLocks: Set<string>;
   currentAnswers: Map<string, AnswerRecord>;
   // All answers accumulated across all questions for final persistence
   allAnswers: (AnswerRecord & { userId: string })[];
@@ -65,6 +66,10 @@ export interface QuizRoom {
   adminUserId: string;
   adminSocketId: string | null;
   emptyRoomTimer: ReturnType<typeof setTimeout> | null;
+  persistenceRetryTimer: ReturnType<typeof setTimeout> | null;
+  persistenceRetryCount: number;
+  pendingFinalStatus: 'FINISHED' | 'ABANDONED' | null;
+  isPersisting: boolean;
 }
 
 export interface LeaderboardEntry {
@@ -103,7 +108,27 @@ const MAX_ANSWER_LENGTH = 200;
 const MAX_OPEN_ENDED_LENGTH = 1000;
 const MAX_ANALYTICS_KEY_LENGTH = 80;
 const NETWORK_GRACE_PERIOD_MS = 500;
+const MAX_PERSIST_SYNC_ATTEMPTS = 3;
+const MAX_PERSIST_RETRY_ATTEMPTS = 5;
+const PERSIST_RETRY_BASE_DELAY_MS = 5000;
 const UNSCORED_QUESTION_TYPES = new Set<QuizQuestionData['questionType']>(['POLL', 'RATING', 'OPEN_ENDED']);
+
+function getAnswerRateLimitKey(quizId: string, userId: string): string {
+  return `${quizId}:${userId}`;
+}
+
+function clearAnswerRateLimitForQuiz(quizId: string): void {
+  const prefix = `${quizId}:`;
+  for (const key of answerRateLimit.keys()) {
+    if (key.startsWith(prefix)) {
+      answerRateLimit.delete(key);
+    }
+  }
+}
+
+function wait(delayMs: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, delayMs));
+}
 
 function normalizeWhitespace(value: string): string {
   return value.replace(/\s+/g, ' ').trim();
@@ -184,6 +209,7 @@ export const quizStore = {
       pausedTimeRemaining: null,
       questions,
       players: new Map(),
+      answerSubmissionLocks: new Set(),
       currentAnswers: new Map(),
       allAnswers: [] as (AnswerRecord & { userId: string })[],
       questionAnalytics: new Map(),
@@ -191,6 +217,10 @@ export const quizStore = {
       adminUserId,
       adminSocketId,
       emptyRoomTimer: null,
+      persistenceRetryTimer: null,
+      persistenceRetryCount: 0,
+      pendingFinalStatus: null,
+      isPersisting: false,
     };
 
     quizRooms.set(quizId, room);
@@ -256,10 +286,11 @@ export const quizStore = {
 
   // ---------- Answer submission ----------
 
-  checkRateLimit(userId: string): boolean {
-    const last = answerRateLimit.get(userId) || 0;
+  checkRateLimit(quizId: string, userId: string): boolean {
+    const key = getAnswerRateLimitKey(quizId, userId);
+    const last = answerRateLimit.get(key) || 0;
     if (Date.now() - last < 500) return false;
-    answerRateLimit.set(userId, Date.now());
+    answerRateLimit.set(key, Date.now());
     return true;
   },
 
@@ -283,144 +314,159 @@ export const quizStore = {
 
     const player = room.players.get(userId);
     if (!player) return { error: 'NOT_A_PARTICIPANT' };
-    if (player.answeredCurrentQuestion) return { error: 'ALREADY_ANSWERED' };
-    if (room.currentAnswers.has(userId)) return { error: 'ALREADY_ANSWERED' };
 
-    const question = room.questions[room.currentQuestionIndex];
-    if (!question) return { error: 'INVALID_QUESTION' };
+    // Reservation lock makes the "check + record" path atomic per user/question.
+    if (room.answerSubmissionLocks.has(userId)) return { error: 'ALREADY_ANSWERED' };
+    room.answerSubmissionLocks.add(userId);
+    let keepSubmissionLock = false;
 
-    const maxAnswerLength = question.questionType === 'OPEN_ENDED' ? MAX_OPEN_ENDED_LENGTH : MAX_ANSWER_LENGTH;
-    const sanitizedAnswer = question.questionType === 'OPEN_ENDED'
-      ? answerText.trim()
-      : sanitizeAnswerInput(answerText);
-    if (!sanitizedAnswer) return { error: 'INVALID_ANSWER' };
-    if (sanitizedAnswer.length > maxAnswerLength) return { error: 'ANSWER_TOO_LONG' };
-    let boundedAnswer = sanitizedAnswer.slice(0, maxAnswerLength);
-    let normalizedSelections: string[] | null = null;
+    try {
+      if (player.answeredCurrentQuestion) return { error: 'ALREADY_ANSWERED' };
+      if (room.currentAnswers.has(userId)) return { error: 'ALREADY_ANSWERED' };
 
-    // Strict answer-shape checks to prevent malformed payload abuse.
-    if (question.questionType === 'MULTI_SELECT') {
-      const allowedOptions = question.options || [];
-      normalizedSelections = normalizeMultiSelectSubmission(boundedAnswer, allowedOptions);
-      if (!normalizedSelections) {
-        return { error: 'INVALID_ANSWER' };
-      }
-      boundedAnswer = JSON.stringify(normalizedSelections);
-    } else if (question.questionType !== 'SHORT_ANSWER' && question.questionType !== 'OPEN_ENDED') {
-      const allowedOptions = question.options || (question.questionType === 'TRUE_FALSE' ? ['True', 'False'] : []);
-      if (!allowedOptions.includes(boundedAnswer)) {
-        return { error: 'INVALID_OPTION' };
-      }
-    }
+      const question = room.questions[room.currentQuestionIndex];
+      if (!question) return { error: 'INVALID_QUESTION' };
 
-    const timeMs = Date.now() - room.currentQuestionStartTime;
-    const timeLimitMs = question.timeLimitSeconds * 1000;
+      const maxAnswerLength = question.questionType === 'OPEN_ENDED' ? MAX_OPEN_ENDED_LENGTH : MAX_ANSWER_LENGTH;
+      const sanitizedAnswer = question.questionType === 'OPEN_ENDED'
+        ? answerText.trim()
+        : sanitizeAnswerInput(answerText);
+      if (!sanitizedAnswer) return { error: 'INVALID_ANSWER' };
+      if (sanitizedAnswer.length > maxAnswerLength) return { error: 'ANSWER_TOO_LONG' };
+      let boundedAnswer = sanitizedAnswer.slice(0, maxAnswerLength);
+      let normalizedSelections: string[] | null = null;
 
-    if (timeMs > timeLimitMs + NETWORK_GRACE_PERIOD_MS) {
-      // Small grace window for network jitter
-      return { error: 'TIME_EXPIRED' };
-    }
-
-    // POLL, RATING, and OPEN_ENDED questions have no correct answer — skip scoring entirely
-    const isUnscoredType = UNSCORED_QUESTION_TYPES.has(question.questionType);
-
-    // Determine correctness
-    let isCorrect = false;
-    let partialRatio = 1;
-    if (!isUnscoredType && question.correctAnswer !== null) {
+      // Strict answer-shape checks to prevent malformed payload abuse.
       if (question.questionType === 'MULTI_SELECT') {
-        const correctSelections = normalizeMultiSelectSubmission(question.correctAnswer, question.options || []);
-        if (!normalizedSelections || !correctSelections || correctSelections.length === 0) {
-          isCorrect = false;
-          partialRatio = 0;
-        } else {
-          const correctSet = new Set(correctSelections);
-          const hasWrong = normalizedSelections.some((selection) => !correctSet.has(selection));
-          if (hasWrong) {
+        const allowedOptions = question.options || [];
+        normalizedSelections = normalizeMultiSelectSubmission(boundedAnswer, allowedOptions);
+        if (!normalizedSelections) {
+          return { error: 'INVALID_ANSWER' };
+        }
+        boundedAnswer = JSON.stringify(normalizedSelections);
+      } else if (question.questionType !== 'SHORT_ANSWER' && question.questionType !== 'OPEN_ENDED') {
+        const allowedOptions = question.options || (question.questionType === 'TRUE_FALSE' ? ['True', 'False'] : []);
+        if (!allowedOptions.includes(boundedAnswer)) {
+          return { error: 'INVALID_OPTION' };
+        }
+      }
+
+      const timeMs = Date.now() - room.currentQuestionStartTime;
+      const timeLimitMs = question.timeLimitSeconds * 1000;
+
+      if (timeMs > timeLimitMs + NETWORK_GRACE_PERIOD_MS) {
+        // Small grace window for network jitter
+        return { error: 'TIME_EXPIRED' };
+      }
+
+      // POLL, RATING, and OPEN_ENDED questions have no correct answer — skip scoring entirely
+      const isUnscoredType = UNSCORED_QUESTION_TYPES.has(question.questionType);
+
+      // Determine correctness
+      let isCorrect = false;
+      let partialRatio = 1;
+      if (!isUnscoredType && question.correctAnswer !== null) {
+        if (question.questionType === 'MULTI_SELECT') {
+          const correctSelections = normalizeMultiSelectSubmission(question.correctAnswer, question.options || []);
+          if (!normalizedSelections || !correctSelections || correctSelections.length === 0) {
             partialRatio = 0;
             isCorrect = false;
           } else {
-            partialRatio = normalizedSelections.length / correctSelections.length;
-            isCorrect = partialRatio === 1;
+            const correctSet = new Set(correctSelections);
+            const hasWrong = normalizedSelections.some((selection) => !correctSet.has(selection));
+            if (hasWrong) {
+              partialRatio = 0;
+              isCorrect = false;
+            } else {
+              partialRatio = normalizedSelections.length / correctSelections.length;
+              isCorrect = partialRatio === 1;
+            }
           }
+        } else if (question.questionType === 'SHORT_ANSWER') {
+          isCorrect = boundedAnswer.toLowerCase() === question.correctAnswer.trim().toLowerCase();
+        } else {
+          isCorrect = boundedAnswer === question.correctAnswer;
         }
-      } else if (question.questionType === 'SHORT_ANSWER') {
-        isCorrect = boundedAnswer.toLowerCase() === question.correctAnswer.trim().toLowerCase();
+      }
+
+      const nextStreak = isUnscoredType
+        ? player.streak
+        : isCorrect
+          ? player.streak + 1
+          : 0;
+
+      let pointsAwarded = 0;
+      if (!isUnscoredType) {
+        if (question.questionType === 'MULTI_SELECT' && partialRatio > 0 && partialRatio < 1) {
+          const partialPoints = calculatePoints(question, timeMs, 1, true);
+          pointsAwarded = Math.floor(partialPoints * partialRatio);
+        } else {
+          pointsAwarded = calculatePoints(question, timeMs, nextStreak, isCorrect);
+        }
+      }
+
+      // Lock now remains for this question after a successful submit.
+      keepSubmissionLock = true;
+
+      // Update player
+      player.streak = nextStreak;
+      player.score += pointsAwarded;
+      player.correctCount += (isCorrect && !isUnscoredType) ? 1 : 0;
+      player.totalAnswerTimeMs += timeMs;
+      player.answeredCurrentQuestion = true;
+
+      // Store in current answers
+      room.currentAnswers.set(userId, {
+        answer: boundedAnswer,
+        timeMs,
+        isCorrect: isUnscoredType ? null : isCorrect,
+        pointsAwarded,
+        questionId: question.id,
+      });
+
+      // Accumulate for final persistence
+      room.allAnswers.push({
+        answer: boundedAnswer,
+        timeMs,
+        isCorrect: isUnscoredType ? null : isCorrect,
+        pointsAwarded,
+        questionId: question.id,
+        userId,
+      });
+
+      // Update per-question analytics
+      const analytics = room.questionAnalytics.get(question.id) || { totalAnswers: 0, correctCount: 0, totalTimeMs: 0, distribution: {} };
+      analytics.totalAnswers += 1;
+      if (isCorrect && !isUnscoredType) analytics.correctCount += 1;
+      analytics.totalTimeMs += timeMs;
+      if (question.questionType === 'MULTI_SELECT') {
+        for (const selection of normalizedSelections || []) {
+          const key = normalizeForDistribution(selection);
+          analytics.distribution[key] = (analytics.distribution[key] || 0) + 1;
+        }
       } else {
-        isCorrect = boundedAnswer === question.correctAnswer;
+        const analyticsKey = normalizeForDistribution(boundedAnswer);
+        analytics.distribution[analyticsKey] = (analytics.distribution[analyticsKey] || 0) + 1;
+      }
+      room.questionAnalytics.set(question.id, analytics);
+
+      const connectedPlayers = Array.from(room.players.values()).filter(p => p.connected);
+      const allAnswered = connectedPlayers.every(p => p.answeredCurrentQuestion);
+
+      return {
+        isCorrect: isUnscoredType ? null : isCorrect,
+        isPoll: isUnscoredType,
+        pointsAwarded,
+        timeMs,
+        allAnswered,
+        newScore: player.score,
+        newStreak: nextStreak,
+      };
+    } finally {
+      if (!keepSubmissionLock) {
+        room.answerSubmissionLocks.delete(userId);
       }
     }
-
-    const nextStreak = isUnscoredType
-      ? player.streak
-      : isCorrect
-        ? player.streak + 1
-        : 0;
-
-    let pointsAwarded = 0;
-    if (!isUnscoredType) {
-      if (question.questionType === 'MULTI_SELECT' && partialRatio > 0 && partialRatio < 1) {
-        const partialPoints = calculatePoints(question, timeMs, 1, true);
-        pointsAwarded = Math.floor(partialPoints * partialRatio);
-      } else {
-        pointsAwarded = calculatePoints(question, timeMs, nextStreak, isCorrect);
-      }
-    }
-
-    // Update player
-    player.streak = nextStreak;
-    player.score += pointsAwarded;
-    player.correctCount += (isCorrect && !isUnscoredType) ? 1 : 0;
-    player.totalAnswerTimeMs += timeMs;
-    player.answeredCurrentQuestion = true;
-
-    // Store in current answers
-    room.currentAnswers.set(userId, {
-      answer: boundedAnswer,
-      timeMs,
-      isCorrect: isUnscoredType ? null : isCorrect,
-      pointsAwarded,
-      questionId: question.id,
-    });
-
-    // Accumulate for final persistence
-    room.allAnswers.push({
-      answer: boundedAnswer,
-      timeMs,
-      isCorrect: isUnscoredType ? null : isCorrect,
-      pointsAwarded,
-      questionId: question.id,
-      userId,
-    });
-
-    // Update per-question analytics
-    const analytics = room.questionAnalytics.get(question.id) || { totalAnswers: 0, correctCount: 0, totalTimeMs: 0, distribution: {} };
-    analytics.totalAnswers += 1;
-    if (isCorrect && !isUnscoredType) analytics.correctCount += 1;
-    analytics.totalTimeMs += timeMs;
-    if (question.questionType === 'MULTI_SELECT') {
-      for (const selection of normalizedSelections || []) {
-        const key = normalizeForDistribution(selection);
-        analytics.distribution[key] = (analytics.distribution[key] || 0) + 1;
-      }
-    } else {
-      const analyticsKey = normalizeForDistribution(boundedAnswer);
-      analytics.distribution[analyticsKey] = (analytics.distribution[analyticsKey] || 0) + 1;
-    }
-    room.questionAnalytics.set(question.id, analytics);
-
-    const connectedPlayers = Array.from(room.players.values()).filter(p => p.connected);
-    const allAnswered = connectedPlayers.every(p => p.answeredCurrentQuestion);
-
-    return {
-      isCorrect: isUnscoredType ? null : isCorrect,
-      isPoll: isUnscoredType,
-      pointsAwarded,
-      timeMs,
-      allAnswered,
-      newScore: player.score,
-      newStreak: nextStreak,
-    };
   },
 
   // ---------- Question advancement ----------
@@ -437,9 +483,10 @@ export const quizStore = {
 
     // Clear current answers
     room.currentAnswers.clear();
+    room.answerSubmissionLocks.clear();
 
     // Clear answer rate limits between questions
-    answerRateLimit.clear();
+    clearAnswerRateLimitForQuiz(quizId);
 
     // Reset all players' answered flag
     for (const player of room.players.values()) {
@@ -518,75 +565,136 @@ export const quizStore = {
     const room = quizRooms.get(quizId);
     if (!room) return;
 
-    try {
-      const leaderboard = this.getLeaderboard(quizId);
+    if (room.isPersisting) return;
+    room.isPersisting = true;
+    room.pendingFinalStatus = finalStatus;
 
-      await prisma.$transaction(async (tx) => {
-        // Update quiz status + total participants
-        await tx.quiz.update({
-          where: { id: quizId },
-          data: {
-            status: finalStatus,
-            endedAt: new Date(),
-            currentQuestionIndex: room.currentQuestionIndex,
-            totalParticipants: room.players.size,
-            pinActive: false, // Deactivate PIN after quiz ends
-          },
-        });
-
-        // Bulk insert all answers (isCorrect is nullable now)
-        if (room.allAnswers.length > 0) {
-          await tx.quizAnswer.createMany({
-            data: room.allAnswers.map((a) => ({
-              quizId,
-              questionId: a.questionId,
-              userId: a.userId,
-              answerSubmitted: a.answer,
-              isCorrect: a.isCorrect ?? null,
-              pointsAwarded: a.pointsAwarded,
-              answerTimeMs: a.timeMs,
-            })),
-            skipDuplicates: true,
-          });
-        }
-
-        // Update all participants with final scores/ranks
-        for (const entry of leaderboard) {
-          await tx.quizParticipant.updateMany({
-            where: { quizId, userId: entry.userId },
-            data: {
-              finalScore: entry.score,
-              finalRank: entry.rank,
-              correctCount: entry.correctCount,
-              totalAnswerTimeMs: BigInt(entry.totalAnswerTimeMs),
-            },
-          });
-        }
-
-        // Update per-question analytics
-        for (const [questionId, analytics] of room.questionAnalytics.entries()) {
-          const avgTime = analytics.totalAnswers > 0 ? Math.round(analytics.totalTimeMs / analytics.totalAnswers) : 0;
-          await tx.quizQuestion.update({
-            where: { id: questionId },
-            data: {
-              totalAnswers: analytics.totalAnswers,
-              correctCount: analytics.correctCount,
-              avgAnswerTimeMs: avgTime,
-              answerDistribution: analytics.distribution,
-            },
-          });
-        }
-      });
-
-      logger.info(`Quiz ${quizId} results persisted successfully`, { status: finalStatus });
-    } catch (error) {
-      logger.error(`Failed to persist quiz ${quizId} results`, {
-        error: error instanceof Error ? error.message : String(error),
-      });
-      // Do NOT crash — quiz data is still in memory for retry
+    if (room.persistenceRetryTimer) {
+      clearTimeout(room.persistenceRetryTimer);
+      room.persistenceRetryTimer = null;
     }
 
-    this.cleanupQuiz(quizId);
+    const leaderboard = this.getLeaderboard(quizId);
+    let lastError: unknown = null;
+
+    for (let attempt = 1; attempt <= MAX_PERSIST_SYNC_ATTEMPTS; attempt++) {
+      try {
+        await prisma.$transaction(async (tx) => {
+          // Update quiz status + total participants
+          await tx.quiz.update({
+            where: { id: quizId },
+            data: {
+              status: finalStatus,
+              endedAt: new Date(),
+              currentQuestionIndex: room.currentQuestionIndex,
+              totalParticipants: room.players.size,
+              pinActive: false, // Deactivate PIN after quiz ends
+            },
+          });
+
+          // Bulk insert all answers (isCorrect is nullable now)
+          if (room.allAnswers.length > 0) {
+            await tx.quizAnswer.createMany({
+              data: room.allAnswers.map((a) => ({
+                quizId,
+                questionId: a.questionId,
+                userId: a.userId,
+                answerSubmitted: a.answer,
+                isCorrect: a.isCorrect ?? null,
+                pointsAwarded: a.pointsAwarded,
+                answerTimeMs: a.timeMs,
+              })),
+              skipDuplicates: true,
+            });
+          }
+
+          // Update all participants with final scores/ranks
+          for (const entry of leaderboard) {
+            await tx.quizParticipant.updateMany({
+              where: { quizId, userId: entry.userId },
+              data: {
+                finalScore: entry.score,
+                finalRank: entry.rank,
+                correctCount: entry.correctCount,
+                totalAnswerTimeMs: BigInt(entry.totalAnswerTimeMs),
+              },
+            });
+          }
+
+          // Update per-question analytics
+          for (const [questionId, analytics] of room.questionAnalytics.entries()) {
+            const avgTime = analytics.totalAnswers > 0 ? Math.round(analytics.totalTimeMs / analytics.totalAnswers) : 0;
+            await tx.quizQuestion.update({
+              where: { id: questionId },
+              data: {
+                totalAnswers: analytics.totalAnswers,
+                correctCount: analytics.correctCount,
+                avgAnswerTimeMs: avgTime,
+                answerDistribution: analytics.distribution,
+              },
+            });
+          }
+        });
+
+        logger.info(`Quiz ${quizId} results persisted successfully`, { status: finalStatus, attempt });
+        this.cleanupQuiz(quizId);
+        return;
+      } catch (error) {
+        lastError = error;
+        logger.warn(`Quiz ${quizId} persistence attempt failed`, {
+          status: finalStatus,
+          attempt,
+          error: error instanceof Error ? error.message : String(error),
+        });
+        if (attempt < MAX_PERSIST_SYNC_ATTEMPTS) {
+          await wait(300 * (2 ** (attempt - 1)));
+        }
+      }
+    }
+
+    room.isPersisting = false;
+    room.status = 'finished';
+    room.pendingFinalStatus = finalStatus;
+    logger.error(`Failed to persist quiz ${quizId} results after sync retries`, {
+      status: finalStatus,
+      error: lastError instanceof Error ? lastError.message : String(lastError),
+    });
+    this.schedulePersistenceRetry(quizId);
+  },
+
+  schedulePersistenceRetry(quizId: string): void {
+    const room = quizRooms.get(quizId);
+    if (!room) return;
+    if (room.persistenceRetryTimer || room.isPersisting) return;
+    if (!room.pendingFinalStatus) return;
+
+    if (room.persistenceRetryCount >= MAX_PERSIST_RETRY_ATTEMPTS) {
+      logger.error(`Quiz ${quizId} persistence retry limit reached; keeping room in memory for manual recovery`, {
+        status: room.pendingFinalStatus,
+        retries: room.persistenceRetryCount,
+      });
+      return;
+    }
+
+    const attempt = room.persistenceRetryCount + 1;
+    const delayMs = Math.min(PERSIST_RETRY_BASE_DELAY_MS * (2 ** room.persistenceRetryCount), 120000);
+    room.persistenceRetryCount = attempt;
+
+    room.persistenceRetryTimer = setTimeout(() => {
+      const latestRoom = quizRooms.get(quizId);
+      if (!latestRoom) return;
+      latestRoom.persistenceRetryTimer = null;
+
+      logger.warn(`Retrying quiz result persistence`, {
+        quizId,
+        status: latestRoom.pendingFinalStatus,
+        attempt,
+      });
+
+      const statusToPersist = latestRoom.pendingFinalStatus || 'FINISHED';
+      void this.persistResultsAndCleanup(quizId, statusToPersist);
+    }, delayMs);
+    room.persistenceRetryTimer.unref?.();
   },
 
   cleanupQuiz(quizId: string): void {
@@ -599,6 +707,12 @@ export const quizStore = {
     if (room.emptyRoomTimer) {
       clearTimeout(room.emptyRoomTimer);
     }
+    if (room.persistenceRetryTimer) {
+      clearTimeout(room.persistenceRetryTimer);
+    }
+
+    clearAnswerRateLimitForQuiz(quizId);
+    room.answerSubmissionLocks.clear();
 
     quizRooms.delete(quizId);
     logger.info(`Quiz ${quizId} cleaned up from memory`);
@@ -606,12 +720,15 @@ export const quizStore = {
 
   // ---------- Disconnect handling ----------
 
-  markPlayerDisconnected(quizId: string, userId: string): { connectedPlayers: number; displayName: string } | null {
+  markPlayerDisconnected(quizId: string, userId: string, socketId: string): { connectedPlayers: number; displayName: string } | null {
     const room = quizRooms.get(quizId);
     if (!room) return null;
 
     const player = room.players.get(userId);
     if (!player) return null;
+
+    // Ignore stale disconnect events from an older socket after a reconnect.
+    if (player.socketId !== socketId) return null;
 
     player.connected = false;
 

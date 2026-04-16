@@ -20,6 +20,7 @@ import {
   Pause,
   Timer,
   FastForward,
+  Minus,
   UserX,
   ChevronDown,
   ChevronUp,
@@ -333,7 +334,7 @@ function QuestionControls({
         )}
         {onExtendTime && (
           <>
-            {[10, 30, 60].map((s) => (
+            {[10, 30].map((s) => (
               <Button
                 key={s}
                 onClick={() => onExtendTime(s)}
@@ -345,6 +346,15 @@ function QuestionControls({
                 +{s}s
               </Button>
             ))}
+            <Button
+              onClick={() => onExtendTime(-10)}
+              variant="outline"
+              size="sm"
+              className="flex-1 text-xs border-orange-200 text-orange-600 hover:bg-orange-50 font-mono"
+            >
+              <Minus className="h-3 w-3 mr-1" />
+              -10s
+            </Button>
           </>
         )}
         {onSkipQuestion && (

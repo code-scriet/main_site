@@ -14,7 +14,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent } from '@/components/ui/card';
-import { CheckCircle, XCircle, Send, Zap, Check } from 'lucide-react';
+import { CheckCircle, XCircle, Send, Check } from 'lucide-react';
 
 interface QuizQuestionProps {
   onSubmitAnswer: (answer: string, questionId: string) => void;
@@ -25,7 +25,6 @@ export function QuizQuestion({ onSubmitAnswer }: QuizQuestionProps) {
   const questionStartTime = useQuizStore((s) => s.questionStartTime);
   const hasAnswered = useQuizStore((s) => s.hasAnswered);
   const myAnswer = useQuizStore((s) => s.myAnswer);
-  const lastAnswerResult = useQuizStore((s) => s.lastAnswerResult);
   const answeredCount = useQuizStore((s) => s.answeredCount);
   const players = useQuizStore((s) => s.players);
   const setMyAnswer = useQuizStore((s) => s.setMyAnswer);
@@ -236,9 +235,8 @@ export function QuizQuestion({ onSubmitAnswer }: QuizQuestionProps) {
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               {currentQuestion.options.map((opt, i) => {
                 const isSelected = myAnswer === opt;
-                const showResult = hasAnswered && lastAnswerResult && !isPoll;
-                const isCorrectOption = showResult && lastAnswerResult?.isCorrect && isSelected;
-                const isWrongOption = showResult && !lastAnswerResult?.isCorrect && isSelected;
+                const isCorrectOption = false;
+                const isWrongOption = false;
 
                 return (
                   <motion.button
@@ -255,8 +253,8 @@ export function QuizQuestion({ onSubmitAnswer }: QuizQuestionProps) {
                         'border-amber-200 bg-white hover:border-amber-400 hover:shadow-md',
                       // Selected — poll
                       isSelected && isPoll && 'border-purple-500 bg-purple-50 shadow-md shadow-purple-100',
-                      // Selected — MCQ (before results)
-                      isSelected && !isPoll && !showResult && 'border-amber-500 bg-amber-50 shadow-md shadow-amber-100',
+                      // Selected — MCQ
+                      isSelected && !isPoll && 'border-amber-500 bg-amber-50 shadow-md shadow-amber-100',
                       // Correct answer revealed
                       isCorrectOption && 'border-green-500 bg-green-50 shadow-md shadow-green-100',
                       // Wrong answer revealed
@@ -415,9 +413,8 @@ export function QuizQuestion({ onSubmitAnswer }: QuizQuestionProps) {
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             {['True', 'False'].map((opt) => {
               const isSelected = myAnswer === opt;
-              const showResult = hasAnswered && lastAnswerResult;
-              const isCorrectOption = showResult && lastAnswerResult?.isCorrect && isSelected;
-              const isWrongOption = showResult && !lastAnswerResult?.isCorrect && isSelected;
+              const isCorrectOption = false;
+              const isWrongOption = false;
               const isTrue = opt === 'True';
 
               return (
@@ -435,10 +432,10 @@ export function QuizQuestion({ onSubmitAnswer }: QuizQuestionProps) {
                       'border-green-200 bg-green-50/50 hover:border-green-400 hover:bg-green-50 hover:shadow-md text-green-800',
                     !isSelected && !hasAnswered && !isExpired && !isTrue &&
                       'border-red-200 bg-red-50/50 hover:border-red-400 hover:bg-red-50 hover:shadow-md text-red-800',
-                    // Selected (before results)
-                    isSelected && !showResult && isTrue &&
+                    // Selected
+                    isSelected && isTrue &&
                       'border-green-500 bg-green-100 text-green-800 shadow-md shadow-green-100',
-                    isSelected && !showResult && !isTrue &&
+                    isSelected && !isTrue &&
                       'border-red-500 bg-red-100 text-red-800 shadow-md shadow-red-100',
                     // Correct reveal
                     isCorrectOption && 'border-green-500 bg-green-100 text-green-700 shadow-md',
@@ -550,52 +547,7 @@ export function QuizQuestion({ onSubmitAnswer }: QuizQuestionProps) {
           </motion.div>
         )}
 
-        {hasAnswered && lastAnswerResult && !isUnscoredType && (
-          <motion.div
-            initial={{ opacity: 0, y: 20, scale: 0.96 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            transition={{ type: 'spring', stiffness: 300, damping: 20 }}
-            className={cn(
-              'rounded-xl p-5 border-2 text-center shadow-sm',
-              lastAnswerResult.isCorrect
-                ? 'bg-green-50 border-green-200'
-                : 'bg-red-50 border-red-200',
-            )}
-          >
-            <div className="flex items-center justify-center gap-2 mb-2">
-              {lastAnswerResult.isCorrect ? (
-                <CheckCircle className="h-6 w-6 text-green-600" />
-              ) : (
-                <XCircle className="h-6 w-6 text-red-600" />
-              )}
-              <span className={cn(
-                'text-lg font-bold',
-                lastAnswerResult.isCorrect ? 'text-green-800' : 'text-red-800',
-              )}>
-                {lastAnswerResult.isCorrect ? 'Correct!' : 'Not quite!'}
-              </span>
-            </div>
-            <div className="flex items-center justify-center gap-4 text-sm">
-              <span className={cn(
-                'font-semibold text-base',
-                lastAnswerResult.isCorrect ? 'text-green-700' : 'text-red-600',
-              )}>
-                +{lastAnswerResult.pointsAwarded} pts
-              </span>
-              {lastAnswerResult.newStreak > 1 && (
-                <span className="flex items-center text-amber-600 font-medium">
-                  <Zap className="h-4 w-4 mr-0.5" />
-                  {lastAnswerResult.newStreak} streak!
-                </span>
-              )}
-              <span className="text-amber-700/60">
-                {(lastAnswerResult.timeMs / 1000).toFixed(1)}s
-              </span>
-            </div>
-          </motion.div>
-        )}
-
-        {hasAnswered && !lastAnswerResult && !isUnscoredType && (
+        {hasAnswered && !isUnscoredType && (
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}

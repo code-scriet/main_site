@@ -33,6 +33,7 @@ import {
   Timer,
   ChevronRight,
   Plus,
+  Minus,
   UserX,
   Copy,
   Check,
@@ -576,8 +577,8 @@ export function QuizHostView({
                 {/* Timer controls */}
                 {quizStatus === 'question' && (
                   <div className="mt-4 pt-4 border-t border-amber-100">
-                    <p className="text-xs text-amber-700/50 font-semibold uppercase tracking-wide mb-2">Extend Time</p>
-                    <div className="flex gap-2">
+                    <p className="text-xs text-amber-700/50 font-semibold uppercase tracking-wide mb-2">Adjust Time</p>
+                    <div className="flex flex-wrap gap-2">
                       {[10, 30, 60].map((s) => (
                         <Button
                           key={s}
@@ -588,6 +589,18 @@ export function QuizHostView({
                         >
                           <Plus className="h-3 w-3 mr-1" />
                           {s < 60 ? `${s}s` : '1m'}
+                        </Button>
+                      ))}
+                      {[10, 30].map((s) => (
+                        <Button
+                          key={`reduce-${s}`}
+                          size="sm"
+                          variant="outline"
+                          onClick={() => onExtendTime(-s)}
+                          className="border-orange-200 text-orange-700 hover:bg-orange-50"
+                        >
+                          <Minus className="h-3 w-3 mr-1" />
+                          -{s}s
                         </Button>
                       ))}
                     </div>
