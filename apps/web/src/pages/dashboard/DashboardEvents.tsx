@@ -8,7 +8,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSepara
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { useAuth } from '@/context/AuthContext';
 import { api } from '@/lib/api';
-import type { Registration, Event, EventTeam } from '@/lib/api';
+import type { Registration, Event, EventTeam, AttendanceQR } from '@/lib/api';
 import { Calendar, MapPin, Clock, Loader2, Plus, QrCode, Users, MoreVertical, ExternalLink } from 'lucide-react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { formatDate, formatTime } from '@/lib/dateUtils';
@@ -33,6 +33,8 @@ export default function DashboardEvents() {
 
   const [activeTab, setActiveTab] = useState('my-events');
   const [qrDialogReg, setQrDialogReg] = useState<Registration | null>(null);
+  const [qrDialogData, setQrDialogData] = useState<AttendanceQR | null>(null);
+  const [qrDialogLoading, setQrDialogLoading] = useState(false);
   const [teamDialogEventId, setTeamDialogEventId] = useState<string | null>(null);
 
   const isCoreMember = user?.role === 'CORE_MEMBER' || user?.role === 'ADMIN' || user?.role === 'PRESIDENT';
@@ -120,9 +122,46 @@ export default function DashboardEvents() {
     }
 
     setActiveTab('my-events');
-    setQrDialogReg(matchingRegistration);
+    void (async () => {
+      setQrDialogReg(matchingRegistration);
+      setQrDialogData(null);
+
+      if (!token) {
+        return;
+      }
+
+      setQrDialogLoading(true);
+      try {
+        const qrData = await api.getMyQR(matchingRegistration.eventId, token);
+        setQrDialogData(qrData);
+      } catch {
+        toast.error('Could not refresh QR details. Showing cached registration QR.');
+      } finally {
+        setQrDialogLoading(false);
+      }
+    })();
+
     navigate(location.pathname, { replace: true, state: null });
-  }, [location.pathname, location.state, navigate, registrations]);
+  }, [location.pathname, location.state, navigate, registrations, token]);
+
+  const openQrDialog = useCallback(async (registration: Registration) => {
+    setQrDialogReg(registration);
+    setQrDialogData(null);
+
+    if (!token) {
+      return;
+    }
+
+    setQrDialogLoading(true);
+    try {
+      const qrData = await api.getMyQR(registration.eventId, token);
+      setQrDialogData(qrData);
+    } catch {
+      toast.error('Could not refresh QR details. Showing cached registration QR.');
+    } finally {
+      setQrDialogLoading(false);
+    }
+  }, [token]);
 
   const handleTeamChange = async (eventId: string) => {
     if (!token) return;
@@ -355,7 +394,9 @@ export default function DashboardEvents() {
                           variant="outline"
                           size="sm"
                           className="h-8 w-full sm:w-auto text-xs border-gray-200 text-gray-700 hover:bg-gray-50"
-                          onClick={() => setQrDialogReg(reg)}
+                          onClick={() => {
+                            void openQrDialog(reg);
+                          }}
                         >
                           <QrCode className="h-3.5 w-3.5 mr-1.5" />
                           QR Code
@@ -414,24 +455,47 @@ export default function DashboardEvents() {
       </Tabs>
 
       {/* QR Code Dialog */}
-      <Dialog open={!!qrDialogReg} onOpenChange={(open) => !open && setQrDialogReg(null)}>
+      <Dialog
+        open={!!qrDialogReg}
+        onOpenChange={(open) => {
+          if (open) {
+            return;
+          }
+
+          setQrDialogReg(null);
+          setQrDialogData(null);
+          setQrDialogLoading(false);
+        }}
+      >
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>Your QR Ticket</DialogTitle>
             <DialogDescription>{qrDialogReg?.event.title}</DialogDescription>
           </DialogHeader>
           {qrDialogReg && (
-            <QRTicket
-              attendanceToken={qrDialogReg.attendanceToken || null}
-              attended={qrDialogReg.attended || false}
-              scannedAt={qrDialogReg.scannedAt || null}
-              event={{
-                title: qrDialogReg.event.title,
-                startDate: qrDialogReg.event.startDate,
-                endDate: qrDialogReg.event.endDate || null,
-                status: qrDialogReg.event.status,
-              }}
-            />
+            qrDialogLoading ? (
+              <div className="flex items-center justify-center py-10 text-sm text-muted-foreground">
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                Refreshing QR ticket...
+              </div>
+            ) : (
+              <QRTicket
+                attendanceToken={qrDialogData?.attendanceToken ?? qrDialogReg.attendanceToken ?? null}
+                attended={qrDialogData?.attended ?? qrDialogReg.attended ?? false}
+                scannedAt={qrDialogData?.scannedAt ?? qrDialogReg.scannedAt ?? null}
+                event={{
+                  title: qrDialogData?.event.title ?? qrDialogReg.event.title,
+                  startDate: qrDialogData?.event.startDate ?? qrDialogReg.event.startDate,
+                  endDate: qrDialogData?.event.endDate ?? qrDialogReg.event.endDate ?? null,
+                  status: qrDialogReg.event.status,
+                }}
+                eventDays={qrDialogData?.eventDays ?? qrDialogReg.event.eventDays}
+                dayLabels={qrDialogData?.dayLabels ?? qrDialogReg.event.dayLabels}
+                dayAttendances={qrDialogData?.dayAttendances}
+                daysAttended={qrDialogData?.daysAttended}
+                allDaysAttended={qrDialogData?.allDaysAttended}
+              />
+            )
           )}
         </DialogContent>
       </Dialog>

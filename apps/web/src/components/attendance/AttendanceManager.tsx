@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { api, type AttendanceRecord } from '@/lib/api';
+import { useAuth } from '@/context/AuthContext';
 import { formatDateTime } from '@/lib/dateUtils';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -41,6 +42,7 @@ type FilterMode = 'all' | 'present' | 'absent';
 type SortMode = 'name' | 'scanTime' | 'registrationTime';
 
 export default function AttendanceManager({ eventId, token }: AttendanceManagerProps) {
+  const { user } = useAuth();
   const [records, setRecords] = useState<AttendanceRecord[]>([]);
   const [eventDays, setEventDays] = useState(1);
   const [dayLabels, setDayLabels] = useState<string[]>([]);
@@ -55,6 +57,7 @@ export default function AttendanceManager({ eventId, token }: AttendanceManagerP
 
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [bulkLoading, setBulkLoading] = useState(false);
+  const [bulkRegenerateLoading, setBulkRegenerateLoading] = useState(false);
 
   const [actionLoadingId, setActionLoadingId] = useState<string | null>(null);
 
@@ -69,6 +72,7 @@ export default function AttendanceManager({ eventId, token }: AttendanceManagerP
   const [editTimestamp, setEditTimestamp] = useState('');
   const [editSaving, setEditSaving] = useState(false);
   const selectedDayLabel = dayLabels[selectedDay - 1] || `Day ${selectedDay}`;
+  const canRegenerateTokens = user?.role === 'ADMIN';
 
   const fetchData = useCallback(async () => {
     try {
@@ -243,6 +247,37 @@ export default function AttendanceManager({ eventId, token }: AttendanceManagerP
       toast.error('Failed to regenerate token');
     } finally {
       setActionLoadingId(null);
+    }
+  };
+
+  const handleRegenerateAllTokens = async () => {
+    if (!canRegenerateTokens) {
+      toast.error('Only admins can regenerate QR tokens');
+      return;
+    }
+
+    if (records.length === 0) {
+      toast.error('No registrations available to regenerate');
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `Regenerate QR tokens for all ${records.length} registrations? Existing QRs for this event will stop working.`
+    );
+    if (!confirmed) {
+      return;
+    }
+
+    setBulkRegenerateLoading(true);
+    try {
+      const result = await api.regenerateAttendanceTokensForEvent(eventId, token);
+      toast.success(`Regenerated ${result.regenerated} QR token${result.regenerated === 1 ? '' : 's'}`);
+      await fetchData();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to regenerate QR tokens';
+      toast.error(message);
+    } finally {
+      setBulkRegenerateLoading(false);
     }
   };
 
@@ -527,6 +562,23 @@ export default function AttendanceManager({ eventId, token }: AttendanceManagerP
           <Mail className="mr-2 h-4 w-4" />
           Email Absentees
         </Button>
+        {canRegenerateTokens && (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              void handleRegenerateAllTokens();
+            }}
+            disabled={bulkRegenerateLoading || records.length === 0}
+          >
+            {bulkRegenerateLoading ? (
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            ) : (
+              <QrCode className="mr-2 h-4 w-4" />
+            )}
+            Regenerate QR For All
+          </Button>
+        )}
       </div>
 
       {/* Bulk action bar */}
@@ -750,16 +802,18 @@ export default function AttendanceManager({ eventId, token }: AttendanceManagerP
                               <Edit className="h-4 w-4" />
                             </Button>
 
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => handleRegenerateToken(record.id)}
-                              disabled={isLoading}
-                              title="Regenerate QR token"
-                              aria-label={`Regenerate QR token for ${record.user.name}`}
-                            >
-                              <QrCode className="h-4 w-4" />
-                            </Button>
+                            {canRegenerateTokens && (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={() => handleRegenerateToken(record.id)}
+                                disabled={isLoading}
+                                title="Regenerate QR token"
+                                aria-label={`Regenerate QR token for ${record.user.name}`}
+                              >
+                                <QrCode className="h-4 w-4" />
+                              </Button>
+                            )}
                           </div>
                         </td>
                       </tr>

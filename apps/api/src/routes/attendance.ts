@@ -32,6 +32,7 @@ const CLIENT_SCAN_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 const ATTENDANCE_FULL_LIST_LIMIT = 5000;
 const ATTENDANCE_EXPORT_LIMIT = 10000;
 const ATTENDANCE_BACKFILL_BATCH_SIZE = 1000;
+const ATTENDANCE_REGENERATE_BATCH_SIZE = 200;
 
 type AttendanceTokenPayload = {
   userId: string;
@@ -253,6 +254,8 @@ router.get('/my-qr/:eventId', authMiddleware, async (req: Request, res: Response
 
     const eventDays = normalizeEventDays(registration.event.eventDays);
     const dayLabels = parseDayLabels(registration.event.dayLabels, eventDays);
+    const daysAttended = registration.dayAttendances.filter((dayAttendance) => dayAttendance.attended).length;
+    const allDaysAttended = eventDays > 1 ? daysAttended >= eventDays : registration.attended;
 
     return ApiResponse.success(res, {
       attendanceToken: registration.attendanceToken,
@@ -262,6 +265,8 @@ router.get('/my-qr/:eventId', authMiddleware, async (req: Request, res: Response
       eventDays,
       dayLabels,
       dayAttendances: registration.dayAttendances,
+      daysAttended,
+      allDaysAttended,
     });
   } catch (error) {
     logger.error('Failed to get attendance QR', { error: error instanceof Error ? error.message : String(error) });
@@ -1476,7 +1481,90 @@ router.post('/regenerate-token/:registrationId', authMiddleware, requireRole('AD
 });
 
 // ────────────────────────────────────────────────────────────
-// 10. GET /search — Search registrations by name or email
+// 10. POST /regenerate-tokens/event/:eventId — Regenerate all tokens for an event
+// ────────────────────────────────────────────────────────────
+router.post('/regenerate-tokens/event/:eventId', authMiddleware, requireRole('ADMIN'), async (req: Request, res: Response) => {
+  try {
+    const admin = getAuthUser(req);
+    if (!admin) {
+      return ApiResponse.unauthorized(res);
+    }
+
+    const { eventId } = req.params;
+    if (!requireUuid(res, eventId, 'event ID')) {
+      return;
+    }
+
+    const event = await prisma.event.findUnique({
+      where: { id: eventId },
+      select: { id: true, title: true },
+    });
+
+    if (!event) {
+      return ApiResponse.notFound(res, 'Event not found');
+    }
+
+    const registrations = await prisma.eventRegistration.findMany({
+      where: { eventId },
+      select: {
+        id: true,
+        userId: true,
+        eventId: true,
+      },
+    });
+
+    if (registrations.length === 0) {
+      return ApiResponse.success(res, {
+        eventId,
+        regenerated: 0,
+        total: 0,
+        message: 'No registrations found for this event',
+      });
+    }
+
+    let regenerated = 0;
+    for (let index = 0; index < registrations.length; index += ATTENDANCE_REGENERATE_BATCH_SIZE) {
+      const batch = registrations.slice(index, index + ATTENDANCE_REGENERATE_BATCH_SIZE);
+
+      await prisma.$transaction(
+        batch.map((registration) =>
+          prisma.eventRegistration.update({
+            where: { id: registration.id },
+            data: {
+              attendanceToken: generateAttendanceToken(
+                registration.userId,
+                registration.eventId,
+                registration.id,
+              ),
+            },
+          }),
+        ),
+      );
+
+      regenerated += batch.length;
+    }
+
+    await auditLog(admin.id, 'ATTENDANCE_REGENERATE_ALL_TOKENS', 'event', eventId, {
+      eventTitle: event.title,
+      regenerated,
+      total: registrations.length,
+    });
+
+    return ApiResponse.success(res, {
+      eventId,
+      regenerated,
+      total: registrations.length,
+    });
+  } catch (error) {
+    logger.error('Failed to regenerate all attendance tokens', {
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return ApiResponse.internal(res, 'Failed to regenerate all attendance tokens');
+  }
+});
+
+// ────────────────────────────────────────────────────────────
+// 11. GET /search — Search registrations by name or email
 // ────────────────────────────────────────────────────────────
 router.get('/search', authMiddleware, requireRole('CORE_MEMBER'), async (req: Request, res: Response) => {
   try {

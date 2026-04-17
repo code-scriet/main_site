@@ -968,6 +968,8 @@ export interface AttendanceQR {
   eventDays?: number;
   dayLabels?: string[];
   dayAttendances?: DayAttendance[];
+  daysAttended?: number;
+  allDaysAttended?: boolean;
 }
 
 export interface AttendanceLiveData {
@@ -1910,6 +1912,8 @@ export const api = {
     request<{ registrationId: string }>(`/attendance/edit/${registrationId}`, { method: 'PATCH', body: JSON.stringify(data), token }),
   regenerateAttendanceToken: (registrationId: string, token: string) =>
     request<{ attendanceToken: string }>(`/attendance/regenerate-token/${registrationId}`, { method: 'POST', token }),
+  regenerateAttendanceTokensForEvent: (eventId: string, token: string) =>
+    request<{ regenerated: number; total: number }>(`/attendance/regenerate-tokens/event/${eventId}`, { method: 'POST', token }),
   searchAttendance: (eventId: string, query: string, token: string, page?: number) =>
     request<{ results: AttendanceSearchResult[]; total: number; page: number; totalPages: number }>(`/attendance/search?eventId=${eventId}&q=${encodeURIComponent(query)}${page ? `&page=${page}` : ''}`, { token }),
   getAttendanceLive: (eventId: string, token: string) =>

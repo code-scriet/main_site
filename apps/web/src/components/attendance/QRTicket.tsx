@@ -15,6 +15,15 @@ interface QRTicketProps {
   attendanceToken: string | null;
   attended: boolean;
   scannedAt: string | null;
+  eventDays?: number;
+  dayLabels?: string[];
+  dayAttendances?: Array<{
+    dayNumber: number;
+    attended: boolean;
+    scannedAt: string | null;
+  }>;
+  daysAttended?: number;
+  allDaysAttended?: boolean;
   event: {
     title: string;
     startDate: string;
@@ -31,8 +40,41 @@ type TicketState =
   | "qr_visible"
   | "no_token";
 
+function getAttendedDayCount(props: QRTicketProps): number {
+  if (typeof props.daysAttended === "number") {
+    return Math.max(0, props.daysAttended);
+  }
+
+  if (Array.isArray(props.dayAttendances)) {
+    return props.dayAttendances.filter((day) => day.attended).length;
+  }
+
+  return props.attended ? 1 : 0;
+}
+
+function isFullyAttended(props: QRTicketProps): boolean {
+  if (typeof props.allDaysAttended === "boolean") {
+    return props.allDaysAttended;
+  }
+
+  const totalDays = Number.isInteger(props.eventDays) && (props.eventDays || 0) > 1
+    ? (props.eventDays as number)
+    : 1;
+
+  if (totalDays <= 1) {
+    return props.attended;
+  }
+
+  if (Array.isArray(props.dayAttendances) && props.dayAttendances.length > 0) {
+    return getAttendedDayCount(props) >= totalDays;
+  }
+
+  // For multi-day events with incomplete day-level data, keep QR visible.
+  return false;
+}
+
 function resolveState(props: QRTicketProps): TicketState {
-  if (props.attended) return "attended";
+  if (isFullyAttended(props)) return "attended";
   if (!props.attendanceToken) return "no_token";
 
   const now = Date.now();
@@ -52,10 +94,46 @@ export default function QRTicket({
   attendanceToken,
   attended,
   scannedAt,
+  eventDays,
+  dayLabels,
+  dayAttendances,
+  daysAttended,
+  allDaysAttended,
   event,
 }: QRTicketProps) {
+  const normalizedEventDays = Number.isInteger(eventDays) && (eventDays || 0) > 1
+    ? (eventDays as number)
+    : 1;
+  const attendedDayCount = getAttendedDayCount({
+    attendanceToken,
+    attended,
+    scannedAt,
+    eventDays,
+    dayLabels,
+    dayAttendances,
+    daysAttended,
+    allDaysAttended,
+    event,
+  });
+  const nextPendingDayNumber = normalizedEventDays > 1
+    ? Math.min(attendedDayCount + 1, normalizedEventDays)
+    : null;
+  const nextPendingDayLabel = nextPendingDayNumber
+    ? dayLabels?.[nextPendingDayNumber - 1] || `Day ${nextPendingDayNumber}`
+    : null;
+
   const [ticketState, setTicketState] = useState<TicketState>(() =>
-    resolveState({ attendanceToken, attended, scannedAt, event })
+    resolveState({
+      attendanceToken,
+      attended,
+      scannedAt,
+      eventDays,
+      dayLabels,
+      dayAttendances,
+      daysAttended,
+      allDaysAttended,
+      event,
+    })
   );
   const qrRef = useRef<HTMLDivElement>(null);
 
@@ -66,6 +144,11 @@ export default function QRTicket({
         attendanceToken,
         attended,
         scannedAt,
+        eventDays,
+        dayLabels,
+        dayAttendances,
+        daysAttended,
+        allDaysAttended,
         event,
       });
       setTicketState(state);
@@ -74,7 +157,7 @@ export default function QRTicket({
     tick();
     const interval = setInterval(tick, 15000);
     return () => clearInterval(interval);
-  }, [attendanceToken, attended, scannedAt, event]);
+  }, [attendanceToken, attended, scannedAt, eventDays, dayLabels, dayAttendances, daysAttended, allDaysAttended, event]);
 
   const handleDownload = useCallback(() => {
     if (!qrRef.current) return;
@@ -188,6 +271,11 @@ export default function QRTicket({
               Attended
             </Badge>
           </div>
+          {normalizedEventDays > 1 && (
+            <p className="text-xs text-green-700">
+              Completed all {normalizedEventDays} attendance days.
+            </p>
+          )}
           {scannedAt && (
             <p className="text-xs text-green-700">
               Marked at {formatDateTime(scannedAt)}
@@ -221,7 +309,13 @@ export default function QRTicket({
           </div>
           <p className="text-xs text-amber-600">
             Show this QR code to mark your attendance
+            {nextPendingDayLabel ? ` (${nextPendingDayLabel})` : ''}
           </p>
+          {normalizedEventDays > 1 && (
+            <p className="text-[11px] text-amber-700">
+              Progress: {Math.min(attendedDayCount, normalizedEventDays)} / {normalizedEventDays} days completed
+            </p>
+          )}
           <Button
             variant="outline"
             size="sm"
