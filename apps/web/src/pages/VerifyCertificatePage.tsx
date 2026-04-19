@@ -63,8 +63,17 @@ const typeDescriptions: Record<CertType, string> = {
   SPEAKER: 'for speaking at',
 };
 
+const typeDescriptionsWithoutEvent: Record<CertType, string> = {
+  PARTICIPATION: 'for participation',
+  COMPLETION: 'for completion',
+  WINNER: 'for outstanding performance',
+  SPEAKER: 'for speaking',
+};
+
 function ValidResult({ result }: { result: VerifyResult }) {
   const type = result.type as CertType;
+  const eventName = (result.eventName || '').trim();
+  const hasEventName = eventName.length > 0;
   return (
     <motion.div initial={{ opacity: 0, scale: 0.96 }} animate={{ opacity: 1, scale: 1 }}>
       <Card className="border-green-200 bg-green-50/40 overflow-hidden">
@@ -83,8 +92,16 @@ function ValidResult({ result }: { result: VerifyResult }) {
                 {result.recipientName}
               </h2>
               <p className="text-gray-600 text-sm mb-3">
-                {type && typeLabels[type]} {type ? typeDescriptions[type] : 'for participation in'}{' '}
-                <strong>{result.eventName}</strong>
+                {type && typeLabels[type]}{' '}
+                {type
+                  ? (hasEventName ? typeDescriptions[type] : typeDescriptionsWithoutEvent[type])
+                  : (hasEventName ? 'for participation in' : 'for participation')}
+                {hasEventName ? (
+                  <>
+                    {' '}
+                    <strong>{eventName}</strong>
+                  </>
+                ) : null}
               </p>
 
               <div className="flex flex-wrap gap-2 mb-4">

@@ -119,6 +119,7 @@ export default function QuizManager() {
       WAITING: { color: 'bg-yellow-100 text-yellow-700', icon: <Clock className="h-3 w-3" />, label: 'Lobby' },
       ACTIVE: { color: 'bg-green-100 text-green-700', icon: <Play className="h-3 w-3" />, label: 'Live' },
       FINISHED: { color: 'bg-gray-100 text-gray-700', icon: <CheckCircle className="h-3 w-3" />, label: 'Finished' },
+      ABANDONED: { color: 'bg-orange-100 text-orange-700', icon: <Clock className="h-3 w-3" />, label: 'Abandoned' },
       DRAFT: { color: 'bg-blue-100 text-blue-700', icon: <Edit className="h-3 w-3" />, label: 'Draft' },
     };
     const config = configs[status] || configs.DRAFT;
@@ -310,14 +311,14 @@ export default function QuizManager() {
                                 </Button>
                               </Link>
                             )}
-                            {quiz.status !== 'ACTIVE' && (
+                            {quiz.status === 'DRAFT' && (
                               <Link to={`/quiz/create?edit=${quiz.id}`}>
                                 <Button size="sm" variant="outline" aria-label={`Edit ${quiz.title}`}>
                                   <Edit className="h-4 w-4" />
                                 </Button>
                               </Link>
                             )}
-                            {quiz.status === 'FINISHED' && (
+                            {(quiz.status === 'DRAFT' || quiz.status === 'FINISHED' || quiz.status === 'ABANDONED') && (
                               <Button
                                 size="sm"
                                 variant="outline"

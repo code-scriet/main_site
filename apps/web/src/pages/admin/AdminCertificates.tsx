@@ -536,7 +536,6 @@ export default function AdminCertificates() {
   async function handleGenerate() {
     if (!form.recipientName.trim()) { setGenerateError('Recipient name is required'); return; }
     if (!form.recipientEmail.trim()) { setGenerateError('Recipient email is required'); return; }
-    if (!form.eventName.trim()) { setGenerateError('Event name is required'); return; }
     if (!form.signatoryId && !form.signatoryName.trim()) {
       setGenerateError('Enter the signatory\'s name in the Signatory section below');
       return;
@@ -547,7 +546,7 @@ export default function AdminCertificates() {
       const data = await api.generateCertificate({
         recipientName: form.recipientName,
         recipientEmail: form.recipientEmail,
-        eventName: form.eventName,
+        eventName: form.eventName || undefined,
         type: form.type,
         position: form.position || undefined,
         domain: form.domain || undefined,
@@ -641,7 +640,6 @@ export default function AdminCertificates() {
   }
 
   async function handleBulkGenerate() {
-    if (!bulkEventName.trim()) { toast.error('Event name is required'); return; }
     if (!bulkCsv.trim()) { toast.error('Paste the recipient list before generating'); return; }
     if (!bulkSignatoryId && !bulkSignatory.trim()) {
       toast.error('Enter the signatory\'s name in the Signatory section');
@@ -664,7 +662,7 @@ export default function AdminCertificates() {
     try {
       const data = await api.bulkGenerateCertificates({
         recipients,
-        eventName: bulkEventName,
+        eventName: bulkEventName || undefined,
         type: bulkType,
         signatoryId: bulkSignatoryId || undefined,
         signatoryName: bulkSignatoryId ? undefined : bulkSignatory,
@@ -1062,7 +1060,7 @@ export default function AdminCertificates() {
                 <Input id="admin-certificates-recipient-email" type="email" value={form.recipientEmail} onChange={e => setForm(f => ({ ...f, recipientEmail: e.target.value }))} placeholder="email@example.com" className="mt-1" />
               </div>
               <div className="col-span-full">
-                <label htmlFor="admin-certificates-event-name" className="text-sm font-medium text-gray-700">Event Name *</label>
+                <label htmlFor="admin-certificates-event-name" className="text-sm font-medium text-gray-700">Event Name (optional)</label>
                 <Input id="admin-certificates-event-name" value={form.eventName} onChange={e => setForm(f => ({ ...f, eventName: e.target.value }))} placeholder="e.g. Hackathon 2026" className="mt-1" />
               </div>
               <div className="col-span-full">
@@ -1163,7 +1161,7 @@ export default function AdminCertificates() {
           </DialogHeader>
           <div className="flex-1 overflow-y-auto min-h-0 space-y-4 py-1 pr-1">
             <div>
-              <label htmlFor="admin-certificates-bulk-event-name" className="text-sm font-medium text-gray-700">Event Name *</label>
+              <label htmlFor="admin-certificates-bulk-event-name" className="text-sm font-medium text-gray-700">Event Name (optional)</label>
               <Input id="admin-certificates-bulk-event-name" value={bulkEventName} onChange={e => setBulkEventName(e.target.value)} placeholder="Hackathon 2026" className="mt-1" />
             </div>
             <div>

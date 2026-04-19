@@ -3,8 +3,8 @@
  * Multi-step wizard: step 1 = quiz meta, step 2 = add questions, step 3 = review & create, step 4 = success.
  */
 
-import { useState, useCallback, useRef } from 'react';
-import { useNavigate, useParams, Link } from 'react-router-dom';
+import { useState, useCallback, useRef, useEffect } from 'react';
+import { useNavigate, useParams, useSearchParams, Link } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { QRCodeSVG } from 'qrcode.react';
 import { useAuth } from '@/context/AuthContext';
@@ -118,7 +118,10 @@ const QUIZ_IMPORT_TEMPLATE_EXAMPLE = [
 export default function AdminQuizCreator() {
   const navigate = useNavigate();
   const { token } = useAuth(); // ensure authenticated
-  const { quizId: editId } = useParams<{ quizId: string }>();
+  const { quizId: routeEditId } = useParams<{ quizId: string }>();
+  const [searchParams] = useSearchParams();
+  const queryEditId = searchParams.get('edit')?.trim() || '';
+  const editId = routeEditId || queryEditId || undefined;
 
   const [step, setStep] = useState(1);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -126,6 +129,7 @@ export default function AdminQuizCreator() {
   const [importError, setImportError] = useState('');
   const [importing, setImporting] = useState(false);
   const [importFile, setImportFile] = useState<File | null>(null);
+  const [loadingExistingQuiz, setLoadingExistingQuiz] = useState(false);
   const [submitMode, setSubmitMode] = useState<'draft' | 'open'>('draft');
 
   // Success screen state
@@ -232,7 +236,7 @@ export default function AdminQuizCreator() {
     return null;
   };
 
-  const mapImportedQuestionToDraft = (question: QuizQuestionInput): QuestionDraft => {
+  const mapImportedQuestionToDraft = useCallback((question: QuizQuestionInput): QuestionDraft => {
     const normalizedOptions = Array.isArray(question.options) ? question.options : [];
     const normalizedCorrectAnswer = question.correctAnswer?.trim() || '';
     const parsedMultiSelectAnswers = question.questionType === 'MULTI_SELECT' && normalizedCorrectAnswer
@@ -268,7 +272,58 @@ export default function AdminQuizCreator() {
       points: question.points,
       mediaUrl: question.mediaUrl || '',
     };
-  };
+  }, []);
+
+  useEffect(() => {
+    if (!editId) {
+      return;
+    }
+
+    if (!token) {
+      setError('You need to sign in again to edit quizzes.');
+      return;
+    }
+
+    let cancelled = false;
+
+    const loadDraftForEdit = async () => {
+      setLoadingExistingQuiz(true);
+      setError('');
+      try {
+        const quiz = await api.getQuiz(editId, token);
+
+        if (cancelled) {
+          return;
+        }
+
+        if (quiz.status !== 'DRAFT') {
+          setError('Only draft quizzes can be edited.');
+          return;
+        }
+
+        setTitle(quiz.title || '');
+        setDescription(quiz.description || '');
+
+        const loadedQuestions = (quiz.questions || []).map(mapImportedQuestionToDraft);
+        setQuestions(loadedQuestions.length > 0 ? loadedQuestions : [createEmptyQuestion()]);
+        setActiveQIndex(0);
+      } catch (err: unknown) {
+        if (!cancelled) {
+          setError(err instanceof Error ? err.message : 'Failed to load quiz for editing');
+        }
+      } finally {
+        if (!cancelled) {
+          setLoadingExistingQuiz(false);
+        }
+      }
+    };
+
+    void loadDraftForEdit();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [editId, token, mapImportedQuestionToDraft]);
 
   const handleImportQuestions = async () => {
     if (!token) {
@@ -408,6 +463,19 @@ export default function AdminQuizCreator() {
   const joinUrl = createdQuiz?.pin
     ? `${joinBaseOrigin}/quiz/join?pin=${createdQuiz.pin}`
     : '';
+
+  if (loadingExistingQuiz) {
+    return (
+      <Layout>
+        <div className="min-h-[60vh] flex items-center justify-center">
+          <div className="flex items-center gap-2 text-amber-800">
+            <Loader2 className="h-5 w-5 animate-spin" />
+            <span className="text-sm font-medium">Loading draft quiz...</span>
+          </div>
+        </div>
+      </Layout>
+    );
+  }
 
   return (
     <Layout>

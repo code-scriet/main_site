@@ -913,7 +913,7 @@ export interface CertificateBulkRecipientInput {
 export interface CertificateBulkGenerateInput {
   recipients: CertificateBulkRecipientInput[];
   eventId?: string | null;
-  eventName: string;
+  eventName?: string | null;
   type?: CertType | null;
   template?: CertificateTemplate;
   signatoryId?: string | null;

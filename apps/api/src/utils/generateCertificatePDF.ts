@@ -158,10 +158,10 @@ const subtitleMap: Record<string, string> = {
 // Scale name font size for long names (react-pdf has no clamp)
 function nameFontSize(name: string): number {
   const len = name.length;
-  if (len <= 18) return 52;
-  if (len <= 26) return 46;
-  if (len <= 34) return 42;
-  return 38;
+  if (len <= 18) return 50.5;
+  if (len <= 26) return 44.5;
+  if (len <= 34) return 40.5;
+  return 36.5;
 }
 
 export function formatPosition(pos: string): string {
@@ -178,9 +178,19 @@ export function formatPosition(pos: string): string {
   return pos.trim();
 }
 
+function normalizeOptionalText(value: string | null | undefined): string | undefined {
+  if (typeof value !== 'string') {
+    return undefined;
+  }
+
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : undefined;
+}
+
 type MarkdownInlineTextStyle = {
+  fontFamily?: 'Cinzel' | 'CormorantGaramond';
   fontWeight?: 700;
-  fontStyle?: 'italic';
+  fontStyle?: 'italic' | 'normal';
   textDecoration?: 'line-through';
 };
 
@@ -190,6 +200,26 @@ function hasInlineTokens(token: Token): token is Token & { tokens: Token[] } {
 
 function hasInlineText(token: Token): token is Token & { text: string } {
   return typeof (token as { text?: unknown }).text === 'string';
+}
+
+function getTokenTextOrRaw(token: Token): string {
+  if (hasInlineText(token)) {
+    return token.text;
+  }
+
+  const raw = (token as { raw?: unknown }).raw;
+  return typeof raw === 'string' ? raw : '';
+}
+
+function normalizeHtmlDescription(raw: string): string {
+  return raw
+    .replace(/<br\s*\/?\s*>/gi, '\n')
+    .replace(/<\s*\/\s*(p|div|h[1-6]|blockquote|pre|ul|ol)\s*>/gi, '\n')
+    .replace(/<\s*li[^>]*>/gi, '- ')
+    .replace(/<\s*\/\s*li\s*>/gi, '\n')
+    .replace(/<[^>]+>/g, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
 }
 
 function getNestedTokens(token: Token): Token[] {
@@ -256,7 +286,12 @@ function renderMarkdownInlineTokens(
 
     switch (token.type) {
       case 'strong': {
-        nodes.push(...renderMarkdownInlineTokens(getNestedTokens(token), tokenKey, { ...style, fontWeight: 700 }));
+        nodes.push(...renderMarkdownInlineTokens(getNestedTokens(token), tokenKey, {
+          ...style,
+          fontFamily: 'Cinzel',
+          fontWeight: 700,
+          fontStyle: 'normal',
+        }));
         break;
       }
       case 'em': {
@@ -320,7 +355,11 @@ function parseMarkdownDescription(description: string): React.ReactNode[] {
           break;
         }
         case 'heading': {
-          nodes.push(...renderMarkdownInlineTokens(getNestedTokens(token), tokenKey, { fontWeight: 700 }));
+          nodes.push(...renderMarkdownInlineTokens(getNestedTokens(token), tokenKey, {
+            fontFamily: 'Cinzel',
+            fontWeight: 700,
+            fontStyle: 'normal',
+          }));
           break;
         }
         case 'text': {
@@ -336,13 +375,20 @@ function parseMarkdownDescription(description: string): React.ReactNode[] {
           const listItems = getListItems(token);
           const listStart = getListStart(token);
           listItems.forEach((item, itemIndex) => {
-            const marker = isOrderedList(token) ? `${listStart + itemIndex}. ` : '• ';
+            const marker = isOrderedList(token) ? `${listStart + itemIndex}. ` : '- ';
             nodes.push(marker);
             nodes.push(...renderMarkdownInlineTokens(item.tokens, `${tokenKey}-item-${itemIndex}`));
             if (itemIndex < listItems.length - 1) {
               nodes.push('\n');
             }
           });
+          break;
+        }
+        case 'html': {
+          const normalized = normalizeHtmlDescription(getTokenTextOrRaw(token));
+          if (normalized) {
+            nodes.push(normalized);
+          }
           break;
         }
         case 'blockquote': {
@@ -388,9 +434,10 @@ function parseMarkdownDescription(description: string): React.ReactNode[] {
 }
 
 // ── DESCRIPTION BUILDER ────────────────────────────────────────────────────────
-export function buildDescription(data: CertData, type: string): React.ReactNode[] {
-  if (data.description) {
-    return parseMarkdownDescription(data.description);
+export function buildDescription(data: CertData, type: string, hasEventName = true): React.ReactNode[] {
+  const customDescription = normalizeOptionalText(data.description);
+  if (customDescription) {
+    return parseMarkdownDescription(customDescription);
   }
 
   const highlightStyle = {
@@ -402,23 +449,40 @@ export function buildDescription(data: CertData, type: string): React.ReactNode[
   switch (type) {
     case 'WINNER': {
       const posText = data.position ? formatPosition(data.position) : 'First Place';
+      const domain = normalizeOptionalText(data.domain);
       const elements: React.ReactNode[] = [
         'for outstanding performance\nand for securing ',
         React.createElement(Text, { key: 'hl', style: highlightStyle }, posText),
       ];
-      if (data.domain) {
-        elements.push(`\nin the ${data.domain} category at`);
+      if (domain) {
+        elements.push(`\nin the ${domain} category${hasEventName ? ' at' : '.'}`);
       }
       return elements;
     }
     case 'PARTICIPATION':
-      return ['for actively participating and contributing their efforts to'];
+      return [
+        hasEventName
+          ? 'for actively participating and contributing their efforts to'
+          : 'for actively participating and contributing their efforts.',
+      ];
     case 'COMPLETION':
-      return ['for successfully completing and demonstrating mastery in'];
+      return [
+        hasEventName
+          ? 'for successfully completing and demonstrating mastery in'
+          : 'for successfully completing and demonstrating mastery.',
+      ];
     case 'SPEAKER':
-      return ['for sharing their valuable knowledge and expertise as a speaker at'];
+      return [
+        hasEventName
+          ? 'for sharing their valuable knowledge and expertise as a speaker at'
+          : 'for sharing their valuable knowledge and expertise as a speaker.',
+      ];
     default:
-      return ['for their valuable contribution and participation at'];
+      return [
+        hasEventName
+          ? 'for their valuable contribution and participation at'
+          : 'for their valuable contribution and participation.',
+      ];
   }
 }
 
@@ -428,23 +492,37 @@ export async function generateCertificatePDF(data: CertData): Promise<Buffer> {
   await initFonts();
 
   const type       = data.type.toUpperCase();
-  const verifyUrl  = `${FRONTEND_URL}/verify/${data.certId}`;
+  const certId = normalizeOptionalText(data.certId);
+  const verifyUrl = certId ? `${FRONTEND_URL}/verify/${encodeURIComponent(certId)}` : `${FRONTEND_URL}/verify`;
   const qrDataUrl  = await QRCode.toDataURL(verifyUrl, {
     width: 400, margin: 1,
     color: { dark: '#000000', light: '#ffffff' },
   });
-  const dateStr     = formatDateUpper(data.issuedAt);
-  const subtitle    = subtitleMap[type] ?? 'of Participation';
-  const hasFaculty  = Boolean(data.facultyName);
+  const dateStr = formatDateUpper(data.issuedAt);
+  const subtitle = subtitleMap[type] ?? 'of Participation';
+  const recipientName = normalizeOptionalText(data.recipientName);
+  const teamName = normalizeOptionalText(data.teamName);
+  const eventName = normalizeOptionalText(data.eventName);
+  const hasEventName = Boolean(eventName);
+  const signatoryName = normalizeOptionalText(data.signatoryName);
+  const signatoryTitle = normalizeOptionalText(data.signatoryTitle);
+  const signatoryImageUrl = normalizeOptionalText(data.signatoryImageUrl);
+  const facultyName = normalizeOptionalText(data.facultyName);
+  const facultyTitle = normalizeOptionalText(data.facultyTitle);
+  const facultySignatoryImageUrl = normalizeOptionalText(data.facultySignatoryImageUrl);
+  const hasPrimarySignatory = Boolean(signatoryImageUrl || signatoryName || signatoryTitle);
+  const hasFacultySignatory = Boolean(facultySignatoryImageUrl || facultyName || facultyTitle);
+  const sideReserveWidth = hasPrimarySignatory || hasFacultySignatory ? 240 : 0;
+  const hasCustomDescription = Boolean(normalizeOptionalText(data.description));
   const verifyDomain = FRONTEND_URL.replace(/^https?:\/\//, '');
-  const descElements = buildDescription(data, type);
-  const teamLine = data.teamName ? `Member of Team ${data.teamName}` : null;
+  const descElements = buildDescription(data, type, hasEventName);
+  const teamLine = teamName ? `Member of Team ${teamName}` : null;
 
   if (!data.codescrietLogoUrl) {
-    logger.warn('Certificate PDF rendering without CodeScriet logo', { certId: data.certId });
+    logger.warn('Certificate PDF rendering without CodeScriet logo', { certId: certId ?? 'missing' });
   }
   if (!data.ccsuLogoUrl) {
-    logger.warn('Certificate PDF rendering without CCSU logo', { certId: data.certId });
+    logger.warn('Certificate PDF rendering without CCSU logo', { certId: certId ?? 'missing' });
   }
 
   return renderToBuffer(
@@ -521,13 +599,26 @@ export async function generateCertificatePDF(data: CertData): Promise<Buffer> {
             },
               React.createElement(Text, {
                 style: {
-                  fontFamily: 'Cinzel', fontSize: 15, fontWeight: 700,
-                  color: C.textMain, letterSpacing: 1.5,
+                  fontFamily: 'Cinzel', fontSize: 11, fontWeight: 700,
+                  color: C.maroon, letterSpacing: 0.6,
                 },
-              }, 'CHAUDHARY CHARAN SINGH UNIVERSITY, MEERUT'),
+              }, 'Sir Chhotu Ram Institute of Engineering Technology (SCRIET)'),
               React.createElement(Text, {
                 style: {
-                  fontFamily: 'CormorantGaramond', fontSize: 15, fontWeight: 600,
+                  fontFamily: 'Cinzel', fontSize: 12, fontWeight: 700,
+                  color: C.textMain, letterSpacing: 0.8, marginTop: 3,
+                },
+              }, 'Chaudhary Charan Singh University Campus, Meerut'),
+              React.createElement(Text, {
+                style: {
+                  fontFamily: 'CormorantGaramond', fontSize: 11,
+                  color: C.textMain, letterSpacing: 1.1, marginTop: 2,
+                },
+              }, 'Approved by AICTE (NAAC A++ Accredited)'),
+              React.createElement(Text, {
+                style: {
+                  fontFamily: 'CormorantGaramond', fontSize: 14, fontWeight: 700,
+                  fontStyle: 'italic',
                   color: C.maroon, letterSpacing: 2, marginTop: 4,
                 },
               }, 'CODE.SCRIET CODING COMMUNITY'),
@@ -546,13 +637,13 @@ export async function generateCertificatePDF(data: CertData): Promise<Buffer> {
             ),
           ),
 
-          // ── TITLE GROUP (marginTop -5 tightens gap to header) ───────────
+          // ── TITLE GROUP (slightly lower to add breathing room from header) ─
           React.createElement(View, {
-            style: { alignItems: 'center', marginTop: -5 },
+            style: { alignItems: 'center', marginTop: 8 },
           },
             React.createElement(Text, {
               style: {
-                fontFamily: 'Cinzel', fontSize: 48, fontWeight: 700,
+                fontFamily: 'Cinzel', fontSize: 46.5, fontWeight: 700,
                 color: C.textMain, lineHeight: 1, paddingBottom: 5,
               },
             }, 'CERTIFICATE'),
@@ -584,7 +675,7 @@ export async function generateCertificatePDF(data: CertData): Promise<Buffer> {
           React.createElement(View, {
             style: {
               alignItems: 'center', justifyContent: 'center',
-              height: 140, width: '100%',
+              height: recipientName || teamLine ? 140 : 110, width: '100%',
             },
           },
             React.createElement(Text, {
@@ -593,15 +684,20 @@ export async function generateCertificatePDF(data: CertData): Promise<Buffer> {
                 color: C.textMuted, letterSpacing: 2, marginBottom: 8,
               },
             }, 'THIS CERTIFICATE IS PROUDLY PRESENTED TO'),
-            React.createElement(Text, {
-              style: {
-                fontFamily: 'PlayfairDisplay', fontWeight: 700,
-                fontSize: nameFontSize(data.recipientName),
-                color: C.maroon,
-                lineHeight: 1.1, letterSpacing: 0.5,
-                textAlign: 'center', maxWidth: 680,
-              },
-            }, data.recipientName),
+            ...(recipientName
+              ? [
+                  React.createElement(Text, {
+                    key: 'recipient-name',
+                    style: {
+                      fontFamily: 'PlayfairDisplay', fontWeight: 700,
+                      fontSize: nameFontSize(recipientName),
+                      color: C.maroon,
+                      lineHeight: 1.1, letterSpacing: 0.5,
+                      textAlign: 'center', maxWidth: 680,
+                    },
+                  }, recipientName),
+                ]
+              : []),
             ...(teamLine
               ? [
                   React.createElement(Text, {
@@ -621,7 +717,7 @@ export async function generateCertificatePDF(data: CertData): Promise<Buffer> {
               style: {
                 width: 400, height: 1,
                 backgroundColor: C.textMain, opacity: 0.2,
-                marginTop: 8,
+                marginTop: recipientName || teamLine ? 8 : 2,
               },
             }),
           ),
@@ -633,23 +729,27 @@ export async function generateCertificatePDF(data: CertData): Promise<Buffer> {
             // Description text (italic, 19px, with optional highlight)
             React.createElement(Text, {
               style: {
-                fontFamily: 'CormorantGaramond', fontStyle: 'italic', fontSize: 19,
+                fontFamily: 'CormorantGaramond', fontStyle: hasCustomDescription ? 'normal' : 'italic', fontSize: 19,
                 color: C.textMain, maxWidth: 650, lineHeight: 1.4,
-                textAlign: 'center', marginBottom: 10,
+                textAlign: 'center', marginBottom: hasEventName ? 10 : 6,
               },
             }, ...descElements),
-            // Event name
-            React.createElement(Text, {
-              style: {
-                fontFamily: 'Cinzel', fontWeight: 700, fontSize: 18,
-                color: C.textMain, letterSpacing: 1.5, marginTop: 5,
-              },
-            }, data.eventName.toUpperCase()),
+            ...(hasEventName
+              ? [
+                  React.createElement(Text, {
+                    key: 'event-name',
+                    style: {
+                      fontFamily: 'Cinzel', fontWeight: 700, fontSize: 18,
+                      color: C.textMain, letterSpacing: 1.5, marginTop: 5,
+                    },
+                  }, (eventName ?? '').toUpperCase()),
+                ]
+              : []),
             // Date
             React.createElement(Text, {
               style: {
                 fontFamily: 'Cinzel', fontSize: 11,
-                color: C.gold, letterSpacing: 1.5, marginTop: 6,
+                color: C.gold, letterSpacing: 1.5, marginTop: hasEventName ? 6 : 0,
               },
             }, dateStr),
           ),
@@ -662,7 +762,7 @@ export async function generateCertificatePDF(data: CertData): Promise<Buffer> {
               paddingHorizontal: 35,
             },
           },
-            React.createElement(View, { style: { width: 240 } }),
+            React.createElement(View, { style: { width: sideReserveWidth } }),
 
             // CENTRE — Verification block (QR 52x52, no border box)
             React.createElement(View, {
@@ -672,12 +772,17 @@ export async function generateCertificatePDF(data: CertData): Promise<Buffer> {
                 src: qrDataUrl,
                 style: { width: 52, height: 52, marginBottom: 10 },
               }),
-              React.createElement(Text, {
-                style: {
-                  fontFamily: 'CormorantGaramond', fontSize: 13, fontWeight: 700,
-                  color: C.textMain, letterSpacing: 0.5, marginBottom: 4,
-                },
-              }, `Certificate ID: ${data.certId}`),
+              ...(certId
+                ? [
+                    React.createElement(Text, {
+                      key: 'cert-id',
+                      style: {
+                        fontFamily: 'CormorantGaramond', fontSize: 13, fontWeight: 700,
+                        color: C.textMain, letterSpacing: 0.5, marginBottom: 4,
+                      },
+                    }, `Certificate ID: ${certId}`),
+                  ]
+                : []),
               React.createElement(Text, {
                 style: {
                   fontFamily: 'CormorantGaramond', fontSize: 11,
@@ -686,80 +791,100 @@ export async function generateCertificatePDF(data: CertData): Promise<Buffer> {
               }, `Verify at ${verifyDomain}`),
             ),
 
-            React.createElement(View, { style: { width: 240 } }),
+            React.createElement(View, { style: { width: sideReserveWidth } }),
           ),
         ),
 
         // ── PRIMARY SIGNATORY (absolute-positioned, left) ──────────────
-        React.createElement(View, {
-          style: {
-            position: 'absolute',
-            left: 55,
-            bottom: 58,
-            width: 240,
-            alignItems: 'center',
-          },
-        },
-          // Signature: image if available, otherwise GreatVibes cursive text
-          ...(data.signatoryImageUrl
-            ? [
-                React.createElement(Image, {
-                  key: 'sig-img',
-                  src: data.signatoryImageUrl,
-                  style: {
-                    width: 220,
-                    maxHeight: 80,
-                    objectFit: 'contain' as const,
-                    marginBottom: -20,
-                  },
-                }),
-              ]
-            : [
-                React.createElement(Text, {
-                  key: 'sig-text',
-                  style: {
-                    fontFamily: 'GreatVibes',
-                    fontSize: 28,
-                    lineHeight: 1.1,
-                    color: '#333333',
-                    textAlign: 'center',
-                    width: '100%',
-                    marginBottom: 6,
-                  },
-                }, data.signatoryName),
-              ]
-          ),
+        ...(hasPrimarySignatory ? [
           React.createElement(View, {
+            key: 'primary-signature-absolute',
             style: {
-              width: '100%',
-              height: 1,
-              backgroundColor: C.textMain,
-              opacity: 0.5,
-              marginBottom: 8,
+              position: 'absolute',
+              left: 55,
+              bottom: 58,
+              width: 240,
+              alignItems: 'center',
             },
-          }),
-          React.createElement(Text, {
-            style: {
-              fontFamily: 'Cinzel',
-              fontSize: 11,
-              fontWeight: 700,
-              color: C.textMain,
-              letterSpacing: 1,
-            },
-          }, data.signatoryName.toUpperCase()),
-          React.createElement(Text, {
-            style: {
-              fontFamily: 'CormorantGaramond',
-              fontSize: 12,
-              fontStyle: 'italic',
-              color: C.textMuted,
-              marginTop: 2,
-            },
-          }, data.signatoryTitle || 'Club President'),
-        ),
+          },
+            // Signature: image if available, otherwise GreatVibes cursive text
+            ...(signatoryImageUrl
+              ? [
+                  React.createElement(Image, {
+                    key: 'sig-img',
+                    src: signatoryImageUrl,
+                    style: {
+                      width: 220,
+                      maxHeight: 80,
+                      objectFit: 'contain' as const,
+                      marginBottom: -20,
+                    },
+                  }),
+                ]
+              : signatoryName
+                ? [
+                    React.createElement(Text, {
+                      key: 'sig-text',
+                      style: {
+                        fontFamily: 'GreatVibes',
+                        fontSize: 28,
+                        lineHeight: 1.1,
+                        color: '#333333',
+                        textAlign: 'center',
+                        width: '100%',
+                        marginBottom: 6,
+                      },
+                    }, signatoryName),
+                  ]
+                : []
+            ),
+            ...(signatoryName || signatoryTitle
+              ? [
+                  React.createElement(View, {
+                    key: 'primary-signature-line',
+                    style: {
+                      width: '100%',
+                      height: 1,
+                      backgroundColor: C.textMain,
+                      opacity: 0.5,
+                      marginBottom: 8,
+                    },
+                  }),
+                ]
+              : []),
+            ...(signatoryName
+              ? [
+                  React.createElement(Text, {
+                    key: 'primary-signature-name',
+                    style: {
+                      fontFamily: 'Cinzel',
+                      fontSize: 11,
+                      fontWeight: 700,
+                      color: C.textMain,
+                      letterSpacing: 1,
+                    },
+                  }, signatoryName.toUpperCase()),
+                ]
+              : []),
+            ...(signatoryTitle
+              ? [
+                  React.createElement(Text, {
+                    key: 'primary-signature-title',
+                    style: {
+                      fontFamily: 'CormorantGaramond',
+                      fontSize: 12,
+                      fontStyle: 'italic',
+                      color: C.textMuted,
+                      marginTop: 2,
+                    },
+                  }, signatoryTitle),
+                ]
+              : []),
+          ),
+        ] : []),
 
         // ── FACULTY SIGNATORY (absolute-positioned, right) ──────────────
-        ...(hasFaculty ? [
+        ...(hasFacultySignatory ? [
           React.createElement(View, {
             key: 'faculty-signature-absolute',
             style: {
@@ -771,11 +896,11 @@ export async function generateCertificatePDF(data: CertData): Promise<Buffer> {
             },
           },
             // Faculty signature: image if available, otherwise GreatVibes cursive text
-            ...(data.facultySignatoryImageUrl
+              ...(facultySignatoryImageUrl
               ? [
                   React.createElement(Image, {
                     key: 'fac-sig-img',
-                    src: data.facultySignatoryImageUrl,
+                      src: facultySignatoryImageUrl,
                     style: {
                       width: 220,
                       maxHeight: 80,
@@ -784,48 +909,65 @@ export async function generateCertificatePDF(data: CertData): Promise<Buffer> {
                     },
                   }),
                 ]
-              : [
-                  React.createElement(Text, {
-                    key: 'fac-sig-text',
-                    style: {
-                      fontFamily: 'GreatVibes',
-                      fontSize: 28,
-                      lineHeight: 1.1,
-                      color: '#333333',
-                      textAlign: 'center',
-                      width: '100%',
-                      marginBottom: 6,
-                    },
-                  }, data.facultyName ?? ''),
-                ]
+              : facultyName
+                ? [
+                    React.createElement(Text, {
+                      key: 'fac-sig-text',
+                      style: {
+                        fontFamily: 'GreatVibes',
+                        fontSize: 28,
+                        lineHeight: 1.1,
+                        color: '#333333',
+                        textAlign: 'center',
+                        width: '100%',
+                        marginBottom: 6,
+                      },
+                    }, facultyName),
+                  ]
+                : []
             ),
-            React.createElement(View, {
-              style: {
-                width: '100%',
-                height: 1,
-                backgroundColor: C.textMain,
-                opacity: 0.5,
-                marginBottom: 8,
-              },
-            }),
-            React.createElement(Text, {
-              style: {
-                fontFamily: 'Cinzel',
-                fontSize: 11,
-                fontWeight: 700,
-                color: C.textMain,
-                letterSpacing: 1,
-              },
-            }, (data.facultyName ?? '').toUpperCase()),
-            React.createElement(Text, {
-              style: {
-                fontFamily: 'CormorantGaramond',
-                fontSize: 12,
-                fontStyle: 'italic',
-                color: C.textMuted,
-                marginTop: 2,
-              },
-            }, data.facultyTitle || 'Faculty Coordinator'),
+            ...(facultyName || facultyTitle
+              ? [
+                  React.createElement(View, {
+                    key: 'faculty-signature-line',
+                    style: {
+                      width: '100%',
+                      height: 1,
+                      backgroundColor: C.textMain,
+                      opacity: 0.5,
+                      marginBottom: 8,
+                    },
+                  }),
+                ]
+              : []),
+            ...(facultyName
+              ? [
+                  React.createElement(Text, {
+                    key: 'faculty-signature-name',
+                    style: {
+                      fontFamily: 'Cinzel',
+                      fontSize: 11,
+                      fontWeight: 700,
+                      color: C.textMain,
+                      letterSpacing: 1,
+                    },
+                  }, facultyName.toUpperCase()),
+                ]
+              : []),
+            ...(facultyTitle
+              ? [
+                  React.createElement(Text, {
+                    key: 'faculty-signature-title',
+                    style: {
+                      fontFamily: 'CormorantGaramond',
+                      fontSize: 12,
+                      fontStyle: 'italic',
+                      color: C.textMuted,
+                      marginTop: 2,
+                    },
+                  }, facultyTitle),
+                ]
+              : []),
           ),
         ] : []),
       )

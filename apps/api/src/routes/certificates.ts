@@ -71,7 +71,7 @@ const generateSchema = z.object({
   recipientEmail: z.string().email().transform(v => v.trim().toLowerCase()),
   recipientId: z.string().optional().nullable(),
   eventId: z.string().optional().nullable(),
-  eventName: z.string().min(2).max(200),
+  eventName: z.string().max(200).optional().nullable(),
   type: z.enum(certTypes),
   position: z.string().max(100).optional().nullable(),
   domain: z.string().max(100).optional().nullable(),
@@ -103,7 +103,7 @@ const bulkRecipientSchema = z.object({
 const bulkSchema = z.object({
   recipients: z.array(bulkRecipientSchema).min(1).max(200),
   eventId: z.string().optional().nullable(),
-  eventName: z.string().min(2).max(200),
+  eventName: z.string().max(200).optional().nullable(),
   type: z.enum(certTypes).optional().nullable(),
   template: z.enum(certTemplates).default('gold'),
   signatoryId: z.string().optional().nullable(),
@@ -512,19 +512,27 @@ async function sendCertificateFile(
   return res.redirect(302, cloudUrl);
 }
 
-function buildCertificateEventScope(eventName: string, eventId?: string | null) {
+function buildCertificateEventScope(eventName: string | null | undefined, eventId?: string | null) {
+  const normalizedEventName = (eventName || '').trim();
+
   if (eventId) {
+    // Only include legacy eventName fallback when a non-empty name exists.
+    // This avoids false positives against generic certificates with blank event names.
+    if (!normalizedEventName) {
+      return { eventId };
+    }
+
     return {
       OR: [
         { eventId },
-        { eventId: null, eventName },
+        { eventId: null, eventName: normalizedEventName },
       ],
     };
   }
 
   return {
     eventId: null,
-    eventName,
+    eventName: normalizedEventName,
   };
 }
 
@@ -982,7 +990,7 @@ certificatesRouter.post('/generate', authMiddleware, requireRole('ADMIN'), async
 
     // Optionally send email
     if (sendEmail) {
-      emailService.sendCertificateIssued(recipientEmail, recipientName, eventName, certId, downloadUrl)
+      emailService.sendCertificateIssued(recipientEmail, recipientName, safeEventName, certId, downloadUrl)
         .then(async (sent) => {
           if (sent) {
             try {
@@ -998,8 +1006,8 @@ certificatesRouter.post('/generate', authMiddleware, requireRole('ADMIN'), async
         .catch(err => logger.error('Certificate email failed', { certId, error: err.message }));
     }
 
-    logger.info('Certificate generated', { certId, recipientEmail, eventName, type, issuedBy: authUser.id });
-    await auditLog(authUser.id, 'CERTIFICATE_GENERATE', 'certificate', certId, { recipientEmail, eventName, type });
+    logger.info('Certificate generated', { certId, recipientEmail, eventName: safeEventName, type, issuedBy: authUser.id });
+    await auditLog(authUser.id, 'CERTIFICATE_GENERATE', 'certificate', certId, { recipientEmail, eventName: safeEventName, type });
 
     return ApiResponse.success(res, {
       certId,
@@ -1327,7 +1335,7 @@ certificatesRouter.post('/bulk', authMiddleware, requireRole('ADMIN'), async (re
   logger.info('Bulk certificate generation complete', {
     generated: successes.length,
     failed: failures.length,
-    eventName,
+    eventName: safeEventName,
     issuedBy: authUser.id,
     source,
   });
@@ -1341,7 +1349,7 @@ certificatesRouter.post('/bulk', authMiddleware, requireRole('ADMIN'), async (re
   }, {});
 
   await auditLog(authUser.id, 'CERTIFICATE_BULK_GENERATE', 'certificate', undefined, {
-    eventName,
+    eventName: safeEventName,
     type: type || null,
     generated: successes.length,
     failed: failures.length,
