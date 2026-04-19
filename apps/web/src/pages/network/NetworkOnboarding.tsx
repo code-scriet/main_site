@@ -489,17 +489,15 @@ export default function NetworkOnboarding() {
         noIndex={true}
       />
 
-      <div className="relative min-h-screen bg-[#f4f6fb] px-4 py-8 sm:py-12">
+      <div className="relative min-h-screen bg-[#f4f6fb] px-4 py-8 dark:bg-gradient-to-b dark:from-[#05060a] dark:via-[#090b11] dark:to-[#07080d] sm:py-12">
         <div className="pointer-events-none absolute inset-0 overflow-hidden">
           <div
-            className={`absolute -right-20 top-0 rounded-full bg-amber-300/20 ${
-              isMobile ? 'h-[220px] w-[220px] blur-2xl' : 'h-[340px] w-[340px] blur-3xl'
-            }`}
+            className={`absolute -right-20 top-0 rounded-full bg-amber-300/20 dark:bg-red-900/20 ${isMobile ? 'h-[220px] w-[220px] blur-2xl' : 'h-[340px] w-[340px] blur-3xl'
+              }`}
           />
           <div
-            className={`absolute -left-16 top-80 rounded-full bg-cyan-300/20 ${
-              isMobile ? 'h-[200px] w-[200px] blur-2xl' : 'h-[320px] w-[320px] blur-3xl'
-            }`}
+            className={`absolute -left-16 top-80 rounded-full bg-cyan-300/20 dark:bg-blue-900/20 ${isMobile ? 'h-[200px] w-[200px] blur-2xl' : 'h-[320px] w-[320px] blur-3xl'
+              }`}
           />
         </div>
 
@@ -508,7 +506,7 @@ export default function NetworkOnboarding() {
             initial={{ opacity: 0, y: 18 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: shouldReduceMotion ? 0.3 : 0.5 }}
-            className="mb-6 rounded-3xl border border-white/60 bg-white/92 p-6 shadow-xl backdrop-blur sm:p-7"
+            className="mb-6 rounded-3xl border border-white/60 bg-white/92 p-6 shadow-xl backdrop-blur dark:border-zinc-800 dark:bg-[#0f1117]/95 dark:shadow-black/40 sm:p-7"
           >
             <div className="mb-3 flex flex-wrap items-center gap-2">
               <Badge className="border-amber-200 bg-amber-100 text-amber-800">
@@ -524,10 +522,10 @@ export default function NetworkOnboarding() {
               {existingProfile && <StatusBadge />}
             </div>
 
-            <h1 className="text-3xl font-bold text-gray-900 sm:text-4xl">
+            <h1 className="text-3xl font-bold text-gray-900 dark:text-zinc-100 sm:text-4xl">
               {existingProfile ? 'Refine Your Public Profile' : 'Build Your Network Profile'}
             </h1>
-            <p className="mt-2 max-w-3xl text-sm text-gray-600 sm:text-base">
+            <p className="mt-2 max-w-3xl text-sm text-gray-600 dark:text-zinc-400 sm:text-base">
               Structure your profile so students can quickly understand your background, collaboration style, and impact.
               The card you submit here is what appears on the public network page after verification.
             </p>
@@ -537,13 +535,13 @@ export default function NetworkOnboarding() {
             <motion.div
               initial={{ opacity: 0, y: -10 }}
               animate={{ opacity: 1, y: 0 }}
-              className="mb-6 flex items-start gap-3 rounded-xl border border-red-200 bg-red-50 p-4"
+              className="mb-6 flex items-start gap-3 rounded-xl border border-red-200 bg-red-50 p-4 dark:border-red-900/50 dark:bg-red-950/40"
             >
               <AlertCircle className="mt-0.5 h-5 w-5 flex-shrink-0 text-red-600" />
               <div>
-                <p className="font-medium text-red-800">Your profile was not approved</p>
-                <p className="mt-1 text-sm text-red-600">{existingProfile.rejectionReason}</p>
-                <p className="mt-2 text-sm text-red-600">
+                <p className="font-medium text-red-800 dark:text-red-300">Your profile was not approved</p>
+                <p className="mt-1 text-sm text-red-600 dark:text-red-300">{existingProfile.rejectionReason}</p>
+                <p className="mt-2 text-sm text-red-600 dark:text-red-300">
                   Please update your profile with the required corrections and submit again.
                 </p>
               </div>
@@ -554,18 +552,18 @@ export default function NetworkOnboarding() {
             <motion.div
               initial={{ opacity: 0, y: -10 }}
               animate={{ opacity: 1, y: 0 }}
-              className="mb-6 flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 p-4"
+              className="mb-6 flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 p-4 dark:border-amber-900/40 dark:bg-amber-950/25"
             >
               <AlertCircle className="mt-0.5 h-5 w-5 flex-shrink-0 text-amber-600" />
               <div>
-                <p className="font-medium text-amber-900">Couldn&apos;t load your existing draft</p>
-                <p className="mt-1 text-sm text-amber-700">{profileLoadError}</p>
+                <p className="font-medium text-amber-900 dark:text-amber-200">Couldn&apos;t load your existing draft</p>
+                <p className="mt-1 text-sm text-amber-700 dark:text-amber-300">{profileLoadError}</p>
               </div>
             </motion.div>
           )}
 
           <div className="grid items-start gap-6 lg:grid-cols-[1.55fr_1fr]">
-            <Card className="border-white/70 bg-white/95 shadow-xl">
+            <Card className="border-white/70 bg-white/95 shadow-xl dark:border-zinc-800 dark:bg-[#0f1117]/95 dark:shadow-black/40">
               <CardHeader>
                 <CardTitle className="flex items-center gap-2 text-xl">
                   <User className="h-5 w-5 text-amber-600" />
@@ -628,9 +626,8 @@ export default function NetworkOnboarding() {
                         <select
                           id="industry"
                           {...register('industry')}
-                          className={`w-full rounded-md border bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 ${
-                            errors.industry ? 'border-red-500' : 'border-gray-200'
-                          }`}
+                          className={`w-full rounded-md border bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100 ${errors.industry ? 'border-red-500' : 'border-gray-200'
+                            }`}
                         >
                           <option value="">Select Industry</option>
                           {industries.map((ind) => (
@@ -698,11 +695,10 @@ export default function NetworkOnboarding() {
 
                     {(isAlumniIntent || isProfessionalIntent) && (
                       <div
-                        className={`rounded-xl border p-3 text-sm ${
-                          isAlumniIntent
+                        className={`rounded-xl border p-3 text-sm ${isAlumniIntent
                             ? 'border-teal-200 bg-teal-50 text-teal-800'
                             : 'border-indigo-200 bg-indigo-50 text-indigo-800'
-                        }`}
+                          }`}
                       >
                         {isAlumniIntent
                           ? 'You started from the Alumni path, so this onboarding is set to Alumni.'
@@ -711,7 +707,7 @@ export default function NetworkOnboarding() {
                     )}
 
                     <div className="space-y-3">
-                      <p id="network-connection-type-label" className="text-sm font-medium text-gray-900">
+                      <p id="network-connection-type-label" className="text-sm font-medium text-gray-900 dark:text-zinc-100">
                         How did you connect with code.scriet? *
                       </p>
                       <div
@@ -723,11 +719,10 @@ export default function NetworkOnboarding() {
                           const Icon = connectionTypeIcons[type.value];
                           return (
                             <label htmlFor={`network-connection-type-${type.value}`} key={type.value}
-                              className={`flex cursor-pointer items-start gap-3 rounded-xl border p-3 transition-all ${
-                                selectedConnectionType === type.value
-                                  ? 'border-indigo-400 bg-indigo-50 shadow-sm'
-                                  : 'border-gray-200 bg-white hover:border-indigo-200'
-                              }`}
+                              className={`flex cursor-pointer items-start gap-3 rounded-xl border p-3 transition-all ${selectedConnectionType === type.value
+                                  ? 'border-indigo-400 bg-indigo-50 shadow-sm dark:border-indigo-500/70 dark:bg-zinc-900/90'
+                                  : 'border-gray-200 bg-white hover:border-indigo-200 dark:border-zinc-700 dark:bg-zinc-950 dark:hover:border-zinc-600'
+                                }`}
                             >
                               <input
                                 id={`network-connection-type-${type.value}`}
@@ -736,12 +731,12 @@ export default function NetworkOnboarding() {
                                 {...register('connectionType')}
                                 className="sr-only"
                               />
-                              <div className="mt-0.5 rounded-lg bg-white p-1.5 text-indigo-700 shadow-sm">
+                              <div className="mt-0.5 rounded-lg bg-white p-1.5 text-indigo-700 shadow-sm dark:bg-zinc-900 dark:text-indigo-300">
                                 <Icon className="h-4 w-4" />
                               </div>
                               <div>
-                                <p className="text-sm font-semibold text-gray-900">{type.label}</p>
-                                <p className="text-xs text-gray-500">{type.description}</p>
+                                <p className="text-sm font-semibold text-gray-900 dark:text-zinc-100">{type.label}</p>
+                                <p className="text-xs text-gray-500 dark:text-zinc-400">{type.description}</p>
                               </div>
                             </label>
                           );
@@ -784,7 +779,7 @@ export default function NetworkOnboarding() {
                         initial={{ opacity: 0, height: 0 }}
                         animate={{ opacity: 1, height: 'auto' }}
                         exit={{ opacity: 0, height: 0 }}
-                        className="overflow-hidden rounded-2xl border border-teal-200 bg-gradient-to-br from-teal-50 to-cyan-50 p-5"
+                        className="overflow-hidden rounded-2xl border border-teal-200 bg-gradient-to-br from-teal-50 to-cyan-50 p-5 dark:border-zinc-700 dark:from-[#0f1820] dark:to-[#0c1620]"
                       >
                         <div className="mb-4 flex items-center gap-2">
                           <GraduationCap className="h-5 w-5 text-teal-700" />
@@ -819,7 +814,7 @@ export default function NetworkOnboarding() {
                             <select
                               id="degree"
                               {...register('degree')}
-                              className="w-full rounded-md border border-gray-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500"
+                              className="w-full rounded-md border border-gray-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100"
                             >
                               <option value="">Select Degree</option>
                               {degrees.map((d) => (
@@ -837,7 +832,7 @@ export default function NetworkOnboarding() {
                             <select
                               id="branch"
                               {...register('branch')}
-                              className="w-full rounded-md border border-gray-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500"
+                              className="w-full rounded-md border border-gray-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100"
                             >
                               <option value="">Select Branch</option>
                               {branches.map((b) => (
@@ -881,7 +876,7 @@ export default function NetworkOnboarding() {
                     )}
                   </AnimatePresence>
 
-                  <section className="space-y-4 rounded-2xl border border-slate-200 bg-white p-5">
+                  <section className="space-y-4 rounded-2xl border border-slate-200 bg-white p-5 dark:border-zinc-700 dark:bg-zinc-950/90">
                     <h3 className="flex items-center gap-2 text-base font-semibold text-slate-900">
                       <Globe className="h-4.5 w-4.5 text-slate-700" />
                       Social & Public Links
@@ -922,7 +917,7 @@ export default function NetworkOnboarding() {
                     </div>
                   </section>
 
-                  <div className="rounded-xl border border-blue-100 bg-blue-50 p-3">
+                  <div className="rounded-xl border border-blue-100 bg-blue-50 p-3 dark:border-blue-900/50 dark:bg-blue-950/35">
                     <div className="flex items-start gap-2">
                       <ShieldCheck className="mt-0.5 h-4 w-4 text-blue-600" />
                       <p className="text-xs leading-relaxed text-blue-700">
@@ -933,7 +928,7 @@ export default function NetworkOnboarding() {
                   </div>
 
                   {submitError && (
-                    <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-600">
+                    <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-600 dark:border-red-900/50 dark:bg-red-950/35 dark:text-red-300">
                       {submitError}
                     </div>
                   )}
@@ -956,57 +951,57 @@ export default function NetworkOnboarding() {
             </Card>
 
             <div className="space-y-5 lg:sticky lg:top-24">
-              <Card className="border-white/70 bg-white/92 shadow-lg">
+              <Card className="border-white/70 bg-white/92 shadow-lg dark:border-zinc-800 dark:bg-[#0f1117]/95 dark:shadow-black/40">
                 <CardHeader className="pb-2">
                   <CardTitle className="text-base">Field Quality Checklist</CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-3 text-sm">
-                  <div className="flex items-start gap-2 text-gray-700">
+                  <div className="flex items-start gap-2 text-gray-700 dark:text-zinc-300">
                     <CheckCircle2 className="mt-0.5 h-4 w-4 text-emerald-600" />
                     Use a current role and exact organization name.
                   </div>
-                  <div className="flex items-start gap-2 text-gray-700">
+                  <div className="flex items-start gap-2 text-gray-700 dark:text-zinc-300">
                     <CheckCircle2 className="mt-0.5 h-4 w-4 text-emerald-600" />
                     Keep summary concrete: domain, years, focus areas, outcomes.
                   </div>
-                  <div className="flex items-start gap-2 text-gray-700">
+                  <div className="flex items-start gap-2 text-gray-700 dark:text-zinc-300">
                     <CheckCircle2 className="mt-0.5 h-4 w-4 text-emerald-600" />
                     Mention how you collaborated with the club.
                   </div>
-                  <div className="flex items-start gap-2 text-gray-700">
+                  <div className="flex items-start gap-2 text-gray-700 dark:text-zinc-300">
                     <CheckCircle2 className="mt-0.5 h-4 w-4 text-emerald-600" />
                     Add at least one public link (LinkedIn/GitHub/Website).
                   </div>
                 </CardContent>
               </Card>
 
-              <Card className="border-white/70 bg-white/92 shadow-lg">
+              <Card className="border-white/70 bg-white/92 shadow-lg dark:border-zinc-800 dark:bg-[#0f1117]/95 dark:shadow-black/40">
                 <CardHeader className="pb-2">
                   <CardTitle className="text-base">Public Profile Preview</CardTitle>
                 </CardHeader>
-                <CardContent className="space-y-3 text-sm text-gray-700">
-                  <div className="rounded-lg border border-gray-100 bg-gray-50 p-3">
+                <CardContent className="space-y-3 text-sm text-gray-700 dark:text-zinc-300">
+                  <div className="rounded-lg border border-gray-100 bg-gray-50 p-3 dark:border-zinc-700 dark:bg-zinc-900/70">
                     <p className="mb-1 text-xs uppercase tracking-wide text-gray-500">Track</p>
                     <p className="font-semibold text-gray-900">
                       {selectedConnectionType === 'ALUMNI' ? 'Alumni' : 'Professional / Industry'}
                     </p>
                   </div>
-                  <div className="rounded-lg border border-gray-100 bg-gray-50 p-3">
+                  <div className="rounded-lg border border-gray-100 bg-gray-50 p-3 dark:border-zinc-700 dark:bg-zinc-900/70">
                     <p className="mb-1 text-xs uppercase tracking-wide text-gray-500">Shows Publicly</p>
                     <p>Name, role, company, summary, connection type, and social links.</p>
                   </div>
-                  <div className="rounded-lg border border-gray-100 bg-gray-50 p-3">
+                  <div className="rounded-lg border border-gray-100 bg-gray-50 p-3 dark:border-zinc-700 dark:bg-zinc-900/70">
                     <p className="mb-1 text-xs uppercase tracking-wide text-gray-500">Hidden Publicly</p>
                     <p>Phone number and internal review metadata.</p>
                   </div>
                 </CardContent>
               </Card>
 
-              <Card className="border-white/70 bg-gradient-to-br from-amber-50 to-orange-50 shadow-lg">
+              <Card className="border-white/70 bg-gradient-to-br from-amber-50 to-orange-50 shadow-lg dark:border-zinc-800 dark:from-[#171216] dark:to-[#1b1410] dark:shadow-black/40">
                 <CardHeader className="pb-2">
-                  <CardTitle className="text-base text-amber-900">Built by Students</CardTitle>
+                  <CardTitle className="text-base text-amber-900 dark:text-amber-100">Built by Students</CardTitle>
                 </CardHeader>
-                <CardContent className="text-sm text-amber-800">
+                <CardContent className="text-sm text-amber-800 dark:text-amber-200">
                   This network experience is crafted by code.scriet B.Tech students to present alumni and professionals with
                   clean, high-signal profiles.
                 </CardContent>
