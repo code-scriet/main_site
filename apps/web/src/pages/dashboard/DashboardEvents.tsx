@@ -175,6 +175,19 @@ export default function DashboardEvents() {
       return;
     }
 
+    if (user?.role === 'NETWORK') {
+      try {
+        const eventDetail = await api.getEvent(event.id, token);
+        if (eventDetail.userInvitation?.status === 'PENDING') {
+          toast.info('You already have a guest invitation for this event. Accept it to continue.');
+          navigate(`/dashboard/invitations/${eventDetail.userInvitation.id}`);
+          return;
+        }
+      } catch {
+        // Fall back to the default registration flow if invitation lookup fails.
+      }
+    }
+
     if (!hasCompleteAcademicDetails) {
       localStorage.setItem('pendingEventRegistration', event.id);
       localStorage.setItem('pendingEventRegistrationType', event.teamRegistration ? 'team' : 'solo');
@@ -303,7 +316,7 @@ export default function DashboardEvents() {
                               <Badge
                                 variant={
                                   reg.event.status === 'UPCOMING' ? 'success' :
-                                  reg.event.status === 'ONGOING' ? 'warning' : 'secondary'
+                                    reg.event.status === 'ONGOING' ? 'warning' : 'secondary'
                                 }
                                 className="text-xs px-1.5 py-0 shrink-0 whitespace-nowrap"
                               >

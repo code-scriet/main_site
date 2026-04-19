@@ -36,9 +36,9 @@ export default function EventsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [registering, setRegistering] = useState<string | null>(null);
-  
+
   const [registeredEventIds, setRegisteredEventIds] = useState<Set<string>>(new Set());
-  
+
   const { user, token } = useAuth();
   const navigate = useNavigate();
 
@@ -47,11 +47,11 @@ export default function EventsPage() {
       try {
         setLoading(true);
         setError(null);
-        
+
         // Fetch events
         const eventsData = await api.getEvents();
         setEvents(eventsData);
-        
+
         // Fetch user registrations if logged in
         if (token) {
           try {
@@ -72,7 +72,7 @@ export default function EventsPage() {
 
   const handleRegister = async (event: Event) => {
     const regStatus = getRegistrationStatus(event);
-    
+
     if (!regStatus.canRegister) {
       toast.error(regStatus.message);
       return;
@@ -85,6 +85,19 @@ export default function EventsPage() {
       // Redirect to sign in
       navigate('/signin', { state: { from: '/events', message: 'Please sign in to register for events', pendingEventId: event.id } });
       return;
+    }
+
+    if (user.role === 'NETWORK') {
+      try {
+        const eventDetail = await api.getEvent(event.id, token);
+        if (eventDetail.userInvitation?.status === 'PENDING') {
+          toast.info('You already have a guest invitation for this event. Accept it to continue.');
+          navigate(`/dashboard/invitations/${eventDetail.userInvitation.id}`);
+          return;
+        }
+      } catch {
+        // Fall back to the default registration flow if invitation lookup fails.
+      }
     }
 
     // Check if academic details are complete - redirect to profile if not
@@ -111,7 +124,7 @@ export default function EventsPage() {
       setRegistering(event.id);
       await api.registerForEvent(event.id, token);
       toast.success(`Successfully registered for "${event.title}"!`);
-      
+
       // Refresh events to update registration count
       const updatedEvents = await api.getEvents();
       setEvents(updatedEvents);
@@ -126,8 +139,8 @@ export default function EventsPage() {
     }
   };
 
-  const filteredEvents = activeTab === 'ALL' 
-    ? events 
+  const filteredEvents = activeTab === 'ALL'
+    ? events
     : events.filter(event => event.status === activeTab);
 
   const tabs = [
@@ -139,7 +152,7 @@ export default function EventsPage() {
 
   return (
     <Layout>
-      <SEO 
+      <SEO
         title="Events"
         description="Explore upcoming and past events from codescriet — hackathons, workshops, and tech events at SCRIET."
         url="/events"
@@ -210,7 +223,7 @@ export default function EventsPage() {
               {filteredEvents.map((event, index) => {
                 const regStatus = getRegistrationStatus(event);
                 const eventHref = `/events/${event.slug || event.id}`;
-                
+
                 return (
                   <motion.div
                     key={event.id}
@@ -261,7 +274,7 @@ export default function EventsPage() {
                       <Link to={eventHref} className="block flex-1">
                         <CardContent className="space-y-4">
                           <p className="text-gray-600 line-clamp-2">{event.shortDescription || event.description}</p>
-                          
+
                           <div className="space-y-2 text-sm text-gray-500">
                             <div className="flex items-center gap-2">
                               <Calendar className="h-4 w-4" />
@@ -287,12 +300,11 @@ export default function EventsPage() {
                           </div>
 
                           {/* Registration Status */}
-                          <div className={`flex items-center gap-2 text-sm px-3 py-2 rounded-lg ${
-                            regStatus.status === 'open' ? 'bg-green-50 text-green-700' :
-                            regStatus.status === 'not_started' ? 'bg-blue-50 text-blue-700' :
-                            regStatus.status === 'closed' || regStatus.status === 'full' ? 'bg-gray-100 text-gray-600' :
-                            'bg-gray-100 text-gray-600'
-                          }`}>
+                          <div className={`flex items-center gap-2 text-sm px-3 py-2 rounded-lg ${regStatus.status === 'open' ? 'bg-green-50 text-green-700' :
+                              regStatus.status === 'not_started' ? 'bg-blue-50 text-blue-700' :
+                                regStatus.status === 'closed' || regStatus.status === 'full' ? 'bg-gray-100 text-gray-600' :
+                                  'bg-gray-100 text-gray-600'
+                            }`}>
                             <Clock className="h-4 w-4" />
                             <span>{regStatus.message}</span>
                           </div>
@@ -301,17 +313,17 @@ export default function EventsPage() {
                       <div className="px-6 pb-6 pt-2 flex flex-col gap-2">
                         {event.status !== 'PAST' && regStatus.canRegister ? (
                           registeredEventIds.has(event.id) ? (
-                            <Button 
-                              variant="secondary" 
-                              className="w-full bg-green-50 text-green-700 border border-green-200 opacity-100 cursor-default" 
+                            <Button
+                              variant="secondary"
+                              className="w-full bg-green-50 text-green-700 border border-green-200 opacity-100 cursor-default"
                               disabled
                             >
                               <CheckCircle className="h-4 w-4 mr-2" />
                               Registered
                             </Button>
                           ) : user ? (
-                            <Button 
-                              className="w-full bg-amber-600 hover:bg-amber-700" 
+                            <Button
+                              className="w-full bg-amber-600 hover:bg-amber-700"
                               onClick={() => handleRegister(event)}
                               disabled={registering === event.id}
                             >
@@ -325,8 +337,8 @@ export default function EventsPage() {
                               )}
                             </Button>
                           ) : (
-                            <Button 
-                              className="w-full" 
+                            <Button
+                              className="w-full"
                               variant="outline"
                               onClick={() => navigate('/signin', { state: { from: '/events' } })}
                             >

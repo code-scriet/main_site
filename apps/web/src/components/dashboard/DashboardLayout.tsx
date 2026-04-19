@@ -168,8 +168,9 @@ export default function DashboardLayout() {
   const location = useLocation();
   const navigate = useNavigate();
 
+  const isNetworkUser = user?.role === 'NETWORK';
   const isStaff = user?.role === 'CORE_MEMBER' || user?.role === 'ADMIN' || user?.role === 'PRESIDENT';
-  const needsProfileCompletion = user && !isStaff && (!user.phone || !user.course || !user.branch || !user.year);
+  const needsProfileCompletion = user && !isStaff && !isNetworkUser && (!user.phone || !user.course || !user.branch || !user.year);
 
   useEffect(() => {
     if (needsProfileCompletion && !PROFILE_EXEMPT_PATHS.has(location.pathname)) {
@@ -197,16 +198,44 @@ export default function DashboardLayout() {
     [invitationsQuery.data],
   );
 
-  const userNavItems = useMemo<NavItem[]>(() => [
-    { id: 'user-overview', name: 'Overview', href: '/dashboard', icon: Home },
-    { id: 'user-events', name: 'My Events', href: '/dashboard/events', icon: Calendar },
-    { id: 'user-announcements', name: 'Announcements', href: '/dashboard/announcements', icon: Bell },
-    { id: 'user-live-quiz', name: 'Live Quiz', href: '/quiz', icon: Zap },
-    ...(settings?.showLeaderboard !== false ? [{ id: 'user-leaderboard', name: 'Leaderboard', href: '/dashboard/leaderboard', icon: Trophy }] : []),
-    { id: 'user-profile', name: 'My Profile', href: '/dashboard/profile', icon: User },
-    ...(settings?.certificatesEnabled !== false ? [{ id: 'user-certificates', name: 'My Certificates', href: '/dashboard/certificates', icon: Award }] : []),
-    { id: 'user-invitations', name: 'My Invitations', href: '/dashboard/invitations', icon: MailOpen, badge: pendingInvitationCount },
-  ], [pendingInvitationCount, settings?.showLeaderboard, settings?.certificatesEnabled]);
+  const userNavItems = useMemo<NavItem[]>(() => {
+    if (isNetworkUser) {
+      return [
+        { id: 'user-events', name: 'My Events', href: '/dashboard/events', icon: Calendar },
+        ...(settings?.certificatesEnabled !== false
+          ? [{ id: 'user-certificates', name: 'My Certificates', href: '/dashboard/certificates', icon: Award }]
+          : []),
+        {
+          id: 'user-invitations',
+          name: 'My Invitations',
+          href: '/dashboard/invitations',
+          icon: MailOpen,
+          badge: pendingInvitationCount,
+        },
+      ];
+    }
+
+    return [
+      { id: 'user-overview', name: 'Overview', href: '/dashboard', icon: Home },
+      { id: 'user-events', name: 'My Events', href: '/dashboard/events', icon: Calendar },
+      { id: 'user-announcements', name: 'Announcements', href: '/dashboard/announcements', icon: Bell },
+      { id: 'user-live-quiz', name: 'Live Quiz', href: '/quiz', icon: Zap },
+      ...(settings?.showLeaderboard !== false
+        ? [{ id: 'user-leaderboard', name: 'Leaderboard', href: '/dashboard/leaderboard', icon: Trophy }]
+        : []),
+      { id: 'user-profile', name: 'My Profile', href: '/dashboard/profile', icon: User },
+      ...(settings?.certificatesEnabled !== false
+        ? [{ id: 'user-certificates', name: 'My Certificates', href: '/dashboard/certificates', icon: Award }]
+        : []),
+      {
+        id: 'user-invitations',
+        name: 'My Invitations',
+        href: '/dashboard/invitations',
+        icon: MailOpen,
+        badge: pendingInvitationCount,
+      },
+    ];
+  }, [isNetworkUser, pendingInvitationCount, settings?.showLeaderboard, settings?.certificatesEnabled]);
 
   const adminNavItems = useMemo<NavItem[]>(() => {
     if (!isAdmin) return [];

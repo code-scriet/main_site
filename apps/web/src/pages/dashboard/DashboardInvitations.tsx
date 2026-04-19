@@ -196,6 +196,12 @@ export default function DashboardInvitations() {
     declineMutation.mutate(invitationId);
   };
 
+  const openDashboardQr = (invitation: EventInvitation) => {
+    navigate('/dashboard/events', {
+      state: { openQrForEventId: invitation.eventId },
+    });
+  };
+
   if (invitationsQuery.isLoading) {
     return (
       <div className="flex min-h-[50vh] items-center justify-center">
@@ -255,9 +261,8 @@ export default function DashboardInvitations() {
                 <div
                   key={invitation.id}
                   id={`invitation-card-${invitation.id}`}
-                  className={`relative aspect-[16/9] overflow-hidden rounded-[28px] border border-amber-200 shadow-xl shadow-amber-100/40 ${
-                    invitation.id === highlightedInvitationId ? 'ring-2 ring-amber-400 ring-offset-2' : ''
-                  }`}
+                  className={`relative aspect-[16/9] overflow-hidden rounded-[28px] border border-amber-200 shadow-xl shadow-amber-100/40 ${invitation.id === highlightedInvitationId ? 'ring-2 ring-amber-400 ring-offset-2' : ''
+                    }`}
                 >
                   <EventImageBackground invitation={invitation} />
 
@@ -335,7 +340,7 @@ export default function DashboardInvitations() {
       <section className="space-y-4">
         <div className="flex items-center justify-between">
           <h2 className="text-lg font-semibold text-gray-900">Accepted</h2>
-          <p className="text-sm text-gray-500">Open the event page to view your live QR ticket.</p>
+          <p className="text-sm text-gray-500">Open your dashboard QR directly for faster check-in.</p>
         </div>
 
         {acceptedInvitations.length === 0 ? (
@@ -350,9 +355,8 @@ export default function DashboardInvitations() {
               <Card
                 key={invitation.id}
                 id={`invitation-card-${invitation.id}`}
-                className={`border-emerald-200 bg-white shadow-sm ${
-                  invitation.id === highlightedInvitationId ? 'ring-2 ring-amber-400 ring-offset-2' : ''
-                }`}
+                className={`border-emerald-200 bg-white shadow-sm ${invitation.id === highlightedInvitationId ? 'ring-2 ring-amber-400 ring-offset-2' : ''
+                  }`}
               >
                 <CardHeader className="space-y-3">
                   <div className="flex items-start justify-between gap-3">
@@ -379,12 +383,15 @@ export default function DashboardInvitations() {
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <p className="text-sm text-gray-600">
-                    Your guest registration is active. Open the event page to present the same QR ticket used by registered participants.
+                    Your guest registration is active. Open your dashboard QR ticket to check in at the event.
                   </p>
                   <div className="flex flex-wrap gap-3">
-                    <Button onClick={() => navigate(getInvitationEventHref(invitation))}>
+                    <Button onClick={() => openDashboardQr(invitation)}>
                       <QrCode className="mr-2 h-4 w-4" />
-                      View QR
+                      Open QR on Dashboard
+                    </Button>
+                    <Button variant="outline" onClick={() => navigate(getInvitationEventHref(invitation))}>
+                      View Event
                     </Button>
                     {isFuture(invitation.event?.startDate) && (
                       <Button
@@ -434,9 +441,8 @@ export default function DashboardInvitations() {
                   <Card
                     key={invitation.id}
                     id={`invitation-card-${invitation.id}`}
-                    className={`border-slate-200 ${
-                      invitation.id === highlightedInvitationId ? 'ring-2 ring-amber-400 ring-offset-2' : ''
-                    }`}
+                    className={`border-slate-200 ${invitation.id === highlightedInvitationId ? 'ring-2 ring-amber-400 ring-offset-2' : ''
+                      }`}
                   >
                     <CardContent className="flex flex-col gap-4 py-5 sm:flex-row sm:items-center sm:justify-between">
                       <div className="min-w-0">

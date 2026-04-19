@@ -15,6 +15,16 @@ interface ProtectedRouteProps {
   minRole?: string;
 }
 
+const NETWORK_ALLOWED_DASHBOARD_PREFIXES = [
+  '/dashboard/events',
+  '/dashboard/invitations',
+  '/dashboard/certificates',
+];
+
+function matchesPathPrefix(pathname: string, prefix: string) {
+  return pathname === prefix || pathname.startsWith(`${prefix}/`);
+}
+
 export function ProtectedRoute({ minRole = 'USER' }: ProtectedRouteProps) {
   const { user, isLoading } = useAuth();
   const location = useLocation();
@@ -36,9 +46,24 @@ export function ProtectedRoute({ minRole = 'USER' }: ProtectedRouteProps) {
     return <Navigate to={`/signin?next=${encodeURIComponent(nextPath)}`} replace />;
   }
 
-  // NETWORK users should never access dashboard routes.
+  // NETWORK users can only access invitation and event ticket dashboard routes.
   if (user.role === 'NETWORK' && !isNetworkEditPath) {
-    return <Navigate to="/network/status" replace />;
+    if (location.pathname === '/dashboard' || location.pathname === '/dashboard/') {
+      return <Navigate to="/dashboard/invitations" replace />;
+    }
+
+    const isDashboardRoute = matchesPathPrefix(location.pathname, '/dashboard');
+    if (isDashboardRoute) {
+      const isAllowedDashboardRoute = NETWORK_ALLOWED_DASHBOARD_PREFIXES.some((prefix) =>
+        matchesPathPrefix(location.pathname, prefix),
+      );
+
+      if (!isAllowedDashboardRoute) {
+        return <Navigate to="/dashboard/invitations" replace />;
+      }
+    } else {
+      return <Navigate to="/network/status" replace />;
+    }
   }
 
   const userLevel = roleHierarchy[user.role] || 0;

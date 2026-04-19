@@ -10,7 +10,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Markdown } from '@/components/ui/markdown';
-import { 
+import {
   Calendar, MapPin, Users, Loader2, Clock, AlertCircle,
   LogIn, ArrowLeft, Target, BookOpen, User, ExternalLink, ChevronDown,
   ChevronUp, Play, Image as ImageIcon, Link as LinkIcon, FileText,
@@ -137,7 +137,7 @@ function ImageGallery({ images }: { images: string[] }) {
 // FAQ Accordion Component
 function FAQSection({ faqs }: { faqs: FAQ[] }) {
   const [openIndex, setOpenIndex] = useState<number | null>(null);
-  
+
   if (!faqs.length) return null;
 
   return (
@@ -212,7 +212,7 @@ export default function EventDetailPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
   const { user, token, isLoading: authLoading } = useAuth();
-  
+
   const [event, setEvent] = useState<Event | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -222,6 +222,7 @@ export default function EventDetailPage() {
   const [registrationFieldValues, setRegistrationFieldValues] = useState<Record<string, string>>({});
   const [registrationFieldErrors, setRegistrationFieldErrors] = useState<Record<string, string>>({});
   const [registrationFormError, setRegistrationFormError] = useState<string | null>(null);
+  const [invitationResponding, setInvitationResponding] = useState(false);
   const [autoRegisterTriggered, setAutoRegisterTriggered] = useState(false);
   const [attendanceSummary, setAttendanceSummary] = useState<{
     total: number;
@@ -342,6 +343,37 @@ export default function EventDetailPage() {
     navigate('/dashboard/events', { state: { openQrForEventId: event.id } });
   }, [event, navigate]);
 
+  const handleAcceptInvitation = useCallback(async () => {
+    if (!event?.userInvitation || event.userInvitation.status !== 'PENDING') {
+      return;
+    }
+
+    if (!token) {
+      navigate('/signin', {
+        state: {
+          from: `/events/${event.slug || event.id}`,
+          message: 'Please sign in to accept this invitation.',
+        },
+      });
+      return;
+    }
+
+    try {
+      setInvitationResponding(true);
+      await api.acceptInvitation(event.userInvitation.id, token);
+
+      const updatedEvent = await api.getEvent(event.id, token);
+      setEvent(updatedEvent);
+      setIsRegistered(true);
+
+      toast.success('Invitation accepted. Your QR ticket is now available.');
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to accept invitation');
+    } finally {
+      setInvitationResponding(false);
+    }
+  }, [event, navigate, token]);
+
   const handleTeamChange = async () => {
     if (!event?.id || !token) return;
     try {
@@ -410,9 +442,9 @@ export default function EventDetailPage() {
     if (authLoading) {
       return;
     }
-    
+
     const regStatus = getRegistrationStatus(event);
-    
+
     if (!regStatus.canRegister) {
       toast.error(regStatus.message);
       return;
@@ -598,14 +630,26 @@ export default function EventDetailPage() {
         <div>
           <p className="font-semibold">You're invited as {pendingInvitation.role}.</p>
           <p className="mt-1 text-amber-800">
-            Respond from your dashboard to confirm attendance and unlock your QR ticket.
+            Accept this invitation to confirm attendance and unlock your QR ticket.
           </p>
         </div>
-        <Link to="/dashboard/invitations">
-          <Button variant="outline" className="border-amber-300 bg-white text-amber-900 hover:bg-amber-100">
-            View Invitation
+        <div className="flex flex-wrap gap-2">
+          <Button
+            className="bg-amber-600 text-white hover:bg-amber-700"
+            onClick={() => {
+              void handleAcceptInvitation();
+            }}
+            disabled={invitationResponding}
+          >
+            {invitationResponding ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+            Accept Invitation
           </Button>
-        </Link>
+          <Link to={`/dashboard/invitations/${pendingInvitation.id}`}>
+            <Button variant="outline" className="border-amber-300 bg-white text-amber-900 hover:bg-amber-100">
+              Manage in Dashboard
+            </Button>
+          </Link>
+        </div>
       </div>
     </div>
   ) : null;
@@ -621,11 +665,10 @@ export default function EventDetailPage() {
       <span>You have a pending guest invitation for this event.</span>
     </div>
   ) : (
-    <div className={`flex items-center gap-2 text-sm rounded-lg border px-4 py-3 ${
-      regStatus.status === 'open' ? 'bg-green-50 text-green-700 border-green-200' :
-      regStatus.status === 'not_started' ? 'bg-blue-50 text-blue-700 border-blue-200' :
-      'bg-gray-100 text-gray-600 border-gray-200'
-    }`}>
+    <div className={`flex items-center gap-2 text-sm rounded-lg border px-4 py-3 ${regStatus.status === 'open' ? 'bg-green-50 text-green-700 border-green-200' :
+        regStatus.status === 'not_started' ? 'bg-blue-50 text-blue-700 border-blue-200' :
+          'bg-gray-100 text-gray-600 border-gray-200'
+      }`}>
       <Clock className="h-4 w-4 shrink-0" />
       <span>{regStatus.message}</span>
     </div>
@@ -633,7 +676,7 @@ export default function EventDetailPage() {
 
   return (
     <Layout>
-      <SEO 
+      <SEO
         title={event.title}
         description={event.shortDescription || event.description.slice(0, 160)}
         url={`/events/${event.slug}`}
@@ -648,7 +691,7 @@ export default function EventDetailPage() {
         eventImage={event.imageUrl || 'https://codescriet.dev/logo.png'}
         slug={event.slug}
       />
-      
+
       <BreadcrumbSchema
         items={[
           { name: 'Home', url: 'https://codescriet.dev' },
@@ -656,7 +699,7 @@ export default function EventDetailPage() {
           { name: event.title, url: `https://codescriet.dev/events/${event.slug}` },
         ]}
       />
-      
+
       {/* FAQ Schema if FAQs exist */}
       {event.faqs && event.faqs.length > 0 && (
         <FAQPageSchema
@@ -727,12 +770,12 @@ export default function EventDetailPage() {
                           field.type === 'NUMBER'
                             ? 'number'
                             : field.type === 'EMAIL'
-                            ? 'email'
-                            : field.type === 'URL'
-                            ? 'url'
-                            : field.type === 'PHONE'
-                            ? 'tel'
-                            : 'text'
+                              ? 'email'
+                              : field.type === 'URL'
+                                ? 'url'
+                                : field.type === 'PHONE'
+                                  ? 'tel'
+                                  : 'text'
                         }
                         value={registrationFieldValues[field.id] || ''}
                         onChange={(e) => handleRegistrationFieldChange(field.id, e.target.value)}
@@ -799,7 +842,7 @@ export default function EventDetailPage() {
         ) : (
           <div className="h-[30vh] bg-gradient-to-br from-amber-400 via-orange-500 to-amber-900" />
         )}
-        
+
         {/* Back Button */}
         <div className="absolute top-4 left-4">
           <Button
@@ -878,10 +921,10 @@ export default function EventDetailPage() {
                         <span className="text-sm text-gray-500">spots left</span>
                       </div>
                       <div className="flex-1 h-2 bg-gray-200 rounded-full overflow-hidden max-w-[120px]">
-                        <div 
+                        <div
                           className="h-full bg-amber-500 transition-all"
-                          style={{ 
-                            width: `${Math.min(100, ((event._count?.registrations || 0) / event.capacity) * 100)}%` 
+                          style={{
+                            width: `${Math.min(100, ((event._count?.registrations || 0) / event.capacity) * 100)}%`
                           }}
                         />
                       </div>
@@ -917,24 +960,24 @@ export default function EventDetailPage() {
                                 Team Event ({event.teamMinSize}-{event.teamMaxSize} members)
                               </Badge>
                             </div>
-                            <Button 
-                              className="w-full bg-amber-600 hover:bg-amber-700 text-white" 
+                            <Button
+                              className="w-full bg-amber-600 hover:bg-amber-700 text-white"
                               onClick={() => setShowCreateTeamModal(true)}
                             >
                               <Users className="h-4 w-4 mr-2" />
                               Create a Team
                             </Button>
-                            <Button 
+                            <Button
                               variant="outline"
-                              className="w-full" 
+                              className="w-full"
                               onClick={() => setShowJoinTeamModal(true)}
                             >
                               Join a Team
                             </Button>
                           </div>
                         ) : (
-                          <Button 
-                            className="w-full" 
+                          <Button
+                            className="w-full"
                             variant="outline"
                             onClick={handleRegister}
                           >
@@ -948,15 +991,15 @@ export default function EventDetailPage() {
                         </Button>
                       )}
                     </>
-                    ) : (
-                      // Solo Registration UI (original)
-                      <>
+                  ) : (
+                    // Solo Registration UI (original)
+                    <>
                       {isRegistered ? (
                         qrTicketCta
                       ) : event.status !== 'PAST' && regStatus.canRegister ? (
                         user ? (
-                          <Button 
-                            className="w-full bg-amber-600 hover:bg-amber-700 text-white" 
+                          <Button
+                            className="w-full bg-amber-600 hover:bg-amber-700 text-white"
                             onClick={handleRegister}
                             disabled={registering}
                           >
@@ -970,8 +1013,8 @@ export default function EventDetailPage() {
                             )}
                           </Button>
                         ) : (
-                          <Button 
-                            className="w-full" 
+                          <Button
+                            className="w-full"
                             variant="outline"
                             onClick={handleRegister}
                           >
@@ -1002,14 +1045,14 @@ export default function EventDetailPage() {
                               {round.hasSubmitted
                                 ? 'Submitted'
                                 : round.isEligible === false
-                                ? (round.eligibilityReason || 'Not eligible')
-                                : round.status === 'ACTIVE'
-                                ? 'Open now'
-                                : round.status === 'LOCKED'
-                                ? 'Locked'
-                                : round.status === 'JUDGING'
-                                ? 'Judging'
-                                : 'Results published'}
+                                  ? (round.eligibilityReason || 'Not eligible')
+                                  : round.status === 'ACTIVE'
+                                    ? 'Open now'
+                                    : round.status === 'LOCKED'
+                                      ? 'Locked'
+                                      : round.status === 'JUDGING'
+                                        ? 'Judging'
+                                        : 'Results published'}
                             </p>
                             <div className="flex items-center gap-2">
                               {round.status === 'FINISHED' && (
@@ -1068,7 +1111,7 @@ export default function EventDetailPage() {
                         <p className="text-sm sm:text-base font-medium text-gray-900">{getWeekdayShort(event.startDate)}</p>
                       </div>
                     </div>
-                    
+
                     <div className="flex items-center gap-2 sm:gap-3">
                       <div className="w-10 h-10 sm:w-12 sm:h-12 bg-amber-100 rounded-lg flex items-center justify-center">
                         <Clock className="h-4 w-4 sm:h-5 sm:w-5 text-amber-600" />
@@ -1078,7 +1121,7 @@ export default function EventDetailPage() {
                         <p className="text-sm sm:text-base font-medium text-gray-900">{formatTime(event.startDate)}</p>
                       </div>
                     </div>
-                    
+
                     {event.location && (
                       <div className="flex items-center gap-2 sm:gap-3">
                         <div className="w-10 h-10 sm:w-12 sm:h-12 bg-amber-100 rounded-lg flex items-center justify-center">
@@ -1090,7 +1133,7 @@ export default function EventDetailPage() {
                         </div>
                       </div>
                     )}
-                    
+
                     {event.capacity && (
                       <div className="flex items-center gap-2 sm:gap-3">
                         <div className="w-10 h-10 sm:w-12 sm:h-12 bg-amber-100 rounded-lg flex items-center justify-center">
@@ -1302,10 +1345,10 @@ export default function EventDetailPage() {
                         </div>
                         <p className="text-sm text-gray-500">spots remaining</p>
                         <div className="mt-2 h-2 bg-gray-200 rounded-full overflow-hidden">
-                          <div 
+                          <div
                             className="h-full bg-amber-500 transition-all"
-                            style={{ 
-                              width: `${Math.min(100, ((event._count?.registrations || 0) / event.capacity) * 100)}%` 
+                            style={{
+                              width: `${Math.min(100, ((event._count?.registrations || 0) / event.capacity) * 100)}%`
                             }}
                           />
                         </div>
@@ -1424,14 +1467,14 @@ export default function EventDetailPage() {
                                 {round.hasSubmitted
                                   ? 'Submitted'
                                   : round.isEligible === false
-                                  ? (round.eligibilityReason || 'Not eligible')
-                                  : round.status === 'ACTIVE'
-                                  ? 'Open now'
-                                  : round.status === 'LOCKED'
-                                  ? 'Locked'
-                                  : round.status === 'JUDGING'
-                                  ? 'Judging'
-                                  : 'Results published'}
+                                    ? (round.eligibilityReason || 'Not eligible')
+                                    : round.status === 'ACTIVE'
+                                      ? 'Open now'
+                                      : round.status === 'LOCKED'
+                                        ? 'Locked'
+                                        : round.status === 'JUDGING'
+                                          ? 'Judging'
+                                          : 'Results published'}
                               </p>
                               <div className="flex items-center gap-2">
                                 {round.status === 'FINISHED' && (
