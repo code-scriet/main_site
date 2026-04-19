@@ -14,6 +14,11 @@ export interface OAuthExchangeCodePayload {
   networkType?: 'professional' | 'alumni';
 }
 
+export interface InvitationClaimTokenPayload {
+  invitationId: string;
+  email: string;
+}
+
 const INSECURE_DEFAULT_SECRETS = new Set([
   'secret',
   'your_super_secret_key_change_this_in_production',
@@ -80,6 +85,14 @@ export const signOAuthExchangeCode = (payload: OAuthExchangeCodePayload): string
   )
 );
 
+export const signInvitationClaimToken = (payload: InvitationClaimTokenPayload): string => (
+  jwt.sign(
+    { ...payload, purpose: 'invitation_claim' },
+    getJwtSecret(),
+    { algorithm: 'HS256', expiresIn: '30d' },
+  )
+);
+
 export const verifyOAuthExchangeCode = (code: string): OAuthExchangeCodePayload => {
   const decoded = jwt.verify(code, getJwtSecret(), { algorithms: ['HS256'] }) as Partial<OAuthExchangeCodePayload> & {
     purpose?: string;
@@ -96,6 +109,25 @@ export const verifyOAuthExchangeCode = (code: string): OAuthExchangeCodePayload 
       decoded.networkType === 'professional' || decoded.networkType === 'alumni'
         ? decoded.networkType
         : undefined,
+  };
+};
+
+export const verifyInvitationClaimToken = (token: string): InvitationClaimTokenPayload => {
+  const decoded = jwt.verify(token, getJwtSecret(), { algorithms: ['HS256'] }) as Partial<InvitationClaimTokenPayload> & {
+    purpose?: string;
+  };
+
+  if (
+    decoded.purpose !== 'invitation_claim' ||
+    typeof decoded.invitationId !== 'string' ||
+    typeof decoded.email !== 'string'
+  ) {
+    throw new Error('Invalid invitation claim token');
+  }
+
+  return {
+    invitationId: decoded.invitationId,
+    email: decoded.email,
   };
 };
 

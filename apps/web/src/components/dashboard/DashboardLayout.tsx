@@ -1,7 +1,9 @@
 import { useState, useEffect, useMemo } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '@/context/AuthContext';
 import { useSettings } from '@/context/SettingsContext';
+import { api } from '@/lib/api';
 import { ThemeToggle } from '@/components/theme/ThemeToggle';
 import { Button } from '@/components/ui/button';
 import {
@@ -28,6 +30,7 @@ import {
   PanelLeftClose,
   PanelLeft,
   BarChart3,
+  MailOpen,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -36,6 +39,7 @@ interface NavItem {
   name: string;
   href: string;
   icon: React.ComponentType<{ className?: string }>;
+  badge?: number;
 }
 
 const breadcrumbNames: Record<string, string> = {
@@ -44,6 +48,7 @@ const breadcrumbNames: Record<string, string> = {
   '/dashboard/announcements': 'Announcements',
   '/dashboard/profile': 'Profile',
   '/dashboard/certificates': 'Certificates',
+  '/dashboard/invitations': 'Invitations',
   '/dashboard/leaderboard': 'Leaderboard',
   '/dashboard/events/new': 'Create Event',
   '/dashboard/announcements/new': 'Create Announcement',
@@ -158,7 +163,7 @@ export default function DashboardLayout() {
     return window.localStorage.getItem('sidebar-collapsed') === 'true';
   });
   const [clickedNavId, setClickedNavId] = useState<string | null>(null);
-  const { user, logout } = useAuth();
+  const { user, token, logout } = useAuth();
   const { settings, loading: settingsLoading } = useSettings();
   const location = useLocation();
   const navigate = useNavigate();
@@ -179,6 +184,19 @@ export default function DashboardLayout() {
   const isCoreMember = user?.role === 'CORE_MEMBER' || user?.role === 'ADMIN' || user?.role === 'PRESIDENT';
   const isAdmin = user?.role === 'ADMIN' || user?.role === 'PRESIDENT';
 
+  const invitationsQuery = useQuery({
+    queryKey: ['invitations', 'my', 'layout-badge'],
+    queryFn: () => api.getMyInvitations(token!),
+    enabled: Boolean(token),
+    staleTime: 60_000,
+    refetchOnWindowFocus: true,
+  });
+
+  const pendingInvitationCount = useMemo(
+    () => (invitationsQuery.data ?? []).filter((invitation) => invitation.status === 'PENDING').length,
+    [invitationsQuery.data],
+  );
+
   const userNavItems = useMemo<NavItem[]>(() => [
     { id: 'user-overview', name: 'Overview', href: '/dashboard', icon: Home },
     { id: 'user-events', name: 'My Events', href: '/dashboard/events', icon: Calendar },
@@ -187,7 +205,8 @@ export default function DashboardLayout() {
     ...(settings?.showLeaderboard !== false ? [{ id: 'user-leaderboard', name: 'Leaderboard', href: '/dashboard/leaderboard', icon: Trophy }] : []),
     { id: 'user-profile', name: 'My Profile', href: '/dashboard/profile', icon: User },
     ...(settings?.certificatesEnabled !== false ? [{ id: 'user-certificates', name: 'My Certificates', href: '/dashboard/certificates', icon: Award }] : []),
-  ], [settings?.showLeaderboard, settings?.certificatesEnabled]);
+    { id: 'user-invitations', name: 'My Invitations', href: '/dashboard/invitations', icon: MailOpen, badge: pendingInvitationCount },
+  ], [pendingInvitationCount, settings?.showLeaderboard, settings?.certificatesEnabled]);
 
   const adminNavItems = useMemo<NavItem[]>(() => {
     if (!isAdmin) return [];
@@ -471,6 +490,8 @@ function NavLink({
   collapsed?: boolean;
 }) {
   const Icon = item.icon;
+  const badgeValue = item.badge ?? 0;
+  const showBadge = badgeValue > 0;
   return (
     <Link
       to={item.href}
@@ -484,13 +505,36 @@ function NavLink({
           : 'text-gray-700 hover:bg-amber-50 hover:text-amber-900 dark:text-zinc-300 dark:hover:bg-zinc-900 dark:hover:text-amber-100'
       )}
     >
-      <Icon
-        className={cn(
-          'h-[18px] w-[18px] shrink-0 transition-colors',
-          isActive ? 'text-white' : 'text-amber-500 dark:text-amber-300'
+      <div className="relative shrink-0">
+        <Icon
+          className={cn(
+            'h-[18px] w-[18px] transition-colors',
+            isActive ? 'text-white' : 'text-amber-500 dark:text-amber-300'
+          )}
+        />
+        {collapsed && showBadge && (
+          <span className="absolute -right-2 -top-2 min-w-[18px] rounded-full bg-amber-900 px-1.5 py-0.5 text-[10px] font-semibold leading-none text-white dark:bg-amber-200 dark:text-zinc-950">
+            {badgeValue > 99 ? '99+' : badgeValue}
+          </span>
         )}
-      />
-      {!collapsed && <span className="text-sm leading-none">{item.name}</span>}
+      </div>
+      {!collapsed && (
+        <>
+          <span className="text-sm leading-none">{item.name}</span>
+          {showBadge && (
+            <span
+              className={cn(
+                'ml-auto min-w-[22px] rounded-full px-2 py-0.5 text-center text-[11px] font-semibold',
+                isActive
+                  ? 'bg-white/20 text-white'
+                  : 'bg-amber-100 text-amber-800 dark:bg-zinc-800 dark:text-amber-200'
+              )}
+            >
+              {badgeValue > 99 ? '99+' : badgeValue}
+            </span>
+          )}
+        </>
+      )}
     </Link>
   );
 }

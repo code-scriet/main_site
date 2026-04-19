@@ -8,6 +8,8 @@ import { Layout } from '@/components/layout/Layout';
 import { SEO } from '@/components/SEO';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { clearPendingInvitationClaimToken, getPendingInvitationClaimToken } from '@/lib/invitationClaim';
+import { toast } from 'sonner';
 import {
   Loader2,
   CheckCircle2,
@@ -29,6 +31,7 @@ export default function NetworkStatusPage() {
   const [profile, setProfile] = useState<NetworkProfile | null>(null);
   const [hasProfile, setHasProfile] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [attemptedClaimToken, setAttemptedClaimToken] = useState<string | null>(null);
 
   useEffect(() => {
     if (!authLoading && !settingsLoading) {
@@ -78,6 +81,30 @@ export default function NetworkStatusPage() {
 
     fetchProfile();
   }, [token]);
+
+  useEffect(() => {
+    if (!token || !profile) return;
+
+    const pendingInvitationToken = getPendingInvitationClaimToken();
+    if (!pendingInvitationToken || attemptedClaimToken === pendingInvitationToken) {
+      return;
+    }
+
+    setAttemptedClaimToken(pendingInvitationToken);
+
+    void api.claimInvitation(pendingInvitationToken, token)
+      .then(() => {
+        clearPendingInvitationClaimToken();
+        toast.success('Your event invitation is now linked to your account.');
+      })
+      .catch((error) => {
+        toast.warning(
+          error instanceof Error
+            ? error.message
+            : 'Your profile is ready, but the invitation could not be linked yet.',
+        );
+      });
+  }, [attemptedClaimToken, profile, token]);
 
   if (authLoading || settingsLoading || loading) {
     return (

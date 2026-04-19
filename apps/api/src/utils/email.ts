@@ -1,11 +1,13 @@
 // Email service for notifications using Brevo (formerly Sendinblue)
 // Professional email notifications for code.scriet - The Coding Club
 
+import type { Event, EventInvitation as PrismaEventInvitation, NetworkProfile, User } from '@prisma/client';
 import { marked } from 'marked';
 import { logger } from './logger.js';
 import { prisma } from '../lib/prisma.js';
 import QRCode from 'qrcode';
 import { sanitizeHtml, sanitizeText } from './sanitize.js';
+import { signInvitationClaimToken } from './jwt.js';
 
 // ============================================
 // Email Category & Notification Settings
@@ -18,6 +20,7 @@ export type EmailCategory =
   | 'announcement'
   | 'certificate'
   | 'reminder'
+  | 'invitation'
   | 'admin_mail'
   | 'other';
 
@@ -28,6 +31,7 @@ interface NotificationSettings {
   emailAnnouncementEnabled: boolean;
   emailCertificateEnabled: boolean;
   emailReminderEnabled: boolean;
+  emailInvitationEnabled: boolean;
   mailingEnabled: boolean;
   emailTestingMode: boolean;
   emailTestRecipients: string | null;
@@ -40,6 +44,7 @@ const CATEGORY_TOGGLE_MAP: Record<EmailCategory, keyof NotificationSettings | nu
   announcement: 'emailAnnouncementEnabled',
   certificate: 'emailCertificateEnabled',
   reminder: 'emailReminderEnabled',
+  invitation: 'emailInvitationEnabled',
   admin_mail: 'mailingEnabled',
   other: null,
 };
@@ -60,6 +65,7 @@ const ALL_ENABLED_DEFAULTS: NotificationSettings = {
   emailAnnouncementEnabled: true,
   emailCertificateEnabled: true,
   emailReminderEnabled: true,
+  emailInvitationEnabled: true,
   mailingEnabled: true,
   emailTestingMode: false,
   emailTestRecipients: null,
@@ -81,6 +87,7 @@ async function getNotificationSettings(): Promise<NotificationSettings> {
         emailAnnouncementEnabled: true,
         emailCertificateEnabled: true,
         emailReminderEnabled: true,
+        emailInvitationEnabled: true,
         mailingEnabled: true,
         emailTestingMode: true,
         emailTestRecipients: true,
@@ -94,6 +101,7 @@ async function getNotificationSettings(): Promise<NotificationSettings> {
       emailAnnouncementEnabled: settings?.emailAnnouncementEnabled ?? true,
       emailCertificateEnabled: settings?.emailCertificateEnabled ?? true,
       emailReminderEnabled: settings?.emailReminderEnabled ?? true,
+      emailInvitationEnabled: settings?.emailInvitationEnabled ?? true,
       mailingEnabled: settings?.mailingEnabled ?? true,
       emailTestingMode: settings?.emailTestingMode ?? false,
       emailTestRecipients: settings?.emailTestRecipients ?? null,
@@ -115,10 +123,16 @@ async function getNotificationSettings(): Promise<NotificationSettings> {
 
 // Email template config cache
 interface EmailTemplateConfig {
+  clubName: string;
   welcomeBody: string;
   announcementIntro: string;
   eventIntro: string;
   footerText: string;
+  githubUrl: string | null;
+  linkedinUrl: string | null;
+  twitterUrl: string | null;
+  instagramUrl: string | null;
+  discordUrl: string | null;
 }
 
 let emailTemplateConfigCache: EmailTemplateConfig | null = null;
@@ -140,18 +154,30 @@ async function getEmailTemplateConfig(): Promise<EmailTemplateConfig> {
     const settings = await prisma.settings.findUnique({
       where: { id: 'default' },
       select: {
+        clubName: true,
         emailWelcomeBody: true,
         emailAnnouncementBody: true,
         emailEventBody: true,
         emailFooterText: true,
+        githubUrl: true,
+        linkedinUrl: true,
+        twitterUrl: true,
+        instagramUrl: true,
+        discordUrl: true,
       },
     });
     
     emailTemplateConfigCache = {
+      clubName: settings?.clubName || 'code.scriet',
       welcomeBody: settings?.emailWelcomeBody || '',
       announcementIntro: settings?.emailAnnouncementBody || '',
       eventIntro: settings?.emailEventBody || '',
       footerText: settings?.emailFooterText || '',
+      githubUrl: settings?.githubUrl || null,
+      linkedinUrl: settings?.linkedinUrl || null,
+      twitterUrl: settings?.twitterUrl || null,
+      instagramUrl: settings?.instagramUrl || null,
+      discordUrl: settings?.discordUrl || null,
     };
     lastConfigFetch = now;
     return emailTemplateConfigCache;
@@ -165,10 +191,16 @@ async function getEmailTemplateConfig(): Promise<EmailTemplateConfig> {
     }
     // Return empty defaults only when no cache exists at all
     return {
+      clubName: 'code.scriet',
       welcomeBody: '',
       announcementIntro: '',
       eventIntro: '',
       footerText: '',
+      githubUrl: null,
+      linkedinUrl: null,
+      twitterUrl: null,
+      instagramUrl: null,
+      discordUrl: null,
     };
   }
 }
@@ -296,6 +328,326 @@ function normalizeEmailList(input?: string | string[]): { valid: boolean; values
   }
 
   return { valid: true, values: Array.from(new Set(normalized)) };
+}
+
+function stripHtmlToText(value: string): string {
+  return value
+    .replace(/<[^>]*>/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function truncateText(value: string, limit: number): string {
+  if (value.length <= limit) {
+    return value;
+  }
+
+  return `${value.slice(0, Math.max(0, limit - 1)).trimEnd()}…`;
+}
+
+function formatInvitationDate(date: Date): string {
+  return date.toLocaleDateString('en-IN', {
+    timeZone: 'Asia/Kolkata',
+    weekday: 'long',
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+  });
+}
+
+function formatInvitationTime(date: Date): string {
+  return date.toLocaleTimeString('en-IN', {
+    timeZone: 'Asia/Kolkata',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: true,
+  });
+}
+
+function formatInvitationDateRange(startDate: Date, endDate?: Date | null): string {
+  if (!endDate) {
+    return `${formatInvitationDate(startDate)} at ${formatInvitationTime(startDate)}`;
+  }
+
+  const sameDay = startDate.toDateString() === endDate.toDateString();
+  if (sameDay) {
+    return `${formatInvitationDate(startDate)} · ${formatInvitationTime(startDate)} - ${formatInvitationTime(endDate)}`;
+  }
+
+  return `${formatInvitationDate(startDate)} ${formatInvitationTime(startDate)} to ${formatInvitationDate(endDate)} ${formatInvitationTime(endDate)}`;
+}
+
+function getInvitationSummary(event: Pick<Event, 'shortDescription' | 'description'>): string {
+  const summarySource = event.shortDescription?.trim() || stripHtmlToText(event.description);
+  return sanitizeText(truncateText(summarySource, 300));
+}
+
+function formatCustomMessageBlock(message?: string | null): string {
+  if (!message?.trim()) {
+    return '';
+  }
+
+  const safeMessage = sanitizeText(message).replace(/\n/g, '<br />');
+  return `
+    <tr>
+      <td style="padding: 0 32px 28px 32px;">
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-left: 4px solid #c7a34d; background: #fff8ee; border-radius: 0 16px 16px 0;">
+          <tr>
+            <td style="padding: 18px 20px; font-size: 15px; line-height: 1.8; color: #5f3f2d;">
+              ${safeMessage}
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  `;
+}
+
+function getInvitationSocialLinks(config: Pick<EmailTemplateConfig, 'githubUrl' | 'linkedinUrl' | 'twitterUrl' | 'instagramUrl' | 'discordUrl'>) {
+  return [
+    ['GitHub', config.githubUrl],
+    ['LinkedIn', config.linkedinUrl],
+    ['Twitter', config.twitterUrl],
+    ['Instagram', config.instagramUrl],
+    ['Discord', config.discordUrl],
+  ]
+    .filter(([, url]) => Boolean(url))
+    .map(([label, url]) => ({ label, url: url! }));
+}
+
+type EventInvitationEmailContext = PrismaEventInvitation & {
+  event: Pick<
+    Event,
+    'title' | 'description' | 'shortDescription' | 'startDate' | 'endDate' | 'venue' | 'location' | 'imageUrl' | 'eventType'
+  >;
+  inviteeUser?: (
+    Pick<User, 'email' | 'name'> & {
+      networkProfile?: Pick<NetworkProfile, 'fullName' | 'designation' | 'company'> | null;
+    }
+  ) | null;
+};
+
+function buildInvitationEmailTemplate(
+  invitation: EventInvitationEmailContext,
+  config: EmailTemplateConfig,
+  action: { text: string; url: string },
+): EmailTemplate {
+  const inviteeProfile = invitation.inviteeUser?.networkProfile || null;
+  const fullName = sanitizeText(
+    inviteeProfile?.fullName ||
+      invitation.inviteeNameSnapshot ||
+      invitation.inviteeUser?.name ||
+      'Guest',
+  );
+  const designation = sanitizeText(inviteeProfile?.designation || invitation.inviteeDesignationSnapshot || '');
+  const role = sanitizeText(invitation.role || 'Guest');
+  const clubName = sanitizeText(config.clubName || 'code.scriet');
+  const eventTitle = sanitizeText(invitation.event.title);
+  const eventVenue = sanitizeText(invitation.event.venue || 'Venue to be announced');
+  const eventLocation = sanitizeText(invitation.event.location || 'Location to be announced');
+  const eventType = sanitizeText(invitation.event.eventType || 'Club Event');
+  const greetingName = fullName === 'Guest'
+    ? 'Guest'
+    : `${designation ? `${designation} ` : ''}${fullName}`.trim();
+  const leadParagraph = `${clubName} cordially invites you to be a ${role} at our upcoming event, ${eventTitle}.`;
+  const summary = getInvitationSummary(invitation.event);
+  const socialLinks = getInvitationSocialLinks(config);
+  const socialLinksHtml = socialLinks.length > 0
+    ? socialLinks
+        .map(({ label, url }) => (
+          `<a href="${url}" style="color: #8a5a3c; text-decoration: none; margin: 0 8px; font-weight: 600;">${label}</a>`
+        ))
+        .join('<span style="color: #b8a48a;">•</span>')
+    : '';
+  const socialLinksText = socialLinks.length > 0
+    ? `\n\nConnect with us: ${socialLinks.map(({ label, url }) => `${label}: ${url}`).join(' | ')}`
+    : '';
+  const footerText = sanitizeText(config.footerText || '');
+  const heroSection = invitation.event.imageUrl
+    ? `<img src="${invitation.event.imageUrl}" alt="${eventTitle}" style="display: block; width: 100%; height: auto; max-height: 260px; object-fit: cover;" />`
+    : `
+      <div style="padding: 42px 32px; background: linear-gradient(135deg, #5e0f19 0%, #8d2236 48%, #d4a949 100%);">
+        <div style="font-size: 12px; letter-spacing: 2px; text-transform: uppercase; color: #fbe8b6; font-weight: 700; margin-bottom: 12px;">${clubName}</div>
+        <div style="font-family: Georgia, 'Times New Roman', serif; font-size: 34px; line-height: 1.2; color: #fffaf0; font-weight: 700;">${eventTitle}</div>
+        <div style="margin-top: 12px; font-size: 15px; color: #fde9be; line-height: 1.7;">A formal invitation from ${clubName}</div>
+      </div>
+    `;
+
+  const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>${eventTitle}</title>
+</head>
+<body style="margin: 0; padding: 0; background: #f6efe4; color: #2f2118;">
+  <div style="display: none; max-height: 0; overflow: hidden; opacity: 0;">
+    You're invited to ${eventTitle} as our ${role}.
+  </div>
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background: #f6efe4;">
+    <tr>
+      <td align="center" style="padding: 28px 12px;">
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width: 600px; background: #fffaf3; border: 1px solid #ead8b7; border-radius: 24px; overflow: hidden;">
+          <tr>
+            <td style="padding: 24px 28px; background: #fff5df; border-bottom: 1px solid #ecdab6; text-align: center;">
+              <div style="font-size: 12px; letter-spacing: 3px; text-transform: uppercase; color: #8a5a3c; font-weight: 700;">${clubName}</div>
+              <div style="margin-top: 8px; font-family: Georgia, 'Times New Roman', serif; font-size: 30px; color: #5e0f19; font-weight: 700;">Invitation</div>
+            </td>
+          </tr>
+          <tr>
+            <td>${heroSection}</td>
+          </tr>
+          <tr>
+            <td style="padding: 32px 32px 18px 32px;">
+              <div style="display: inline-block; padding: 8px 14px; background: #f2e2b7; border-radius: 999px; font-size: 12px; letter-spacing: 1px; text-transform: uppercase; color: #7b542f; font-weight: 700;">
+                ${role}
+              </div>
+              <h1 style="margin: 18px 0 14px; font-family: Georgia, 'Times New Roman', serif; font-size: 34px; line-height: 1.18; color: #5e0f19;">
+                Dear ${greetingName},
+              </h1>
+              <p style="margin: 0 0 16px; font-size: 16px; line-height: 1.85; color: #4d3527;">
+                ${leadParagraph}
+              </p>
+              <p style="margin: 0; font-size: 15px; line-height: 1.8; color: #6b4b35;">
+                ${summary}
+              </p>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding: 0 32px 28px 32px;">
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background: #fff1d7; border: 1px solid #ebd2a0; border-radius: 18px;">
+                <tr>
+                  <td style="padding: 18px 20px; border-bottom: 1px solid #edd8af;">
+                    <div style="font-size: 12px; letter-spacing: 1px; text-transform: uppercase; color: #8a5a3c; font-weight: 700; margin-bottom: 6px;">Date</div>
+                    <div style="font-size: 16px; line-height: 1.7; color: #4d3527;">${formatInvitationDateRange(invitation.event.startDate, invitation.event.endDate)}</div>
+                  </td>
+                </tr>
+                <tr>
+                  <td style="padding: 18px 20px; border-bottom: 1px solid #edd8af;">
+                    <div style="font-size: 12px; letter-spacing: 1px; text-transform: uppercase; color: #8a5a3c; font-weight: 700; margin-bottom: 6px;">Venue</div>
+                    <div style="font-size: 16px; line-height: 1.7; color: #4d3527;">${eventVenue}</div>
+                  </td>
+                </tr>
+                <tr>
+                  <td style="padding: 18px 20px; border-bottom: 1px solid #edd8af;">
+                    <div style="font-size: 12px; letter-spacing: 1px; text-transform: uppercase; color: #8a5a3c; font-weight: 700; margin-bottom: 6px;">Location</div>
+                    <div style="font-size: 16px; line-height: 1.7; color: #4d3527;">${eventLocation}</div>
+                  </td>
+                </tr>
+                <tr>
+                  <td style="padding: 18px 20px;">
+                    <div style="font-size: 12px; letter-spacing: 1px; text-transform: uppercase; color: #8a5a3c; font-weight: 700; margin-bottom: 6px;">Event Type</div>
+                    <div style="font-size: 16px; line-height: 1.7; color: #4d3527;">${eventType}</div>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+          ${formatCustomMessageBlock(invitation.customMessage)}
+          <tr>
+            <td align="center" style="padding: 0 32px 36px 32px;">
+              <a href="${action.url}" style="display: inline-block; background: linear-gradient(135deg, #8f6a1d 0%, #d4a949 100%); color: #2f2118; text-decoration: none; font-size: 14px; font-weight: 700; letter-spacing: 0.5px; padding: 16px 30px; border-radius: 999px;">
+                ${action.text}
+              </a>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding: 0 32px 32px 32px;">
+              <div style="height: 1px; background: #ead8b7;"></div>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding: 0 32px 32px 32px; text-align: center;">
+              <div style="font-family: Georgia, 'Times New Roman', serif; font-size: 20px; color: #5e0f19; font-weight: 700;">${clubName}</div>
+              ${socialLinksHtml ? `<div style="margin-top: 16px; font-size: 13px; line-height: 1.8;">${socialLinksHtml}</div>` : ''}
+              ${footerText ? `<div style="margin-top: 16px; font-size: 13px; line-height: 1.8; color: #7a5f4a;">${footerText}</div>` : ''}
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>`;
+
+  const text = [
+    `Dear ${greetingName},`,
+    '',
+    leadParagraph,
+    '',
+    summary,
+    '',
+    `Date: ${formatInvitationDateRange(invitation.event.startDate, invitation.event.endDate)}`,
+    `Venue: ${eventVenue}`,
+    `Location: ${eventLocation}`,
+    `Event Type: ${eventType}`,
+    invitation.customMessage?.trim() ? ['', `Message: ${invitation.customMessage.trim()}`] : [],
+    '',
+    `${action.text}: ${action.url}`,
+    '',
+    `${clubName}${footerText ? `\n${footerText}` : ''}${socialLinksText}`,
+  ]
+    .flat()
+    .join('\n');
+
+  return {
+    subject: `You're invited to ${eventTitle}`,
+    html,
+    text,
+  };
+}
+
+function buildInvitationWithdrawalEmailTemplate(
+  invitation: EventInvitationEmailContext,
+  config: EmailTemplateConfig,
+): EmailTemplate {
+  const clubName = sanitizeText(config.clubName || 'code.scriet');
+  const eventTitle = sanitizeText(invitation.event.title);
+  const inviteeProfile = invitation.inviteeUser?.networkProfile || null;
+  const fullName = sanitizeText(
+    inviteeProfile?.fullName ||
+      invitation.inviteeNameSnapshot ||
+      invitation.inviteeUser?.name ||
+      'Guest',
+  );
+  const role = sanitizeText(invitation.role || 'Guest');
+  const footerText = sanitizeText(config.footerText || '');
+
+  return {
+    subject: `Update regarding your invitation to ${eventTitle}`,
+    html: `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>${eventTitle}</title>
+</head>
+<body style="margin: 0; padding: 0; background: #f6efe4;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background: #f6efe4;">
+    <tr>
+      <td align="center" style="padding: 28px 12px;">
+        <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width: 600px; background: #fffaf3; border: 1px solid #ead8b7; border-radius: 24px;">
+          <tr>
+            <td style="padding: 32px;">
+              <div style="font-size: 12px; letter-spacing: 3px; text-transform: uppercase; color: #8a5a3c; font-weight: 700; margin-bottom: 14px;">${clubName}</div>
+              <h1 style="margin: 0 0 16px; font-family: Georgia, 'Times New Roman', serif; font-size: 30px; line-height: 1.2; color: #5e0f19;">Invitation update</h1>
+              <p style="margin: 0 0 14px; font-size: 16px; line-height: 1.85; color: #4d3527;">
+                Dear ${fullName}, your invitation to serve as ${role} for ${eventTitle} has been withdrawn.
+              </p>
+              <p style="margin: 0; font-size: 15px; line-height: 1.8; color: #6b4b35;">
+                We remain grateful for your time and consideration. Please feel free to reach out if you need any clarification from the ${clubName} team.
+              </p>
+              ${footerText ? `<p style="margin: 24px 0 0; font-size: 13px; line-height: 1.8; color: #7a5f4a;">${footerText}</p>` : ''}
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>`,
+    text: `Dear ${fullName},\n\nYour invitation to serve as ${role} for ${eventTitle} has been withdrawn.\n\nWe remain grateful for your time and consideration. Please feel free to reach out if you need any clarification from the ${clubName} team.${footerText ? `\n\n${footerText}` : ''}`,
+  };
 }
 
 // ============================================
@@ -1508,6 +1860,50 @@ class EmailService {
     const config = await getEmailTemplateConfig();
     const template = EmailTemplates.newEvent(title, description, startDate, slug, shortDescription, location, imageUrl, tags, eventType, config.eventIntro, config.footerText);
     return this.sendBulk(emails, template.subject, template.html, template.text, 'event_creation');
+  }
+
+  async sendEventInvitation(invitation: EventInvitationEmailContext): Promise<boolean> {
+    const recipientEmail = invitation.inviteeUser?.email || invitation.inviteeEmail;
+    if (!recipientEmail) {
+      logger.warn('Skipped invitation email because invitation has no recipient email', {
+        invitationId: invitation.id,
+        eventId: invitation.eventId,
+      });
+      return false;
+    }
+
+    const config = await getEmailTemplateConfig();
+    const action = invitation.inviteeUserId
+      ? {
+          text: 'View Invitation',
+          url: `${SITE_URL}/dashboard/invitations/${invitation.id}`,
+        }
+      : {
+          text: 'Register & Respond',
+          url: `${SITE_URL}/join-our-network?invitation=${encodeURIComponent(
+            signInvitationClaimToken({
+              invitationId: invitation.id,
+              email: invitation.inviteeEmail || recipientEmail,
+            }),
+          )}`,
+        };
+    const template = buildInvitationEmailTemplate(invitation, config, action);
+    return this.send({ to: recipientEmail, ...template, category: 'invitation' });
+  }
+
+  async sendEventInvitationWithdrawn(invitation: EventInvitationEmailContext): Promise<boolean> {
+    const recipientEmail = invitation.inviteeUser?.email || invitation.inviteeEmail;
+    if (!recipientEmail) {
+      logger.warn('Skipped withdrawn invitation email because invitation has no recipient email', {
+        invitationId: invitation.id,
+        eventId: invitation.eventId,
+      });
+      return false;
+    }
+
+    const config = await getEmailTemplateConfig();
+    const template = buildInvitationWithdrawalEmailTemplate(invitation, config);
+    return this.send({ to: recipientEmail, ...template, category: 'invitation' });
   }
 
   async sendPasswordReset(email: string, name: string, resetLink: string): Promise<boolean> {

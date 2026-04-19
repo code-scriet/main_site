@@ -19,6 +19,7 @@ import { useSettings } from '@/context/SettingsContext';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '@/context/AuthContext';
 import { useMotionConfig } from '@/hooks/useMotionConfig';
+import { storePendingInvitationClaimToken } from '@/lib/invitationClaim';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5001/api';
 
@@ -92,11 +93,18 @@ export default function JoinOurNetworkPage() {
   const [searchParams] = useSearchParams();
   const { isMobile, shouldReduceMotion } = useMotionConfig();
   const networkType: 'professional' | 'alumni' = searchParams.get('type') === 'alumni' ? 'alumni' : 'professional';
+  const invitationToken = searchParams.get('invitation');
 
   const persistNetworkIntent = (type: 'professional' | 'alumni') => {
     localStorage.setItem('network_intent', JSON.stringify({ intent: 'network', type }));
     localStorage.setItem('network_onboarding_type', type);
   };
+
+  useEffect(() => {
+    if (invitationToken) {
+      storePendingInvitationClaimToken(invitationToken);
+    }
+  }, [invitationToken]);
 
   useEffect(() => {
     if (settingsLoading) return;

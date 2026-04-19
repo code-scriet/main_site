@@ -78,6 +78,7 @@ const ImageUploadTool = lazy(() => import('@/pages/dashboard/ImageUploadTool'));
 const EditTeamProfile = lazy(() => import('@/pages/dashboard/EditTeamProfile'));
 const EditNetworkProfile = lazy(() => import('@/pages/dashboard/EditNetworkProfile'));
 const DashboardCertificates = lazy(() => import('@/pages/dashboard/DashboardCertificates'));
+const DashboardInvitations = lazy(() => import('@/pages/dashboard/DashboardInvitations'));
 const AttendancePage = lazy(() => import('@/pages/dashboard/AttendancePage'));
 const VerifyCertificatePage = lazy(() => import('@/pages/VerifyCertificatePage'));
 const QuizManager = lazy(() => import('@/pages/dashboard/QuizManager'));
@@ -188,6 +189,8 @@ function App() {
                       <Route path="profile" element={withRouteBoundary(<ProfilePage />)} />
                       <Route path="team/:id/edit" element={withRouteBoundary(<EditTeamProfile />)} />
                       <Route path="certificates" element={withRouteBoundary(<DashboardCertificates />)} />
+                      <Route path="invitations" element={withRouteBoundary(<DashboardInvitations />)} />
+                      <Route path="invitations/:invitationId" element={withRouteBoundary(<DashboardInvitations />)} />
                       <Route element={<ProtectedRoute minRole="CORE_MEMBER" />}>
                         <Route path="attendance" element={withRouteBoundary(<AttendancePage />)} />
                         <Route path="events/:eventId/attendance" element={withRouteBoundary(<EventAdminHub />)} />

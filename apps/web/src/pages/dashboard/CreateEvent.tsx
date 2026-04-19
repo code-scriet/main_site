@@ -126,7 +126,7 @@ function CollapsibleSection({
 
 export default function CreateEvent() {
   const navigate = useNavigate();
-  const { token } = useAuth();
+  const { token, user } = useAuth();
   
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -321,7 +321,7 @@ export default function CreateEvent() {
         }))
         .filter((field) => field.label.length > 0);
       
-      await api.createEvent({
+      const createdEvent = await api.createEvent({
         title: form.title.trim(),
         description: form.description.trim(),
         eventType: form.eventType,
@@ -356,6 +356,11 @@ export default function CreateEvent() {
         tags: tags.length > 0 ? tags : undefined,
         registrationFields: normalizedRegistrationFields.length > 0 ? normalizedRegistrationFields : undefined,
       }, token);
+
+      if (user?.role === 'ADMIN' || user?.role === 'PRESIDENT') {
+        navigate(`/admin/events/${createdEvent.id}/edit`);
+        return;
+      }
 
       navigate('/dashboard/events');
     } catch (err) {

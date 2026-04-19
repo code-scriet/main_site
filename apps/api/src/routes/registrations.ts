@@ -1,5 +1,5 @@
 import { Router, Request, Response } from 'express';
-import { Prisma } from '@prisma/client';
+import { Prisma, RegistrationType } from '@prisma/client';
 import { randomUUID } from 'crypto';
 import { prisma } from '../lib/prisma.js';
 import { authMiddleware, getAuthUser } from '../middleware/auth.js';
@@ -79,9 +79,18 @@ registrationsRouter.post('/events/:eventId', authMiddleware, async (req: Request
       const attendanceToken = generateAttendanceToken(authUser.id, eventId, registrationId);
       try {
         const result = await prisma.$transaction(async (tx) => {
+          // Capacity check: only count PARTICIPANT registrations. GUEST invitations do not consume capacity.
           const event = await tx.event.findUnique({
             where: { id: eventId },
-            include: { _count: { select: { registrations: true } } },
+            include: {
+              _count: {
+                select: {
+                  registrations: {
+                    where: { registrationType: RegistrationType.PARTICIPANT },
+                  },
+                },
+              },
+            },
           });
 
           if (!event) {
@@ -388,7 +397,14 @@ registrationsRouter.get('/my', authMiddleware, async (req: Request, res: Respons
             teamRegistration: true,
             teamMinSize: true,
             teamMaxSize: true,
-            _count: { select: { registrations: true } },
+            // Public event counts: only participant registrations belong in "X registered" totals.
+            _count: {
+              select: {
+                registrations: {
+                  where: { registrationType: RegistrationType.PARTICIPANT },
+                },
+              },
+            },
           },
         },
       },

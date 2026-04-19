@@ -54,6 +54,8 @@ model User {
   pollVotes              PollVote[]
   pollFeedback           PollFeedback[]
   eventsCreated          Event[]                 @relation("eventCreator")
+  invitationsReceived    EventInvitation[]       @relation("InvitationInvitee")
+  invitationsSent        EventInvitation[]       @relation("InvitationInviter")
   qotdsCreated           QOTD[]                  @relation("qotdCreator")
   auditLogs              AuditLog[]
   executions             Execution[]
@@ -115,6 +117,7 @@ model Settings {
   emailAnnouncementEnabled  Boolean @default(true) @map("email_announcement_enabled")
   emailCertificateEnabled   Boolean @default(true) @map("email_certificate_enabled")
   emailReminderEnabled      Boolean @default(true) @map("email_reminder_enabled")
+  emailInvitationEnabled    Boolean @default(true) @map("email_invitation_enabled")
 
   // Email testing mode
   emailTestingMode    Boolean @default(false) @map("email_testing_mode")
@@ -172,6 +175,7 @@ model Event {
   teamMaxSize      Int     @default(4) @map("team_max_size")
 
   registrations     EventRegistration[]
+  invitations       EventInvitation[]
   certificates      Certificate[]
   teams             EventTeam[]
   competitionRounds CompetitionRound[]
@@ -184,12 +188,13 @@ model Event {
 }
 
 model EventRegistration {
-  id                   String    @id @default(uuid())
-  userId               String    @map("user_id")
-  eventId              String    @map("event_id")
-  timestamp            DateTime  @default(now())
-  customFieldResponses Json?     @map("custom_field_responses")
-  reminderSentAt       DateTime? @map("reminder_sent_at")
+  id                   String           @id @default(uuid())
+  userId               String           @map("user_id")
+  eventId              String           @map("event_id")
+  timestamp            DateTime         @default(now())
+  customFieldResponses Json?            @map("custom_field_responses")
+  reminderSentAt       DateTime?        @map("reminder_sent_at")
+  registrationType     RegistrationType @default(PARTICIPANT) @map("registration_type")
 
   // Attendance fields
   attendanceToken String?   @unique @map("attendance_token")
@@ -197,19 +202,63 @@ model EventRegistration {
   scannedAt       DateTime? @map("scanned_at")
   manualOverride  Boolean   @default(false) @map("manual_override")
 
-  event      Event            @relation(fields: [eventId], references: [id], onDelete: Cascade)
-  user       User             @relation(fields: [userId], references: [id], onDelete: Cascade)
-  teamMember EventTeamMember?
+  event          Event            @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  user           User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  teamMember     EventTeamMember?
+  invitation     EventInvitation? @relation("InvitationToRegistration")
   dayAttendances DayAttendance[]
 
   @@unique([userId, eventId])
   @@index([eventId])
   @@index([eventId, attended])
+  @@index([eventId, registrationType, attended])
   @@index([eventId, timestamp(sort: Desc)], map: "event_registrations_event_id_timestamp_desc_idx")
   @@index([userId, timestamp])
   @@index([timestamp])
   @@index([reminderSentAt])
   @@map("event_registrations")
+}
+
+model EventInvitation {
+  id      String @id @default(uuid())
+  eventId String @map("event_id")
+  event   Event  @relation(fields: [eventId], references: [id], onDelete: Cascade)
+
+  inviteeUserId String? @map("invitee_user_id")
+  inviteeUser   User?   @relation("InvitationInvitee", fields: [inviteeUserId], references: [id], onDelete: Cascade)
+  inviteeEmail  String? @map("invitee_email") @db.VarChar(255)
+
+  inviteeNameSnapshot        String? @map("invitee_name_snapshot") @db.VarChar(200)
+  inviteeDesignationSnapshot String? @map("invitee_designation_snapshot") @db.VarChar(200)
+  inviteeCompanySnapshot     String? @map("invitee_company_snapshot") @db.VarChar(200)
+
+  role          String           @default("Guest") @db.VarChar(50)
+  customMessage String?          @map("custom_message") @db.Text
+  status        InvitationStatus @default(PENDING)
+
+  certificateEnabled Boolean  @default(true) @map("certificate_enabled")
+  certificateType    CertType @default(SPEAKER) @map("certificate_type")
+
+  invitedById       String    @map("invited_by_id")
+  invitedBy         User      @relation("InvitationInviter", fields: [invitedById], references: [id], onDelete: Restrict)
+  invitedAt         DateTime  @default(now()) @map("invited_at")
+  respondedAt       DateTime? @map("responded_at")
+  revokedAt         DateTime? @map("revoked_at")
+  emailSent         Boolean   @default(false) @map("email_sent")
+  emailSentAt       DateTime? @map("email_sent_at")
+  lastEmailResentAt DateTime? @map("last_email_resent_at")
+
+  registrationId String?            @unique @map("registration_id")
+  registration   EventRegistration? @relation("InvitationToRegistration", fields: [registrationId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@unique([eventId, inviteeUserId])
+  @@index([inviteeUserId, status])
+  @@index([inviteeEmail, status])
+  @@index([eventId, status])
+  @@map("event_invitations")
 }
 
 model DayAttendance {
@@ -517,7 +566,6 @@ model QOTD {
   submissions QOTDSubmission[]
 
   @@index([createdById])
-
   @@map("qotd")
 }
 
@@ -584,6 +632,18 @@ enum EventStatus {
   UPCOMING
   ONGOING
   PAST
+}
+
+enum RegistrationType {
+  PARTICIPANT
+  GUEST
+}
+
+enum InvitationStatus {
+  PENDING
+  ACCEPTED
+  DECLINED
+  REVOKED
 }
 
 enum AnnouncementPriority {

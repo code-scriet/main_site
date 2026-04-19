@@ -15,6 +15,7 @@ import { memo, useMemo, useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { cn } from '@/lib/utils';
 import { useQuizStore } from '@/lib/quizStore';
+import { formatRatingDisplay } from '@/lib/ratingDisplay';
 import { PollResultsView } from './PollResultsView';
 import { Card, CardContent } from '@/components/ui/card';
 import { CheckCircle, XCircle, Trophy, Star, Flame } from 'lucide-react';
@@ -364,7 +365,10 @@ export const QuizResultReveal = memo(function QuizResultReveal({ userId }: QuizR
             )}
             {myAnswer && (
               <p className="text-sm text-purple-600/80">
-                Your response: <span className="font-semibold text-purple-700">{myAnswer}</span>
+                Your response:{' '}
+                <span className="font-semibold text-purple-700">
+                  {isRating ? formatRatingDisplay(myAnswer) : myAnswer}
+                </span>
               </p>
             )}
           </CardContent>
@@ -520,6 +524,7 @@ export const QuizResultReveal = memo(function QuizResultReveal({ userId }: QuizR
               options={currentQuestion?.options ?? null}
               questionText={currentQuestion?.questionText ?? 'Poll'}
               totalVotes={Object.values(questionReveal.answerDistribution).reduce((sum, v) => sum + v, 0)}
+              questionType={currentQuestion?.questionType ?? 'POLL'}
             />
           ) : !isOpenEnded ? (
             <DistributionChart

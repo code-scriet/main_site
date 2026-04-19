@@ -8,6 +8,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { cn } from '@/lib/utils';
 import { useQuizStore } from '@/lib/quizStore';
 import { useQuizTimer } from '@/hooks/useQuizTimer';
+import { formatRatingDisplay } from '@/lib/ratingDisplay';
 import { QuizTimer } from './QuizTimer';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -401,7 +402,7 @@ export function QuizQuestion({ onSubmitAnswer }: QuizQuestionProps) {
                   animate={{ opacity: 1, y: 0 }}
                   className="text-sm text-amber-700 font-medium"
                 >
-                  You rated: {ratingValue}/5
+                  You rated: {formatRatingDisplay(ratingValue)}
                 </motion.p>
               )}
             </CardContent>

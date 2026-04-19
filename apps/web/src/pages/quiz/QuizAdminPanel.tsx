@@ -173,13 +173,13 @@ export const QuizAdminPanel = memo(function QuizAdminPanel({
 
           {/* Phase-specific controls */}
           {quizStatus === 'lobby' && (
-            <LobbyControls playerCount={players.length} onStart={onStartQuiz} />
+            <LobbyControls playerCount={connectedCount} onStart={onStartQuiz} />
           )}
 
           {quizStatus === 'question' && (
             <QuestionControls
               answeredCount={answeredCount}
-              totalPlayers={players.length}
+              totalPlayers={connectedCount}
               allAnswered={allAnswered}
               questionIndex={questionIndex}
               totalQuestions={totalQuestions}

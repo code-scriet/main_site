@@ -1,5 +1,5 @@
 import { Router, Request, Response } from 'express';
-import { Prisma } from '@prisma/client';
+import { Prisma, RegistrationType } from '@prisma/client';
 import { prisma } from '../lib/prisma.js';
 import { authMiddleware, getAuthUser } from '../middleware/auth.js';
 import { requireRole } from '../middleware/role.js';
@@ -157,7 +157,14 @@ const getHomePayload = async (): Promise<HomePayload> => {
           capacity: true,
           imageUrl: true,
           registrationFields: true,
-          _count: { select: { registrations: true } },
+          // Public event counts: only participant registrations belong in homepage registration totals.
+          _count: {
+            select: {
+              registrations: {
+                where: { registrationType: RegistrationType.PARTICIPANT },
+              },
+            },
+          },
         },
       }),
       prisma.announcement.findMany({
@@ -348,18 +355,69 @@ statsRouter.get('/dashboard', authMiddleware, requireRole('ADMIN'), async (_req:
       prisma.user.count({ where: { createdAt: { gte: thirtyDaysAgo } } }),
       prisma.event.count(),
       prisma.event.count({ where: { status: 'UPCOMING' } }),
-      prisma.eventRegistration.count(),
-      prisma.eventRegistration.count({ where: { timestamp: { gte: sevenDaysAgo } } }),
+      // Dashboard registration totals track participant signups, not guest invitations.
+      prisma.eventRegistration.count({ where: { registrationType: RegistrationType.PARTICIPANT } }),
+      // Dashboard registration totals track participant signups, not guest invitations.
+      prisma.eventRegistration.count({
+        where: {
+          registrationType: RegistrationType.PARTICIPANT,
+          timestamp: { gte: sevenDaysAgo },
+        },
+      }),
       prisma.announcement.count(),
       prisma.qOTD.count(),
       prisma.qOTDSubmission.count({ where: { timestamp: { gte: sevenDaysAgo } } }),
     ]);
 
-    const popularEvents = await prisma.event.findMany({
+    // Public-facing popularity should rank by participant registrations, not guest invitations.
+    const popularEventCounts = await prisma.eventRegistration.groupBy({
+      by: ['eventId'],
+      where: {
+        registrationType: RegistrationType.PARTICIPANT,
+      },
+      _count: {
+        eventId: true,
+      },
+      orderBy: {
+        _count: {
+          eventId: 'desc',
+        },
+      },
       take: 5,
-      orderBy: { registrations: { _count: 'desc' } },
-      include: { _count: { select: { registrations: true } } },
     });
+
+    const popularEventIds = popularEventCounts.map((entry) => entry.eventId);
+    const popularEventsById = new Map(
+      (popularEventIds.length > 0
+        ? await prisma.event.findMany({
+            where: {
+              id: {
+                in: popularEventIds,
+              },
+            },
+            select: {
+              id: true,
+              title: true,
+            },
+          })
+        : [])
+        .map((event) => [event.id, event]),
+    );
+
+    const popularEvents = popularEventCounts
+      .map((entry) => {
+        const event = popularEventsById.get(entry.eventId);
+        if (!event) {
+          return null;
+        }
+
+        return {
+          id: event.id,
+          title: event.title,
+          registrations: entry._count.eventId,
+        };
+      })
+      .filter((entry): entry is { id: string; title: string; registrations: number } => Boolean(entry));
 
     const recentUsers = await prisma.user.findMany({
       take: 5,
@@ -371,7 +429,7 @@ statsRouter.get('/dashboard', authMiddleware, requireRole('ADMIN'), async (_req:
       success: true,
       data: {
         overview: { totalUsers, newUsersThisMonth, totalEvents, upcomingEvents, totalRegistrations, recentRegistrations, totalAnnouncements, totalQOTDs, qotdSubmissionsThisWeek },
-        popularEvents: popularEvents.map((e) => ({ id: e.id, title: e.title, registrations: e._count.registrations })),
+        popularEvents,
         recentUsers,
       },
     });

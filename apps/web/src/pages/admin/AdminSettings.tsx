@@ -75,6 +75,7 @@ export default function AdminSettings() {
     emailAnnouncementEnabled: true,
     emailCertificateEnabled: true,
     emailReminderEnabled: true,
+    emailInvitationEnabled: true,
     emailTestingMode: false,
     emailTestRecipients: null,
     playgroundDailyLimit: 100,
@@ -441,6 +442,7 @@ export default function AdminSettings() {
               { key: 'emailAnnouncementEnabled' as const, label: 'Announcement Emails', desc: 'Sent to all users for new announcements' },
               { key: 'emailCertificateEnabled' as const, label: 'Certificate Emails', desc: 'Sent when a certificate is issued to a user' },
               { key: 'emailReminderEnabled' as const, label: 'Event Reminders', desc: 'Automated reminders before events start' },
+              { key: 'emailInvitationEnabled' as const, label: 'Event Invitations', desc: 'Sent to invited guests and speakers for event invitations' },
               { key: 'mailingEnabled' as const, label: 'Admin Bulk Mail', desc: 'Enable the admin email composer to send emails to users' },
             ].map(({ key, label, desc }) => (
               <ToggleRow

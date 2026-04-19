@@ -1,5 +1,6 @@
 import { Router, Request, Response } from 'express';
 import express from 'express';
+import { RegistrationType } from '@prisma/client';
 import rateLimit from 'express-rate-limit';
 import ExcelJS from 'exceljs';
 import { z } from 'zod';
@@ -1615,6 +1616,7 @@ router.get('/search', authMiddleware, requireRole('CORE_MEMBER'), async (req: Re
       userName: reg.user.name,
       userEmail: reg.user.email,
       userAvatar: reg.user.avatar,
+      registrationType: reg.registrationType,
       attended: reg.attended,
       scannedAt: reg.scannedAt,
       manualOverride: reg.manualOverride,
@@ -1758,6 +1760,11 @@ router.get('/event/:eventId/full', authMiddleware, requireRole('CORE_MEMBER'), a
         dayAttendances: {
           orderBy: { dayNumber: 'asc' },
         },
+        invitation: {
+          select: {
+            role: true,
+          },
+        },
       },
       orderBy: [
         { attended: 'desc' },
@@ -1825,6 +1832,11 @@ router.get('/event/:eventId/export', authMiddleware, requireRole('CORE_MEMBER'),
         dayAttendances: {
           orderBy: { dayNumber: 'asc' },
         },
+        invitation: {
+          select: {
+            role: true,
+          },
+        },
       },
       orderBy: [
         { attended: 'desc' },
@@ -1834,7 +1846,6 @@ router.get('/event/:eventId/export', authMiddleware, requireRole('CORE_MEMBER'),
     });
 
     const workbook = new ExcelJS.Workbook();
-    const worksheet = workbook.addWorksheet('Attendance');
 
     const columns: Array<{ header: string; key: string; width: number }> = [
       { header: 'Name', key: 'name', width: 25 },
@@ -1842,6 +1853,8 @@ router.get('/event/:eventId/export', authMiddleware, requireRole('CORE_MEMBER'),
       { header: 'Branch', key: 'branch', width: 20 },
       { header: 'Year', key: 'year', width: 10 },
       { header: 'Phone', key: 'phone', width: 15 },
+      { header: 'Registration Type', key: 'registrationType', width: 18 },
+      { header: 'Guest Role', key: 'guestRole', width: 22 },
       { header: 'Attended', key: 'attended', width: 12 },
       { header: 'Scanned At', key: 'scannedAt', width: 22 },
       { header: 'Manual Override', key: 'manualOverride', width: 16 },
@@ -1868,47 +1881,63 @@ router.get('/event/:eventId/export', authMiddleware, requireRole('CORE_MEMBER'),
       }
     }
 
-    worksheet.columns = columns;
+    const buildWorksheet = (
+      sheetName: string,
+      rows: typeof registrations,
+    ) => {
+      const worksheet = workbook.addWorksheet(sheetName);
+      worksheet.columns = columns;
 
-    // Style header row bold
-    const headerRow = worksheet.getRow(1);
-    headerRow.font = { bold: true };
-    headerRow.commit();
+      const headerRow = worksheet.getRow(1);
+      headerRow.font = { bold: true };
+      headerRow.commit();
 
-    for (const reg of registrations) {
-      const row: Record<string, string> = {
-        name: reg.user.name,
-        email: reg.user.email,
-        branch: reg.user.branch || '',
-        year: reg.user.year || '',
-        phone: reg.user.phone || '',
-        attended: reg.attended ? 'Yes' : 'No',
-        scannedAt: reg.scannedAt ? reg.scannedAt.toISOString() : '',
-        manualOverride: reg.manualOverride ? 'Yes' : 'No',
-        registeredAt: reg.timestamp.toISOString(),
-      };
+      for (const reg of rows) {
+        const row: Record<string, string> = {
+          name: reg.user.name,
+          email: reg.user.email,
+          branch: reg.user.branch || '',
+          year: reg.user.year || '',
+          phone: reg.user.phone || '',
+          attended: reg.attended ? 'Yes' : 'No',
+          scannedAt: reg.scannedAt ? reg.scannedAt.toISOString() : '',
+          manualOverride: reg.manualOverride ? 'Yes' : 'No',
+          registeredAt: reg.timestamp.toISOString(),
+          registrationType: reg.registrationType,
+          guestRole: reg.invitation?.role || '',
+        };
 
-      if (includeDayColumns) {
-        const dayMap = new Map(reg.dayAttendances.map((dayAttendance) => [dayAttendance.dayNumber, dayAttendance]));
-        let daysAttended = 0;
-        for (const dayNumber of targetDays) {
-          const dayKeyPrefix = `day${dayNumber}`;
-          const dayAttendance = dayMap.get(dayNumber);
-          const isAttended = dayAttendance?.attended === true;
-          if (isAttended) {
-            daysAttended += 1;
+        if (includeDayColumns) {
+          const dayMap = new Map(reg.dayAttendances.map((dayAttendance) => [dayAttendance.dayNumber, dayAttendance]));
+          let daysAttended = 0;
+          for (const dayNumber of targetDays) {
+            const dayKeyPrefix = `day${dayNumber}`;
+            const dayAttendance = dayMap.get(dayNumber);
+            const isAttended = dayAttendance?.attended === true;
+            if (isAttended) {
+              daysAttended += 1;
+            }
+            row[`${dayKeyPrefix}Attended`] = isAttended ? 'Yes' : 'No';
+            row[`${dayKeyPrefix}ScannedAt`] = dayAttendance?.scannedAt ? dayAttendance.scannedAt.toISOString() : '';
+            row[`${dayKeyPrefix}Manual`] = dayAttendance?.manualOverride ? 'Yes' : 'No';
           }
-          row[`${dayKeyPrefix}Attended`] = isAttended ? 'Yes' : 'No';
-          row[`${dayKeyPrefix}ScannedAt`] = dayAttendance?.scannedAt ? dayAttendance.scannedAt.toISOString() : '';
-          row[`${dayKeyPrefix}Manual`] = dayAttendance?.manualOverride ? 'Yes' : 'No';
+          if (!requestedDayNumber && eventDays > 1) {
+            row.daysAttended = String(daysAttended);
+          }
         }
-        if (!requestedDayNumber && eventDays > 1) {
-          row.daysAttended = String(daysAttended);
-        }
-      }
 
-      worksheet.addRow(row);
-    }
+        worksheet.addRow(row);
+      }
+    };
+
+    buildWorksheet(
+      'Participants',
+      registrations.filter((registration) => registration.registrationType === RegistrationType.PARTICIPANT),
+    );
+    buildWorksheet(
+      'Guests',
+      registrations.filter((registration) => registration.registrationType === RegistrationType.GUEST),
+    );
 
     const safeTitle = event.title.replace(/[^a-zA-Z0-9_-]/g, '_').substring(0, 50);
     const daySuffix = requestedDayNumber ? `_day_${requestedDayNumber}` : '';
@@ -1973,8 +2002,10 @@ router.post('/email-absentees/:eventId', authMiddleware, requireRole('ADMIN'), a
     }
 
     const absentees = await prisma.eventRegistration.findMany({
+      // Absentee outreach defaults to participant registrations so invited guests are not emailed like students.
       where: {
         eventId,
+        registrationType: RegistrationType.PARTICIPANT,
         ...(effectiveDayNumber
           ? {
               dayAttendances: {
@@ -2099,13 +2130,18 @@ router.get('/event/:eventId/certificate-recipients', authMiddleware, requireRole
     const eventDays = normalizeEventDays(event.eventDays);
     const dayLabels = parseDayLabels(event.dayLabels, eventDays);
     const minDaysValue = resolveEffectiveDayNumber(req.query.minDays, eventDays, false);
+    const includeGuestNonAttendees = String(req.query.includeGuestNonAttendees || '').toLowerCase() === 'true';
     if (Number.isNaN(minDaysValue)) {
       return ApiResponse.badRequest(res, `minDays must be between 1 and ${eventDays}`);
     }
 
-    const [registrations, existingCerts] = await Promise.all([
+    const [registrations, guestInvitations, existingCerts] = await Promise.all([
       prisma.eventRegistration.findMany({
-        where: { eventId },
+        // Certificate participants remain the participant lane; guests are returned in a dedicated payload below.
+        where: {
+          eventId,
+          registrationType: RegistrationType.PARTICIPANT,
+        },
         include: {
           user: {
             select: {
@@ -2117,6 +2153,34 @@ router.get('/event/:eventId/certificate-recipients', authMiddleware, requireRole
           },
           dayAttendances: {
             orderBy: { dayNumber: 'asc' },
+          },
+        },
+      }),
+      prisma.eventInvitation.findMany({
+        where: {
+          eventId,
+          status: 'ACCEPTED',
+          registrationId: { not: null },
+        },
+        include: {
+          inviteeUser: {
+            select: {
+              id: true,
+              email: true,
+              networkProfile: {
+                select: {
+                  fullName: true,
+                  designation: true,
+                  company: true,
+                },
+              },
+            },
+          },
+          registration: {
+            select: {
+              id: true,
+              attended: true,
+            },
           },
         },
       }),
@@ -2175,21 +2239,48 @@ router.get('/event/:eventId/certificate-recipients', authMiddleware, requireRole
       ? allRecipients.filter((recipient) => recipient.daysAttended >= minDaysValue)
       : allRecipients;
 
+    const guests = guestInvitations
+      .filter((invitation) => Boolean(invitation.inviteeUserId && invitation.inviteeUser && invitation.registration))
+      .filter((invitation) => includeGuestNonAttendees || invitation.registration?.attended)
+      .map((invitation) => {
+        const email = invitation.inviteeUser!.email.toLowerCase();
+        const existingCert = certsByEmail.get(email) || null;
+        return {
+          invitationId: invitation.id,
+          userId: invitation.inviteeUserId!,
+          name: invitation.inviteeUser?.networkProfile?.fullName || invitation.inviteeNameSnapshot || invitation.inviteeUser?.email || 'Guest',
+          email: invitation.inviteeUser!.email,
+          designation: invitation.inviteeUser?.networkProfile?.designation || invitation.inviteeDesignationSnapshot || null,
+          role: invitation.role,
+          attended: invitation.registration?.attended || false,
+          certificateEnabled: invitation.certificateEnabled,
+          certificateType: invitation.certificateType,
+          existingCertificateId: existingCert?.id || null,
+          certificateId: existingCert?.certId || null,
+          emailSent: existingCert?.emailSent || false,
+          emailSentAt: existingCert?.emailSentAt || null,
+        };
+      });
+
     const totalRegistered = registrations.length;
     const totalAttended = registrations.filter((r) => r.attended).length;
     const alreadyCertified = certsByEmail.size;
 
     return ApiResponse.success(res, {
+      participants: recipients,
+      guests,
       recipients,
       stats: {
         totalRegistered,
         totalAttended,
         alreadyCertified,
         eligibleRecipients: recipients.length,
+        guestCount: guests.length,
       },
       eventDays,
       dayLabels,
       ...(minDaysValue ? { minDays: minDaysValue } : {}),
+      ...(includeGuestNonAttendees ? { includeGuestNonAttendees: true } : {}),
     });
   } catch (error) {
     logger.error('Failed to get certificate recipients', { error: error instanceof Error ? error.message : String(error) });

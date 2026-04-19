@@ -33,6 +33,8 @@ import { TeamCreateModal, TeamJoinModal, TeamDashboard } from '@/components/team
 import { getPlaygroundLaunchUrl } from '@/lib/playgroundUrl';
 import { normalizeTrustedVideoEmbedUrl } from '@/lib/videoEmbed';
 import { LightboxGallery } from '@/components/media/LightboxGallery';
+import QRTicket from '@/components/attendance/QRTicket';
+import ChiefGuestsStrip from '@/components/events/ChiefGuestsStrip';
 import { toast } from 'sonner';
 
 type EventStatus = 'UPCOMING' | 'ONGOING' | 'PAST';
@@ -262,27 +264,9 @@ export default function EventDetailPage() {
         setAutoRegisterTriggered(false);
         setLoading(true);
         setError(null);
-        const eventData = await api.getEvent(id);
+        const eventData = await api.getEvent(id, token || undefined);
         setEvent(eventData);
-        
-        // Check if user is registered
-        if (token) {
-          try {
-            const registrations = await api.getMyRegistrations(token);
-            const currentEventId = eventData.id;
-            setIsRegistered(
-              registrations.some((registration) => {
-                return (
-                  registration.eventId === currentEventId ||
-                  registration.event?.id === currentEventId ||
-                  registration.event?.slug === id
-                );
-              })
-            );
-          } catch {
-            setIsRegistered(false);
-          }
-        }
+        setIsRegistered(Boolean(eventData.isRegistered || eventData.userInvitation?.status === 'ACCEPTED'));
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Failed to load event');
       } finally {
@@ -365,7 +349,7 @@ export default function EventDetailPage() {
       setMyTeam(team);
       setIsRegistered(!!team);
       // Refresh event data
-      const updatedEvent = await api.getEvent(event.id);
+      const updatedEvent = await api.getEvent(event.id, token);
       setEvent(updatedEvent);
     } catch {
       setMyTeam(null);
@@ -387,7 +371,7 @@ export default function EventDetailPage() {
       setShowRegistrationFormPopup(false);
 
       // Refresh event data
-      const updatedEvent = await api.getEvent(event.id);
+      const updatedEvent = await api.getEvent(event.id, token);
       setEvent(updatedEvent);
       toast.success(`Successfully registered for "${event.title}"!`, {
         action: {
@@ -590,6 +574,62 @@ export default function EventDetailPage() {
       .map((summary) => `${attendanceSummary.dayLabels?.[summary.dayNumber - 1] || `Day ${summary.dayNumber}`}: ${summary.attended}`)
       .join(' • ')
     : null;
+  const acceptedInvitation = event.userInvitation?.status === 'ACCEPTED' ? event.userInvitation : null;
+  const pendingInvitation = event.userInvitation?.status === 'PENDING' ? event.userInvitation : null;
+  const acceptedGuestTicket = acceptedInvitation ? (
+    <QRTicket
+      attendanceToken={acceptedInvitation.attendanceToken ?? null}
+      attended={acceptedInvitation.registration?.attended ?? false}
+      scannedAt={acceptedInvitation.registration?.scannedAt ?? null}
+      eventDays={event.eventDays}
+      dayLabels={event.dayLabels}
+      dayAttendances={acceptedInvitation.registration?.dayAttendances}
+      event={{
+        title: event.title,
+        startDate: event.startDate,
+        endDate: event.endDate || null,
+        status: event.status,
+      }}
+    />
+  ) : null;
+  const invitationBanner = pendingInvitation ? (
+    <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-4 text-sm text-amber-900">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <p className="font-semibold">You're invited as {pendingInvitation.role}.</p>
+          <p className="mt-1 text-amber-800">
+            Respond from your dashboard to confirm attendance and unlock your QR ticket.
+          </p>
+        </div>
+        <Link to="/dashboard/invitations">
+          <Button variant="outline" className="border-amber-300 bg-white text-amber-900 hover:bg-amber-100">
+            View Invitation
+          </Button>
+        </Link>
+      </div>
+    </div>
+  ) : null;
+  const invitationResponseContent = pendingInvitation ? invitationBanner : null;
+  const registrationStatusBox = acceptedInvitation ? (
+    <div className="flex items-center gap-2 rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700">
+      <QrCode className="h-4 w-4 shrink-0" />
+      <span>Your guest invitation is accepted. Present this QR at the event.</span>
+    </div>
+  ) : pendingInvitation ? (
+    <div className="flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+      <Clock className="h-4 w-4 shrink-0" />
+      <span>You have a pending guest invitation for this event.</span>
+    </div>
+  ) : (
+    <div className={`flex items-center gap-2 text-sm rounded-lg border px-4 py-3 ${
+      regStatus.status === 'open' ? 'bg-green-50 text-green-700 border-green-200' :
+      regStatus.status === 'not_started' ? 'bg-blue-50 text-blue-700 border-blue-200' :
+      'bg-gray-100 text-gray-600 border-gray-200'
+    }`}>
+      <Clock className="h-4 w-4 shrink-0" />
+      <span>{regStatus.message}</span>
+    </div>
+  );
 
   return (
     <Layout>
@@ -824,14 +864,9 @@ export default function EventDetailPage() {
                 </CardHeader>
                 <CardContent className="p-4 space-y-3">
                   {/* Registration Status */}
-                  <div className={`flex items-center gap-2 text-sm px-3 py-2 rounded-lg ${
-                    regStatus.status === 'open' ? 'bg-green-50 text-green-700 border border-green-200' :
-                    regStatus.status === 'not_started' ? 'bg-blue-50 text-blue-700 border border-blue-200' :
-                    'bg-gray-100 text-gray-600 border border-gray-200'
-                  }`}>
-                    <Clock className="h-4 w-4 shrink-0" />
-                    <span className="text-xs sm:text-sm">{regStatus.message}</span>
-                  </div>
+                  {registrationStatusBox}
+
+                  {invitationResponseContent}
 
                   {/* Spots Remaining - inline on mobile */}
                   {event.capacity && (
@@ -854,7 +889,9 @@ export default function EventDetailPage() {
                   )}
 
                   {/* Register Button - different UI for team events */}
-                  {event.teamRegistration ? (
+                  {acceptedInvitation ? (
+                    acceptedGuestTicket
+                  ) : pendingInvitation ? null : event.teamRegistration ? (
                     // Team Registration UI
                     <>
                       {teamLoading ? (
@@ -1071,6 +1108,10 @@ export default function EventDetailPage() {
                 </CardContent>
               </Card>
 
+              {event.guests && event.guests.length > 0 && (
+                <ChiefGuestsStrip guests={event.guests} />
+              )}
+
               {/* About This Event */}
               <Card>
                 <CardHeader>
@@ -1249,14 +1290,9 @@ export default function EventDetailPage() {
                   </CardHeader>
                   <CardContent className="p-6 space-y-4">
                     {/* Registration Status */}
-                    <div className={`flex items-center gap-2 text-sm px-4 py-3 rounded-lg ${
-                      regStatus.status === 'open' ? 'bg-green-50 text-green-700 border border-green-200' :
-                      regStatus.status === 'not_started' ? 'bg-blue-50 text-blue-700 border border-blue-200' :
-                      'bg-gray-100 text-gray-600 border border-gray-200'
-                    }`}>
-                      <Clock className="h-4 w-4" />
-                      <span>{regStatus.message}</span>
-                    </div>
+                    {registrationStatusBox}
+
+                    {invitationResponseContent}
 
                     {/* Spots Remaining */}
                     {event.capacity && (
@@ -1277,7 +1313,9 @@ export default function EventDetailPage() {
                     )}
 
                     {/* Register Button - different UI for team events */}
-                    {event.teamRegistration ? (
+                    {acceptedInvitation ? (
+                      acceptedGuestTicket
+                    ) : pendingInvitation ? null : event.teamRegistration ? (
                       // Team Registration UI (Desktop)
                       <>
                         {teamLoading ? (

@@ -4,7 +4,7 @@ import { prisma } from '../lib/prisma.js';
 import { authMiddleware, optionalAuthMiddleware, getAuthUser } from '../middleware/auth.js';
 import { requireRole } from '../middleware/role.js';
 import { auditLog } from '../utils/audit.js';
-import { EventStatus, Prisma } from '@prisma/client';
+import { EventStatus, Prisma, RegistrationType } from '@prisma/client';
 import { generateSlug, generateUniqueSlug } from '../utils/slug.js';
 import { emailService } from '../utils/email.js';
 import { logger } from '../utils/logger.js';
@@ -16,6 +16,12 @@ import { normalizeTrustedVideoEmbedUrl } from '../utils/videoEmbed.js';
 
 export const eventsRouter = Router();
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const GUEST_ROLE_PRIORITY: Record<string, number> = {
+  'Chief Guest': 0,
+  Speaker: 1,
+  Judge: 2,
+  'Special Guest': 3,
+};
 
 const optionalUrl = z.union([z.string().url('Must be a valid URL'), z.literal('')]).optional().nullable();
 const optionalVideoUrl = z.union([z.string().trim().max(2000), z.literal('')]).optional().nullable().transform((value, ctx) => {
@@ -42,6 +48,22 @@ type EventValidationInput = {
   registrationEndDate?: Date | null;
   allowLateRegistration?: boolean;
 };
+
+function getGuestRolePriority(role: string): number {
+  return GUEST_ROLE_PRIORITY[role] ?? 100;
+}
+
+function deriveInvitationStatus(
+  status: 'PENDING' | 'ACCEPTED' | 'DECLINED' | 'REVOKED',
+  startDate: Date,
+  endDate: Date | null,
+): 'PENDING' | 'ACCEPTED' | 'DECLINED' | 'REVOKED' | 'EXPIRED' {
+  if (status === 'PENDING' && (endDate ?? startDate) < new Date()) {
+    return 'EXPIRED';
+  }
+
+  return status;
+}
 
 const validateEventTimeline = ({ startDate, endDate, registrationStartDate, registrationEndDate, allowLateRegistration = false }: EventValidationInput): string | null => {
   if (endDate && endDate < startDate) {
@@ -188,6 +210,7 @@ eventsRouter.get('/', optionalAuthMiddleware, async (req: Request, res: Response
       });
     }
 
+    // Public event counts: only participant registrations belong in "X registered" totals.
     const eventListSelect = {
       id: true,
       title: true,
@@ -213,7 +236,13 @@ eventsRouter.get('/', optionalAuthMiddleware, async (req: Request, res: Response
       teamRegistration: true,
       teamMinSize: true,
       teamMaxSize: true,
-      _count: { select: { registrations: true } },
+      _count: {
+        select: {
+          registrations: {
+            where: { registrationType: RegistrationType.PARTICIPANT },
+          },
+        },
+      },
     } satisfies Prisma.EventSelect;
 
     const queryOptions: Prisma.EventFindManyArgs = {
@@ -268,7 +297,16 @@ eventsRouter.get('/upcoming', async (_req: Request, res: Response) => {
       where: { status: 'UPCOMING', startDate: { gte: new Date() } },
       orderBy: { startDate: 'asc' },
       take: 5,
-      include: { _count: { select: { registrations: true } } },
+      // Public event counts: only participant registrations belong in "X registered" totals.
+      include: {
+        _count: {
+          select: {
+            registrations: {
+              where: { registrationType: RegistrationType.PARTICIPANT },
+            },
+          },
+        },
+      },
     });
     res.json({ success: true, data: events });
   } catch (error) {
@@ -280,7 +318,16 @@ eventsRouter.get('/:id', optionalAuthMiddleware, async (req: Request, res: Respo
   try {
     // Support both ID and slug lookup
     const idOrSlug = req.params.id;
-    const includeOptions = { _count: { select: { registrations: true } } } as const;
+    // Public event counts: only participant registrations belong in "X registered" totals.
+    const includeOptions = {
+      _count: {
+        select: {
+          registrations: {
+            where: { registrationType: RegistrationType.PARTICIPANT },
+          },
+        },
+      },
+    } as const;
     const event = UUID_REGEX.test(idOrSlug)
       ? (await prisma.event.findUnique({ where: { id: idOrSlug }, include: includeOptions })) ??
         (await prisma.event.findUnique({ where: { slug: idOrSlug }, include: includeOptions }))
@@ -292,14 +339,94 @@ eventsRouter.get('/:id', optionalAuthMiddleware, async (req: Request, res: Respo
     }
 
     const authUser = getAuthUser(req);
-    let isRegistered = false;
-    if (authUser) {
-      const registration = await prisma.eventRegistration.findUnique({
-        where: { userId_eventId: { userId: authUser.id, eventId: event.id } },
-        select: { id: true },
-      });
-      isRegistered = !!registration;
-    }
+    const [registration, guestInvitations, userInvitation] = await Promise.all([
+      authUser
+        ? prisma.eventRegistration.findUnique({
+            where: { userId_eventId: { userId: authUser.id, eventId: event.id } },
+            select: { id: true },
+          })
+        : Promise.resolve(null),
+      prisma.eventInvitation.findMany({
+        where: {
+          eventId: event.id,
+          status: 'ACCEPTED',
+          inviteeUser: {
+            networkProfile: {
+              isPublic: true,
+            },
+          },
+        },
+        select: {
+          role: true,
+          invitedAt: true,
+          inviteeUser: {
+            select: {
+              networkProfile: {
+                select: {
+                  fullName: true,
+                  designation: true,
+                  company: true,
+                  profilePhoto: true,
+                  slug: true,
+                },
+              },
+            },
+          },
+        },
+      }),
+      authUser
+        ? prisma.eventInvitation.findFirst({
+            where: {
+              eventId: event.id,
+              OR: [
+                { inviteeUserId: authUser.id },
+                {
+                  inviteeEmail: {
+                    equals: authUser.email,
+                    mode: 'insensitive',
+                  },
+                },
+              ],
+            },
+            select: {
+              id: true,
+              role: true,
+              status: true,
+              invitedAt: true,
+              respondedAt: true,
+              revokedAt: true,
+              certificateEnabled: true,
+              certificateType: true,
+              inviteeUserId: true,
+              inviteeEmail: true,
+              inviteeNameSnapshot: true,
+              inviteeDesignationSnapshot: true,
+              inviteeCompanySnapshot: true,
+              customMessage: true,
+              registrationId: true,
+              registration: {
+                select: {
+                  id: true,
+                  eventId: true,
+                  attendanceToken: true,
+                  attended: true,
+                  scannedAt: true,
+                  manualOverride: true,
+                  dayAttendances: {
+                    select: {
+                      dayNumber: true,
+                      attended: true,
+                      scannedAt: true,
+                    },
+                    orderBy: { dayNumber: 'asc' },
+                  },
+                },
+              },
+            },
+          })
+        : Promise.resolve(null),
+    ]);
+    const isRegistered = Boolean(registration);
 
     const registrationStatus = getRegistrationStatus(
       {
@@ -315,7 +442,35 @@ eventsRouter.get('/:id', optionalAuthMiddleware, async (req: Request, res: Respo
 
     res.json({
       success: true,
-      data: { ...event, isRegistered, registrationStatus, spotsRemaining: event.capacity ? event.capacity - event._count.registrations : null },
+      data: {
+        ...event,
+        isRegistered,
+        registrationStatus,
+        spotsRemaining: event.capacity ? event.capacity - event._count.registrations : null,
+        guests: guestInvitations
+          .sort((left, right) => {
+            const priorityDelta = getGuestRolePriority(left.role) - getGuestRolePriority(right.role);
+            if (priorityDelta !== 0) {
+              return priorityDelta;
+            }
+            return left.invitedAt.getTime() - right.invitedAt.getTime();
+          })
+          .map((invitation) => ({
+            name: invitation.inviteeUser?.networkProfile?.fullName || 'Guest',
+            designation: invitation.inviteeUser?.networkProfile?.designation || '',
+            company: invitation.inviteeUser?.networkProfile?.company || '',
+            photo: invitation.inviteeUser?.networkProfile?.profilePhoto || null,
+            role: invitation.role,
+            networkSlug: invitation.inviteeUser?.networkProfile?.slug || null,
+          })),
+        userInvitation: userInvitation
+          ? {
+              ...userInvitation,
+              status: deriveInvitationStatus(userInvitation.status, event.startDate, event.endDate),
+              attendanceToken: userInvitation.registration?.attendanceToken || null,
+            }
+          : null,
+      },
     });
   } catch (error) {
     res.status(500).json({ success: false, error: { message: 'Failed to fetch event' } });
@@ -505,8 +660,12 @@ eventsRouter.put('/:id', authMiddleware, requireRole('CORE_MEMBER'), async (req:
       });
 
       if (currentTeamReg && data.teamRegistration !== currentTeamReg.teamRegistration) {
+        // Team-mode guard: only participant registrations should block participant-lane changes.
         const regCount = await prisma.eventRegistration.count({
-          where: { eventId: req.params.id },
+          where: {
+            eventId: req.params.id,
+            registrationType: RegistrationType.PARTICIPANT,
+          },
         });
         if (regCount > 0) {
           return res.status(409).json({
@@ -772,7 +931,15 @@ eventsRouter.get('/:id/registrations', authMiddleware, requireRole('CORE_MEMBER'
         userId: true,
         eventId: true,
         timestamp: true,
+        registrationType: true,
         customFieldResponses: true,
+        invitation: {
+          select: {
+            id: true,
+            role: true,
+            status: true,
+          },
+        },
         user: {
           select: {
             id: true,
@@ -829,7 +996,14 @@ eventsRouter.get('/:id/registrations/export', authMiddleware, requireRole('CORE_
             userId: true,
             eventId: true,
             timestamp: true,
+            registrationType: true,
             customFieldResponses: true,
+            invitation: {
+              select: {
+                role: true,
+                status: true,
+              },
+            },
             user: {
               select: {
                 id: true,
@@ -900,6 +1074,8 @@ eventsRouter.get('/:id/registrations/export', authMiddleware, requireRole('CORE_
     if (format === 'csv') {
       const header = [
         'S.No',
+        'Registration Type',
+        'Guest Role',
         'Name',
         'Email',
         'Phone',
@@ -918,6 +1094,8 @@ eventsRouter.get('/:id/registrations/export', authMiddleware, requireRole('CORE_
         const tmInfo = teamMemberMap.get(registration.userId);
         return [
           index + 1,
+          registration.registrationType,
+          registration.invitation?.role || '',
           registration.user.name,
           registration.user.email,
           registration.user.phone || '',
@@ -947,89 +1125,105 @@ eventsRouter.get('/:id/registrations/export', authMiddleware, requireRole('CORE_
     workbook.creator = 'code.scriet';
     workbook.created = new Date();
 
-    const worksheet = workbook.addWorksheet('Registrations');
+    const participantRegistrations = event.registrations.filter(
+      (registration) => registration.registrationType === RegistrationType.PARTICIPANT,
+    );
+    const guestRegistrations = event.registrations.filter(
+      (registration) => registration.registrationType === RegistrationType.GUEST,
+    );
 
-    // Define columns with dynamic custom field columns
-    worksheet.columns = [
-      { header: 'S.No', key: 'sno', width: 8 },
-      { header: 'Name', key: 'name', width: 25 },
-      { header: 'Email', key: 'email', width: 35 },
-      { header: 'Phone', key: 'phone', width: 15 },
-      { header: 'Course', key: 'course', width: 12 },
-      { header: 'Branch', key: 'branch', width: 15 },
-      { header: 'Year', key: 'year', width: 12 },
-      { header: 'Role', key: 'role', width: 15 },
-      ...(event.teamRegistration ? [
-        { header: 'Team Name', key: 'teamName', width: 25 },
-        { header: 'Team Role', key: 'teamRole', width: 12 },
-      ] : []),
-      { header: 'Registered At', key: 'registeredAt', width: 22 },
-      { header: 'Account Created', key: 'accountCreated', width: 22 },
-      { header: 'GitHub', key: 'github', width: 25 },
-      { header: 'LinkedIn', key: 'linkedin', width: 25 },
-      ...registrationFields.map((field) => ({
-        header: field.label,
-        key: `custom_${field.id}`,
-        width: Math.max(18, Math.min(45, field.label.length + 10)),
-      })),
-    ];
+    const buildWorksheet = (
+      sheetName: string,
+      rows: typeof event.registrations,
+    ) => {
+      const worksheet = workbook.addWorksheet(sheetName);
 
-    // Style header row
-    worksheet.getRow(1).font = { bold: true, color: { argb: 'FFFFFFFF' } };
-    worksheet.getRow(1).fill = {
-      type: 'pattern',
-      pattern: 'solid',
-      fgColor: { argb: 'FFD97706' }, // Amber color
-    };
-    worksheet.getRow(1).alignment = { horizontal: 'center', vertical: 'middle' };
-    worksheet.getRow(1).height = 25;
+      // Export split: keep participant and guest lanes separate so VIP rows never blend into participant sheets.
+      worksheet.columns = [
+        { header: 'S.No', key: 'sno', width: 8 },
+        { header: 'Registration Type', key: 'registrationType', width: 18 },
+        { header: 'Guest Role', key: 'guestRole', width: 20 },
+        { header: 'Name', key: 'name', width: 25 },
+        { header: 'Email', key: 'email', width: 35 },
+        { header: 'Phone', key: 'phone', width: 15 },
+        { header: 'Course', key: 'course', width: 12 },
+        { header: 'Branch', key: 'branch', width: 15 },
+        { header: 'Year', key: 'year', width: 12 },
+        { header: 'Role', key: 'role', width: 15 },
+        ...(event.teamRegistration ? [
+          { header: 'Team Name', key: 'teamName', width: 25 },
+          { header: 'Team Role', key: 'teamRole', width: 12 },
+        ] : []),
+        { header: 'Registered At', key: 'registeredAt', width: 22 },
+        { header: 'Account Created', key: 'accountCreated', width: 22 },
+        { header: 'GitHub', key: 'github', width: 25 },
+        { header: 'LinkedIn', key: 'linkedin', width: 25 },
+        ...registrationFields.map((field) => ({
+          header: field.label,
+          key: `custom_${field.id}`,
+          width: Math.max(18, Math.min(45, field.label.length + 10)),
+        })),
+      ];
 
-    // Add data rows
-    event.registrations.forEach((reg, index) => {
-      const responseMap = getResponseMap(reg.customFieldResponses);
-      const tmInfo = teamMemberMap.get(reg.userId);
-      const rowData: Record<string, unknown> = {
-        sno: index + 1,
-        name: reg.user.name,
-        email: reg.user.email,
-        phone: reg.user.phone || 'N/A',
-        course: reg.user.course || 'N/A',
-        branch: reg.user.branch || 'N/A',
-        year: reg.user.year || 'N/A',
-        role: reg.user.role,
-        ...(event.teamRegistration ? {
-          teamName: tmInfo?.teamName || 'No Team',
-          teamRole: tmInfo?.role || '-',
-        } : {}),
-        registeredAt: reg.timestamp.toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }),
-        accountCreated: reg.user.createdAt.toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }),
-        github: reg.user.githubUrl || '',
-        linkedin: reg.user.linkedinUrl || '',
+      worksheet.getRow(1).font = { bold: true, color: { argb: 'FFFFFFFF' } };
+      worksheet.getRow(1).fill = {
+        type: 'pattern',
+        pattern: 'solid',
+        fgColor: { argb: 'FFD97706' },
       };
+      worksheet.getRow(1).alignment = { horizontal: 'center', vertical: 'middle' };
+      worksheet.getRow(1).height = 25;
 
-      registrationFields.forEach((field) => {
-        rowData[`custom_${field.id}`] = responseMap.get(field.id) || '';
+      rows.forEach((reg, index) => {
+        const responseMap = getResponseMap(reg.customFieldResponses);
+        const tmInfo = teamMemberMap.get(reg.userId);
+        const rowData: Record<string, unknown> = {
+          sno: index + 1,
+          registrationType: reg.registrationType,
+          guestRole: reg.invitation?.role || '',
+          name: reg.user.name,
+          email: reg.user.email,
+          phone: reg.user.phone || 'N/A',
+          course: reg.user.course || 'N/A',
+          branch: reg.user.branch || 'N/A',
+          year: reg.user.year || 'N/A',
+          role: reg.user.role,
+          ...(event.teamRegistration ? {
+            teamName: tmInfo?.teamName || 'No Team',
+            teamRole: tmInfo?.role || '-',
+          } : {}),
+          registeredAt: reg.timestamp.toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }),
+          accountCreated: reg.user.createdAt.toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }),
+          github: reg.user.githubUrl || '',
+          linkedin: reg.user.linkedinUrl || '',
+        };
+
+        registrationFields.forEach((field) => {
+          rowData[`custom_${field.id}`] = responseMap.get(field.id) || '';
+        });
+
+        worksheet.addRow(rowData);
       });
 
-      worksheet.addRow(rowData);
-    });
-
-    // Add alternating row colors
-    worksheet.eachRow((row, rowNumber) => {
-      if (rowNumber > 1) {
-        row.fill = {
-          type: 'pattern',
-          pattern: 'solid',
-          fgColor: { argb: rowNumber % 2 === 0 ? 'FFFEF3C7' : 'FFFFFFFF' },
+      worksheet.eachRow((row, rowNumber) => {
+        if (rowNumber > 1) {
+          row.fill = {
+            type: 'pattern',
+            pattern: 'solid',
+            fgColor: { argb: rowNumber % 2 === 0 ? 'FFFEF3C7' : 'FFFFFFFF' },
+          };
+        }
+        row.border = {
+          top: { style: 'thin', color: { argb: 'FFE5E7EB' } },
+          bottom: { style: 'thin', color: { argb: 'FFE5E7EB' } },
+          left: { style: 'thin', color: { argb: 'FFE5E7EB' } },
+          right: { style: 'thin', color: { argb: 'FFE5E7EB' } },
         };
-      }
-      row.border = {
-        top: { style: 'thin', color: { argb: 'FFE5E7EB' } },
-        bottom: { style: 'thin', color: { argb: 'FFE5E7EB' } },
-        left: { style: 'thin', color: { argb: 'FFE5E7EB' } },
-        right: { style: 'thin', color: { argb: 'FFE5E7EB' } },
-      };
-    });
+      });
+    };
+
+    buildWorksheet('Participants', participantRegistrations);
+    buildWorksheet('Guests', guestRegistrations);
 
     // Add summary info at the top
     const summarySheet = workbook.addWorksheet('Event Info');
@@ -1038,6 +1232,8 @@ eventsRouter.get('/:id/registrations/export', authMiddleware, requireRole('CORE_
     summarySheet.addRow(['End Date', event.endDate?.toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }) || 'N/A']);
     summarySheet.addRow(['Location', event.location || 'N/A']);
     summarySheet.addRow(['Venue', event.venue || 'N/A']);
+    summarySheet.addRow(['Participant Registrations', participantRegistrations.length]);
+    summarySheet.addRow(['Guest Registrations', guestRegistrations.length]);
     summarySheet.addRow(['Total Registrations', event.registrations.length]);
     summarySheet.addRow(['Capacity', event.capacity || 'Unlimited']);
     summarySheet.addRow(['Export Date', new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })]);

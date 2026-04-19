@@ -7,6 +7,7 @@
 import { memo } from 'react';
 import { motion } from 'framer-motion';
 import { cn } from '@/lib/utils';
+import { formatRatingDisplay } from '@/lib/ratingDisplay';
 import { Check } from 'lucide-react';
 
 interface QuizAnswerDistributionProps {
@@ -39,6 +40,7 @@ export const QuizAnswerDistribution = memo(function QuizAnswerDistribution({
   const total = entries.reduce((sum, e) => sum + e.count, 0) || 1;
   const maxCount = Math.max(...entries.map((e) => e.count), 1);
   const isPoll = questionType === 'POLL' || questionType === 'RATING' || questionType === 'OPEN_ENDED';
+  const isRating = questionType === 'RATING';
   const letters = ['A', 'B', 'C', 'D', 'E', 'F'];
 
   return (
@@ -58,7 +60,11 @@ export const QuizAnswerDistribution = memo(function QuizAnswerDistribution({
                 'font-medium',
                 isCorrect ? 'text-green-700' : 'text-amber-800',
               )}>
-                {options ? `${letters[i] || ''}) ${entry.label}` : entry.label}
+                {isRating
+                  ? formatRatingDisplay(entry.label)
+                  : options
+                    ? `${letters[i] || ''}) ${entry.label}`
+                    : entry.label}
                 {isCorrect && <Check className="ml-1 inline h-3 w-3" aria-hidden="true" />}
               </span>
               <span className="text-amber-700/50 tabular-nums font-medium">{entry.count} ({pct}%)</span>

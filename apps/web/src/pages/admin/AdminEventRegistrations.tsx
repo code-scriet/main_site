@@ -4,6 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -16,12 +17,13 @@ import {
 } from '@/components/ui/alert-dialog';
 import { Loader2, Calendar, Users, Search, Download, Mail, Trash2, Pencil, Phone, GraduationCap, RefreshCw, CheckCircle, AlertCircle, Lock, Unlock, Crown, LayoutList, LayoutGrid } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
-import { api } from '@/lib/api';
+import { api, type EventAdminRegistration } from '@/lib/api';
 import type { EventTeam } from '@/lib/api';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { formatDate } from '@/lib/dateUtils';
 import { toast } from 'sonner';
 import { extractApiErrorMessage } from '@/lib/error';
+import AdminEventInvitations from '@/components/events/AdminEventInvitations';
 
 interface EventWithRegistrations {
   id: string;
@@ -34,29 +36,20 @@ interface EventWithRegistrations {
   teamRegistration?: boolean;
   teamMinSize?: number;
   teamMaxSize?: number;
-  registrations: {
-    id: string;
-    timestamp: string;
-    user: {
-      id: string;
-      name: string;
-      email: string;
-      role: string;
-      phone?: string;
-      course?: string;
-      branch?: string;
-      year?: string;
-    };
-  }[];
+  registrations: EventAdminRegistration[];
 }
 
 export default function AdminEventRegistrations() {
   const { token } = useAuth();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [events, setEvents] = useState<EventWithRegistrations[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
-  const [selectedEvent, setSelectedEvent] = useState<string | null>(null);
+  const [selectedEvent, setSelectedEvent] = useState<string | null>(searchParams.get('eventId'));
+  const [activeDetailTab, setActiveDetailTab] = useState<'registrations' | 'invitations'>(
+    searchParams.get('tab') === 'invitations' ? 'invitations' : 'registrations',
+  );
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [deletingRegId, setDeletingRegId] = useState<string | null>(null);
   const [eventSyncSubmitting, setEventSyncSubmitting] = useState(false);
@@ -82,7 +75,6 @@ export default function AdminEventRegistrations() {
     try {
       setLoading(true);
       setError(null);
-      const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:5001/api';
       const data = await api.getEvents();
       // Get detailed registration data for each event
       // N+1: Fetches registrations per event. Acceptable — admin-only page,
@@ -91,12 +83,7 @@ export default function AdminEventRegistrations() {
       const eventsWithDetails = await Promise.all(
         data.map(async (event) => {
           try {
-            const response = await fetch(`${apiUrl}/events/${event.id}/registrations`, {
-              headers: { Authorization: `Bearer ${token}` }
-            });
-            const result = await response.json();
-            // API returns { success: true, data: [...] }
-            const registrations = result.data || result || [];
+            const registrations = await api.getEventRegistrations(event.id, token);
             return { ...event, registrations };
           } catch {
             return { ...event, registrations: [] };
@@ -115,6 +102,29 @@ export default function AdminEventRegistrations() {
     void loadEvents();
   }, [loadEvents]);
 
+  useEffect(() => {
+    const nextParams = new URLSearchParams(searchParams);
+
+    if (selectedEvent) {
+      nextParams.set('eventId', selectedEvent);
+      nextParams.set('tab', activeDetailTab);
+    } else {
+      nextParams.delete('eventId');
+      nextParams.delete('tab');
+    }
+
+    const current = searchParams.toString();
+    const next = nextParams.toString();
+    if (current !== next) {
+      setSearchParams(nextParams, { replace: true });
+    }
+  }, [activeDetailTab, searchParams, selectedEvent, setSearchParams]);
+
+  const openEventDetails = (eventId: string, tab: 'registrations' | 'invitations' = 'registrations') => {
+    setSelectedEvent((current) => current === eventId && activeDetailTab === tab ? null : eventId);
+    setActiveDetailTab(tab);
+  };
+
   const filteredEvents = events.filter(event =>
     event.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
     event.registrations.some(r => 
@@ -130,16 +140,7 @@ export default function AdminEventRegistrations() {
     }
     
     try {
-      const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:5001/api';
-      const response = await fetch(`${apiUrl}/events/${event.id}/registrations/export`, {
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      
-      if (!response.ok) {
-        throw new Error('Failed to export registrations');
-      }
-      
-      const blob = await response.blob();
+      const blob = await api.exportEventRegistrations(event.id, token);
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
@@ -180,16 +181,7 @@ export default function AdminEventRegistrations() {
     try {
       setDeletingRegId(registrationId);
       setError(null);
-      const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:5001/api';
-      const response = await fetch(`${apiUrl}/events/${eventId}/registrations/${registrationId}`, {
-        method: 'DELETE',
-        headers: { Authorization: `Bearer ${token}` }
-      });
-      
-      if (!response.ok) {
-        throw new Error('Failed to delete registration');
-      }
-      
+      await api.deleteEventRegistration(eventId, registrationId, token);
       setConfirmDialog(null);
       toast.success(`Removed ${userName} from the event`);
       await loadEvents();
@@ -367,47 +359,63 @@ export default function AdminEventRegistrations() {
             </CardContent>
           </Card>
         ) : (
-          filteredEvents.map((event) => (
-            <motion.div
-              key={event.id}
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-            >
-              <Card className="border-gray-200">
-                <CardHeader>
-                  <div className="flex items-start justify-between">
-                    <div className="space-y-1">
-                      <CardTitle className="flex items-center gap-3">
-                        <Calendar className="h-5 w-5 text-gray-400" />
-                        {event.title}
-                        {event.teamRegistration && (
-                          <Badge variant="outline" className="ml-2 text-purple-600 border-purple-300">
-                            <Users className="h-3 w-3 mr-1" />
-                            Team Event ({event.teamMinSize}-{event.teamMaxSize})
+          filteredEvents.map((event) => {
+            const participantRegistrations = event.registrations.filter((registration) => registration.registrationType === 'PARTICIPANT');
+            const guestRegistrations = event.registrations.filter((registration) => registration.registrationType === 'GUEST');
+
+            return (
+              <motion.div
+                key={event.id}
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+              >
+                <Card className="border-gray-200">
+                  <CardHeader>
+                    <div className="flex items-start justify-between">
+                      <div className="space-y-1">
+                        <CardTitle className="flex items-center gap-3">
+                          <Calendar className="h-5 w-5 text-gray-400" />
+                          {event.title}
+                          {event.teamRegistration && (
+                            <Badge variant="outline" className="ml-2 text-purple-600 border-purple-300">
+                              <Users className="h-3 w-3 mr-1" />
+                              Team Event ({event.teamMinSize}-{event.teamMaxSize})
+                            </Badge>
+                          )}
+                        </CardTitle>
+                        <div className="flex items-center gap-4 text-sm text-gray-500">
+                          <span>{formatDate(event.startDate)}</span>
+                          {event.location && <span>• {event.location}</span>}
+                          <Badge variant={event.status === 'UPCOMING' ? 'default' : 'secondary'}>
+                            {event.status}
+                          </Badge>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Badge variant="secondary" className="text-gray-700">
+                          <Users className="h-3 w-3 mr-1" />
+                          {participantRegistrations.length} participants
+                          {event.capacity && ` / ${event.capacity}`}
+                        </Badge>
+                        {guestRegistrations.length > 0 && (
+                          <Badge variant="outline" className="text-amber-700 border-amber-300">
+                            {guestRegistrations.length} guests
                           </Badge>
                         )}
-                      </CardTitle>
-                      <div className="flex items-center gap-4 text-sm text-gray-500">
-                        <span>{formatDate(event.startDate)}</span>
-                        {event.location && <span>• {event.location}</span>}
-                        <Badge variant={event.status === 'UPCOMING' ? 'default' : 'secondary'}>
-                          {event.status}
-                        </Badge>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <Badge variant="secondary" className="text-gray-700">
-                        <Users className="h-3 w-3 mr-1" />
-                        {event.registrations.length}
-                        {event.capacity && ` / ${event.capacity}`}
-                      </Badge>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => setSelectedEvent(selectedEvent === event.id ? null : event.id)}
-                      >
-                        {selectedEvent === event.id ? 'Hide' : 'View'} Details
-                      </Button>
+                        <Button
+                          size="sm"
+                          variant={selectedEvent === event.id && activeDetailTab === 'registrations' ? 'default' : 'outline'}
+                          onClick={() => openEventDetails(event.id, 'registrations')}
+                        >
+                          Registrations
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant={selectedEvent === event.id && activeDetailTab === 'invitations' ? 'default' : 'outline'}
+                          onClick={() => openEventDetails(event.id, 'invitations')}
+                        >
+                          Invitations
+                        </Button>
                       {event.teamRegistration && (
                         <>
                           <Button
@@ -463,187 +471,268 @@ export default function AdminEventRegistrations() {
                         )}
                       </Button>
                     </div>
-                  </div>
-                </CardHeader>
+                    </div>
+                  </CardHeader>
 
                 {selectedEvent === event.id && (
                   <CardContent>
-                    {event.registrations.length === 0 ? (
-                      <p className="text-gray-500 text-center py-8">No registrations yet</p>
-                    ) : teamGroupView === event.id && teamData.has(event.id) ? (
-                      /* Team Grouped View */
-                      <div className="space-y-4">
-                        {teamData.get(event.id)!.map((team) => {
-                          const memberUserIds = new Set(team.members.map(m => m.userId));
-                          const teamRegs = event.registrations.filter(r => memberUserIds.has(r.user.id));
-                          return (
-                            <Card key={team.id} className="border-purple-100">
-                              <CardHeader className="py-3 px-4">
-                                <div className="flex items-center justify-between">
-                                  <div className="flex items-center gap-2">
-                                    <span className="font-semibold text-sm">{team.teamName}</span>
-                                    <Badge variant="outline" className="text-xs">
-                                      {team.members.length}/{event.teamMaxSize || 4}
-                                    </Badge>
-                                    {team.isLocked && (
-                                      <Badge variant="secondary" className="text-xs gap-1">
-                                        <Lock className="h-2.5 w-2.5" /> Locked
-                                      </Badge>
-                                    )}
-                                    {team.members.length >= (event.teamMinSize || 1) ? (
-                                      <Badge className="bg-green-100 text-green-700 text-xs">Complete</Badge>
-                                    ) : (
-                                      <Badge variant="outline" className="text-amber-600 border-amber-300 text-xs">Incomplete</Badge>
-                                    )}
-                                  </div>
-                                  <div className="flex items-center gap-1">
-                                    <Button size="sm" variant="ghost" className="h-7 px-2" onClick={() => handleAdminToggleLock(team.id, event.id)}>
-                                      {team.isLocked ? <Unlock className="h-3.5 w-3.5" /> : <Lock className="h-3.5 w-3.5" />}
-                                    </Button>
-                                    <Button size="sm" variant="ghost" className="h-7 px-2 text-red-600 hover:text-red-700 hover:bg-red-50" onClick={() => setConfirmDialog({ type: 'team', teamId: team.id, teamName: team.teamName, eventId: event.id })}>
-                                      <Trash2 className="h-3.5 w-3.5" />
-                                    </Button>
-                                  </div>
-                                </div>
-                              </CardHeader>
-                              <CardContent className="pt-0 px-4 pb-3">
-                                <div className="divide-y divide-gray-100">
-                                  {teamRegs.map((registration) => {
-                                    const isLeader = registration.user.id === team.leaderId;
-                                    return (
-                                      <div key={registration.id} className="py-2 flex items-center justify-between">
-                                        <div className="flex items-center gap-2">
-                                          <div className="h-8 w-8 rounded-full bg-amber-100 flex items-center justify-center text-amber-700 text-xs font-semibold flex-shrink-0">
-                                            {registration.user.name.charAt(0).toUpperCase()}
-                                          </div>
-                                          <div>
-                                            <div className="flex items-center gap-1.5">
-                                              <span className="text-sm font-medium">{registration.user.name}</span>
-                                              {isLeader && <Crown className="h-3.5 w-3.5 text-amber-500" />}
-                                            </div>
-                                            <span className="text-xs text-gray-500">{registration.user.email}</span>
-                                          </div>
-                                        </div>
-                                        <Button size="sm" variant="ghost" onClick={() => setConfirmDialog({ type: 'registration', eventId: event.id, registrationId: registration.id, userName: registration.user.name })} disabled={deletingRegId === registration.id} className="text-red-600 hover:text-red-700 hover:bg-red-50 h-7">
-                                          {deletingRegId === registration.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+                    <Tabs value={activeDetailTab} onValueChange={(value) => setActiveDetailTab(value as 'registrations' | 'invitations')}>
+                      <TabsList className="mb-4 grid w-full max-w-md grid-cols-2">
+                        <TabsTrigger value="registrations">
+                          Registrations
+                        </TabsTrigger>
+                        <TabsTrigger value="invitations">
+                          Invitations
+                        </TabsTrigger>
+                      </TabsList>
+
+                      <TabsContent value="registrations" className="space-y-4">
+                        {event.registrations.length === 0 ? (
+                          <p className="py-8 text-center text-gray-500">No registrations yet</p>
+                        ) : teamGroupView === event.id && teamData.has(event.id) ? (
+                          <div className="space-y-4">
+                            {teamData.get(event.id)!.map((team) => {
+                              const memberUserIds = new Set(team.members.map((member) => member.userId));
+                              const teamRegs = participantRegistrations.filter((registration) => memberUserIds.has(registration.user.id));
+                              return (
+                                <Card key={team.id} className="border-purple-100">
+                                  <CardHeader className="py-3 px-4">
+                                    <div className="flex items-center justify-between">
+                                      <div className="flex items-center gap-2">
+                                        <span className="font-semibold text-sm">{team.teamName}</span>
+                                        <Badge variant="outline" className="text-xs">
+                                          {team.members.length}/{event.teamMaxSize || 4}
+                                        </Badge>
+                                        {team.isLocked && (
+                                          <Badge variant="secondary" className="text-xs gap-1">
+                                            <Lock className="h-2.5 w-2.5" /> Locked
+                                          </Badge>
+                                        )}
+                                        {team.members.length >= (event.teamMinSize || 1) ? (
+                                          <Badge className="bg-green-100 text-green-700 text-xs">Complete</Badge>
+                                        ) : (
+                                          <Badge variant="outline" className="text-amber-600 border-amber-300 text-xs">Incomplete</Badge>
+                                        )}
+                                      </div>
+                                      <div className="flex items-center gap-1">
+                                        <Button size="sm" variant="ghost" className="h-7 px-2" onClick={() => handleAdminToggleLock(team.id, event.id)}>
+                                          {team.isLocked ? <Unlock className="h-3.5 w-3.5" /> : <Lock className="h-3.5 w-3.5" />}
+                                        </Button>
+                                        <Button size="sm" variant="ghost" className="h-7 px-2 text-red-600 hover:text-red-700 hover:bg-red-50" onClick={() => setConfirmDialog({ type: 'team', teamId: team.id, teamName: team.teamName, eventId: event.id })}>
+                                          <Trash2 className="h-3.5 w-3.5" />
                                         </Button>
                                       </div>
-                                    );
-                                  })}
+                                    </div>
+                                  </CardHeader>
+                                  <CardContent className="pt-0 px-4 pb-3">
+                                    <div className="divide-y divide-gray-100">
+                                      {teamRegs.map((registration) => {
+                                        const isLeader = registration.user.id === team.leaderId;
+                                        return (
+                                          <div key={registration.id} className="py-2 flex items-center justify-between">
+                                            <div className="flex items-center gap-2">
+                                              <div className="h-8 w-8 rounded-full bg-amber-100 flex items-center justify-center text-amber-700 text-xs font-semibold flex-shrink-0">
+                                                {registration.user.name.charAt(0).toUpperCase()}
+                                              </div>
+                                              <div>
+                                                <div className="flex items-center gap-1.5">
+                                                  <span className="text-sm font-medium">{registration.user.name}</span>
+                                                  {isLeader && <Crown className="h-3.5 w-3.5 text-amber-500" />}
+                                                </div>
+                                                <span className="text-xs text-gray-500">{registration.user.email}</span>
+                                              </div>
+                                            </div>
+                                            <Button size="sm" variant="ghost" onClick={() => setConfirmDialog({ type: 'registration', eventId: event.id, registrationId: registration.id, userName: registration.user.name })} disabled={deletingRegId === registration.id} className="text-red-600 hover:text-red-700 hover:bg-red-50 h-7">
+                                              {deletingRegId === registration.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+                                            </Button>
+                                          </div>
+                                        );
+                                      })}
+                                    </div>
+                                  </CardContent>
+                                </Card>
+                              );
+                            })}
+
+                            {(() => {
+                              const allTeamUserIds = new Set(
+                                teamData.get(event.id)!.flatMap((team) => team.members.map((member) => member.userId)),
+                              );
+                              const unaffiliated = participantRegistrations.filter((registration) => !allTeamUserIds.has(registration.user.id));
+                              if (unaffiliated.length === 0) return null;
+                              return (
+                                <Card className="border-gray-200">
+                                  <CardHeader className="py-3 px-4">
+                                    <span className="font-semibold text-sm text-gray-500">Unaffiliated Participants ({unaffiliated.length})</span>
+                                  </CardHeader>
+                                  <CardContent className="pt-0 px-4 pb-3">
+                                    <div className="divide-y divide-gray-100">
+                                      {unaffiliated.map((registration) => (
+                                        <div key={registration.id} className="py-2 flex items-center justify-between">
+                                          <div className="flex items-center gap-2">
+                                            <div className="h-8 w-8 rounded-full bg-gray-300 flex items-center justify-center text-white text-xs font-semibold flex-shrink-0">
+                                              {registration.user.name.charAt(0).toUpperCase()}
+                                            </div>
+                                            <div>
+                                              <span className="text-sm font-medium">{registration.user.name}</span>
+                                              <span className="text-xs text-gray-500 ml-2">{registration.user.email}</span>
+                                            </div>
+                                          </div>
+                                          <Button size="sm" variant="ghost" onClick={() => setConfirmDialog({ type: 'registration', eventId: event.id, registrationId: registration.id, userName: registration.user.name })} disabled={deletingRegId === registration.id} className="text-red-600 hover:text-red-700 hover:bg-red-50 h-7">
+                                            {deletingRegId === registration.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+                                          </Button>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  </CardContent>
+                                </Card>
+                              );
+                            })()}
+
+                            {guestRegistrations.length > 0 && (
+                              <Card className="border-amber-200">
+                                <CardHeader className="py-3 px-4">
+                                  <span className="font-semibold text-sm text-amber-800">Guests ({guestRegistrations.length})</span>
+                                </CardHeader>
+                                <CardContent className="space-y-3 pt-0 px-4 pb-4">
+                                  {guestRegistrations.map((registration) => (
+                                    <div key={registration.id} className="flex items-center justify-between rounded-lg border border-amber-100 bg-amber-50 px-3 py-3">
+                                      <div>
+                                        <div className="flex items-center gap-2">
+                                          <span className="font-medium text-gray-900">{registration.user.name}</span>
+                                          {registration.invitation?.role && <Badge variant="outline">{registration.invitation.role}</Badge>}
+                                        </div>
+                                        <p className="mt-1 text-sm text-gray-500">{registration.user.email}</p>
+                                      </div>
+                                      <Button size="sm" variant="outline" onClick={() => setActiveDetailTab('invitations')}>
+                                        Manage Invitation
+                                      </Button>
+                                    </div>
+                                  ))}
+                                </CardContent>
+                              </Card>
+                            )}
+                          </div>
+                        ) : (
+                          <div className="space-y-6">
+                            <div className="space-y-2">
+                              <h3 className="font-semibold text-sm text-gray-700">
+                                Participants ({participantRegistrations.length})
+                              </h3>
+                              {participantRegistrations.length === 0 ? (
+                                <div className="rounded-lg border border-dashed border-slate-200 px-4 py-6 text-sm text-gray-500">
+                                  No participant registrations yet.
                                 </div>
-                              </CardContent>
-                            </Card>
-                          );
-                        })}
-                        {/* Unaffiliated registrations */}
-                        {(() => {
-                          const allTeamUserIds = new Set(
-                            teamData.get(event.id)!.flatMap(t => t.members.map(m => m.userId))
-                          );
-                          const unaffiliated = event.registrations.filter(r => !allTeamUserIds.has(r.user.id));
-                          if (unaffiliated.length === 0) return null;
-                          return (
-                            <Card className="border-gray-200">
-                              <CardHeader className="py-3 px-4">
-                                <span className="font-semibold text-sm text-gray-500">Unaffiliated ({unaffiliated.length})</span>
-                              </CardHeader>
-                              <CardContent className="pt-0 px-4 pb-3">
+                              ) : (
                                 <div className="divide-y divide-gray-100">
-                                  {unaffiliated.map((registration) => (
-                                    <div key={registration.id} className="py-2 flex items-center justify-between">
-                                      <div className="flex items-center gap-2">
-                                        <div className="h-8 w-8 rounded-full bg-gray-300 flex items-center justify-center text-white text-xs font-semibold flex-shrink-0">
+                                  {participantRegistrations.map((registration) => (
+                                    <div
+                                      key={registration.id}
+                                      className="py-3 flex items-start justify-between hover:bg-gray-50 px-3 -mx-3 rounded-lg transition-colors"
+                                    >
+                                      <div className="flex items-start gap-3">
+                                        <div className="h-10 w-10 rounded-full bg-amber-100 flex items-center justify-center text-amber-700 font-semibold flex-shrink-0">
                                           {registration.user.name.charAt(0).toUpperCase()}
                                         </div>
                                         <div>
-                                          <span className="text-sm font-medium">{registration.user.name}</span>
-                                          <span className="text-xs text-gray-500 ml-2">{registration.user.email}</span>
+                                          <div className="flex items-center gap-2 flex-wrap">
+                                            <span className="font-medium text-gray-900">
+                                              {registration.user.name}
+                                            </span>
+                                            <Badge variant="outline" className="text-xs">
+                                              {registration.user.role}
+                                            </Badge>
+                                          </div>
+                                          <div className="flex items-center gap-4 text-sm text-gray-500 mt-1">
+                                            <span className="flex items-center gap-1">
+                                              <Mail className="h-3 w-3" />
+                                              {registration.user.email}
+                                            </span>
+                                          </div>
+                                          <div className="flex items-center gap-4 text-sm text-gray-500 mt-1 flex-wrap">
+                                            {registration.user.phone && (
+                                              <span className="flex items-center gap-1">
+                                                <Phone className="h-3 w-3" />
+                                                {registration.user.phone}
+                                              </span>
+                                            )}
+                                            {registration.user.course && registration.user.branch && registration.user.year && (
+                                              <span className="flex items-center gap-1">
+                                                <GraduationCap className="h-3 w-3" />
+                                                {registration.user.course} - {registration.user.branch} - {registration.user.year}
+                                              </span>
+                                            )}
+                                            <span className="text-xs text-gray-400">
+                                              Registered: {formatDate(registration.timestamp)}
+                                            </span>
+                                          </div>
                                         </div>
                                       </div>
-                                      <Button size="sm" variant="ghost" onClick={() => setConfirmDialog({ type: 'registration', eventId: event.id, registrationId: registration.id, userName: registration.user.name })} disabled={deletingRegId === registration.id} className="text-red-600 hover:text-red-700 hover:bg-red-50 h-7">
-                                        {deletingRegId === registration.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+                                      <Button
+                                        size="sm"
+                                        variant="ghost"
+                                        onClick={() => setConfirmDialog({ type: 'registration', eventId: event.id, registrationId: registration.id, userName: registration.user.name })}
+                                        disabled={deletingRegId === registration.id}
+                                        className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                                      >
+                                        {deletingRegId === registration.id ? (
+                                          <Loader2 className="h-4 w-4 animate-spin" />
+                                        ) : (
+                                          <Trash2 className="h-4 w-4" />
+                                        )}
                                       </Button>
                                     </div>
                                   ))}
                                 </div>
-                              </CardContent>
-                            </Card>
-                          );
-                        })()}
-                      </div>
-                    ) : (
-                      /* Flat View */
-                      <div className="space-y-2">
-                        <h3 className="font-semibold text-sm text-gray-700 mb-3">
-                          Participants ({event.registrations.length})
-                        </h3>
-                        <div className="divide-y divide-gray-100">
-                          {event.registrations.map((registration) => (
-                            <div
-                              key={registration.id}
-                              className="py-3 flex items-start justify-between hover:bg-gray-50 px-3 -mx-3 rounded-lg transition-colors"
-                            >
-                              <div className="flex items-start gap-3">
-                                <div className="h-10 w-10 rounded-full bg-amber-100 flex items-center justify-center text-amber-700 font-semibold flex-shrink-0">
-                                  {registration.user.name.charAt(0).toUpperCase()}
-                                </div>
-                                <div>
-                                  <div className="flex items-center gap-2 flex-wrap">
-                                    <span className="font-medium text-gray-900">
-                                      {registration.user.name}
-                                    </span>
-                                    <Badge variant="outline" className="text-xs">
-                                      {registration.user.role}
-                                    </Badge>
-                                  </div>
-                                  <div className="flex items-center gap-4 text-sm text-gray-500 mt-1">
-                                    <span className="flex items-center gap-1">
-                                      <Mail className="h-3 w-3" />
-                                      {registration.user.email}
-                                    </span>
-                                  </div>
-                                  <div className="flex items-center gap-4 text-sm text-gray-500 mt-1 flex-wrap">
-                                    {registration.user.phone && (
-                                      <span className="flex items-center gap-1">
-                                        <Phone className="h-3 w-3" />
-                                        {registration.user.phone}
-                                      </span>
-                                    )}
-                                    {registration.user.course && registration.user.branch && registration.user.year && (
-                                      <span className="flex items-center gap-1">
-                                        <GraduationCap className="h-3 w-3" />
-                                        {registration.user.course} - {registration.user.branch} - {registration.user.year}
-                                      </span>
-                                    )}
-                                    <span className="text-xs text-gray-400">
-                                      Registered: {formatDate(registration.timestamp)}
-                                    </span>
-                                  </div>
-                                </div>
-                              </div>
-                              <Button
-                                size="sm"
-                                variant="ghost"
-                                onClick={() => setConfirmDialog({ type: 'registration', eventId: event.id, registrationId: registration.id, userName: registration.user.name })}
-                                disabled={deletingRegId === registration.id}
-                                className="text-red-600 hover:text-red-700 hover:bg-red-50"
-                              >
-                                {deletingRegId === registration.id ? (
-                                  <Loader2 className="h-4 w-4 animate-spin" />
-                                ) : (
-                                  <Trash2 className="h-4 w-4" />
-                                )}
-                              </Button>
+                              )}
                             </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
+
+                            <div className="space-y-2">
+                              <h3 className="font-semibold text-sm text-amber-800">
+                                Guests ({guestRegistrations.length})
+                              </h3>
+                              {guestRegistrations.length === 0 ? (
+                                <div className="rounded-lg border border-dashed border-amber-200 bg-amber-50 px-4 py-6 text-sm text-amber-700">
+                                  No accepted guest registrations yet.
+                                </div>
+                              ) : (
+                                <div className="space-y-3">
+                                  {guestRegistrations.map((registration) => (
+                                    <div
+                                      key={registration.id}
+                                      className="flex items-start justify-between rounded-xl border border-amber-200 bg-amber-50 px-4 py-4"
+                                    >
+                                      <div>
+                                        <div className="flex items-center gap-2 flex-wrap">
+                                          <span className="font-medium text-gray-900">{registration.user.name}</span>
+                                          {registration.invitation?.role && <Badge variant="outline">{registration.invitation.role}</Badge>}
+                                          <Badge variant="outline" className="border-amber-300 text-amber-800">Guest</Badge>
+                                        </div>
+                                        <p className="mt-1 text-sm text-gray-500">{registration.user.email}</p>
+                                        <p className="mt-1 text-xs text-gray-400">Accepted on {formatDate(registration.timestamp)}</p>
+                                      </div>
+                                      <Button size="sm" variant="outline" onClick={() => setActiveDetailTab('invitations')}>
+                                        Manage Invitation
+                                      </Button>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        )}
+                      </TabsContent>
+
+                      <TabsContent value="invitations">
+                        <AdminEventInvitations eventId={event.id} eventTitle={event.title} token={token!} />
+                      </TabsContent>
+                    </Tabs>
                   </CardContent>
                 )}
               </Card>
             </motion.div>
-          ))
+            );
+          })
         )}
       </div>
 

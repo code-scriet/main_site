@@ -958,6 +958,7 @@ export default function QuizResultsPage() {
                                       options={q.options}
                                       questionText={q.questionText}
                                       totalVotes={q.totalAnswers}
+                                      questionType={q.questionType}
                                     />
                                   </div>
                                 ) : (

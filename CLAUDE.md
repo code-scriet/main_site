@@ -30,6 +30,7 @@ These rules are non-negotiable. Never propose a solution that violates them with
 8. **`answer_count_update` throttle is fixed at 1000 ms:** The server throttles this broadcast to one emission per second. Do not lower the interval.
 9. **`my_rank_update` is a unicast:** This event is sent only to the individual player's socket. It must never become a broadcast.
 10. **Phase transitions are server-authoritative:** Quiz phase changes (`start`, `next_question`, `end`, `pause`, `resume`) are always triggered server-side via timers or explicit host action. Client-clock / schedule-based transitions are forbidden — they break pause/resume and extend-time controls.
+11. **Capacity counts must filter participants:** Any query that aggregates registrations for capacity enforcement, waitlist logic, or public "X registered" counts MUST filter `EventRegistration.registrationType = PARTICIPANT`. `GUEST` registrations do not consume participant capacity and must never be mixed into participant-only counts.
 
 ---
 
@@ -265,6 +266,7 @@ npm run lint:web
 | `/api/announcements/*` | announcementsRouter | Some |
 | `/api/team/*` | teamRouter | Some |
 | `/api/teams/*` | teamsRouter | User (create/join), Admin (list/admin actions) |
+| `/api/invitations/*` | invitationsRouter | Mixed |
 | `/api/achievements/*` | achievementsRouter | Some |
 | `/api/qotd/*` | qotdRouter | Some |
 | `/api/users/*` | usersRouter | Yes |
@@ -483,6 +485,71 @@ api.adminDissolveTeam(teamId, token)
 
 ---
 
+## Invitation System
+
+> **Status: IMPLEMENTED.** Guests, speakers, judges, alumni, and other invitees use a dedicated invitation flow that lands in the same registration, attendance, and certificate pipeline as participants.
+
+### Architecture
+
+- **Separate door, same pipeline:** Admins invite verified `NetworkProfile` users or raw email addresses. Accepting an invitation creates an `EventRegistration` with `registrationType = GUEST`, then the existing `attendanceToken`, `QRTicket`, quiz auth, attendance scan, and certificate flows take over.
+- **Capacity-safe by design:** Participant capacity checks and public registration counts filter `registrationType = PARTICIPANT` so guest invitations never consume participant seats.
+- **Expiry is derived:** Stored status is `PENDING | ACCEPTED | DECLINED | REVOKED`; `EXPIRED` is computed at read time when a pending invitation belongs to an event that has already ended.
+- **Email-only claim flow:** Non-user invitees receive a signed invitation-claim JWT that deep-links to `/join-our-network?invitation=<token>`. After signup/onboarding, the invitation is claimed and attached to the authenticated user account.
+- **Revoke is transactional:** Revoking an accepted invitation deletes the linked guest registration inside the same transaction so the invitee immediately loses QR/attendance access.
+
+### DB Models (`prisma/schema.prisma`)
+
+- **`EventInvitation`** stores the invited event, inviter, invitee user or email, snapshot fields, role, certificate settings, email delivery metadata, and an optional link to the guest registration created on accept.
+- **`EventRegistration.registrationType`** defaults to `PARTICIPANT`; accepted invitations create `GUEST` registrations instead of participant registrations.
+- **`Settings.emailInvitationEnabled`** gates invitation and revocation emails through the existing `EmailService.send()` category guard.
+
+### API Endpoints (`apps/api/src/routes/invitations.ts`)
+
+| Route | Method | Auth | Description |
+|-------|--------|------|-------------|
+| `/api/invitations/search-invitees` | GET | Admin | Search verified NetworkProfile users who are not already invited for the event |
+| `/api/invitations` | POST | Admin | Bulk-create invitations for users or raw email addresses |
+| `/api/invitations/event/:eventId` | GET | Admin | List all invitations for one event |
+| `/api/invitations/my` | GET | User | List the authenticated user's invitations with derived `EXPIRED` state |
+| `/api/invitations/claim` | POST | User | Claim an email-only invitation after signup/onboarding |
+| `/api/invitations/:id` | PATCH | Admin | Update role, custom message, certificate toggle, or certificate type |
+| `/api/invitations/:id` | DELETE | Admin | Revoke invitation and delete linked guest registration if accepted |
+| `/api/invitations/:id/resend` | POST | Admin | Resend invitation email and update resend metadata |
+| `/api/invitations/:id/accept` | POST | User | Serializable accept flow: create `GUEST` registration + attendance token |
+| `/api/invitations/:id/decline` | POST | User | Decline invitation and remove prior guest registration if one exists |
+
+### Frontend Components
+
+- **Dashboard inbox:** `apps/web/src/pages/dashboard/DashboardInvitations.tsx` renders pending, accepted, and historical invitations, with deep-link support for `/dashboard/invitations/:invitationId`.
+- **Admin management:** `apps/web/src/components/events/AdminEventInvitations.tsx` handles search, staging, bulk sends, edits, resends, and revokes for an event.
+- **Public event guests:** `apps/web/src/components/events/ChiefGuestsStrip.tsx` renders accepted, public network invitees on the event page.
+- **Event detail integration:** `apps/web/src/pages/EventDetailPage.tsx` shows accepted guest QR tickets via the existing `QRTicket` component and a dashboard CTA for pending invitations.
+- **Certificates:** `apps/web/src/components/attendance/EventCertificateWizard.tsx` adds a Guests tab sourced from accepted invitation registrations.
+
+### API Client (`apps/web/src/lib/api.ts`)
+
+```typescript
+api.getMyInvitations(token)
+api.acceptInvitation(id, token)
+api.declineInvitation(id, token)
+api.claimInvitation(invitationToken, token)
+api.searchInvitees(query, eventId, token)
+api.createInvitations(data, token)
+api.getEventInvitations(eventId, token)
+api.updateInvitation(id, data, token)
+api.revokeInvitation(id, token)
+api.resendInvitationEmail(id, token)
+```
+
+### Key Patterns
+
+- **Serializable accept transaction:** `POST /api/invitations/:id/accept` retries serializable conflicts three times with the same jittered exponential backoff pattern used in event/team registration.
+- **Claim-first email invites:** Raw-email invitations are stored with `inviteeEmail`, then bound to `inviteeUserId` after the recipient signs up and claims the token.
+- **Read-time expiry derivation:** Expiration is never persisted; all invitation list/read responses compute `EXPIRED` when `status === PENDING && event.endDate < now`.
+- **Capacity exemption:** Every participant-capacity/public-count query filters `registrationType = PARTICIPANT`; guests live in the same registration table but never consume participant seats.
+
+---
+
 ## Full Database Schema (Key Models)
 
 All models use PostgreSQL via Prisma. `DATABASE_URL` = pooler, `DIRECT_URL` = non-pooler (required for migrations to avoid P1002 advisory lock errors).
@@ -495,6 +562,7 @@ websiteUrl, branch, course, phone, profileCompleted, year,
 createdAt, updatedAt
 Relations: announcements, registrations, hiringApplications,
            qotdSubmissions, networkProfile, teamMember,
+           invitationsReceived, invitationsSent,
            createdQuizzes, quizParticipants, quizAnswers, certificates
 ```
 
@@ -511,6 +579,7 @@ show_tech_blogs, showNetwork, mailingEnabled,
 certificatesEnabled, playgroundEnabled, playgroundDailyLimit,
 emailWelcomeEnabled, emailEventCreationEnabled, emailRegistrationEnabled,
 emailAnnouncementEnabled, emailCertificateEnabled, emailReminderEnabled,
+emailInvitationEnabled,
 emailTestingMode, emailTestRecipients?,
 attendanceJwtSecret?, indexNowKey?
 ```
@@ -526,16 +595,31 @@ agenda?, faqs (JSON)?, featured, highlights?, imageGallery (JSON)?,
 learningOutcomes?, resources (JSON)?, shortDescription (varchar 300)?,
 speakers (JSON)?, tags (String[]), targetAudience?, videoUrl?, slug,
 allowLateRegistration
-Relations: registrations, certificates
+Relations: registrations, invitations, certificates
 ```
 
 ### EventRegistration
 ```
 id, userId, eventId, timestamp, customFieldResponses (JSON)?,
 reminderSentAt?, attendanceToken? (unique), attended (default false),
-scannedAt?, manualOverride (default false)
+scannedAt?, manualOverride (default false),
+registrationType (RegistrationType, default PARTICIPANT), invitation?
 Unique: [userId, eventId]
-Index: [eventId, attended]
+Index: [eventId, attended], [eventId, registrationType, attended]
+```
+
+### EventInvitation
+```
+id, eventId, inviteeUserId?, inviteeEmail?,
+inviteeNameSnapshot?, inviteeDesignationSnapshot?, inviteeCompanySnapshot?,
+role (default "Guest"), customMessage?, status (InvitationStatus),
+certificateEnabled (default true), certificateType (default SPEAKER),
+invitedById, invitedAt, respondedAt?, revokedAt?,
+emailSent, emailSentAt?, lastEmailResentAt?,
+registrationId? (unique), createdAt, updatedAt
+Relations: event, inviteeUser, invitedBy, registration
+Unique: [eventId, inviteeUserId]
+Indexes: [inviteeUserId, status], [inviteeEmail, status], [eventId, status]
 ```
 
 ### DayAttendance
@@ -667,6 +751,8 @@ AnnouncementPriority: LOW | MEDIUM | HIGH | URGENT
 ApplyingRole: TECHNICAL | DSA_CHAMPS | DESIGNING | SOCIAL_MEDIA | MANAGEMENT
 ApplicationStatus: PENDING | INTERVIEW_SCHEDULED | SELECTED | REJECTED
 CertType: PARTICIPATION | COMPLETION | WINNER | SPEAKER
+RegistrationType: PARTICIPANT | GUEST
+InvitationStatus: PENDING | ACCEPTED | DECLINED | REVOKED
 QuizStatus: DRAFT | WAITING | ACTIVE | FINISHED | ABANDONED
 QuizQuestionType: MCQ | TRUE_FALSE | SHORT_ANSWER | POLL | RATING | MULTI_SELECT | OPEN_ENDED
 NetworkConnectionType: GUEST_SPEAKER | GMEET_SESSION | EVENT_JUDGE | MENTOR | INDUSTRY_PARTNER | ALUMNI | OTHER
@@ -674,6 +760,8 @@ NetworkStatus: PENDING | VERIFIED | REJECTED
 ExecutionStatus: SUCCESS | ERROR | TIMEOUT
 CompetitionParticipantScope: ALL | SELECTED_TEAMS
 ```
+
+`EXPIRED` is intentionally **not** stored in Prisma for invitations; it is derived at read time.
 
 ---
 
@@ -874,7 +962,7 @@ players: Record<string, QuizPlayer>;
 - **Scanning:** Core members (CORE_MEMBER+) can scan. `POST /api/attendance/scan` verifies the JWT, marks attendance for a target `dayNumber`. Offline scans batch-synced via `POST /api/attendance/scan-batch`.
 - **Offline support:** `useOfflineScanner` hook stores scans in localStorage (`attendance_scans:${eventId}`), syncs via 5 triggers: immediate, 3s interval batch, mount sync, visibilitychange, and `sendBeacon` on unload.
 - **QR scanner:** `html5-qrcode` (installed) with `{ fps: 10, qrbox: 280 }`, rear camera preference.
-- **QR display:** `qrcode.react` renders student's QR ticket. Visible from 30 min before event start to endDate (or startDate + 4h fallback).
+- **QR display:** `qrcode.react` renders the attendee QR ticket. Visible from 30 min before event start to endDate (or startDate + 4h fallback).
 - **Uniqueness:** `[userId, eventId]` composite unique on EventRegistration prevents double-marking.
 
 ### DB Fields (on EventRegistration)
@@ -909,7 +997,7 @@ model DayAttendance {
 
 | Route | Method | Auth | Purpose |
 |-------|--------|------|---------|
-| `/my-qr/:eventId` | GET | User | Student's QR token + event info |
+| `/my-qr/:eventId` | GET | User | Attendee QR token + event info |
 | `/scan` | POST | CORE_MEMBER+ | Single QR scan (with `bypassWindow` option) |
 | `/scan-batch` | POST | CORE_MEMBER+ | Batch sync from offline scanner |
 | `/scan-beacon` | POST | Token-in-body (CORE_MEMBER+) | Beacon API fire-and-forget |
@@ -924,7 +1012,7 @@ model DayAttendance {
 | `/event/:eventId/export` | GET | CORE_MEMBER+ | Excel download (ExcelJS, optional `dayNumber`) |
 | `/email-absentees/:eventId` | POST | Admin | Email non-attendees via Brevo (optional `dayNumber`) |
 | `/event/:eventId/certificate-recipients` | GET | Admin | Attendees + cert status (optional `minDays`) |
-| `/my-history` | GET | User | Student attendance history |
+| `/my-history` | GET | User | Attendee attendance history |
 | `/event/:eventId/summary` | GET | Public | Attendance count + per-day summary for event detail |
 | `/backfill-tokens` | POST | Admin | Backfill tokens for existing registrations |
 
@@ -942,12 +1030,12 @@ model DayAttendance {
 
 | Component | Path | Purpose |
 |-----------|------|---------|
-| QRTicket | `apps/web/src/components/attendance/QRTicket.tsx` | Student QR display (countdown → QR → attended badge + day breakdown when available) |
+| QRTicket | `apps/web/src/components/attendance/QRTicket.tsx` | Attendee QR display (countdown → QR → attended badge + day breakdown when available) |
 | AdminScanner | `apps/web/src/components/attendance/AdminScanner.tsx` | Offline-first camera scanner with day selector, audio feedback, manual check-in, live dashboard |
 | AttendanceManager | `apps/web/src/components/attendance/AttendanceManager.tsx` | Full CRUD data table with day selector (mark/unmark, bulk, export, absentees email by day) |
 | EventCertificateWizard | `apps/web/src/components/attendance/EventCertificateWizard.tsx` | Attendance/competition certificate wizard with optional minimum attendance-days filter |
 | EventAdminHub | `apps/web/src/components/attendance/EventAdminHub.tsx` | Tab page: Details, Scanner, Manage (all roles), + Certificates (admin only). Accessible via `/admin/events/:eventId/attendance` (Admin) or `/dashboard/events/:eventId/attendance` (CORE_MEMBER+) |
-| AttendanceHistory | `apps/web/src/components/attendance/AttendanceHistory.tsx` | Student attendance history with day-count/day-label breakdown for multi-day events |
+| AttendanceHistory | `apps/web/src/components/attendance/AttendanceHistory.tsx` | Attendee attendance history with day-count/day-label breakdown for multi-day events |
 | useOfflineScanner | `apps/web/src/hooks/useOfflineScanner.ts` | localStorage offline sync hook (5 sync triggers) |
 
 ---
@@ -961,7 +1049,7 @@ model DayAttendance {
 All email guards are enforced inside `EmailService.send()` and `EmailService.sendBulk()` — no route can bypass them. Each email is tagged with an `EmailCategory`:
 
 ```typescript
-type EmailCategory = 'welcome' | 'event_creation' | 'registration' | 'announcement' | 'certificate' | 'reminder' | 'admin_mail' | 'other';
+type EmailCategory = 'welcome' | 'event_creation' | 'registration' | 'announcement' | 'certificate' | 'reminder' | 'invitation' | 'admin_mail' | 'other';
 ```
 
 **Guard evaluation order** (inside `send()`/`sendBulk()`):
@@ -980,6 +1068,7 @@ type EmailCategory = 'welcome' | 'event_creation' | 'registration' | 'announceme
 | `announcement` | `emailAnnouncementEnabled` | `sendAnnouncementToAll` | announcements.ts |
 | `certificate` | `emailCertificateEnabled` | `sendCertificateIssued` | certificates.ts |
 | `reminder` | `emailReminderEnabled` | `sendEventReminder` | scheduler.ts |
+| `invitation` | `emailInvitationEnabled` | `sendEventInvitation`, `sendEventInvitationWithdrawn` | invitations.ts |
 | `admin_mail` | `mailingEnabled` (existing) | `sendBulk` via mail route | mail.ts |
 | `other` | *(no toggle — always allowed)* | raw `send()` | attendance.ts, hiring.ts, network.ts |
 
@@ -992,6 +1081,7 @@ emailRegistrationEnabled    Boolean  @default(true)
 emailAnnouncementEnabled    Boolean  @default(true)
 emailCertificateEnabled     Boolean  @default(true)
 emailReminderEnabled        Boolean  @default(true)
+emailInvitationEnabled      Boolean  @default(true)
 emailTestingMode            Boolean  @default(false)
 emailTestRecipients         String?
 ```
@@ -1009,7 +1099,7 @@ When `emailTestingMode` is `true`:
 "Email & Notifications" card in AdminSettings.tsx (between Registration & Events and Feature Toggles):
 - Testing Mode toggle + test recipients input (appears when active)
 - Warning banner when testing mode is active
-- 7 individual email category toggles (auto-save via PATCH)
+- 8 individual email category toggles (auto-save via PATCH)
 - `mailingEnabled` moved from Feature Toggles into this card as "Admin Bulk Mail"
 
 ### Cache
@@ -1102,6 +1192,8 @@ All pages are lazy-loaded with `React.lazy()` + `<Suspense>`.
 | `/dashboard/team/:id/edit` | EditTeamProfile |
 | `/dashboard/network/edit/:id?` | EditNetworkProfile |
 | `/dashboard/certificates` | DashboardCertificates |
+| `/dashboard/invitations` | DashboardInvitations |
+| `/dashboard/invitations/:invitationId` | DashboardInvitations (deep link alias) |
 
 ### Protected CORE_MEMBER Routes (`minRole="CORE_MEMBER"`, inside dashboard)
 | Path | Component |
@@ -1131,7 +1223,7 @@ All pages are lazy-loaded with `React.lazy()` + `<Suspense>`.
 
 `DashboardLayout.tsx` builds nav dynamically:
 
-**User nav** (always): Overview, My Events, Announcements, Live Quiz, Leaderboard (if `showLeaderboard`), My Profile, My Certificates (if `certificatesEnabled`)
+**User nav** (always): Overview, My Events, Announcements, Live Quiz, Leaderboard (if `showLeaderboard`), My Profile, My Certificates (if `certificatesEnabled`), My Invitations (pending badge)
 
 **Core Member nav** (CORE_MEMBER+): Create Event, Create Announcement, Manage QOTD, Quiz Manager, Upload Image
 
@@ -1156,12 +1248,13 @@ Base URL: `import.meta.env.VITE_API_URL || 'http://localhost:5001/api'`
 
 All requests use `fetch` with `credentials: 'include'` for cross-origin cookie support.
 
-**Key types exported:** `AuthProviders`, `User`, `Settings`, `Event`, `Registration`, `Announcement`, `TeamMember`, `Achievement`, `Credit`, `NetworkProfile`, `NetworkProfileInput`, `AuditLogEntry`, `HomePageData`
+**Key types exported:** `AuthProviders`, `User`, `Settings`, `Event`, `Registration`, `EventInvitation`, `Announcement`, `TeamMember`, `Achievement`, `Credit`, `NetworkProfile`, `NetworkProfileInput`, `AuditLogEntry`, `HomePageData`
 
 **`api` object methods (full list):**
 - Auth: `getProviders`, `getMe`, `devLogin`, `register`, `login`, `exchangeAuthCode`, `logout`
 - Events: `getEvents`, `getEvent`, `createEvent`, `updateEvent`, `deleteEvent`
-- Registrations: `registerForEvent`, `cancelRegistration`, `getMyRegistrations`
+- Registrations: `registerForEvent`, `cancelRegistration`, `getMyRegistrations`, `getEventRegistrations`, `deleteEventRegistration`, `exportEventRegistrations`
+- Invitations: `getMyInvitations`, `acceptInvitation`, `declineInvitation`, `claimInvitation`, `searchInvitees`, `createInvitations`, `getEventInvitations`, `updateInvitation`, `revokeInvitation`, `resendInvitationEmail`
 - Announcements: `getAnnouncements`, `getAnnouncement`, `createAnnouncement`, `updateAnnouncement`, `deleteAnnouncement`
 - Team: `getTeam`, `getTeamMember`, `getTeamMemberBySlug`, `createTeamMember`, `updateTeamMember`, `updateTeamMemberProfile`, `linkTeamMemberToUser`, `getMyTeamProfile`, `searchUsers`, `deleteTeamMember`
 - Achievements: `getAchievements`, `getFeaturedAchievements`, `getAchievement`, `createAchievement`, `updateAchievement`, `deleteAchievement`
@@ -1314,6 +1407,7 @@ When proposing any non-trivial architectural change — new system, new DB model
 | Auth routes | `apps/api/src/routes/auth.ts` |
 | Credits routes | `apps/api/src/routes/credits.ts` |
 | Teams routes | `apps/api/src/routes/teams.ts` |
+| Invitation routes | `apps/api/src/routes/invitations.ts` |
 | Auth middleware | `apps/api/src/middleware/auth.ts` |
 | Role middleware | `apps/api/src/middleware/role.ts` |
 | JWT utilities | `apps/api/src/utils/jwt.ts` |
@@ -1332,8 +1426,11 @@ When proposing any non-trivial architectural change — new system, new DB model
 | Frontend API client | `apps/web/src/lib/api.ts` |
 | Frontend routes | `apps/web/src/App.tsx` |
 | Dashboard layout | `apps/web/src/components/dashboard/DashboardLayout.tsx` |
+| Dashboard invitations page | `apps/web/src/pages/dashboard/DashboardInvitations.tsx` |
 | Credits public page | `apps/web/src/pages/CreditsPage.tsx` |
 | Credits admin page | `apps/web/src/pages/admin/AdminCredits.tsx` |
+| Event invitation admin UI | `apps/web/src/components/events/AdminEventInvitations.tsx` |
+| Event guest strip | `apps/web/src/components/events/ChiefGuestsStrip.tsx` |
 | Team components | `apps/web/src/components/teams/` |
 | Team create modal | `apps/web/src/components/teams/TeamCreateModal.tsx` |
 | Team join modal | `apps/web/src/components/teams/TeamJoinModal.tsx` |

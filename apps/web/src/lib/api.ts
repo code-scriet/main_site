@@ -351,6 +351,7 @@ export interface Settings {
   emailAnnouncementEnabled?: boolean;
   emailCertificateEnabled?: boolean;
   emailReminderEnabled?: boolean;
+  emailInvitationEnabled?: boolean;
   emailTestingMode?: boolean;
   emailTestRecipients?: string | null;
   updatedAt: string;
@@ -548,6 +549,85 @@ export interface Event {
   teamRegistration?: boolean;
   teamMinSize?: number;
   teamMaxSize?: number;
+  isRegistered?: boolean;
+  registrationStatus?: {
+    status: 'open' | 'not_started' | 'closed' | 'full';
+    canRegister: boolean;
+    message: string;
+  };
+  spotsRemaining?: number | null;
+  guests?: EventGuestSummary[];
+  userInvitation?: EventInvitation | null;
+}
+
+export type RegistrationType = 'PARTICIPANT' | 'GUEST';
+export type InvitationStatus = 'PENDING' | 'ACCEPTED' | 'DECLINED' | 'REVOKED' | 'EXPIRED';
+
+export interface EventGuestSummary {
+  name: string;
+  designation: string;
+  company: string;
+  photo?: string | null;
+  role: string;
+  networkSlug?: string | null;
+}
+
+export interface EventInvitation {
+  id: string;
+  eventId: string;
+  event?: Event;
+  inviteeUserId?: string | null;
+  inviteeEmail?: string | null;
+  inviteeNameSnapshot?: string | null;
+  inviteeDesignationSnapshot?: string | null;
+  inviteeCompanySnapshot?: string | null;
+  role: string;
+  customMessage?: string | null;
+  status: InvitationStatus;
+  certificateEnabled: boolean;
+  certificateType: CertType;
+  invitedById: string;
+  invitedBy?: {
+    id: string;
+    name: string;
+    email: string;
+  };
+  inviteeUser?: {
+    id: string;
+    name: string;
+    email: string;
+    avatar?: string | null;
+    role: string;
+    networkProfile?: {
+      id: string;
+      fullName: string;
+      designation: string;
+      company: string;
+      profilePhoto?: string | null;
+      slug?: string | null;
+      isPublic?: boolean;
+      status?: NetworkStatus;
+    } | null;
+  } | null;
+  invitedAt: string;
+  respondedAt?: string | null;
+  revokedAt?: string | null;
+  emailSent: boolean;
+  emailSentAt?: string | null;
+  lastEmailResentAt?: string | null;
+  registrationId?: string | null;
+  registration?: {
+    id: string;
+    eventId: string;
+    attended?: boolean;
+    scannedAt?: string | null;
+    manualOverride?: boolean;
+    registrationType: RegistrationType;
+    dayAttendances?: DayAttendance[];
+  } | null;
+  attendanceToken?: string | null;
+  createdAt: string;
+  updatedAt?: string;
 }
 
 export interface Registration {
@@ -565,6 +645,35 @@ export interface Registration {
     value: string;
   }>;
   event: Event;
+}
+
+export interface EventAdminRegistration {
+  id: string;
+  userId: string;
+  eventId: string;
+  timestamp: string;
+  registrationType: RegistrationType;
+  customFieldResponses?: Array<{
+    fieldId: string;
+    label?: string;
+    value: string;
+  }>;
+  invitation?: {
+    id: string;
+    role: string;
+    status: Exclude<InvitationStatus, 'EXPIRED'>;
+  } | null;
+  user: {
+    id: string;
+    name: string;
+    email: string;
+    role: string;
+    avatar?: string | null;
+    phone?: string;
+    course?: string;
+    branch?: string;
+    year?: string;
+  };
 }
 
 // Team registration types
@@ -1000,6 +1109,10 @@ export interface AttendanceRecord {
   scannedAt: string | null;
   manualOverride: boolean;
   attendanceToken: string | null;
+  registrationType?: RegistrationType;
+  invitation?: {
+    role?: string | null;
+  } | null;
   dayAttendances?: DayAttendance[];
   user: { id: string; name: string; email: string; avatar: string | null; branch: string | null; year: string | null };
 }
@@ -1024,6 +1137,37 @@ export interface CertificateRecipient {
   emailSentAt: string | null;
 }
 
+export interface GuestCertificateRecipient {
+  invitationId: string;
+  userId: string;
+  name: string;
+  email: string;
+  designation?: string | null;
+  role: string;
+  attended: boolean;
+  certificateEnabled: boolean;
+  certificateType: CertType;
+  existingCertificateId?: string | null;
+  certificateId?: string | null;
+  emailSent?: boolean;
+  emailSentAt?: string | null;
+}
+
+export interface AttendanceCertificateRecipientsResponse {
+  recipients: CertificateRecipient[];
+  participants: CertificateRecipient[];
+  guests: GuestCertificateRecipient[];
+  stats: {
+    totalRegistered: number;
+    totalAttended: number;
+    alreadyCertified: number;
+    eligibleRecipients?: number;
+    guestCount?: number;
+  };
+  eventDays?: number;
+  dayLabels?: string[];
+}
+
 export interface AttendanceSearchResult {
   registrationId: string;
   userName: string;
@@ -1032,6 +1176,7 @@ export interface AttendanceSearchResult {
   attended: boolean;
   scannedAt: string | null;
   manualOverride: boolean;
+  registrationType?: RegistrationType;
 }
 
 export interface AttendanceHistoryEvent {
@@ -1290,13 +1435,21 @@ export const api = {
     const events = await request<Event[]>(`/events${params}`);
     return events.map((event) => normalizeEventPayload(event));
   },
-  getEvent: async (id: string) => normalizeEventPayload(await request<Event>(`/events/${id}`)),
+  getEvent: async (id: string, token?: string) => normalizeEventPayload(await request<Event>(`/events/${id}`, token ? { token } : {})),
   createEvent: (data: Partial<Event>, token: string) => 
     request<Event>('/events', { method: 'POST', body: JSON.stringify(data), token }),
   updateEvent: (id: string, data: Partial<Event>, token: string) =>
     request<Event>(`/events/${id}`, { method: 'PUT', body: JSON.stringify(data), token }),
   deleteEvent: (id: string, token: string) =>
     request(`/events/${id}`, { method: 'DELETE', token }),
+  getEventRegistrations: (eventId: string, token: string) =>
+    request<EventAdminRegistration[]>(`/events/${eventId}/registrations`, { token }),
+  deleteEventRegistration: (eventId: string, registrationId: string, token: string) =>
+    request(`/events/${eventId}/registrations/${registrationId}`, { method: 'DELETE', token }),
+  exportEventRegistrations: async (eventId: string, token: string, format?: 'xlsx' | 'csv') => {
+    const params = format ? `?format=${format}` : '';
+    return requestBlob(`/events/${eventId}/registrations/export${params}`, { token });
+  },
   
   // Registrations
   registerForEvent: (
@@ -1936,14 +2089,65 @@ export const api = {
   },
   emailAbsentees: (eventId: string, subject: string, body: string, token: string, dayNumber?: number) =>
     request<{ emailed: number; sent?: number; dayNumber?: number }>(`/attendance/email-absentees/${eventId}`, { method: 'POST', body: JSON.stringify({ subject, body, dayNumber }), token }),
-  getAttendanceCertRecipients: (eventId: string, token: string, minDays?: number) =>
-    request<{ recipients: CertificateRecipient[]; stats: { totalRegistered: number; totalAttended: number; alreadyCertified: number; eligibleRecipients?: number }; eventDays?: number; dayLabels?: string[] }>(`/attendance/event/${eventId}/certificate-recipients${typeof minDays === 'number' ? `?minDays=${minDays}` : ''}`, { token }),
+  getAttendanceCertRecipients: (eventId: string, token: string, minDays?: number, includeGuestNonAttendees?: boolean) => {
+    const params = new URLSearchParams();
+    if (typeof minDays === 'number') params.set('minDays', String(minDays));
+    if (includeGuestNonAttendees) params.set('includeGuestNonAttendees', 'true');
+    const query = params.toString();
+    return request<AttendanceCertificateRecipientsResponse>(`/attendance/event/${eventId}/certificate-recipients${query ? `?${query}` : ''}`, { token });
+  },
   getMyAttendanceHistory: (token: string) =>
     request<{ events: AttendanceHistoryEvent[] }>('/attendance/my-history', { token }),
   getAttendanceSummary: (eventId: string) =>
     request<{ total: number; attended: number; eventDays?: number; dayLabels?: string[]; daySummary?: Array<{ dayNumber: number; attended: number }> }>(`/attendance/event/${eventId}/summary`),
   backfillAttendanceTokens: (token: string) =>
     request<{ backfilled: number }>('/attendance/backfill-tokens', { method: 'POST', token }),
+
+  // Invitations
+  getMyInvitations: (token: string) =>
+    request<EventInvitation[]>('/invitations/my', { token }),
+  acceptInvitation: (id: string, token: string) =>
+    request<{ invitation: EventInvitation; registration: { id: string; attendanceToken: string; eventId: string } }>(`/invitations/${id}/accept`, { method: 'POST', token }),
+  declineInvitation: (id: string, token: string) =>
+    request<EventInvitation>(`/invitations/${id}/decline`, { method: 'POST', token }),
+  claimInvitation: (invitationToken: string, token: string) =>
+    request<EventInvitation>('/invitations/claim', { method: 'POST', body: JSON.stringify({ token: invitationToken }), token }),
+  searchInvitees: (
+    query: string,
+    eventId: string,
+    token: string,
+  ) => request<Array<{ userId: string; name: string; designation: string; company: string; photo?: string | null }>>(
+    `/invitations/search-invitees?q=${encodeURIComponent(query)}&eventId=${encodeURIComponent(eventId)}`,
+    { token },
+  ),
+  createInvitations: (
+    data: {
+      eventId: string;
+      invitees: Array<{
+        userId?: string;
+        email?: string;
+        role?: string;
+        certificateEnabled?: boolean;
+        certificateType?: CertType;
+      }>;
+      customMessage?: string;
+    },
+    token: string,
+  ) => request<{ created: EventInvitation[]; skipped: Array<{ identifier: string; reason: string }> }>(
+    '/invitations',
+    { method: 'POST', body: JSON.stringify(data), token },
+  ),
+  getEventInvitations: (eventId: string, token: string) =>
+    request<EventInvitation[]>(`/invitations/event/${eventId}`, { token }),
+  updateInvitation: (
+    id: string,
+    data: Partial<Pick<EventInvitation, 'role' | 'customMessage' | 'certificateEnabled' | 'certificateType'>>,
+    token: string,
+  ) => request<EventInvitation>(`/invitations/${id}`, { method: 'PATCH', body: JSON.stringify(data), token }),
+  revokeInvitation: (id: string, token: string) =>
+    request(`/invitations/${id}`, { method: 'DELETE', token }),
+  resendInvitationEmail: (id: string, token: string) =>
+    request<EventInvitation>(`/invitations/${id}/resend`, { method: 'POST', token }),
 
   // ========================================
   // Team registration API

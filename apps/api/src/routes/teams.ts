@@ -1,7 +1,7 @@
 import { Router, Request, Response } from 'express';
 import crypto from 'crypto';
 import { z } from 'zod';
-import { Prisma } from '@prisma/client';
+import { Prisma, RegistrationType } from '@prisma/client';
 import rateLimit from 'express-rate-limit';
 import { prisma } from '../lib/prisma.js';
 import { authMiddleware, getAuthUser } from '../middleware/auth.js';
@@ -283,9 +283,18 @@ teamsRouter.post('/create', authMiddleware, async (req: Request, res: Response) 
     for (let attempt = 0; attempt < TEAM_TRANSACTION_RETRIES; attempt += 1) {
       try {
         result = await prisma.$transaction(async (tx) => {
+          // Capacity check: only count PARTICIPANT registrations. GUEST invitations do not consume capacity.
           const event = await tx.event.findUnique({
             where: { id: eventId },
-            include: { _count: { select: { registrations: true } } },
+            include: {
+              _count: {
+                select: {
+                  registrations: {
+                    where: { registrationType: RegistrationType.PARTICIPANT },
+                  },
+                },
+              },
+            },
           });
 
           if (!event) {
@@ -543,7 +552,16 @@ teamsRouter.post('/join', authMiddleware, joinRateLimiter, async (req: Request, 
             where: { inviteCode },
             include: {
               event: {
-                include: { _count: { select: { registrations: true } } },
+                // Capacity check: only count PARTICIPANT registrations. GUEST invitations do not consume capacity.
+                include: {
+                  _count: {
+                    select: {
+                      registrations: {
+                        where: { registrationType: RegistrationType.PARTICIPANT },
+                      },
+                    },
+                  },
+                },
               },
               members: true,
               leader: { select: { id: true, name: true } },

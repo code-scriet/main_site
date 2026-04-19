@@ -46,6 +46,8 @@ import {
 import { Layout } from '@/components/layout/Layout';
 import { SEO } from '@/components/SEO';
 import { useMotionConfig } from '@/hooks/useMotionConfig';
+import { toast } from 'sonner';
+import { clearPendingInvitationClaimToken, getPendingInvitationClaimToken } from '@/lib/invitationClaim';
 
 const connectionTypes: { value: NetworkConnectionType; label: string; description: string }[] = [
   { value: 'GUEST_SPEAKER', label: 'Guest Speaker', description: 'Delivered a talk or session' },
@@ -376,6 +378,21 @@ export default function NetworkOnboarding() {
           if (refreshed?.hasProfile && refreshed.data) {
             setExistingProfile(refreshed.data);
           }
+        }
+      }
+
+      const pendingInvitationToken = getPendingInvitationClaimToken();
+      if (pendingInvitationToken) {
+        try {
+          await api.claimInvitation(pendingInvitationToken, token);
+          clearPendingInvitationClaimToken();
+          toast.success('Your event invitation has been linked to this account.');
+        } catch (claimError) {
+          toast.warning(
+            claimError instanceof Error
+              ? claimError.message
+              : 'Your profile was saved, but the invitation could not be linked yet.',
+          );
         }
       }
 

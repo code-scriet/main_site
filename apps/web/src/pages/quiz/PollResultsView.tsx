@@ -36,12 +36,14 @@ import {
   Clipboard,
   Check,
 } from 'lucide-react';
+import { formatRatingDisplay } from '@/lib/ratingDisplay';
 
 interface PollResultsViewProps {
   distribution: Record<string, number>;
   options: string[] | null;
   questionText: string;
   totalVotes: number;
+  questionType?: string;
 }
 
 // Site-palette chart colors
@@ -61,25 +63,35 @@ export const PollResultsView = memo(function PollResultsView({
   options,
   questionText,
   totalVotes,
+  questionType,
 }: PollResultsViewProps) {
   const [chartType, setChartType] = useState<'bar' | 'pie'>('bar');
   const [exportOpen, setExportOpen] = useState(false);
   const [copied, setCopied] = useState(false);
   const chartRef = useRef<HTMLDivElement>(null);
 
+  const isRatingQuestion = questionType === 'RATING';
+
   // Prepare data sorted by count
   const chartData = (options
     ? options.map((opt) => ({
+        rawLabel: opt,
         label: opt,
         count: distribution[opt] || 0,
         percentage: Math.round(((distribution[opt] || 0) / (totalVotes || 1)) * 100),
       }))
     : Object.entries(distribution).map(([label, count]) => ({
+        rawLabel: label,
         label,
         count,
         percentage: Math.round((count / (totalVotes || 1)) * 100),
       }))
-  ).sort((a, b) => b.count - a.count);
+  )
+    .map((item) => ({
+      ...item,
+      label: isRatingQuestion ? formatRatingDisplay(item.rawLabel) : item.label,
+    }))
+    .sort((a, b) => b.count - a.count);
 
   // Export handlers
   const exportPNG = useCallback(async () => {

@@ -38,6 +38,7 @@ const defaultSettings: Settings = {
   emailAnnouncementEnabled: true,
   emailCertificateEnabled: true,
   emailReminderEnabled: true,
+  emailInvitationEnabled: true,
   emailTestingMode: false,
   emailTestRecipients: null,
   githubUrl: '',

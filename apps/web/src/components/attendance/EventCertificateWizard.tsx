@@ -5,6 +5,7 @@ import {
   type CertificateBulkGenerateResponse,
   type CertificateTemplate,
   type CertificateRecipient,
+  type GuestCertificateRecipient,
   type CertType,
   type CompetitionGenerationStrategy,
   type CompetitionResultsSummaryResponse,
@@ -16,6 +17,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Switch } from '@/components/ui/switch';
+import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { InlineMarkdown } from '@/components/ui/inline-markdown';
 import {
   AlertDialog,
@@ -102,6 +104,7 @@ interface GenerationSummary {
 type CertificateMode = 'attendance' | 'competition';
 type WizardStep = 'mode' | 'select' | 'config' | 'signatories' | 'review' | 'manage';
 type RecipientFilter = 'all' | 'attended' | 'no_cert';
+type AttendanceAudience = 'participants' | 'guests';
 
 const CERT_TYPE_OPTIONS: Array<{ value: CertType; label: string }> = [
   { value: 'PARTICIPATION', label: 'Participation' },
@@ -172,13 +175,17 @@ export default function EventCertificateWizard({
   const [step, setStep] = useState<WizardStep>('mode');
 
   const [recipients, setRecipients] = useState<CertificateRecipient[]>([]);
+  const [guestRecipients, setGuestRecipients] = useState<GuestCertificateRecipient[]>([]);
   const [stats, setStats] = useState({ totalRegistered: 0, totalAttended: 0, alreadyCertified: 0, eligibleRecipients: 0 });
   const [attendanceEventDays, setAttendanceEventDays] = useState(1);
   const [attendanceDayLabels, setAttendanceDayLabels] = useState<string[]>([]);
   const [minAttendanceDays, setMinAttendanceDays] = useState<number | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [selectedGuestIds, setSelectedGuestIds] = useState<Set<string>>(new Set());
   const [recipientFilter, setRecipientFilter] = useState<RecipientFilter>('no_cert');
   const [recipientSearch, setRecipientSearch] = useState('');
+  const [attendanceAudience, setAttendanceAudience] = useState<AttendanceAudience>('participants');
+  const [includeGuestNonAttendees, setIncludeGuestNonAttendees] = useState(false);
   const [loadingRecipients, setLoadingRecipients] = useState(false);
 
   const [competitionSummary, setCompetitionSummary] = useState<CompetitionResultsSummaryResponse | null>(null);
@@ -273,6 +280,24 @@ export default function EventCertificateWizard({
     return list;
   }, [deferredRecipientSearch, recipientFilter, recipients]);
 
+  const filteredGuestRecipients = useMemo(() => {
+    let list = guestRecipients;
+    if (!includeGuestNonAttendees) {
+      list = list.filter((recipient) => recipient.attended);
+    }
+    if (recipientFilter === 'attended') list = list.filter((recipient) => recipient.attended);
+    if (recipientFilter === 'no_cert') list = list.filter((recipient) => !recipient.existingCertificateId);
+    if (deferredRecipientSearch.trim()) {
+      const query = deferredRecipientSearch.toLowerCase();
+      list = list.filter((recipient) =>
+        recipient.name.toLowerCase().includes(query)
+        || recipient.email.toLowerCase().includes(query)
+        || recipient.role.toLowerCase().includes(query),
+      );
+    }
+    return list;
+  }, [deferredRecipientSearch, guestRecipients, includeGuestNonAttendees, recipientFilter]);
+
   const filteredCerts = useMemo(() => {
     if (!deferredManagementSearch.trim()) return generatedCerts;
     const query = deferredManagementSearch.toLowerCase();
@@ -286,8 +311,15 @@ export default function EventCertificateWizard({
   const selectedPrimarySignatory = signatories.find((signatory) => signatory.id === primarySignatoryId);
   const selectedFacultySignatory = signatories.find((signatory) => signatory.id === facultySignatoryId);
   const selectedRecipientEmails = useMemo(
-    () => recipients.filter((recipient) => selectedIds.has(recipient.registrationId)).map((recipient) => recipient.userEmail),
-    [recipients, selectedIds],
+    () => [
+      ...recipients
+        .filter((recipient) => selectedIds.has(recipient.registrationId))
+        .map((recipient) => recipient.userEmail),
+      ...guestRecipients
+        .filter((recipient) => selectedGuestIds.has(recipient.invitationId))
+        .map((recipient) => recipient.email),
+    ],
+    [guestRecipients, recipients, selectedGuestIds, selectedIds],
   );
 
   const competitionSelectedRoundsValid = useMemo(() => {
@@ -302,7 +334,7 @@ export default function EventCertificateWizard({
 
   const currentRecipientCount = mode === 'competition'
     ? competitionPreview.previewRows.length
-    : selectedIds.size;
+    : selectedIds.size + selectedGuestIds.size;
 
   const fetchRecipients = useCallback(async () => {
     setLoadingRecipients(true);
@@ -311,6 +343,7 @@ export default function EventCertificateWizard({
         eventId,
         token,
         typeof minAttendanceDays === 'number' ? minAttendanceDays : undefined,
+        includeGuestNonAttendees,
       );
       const eventDays = Math.min(Math.max(data.eventDays ?? 1, 1), 10);
       if (eventDays <= 1 && minAttendanceDays !== null) {
@@ -318,15 +351,16 @@ export default function EventCertificateWizard({
       }
       setAttendanceEventDays(eventDays);
       setAttendanceDayLabels(Array.isArray(data.dayLabels) ? data.dayLabels : []);
-      setRecipients(data.recipients);
+      setRecipients(data.participants ?? data.recipients);
+      setGuestRecipients(data.guests ?? []);
       setStats({
         totalRegistered: data.stats.totalRegistered,
         totalAttended: data.stats.totalAttended,
         alreadyCertified: data.stats.alreadyCertified,
-        eligibleRecipients: data.stats.eligibleRecipients ?? data.recipients.length,
+        eligibleRecipients: data.stats.eligibleRecipients ?? (data.participants ?? data.recipients).length,
       });
       setSelectedIds(new Set(
-        data.recipients
+        (data.participants ?? data.recipients)
           .filter((recipient) =>
             recipient.attended
             && !recipient.hasCertificate
@@ -334,15 +368,26 @@ export default function EventCertificateWizard({
               || (recipient.daysAttended ?? 0) >= minAttendanceDays))
           .map((recipient) => recipient.registrationId),
       ));
+      setSelectedGuestIds(new Set(
+        (data.guests ?? [])
+          .filter((recipient) =>
+            recipient.certificateEnabled
+            && !recipient.existingCertificateId
+            && (includeGuestNonAttendees || recipient.attended),
+          )
+          .map((recipient) => recipient.invitationId),
+      ));
     } catch {
       setRecipients([]);
+      setGuestRecipients([]);
       setStats({ totalRegistered: 0, totalAttended: 0, alreadyCertified: 0, eligibleRecipients: 0 });
       setAttendanceEventDays(1);
       setAttendanceDayLabels([]);
+      setSelectedGuestIds(new Set());
     } finally {
       setLoadingRecipients(false);
     }
-  }, [eventId, minAttendanceDays, token]);
+  }, [eventId, includeGuestNonAttendees, minAttendanceDays, token]);
 
   const fetchCompetitionSummary = useCallback(async () => {
     setLoadingCompetition(true);
@@ -434,6 +479,10 @@ export default function EventCertificateWizard({
     setMinAttendanceDays(null);
     setAttendanceEventDays(1);
     setAttendanceDayLabels([]);
+    setGuestRecipients([]);
+    setSelectedGuestIds(new Set());
+    setAttendanceAudience('participants');
+    setIncludeGuestNonAttendees(false);
   }
 
   function selectMode(nextMode: CertificateMode) {
@@ -446,6 +495,18 @@ export default function EventCertificateWizard({
 
   function toggleAttendanceRecipient(id: string) {
     setSelectedIds((current) => {
+      const next = new Set(current);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  }
+
+  function toggleGuestRecipient(id: string) {
+    setSelectedGuestIds((current) => {
       const next = new Set(current);
       if (next.has(id)) {
         next.delete(id);
@@ -471,6 +532,31 @@ export default function EventCertificateWizard({
       }
       return next;
     });
+  }
+
+  function toggleAllGuestRecipients() {
+    const visibleIds = filteredGuestRecipients.map((recipient) => recipient.invitationId);
+    const allSelected = visibleIds.every((id) => selectedGuestIds.has(id));
+
+    setSelectedGuestIds((current) => {
+      const next = new Set(current);
+      for (const id of visibleIds) {
+        if (allSelected) {
+          next.delete(id);
+        } else {
+          next.add(id);
+        }
+      }
+      return next;
+    });
+  }
+
+  function updateGuestRecipientType(invitationId: string, certificateType: CertType) {
+    setGuestRecipients((current) => current.map((recipient) => (
+      recipient.invitationId === invitationId
+        ? { ...recipient, certificateType }
+        : recipient
+    )));
   }
 
   function toggleCompetitionUser(userId: string) {
@@ -541,7 +627,7 @@ export default function EventCertificateWizard({
         };
       } else {
         const attendancePositionValue = attendancePosition.trim();
-        const selectedRecipients = recipients
+        const selectedParticipantRecipients = recipients
           .filter((recipient) => selectedIds.has(recipient.registrationId))
           .map((recipient) => ({
             name: recipient.userName,
@@ -549,11 +635,23 @@ export default function EventCertificateWizard({
             userId: recipient.userId,
             ...(attendancePositionValue ? { position: attendancePositionValue } : {}),
           }));
+        const selectedGuestRecipientsForGeneration = guestRecipients
+          .filter((recipient) => selectedGuestIds.has(recipient.invitationId))
+          .map((recipient) => ({
+            name: recipient.name,
+            email: recipient.email,
+            userId: recipient.userId,
+            type: recipient.certificateType,
+            position: recipient.role,
+          }));
 
         body = {
           eventId,
           eventName,
-          recipients: selectedRecipients,
+          recipients: [
+            ...selectedParticipantRecipients,
+            ...selectedGuestRecipientsForGeneration,
+          ],
           type: attendanceCertType,
           template: attendanceTemplate,
           domain: attendanceDomain.trim() || undefined,
@@ -833,11 +931,18 @@ export default function EventCertificateWizard({
       );
     }
 
-    const filterOptions: Array<{ value: RecipientFilter; label: string }> = [
-      { value: 'all', label: `All (${recipients.length})` },
-      { value: 'attended', label: `Attended (${recipients.filter((recipient) => recipient.attended).length})` },
-      { value: 'no_cert', label: `No Cert (${recipients.filter((recipient) => !recipient.hasCertificate).length})` },
-    ];
+    const activeRecipientCount = attendanceAudience === 'participants' ? recipients.length : guestRecipients.length;
+    const filterOptions: Array<{ value: RecipientFilter; label: string }> = attendanceAudience === 'participants'
+      ? [
+          { value: 'all', label: `All (${recipients.length})` },
+          { value: 'attended', label: `Attended (${recipients.filter((recipient) => recipient.attended).length})` },
+          { value: 'no_cert', label: `No Cert (${recipients.filter((recipient) => !recipient.hasCertificate).length})` },
+        ]
+      : [
+          { value: 'all', label: `All (${guestRecipients.length})` },
+          { value: 'attended', label: `Attended (${guestRecipients.filter((recipient) => recipient.attended).length})` },
+          { value: 'no_cert', label: `No Cert (${guestRecipients.filter((recipient) => !recipient.existingCertificateId).length})` },
+        ];
 
     return (
       <motion.div
@@ -848,7 +953,7 @@ export default function EventCertificateWizard({
         exit="exit"
         transition={{ duration: 0.25 }}
       >
-        <div className="mb-5 grid grid-cols-1 gap-3 sm:grid-cols-3">
+        <div className="mb-5 grid grid-cols-1 gap-3 sm:grid-cols-4">
           <Card className="border-blue-200 dark:border-blue-800">
             <CardContent className="flex items-center gap-3 p-4">
               <Users className="h-5 w-5 shrink-0 text-blue-500" />
@@ -873,6 +978,15 @@ export default function EventCertificateWizard({
               <div>
                 <p className="text-2xl font-bold">{stats.alreadyCertified}</p>
                 <p className="text-xs text-gray-500">Attendance Certs Issued</p>
+              </div>
+            </CardContent>
+          </Card>
+          <Card className="border-purple-200 dark:border-purple-800">
+            <CardContent className="flex items-center gap-3 p-4">
+              <Award className="h-5 w-5 shrink-0 text-purple-500" />
+              <div>
+                <p className="text-2xl font-bold">{guestRecipients.length}</p>
+                <p className="text-xs text-gray-500">Guest Candidates</p>
               </div>
             </CardContent>
           </Card>
@@ -908,6 +1022,15 @@ export default function EventCertificateWizard({
         )}
 
         <div className="mb-4 flex flex-col gap-3 sm:flex-row">
+          <Tabs value={attendanceAudience} onValueChange={(value) => setAttendanceAudience(value as AttendanceAudience)} className="w-full">
+            <TabsList className="grid w-full max-w-xs grid-cols-2">
+              <TabsTrigger value="participants">Participants</TabsTrigger>
+              <TabsTrigger value="guests">Guests</TabsTrigger>
+            </TabsList>
+          </Tabs>
+        </div>
+
+        <div className="mb-4 flex flex-col gap-3 sm:flex-row">
           <div className="flex gap-1">
             {filterOptions.map((option) => (
               <Button
@@ -931,111 +1054,215 @@ export default function EventCertificateWizard({
           </div>
         </div>
 
-        <div className="overflow-hidden rounded-lg border dark:border-gray-700">
-          <div className="max-h-80 overflow-x-auto overflow-y-auto">
-            <table className="min-w-[560px] w-full text-sm">
-              <thead className="sticky top-0 bg-gray-50 dark:bg-gray-800">
-                <tr>
-                  <th className="w-10 p-3 text-left">
-                    <input
-                      type="checkbox"
-                      checked={filteredRecipients.length > 0 && filteredRecipients.every((recipient) => selectedIds.has(recipient.registrationId))}
-                      onChange={toggleAllAttendanceRecipients}
-                      className="rounded border-gray-300"
-                    />
-                  </th>
-                  <th className="p-3 text-left">Recipient</th>
-                  <th className="hidden p-3 text-left sm:table-cell">Status</th>
-                  {attendanceEventDays > 1 && <th className="hidden p-3 text-left sm:table-cell">Days</th>}
-                  <th className="hidden p-3 text-left md:table-cell">Certificate</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y dark:divide-gray-700">
-                {filteredRecipients.length === 0 ? (
+        {attendanceAudience === 'guests' && (
+          <div className="mb-4 flex items-center justify-between rounded-lg border border-purple-200 bg-purple-50 px-4 py-3 text-sm text-purple-900">
+            <div>
+              <p className="font-medium">Guest handling</p>
+              <p className="text-xs text-purple-700">Include VIPs even without scanned attendance when needed.</p>
+            </div>
+            <div className="flex items-center gap-3">
+              <span className="text-xs font-medium">Force include non-attendees</span>
+              <Switch checked={includeGuestNonAttendees} onCheckedChange={setIncludeGuestNonAttendees} />
+            </div>
+          </div>
+        )}
+
+        {attendanceAudience === 'participants' ? (
+          <div className="overflow-hidden rounded-lg border dark:border-gray-700">
+            <div className="max-h-80 overflow-x-auto overflow-y-auto">
+              <table className="min-w-[560px] w-full text-sm">
+                <thead className="sticky top-0 bg-gray-50 dark:bg-gray-800">
                   <tr>
-                    <td colSpan={attendanceEventDays > 1 ? 5 : 4} className="p-8 text-center text-gray-400">
-                      No recipients match the current filter.
-                    </td>
+                    <th className="w-10 p-3 text-left">
+                      <input
+                        type="checkbox"
+                        checked={filteredRecipients.length > 0 && filteredRecipients.every((recipient) => selectedIds.has(recipient.registrationId))}
+                        onChange={toggleAllAttendanceRecipients}
+                        className="rounded border-gray-300"
+                      />
+                    </th>
+                    <th className="p-3 text-left">Recipient</th>
+                    <th className="hidden p-3 text-left sm:table-cell">Status</th>
+                    {attendanceEventDays > 1 && <th className="hidden p-3 text-left sm:table-cell">Days</th>}
+                    <th className="hidden p-3 text-left md:table-cell">Certificate</th>
                   </tr>
-                ) : (
-                  filteredRecipients.map((recipient) => (
-                    <tr
-                      key={recipient.registrationId}
-                      className={`transition-colors hover:bg-gray-50 dark:hover:bg-gray-800/50 ${
-                        selectedIds.has(recipient.registrationId)
-                          ? 'bg-blue-50/50 dark:bg-blue-900/10'
-                          : ''
-                      }`}
-                    >
-                      <td className="p-3">
-                        <input
-                          type="checkbox"
-                          checked={selectedIds.has(recipient.registrationId)}
-                          onChange={() => toggleAttendanceRecipient(recipient.registrationId)}
-                          className="rounded border-gray-300"
-                        />
+                </thead>
+                <tbody className="divide-y dark:divide-gray-700">
+                  {filteredRecipients.length === 0 ? (
+                    <tr>
+                      <td colSpan={attendanceEventDays > 1 ? 5 : 4} className="p-8 text-center text-gray-400">
+                        No recipients match the current filter.
                       </td>
-                      <td className="p-3">
-                        <div className="flex items-center gap-2.5">
-                          {recipient.userAvatar ? (
-                            <img src={recipient.userAvatar} alt="" className="h-8 w-8 shrink-0 rounded-full object-cover" />
-                          ) : (
-                            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gray-200 text-xs font-medium dark:bg-gray-700">
-                              {recipient.userName.charAt(0).toUpperCase()}
+                    </tr>
+                  ) : (
+                    filteredRecipients.map((recipient) => (
+                      <tr
+                        key={recipient.registrationId}
+                        className={`transition-colors hover:bg-gray-50 dark:hover:bg-gray-800/50 ${
+                          selectedIds.has(recipient.registrationId)
+                            ? 'bg-blue-50/50 dark:bg-blue-900/10'
+                            : ''
+                        }`}
+                      >
+                        <td className="p-3">
+                          <input
+                            type="checkbox"
+                            checked={selectedIds.has(recipient.registrationId)}
+                            onChange={() => toggleAttendanceRecipient(recipient.registrationId)}
+                            className="rounded border-gray-300"
+                          />
+                        </td>
+                        <td className="p-3">
+                          <div className="flex items-center gap-2.5">
+                            {recipient.userAvatar ? (
+                              <img src={recipient.userAvatar} alt="" className="h-8 w-8 shrink-0 rounded-full object-cover" />
+                            ) : (
+                              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gray-200 text-xs font-medium dark:bg-gray-700">
+                                {recipient.userName.charAt(0).toUpperCase()}
+                              </div>
+                            )}
+                            <div className="min-w-0">
+                              <p className="truncate font-medium">{recipient.userName}</p>
+                              <p className="truncate text-xs text-gray-500">{recipient.userEmail}</p>
                             </div>
-                          )}
-                          <div className="min-w-0">
-                            <p className="truncate font-medium">{recipient.userName}</p>
-                            <p className="truncate text-xs text-gray-500">{recipient.userEmail}</p>
                           </div>
-                        </div>
-                      </td>
-                      <td className="hidden p-3 sm:table-cell">
-                        {recipient.attended ? (
-                          <Badge variant="outline" className="border-green-300 text-green-700 dark:border-green-700 dark:text-green-400">
-                            <CheckCircle className="mr-1 h-3 w-3" />
-                            Attended
-                          </Badge>
-                        ) : (
-                          <Badge variant="outline" className="border-gray-300 text-gray-500">
-                            Not Attended
-                          </Badge>
-                        )}
-                      </td>
-                      {attendanceEventDays > 1 && (
+                        </td>
                         <td className="hidden p-3 sm:table-cell">
-                          <div className="flex flex-col gap-1">
-                            <Badge variant="outline" className="w-fit">
-                              {recipient.daysAttended ?? 0}/{attendanceEventDays} day{attendanceEventDays === 1 ? '' : 's'}
+                          {recipient.attended ? (
+                            <Badge variant="outline" className="border-green-300 text-green-700 dark:border-green-700 dark:text-green-400">
+                              <CheckCircle className="mr-1 h-3 w-3" />
+                              Attended
                             </Badge>
-                            {(recipient.dayAttendances?.length ?? 0) > 0 && (
-                              <p className="max-w-[220px] truncate text-xs text-gray-500">
-                                {recipient.dayAttendances
-                                  ?.filter((day) => day.attended)
-                                  .map((day) => attendanceDayLabels[day.dayNumber - 1] || `Day ${day.dayNumber}`)
-                                  .join(', ')}
-                              </p>
+                          ) : (
+                            <Badge variant="outline" className="border-gray-300 text-gray-500">
+                              Not Attended
+                            </Badge>
+                          )}
+                        </td>
+                        {attendanceEventDays > 1 && (
+                          <td className="hidden p-3 sm:table-cell">
+                            <div className="flex flex-col gap-1">
+                              <Badge variant="outline" className="w-fit">
+                                {recipient.daysAttended ?? 0}/{attendanceEventDays} day{attendanceEventDays === 1 ? '' : 's'}
+                              </Badge>
+                              {(recipient.dayAttendances?.length ?? 0) > 0 && (
+                                <p className="max-w-[220px] truncate text-xs text-gray-500">
+                                  {recipient.dayAttendances
+                                    ?.filter((day) => day.attended)
+                                    .map((day) => attendanceDayLabels[day.dayNumber - 1] || `Day ${day.dayNumber}`)
+                                    .join(', ')}
+                                </p>
+                              )}
+                            </div>
+                          </td>
+                        )}
+                        <td className="hidden p-3 md:table-cell">
+                          {recipient.hasCertificate ? (
+                            <Badge className="bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400">
+                              <Award className="mr-1 h-3 w-3" />
+                              {recipient.certificateType || recipient.certificateId || 'Issued'}
+                            </Badge>
+                          ) : (
+                            <span className="text-xs text-gray-400">None</span>
+                          )}
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        ) : (
+          <div className="overflow-hidden rounded-lg border dark:border-gray-700">
+            <div className="max-h-80 overflow-x-auto overflow-y-auto">
+              <table className="min-w-[700px] w-full text-sm">
+                <thead className="sticky top-0 bg-gray-50 dark:bg-gray-800">
+                  <tr>
+                    <th className="w-10 p-3 text-left">
+                      <input
+                        type="checkbox"
+                        checked={filteredGuestRecipients.length > 0 && filteredGuestRecipients.every((recipient) => selectedGuestIds.has(recipient.invitationId))}
+                        onChange={toggleAllGuestRecipients}
+                        className="rounded border-gray-300"
+                      />
+                    </th>
+                    <th className="p-3 text-left">Guest</th>
+                    <th className="p-3 text-left">Status</th>
+                    <th className="p-3 text-left">Role</th>
+                    <th className="p-3 text-left">Certificate Type</th>
+                    <th className="p-3 text-left">Certificate</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y dark:divide-gray-700">
+                  {filteredGuestRecipients.length === 0 ? (
+                    <tr>
+                      <td colSpan={6} className="p-8 text-center text-gray-400">
+                        No guest recipients match the current filter.
+                      </td>
+                    </tr>
+                  ) : (
+                    filteredGuestRecipients.map((recipient) => (
+                      <tr
+                        key={recipient.invitationId}
+                        className={selectedGuestIds.has(recipient.invitationId) ? 'bg-purple-50/50 dark:bg-purple-900/10' : ''}
+                      >
+                        <td className="p-3">
+                          <input
+                            type="checkbox"
+                            checked={selectedGuestIds.has(recipient.invitationId)}
+                            onChange={() => toggleGuestRecipient(recipient.invitationId)}
+                            className="rounded border-gray-300"
+                          />
+                        </td>
+                        <td className="p-3">
+                          <div>
+                            <p className="font-medium">{recipient.name}</p>
+                            <p className="text-xs text-gray-500">{recipient.email}</p>
+                            {recipient.designation && (
+                              <p className="text-xs text-gray-400">{recipient.designation}</p>
                             )}
                           </div>
                         </td>
-                      )}
-                      <td className="hidden p-3 md:table-cell">
-                        {recipient.hasCertificate ? (
-                          <Badge className="bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400">
-                            <Award className="mr-1 h-3 w-3" />
-                            {recipient.certificateType || recipient.certificateId || 'Issued'}
+                        <td className="p-3">
+                          <Badge variant="outline" className={recipient.attended ? 'border-green-300 text-green-700' : 'border-amber-300 text-amber-700'}>
+                            {recipient.attended ? 'Attended' : 'Force include'}
                           </Badge>
-                        ) : (
-                          <span className="text-xs text-gray-400">None</span>
-                        )}
-                      </td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
+                        </td>
+                        <td className="p-3">
+                          <Badge variant="outline">{recipient.role}</Badge>
+                        </td>
+                        <td className="p-3">
+                          <select
+                            value={recipient.certificateType}
+                            onChange={(event) => updateGuestRecipientType(recipient.invitationId, event.target.value as CertType)}
+                            className="h-9 rounded-md border border-gray-200 px-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
+                          >
+                            {CERT_TYPE_OPTIONS.map((option) => (
+                              <option key={option.value} value={option.value}>{option.label}</option>
+                            ))}
+                          </select>
+                        </td>
+                        <td className="p-3">
+                          {recipient.existingCertificateId ? (
+                            <Badge className="bg-amber-100 text-amber-800">
+                              <Award className="mr-1 h-3 w-3" />
+                              Issued
+                            </Badge>
+                          ) : recipient.certificateEnabled ? (
+                            <span className="text-xs text-gray-500">Eligible</span>
+                          ) : (
+                            <span className="text-xs text-gray-400">Disabled</span>
+                          )}
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
           </div>
-        </div>
+        )}
 
         <div className="mt-5 flex items-center justify-between">
           <Button variant="outline" onClick={() => setStep('mode')}>
@@ -1044,9 +1271,11 @@ export default function EventCertificateWizard({
           </Button>
           <div className="flex items-center gap-4">
             <p className="text-sm text-gray-500">
-              <span className="font-medium text-gray-900 dark:text-white">{selectedIds.size}</span> recipient{selectedIds.size !== 1 ? 's' : ''} selected
+              <span className="font-medium text-gray-900 dark:text-white">
+                {attendanceAudience === 'participants' ? selectedIds.size : selectedGuestIds.size}
+              </span> of {activeRecipientCount} {attendanceAudience} selected
             </p>
-            <Button onClick={() => setStep('signatories')} disabled={selectedIds.size === 0}>
+            <Button onClick={() => setStep('signatories')} disabled={selectedIds.size + selectedGuestIds.size === 0}>
               Next
               <ArrowRight className="ml-1.5 h-4 w-4" />
             </Button>
@@ -1789,6 +2018,13 @@ export default function EventCertificateWizard({
                   <span className="text-gray-500">Certificate Type</span>
                   <Badge variant="outline" className="w-fit">{attendanceCertType}</Badge>
 
+                  <span className="text-gray-500">Audience Mix</span>
+                  <span className="font-medium">
+                    {selectedIds.size} participant{selectedIds.size === 1 ? '' : 's'}
+                    {' · '}
+                    {selectedGuestIds.size} guest{selectedGuestIds.size === 1 ? '' : 's'}
+                  </span>
+
                   <span className="text-gray-500">Template</span>
                   <span className="font-medium capitalize">{attendanceTemplate}</span>
 
@@ -1916,6 +2152,7 @@ export default function EventCertificateWizard({
                 <p className="font-medium">What will happen:</p>
                 <ul className="list-disc list-inside space-y-0.5 text-blue-700 dark:text-blue-400">
                   <li>{selectedRecipientEmails.length} PDF certificate{selectedRecipientEmails.length !== 1 ? 's' : ''} will be generated.</li>
+                  <li>{selectedGuestIds.size} guest certificate{selectedGuestIds.size === 1 ? '' : 's'} are included in this batch.</li>
                   <li>Each certificate will be uploaded to cloud storage.</li>
                   <li>
                     {sendEmail
