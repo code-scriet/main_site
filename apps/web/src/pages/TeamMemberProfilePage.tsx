@@ -182,35 +182,35 @@ export default function TeamMemberProfilePage() {
     return [
       member.github
         ? (() => {
-            const href = buildSocialUrl(member.github, 'https://github.com');
-            return href ? { icon: Github, label: 'GitHub', href, color: 'hover:bg-gray-900 hover:text-white' } : null;
-          })()
+          const href = buildSocialUrl(member.github, 'https://github.com');
+          return href ? { icon: Github, label: 'GitHub', href, color: 'hover:bg-gray-900 hover:text-white' } : null;
+        })()
         : null,
       member.linkedin
         ? (() => {
-            const href = buildSocialUrl(member.linkedin, 'https://linkedin.com/in');
-            return href ? { icon: Linkedin, label: 'LinkedIn', href, color: 'hover:bg-[#0077b5] hover:text-white' } : null;
-          })()
+          const href = buildSocialUrl(member.linkedin, 'https://linkedin.com/in');
+          return href ? { icon: Linkedin, label: 'LinkedIn', href, color: 'hover:bg-[#0077b5] hover:text-white' } : null;
+        })()
         : null,
       member.twitter
         ? (() => {
-            const href = buildSocialUrl(member.twitter, 'https://twitter.com');
-            return href ? { icon: Twitter, label: 'Twitter', href, color: 'hover:bg-[#1da1f2] hover:text-white' } : null;
-          })()
+          const href = buildSocialUrl(member.twitter, 'https://twitter.com');
+          return href ? { icon: Twitter, label: 'Twitter', href, color: 'hover:bg-[#1da1f2] hover:text-white' } : null;
+        })()
         : null,
       member.instagram
         ? (() => {
-            const href = buildSocialUrl(member.instagram, 'https://instagram.com');
-            return href ? { icon: Instagram, label: 'Instagram', href, color: 'hover:bg-gradient-to-br hover:from-purple-600 hover:to-pink-500 hover:text-white' } : null;
-          })()
+          const href = buildSocialUrl(member.instagram, 'https://instagram.com');
+          return href ? { icon: Instagram, label: 'Instagram', href, color: 'hover:bg-gradient-to-br hover:from-purple-600 hover:to-pink-500 hover:text-white' } : null;
+        })()
         : null,
       member.website
         ? {
-            icon: Globe,
-            label: 'Website',
-            href: member.website,
-            color: 'hover:bg-emerald-600 hover:text-white',
-          }
+          icon: Globe,
+          label: 'Website',
+          href: member.website,
+          color: 'hover:bg-emerald-600 hover:text-white',
+        }
         : null,
     ].filter(Boolean) as SocialLink[];
   }, [member]);
@@ -252,8 +252,8 @@ export default function TeamMemberProfilePage() {
   }
 
   const profilePath = `/team/${member.slug || member.id}`;
-  const profileLink = typeof window === 'undefined' 
-    ? `https://codescriet.dev${profilePath}` 
+  const profileLink = typeof window === 'undefined'
+    ? `https://codescriet.dev${profilePath}`
     : `${window.location.origin}${profilePath}`;
 
   // Check which sections have content
@@ -294,7 +294,7 @@ export default function TeamMemberProfilePage() {
         ]}
       />
 
-      <div className="relative min-h-screen bg-white">
+      <div className="relative min-h-screen bg-white dark:bg-[#07090f]">
         {/* ═══════════════════════ HERO ═══════════════════════ */}
         <section className="relative overflow-hidden bg-gradient-to-br from-slate-900 via-amber-900 to-slate-900 pb-28 pt-10 text-white sm:pb-32 sm:pt-12">
           {/* Animated particles */}
@@ -390,7 +390,7 @@ export default function TeamMemberProfilePage() {
 
               {/* Bio tagline */}
               {member.bio?.trim() && (
-                <motion.div 
+                <motion.div
                   initial={{ opacity: 0, y: 30, scale: 0.95, filter: 'blur(8px)' }}
                   animate={{ opacity: 1, y: 0, scale: 1, filter: 'blur(0px)' }}
                   transition={{ duration: 1.2, delay: 0.2, type: 'spring', bounce: 0.4 }}
@@ -398,12 +398,12 @@ export default function TeamMemberProfilePage() {
                 >
                   {/* Decorative Glow Behind Card - Appears on hover */}
                   <div className="absolute -inset-1 bg-gradient-to-r from-amber-500/0 via-amber-500/10 to-amber-500/0 blur-xl opacity-0 group-hover:opacity-100 transition duration-1000" />
-                  
+
                   {/* Glass Card Container (Ultra subtle sheer glass) */}
-                  <motion.div 
+                  <motion.div
                     animate={{ y: [0, -4, 0] }}
                     whileHover={{ scale: 1.015, y: -6 }}
-                    transition={{ 
+                    transition={{
                       y: { duration: 6, repeat: Infinity, ease: 'easeInOut' },
                       scale: { type: 'spring', stiffness: 400, damping: 25 }
                     }}
@@ -411,13 +411,13 @@ export default function TeamMemberProfilePage() {
                   >
                     {/* Sweeping Hover Shine Effect */}
                     <div className="absolute inset-0 -translate-x-[150%] skew-x-[30deg] bg-gradient-to-r from-transparent via-white/[0.03] to-transparent transition-transform duration-1000 ease-out group-hover:translate-x-[200%]" />
-                    
+
                     {/* Top subtle gradient border */}
                     <div className="absolute top-0 inset-x-0 h-px bg-gradient-to-r from-transparent via-amber-100/10 to-transparent opacity-30 group-hover:opacity-100 transition-opacity duration-500" />
-                    
+
                     {/* Background Icon Watermark */}
                     <Quote className="absolute -top-6 -left-6 h-32 w-32 text-amber-50/[0.02] -rotate-12 transform-gpu transition-transform duration-700 group-hover:scale-110 group-hover:-rotate-6" />
-                    
+
                     {/* Content (Brighter text, stronger drop shadow, elegant sizing) */}
                     <div className="prose prose-base prose-invert relative z-10 mx-auto text-center prose-p:leading-relaxed prose-p:my-1 tracking-wide text-white font-medium drop-shadow-[0_1px_2px_rgba(0,0,0,0.8)] prose-strong:text-white prose-strong:font-bold prose-strong:drop-shadow-[0_2px_4px_rgba(0,0,0,0.9)] prose-a:text-amber-400 prose-a:underline hover:prose-a:text-amber-300 transition-colors [&_*]:!text-white [&_strong]:!text-white [&_a]:!text-amber-400">
                       <RichContent allowHtml>{member.bio}</RichContent>
@@ -449,7 +449,10 @@ export default function TeamMemberProfilePage() {
           {/* Wave transition */}
           <div className="absolute inset-x-0 bottom-0 overflow-hidden leading-[0]">
             <svg viewBox="0 0 1440 80" preserveAspectRatio="none" className="w-full" style={{ height: 80 }}>
-              <path d="M0,40 C360,80 1080,0 1440,40 L1440,80 L0,80 Z" fill="white" />
+              <path
+                d="M0,40 C360,80 1080,0 1440,40 L1440,80 L0,80 Z"
+                className="fill-white dark:fill-[#07090f]"
+              />
             </svg>
           </div>
         </section>
@@ -467,15 +470,15 @@ export default function TeamMemberProfilePage() {
                       initial={{ opacity: 0, y: 16 }}
                       animate={{ opacity: 1, y: 0 }}
                       transition={{ delay: 0.1 }}
-                      className="rounded-2xl border border-amber-100 bg-gradient-to-br from-amber-50/80 to-orange-50/50 p-6 shadow-sm sm:p-8"
+                      className="rounded-2xl border border-amber-100 bg-gradient-to-br from-amber-50/80 to-orange-50/50 p-6 shadow-sm dark:border-amber-900/40 dark:from-[#1a140b] dark:to-[#131019] dark:shadow-black/30 sm:p-8"
                     >
-                      <h2 className="mb-4 flex items-center gap-2.5 text-xl font-bold text-gray-900">
+                      <h2 className="mb-4 flex items-center gap-2.5 text-xl font-bold text-gray-900 dark:text-zinc-100">
                         <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-amber-400 to-orange-500 shadow-sm">
                           <Target className="h-4.5 w-4.5 text-white" />
                         </span>
                         Vision
                       </h2>
-                      <div className="prose prose-sm max-w-none text-gray-700 sm:prose-base">
+                      <div className="prose prose-sm max-w-none text-gray-700 prose-headings:text-gray-900 prose-a:text-amber-600 dark:text-zinc-300 dark:prose-headings:text-zinc-100 dark:prose-a:text-amber-300 sm:prose-base">
                         <RichContent allowHtml>{member.vision!}</RichContent>
                       </div>
                     </motion.div>
@@ -487,15 +490,15 @@ export default function TeamMemberProfilePage() {
                       initial={{ opacity: 0, y: 16 }}
                       animate={{ opacity: 1, y: 0 }}
                       transition={{ delay: 0.15 }}
-                      className="rounded-2xl border border-gray-100 bg-white p-6 shadow-sm sm:p-8"
+                      className="rounded-2xl border border-gray-100 bg-white p-6 shadow-sm dark:border-zinc-800 dark:bg-[#0d1017] dark:shadow-black/30 sm:p-8"
                     >
-                      <h2 className="mb-4 flex items-center gap-2.5 text-xl font-bold text-gray-900">
+                      <h2 className="mb-4 flex items-center gap-2.5 text-xl font-bold text-gray-900 dark:text-zinc-100">
                         <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-slate-600 to-slate-800 shadow-sm">
                           <BookOpen className="h-4.5 w-4.5 text-white" />
                         </span>
                         Story
                       </h2>
-                      <div className="prose prose-sm max-w-none text-gray-700 sm:prose-base">
+                      <div className="prose prose-sm max-w-none text-gray-700 prose-headings:text-gray-900 prose-a:text-amber-600 dark:text-zinc-300 dark:prose-headings:text-zinc-100 dark:prose-a:text-amber-300 sm:prose-base">
                         <RichContent allowHtml>{member.story || member.bio!}</RichContent>
                       </div>
                     </motion.div>
@@ -507,15 +510,15 @@ export default function TeamMemberProfilePage() {
                       initial={{ opacity: 0, y: 16 }}
                       animate={{ opacity: 1, y: 0 }}
                       transition={{ delay: 0.2 }}
-                      className="rounded-2xl border border-blue-100 bg-gradient-to-br from-blue-50/50 to-indigo-50/30 p-6 shadow-sm sm:p-8"
+                      className="rounded-2xl border border-blue-100 bg-gradient-to-br from-blue-50/50 to-indigo-50/30 p-6 shadow-sm dark:border-blue-900/40 dark:from-[#0d1426] dark:to-[#12162b] dark:shadow-black/30 sm:p-8"
                     >
-                      <h2 className="mb-4 flex items-center gap-2.5 text-xl font-bold text-gray-900">
+                      <h2 className="mb-4 flex items-center gap-2.5 text-xl font-bold text-gray-900 dark:text-zinc-100">
                         <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-blue-500 to-indigo-600 shadow-sm">
                           <Lightbulb className="h-4.5 w-4.5 text-white" />
                         </span>
                         Expertise
                       </h2>
-                      <div className="prose prose-sm max-w-none text-gray-700 sm:prose-base">
+                      <div className="prose prose-sm max-w-none text-gray-700 prose-headings:text-gray-900 prose-a:text-amber-600 dark:text-zinc-300 dark:prose-headings:text-zinc-100 dark:prose-a:text-amber-300 sm:prose-base">
                         <RichContent allowHtml>{member.expertise!}</RichContent>
                       </div>
                     </motion.div>
@@ -527,15 +530,15 @@ export default function TeamMemberProfilePage() {
                       initial={{ opacity: 0, y: 16 }}
                       animate={{ opacity: 1, y: 0 }}
                       transition={{ delay: 0.25 }}
-                      className="rounded-2xl border border-emerald-100 bg-gradient-to-br from-emerald-50/50 to-teal-50/30 p-6 shadow-sm sm:p-8"
+                      className="rounded-2xl border border-emerald-100 bg-gradient-to-br from-emerald-50/50 to-teal-50/30 p-6 shadow-sm dark:border-emerald-900/40 dark:from-[#0d1a16] dark:to-[#101b1e] dark:shadow-black/30 sm:p-8"
                     >
-                      <h2 className="mb-4 flex items-center gap-2.5 text-xl font-bold text-gray-900">
+                      <h2 className="mb-4 flex items-center gap-2.5 text-xl font-bold text-gray-900 dark:text-zinc-100">
                         <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-emerald-500 to-teal-600 shadow-sm">
                           <Award className="h-4.5 w-4.5 text-white" />
                         </span>
                         Achievements
                       </h2>
-                      <div className="prose prose-sm max-w-none text-gray-700 sm:prose-base">
+                      <div className="prose prose-sm max-w-none text-gray-700 prose-headings:text-gray-900 prose-a:text-amber-600 dark:text-zinc-300 dark:prose-headings:text-zinc-100 dark:prose-a:text-amber-300 sm:prose-base">
                         <RichContent allowHtml>{member.achievements!}</RichContent>
                       </div>
                     </motion.div>
@@ -549,28 +552,28 @@ export default function TeamMemberProfilePage() {
                     initial={{ opacity: 0, y: 16 }}
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ delay: 0.12 }}
-                    className="overflow-hidden rounded-2xl border border-amber-100 bg-white shadow-sm"
+                    className="overflow-hidden rounded-2xl border border-amber-100 bg-white shadow-sm dark:border-zinc-800 dark:bg-[#0d1017] dark:shadow-black/30"
                   >
-                    <div className="border-b border-gray-100 bg-gray-50 px-5 py-4">
-                      <h3 className="text-xs font-bold uppercase tracking-widest text-stone-500">Quick Info</h3>
+                    <div className="border-b border-gray-100 bg-gray-50 px-5 py-4 dark:border-zinc-800 dark:bg-[#11151e]">
+                      <h3 className="text-xs font-bold uppercase tracking-widest text-stone-500 dark:text-zinc-400">Quick Info</h3>
                     </div>
-                    <div className="divide-y divide-gray-50">
+                    <div className="divide-y divide-gray-50 dark:divide-zinc-800">
                       <div className="flex items-center gap-3 px-5 py-3.5">
-                        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-amber-100 text-amber-600">
+                        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-amber-100 text-amber-600 dark:bg-amber-500/15 dark:text-amber-300">
                           <Users2 className="h-4 w-4" />
                         </div>
                         <div className="min-w-0">
-                          <p className="text-[11px] text-gray-400">Team</p>
-                          <p className="truncate text-sm font-semibold text-gray-900">{member.team}</p>
+                          <p className="text-[11px] text-gray-400 dark:text-zinc-500">Team</p>
+                          <p className="truncate text-sm font-semibold text-gray-900 dark:text-zinc-100">{member.team}</p>
                         </div>
                       </div>
                       <div className="flex items-center gap-3 px-5 py-3.5">
-                        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-orange-100 text-orange-600">
+                        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-orange-100 text-orange-600 dark:bg-orange-500/15 dark:text-orange-300">
                           <Sparkles className="h-4 w-4" />
                         </div>
                         <div className="min-w-0">
-                          <p className="text-[11px] text-gray-400">Role</p>
-                          <p className="truncate text-sm font-semibold text-gray-900">{member.role}</p>
+                          <p className="text-[11px] text-gray-400 dark:text-zinc-500">Role</p>
+                          <p className="truncate text-sm font-semibold text-gray-900 dark:text-zinc-100">{member.role}</p>
                         </div>
                       </div>
                     </div>
@@ -582,9 +585,9 @@ export default function TeamMemberProfilePage() {
                       initial={{ opacity: 0, y: 16 }}
                       animate={{ opacity: 1, y: 0 }}
                       transition={{ delay: 0.18 }}
-                      className="rounded-2xl border border-amber-100 bg-white p-5 shadow-sm sm:p-6"
+                      className="rounded-2xl border border-amber-100 bg-white p-5 shadow-sm dark:border-zinc-800 dark:bg-[#0d1017] dark:shadow-black/30 sm:p-6"
                     >
-                      <h3 className="mb-4 flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-stone-500">
+                      <h3 className="mb-4 flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-stone-500 dark:text-zinc-400">
                         <Mail className="h-3.5 w-3.5" />
                         Connect
                       </h3>
@@ -595,7 +598,7 @@ export default function TeamMemberProfilePage() {
                             href={link.href}
                             target="_blank"
                             rel="noopener noreferrer"
-                            className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm font-medium text-gray-700 transition hover:border-amber-200 hover:bg-amber-50 hover:text-amber-700"
+                            className="inline-flex items-center gap-1.5 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-sm font-medium text-gray-700 transition hover:border-amber-200 hover:bg-amber-50 hover:text-amber-700 dark:border-zinc-700 dark:bg-zinc-900/70 dark:text-zinc-200 dark:hover:border-amber-400/60 dark:hover:bg-amber-500/10 dark:hover:text-amber-200"
                           >
                             <link.icon className="h-4 w-4" />
                             {link.label}
@@ -611,22 +614,22 @@ export default function TeamMemberProfilePage() {
                       initial={{ opacity: 0, y: 16 }}
                       animate={{ opacity: 1, y: 0 }}
                       transition={{ delay: 0.21 }}
-                      className="rounded-2xl border border-amber-100 bg-white p-5 shadow-sm sm:p-6"
+                      className="rounded-2xl border border-amber-100 bg-white p-5 shadow-sm dark:border-zinc-800 dark:bg-[#0d1017] dark:shadow-black/30 sm:p-6"
                     >
-                      <h3 className="mb-4 flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-stone-500">
+                      <h3 className="mb-4 flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-stone-500 dark:text-zinc-400">
                         <Award className="h-3.5 w-3.5" />
                         Contributions
                       </h3>
                       <div className="space-y-3">
                         {memberCredits.map((credit) => (
                           <div key={credit.id} className="flex items-start gap-3">
-                            <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-amber-100">
-                              <Award className="h-3.5 w-3.5 text-amber-600" />
+                            <div className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-amber-100 dark:bg-amber-500/15">
+                              <Award className="h-3.5 w-3.5 text-amber-600 dark:text-amber-300" />
                             </div>
                             <div className="min-w-0">
-                              <p className="text-sm font-semibold text-gray-900">{credit.title}</p>
+                              <p className="text-sm font-semibold text-gray-900 dark:text-zinc-100">{credit.title}</p>
                               {credit.description && (
-                                <p className="mt-0.5 text-xs text-gray-500 line-clamp-2">{credit.description}</p>
+                                <p className="mt-0.5 line-clamp-2 text-xs text-gray-500 dark:text-zinc-400">{credit.description}</p>
                               )}
                               <Badge variant="outline" className="mt-1 text-[10px] px-1.5 py-0">
                                 {credit.category}
@@ -637,7 +640,7 @@ export default function TeamMemberProfilePage() {
                       </div>
                       <Link
                         to="/credits"
-                        className="mt-4 inline-flex items-center gap-1 text-xs font-medium text-amber-600 hover:text-amber-700 transition"
+                        className="mt-4 inline-flex items-center gap-1 text-xs font-medium text-amber-600 transition hover:text-amber-700 dark:text-amber-300 dark:hover:text-amber-200"
                       >
                         View all credits
                         <ChevronRight className="h-3 w-3" />
@@ -650,17 +653,17 @@ export default function TeamMemberProfilePage() {
                     initial={{ opacity: 0, y: 16 }}
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ delay: 0.24 }}
-                    className="rounded-2xl border border-amber-100 bg-white p-5 shadow-sm sm:p-6"
+                    className="rounded-2xl border border-amber-100 bg-white p-5 shadow-sm dark:border-zinc-800 dark:bg-[#0d1017] dark:shadow-black/30 sm:p-6"
                   >
-                    <h3 className="mb-3 text-xs font-bold uppercase tracking-widest text-stone-500">Share Profile</h3>
-                    <p className="mb-3 text-sm text-gray-500">Share this page to connect or collaborate.</p>
-                    <div className="flex items-center gap-2 rounded-xl border border-gray-200 bg-gray-50 px-3 py-2.5">
-                      <LinkIcon className="h-4 w-4 shrink-0 text-gray-400" />
-                      <span className="flex-1 truncate text-xs text-gray-500">{profileLink}</span>
+                    <h3 className="mb-3 text-xs font-bold uppercase tracking-widest text-stone-500 dark:text-zinc-400">Share Profile</h3>
+                    <p className="mb-3 text-sm text-gray-500 dark:text-zinc-400">Share this page to connect or collaborate.</p>
+                    <div className="flex items-center gap-2 rounded-xl border border-gray-200 bg-gray-50 px-3 py-2.5 dark:border-zinc-700 dark:bg-zinc-900/70">
+                      <LinkIcon className="h-4 w-4 shrink-0 text-gray-400 dark:text-zinc-500" />
+                      <span className="flex-1 truncate text-xs text-gray-500 dark:text-zinc-400">{profileLink}</span>
                       <Button
                         variant="ghost"
                         size="sm"
-                        className="h-7 px-2 text-xs text-stone-600 hover:bg-gray-200 hover:text-stone-800"
+                        className="h-7 px-2 text-xs text-stone-600 hover:bg-gray-200 hover:text-stone-800 dark:text-zinc-300 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
                         onClick={handleShare}
                       >
                         {copied ? 'Copied' : 'Copy'}
@@ -674,13 +677,13 @@ export default function TeamMemberProfilePage() {
                       initial={{ opacity: 0, y: 16 }}
                       animate={{ opacity: 1, y: 0 }}
                       transition={{ delay: 0.3 }}
-                      className="rounded-2xl border border-emerald-200 bg-emerald-50 p-5 sm:p-6"
+                      className="rounded-2xl border border-emerald-200 bg-emerald-50 p-5 dark:border-emerald-900/50 dark:bg-emerald-950/20 sm:p-6"
                     >
-                      <p className="mb-1 text-sm font-semibold text-emerald-700">
+                      <p className="mb-1 text-sm font-semibold text-emerald-700 dark:text-emerald-300">
                         {isProfileOwner ? 'Your Profile' : 'Admin Access'}
                       </p>
-                      <p className="mb-4 text-xs text-emerald-600/80">
-                        {isProfileOwner 
+                      <p className="mb-4 text-xs text-emerald-600/80 dark:text-emerald-300/80">
+                        {isProfileOwner
                           ? 'Keep it updated so visitors see the latest info.'
                           : 'You can edit this profile as an admin.'}
                       </p>
@@ -702,14 +705,14 @@ export default function TeamMemberProfilePage() {
                 animate={{ opacity: 1, y: 0 }}
                 className="mx-auto max-w-2xl text-center py-12"
               >
-                <div className="mx-auto mb-6 flex h-20 w-20 items-center justify-center rounded-full bg-amber-100">
+                <div className="mx-auto mb-6 flex h-20 w-20 items-center justify-center rounded-full bg-amber-100 dark:bg-amber-500/15">
                   <Sparkles className="h-10 w-10 text-amber-600" />
                 </div>
-                <h2 className="mb-3 text-2xl font-bold text-gray-900">Profile Coming Soon</h2>
-                <p className="mb-6 text-gray-600">
+                <h2 className="mb-3 text-2xl font-bold text-gray-900 dark:text-zinc-100">Profile Coming Soon</h2>
+                <p className="mb-6 text-gray-600 dark:text-zinc-400">
                   {member.name} hasn't added their full profile yet. Check back soon for more details about their journey and expertise.
                 </p>
-                
+
                 {/* Social Links if available */}
                 {socialLinks.length > 0 && (
                   <div className="flex flex-wrap justify-center gap-3">
@@ -719,7 +722,7 @@ export default function TeamMemberProfilePage() {
                         href={link.href}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="inline-flex items-center gap-2 rounded-full border border-amber-200 bg-amber-50 px-5 py-2.5 text-sm font-medium text-amber-700 transition hover:bg-amber-100"
+                        className="inline-flex items-center gap-2 rounded-full border border-amber-200 bg-amber-50 px-5 py-2.5 text-sm font-medium text-amber-700 transition hover:bg-amber-100 dark:border-amber-900/50 dark:bg-amber-500/10 dark:text-amber-200 dark:hover:bg-amber-500/20"
                       >
                         <link.icon className="h-4 w-4" />
                         {link.label}
@@ -746,10 +749,10 @@ export default function TeamMemberProfilePage() {
 
         {/* Join Team CTA */}
         {!user && (
-          <section className="border-t border-gray-100 bg-gradient-to-br from-amber-50 to-orange-50 py-12">
+          <section className="border-t border-gray-100 bg-gradient-to-br from-amber-50 to-orange-50 py-12 dark:border-zinc-800 dark:from-[#0c1018] dark:to-[#121018]">
             <div className="container mx-auto max-w-4xl px-4 text-center">
-              <h2 className="mb-3 text-2xl font-bold text-gray-900">Join Our Team</h2>
-              <p className="mb-6 text-gray-600">
+              <h2 className="mb-3 text-2xl font-bold text-gray-900 dark:text-zinc-100">Join Our Team</h2>
+              <p className="mb-6 text-gray-600 dark:text-zinc-400">
                 Interested in being part of code.scriet? Check out our open positions.
               </p>
               <Link to="/join-us">

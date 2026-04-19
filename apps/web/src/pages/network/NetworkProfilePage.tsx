@@ -193,35 +193,35 @@ export default function NetworkProfilePage() {
     return [
       profile.linkedinUsername
         ? {
-            icon: Linkedin,
-            label: 'LinkedIn',
-            href: `https://linkedin.com/in/${profile.linkedinUsername}`,
-            accentClass: 'hover:bg-[#0077b5] hover:text-white',
-          }
+          icon: Linkedin,
+          label: 'LinkedIn',
+          href: `https://linkedin.com/in/${profile.linkedinUsername}`,
+          accentClass: 'hover:bg-[#0077b5] hover:text-white',
+        }
         : null,
       profile.twitterUsername
         ? {
-            icon: Twitter,
-            label: 'Twitter',
-            href: `https://twitter.com/${profile.twitterUsername}`,
-            accentClass: 'hover:bg-[#1da1f2] hover:text-white',
-          }
+          icon: Twitter,
+          label: 'Twitter',
+          href: `https://twitter.com/${profile.twitterUsername}`,
+          accentClass: 'hover:bg-[#1da1f2] hover:text-white',
+        }
         : null,
       profile.githubUsername
         ? {
-            icon: Github,
-            label: 'GitHub',
-            href: `https://github.com/${profile.githubUsername}`,
-            accentClass: 'hover:bg-slate-900 hover:text-white',
-          }
+          icon: Github,
+          label: 'GitHub',
+          href: `https://github.com/${profile.githubUsername}`,
+          accentClass: 'hover:bg-slate-900 hover:text-white',
+        }
         : null,
       profile.personalWebsite
         ? {
-            icon: Globe,
-            label: 'Website',
-            href: profile.personalWebsite,
-            accentClass: 'hover:bg-emerald-600 hover:text-white',
-          }
+          icon: Globe,
+          label: 'Website',
+          href: profile.personalWebsite,
+          accentClass: 'hover:bg-emerald-600 hover:text-white',
+        }
         : null,
     ].filter(Boolean) as SocialLink[];
   }, [profile]);
@@ -266,23 +266,23 @@ export default function NetworkProfilePage() {
   const TypeIcon = connectionTypeIcons[profile.connectionType];
   const profileTheme = isAlumni
     ? {
-        hero: 'from-slate-800 via-slate-900 to-stone-900',
-        stroke: 'from-amber-500 to-orange-500',
-        soft: 'from-gray-50 to-slate-50',
-        label: 'Alumni',
-        accentText: 'text-amber-600',
-        avatarColor: '44403c',
-        badgeBg: 'border-amber-200 bg-amber-100 text-amber-700',
-      }
+      hero: 'from-slate-800 via-slate-900 to-stone-900',
+      stroke: 'from-amber-500 to-orange-500',
+      soft: 'from-gray-50 to-slate-50',
+      label: 'Alumni',
+      accentText: 'text-amber-600',
+      avatarColor: '44403c',
+      badgeBg: 'border-amber-200 bg-amber-100 text-amber-700',
+    }
     : {
-        hero: 'from-slate-800 via-slate-900 to-stone-900',
-        stroke: 'from-amber-500 to-orange-500',
-        soft: 'from-gray-50 to-slate-50',
-        label: 'Industry Professional',
-        accentText: 'text-amber-600',
-        avatarColor: '44403c',
-        badgeBg: 'border-amber-200 bg-amber-100 text-amber-700',
-      };
+      hero: 'from-slate-800 via-slate-900 to-stone-900',
+      stroke: 'from-amber-500 to-orange-500',
+      soft: 'from-gray-50 to-slate-50',
+      label: 'Industry Professional',
+      accentText: 'text-amber-600',
+      avatarColor: '44403c',
+      badgeBg: 'border-amber-200 bg-amber-100 text-amber-700',
+    };
 
   const profileTitle = `${profile.fullName} | ${profile.designation} at ${profile.company}`;
   const profilePath = `/network/${profile.slug || profile.id}`;
@@ -303,11 +303,11 @@ export default function NetworkProfilePage() {
 
   const detailRows = isAlumni
     ? [
-        { label: 'Passout Year', value: profile.passoutYear ? String(profile.passoutYear) : null },
-        { label: 'Degree', value: profile.degree || null },
-        { label: 'Branch', value: profile.branch || null },
-        { label: 'Location', value: profile.currentLocation || null },
-      ].filter(row => row.value)
+      { label: 'Passout Year', value: profile.passoutYear ? String(profile.passoutYear) : null },
+      { label: 'Degree', value: profile.degree || null },
+      { label: 'Branch', value: profile.branch || null },
+      { label: 'Location', value: profile.currentLocation || null },
+    ].filter(row => row.value)
     : [];
 
   return (
@@ -343,7 +343,7 @@ export default function NetworkProfilePage() {
         ]}
       />
 
-      <div className="relative min-h-screen bg-white">
+      <div className="relative min-h-screen bg-white dark:bg-[#07090f]">
         {/* ═══════════════════════ HERO ═══════════════════════ */}
         <section className={`relative overflow-hidden bg-gradient-to-br ${profileTheme.hero} pb-24 pt-10 text-white sm:pb-28 sm:pt-12`}>
           {/* Animated particles */}
@@ -481,7 +481,7 @@ export default function NetworkProfilePage() {
 
               {/* Bio tagline */}
               {profile.bio?.trim() && (
-                <motion.div 
+                <motion.div
                   initial={{ opacity: 0, y: 30, scale: 0.95, filter: 'blur(8px)' }}
                   animate={{ opacity: 1, y: 0, scale: 1, filter: 'blur(0px)' }}
                   transition={{ duration: 1.2, delay: 0.2, type: 'spring', bounce: 0.4 }}
@@ -489,12 +489,12 @@ export default function NetworkProfilePage() {
                 >
                   {/* Decorative Glow Behind Card - Appears on hover */}
                   <div className="absolute -inset-1 bg-gradient-to-r from-amber-500/0 via-amber-500/10 to-amber-500/0 blur-xl opacity-0 group-hover:opacity-100 transition duration-1000" />
-                  
+
                   {/* Glass Card Container (Ultra subtle sheer glass) */}
-                  <motion.div 
+                  <motion.div
                     animate={{ y: [0, -4, 0] }}
                     whileHover={{ scale: 1.015, y: -6 }}
-                    transition={{ 
+                    transition={{
                       y: { duration: 6, repeat: Infinity, ease: 'easeInOut' },
                       scale: { type: 'spring', stiffness: 400, damping: 25 }
                     }}
@@ -502,13 +502,13 @@ export default function NetworkProfilePage() {
                   >
                     {/* Sweeping Hover Shine Effect */}
                     <div className="absolute inset-0 -translate-x-[150%] skew-x-[30deg] bg-gradient-to-r from-transparent via-white/[0.03] to-transparent transition-transform duration-1000 ease-out group-hover:translate-x-[200%]" />
-                    
+
                     {/* Top subtle gradient border */}
                     <div className="absolute top-0 inset-x-0 h-px bg-gradient-to-r from-transparent via-amber-100/10 to-transparent opacity-30 group-hover:opacity-100 transition-opacity duration-500" />
-                    
+
                     {/* Background Icon Watermark */}
                     <Quote className="absolute -top-6 -left-6 h-32 w-32 text-amber-50/[0.02] -rotate-12 transform-gpu transition-transform duration-700 group-hover:scale-110 group-hover:-rotate-6" />
-                    
+
                     {/* Content (Brighter text, stronger drop shadow, elegant sizing) */}
                     <div className="prose prose-base prose-invert relative z-10 mx-auto text-center prose-p:leading-relaxed prose-p:my-1 tracking-wide text-white font-medium drop-shadow-[0_1px_2px_rgba(0,0,0,0.8)] prose-strong:text-white prose-strong:font-bold prose-strong:drop-shadow-[0_2px_4px_rgba(0,0,0,0.9)] prose-a:text-amber-400 prose-a:underline hover:prose-a:text-amber-300 transition-colors [&_*]:!text-white [&_strong]:!text-white [&_a]:!text-amber-400">
                       <RichContent allowHtml>{profile.bio}</RichContent>
@@ -540,7 +540,10 @@ export default function NetworkProfilePage() {
           {/* Curved wave into white — the profile card peeks up through */}
           <div className="absolute inset-x-0 bottom-0 overflow-hidden leading-[0]">
             <svg viewBox="0 0 1440 80" preserveAspectRatio="none" className="w-full" style={{ height: 80 }}>
-              <path d="M0,40 C360,80 1080,0 1440,40 L1440,80 L0,80 Z" fill="white" />
+              <path
+                d="M0,40 C360,80 1080,0 1440,40 L1440,80 L0,80 Z"
+                className="fill-white dark:fill-[#07090f]"
+              />
             </svg>
           </div>
         </section>
@@ -551,8 +554,8 @@ export default function NetworkProfilePage() {
 
             {/* Floating ambient blobs */}
             <div className="pointer-events-none absolute inset-0 overflow-hidden">
-              <div className="absolute -right-14 top-24 h-48 w-48 rounded-full bg-amber-100/35 blur-2xl sm:-right-20 sm:h-80 sm:w-80 sm:blur-3xl" />
-              <div className="absolute -left-14 top-96 h-40 w-40 rounded-full bg-orange-100/30 blur-2xl sm:-left-20 sm:h-64 sm:w-64 sm:blur-3xl" />
+              <div className="absolute -right-14 top-24 h-48 w-48 rounded-full bg-amber-100/35 blur-2xl dark:bg-amber-600/10 sm:-right-20 sm:h-80 sm:w-80 sm:blur-3xl" />
+              <div className="absolute -left-14 top-96 h-40 w-40 rounded-full bg-orange-100/30 blur-2xl dark:bg-orange-600/10 sm:-left-20 sm:h-64 sm:w-64 sm:blur-3xl" />
             </div>
 
             <div className="relative grid grid-cols-1 gap-6 xl:grid-cols-[1.65fr_1fr] xl:gap-8">
@@ -566,16 +569,16 @@ export default function NetworkProfilePage() {
                     initial={{ opacity: 0, y: 14 }}
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ delay: 0.08 }}
-                    className="performance-surface relative overflow-hidden rounded-2xl bg-gradient-to-br from-amber-50 to-orange-50 border border-amber-200 p-6 shadow-sm sm:p-8"
+                    className="performance-surface relative overflow-hidden rounded-2xl border border-amber-200 bg-gradient-to-br from-amber-50 to-orange-50 p-6 shadow-sm dark:border-amber-900/40 dark:from-[#19140b] dark:to-[#13111a] dark:shadow-black/30 sm:p-8"
                   >
                     <div className="absolute inset-y-0 left-0 w-1 rounded-l-2xl bg-gradient-to-b from-amber-400 to-orange-500" />
-                    <h2 className="relative mb-4 flex items-center gap-2.5 text-xl font-bold text-gray-900">
+                    <h2 className="relative mb-4 flex items-center gap-2.5 text-xl font-bold text-gray-900 dark:text-zinc-100">
                       <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-gradient-to-br from-amber-400 to-orange-500 shadow-sm">
                         <Lightbulb className="h-4 w-4 text-white" />
                       </span>
                       Vision
                     </h2>
-                    <div className="prose prose-sm max-w-none prose-amber sm:prose-base prose-headings:text-gray-900 prose-p:text-gray-700 prose-a:text-amber-600">
+                    <div className="prose prose-sm max-w-none prose-amber prose-headings:text-gray-900 prose-p:text-gray-700 prose-a:text-amber-600 dark:prose-headings:text-zinc-100 dark:prose-p:text-zinc-300 dark:prose-a:text-amber-300 sm:prose-base">
                       <RichContent allowHtml>{profile.vision}</RichContent>
                     </div>
                   </motion.div>
@@ -587,16 +590,16 @@ export default function NetworkProfilePage() {
                     initial={{ opacity: 0, y: 14 }}
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ delay: 0.1 }}
-                    className="performance-surface relative overflow-hidden rounded-2xl bg-white border border-amber-100 p-6 shadow-sm sm:p-8"
+                    className="performance-surface relative overflow-hidden rounded-2xl border border-amber-100 bg-white p-6 shadow-sm dark:border-zinc-800 dark:bg-[#0d1017] dark:shadow-black/30 sm:p-8"
                   >
-                    <div className="pointer-events-none absolute right-4 top-2 text-8xl font-serif leading-none text-amber-100 select-none sm:text-9xl">"</div>
-                    <h2 className="relative mb-4 flex items-center gap-2.5 text-xl font-bold text-gray-900">
+                    <div className="pointer-events-none absolute right-4 top-2 select-none text-8xl font-serif leading-none text-amber-100 dark:text-amber-500/10 sm:text-9xl">"</div>
+                    <h2 className="relative mb-4 flex items-center gap-2.5 text-xl font-bold text-gray-900 dark:text-zinc-100">
                       <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-gradient-to-br from-amber-400 to-orange-500 shadow-sm">
                         <BookOpen className="h-4 w-4 text-white" />
                       </span>
                       My Story
                     </h2>
-                    <div className="prose prose-sm max-w-none prose-amber sm:prose-base prose-headings:text-gray-900 prose-p:text-gray-600 prose-a:text-amber-600">
+                    <div className="prose prose-sm max-w-none prose-amber prose-headings:text-gray-900 prose-p:text-gray-600 prose-a:text-amber-600 dark:prose-headings:text-zinc-100 dark:prose-p:text-zinc-300 dark:prose-a:text-amber-300 sm:prose-base">
                       <RichContent allowHtml>{profile.story}</RichContent>
                     </div>
                   </motion.div>
@@ -608,17 +611,17 @@ export default function NetworkProfilePage() {
                     initial={{ opacity: 0, y: 14 }}
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ delay: 0.1 }}
-                    className="performance-surface relative overflow-hidden rounded-2xl bg-white border border-amber-100 p-6 shadow-sm sm:p-8"
+                    className="performance-surface relative overflow-hidden rounded-2xl border border-amber-100 bg-white p-6 shadow-sm dark:border-zinc-800 dark:bg-[#0d1017] dark:shadow-black/30 sm:p-8"
                   >
                     {/* Decorative quotation mark */}
-                    <div className="pointer-events-none absolute right-4 top-2 text-8xl font-serif leading-none text-amber-100 select-none sm:text-9xl">"</div>
-                    <h2 className="relative mb-4 flex items-center gap-2.5 text-xl font-bold text-gray-900">
+                    <div className="pointer-events-none absolute right-4 top-2 select-none text-8xl font-serif leading-none text-amber-100 dark:text-amber-500/10 sm:text-9xl">"</div>
+                    <h2 className="relative mb-4 flex items-center gap-2.5 text-xl font-bold text-gray-900 dark:text-zinc-100">
                       <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-gradient-to-br from-amber-400 to-orange-500 shadow-sm">
                         <Sparkles className="h-4 w-4 text-white" />
                       </span>
                       About
                     </h2>
-                    <p className="relative whitespace-pre-line leading-relaxed text-gray-600">{aboutSummary}</p>
+                    <p className="relative whitespace-pre-line leading-relaxed text-gray-600 dark:text-zinc-300">{aboutSummary}</p>
                   </motion.div>
                 )}
 
@@ -628,15 +631,15 @@ export default function NetworkProfilePage() {
                     initial={{ opacity: 0, y: 14 }}
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ delay: 0.14 }}
-                    className="performance-surface relative overflow-hidden rounded-2xl bg-white border border-amber-100 p-6 shadow-sm sm:p-8"
+                    className="performance-surface relative overflow-hidden rounded-2xl border border-amber-100 bg-white p-6 shadow-sm dark:border-zinc-800 dark:bg-[#0d1017] dark:shadow-black/30 sm:p-8"
                   >
-                    <h2 className="relative mb-4 flex items-center gap-2.5 text-xl font-bold text-gray-900">
+                    <h2 className="relative mb-4 flex items-center gap-2.5 text-xl font-bold text-gray-900 dark:text-zinc-100">
                       <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-gradient-to-br from-amber-400 to-orange-500 shadow-sm">
                         <Wrench className="h-4 w-4 text-white" />
                       </span>
                       Expertise
                     </h2>
-                    <div className="prose prose-sm max-w-none prose-amber sm:prose-base prose-headings:text-gray-900 prose-p:text-gray-600 prose-a:text-amber-600">
+                    <div className="prose prose-sm max-w-none prose-amber prose-headings:text-gray-900 prose-p:text-gray-600 prose-a:text-amber-600 dark:prose-headings:text-zinc-100 dark:prose-p:text-zinc-300 dark:prose-a:text-amber-300 sm:prose-base">
                       <RichContent allowHtml>{profile.expertise}</RichContent>
                     </div>
                   </motion.div>
@@ -647,17 +650,17 @@ export default function NetworkProfilePage() {
                   initial={{ opacity: 0, y: 14 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ delay: 0.16 }}
-                  className="performance-surface relative overflow-hidden rounded-2xl border border-amber-200 bg-amber-50/30 p-6 shadow-sm sm:p-8"
+                  className="performance-surface relative overflow-hidden rounded-2xl border border-amber-200 bg-amber-50/30 p-6 shadow-sm dark:border-amber-900/40 dark:bg-amber-950/20 dark:shadow-black/30 sm:p-8"
                 >
                   {/* thick left accent bar */}
                   <div className="absolute inset-y-0 left-0 w-1 rounded-l-2xl bg-gradient-to-b from-amber-400 to-orange-500" />
-                  <h2 className="mb-4 flex items-center gap-2.5 text-xl font-bold text-gray-900">
+                  <h2 className="mb-4 flex items-center gap-2.5 text-xl font-bold text-gray-900 dark:text-zinc-100">
                     <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-gradient-to-br from-amber-400 to-orange-500 shadow-sm">
                       <Handshake className="h-4 w-4 text-white" />
                     </span>
                     Community Contribution
                   </h2>
-                  <p className="whitespace-pre-line leading-relaxed text-gray-700">{supportSummary}</p>
+                  <p className="whitespace-pre-line leading-relaxed text-gray-700 dark:text-zinc-300">{supportSummary}</p>
                 </motion.div>
 
                 {/* Highlights */}
@@ -666,20 +669,20 @@ export default function NetworkProfilePage() {
                     initial={{ opacity: 0, y: 14 }}
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ delay: 0.22 }}
-                    className="rounded-2xl bg-white border border-amber-100 p-6 shadow-sm sm:p-8"
+                    className="rounded-2xl border border-amber-100 bg-white p-6 shadow-sm dark:border-zinc-800 dark:bg-[#0d1017] dark:shadow-black/30 sm:p-8"
                   >
-                    <h2 className="mb-4 flex items-center gap-2.5 text-xl font-bold text-gray-900">
+                    <h2 className="mb-4 flex items-center gap-2.5 text-xl font-bold text-gray-900 dark:text-zinc-100">
                       <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-gradient-to-br from-amber-400 to-orange-500 shadow-sm">
                         <Award className="h-4 w-4 text-white" />
                       </span>
                       Highlights &amp; Contributions
                     </h2>
                     {profile.adminNotes ? (
-                      <div className="prose prose-sm max-w-none prose-amber sm:prose-base">
+                      <div className="prose prose-sm max-w-none prose-amber prose-headings:text-gray-900 prose-p:text-gray-600 prose-a:text-amber-600 dark:prose-headings:text-zinc-100 dark:prose-p:text-zinc-300 dark:prose-a:text-amber-300 sm:prose-base">
                         <RichContent allowHtml>{profile.adminNotes}</RichContent>
                       </div>
                     ) : (
-                      <p className="whitespace-pre-line leading-relaxed text-gray-600">{profile.achievements}</p>
+                      <p className="whitespace-pre-line leading-relaxed text-gray-600 dark:text-zinc-300">{profile.achievements}</p>
                     )}
                   </motion.div>
                 )}
@@ -690,16 +693,16 @@ export default function NetworkProfilePage() {
                     initial={{ opacity: 0, y: 14 }}
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ delay: 0.28 }}
-                    className="rounded-2xl bg-white border border-amber-100 p-6 shadow-sm sm:p-8"
+                    className="rounded-2xl border border-amber-100 bg-white p-6 shadow-sm dark:border-zinc-800 dark:bg-[#0d1017] dark:shadow-black/30 sm:p-8"
                   >
-                    <h2 className="mb-7 flex items-center gap-2.5 text-xl font-bold text-gray-900">
+                    <h2 className="mb-7 flex items-center gap-2.5 text-xl font-bold text-gray-900 dark:text-zinc-100">
                       <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-gradient-to-br from-amber-400 to-orange-500 shadow-sm">
                         <Calendar className="h-4 w-4 text-white" />
                       </span>
                       Sessions &amp; Engagement
                     </h2>
 
-                    <div className="relative space-y-5 pl-7 before:absolute before:inset-y-0 before:left-3 before:w-0.5 before:bg-gray-200">
+                    <div className="relative space-y-5 pl-7 before:absolute before:inset-y-0 before:left-3 before:w-0.5 before:bg-gray-200 dark:before:bg-zinc-700">
                       {parsedEvents.map((event, index) => {
                         const EventIcon = getEventIcon(event.type);
                         return (
@@ -709,24 +712,24 @@ export default function NetworkProfilePage() {
                             className="relative"
                           >
                             {/* Timeline dot */}
-                            <div className="absolute -left-[25px] top-3.5 flex h-5 w-5 items-center justify-center rounded-full bg-amber-500 shadow ring-4 ring-white">
+                            <div className="absolute -left-[25px] top-3.5 flex h-5 w-5 items-center justify-center rounded-full bg-amber-500 shadow ring-4 ring-white dark:ring-[#0d1017]">
                               <EventIcon className="h-2.5 w-2.5 text-white" />
                             </div>
-                            <div className="rounded-xl border border-gray-100 bg-gray-50/60 p-4 shadow-sm transition-shadow hover:shadow-md sm:p-5">
-                              <div className="flex flex-wrap items-center gap-2 text-xs text-gray-400 mb-1.5">
+                            <div className="rounded-xl border border-gray-100 bg-gray-50/60 p-4 shadow-sm transition-shadow hover:shadow-md dark:border-zinc-700 dark:bg-zinc-900/70 dark:hover:shadow-black/30 sm:p-5">
+                              <div className="mb-1.5 flex flex-wrap items-center gap-2 text-xs text-gray-400 dark:text-zinc-500">
                                 <span>{event.date}</span>
-                                {event.type && <><span>·</span><span className="rounded-full bg-stone-100 px-2 py-0.5 text-stone-600 font-medium">{event.type}</span></>}
+                                {event.type && <><span>·</span><span className="rounded-full bg-stone-100 px-2 py-0.5 font-medium text-stone-600 dark:bg-zinc-800 dark:text-zinc-300">{event.type}</span></>}
                               </div>
-                              <h3 className="font-semibold leading-tight text-gray-900">{event.title}</h3>
+                              <h3 className="font-semibold leading-tight text-gray-900 dark:text-zinc-100">{event.title}</h3>
                               {event.description && (
-                                <p className="mt-1.5 text-sm leading-relaxed text-gray-500">{event.description}</p>
+                                <p className="mt-1.5 text-sm leading-relaxed text-gray-500 dark:text-zinc-400">{event.description}</p>
                               )}
                               {event.link && (
                                 <a
                                   href={event.link}
                                   target="_blank"
                                   rel="noopener noreferrer"
-                                  className="mt-2.5 inline-flex items-center gap-1.5 text-sm font-medium text-amber-600 hover:underline"
+                                  className="mt-2.5 inline-flex items-center gap-1.5 text-sm font-medium text-amber-600 hover:underline dark:text-amber-300"
                                 >
                                   Open session link
                                   <ExternalLink className="h-3.5 w-3.5" />
@@ -749,20 +752,20 @@ export default function NetworkProfilePage() {
                   initial={{ opacity: 0, y: 14 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ delay: 0.12 }}
-                  className="overflow-hidden rounded-2xl bg-white border border-amber-100 shadow-sm"
+                  className="overflow-hidden rounded-2xl border border-amber-100 bg-white shadow-sm dark:border-zinc-800 dark:bg-[#0d1017] dark:shadow-black/30"
                 >
-                  <div className="bg-gray-50 px-5 py-4 border-b border-gray-100">
-                    <h3 className="text-xs font-bold uppercase tracking-widest text-stone-500">Quick Info</h3>
+                  <div className="border-b border-gray-100 bg-gray-50 px-5 py-4 dark:border-zinc-800 dark:bg-[#11151e]">
+                    <h3 className="text-xs font-bold uppercase tracking-widest text-stone-500 dark:text-zinc-400">Quick Info</h3>
                   </div>
-                  <div className="divide-y divide-gray-50">
+                  <div className="divide-y divide-gray-50 dark:divide-zinc-800">
                     {snapshotRows.map((row) => (
                       <div key={row.label} className="flex items-center gap-3 px-5 py-3.5">
-                        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-amber-100 text-amber-600">
+                        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-amber-100 text-amber-600 dark:bg-amber-500/15 dark:text-amber-300">
                           <row.icon className="h-4 w-4" />
                         </div>
                         <div className="min-w-0">
-                          <p className="text-[11px] text-gray-400">{row.label}</p>
-                          <p className="truncate text-sm font-semibold text-gray-900">{row.value}</p>
+                          <p className="text-[11px] text-gray-400 dark:text-zinc-500">{row.label}</p>
+                          <p className="truncate text-sm font-semibold text-gray-900 dark:text-zinc-100">{row.value}</p>
                         </div>
                       </div>
                     ))}
@@ -775,21 +778,21 @@ export default function NetworkProfilePage() {
                     initial={{ opacity: 0, y: 14 }}
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ delay: 0.18 }}
-                    className="overflow-hidden rounded-2xl bg-white border border-amber-100 shadow-sm"
+                    className="overflow-hidden rounded-2xl border border-amber-100 bg-white shadow-sm dark:border-zinc-800 dark:bg-[#0d1017] dark:shadow-black/30"
                   >
-                    <div className="bg-gray-50 px-5 py-4 border-b border-gray-100">
-                      <h3 className="text-xs font-bold uppercase tracking-widest text-stone-500">Academic Background</h3>
+                    <div className="border-b border-gray-100 bg-gray-50 px-5 py-4 dark:border-zinc-800 dark:bg-[#11151e]">
+                      <h3 className="text-xs font-bold uppercase tracking-widest text-stone-500 dark:text-zinc-400">Academic Background</h3>
                     </div>
-                    <div className="divide-y divide-gray-50">
+                    <div className="divide-y divide-gray-50 dark:divide-zinc-800">
                       {[
                         ...detailRows,
                         profile.rollNumber ? { label: 'Roll Number', value: profile.rollNumber } : null,
                       ]
                         .filter(Boolean)
                         .map((row) => (
-                          <div key={(row as {label:string;value:string}).label} className="flex items-center justify-between gap-3 px-5 py-3">
-                            <span className="text-sm text-gray-500">{(row as {label:string;value:string}).label}</span>
-                            <span className="text-right text-sm font-semibold text-gray-900">{(row as {label:string;value:string}).value}</span>
+                          <div key={(row as { label: string; value: string }).label} className="flex items-center justify-between gap-3 px-5 py-3">
+                            <span className="text-sm text-gray-500 dark:text-zinc-400">{(row as { label: string; value: string }).label}</span>
+                            <span className="text-right text-sm font-semibold text-gray-900 dark:text-zinc-100">{(row as { label: string; value: string }).value}</span>
                           </div>
                         ))}
                     </div>
@@ -801,17 +804,17 @@ export default function NetworkProfilePage() {
                   initial={{ opacity: 0, y: 14 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ delay: 0.24 }}
-                  className="rounded-2xl bg-white border border-amber-100 p-5 shadow-sm sm:p-6"
+                  className="rounded-2xl border border-amber-100 bg-white p-5 shadow-sm dark:border-zinc-800 dark:bg-[#0d1017] dark:shadow-black/30 sm:p-6"
                 >
-                  <h3 className="mb-3 text-xs font-bold uppercase tracking-widest text-stone-500">Share Profile</h3>
-                  <p className="mb-3 text-sm text-gray-500">Share this page for collaboration or guidance requests.</p>
-                  <div className="flex items-center gap-2 rounded-xl border border-gray-200 bg-gray-50 px-3 py-2.5">
-                    <LinkIcon className="h-4 w-4 shrink-0 text-gray-400" />
-                    <span className="flex-1 truncate text-xs text-gray-500">{profileLink}</span>
+                  <h3 className="mb-3 text-xs font-bold uppercase tracking-widest text-stone-500 dark:text-zinc-400">Share Profile</h3>
+                  <p className="mb-3 text-sm text-gray-500 dark:text-zinc-400">Share this page for collaboration or guidance requests.</p>
+                  <div className="flex items-center gap-2 rounded-xl border border-gray-200 bg-gray-50 px-3 py-2.5 dark:border-zinc-700 dark:bg-zinc-900/70">
+                    <LinkIcon className="h-4 w-4 shrink-0 text-gray-400 dark:text-zinc-500" />
+                    <span className="flex-1 truncate text-xs text-gray-500 dark:text-zinc-400">{profileLink}</span>
                     <Button
                       variant="ghost"
                       size="sm"
-                      className="h-7 px-2 text-xs text-stone-600 hover:bg-gray-200 hover:text-stone-800"
+                      className="h-7 px-2 text-xs text-stone-600 hover:bg-gray-200 hover:text-stone-800 dark:text-zinc-300 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
                       onClick={handleShare}
                     >
                       {copied ? 'Copied' : 'Copy'}
@@ -825,12 +828,12 @@ export default function NetworkProfilePage() {
                     initial={{ opacity: 0, y: 14 }}
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ delay: 0.3 }}
-                    className="rounded-2xl border border-emerald-200 bg-emerald-50 p-5 sm:p-6"
+                    className="rounded-2xl border border-emerald-200 bg-emerald-50 p-5 dark:border-emerald-900/50 dark:bg-emerald-950/20 sm:p-6"
                   >
-                    <p className="mb-1 text-sm font-semibold text-emerald-700">
+                    <p className="mb-1 text-sm font-semibold text-emerald-700 dark:text-emerald-300">
                       {isProfileOwner ? 'You own this profile' : 'Admin Access'}
                     </p>
-                    <p className="mb-4 text-xs text-emerald-600/80">
+                    <p className="mb-4 text-xs text-emerald-600/80 dark:text-emerald-300/80">
                       {isProfileOwner ? 'Keep it updated so visitors see the latest info.' : 'You can edit this profile as an administrator.'}
                     </p>
                     <Button
@@ -849,10 +852,10 @@ export default function NetworkProfilePage() {
                     initial={{ opacity: 0, y: 14 }}
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ delay: 0.36 }}
-                    className="rounded-2xl border border-amber-200 bg-gradient-to-br from-amber-50 to-orange-50 p-5 sm:p-6"
+                    className="rounded-2xl border border-amber-200 bg-gradient-to-br from-amber-50 to-orange-50 p-5 dark:border-amber-900/40 dark:from-[#16120b] dark:to-[#14101a] sm:p-6"
                   >
-                    <p className="mb-1 text-sm font-semibold text-gray-900">Join Our Network</p>
-                    <p className="mb-4 text-xs text-gray-600">
+                    <p className="mb-1 text-sm font-semibold text-gray-900 dark:text-zinc-100">Join Our Network</p>
+                    <p className="mb-4 text-xs text-gray-600 dark:text-zinc-400">
                       Alumnus or industry professional? Register to get your own profile page.
                     </p>
                     <Link to="/join-our-network">
