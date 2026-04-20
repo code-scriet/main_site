@@ -23,7 +23,7 @@ const IST_TIMEZONE = 'Asia/Kolkata';
 const createPollSchema = z.object({
   question: z.string().trim().min(5).max(500),
   description: z.string().trim().max(4000).optional().nullable(),
-  options: z.array(z.string().trim().min(1).max(240)).min(2).max(12),
+  options: z.array(z.string().trim().min(1).max(240)).min(0).max(12),
   allowMultipleChoices: z.boolean().optional(),
   allowVoteChange: z.boolean().optional(),
   isAnonymous: z.boolean().optional(),
@@ -573,8 +573,8 @@ pollsRouter.post('/', authMiddleware, requireRole('ADMIN'), async (req: Request,
     }
 
     const normalizedOptions = normalizeOptionTexts(parsed.data.options);
-    if (normalizedOptions.length < 2) {
-      return ApiResponse.badRequest(res, 'At least two unique poll options are required');
+    if (normalizedOptions.length === 1) {
+      return ApiResponse.badRequest(res, 'Provide either zero options (question-only mode) or at least two unique options');
     }
 
     const slug = await generatePollSlug(parsed.data.question);
@@ -586,7 +586,7 @@ pollsRouter.post('/', authMiddleware, requireRole('ADMIN'), async (req: Request,
           question: sanitizeText(parsed.data.question).trim(),
           description,
           slug,
-          allowMultipleChoices: parsed.data.allowMultipleChoices ?? false,
+          allowMultipleChoices: normalizedOptions.length === 0 ? false : parsed.data.allowMultipleChoices ?? false,
           allowVoteChange: parsed.data.allowVoteChange ?? true,
           isAnonymous: parsed.data.isAnonymous ?? false,
           deadline: parsed.data.deadline ? new Date(parsed.data.deadline) : null,
@@ -654,8 +654,8 @@ pollsRouter.put('/:id', authMiddleware, requireRole('ADMIN'), async (req: Reques
     }
 
     const normalizedOptions = parsed.data.options ? normalizeOptionTexts(parsed.data.options) : null;
-    if (parsed.data.options && (!normalizedOptions || normalizedOptions.length < 2)) {
-      return ApiResponse.badRequest(res, 'At least two unique poll options are required');
+    if (parsed.data.options && (!normalizedOptions || normalizedOptions.length === 1)) {
+      return ApiResponse.badRequest(res, 'Provide either zero options (question-only mode) or at least two unique options');
     }
 
     const nextPublished = parsed.data.isPublished ?? existingPoll.isPublished;
@@ -696,6 +696,10 @@ pollsRouter.put('/:id', authMiddleware, requireRole('ADMIN'), async (req: Reques
           sortOrder: index,
         })),
       };
+
+      if (normalizedOptions.length === 0) {
+        updateData.allowMultipleChoices = false;
+      }
     }
 
     const poll = await withRetry(() =>
@@ -1022,6 +1026,10 @@ pollsRouter.post('/:idOrSlug/vote', authMiddleware, requireRole('USER'), async (
     }
     if (isPollClosed(poll.deadline)) {
       return ApiResponse.forbidden(res, 'Voting for this poll has closed');
+    }
+
+    if (poll.options.length === 0) {
+      return ApiResponse.conflict(res, 'This is a question-only poll and does not accept votes');
     }
 
     const optionIds = Array.from(new Set(parsed.data.optionIds));

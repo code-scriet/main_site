@@ -34,6 +34,7 @@ type DetailTab = 'overview' | 'responses' | 'feedback' | 'editor';
 type ResponseSort = 'NEWEST' | 'OLDEST';
 type FeedbackSort = 'NEWEST' | 'OLDEST' | 'LONGEST';
 type FeedbackLengthFilter = 'ALL' | 'SHORT' | 'MEDIUM' | 'LONG';
+type PollType = 'NORMAL' | 'QUESTION';
 
 const EMPTY_FORM: PollInput = {
   question: '',
@@ -44,6 +45,25 @@ const EMPTY_FORM: PollInput = {
   isAnonymous: false,
   deadline: '',
   isPublished: true,
+};
+
+const formatCsvCell = (value: string | number) => `"${String(value ?? '').replace(/"/g, '""')}"`;
+
+const downloadCsvFile = (filename: string, headers: string[], rows: Array<Array<string | number>>) => {
+  const csvRows = [
+    headers.map(formatCsvCell).join(','),
+    ...rows.map((row) => row.map(formatCsvCell).join(',')),
+  ];
+  const content = `\uFEFF${csvRows.join('\n')}`;
+  const blob = new Blob([content], { type: 'text/csv;charset=utf-8;' });
+  const url = window.URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = filename;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  window.URL.revokeObjectURL(url);
 };
 
 export default function AdminPublicView() {
@@ -70,7 +90,10 @@ export default function AdminPublicView() {
   const [feedbackRoleFilter, setFeedbackRoleFilter] = useState('ALL');
   const [feedbackLengthFilter, setFeedbackLengthFilter] = useState<FeedbackLengthFilter>('ALL');
   const [feedbackSort, setFeedbackSort] = useState<FeedbackSort>('NEWEST');
+  const [selectedResponseIds, setSelectedResponseIds] = useState<string[]>([]);
+  const [selectedFeedbackIds, setSelectedFeedbackIds] = useState<string[]>([]);
   const [form, setForm] = useState<PollInput>(EMPTY_FORM);
+  const [pollType, setPollType] = useState<PollType>('NORMAL');
 
   const deferredSearch = useDeferredValue(search);
   const deferredResponseSearch = useDeferredValue(responseSearch);
@@ -151,6 +174,7 @@ export default function AdminPublicView() {
       deadline: selectedPoll.deadline ? formatDateTimeLocal(selectedPoll.deadline) : '',
       isPublished: selectedPoll.isPublished,
     });
+    setPollType(selectedPoll.options.length === 0 ? 'QUESTION' : 'NORMAL');
   }, [detailTab, editorMode, selectedPoll]);
 
   useEffect(() => {
@@ -163,6 +187,9 @@ export default function AdminPublicView() {
     setFeedbackRoleFilter('ALL');
     setFeedbackLengthFilter('ALL');
     setFeedbackSort('NEWEST');
+
+    setSelectedResponseIds([]);
+    setSelectedFeedbackIds([]);
   }, [selectedPollId]);
 
   const hydrateForm = (detail: AdminPollDetail) => {
@@ -176,6 +203,7 @@ export default function AdminPublicView() {
       deadline: detail.deadline ? formatDateTimeLocal(detail.deadline) : '',
       isPublished: detail.isPublished,
     });
+    setPollType(detail.options.length === 0 ? 'QUESTION' : 'NORMAL');
   };
 
   const resetCreateForm = () => {
@@ -183,6 +211,7 @@ export default function AdminPublicView() {
     setSelectedPollId(null);
     setSelectedPoll(null);
     setForm(EMPTY_FORM);
+    setPollType('NORMAL');
     setDetailTab('editor');
   };
 
@@ -292,6 +321,99 @@ export default function AdminPublicView() {
     setFeedbackSort('NEWEST');
   };
 
+  const toggleResponseSelection = (responseId: string) => {
+    setSelectedResponseIds((current) =>
+      current.includes(responseId)
+        ? current.filter((id) => id !== responseId)
+        : [...current, responseId],
+    );
+  };
+
+  const toggleFeedbackSelection = (feedbackId: string) => {
+    setSelectedFeedbackIds((current) =>
+      current.includes(feedbackId)
+        ? current.filter((id) => id !== feedbackId)
+        : [...current, feedbackId],
+    );
+  };
+
+  const selectFilteredResponses = () => {
+    setSelectedResponseIds((current) =>
+      Array.from(new Set([...current, ...filteredResponses.map((response) => response.id)])),
+    );
+  };
+
+  const selectFilteredFeedback = () => {
+    setSelectedFeedbackIds((current) =>
+      Array.from(new Set([...current, ...filteredFeedback.map((entry) => entry.id)])),
+    );
+  };
+
+  const exportResponses = (mode: 'selected' | 'filtered' | 'all') => {
+    if (!selectedPoll) return;
+
+    const selectedIdSet = new Set(selectedResponseIds);
+    const source =
+      mode === 'selected'
+        ? selectedPoll.responses.filter((response) => selectedIdSet.has(response.id))
+        : mode === 'filtered'
+          ? filteredResponses
+          : selectedPoll.responses;
+
+    if (source.length === 0) {
+      toast.error('No responses available for this export mode.');
+      return;
+    }
+
+    const dateStamp = new Date().toISOString().slice(0, 10);
+    downloadCsvFile(
+      `${selectedPoll.slug}-responses-${mode}-${dateStamp}.csv`,
+      ['Name', 'Email', 'Role', 'Selected Options', 'Updated At'],
+      source.map((response) => [
+        response.user.name,
+        response.user.email,
+        response.user.role.replace(/_/g, ' '),
+        response.optionLabels.join(' | '),
+        formatDateTime(response.updatedAt),
+      ]),
+    );
+
+    toast.success(`Extracted ${source.length} responses.`);
+  };
+
+  const exportFeedback = (mode: 'selected' | 'filtered' | 'all') => {
+    if (!selectedPoll) return;
+
+    const selectedIdSet = new Set(selectedFeedbackIds);
+    const source =
+      mode === 'selected'
+        ? selectedPoll.feedback.filter((entry) => selectedIdSet.has(entry.id))
+        : mode === 'filtered'
+          ? filteredFeedback
+          : selectedPoll.feedback;
+
+    if (source.length === 0) {
+      toast.error('No feedback entries available for this export mode.');
+      return;
+    }
+
+    const dateStamp = new Date().toISOString().slice(0, 10);
+    downloadCsvFile(
+      `${selectedPoll.slug}-feedback-${mode}-${dateStamp}.csv`,
+      ['Message', 'Name', 'Email', 'Role', 'Length', 'Updated At'],
+      source.map((entry) => [
+        entry.message,
+        entry.user.name,
+        entry.user.email,
+        entry.user.role.replace(/_/g, ' '),
+        entry.message.trim().length,
+        formatDateTime(entry.updatedAt),
+      ]),
+    );
+
+    toast.success(`Extracted ${source.length} feedback entries.`);
+  };
+
   const handleOptionChange = (index: number, value: string) => {
     setForm((current) => ({
       ...current,
@@ -299,7 +421,29 @@ export default function AdminPublicView() {
     }));
   };
 
+  const handlePollTypeChange = (nextType: PollType) => {
+    setPollType(nextType);
+    setForm((current) => {
+      if (nextType === 'QUESTION') {
+        return {
+          ...current,
+          options: [],
+          allowMultipleChoices: false,
+          allowVoteChange: false,
+        };
+      }
+
+      const restoredOptions = current.options.length === 0 ? ['', ''] : current.options;
+      return {
+        ...current,
+        options: restoredOptions,
+        allowVoteChange: true,
+      };
+    });
+  };
+
   const handleAddOption = () => {
+    if (pollType === 'QUESTION') return;
     setForm((current) => ({
       ...current,
       options: [...current.options, ''],
@@ -307,6 +451,7 @@ export default function AdminPublicView() {
   };
 
   const handleRemoveOption = (index: number) => {
+    if (pollType === 'QUESTION') return;
     setForm((current) => ({
       ...current,
       options: current.options.filter((_, optionIndex) => optionIndex !== index),
@@ -321,17 +466,19 @@ export default function AdminPublicView() {
       toast.error('Question is required.');
       return;
     }
-    if (normalizedOptions.length < 2) {
-      toast.error('Add at least two options.');
+    if (pollType === 'NORMAL' && normalizedOptions.length < 2) {
+      toast.error('Add at least two options for a normal poll.');
       return;
     }
+
+    const payloadOptions = pollType === 'QUESTION' ? [] : normalizedOptions;
 
     const payload: PollInput = {
       question: form.question.trim(),
       description: form.description?.trim() || '',
-      options: normalizedOptions,
-      allowMultipleChoices: Boolean(form.allowMultipleChoices),
-      allowVoteChange: Boolean(form.allowVoteChange),
+      options: payloadOptions,
+      allowMultipleChoices: pollType === 'QUESTION' ? false : Boolean(form.allowMultipleChoices),
+      allowVoteChange: pollType === 'QUESTION' ? false : Boolean(form.allowVoteChange),
       isAnonymous: Boolean(form.isAnonymous),
       deadline: form.deadline ? new Date(form.deadline).toISOString() : null,
       isPublished: Boolean(form.isPublished),
@@ -528,6 +675,7 @@ export default function AdminPublicView() {
                       {poll.isClosed ? 'Closed' : 'Open'}
                     </Badge>
                     {!poll.isPublished && <Badge variant="outline">Draft</Badge>}
+                    <Badge variant="outline">{poll.optionCount === 0 ? 'Question' : 'Normal'}</Badge>
                     <Badge variant="outline">{poll.isAnonymous ? 'Anonymous' : 'Named'}</Badge>
                   </div>
                   <div className="mt-3 space-y-2">
@@ -556,6 +704,8 @@ export default function AdminPublicView() {
             <PollEditor
               form={form}
               setForm={setForm}
+              pollType={pollType}
+              onPollTypeChange={handlePollTypeChange}
               onAddOption={handleAddOption}
               onOptionChange={handleOptionChange}
               onRemoveOption={handleRemoveOption}
@@ -575,6 +725,7 @@ export default function AdminPublicView() {
                         {selectedPoll.isClosed ? 'Closed' : 'Open'}
                       </Badge>
                       {!selectedPoll.isPublished && <Badge variant="outline">Draft</Badge>}
+                      <Badge variant="outline">{selectedPoll.options.length === 0 ? 'Question' : 'Normal'}</Badge>
                       <Badge variant="outline">
                         {selectedPoll.allowMultipleChoices ? 'Multiple choice' : 'Single choice'}
                       </Badge>
@@ -626,27 +777,35 @@ export default function AdminPublicView() {
                       <StatTile label="Votes" value={selectedPoll.totalVotes} icon={Users} />
                       <StatTile label="Feedback" value={selectedPoll.totalFeedback} icon={MessageSquare} />
                       <StatTile label="Options" value={selectedPoll.options.length} icon={BarChart3} />
-                      <StatTile label="Mode" valueText={selectedPoll.isAnonymous ? 'Anonymous' : 'Named'} icon={CheckCircle2} />
+                      <StatTile label="Type" valueText={selectedPoll.options.length === 0 ? 'Question' : 'Normal'} icon={CheckCircle2} />
                     </div>
 
-                    <div className="space-y-3">
-                      {selectedPoll.options.map((option) => (
-                        <div key={option.id} className="rounded-xl border border-gray-200 bg-white px-4 py-4">
-                          <div className="flex items-center justify-between gap-3">
-                            <div className="font-medium text-gray-900">{option.text}</div>
-                            <div className="text-sm text-gray-500">
-                              {option.voteCount} votes · {option.percentage}%
+                    {selectedPoll.options.length === 0 ? (
+                      <Card className="border-gray-200 shadow-none">
+                        <CardContent className="py-8 text-sm text-gray-600">
+                          This is a question-type poll. Participants submit free-text questions in the feedback area, and no option voting is collected.
+                        </CardContent>
+                      </Card>
+                    ) : (
+                      <div className="space-y-3">
+                        {selectedPoll.options.map((option) => (
+                          <div key={option.id} className="rounded-xl border border-gray-200 bg-white px-4 py-4">
+                            <div className="flex items-center justify-between gap-3">
+                              <div className="font-medium text-gray-900">{option.text}</div>
+                              <div className="text-sm text-gray-500">
+                                {option.voteCount} votes · {option.percentage}%
+                              </div>
+                            </div>
+                            <div className="mt-3 h-2 overflow-hidden rounded-full bg-gray-100">
+                              <div
+                                className="h-full rounded-full bg-amber-500"
+                                style={{ width: `${Math.max(option.percentage, option.voteCount > 0 ? 4 : 0)}%` }}
+                              />
                             </div>
                           </div>
-                          <div className="mt-3 h-2 overflow-hidden rounded-full bg-gray-100">
-                            <div
-                              className="h-full rounded-full bg-amber-500"
-                              style={{ width: `${Math.max(option.percentage, option.voteCount > 0 ? 4 : 0)}%` }}
-                            />
-                          </div>
-                        </div>
-                      ))}
-                    </div>
+                        ))}
+                      </div>
+                    )}
 
                     <div className="grid gap-4 md:grid-cols-2">
                       <InfoRow label="Created" value={formatDateTime(selectedPoll.createdAt)} />
@@ -657,7 +816,13 @@ export default function AdminPublicView() {
                   </TabsContent>
 
                   <TabsContent value="responses" className="space-y-4">
-                    {selectedPoll.isAnonymous ? (
+                    {selectedPoll.options.length === 0 ? (
+                      <Card className="border-gray-200 shadow-none">
+                        <CardContent className="py-10 text-center text-sm text-gray-500">
+                          Question-type polls do not collect option votes. Use the Feedback tab to review submitted questions.
+                        </CardContent>
+                      </Card>
+                    ) : selectedPoll.isAnonymous ? (
                       <Card className="border-gray-200 shadow-none">
                         <CardContent className="py-10 text-center text-sm text-gray-500">
                           This poll is anonymous. Individual voter identities are intentionally hidden here and in exports.
@@ -723,6 +888,51 @@ export default function AdminPublicView() {
                               </Button>
                             </div>
                           </div>
+
+                          <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-gray-200 pt-3">
+                            <span className="text-xs text-gray-600">{selectedResponseIds.length} selected</span>
+                            <div className="flex flex-wrap gap-2">
+                              <Button type="button" variant="outline" size="sm" onClick={selectFilteredResponses}>
+                                Select filtered
+                              </Button>
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                onClick={() => setSelectedResponseIds([])}
+                                disabled={selectedResponseIds.length === 0}
+                              >
+                                Clear selected
+                              </Button>
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                onClick={() => exportResponses('selected')}
+                                disabled={selectedResponseIds.length === 0}
+                              >
+                                Extract selected
+                              </Button>
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                onClick={() => exportResponses('filtered')}
+                                disabled={filteredResponses.length === 0}
+                              >
+                                Extract filtered
+                              </Button>
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                onClick={() => exportResponses('all')}
+                                disabled={selectedPoll.responses.length === 0}
+                              >
+                                Extract all
+                              </Button>
+                            </div>
+                          </div>
                         </div>
 
                         <div className="space-y-3">
@@ -735,22 +945,33 @@ export default function AdminPublicView() {
                           ) : (
                             filteredResponses.map((response) => (
                               <div key={response.id} className="rounded-xl border border-gray-200 bg-white px-4 py-4">
-                                <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-                                  <div>
-                                    <div className="font-medium text-gray-950">{response.user.name}</div>
-                                    <div className="text-sm text-gray-500">{response.user.email}</div>
-                                    <div className="mt-1 text-xs text-gray-500">{response.user.role.replace(/_/g, ' ')}</div>
+                                <div className="flex items-start gap-3">
+                                  <input
+                                    type="checkbox"
+                                    className="mt-1 h-4 w-4 rounded border-gray-300 text-amber-600 focus:ring-amber-500"
+                                    checked={selectedResponseIds.includes(response.id)}
+                                    onChange={() => toggleResponseSelection(response.id)}
+                                    aria-label={`Select response from ${response.user.name}`}
+                                  />
+                                  <div className="min-w-0 flex-1">
+                                    <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                                      <div>
+                                        <div className="font-medium text-gray-950">{response.user.name}</div>
+                                        <div className="text-sm text-gray-500">{response.user.email}</div>
+                                        <div className="mt-1 text-xs text-gray-500">{response.user.role.replace(/_/g, ' ')}</div>
+                                      </div>
+                                      <div className="text-xs text-gray-500">
+                                        Updated {formatDateTime(response.updatedAt)}
+                                      </div>
+                                    </div>
+                                    <div className="mt-3 flex flex-wrap gap-2">
+                                      {response.optionLabels.map((label) => (
+                                        <Badge key={label} variant="secondary" className="bg-amber-100 text-amber-900">
+                                          {label}
+                                        </Badge>
+                                      ))}
+                                    </div>
                                   </div>
-                                  <div className="text-xs text-gray-500">
-                                    Updated {formatDateTime(response.updatedAt)}
-                                  </div>
-                                </div>
-                                <div className="mt-3 flex flex-wrap gap-2">
-                                  {response.optionLabels.map((label) => (
-                                    <Badge key={label} variant="secondary" className="bg-amber-100 text-amber-900">
-                                      {label}
-                                    </Badge>
-                                  ))}
                                 </div>
                               </div>
                             ))
@@ -820,6 +1041,51 @@ export default function AdminPublicView() {
                           </Button>
                         </div>
                       </div>
+
+                      <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-gray-200 pt-3">
+                        <span className="text-xs text-gray-600">{selectedFeedbackIds.length} selected</span>
+                        <div className="flex flex-wrap gap-2">
+                          <Button type="button" variant="outline" size="sm" onClick={selectFilteredFeedback}>
+                            Select filtered
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={() => setSelectedFeedbackIds([])}
+                            disabled={selectedFeedbackIds.length === 0}
+                          >
+                            Clear selected
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={() => exportFeedback('selected')}
+                            disabled={selectedFeedbackIds.length === 0}
+                          >
+                            Extract selected
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={() => exportFeedback('filtered')}
+                            disabled={filteredFeedback.length === 0}
+                          >
+                            Extract filtered
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={() => exportFeedback('all')}
+                            disabled={selectedPoll.feedback.length === 0}
+                          >
+                            Extract all
+                          </Button>
+                        </div>
+                      </div>
                     </div>
 
                     <div className="space-y-3">
@@ -832,17 +1098,30 @@ export default function AdminPublicView() {
                       ) : (
                         filteredFeedback.map((entry) => (
                           <div key={entry.id} className="rounded-xl border border-gray-200 bg-white px-4 py-4">
-                            <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-                              <div>
-                                <div className="font-medium text-gray-950">{entry.user.name}</div>
-                                <div className="text-sm text-gray-500">{entry.user.email}</div>
-                                <div className="mt-1 text-xs text-gray-500">{entry.user.role.replace(/_/g, ' ')}</div>
-                              </div>
-                              <div className="text-xs text-gray-500">
-                                Updated {formatDateTime(entry.updatedAt)}
+                            <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-[15px] leading-7 text-gray-900">
+                              {entry.message}
+                            </div>
+                            <div className="mt-3 flex items-start gap-3">
+                              <input
+                                type="checkbox"
+                                className="mt-1 h-4 w-4 rounded border-gray-300 text-amber-600 focus:ring-amber-500"
+                                checked={selectedFeedbackIds.includes(entry.id)}
+                                onChange={() => toggleFeedbackSelection(entry.id)}
+                                aria-label={`Select feedback from ${entry.user.name}`}
+                              />
+                              <div className="min-w-0 flex-1">
+                                <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                                  <div>
+                                    <div className="font-medium text-gray-950">{entry.user.name}</div>
+                                    <div className="text-sm text-gray-500">{entry.user.email}</div>
+                                    <div className="mt-1 text-xs text-gray-500">{entry.user.role.replace(/_/g, ' ')}</div>
+                                  </div>
+                                  <div className="text-xs text-gray-500">
+                                    Updated {formatDateTime(entry.updatedAt)}
+                                  </div>
+                                </div>
                               </div>
                             </div>
-                            <p className="mt-3 whitespace-pre-wrap text-sm leading-6 text-gray-700">{entry.message}</p>
                           </div>
                         ))
                       )}
@@ -853,6 +1132,8 @@ export default function AdminPublicView() {
                     <PollEditor
                       form={form}
                       setForm={setForm}
+                      pollType={pollType}
+                      onPollTypeChange={handlePollTypeChange}
                       onAddOption={handleAddOption}
                       onOptionChange={handleOptionChange}
                       onRemoveOption={handleRemoveOption}
@@ -932,6 +1213,8 @@ function InfoRow({ label, value }: { label: string; value: string }) {
 function PollEditor({
   form,
   setForm,
+  pollType,
+  onPollTypeChange,
   onAddOption,
   onOptionChange,
   onRemoveOption,
@@ -943,6 +1226,8 @@ function PollEditor({
 }: {
   form: PollInput;
   setForm: Dispatch<SetStateAction<PollInput>>;
+  pollType: PollType;
+  onPollTypeChange: (type: PollType) => void;
   onAddOption: () => void;
   onOptionChange: (index: number, value: string) => void;
   onRemoveOption: (index: number) => void;
@@ -978,6 +1263,33 @@ function PollEditor({
         </div>
 
         <div className="space-y-2">
+          <Label>Poll type</Label>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              type="button"
+              variant={pollType === 'NORMAL' ? 'default' : 'outline'}
+              size="sm"
+              onClick={() => onPollTypeChange('NORMAL')}
+              disabled={lockedStructure}
+            >
+              Normal poll
+            </Button>
+            <Button
+              type="button"
+              variant={pollType === 'QUESTION' ? 'default' : 'outline'}
+              size="sm"
+              onClick={() => onPollTypeChange('QUESTION')}
+              disabled={lockedStructure}
+            >
+              Question type
+            </Button>
+          </div>
+          <p className="text-xs text-gray-500">
+            Normal polls use voting options. Question type shows only a free-text answer box on the public page.
+          </p>
+        </div>
+
+        <div className="space-y-2">
           <Label htmlFor="poll-description">Description</Label>
           <Textarea
             id="poll-description"
@@ -986,43 +1298,52 @@ function PollEditor({
             placeholder="Add context, instructions, or why this poll matters."
             rows={4}
           />
+          <p className="text-xs text-gray-500">
+            Normal polls show feedback below options. Question-type polls show the answer area immediately on the public page.
+          </p>
         </div>
 
-        <div className="space-y-3">
-          <div className="flex items-center justify-between">
-            <div className="space-y-1">
-              <Label>Options</Label>
-              {lockedStructure && (
-                <p className="text-xs text-amber-700">Options are locked after the first vote is cast.</p>
-              )}
-            </div>
-            <Button type="button" variant="outline" size="sm" onClick={onAddOption} disabled={lockedStructure}>
-              <Plus className="h-4 w-4" />
-              Add option
-            </Button>
-          </div>
+        {pollType === 'NORMAL' ? (
           <div className="space-y-3">
-            {form.options.map((option, index) => (
-              <div key={`${index}-${form.options.length}`} className="flex gap-2">
-                <Input
-                  value={option}
-                  onChange={(event) => onOptionChange(index, event.target.value)}
-                  placeholder={`Option ${index + 1}`}
-                  disabled={lockedStructure}
-                />
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="icon"
-                  onClick={() => onRemoveOption(index)}
-                  disabled={lockedStructure || form.options.length <= 2}
-                >
-                  <Trash2 className="h-4 w-4" />
-                </Button>
+            <div className="flex items-center justify-between">
+              <div className="space-y-1">
+                <Label>Options</Label>
+                {lockedStructure && (
+                  <p className="text-xs text-amber-700">Options are locked after the first vote is cast.</p>
+                )}
               </div>
-            ))}
+              <Button type="button" variant="outline" size="sm" onClick={onAddOption} disabled={lockedStructure}>
+                <Plus className="h-4 w-4" />
+                Add option
+              </Button>
+            </div>
+            <div className="space-y-3">
+              {form.options.map((option, index) => (
+                <div key={`${index}-${form.options.length}`} className="flex gap-2">
+                  <Input
+                    value={option}
+                    onChange={(event) => onOptionChange(index, event.target.value)}
+                    placeholder={`Option ${index + 1}`}
+                    disabled={lockedStructure}
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="icon"
+                    onClick={() => onRemoveOption(index)}
+                    disabled={lockedStructure || form.options.length <= 2}
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                </div>
+              ))}
+            </div>
           </div>
-        </div>
+        ) : (
+          <div className="rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 text-sm text-gray-600">
+            Question-type polls skip option voting and show only the answer textbox on the public page.
+          </div>
+        )}
 
         <div className="grid gap-4 md:grid-cols-2">
           <div className="space-y-2">
@@ -1045,13 +1366,14 @@ function PollEditor({
             description="Allow users to pick more than one option in a single ballot."
             checked={Boolean(form.allowMultipleChoices)}
             onChange={(checked) => setForm((current) => ({ ...current, allowMultipleChoices: checked }))}
-            disabled={lockedStructure}
+            disabled={lockedStructure || pollType === 'QUESTION'}
           />
           <SwitchRow
             label="Allow vote changes"
             description="Let users revisit the poll and update their selection before it closes."
             checked={Boolean(form.allowVoteChange)}
             onChange={(checked) => setForm((current) => ({ ...current, allowVoteChange: checked }))}
+            disabled={pollType === 'QUESTION'}
           />
           <SwitchRow
             label="Anonymous voting"

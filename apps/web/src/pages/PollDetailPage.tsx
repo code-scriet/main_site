@@ -197,13 +197,75 @@ export default function PollDetailPage() {
     );
   }
 
+  const isQuestionTypePoll = poll.options.length === 0;
   const voteDisabled =
+    isQuestionTypePoll ||
     poll.isClosed ||
     !user ||
     selectedOptionIds.length === 0 ||
     (Boolean(poll.currentUserVote) && !poll.allowVoteChange);
   const feedbackLength = feedbackMessage.trim().length;
   const feedbackRemaining = FEEDBACK_MAX_LENGTH - feedbackLength;
+
+  const feedbackPanel = (
+    <Card className="border-gray-200 shadow-none">
+      <CardHeader className="space-y-2">
+        <CardTitle className="text-lg text-gray-950">
+          {isQuestionTypePoll ? 'Ask your question' : 'What question do you want to ask the speaker?'}
+        </CardTitle>
+        <CardDescription>
+          There is no right or wrong answer. Share your question clearly so the speaker team can review it.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {!user ? (
+          <Link to={loginHref} className="block">
+            <Button variant="outline" className="w-full">
+              Sign in to submit your question
+            </Button>
+          </Link>
+        ) : (
+          <>
+            <div className="space-y-2">
+              <Label htmlFor="poll-feedback">Your question</Label>
+              <Textarea
+                id="poll-feedback"
+                value={feedbackMessage}
+                onChange={(event) => setFeedbackMessage(event.target.value)}
+                placeholder="Example: What practical steps should students take in the first 30 days to start in this domain?"
+                rows={6}
+                maxLength={FEEDBACK_MAX_LENGTH}
+              />
+              <div className="flex items-center justify-between text-xs text-gray-500">
+                <span>No right or wrong answer. Ask freely.</span>
+                <span>{feedbackRemaining} characters left</span>
+              </div>
+            </div>
+            <Button
+              variant="outline"
+              className="w-full"
+              onClick={handleFeedbackSubmit}
+              disabled={submittingFeedback || !feedbackMessage.trim()}
+            >
+              {submittingFeedback ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Saving question
+                </>
+              ) : poll.currentUserFeedback ? (
+                'Update question'
+              ) : (
+                'Submit question'
+              )}
+            </Button>
+            <p className="text-xs text-gray-500">
+              Your response is linked to your account so admins can review all questions and organize them for the speaker.
+            </p>
+          </>
+        )}
+      </CardContent>
+    </Card>
+  );
 
   return (
     <Layout>
@@ -232,17 +294,23 @@ export default function PollDetailPage() {
                 <Badge variant={poll.isClosed ? 'secondary' : 'success'}>
                   {poll.isClosed ? 'Poll closed' : 'Poll open'}
                 </Badge>
-                <Badge variant="outline">
-                  {poll.allowMultipleChoices ? 'Multiple choice' : 'Single choice'}
-                </Badge>
-                {poll.allowVoteChange ? (
-                  <Badge variant="secondary" className="bg-slate-100 text-slate-700">
-                    Vote changes allowed
-                  </Badge>
+                {isQuestionTypePoll ? (
+                  <Badge variant="outline">Question type</Badge>
                 ) : (
-                  <Badge variant="secondary" className="bg-slate-100 text-slate-700">
-                    One final submission
-                  </Badge>
+                  <>
+                    <Badge variant="outline">
+                      {poll.allowMultipleChoices ? 'Multiple choice' : 'Single choice'}
+                    </Badge>
+                    {poll.allowVoteChange ? (
+                      <Badge variant="secondary" className="bg-slate-100 text-slate-700">
+                        Vote changes allowed
+                      </Badge>
+                    ) : (
+                      <Badge variant="secondary" className="bg-slate-100 text-slate-700">
+                        One final submission
+                      </Badge>
+                    )}
+                  </>
                 )}
                 {poll.isAnonymous && (
                   <Badge variant="secondary" className="bg-emerald-50 text-emerald-700">
@@ -274,192 +342,149 @@ export default function PollDetailPage() {
               </div>
             </CardHeader>
 
-            <CardContent className="grid gap-6 pt-6 lg:grid-cols-[minmax(0,1fr)_320px]">
-              <div className="space-y-4">
-                <p className="text-sm text-gray-500">
-                  Public results are shown as percentages only. Raw counts and submission totals stay visible to admins only.
-                </p>
-
-                <div className="space-y-3">
-                  {poll.options.map((option) => {
-                    const isSelected = selectedOptionIds.includes(option.id);
-
-                    return (
-                      <button
-                        key={option.id}
-                        type="button"
-                        onClick={() => handleOptionToggle(option.id)}
-                        disabled={poll.isClosed || !user}
-                        className={cn(
-                          'w-full rounded-xl border px-4 py-4 text-left transition-colors',
-                          isSelected
-                            ? 'border-amber-400 bg-amber-50'
-                            : 'border-gray-200 bg-white hover:border-amber-200 hover:bg-amber-50/40',
-                          (poll.isClosed || !user) && 'cursor-default',
-                        )}
-                      >
-                        <div className="flex items-start justify-between gap-3">
-                          <div className="min-w-0">
-                            <div className="flex items-center gap-2">
-                              <span
-                                className={cn(
-                                  'inline-flex h-5 w-5 items-center justify-center rounded-full border text-[11px] font-semibold',
-                                  isSelected
-                                    ? 'border-amber-500 bg-amber-500 text-white'
-                                    : 'border-gray-300 text-gray-500',
-                                )}
-                              >
-                                {poll.allowMultipleChoices ? (isSelected ? '✓' : '+') : isSelected ? '●' : '○'}
-                              </span>
-                              <span className={cn('text-base text-gray-900', isSelected && 'font-semibold')}>
-                                {option.text}
-                              </span>
-                            </div>
-                          </div>
-                          <div className="shrink-0 text-right text-sm text-gray-500">
-                            <div className="font-medium text-gray-900">{option.percentage}%</div>
-                          </div>
-                        </div>
-
-                        <div className="mt-3 h-2 overflow-hidden rounded-full bg-gray-100">
-                          <div
-                            className={cn(
-                              'h-full rounded-full transition-[width] duration-300',
-                              isSelected ? 'bg-amber-500' : 'bg-amber-300',
-                            )}
-                            style={{ width: `${Math.max(option.percentage, option.voteCount > 0 ? 4 : 0)}%` }}
-                          />
-                        </div>
-                      </button>
-                    );
-                  })}
-                </div>
-
-                {poll.currentUserVote && (
-                  <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
-                    <div className="flex items-center gap-2 font-medium">
-                      <CheckCircle2 className="h-4 w-4" />
-                      Your vote is saved.
-                    </div>
-                    <p className="mt-1 text-emerald-700">
-                      Last updated {formatDateTime(poll.currentUserVote.updatedAt)}.
+            <CardContent className={cn('pt-6', isQuestionTypePoll ? 'space-y-4' : 'grid gap-6 lg:grid-cols-[minmax(0,1fr)_320px]')}>
+              {isQuestionTypePoll ? (
+                <>
+                  <p className="text-sm text-gray-500">
+                    This is a question-type poll. Submit your question below and admins will review it for the speaker session.
+                  </p>
+                  {feedbackPanel}
+                </>
+              ) : (
+                <>
+                  <div className="space-y-4">
+                    <p className="text-sm text-gray-500">
+                      Public results are shown as percentages only. Raw counts and submission totals stay visible to admins only.
                     </p>
-                  </div>
-                )}
-              </div>
 
-              <div className="space-y-4">
-                <Card className="border-gray-200 shadow-none">
-                  <CardHeader className="space-y-2">
-                    <CardTitle className="text-lg text-gray-950">Cast your vote</CardTitle>
-                    <CardDescription>
-                      {poll.isClosed
-                        ? 'Voting has ended for this poll.'
-                        : user
-                          ? poll.allowMultipleChoices
-                            ? 'Select one or more options, then submit.'
-                            : 'Select one option, then submit.'
-                          : 'Sign in to vote and submit feedback.'}
-                    </CardDescription>
-                  </CardHeader>
-                  <CardContent className="space-y-3">
-                    {!user ? (
-                      <Link to={loginHref} className="block">
-                        <Button className="w-full">Sign in to vote</Button>
-                      </Link>
-                    ) : (
-                      <>
-                        <Button
-                          className="w-full"
-                          onClick={handleVoteSubmit}
-                          disabled={voteDisabled || submittingVote}
-                        >
-                          {submittingVote ? (
-                            <>
-                              <Loader2 className="h-4 w-4 animate-spin" />
-                              Saving vote
-                            </>
-                          ) : poll.currentUserVote ? (
-                            'Update vote'
-                          ) : (
-                            'Submit vote'
-                          )}
-                        </Button>
-                        {poll.currentUserVote && !poll.allowVoteChange && (
-                          <p className="text-xs text-gray-500">
-                            Vote changes are disabled for this poll.
-                          </p>
-                        )}
-                        {poll.isAnonymous ? (
-                          <p className="text-xs text-gray-500">
-                            Voting stays anonymous. Admins only see totals, not who picked each option.
-                          </p>
-                        ) : (
-                          <p className="text-xs text-gray-500">
-                            This is a named poll. Admins can review who voted for which option.
-                          </p>
-                        )}
-                      </>
-                    )}
-                  </CardContent>
-                </Card>
+                    <div className="space-y-3">
+                      {poll.options.map((option) => {
+                        const isSelected = selectedOptionIds.includes(option.id);
 
-                <Card className="border-gray-200 shadow-none">
-                  <CardHeader className="space-y-2">
-                    <CardTitle className="text-lg text-gray-950">What question do you want to ask the speaker?</CardTitle>
-                    <CardDescription>
-                      There is no right or wrong answer. Share your question clearly so the speaker team can review it.
-                    </CardDescription>
-                  </CardHeader>
-                  <CardContent className="space-y-3">
-                    {!user ? (
-                      <Link to={loginHref} className="block">
-                        <Button variant="outline" className="w-full">
-                          Sign in to submit your question
-                        </Button>
-                      </Link>
-                    ) : (
-                      <>
-                        <div className="space-y-2">
-                          <Label htmlFor="poll-feedback">Your question</Label>
-                          <Textarea
-                            id="poll-feedback"
-                            value={feedbackMessage}
-                            onChange={(event) => setFeedbackMessage(event.target.value)}
-                            placeholder="Example: What practical steps should students take in the first 30 days to start in this domain?"
-                            rows={6}
-                            maxLength={FEEDBACK_MAX_LENGTH}
-                          />
-                          <div className="flex items-center justify-between text-xs text-gray-500">
-                            <span>No right or wrong answer. Ask freely.</span>
-                            <span>{feedbackRemaining} characters left</span>
-                          </div>
+                        return (
+                          <button
+                            key={option.id}
+                            type="button"
+                            onClick={() => handleOptionToggle(option.id)}
+                            disabled={poll.isClosed || !user}
+                            className={cn(
+                              'w-full rounded-xl border px-4 py-4 text-left transition-colors',
+                              isSelected
+                                ? 'border-amber-400 bg-amber-50'
+                                : 'border-gray-200 bg-white hover:border-amber-200 hover:bg-amber-50/40',
+                              (poll.isClosed || !user) && 'cursor-default',
+                            )}
+                          >
+                            <div className="flex items-start justify-between gap-3">
+                              <div className="min-w-0">
+                                <div className="flex items-center gap-2">
+                                  <span
+                                    className={cn(
+                                      'inline-flex h-5 w-5 items-center justify-center rounded-full border text-[11px] font-semibold',
+                                      isSelected
+                                        ? 'border-amber-500 bg-amber-500 text-white'
+                                        : 'border-gray-300 text-gray-500',
+                                    )}
+                                  >
+                                    {poll.allowMultipleChoices ? (isSelected ? '✓' : '+') : isSelected ? '●' : '○'}
+                                  </span>
+                                  <span className={cn('text-base text-gray-900', isSelected && 'font-semibold')}>
+                                    {option.text}
+                                  </span>
+                                </div>
+                              </div>
+                              <div className="shrink-0 text-right text-sm text-gray-500">
+                                <div className="font-medium text-gray-900">{option.percentage}%</div>
+                              </div>
+                            </div>
+
+                            <div className="mt-3 h-2 overflow-hidden rounded-full bg-gray-100">
+                              <div
+                                className={cn(
+                                  'h-full rounded-full transition-[width] duration-300',
+                                  isSelected ? 'bg-amber-500' : 'bg-amber-300',
+                                )}
+                                style={{ width: `${Math.max(option.percentage, option.voteCount > 0 ? 4 : 0)}%` }}
+                              />
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+
+                    {poll.currentUserVote && (
+                      <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+                        <div className="flex items-center gap-2 font-medium">
+                          <CheckCircle2 className="h-4 w-4" />
+                          Your vote is saved.
                         </div>
-                        <Button
-                          variant="outline"
-                          className="w-full"
-                          onClick={handleFeedbackSubmit}
-                          disabled={submittingFeedback || !feedbackMessage.trim()}
-                        >
-                          {submittingFeedback ? (
-                            <>
-                              <Loader2 className="h-4 w-4 animate-spin" />
-                              Saving question
-                            </>
-                          ) : poll.currentUserFeedback ? (
-                            'Update question'
-                          ) : (
-                            'Submit question'
-                          )}
-                        </Button>
-                        <p className="text-xs text-gray-500">
-                          Your response is linked to your account so admins can review all questions and organize them for the speaker.
+                        <p className="mt-1 text-emerald-700">
+                          Last updated {formatDateTime(poll.currentUserVote.updatedAt)}.
                         </p>
-                      </>
+                      </div>
                     )}
-                  </CardContent>
-                </Card>
-              </div>
+
+                    {feedbackPanel}
+                  </div>
+
+                  <div className="space-y-4">
+                    <Card className="border-gray-200 shadow-none">
+                      <CardHeader className="space-y-2">
+                        <CardTitle className="text-lg text-gray-950">Cast your vote</CardTitle>
+                        <CardDescription>
+                          {poll.isClosed
+                            ? 'Voting has ended for this poll.'
+                            : user
+                              ? poll.allowMultipleChoices
+                                ? 'Select one or more options, then submit.'
+                                : 'Select one option, then submit.'
+                              : 'Sign in to vote and submit feedback.'}
+                        </CardDescription>
+                      </CardHeader>
+                      <CardContent className="space-y-3">
+                        {!user ? (
+                          <Link to={loginHref} className="block">
+                            <Button className="w-full">Sign in to vote</Button>
+                          </Link>
+                        ) : (
+                          <>
+                            <Button
+                              className="w-full"
+                              onClick={handleVoteSubmit}
+                              disabled={voteDisabled || submittingVote}
+                            >
+                              {submittingVote ? (
+                                <>
+                                  <Loader2 className="h-4 w-4 animate-spin" />
+                                  Saving vote
+                                </>
+                              ) : poll.currentUserVote ? (
+                                'Update vote'
+                              ) : (
+                                'Submit vote'
+                              )}
+                            </Button>
+                            {poll.currentUserVote && !poll.allowVoteChange && (
+                              <p className="text-xs text-gray-500">
+                                Vote changes are disabled for this poll.
+                              </p>
+                            )}
+                            {poll.isAnonymous ? (
+                              <p className="text-xs text-gray-500">
+                                Voting stays anonymous. Admins only see totals, not who picked each option.
+                              </p>
+                            ) : (
+                              <p className="text-xs text-gray-500">
+                                This is a named poll. Admins can review who voted for which option.
+                              </p>
+                            )}
+                          </>
+                        )}
+                      </CardContent>
+                    </Card>
+                  </div>
+                </>
+              )}
             </CardContent>
           </Card>
         </div>
