@@ -31,6 +31,9 @@ import { cn } from '@/lib/utils';
 type ListStatusFilter = 'ALL' | 'OPEN' | 'CLOSED' | 'DRAFT';
 type ListAnonymityFilter = 'ALL' | 'ANONYMOUS' | 'NAMED';
 type DetailTab = 'overview' | 'responses' | 'feedback' | 'editor';
+type ResponseSort = 'NEWEST' | 'OLDEST';
+type FeedbackSort = 'NEWEST' | 'OLDEST' | 'LONGEST';
+type FeedbackLengthFilter = 'ALL' | 'SHORT' | 'MEDIUM' | 'LONG';
 
 const EMPTY_FORM: PollInput = {
   question: '',
@@ -60,7 +63,13 @@ export default function AdminPublicView() {
   const [detailTab, setDetailTab] = useState<DetailTab>('overview');
   const [editorMode, setEditorMode] = useState<'create' | 'edit'>('create');
   const [responseSearch, setResponseSearch] = useState('');
+  const [responseRoleFilter, setResponseRoleFilter] = useState('ALL');
+  const [responseOptionFilter, setResponseOptionFilter] = useState('ALL');
+  const [responseSort, setResponseSort] = useState<ResponseSort>('NEWEST');
   const [feedbackSearch, setFeedbackSearch] = useState('');
+  const [feedbackRoleFilter, setFeedbackRoleFilter] = useState('ALL');
+  const [feedbackLengthFilter, setFeedbackLengthFilter] = useState<FeedbackLengthFilter>('ALL');
+  const [feedbackSort, setFeedbackSort] = useState<FeedbackSort>('NEWEST');
   const [form, setForm] = useState<PollInput>(EMPTY_FORM);
 
   const deferredSearch = useDeferredValue(search);
@@ -144,6 +153,18 @@ export default function AdminPublicView() {
     });
   }, [detailTab, editorMode, selectedPoll]);
 
+  useEffect(() => {
+    setResponseSearch('');
+    setResponseRoleFilter('ALL');
+    setResponseOptionFilter('ALL');
+    setResponseSort('NEWEST');
+
+    setFeedbackSearch('');
+    setFeedbackRoleFilter('ALL');
+    setFeedbackLengthFilter('ALL');
+    setFeedbackSort('NEWEST');
+  }, [selectedPollId]);
+
   const hydrateForm = (detail: AdminPollDetail) => {
     setForm({
       question: detail.question,
@@ -174,27 +195,102 @@ export default function AdminPublicView() {
 
   const lockedStructure = Boolean(selectedPoll && editorMode === 'edit' && selectedPoll.totalVotes > 0);
 
+  const responseRoleOptions = useMemo(() => {
+    if (!selectedPoll) return [];
+    return Array.from(new Set(selectedPoll.responses.map((response) => response.user.role))).sort();
+  }, [selectedPoll]);
+
   const filteredResponses = useMemo(() => {
     if (!selectedPoll) return [];
     const query = deferredResponseSearch.trim().toLowerCase();
-    if (!query) return selectedPoll.responses;
-    return selectedPoll.responses.filter((response) =>
-      `${response.user.name} ${response.user.email} ${response.user.role} ${response.optionLabels.join(' ')}`
+    const withFilters = selectedPoll.responses.filter((response) => {
+      if (responseRoleFilter !== 'ALL' && response.user.role !== responseRoleFilter) {
+        return false;
+      }
+
+      if (responseOptionFilter !== 'ALL' && !response.optionIds.includes(responseOptionFilter)) {
+        return false;
+      }
+
+      if (!query) {
+        return true;
+      }
+
+      return `${response.user.name} ${response.user.email} ${response.user.role} ${response.optionLabels.join(' ')}`
         .toLowerCase()
-        .includes(query),
-    );
-  }, [deferredResponseSearch, selectedPoll]);
+        .includes(query);
+    });
+
+    return [...withFilters].sort((left, right) => {
+      if (responseSort === 'OLDEST') {
+        return new Date(left.updatedAt).getTime() - new Date(right.updatedAt).getTime();
+      }
+
+      return new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime();
+    });
+  }, [deferredResponseSearch, selectedPoll, responseRoleFilter, responseOptionFilter, responseSort]);
+
+  const feedbackRoleOptions = useMemo(() => {
+    if (!selectedPoll) return [];
+    return Array.from(new Set(selectedPoll.feedback.map((entry) => entry.user.role))).sort();
+  }, [selectedPoll]);
 
   const filteredFeedback = useMemo(() => {
     if (!selectedPoll) return [];
     const query = deferredFeedbackSearch.trim().toLowerCase();
-    if (!query) return selectedPoll.feedback;
-    return selectedPoll.feedback.filter((entry) =>
-      `${entry.user.name} ${entry.user.email} ${entry.user.role} ${entry.message}`
+    const withFilters = selectedPoll.feedback.filter((entry) => {
+      if (feedbackRoleFilter !== 'ALL' && entry.user.role !== feedbackRoleFilter) {
+        return false;
+      }
+
+      const messageLength = entry.message.trim().length;
+      if (feedbackLengthFilter === 'SHORT' && messageLength > 120) {
+        return false;
+      }
+
+      if (feedbackLengthFilter === 'MEDIUM' && (messageLength <= 120 || messageLength > 350)) {
+        return false;
+      }
+
+      if (feedbackLengthFilter === 'LONG' && messageLength <= 350) {
+        return false;
+      }
+
+      if (!query) {
+        return true;
+      }
+
+      return `${entry.user.name} ${entry.user.email} ${entry.user.role} ${entry.message}`
         .toLowerCase()
-        .includes(query),
-    );
-  }, [deferredFeedbackSearch, selectedPoll]);
+        .includes(query);
+    });
+
+    return [...withFilters].sort((left, right) => {
+      if (feedbackSort === 'OLDEST') {
+        return new Date(left.updatedAt).getTime() - new Date(right.updatedAt).getTime();
+      }
+
+      if (feedbackSort === 'LONGEST') {
+        return right.message.trim().length - left.message.trim().length;
+      }
+
+      return new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime();
+    });
+  }, [deferredFeedbackSearch, selectedPoll, feedbackRoleFilter, feedbackLengthFilter, feedbackSort]);
+
+  const clearResponseFilters = () => {
+    setResponseSearch('');
+    setResponseRoleFilter('ALL');
+    setResponseOptionFilter('ALL');
+    setResponseSort('NEWEST');
+  };
+
+  const clearFeedbackFilters = () => {
+    setFeedbackSearch('');
+    setFeedbackRoleFilter('ALL');
+    setFeedbackLengthFilter('ALL');
+    setFeedbackSort('NEWEST');
+  };
 
   const handleOptionChange = (index: number, value: string) => {
     setForm((current) => ({
@@ -569,15 +665,66 @@ export default function AdminPublicView() {
                       </Card>
                     ) : (
                       <>
-                        <div className="relative max-w-md">
-                          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
-                          <Input
-                            value={responseSearch}
-                            onChange={(event) => setResponseSearch(event.target.value)}
-                            placeholder="Search by user or option"
-                            className="pl-9"
-                          />
+                        <div className="rounded-xl border border-gray-200 bg-gray-50 p-4">
+                          <div className="grid gap-3 lg:grid-cols-4">
+                            <div className="relative lg:col-span-2">
+                              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+                              <Input
+                                value={responseSearch}
+                                onChange={(event) => setResponseSearch(event.target.value)}
+                                placeholder="Search by user, email, role, or option"
+                                className="pl-9"
+                              />
+                            </div>
+
+                            <select
+                              value={responseRoleFilter}
+                              onChange={(event) => setResponseRoleFilter(event.target.value)}
+                              className="h-10 rounded-md border border-input bg-background px-3 text-sm"
+                            >
+                              <option value="ALL">All roles</option>
+                              {responseRoleOptions.map((role) => (
+                                <option key={role} value={role}>{role.replace(/_/g, ' ')}</option>
+                              ))}
+                            </select>
+
+                            <select
+                              value={responseOptionFilter}
+                              onChange={(event) => setResponseOptionFilter(event.target.value)}
+                              className="h-10 rounded-md border border-input bg-background px-3 text-sm"
+                            >
+                              <option value="ALL">All options</option>
+                              {selectedPoll.options.map((option) => (
+                                <option key={option.id} value={option.id}>{option.text}</option>
+                              ))}
+                            </select>
+                          </div>
+
+                          <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+                            <div className="flex items-center gap-2">
+                              <Label htmlFor="responses-sort" className="text-xs text-gray-600">Sort</Label>
+                              <select
+                                id="responses-sort"
+                                value={responseSort}
+                                onChange={(event) => setResponseSort(event.target.value as ResponseSort)}
+                                className="h-9 rounded-md border border-input bg-background px-3 text-sm"
+                              >
+                                <option value="NEWEST">Newest first</option>
+                                <option value="OLDEST">Oldest first</option>
+                              </select>
+                            </div>
+
+                            <div className="flex items-center gap-3">
+                              <span className="text-xs text-gray-600">
+                                Showing {filteredResponses.length} of {selectedPoll.responses.length} responses
+                              </span>
+                              <Button type="button" variant="outline" size="sm" onClick={clearResponseFilters}>
+                                Clear filters
+                              </Button>
+                            </div>
+                          </div>
                         </div>
+
                         <div className="space-y-3">
                           {filteredResponses.length === 0 ? (
                             <Card className="border-gray-200 shadow-none">
@@ -614,14 +761,65 @@ export default function AdminPublicView() {
                   </TabsContent>
 
                   <TabsContent value="feedback" className="space-y-4">
-                    <div className="relative max-w-md">
-                      <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
-                      <Input
-                        value={feedbackSearch}
-                        onChange={(event) => setFeedbackSearch(event.target.value)}
-                        placeholder="Search feedback"
-                        className="pl-9"
-                      />
+                    <div className="rounded-xl border border-gray-200 bg-gray-50 p-4">
+                      <div className="grid gap-3 lg:grid-cols-4">
+                        <div className="relative lg:col-span-2">
+                          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+                          <Input
+                            value={feedbackSearch}
+                            onChange={(event) => setFeedbackSearch(event.target.value)}
+                            placeholder="Search feedback by user, role, email, or text"
+                            className="pl-9"
+                          />
+                        </div>
+
+                        <select
+                          value={feedbackRoleFilter}
+                          onChange={(event) => setFeedbackRoleFilter(event.target.value)}
+                          className="h-10 rounded-md border border-input bg-background px-3 text-sm"
+                        >
+                          <option value="ALL">All roles</option>
+                          {feedbackRoleOptions.map((role) => (
+                            <option key={role} value={role}>{role.replace(/_/g, ' ')}</option>
+                          ))}
+                        </select>
+
+                        <select
+                          value={feedbackLengthFilter}
+                          onChange={(event) => setFeedbackLengthFilter(event.target.value as FeedbackLengthFilter)}
+                          className="h-10 rounded-md border border-input bg-background px-3 text-sm"
+                        >
+                          <option value="ALL">All lengths</option>
+                          <option value="SHORT">Short (0-120)</option>
+                          <option value="MEDIUM">Medium (121-350)</option>
+                          <option value="LONG">Long (351+)</option>
+                        </select>
+                      </div>
+
+                      <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+                        <div className="flex items-center gap-2">
+                          <Label htmlFor="feedback-sort" className="text-xs text-gray-600">Sort</Label>
+                          <select
+                            id="feedback-sort"
+                            value={feedbackSort}
+                            onChange={(event) => setFeedbackSort(event.target.value as FeedbackSort)}
+                            className="h-9 rounded-md border border-input bg-background px-3 text-sm"
+                          >
+                            <option value="NEWEST">Newest first</option>
+                            <option value="OLDEST">Oldest first</option>
+                            <option value="LONGEST">Longest message</option>
+                          </select>
+                        </div>
+
+                        <div className="flex items-center gap-3">
+                          <span className="text-xs text-gray-600">
+                            Showing {filteredFeedback.length} of {selectedPoll.feedback.length} entries
+                          </span>
+                          <Button type="button" variant="outline" size="sm" onClick={clearFeedbackFilters}>
+                            Clear filters
+                          </Button>
+                        </div>
+                      </div>
                     </div>
 
                     <div className="space-y-3">

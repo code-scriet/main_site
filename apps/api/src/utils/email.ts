@@ -6,7 +6,7 @@ import { marked } from 'marked';
 import { logger } from './logger.js';
 import { prisma } from '../lib/prisma.js';
 import QRCode from 'qrcode';
-import { sanitizeHtml, sanitizeText } from './sanitize.js';
+import { escapeHtml, sanitizeHtml, sanitizeText, sanitizeUrl } from './sanitize.js';
 import { signInvitationClaimToken } from './jwt.js';
 
 // ============================================
@@ -387,7 +387,7 @@ function formatCustomMessageBlock(message?: string | null): string {
     return '';
   }
 
-  const safeMessage = sanitizeText(message).replace(/\n/g, '<br />');
+  const safeMessage = escapeHtml(sanitizeText(message)).replace(/\n/g, '<br />');
   return `
     <tr>
       <td style="padding: 0 32px 28px 32px;">
@@ -454,22 +454,27 @@ function buildInvitationEmailTemplate(
   const socialLinks = getInvitationSocialLinks(config);
   const socialLinksHtml = socialLinks.length > 0
     ? socialLinks
-        .map(({ label, url }) => (
-          `<a href="${url}" style="color: #8a5a3c; text-decoration: none; margin: 0 8px; font-weight: 600;">${label}</a>`
-        ))
+        .map(({ label, url }) => {
+          const safeUrl = sanitizeUrl(url);
+          if (!safeUrl) return '';
+          return `<a href="${escapeHtml(safeUrl)}" style="color: #8a5a3c; text-decoration: none; margin: 0 8px; font-weight: 600;">${escapeHtml(label)}</a>`;
+        })
+        .filter(Boolean)
         .join('<span style="color: #b8a48a;">•</span>')
     : '';
   const socialLinksText = socialLinks.length > 0
     ? `\n\nConnect with us: ${socialLinks.map(({ label, url }) => `${label}: ${url}`).join(' | ')}`
     : '';
   const footerText = sanitizeText(config.footerText || '');
-  const heroSection = invitation.event.imageUrl
-    ? `<img src="${invitation.event.imageUrl}" alt="${eventTitle}" style="display: block; width: 100%; height: auto; max-height: 260px; object-fit: cover;" />`
+  const safeActionUrl = sanitizeUrl(action.url);
+  const safeEventImageUrl = sanitizeUrl(invitation.event.imageUrl || '');
+  const heroSection = safeEventImageUrl
+    ? `<img src="${escapeHtml(safeEventImageUrl)}" alt="${escapeHtml(eventTitle)}" style="display: block; width: 100%; height: auto; max-height: 260px; object-fit: cover;" />`
     : `
       <div style="padding: 42px 32px; background: linear-gradient(135deg, #5e0f19 0%, #8d2236 48%, #d4a949 100%);">
-        <div style="font-size: 12px; letter-spacing: 2px; text-transform: uppercase; color: #fbe8b6; font-weight: 700; margin-bottom: 12px;">${clubName}</div>
-        <div style="font-family: Georgia, 'Times New Roman', serif; font-size: 34px; line-height: 1.2; color: #fffaf0; font-weight: 700;">${eventTitle}</div>
-        <div style="margin-top: 12px; font-size: 15px; color: #fde9be; line-height: 1.7;">A formal invitation from ${clubName}</div>
+        <div style="font-size: 12px; letter-spacing: 2px; text-transform: uppercase; color: #fbe8b6; font-weight: 700; margin-bottom: 12px;">${escapeHtml(clubName)}</div>
+        <div style="font-family: Georgia, 'Times New Roman', serif; font-size: 34px; line-height: 1.2; color: #fffaf0; font-weight: 700;">${escapeHtml(eventTitle)}</div>
+        <div style="margin-top: 12px; font-size: 15px; color: #fde9be; line-height: 1.7;">A formal invitation from ${escapeHtml(clubName)}</div>
       </div>
     `;
 
@@ -478,11 +483,11 @@ function buildInvitationEmailTemplate(
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>${eventTitle}</title>
+  <title>${escapeHtml(eventTitle)}</title>
 </head>
 <body style="margin: 0; padding: 0; background: #f6efe4; color: #2f2118;">
   <div style="display: none; max-height: 0; overflow: hidden; opacity: 0;">
-    You're invited to ${eventTitle} as our ${role}.
+    You're invited to ${escapeHtml(eventTitle)} as our ${escapeHtml(role)}.
   </div>
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background: #f6efe4;">
     <tr>
@@ -490,7 +495,7 @@ function buildInvitationEmailTemplate(
         <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width: 600px; background: #fffaf3; border: 1px solid #ead8b7; border-radius: 24px; overflow: hidden;">
           <tr>
             <td style="padding: 24px 28px; background: #fff5df; border-bottom: 1px solid #ecdab6; text-align: center;">
-              <div style="font-size: 12px; letter-spacing: 3px; text-transform: uppercase; color: #8a5a3c; font-weight: 700;">${clubName}</div>
+              <div style="font-size: 12px; letter-spacing: 3px; text-transform: uppercase; color: #8a5a3c; font-weight: 700;">${escapeHtml(clubName)}</div>
               <div style="margin-top: 8px; font-family: Georgia, 'Times New Roman', serif; font-size: 30px; color: #5e0f19; font-weight: 700;">Invitation</div>
             </td>
           </tr>
@@ -500,16 +505,16 @@ function buildInvitationEmailTemplate(
           <tr>
             <td style="padding: 32px 32px 18px 32px;">
               <div style="display: inline-block; padding: 8px 14px; background: #f2e2b7; border-radius: 999px; font-size: 12px; letter-spacing: 1px; text-transform: uppercase; color: #7b542f; font-weight: 700;">
-                ${role}
+                ${escapeHtml(role)}
               </div>
               <h1 style="margin: 18px 0 14px; font-family: Georgia, 'Times New Roman', serif; font-size: 34px; line-height: 1.18; color: #5e0f19;">
-                Dear ${greetingName},
+                Dear ${escapeHtml(greetingName)},
               </h1>
               <p style="margin: 0 0 16px; font-size: 16px; line-height: 1.85; color: #4d3527;">
-                ${leadParagraph}
+                ${escapeHtml(leadParagraph)}
               </p>
               <p style="margin: 0; font-size: 15px; line-height: 1.8; color: #6b4b35;">
-                ${summary}
+                ${escapeHtml(summary)}
               </p>
             </td>
           </tr>
@@ -519,25 +524,25 @@ function buildInvitationEmailTemplate(
                 <tr>
                   <td style="padding: 18px 20px; border-bottom: 1px solid #edd8af;">
                     <div style="font-size: 12px; letter-spacing: 1px; text-transform: uppercase; color: #8a5a3c; font-weight: 700; margin-bottom: 6px;">Date</div>
-                    <div style="font-size: 16px; line-height: 1.7; color: #4d3527;">${formatInvitationDateRange(invitation.event.startDate, invitation.event.endDate)}</div>
+                    <div style="font-size: 16px; line-height: 1.7; color: #4d3527;">${escapeHtml(formatInvitationDateRange(invitation.event.startDate, invitation.event.endDate))}</div>
                   </td>
                 </tr>
                 <tr>
                   <td style="padding: 18px 20px; border-bottom: 1px solid #edd8af;">
                     <div style="font-size: 12px; letter-spacing: 1px; text-transform: uppercase; color: #8a5a3c; font-weight: 700; margin-bottom: 6px;">Venue</div>
-                    <div style="font-size: 16px; line-height: 1.7; color: #4d3527;">${eventVenue}</div>
+                    <div style="font-size: 16px; line-height: 1.7; color: #4d3527;">${escapeHtml(eventVenue)}</div>
                   </td>
                 </tr>
                 <tr>
                   <td style="padding: 18px 20px; border-bottom: 1px solid #edd8af;">
                     <div style="font-size: 12px; letter-spacing: 1px; text-transform: uppercase; color: #8a5a3c; font-weight: 700; margin-bottom: 6px;">Location</div>
-                    <div style="font-size: 16px; line-height: 1.7; color: #4d3527;">${eventLocation}</div>
+                    <div style="font-size: 16px; line-height: 1.7; color: #4d3527;">${escapeHtml(eventLocation)}</div>
                   </td>
                 </tr>
                 <tr>
                   <td style="padding: 18px 20px;">
                     <div style="font-size: 12px; letter-spacing: 1px; text-transform: uppercase; color: #8a5a3c; font-weight: 700; margin-bottom: 6px;">Event Type</div>
-                    <div style="font-size: 16px; line-height: 1.7; color: #4d3527;">${eventType}</div>
+                    <div style="font-size: 16px; line-height: 1.7; color: #4d3527;">${escapeHtml(eventType)}</div>
                   </td>
                 </tr>
               </table>
@@ -546,8 +551,8 @@ function buildInvitationEmailTemplate(
           ${formatCustomMessageBlock(invitation.customMessage)}
           <tr>
             <td align="center" style="padding: 0 32px 36px 32px;">
-              <a href="${action.url}" style="display: inline-block; background: linear-gradient(135deg, #8f6a1d 0%, #d4a949 100%); color: #2f2118; text-decoration: none; font-size: 14px; font-weight: 700; letter-spacing: 0.5px; padding: 16px 30px; border-radius: 999px;">
-                ${action.text}
+              <a href="${escapeHtml(safeActionUrl)}" style="display: inline-block; background: linear-gradient(135deg, #8f6a1d 0%, #d4a949 100%); color: #2f2118; text-decoration: none; font-size: 14px; font-weight: 700; letter-spacing: 0.5px; padding: 16px 30px; border-radius: 999px;">
+                ${escapeHtml(action.text)}
               </a>
             </td>
           </tr>
@@ -558,9 +563,9 @@ function buildInvitationEmailTemplate(
           </tr>
           <tr>
             <td style="padding: 0 32px 32px 32px; text-align: center;">
-              <div style="font-family: Georgia, 'Times New Roman', serif; font-size: 20px; color: #5e0f19; font-weight: 700;">${clubName}</div>
+              <div style="font-family: Georgia, 'Times New Roman', serif; font-size: 20px; color: #5e0f19; font-weight: 700;">${escapeHtml(clubName)}</div>
               ${socialLinksHtml ? `<div style="margin-top: 16px; font-size: 13px; line-height: 1.8;">${socialLinksHtml}</div>` : ''}
-              ${footerText ? `<div style="margin-top: 16px; font-size: 13px; line-height: 1.8; color: #7a5f4a;">${footerText}</div>` : ''}
+              ${footerText ? `<div style="margin-top: 16px; font-size: 13px; line-height: 1.8; color: #7a5f4a;">${escapeHtml(footerText)}</div>` : ''}
             </td>
           </tr>
         </table>
@@ -620,7 +625,7 @@ function buildInvitationWithdrawalEmailTemplate(
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>${eventTitle}</title>
+  <title>${escapeHtml(eventTitle)}</title>
 </head>
 <body style="margin: 0; padding: 0; background: #f6efe4;">
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background: #f6efe4;">
@@ -629,15 +634,15 @@ function buildInvitationWithdrawalEmailTemplate(
         <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width: 600px; background: #fffaf3; border: 1px solid #ead8b7; border-radius: 24px;">
           <tr>
             <td style="padding: 32px;">
-              <div style="font-size: 12px; letter-spacing: 3px; text-transform: uppercase; color: #8a5a3c; font-weight: 700; margin-bottom: 14px;">${clubName}</div>
+              <div style="font-size: 12px; letter-spacing: 3px; text-transform: uppercase; color: #8a5a3c; font-weight: 700; margin-bottom: 14px;">${escapeHtml(clubName)}</div>
               <h1 style="margin: 0 0 16px; font-family: Georgia, 'Times New Roman', serif; font-size: 30px; line-height: 1.2; color: #5e0f19;">Invitation update</h1>
               <p style="margin: 0 0 14px; font-size: 16px; line-height: 1.85; color: #4d3527;">
-                Dear ${fullName}, your invitation to serve as ${role} for ${eventTitle} has been withdrawn.
+                Dear ${escapeHtml(fullName)}, your invitation to serve as ${escapeHtml(role)} for ${escapeHtml(eventTitle)} has been withdrawn.
               </p>
               <p style="margin: 0; font-size: 15px; line-height: 1.8; color: #6b4b35;">
-                We remain grateful for your time and consideration. Please feel free to reach out if you need any clarification from the ${clubName} team.
+                We remain grateful for your time and consideration. Please feel free to reach out if you need any clarification from the ${escapeHtml(clubName)} team.
               </p>
-              ${footerText ? `<p style="margin: 24px 0 0; font-size: 13px; line-height: 1.8; color: #7a5f4a;">${footerText}</p>` : ''}
+              ${footerText ? `<p style="margin: 24px 0 0; font-size: 13px; line-height: 1.8; color: #7a5f4a;">${escapeHtml(footerText)}</p>` : ''}
             </td>
           </tr>
         </table>

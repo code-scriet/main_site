@@ -13,6 +13,7 @@ import { sanitizeEventRegistrationFields } from '../utils/eventRegistrationField
 import { getRegistrationStatus } from '../utils/registrationStatus.js';
 import { sanitizeHtml } from '../utils/sanitize.js';
 import { normalizeTrustedVideoEmbedUrl } from '../utils/videoEmbed.js';
+import { deriveInvitationStatus } from '../utils/invitationStatus.js';
 
 export const eventsRouter = Router();
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -51,18 +52,6 @@ type EventValidationInput = {
 
 function getGuestRolePriority(role: string): number {
   return GUEST_ROLE_PRIORITY[role] ?? 100;
-}
-
-function deriveInvitationStatus(
-  status: 'PENDING' | 'ACCEPTED' | 'DECLINED' | 'REVOKED',
-  startDate: Date,
-  endDate: Date | null,
-): 'PENDING' | 'ACCEPTED' | 'DECLINED' | 'REVOKED' | 'EXPIRED' {
-  if (status === 'PENDING' && (endDate ?? startDate) < new Date()) {
-    return 'EXPIRED';
-  }
-
-  return status;
 }
 
 const validateEventTimeline = ({ startDate, endDate, registrationStartDate, registrationEndDate, allowLateRegistration = false }: EventValidationInput): string | null => {
@@ -466,7 +455,10 @@ eventsRouter.get('/:id', optionalAuthMiddleware, async (req: Request, res: Respo
         userInvitation: userInvitation
           ? {
               ...userInvitation,
-              status: deriveInvitationStatus(userInvitation.status, event.startDate, event.endDate),
+              status: deriveInvitationStatus({
+                status: userInvitation.status,
+                event: { startDate: event.startDate, endDate: event.endDate },
+              }),
               attendanceToken: userInvitation.registration?.attendanceToken || null,
             }
           : null,

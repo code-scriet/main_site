@@ -21,6 +21,8 @@ import { formatDateTime } from '@/lib/dateUtils';
 import { useAuth } from '@/context/AuthContext';
 import { cn } from '@/lib/utils';
 
+const FEEDBACK_MAX_LENGTH = 2000;
+
 export default function PollDetailPage() {
   const { slug } = useParams<{ slug: string }>();
   const navigate = useNavigate();
@@ -111,6 +113,11 @@ export default function PollDetailPage() {
       return;
     }
 
+    if (feedbackMessage.trim().length > FEEDBACK_MAX_LENGTH) {
+      toast.error(`Please keep your response within ${FEEDBACK_MAX_LENGTH} characters.`);
+      return;
+    }
+
     try {
       setSubmittingFeedback(true);
       const feedback = await api.submitPollFeedback(slug, feedbackMessage.trim(), token);
@@ -195,6 +202,8 @@ export default function PollDetailPage() {
     !user ||
     selectedOptionIds.length === 0 ||
     (Boolean(poll.currentUserVote) && !poll.allowVoteChange);
+  const feedbackLength = feedbackMessage.trim().length;
+  const feedbackRemaining = FEEDBACK_MAX_LENGTH - feedbackLength;
 
   return (
     <Layout>
@@ -397,29 +406,34 @@ export default function PollDetailPage() {
 
                 <Card className="border-gray-200 shadow-none">
                   <CardHeader className="space-y-2">
-                    <CardTitle className="text-lg text-gray-950">Submit Your Thoughts</CardTitle>
+                    <CardTitle className="text-lg text-gray-950">What question do you want to ask the speaker?</CardTitle>
                     <CardDescription>
-                      Share feedback, context, or suggestions related to this poll.
+                      There is no right or wrong answer. Share your question clearly so the speaker team can review it.
                     </CardDescription>
                   </CardHeader>
                   <CardContent className="space-y-3">
                     {!user ? (
                       <Link to={loginHref} className="block">
                         <Button variant="outline" className="w-full">
-                          Sign in to leave feedback
+                          Sign in to submit your question
                         </Button>
                       </Link>
                     ) : (
                       <>
                         <div className="space-y-2">
-                          <Label htmlFor="poll-feedback">Your message</Label>
+                          <Label htmlFor="poll-feedback">Your question</Label>
                           <Textarea
                             id="poll-feedback"
                             value={feedbackMessage}
                             onChange={(event) => setFeedbackMessage(event.target.value)}
-                            placeholder="Tell us what you think, what you'd pick instead, or any suggestion that helps."
+                            placeholder="Example: What practical steps should students take in the first 30 days to start in this domain?"
                             rows={6}
+                            maxLength={FEEDBACK_MAX_LENGTH}
                           />
+                          <div className="flex items-center justify-between text-xs text-gray-500">
+                            <span>No right or wrong answer. Ask freely.</span>
+                            <span>{feedbackRemaining} characters left</span>
+                          </div>
                         </div>
                         <Button
                           variant="outline"
@@ -430,16 +444,16 @@ export default function PollDetailPage() {
                           {submittingFeedback ? (
                             <>
                               <Loader2 className="h-4 w-4 animate-spin" />
-                              Saving thoughts
+                              Saving question
                             </>
                           ) : poll.currentUserFeedback ? (
-                            'Update feedback'
+                            'Update question'
                           ) : (
-                            'Save feedback'
+                            'Submit question'
                           )}
                         </Button>
                         <p className="text-xs text-gray-500">
-                          Feedback is tied to your account so admins can follow up when needed.
+                          Your response is linked to your account so admins can review all questions and organize them for the speaker.
                         </p>
                       </>
                     )}

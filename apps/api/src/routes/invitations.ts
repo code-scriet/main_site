@@ -13,6 +13,7 @@ import { emailService } from '../utils/email.js';
 import { verifyInvitationClaimToken } from '../utils/jwt.js';
 import { logger } from '../utils/logger.js';
 import { sanitizeText } from '../utils/sanitize.js';
+import { deriveInvitationStatus, getEffectiveEventEnd } from '../utils/invitationStatus.js';
 
 export const invitationsRouter = Router();
 
@@ -107,7 +108,6 @@ const invitableUserSelect = Prisma.validator<Prisma.UserSelect>()({
 
 type InvitationRecord = Prisma.EventInvitationGetPayload<{ include: typeof invitationDetailInclude }>;
 type InvitableUserRecord = Prisma.UserGetPayload<{ select: typeof invitableUserSelect }>;
-type DerivedInvitationStatus = 'PENDING' | 'ACCEPTED' | 'DECLINED' | 'REVOKED' | 'EXPIRED';
 
 class InvitationHttpError extends Error {
   status: number;
@@ -194,21 +194,6 @@ function getRetryAfterSeconds(remainingMs: number): number {
   return Math.max(1, Math.ceil(remainingMs / 1000));
 }
 
-function getEffectiveEventEnd(event: { startDate: Date; endDate: Date | null }): Date {
-  return event.endDate ?? event.startDate;
-}
-
-function deriveInvitationStatus(invitation: {
-  status: 'PENDING' | 'ACCEPTED' | 'DECLINED' | 'REVOKED';
-  event: { startDate: Date; endDate: Date | null };
-}): DerivedInvitationStatus {
-  if (invitation.status === 'PENDING' && getEffectiveEventEnd(invitation.event) < new Date()) {
-    return 'EXPIRED';
-  }
-
-  return invitation.status;
-}
-
 function isPrivilegedInternalUser(role: string): boolean {
   return hasPermission(role, 'CORE_MEMBER');
 }
@@ -229,8 +214,8 @@ function matchesInvitationInvitee(
   invitation: { inviteeUserId: string | null; inviteeEmail: string | null },
   authUser: { id: string; email: string },
 ): boolean {
-  if (invitation.inviteeUserId && invitation.inviteeUserId === authUser.id) {
-    return true;
+  if (invitation.inviteeUserId) {
+    return invitation.inviteeUserId === authUser.id;
   }
 
   const normalizedInvitationEmail = normalizeEmailAddress(invitation.inviteeEmail || '');
@@ -679,6 +664,48 @@ invitationsRouter.post('/', authMiddleware, requireRole('ADMIN'), async (req: Re
 
     const sharedCustomMessage = normalizeOptionalMessage(parsed.data.customMessage) ?? null;
 
+    const requestedUserIds = Array.from(
+      new Set(
+        parsed.data.invitees
+          .map((invitee) => invitee.userId)
+          .filter((userId): userId is string => Boolean(userId)),
+      ),
+    );
+    const requestedEmails = Array.from(
+      new Set(
+        parsed.data.invitees
+          .map((invitee) => (invitee.userId ? null : normalizeEmailAddress(invitee.email || '')))
+          .filter((email): email is string => Boolean(email)),
+      ),
+    );
+
+    const [prefetchedUsersById, prefetchedUsersByEmail] = await Promise.all([
+      requestedUserIds.length > 0
+        ? prisma.user.findMany({
+            where: { id: { in: requestedUserIds } },
+            select: invitableUserSelect,
+          })
+        : Promise.resolve([] as InvitableUserRecord[]),
+      requestedEmails.length > 0
+        ? prisma.user.findMany({
+            where: { email: { in: requestedEmails, mode: 'insensitive' } },
+            select: invitableUserSelect,
+          })
+        : Promise.resolve([] as InvitableUserRecord[]),
+    ]);
+
+    const usersByIdMap = new Map<string, InvitableUserRecord>();
+    for (const user of prefetchedUsersById) {
+      usersByIdMap.set(user.id, user);
+    }
+    const usersByEmailMap = new Map<string, InvitableUserRecord>();
+    for (const user of prefetchedUsersByEmail) {
+      const normalized = normalizeEmailAddress(user.email || '');
+      if (normalized) {
+        usersByEmailMap.set(normalized, user);
+      }
+    }
+
     const result = await prisma.$transaction(async (tx) => {
       const event = await tx.event.findUnique({
         where: { id: parsed.data.eventId },
@@ -716,7 +743,7 @@ invitationsRouter.post('/', authMiddleware, requireRole('ADMIN'), async (req: Re
         const certificateType = invitee.certificateType ?? CertType.SPEAKER;
 
         if (invitee.userId) {
-          const user = await loadInvitableUserById(tx, invitee.userId);
+          const user = usersByIdMap.get(invitee.userId);
           if (!user) {
             skipped.push({ identifier: invitee.userId, reason: 'user_not_found' });
             continue;
@@ -748,16 +775,28 @@ invitationsRouter.post('/', authMiddleware, requireRole('ADMIN'), async (req: Re
           continue;
         }
 
-        const createdOrSkipped = await upsertEmailInvitation({
-          tx,
-          eventId: parsed.data.eventId,
-          email: normalizedEmail,
-          role,
-          customMessage: sharedCustomMessage,
-          certificateEnabled,
-          certificateType,
-          invitedById: authUser.id,
-        });
+        const prefetchedEmailUser = usersByEmailMap.get(normalizedEmail);
+        const createdOrSkipped = prefetchedEmailUser
+          ? await upsertUserInvitation({
+              tx,
+              eventId: parsed.data.eventId,
+              user: prefetchedEmailUser,
+              role,
+              customMessage: sharedCustomMessage,
+              certificateEnabled,
+              certificateType,
+              invitedById: authUser.id,
+            })
+          : await upsertEmailInvitation({
+              tx,
+              eventId: parsed.data.eventId,
+              email: normalizedEmail,
+              role,
+              customMessage: sharedCustomMessage,
+              certificateEnabled,
+              certificateType,
+              invitedById: authUser.id,
+            });
 
         if ('skipped' in createdOrSkipped) {
           skipped.push({ identifier: normalizedEmail, reason: createdOrSkipped.reason });
@@ -956,29 +995,37 @@ invitationsRouter.patch('/:id', authMiddleware, requireRole('ADMIN'), async (req
       return ApiResponse.badRequest(res, parsed.error.errors[0]?.message || 'Invalid invitation update payload');
     }
 
-    const existingInvitation = await prisma.eventInvitation.findUnique({
-      where: { id: req.params.id },
-      include: invitationDetailInclude,
+    const updateData = {
+      ...(parsed.data.role !== undefined ? { role: normalizeRole(parsed.data.role) } : {}),
+      ...(parsed.data.customMessage !== undefined ? { customMessage: normalizeOptionalMessage(parsed.data.customMessage) ?? null } : {}),
+      ...(parsed.data.certificateEnabled !== undefined ? { certificateEnabled: parsed.data.certificateEnabled } : {}),
+      ...(parsed.data.certificateType !== undefined ? { certificateType: parsed.data.certificateType } : {}),
+    };
+
+    const updateResult = await prisma.eventInvitation.updateMany({
+      where: { id: req.params.id, status: { not: 'REVOKED' } },
+      data: updateData,
     });
 
-    if (!existingInvitation) {
-      return ApiResponse.notFound(res, 'Invitation not found');
-    }
-
-    if (existingInvitation.status === 'REVOKED') {
+    if (updateResult.count === 0) {
+      const existingInvitation = await prisma.eventInvitation.findUnique({
+        where: { id: req.params.id },
+        select: { id: true, status: true },
+      });
+      if (!existingInvitation) {
+        return ApiResponse.notFound(res, 'Invitation not found');
+      }
       return ApiResponse.conflict(res, 'Revoked invitations cannot be edited');
     }
 
-    const updatedInvitation = await prisma.eventInvitation.update({
+    const updatedInvitation = await prisma.eventInvitation.findUnique({
       where: { id: req.params.id },
-      data: {
-        ...(parsed.data.role !== undefined ? { role: normalizeRole(parsed.data.role) } : {}),
-        ...(parsed.data.customMessage !== undefined ? { customMessage: normalizeOptionalMessage(parsed.data.customMessage) ?? null } : {}),
-        ...(parsed.data.certificateEnabled !== undefined ? { certificateEnabled: parsed.data.certificateEnabled } : {}),
-        ...(parsed.data.certificateType !== undefined ? { certificateType: parsed.data.certificateType } : {}),
-      },
       include: invitationDetailInclude,
     });
+
+    if (!updatedInvitation) {
+      return ApiResponse.notFound(res, 'Invitation not found');
+    }
 
     await auditLog(authUser.id, 'INVITATION_UPDATE', 'EventInvitation', updatedInvitation.id, parsed.data);
 
