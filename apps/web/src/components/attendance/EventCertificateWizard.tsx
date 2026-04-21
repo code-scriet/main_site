@@ -368,15 +368,7 @@ export default function EventCertificateWizard({
               || (recipient.daysAttended ?? 0) >= minAttendanceDays))
           .map((recipient) => recipient.registrationId),
       ));
-      setSelectedGuestIds(new Set(
-        (data.guests ?? [])
-          .filter((recipient) =>
-            recipient.certificateEnabled
-            && !recipient.existingCertificateId
-            && (includeGuestNonAttendees || recipient.attended),
-          )
-          .map((recipient) => recipient.invitationId),
-      ));
+      setSelectedGuestIds(new Set());
     } catch {
       setRecipients([]);
       setGuestRecipients([]);
