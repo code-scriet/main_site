@@ -210,6 +210,7 @@ export default function EventCertificateWizard({
   const [attendancePosition, setAttendancePosition] = useState('');
   const [attendanceDomain, setAttendanceDomain] = useState('');
   const [attendanceDescription, setAttendanceDescription] = useState('');
+  const [attendanceEventName, setAttendanceEventName] = useState('');
   const [competitionDomain, setCompetitionDomain] = useState('');
   const [sendEmail, setSendEmail] = useState(true);
 
@@ -467,6 +468,7 @@ export default function EventCertificateWizard({
     setAttendancePosition('');
     setAttendanceDomain('');
     setAttendanceDescription('');
+    setAttendanceEventName('');
     setCompetitionDomain('');
     setMinAttendanceDays(null);
     setAttendanceEventDays(1);
@@ -639,7 +641,7 @@ export default function EventCertificateWizard({
 
         body = {
           eventId,
-          eventName,
+          eventName: attendanceEventName.trim() || eventName,
           recipients: [
             ...selectedParticipantRecipients,
             ...selectedGuestRecipientsForGeneration,
@@ -1671,6 +1673,20 @@ export default function EventCertificateWizard({
               </div>
 
               <div>
+                <Label htmlFor="attendance-event-name" className="text-xs">Event Name (optional)</Label>
+                <Input
+                  id="attendance-event-name"
+                  value={attendanceEventName}
+                  onChange={(event) => setAttendanceEventName(event.target.value)}
+                  placeholder={eventName}
+                  className="mt-1"
+                />
+                <p className="mt-1 text-xs text-gray-500">
+                  Leave blank to use the event's actual name. Provide a custom name to override it on the generated certificates.
+                </p>
+              </div>
+
+              <div>
                 <Label htmlFor="attendance-template" className="text-xs">Template</Label>
                 <select
                   id="attendance-template"
@@ -2000,7 +2016,16 @@ export default function EventCertificateWizard({
           <CardContent className="space-y-3 text-sm">
             <div className="grid grid-cols-2 gap-x-4 gap-y-2">
               <span className="text-gray-500">Event</span>
-              <span className="font-medium">{eventName}</span>
+              <span className="font-medium">
+                {mode === 'attendance' && attendanceEventName.trim()
+                  ? attendanceEventName.trim()
+                  : eventName}
+                {mode === 'attendance' && attendanceEventName.trim() && (
+                  <span className="ml-2 text-xs font-normal text-gray-500">
+                    (overrides “{eventName}”)
+                  </span>
+                )}
+              </span>
 
               <span className="text-gray-500">Recipients</span>
               <span className="font-medium">{currentRecipientCount}</span>
