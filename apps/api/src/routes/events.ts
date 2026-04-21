@@ -977,7 +977,32 @@ eventsRouter.delete('/:eventId/registrations/:registrationId', authMiddleware, r
 
 eventsRouter.get('/:id/registrations/export', authMiddleware, requireRole('CORE_MEMBER'), async (req: Request, res: Response) => {
   try {
-    const { format = 'xlsx' } = req.query;
+    const formatQuery = typeof req.query.format === 'string' ? req.query.format.trim().toLowerCase() : 'xlsx';
+    if (formatQuery !== 'xlsx' && formatQuery !== 'csv') {
+      return res.status(400).json({ success: false, error: { message: 'format must be xlsx or csv' } });
+    }
+    const format: 'xlsx' | 'csv' = formatQuery;
+
+    const yearFilter = typeof req.query.year === 'string' ? req.query.year.trim() : '';
+    const branchFilter = typeof req.query.branch === 'string' ? req.query.branch.trim() : '';
+    const courseFilter = typeof req.query.course === 'string' ? req.query.course.trim() : '';
+    const userRoleFilter = typeof req.query.userRole === 'string' ? req.query.userRole.trim() : '';
+    const searchFilter = typeof req.query.search === 'string' ? req.query.search.trim() : '';
+    const registrationTypeFilterRaw = typeof req.query.registrationType === 'string'
+      ? req.query.registrationType.trim().toUpperCase()
+      : '';
+
+    if (
+      registrationTypeFilterRaw &&
+      registrationTypeFilterRaw !== RegistrationType.PARTICIPANT &&
+      registrationTypeFilterRaw !== RegistrationType.GUEST
+    ) {
+      return res.status(400).json({ success: false, error: { message: 'registrationType must be PARTICIPANT or GUEST' } });
+    }
+
+    const registrationTypeFilter = registrationTypeFilterRaw
+      ? (registrationTypeFilterRaw as RegistrationType)
+      : null;
     
     const event = await prisma.event.findUnique({
       where: { id: req.params.id },
@@ -1020,6 +1045,46 @@ eventsRouter.get('/:id/registrations/export', authMiddleware, requireRole('CORE_
     if (!event) {
       return res.status(404).json({ success: false, error: { message: 'Event not found' } });
     }
+
+    const normalize = (value: string | null | undefined): string => (value || '').trim().toLowerCase();
+    const normalizedYearFilter = normalize(yearFilter);
+    const normalizedBranchFilter = normalize(branchFilter);
+    const normalizedCourseFilter = normalize(courseFilter);
+    const normalizedUserRoleFilter = normalize(userRoleFilter);
+    const normalizedSearchFilter = normalize(searchFilter);
+
+    const filteredRegistrations = event.registrations.filter((registration) => {
+      const user = registration.user;
+
+      const matchesYear = !normalizedYearFilter || normalize(user.year) === normalizedYearFilter;
+      const matchesBranch = !normalizedBranchFilter || normalize(user.branch).includes(normalizedBranchFilter);
+      const matchesCourse = !normalizedCourseFilter || normalize(user.course).includes(normalizedCourseFilter);
+      const matchesUserRole = !normalizedUserRoleFilter || normalize(user.role) === normalizedUserRoleFilter;
+      const matchesRegistrationType = !registrationTypeFilter || registration.registrationType === registrationTypeFilter;
+
+      const searchText = [user.name, user.email, user.phone || '']
+        .join(' ')
+        .toLowerCase();
+      const matchesSearch = !normalizedSearchFilter || searchText.includes(normalizedSearchFilter);
+
+      return (
+        matchesYear &&
+        matchesBranch &&
+        matchesCourse &&
+        matchesUserRole &&
+        matchesRegistrationType &&
+        matchesSearch
+      );
+    });
+
+    const appliedFilters = [
+      yearFilter ? `Year: ${yearFilter}` : null,
+      branchFilter ? `Branch: ${branchFilter}` : null,
+      courseFilter ? `Course: ${courseFilter}` : null,
+      userRoleFilter ? `User Role: ${userRoleFilter}` : null,
+      registrationTypeFilter ? `Registration Type: ${registrationTypeFilter}` : null,
+      searchFilter ? `Search: ${searchFilter}` : null,
+    ].filter(Boolean).join(', ');
 
     const registrationFields = sanitizeEventRegistrationFields(event.registrationFields);
 
@@ -1081,7 +1146,7 @@ eventsRouter.get('/:id/registrations/export', authMiddleware, requireRole('CORE_
         ...registrationFields.map((field) => field.label),
       ];
 
-      const rows = event.registrations.map((registration, index) => {
+      const rows = filteredRegistrations.map((registration, index) => {
         const responseMap = getResponseMap(registration.customFieldResponses);
         const tmInfo = teamMemberMap.get(registration.userId);
         return [
@@ -1117,10 +1182,10 @@ eventsRouter.get('/:id/registrations/export', authMiddleware, requireRole('CORE_
     workbook.creator = 'code.scriet';
     workbook.created = new Date();
 
-    const participantRegistrations = event.registrations.filter(
+    const participantRegistrations = filteredRegistrations.filter(
       (registration) => registration.registrationType === RegistrationType.PARTICIPANT,
     );
-    const guestRegistrations = event.registrations.filter(
+    const guestRegistrations = filteredRegistrations.filter(
       (registration) => registration.registrationType === RegistrationType.GUEST,
     );
 
@@ -1215,7 +1280,7 @@ eventsRouter.get('/:id/registrations/export', authMiddleware, requireRole('CORE_
     };
 
     // Keep a consolidated sheet first so row counts always align with total registrations shown in the UI.
-    buildWorksheet('All Registrations', event.registrations);
+    buildWorksheet('All Registrations', filteredRegistrations);
     buildWorksheet('Participants', participantRegistrations);
     if (guestRegistrations.length > 0) {
       buildWorksheet('Guests', guestRegistrations);
@@ -1228,9 +1293,11 @@ eventsRouter.get('/:id/registrations/export', authMiddleware, requireRole('CORE_
     summarySheet.addRow(['End Date', event.endDate?.toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }) || 'N/A']);
     summarySheet.addRow(['Location', event.location || 'N/A']);
     summarySheet.addRow(['Venue', event.venue || 'N/A']);
-    summarySheet.addRow(['Participant Registrations', participantRegistrations.length]);
-    summarySheet.addRow(['Guest Registrations', guestRegistrations.length]);
-    summarySheet.addRow(['Total Registrations', event.registrations.length]);
+    summarySheet.addRow(['Applied Filters', appliedFilters || 'None']);
+    summarySheet.addRow(['Participant Registrations (Filtered)', participantRegistrations.length]);
+    summarySheet.addRow(['Guest Registrations (Filtered)', guestRegistrations.length]);
+    summarySheet.addRow(['Total Registrations (Filtered)', filteredRegistrations.length]);
+    summarySheet.addRow(['Total Registrations (Unfiltered)', event.registrations.length]);
     summarySheet.addRow(['Capacity', event.capacity || 'Unlimited']);
     summarySheet.addRow(['Export Date', new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })]);
 

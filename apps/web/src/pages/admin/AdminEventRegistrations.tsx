@@ -39,6 +39,26 @@ interface EventWithRegistrations {
   registrations: EventAdminRegistration[];
 }
 
+type ExportFilterState = {
+  year: string;
+  branch: string;
+  course: string;
+  userRole: string;
+  registrationType: '' | 'PARTICIPANT' | 'GUEST';
+  search: string;
+  format: 'xlsx' | 'csv';
+};
+
+const DEFAULT_EXPORT_FILTERS: ExportFilterState = {
+  year: '',
+  branch: '',
+  course: '',
+  userRole: '',
+  registrationType: '',
+  search: '',
+  format: 'xlsx',
+};
+
 export default function AdminEventRegistrations() {
   const { token } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -56,6 +76,7 @@ export default function AdminEventRegistrations() {
   const [eventSyncResult, setEventSyncResult] = useState<
     { toOngoing: number; toPastFromOngoing: number; toPastFromUpcoming: number; error?: string } | null
   >(null);
+  const [exportFiltersByEvent, setExportFiltersByEvent] = useState<Record<string, ExportFilterState>>({});
   const [teamGroupView, setTeamGroupView] = useState<string | null>(null);
   const [teamData, setTeamData] = useState<Map<string, EventTeam[]>>(new Map());
   const [teamDataLoading, setTeamDataLoading] = useState<string | null>(null);
@@ -65,6 +86,54 @@ export default function AdminEventRegistrations() {
     | { type: 'team'; eventId: string; teamId: string; teamName: string }
     | null
   >(null);
+
+  const getExportFiltersForEvent = (eventId: string): ExportFilterState => (
+    exportFiltersByEvent[eventId] ?? DEFAULT_EXPORT_FILTERS
+  );
+
+  const hasActiveExportFilters = (filters: ExportFilterState): boolean => (
+    filters.year.trim().length > 0
+    || filters.branch.trim().length > 0
+    || filters.course.trim().length > 0
+    || filters.userRole.trim().length > 0
+    || filters.registrationType.length > 0
+    || filters.search.trim().length > 0
+  );
+
+  const setExportFilterValue = (
+    eventId: string,
+    key: keyof ExportFilterState,
+    value: string,
+  ) => {
+    setExportFiltersByEvent((prev) => {
+      const current = prev[eventId] ?? DEFAULT_EXPORT_FILTERS;
+      const next: ExportFilterState = {
+        ...current,
+        [key]: value,
+      } as ExportFilterState;
+
+      const isDefault = !hasActiveExportFilters(next) && next.format === DEFAULT_EXPORT_FILTERS.format;
+      if (isDefault) {
+        const { [eventId]: _removed, ...rest } = prev;
+        return rest;
+      }
+
+      return {
+        ...prev,
+        [eventId]: next,
+      };
+    });
+  };
+
+  const clearExportFilters = (eventId: string) => {
+    setExportFiltersByEvent((prev) => {
+      if (!prev[eventId]) {
+        return prev;
+      }
+      const { [eventId]: _removed, ...rest } = prev;
+      return rest;
+    });
+  };
 
   const loadEvents = useCallback(async () => {
     if (!token) {
@@ -133,20 +202,36 @@ export default function AdminEventRegistrations() {
     )
   );
 
-  const exportToExcel = async (event: EventWithRegistrations) => {
+  const exportRegistrations = async (event: EventWithRegistrations) => {
     if (!token) {
       setError('Authentication required');
       return;
     }
     
     try {
-      const blob = await api.exportEventRegistrations(event.id, token);
+      const filters = getExportFiltersForEvent(event.id);
+      const normalizedFilters = {
+        year: filters.year.trim() || undefined,
+        branch: filters.branch.trim() || undefined,
+        course: filters.course.trim() || undefined,
+        userRole: filters.userRole.trim() || undefined,
+        registrationType: filters.registrationType || undefined,
+        search: filters.search.trim() || undefined,
+      };
+      const hasFilters = Object.values(normalizedFilters).some(Boolean);
+
+      const blob = await api.exportEventRegistrations(event.id, token, {
+        format: filters.format,
+        filters: hasFilters ? normalizedFilters : undefined,
+      });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `${event.title.replace(/\s+/g, '_')}_registrations.xlsx`;
+      const ext = filters.format === 'csv' ? 'csv' : 'xlsx';
+      a.download = `${event.title.replace(/\s+/g, '_')}_registrations.${ext}`;
       a.click();
       URL.revokeObjectURL(url);
+      toast.success(hasFilters ? `Filtered ${ext.toUpperCase()} exported` : `${ext.toUpperCase()} exported`);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to export');
     }
@@ -362,6 +447,9 @@ export default function AdminEventRegistrations() {
           filteredEvents.map((event) => {
             const participantRegistrations = event.registrations.filter((registration) => registration.registrationType === 'PARTICIPANT');
             const guestRegistrations = event.registrations.filter((registration) => registration.registrationType === 'GUEST');
+            const exportFilters = getExportFiltersForEvent(event.id);
+            const isFilteredExport = hasActiveExportFilters(exportFilters);
+            const userRoleOptions = Array.from(new Set(event.registrations.map((registration) => registration.user.role))).sort();
 
             return (
               <motion.div
@@ -445,10 +533,10 @@ export default function AdminEventRegistrations() {
                         <Button
                           size="sm"
                           variant="outline"
-                          onClick={() => exportToExcel(event)}
+                          onClick={() => exportRegistrations(event)}
                         >
                           <Download className="h-4 w-4 mr-1" />
-                          Export
+                          {isFilteredExport ? 'Export Filtered' : 'Export'}
                         </Button>
                       )}
                       <Link to={`/admin/events/${event.id}/edit`}>
@@ -487,6 +575,93 @@ export default function AdminEventRegistrations() {
                       </TabsList>
 
                       <TabsContent value="registrations" className="space-y-4">
+                        <Card className="border-slate-200 bg-slate-50/70">
+                          <CardContent className="space-y-3 pb-4 pt-4">
+                            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                              <div>
+                                <p className="text-sm font-semibold text-slate-700">Export Filters</p>
+                                <p className="text-xs text-slate-500">Use any combination of filters, then export only matching registrations.</p>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <select
+                                  value={exportFilters.format}
+                                  onChange={(e) => setExportFilterValue(event.id, 'format', e.target.value)}
+                                  className="h-9 rounded-md border border-input bg-background px-2 py-1.5 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                                >
+                                  <option value="xlsx">XLSX</option>
+                                  <option value="csv">CSV</option>
+                                </select>
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  disabled={!isFilteredExport}
+                                  onClick={() => clearExportFilters(event.id)}
+                                >
+                                  Clear
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => exportRegistrations(event)}
+                                  disabled={event.registrations.length === 0}
+                                >
+                                  <Download className="mr-1 h-4 w-4" />
+                                  {isFilteredExport ? 'Export Filtered' : 'Export All'}
+                                </Button>
+                              </div>
+                            </div>
+
+                            <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+                              <Input
+                                value={exportFilters.year}
+                                onChange={(e) => setExportFilterValue(event.id, 'year', e.target.value)}
+                                placeholder="Year (e.g. 3 or 2026)"
+                              />
+                              <Input
+                                value={exportFilters.branch}
+                                onChange={(e) => setExportFilterValue(event.id, 'branch', e.target.value)}
+                                placeholder="Branch (e.g. CSE)"
+                              />
+                              <Input
+                                value={exportFilters.course}
+                                onChange={(e) => setExportFilterValue(event.id, 'course', e.target.value)}
+                                placeholder="Course (e.g. B.Tech)"
+                              />
+
+                              <select
+                                value={exportFilters.userRole}
+                                onChange={(e) => setExportFilterValue(event.id, 'userRole', e.target.value)}
+                                className="h-10 rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                              >
+                                <option value="">All user roles</option>
+                                {userRoleOptions.map((role) => (
+                                  <option key={role} value={role}>{role}</option>
+                                ))}
+                              </select>
+
+                              <select
+                                value={exportFilters.registrationType}
+                                onChange={(e) => setExportFilterValue(event.id, 'registrationType', e.target.value)}
+                                className="h-10 rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                              >
+                                <option value="">All registration types</option>
+                                <option value="PARTICIPANT">PARTICIPANT</option>
+                                <option value="GUEST">GUEST</option>
+                              </select>
+
+                              <div className="relative">
+                                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+                                <Input
+                                  value={exportFilters.search}
+                                  onChange={(e) => setExportFilterValue(event.id, 'search', e.target.value)}
+                                  placeholder="Search name/email/phone"
+                                  className="pl-9"
+                                />
+                              </div>
+                            </div>
+                          </CardContent>
+                        </Card>
+
                         {event.registrations.length === 0 ? (
                           <p className="py-8 text-center text-gray-500">No registrations yet</p>
                         ) : teamGroupView === event.id && teamData.has(event.id) ? (

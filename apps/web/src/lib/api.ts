@@ -676,6 +676,15 @@ export interface EventAdminRegistration {
   };
 }
 
+export interface EventRegistrationExportFilters {
+  year?: string;
+  branch?: string;
+  course?: string;
+  userRole?: string;
+  registrationType?: RegistrationType;
+  search?: string;
+}
+
 // Team registration types
 export interface EventTeamMemberInfo {
   id: string;
@@ -1446,9 +1455,29 @@ export const api = {
     request<EventAdminRegistration[]>(`/events/${eventId}/registrations`, { token }),
   deleteEventRegistration: (eventId: string, registrationId: string, token: string) =>
     request(`/events/${eventId}/registrations/${registrationId}`, { method: 'DELETE', token }),
-  exportEventRegistrations: async (eventId: string, token: string, format?: 'xlsx' | 'csv') => {
-    const params = format ? `?format=${format}` : '';
-    return requestBlob(`/events/${eventId}/registrations/export${params}`, { token });
+  exportEventRegistrations: async (
+    eventId: string,
+    token: string,
+    options?: { format?: 'xlsx' | 'csv'; filters?: EventRegistrationExportFilters },
+  ) => {
+    const params = new URLSearchParams();
+    if (options?.format) {
+      params.set('format', options.format);
+    }
+
+    const filters = options?.filters;
+    if (filters?.year) params.set('year', filters.year);
+    if (filters?.branch) params.set('branch', filters.branch);
+    if (filters?.course) params.set('course', filters.course);
+    if (filters?.userRole) params.set('userRole', filters.userRole);
+    if (filters?.registrationType) params.set('registrationType', filters.registrationType);
+    if (filters?.search) params.set('search', filters.search);
+
+    const queryString = params.toString();
+    return requestBlob(
+      `/events/${eventId}/registrations/export${queryString ? `?${queryString}` : ''}`,
+      { token },
+    );
   },
   
   // Registrations
