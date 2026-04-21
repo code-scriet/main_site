@@ -1214,8 +1214,12 @@ eventsRouter.get('/:id/registrations/export', authMiddleware, requireRole('CORE_
       });
     };
 
+    // Keep a consolidated sheet first so row counts always align with total registrations shown in the UI.
+    buildWorksheet('All Registrations', event.registrations);
     buildWorksheet('Participants', participantRegistrations);
-    buildWorksheet('Guests', guestRegistrations);
+    if (guestRegistrations.length > 0) {
+      buildWorksheet('Guests', guestRegistrations);
+    }
 
     // Add summary info at the top
     const summarySheet = workbook.addWorksheet('Event Info');
