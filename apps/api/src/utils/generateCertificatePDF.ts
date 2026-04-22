@@ -138,16 +138,6 @@ const C = {
 };
 
 // ── HELPERS ────────────────────────────────────────────────────────────────────
-function formatDateUpper(date: Date): string {
-  const day = date.getDate();
-  const suffix = ['TH', 'ST', 'ND', 'RD'];
-  const v = day % 100;
-  const ord = suffix[(v - 20) % 10] ?? suffix[v] ?? suffix[0];
-  const month = date.toLocaleDateString('en-IN', { month: 'long' }).toUpperCase();
-  const year = date.getFullYear();
-  return `${day}${ord} OF ${month} ${year}`;
-}
-
 const subtitleMap: Record<string, string> = {
   PARTICIPATION: 'of Participation',
   COMPLETION:    'of Achievement',
@@ -162,6 +152,92 @@ function nameFontSize(name: string): number {
   if (len <= 26) return 44.5;
   if (len <= 34) return 40.5;
   return 36.5;
+}
+
+type DescriptionLayoutConfig = {
+  fontSize: number;
+  lineHeight: number;
+  maxWidth: number;
+  eventNameFontSize: number;
+  eventNameMarginTop: number;
+  eventGroupMarginBottom: number;
+  recipientSectionHeight: number;
+  recipientSectionNoNameHeight: number;
+  contentTopPadding: number;
+};
+
+function getDescriptionLayoutConfig(description: string | undefined): DescriptionLayoutConfig {
+  if (!description) {
+    return {
+      fontSize: 19,
+      lineHeight: 1.4,
+      maxWidth: 650,
+      eventNameFontSize: 18,
+      eventNameMarginTop: 5,
+      eventGroupMarginBottom: 5,
+      recipientSectionHeight: 140,
+      recipientSectionNoNameHeight: 110,
+      contentTopPadding: 45,
+    };
+  }
+
+  const compactDescription = description.replace(/\s+/g, ' ').trim();
+  const lineBreakCount = (description.match(/\n/g) ?? []).length;
+  const sizeScore = compactDescription.length + (lineBreakCount * 28);
+
+  if (sizeScore >= 700) {
+    return {
+      fontSize: 13,
+      lineHeight: 1.2,
+      maxWidth: 610,
+      eventNameFontSize: 15,
+      eventNameMarginTop: 2,
+      eventGroupMarginBottom: 0,
+      recipientSectionHeight: 124,
+      recipientSectionNoNameHeight: 98,
+      contentTopPadding: 38,
+    };
+  }
+
+  if (sizeScore >= 520) {
+    return {
+      fontSize: 14.5,
+      lineHeight: 1.24,
+      maxWidth: 620,
+      eventNameFontSize: 16,
+      eventNameMarginTop: 3,
+      eventGroupMarginBottom: 1,
+      recipientSectionHeight: 128,
+      recipientSectionNoNameHeight: 100,
+      contentTopPadding: 40,
+    };
+  }
+
+  if (sizeScore >= 380) {
+    return {
+      fontSize: 16,
+      lineHeight: 1.28,
+      maxWidth: 630,
+      eventNameFontSize: 17,
+      eventNameMarginTop: 4,
+      eventGroupMarginBottom: 2,
+      recipientSectionHeight: 132,
+      recipientSectionNoNameHeight: 104,
+      contentTopPadding: 42,
+    };
+  }
+
+  return {
+    fontSize: 17,
+    lineHeight: 1.32,
+    maxWidth: 640,
+    eventNameFontSize: 18,
+    eventNameMarginTop: 4,
+    eventGroupMarginBottom: 4,
+    recipientSectionHeight: 136,
+    recipientSectionNoNameHeight: 108,
+    contentTopPadding: 44,
+  };
 }
 
 export function formatPosition(pos: string): string {
@@ -498,7 +574,6 @@ export async function generateCertificatePDF(data: CertData): Promise<Buffer> {
     width: 400, margin: 1,
     color: { dark: '#000000', light: '#ffffff' },
   });
-  const dateStr = formatDateUpper(data.issuedAt);
   const subtitle = subtitleMap[type] ?? 'of Participation';
   const recipientName = normalizeOptionalText(data.recipientName);
   const teamName = normalizeOptionalText(data.teamName);
@@ -513,7 +588,9 @@ export async function generateCertificatePDF(data: CertData): Promise<Buffer> {
   const hasPrimarySignatory = Boolean(signatoryImageUrl || signatoryName || signatoryTitle);
   const hasFacultySignatory = Boolean(facultySignatoryImageUrl || facultyName || facultyTitle);
   const sideReserveWidth = hasPrimarySignatory || hasFacultySignatory ? 240 : 0;
-  const hasCustomDescription = Boolean(normalizeOptionalText(data.description));
+  const customDescription = normalizeOptionalText(data.description);
+  const hasCustomDescription = Boolean(customDescription);
+  const descriptionLayout = getDescriptionLayoutConfig(customDescription);
   const verifyDomain = FRONTEND_URL.replace(/^https?:\/\//, '');
   const descElements = buildDescription(data, type, hasEventName);
   const teamLine = teamName ? `Member of Team ${teamName}` : null;
@@ -567,7 +644,7 @@ export async function generateCertificatePDF(data: CertData): Promise<Buffer> {
         React.createElement(View, {
           style: {
             position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
-            paddingTop: 45, paddingRight: 45, paddingBottom: 55, paddingLeft: 45,
+            paddingTop: descriptionLayout.contentTopPadding, paddingRight: 45, paddingBottom: 55, paddingLeft: 45,
             flexDirection: 'column',
             alignItems: 'center',
             justifyContent: 'space-between',
@@ -675,7 +752,8 @@ export async function generateCertificatePDF(data: CertData): Promise<Buffer> {
           React.createElement(View, {
             style: {
               alignItems: 'center', justifyContent: 'center',
-              height: recipientName || teamLine ? 140 : 110, width: '100%',
+              height: recipientName || teamLine ? descriptionLayout.recipientSectionHeight : descriptionLayout.recipientSectionNoNameHeight,
+              width: '100%',
             },
           },
             React.createElement(Text, {
@@ -724,14 +802,19 @@ export async function generateCertificatePDF(data: CertData): Promise<Buffer> {
 
           // ── EVENT GROUP ─────────────────────────────────────────────────
           React.createElement(View, {
-            style: { alignItems: 'center', marginBottom: 5 },
+            style: { alignItems: 'center', marginBottom: descriptionLayout.eventGroupMarginBottom },
           },
             // Description text (italic, 19px, with optional highlight)
             React.createElement(Text, {
               style: {
-                fontFamily: 'CormorantGaramond', fontStyle: hasCustomDescription ? 'normal' : 'italic', fontSize: 19,
-                color: C.textMain, maxWidth: 650, lineHeight: 1.4,
-                textAlign: 'center', marginBottom: hasEventName ? 10 : 6,
+                fontFamily: 'CormorantGaramond',
+                fontStyle: hasCustomDescription ? 'normal' : 'italic',
+                fontSize: descriptionLayout.fontSize,
+                color: C.textMain,
+                maxWidth: descriptionLayout.maxWidth,
+                lineHeight: descriptionLayout.lineHeight,
+                textAlign: 'center',
+                marginBottom: hasEventName ? 8 : 4,
               },
             }, ...descElements),
             ...(hasEventName
@@ -739,19 +822,14 @@ export async function generateCertificatePDF(data: CertData): Promise<Buffer> {
                   React.createElement(Text, {
                     key: 'event-name',
                     style: {
-                      fontFamily: 'Cinzel', fontWeight: 700, fontSize: 18,
-                      color: C.textMain, letterSpacing: 1.5, marginTop: 5,
+                      fontFamily: 'Cinzel', fontWeight: 700,
+                      fontSize: descriptionLayout.eventNameFontSize,
+                      color: C.textMain, letterSpacing: 1.5,
+                      marginTop: descriptionLayout.eventNameMarginTop,
                     },
                   }, (eventName ?? '').toUpperCase()),
                 ]
               : []),
-            // Date
-            React.createElement(Text, {
-              style: {
-                fontFamily: 'Cinzel', fontSize: 11,
-                color: C.gold, letterSpacing: 1.5, marginTop: hasEventName ? 6 : 0,
-              },
-            }, dateStr),
           ),
 
           // ── BOTTOM ROW (signatures + verification) ──────────────────────
