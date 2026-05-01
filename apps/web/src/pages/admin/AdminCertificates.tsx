@@ -25,7 +25,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import { useAuth } from '@/context/AuthContext';
 import { useSettings } from '@/context/SettingsContext';
-import { api } from '@/lib/api';
+import { api, type CertificateTemplate } from '@/lib/api';
 import {
   Award,
   Loader2,
@@ -262,6 +262,7 @@ interface GenerateFormData {
   type: CertType;
   position: string;
   domain: string;
+  teamName: string;
   description: string;
   signatoryId: string;
   signatoryName: string;
@@ -320,6 +321,7 @@ function createDefaultForm(defaults: SignatoryDefaults = DEFAULT_SIGNATORY_DEFAU
     type: 'PARTICIPATION',
     position: '',
     domain: '',
+    teamName: '',
     description: '',
     signatoryId: defaults.signatoryId,
     signatoryName: defaults.signatoryName,
@@ -336,7 +338,92 @@ function createDefaultForm(defaults: SignatoryDefaults = DEFAULT_SIGNATORY_DEFAU
 interface BulkEntry {
   name: string;
   email: string;
-  position: string;
+  position?: string;
+  domain?: string;
+  description?: string;
+  teamName?: string;
+  type?: CertType;
+  template?: CertificateTemplate;
+  userId?: string;
+}
+
+const BULK_CSV_HEADER_ALIASES: Record<string, keyof BulkEntry> = {
+  name: 'name',
+  recipientname: 'name',
+  email: 'email',
+  recipientemail: 'email',
+  position: 'position',
+  rank: 'position',
+  placement: 'position',
+  domain: 'domain',
+  track: 'domain',
+  description: 'description',
+  teamname: 'teamName',
+  team: 'teamName',
+  type: 'type',
+  template: 'template',
+  userid: 'userId',
+  useridnumber: 'userId',
+};
+
+function normalizeCsvHeader(value: string): string {
+  return value.trim().toLowerCase().replace(/[^a-z0-9]+/g, '');
+}
+
+function parseCsvRow(row: string): string[] {
+  const values: string[] = [];
+  let current = '';
+  let inQuotes = false;
+
+  for (let index = 0; index < row.length; index++) {
+    const char = row[index];
+
+    if (char === '"') {
+      if (inQuotes && row[index + 1] === '"') {
+        current += '"';
+        index++;
+      } else {
+        inQuotes = !inQuotes;
+      }
+      continue;
+    }
+
+    if (char === ',' && !inQuotes) {
+      values.push(current.trim());
+      current = '';
+      continue;
+    }
+
+    current += char;
+  }
+
+  values.push(current.trim());
+  return values.map((value) => value.replace(/\r$/, ''));
+}
+
+function isHeaderRow(values: string[]): boolean {
+  const normalized = values.slice(0, 3).map(normalizeCsvHeader);
+  return normalized[0] === 'name' && normalized[1] === 'email';
+}
+
+function normalizeTemplateValue(value: string | undefined | null): CertificateTemplate | undefined {
+  if (!value) {
+    return undefined;
+  }
+
+  const normalized = value.trim().toLowerCase();
+  return normalized === 'gold' || normalized === 'dark' || normalized === 'white' || normalized === 'emerald'
+    ? normalized
+    : undefined;
+}
+
+function normalizeCertTypeValue(value: string | undefined | null): CertType | undefined {
+  if (!value) {
+    return undefined;
+  }
+
+  const normalized = value.trim().toUpperCase();
+  return CERT_TYPES.includes(normalized as CertType) ? (normalized as CertType) : undefined;
 }
 
 interface FullSignatory {
@@ -550,6 +637,7 @@ export default function AdminCertificates() {
         type: form.type,
         position: form.position || undefined,
         domain: form.domain || undefined,
+        teamName: form.teamName || undefined,
         description: form.description || undefined,
         signatoryId: form.signatoryId || undefined,
         signatoryName: form.signatoryId ? undefined : form.signatoryName,
@@ -585,17 +673,51 @@ export default function AdminCertificates() {
   }
 
   function parseBulkCsv(): { recipients: BulkEntry[]; errors: string[] } {
-    const lines = bulkCsv.trim().split('\n').filter(Boolean);
+    const lines = bulkCsv
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean);
     const recipients: BulkEntry[] = [];
     const parseErrors: string[] = [];
 
-    for (const line of lines) {
-      const parts = line.split(',').map(s => s.trim());
+    if (lines.length === 0) {
+      return { recipients, errors: parseErrors };
+    }
+
+    const firstRow = parseCsvRow(lines[0]);
+    const hasHeader = isHeaderRow(firstRow);
+    const headerLookup = hasHeader
+      ? firstRow.map((header) => BULK_CSV_HEADER_ALIASES[normalizeCsvHeader(header)] ?? null)
+      : [];
+
+    const dataLines = hasHeader ? lines.slice(1) : lines;
+
+    for (const line of dataLines) {
+      const parts = parseCsvRow(line);
       if (parts.length < 2) {
         parseErrors.push(`Invalid line: ${line}`);
         continue;
       }
-      const [name, email, position = ''] = parts;
+
+      const getValue = (field: keyof BulkEntry, fallbackIndex: number): string | undefined => {
+        if (hasHeader) {
+          const headerIndex = headerLookup.findIndex((entry) => entry === field);
+          return headerIndex >= 0 ? parts[headerIndex]?.trim() || undefined : undefined;
+        }
+
+        return parts[fallbackIndex]?.trim() || undefined;
+      };
+
+      const name = getValue('name', 0) || '';
+      const email = getValue('email', 1) || '';
+      const position = getValue('position', 2);
+      const domain = getValue('domain', 3);
+      const description = getValue('description', 4);
+      const teamName = getValue('teamName', 5);
+      const type = normalizeCertTypeValue(getValue('type', 6));
+      const template = normalizeTemplateValue(getValue('template', 7));
+      const userId = getValue('userId', 8);
+
       if (!name) {
         parseErrors.push(`Missing name: ${line}`);
         continue;
@@ -605,7 +727,18 @@ export default function AdminCertificates() {
         parseErrors.push(`Invalid email: ${email || '(empty)'}`);
         continue;
       }
-      recipients.push({ name, email, position });
+
+      recipients.push({
+        name,
+        email,
+        position,
+        domain,
+        description,
+        teamName,
+        type,
+        template,
+        userId,
+      });
     }
 
     return { recipients, errors: parseErrors };
@@ -629,7 +762,11 @@ export default function AdminCertificates() {
   }
 
   function downloadCsvTemplate() {
-    const csv = 'Name,Email,Position (optional)\nAlice Johnson,alice@example.com,1st Place\nBob Smith,bob@example.com,\n';
+    const csv = [
+      'Name,Email,Position,Team Name,Domain',
+      'Alice Johnson,alice@example.com,1st Place,Team Alpha,Web Development',
+      'Bob Smith,bob@example.com,2nd Place,,',
+    ].join('\n');
     const blob = new Blob([csv], { type: 'text/csv' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -1082,6 +1219,10 @@ export default function AdminCertificates() {
                 <label htmlFor="admin-certificates-domain" className="text-sm font-medium text-gray-700">Domain / Track</label>
                 <Input id="admin-certificates-domain" value={form.domain} onChange={e => setForm(f => ({ ...f, domain: e.target.value }))} placeholder="e.g. Web Dev" className="mt-1" />
               </div>
+              <div className="col-span-full">
+                <label htmlFor="admin-certificates-team-name" className="text-sm font-medium text-gray-700">Team Name (optional)</label>
+                <Input id="admin-certificates-team-name" value={form.teamName} onChange={e => setForm(f => ({ ...f, teamName: e.target.value }))} placeholder="e.g. Team Alpha" className="mt-1" />
+              </div>
               <SignatoryPicker
                 label="Signatory *"
                 required
@@ -1118,6 +1259,9 @@ export default function AdminCertificates() {
                 />
                 <p className="mt-1 text-xs text-gray-500">
                   Supports Markdown formatting like <code>**bold**</code>, <code>*italic*</code>, <code>***bold italic***</code>, and <code>~~strikethrough~~</code>.
+                </p>
+                <p className="mt-1 text-xs text-amber-600">
+                  Placeholders resolve when generating: <code>{'{name}'}</code>, <code>{'{email}'}</code>, <code>{'{position}'}</code>, <code>{'{domain}'}</code>, <code>{'{teamName}'}</code>, <code>{'{eventName}'}</code>, <code>{'{type}'}</code>.
                 </p>
                 {form.description.trim() && (
                   <div className="mt-2 rounded-md border border-gray-200 bg-gray-50 px-3 py-2">
@@ -1211,6 +1355,9 @@ export default function AdminCertificates() {
               <p className="mt-1 text-xs text-gray-500">
                 Supports Markdown formatting like <code>**bold**</code>, <code>*italic*</code>, <code>***bold italic***</code>, and <code>~~strikethrough~~</code>.
               </p>
+              <p className="mt-1 text-xs text-amber-600">
+                Placeholders resolve per row: <code>{'{name}'}</code>, <code>{'{email}'}</code>, <code>{'{position}'}</code>, <code>{'{domain}'}</code>, <code>{'{teamName}'}</code>, <code>{'{eventName}'}</code>, <code>{'{type}'}</code>.
+              </p>
               {bulkDescription.trim() && (
                 <div className="mt-2 rounded-md border border-gray-200 bg-gray-50 px-3 py-2">
                   <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">Preview</p>
@@ -1230,7 +1377,7 @@ export default function AdminCertificates() {
                   Download Template
                 </Button>
               </div>
-              <p className="text-xs text-gray-400 mb-1">One per line: <code>Name, Email, Position (optional)</code></p>
+              <p className="text-xs text-gray-400 mb-1">One per line: <code>Name, Email, Position</code>. You can also use a header row with <code>Team Name</code>, <code>Domain</code>, <code>Description</code>, <code>Type</code>, <code>Template</code>, or <code>User ID</code>.</p>
               <textarea
                 id="admin-certificates-bulk-csv"
                 value={bulkCsv}
@@ -1249,7 +1396,11 @@ export default function AdminCertificates() {
                   <p className="font-medium mb-1">{bulkPreview.length} recipient(s) ready:</p>
                   <div className="max-h-24 overflow-y-auto space-y-0.5">
                     {bulkPreview.slice(0, 10).map((r, i) => (
-                      <p key={i}>{r.name} — {r.email}{r.position ? ` (${r.position})` : ''}</p>
+                      <p key={i}>
+                        {r.name} — {r.email}
+                        {r.position ? ` (${r.position})` : ''}
+                        {r.teamName ? ` · ${r.teamName}` : ''}
+                      </p>
                     ))}
                     {bulkPreview.length > 10 && <p className="text-green-500">…and {bulkPreview.length - 10} more</p>}
                   </div>

@@ -268,6 +268,15 @@ type MarkdownInlineTextStyle = {
   fontWeight?: 700;
   fontStyle?: 'italic' | 'normal';
   textDecoration?: 'line-through';
+  color?: string;
+};
+
+const POSITION_TEMPLATE_MARKER_PATTERN = /\[\[cert-position:([^\]]+)\]\]/g;
+
+const POSITION_TEMPLATE_HIGHLIGHT_STYLE: MarkdownInlineTextStyle = {
+  fontWeight: 700,
+  color: C.maroon,
+  fontStyle: 'normal',
 };
 
 function hasInlineTokens(token: Token): token is Token & { tokens: Token[] } {
@@ -350,6 +359,39 @@ function pushStyledText(
   nodes.push(React.createElement(Text, { key, style }, text));
 }
 
+function renderTextWithTemplateMarkers(
+  text: string,
+  keyPrefix: string,
+  style: MarkdownInlineTextStyle,
+): React.ReactNode[] {
+  const nodes: React.ReactNode[] = [];
+  let lastIndex = 0;
+  let markerIndex = 0;
+
+  for (const match of text.matchAll(POSITION_TEMPLATE_MARKER_PATTERN)) {
+    const [fullMatch, positionText] = match;
+    const matchIndex = match.index ?? 0;
+
+    if (matchIndex > lastIndex) {
+      pushStyledText(nodes, text.slice(lastIndex, matchIndex), `${keyPrefix}-plain-${markerIndex}`, style);
+    }
+
+    nodes.push(React.createElement(Text, {
+      key: `${keyPrefix}-position-${markerIndex}`,
+      style: { ...style, ...POSITION_TEMPLATE_HIGHLIGHT_STYLE },
+    }, positionText));
+
+    lastIndex = matchIndex + fullMatch.length;
+    markerIndex++;
+  }
+
+  if (lastIndex < text.length) {
+    pushStyledText(nodes, text.slice(lastIndex), `${keyPrefix}-tail-${markerIndex}`, style);
+  }
+
+  return nodes;
+}
+
 function renderMarkdownInlineTokens(
   tokens: Token[],
   keyPrefix: string,
@@ -392,12 +434,12 @@ function renderMarkdownInlineTokens(
           nodes.push(...renderMarkdownInlineTokens(nestedTokens, tokenKey, style));
           break;
         }
-        pushStyledText(nodes, token.text, tokenKey, style);
+        nodes.push(...renderTextWithTemplateMarkers(token.text, tokenKey, style));
         break;
       }
       case 'escape':
       case 'codespan': {
-        pushStyledText(nodes, token.text, tokenKey, style);
+        nodes.push(...renderTextWithTemplateMarkers(token.text, tokenKey, style));
         break;
       }
       default: {

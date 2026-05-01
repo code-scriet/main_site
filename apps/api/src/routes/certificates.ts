@@ -11,7 +11,7 @@ import { requireRole } from '../middleware/role.js';
 import { ApiResponse, ErrorCodes } from '../utils/response.js';
 import { logger } from '../utils/logger.js';
 import { generateCertId } from '../utils/generateCertId.js';
-import { generateCertificatePDF } from '../utils/generateCertificatePDF.js';
+import { formatPosition, generateCertificatePDF } from '../utils/generateCertificatePDF.js';
 import { uploadCertificate } from '../utils/uploadCertificate.js';
 import { emailService } from '../utils/email.js';
 import { sanitizeText } from '../utils/sanitize.js';
@@ -65,6 +65,7 @@ const certTypes = ['PARTICIPATION', 'COMPLETION', 'WINNER', 'SPEAKER'] as const;
 const certTemplates = ['gold', 'dark', 'white', 'emerald'] as const;
 const certificateSources = ['attendance', 'competition', 'generic'] as const;
 const competitionGenerationStrategies = ['specific_round', 'best_selected_rounds', 'average_selected_rounds'] as const;
+const certificateTemplateVariablePattern = /\{([a-zA-Z_][a-zA-Z0-9_]*)\}/g;
 
 const generateSchema = z.object({
   recipientName: z.string().min(2).max(100),
@@ -75,6 +76,7 @@ const generateSchema = z.object({
   type: z.enum(certTypes),
   position: z.string().max(100).optional().nullable(),
   domain: z.string().max(100).optional().nullable(),
+  teamName: z.string().max(100).optional().nullable(),
   description: z.string().max(400).optional().nullable(),
   template: z.enum(certTemplates).default('gold'),
   signatoryId: z.string().optional().nullable(),           // FK → Signatory (preferred)
@@ -171,6 +173,57 @@ function normalizeEmail(value?: string | null): string | null {
 function sanitizeOptionalText(value?: string | null): string | null {
   const sanitized = sanitizeText(value).trim();
   return sanitized || null;
+}
+
+function resolvePositionPlaceholder(value?: string | null): string {
+  return `[[cert-position:${formatPosition(value || '')}]]`;
+}
+
+function resolveCertificateTemplate(template: string | null | undefined, values: Record<string, string | null | undefined>): string | null {
+  const sanitizedTemplate = sanitizeOptionalText(template);
+  if (!sanitizedTemplate) {
+    return null;
+  }
+
+  const resolved = sanitizedTemplate.replace(certificateTemplateVariablePattern, (_, rawKey: string) => {
+    const value = values[rawKey];
+    if (rawKey === 'position') {
+      return resolvePositionPlaceholder(typeof value === 'string' ? value : '');
+    }
+    return typeof value === 'string' ? sanitizeText(value) : '';
+  });
+
+  const cleaned = resolved
+    .replace(/\(\s*\)/g, '')
+    .replace(/\s{2,}/g, ' ')
+    .replace(/\s+([,.;:!?])/g, '$1')
+    .replace(/\(\s+/g, '(')
+    .replace(/\s+\)/g, ')')
+    .trim();
+
+  return cleaned || null;
+}
+
+function buildCertificateTemplateValues(params: {
+  recipientName: string;
+  recipientEmail: string;
+  eventName: string;
+  type: string;
+  position?: string | null;
+  domain?: string | null;
+  teamName?: string | null;
+}): Record<string, string | null> {
+  return {
+    name: params.recipientName,
+    recipientName: params.recipientName,
+    email: params.recipientEmail,
+    recipientEmail: params.recipientEmail,
+    eventName: params.eventName,
+    type: params.type,
+    position: params.position ?? '',
+    domain: params.domain ?? '',
+    teamName: params.teamName ?? '',
+  };
 }
 
 function buildRecipientDuplicateKey(
@@ -834,7 +887,7 @@ certificatesRouter.post('/generate', authMiddleware, requireRole('ADMIN'), async
 
   const {
     recipientName, recipientEmail, recipientId,
-    eventId, eventName, type, position, domain, template,
+    eventId, eventName, type, position, domain, teamName, template,
     signatoryId, signatoryName, signatoryTitle, signatoryCustomImageUrl,
     facultySignatoryId, facultyName, facultyTitle, facultyCustomImageUrl,
     description, sendEmail,
@@ -880,8 +933,17 @@ certificatesRouter.post('/generate', authMiddleware, requireRole('ADMIN'), async
     const safeEventName = sanitizeText(eventName);
     const safePosition = position ? sanitizeText(position) : undefined;
     const safeDomain = domain ? sanitizeText(domain) : undefined;
-    const safeDescription = description ? sanitizeText(description) : undefined;
+    const safeTeamName = teamName ? sanitizeText(teamName) : undefined;
     const normalizedCertType = type.toUpperCase() as CertType;
+    const safeDescription = resolveCertificateTemplate(description, buildCertificateTemplateValues({
+      recipientName: safeRecipientName,
+      recipientEmail,
+      eventName: safeEventName,
+      type: normalizedCertType,
+      position: safePosition,
+      domain: safeDomain,
+      teamName: safeTeamName,
+    })) || undefined;
 
     const existingCertificate = await prisma.certificate.findFirst({
       where: {
@@ -918,6 +980,7 @@ certificatesRouter.post('/generate', authMiddleware, requireRole('ADMIN'), async
         type,
         position: safePosition,
         domain: safeDomain,
+        teamName: safeTeamName,
         description: safeDescription,
         certId,
         issuedAt: new Date(),
@@ -1094,8 +1157,28 @@ certificatesRouter.post('/bulk', authMiddleware, requireRole('ADMIN'), async (re
     }),
   );
 
-  if (source === 'competition' && resolvedRecipients.some((recipient) => !recipient.description)) {
-    return ApiResponse.badRequest(res, 'Competition certificates require a non-empty description for every recipient');
+  const preparedRecipients = resolvedRecipients.map((recipient) => {
+    const resolvedDescription = resolveCertificateTemplate(
+      recipient.description,
+      buildCertificateTemplateValues({
+        recipientName: recipient.name,
+        recipientEmail: recipient.email,
+        eventName: safeEventName,
+        type: recipient.type,
+        position: recipient.position,
+        domain: recipient.domain,
+        teamName: recipient.teamName,
+      }),
+    );
+
+    return {
+      ...recipient,
+      resolvedDescription,
+    };
+  });
+
+  if (source === 'competition' && preparedRecipients.some((recipient) => !recipient.resolvedDescription)) {
+    return ApiResponse.badRequest(res, 'Competition certificates require a non-empty description template for every recipient or the shared description field');
   }
 
   const successes: Array<{ certId: string; pdfUrl: string; name: string; email: string; type: CertType }> = [];
@@ -1103,7 +1186,7 @@ certificatesRouter.post('/bulk', authMiddleware, requireRole('ADMIN'), async (re
   let emailsSent = 0;
   let emailsFailed = 0;
   const providedUserIds = Array.from(
-    new Set(resolvedRecipients.map((recipient) => recipient.userId).filter((userId): userId is string => Boolean(userId))),
+    new Set(preparedRecipients.map((recipient) => recipient.userId).filter((userId): userId is string => Boolean(userId))),
   );
   const validUserIds = new Set(
     providedUserIds.length
@@ -1115,10 +1198,10 @@ certificatesRouter.post('/bulk', authMiddleware, requireRole('ADMIN'), async (re
       : [],
   );
 
-  const involvedTypes = Array.from(new Set(resolvedRecipients.map((recipient) => recipient.type)));
+  const involvedTypes = Array.from(new Set(preparedRecipients.map((recipient) => recipient.type)));
   const existingCertificates = await prisma.certificate.findMany({
     where: {
-      OR: Array.from(new Set(resolvedRecipients.map((recipient) => recipient.email))).map((email) => ({
+      OR: Array.from(new Set(preparedRecipients.map((recipient) => recipient.email))).map((email) => ({
         recipientEmail: {
           equals: email,
           mode: 'insensitive',
@@ -1149,7 +1232,7 @@ certificatesRouter.post('/bulk', authMiddleware, requireRole('ADMIN'), async (re
     ]),
   );
   const queuedRecipientKeys = new Set<string>();
-  const recipientsToProcess = resolvedRecipients.filter((recipient) => {
+  const recipientsToProcess = preparedRecipients.filter((recipient) => {
     const duplicateKey = buildRecipientDuplicateKey(
       source,
       recipient.email,
@@ -1214,8 +1297,8 @@ certificatesRouter.post('/bulk', authMiddleware, requireRole('ADMIN'), async (re
               type: r.type,
               position: r.position || undefined,
               domain: r.domain || undefined,
-              description: r.description || undefined,
               teamName: r.teamName || undefined,
+              description: r.resolvedDescription || undefined,
               certId,
               issuedAt: new Date(),
               signatoryName: primarySig.name,
@@ -1250,7 +1333,7 @@ certificatesRouter.post('/bulk', authMiddleware, requireRole('ADMIN'), async (re
                 certId,
                 {
                   ...legacyCertificateData,
-                  description: r.description,
+                  description: r.resolvedDescription,
                   signatoryId: primarySig.id,
                   signatoryName: primarySig.name,
                   signatoryTitle: primarySig.title,
