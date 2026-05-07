@@ -2127,8 +2127,8 @@ export const api = {
   },
   getMyAttendanceHistory: (token: string) =>
     request<{ events: AttendanceHistoryEvent[] }>('/attendance/my-history', { token }),
-  getAttendanceSummary: (eventId: string) =>
-    request<{ total: number; attended: number; eventDays?: number; dayLabels?: string[]; daySummary?: Array<{ dayNumber: number; attended: number }> }>(`/attendance/event/${eventId}/summary`),
+  getAttendanceSummary: (eventId: string, token: string) =>
+    request<{ total: number; attended: number; eventDays?: number; dayLabels?: string[]; daySummary?: Array<{ dayNumber: number; attended: number }> }>(`/attendance/event/${eventId}/summary`, { token }),
   backfillAttendanceTokens: (token: string) =>
     request<{ backfilled: number }>('/attendance/backfill-tokens', { method: 'POST', token }),
 

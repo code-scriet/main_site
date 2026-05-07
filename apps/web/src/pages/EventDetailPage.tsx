@@ -329,14 +329,19 @@ export default function EventDetailPage() {
     void fetchCompetitionRounds();
   }, [event?.id, token]);
 
-  // Fetch attendance summary for past events
+  // Fetch attendance summary for past events — restricted to CORE_MEMBER+ to avoid
+  // disclosing attendee counts to the public.
+  const canViewAttendanceSummary =
+    user?.role === 'CORE_MEMBER' || user?.role === 'ADMIN' || user?.role === 'PRESIDENT';
   useEffect(() => {
-    if (event?.status === 'PAST' && event.id) {
-      api.getAttendanceSummary(event.id)
+    if (event?.status === 'PAST' && event.id && canViewAttendanceSummary && token) {
+      api.getAttendanceSummary(event.id, token)
         .then(setAttendanceSummary)
         .catch(() => setAttendanceSummary(null));
+    } else {
+      setAttendanceSummary(null);
     }
-  }, [event?.id, event?.status]);
+  }, [event?.id, event?.status, canViewAttendanceSummary, token]);
 
   const openQrTicket = useCallback(() => {
     if (!event) return;
@@ -597,7 +602,7 @@ export default function EventDetailPage() {
   const regStatus = getRegistrationStatus(event);
   const statusInfo = statusConfig[event.status];
   const coverImage = event.imageUrl ? processImageUrl(event.imageUrl, 'event-cover') : null;
-  const showAttendanceSummary = event.status === 'PAST' && !!attendanceSummary && attendanceSummary.attended > 0;
+  const showAttendanceSummary = canViewAttendanceSummary && event.status === 'PAST' && !!attendanceSummary && attendanceSummary.attended > 0;
   const attendanceDayBreakdown = showAttendanceSummary
     && (attendanceSummary.eventDays ?? 1) > 1
     && (attendanceSummary.daySummary?.length ?? 0) > 0

@@ -2358,9 +2358,9 @@ router.get('/my-history', authMiddleware, async (req: Request, res: Response) =>
 });
 
 // ────────────────────────────────────────────────────────────
-// 17. GET /event/:eventId/summary — Public attendance summary
+// 17. GET /event/:eventId/summary — Attendance summary (CORE_MEMBER+ only)
 // ────────────────────────────────────────────────────────────
-router.get('/event/:eventId/summary', async (req: Request, res: Response) => {
+router.get('/event/:eventId/summary', authMiddleware, requireRole('CORE_MEMBER'), async (req: Request, res: Response) => {
   try {
     const { eventId } = req.params;
     if (!requireUuid(res, eventId, 'event ID')) {

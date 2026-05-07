@@ -282,7 +282,7 @@ npm run lint:web
 | `/api/quiz/*` | quizRouter | Some |
 | `/api/playground/*` | playgroundRouter | Some |
 | `/api/credits/*` | creditsRouter | GET=public, POST/PUT/DELETE=Admin |
-| `/api/attendance/*` | attendanceRouter | Some (user QR + history = auth, admin endpoints = Admin, summary = public) |
+| `/api/attendance/*` | attendanceRouter | Some (user QR + history = auth, admin endpoints = Admin, summary = CORE_MEMBER+) |
 | `/api/indexnow` | indexNowRouter | Admin |
 | `/sitemap.xml` | sitemapRouter | Public |
 | `/robots.txt` | robotsRouter | Public |
@@ -1013,7 +1013,7 @@ model DayAttendance {
 | `/email-absentees/:eventId` | POST | Admin | Email non-attendees via Brevo (optional `dayNumber`) |
 | `/event/:eventId/certificate-recipients` | GET | Admin | Attendees + cert status (optional `minDays`) |
 | `/my-history` | GET | User | Attendee attendance history |
-| `/event/:eventId/summary` | GET | Public | Attendance count + per-day summary for event detail |
+| `/event/:eventId/summary` | GET | CORE_MEMBER+ | Attendance count + per-day summary (staff-only — avoids disclosing attendee counts to public) |
 | `/backfill-tokens` | POST | Admin | Backfill tokens for existing registrations |
 
 ### Socket.io `/attendance` Namespace
