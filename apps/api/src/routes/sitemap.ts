@@ -26,6 +26,7 @@ sitemapRouter.get('/', async (_req: Request, res: Response) => {
 
     const [events, achievements, announcements, teamMembers, networkProfiles] = await Promise.all([
       prisma.event.findMany({
+        where: { slug: { not: '' } },
         select: {
           slug: true,
           updatedAt: true,
@@ -36,6 +37,7 @@ sitemapRouter.get('/', async (_req: Request, res: Response) => {
         },
       }),
       prisma.achievement.findMany({
+        where: { slug: { not: '' } },
         select: {
           slug: true,
           updatedAt: true,
@@ -46,6 +48,10 @@ sitemapRouter.get('/', async (_req: Request, res: Response) => {
         },
       }),
       prisma.announcement.findMany({
+        where: {
+          slug: { not: '' },
+          OR: [{ expiresAt: null }, { expiresAt: { gte: new Date() } }],
+        },
         select: {
           slug: true,
           updatedAt: true,
@@ -56,7 +62,8 @@ sitemapRouter.get('/', async (_req: Request, res: Response) => {
         },
       }),
       prisma.teamMember.findMany({
-        select: { id: true, slug: true, createdAt: true },
+        where: { slug: { not: null } },
+        select: { slug: true, createdAt: true },
         orderBy: [{ order: 'asc' }, { createdAt: 'asc' }],
       }),
       prisma.networkProfile.findMany({
@@ -77,6 +84,9 @@ sitemapRouter.get('/', async (_req: Request, res: Response) => {
       { path: '/about', priority: '0.7', changefreq: 'monthly' },
       { path: '/join-us', priority: '0.8', changefreq: 'weekly' },
       { path: '/join-our-network', priority: '0.7', changefreq: 'weekly' },
+      { path: '/credits', priority: '0.6', changefreq: 'monthly' },
+      { path: '/contact', priority: '0.5', changefreq: 'yearly' },
+      { path: '/privacy-policy', priority: '0.3', changefreq: 'yearly' },
     ];
 
     const today = new Date().toISOString().split('T')[0];
@@ -135,11 +145,10 @@ sitemapRouter.get('/', async (_req: Request, res: Response) => {
     }
 
     for (const member of teamMembers) {
-      const profileSlugOrId = member.slug || member.id;
-      if (!profileSlugOrId) continue;
+      if (!member.slug) continue;
       const lastmod = member.createdAt.toISOString().split('T')[0];
       xml += '  <url>\n';
-      xml += `    <loc>${baseUrl}/team/${profileSlugOrId}</loc>\n`;
+      xml += `    <loc>${baseUrl}/team/${member.slug}</loc>\n`;
       xml += `    <lastmod>${lastmod}</lastmod>\n`;
       xml += '    <changefreq>monthly</changefreq>\n';
       xml += '    <priority>0.65</priority>\n';
@@ -193,9 +202,17 @@ robotsRouter.get('/', (_req: Request, res: Response) => {
   robots += 'Allow: /achievements/\n';
   robots += 'Allow: /announcements/\n';
   robots += 'Allow: /team\n';
+  robots += 'Allow: /team/\n';
   robots += 'Allow: /network\n';
+  robots += 'Allow: /network/\n';
   robots += 'Allow: /about\n';
   robots += 'Allow: /join-us\n';
+  robots += 'Allow: /join-our-network\n';
+  robots += 'Allow: /contact\n';
+  robots += 'Allow: /privacy-policy\n';
+  robots += 'Allow: /credits\n';
+  robots += 'Allow: /verify\n';
+  robots += 'Allow: /verify/\n';
   robots += '\n';
   robots += '# Disallow admin and auth areas\n';
   robots += 'Disallow: /admin\n';

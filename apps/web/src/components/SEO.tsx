@@ -4,8 +4,10 @@ interface SEOProps {
   title?: string;
   description?: string;
   image?: string;
+  /** Descriptive alt text for og:image / twitter:image. Falls back to the page title. */
+  imageAlt?: string;
   url?: string;
-  type?: 'website' | 'article';
+  type?: 'website' | 'article' | 'profile';
   noIndex?: boolean;
 }
 
@@ -22,11 +24,17 @@ export function SEO({
   title,
   description = DEFAULT_DESCRIPTION,
   image = DEFAULT_IMAGE,
+  imageAlt,
   url,
   type = 'website',
   noIndex = false,
 }: SEOProps) {
-  const fullTitle = title ? `${title} | codescriet` : DEFAULT_TITLE;
+  // Title is used verbatim if it already mentions "codescriet" — avoids
+  // double-suffixing pages like "Lakshya Aarya — President, codescriet".
+  const fullTitle = title
+    ? (/(codescriet|code\.scriet)/i.test(title) ? title : `${title} | codescriet`)
+    : DEFAULT_TITLE;
+  const fullImageAlt = imageAlt || (title ? title : 'codescriet');
   const fullUrl = (() => {
     if (url) {
       return url.startsWith('http') ? url : `${BASE_URL}${url}`;
@@ -90,6 +98,7 @@ export function SEO({
     updateMetaTag('meta[property="og:description"]', 'content', description);
     updateMetaTag('meta[property="og:url"]', 'content', fullUrl);
     updateMetaTag('meta[property="og:image"]', 'content', image);
+    updateMetaTag('meta[property="og:image:alt"]', 'content', fullImageAlt);
     updateMetaTag('meta[property="og:type"]', 'content', type);
 
     // Update Twitter tags
@@ -97,6 +106,7 @@ export function SEO({
     updateMetaTag('meta[name="twitter:description"]', 'content', description);
     updateMetaTag('meta[name="twitter:url"]', 'content', fullUrl);
     updateMetaTag('meta[name="twitter:image"]', 'content', image);
+    updateMetaTag('meta[name="twitter:image:alt"]', 'content', fullImageAlt);
 
     // Cleanup function to reset to defaults when component unmounts
     return () => {
@@ -115,7 +125,7 @@ export function SEO({
       updateMetaTag('meta[name="twitter:url"]', 'content', BASE_URL);
       updateMetaTag('meta[name="twitter:image"]', 'content', DEFAULT_IMAGE);
     };
-  }, [fullTitle, description, image, fullUrl, type, noIndex]);
+  }, [fullTitle, description, image, fullImageAlt, fullUrl, type, noIndex]);
 
   return null;
 }

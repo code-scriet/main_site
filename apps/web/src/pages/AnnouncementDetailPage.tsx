@@ -61,6 +61,10 @@ export default function AnnouncementDetailPage() {
         setLoading(true);
         setError(null);
         const data = await api.getAnnouncement(id);
+        if (data.slug && id !== data.slug) {
+          navigate(`/announcements/${data.slug}`, { replace: true });
+          return;
+        }
         setAnnouncement(data);
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Failed to load announcement');
@@ -139,9 +143,9 @@ export default function AnnouncementDetailPage() {
 
   return (
     <Layout>
-      <SEO 
-        title={announcement.title}
-        description={announcement.shortDescription || announcement.body.slice(0, 160)}
+      <SEO
+        title={`${announcement.title} | codescriet Announcements`}
+        description={(announcement.shortDescription || announcement.body || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 300)}
         url={`/announcements/${announcement.slug}`}
         image={announcement.imageUrl || undefined}
       />

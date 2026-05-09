@@ -284,7 +284,8 @@ export default function NetworkProfilePage() {
       badgeBg: 'border-amber-200 bg-amber-100 text-amber-700',
     };
 
-  const profileTitle = `${profile.fullName} | ${profile.designation} at ${profile.company}`;
+  const companyClause = profile.company ? ` at ${profile.company}` : '';
+  const profileTitle = `${profile.fullName} — ${profile.designation}${companyClause} | codescriet Network`;
   const profilePath = `/network/${profile.slug || profile.id}`;
   const profileLink =
     typeof window === 'undefined' ? `https://codescriet.dev${profilePath}` : `${window.location.origin}${profilePath}`;
@@ -293,6 +294,17 @@ export default function NetworkProfilePage() {
   const aboutSummary =
     profile.bio?.trim() ||
     `${profile.fullName} is part of the code.scriet network and contributes through mentorship, sessions, and guidance.`;
+  const personDescription = (profile.bio || aboutSummary)
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 300);
+  const expertiseTopics = (profile.expertise || '')
+    .replace(/<[^>]+>/g, ' ')
+    .split(/[,;\n]/)
+    .map((t) => t.trim())
+    .filter((t) => t && t.length < 60)
+    .slice(0, 12);
 
   const snapshotRows = [
     { label: 'Connection Type', value: connectionTypeLabels[profile.connectionType], icon: TypeIcon },
@@ -314,26 +326,27 @@ export default function NetworkProfilePage() {
     <Layout>
       <SEO
         title={profileTitle}
-        description={
-          profile.bio ||
-          `${profile.fullName} is part of the codescriet ${isAlumni ? 'alumni' : 'professional'} network as a ${profile.designation} at ${profile.company}.`
-        }
+        description={personDescription || `${profile.fullName} is part of the codescriet ${isAlumni ? 'alumni' : 'professional'} network${companyClause ? ` — ${profile.designation}${companyClause}` : ''}.`}
         url={profilePath}
+        image={profile.profilePhoto || undefined}
       />
       <ProfilePageSchema
         profileUrl={profileLink}
         personName={profile.fullName}
-        description={aboutSummary}
+        description={personDescription || aboutSummary}
         image={profile.profilePhoto || undefined}
         jobTitle={profile.designation}
         affiliation="codescriet"
+        worksFor={profile.company ? { name: profile.company } : undefined}
         sameAs={[
-          profile.linkedinUsername ? `https://linkedin.com/in/${profile.linkedinUsername}` : null,
-          profile.twitterUsername ? `https://twitter.com/${profile.twitterUsername}` : null,
-          profile.githubUsername ? `https://github.com/${profile.githubUsername}` : null,
+          profile.linkedinUsername ? `https://linkedin.com/in/${profile.linkedinUsername.replace(/^@/, '')}` : null,
+          profile.twitterUsername ? `https://twitter.com/${profile.twitterUsername.replace(/^@/, '')}` : null,
+          profile.githubUsername ? `https://github.com/${profile.githubUsername.replace(/^@/, '')}` : null,
           profile.personalWebsite || null,
         ].filter((value): value is string => Boolean(value))}
-        breadcrumbName={`${profile.fullName} | Network`}
+        knowsAbout={expertiseTopics}
+        alumniOf={isAlumni ? { name: 'Chaudhary Charan Singh University' } : undefined}
+        breadcrumbName={`${profile.fullName} | codescriet Network`}
       />
       <BreadcrumbSchema
         items={[

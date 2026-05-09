@@ -124,6 +124,10 @@ export default function AchievementDetailPage() {
         setLoading(true);
         setError(null);
         const data = await api.getAchievement(id);
+        if (data.slug && id !== data.slug) {
+          navigate(`/achievements/${data.slug}`, { replace: true });
+          return;
+        }
         setAchievement(data);
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Failed to load achievement');
@@ -207,9 +211,9 @@ export default function AchievementDetailPage() {
 
   return (
     <Layout>
-      <SEO 
-        title={achievement.title}
-        description={achievement.shortDescription || achievement.description}
+      <SEO
+        title={`${achievement.title}${achievement.achievedBy ? ` — ${achievement.achievedBy}` : ''} | codescriet`}
+        description={(achievement.shortDescription || achievement.description || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 300)}
         url={`/achievements/${achievement.slug || achievement.id}`}
         image={achievement.imageUrl}
       />

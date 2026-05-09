@@ -45,7 +45,7 @@ services:
     name: codescriet-web
     runtime: static
     plan: free
-    buildCommand: npm install && node scripts/generate-sitemap.js && npm run build --workspace=apps/web
+    buildCommand: npm install && node scripts/generate-sitemap.js && npm run build --workspace=apps/web && node scripts/prerender.js
     staticPublishPath: ./apps/web/dist
     routes:
       - type: rewrite

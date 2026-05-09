@@ -14,7 +14,13 @@ Allow: /team
 Allow: /about
 Allow: /network
 Allow: /network/
-Allow: /join-us\nAllow: /contact\nAllow: /privacy-policy
+Allow: /join-us
+Allow: /join-our-network
+Allow: /contact
+Allow: /privacy-policy
+Allow: /credits
+Allow: /verify
+Allow: /verify/
 
 # Disallow admin and dashboard areas from indexing
 Disallow: /admin

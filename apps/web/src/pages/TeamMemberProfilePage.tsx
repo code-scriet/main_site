@@ -263,28 +263,42 @@ export default function TeamMemberProfilePage() {
   const hasAchievements = member.achievements?.trim();
   const hasContentSections = hasVision || hasStory || hasExpertise || hasAchievements;
 
+  const personDescription = (member.bio || member.story || '')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 300);
+  const expertiseTopics = (member.expertise || '')
+    .replace(/<[^>]+>/g, ' ')
+    .split(/[,;\n]/)
+    .map((t) => t.trim())
+    .filter((t) => t && t.length < 60)
+    .slice(0, 12);
+
   return (
     <Layout>
       <SEO
-        title={`${member.name} | ${member.role} | codescriet Team`}
-        description={member.bio || `${member.name} is a ${member.role} on the ${member.team} team at codescriet (code.scriet), SCRIET's coding club.`}
+        title={`${member.name} — ${member.role}, codescriet | ${member.team || 'Team'}`}
+        description={personDescription || `${member.name} is a ${member.role} on the ${member.team || 'core'} team at codescriet (code.scriet), the official coding club of SCRIET, CCS University Meerut.`}
         url={profilePath}
+        image={member.imageUrl || undefined}
       />
       <ProfilePageSchema
         profileUrl={profileLink}
         personName={member.name}
-        description={member.bio || `${member.name} contributes as ${member.role} on the ${member.team} team at codescriet.`}
+        description={personDescription || `${member.name} contributes as ${member.role} on the ${member.team || 'core'} team at codescriet.`}
         image={member.imageUrl || undefined}
         jobTitle={member.role}
         affiliation="codescriet"
         sameAs={[
-          member.github?.startsWith('http') ? member.github : member.github ? `https://github.com/${member.github}` : null,
-          member.linkedin?.startsWith('http') ? member.linkedin : member.linkedin ? `https://linkedin.com/in/${member.linkedin}` : null,
-          member.twitter?.startsWith('http') ? member.twitter : member.twitter ? `https://twitter.com/${member.twitter}` : null,
+          member.github?.startsWith('http') ? member.github : member.github ? `https://github.com/${member.github.replace(/^@/, '')}` : null,
+          member.linkedin?.startsWith('http') ? member.linkedin : member.linkedin ? `https://linkedin.com/in/${member.linkedin.replace(/^@/, '')}` : null,
+          member.twitter?.startsWith('http') ? member.twitter : member.twitter ? `https://twitter.com/${member.twitter.replace(/^@/, '')}` : null,
           member.website || null,
-          member.instagram?.startsWith('http') ? member.instagram : member.instagram ? `https://instagram.com/${member.instagram}` : null,
+          member.instagram?.startsWith('http') ? member.instagram : member.instagram ? `https://instagram.com/${member.instagram.replace(/^@/, '')}` : null,
         ].filter((value): value is string => Boolean(value))}
-        breadcrumbName={`${member.name} | Team`}
+        knowsAbout={expertiseTopics}
+        breadcrumbName={`${member.name} | codescriet Team`}
       />
       <BreadcrumbSchema
         items={[

@@ -63,6 +63,9 @@ export function OrganizationSchema({
 /**
  * ProfilePage + Person schema for Team and Network profile detail pages.
  * Improves person-name discoverability in search.
+ *
+ * `sameAs` is the strongest signal Google uses to merge a name with an
+ * identity across the web — pass every social/personal URL we know about.
  */
 export function ProfilePageSchema({
   profileUrl,
@@ -71,7 +74,10 @@ export function ProfilePageSchema({
   image,
   jobTitle,
   affiliation = 'codescriet',
+  worksFor,
   sameAs = [],
+  knowsAbout = [],
+  alumniOf,
   breadcrumbName,
 }: {
   profileUrl: string;
@@ -79,10 +85,31 @@ export function ProfilePageSchema({
   description: string;
   image?: string;
   jobTitle?: string;
+  /** Display name of the org affiliating this person (defaults to codescriet). */
   affiliation?: string;
+  /** When set, used as the Person's `worksFor` org (e.g. an alum's current employer). */
+  worksFor?: { name: string; url?: string };
   sameAs?: string[];
+  /** Topics/expertise — surfaces in Google entity matches. */
+  knowsAbout?: string[];
+  /** For alumni: the educational institution they graduated from. */
+  alumniOf?: { name: string; type?: 'CollegeOrUniversity' | 'EducationalOrganization' };
   breadcrumbName?: string;
 }) {
+  const affiliationOrg = {
+    '@type': 'Organization',
+    name: affiliation,
+    url: 'https://codescriet.dev',
+  } as const;
+
+  const worksForOrg = worksFor
+    ? {
+      '@type': 'Organization',
+      name: worksFor.name,
+      ...(worksFor.url ? { url: worksFor.url } : {}),
+    }
+    : affiliationOrg;
+
   const schema = {
     '@context': 'https://schema.org',
     '@type': 'ProfilePage',
@@ -91,15 +118,22 @@ export function ProfilePageSchema({
     mainEntity: {
       '@type': 'Person',
       name: personName,
+      url: profileUrl,
       description,
       ...(image ? { image } : {}),
       ...(jobTitle ? { jobTitle } : {}),
-      worksFor: {
-        '@type': 'Organization',
-        name: affiliation,
-        url: 'https://codescriet.dev',
-      },
+      affiliation: affiliationOrg,
+      worksFor: worksForOrg,
       ...(sameAs.length > 0 ? { sameAs } : {}),
+      ...(knowsAbout.length > 0 ? { knowsAbout } : {}),
+      ...(alumniOf
+        ? {
+          alumniOf: {
+            '@type': alumniOf.type || 'CollegeOrUniversity',
+            name: alumniOf.name,
+          },
+        }
+        : {}),
     },
   };
 

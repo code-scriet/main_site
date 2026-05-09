@@ -266,6 +266,10 @@ export default function EventDetailPage() {
         setLoading(true);
         setError(null);
         const eventData = await api.getEvent(id, token || undefined);
+        if (eventData.slug && id !== eventData.slug) {
+          navigate(`/events/${eventData.slug}`, { replace: true });
+          return;
+        }
         setEvent(eventData);
         setIsRegistered(Boolean(eventData.isRegistered || eventData.userInvitation?.status === 'ACCEPTED'));
       } catch (err) {
@@ -682,9 +686,17 @@ export default function EventDetailPage() {
   return (
     <Layout>
       <SEO
-        title={event.title}
-        description={event.shortDescription || event.description.slice(0, 160)}
+        title={(() => {
+          const dateLabel = event.startDate
+            ? new Date(event.startDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })
+            : '';
+          const venue = event.venue || event.location || '';
+          const suffix = [dateLabel, venue].filter(Boolean).join(', ');
+          return `${event.title}${suffix ? ` — ${suffix}` : ''} | codescriet Events`;
+        })()}
+        description={(event.shortDescription || event.description || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 300)}
         url={`/events/${event.slug}`}
+        image={event.imageUrl || undefined}
       />
 
       {/* Schema markup for SEO */}

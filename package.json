@@ -11,6 +11,8 @@
     "start": "npm run build && npm run start:prod",
     "start:prod": "NODE_ENV=production concurrently \"npm run start --workspace=apps/api\" \"npm run preview --workspace=apps/web\"",
     "build": "npm run build --workspace=apps/web && npm run build --workspace=apps/api",
+    "build:web:seo": "node scripts/generate-sitemap.js && npm run build --workspace=apps/web && node scripts/prerender.js",
+    "prerender": "node scripts/prerender.js",
     "web": "npm run dev --workspace=apps/web",
     "api": "npm run dev --workspace=apps/api",
     "playground": "concurrently -n \"EXEC,PLAYGROUND\" -c \"cyan,magenta\" \"cd apps/playground && node execute-server.js\" \"npm run dev --workspace=apps/playground\"",
