@@ -13,25 +13,25 @@ datasource db {
 // - DATABASE_URL can use the pooler for application queries
 
 model User {
-  id                     String                  @id @default(uuid())
+  id                     String                     @id @default(uuid())
   name                   String
-  email                  String                  @unique
+  email                  String                     @unique
   avatar                 String?
-  oauthProvider          String?                 @map("oauth_provider")
-  oauthId                String?                 @map("oauth_id")
-  role                   Role                    @default(USER)
-  createdAt              DateTime                @default(now()) @map("created_at")
-  updatedAt              DateTime                @updatedAt @map("updated_at")
+  oauthProvider          String?                    @map("oauth_provider")
+  oauthId                String?                    @map("oauth_id")
+  role                   Role                       @default(USER)
+  createdAt              DateTime                   @default(now()) @map("created_at")
+  updatedAt              DateTime                   @updatedAt @map("updated_at")
   password               String?
   bio                    String?
-  githubUrl              String?                 @map("github_url")
-  linkedinUrl            String?                 @map("linkedin_url")
-  twitterUrl             String?                 @map("twitter_url")
-  websiteUrl             String?                 @map("website_url")
+  githubUrl              String?                    @map("github_url")
+  linkedinUrl            String?                    @map("linkedin_url")
+  twitterUrl             String?                    @map("twitter_url")
+  websiteUrl             String?                    @map("website_url")
   branch                 String?
   course                 String?
   phone                  String?
-  profileCompleted       Boolean                 @default(false) @map("profile_completed")
+  profileCompleted       Boolean                    @default(false) @map("profile_completed")
   year                   String?
   announcements          Announcement[]
   registrations          EventRegistration[]
@@ -46,23 +46,26 @@ model User {
   // Certificate relations
   certificates           Certificate[]
   // Team registration relations
-  ledTeams               EventTeam[]             @relation("teamLeader")
-  teamMemberships        EventTeamMember[]       @relation("teamMemberships")
+  ledTeams               EventTeam[]                @relation("teamLeader")
+  teamMemberships        EventTeamMember[]          @relation("teamMemberships")
   competitionSubmissions CompetitionSubmission[]
   competitionAutoSaves   CompetitionAutoSave[]
   createdPolls           Poll[]
   pollVotes              PollVote[]
   pollFeedback           PollFeedback[]
-  eventsCreated          Event[]                 @relation("eventCreator")
-  invitationsReceived    EventInvitation[]       @relation("InvitationInvitee")
-  invitationsSent        EventInvitation[]       @relation("InvitationInviter")
-  qotdsCreated           QOTD[]                  @relation("qotdCreator")
+  eventsCreated          Event[]                    @relation("eventCreator")
+  invitationsReceived    EventInvitation[]          @relation("InvitationInvitee")
+  invitationsSent        EventInvitation[]          @relation("InvitationInviter")
+  qotdsCreated           QOTD[]                     @relation("qotdCreator")
   auditLogs              AuditLog[]
   executions             Execution[]
   snippets               Snippet[]
   playgroundPrefs        UserPlaygroundPrefs?
   playgroundDailyUsage   PlaygroundDailyUsage[]
   playgroundLimitResets  PlaygroundLimitReset[]
+  problemsCreated        Problem[]                  @relation("ProblemsCreated")
+  problemSubmissions     ProblemSubmission[]
+  problemCounters        ProblemSubmissionCounter[]
 
   @@index([role, createdAt(sort: Desc)], map: "users_role_created_at_desc_idx")
   @@map("users")
@@ -129,6 +132,7 @@ model Settings {
 
   // Competition feature toggle
   competitionEnabled Boolean @default(false) @map("competition_enabled")
+  problemsEnabled    Boolean @default(false) @map("problems_enabled")
 
   @@map("settings")
 }
@@ -322,6 +326,7 @@ model CompetitionRound {
   description      String?                     @db.Text
   duration         Int
   status           CompetitionStatus           @default(DRAFT)
+  roundType        CompetitionRoundType        @default(IMAGE_TARGET) @map("round_type")
   participantScope CompetitionParticipantScope @default(ALL) @map("participant_scope")
   leadersOnly      Boolean                     @default(false) @map("leaders_only")
   allowedTeamIds   String[]                    @default([]) @map("allowed_team_ids")
@@ -331,9 +336,10 @@ model CompetitionRound {
   createdAt        DateTime                    @default(now()) @map("created_at")
   updatedAt        DateTime                    @updatedAt @map("updated_at")
 
-  event       Event                   @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  event       Event                     @relation(fields: [eventId], references: [id], onDelete: Cascade)
   submissions CompetitionSubmission[]
   autoSaves   CompetitionAutoSave[]
+  problems    CompetitionRoundProblem[]
 
   @@index([eventId])
   @@index([status, startedAt])
@@ -560,12 +566,21 @@ model QOTD {
   question    String
   problemLink String           @map("problem_link")
   difficulty  String
+  problemId   String?          @map("problem_id")
   createdById String?          @map("created_by_id")
   createdAt   DateTime         @default(now()) @map("created_at")
+  isPublished Boolean          @default(false) @map("is_published")
+  publishAt   DateTime?        @map("publish_at")
+  publishedAt DateTime?        @map("published_at")
+  heldBy      String?          @map("held_by")
+  holdReason  String?          @map("hold_reason")
   creator     User?            @relation("qotdCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  problem     Problem?         @relation(fields: [problemId], references: [id], onDelete: SetNull)
   submissions QOTDSubmission[]
 
   @@index([createdById])
+  @@index([problemId])
+  @@index([isPublished, date])
   @@map("qotd")
 }
 
@@ -850,6 +865,9 @@ model QuizAnswer {
   @@index([questionId], map: "idx_quiz_answers_question_id")
   @@index([userId], map: "idx_quiz_answers_user_id")
   @@index([quizId], map: "idx_quiz_answers_quiz_id")
+  // Per-quiz, per-user lookups (leaderboard / "my answers in this quiz") are
+  // hot paths after every question advance — the composite avoids a full scan.
+  @@index([quizId, userId], map: "idx_quiz_answers_quiz_user")
   @@map("quiz_answers")
 }
 
@@ -958,10 +976,136 @@ model PlaygroundLimitReset {
   @@map("playground_limit_resets")
 }
 
+model Problem {
+  id                 String            @id @default(uuid())
+  slug               String            @unique
+  title              String            @db.VarChar(200)
+  body               String            @db.Text
+  difficulty         String            @db.VarChar(10)
+  tags               String[]
+  allowedLanguages   ProblemLanguage[] @map("allowed_languages")
+  timeLimitMs        Int               @default(2000) @map("time_limit_ms")
+  defaultSubmitCap   Int               @default(5) @map("default_submit_cap")
+  sampleTests        Json              @map("sample_tests")
+  hiddenTests        Json              @map("hidden_tests")
+  referenceSolution  String?           @map("reference_solution") @db.Text
+  referenceLanguage  ProblemLanguage?  @map("reference_language")
+  isPublished        Boolean           @default(false) @map("is_published")
+  createdBy          String            @map("created_by")
+  creator            User              @relation("ProblemsCreated", fields: [createdBy], references: [id], onDelete: Restrict)
+  testCasesUpdatedAt DateTime          @default(now()) @map("test_cases_updated_at")
+  createdAt          DateTime          @default(now()) @map("created_at")
+  updatedAt          DateTime          @updatedAt @map("updated_at")
+
+  submissions       ProblemSubmission[]
+  counters          ProblemSubmissionCounter[]
+  qotds             QOTD[]
+  competitionRounds CompetitionRoundProblem[]
+
+  @@index([isPublished, difficulty])
+  @@index([createdAt])
+  @@map("problems")
+}
+
+model ProblemSubmission {
+  id              String             @id @default(uuid())
+  userId          String             @map("user_id")
+  user            User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  problemId       String             @map("problem_id")
+  problem         Problem            @relation(fields: [problemId], references: [id], onDelete: Cascade)
+  contextType     ProblemContextType @map("context_type")
+  contextKey      String             @map("context_key")
+  language        ProblemLanguage
+  code            String             @db.Text
+  verdict         SubmissionVerdict
+  score           Int
+  passedCount     Int                @map("passed_count")
+  totalCount      Int                @map("total_count")
+  perTestVerdicts Json               @map("per_test_verdicts")
+  runtimeMs       Int?               @map("runtime_ms")
+  compilerOutput  String?            @map("compiler_output") @db.Text
+  manualOverride  Boolean            @default(false) @map("manual_override")
+  overrideNotes   String?            @map("override_notes") @db.Text
+  submittedAt     DateTime           @default(now()) @map("submitted_at")
+  updatedAt       DateTime           @updatedAt @map("updated_at")
+
+  @@unique([userId, problemId, contextType, contextKey])
+  @@index([problemId, contextType, contextKey])
+  @@index([contextType, contextKey])
+  @@index([userId, submittedAt])
+  @@map("problem_submissions")
+}
+
+model ProblemSubmissionCounter {
+  id              String             @id @default(uuid())
+  userId          String             @map("user_id")
+  user            User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  problemId       String             @map("problem_id")
+  problem         Problem            @relation(fields: [problemId], references: [id], onDelete: Cascade)
+  contextType     ProblemContextType @map("context_type")
+  contextKey      String             @map("context_key")
+  count           Int                @default(0)
+  capOverride     Int?               @map("cap_override")
+  lastResetAt     DateTime?          @map("last_reset_at")
+  updatedAt       DateTime           @updatedAt @map("updated_at")
+  pendingRequest  Boolean            @default(false) @map("pending_request")
+  requestedAt     DateTime?          @map("requested_at")
+  requestNote     String?            @map("request_note")
+  lastGrantedBy   String?            @map("last_granted_by")
+  lastGrantedAt   DateTime?          @map("last_granted_at")
+
+  @@unique([userId, problemId, contextType, contextKey])
+  @@index([problemId, contextType, contextKey])
+  @@index([contextType, pendingRequest])
+  @@map("problem_submission_counters")
+}
+
+model CompetitionRoundProblem {
+  id           String           @id @default(uuid())
+  roundId      String           @map("round_id")
+  round        CompetitionRound @relation(fields: [roundId], references: [id], onDelete: Cascade)
+  problemId    String           @map("problem_id")
+  problem      Problem          @relation(fields: [problemId], references: [id], onDelete: Restrict)
+  displayOrder Int              @default(0) @map("display_order")
+  points       Int              @default(100)
+
+  @@unique([roundId, problemId])
+  @@unique([roundId, displayOrder])
+  @@map("competition_round_problems")
+}
+
 enum ExecutionStatus {
   SUCCESS
   ERROR
   TIMEOUT
+}
+
+enum SubmissionVerdict {
+  PENDING
+  ACCEPTED
+  WRONG_ANSWER
+  TIME_LIMIT_EXCEEDED
+  RUNTIME_ERROR
+  COMPILATION_ERROR
+  JUDGE_ERROR
+}
+
+enum ProblemContextType {
+  QOTD
+  CONTEST
+  PRACTICE
+}
+
+enum CompetitionRoundType {
+  IMAGE_TARGET
+  DSA
+}
+
+enum ProblemLanguage {
+  PYTHON
+  JAVASCRIPT
+  CPP
+  JAVA
 }
 
 // ──────────────── Signatories ────────────────
