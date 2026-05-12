@@ -16,6 +16,7 @@ import { Link } from 'react-router-dom';
 import { QuizDashboardWidget } from '@/components/dashboard/QuizDashboardWidget';
 import { PlaygroundCard } from '@/components/dashboard/PlaygroundCard';
 import { PlaygroundSnippetsCard } from '@/components/dashboard/PlaygroundSnippetsCard';
+import { QOTDStreakWidget } from '@/components/dashboard/QOTDStreakWidget';
 import { PollCard } from '@/components/polls/PollCard';
 import AttendanceHistory from '@/components/attendance/AttendanceHistory';
 import { formatDate } from '@/lib/dateUtils';
@@ -232,6 +233,13 @@ export default function DashboardOverview() {
       {playgroundEnabled && (
         <motion.div {...stagger(3)}>
           <PlaygroundCard />
+        </motion.div>
+      )}
+
+      {/* ─── QOTD streak / badges (full width) ─────────────────────── */}
+      {settings?.showQOTD !== false && token && (
+        <motion.div {...stagger(3)}>
+          <QOTDStreakWidget token={token} />
         </motion.div>
       )}
 
