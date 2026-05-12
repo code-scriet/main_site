@@ -18,6 +18,20 @@ const testCaseSchema = z.object({
   expectedOutput: z.string().max(20_000),
   label: z.string().trim().max(80).optional(),
   points: z.coerce.number().int().min(1).max(1000).optional(),
+}).superRefine((test, ctx) => {
+  if (!test.expectedOutput.trim()) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['expectedOutput'],
+      message: 'Test case expected output is required',
+    });
+  }
+  if (!test.input.trim() && !test.expectedOutput.trim()) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: 'Test case input or expected output is required',
+    });
+  }
 });
 
 const problemInputSchema = z.object({
