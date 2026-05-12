@@ -67,7 +67,11 @@ export default function AdminSettings() {
     hiringDesigning: true,
     hiringSocialMedia: true,
     hiringManagement: true,
+    competitionEnabled: false,
+    problemsEnabled: false,
     showNetwork: true,
+    certificatesEnabled: true,
+    playgroundEnabled: true,
     mailingEnabled: true,
     emailWelcomeEnabled: true,
     emailEventCreationEnabled: true,
@@ -554,6 +558,13 @@ export default function AdminSettings() {
             description="Enable competition rounds for events (admin panel link and management)"
             checked={settings.competitionEnabled ?? false}
             onCheckedChange={(checked) => void handleToggle('competitionEnabled', checked)}
+          />
+          <ToggleRow
+            id="problems-enabled"
+            label="Problems System"
+            description="Enable QOTD solving, practice problems, DSA contest rounds, and admin problem tools"
+            checked={settings.problemsEnabled ?? false}
+            onCheckedChange={(checked) => void handleToggle('problemsEnabled', checked)}
           />
           <div className="space-y-2 p-4 bg-amber-50 rounded-lg">
             <Label htmlFor="playground-daily-limit">Playground Daily Execution Limit</Label>
