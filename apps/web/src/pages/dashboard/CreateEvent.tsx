@@ -20,6 +20,7 @@ import {
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '@/context/AuthContext';
+import { useUnsavedChangesWarning } from '@/hooks/useUnsavedChangesWarning';
 
 const eventTypes = [
   'Workshop',
@@ -130,6 +131,8 @@ export default function CreateEvent() {
   
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [isDirty, setIsDirty] = useState(false);
+  useUnsavedChangesWarning(isDirty);
   
   // Basic form state
   const [form, setForm] = useState({
@@ -182,6 +185,7 @@ export default function CreateEvent() {
 
   // Speaker management
   const addSpeaker = () => {
+    setIsDirty(true);
     setSpeakers(prev => [...prev, { name: '', role: '', bio: '', image: '' }]);
   };
   
@@ -190,11 +194,13 @@ export default function CreateEvent() {
   };
   
   const removeSpeaker = (index: number) => {
+    setIsDirty(true);
     setSpeakers(prev => prev.filter((_, i) => i !== index));
   };
 
   // Resource management
   const addResource = () => {
+    setIsDirty(true);
     setResources(prev => [...prev, { title: '', url: '', type: 'link' }]);
   };
   
@@ -203,11 +209,13 @@ export default function CreateEvent() {
   };
   
   const removeResource = (index: number) => {
+    setIsDirty(true);
     setResources(prev => prev.filter((_, i) => i !== index));
   };
 
   // FAQ management
   const addFaq = () => {
+    setIsDirty(true);
     setFaqs(prev => [...prev, { question: '', answer: '' }]);
   };
   
@@ -216,11 +224,13 @@ export default function CreateEvent() {
   };
   
   const removeFaq = (index: number) => {
+    setIsDirty(true);
     setFaqs(prev => prev.filter((_, i) => i !== index));
   };
 
   // Gallery management
   const addGalleryImage = () => {
+    setIsDirty(true);
     setImageGallery(prev => [...prev, '']);
   };
   
@@ -229,23 +239,27 @@ export default function CreateEvent() {
   };
   
   const removeGalleryImage = (index: number) => {
+    setIsDirty(true);
     setImageGallery(prev => prev.filter((_, i) => i !== index));
   };
 
   // Tag management
   const addTag = () => {
     if (newTag.trim() && !tags.includes(newTag.trim())) {
+      setIsDirty(true);
       setTags(prev => [...prev, newTag.trim()]);
       setNewTag('');
     }
   };
   
   const removeTag = (index: number) => {
+    setIsDirty(true);
     setTags(prev => prev.filter((_, i) => i !== index));
   };
 
   // Dynamic registration fields management
   const addRegistrationField = () => {
+    setIsDirty(true);
     setRegistrationFields((prev) => [...prev, createNewRegistrationField()]);
   };
 
@@ -259,6 +273,7 @@ export default function CreateEvent() {
   };
 
   const removeRegistrationField = (index: number) => {
+    setIsDirty(true);
     setRegistrationFields((prev) => prev.filter((_, i) => i !== index));
   };
 
@@ -357,6 +372,7 @@ export default function CreateEvent() {
         registrationFields: normalizedRegistrationFields.length > 0 ? normalizedRegistrationFields : undefined,
       }, token);
 
+      setIsDirty(false);
       if (user?.role === 'ADMIN' || user?.role === 'PRESIDENT') {
         navigate(`/admin/events/${createdEvent.id}/edit`);
         return;
@@ -375,7 +391,7 @@ export default function CreateEvent() {
       {/* Header */}
       <div className="flex items-center gap-4">
         <Link to="/dashboard/events">
-          <Button variant="ghost" size="icon">
+          <Button variant="ghost" size="icon" aria-label="Back to dashboard events">
             <ArrowLeft className="h-5 w-5" />
           </Button>
         </Link>
@@ -396,7 +412,7 @@ export default function CreateEvent() {
         </motion.div>
       )}
 
-      <form onSubmit={handleSubmit} className="space-y-6">
+      <form onSubmit={handleSubmit} onChange={() => setIsDirty(true)} className="space-y-6">
         {/* Basic Info - Always Open */}
         <Card className="border-amber-200">
           <CardHeader>
@@ -648,11 +664,14 @@ export default function CreateEvent() {
                           <button
                             key={preset.label}
                             type="button"
-                            onClick={() => setForm(prev => ({
-                              ...prev,
-                              teamMinSize: preset.min,
-                              teamMaxSize: preset.max,
-                            }))}
+                            onClick={() => {
+                              setIsDirty(true);
+                              setForm(prev => ({
+                                ...prev,
+                                teamMinSize: preset.min,
+                                teamMaxSize: preset.max,
+                              }));
+                            }}
                             className={`px-3 py-1.5 text-sm rounded-full border transition-colors ${
                               form.teamMinSize === preset.min && form.teamMaxSize === preset.max
                                 ? 'bg-amber-500 text-white border-amber-500'

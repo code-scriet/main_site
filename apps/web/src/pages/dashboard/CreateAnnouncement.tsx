@@ -8,6 +8,7 @@ import { api } from '@/lib/api';
 import { Bell, Loader2, AlertCircle, ArrowLeft, Image as ImageIcon, Link as LinkIcon, FileText, Tag, Pin, Star, Clock, Trash2, Plus, ChevronDown, ChevronUp } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '@/context/AuthContext';
+import { useUnsavedChangesWarning } from '@/hooks/useUnsavedChangesWarning';
 
 interface AttachmentItem {
   title: string;
@@ -27,6 +28,8 @@ export default function CreateAnnouncement() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [showAdvanced, setShowAdvanced] = useState(false);
+  const [isDirty, setIsDirty] = useState(false);
+  useUnsavedChangesWarning(isDirty);
   
   const [form, setForm] = useState({
     title: '',
@@ -63,45 +66,53 @@ export default function CreateAnnouncement() {
 
   const addGalleryImage = () => {
     if (newGalleryUrl.trim()) {
+      setIsDirty(true);
       setForm(prev => ({ ...prev, imageGallery: [...prev.imageGallery, newGalleryUrl.trim()] }));
       setNewGalleryUrl('');
     }
   };
 
   const removeGalleryImage = (index: number) => {
+    setIsDirty(true);
     setForm(prev => ({ ...prev, imageGallery: prev.imageGallery.filter((_, i) => i !== index) }));
   };
 
   const addTag = () => {
     if (newTag.trim() && !form.tags.includes(newTag.trim())) {
+      setIsDirty(true);
       setForm(prev => ({ ...prev, tags: [...prev.tags, newTag.trim()] }));
       setNewTag('');
     }
   };
 
   const removeTag = (tag: string) => {
+    setIsDirty(true);
     setForm(prev => ({ ...prev, tags: prev.tags.filter(t => t !== tag) }));
   };
 
   const addAttachment = () => {
     if (newAttachment.title.trim() && newAttachment.url.trim()) {
+      setIsDirty(true);
       setForm(prev => ({ ...prev, attachments: [...prev.attachments, { ...newAttachment }] }));
       setNewAttachment({ title: '', url: '', type: 'link' });
     }
   };
 
   const removeAttachment = (index: number) => {
+    setIsDirty(true);
     setForm(prev => ({ ...prev, attachments: prev.attachments.filter((_, i) => i !== index) }));
   };
 
   const addLink = () => {
     if (newLink.title.trim() && newLink.url.trim()) {
+      setIsDirty(true);
       setForm(prev => ({ ...prev, links: [...prev.links, { ...newLink }] }));
       setNewLink({ title: '', url: '' });
     }
   };
 
   const removeLink = (index: number) => {
+    setIsDirty(true);
     setForm(prev => ({ ...prev, links: prev.links.filter((_, i) => i !== index) }));
   };
 
@@ -137,6 +148,7 @@ export default function CreateAnnouncement() {
         expiresAt: form.expiresAt ? new Date(form.expiresAt).toISOString() : undefined,
       }, token);
 
+      setIsDirty(false);
       navigate('/dashboard/announcements');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to create announcement');
@@ -150,7 +162,7 @@ export default function CreateAnnouncement() {
       {/* Header */}
       <div className="flex items-center gap-4">
         <Link to="/dashboard/announcements">
-          <Button variant="ghost" size="icon">
+          <Button variant="ghost" size="icon" aria-label="Back to announcements">
             <ArrowLeft className="h-5 w-5" />
           </Button>
         </Link>
@@ -171,7 +183,7 @@ export default function CreateAnnouncement() {
         </motion.div>
       )}
 
-      <form onSubmit={handleSubmit} className="space-y-6">
+      <form onSubmit={handleSubmit} onChange={() => setIsDirty(true)} className="space-y-6">
         {/* Basic Information */}
         <Card>
           <CardHeader>

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { motion } from 'framer-motion';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -61,6 +61,12 @@ function slugify(value: string) {
   return value.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 120);
 }
 
+function hasInvalidTestCase(test: { input?: string; expectedOutput?: string }) {
+  const input = test.input?.trim() ?? '';
+  const expectedOutput = test.expectedOutput?.trim() ?? '';
+  return !expectedOutput || (!input && !expectedOutput);
+}
+
 export default function CreateQOTD() {
   const { token } = useAuth();
   
@@ -81,6 +87,7 @@ export default function CreateQOTD() {
   });
   const [publishNow, setPublishNow] = useState(true);
   const [rowBusy, setRowBusy] = useState<string | null>(null);
+  const publishedProblems = useMemo(() => problemCatalog.filter((problem) => problem.isPublished), [problemCatalog]);
 
   const loadRecentQOTDs = useCallback(async () => {
     if (!token) {
@@ -159,6 +166,13 @@ export default function CreateQOTD() {
     }
     if (mode === 'inline' && (!newProblem.title.trim() || !newProblem.slug.trim())) {
       toast.error('Please add a title and slug for the inline problem');
+      return;
+    }
+    if (
+      mode === 'inline' &&
+      [...newProblem.sampleTests, ...newProblem.hiddenTests].some(hasInvalidTestCase)
+    ) {
+      toast.error('Sample and hidden test expected outputs are required');
       return;
     }
 
@@ -317,10 +331,16 @@ export default function CreateQOTD() {
                       required
                     >
                       <option value="">Select a problem</option>
-                      {problemCatalog.map((problem) => (
+                      {publishedProblems.length === 0 && (
+                        <option value="" disabled>No published problems available</option>
+                      )}
+                      {publishedProblems.map((problem) => (
                         <option key={problem.id} value={problem.id}>{problem.title} ({problem.difficulty})</option>
                       ))}
                     </select>
+                    <p className="text-xs text-gray-500">
+                      Only published problems appear here. Publish drafts from the Problems page first.
+                    </p>
                   </div>
                 )}
 
