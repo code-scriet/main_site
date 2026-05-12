@@ -20,12 +20,13 @@
 
 const UPSTREAM_URL = 'https://wandbox.org/api/compile.json';
 
-// Only allow requests from our own origins
+// Only allow requests from our own origins. Keep this aligned with the
+// ALLOWED_CODESCRIET_ORIGINS list in apps/api/src/index.ts.
 const ALLOWED_ORIGINS = [
   'https://code.codescriet.dev',
   'https://codescriet.dev',
+  'https://www.codescriet.dev',
   'https://api.codescriet.dev',
-  'https://codescriet-api.onrender.com',
   'https://playground-api.codescriet.dev',
 ];
 

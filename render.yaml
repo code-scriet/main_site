@@ -11,6 +11,10 @@ services:
     envVars:
       - key: NODE_ENV
         value: production
+      # Hard Constraint #4 in CLAUDE.md: keep Node's heap under the 512 MB
+      # Render free-tier ceiling so we don't OOM-kill under load.
+      - key: NODE_OPTIONS
+        value: --max-old-space-size=400
       - key: DATABASE_URL
         sync: false
       - key: DIRECT_URL
@@ -137,4 +141,4 @@ services:
       - key: VITE_MAIN_SITE_URL
         value: https://codescriet.dev
       - key: VITE_MAIN_API_URL
-        value: https://codescriet-api.onrender.com
+        value: https://api.codescriet.dev

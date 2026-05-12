@@ -6,7 +6,7 @@
 
 ## Project Overview
 
-**code.scriet** is a full-stack monorepo web platform for CCSU's (Chaudhary Charan Singh University) coding club. It handles events, announcements, team management, achievements, hiring applications, a professional/alumni network, live quizzes, a code playground, certificate generation, QR attendance tracking, and a credits/acknowledgements system.
+**code.scriet** is a full-stack monorepo web platform for CCSU's (Chaudhary Charan Singh University) coding club. It handles events (solo + team registration + guest invitations), announcements, public polls, team management, achievements, hiring applications, a professional/alumni network, live quizzes, timed coding competition rounds, a code playground, certificate generation, QR attendance tracking, and a credits/acknowledgements system.
 
 **Production URLs:**
 - Frontend: `https://codescriet.dev`
@@ -79,8 +79,12 @@ club_site/
 │   │   │   │   ├── audit.ts          # /api/audit-logs/*
 │   │   │   │   ├── mail.ts           # /api/mail/*
 │   │   │   │   ├── playground.ts     # /api/playground/*
-│   │   │   │   ├── credits.ts        # /api/credits/*  ← NEW
+│   │   │   │   ├── credits.ts        # /api/credits/*
 │   │   │   │   ├── attendance.ts     # /api/attendance/*
+│   │   │   │   ├── teams.ts          # /api/teams/*   (event team registration)
+│   │   │   │   ├── invitations.ts    # /api/invitations/*
+│   │   │   │   ├── polls.ts          # /api/polls/*   (public polls + admin)
+│   │   │   │   ├── competition.ts    # /api/competition/*  (timed code rounds)
 │   │   │   │   └── sitemap.ts        # /sitemap.xml, /robots.txt, IndexNow
 │   │   │   ├── attendance/
 │   │   │   │   └── attendanceSocket.ts  # Socket.io /attendance namespace
@@ -116,20 +120,34 @@ club_site/
 │   │       ├── App.tsx               # Router, lazy routes, QueryClient
 │   │       ├── context/
 │   │       │   ├── AuthContext.tsx   # useAuth() — token, user, login, logout
-│   │       │   └── SettingsContext.tsx # useSettings() — settings from /api/settings/public
+│   │       │   ├── SettingsContext.tsx # useSettings() — settings from /api/settings/public
+│   │       │   └── ThemeContext.tsx  # useTheme() — light/dark toggle (localStorage `codescriet-theme`)
 │   │       ├── lib/
 │   │       │   ├── api.ts            # All API calls + TypeScript interfaces
 │   │       │   ├── error.ts          # extractApiErrorMessage()
 │   │       │   └── utils.ts          # cn() (clsx + tailwind-merge)
 │   │       ├── components/
 │   │       │   ├── auth/
-│   │       │   │   └── ProtectedRoute.tsx  # minRole prop guard
+│   │       │   │   ├── ProtectedRoute.tsx              # minRole prop guard
+│   │       │   │   └── SuperAdminOrPresidentRoute.tsx  # wraps /admin/settings
 │   │       │   ├── dashboard/
-│   │       │   │   └── DashboardLayout.tsx # Sidebar nav (user + core + admin sections)
+│   │       │   │   ├── DashboardLayout.tsx       # Sidebar nav (user + core + admin sections)
+│   │       │   │   ├── PlaygroundCard.tsx
+│   │       │   │   ├── PlaygroundSnippetsCard.tsx
+│   │       │   │   ├── QOTDWidget.tsx
+│   │       │   │   └── QuizDashboardWidget.tsx
+│   │       │   ├── attendance/        # see Attendance System section
+│   │       │   ├── events/            # AdminEventInvitations, ChiefGuestsStrip, …
+│   │       │   ├── home/              # homepage feature strips
+│   │       │   ├── media/             # image/gallery helpers
+│   │       │   ├── polls/             # poll voting + admin widgets
+│   │       │   ├── teams/             # TeamCreateModal, TeamJoinModal, TeamDashboard
+│   │       │   ├── theme/             # theme toggle button
 │   │       │   ├── layout/
 │   │       │   │   ├── Layout.tsx    # Public page wrapper (Navbar + Footer)
 │   │       │   │   ├── Navbar.tsx
 │   │       │   │   └── Footer.tsx
+│   │       │   ├── ErrorBoundary.tsx
 │   │       │   ├── SEO.tsx           # <Helmet> SEO tags
 │   │       │   └── ui/               # shadcn/ui components (button, card, input, etc.)
 │   │       └── pages/
@@ -139,6 +157,8 @@ club_site/
 │   │           ├── TeamPage.tsx / TeamMemberProfilePage.tsx
 │   │           ├── AchievementsPage.tsx / AchievementDetailPage.tsx
 │   │           ├── AnnouncementsPage.tsx / AnnouncementDetailPage.tsx
+│   │           ├── PollDetailPage.tsx           # public /polls/:slug
+│   │           ├── CompetitionResults.tsx       # public /competition/:roundId/results
 │   │           ├── SignInPage.tsx
 │   │           ├── JoinUsPage.tsx
 │   │           ├── AuthCallbackPage.tsx
@@ -146,7 +166,7 @@ club_site/
 │   │           ├── JoinOurNetworkPage.tsx
 │   │           ├── PrivacyPolicyPage.tsx
 │   │           ├── ContactPage.tsx
-│   │           ├── CreditsPage.tsx         # ← NEW: public /credits page
+│   │           ├── CreditsPage.tsx
 │   │           ├── VerifyCertificatePage.tsx
 │   │           ├── network/
 │   │           │   ├── NetworkOnboarding.tsx
@@ -158,6 +178,8 @@ club_site/
 │   │           │   ├── DashboardAnnouncements.tsx
 │   │           │   ├── DashboardLeaderboard.tsx
 │   │           │   ├── DashboardCertificates.tsx
+│   │           │   ├── DashboardInvitations.tsx
+│   │           │   ├── AttendancePage.tsx        # /dashboard/attendance (core-member shortcut)
 │   │           │   ├── CreateEvent.tsx
 │   │           │   ├── CreateAnnouncement.tsx
 │   │           │   ├── CreateQOTD.tsx
@@ -167,7 +189,8 @@ club_site/
 │   │           │   ├── EditNetworkProfile.tsx
 │   │           │   └── QuizManager.tsx
 │   │           ├── admin/
-│   │           │   ├── AdminUsersRealtime.tsx
+│   │           │   ├── AdminUsersRealtime.tsx    # routed component for /admin/users
+│   │           │   ├── AdminUsers.tsx            # legacy non-realtime variant (not routed)
 │   │           │   ├── AdminTeam.tsx
 │   │           │   ├── AdminAchievements.tsx
 │   │           │   ├── AdminSettings.tsx
@@ -176,7 +199,10 @@ club_site/
 │   │           │   ├── AdminHiring.tsx
 │   │           │   ├── AdminCertificates.tsx
 │   │           │   ├── AdminNetwork.tsx
-│   │           │   ├── AdminCredits.tsx    # ← NEW: admin /admin/credits page
+│   │           │   ├── AdminCredits.tsx
+│   │           │   ├── AdminCompetition.tsx      # /admin/competition (gated by competitionEnabled)
+│   │           │   ├── CompetitionJudge.tsx      # /admin/competition/:roundId/judge
+│   │           │   ├── AdminPublicView.tsx       # /admin/public-view (poll responses dashboard)
 │   │           │   ├── AdminAuditLog.tsx
 │   │           │   └── AdminMail.tsx
 │   │           └── quiz/
@@ -208,10 +234,10 @@ club_site/
 | Layer | Technology |
 |-------|-----------|
 | Backend | Express.js, TypeScript, Node.js 20, ESM (`"type": "module"`) |
-| Frontend | React 18, Vite, TypeScript, TailwindCSS, shadcn/ui, Zustand (quiz UI state), Recharts (analytics charts) |
+| Frontend | React 18, Vite, TypeScript, TailwindCSS, shadcn/ui, Zustand (quiz UI state), Recharts (analytics charts), Sonner (toasts), React Query (`@tanstack/react-query`), React Router v6 |
 | Database | PostgreSQL (Neon serverless) via Prisma ORM |
 | Auth | Passport.js (Google, GitHub OAuth), JWT (7-day), bcryptjs |
-| Real-time | Socket.io (`/quiz` namespace) |
+| Real-time | Socket.io (`/quiz` + `/attendance` namespaces) |
 | Email | Brevo REST API (direct HTTP fetch to `https://api.brevo.com/v3/smtp/email`, auth via `BREVO_API_KEY`) |
 | File Storage | Cloudinary (images, certificate PDFs) |
 | PDF | `@react-pdf/renderer` (server-side certificate generation) |
@@ -264,6 +290,7 @@ npm run lint:web
 | `/api/events/*` | eventsRouter | Some routes |
 | `/api/registrations/*` | registrationsRouter | Yes |
 | `/api/announcements/*` | announcementsRouter | Some |
+| `/api/polls/*` | pollsRouter | GET list/detail = optional auth, vote/feedback = User, admin views/CRUD = Admin |
 | `/api/team/*` | teamRouter | Some |
 | `/api/teams/*` | teamsRouter | User (create/join), Admin (list/admin actions) |
 | `/api/invitations/*` | invitationsRouter | Mixed |
@@ -283,6 +310,7 @@ npm run lint:web
 | `/api/playground/*` | playgroundRouter | Some |
 | `/api/credits/*` | creditsRouter | GET=public, POST/PUT/DELETE=Admin |
 | `/api/attendance/*` | attendanceRouter | Some (user QR + history = auth, admin endpoints = Admin, summary = CORE_MEMBER+) |
+| `/api/competition/*` | competitionRouter | Mixed (results GET is public, save/submit/my-submission = auth, create/start/lock/judging/finish/score/edit/delete = Admin) |
 | `/api/indexnow` | indexNowRouter | Admin |
 | `/sitemap.xml` | sitemapRouter | Public |
 | `/robots.txt` | robotsRouter | Public |
@@ -293,9 +321,11 @@ npm run lint:web
 
 **Rate Limiting:** General API = 500 req/15min per IP; Auth = 50 req/15min (successful requests not counted).
 
+**CSRF guard for cookie auth:** Mutating `/api/*` requests authenticated via the `scriet_session` cookie must come from an `Origin`/`Referer` that passes `isAllowedBrowserOrigin()` (explicit allow-list + the configured `FRONTEND_URL`, plus localhost/LAN in dev). Bearer-token requests bypass this guard. The middleware is wired in `apps/api/src/index.ts` immediately after `cors()`.
+
 ---
 
-## Credits System (NEW)
+## Credits System
 
 ### DB Model (`prisma/schema.prisma`)
 ```prisma
@@ -550,6 +580,103 @@ api.resendInvitationEmail(id, token)
 
 ---
 
+## Polls System
+
+> **Status: IMPLEMENTED.** Single- and multi-select polls with optional deadlines, anonymous voting, and per-user feedback.
+
+### DB Models (`prisma/schema.prisma`)
+
+- **`Poll`** — `question`, `description?`, unique `slug`, `allowMultipleChoices`, `allowVoteChange`, `isAnonymous`, optional `deadline`, `isPublished` (gates public visibility), `createdBy → User`.
+- **`PollOption`** — text option + `sortOrder`; `@@unique([pollId, sortOrder])`.
+- **`PollVote`** — one row per `(pollId, userId)`; `@@unique([pollId, userId])`.
+- **`PollVoteSelection`** — join row linking a `PollVote` to one or more `PollOption`s. Composite PK `(voteId, optionId)`.
+- **`PollFeedback`** — open-text feedback, one per `(pollId, userId)`.
+
+### API Endpoints (`apps/api/src/routes/polls.ts`)
+
+| Route | Method | Auth | Description |
+|-------|--------|------|-------------|
+| `/api/polls` | GET | Optional | Public list (published only for non-admins); admins see drafts |
+| `/api/polls/:idOrSlug` | GET | Optional | Public detail with aggregated `PollOptionResult` counts and the caller's current vote/feedback when authenticated |
+| `/api/polls/:idOrSlug/vote` | POST | User | Cast or change a vote — respects `allowMultipleChoices` and `allowVoteChange` |
+| `/api/polls/:idOrSlug/feedback` | POST | User | Submit/replace one feedback message per poll |
+| `/api/polls/admin/public-view` | GET | Admin | Admin dashboard list with response counts |
+| `/api/polls/admin/public-view/:id` | GET | Admin | Full responses + feedback for one poll |
+| `/api/polls` | POST | Admin | Create poll + options |
+| `/api/polls/:id` | PUT | Admin | Update poll (including options) |
+| `/api/polls/:id` | DELETE | Admin | Delete poll (cascades to options/votes/feedback) |
+| `/api/polls/:id/admin/export.xlsx` | GET | Admin | ExcelJS responses + feedback export |
+
+### Frontend Surface
+
+- **Public detail page:** `apps/web/src/pages/PollDetailPage.tsx` at `/polls/:slug` — voting UI + feedback form.
+- **Admin dashboard:** `apps/web/src/pages/admin/AdminPublicView.tsx` at `/admin/public-view` — list of polls with response analytics + downloadable export.
+- **Components:** `apps/web/src/components/polls/` (poll cards, vote controls).
+- **API client (`apps/web/src/lib/api.ts`):** `getPolls`, `getPoll`, `createPoll`, `updatePoll`, `deletePoll`, `voteOnPoll`, `submitPollFeedback`, `getAdminPolls`, `getAdminPollDetail`, `downloadPollExport`.
+
+### Key Patterns
+
+- **Anonymous polls:** When `isAnonymous` is true, public list/detail strips user identifiers from response payloads; admin exports still resolve identities for moderation.
+- **Vote replacement:** With `allowVoteChange = true`, the vote handler deletes prior `PollVoteSelection` rows in the same transaction as the new selection writes — keeps tallies consistent without double counting.
+- **One feedback per user:** `PollFeedback` is keyed `@@unique([pollId, userId])`; resubmission overwrites the previous message.
+
+---
+
+## Competition Rounds System
+
+> **Status: IMPLEMENTED.** Timed, image-target coding competition rounds attached to an event, with autosave, hard locks, and admin judging.
+
+### DB Models (`prisma/schema.prisma`)
+
+- **`CompetitionRound`** — `eventId`, `title`, `description?`, `duration` (seconds), `status` (`DRAFT | ACTIVE | LOCKED | JUDGING | FINISHED`), `participantScope` (`ALL | SELECTED_TEAMS`), `leadersOnly`, `allowedTeamIds (String[])`, optional `targetImageUrl`, `startedAt?`, `lockedAt?`.
+- **`CompetitionSubmission`** — `roundId`, optional `teamId`, `userId`, `code`, `isAutoSubmit`, `score?`, `rank?`, `adminNotes?`. Unique on `[roundId, teamId]` and `[roundId, userId]` (NULL teamId means individual submissions stay distinct under Postgres).
+- **`CompetitionAutoSave`** — last-known editor buffer per `(roundId, userId)`; rebuilt on every save tick.
+- **`Settings.competitionEnabled`** gates the feature in the admin nav and the public event detail page.
+
+### API Endpoints (`apps/api/src/routes/competition.ts`)
+
+| Route | Method | Auth | Description |
+|-------|--------|------|-------------|
+| `/api/competition` | POST | Admin | Create new round on an event |
+| `/api/competition/event/:eventId` | GET | Optional | List rounds for an event (admin sees all; public sees safe metadata) |
+| `/api/competition/event/:eventId/results-summary` | GET | Admin | Aggregated results + attendance overlay for certificate workflows |
+| `/api/competition/:roundId` | GET | User | Round detail + caller's autosave/submission state |
+| `/api/competition/:roundId/start` | PATCH | Admin | Move `DRAFT → ACTIVE`, set `startedAt`, arm in-memory countdown timer |
+| `/api/competition/:roundId/lock` | PATCH | Admin | Hard lock (`ACTIVE → LOCKED`), clears timer |
+| `/api/competition/:roundId/judging` | PATCH | Admin | `LOCKED → JUDGING` |
+| `/api/competition/:roundId/finish` | PATCH | Admin | `JUDGING → FINISHED`, publishes results |
+| `/api/competition/:roundId/save` | POST | User (rate-limited) | Autosave buffer (1 row per user) |
+| `/api/competition/:roundId/submit` | POST | User (rate-limited) | Final submission; idempotent within `[roundId, userId]` |
+| `/api/competition/:roundId/my-submission` | GET | User | Caller's submission state |
+| `/api/competition/:roundId/submissions` | GET | Admin | All submissions for judging |
+| `/api/competition/:roundId/score/:submissionId` | PATCH | Admin | Set `score`/`rank`/`adminNotes` |
+| `/api/competition/:roundId/results/export` | GET | Admin | ExcelJS export |
+| `/api/competition/:roundId/results` | GET | Public | Public results once `FINISHED` |
+| `/api/competition/:roundId` | PUT | Admin | Edit round metadata |
+| `/api/competition/:roundId` | DELETE | Admin | Delete round (cascades) |
+
+### In-Memory Timer + Recovery
+
+- An in-process `activeTimers` `Map<roundId, NodeJS.Timeout>` auto-locks rounds when `duration` elapses past `startedAt`. Lifecycle: armed on `start`, cleared on `lock`/`finish`/`delete`.
+- **`recoverActiveRounds()`** runs once on boot (called from `apps/api/src/index.ts` after the HTTP server starts). It re-arms timers for any `ACTIVE` rounds and immediately locks rounds whose deadline already passed during downtime. Free-tier sleeps are therefore safe.
+- **`participantScope`:** `ALL` accepts every registered team/user; `SELECTED_TEAMS` restricts saves and submissions to `allowedTeamIds`. `leadersOnly = true` further restricts submissions to the team leader account.
+
+### Frontend Surface
+
+- **Admin dashboard:** `apps/web/src/pages/admin/AdminCompetition.tsx` at `/admin/competition` — round CRUD, status transitions, allowed-teams selector.
+- **Judging UI:** `apps/web/src/pages/admin/CompetitionJudge.tsx` at `/admin/competition/:roundId/judge` — scoring + admin notes.
+- **Public results:** `apps/web/src/pages/CompetitionResults.tsx` at `/competition/:roundId/results`.
+- **Certificate integration:** `EventCertificateWizard` consumes `getCompetitionResultsSummary()` to bulk-issue WINNER certificates from round results (`competitionCertificateUtils.ts`).
+- **API client:** `getCompetitionRounds`, `getCompetitionRoundsAdmin`, `getCompetitionRound`, `createCompetitionRound`, `startCompetitionRound`, plus lock/judging/finish/save/submit/score/export/results helpers in `apps/web/src/lib/api.ts`.
+
+### Key Patterns
+
+- **Autosave vs submission:** Autosave writes one row per user keyed by `[roundId, userId]`; submission upserts a separate row. Submission never overwrites autosave history.
+- **`isAutoSubmit` flag:** Set when the server-side timer expires and forces a submit from the latest autosave buffer.
+- **Status gates writes:** `save` and `submit` reject when round is not `ACTIVE`; admin score writes only accepted in `JUDGING`.
+
+---
+
 ## Full Database Schema (Key Models)
 
 All models use PostgreSQL via Prisma. `DATABASE_URL` = pooler, `DIRECT_URL` = non-pooler (required for migrations to avoid P1002 advisory lock errors).
@@ -563,7 +690,13 @@ createdAt, updatedAt
 Relations: announcements, registrations, hiringApplications,
            qotdSubmissions, networkProfile, teamMember,
            invitationsReceived, invitationsSent,
-           createdQuizzes, quizParticipants, quizAnswers, certificates
+           createdQuizzes, quizParticipants, quizAnswers, certificates,
+           ledTeams, teamMemberships,
+           competitionSubmissions, competitionAutoSaves,
+           createdPolls, pollVotes, pollFeedback,
+           eventsCreated, qotdsCreated, auditLogs,
+           executions, snippets, playgroundPrefs,
+           playgroundDailyUsage, playgroundLimitResets
 ```
 
 ### Settings (singleton, id='default')
@@ -577,6 +710,7 @@ emailAnnouncementBody, emailEventBody, emailFooterText,
 emailWelcomeBody, emailNetworkVerifiedBody, emailNetworkRejectedBody,
 show_tech_blogs, showNetwork, mailingEnabled,
 certificatesEnabled, playgroundEnabled, playgroundDailyLimit,
+competitionEnabled,
 emailWelcomeEnabled, emailEventCreationEnabled, emailRegistrationEnabled,
 emailAnnouncementEnabled, emailCertificateEnabled, emailReminderEnabled,
 emailInvitationEnabled,
@@ -594,8 +728,9 @@ eventType?, prerequisites?, registrationFields (JSON)?,
 agenda?, faqs (JSON)?, featured, highlights?, imageGallery (JSON)?,
 learningOutcomes?, resources (JSON)?, shortDescription (varchar 300)?,
 speakers (JSON)?, tags (String[]), targetAudience?, videoUrl?, slug,
-allowLateRegistration
-Relations: registrations, invitations, certificates
+allowLateRegistration,
+teamRegistration (default false), teamMinSize (default 1), teamMaxSize (default 4)
+Relations: registrations, invitations, certificates, teams, competitionRounds
 ```
 
 ### EventRegistration
@@ -635,9 +770,11 @@ Index: [dayNumber, attended]
 CompetitionRound:
 id, eventId, title, description?, duration, status (CompetitionStatus),
 participantScope (CompetitionParticipantScope; default ALL),
+leadersOnly (default false),
 allowedTeamIds (String[]; default []), targetImageUrl?, startedAt?, lockedAt?,
 createdAt, updatedAt
 Relations: event, submissions, autoSaves
+Indexes: [eventId], [status, startedAt]
 
 CompetitionSubmission:
 id, roundId, teamId?, userId, code, submittedAt, isAutoSubmit,
@@ -655,6 +792,27 @@ id, title, body, slug (unique), priority (AnnouncementPriority),
 createdBy, featured, pinned, shortDescription?, imageUrl?, imageGallery?,
 attachments (JSON)?, links (JSON)?, tags (String[]), expiresAt?,
 createdAt, updatedAt
+```
+
+### Poll / PollOption / PollVote / PollVoteSelection / PollFeedback
+```
+Poll:
+id, question (varchar 500), description?, slug (unique),
+allowMultipleChoices (default false), allowVoteChange (default true),
+isAnonymous (default false), deadline?, isPublished (default true),
+createdBy, createdAt, updatedAt
+Relations: creator (User), options, votes, feedbackEntries
+
+PollOption: id, pollId, text (varchar 240), sortOrder, createdAt
+Unique: [pollId, sortOrder]
+
+PollVote: id, pollId, userId, createdAt, updatedAt
+Unique: [pollId, userId]
+
+PollVoteSelection: voteId, optionId (composite PK)
+
+PollFeedback: id, pollId, userId, message (Text), createdAt, updatedAt
+Unique: [pollId, userId]
 ```
 
 ### TeamMember
@@ -758,6 +916,7 @@ QuizQuestionType: MCQ | TRUE_FALSE | SHORT_ANSWER | POLL | RATING | MULTI_SELECT
 NetworkConnectionType: GUEST_SPEAKER | GMEET_SESSION | EVENT_JUDGE | MENTOR | INDUSTRY_PARTNER | ALUMNI | OTHER
 NetworkStatus: PENDING | VERIFIED | REJECTED
 ExecutionStatus: SUCCESS | ERROR | TIMEOUT
+CompetitionStatus: DRAFT | ACTIVE | LOCKED | JUDGING | FINISHED
 CompetitionParticipantScope: ALL | SELECTED_TEAMS
 ```
 
@@ -1033,7 +1192,7 @@ model DayAttendance {
 | QRTicket | `apps/web/src/components/attendance/QRTicket.tsx` | Attendee QR display (countdown → QR → attended badge + day breakdown when available) |
 | AdminScanner | `apps/web/src/components/attendance/AdminScanner.tsx` | Offline-first camera scanner with day selector, audio feedback, manual check-in, live dashboard |
 | AttendanceManager | `apps/web/src/components/attendance/AttendanceManager.tsx` | Full CRUD data table with day selector (mark/unmark, bulk, export, absentees email by day) |
-| EventCertificateWizard | `apps/web/src/components/attendance/EventCertificateWizard.tsx` | Attendance/competition certificate wizard with optional minimum attendance-days filter |
+| EventCertificateWizard | `apps/web/src/components/attendance/EventCertificateWizard.tsx` | Attendance/competition certificate wizard with optional minimum attendance-days filter and per-batch event-name override (blank → real event name, custom → overrides the event title printed on the certificate) |
 | EventAdminHub | `apps/web/src/components/attendance/EventAdminHub.tsx` | Tab page: Details, Scanner, Manage (all roles), + Certificates (admin only). Accessible via `/admin/events/:eventId/attendance` (Admin) or `/dashboard/events/:eventId/attendance` (CORE_MEMBER+) |
 | AttendanceHistory | `apps/web/src/components/attendance/AttendanceHistory.tsx` | Attendee attendance history with day-count/day-label breakdown for multi-day events |
 | useOfflineScanner | `apps/web/src/hooks/useOfflineScanner.ts` | localStorage offline sync hook (5 sync triggers) |
@@ -1152,6 +1311,7 @@ All pages are lazy-loaded with `React.lazy()` + `<Suspense>`.
 | `/events/:id` | EventDetailPage |
 | `/announcements` | AnnouncementsPage |
 | `/announcements/:id` | AnnouncementDetailPage |
+| `/polls/:slug` | PollDetailPage |
 | `/team` | TeamPage |
 | `/team/:slug` | TeamMemberProfilePage |
 | `/achievements` | AchievementsPage |
@@ -1166,7 +1326,8 @@ All pages are lazy-loaded with `React.lazy()` + `<Suspense>`.
 | `/network/:slug` | NetworkProfilePage |
 | `/join-our-network` | JoinOurNetworkPage |
 | `/privacy-policy` | PrivacyPolicyPage |
-| `/credits` | **CreditsPage** ← NEW |
+| `/credits` | CreditsPage |
+| `/competition/:roundId/results` | CompetitionResults |
 | `/contact` | ContactPage |
 | `/verify` | VerifyCertificatePage |
 | `/verify/:certId` | VerifyCertificatePage |
@@ -1190,7 +1351,7 @@ All pages are lazy-loaded with `React.lazy()` + `<Suspense>`.
 | `/dashboard/upload` | ImageUploadTool |
 | `/dashboard/profile` | ProfilePage |
 | `/dashboard/team/:id/edit` | EditTeamProfile |
-| `/dashboard/network/edit/:id?` | EditNetworkProfile |
+| `/network/edit/:id?` | EditNetworkProfile (root-level under USER guard) |
 | `/dashboard/certificates` | DashboardCertificates |
 | `/dashboard/invitations` | DashboardInvitations |
 | `/dashboard/invitations/:invitationId` | DashboardInvitations (deep link alias) |
@@ -1198,6 +1359,7 @@ All pages are lazy-loaded with `React.lazy()` + `<Suspense>`.
 ### Protected CORE_MEMBER Routes (`minRole="CORE_MEMBER"`, inside dashboard)
 | Path | Component |
 |------|-----------|
+| `/dashboard/attendance` | AttendancePage (event picker / shortcut for core members) |
 | `/dashboard/events/:eventId/attendance` | EventAdminHub (3 tabs: Details, Scanner, Manage) |
 
 ### Protected Admin Routes (`minRole="ADMIN"`)
@@ -1206,16 +1368,19 @@ All pages are lazy-loaded with `React.lazy()` + `<Suspense>`.
 | `/admin/users` | AdminUsersRealtime |
 | `/admin/team` | AdminTeam |
 | `/admin/achievements` | AdminAchievements |
-| `/admin/credits` | **AdminCredits** ← NEW |
+| `/admin/credits` | AdminCredits |
 | `/admin/event-registrations` | AdminEventRegistrations |
 | `/admin/events/:id/edit` | EditEvent |
 | `/admin/events/:eventId/attendance` | EventAdminHub |
 | `/admin/hiring` | AdminHiring |
 | `/admin/network` | AdminNetwork |
 | `/admin/certificates` | AdminCertificates |
+| `/admin/competition` | AdminCompetition (effective only when `competitionEnabled`) |
+| `/admin/competition/:roundId/judge` | CompetitionJudge |
+| `/admin/public-view` | AdminPublicView (poll responses dashboard) |
 | `/admin/audit-log` | AdminAuditLog (PRESIDENT/superAdmin only) |
 | `/admin/mail` | AdminMail |
-| `/admin/settings` | AdminSettings (superAdmin/PRESIDENT only) |
+| `/admin/settings` | AdminSettings (wrapped in `SuperAdminOrPresidentRoute`) |
 
 ---
 
@@ -1225,20 +1390,24 @@ All pages are lazy-loaded with `React.lazy()` + `<Suspense>`.
 
 **User nav** (always): Overview, My Events, Announcements, Live Quiz, Leaderboard (if `showLeaderboard`), My Profile, My Certificates (if `certificatesEnabled`), My Invitations (pending badge)
 
-**Core Member nav** (CORE_MEMBER+): Create Event, Create Announcement, Manage QOTD, Quiz Manager, Upload Image
+> **NETWORK role override:** Network users see a stripped-down nav: My Events, My Certificates (if enabled), My Invitations. No Overview / Announcements / Quiz / Leaderboard / Profile.
+
+**Core Member nav** (CORE_MEMBER+): Take Attendance (`/dashboard/attendance`), Create Event, Create Announcement, Manage QOTD, Quiz Manager, Upload Image
 
 **Admin nav** (ADMIN/PRESIDENT) — built by `getAdminNavItems()`:
 1. User Management
 2. Team Management
 3. Achievements
-4. **Credits** ← NEW (always shown)
-5. Hiring Applications (if `hiringEnabled`)
-6. Network Management (if `showNetwork`)
-7. Audit Log (PRESIDENT or superAdmin only)
-8. Event Registrations
-9. Certificates (if `certificatesEnabled`)
-10. Send Mail
-11. Settings (superAdmin/PRESIDENT only)
+4. Credits (always shown)
+5. Public View (`/admin/public-view`, always shown)
+6. Hiring Applications (if `hiringEnabled`)
+7. Network Management (if `showNetwork`)
+8. Audit Log (PRESIDENT or superAdmin only)
+9. Event Registrations
+10. Competition (if `competitionEnabled`)
+11. Certificates (if `certificatesEnabled`)
+12. Send Mail
+13. Settings (superAdmin/PRESIDENT only)
 
 ---
 
@@ -1248,14 +1417,17 @@ Base URL: `import.meta.env.VITE_API_URL || 'http://localhost:5001/api'`
 
 All requests use `fetch` with `credentials: 'include'` for cross-origin cookie support.
 
-**Key types exported:** `AuthProviders`, `User`, `Settings`, `Event`, `Registration`, `EventInvitation`, `Announcement`, `TeamMember`, `Achievement`, `Credit`, `NetworkProfile`, `NetworkProfileInput`, `AuditLogEntry`, `HomePageData`
+**Key types exported:** `AuthProviders`, `User`, `Settings`, `Event`, `Registration`, `EventInvitation`, `EventTeam`, `Announcement`, `TeamMember`, `Achievement`, `Credit`, `Poll`, `PollOptionResult`, `PollInput`, `AdminPollListItem`, `AdminPollDetail`, `CompetitionRound`, `CompetitionRoundPreview`, `CompetitionSubmission`, `CompetitionResult`, `CompetitionResultsSummaryResponse`, `NetworkProfile`, `NetworkProfileInput`, `AuditLogEntry`, `HomePageData`
 
 **`api` object methods (full list):**
 - Auth: `getProviders`, `getMe`, `devLogin`, `register`, `login`, `exchangeAuthCode`, `logout`
 - Events: `getEvents`, `getEvent`, `createEvent`, `updateEvent`, `deleteEvent`
 - Registrations: `registerForEvent`, `cancelRegistration`, `getMyRegistrations`, `getEventRegistrations`, `deleteEventRegistration`, `exportEventRegistrations`
 - Invitations: `getMyInvitations`, `acceptInvitation`, `declineInvitation`, `claimInvitation`, `searchInvitees`, `createInvitations`, `getEventInvitations`, `updateInvitation`, `revokeInvitation`, `resendInvitationEmail`
+- Teams: `createTeam`, `joinTeam`, `getMyTeam`, `toggleTeamLock`, `removeTeamMember`, `leaveTeam`, `transferLeadership`, `dissolveTeam`, `getEventTeams`, `adminToggleTeamLock`, `adminDissolveTeam`
 - Announcements: `getAnnouncements`, `getAnnouncement`, `createAnnouncement`, `updateAnnouncement`, `deleteAnnouncement`
+- Polls: `getPolls`, `getPoll`, `createPoll`, `updatePoll`, `deletePoll`, `voteOnPoll`, `submitPollFeedback`, `getAdminPolls`, `getAdminPollDetail`, `downloadPollExport`
+- Competition: `getCompetitionRounds`, `getCompetitionRoundsAdmin`, `getCompetitionRound`, `createCompetitionRound`, `startCompetitionRound`, `lockCompetitionRound`, `beginJudging`, `finishCompetition`, `saveCompetitionCode`, `submitCompetitionCode`, `getMyCompetitionSubmission`, `getCompetitionSubmissions`, `scoreCompetitionSubmission`, `exportCompetitionResults`, `getCompetitionResults`, `getCompetitionResultsSummary`, `updateCompetitionRound`, `deleteCompetitionRound`
 - Team: `getTeam`, `getTeamMember`, `getTeamMemberBySlug`, `createTeamMember`, `updateTeamMember`, `updateTeamMemberProfile`, `linkTeamMemberToUser`, `getMyTeamProfile`, `searchUsers`, `deleteTeamMember`
 - Achievements: `getAchievements`, `getFeaturedAchievements`, `getAchievement`, `createAchievement`, `updateAchievement`, `deleteAchievement`
 - **Credits:** `getCredits`, `getCredit`, `createCredit`, `updateCredit`, `deleteCredit`, `reorderCredits`
@@ -1377,13 +1549,13 @@ Four services in `render.yaml`:
 3. **playground-api** — Web service, `node apps/playground/execute-server.js`, port 5002
 4. **playground-web** — Static site, Vite build, serves `apps/playground/dist`
 
-Build command includes `prisma generate` and `prisma migrate deploy`.
+Build commands: `club-api` runs `prisma generate` + `npm run build --workspace=apps/api`. `club-web` runs `node scripts/generate-sitemap.js && npm run build --workspace=apps/web && node scripts/prerender.js` — the prerender step walks the public API and writes real `dist/<route>/<slug>/index.html` files (with `<title>`, OG tags, JSON-LD, and a visible content block inside `#root`) for events, achievements, announcements, team members, and network profiles, so crawlers and social cards never see the empty SPA shell. Failures are non-fatal; if the API is unreachable the SPA still ships.
 
 **Free-tier limits:** `club-api` and `playground-api` run on Render's free web service tier: 512 MB RAM, shared CPU, automatic spin-down after 15 minutes of inactivity. This is a hard architectural constraint — see Hard Constraints section.
 
 **UptimeRobot:** An external UptimeRobot monitor pings `GET /ping` every 5 minutes to prevent free-tier spin-down. The `/ping` endpoint returns plain text `"pong"` with no DB call. Do not remove or rename this endpoint.
 
-CORS: Uses explicit domain allowlist: `codescriet.dev`, `www.codescriet.dev`, `api.codescriet.dev`, `code.codescriet.dev`, `playground.codescriet.dev`, plus `FRONTEND_URL` env var. In dev: any `localhost` or LAN IP.
+CORS: Uses explicit domain allowlist (`ALLOWED_CODESCRIET_ORIGINS` in `apps/api/src/index.ts`): `codescriet.dev`, `www.codescriet.dev`, `api.codescriet.dev`, `code.codescriet.dev`, `app.codescriet.dev`, plus `FRONTEND_URL` env var. In dev: any `localhost`/`127.0.0.1`/LAN IP (10/8, 172.16-31/12, 192.168/16). The same allowlist also gates the CSRF middleware (see All API Routes section).
 
 ---
 
@@ -1408,6 +1580,11 @@ When proposing any non-trivial architectural change — new system, new DB model
 | Credits routes | `apps/api/src/routes/credits.ts` |
 | Teams routes | `apps/api/src/routes/teams.ts` |
 | Invitation routes | `apps/api/src/routes/invitations.ts` |
+| Polls routes | `apps/api/src/routes/polls.ts` |
+| Competition routes | `apps/api/src/routes/competition.ts` |
+| Sitemap / robots / IndexNow | `apps/api/src/routes/sitemap.ts` |
+| Build-time SEO sitemap | `scripts/generate-sitemap.js` |
+| Build-time detail-page prerender | `scripts/prerender.js` |
 | Auth middleware | `apps/api/src/middleware/auth.ts` |
 | Role middleware | `apps/api/src/middleware/role.ts` |
 | JWT utilities | `apps/api/src/utils/jwt.ts` |
@@ -1423,6 +1600,7 @@ When proposing any non-trivial architectural change — new system, new DB model
 | Signature image processing | `apps/api/src/utils/processSignatureImage.ts` |
 | Frontend auth context | `apps/web/src/context/AuthContext.tsx` |
 | Frontend settings context | `apps/web/src/context/SettingsContext.tsx` |
+| Frontend theme context | `apps/web/src/context/ThemeContext.tsx` |
 | Frontend API client | `apps/web/src/lib/api.ts` |
 | Frontend routes | `apps/web/src/App.tsx` |
 | Dashboard layout | `apps/web/src/components/dashboard/DashboardLayout.tsx` |
@@ -1459,6 +1637,14 @@ When proposing any non-trivial architectural change — new system, new DB model
 | Attendance history | `apps/web/src/components/attendance/AttendanceHistory.tsx` |
 | Offline scanner hook | `apps/web/src/hooks/useOfflineScanner.ts` |
 | Registration status utility | `apps/web/src/lib/registrationStatus.ts` |
+| Poll public page | `apps/web/src/pages/PollDetailPage.tsx` |
+| Poll admin dashboard | `apps/web/src/pages/admin/AdminPublicView.tsx` |
+| Poll components | `apps/web/src/components/polls/` |
+| Competition admin | `apps/web/src/pages/admin/AdminCompetition.tsx` |
+| Competition judging | `apps/web/src/pages/admin/CompetitionJudge.tsx` |
+| Competition public results | `apps/web/src/pages/CompetitionResults.tsx` |
+| Competition certificate utils | `apps/web/src/components/attendance/competitionCertificateUtils.ts` |
+| Core-member attendance shortcut page | `apps/web/src/pages/dashboard/AttendancePage.tsx` |
 
 ---
 
@@ -1479,6 +1665,10 @@ This file is the **single source of truth** for AI agents working on this codeba
 | New quiz UI component created | Quiz System Architecture → Frontend UI Components + File Quick Reference |
 | Attendance system feature implemented | Attendance System (move from "planned" to actual description) |
 | New attendance socket event | Attendance System → Socket.io Namespace |
+| New poll behavior / poll endpoint | Polls System |
+| New competition status, scope, or endpoint | Competition Rounds System + DB schema CompetitionRound block |
+| New email category toggle | Email Notification Control System table |
+| New team-registration constraint or transaction rule | Team Registration System → Key Patterns |
 
 ### Staleness Rule
 
