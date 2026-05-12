@@ -7,6 +7,16 @@ import { useAuth } from '@/context/AuthContext';
 import { api, type Problem, type ProblemInput, type ProblemLanguage, type ProblemSubmission, type ProblemTestCase, type SubmissionVerdict } from '@/lib/api';
 import { Markdown } from '@/components/ui/markdown';
 import { PendingCapRequestsTray } from '@/components/problems/PendingCapRequestsTray';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 
 const LANGUAGES: ProblemLanguage[] = ['PYTHON', 'JAVASCRIPT', 'CPP', 'JAVA'];
 const VERDICTS: SubmissionVerdict[] = ['ACCEPTED', 'WRONG_ANSWER', 'TIME_LIMIT_EXCEEDED', 'RUNTIME_ERROR', 'COMPILATION_ERROR', 'JUDGE_ERROR'];
@@ -70,7 +80,7 @@ function CaseEditor({ title, cases, onChange, prefix }: { title: string; cases: 
           <div className="mb-2 flex items-center gap-2">
             <input value={test.id} onChange={(event) => onChange(cases.map((item, itemIndex) => itemIndex === index ? { ...item, id: event.target.value } : item))} className="w-40 rounded border border-gray-200 px-2 py-1 text-sm" />
             <input value={test.label ?? ''} placeholder="Label" onChange={(event) => onChange(cases.map((item, itemIndex) => itemIndex === index ? { ...item, label: event.target.value } : item))} className="min-w-0 flex-1 rounded border border-gray-200 px-2 py-1 text-sm" />
-            <button type="button" title="Delete case" onClick={() => onChange(cases.filter((_, itemIndex) => itemIndex !== index))} className="rounded p-2 text-red-600 hover:bg-red-50">
+            <button type="button" title="Delete case" aria-label={`Delete ${title} case ${index + 1}`} onClick={() => onChange(cases.filter((_, itemIndex) => itemIndex !== index))} className="rounded p-2 text-red-600 hover:bg-red-50">
               <Trash2 className="h-4 w-4" />
             </button>
           </div>
@@ -175,6 +185,7 @@ export default function AdminProblems() {
   const [tagText, setTagText] = useState('');
   const [expandedSubmissions, setExpandedSubmissions] = useState<string | null>(null);
   const [job, setJob] = useState<{ problemId: string; jobId: string } | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<Problem | null>(null);
 
   const problemsQuery = useQuery({
     queryKey: ['admin-problems'],
@@ -216,6 +227,7 @@ export default function AdminProblems() {
     mutationFn: (problemId: string) => api.deleteProblem(problemId, token!),
     onSuccess: async () => {
       toast.success('Problem deleted');
+      setDeleteTarget(null);
       await queryClient.invalidateQueries({ queryKey: ['admin-problems'] });
     },
     onError: (error) => toast.error(error instanceof Error ? error.message : 'Failed to delete problem'),
@@ -318,6 +330,9 @@ export default function AdminProblems() {
               <input type="checkbox" checked={form.isPublished} onChange={(event) => setForm((prev) => ({ ...prev, isPublished: event.target.checked }))} />
               Published
             </label>
+            <p className="text-xs text-gray-500">
+              Unpublished problems will not appear in QOTD or competition pickers.
+            </p>
             <textarea value={form.body} onChange={(event) => setForm((prev) => ({ ...prev, body: event.target.value }))} className="min-h-80 w-full rounded-md border border-gray-200 p-3 font-mono text-sm" />
           </div>
           <div className="rounded-md border border-gray-200 bg-gray-50 p-4">
@@ -376,9 +391,9 @@ export default function AdminProblems() {
                   <td className="px-4 py-3">{problem.isPublished ? 'Yes' : 'No'}</td>
                   <td className="px-4 py-3">
                     <div className="flex flex-wrap gap-2">
-                      <button type="button" onClick={() => void editProblem(problem)} className="rounded p-2 text-blue-700 hover:bg-blue-50"><Edit3 className="h-4 w-4" /></button>
-                      <button type="button" onClick={() => setExpandedSubmissions(expandedSubmissions === problem.id ? null : problem.id)} className="rounded p-2 text-gray-700 hover:bg-gray-50"><RefreshCcw className="h-4 w-4" /></button>
-                      <button type="button" onClick={() => deleteMutation.mutate(problem.id)} className="rounded p-2 text-red-700 hover:bg-red-50"><Trash2 className="h-4 w-4" /></button>
+                      <button type="button" aria-label={`Edit ${problem.title}`} onClick={() => void editProblem(problem)} className="rounded p-2 text-blue-700 hover:bg-blue-50"><Edit3 className="h-4 w-4" /></button>
+                      <button type="button" aria-label={`View submissions for ${problem.title}`} onClick={() => setExpandedSubmissions(expandedSubmissions === problem.id ? null : problem.id)} className="rounded p-2 text-gray-700 hover:bg-gray-50"><RefreshCcw className="h-4 w-4" /></button>
+                      <button type="button" aria-label={`Delete ${problem.title}`} onClick={() => setDeleteTarget(problem)} className="rounded p-2 text-red-700 hover:bg-red-50"><Trash2 className="h-4 w-4" /></button>
                     </div>
                   </td>
                 </tr>
@@ -395,6 +410,31 @@ export default function AdminProblems() {
           </div>
         )}
       </section>
+
+      <AlertDialog open={Boolean(deleteTarget)} onOpenChange={(open) => !open && setDeleteTarget(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete problem?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {deleteTarget
+                ? `This will delete "${deleteTarget.title}". This will also break any active QOTD or competition using this problem.`
+                : 'This will delete the selected problem.'}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-red-600 hover:bg-red-700"
+              disabled={deleteMutation.isPending}
+              onClick={() => {
+                if (deleteTarget) deleteMutation.mutate(deleteTarget.id);
+              }}
+            >
+              {deleteMutation.isPending ? 'Deleting...' : 'Delete Problem'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

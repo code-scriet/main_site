@@ -102,10 +102,6 @@ export default function AttendanceManager({ eventId, token }: AttendanceManagerP
   }, [fetchData]);
 
   useEffect(() => {
-    setSelectedIds(new Set());
-  }, [filterMode, searchQuery, sortMode, selectedDay]);
-
-  useEffect(() => {
     setSelectedDay((prev) => Math.min(Math.max(prev, 1), eventDays));
   }, [eventDays]);
 
@@ -186,15 +182,21 @@ export default function AttendanceManager({ eventId, token }: AttendanceManagerP
   }, [filterMode, getDayState, records, searchQuery, sortMode]);
 
   // --- Selection ---
+  const visibleSelectedIds = useMemo(
+    () => filteredRecords.filter((record) => selectedIds.has(record.id)).map((record) => record.id),
+    [filteredRecords, selectedIds],
+  );
+  const hiddenSelectedCount = selectedIds.size - visibleSelectedIds.length;
   const allFilteredSelected =
     filteredRecords.length > 0 &&
     filteredRecords.every((r) => selectedIds.has(r.id));
 
   const toggleSelectAll = () => {
     if (allFilteredSelected) {
-      setSelectedIds(new Set());
+      const visibleIds = new Set(filteredRecords.map((record) => record.id));
+      setSelectedIds((prev) => new Set([...prev].filter((id) => !visibleIds.has(id))));
     } else {
-      setSelectedIds(new Set(filteredRecords.map((r) => r.id)));
+      setSelectedIds((prev) => new Set([...prev, ...filteredRecords.map((r) => r.id)]));
     }
   };
 
@@ -319,17 +321,18 @@ export default function AttendanceManager({ eventId, token }: AttendanceManagerP
 
   // --- Bulk actions ---
   const handleBulkAction = async (action: 'mark' | 'unmark') => {
-    if (selectedIds.size === 0) return;
+    if (visibleSelectedIds.length === 0) return;
     setBulkLoading(true);
     try {
       const result = await api.bulkUpdateAttendance(
-        Array.from(selectedIds),
+        visibleSelectedIds,
         action,
         token,
         selectedDay,
       );
       toast.success(`${result.updated} record${result.updated !== 1 ? 's' : ''} updated for ${selectedDayLabel}`);
-      setSelectedIds(new Set());
+      const updatedIds = new Set(visibleSelectedIds);
+      setSelectedIds((prev) => new Set([...prev].filter((id) => !updatedIds.has(id))));
       await fetchData();
     } catch {
       toast.error('Bulk update failed');
@@ -589,13 +592,14 @@ export default function AttendanceManager({ eventId, token }: AttendanceManagerP
           className="flex items-center gap-3 rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 dark:border-blue-800 dark:bg-blue-950"
         >
           <span className="text-sm font-medium">
-            {selectedIds.size} selected
+            {visibleSelectedIds.length} visible selected
+            {hiddenSelectedCount > 0 ? ` (${hiddenSelectedCount} hidden by filters)` : ''}
           </span>
           <Button
             size="sm"
             variant="default"
             onClick={() => handleBulkAction('mark')}
-            disabled={bulkLoading}
+            disabled={bulkLoading || visibleSelectedIds.length === 0}
           >
             {bulkLoading ? (
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -608,7 +612,7 @@ export default function AttendanceManager({ eventId, token }: AttendanceManagerP
             size="sm"
             variant="destructive"
             onClick={() => handleBulkAction('unmark')}
-            disabled={bulkLoading}
+            disabled={bulkLoading || visibleSelectedIds.length === 0}
           >
             {bulkLoading ? (
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />

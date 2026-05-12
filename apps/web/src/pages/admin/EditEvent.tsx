@@ -21,6 +21,7 @@ import {
 import { Link } from 'react-router-dom';
 import { useAuth } from '@/context/AuthContext';
 import { formatDateTimeLocal } from '@/lib/dateUtils';
+import { useUnsavedChangesWarning } from '@/hooks/useUnsavedChangesWarning';
 
 const eventTypes = [
   'Workshop',
@@ -121,6 +122,8 @@ export default function EditEvent() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [isDirty, setIsDirty] = useState(false);
+  useUnsavedChangesWarning(isDirty);
   
   // Basic form state
   const [form, setForm] = useState({
@@ -215,6 +218,7 @@ export default function EditEvent() {
       setImageGallery(event.imageGallery || []);
       setTags(event.tags || []);
       setRegistrationFields(event.registrationFields || []);
+      setIsDirty(false);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load event');
     } finally {
@@ -238,6 +242,7 @@ export default function EditEvent() {
 
   // Speaker management
   const addSpeaker = () => {
+    setIsDirty(true);
     setSpeakers(prev => [...prev, { name: '', role: '', bio: '', image: '' }]);
   };
   
@@ -246,11 +251,13 @@ export default function EditEvent() {
   };
   
   const removeSpeaker = (index: number) => {
+    setIsDirty(true);
     setSpeakers(prev => prev.filter((_, i) => i !== index));
   };
 
   // Resource management
   const addResource = () => {
+    setIsDirty(true);
     setResources(prev => [...prev, { title: '', url: '', type: 'link' }]);
   };
   
@@ -259,11 +266,13 @@ export default function EditEvent() {
   };
   
   const removeResource = (index: number) => {
+    setIsDirty(true);
     setResources(prev => prev.filter((_, i) => i !== index));
   };
 
   // FAQ management
   const addFaq = () => {
+    setIsDirty(true);
     setFaqs(prev => [...prev, { question: '', answer: '' }]);
   };
   
@@ -272,11 +281,13 @@ export default function EditEvent() {
   };
   
   const removeFaq = (index: number) => {
+    setIsDirty(true);
     setFaqs(prev => prev.filter((_, i) => i !== index));
   };
 
   // Gallery management
   const addGalleryImage = () => {
+    setIsDirty(true);
     setImageGallery(prev => [...prev, '']);
   };
   
@@ -285,23 +296,27 @@ export default function EditEvent() {
   };
   
   const removeGalleryImage = (index: number) => {
+    setIsDirty(true);
     setImageGallery(prev => prev.filter((_, i) => i !== index));
   };
 
   // Tag management
   const addTag = () => {
     if (newTag.trim() && !tags.includes(newTag.trim())) {
+      setIsDirty(true);
       setTags(prev => [...prev, newTag.trim()]);
       setNewTag('');
     }
   };
   
   const removeTag = (index: number) => {
+    setIsDirty(true);
     setTags(prev => prev.filter((_, i) => i !== index));
   };
 
   // Dynamic registration fields management
   const addRegistrationField = () => {
+    setIsDirty(true);
     setRegistrationFields((prev) => [...prev, createNewRegistrationField()]);
   };
 
@@ -315,6 +330,7 @@ export default function EditEvent() {
   };
 
   const removeRegistrationField = (index: number) => {
+    setIsDirty(true);
     setRegistrationFields((prev) => prev.filter((_, i) => i !== index));
   };
 
@@ -414,6 +430,7 @@ export default function EditEvent() {
         registrationFields: normalizedRegistrationFields.length > 0 ? normalizedRegistrationFields : [],
       }, token);
 
+      setIsDirty(false);
       navigate('/admin/event-registrations');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to update event');
@@ -435,7 +452,7 @@ export default function EditEvent() {
       {/* Header */}
       <div className="flex items-center gap-4">
         <Link to="/admin/event-registrations">
-          <Button variant="ghost" size="icon">
+          <Button variant="ghost" size="icon" aria-label="Back to event registrations">
             <ArrowLeft className="h-5 w-5" />
           </Button>
         </Link>
@@ -462,7 +479,7 @@ export default function EditEvent() {
         </motion.div>
       )}
 
-      <form onSubmit={handleSubmit} className="space-y-6">
+      <form onSubmit={handleSubmit} onChange={() => setIsDirty(true)} className="space-y-6">
         {/* Event Status */}
         <Card className="border-amber-200 bg-amber-50/50">
           <CardHeader>
@@ -733,11 +750,14 @@ export default function EditEvent() {
                       <button
                         key={preset.label}
                         type="button"
-                        onClick={() => setForm(prev => ({
-                          ...prev,
-                          teamMinSize: preset.min,
-                          teamMaxSize: preset.max,
-                        }))}
+                        onClick={() => {
+                          setIsDirty(true);
+                          setForm(prev => ({
+                            ...prev,
+                            teamMinSize: preset.min,
+                            teamMaxSize: preset.max,
+                          }));
+                        }}
                         className={`px-3 py-1.5 text-sm rounded-full border transition-colors ${
                           form.teamMinSize === preset.min && form.teamMaxSize === preset.max
                             ? 'bg-amber-500 text-white border-amber-500'

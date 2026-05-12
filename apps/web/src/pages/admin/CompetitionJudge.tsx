@@ -45,6 +45,7 @@ import {
 
 type ViewMode = 'grid' | 'list';
 type SortMode = 'score' | 'time';
+type ScoreFilter = 'all' | 'unscored' | 'scored';
 const DSA_VERDICTS: SubmissionVerdict[] = ['ACCEPTED', 'WRONG_ANSWER', 'TIME_LIMIT_EXCEEDED', 'RUNTIME_ERROR', 'COMPILATION_ERROR', 'JUDGE_ERROR'];
 
 type DraftScore = {
@@ -68,6 +69,54 @@ function parseScore(value: string): number | undefined {
   const parsed = Number(trimmed);
   if (!Number.isFinite(parsed)) return undefined;
   return parsed;
+}
+
+function getDraftStorageKey(roundId: string) {
+  return `judge-drafts:${roundId}`;
+}
+
+function readStoredDrafts(roundId: string): Record<string, DraftScore> {
+  if (!roundId || typeof window === 'undefined') return {};
+  try {
+    const raw = window.localStorage.getItem(getDraftStorageKey(roundId));
+    if (!raw) return {};
+    const parsed = JSON.parse(raw) as Record<string, { score?: unknown; adminNotes?: unknown }>;
+    return Object.fromEntries(
+      Object.entries(parsed)
+        .filter(([, draft]) => typeof draft.score === 'string' && typeof draft.adminNotes === 'string')
+        .map(([id, draft]) => [
+          id,
+          {
+            score: draft.score as string,
+            adminNotes: draft.adminNotes as string,
+            dirty: true,
+            saving: false,
+          },
+        ]),
+    );
+  } catch {
+    return {};
+  }
+}
+
+function writeStoredDrafts(roundId: string, drafts: Record<string, DraftScore>) {
+  if (!roundId || typeof window === 'undefined') return;
+  const dirtyDrafts = Object.fromEntries(
+    Object.entries(drafts)
+      .filter(([, draft]) => draft.dirty)
+      .map(([id, draft]) => [id, { score: draft.score, adminNotes: draft.adminNotes }]),
+  );
+
+  if (Object.keys(dirtyDrafts).length === 0) {
+    window.localStorage.removeItem(getDraftStorageKey(roundId));
+  } else {
+    window.localStorage.setItem(getDraftStorageKey(roundId), JSON.stringify(dirtyDrafts));
+  }
+}
+
+function clearStoredDrafts(roundId: string) {
+  if (!roundId || typeof window === 'undefined') return;
+  window.localStorage.removeItem(getDraftStorageKey(roundId));
 }
 
 /** Compute auto-rank preview from draft scores: highest score = rank 1, ties broken by submission time */
@@ -108,8 +157,10 @@ export default function CompetitionJudge() {
   const [submissions, setSubmissions] = useState<CompetitionSubmission[]>([]);
   const [missingTeams, setMissingTeams] = useState<CompetitionMissingTeam[]>([]);
   const [drafts, setDrafts] = useState<Record<string, DraftScore>>({});
+  const [draftsHydrated, setDraftsHydrated] = useState(false);
   const [viewMode, setViewMode] = useState<ViewMode>('grid');
   const [sortMode, setSortMode] = useState<SortMode>('score');
+  const [scoreFilter, setScoreFilter] = useState<ScoreFilter>('all');
   const [showReference, setShowReference] = useState(true);
   const [codeModalOpen, setCodeModalOpen] = useState(false);
   const [activeCodeSubmission, setActiveCodeSubmission] = useState<CompetitionSubmission | null>(null);
@@ -124,6 +175,7 @@ export default function CompetitionJudge() {
       setLoading(true);
       setError(null);
       const response = await api.getCompetitionSubmissions(roundId, token);
+      const storedDrafts = readStoredDrafts(roundId);
       setRound(response.round);
       setSubmissions(response.submissions);
       setMissingTeams(response.missingTeams || []);
@@ -131,8 +183,11 @@ export default function CompetitionJudge() {
         const next: Record<string, DraftScore> = {};
         for (const submission of response.submissions) {
           const existing = prev[submission.id];
+          const stored = storedDrafts[submission.id];
           next[submission.id] = existing
             ? existing
+            : stored
+              ? stored
             : {
                 score: scoreToInput(submission.score),
                 adminNotes: submission.adminNotes || '',
@@ -142,6 +197,7 @@ export default function CompetitionJudge() {
         }
         return next;
       });
+      setDraftsHydrated(true);
     } catch (err) {
       setError(extractApiErrorMessage(err, 'Failed to load judging data'));
     } finally {
@@ -153,6 +209,11 @@ export default function CompetitionJudge() {
     void load();
   }, [load]);
 
+  useEffect(() => {
+    if (!draftsHydrated) return;
+    writeStoredDrafts(roundId, drafts);
+  }, [drafts, draftsHydrated, roundId]);
+
   // Auto-computed rank preview based on current draft scores
   const autoRanks = useMemo(
     () => computeAutoRanks(submissions, drafts),
@@ -160,7 +221,14 @@ export default function CompetitionJudge() {
   );
 
   const sortedSubmissions = useMemo(() => {
-    const items = [...submissions];
+    const items = submissions.filter((sub) => {
+      const draft = drafts[sub.id];
+      const score = draft ? parseScore(draft.score) : sub.score ?? undefined;
+      if (scoreFilter === 'unscored') return score === undefined;
+      if (scoreFilter === 'scored') return score !== undefined;
+      return true;
+    });
+
     if (sortMode === 'time') {
       items.sort((a, b) => new Date(a.submittedAt).getTime() - new Date(b.submittedAt).getTime());
       return items;
@@ -172,7 +240,7 @@ export default function CompetitionJudge() {
       return aRank - bRank;
     });
     return items;
-  }, [submissions, sortMode, autoRanks]);
+  }, [submissions, drafts, scoreFilter, sortMode, autoRanks]);
 
   const unsavedIds = useMemo(
     () => Object.entries(drafts).filter(([, draft]) => draft.dirty).map(([id]) => id),
@@ -196,6 +264,7 @@ export default function CompetitionJudge() {
       return score !== undefined;
     }).length;
   }, [submissions, drafts]);
+  const unscoredCount = submissions.length - scoredCount;
 
   const onDraftChange = (submissionId: string, field: keyof Pick<DraftScore, 'score' | 'adminNotes'>, value: string) => {
     setDrafts((prev) => {
@@ -299,6 +368,7 @@ export default function CompetitionJudge() {
 
     try {
       await api.finishCompetition(roundId, token);
+      clearStoredDrafts(roundId);
       setSuccess('Results published — ranks computed from scores');
       setPublishDialogOpen(false);
       await load();
@@ -528,7 +598,7 @@ export default function CompetitionJudge() {
                   </tr>
                 </thead>
                 <tbody>
-                  {sortedSubmissions
+                  {submissions
                     .filter((sub) => autoRanks.has(sub.id))
                     .sort((a, b) => (autoRanks.get(a.id) ?? 0) - (autoRanks.get(b.id) ?? 0))
                     .map((sub) => {
@@ -648,11 +718,31 @@ export default function CompetitionJudge() {
                 Time
               </Button>
             </div>
+
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-gray-500">Show:</span>
+              <Button variant={scoreFilter === 'all' ? 'default' : 'outline'} size="sm" onClick={() => setScoreFilter('all')}>
+                All
+              </Button>
+              <Button variant={scoreFilter === 'unscored' ? 'default' : 'outline'} size="sm" onClick={() => setScoreFilter('unscored')}>
+                Unscored only
+              </Button>
+              <Button variant={scoreFilter === 'scored' ? 'default' : 'outline'} size="sm" onClick={() => setScoreFilter('scored')}>
+                Scored only
+              </Button>
+            </div>
           </div>
         </CardContent>
       </Card>
 
       <div className={viewMode === 'grid' ? 'grid grid-cols-1 xl:grid-cols-2 gap-4' : 'space-y-4'}>
+        {sortedSubmissions.length === 0 && (
+          <Card className="border-dashed border-gray-300">
+            <CardContent className="py-10 text-center text-sm text-gray-500">
+              No submissions match the current scoring filter.
+            </CardContent>
+          </Card>
+        )}
         {sortedSubmissions.map((submission) => {
           const draft = drafts[submission.id] || {
             score: scoreToInput(submission.score),
@@ -754,7 +844,7 @@ export default function CompetitionJudge() {
             Scored: <span className="font-semibold">{scoredCount}/{submissions.length}</span>
             {!allScored && (
               <span className="ml-2 text-amber-600">
-                — score all submissions to publish
+                — {unscoredCount} of {submissions.length} submissions still need scoring
               </span>
             )}
           </div>

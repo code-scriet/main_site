@@ -128,6 +128,7 @@ export default function AdminUsers() {
   });
   const [limitResetTarget, setLimitResetTarget] = useState<{ userId: string; userName: string } | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<{ userId: string; userName: string; userRole: string } | null>(null);
+  const [roleChangeTarget, setRoleChangeTarget] = useState<{ userId: string; userName: string; currentRole: string; newRole: string } | null>(null);
   
   const isSuperAdmin = currentUser?.isSuperAdmin === true;
 
@@ -187,6 +188,7 @@ export default function AdminUsers() {
       setError(null);
       await api.updateUserRole(userId, newRole, token);
       await loadUsers();
+      setRoleChangeTarget(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to update role');
     } finally {
@@ -617,7 +619,16 @@ export default function AdminUsers() {
                         </Badge>
                         <select
                           value={user.role}
-                          onChange={(e) => handleRoleChange(user.id, e.target.value)}
+                          onChange={(e) => {
+                            if (e.target.value !== user.role) {
+                              setRoleChangeTarget({
+                                userId: user.id,
+                                userName: user.name,
+                                currentRole: user.role,
+                                newRole: e.target.value,
+                              });
+                            }
+                          }}
                           disabled={updatingId === user.id}
                           className="h-9 px-3 rounded-md border border-input bg-background text-sm disabled:opacity-50"
                         >
@@ -1078,6 +1089,31 @@ export default function AdminUsers() {
               }}
             >
               Delete User
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={Boolean(roleChangeTarget)} onOpenChange={(open) => !open && setRoleChangeTarget(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Change user role?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {roleChangeTarget
+                ? `${roleChangeTarget.userName}: ${roleChangeTarget.currentRole} to ${roleChangeTarget.newRole}. This changes their dashboard permissions immediately.`
+                : 'This changes the selected user role immediately.'}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                if (roleChangeTarget) {
+                  void handleRoleChange(roleChangeTarget.userId, roleChangeTarget.newRole);
+                }
+              }}
+            >
+              Confirm Role Change
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
