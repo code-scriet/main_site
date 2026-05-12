@@ -6,7 +6,7 @@
 
 ## Project Overview
 
-**code.scriet** is a full-stack monorepo web platform for CCSU's (Chaudhary Charan Singh University) coding club. It handles events (solo + team registration + guest invitations), announcements, public polls, team management, achievements, hiring applications, a professional/alumni network, live quizzes, timed coding competition rounds, a code playground, certificate generation, QR attendance tracking, and a credits/acknowledgements system.
+**code.scriet** is a full-stack monorepo web platform for CCSU's (Chaudhary Charan Singh University) coding club. It handles events (solo + team registration + guest invitations), announcements, public polls, team management, achievements, hiring applications, a professional/alumni network, live quizzes, timed coding competition rounds, a full judged coding system (QOTD + practice + DSA contest rounds), a code playground, certificate generation, QR attendance tracking, and a credits/acknowledgements system.
 
 **Production URLs:**
 - Frontend: `https://codescriet.dev`
@@ -84,6 +84,7 @@ club_site/
 │   │   │   │   ├── teams.ts          # /api/teams/*   (event team registration)
 │   │   │   │   ├── invitations.ts    # /api/invitations/*
 │   │   │   │   ├── polls.ts          # /api/polls/*   (public polls + admin)
+│   │   │   │   ├── problems.ts       # /api/problems/* (judge-backed coding problems)
 │   │   │   │   ├── competition.ts    # /api/competition/*  (timed code rounds)
 │   │   │   │   └── sitemap.ts        # /sitemap.xml, /robots.txt, IndexNow
 │   │   │   ├── attendance/
@@ -104,6 +105,10 @@ club_site/
 │   │   │       ├── init.ts           # initializeDatabase(), slug population
 │   │   │       ├── jwt.ts            # getJwtSecret(), signToken(), verifyToken()
 │   │   │       ├── logger.ts         # winston logger + requestLogger middleware
+│   │   │       ├── codeJudge.ts      # worker-based multi-language judge
+│   │   │       ├── problemsCore.ts   # Problem validation, scoring, context gating
+│   │   │       ├── rejudgeJobs.ts    # in-memory queued rejudge jobs
+│   │   │       ├── dailyLimit.ts     # IST-based per-user run/submit quota
 │   │   │       ├── response.ts       # ApiResponse.success() / ApiResponse.error()
 │   │   │       ├── sanitize.ts       # sanitizeHtml() / sanitizeText()
 │   │   │       ├── scheduler.ts      # startReminderScheduler() / stopReminderScheduler()
@@ -158,7 +163,10 @@ club_site/
 │   │           ├── AchievementsPage.tsx / AchievementDetailPage.tsx
 │   │           ├── AnnouncementsPage.tsx / AnnouncementDetailPage.tsx
 │   │           ├── PollDetailPage.tsx           # public /polls/:slug
+│   │           ├── QOTDSolvePage.tsx            # /qotd/today + /qotd/:date
+│   │           ├── QOTDLeaderboardPage.tsx      # /qotd/leaderboard
 │   │           ├── CompetitionResults.tsx       # public /competition/:roundId/results
+│   │           ├── CompetitionSolvePage.tsx     # /competition/:roundId/solve/:problemId
 │   │           ├── SignInPage.tsx
 │   │           ├── JoinUsPage.tsx
 │   │           ├── AuthCallbackPage.tsx
@@ -177,6 +185,7 @@ club_site/
 │   │           │   ├── DashboardEvents.tsx
 │   │           │   ├── DashboardAnnouncements.tsx
 │   │           │   ├── DashboardLeaderboard.tsx
+│   │           │   ├── DashboardCoding.tsx
 │   │           │   ├── DashboardCertificates.tsx
 │   │           │   ├── DashboardInvitations.tsx
 │   │           │   ├── AttendancePage.tsx        # /dashboard/attendance (core-member shortcut)
@@ -193,6 +202,7 @@ club_site/
 │   │           │   ├── AdminUsers.tsx            # legacy non-realtime variant (not routed)
 │   │           │   ├── AdminTeam.tsx
 │   │           │   ├── AdminAchievements.tsx
+│   │           │   ├── AdminProblems.tsx        # /admin/problems (gated by problemsEnabled)
 │   │           │   ├── AdminSettings.tsx
 │   │           │   ├── AdminEventRegistrations.tsx
 │   │           │   ├── EditEvent.tsx
@@ -234,7 +244,7 @@ club_site/
 | Layer | Technology |
 |-------|-----------|
 | Backend | Express.js, TypeScript, Node.js 20, ESM (`"type": "module"`) |
-| Frontend | React 18, Vite, TypeScript, TailwindCSS, shadcn/ui, Zustand (quiz UI state), Recharts (analytics charts), Sonner (toasts), React Query (`@tanstack/react-query`), React Router v6 |
+| Frontend | React 19, Vite, TypeScript, TailwindCSS, shadcn/ui, Zustand (quiz UI state), Recharts (analytics charts), Sonner (toasts), React Query (`@tanstack/react-query`), React Router v7, Monaco Editor |
 | Database | PostgreSQL (Neon serverless) via Prisma ORM |
 | Auth | Passport.js (Google, GitHub OAuth), JWT (7-day), bcryptjs |
 | Real-time | Socket.io (`/quiz` + `/attendance` namespaces) |
@@ -254,30 +264,37 @@ club_site/
 
 ```bash
 # Development
-npm run dev                    # API + Web (concurrently)
-npm run dev:api                # API only (port 5001)
-npm run dev:web                # Web only (port 5173)
+npm run dev                    # API + Web + Playground
+npm run api                    # API only
+npm run web                    # Web only
+npm run playground             # Playground backend + frontend
+npm run dev:all                # API + Web + Playground (alternate script)
 
 # Build
-npm run build                  # All workspaces
-npm run build:api
-npm run build:web
+npm run build                  # Web + API
+npm run build:all              # Web + API + Playground
+npm run build:web:seo          # build web + sitemap + prerender
 
 # Database
-npm run db:migrate             # Dev migrations — WARNING: see note below
+npm run db:migrate             # Dev migrations (avoid on shared/prod DB)
 npm run db:migrate:deploy      # Production migrations
-npm run db:generate            # Regenerate Prisma client
-npm run db:push                # Push schema (no migration file)
+npm run db:migrate:day-attendance
+npm run db:audit:competition-autosaves
 npm run db:seed                # Seed super admin + default Settings
 npm run db:studio              # Open Prisma Studio
+npm run db:reset               # Reset local DB
 
 # IMPORTANT — always use --create-only to generate migrations without auto-applying:
 # npx prisma migrate dev --create-only --name <migration_name>
 # Review the generated SQL in prisma/migrations/ then apply with db:migrate:deploy
 
-# Linting
-npm run lint:api
-npm run lint:web
+# Testing
+npm run test:e2e
+npm run test:stability
+
+# Linting (workspace)
+npm run lint --workspace=apps/api
+npm run lint --workspace=apps/web
 ```
 
 ---
@@ -308,9 +325,10 @@ npm run lint:web
 | `/api/mail/*` | mailRouter | Admin |
 | `/api/quiz/*` | quizRouter | Some |
 | `/api/playground/*` | playgroundRouter | Some |
+| `/api/problems/*` | problemsRouter | Mixed (`GET /` public if `problemsEnabled`; run/submit/request-cap = User; create/update/rejudge/override/cap-admin = Admin) |
 | `/api/credits/*` | creditsRouter | GET=public, POST/PUT/DELETE=Admin |
 | `/api/attendance/*` | attendanceRouter | Some (user QR + history = auth, admin endpoints = Admin, summary = CORE_MEMBER+) |
-| `/api/competition/*` | competitionRouter | Mixed (results GET is public, save/submit/my-submission = auth, create/start/lock/judging/finish/score/edit/delete = Admin) |
+| `/api/competition/*` | competitionRouter | Mixed (feature-gated by `competitionEnabled`; results GET is public; save/submit/my-submission = auth; create/start/lock/judging/finish/score/edit/delete/publish-as-practice/raise-cap = Admin) |
 | `/api/indexnow` | indexNowRouter | Admin |
 | `/sitemap.xml` | sitemapRouter | Public |
 | `/robots.txt` | robotsRouter | Public |
@@ -622,13 +640,85 @@ api.resendInvitationEmail(id, token)
 
 ---
 
+## Problems + QOTD Coding System
+
+> **Status: IMPLEMENTED.** This is the judge-backed coding subsystem that powers standalone practice, QOTD solving, and DSA-type competition rounds.
+
+### Architecture
+
+- **Single canonical problem model:** `Problem` in Prisma is reused across three contexts:
+  - `PRACTICE` (daily practice from coding dashboard)
+  - `QOTD` (day-scoped problem solving tied to a `QOTD` row)
+  - `CONTEST` (DSA competition rounds)
+- **Context-safe submissions:** Every judged submission is keyed by `(userId, problemId, contextType, contextKey)` in `ProblemSubmission`.
+- **Per-context cap control:** `ProblemSubmissionCounter` enforces submit caps, supports admin cap overrides, and tracks pending cap-raise requests.
+- **Judge execution pipeline:** `problemsCore.ts` → `codeJudge.ts` → Cloudflare Worker (`workers/executor.js`) → Wandbox.
+- **Quota sharing:** `dailyLimit.ts` enforces IST-date daily run/submit quota shared with playground usage.
+
+### Problems API (`apps/api/src/routes/problems.ts`)
+
+| Route | Method | Auth | Description |
+|-------|--------|------|-------------|
+| `/api/problems` | GET | Optional | List problems with filters (`published`, `difficulty`, `tag`, `search`, `limit`) |
+| `/api/problems/admin/all` | GET | Admin | List all problems (including unpublished) |
+| `/api/problems/admin/reset-cap` | POST | Admin | Reset/raise cap for one user + context |
+| `/api/problems/admin/pending-cap-requests` | GET | Admin | List pending cap requests |
+| `/api/problems` | POST | Admin | Create problem |
+| `/api/problems/:id` | PUT | Admin | Update problem |
+| `/api/problems/:id` | DELETE | Admin | Delete problem (blocked if linked to contest) |
+| `/api/problems/:id/run` | POST | User | Run sample tests only (no grading persistence) |
+| `/api/problems/:id/submit` | POST | User | Judge + persist graded submission |
+| `/api/problems/:id/my-submission` | GET | User | My submission + cap usage for context |
+| `/api/problems/:id/leaderboard` | GET | Public | Context leaderboard |
+| `/api/problems/:id/all-submissions` | GET | Admin | Admin raw submissions feed |
+| `/api/problems/:id/override/:submissionId` | PATCH | Admin | Manual verdict/score override |
+| `/api/problems/:id/rejudge` | POST | Admin | Queue rejudge job |
+| `/api/problems/:id/rejudge-status/:jobId` | GET | Admin | Poll in-memory rejudge job state |
+| `/api/problems/:id/request-cap` | POST | User | Request extra submit cap |
+| `/api/problems/:idOrSlug` | GET | Optional | Problem detail with context-based access checks |
+
+### QOTD API (`apps/api/src/routes/qotd.ts`)
+
+| Route | Method | Auth | Description |
+|-------|--------|------|-------------|
+| `/api/qotd/today` | GET | Optional | Today’s QOTD (supports `includeUnpublished=true` for staff) |
+| `/api/qotd/history` | GET | Optional | Paginated history (`limit`, `offset`) |
+| `/api/qotd/leaderboard/total` | GET | Public | Aggregate total-score leaderboard |
+| `/api/qotd/stats/leaderboard` | GET | Public | Unique-day solve leaderboard |
+| `/api/qotd/:qotdId/leaderboard` | GET | Public | Daily top performers for one QOTD |
+| `/api/qotd/:id` | GET | Optional | One QOTD by ID |
+| `/api/qotd` | POST | CORE_MEMBER+ | Create QOTD (existing problem, new problem, or legacy text) |
+| `/api/qotd/:id/publish` | POST | Admin | Publish QOTD |
+| `/api/qotd/:id/hold` | POST | Admin | Hold/unpublish QOTD with reason |
+| `/api/qotd/:id/publish-practice` | POST | Admin | Publish linked QOTD problem to practice after QOTD day |
+| `/api/qotd/:id/unpublish-practice` | POST | Admin | Remove linked problem from practice |
+| `/api/qotd/:id/submit` | POST | User | Legacy text-only QOTD submission |
+| `/api/qotd/:id` | PUT | CORE_MEMBER+ | Update QOTD (owner-or-admin guard) |
+| `/api/qotd/:id` | DELETE | Admin | Delete QOTD |
+
+### Scheduler Integration
+
+- `startQotdAutoPublishScheduler()` in `apps/api/src/utils/scheduler.ts` runs every 5 minutes.
+- It auto-publishes rows where `isPublished=false`, `publishAt <= now`, and no hold is active (`heldBy IS NULL`).
+- Runs only when `ENABLE_BACKGROUND_SCHEDULERS=true`.
+
+### Key Enforcement Patterns
+
+- **Feature gate:** `problemsRouter` returns 404 for non-admins when `Settings.problemsEnabled !== true`.
+- **Context validation:** `validateProblemContext()` checks event registration, team scope, leader-only rules, and QOTD-date validity.
+- **Cap reservation pattern:** submit flow reserves cap first, rolls back reservation on judge/system failure.
+- **Rejudge queue:** `rejudgeJobs.ts` keeps bounded in-memory job metadata and executes serially via a promise chain.
+
+---
+
 ## Competition Rounds System
 
-> **Status: IMPLEMENTED.** Timed, image-target coding competition rounds attached to an event, with autosave, hard locks, and admin judging.
+> **Status: IMPLEMENTED.** Supports two round types: `IMAGE_TARGET` (code buffer + autosave) and `DSA` (problem-linked judged rounds built on the Problems system).
 
 ### DB Models (`prisma/schema.prisma`)
 
-- **`CompetitionRound`** — `eventId`, `title`, `description?`, `duration` (seconds), `status` (`DRAFT | ACTIVE | LOCKED | JUDGING | FINISHED`), `participantScope` (`ALL | SELECTED_TEAMS`), `leadersOnly`, `allowedTeamIds (String[])`, optional `targetImageUrl`, `startedAt?`, `lockedAt?`.
+- **`CompetitionRound`** — `eventId`, `title`, `description?`, `duration` (seconds), `status` (`DRAFT | ACTIVE | LOCKED | JUDGING | FINISHED`), `roundType` (`IMAGE_TARGET | DSA`), `participantScope` (`ALL | SELECTED_TEAMS`), `leadersOnly`, `allowedTeamIds (String[])`, optional `targetImageUrl`, `startedAt?`, `lockedAt?`.
+- **`CompetitionRoundProblem`** — for DSA rounds, links ordered problems + points (`displayOrder`, `points`) to a round.
 - **`CompetitionSubmission`** — `roundId`, optional `teamId`, `userId`, `code`, `isAutoSubmit`, `score?`, `rank?`, `adminNotes?`. Unique on `[roundId, teamId]` and `[roundId, userId]` (NULL teamId means individual submissions stay distinct under Postgres).
 - **`CompetitionAutoSave`** — last-known editor buffer per `(roundId, userId)`; rebuilt on every save tick.
 - **`Settings.competitionEnabled`** gates the feature in the admin nav and the public event detail page.
@@ -652,6 +742,8 @@ api.resendInvitationEmail(id, token)
 | `/api/competition/:roundId/score/:submissionId` | PATCH | Admin | Set `score`/`rank`/`adminNotes` |
 | `/api/competition/:roundId/results/export` | GET | Admin | ExcelJS export |
 | `/api/competition/:roundId/results` | GET | Public | Public results once `FINISHED` |
+| `/api/competition/:roundId/publish-as-practice` | POST | Admin | Publish DSA round problems into practice catalog |
+| `/api/competition/:roundId/raise-cap` | POST | Admin | Raise DSA submit caps for one/all users and one/all problems |
 | `/api/competition/:roundId` | PUT | Admin | Edit round metadata |
 | `/api/competition/:roundId` | DELETE | Admin | Delete round (cascades) |
 
@@ -660,20 +752,24 @@ api.resendInvitationEmail(id, token)
 - An in-process `activeTimers` `Map<roundId, NodeJS.Timeout>` auto-locks rounds when `duration` elapses past `startedAt`. Lifecycle: armed on `start`, cleared on `lock`/`finish`/`delete`.
 - **`recoverActiveRounds()`** runs once on boot (called from `apps/api/src/index.ts` after the HTTP server starts). It re-arms timers for any `ACTIVE` rounds and immediately locks rounds whose deadline already passed during downtime. Free-tier sleeps are therefore safe.
 - **`participantScope`:** `ALL` accepts every registered team/user; `SELECTED_TEAMS` restricts saves and submissions to `allowedTeamIds`. `leadersOnly = true` further restricts submissions to the team leader account.
+- **Feature gate:** non-admin users receive 404 when `Settings.competitionEnabled !== true` (admins bypass for setup/debug).
 
 ### Frontend Surface
 
 - **Admin dashboard:** `apps/web/src/pages/admin/AdminCompetition.tsx` at `/admin/competition` — round CRUD, status transitions, allowed-teams selector.
 - **Judging UI:** `apps/web/src/pages/admin/CompetitionJudge.tsx` at `/admin/competition/:roundId/judge` — scoring + admin notes.
+- **Solve UI:** `apps/web/src/pages/CompetitionSolvePage.tsx` at `/competition/:roundId/solve/:problemId` for DSA rounds.
 - **Public results:** `apps/web/src/pages/CompetitionResults.tsx` at `/competition/:roundId/results`.
 - **Certificate integration:** `EventCertificateWizard` consumes `getCompetitionResultsSummary()` to bulk-issue WINNER certificates from round results (`competitionCertificateUtils.ts`).
-- **API client:** `getCompetitionRounds`, `getCompetitionRoundsAdmin`, `getCompetitionRound`, `createCompetitionRound`, `startCompetitionRound`, plus lock/judging/finish/save/submit/score/export/results helpers in `apps/web/src/lib/api.ts`.
+- **API client:** `getCompetitionRounds`, `getCompetitionRoundsAdmin`, `getCompetitionRound`, `createCompetitionRound`, status transitions, save/submit, judge/export/results, `publishContestAsPractice`, and `raiseContestCap`.
 
 ### Key Patterns
 
-- **Autosave vs submission:** Autosave writes one row per user keyed by `[roundId, userId]`; submission upserts a separate row. Submission never overwrites autosave history.
-- **`isAutoSubmit` flag:** Set when the server-side timer expires and forces a submit from the latest autosave buffer.
-- **Status gates writes:** `save` and `submit` reject when round is not `ACTIVE`; admin score writes only accepted in `JUDGING`.
+- **IMAGE_TARGET rounds:** autosave writes `CompetitionAutoSave`; final submissions use `CompetitionSubmission`.
+- **DSA rounds:** submissions are stored in `ProblemSubmission` (`contextType='CONTEST'`, `contextKey=round.id`) and scored by judge.
+- **Auto-lock behavior:** timer lock on ACTIVE rounds can convert latest autosaves to auto-submissions (`isAutoSubmit=true`) where eligible.
+- **Finish semantics:** IMAGE_TARGET rounds require scored submissions in judging; DSA rounds can finish directly from `LOCKED`/`JUDGING`.
+- **Rate limiting:** save (`12/min`) and submit (`5/min`) are user-keyed via express-rate-limit.
 
 ---
 
@@ -710,7 +806,7 @@ emailAnnouncementBody, emailEventBody, emailFooterText,
 emailWelcomeBody, emailNetworkVerifiedBody, emailNetworkRejectedBody,
 show_tech_blogs, showNetwork, mailingEnabled,
 certificatesEnabled, playgroundEnabled, playgroundDailyLimit,
-competitionEnabled,
+competitionEnabled, problemsEnabled,
 emailWelcomeEnabled, emailEventCreationEnabled, emailRegistrationEnabled,
 emailAnnouncementEnabled, emailCertificateEnabled, emailReminderEnabled,
 emailInvitationEnabled,
@@ -769,12 +865,17 @@ Index: [dayNumber, attended]
 ```
 CompetitionRound:
 id, eventId, title, description?, duration, status (CompetitionStatus),
+roundType (CompetitionRoundType; default IMAGE_TARGET),
 participantScope (CompetitionParticipantScope; default ALL),
 leadersOnly (default false),
 allowedTeamIds (String[]; default []), targetImageUrl?, startedAt?, lockedAt?,
 createdAt, updatedAt
-Relations: event, submissions, autoSaves
+Relations: event, submissions, autoSaves, problems
 Indexes: [eventId], [status, startedAt]
+
+CompetitionRoundProblem:
+id, roundId, problemId, displayOrder, points
+Unique: [roundId, problemId], [roundId, displayOrder]
 
 CompetitionSubmission:
 id, roundId, teamId?, userId, code, submittedAt, isAutoSubmit,
@@ -833,8 +934,33 @@ tags (String[]), featured, createdAt, updatedAt
 
 ### QOTD + QOTDSubmission
 ```
-QOTD: id, date (unique), question, problemLink, difficulty, createdAt
+QOTD: id, date (unique), question, problemLink, difficulty, problemId?,
+createdById?, isPublished, publishAt?, publishedAt?, heldBy?, holdReason?, createdAt
 QOTDSubmission: id, userId, qotdId, timestamp. Unique: [userId, qotdId]
+```
+
+### Problems + Judge Models
+```
+Problem:
+id, slug (unique), title, body, difficulty, tags (String[]),
+allowedLanguages (ProblemLanguage[]), timeLimitMs, defaultSubmitCap,
+sampleTests (JSON), hiddenTests (JSON),
+referenceSolution?, referenceLanguage?, isPublished, createdBy,
+testCasesUpdatedAt, createdAt, updatedAt
+Relations: submissions, counters, qotds, competitionRounds
+
+ProblemSubmission:
+id, userId, problemId, contextType (ProblemContextType), contextKey,
+language (ProblemLanguage), code, verdict (SubmissionVerdict),
+score, passedCount, totalCount, perTestVerdicts (JSON), runtimeMs?,
+compilerOutput?, manualOverride, overrideNotes?, submittedAt, updatedAt
+Unique: [userId, problemId, contextType, contextKey]
+
+ProblemSubmissionCounter:
+id, userId, problemId, contextType, contextKey,
+count, capOverride?, lastResetAt?, pendingRequest,
+requestedAt?, requestNote?, lastGrantedBy?, lastGrantedAt?, updatedAt
+Unique: [userId, problemId, contextType, contextKey]
 ```
 
 ### AuditLog
@@ -917,7 +1043,11 @@ NetworkConnectionType: GUEST_SPEAKER | GMEET_SESSION | EVENT_JUDGE | MENTOR | IN
 NetworkStatus: PENDING | VERIFIED | REJECTED
 ExecutionStatus: SUCCESS | ERROR | TIMEOUT
 CompetitionStatus: DRAFT | ACTIVE | LOCKED | JUDGING | FINISHED
+CompetitionRoundType: IMAGE_TARGET | DSA
 CompetitionParticipantScope: ALL | SELECTED_TEAMS
+ProblemContextType: QOTD | CONTEST | PRACTICE
+ProblemLanguage: PYTHON | JAVASCRIPT | CPP | JAVA
+SubmissionVerdict: PENDING | ACCEPTED | WRONG_ANSWER | TIME_LIMIT_EXCEEDED | RUNTIME_ERROR | COMPILATION_ERROR | JUDGE_ERROR
 ```
 
 `EXPIRED` is intentionally **not** stored in Prisma for invitations; it is derived at read time.
@@ -1327,6 +1457,7 @@ All pages are lazy-loaded with `React.lazy()` + `<Suspense>`.
 | `/join-our-network` | JoinOurNetworkPage |
 | `/privacy-policy` | PrivacyPolicyPage |
 | `/credits` | CreditsPage |
+| `/qotd/leaderboard` | QOTDLeaderboardPage |
 | `/competition/:roundId/results` | CompetitionResults |
 | `/contact` | ContactPage |
 | `/verify` | VerifyCertificatePage |
@@ -1340,10 +1471,14 @@ All pages are lazy-loaded with `React.lazy()` + `<Suspense>`.
 | `/quiz/:quizId` | QuizPage |
 | `/quiz/:quizId/results` | QuizResultsPage |
 | `/quiz/create` | AdminQuizCreator |
+| `/qotd/today` | QOTDSolvePage |
+| `/qotd/:date` | QOTDSolvePage |
+| `/competition/:roundId/solve/:problemId` | CompetitionSolvePage |
 | `/dashboard` | DashboardLayout > DashboardOverview |
 | `/dashboard/events` | DashboardEvents |
 | `/dashboard/announcements` | DashboardAnnouncements |
 | `/dashboard/leaderboard` | DashboardLeaderboard |
+| `/dashboard/coding` | DashboardCoding |
 | `/dashboard/events/new` | CreateEvent |
 | `/dashboard/announcements/new` | CreateAnnouncement |
 | `/dashboard/qotd` | CreateQOTD |
@@ -1368,6 +1503,7 @@ All pages are lazy-loaded with `React.lazy()` + `<Suspense>`.
 | `/admin/users` | AdminUsersRealtime |
 | `/admin/team` | AdminTeam |
 | `/admin/achievements` | AdminAchievements |
+| `/admin/problems` | AdminProblems (effective only when `problemsEnabled`) |
 | `/admin/credits` | AdminCredits |
 | `/admin/event-registrations` | AdminEventRegistrations |
 | `/admin/events/:id/edit` | EditEvent |
@@ -1388,7 +1524,7 @@ All pages are lazy-loaded with `React.lazy()` + `<Suspense>`.
 
 `DashboardLayout.tsx` builds nav dynamically:
 
-**User nav** (always): Overview, My Events, Announcements, Live Quiz, Leaderboard (if `showLeaderboard`), My Profile, My Certificates (if `certificatesEnabled`), My Invitations (pending badge)
+**User nav** (always): Overview, My Events, Announcements, **Coding** (`/dashboard/coding`), Live Quiz, Leaderboard (if `showLeaderboard`), My Profile, My Certificates (if `certificatesEnabled`), My Invitations (pending badge)
 
 > **NETWORK role override:** Network users see a stripped-down nav: My Events, My Certificates (if enabled), My Invitations. No Overview / Announcements / Quiz / Leaderboard / Profile.
 
@@ -1398,16 +1534,17 @@ All pages are lazy-loaded with `React.lazy()` + `<Suspense>`.
 1. User Management
 2. Team Management
 3. Achievements
-4. Credits (always shown)
-5. Public View (`/admin/public-view`, always shown)
-6. Hiring Applications (if `hiringEnabled`)
-7. Network Management (if `showNetwork`)
-8. Audit Log (PRESIDENT or superAdmin only)
-9. Event Registrations
-10. Competition (if `competitionEnabled`)
-11. Certificates (if `certificatesEnabled`)
-12. Send Mail
-13. Settings (superAdmin/PRESIDENT only)
+4. Problems (if `problemsEnabled`)
+5. Credits (always shown)
+6. Public View (`/admin/public-view`, always shown)
+7. Hiring Applications (if `hiringEnabled`)
+8. Network Management (if `showNetwork`)
+9. Audit Log (PRESIDENT or superAdmin only)
+10. Event Registrations
+11. Competition (if `competitionEnabled`)
+12. Certificates (if `certificatesEnabled`)
+13. Send Mail
+14. Settings (superAdmin/PRESIDENT only)
 
 ---
 
@@ -1417,32 +1554,17 @@ Base URL: `import.meta.env.VITE_API_URL || 'http://localhost:5001/api'`
 
 All requests use `fetch` with `credentials: 'include'` for cross-origin cookie support.
 
-**Key types exported:** `AuthProviders`, `User`, `Settings`, `Event`, `Registration`, `EventInvitation`, `EventTeam`, `Announcement`, `TeamMember`, `Achievement`, `Credit`, `Poll`, `PollOptionResult`, `PollInput`, `AdminPollListItem`, `AdminPollDetail`, `CompetitionRound`, `CompetitionRoundPreview`, `CompetitionSubmission`, `CompetitionResult`, `CompetitionResultsSummaryResponse`, `NetworkProfile`, `NetworkProfileInput`, `AuditLogEntry`, `HomePageData`
+**Key types exported:** `AuthProviders`, `User`, `Settings`, `Event`, `Registration`, `EventInvitation`, `EventTeam`, `Announcement`, `TeamMember`, `Achievement`, `Credit`, `Poll`, `PollInput`, `Problem`, `ProblemInput`, `ProblemSubmission`, `SubmissionResult`, `QOTDDetail`, `QOTDStats`, `CompetitionRound`, `CompetitionRoundPreview`, `CompetitionResult`, `CompetitionResultsSummaryResponse`, `NetworkProfile`, `NetworkProfileInput`, `AuditLogEntry`, `HomePageData`
 
 **`api` object methods (full list):**
-- Auth: `getProviders`, `getMe`, `devLogin`, `register`, `login`, `exchangeAuthCode`, `logout`
-- Events: `getEvents`, `getEvent`, `createEvent`, `updateEvent`, `deleteEvent`
-- Registrations: `registerForEvent`, `cancelRegistration`, `getMyRegistrations`, `getEventRegistrations`, `deleteEventRegistration`, `exportEventRegistrations`
-- Invitations: `getMyInvitations`, `acceptInvitation`, `declineInvitation`, `claimInvitation`, `searchInvitees`, `createInvitations`, `getEventInvitations`, `updateInvitation`, `revokeInvitation`, `resendInvitationEmail`
-- Teams: `createTeam`, `joinTeam`, `getMyTeam`, `toggleTeamLock`, `removeTeamMember`, `leaveTeam`, `transferLeadership`, `dissolveTeam`, `getEventTeams`, `adminToggleTeamLock`, `adminDissolveTeam`
-- Announcements: `getAnnouncements`, `getAnnouncement`, `createAnnouncement`, `updateAnnouncement`, `deleteAnnouncement`
-- Polls: `getPolls`, `getPoll`, `createPoll`, `updatePoll`, `deletePoll`, `voteOnPoll`, `submitPollFeedback`, `getAdminPolls`, `getAdminPollDetail`, `downloadPollExport`
-- Competition: `getCompetitionRounds`, `getCompetitionRoundsAdmin`, `getCompetitionRound`, `createCompetitionRound`, `startCompetitionRound`, `lockCompetitionRound`, `beginJudging`, `finishCompetition`, `saveCompetitionCode`, `submitCompetitionCode`, `getMyCompetitionSubmission`, `getCompetitionSubmissions`, `scoreCompetitionSubmission`, `exportCompetitionResults`, `getCompetitionResults`, `getCompetitionResultsSummary`, `updateCompetitionRound`, `deleteCompetitionRound`
-- Team: `getTeam`, `getTeamMember`, `getTeamMemberBySlug`, `createTeamMember`, `updateTeamMember`, `updateTeamMemberProfile`, `linkTeamMemberToUser`, `getMyTeamProfile`, `searchUsers`, `deleteTeamMember`
-- Achievements: `getAchievements`, `getFeaturedAchievements`, `getAchievement`, `createAchievement`, `updateAchievement`, `deleteAchievement`
-- **Credits:** `getCredits`, `getCredit`, `createCredit`, `updateCredit`, `deleteCredit`, `reorderCredits`
-- QOTD: `getTodayQOTD`, `getQOTDHistory`, `createQOTD`, `submitQOTD`, `getQOTDStats`
-- Stats: `getPublicStats`, `getHomePageData`, `getDashboardStats`
-- Users (Admin): `getUsers`, `getUser`, `updateUser`, `updateUserRole`, `deleteUser`
-- Settings: `getSettings`, `updateSettings`, `patchSetting`, `getSecurityEnvStatus`, `updateSecurityEnvSettings`
-- Profile: `getProfile`, `updateProfile`, `changePassword`, `addPassword`
-- Hiring: `getMyHiringApplication`
-- Network (public): `getNetworkProfiles`, `getNetworkProfile`
-- Network (user): `joinNetwork`, `getMyNetworkProfile`, `createNetworkProfile`, `updateNetworkProfile`
-- Network (admin): `getNetworkPending`, `getNetworkAll`, `getNetworkPendingUsers`, `revertPendingNetworkUser`, `deletePendingNetworkUser`, `verifyNetworkProfile`, `rejectNetworkProfile`, `updateNetworkProfileAdmin`, `deleteNetworkProfile`, `getNetworkStats`
-- Audit Logs: `getAuditLogs`
-- Quiz: `getMyQuizDashboard`, `getQuizAdminList`, `importQuizFile`, `createQuiz`, `updateQuiz`, `getQuiz`, `joinQuizByPin`, `openQuiz`, `checkQuizHost`, `getQuizResults`, `deleteQuiz`
-- Certificates: `getCertificates`, `generateCertificate`, `bulkGenerateCertificates`, `downloadCertificate`, `getMyCertificates`, `revokeCertificate`, `deleteCertificate`, `resendCertificateEmail`
+- Auth: `getProviders`, `getMe`, `getMeWithToken`, `devLogin`, `register`, `login`, `exchangeAuthCode`, `logout`
+- Events/registrations: `getEvents`, `getEvent`, `createEvent`, `updateEvent`, `deleteEvent`, `registerForEvent`, `cancelRegistration`, `getMyRegistrations`, `getEventRegistrations`, `deleteEventRegistration`, `exportEventRegistrations`
+- Invitations/teams: `getMyInvitations`, `acceptInvitation`, `declineInvitation`, `claimInvitation`, `searchInvitees`, `createInvitations`, `getEventInvitations`, `updateInvitation`, `revokeInvitation`, `resendInvitationEmail`, `createTeam`, `joinTeam`, `getMyTeam`, `toggleTeamLock`, `removeTeamMember`, `leaveTeam`, `transferLeadership`, `dissolveTeam`, `getEventTeams`, `adminToggleTeamLock`, `adminDissolveTeam`
+- Announcements/polls/team/achievements/credits: `getAnnouncements`, `getAnnouncement`, `createAnnouncement`, `updateAnnouncement`, `deleteAnnouncement`, `getPolls`, `getPoll`, `createPoll`, `updatePoll`, `deletePoll`, `voteOnPoll`, `submitPollFeedback`, `getAdminPolls`, `getAdminPollDetail`, `downloadPollExport`, `getTeam`, `getTeamMember`, `getTeamMemberBySlug`, `createTeamMember`, `updateTeamMember`, `updateTeamMemberProfile`, `linkTeamMemberToUser`, `getMyTeamProfile`, `searchUsers`, `deleteTeamMember`, `getAchievements`, `getFeaturedAchievements`, `getAchievement`, `createAchievement`, `updateAchievement`, `deleteAchievement`, `getCredits`, `getCredit`, `createCredit`, `updateCredit`, `deleteCredit`, `reorderCredits`
+- Problems/QOTD coding: `getProblems`, `adminGetProblems`, `getProblem`, `createProblem`, `updateProblem`, `deleteProblem`, `runProblem`, `submitProblem`, `getMyProblemSubmission`, `getProblemLeaderboard`, `adminGetProblemSubmissions`, `adminOverrideSubmission`, `adminRejudgeProblem`, `adminRejudgeStatus`, `adminResetSubmitCap`, `requestSubmitCap`, `adminGetPendingCapRequests`, `getTodayQOTD`, `getQOTDHistory`, `getQOTDLeaderboard`, `getQOTDDailyLeaderboard`, `getQOTDTotalLeaderboard`, `createQOTD`, `publishQOTD`, `holdQOTD`, `publishQOTDToPractice`, `unpublishQOTDFromPractice`, `submitQOTD`, `getQOTDStats`
+- Competition: `getCompetitionRounds`, `getCompetitionRoundsAdmin`, `getCompetitionRound`, `createCompetitionRound`, `startCompetitionRound`, `lockCompetitionRound`, `beginJudging`, `finishCompetition`, `saveCompetitionCode`, `submitCompetitionCode`, `getMyCompetitionSubmission`, `getCompetitionSubmissions`, `scoreCompetitionSubmission`, `getCompetitionResults`, `getCompetitionResultsSummary`, `updateCompetitionRound`, `deleteCompetitionRound`, `publishContestAsPractice`, `raiseContestCap`, `exportCompetitionResults`
+- Users/settings/profile/hiring/network/audit/quiz/certificates: `getUsers`, `getUser`, `updateUser`, `updateUserRole`, `deleteUser`, `getSettings`, `updateSettings`, `patchSetting`, `getSecurityEnvStatus`, `updateSecurityEnvSettings`, `getProfile`, `updateProfile`, `changePassword`, `addPassword`, `getMyHiringApplication`, `submitHiringApplication`, `getNetworkProfiles`, `getNetworkProfile`, `joinNetwork`, `getMyNetworkProfile`, `createNetworkProfile`, `updateNetworkProfile`, `getNetworkPending`, `getNetworkAll`, `getNetworkPendingUsers`, `revertPendingNetworkUser`, `deletePendingNetworkUser`, `verifyNetworkProfile`, `rejectNetworkProfile`, `updateNetworkProfileAdmin`, `deleteNetworkProfile`, `getNetworkStats`, `getAuditLogs`, `getMyQuizDashboard`, `getQuizAdminList`, `importQuizFile`, `createQuiz`, `updateQuiz`, `getQuiz`, `joinQuizByPin`, `openQuiz`, `checkQuizHost`, `getQuizResults`, `deleteQuiz`, `getCertificates`, `generateCertificate`, `bulkGenerateCertificates`, `downloadCertificate`, `getMyCertificates`, `revokeCertificate`, `deleteCertificate`, `resendCertificateEmail`
+- Auxiliary surfaces: `getPlaygroundSnippets`, `getPlaygroundStats`, `getPlaygroundHistory`, `getActiveSignatories`, `getSignatories`, `createSignatory`, `updateSignatory`, `deleteSignatory`, `uploadImage`, all attendance helpers (`getMyQR`, `scanAttendance`, `scanAttendanceBatch`, `manualCheckin`, `unmarkAttendance`, `bulkUpdateAttendance`, `editAttendance`, `regenerateAttendanceToken`, `regenerateAttendanceTokensForEvent`, `searchAttendance`, `getAttendanceLive`, `getAttendanceFull`, `exportAttendanceExcel`, `emailAbsentees`, `getAttendanceCertRecipients`, `getMyAttendanceHistory`, `getAttendanceSummary`, `backfillAttendanceTokens`)
 
 ---
 
@@ -1493,7 +1615,7 @@ All requests use `fetch` with `credentials: 'include'` for cross-origin cookie s
 
 1. Session cookie `httpOnly: false` — XSS can steal tokens
 2. JWT in URL hash fragment after OAuth — security concern
-3. No test suite anywhere in the codebase
+3. Automated coverage is partial (stability tests + utility tests + Playwright), not full regression coverage
 4. Some routes use raw `res.json()` instead of `ApiResponse` utility
 5. `AdminEventRegistrations` makes N+1 fetch calls (one per event for registrations) — acceptable at current scale, annotated in code
 6. Certificate email fire-and-forget pattern means `emailSent` flag update could fail silently — try-catch added but pattern is inherently lossy during restarts
@@ -1544,14 +1666,14 @@ A comprehensive security audit was performed covering CORS, XSS, auth guards, ra
 ## Deployment (Render)
 
 Four services in `render.yaml`:
-1. **club-api** — Web service, `npm run start:api`, port 5001
-2. **club-web** — Static site, Vite build, serves `apps/web/dist`
-3. **playground-api** — Web service, `node apps/playground/execute-server.js`, port 5002
-4. **playground-web** — Static site, Vite build, serves `apps/playground/dist`
+1. **codescriet-api** — Node web service. Build: `npm install --include=dev && npx prisma generate --schema=./prisma/schema.prisma && npm run build --workspace=apps/api`. Start: migration resolve/deploy + `npm run start --workspace=apps/api`.
+2. **codescriet-web** — Static frontend. Build: `npm install && node scripts/generate-sitemap.js && npm run build --workspace=apps/web && node scripts/prerender.js`.
+3. **codescriet-playground-api** — Node web service in `apps/playground` (`node execute-server.js`).
+4. **codescriet-playground-web** — Static playground frontend in `apps/playground/dist`.
 
-Build commands: `club-api` runs `prisma generate` + `npm run build --workspace=apps/api`. `club-web` runs `node scripts/generate-sitemap.js && npm run build --workspace=apps/web && node scripts/prerender.js` — the prerender step walks the public API and writes real `dist/<route>/<slug>/index.html` files (with `<title>`, OG tags, JSON-LD, and a visible content block inside `#root`) for events, achievements, announcements, team members, and network profiles, so crawlers and social cards never see the empty SPA shell. Failures are non-fatal; if the API is unreachable the SPA still ships.
+Build note: the prerender step writes route-specific HTML (`dist/<route>/<slug>/index.html`) so crawlers and social cards get populated metadata/content instead of a blank SPA shell.
 
-**Free-tier limits:** `club-api` and `playground-api` run on Render's free web service tier: 512 MB RAM, shared CPU, automatic spin-down after 15 minutes of inactivity. This is a hard architectural constraint — see Hard Constraints section.
+**Free-tier limits:** `codescriet-api` and `codescriet-playground-api` run on Render free web services (512 MB RAM, shared CPU, auto spin-down after inactivity). This is a hard architectural constraint — see Hard Constraints section.
 
 **UptimeRobot:** An external UptimeRobot monitor pings `GET /ping` every 5 minutes to prevent free-tier spin-down. The `/ping` endpoint returns plain text `"pong"` with no DB call. Do not remove or rename this endpoint.
 
@@ -1577,6 +1699,8 @@ When proposing any non-trivial architectural change — new system, new DB model
 |------|-------|
 | API entry point | `apps/api/src/index.ts` |
 | Auth routes | `apps/api/src/routes/auth.ts` |
+| Problems routes | `apps/api/src/routes/problems.ts` |
+| QOTD routes | `apps/api/src/routes/qotd.ts` |
 | Credits routes | `apps/api/src/routes/credits.ts` |
 | Teams routes | `apps/api/src/routes/teams.ts` |
 | Invitation routes | `apps/api/src/routes/invitations.ts` |
@@ -1593,6 +1717,10 @@ When proposing any non-trivial architectural change — new system, new DB model
 | Audit logger | `apps/api/src/utils/audit.ts` |
 | Email service | `apps/api/src/utils/email.ts` |
 | Event scheduler | `apps/api/src/utils/scheduler.ts` |
+| Code judge runtime | `apps/api/src/utils/codeJudge.ts` |
+| Problems core logic | `apps/api/src/utils/problemsCore.ts` |
+| Rejudge queue | `apps/api/src/utils/rejudgeJobs.ts` |
+| Daily usage/cap utils | `apps/api/src/utils/dailyLimit.ts` |
 | API response helpers | `apps/api/src/utils/response.ts` |
 | Quiz socket | `apps/api/src/quiz/quizSocket.ts` |
 | Quiz state | `apps/api/src/quiz/quizStore.ts` |
@@ -1604,6 +1732,7 @@ When proposing any non-trivial architectural change — new system, new DB model
 | Frontend API client | `apps/web/src/lib/api.ts` |
 | Frontend routes | `apps/web/src/App.tsx` |
 | Dashboard layout | `apps/web/src/components/dashboard/DashboardLayout.tsx` |
+| Dashboard coding hub | `apps/web/src/pages/dashboard/DashboardCoding.tsx` |
 | Dashboard invitations page | `apps/web/src/pages/dashboard/DashboardInvitations.tsx` |
 | Credits public page | `apps/web/src/pages/CreditsPage.tsx` |
 | Credits admin page | `apps/web/src/pages/admin/AdminCredits.tsx` |
@@ -1640,8 +1769,12 @@ When proposing any non-trivial architectural change — new system, new DB model
 | Poll public page | `apps/web/src/pages/PollDetailPage.tsx` |
 | Poll admin dashboard | `apps/web/src/pages/admin/AdminPublicView.tsx` |
 | Poll components | `apps/web/src/components/polls/` |
+| QOTD solve page | `apps/web/src/pages/QOTDSolvePage.tsx` |
+| QOTD leaderboard page | `apps/web/src/pages/QOTDLeaderboardPage.tsx` |
+| Admin problems page | `apps/web/src/pages/admin/AdminProblems.tsx` |
 | Competition admin | `apps/web/src/pages/admin/AdminCompetition.tsx` |
 | Competition judging | `apps/web/src/pages/admin/CompetitionJudge.tsx` |
+| Competition solve page | `apps/web/src/pages/CompetitionSolvePage.tsx` |
 | Competition public results | `apps/web/src/pages/CompetitionResults.tsx` |
 | Competition certificate utils | `apps/web/src/components/attendance/competitionCertificateUtils.ts` |
 | Core-member attendance shortcut page | `apps/web/src/pages/dashboard/AttendancePage.tsx` |
@@ -1665,8 +1798,10 @@ This file is the **single source of truth** for AI agents working on this codeba
 | New quiz UI component created | Quiz System Architecture → Frontend UI Components + File Quick Reference |
 | Attendance system feature implemented | Attendance System (move from "planned" to actual description) |
 | New attendance socket event | Attendance System → Socket.io Namespace |
+| New problems/judge endpoint or cap behavior | Problems + QOTD Coding System |
 | New poll behavior / poll endpoint | Polls System |
 | New competition status, scope, or endpoint | Competition Rounds System + DB schema CompetitionRound block |
+| New QOTD publish/hold/practice behavior | Problems + QOTD Coding System |
 | New email category toggle | Email Notification Control System table |
 | New team-registration constraint or transaction rule | Team Registration System → Key Patterns |
 
