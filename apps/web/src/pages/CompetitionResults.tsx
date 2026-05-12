@@ -42,6 +42,7 @@ export default function CompetitionResults() {
   const roundTitle = resultsQuery.data?.round.title || '';
   const eventTitle = resultsQuery.data?.round.eventTitle || '';
   const results = useMemo(() => resultsQuery.data?.results ?? [], [resultsQuery.data?.results]);
+  const isDsaRound = resultsQuery.data?.round.roundType === 'DSA';
   const errorMessage = resultsQuery.error
     ? extractApiErrorMessage(resultsQuery.error, 'Failed to load results')
     : null;
@@ -102,7 +103,49 @@ export default function CompetitionResults() {
               </Card>
             )}
 
-            {topThree.length > 0 && (
+            {isDsaRound && results.length > 0 && (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-lg">DSA Standings</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="overflow-x-auto">
+                    <table className="w-full min-w-[820px] text-sm">
+                      <thead>
+                        <tr className="border-b border-amber-100 text-left text-gray-500">
+                          <th className="py-2 pr-3">Rank</th>
+                          <th className="py-2 pr-3">Member</th>
+                          <th className="py-2 pr-3">Total</th>
+                          <th className="py-2 pr-3">Runtime</th>
+                          <th className="py-2 pr-3">Breakdown</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {results.map((entry) => (
+                          <tr key={entry.userId ?? entry.id ?? entry.rank} className="border-b border-amber-50 align-top">
+                            <td className="py-3 pr-3 font-semibold">#{entry.rank ?? '--'}</td>
+                            <td className="py-3 pr-3 font-semibold text-gray-900">{entry.userName ?? entry.teamName}</td>
+                            <td className="py-3 pr-3">{entry.totalScore ?? entry.score ?? 0}</td>
+                            <td className="py-3 pr-3 tabular-nums">{entry.totalRuntimeMs ?? 0} ms</td>
+                            <td className="py-3 pr-3">
+                              <div className="flex flex-wrap gap-2">
+                                {(entry.problems ?? []).map((problem) => (
+                                  <span key={problem.problemId} className="rounded-full border border-blue-200 bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-700">
+                                    {problem.title}: {problem.weightedScore}
+                                  </span>
+                                ))}
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+
+            {!isDsaRound && topThree.length > 0 && (
               <Card>
                 <CardHeader>
                   <CardTitle className="text-lg">Podium</CardTitle>
@@ -147,7 +190,7 @@ export default function CompetitionResults() {
               </Card>
             )}
 
-            <Card>
+            {!isDsaRound && <Card>
               <CardHeader>
                 <CardTitle className="text-lg">Full Standings</CardTitle>
               </CardHeader>
@@ -189,7 +232,7 @@ export default function CompetitionResults() {
                 </div>
                 <p className="text-xs text-gray-500 mt-3">* Auto-submitted at timer expiry.</p>
               </CardContent>
-            </Card>
+            </Card>}
           </>
         )}
       </main>

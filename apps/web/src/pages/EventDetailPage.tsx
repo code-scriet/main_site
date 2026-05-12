@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useParams, useNavigate, useSearchParams, Link } from 'react-router-dom';
 import { Layout } from '@/components/layout/Layout';
 import { SEO } from '@/components/SEO';
@@ -242,6 +242,9 @@ export default function EventDetailPage() {
       id: string;
       title: string;
       status: 'DRAFT' | 'ACTIVE' | 'LOCKED' | 'JUDGING' | 'FINISHED';
+      roundType?: 'IMAGE_TARGET' | 'DSA';
+      remainingSeconds?: number | null;
+      problems?: Array<{ id?: string; problemId?: string; title?: string }>;
       hasSubmitted?: boolean;
       isEligible?: boolean;
       eligibilityReason?: string;
@@ -249,8 +252,18 @@ export default function EventDetailPage() {
   >([]);
   const trustedVideoUrl = event?.videoUrl ? normalizeTrustedVideoEmbedUrl(event.videoUrl) : null;
 
-  const getCompetitionRoundUrl = (roundId: string) => {
-    return getPlaygroundLaunchUrl(`/competition/${roundId}`);
+  const sortedCompetitionRounds = useMemo(() => {
+    const priority = { ACTIVE: 0, DRAFT: 1, LOCKED: 2, JUDGING: 3, FINISHED: 4 };
+    return [...competitionRounds].sort((a, b) => priority[a.status] - priority[b.status]);
+  }, [competitionRounds]);
+
+  const getCompetitionRoundUrl = (round: { id: string; roundType?: 'IMAGE_TARGET' | 'DSA'; problems?: Array<{ id?: string; problemId?: string }> }) => {
+    if (round.roundType === 'DSA') {
+      const firstProblem = round.problems?.[0];
+      const problemId = firstProblem?.problemId ?? firstProblem?.id;
+      return problemId ? `/competition/${round.id}/solve/${problemId}` : `/competition/${round.id}/results`;
+    }
+    return getPlaygroundLaunchUrl(`/competition/${round.id}`);
   };
 
   useEffect(() => {
@@ -915,6 +928,83 @@ export default function EventDetailPage() {
       {/* Main Content */}
       <section className="py-6 sm:py-8 md:py-12 bg-amber-50">
         <div className="container mx-auto px-4">
+          {sortedCompetitionRounds.length > 0 && (
+            <div className="mb-6 rounded-xl border-2 border-blue-300 bg-white p-5 shadow-sm">
+              <div className="mb-4 flex items-center justify-between">
+                <h2 className="text-xl font-bold text-gray-900 flex items-center gap-2">
+                  <span className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-blue-100 text-blue-700">🏆</span>
+                  Competition Rounds
+                  <span className="text-sm font-semibold text-gray-500">({sortedCompetitionRounds.length})</span>
+                </h2>
+              </div>
+              <div className="space-y-3">
+                {sortedCompetitionRounds.map((round) => {
+                  const statusLabel = round.status === 'DRAFT'
+                    ? 'Scheduled'
+                    : round.status === 'ACTIVE'
+                      ? `Live${round.remainingSeconds !== undefined ? ` · ${Math.max(0, Math.ceil((round.remainingSeconds ?? 0) / 60))} min left` : ''}`
+                      : round.status === 'LOCKED'
+                        ? 'Closed · results pending'
+                        : round.status === 'JUDGING'
+                          ? 'Judging in progress'
+                          : 'Results published';
+                  const statusColor = round.status === 'ACTIVE'
+                    ? 'bg-green-100 text-green-800 border-green-300'
+                    : round.status === 'FINISHED'
+                      ? 'bg-amber-100 text-amber-800 border-amber-300'
+                      : 'bg-blue-100 text-blue-800 border-blue-300';
+                  return (
+                    <div key={round.id} className="flex flex-col gap-3 rounded-lg border border-gray-200 bg-gray-50 p-4 sm:flex-row sm:items-center sm:justify-between">
+                      <div className="flex-1 min-w-0">
+                        <div className="mb-1.5 flex flex-wrap items-center gap-2">
+                          <span className="inline-flex rounded-full bg-blue-50 px-2.5 py-0.5 text-xs font-bold uppercase tracking-wide text-blue-700">
+                            {round.roundType === 'DSA' ? 'DSA Coding' : 'HTML/CSS Build'}
+                          </span>
+                          <span className={`inline-flex rounded-full border px-2.5 py-0.5 text-xs font-semibold ${statusColor}`}>
+                            {statusLabel}
+                          </span>
+                          {round.hasSubmitted && (
+                            <span className="inline-flex rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-semibold text-emerald-800 border border-emerald-300">
+                              Submitted
+                            </span>
+                          )}
+                        </div>
+                        <h3 className="truncate text-base font-bold text-gray-900">{round.title}</h3>
+                        {round.isEligible === false && round.eligibilityReason && (
+                          <p className="mt-1 text-xs text-gray-500">{round.eligibilityReason}</p>
+                        )}
+                      </div>
+                      <div className="flex-shrink-0">
+                        {round.status === 'FINISHED' ? (
+                          <Link to={`/competition/${round.id}/results`}>
+                            <Button size="lg" className="w-full sm:w-auto bg-amber-600 text-white hover:bg-amber-700 font-semibold">
+                              View Results
+                              <ExternalLink className="ml-2 h-4 w-4" />
+                            </Button>
+                          </Link>
+                        ) : user && round.isEligible !== false && round.status === 'ACTIVE' ? (
+                          <a href={getCompetitionRoundUrl(round)} target={round.roundType === 'DSA' ? undefined : '_blank'} rel="noreferrer">
+                            <Button size="lg" className="w-full sm:w-auto bg-blue-600 text-white hover:bg-blue-700 font-semibold">
+                              Enter Contest
+                              <ExternalLink className="ml-2 h-4 w-4" />
+                            </Button>
+                          </a>
+                        ) : user && round.isEligible !== false && (round.status === 'LOCKED' || round.status === 'JUDGING') ? (
+                          <Button disabled size="lg" variant="outline" className="w-full sm:w-auto">
+                            Awaiting results
+                          </Button>
+                        ) : (
+                          <Button disabled size="lg" variant="outline" className="w-full sm:w-auto">
+                            {round.eligibilityReason || (user ? 'Not yet open' : 'Sign in to enter')}
+                          </Button>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 lg:gap-8">
             {/* Mobile: Registration Card First */}
             <div className="lg:hidden">
@@ -1045,57 +1135,6 @@ export default function EventDetailPage() {
                         </Button>
                       )}
                     </>
-                  )}
-                  {competitionRounds.length > 0 && (
-                    <div className="mt-3 space-y-2 rounded-lg border border-blue-200 bg-blue-50 p-3">
-                      <p className="text-sm font-semibold text-blue-900">Competition Rounds</p>
-                      {competitionRounds.map((round) => (
-                        <div key={round.id} className="rounded-md border border-blue-200 bg-white px-2.5 py-2">
-                          <div className="flex items-center justify-between gap-2">
-                            <p className="text-xs font-medium text-blue-900 truncate">{round.title}</p>
-                            <Badge variant="outline" className="text-[10px] border-blue-300 text-blue-700">
-                              {round.status}
-                            </Badge>
-                          </div>
-                          <div className="mt-1 flex items-center justify-between gap-2">
-                            <p className="text-[11px] text-blue-700">
-                              {round.hasSubmitted
-                                ? 'Submitted'
-                                : round.isEligible === false
-                                  ? (round.eligibilityReason || 'Not eligible')
-                                  : round.status === 'ACTIVE'
-                                    ? 'Open now'
-                                    : round.status === 'LOCKED'
-                                      ? 'Locked'
-                                      : round.status === 'JUDGING'
-                                        ? 'Judging'
-                                        : 'Results published'}
-                            </p>
-                            <div className="flex items-center gap-2">
-                              {round.status === 'FINISHED' && (
-                                <Link
-                                  to={`/competition/${round.id}/results`}
-                                  className="inline-flex items-center gap-1 text-[11px] font-semibold text-amber-700 underline"
-                                >
-                                  View Results
-                                </Link>
-                              )}
-                              {user && round.status !== 'FINISHED' && round.isEligible !== false && (
-                                <a
-                                  href={getCompetitionRoundUrl(round.id)}
-                                  target="_blank"
-                                  rel="noreferrer"
-                                  className="inline-flex items-center gap-1 text-[11px] font-semibold text-blue-700 underline"
-                                >
-                                  Open
-                                  <ExternalLink className="h-3 w-3" />
-                                </a>
-                              )}
-                            </div>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
                   )}
                   {showAttendanceSummary && (
                     <p className="text-sm text-center text-gray-500 mt-2">
@@ -1467,57 +1506,6 @@ export default function EventDetailPage() {
                           </Button>
                         )}
                       </>
-                    )}
-                    {competitionRounds.length > 0 && (
-                      <div className="mt-3 space-y-2 rounded-lg border border-blue-200 bg-blue-50 p-3">
-                        <p className="text-sm font-semibold text-blue-900">Competition Rounds</p>
-                        {competitionRounds.map((round) => (
-                          <div key={round.id} className="rounded-md border border-blue-200 bg-white px-2.5 py-2">
-                            <div className="flex items-center justify-between gap-2">
-                              <p className="text-xs font-medium text-blue-900 truncate">{round.title}</p>
-                              <Badge variant="outline" className="text-[10px] border-blue-300 text-blue-700">
-                                {round.status}
-                              </Badge>
-                            </div>
-                            <div className="mt-1 flex items-center justify-between gap-2">
-                              <p className="text-[11px] text-blue-700">
-                                {round.hasSubmitted
-                                  ? 'Submitted'
-                                  : round.isEligible === false
-                                    ? (round.eligibilityReason || 'Not eligible')
-                                    : round.status === 'ACTIVE'
-                                      ? 'Open now'
-                                      : round.status === 'LOCKED'
-                                        ? 'Locked'
-                                        : round.status === 'JUDGING'
-                                          ? 'Judging'
-                                          : 'Results published'}
-                              </p>
-                              <div className="flex items-center gap-2">
-                                {round.status === 'FINISHED' && (
-                                  <Link
-                                    to={`/competition/${round.id}/results`}
-                                    className="inline-flex items-center gap-1 text-[11px] font-semibold text-amber-700 underline"
-                                  >
-                                    View Results
-                                  </Link>
-                                )}
-                                {user && round.status !== 'FINISHED' && round.isEligible !== false && (
-                                  <a
-                                    href={getCompetitionRoundUrl(round.id)}
-                                    target="_blank"
-                                    rel="noreferrer"
-                                    className="inline-flex items-center gap-1 text-[11px] font-semibold text-blue-700 underline"
-                                  >
-                                    Open
-                                    <ExternalLink className="h-3 w-3" />
-                                  </a>
-                                )}
-                              </div>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
                     )}
                     {showAttendanceSummary && (
                       <p className="text-sm text-center text-gray-500 mt-2">

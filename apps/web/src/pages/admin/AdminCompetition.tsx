@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/context/AuthContext';
-import { api, type CompetitionRound, type Event, type EventTeam } from '@/lib/api';
+import { api, type CompetitionRound, type Event, type EventTeam, type Problem } from '@/lib/api';
 import { extractApiErrorMessage } from '@/lib/error';
 import { getPlaygroundLaunchUrl, getPlaygroundPublicUrl } from '@/lib/playgroundUrl';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -54,6 +54,8 @@ type FormState = {
   leadersOnly: boolean;
   allowedTeamIds: string[];
   targetImageUrl: string;
+  roundType: 'IMAGE_TARGET' | 'DSA';
+  problems: Array<{ problemId: string; displayOrder: number; points: number }>;
 };
 
 const DEFAULT_FORM: FormState = {
@@ -65,6 +67,8 @@ const DEFAULT_FORM: FormState = {
   leadersOnly: false,
   allowedTeamIds: [],
   targetImageUrl: '',
+  roundType: 'IMAGE_TARGET',
+  problems: [],
 };
 
 const statusBadgeClass: Record<CompetitionRound['status'], string> = {
@@ -103,16 +107,29 @@ export default function AdminCompetition() {
   const [editingRound, setEditingRound] = useState<CompetitionRound | null>(null);
   const [form, setForm] = useState<FormState>(DEFAULT_FORM);
   const [eventTeamsMap, setEventTeamsMap] = useState<Record<string, EventTeam[]>>({});
+  const [problemCatalog, setProblemCatalog] = useState<Problem[]>([]);
   const [roundActionDialog, setRoundActionDialog] = useState<{
     action: 'start' | 'lock' | 'delete';
     round: CompetitionRound;
   } | null>(null);
 
-  const getCompetitionRoundUrl = (roundId: string) => {
-    return getPlaygroundLaunchUrl(`/competition/${roundId}`);
+  const getCompetitionRoundUrl = (round: CompetitionRound) => {
+    if (round.roundType === 'DSA') {
+      const firstProblem = ((round.problems ?? [])[0] as unknown as { id?: string; problemId?: string; problem?: Problem }) ?? {};
+      const problemId = firstProblem.problem?.id ?? firstProblem.problemId ?? firstProblem.id;
+      return problemId ? `/competition/${round.id}/solve/${problemId}` : `/competition/${round.id}/results`;
+    }
+    return getPlaygroundLaunchUrl(`/competition/${round.id}`);
   };
 
-  const getCompetitionRoundPublicUrl = (roundId: string) => getPlaygroundPublicUrl(`/competition/${roundId}`);
+  const getCompetitionRoundPublicUrl = (round: CompetitionRound) => {
+    if (round.roundType === 'DSA') {
+      const firstProblem = ((round.problems ?? [])[0] as unknown as { id?: string; problemId?: string; problem?: Problem }) ?? {};
+      const problemId = firstProblem.problem?.id ?? firstProblem.problemId ?? firstProblem.id;
+      return problemId ? `${window.location.origin}/competition/${round.id}/solve/${problemId}` : `${window.location.origin}/competition/${round.id}/results`;
+    }
+    return getPlaygroundPublicUrl(`/competition/${round.id}`);
+  };
 
   const filteredEvents = useMemo(() => {
     const query = eventFilter.trim().toLowerCase();
@@ -131,6 +148,8 @@ export default function AdminCompetition() {
       setError(null);
       const fetchedEvents = await api.getEvents();
       setEvents(fetchedEvents);
+      const fetchedProblems = await api.adminGetProblems(token);
+      setProblemCatalog(fetchedProblems.problems);
 
       const roundsEntries = await Promise.all(fetchedEvents.map(async (event) => {
         const response = await api.getCompetitionRoundsAdmin(event.id, token);
@@ -184,6 +203,8 @@ export default function AdminCompetition() {
       participantScope: 'ALL',
       leadersOnly: false,
       allowedTeamIds: [],
+      roundType: 'IMAGE_TARGET',
+      problems: [],
     });
     setEditingRound(null);
     setCreateOpen(true);
@@ -200,6 +221,12 @@ export default function AdminCompetition() {
       leadersOnly: round.leadersOnly || false,
       allowedTeamIds: round.allowedTeamIds || [],
       targetImageUrl: round.targetImageUrl || '',
+      roundType: round.roundType || 'IMAGE_TARGET',
+      problems: ((round.problems ?? []) as unknown as Array<{ id?: string; problemId?: string; points?: number; displayOrder?: number; problem?: Problem }>).map((link, index) => ({
+        problemId: link.problem?.id ?? link.problemId ?? link.id ?? '',
+        displayOrder: link.displayOrder ?? index,
+        points: link.points ?? 100,
+      })).filter((link) => link.problemId),
     });
     setCreateOpen(true);
   };
@@ -223,10 +250,14 @@ export default function AdminCompetition() {
         title: form.title.trim(),
         description: form.description.trim() || undefined,
         duration: Math.max(5, form.durationMinutes) * 60,
+        roundType: form.roundType,
         participantScope: form.participantScope,
         leadersOnly: selectedFormEvent?.teamRegistration ? form.leadersOnly : false,
         allowedTeamIds: form.participantScope === 'SELECTED_TEAMS' ? form.allowedTeamIds : [],
-        targetImageUrl: form.targetImageUrl.trim() || undefined,
+        targetImageUrl: form.roundType === 'DSA' ? undefined : form.targetImageUrl.trim() || undefined,
+        problems: form.roundType === 'DSA'
+          ? form.problems.map((problem, index) => ({ ...problem, displayOrder: index }))
+          : undefined,
       };
       if (!payload.eventId) {
         throw new Error('Please select an event');
@@ -234,16 +265,21 @@ export default function AdminCompetition() {
       if (payload.participantScope === 'SELECTED_TEAMS' && payload.allowedTeamIds.length === 0) {
         throw new Error('Please select at least one team for selected teams mode');
       }
+      if (payload.roundType === 'DSA' && (!payload.problems || payload.problems.length === 0)) {
+        throw new Error('Please select at least one problem for DSA mode');
+      }
 
       if (editingRound) {
         await api.updateCompetitionRound(editingRound.id, {
           title: payload.title,
           description: payload.description,
           duration: payload.duration,
+          roundType: payload.roundType,
           participantScope: payload.participantScope,
           leadersOnly: payload.leadersOnly,
           allowedTeamIds: payload.allowedTeamIds,
-          targetImageUrl: payload.targetImageUrl || null,
+          targetImageUrl: payload.roundType === 'DSA' ? null : payload.targetImageUrl || null,
+          problems: payload.problems,
         }, token);
         setSuccess('Round updated successfully');
       } else {
@@ -339,6 +375,30 @@ export default function AdminCompetition() {
       setSuccess('Results exported');
     } catch (err) {
       setError(extractApiErrorMessage(err, 'Failed to export results'));
+    }
+  };
+
+  const publishAsPractice = async (round: CompetitionRound) => {
+    if (!token) return;
+    try {
+      await api.publishContestAsPractice(round.id, token);
+      setSuccess('Contest problems published to practice');
+      await load();
+    } catch (err) {
+      setError(extractApiErrorMessage(err, 'Failed to publish problems to practice'));
+    }
+  };
+
+  const raiseCap = async (round: CompetitionRound) => {
+    if (!token) return;
+    const value = window.prompt('New submit cap for this round', '10');
+    if (!value) return;
+    try {
+      await api.raiseContestCap(round.id, { newCap: Number(value) }, token);
+      setSuccess('Submit cap raised');
+      await load();
+    } catch (err) {
+      setError(extractApiErrorMessage(err, 'Failed to raise submit cap'));
     }
   };
 
@@ -457,7 +517,7 @@ export default function AdminCompetition() {
                           <div>
                             <p className="text-base font-semibold text-gray-900">{round.title}</p>
                             <p className="text-sm text-gray-500">
-                              Duration: {formatDuration(round.duration)}
+                              {round.roundType === 'DSA' ? 'DSA coding round' : 'HTML/CSS build round'} · Duration: {formatDuration(round.duration)}
                               {round.status === 'ACTIVE' && (
                                 <span className="ml-2 font-mono text-green-700">· {formatRemaining(round.remainingSeconds)}</span>
                               )}
@@ -493,13 +553,23 @@ export default function AdminCompetition() {
                           <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
                             Contestant link:{' '}
                             <a
-                              href={getCompetitionRoundUrl(round.id)}
+                              href={getCompetitionRoundUrl(round)}
                               target="_blank"
                               rel="noreferrer"
                               className="font-semibold underline break-all"
                             >
-                              {getCompetitionRoundPublicUrl(round.id)}
+                              {getCompetitionRoundPublicUrl(round)}
                             </a>
+                          </div>
+                        )}
+
+                        {round.roundType === 'DSA' && (
+                          <div className="flex flex-wrap gap-2 text-xs">
+                            {((round.problems ?? []) as unknown as Array<{ id?: string; title?: string; points?: number; problem?: Problem }>).map((link, index) => (
+                              <span key={link.id ?? link.problem?.id ?? index} className="rounded-full bg-blue-50 px-3 py-1 font-semibold text-blue-700">
+                                {link.title ?? link.problem?.title ?? `Problem ${index + 1}`} · {link.points ?? 100} pts
+                              </span>
+                            ))}
                           </div>
                         )}
 
@@ -516,7 +586,7 @@ export default function AdminCompetition() {
                                 className="gap-2"
                                 asChild
                               >
-                                <a href={getCompetitionRoundUrl(round.id)} target="_blank" rel="noreferrer">
+                                <a href={getCompetitionRoundUrl(round)} target="_blank" rel="noreferrer">
                                   <ExternalLink className="h-4 w-4" />
                                   Open Round Link
                                 </a>
@@ -544,7 +614,7 @@ export default function AdminCompetition() {
                                 className="gap-2"
                                 asChild
                               >
-                                <a href={getCompetitionRoundUrl(round.id)} target="_blank" rel="noreferrer">
+                                <a href={getCompetitionRoundUrl(round)} target="_blank" rel="noreferrer">
                                   <ExternalLink className="h-4 w-4" />
                                   Open Round Link
                                 </a>
@@ -553,6 +623,11 @@ export default function AdminCompetition() {
                                 <Eye className="h-4 w-4" />
                                 View Submissions
                               </Button>
+                              {round.roundType === 'DSA' && (
+                                <Button size="sm" variant="outline" className="gap-2" onClick={() => void raiseCap(round)}>
+                                  Raise Cap
+                                </Button>
+                              )}
                               <Button size="sm" variant="outline" className="gap-2 text-red-600" onClick={() => setRoundActionDialog({ action: 'delete', round })}>
                                 <Trash2 className="h-4 w-4" />
                                 Delete
@@ -572,7 +647,7 @@ export default function AdminCompetition() {
                                 className="gap-2"
                                 asChild
                               >
-                                <a href={getCompetitionRoundUrl(round.id)} target="_blank" rel="noreferrer">
+                                <a href={getCompetitionRoundUrl(round)} target="_blank" rel="noreferrer">
                                   <ExternalLink className="h-4 w-4" />
                                   Open Round Link
                                 </a>
@@ -611,6 +686,11 @@ export default function AdminCompetition() {
                                 <Eye className="h-4 w-4" />
                                 View Results
                               </Button>
+                                {round.roundType === 'DSA' && (
+                                  <Button size="sm" variant="outline" className="gap-2" onClick={() => void publishAsPractice(round)}>
+                                    Publish as Practice
+                                  </Button>
+                                )}
                                 <Button size="sm" variant="outline" className="gap-2" onClick={() => void exportResults(round)}>
                                   <Download className="h-4 w-4" />
                                   Export Results
@@ -637,7 +717,7 @@ export default function AdminCompetition() {
             <DialogHeader>
               <DialogTitle>{editingRound ? 'Edit Round' : 'Create Competition Round'}</DialogTitle>
               <DialogDescription>
-                Configure team access, leader restrictions, and round settings. Contestants never see the reference image.
+                Configure contest mode and access: everyone, admin-selected teams, or one representative per team.
               </DialogDescription>
             </DialogHeader>
             <form onSubmit={onSubmitForm} className="space-y-3">
@@ -670,6 +750,23 @@ export default function AdminCompetition() {
               </select>
             </div>
 
+            <div>
+              <label htmlFor="competition-round-type" className="text-sm font-medium text-gray-700 mb-1 block">Round type</label>
+              <select
+                id="competition-round-type"
+                value={form.roundType}
+                onChange={(e) => setForm((prev) => ({
+                  ...prev,
+                  roundType: e.target.value as 'IMAGE_TARGET' | 'DSA',
+                  targetImageUrl: e.target.value === 'DSA' ? '' : prev.targetImageUrl,
+                }))}
+                className="h-10 w-full rounded-lg border-2 border-amber-200 bg-white px-3 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-amber-400/20"
+              >
+                <option value="IMAGE_TARGET">HTML/CSS Build (image target)</option>
+                <option value="DSA">DSA Coding (auto judge)</option>
+              </select>
+            </div>
+
             {selectedFormEvent?.teamRegistration && (
               <div>
                 <label htmlFor="competition-participant-scope" className="text-sm font-medium text-gray-700 mb-1 block">Which teams can participate?</label>
@@ -686,15 +783,15 @@ export default function AdminCompetition() {
                   }}
                   className="h-10 w-full rounded-lg border-2 border-amber-200 bg-white px-3 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-amber-400/20"
                 >
-                  <option value="ALL">Allow all teams</option>
-                  <option value="SELECTED_TEAMS">Allow only selected teams</option>
+                  <option value="ALL">Allow everyone (all teams)</option>
+                  <option value="SELECTED_TEAMS">Allow only teams selected by admin</option>
                 </select>
               </div>
             )}
 
             {selectedFormEvent?.teamRegistration && (
               <div>
-                <label htmlFor="competition-leaders-only" className="text-sm font-medium text-gray-700 mb-1 block">Who can open the round?</label>
+                <label htmlFor="competition-leaders-only" className="text-sm font-medium text-gray-700 mb-1 block">Who can submit from each eligible team?</label>
                 <select
                   id="competition-leaders-only"
                   value={form.leadersOnly ? 'LEADERS_ONLY' : 'ALL_MEMBERS'}
@@ -706,9 +803,15 @@ export default function AdminCompetition() {
                   }}
                   className="h-10 w-full rounded-lg border-2 border-amber-200 bg-white px-3 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-amber-400/20"
                 >
-                  <option value="ALL_MEMBERS">Everyone on an eligible team</option>
-                  <option value="LEADERS_ONLY">Only the team leader</option>
+                  <option value="ALL_MEMBERS">Allow everyone on an eligible team</option>
+                  <option value="LEADERS_ONLY">Allow only one representative (team leader)</option>
                 </select>
+              </div>
+            )}
+
+            {selectedFormEvent && !selectedFormEvent.teamRegistration && (
+              <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                This event is individual-based, so everyone registered for the event can participate.
               </div>
             )}
 
@@ -749,8 +852,8 @@ export default function AdminCompetition() {
                 )}
                 <p className="mt-1 text-xs text-gray-500">
                   {form.leadersOnly
-                    ? 'Only selected team leaders can open and submit this round.'
-                    : 'Only selected teams can open and submit this round.'}
+                    ? 'Only team leaders from admin-selected teams can open and submit this round.'
+                    : 'Everyone from admin-selected teams can open and submit this round.'}
                 </p>
               </div>
             )}
@@ -790,16 +893,67 @@ export default function AdminCompetition() {
               />
             </div>
 
-            <div>
-              <label htmlFor="competition-target-image" className="text-sm font-medium text-gray-700 mb-1 block">Reference image URL (optional)</label>
-              <Input
-                id="competition-target-image"
-                type="url"
-                value={form.targetImageUrl}
-                onChange={(e) => setForm((prev) => ({ ...prev, targetImageUrl: e.target.value }))}
-                placeholder="https://..."
-              />
-            </div>
+            {form.roundType === 'IMAGE_TARGET' ? (
+              <div>
+                <label htmlFor="competition-target-image" className="text-sm font-medium text-gray-700 mb-1 block">Reference image URL (optional)</label>
+                <Input
+                  id="competition-target-image"
+                  type="url"
+                  value={form.targetImageUrl}
+                  onChange={(e) => setForm((prev) => ({ ...prev, targetImageUrl: e.target.value }))}
+                  placeholder="https://..."
+                />
+              </div>
+            ) : (
+              <div>
+                <p className="mb-1 block text-sm font-medium text-gray-700">Problems</p>
+                <div className="space-y-2 rounded-lg border border-amber-200 bg-amber-50/40 p-3">
+                  <select
+                    value=""
+                    onChange={(event) => {
+                      const problemId = event.target.value;
+                      if (!problemId || form.problems.some((item) => item.problemId === problemId)) return;
+                      setForm((prev) => ({
+                        ...prev,
+                        problems: [...prev.problems, { problemId, displayOrder: prev.problems.length, points: 100 }],
+                      }));
+                    }}
+                    className="h-10 w-full rounded-lg border border-amber-200 bg-white px-3 text-sm text-gray-700"
+                  >
+                    <option value="">Add a problem</option>
+                    {problemCatalog.map((problem) => (
+                      <option key={problem.id} value={problem.id}>{problem.title} ({problem.difficulty})</option>
+                    ))}
+                  </select>
+                  {form.problems.map((link, index) => {
+                    const problem = problemCatalog.find((item) => item.id === link.problemId);
+                    return (
+                      <div key={link.problemId} className="grid grid-cols-[1fr,96px,36px] items-center gap-2 rounded-md border border-amber-100 bg-white px-3 py-2 text-sm">
+                        <span className="min-w-0 truncate font-medium text-gray-800">{problem?.title ?? link.problemId}</span>
+                        <Input
+                          type="number"
+                          min={1}
+                          max={1000}
+                          value={link.points}
+                          onChange={(event) => setForm((prev) => ({
+                            ...prev,
+                            problems: prev.problems.map((item, itemIndex) => itemIndex === index ? { ...item, points: Number(event.target.value) } : item),
+                          }))}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setForm((prev) => ({ ...prev, problems: prev.problems.filter((_, itemIndex) => itemIndex !== index) }))}
+                          className="rounded p-2 text-red-600 hover:bg-red-50"
+                          title="Remove problem"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
 
             <DialogFooter>
               <Button type="button" variant="outline" onClick={closeDialog}>

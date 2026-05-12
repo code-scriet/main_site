@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useAuth } from '@/context/AuthContext';
-import { api, type CompetitionRound, type CompetitionSubmission, type CompetitionMissingTeam } from '@/lib/api';
+import { api, type CompetitionRound, type CompetitionSubmission, type CompetitionMissingTeam, type SubmissionVerdict } from '@/lib/api';
 import { extractApiErrorMessage } from '@/lib/error';
 import { formatDateTime } from '@/lib/dateUtils';
+import { PendingCapRequestsTray } from '@/components/problems/PendingCapRequestsTray';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -44,6 +45,7 @@ import {
 
 type ViewMode = 'grid' | 'list';
 type SortMode = 'score' | 'time';
+const DSA_VERDICTS: SubmissionVerdict[] = ['ACCEPTED', 'WRONG_ANSWER', 'TIME_LIMIT_EXCEEDED', 'RUNTIME_ERROR', 'COMPILATION_ERROR', 'JUDGE_ERROR'];
 
 type DraftScore = {
   score: string;
@@ -332,6 +334,17 @@ export default function CompetitionJudge() {
     }
   };
 
+  const overrideDsaSubmission = async (submission: CompetitionSubmission, patch: { verdict?: SubmissionVerdict; score?: number }) => {
+    if (!token || !submission.problemId) return;
+    try {
+      await api.adminOverrideSubmission(submission.problemId, submission.id, patch, token);
+      setSuccess('Override saved');
+      await load();
+    } catch (err) {
+      setError(extractApiErrorMessage(err, 'Failed to override submission'));
+    }
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center py-20">
@@ -347,6 +360,112 @@ export default function CompetitionJudge() {
           Round not found.
         </CardContent>
       </Card>
+    );
+  }
+
+  if (round.roundType === 'DSA') {
+    return (
+      <div className="space-y-5">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <Button variant="outline" size="sm" onClick={() => navigate('/admin/competition')} className="gap-2">
+              <ArrowLeft className="h-4 w-4" />
+              Back to Rounds
+            </Button>
+            <h1 className="text-2xl font-bold text-gray-900">{round.title}</h1>
+          </div>
+          <Button variant="outline" size="sm" className="gap-2" onClick={() => void load()}>
+            <RefreshCw className="h-4 w-4" />
+            Refresh
+          </Button>
+        </div>
+
+        <PendingCapRequestsTray
+          contextType="CONTEST"
+          contextKey={round.id}
+          title="Pending submit-cap requests for this round"
+          defaultExpanded
+        />
+
+        {error && <Card className="border-red-200 bg-red-50"><CardContent className="pt-5 text-sm text-red-700">{error}</CardContent></Card>}
+        {success && <Card className="border-green-200 bg-green-50"><CardContent className="pt-5 text-sm text-green-700">{success}</CardContent></Card>}
+
+        <Card>
+          <CardHeader>
+            <CardTitle>DSA Auto-Judged Submissions</CardTitle>
+            <CardDescription>Scores are produced by the Problems judge. Use overrides only for exceptional cases.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[980px] text-sm">
+                <thead>
+                  <tr className="border-b border-gray-200 text-left text-gray-500">
+                    <th className="py-2 pr-3">User</th>
+                    <th className="py-2 pr-3">Problem</th>
+                    <th className="py-2 pr-3">Verdict</th>
+                    <th className="py-2 pr-3">Score</th>
+                    <th className="py-2 pr-3">Tests</th>
+                    <th className="py-2 pr-3">Runtime</th>
+                    <th className="py-2 pr-3">Override</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {submissions.map((submission) => (
+                    <tr key={submission.id} className="border-b border-gray-100 align-top">
+                      <td className="py-3 pr-3">
+                        <p className="font-semibold text-gray-900">{submission.userName}</p>
+                        <p className="text-xs text-gray-500">{submission.userEmail}</p>
+                      </td>
+                      <td className="py-3 pr-3">{submission.problemTitle}</td>
+                      <td className="py-3 pr-3">{submission.verdict}</td>
+                      <td className="py-3 pr-3 font-semibold">{submission.score ?? 0}</td>
+                      <td className="py-3 pr-3">{submission.passedCount ?? 0}/{submission.totalCount ?? 0}</td>
+                      <td className="py-3 pr-3">{submission.runtimeMs ?? '-'} ms</td>
+                      <td className="py-3 pr-3">
+                        <div className="flex flex-wrap gap-2">
+                          <select
+                            defaultValue=""
+                            onChange={(event) => {
+                              if (event.target.value) void overrideDsaSubmission(submission, { verdict: event.target.value as SubmissionVerdict });
+                            }}
+                            className="rounded border border-gray-200 px-2 py-1 text-xs"
+                          >
+                            <option value="">Verdict</option>
+                            {DSA_VERDICTS.map((verdict) => <option key={verdict} value={verdict}>{verdict}</option>)}
+                          </select>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => {
+                              const value = window.prompt('Override score 0-100', String(submission.score ?? 0));
+                              if (value !== null) void overrideDsaSubmission(submission, { score: Number(value) });
+                            }}
+                          >
+                            Score
+                          </Button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                  {submissions.length === 0 && (
+                    <tr><td colSpan={7} className="py-10 text-center text-gray-500">No submissions yet.</td></tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardContent className="pt-5 flex flex-wrap items-center justify-between gap-3">
+            <p className="text-sm text-gray-600">Auto-judged results can be published after the round is locked.</p>
+            <Button className="gap-2" disabled={!['LOCKED', 'JUDGING'].includes(round.status)} onClick={() => void publishResults()}>
+              <Trophy className="h-4 w-4" />
+              Publish Results
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
     );
   }
 
