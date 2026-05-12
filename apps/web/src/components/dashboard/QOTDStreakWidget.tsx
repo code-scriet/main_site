@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { motion } from 'framer-motion';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -24,31 +25,15 @@ function streakSubcopy(streak: number, todaySolved: boolean): string {
 }
 
 export function QOTDStreakWidget({ token }: QOTDStreakWidgetProps) {
-  const [stats, setStats] = useState<QOTDStats | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const statsQuery = useQuery<QOTDStats>({
+    queryKey: ['qotd-stats', token],
+    queryFn: () => api.getQOTDStats(token),
+    enabled: Boolean(token),
+    refetchOnWindowFocus: true,
+    staleTime: 30_000,
+  });
 
-  useEffect(() => {
-    let cancelled = false;
-    const load = async () => {
-      if (!token) {
-        setLoading(false);
-        return;
-      }
-      try {
-        const data = await api.getQOTDStats(token);
-        if (!cancelled) setStats(data);
-      } catch (err) {
-        if (!cancelled) setError(err instanceof Error ? err.message : 'Failed to load streak');
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    };
-    void load();
-    return () => {
-      cancelled = true;
-    };
-  }, [token]);
+  const stats = statsQuery.data ?? null;
 
   const weeks = useMemo(() => {
     if (!stats?.last30Days?.length) return [];
@@ -61,7 +46,7 @@ export function QOTDStreakWidget({ token }: QOTDStreakWidgetProps) {
     return rows;
   }, [stats?.last30Days]);
 
-  if (loading) {
+  if (statsQuery.isLoading || statsQuery.isFetching && !stats) {
     return (
       <Card className="rounded-2xl border-gray-100 shadow-sm overflow-hidden">
         <CardContent className="p-6 text-sm text-gray-400">Loading streak…</CardContent>
@@ -69,7 +54,7 @@ export function QOTDStreakWidget({ token }: QOTDStreakWidgetProps) {
     );
   }
 
-  if (error || !stats) {
+  if (statsQuery.isError || !stats) {
     return null;
   }
 
@@ -129,7 +114,7 @@ export function QOTDStreakWidget({ token }: QOTDStreakWidgetProps) {
               {!todaySolved ? (
                 <a href={getPlaygroundLaunchUrl('/?qotd=today')} target="_blank" rel="noopener noreferrer">
                   <Button size="sm" className="gap-1.5 bg-amber-600 text-white hover:bg-amber-700">
-                    Solve today's QOTD
+                    Solve in Playground
                     <ExternalLink className="h-3.5 w-3.5" />
                   </Button>
                 </a>

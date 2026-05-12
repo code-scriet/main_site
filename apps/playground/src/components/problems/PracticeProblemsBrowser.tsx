@@ -4,6 +4,7 @@ import { ArrowLeft, BookOpenCheck, Loader2, Search } from 'lucide-react';
 import { mainApi, type ProblemSummary } from '@/lib/mainApi';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { getDifficultyBadgeClasses } from '@/lib/difficultyBadge';
 
 const DIFFICULTIES: Array<{ label: string; value?: string }> = [
   { label: 'All', value: undefined },
@@ -121,7 +122,7 @@ export function PracticeProblemsBrowser({ onSelectProblem, onClose }: PracticePr
                       <div className="text-xs text-gray-500 dark:text-gray-400">{problem.slug}</div>
                     </td>
                     <td className="px-4 py-3">
-                      <span className="inline-flex rounded-full bg-gray-100 px-2 py-0.5 text-xs font-semibold text-gray-700 dark:bg-gray-800 dark:text-gray-200">
+                      <span className={`inline-flex rounded-full border px-2 py-0.5 text-xs font-semibold ${getDifficultyBadgeClasses(problem.difficulty)}`}>
                         {problem.difficulty}
                       </span>
                     </td>

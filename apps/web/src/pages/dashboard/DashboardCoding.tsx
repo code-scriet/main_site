@@ -7,7 +7,6 @@ import {
   Code,
   CalendarDays,
   ExternalLink,
-  Loader2,
   Search,
   CheckCircle2,
   Sparkles,
@@ -16,13 +15,8 @@ import {
 import { api, type Problem, type QOTDDetail } from '@/lib/api';
 import { useSettings } from '@/context/SettingsContext';
 import { getPlaygroundLaunchUrl } from '@/lib/playgroundUrl';
+import { getDifficultyBadgeClasses } from '@/lib/difficultyBadge';
 import { Link } from 'react-router-dom';
-
-const DIFFICULTY_TONE: Record<string, string> = {
-  EASY: 'bg-emerald-50 text-emerald-700 border-emerald-200',
-  MEDIUM: 'bg-amber-50 text-amber-700 border-amber-200',
-  HARD: 'bg-rose-50 text-rose-700 border-rose-200',
-};
 
 const DIFFICULTIES: Array<{ label: string; value?: string }> = [
   { label: 'All', value: undefined },
@@ -39,6 +33,41 @@ function describeProblem(problem: Problem | undefined | null): string {
     .replace(/\s+/g, ' ')
     .trim();
   return trimmed.length > 220 ? `${trimmed.slice(0, 220).trim()}…` : trimmed;
+}
+
+function QotdSkeleton() {
+  return (
+    <Card className="rounded-2xl border-amber-100 bg-white">
+      <CardContent className="p-6">
+        <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+          <div className="flex-1 space-y-3">
+            <div className="h-5 w-28 animate-pulse rounded-full bg-amber-100" />
+            <div className="h-6 w-2/3 animate-pulse rounded bg-gray-100" />
+            <div className="h-4 w-full animate-pulse rounded bg-gray-100" />
+            <div className="h-4 w-4/5 animate-pulse rounded bg-gray-100" />
+          </div>
+          <div className="h-11 w-40 animate-pulse rounded-md bg-amber-100" />
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function ProblemCardSkeleton() {
+  return (
+    <Card className="rounded-2xl border-gray-100">
+      <CardContent className="p-5">
+        <div className="mb-3 h-4 w-20 animate-pulse rounded-full bg-gray-100" />
+        <div className="h-5 w-2/3 animate-pulse rounded bg-gray-100" />
+        <div className="mt-3 h-4 w-full animate-pulse rounded bg-gray-100" />
+        <div className="mt-2 h-4 w-4/5 animate-pulse rounded bg-gray-100" />
+        <div className="mt-5 flex items-center justify-between">
+          <div className="h-3 w-24 animate-pulse rounded bg-gray-100" />
+          <div className="h-9 w-36 animate-pulse rounded-md bg-gray-100" />
+        </div>
+      </CardContent>
+    </Card>
+  );
 }
 
 export default function DashboardCoding() {
@@ -98,12 +127,7 @@ export default function DashboardCoding() {
 
       {/* Today's QOTD — pinned */}
       {todayQuery.isLoading ? (
-        <Card className="rounded-2xl border-amber-100">
-          <CardContent className="flex items-center gap-3 p-6 text-sm text-gray-500">
-            <Loader2 className="h-4 w-4 animate-spin" />
-            Loading today's QOTD…
-          </CardContent>
-        </Card>
+        <QotdSkeleton />
       ) : qotd && qotd.problemId ? (
         <Card className="rounded-2xl overflow-hidden border-amber-200 shadow-sm bg-gradient-to-br from-amber-50 via-orange-50 to-amber-50">
           <CardContent className="p-6">
@@ -115,12 +139,11 @@ export default function DashboardCoding() {
                 </div>
                 <h2 className="text-xl font-bold text-amber-950">{qotd.problem?.title ?? qotd.question}</h2>
                 <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
-                  <span
-                    className={`inline-flex rounded-full border px-2.5 py-0.5 font-semibold ${
-                      DIFFICULTY_TONE[(qotd.problem?.difficulty ?? qotd.difficulty).toUpperCase()] ??
-                      'bg-gray-50 text-gray-700 border-gray-200'
-                    }`}
-                  >
+	                  <span
+	                    className={`inline-flex rounded-full border px-2.5 py-0.5 font-semibold ${
+	                      getDifficultyBadgeClasses(qotd.problem?.difficulty ?? qotd.difficulty)
+	                    }`}
+	                  >
                     {(qotd.problem?.difficulty ?? qotd.difficulty).toString()}
                   </span>
                   {todayQOTDDate && (
@@ -143,7 +166,7 @@ export default function DashboardCoding() {
               <a href={getPlaygroundLaunchUrl('/?qotd=today')} target="_blank" rel="noopener noreferrer" className="flex-shrink-0">
                 <Button size="lg" className="gap-2 bg-amber-600 text-white hover:bg-amber-700 font-semibold">
                   <Code className="h-4 w-4" />
-                  Solve in playground
+                  Solve in Playground
                   <ExternalLink className="h-4 w-4" />
                 </Button>
               </a>
@@ -167,12 +190,22 @@ export default function DashboardCoding() {
         </Card>
       ) : (
         <Card className="rounded-2xl border-dashed border-amber-200">
-          <CardContent className="p-6 text-sm text-gray-500">No QOTD has been published for today yet — check back later.</CardContent>
+          <CardContent className="p-6 text-sm text-gray-600">
+            Today&apos;s QOTD hasn&apos;t dropped yet. In the meantime, browse{' '}
+            <a href="#practice-problems" className="font-semibold text-amber-700 hover:text-amber-900">
+              practice problems
+            </a>{' '}
+            below or check the{' '}
+            <Link to="/dashboard/leaderboard" className="font-semibold text-amber-700 hover:text-amber-900">
+              all-time leaderboard
+            </Link>
+            .
+          </CardContent>
         </Card>
       )}
 
       {/* Practice catalog */}
-      <div className="space-y-3">
+      <div id="practice-problems" className="space-y-3 scroll-mt-24">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <h2 className="text-lg font-bold text-amber-900">Practice problems</h2>
           {!problemsQuery.isLoading && (
@@ -209,12 +242,11 @@ export default function DashboardCoding() {
         </div>
 
         {problemsQuery.isLoading ? (
-          <Card className="rounded-2xl border-gray-100">
-            <CardContent className="flex items-center gap-3 p-6 text-sm text-gray-500">
-              <Loader2 className="h-4 w-4 animate-spin" />
-              Loading problems…
-            </CardContent>
-          </Card>
+          <div className="grid gap-3 md:grid-cols-2">
+            {Array.from({ length: 4 }).map((_, index) => (
+              <ProblemCardSkeleton key={index} />
+            ))}
+          </div>
         ) : problems.length === 0 ? (
           <Card className="rounded-2xl border-dashed border-gray-200">
             <CardContent className="p-6 text-center text-sm text-gray-500">
@@ -237,12 +269,11 @@ export default function DashboardCoding() {
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0 flex-1">
                         <div className="mb-1 flex flex-wrap items-center gap-1.5">
-                          <span
-                            className={`inline-flex rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${
-                              DIFFICULTY_TONE[problem.difficulty?.toUpperCase() ?? ''] ??
-                              'bg-gray-50 text-gray-700 border-gray-200'
-                            }`}
-                          >
+	                          <span
+	                            className={`inline-flex rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${
+	                              getDifficultyBadgeClasses(problem.difficulty)
+	                            }`}
+	                          >
                             {problem.difficulty}
                           </span>
                           {isTodayProblem && (
@@ -268,11 +299,11 @@ export default function DashboardCoding() {
                     <div className="mt-4 flex items-center justify-between gap-2">
                       <span className="text-[11px] text-gray-400">{problem.submissionCount ?? 0} submission{(problem.submissionCount ?? 0) === 1 ? '' : 's'}</span>
                       <a href={href} target="_blank" rel="noopener noreferrer">
-                        <Button size="sm" variant="outline" className="gap-1.5 group-hover:border-amber-400">
-                          <Code className="h-4 w-4" />
-                          Solve
-                          <ExternalLink className="h-3.5 w-3.5" />
-                        </Button>
+	                        <Button size="sm" variant="outline" className="gap-1.5 group-hover:border-amber-400">
+	                          <Code className="h-4 w-4" />
+	                          Solve in Playground
+	                          <ExternalLink className="h-3.5 w-3.5" />
+	                        </Button>
                       </a>
                     </div>
                   </CardContent>

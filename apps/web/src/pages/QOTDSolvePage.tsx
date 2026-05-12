@@ -44,7 +44,7 @@ export default function QOTDSolvePage() {
             href={target}
             className="mt-6 inline-flex items-center gap-2 rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700"
           >
-            Continue
+            Solve in Playground
             <ExternalLink className="h-4 w-4" />
           </a>
           <div className="mt-5 text-xs text-gray-500">
