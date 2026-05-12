@@ -13,6 +13,8 @@ import { authMiddleware } from '../middleware/auth.js';
 import { getAuthUser } from '../middleware/auth.js';
 import { requireRole } from '../middleware/role.js';
 import { logger } from '../utils/logger.js';
+import { getUsageDate, resetDailyQuotaAndPracticeCounters } from '../utils/dailyLimit.js';
+import { auditLog } from '../utils/audit.js';
 
 const router = Router();
 const SETTINGS_CACHE_TTL_MS = 15 * 1000;
@@ -61,12 +63,6 @@ const getCachedPlaygroundSettings = async (): Promise<{ enabled: boolean; dailyL
     enabled: playgroundSettingsCache.enabled,
     dailyLimit: playgroundSettingsCache.dailyLimit,
   };
-};
-
-const getUsageDate = (): Date => {
-  const usageDate = new Date();
-  usageDate.setUTCHours(0, 0, 0, 0);
-  return usageDate;
 };
 
 // All routes require authentication
@@ -251,34 +247,21 @@ router.post('/admin/reset-limit/:userId', authMiddleware, requireRole('ADMIN'), 
     const target = await prisma.user.findUnique({ where: { id: userId }, select: { id: true, email: true } });
     if (!target) return res.status(404).json({ success: false, error: 'User not found' });
 
-    // ISSUE-025: Use transaction to ensure atomicity
-    await prisma.$transaction([
-      prisma.playgroundLimitReset.create({
-        data: {
-          userId,
-          resetBy: admin.id,
-          note,
-        },
-      }),
-      prisma.playgroundDailyUsage.upsert({
-        where: {
-          userId_usageDate: {
-            userId,
-            usageDate: getUsageDate(),
-          },
-        },
-        create: {
-          userId,
-          usageDate: getUsageDate(),
-          count: 0,
-        },
-        update: {
-          count: 0,
-        },
-      }),
-    ]);
+    await prisma.playgroundLimitReset.create({
+      data: {
+        userId,
+        resetBy: admin.id,
+        note,
+      },
+    });
+    await resetDailyQuotaAndPracticeCounters(userId);
+    await auditLog(admin.id, 'PLAYGROUND_LIMIT_RESET', 'User', userId, {
+      resetDailyQuota: true,
+      resetPracticeProblemCounters: true,
+      note,
+    });
 
-    logger.info('[Playground] Admin reset daily limit', { adminEmail: admin.email, targetEmail: target.email });
+    logger.info('[Playground] Admin reset daily limit and practice caps', { adminEmail: admin.email, targetEmail: target.email });
     return res.json({
       success: true,
       message: `Daily execution limit reset for ${target.email}`,

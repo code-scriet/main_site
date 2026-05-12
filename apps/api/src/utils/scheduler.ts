@@ -201,6 +201,57 @@ async function sendEventReminders(): Promise<void> {
 
 let reminderInterval: NodeJS.Timeout | null = null;
 let reminderStartupTimeout: NodeJS.Timeout | null = null;
+let qotdAutoPublishInterval: NodeJS.Timeout | null = null;
+
+async function autoPublishScheduledQOTDs(): Promise<void> {
+  try {
+    const now = new Date();
+    const result = await prisma.qOTD.updateMany({
+      where: {
+        isPublished: false,
+        publishAt: { lte: now },
+        heldBy: null,
+      },
+      data: {
+        isPublished: true,
+        publishedAt: now,
+      },
+    });
+    if (result.count > 0) {
+      logger.info(`📅 Auto-published ${result.count} scheduled QOTD(s)`);
+    }
+  } catch (error) {
+    logger.error('❌ QOTD auto-publish tick failed', {
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
+/**
+ * Start the QOTD auto-publish ticker. Runs every 5 minutes; flips any
+ * scheduled QOTD to isPublished=true when its publishAt has elapsed and
+ * no admin hold is in place.
+ */
+export function startQotdAutoPublishScheduler(): void {
+  if (qotdAutoPublishInterval) return;
+  // First tick after a short delay so DB is ready
+  setTimeout(() => { void autoPublishScheduledQOTDs(); }, 15_000);
+  qotdAutoPublishInterval = setInterval(() => { void autoPublishScheduledQOTDs(); }, 5 * 60 * 1000);
+  logger.info('📅 QOTD auto-publish scheduler started (checks every 5 minutes)');
+}
+
+export function stopQotdAutoPublishScheduler(): void {
+  if (qotdAutoPublishInterval) {
+    clearInterval(qotdAutoPublishInterval);
+    qotdAutoPublishInterval = null;
+  }
+  logger.info('📅 QOTD auto-publish scheduler stopped');
+}
+
+/** Manually trigger one auto-publish tick (admin/testing). */
+export async function triggerQotdAutoPublish(): Promise<void> {
+  await autoPublishScheduledQOTDs();
+}
 
 /**
  * Start the reminder scheduler

@@ -8,7 +8,7 @@ import jwt from 'jsonwebtoken';
 import { getJwtSecret } from '../utils/jwt.js';
 import { logger } from '../utils/logger.js';
 import { prisma } from '../lib/prisma.js';
-import { quizStore } from './quizStore.js';
+import { QuizCapacityError, quizStore } from './quizStore.js';
 import type { QuizQuestionData } from './quizStore.js';
 import type { QuizRoom } from './quizStore.js';
 import { authenticateSocketConnection } from '../utils/socketAuth.js';
@@ -415,6 +415,10 @@ export function initQuizSocket(io: SocketIOServer) {
           });
         }
       } catch (error) {
+        if (error instanceof QuizCapacityError) {
+          socket.emit('quiz_error', { code: 'CAPACITY_REACHED', message: error.message });
+          return;
+        }
         logger.error('join_quiz error', { error: error instanceof Error ? error.message : String(error) });
         socket.emit('quiz_error', { code: 'SERVER_ERROR', message: 'Failed to join quiz' });
       }
@@ -503,6 +507,10 @@ export function initQuizSocket(io: SocketIOServer) {
           }, (q.timeLimitSeconds + 3) * 1000);
         }
       } catch (error) {
+        if (error instanceof QuizCapacityError) {
+          socket.emit('quiz_error', { code: 'CAPACITY_REACHED', message: error.message });
+          return;
+        }
         logger.error('start_quiz error', { error: error instanceof Error ? error.message : String(error) });
         socket.emit('quiz_error', { code: 'SERVER_ERROR', message: 'Failed to start quiz' });
       }

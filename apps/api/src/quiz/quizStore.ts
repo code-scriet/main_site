@@ -178,6 +178,20 @@ function normalizeMultiSelectSubmission(raw: string, allowedOptions: string[]): 
   return normalized;
 }
 
+// Hard Constraint #1 in CLAUDE.md: 512 MB ceiling on the Render free tier.
+// One in-memory QuizRoom is ~50 KB; 60 simultaneous rooms ≈ 3 MB, which is the
+// safe upper bound before per-room player Maps start pushing us toward OOM.
+// Beyond this we refuse new rooms rather than risk an OOM-kill that would
+// drop every live game.
+const MAX_ACTIVE_ROOMS = Number.parseInt(process.env.QUIZ_MAX_ACTIVE_ROOMS || '60', 10);
+
+export class QuizCapacityError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'QuizCapacityError';
+  }
+}
+
 export const quizStore = {
   // ---------- Room management ----------
 
@@ -192,6 +206,13 @@ export const quizStore = {
   ): QuizRoom {
     if (questions.length === 0) {
       throw new Error('Cannot initialize quiz with 0 questions');
+    }
+    // Re-opening an already-active quiz is fine (replaces the existing room);
+    // only refuse when adding a NEW quiz would exceed the ceiling.
+    if (!quizRooms.has(quizId) && quizRooms.size >= MAX_ACTIVE_ROOMS) {
+      throw new QuizCapacityError(
+        `Quiz platform is at capacity (${MAX_ACTIVE_ROOMS} concurrent live quizzes). Please try again in a few minutes.`,
+      );
     }
 
     const room: QuizRoom = {

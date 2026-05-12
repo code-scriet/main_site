@@ -1,17 +1,40 @@
 import { Router, Request, Response } from 'express';
-import { Prisma } from '@prisma/client';
+import { Prisma, ProblemLanguage } from '@prisma/client';
 import { z } from 'zod';
 import rateLimit from 'express-rate-limit';
 import { prisma, withRetry } from '../lib/prisma.js';
 import { authMiddleware, optionalAuthMiddleware, getAuthUser } from '../middleware/auth.js';
-import { requireRole } from '../middleware/role.js';
+import { requireRole, hasPermission } from '../middleware/role.js';
 import { ApiResponse, ErrorCodes } from '../utils/response.js';
 import { sanitizeText } from '../utils/sanitize.js';
 import { auditLog } from '../utils/audit.js';
 import { logger } from '../utils/logger.js';
+import { ProblemHttpError, submitProblemForUser } from '../utils/problemsCore.js';
 
 const competitionRouter = Router();
 const activeTimers = new Map<string, NodeJS.Timeout>();
+
+// Feature gate: the `competitionEnabled` setting hides the UI but, prior to
+// this gate, the API still served reads, saves, submits and admin actions.
+// Mirror the problemsRouter pattern: admins always have access (so they can
+// configure the feature with the flag still off), everyone else gets a 404.
+competitionRouter.use(optionalAuthMiddleware);
+competitionRouter.use(async (req, res, next) => {
+  try {
+    const user = getAuthUser(req);
+    if (user && hasPermission(user.role, 'ADMIN')) return next();
+    const settings = await prisma.settings.findUnique({
+      where: { id: 'default' },
+      select: { competitionEnabled: true },
+    });
+    if (settings?.competitionEnabled !== true) {
+      return ApiResponse.notFound(res, 'Competition is not available');
+    }
+    return next();
+  } catch {
+    return next();
+  }
+});
 
 const MAX_CODE_BYTES = 100_000;
 const saveLimiter = rateLimit({
@@ -43,20 +66,34 @@ const createRoundSchema = z.object({
   title: z.string().min(1).max(200),
   description: z.string().max(2000).optional(),
   duration: z.number().int().min(300).max(7200),
+  roundType: z.enum(['IMAGE_TARGET', 'DSA']).optional(),
   participantScope: z.enum(['ALL', 'SELECTED_TEAMS']).optional(),
   leadersOnly: z.boolean().optional(),
   allowedTeamIds: z.array(z.string().uuid()).max(500).optional(),
   targetImageUrl: z.string().url().optional(),
+  problemIds: z.array(z.string().uuid()).max(50).optional(),
+  problems: z.array(z.object({
+    problemId: z.string().uuid(),
+    points: z.number().int().min(1).max(1000).optional(),
+    displayOrder: z.number().int().min(0).optional(),
+  })).max(50).optional(),
 });
 
 const updateRoundSchema = z.object({
   title: z.string().min(1).max(200).optional(),
   description: z.string().max(2000).optional(),
   duration: z.number().int().min(300).max(7200).optional(),
+  roundType: z.enum(['IMAGE_TARGET', 'DSA']).optional(),
   participantScope: z.enum(['ALL', 'SELECTED_TEAMS']).optional(),
   leadersOnly: z.boolean().optional(),
   allowedTeamIds: z.array(z.string().uuid()).max(500).optional(),
   targetImageUrl: z.string().url().nullable().optional(),
+  problemIds: z.array(z.string().uuid()).max(50).optional(),
+  problems: z.array(z.object({
+    problemId: z.string().uuid(),
+    points: z.number().int().min(1).max(1000).optional(),
+    displayOrder: z.number().int().min(0).optional(),
+  })).max(50).optional(),
 }).refine((value) => Object.keys(value).length > 0, {
   message: 'At least one field is required',
 });
@@ -67,6 +104,8 @@ const saveSchema = z.object({
 
 const submitSchema = z.object({
   code: z.string().max(MAX_CODE_BYTES),
+  problemId: z.string().uuid().optional(),
+  language: z.nativeEnum(ProblemLanguage).optional(),
 });
 
 const scoreSchema = z.object({
@@ -98,6 +137,28 @@ async function getEventAccess(eventId: string, userId: string) {
 function normalizeTeamIds(teamIds?: string[]): string[] {
   if (!Array.isArray(teamIds) || teamIds.length === 0) return [];
   return Array.from(new Set(teamIds));
+}
+
+function normalizeRoundProblems(input: {
+  problemIds?: string[];
+  problems?: Array<{ problemId: string; points?: number; displayOrder?: number }>;
+}): Array<{ problemId: string; points: number; displayOrder: number }> {
+  const raw = input.problems?.length
+    ? input.problems
+    : (input.problemIds || []).map((problemId, index) => ({ problemId, displayOrder: index, points: 100 }));
+
+  const seen = new Set<string>();
+  return raw
+    .filter((item) => {
+      if (seen.has(item.problemId)) return false;
+      seen.add(item.problemId);
+      return true;
+    })
+    .map((item, index) => ({
+      problemId: item.problemId,
+      points: item.points ?? 100,
+      displayOrder: item.displayOrder ?? index,
+    }));
 }
 
 async function getMyTeamInEvent(eventId: string, userId: string) {
@@ -137,6 +198,7 @@ async function ensureRegisteredForRound(roundId: string, userId: string) {
       description: true,
       duration: true,
       status: true,
+      roundType: true,
       startedAt: true,
       lockedAt: true,
       createdAt: true,
@@ -145,6 +207,21 @@ async function ensureRegisteredForRound(roundId: string, userId: string) {
       participantScope: true,
       leadersOnly: true,
       allowedTeamIds: true,
+      problems: {
+        orderBy: { displayOrder: 'asc' },
+        include: {
+          problem: {
+            select: {
+              id: true,
+              slug: true,
+              title: true,
+              difficulty: true,
+              allowedLanguages: true,
+              isPublished: true,
+            },
+          },
+        },
+      },
       event: {
         select: {
           teamRegistration: true,
@@ -376,17 +453,45 @@ competitionRouter.post('/', authMiddleware, requireRole('ADMIN'), async (req: Re
       allowedTeamIds = [];
     }
 
+    const roundType = parsed.data.roundType || 'IMAGE_TARGET';
+    const linkedProblems = normalizeRoundProblems(parsed.data);
+    if (roundType === 'DSA') {
+      if (linkedProblems.length === 0) {
+        return ApiResponse.badRequest(res, 'Select at least one problem for a DSA round.');
+      }
+      const existingProblems = await prisma.problem.findMany({
+        where: { id: { in: linkedProblems.map((item) => item.problemId) } },
+        select: { id: true },
+      });
+      if (existingProblems.length !== linkedProblems.length) {
+        return ApiResponse.badRequest(res, 'One or more selected problems do not exist.');
+      }
+    }
+
     const round = await withRetry(() => prisma.competitionRound.create({
       data: {
         eventId: parsed.data.eventId,
         title: sanitizeText(parsed.data.title).trim(),
         description: parsed.data.description ? sanitizeText(parsed.data.description).trim() : null,
         duration: parsed.data.duration,
+        roundType,
         participantScope: requestedScope,
         leadersOnly,
         allowedTeamIds,
-        targetImageUrl: parsed.data.targetImageUrl || null,
+        targetImageUrl: roundType === 'DSA' ? null : (parsed.data.targetImageUrl || null),
         status: 'DRAFT',
+        ...(roundType === 'DSA' ? {
+          problems: {
+            create: linkedProblems.map((item) => ({
+              problemId: item.problemId,
+              points: item.points,
+              displayOrder: item.displayOrder,
+            })),
+          },
+        } : {}),
+      },
+      include: {
+        problems: { include: { problem: true }, orderBy: { displayOrder: 'asc' } },
       },
     }));
 
@@ -420,6 +525,14 @@ competitionRouter.get('/event/:eventId', optionalAuthMiddleware, async (req: Req
       orderBy: { createdAt: 'asc' },
       include: {
         _count: { select: { submissions: true } },
+        problems: {
+          orderBy: { displayOrder: 'asc' },
+          include: {
+            problem: {
+              select: { id: true, slug: true, title: true, difficulty: true, allowedLanguages: true, isPublished: true },
+            },
+          },
+        },
       },
     }));
 
@@ -464,11 +577,22 @@ competitionRouter.get('/event/:eventId', optionalAuthMiddleware, async (req: Req
       description: round.description ?? undefined,
       duration: round.duration,
       status: round.status,
+      roundType: round.roundType,
       participantScope: round.participantScope,
       leadersOnly: round.leadersOnly,
       allowedTeamIds: canViewTeamSelection ? round.allowedTeamIds : undefined,
       startedAt: round.startedAt?.toISOString(),
       lockedAt: round.lockedAt?.toISOString(),
+      problems: round.problems.map((link) => ({
+        id: link.problem.id,
+        slug: link.problem.slug,
+        title: link.problem.title,
+        difficulty: link.problem.difficulty,
+        allowedLanguages: link.problem.allowedLanguages,
+        isPublished: link.problem.isPublished,
+        points: link.points,
+        displayOrder: link.displayOrder,
+      })),
       remainingSeconds: round.status === 'ACTIVE' ? computeRemainingSeconds(round, nowMs) : null,
       submissionCount: round._count.submissions,
       hasSubmitted: user ? submittedRounds.has(round.id) : undefined,
@@ -704,6 +828,23 @@ competitionRouter.get('/:roundId', authMiddleware, async (req: Request, res: Res
           select: { id: true },
         })
       : null;
+    const myProblemSubmissions = round.roundType === 'DSA'
+      ? await prisma.problemSubmission.findMany({
+          where: {
+            userId: user.id,
+            contextType: 'CONTEST',
+            contextKey: round.id,
+          },
+          select: { problemId: true, score: true, verdict: true, updatedAt: true },
+        })
+      : [];
+
+    const isAdmin = hasPermission(user.role, 'ADMIN');
+    const pendingCapRequests = isAdmin && round.roundType === 'DSA'
+      ? await prisma.problemSubmissionCounter.count({
+          where: { contextType: 'CONTEST', contextKey: round.id, pendingRequest: true },
+        })
+      : 0;
 
     return ApiResponse.success(res, {
       id: round.id,
@@ -712,15 +853,27 @@ competitionRouter.get('/:roundId', authMiddleware, async (req: Request, res: Res
       description: round.description ?? undefined,
       duration: round.duration,
       status: round.status,
+      roundType: round.roundType,
       participantScope: round.participantScope,
       leadersOnly: round.leadersOnly,
       allowedTeamIds: round.allowedTeamIds,
       startedAt: round.startedAt?.toISOString(),
       lockedAt: round.lockedAt?.toISOString(),
+      problems: round.problems.map((link) => ({
+        id: link.problem.id,
+        slug: link.problem.slug,
+        title: link.problem.title,
+        difficulty: link.problem.difficulty,
+        allowedLanguages: link.problem.allowedLanguages,
+        points: link.points,
+        displayOrder: link.displayOrder,
+        submission: myProblemSubmissions.find((submission) => submission.problemId === link.problemId) ?? null,
+      })),
       serverTime: serverTime.toISOString(),
       remainingSeconds: round.status === 'ACTIVE' ? computeRemainingSeconds(round, serverTime.getTime()) : 0,
-      hasSubmitted: Boolean(hasSubmittedByUser || hasSubmittedByTeam),
+      hasSubmitted: round.roundType === 'DSA' ? myProblemSubmissions.length > 0 : Boolean(hasSubmittedByUser || hasSubmittedByTeam),
       myTeam,
+      pendingCapRequests,
       createdAt: round.createdAt.toISOString(),
       updatedAt: round.updatedAt.toISOString(),
     });
@@ -868,9 +1021,32 @@ competitionRouter.patch('/:roundId/finish', authMiddleware, requireRole('ADMIN')
     const admin = getAuthUser(req)!;
     const round = await prisma.competitionRound.findUnique({
       where: { id: req.params.roundId },
-      select: { id: true, status: true, eventId: true, title: true },
+      select: { id: true, status: true, roundType: true, eventId: true, title: true },
     });
     if (!round) return ApiResponse.notFound(res, 'Round not found');
+    if (round.roundType === 'DSA') {
+      if (!['LOCKED', 'JUDGING'].includes(round.status)) {
+        return ApiResponse.badRequest(res, 'Only locked or judging DSA rounds can be finished');
+      }
+      const updated = await prisma.competitionRound.update({
+        where: { id: round.id },
+        data: { status: 'FINISHED' },
+      });
+      await auditLog(admin.id, 'COMPETITION_ROUND_FINISHED', 'CompetitionRound', round.id, {
+        title: round.title,
+        eventId: round.eventId,
+        roundType: round.roundType,
+      });
+      return ApiResponse.success(res, {
+        round: {
+          ...updated,
+          startedAt: updated.startedAt?.toISOString(),
+          lockedAt: updated.lockedAt?.toISOString(),
+          createdAt: updated.createdAt.toISOString(),
+          updatedAt: updated.updatedAt.toISOString(),
+        },
+      });
+    }
     if (round.status !== 'JUDGING') {
       return ApiResponse.badRequest(res, 'Only judging rounds can be finished');
     }
@@ -986,6 +1162,9 @@ competitionRouter.post('/:roundId/save', authMiddleware, saveLimiter, async (req
     const participationError = getRoundParticipationError(round, myTeam);
     if (participationError) {
       return ApiResponse.forbidden(res, participationError);
+    }
+    if (round.roundType === 'DSA') {
+      return ApiResponse.badRequest(res, 'DSA rounds use problem drafts in the browser instead of competition autosave.');
     }
 
     const alreadySubmittedByUser = await prisma.competitionSubmission.findUnique({
@@ -1117,6 +1296,24 @@ competitionRouter.post('/:roundId/submit', authMiddleware, submitLimiter, async 
       return ApiResponse.forbidden(res, participationError);
     }
 
+    if (round.roundType === 'DSA') {
+      if (!parsed.data.problemId || !parsed.data.language) {
+        return ApiResponse.badRequest(res, 'problemId and language are required for DSA rounds.');
+      }
+      const result = await submitProblemForUser({
+        user,
+        problemId: parsed.data.problemId,
+        language: parsed.data.language,
+        code: parsed.data.code,
+        contextType: 'CONTEST',
+        contextKey: round.id,
+      });
+      return ApiResponse.success(res, {
+        submission: result,
+        message: 'Submitted successfully',
+      });
+    }
+
     if (myTeam) {
       const teamSubmitted = await prisma.competitionSubmission.findUnique({
         where: {
@@ -1196,6 +1393,26 @@ competitionRouter.get('/:roundId/my-submission', authMiddleware, async (req: Req
     const participationError = getRoundParticipationError(round, myTeam);
     if (participationError) {
       return ApiResponse.forbidden(res, participationError);
+    }
+
+    if (round.roundType === 'DSA') {
+      const submissions = await prisma.problemSubmission.findMany({
+        where: {
+          userId: user.id,
+          contextType: 'CONTEST',
+          contextKey: round.id,
+        },
+        orderBy: { updatedAt: 'desc' },
+      });
+      return ApiResponse.success(res, {
+        submission: null,
+        autoSave: null,
+        problemSubmissions: submissions.map((submission) => ({
+          ...submission,
+          submittedAt: submission.submittedAt.toISOString(),
+          updatedAt: submission.updatedAt.toISOString(),
+        })),
+      });
     }
 
     const submission = await prisma.competitionSubmission.findUnique({
@@ -1300,6 +1517,7 @@ competitionRouter.get('/:roundId/submissions', authMiddleware, requireRole('ADMI
         id: true,
         title: true,
         status: true,
+        roundType: true,
         targetImageUrl: true,
         participantScope: true,
         leadersOnly: true,
@@ -1311,11 +1529,67 @@ competitionRouter.get('/:roundId/submissions', authMiddleware, requireRole('ADMI
             teamRegistration: true,
           },
         },
+        problems: {
+          orderBy: { displayOrder: 'asc' },
+          include: { problem: { select: { id: true, title: true, slug: true, difficulty: true } } },
+        },
       },
     });
     if (!round) return ApiResponse.notFound(res, 'Round not found');
     if (!['ACTIVE', 'LOCKED', 'JUDGING', 'FINISHED'].includes(round.status)) {
       return ApiResponse.forbidden(res, 'Submissions are available once the round is started');
+    }
+
+    if (round.roundType === 'DSA') {
+      const submissions = await prisma.problemSubmission.findMany({
+        where: { contextType: 'CONTEST', contextKey: round.id },
+        orderBy: { updatedAt: 'desc' },
+        include: { user: { select: { id: true, name: true, email: true, avatar: true } }, problem: { select: { id: true, title: true } } },
+      });
+      return ApiResponse.success(res, {
+        round: {
+          id: round.id,
+          title: round.title,
+          eventId: round.event.id,
+          eventTitle: round.event.title,
+          status: round.status,
+          roundType: round.roundType,
+          participantScope: round.participantScope,
+          leadersOnly: round.leadersOnly,
+          allowedTeamIds: round.allowedTeamIds,
+          targetImageUrl: round.targetImageUrl,
+          problems: round.problems.map((link) => ({
+            id: link.problem.id,
+            title: link.problem.title,
+            slug: link.problem.slug,
+            difficulty: link.problem.difficulty,
+            points: link.points,
+            displayOrder: link.displayOrder,
+          })),
+        },
+        submissions: submissions.map((submission) => ({
+          id: submission.id,
+          problemId: submission.problemId,
+          problemTitle: submission.problem.title,
+          userId: submission.userId,
+          userName: submission.user.name,
+          userEmail: submission.user.email,
+          userAvatar: submission.user.avatar,
+          code: submission.code,
+          language: submission.language,
+          verdict: submission.verdict,
+          score: submission.score,
+          passedCount: submission.passedCount,
+          totalCount: submission.totalCount,
+          runtimeMs: submission.runtimeMs,
+          perTestVerdicts: submission.perTestVerdicts,
+          submittedAt: submission.submittedAt.toISOString(),
+          updatedAt: submission.updatedAt.toISOString(),
+          manualOverride: submission.manualOverride,
+          overrideNotes: submission.overrideNotes,
+        })),
+        missingTeams: [],
+      });
     }
 
     const submissions = await prisma.competitionSubmission.findMany({
@@ -1484,14 +1758,76 @@ competitionRouter.get('/:roundId/results/export', authMiddleware, requireRole('A
         id: true,
         title: true,
         status: true,
+        roundType: true,
         event: {
           select: { title: true },
+        },
+        problems: {
+          orderBy: { displayOrder: 'asc' },
+          include: { problem: { select: { id: true, title: true } } },
         },
       },
     });
     if (!round) return ApiResponse.notFound(res, 'Round not found');
     if (round.status !== 'FINISHED') {
       return ApiResponse.badRequest(res, 'Results can only be exported after publishing.');
+    }
+
+    if (round.roundType === 'DSA') {
+      const submissions = await prisma.problemSubmission.findMany({
+        where: { contextType: 'CONTEST', contextKey: round.id },
+        include: { user: { select: { name: true, email: true } }, problem: { select: { title: true } } },
+        orderBy: [{ score: 'desc' }, { updatedAt: 'asc' }],
+      });
+      const problemPoints = new Map(round.problems.map((link) => [link.problemId, link.points]));
+      const rows = submissions.map((submission) => [
+        submission.user.name,
+        submission.user.email,
+        submission.problem.title,
+        submission.verdict,
+        String(submission.score),
+        String(Math.round(submission.score * ((problemPoints.get(submission.problemId) ?? 100) / 100))),
+        String(submission.runtimeMs ?? ''),
+        submission.updatedAt.toISOString(),
+      ]);
+      const safeRoundTitle = round.title.replace(/[^a-zA-Z0-9-_]+/g, '_').slice(0, 60) || 'round';
+      const safeEventTitle = round.event.title.replace(/[^a-zA-Z0-9-_]+/g, '_').slice(0, 60) || 'event';
+      if (format === 'csv') {
+        const escapeCell = (value: string) => `"${value.replace(/"/g, '""')}"`;
+        const csv = [['User', 'Email', 'Problem', 'Verdict', 'Score', 'Weighted Score', 'Runtime Ms', 'Updated At'], ...rows]
+          .map((row) => row.map((cell) => escapeCell(cell)).join(','))
+          .join('\n');
+        res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+        res.setHeader('Content-Disposition', `attachment; filename="${safeEventTitle}-${safeRoundTitle}-dsa-results.csv"`);
+        return res.status(200).send(csv);
+      }
+      const ExcelJS = await import('exceljs');
+      const workbook = new ExcelJS.default.Workbook();
+      const worksheet = workbook.addWorksheet('DSA Results');
+      worksheet.columns = [
+        { header: 'User', key: 'user', width: 28 },
+        { header: 'Email', key: 'email', width: 32 },
+        { header: 'Problem', key: 'problem', width: 32 },
+        { header: 'Verdict', key: 'verdict', width: 20 },
+        { header: 'Score', key: 'score', width: 12 },
+        { header: 'Weighted Score', key: 'weightedScore', width: 16 },
+        { header: 'Runtime Ms', key: 'runtimeMs', width: 12 },
+        { header: 'Updated At', key: 'updatedAt', width: 28 },
+      ];
+      rows.forEach((row) => worksheet.addRow({
+        user: row[0],
+        email: row[1],
+        problem: row[2],
+        verdict: row[3],
+        score: row[4],
+        weightedScore: row[5],
+        runtimeMs: row[6],
+        updatedAt: row[7],
+      }));
+      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+      res.setHeader('Content-Disposition', `attachment; filename="${safeEventTitle}-${safeRoundTitle}-dsa-results.xlsx"`);
+      await workbook.xlsx.write(res);
+      return res.end();
     }
 
     const submissions = await prisma.competitionSubmission.findMany({
@@ -1632,9 +1968,14 @@ competitionRouter.get('/:roundId/results', async (req: Request, res: Response) =
         id: true,
         title: true,
         status: true,
+        roundType: true,
         startedAt: true,
         event: {
           select: { id: true, title: true },
+        },
+        problems: {
+          orderBy: { displayOrder: 'asc' },
+          include: { problem: { select: { id: true, title: true, slug: true } } },
         },
       },
     });
@@ -1642,6 +1983,71 @@ competitionRouter.get('/:roundId/results', async (req: Request, res: Response) =
     if (!round) return ApiResponse.notFound(res, 'Round not found');
     if (round.status !== 'FINISHED') {
       return ApiResponse.forbidden(res, 'Results are not published yet');
+    }
+
+    if (round.roundType === 'DSA') {
+      const submissions = await prisma.problemSubmission.findMany({
+        where: { contextType: 'CONTEST', contextKey: round.id },
+        include: { user: { select: { id: true, name: true, avatar: true } } },
+      });
+      const problemLinks = new Map(round.problems.map((link) => [link.problemId, link]));
+      const byUser = new Map<string, {
+        userId: string;
+        userName: string;
+        avatar: string | null;
+        totalScore: number;
+        totalRuntimeMs: number;
+        problems: Array<{ problemId: string; title: string; score: number; weightedScore: number; verdict: string; runtimeMs: number | null }>;
+      }>();
+      for (const submission of submissions) {
+        const link = problemLinks.get(submission.problemId);
+        if (!link) continue;
+        const entry = byUser.get(submission.userId) ?? {
+          userId: submission.userId,
+          userName: submission.user.name,
+          avatar: submission.user.avatar,
+          totalScore: 0,
+          totalRuntimeMs: 0,
+          problems: [],
+        };
+        const weightedScore = Math.round(submission.score * (link.points / 100));
+        entry.totalScore += weightedScore;
+        entry.totalRuntimeMs += submission.runtimeMs ?? 0;
+        entry.problems.push({
+          problemId: submission.problemId,
+          title: link.problem.title,
+          score: submission.score,
+          weightedScore,
+          verdict: submission.verdict,
+          runtimeMs: submission.runtimeMs,
+        });
+        byUser.set(submission.userId, entry);
+      }
+      const results = Array.from(byUser.values())
+        .sort((a, b) => {
+          if (a.totalScore !== b.totalScore) return b.totalScore - a.totalScore;
+          return a.totalRuntimeMs - b.totalRuntimeMs;
+        })
+        .slice(0, 10)
+        .map((entry, index) => ({ rank: index + 1, ...entry }));
+
+      return ApiResponse.success(res, {
+        round: {
+          id: round.id,
+          title: round.title,
+          eventId: round.event.id,
+          eventTitle: round.event.title,
+          roundType: round.roundType,
+          problems: round.problems.map((link) => ({
+            id: link.problem.id,
+            slug: link.problem.slug,
+            title: link.problem.title,
+            points: link.points,
+            displayOrder: link.displayOrder,
+          })),
+        },
+        results,
+      });
     }
 
     const submissions = await prisma.competitionSubmission.findMany({
@@ -1701,6 +2107,99 @@ competitionRouter.get('/:roundId/results', async (req: Request, res: Response) =
   }
 });
 
+competitionRouter.post('/:roundId/publish-as-practice', authMiddleware, requireRole('ADMIN'), async (req: Request, res: Response) => {
+  try {
+    const admin = getAuthUser(req)!;
+    const round = await prisma.competitionRound.findUnique({
+      where: { id: req.params.roundId },
+      include: { problems: true },
+    });
+    if (!round) return ApiResponse.notFound(res, 'Round not found');
+    if (round.roundType !== 'DSA') return ApiResponse.badRequest(res, 'Only DSA rounds can be published as practice');
+    if (round.status !== 'FINISHED') return ApiResponse.badRequest(res, 'Round must be finished before publishing problems');
+
+    await prisma.problem.updateMany({
+      where: { id: { in: round.problems.map((link) => link.problemId) } },
+      data: { isPublished: true },
+    });
+    await auditLog(admin.id, 'COMPETITION_DSA_PUBLISHED_AS_PRACTICE', 'CompetitionRound', round.id, {
+      problemIds: round.problems.map((link) => link.problemId),
+    });
+    return ApiResponse.success(res, { success: true });
+  } catch (error) {
+    logger.error('Failed to publish contest problems as practice', {
+      roundId: req.params.roundId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return ApiResponse.internal(res, 'Failed to publish problems');
+  }
+});
+
+competitionRouter.post('/:roundId/raise-cap', authMiddleware, requireRole('ADMIN'), async (req: Request, res: Response) => {
+  try {
+    const admin = getAuthUser(req)!;
+    const parsed = z.object({
+      userId: z.string().uuid().optional(),
+      problemId: z.string().uuid().optional(),
+      newCap: z.number().int().min(1).max(100),
+    }).safeParse(req.body);
+    if (!parsed.success) return ApiResponse.badRequest(res, parsed.error.errors[0]?.message || 'Invalid cap payload');
+
+    const round = await prisma.competitionRound.findUnique({
+      where: { id: req.params.roundId },
+      include: {
+        problems: true,
+        event: {
+          select: {
+            registrations: { select: { userId: true } },
+          },
+        },
+      },
+    });
+    if (!round) return ApiResponse.notFound(res, 'Round not found');
+    if (round.roundType !== 'DSA') return ApiResponse.badRequest(res, 'Cap overrides apply to DSA rounds only');
+
+    const problemIds = parsed.data.problemId
+      ? [parsed.data.problemId]
+      : round.problems.map((link) => link.problemId);
+    const userIds = parsed.data.userId
+      ? [parsed.data.userId]
+      : Array.from(new Set(round.event.registrations.map((registration) => registration.userId)));
+
+    await prisma.$transaction(
+      userIds.flatMap((userId) => problemIds.map((problemId) =>
+        prisma.problemSubmissionCounter.upsert({
+          where: {
+            userId_problemId_contextType_contextKey: {
+              userId,
+              problemId,
+              contextType: 'CONTEST',
+              contextKey: round.id,
+            },
+          },
+          create: {
+            userId,
+            problemId,
+            contextType: 'CONTEST',
+            contextKey: round.id,
+            count: 0,
+            capOverride: parsed.data.newCap,
+          },
+          update: { capOverride: parsed.data.newCap },
+        }),
+      )),
+    );
+    await auditLog(admin.id, 'COMPETITION_DSA_CAP_RAISED', 'CompetitionRound', round.id, parsed.data);
+    return ApiResponse.success(res, { success: true, affectedUsers: userIds.length, affectedProblems: problemIds.length });
+  } catch (error) {
+    logger.error('Failed to raise DSA submit cap', {
+      roundId: req.params.roundId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return ApiResponse.internal(res, 'Failed to raise cap');
+  }
+});
+
 competitionRouter.put('/:roundId', authMiddleware, requireRole('ADMIN'), async (req: Request, res: Response) => {
   try {
     const admin = getAuthUser(req)!;
@@ -1718,6 +2217,7 @@ competitionRouter.put('/:roundId', authMiddleware, requireRole('ADMIN'), async (
       select: {
         id: true,
         status: true,
+        roundType: true,
         eventId: true,
         title: true,
         participantScope: true,
@@ -1754,6 +2254,7 @@ competitionRouter.put('/:roundId', authMiddleware, requireRole('ADMIN'), async (
 
     const requestedScope = parsed.data.participantScope ?? round.participantScope;
     const nextLeadersOnly = round.event.teamRegistration ? (parsed.data.leadersOnly ?? round.leadersOnly) : false;
+    const nextRoundType = parsed.data.roundType ?? round.roundType;
     let nextAllowedTeamIds = round.allowedTeamIds;
     if (!round.event.teamRegistration || requestedScope === 'ALL') {
       nextAllowedTeamIds = [];
@@ -1779,17 +2280,54 @@ competitionRouter.put('/:roundId', authMiddleware, requireRole('ADMIN'), async (
       nextAllowedTeamIds = candidateTeamIds;
     }
 
-    const updated = await prisma.competitionRound.update({
-      where: { id: round.id },
-      data: {
-        ...(parsed.data.title !== undefined ? { title: sanitizeText(parsed.data.title).trim() } : {}),
-        ...(parsed.data.description !== undefined ? { description: sanitizeText(parsed.data.description).trim() || null } : {}),
-        ...(parsed.data.duration !== undefined ? { duration: parsed.data.duration } : {}),
-        participantScope: (!round.event.teamRegistration || requestedScope === 'ALL') ? 'ALL' : 'SELECTED_TEAMS',
-        leadersOnly: nextLeadersOnly,
-        allowedTeamIds: nextAllowedTeamIds,
-        ...(parsed.data.targetImageUrl !== undefined ? { targetImageUrl: parsed.data.targetImageUrl || null } : {}),
-      },
+    const problemPayloadProvided = parsed.data.problems !== undefined || parsed.data.problemIds !== undefined;
+    const linkedProblems = normalizeRoundProblems(parsed.data);
+    if (nextRoundType === 'DSA') {
+      if (round.roundType !== 'DSA' && linkedProblems.length === 0) {
+        return ApiResponse.badRequest(res, 'Select at least one problem when switching to DSA.');
+      }
+      if (problemPayloadProvided) {
+        if (linkedProblems.length === 0) return ApiResponse.badRequest(res, 'Select at least one problem for a DSA round.');
+        const existingProblems = await prisma.problem.findMany({
+          where: { id: { in: linkedProblems.map((item) => item.problemId) } },
+          select: { id: true },
+        });
+        if (existingProblems.length !== linkedProblems.length) {
+          return ApiResponse.badRequest(res, 'One or more selected problems do not exist.');
+        }
+      }
+    }
+
+    const updated = await prisma.$transaction(async (tx) => {
+      const saved = await tx.competitionRound.update({
+        where: { id: round.id },
+        data: {
+          ...(parsed.data.title !== undefined ? { title: sanitizeText(parsed.data.title).trim() } : {}),
+          ...(parsed.data.description !== undefined ? { description: sanitizeText(parsed.data.description).trim() || null } : {}),
+          ...(parsed.data.duration !== undefined ? { duration: parsed.data.duration } : {}),
+          roundType: nextRoundType,
+          participantScope: (!round.event.teamRegistration || requestedScope === 'ALL') ? 'ALL' : 'SELECTED_TEAMS',
+          leadersOnly: nextLeadersOnly,
+          allowedTeamIds: nextAllowedTeamIds,
+          targetImageUrl: nextRoundType === 'DSA'
+            ? null
+            : (parsed.data.targetImageUrl !== undefined ? parsed.data.targetImageUrl || null : undefined),
+        },
+      });
+      if (nextRoundType === 'IMAGE_TARGET') {
+        await tx.competitionRoundProblem.deleteMany({ where: { roundId: round.id } });
+      } else if (problemPayloadProvided) {
+        await tx.competitionRoundProblem.deleteMany({ where: { roundId: round.id } });
+        await tx.competitionRoundProblem.createMany({
+          data: linkedProblems.map((item) => ({
+            roundId: round.id,
+            problemId: item.problemId,
+            points: item.points,
+            displayOrder: item.displayOrder,
+          })),
+        });
+      }
+      return saved;
     });
 
     await auditLog(admin.id, 'COMPETITION_ROUND_UPDATED', 'CompetitionRound', updated.id, {

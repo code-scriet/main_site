@@ -445,6 +445,10 @@ router.post('/scan-batch', authMiddleware, requireRole('CORE_MEMBER'), async (re
     if (!scans || !Array.isArray(scans) || scans.length === 0) {
       return ApiResponse.badRequest(res, 'scans array is required and must not be empty');
     }
+    // Cap batch size — a 10k-scan POST would balloon memory on the free tier.
+    if (scans.length > 500) {
+      return ApiResponse.badRequest(res, 'scans array is limited to 500 entries per batch');
+    }
 
     if (!eventId || typeof eventId !== 'string') {
       return ApiResponse.badRequest(res, 'eventId is required');

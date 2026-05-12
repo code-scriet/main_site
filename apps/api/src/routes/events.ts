@@ -109,7 +109,26 @@ const eventSchemaBase = z.object({
   allowLateRegistration: z.boolean().optional(),
   eventDays: z.coerce.number().int().min(1).max(10).optional(),
   dayLabels: z.array(z.string().trim().min(1).max(100)).max(10).optional().nullable(),
-  registrationFields: z.unknown().optional(),
+  // Admin-defined per-event registration form fields. Capped at 50 to prevent
+  // unbounded JSON payloads from blowing up Prisma writes / downstream queries.
+  registrationFields: z
+    .array(
+      z.object({
+        id: z.string().trim().min(1).max(80).optional(),
+        label: z.string().trim().min(1).max(200),
+        type: z.string().trim().min(1).max(40),
+        required: z.boolean().optional(),
+        placeholder: z.string().trim().max(200).optional(),
+        helperText: z.string().trim().max(500).optional(),
+        options: z.array(z.string().trim().min(1).max(200)).max(50).optional(),
+        pattern: z.string().trim().max(500).optional(),
+        minLength: z.number().int().min(0).max(10000).optional(),
+        maxLength: z.number().int().min(0).max(10000).optional(),
+      }).passthrough(),
+    )
+    .max(50)
+    .optional()
+    .nullable(),
   // Team registration fields
   teamRegistration: z.boolean().optional(),
   teamMinSize: z.coerce.number().int().min(1).max(10).optional(),

@@ -8,7 +8,7 @@ import { auditLog } from '../utils/audit.js';
 import { logger } from '../utils/logger.js';
 import bcrypt from 'bcryptjs';
 import { socketEvents } from '../utils/socket.js';
-import { calculateConsecutiveDailyStreak } from '../utils/dateStreak.js';
+import { computeQOTDStats } from '../utils/qotdStreak.js';
 import { syncUserToTeamMember, syncUserToNetworkProfile } from '../utils/profileSync.js';
 
 export const usersRouter = Router();
@@ -282,53 +282,21 @@ usersRouter.get('/me/registrations', authMiddleware, async (req: Request, res: R
   }
 });
 
-// Get user's QOTD stats
+// Get user's QOTD stats (streak, longest streak, badges, heatmap, recent submissions)
 usersRouter.get('/me/qotd-stats', authMiddleware, async (req: Request, res: Response) => {
   try {
     const authUser = getAuthUser(req)!;
-
-    const [totalSubmissions, streakSubmissions, recentSubmissions] = await Promise.all([
-      prisma.qOTDSubmission.count({
-        where: { userId: authUser.id },
-      }),
-      prisma.qOTDSubmission.findMany({
-        where: { userId: authUser.id },
-        select: { qotd: { select: { date: true } } },
-      }),
-      prisma.qOTDSubmission.findMany({
-        where: { userId: authUser.id },
-        orderBy: { timestamp: 'desc' },
-        take: 10,
-        select: {
-          timestamp: true,
-          qotd: {
-            select: {
-              date: true,
-              difficulty: true,
-            },
-          },
-        },
-      }),
-    ]);
-
-    const streak = calculateConsecutiveDailyStreak(
-      streakSubmissions.map((submission) => submission.qotd.date),
-      new Date()
-    );
-
+    const stats = await computeQOTDStats(authUser.id);
     res.json({
       success: true,
+      // Keep legacy field names alongside the richer payload for backwards compatibility.
       data: {
-        totalSubmissions,
-        currentStreak: streak,
-        recentSubmissions: recentSubmissions.map((submission) => ({
-          date: submission.qotd.date,
-          difficulty: submission.qotd.difficulty,
-          timestamp: submission.timestamp,
-        })),
+        ...stats,
+        totalSubmissions: stats.totalSolved,
       },
     });
   } catch (error) {
+    logger.error('Failed to compute QOTD stats', { error: error instanceof Error ? error.message : String(error) });
     res.status(500).json({ success: false, error: { message: 'Failed to fetch QOTD stats' } });
   }
 });

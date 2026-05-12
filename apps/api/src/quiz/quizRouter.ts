@@ -15,7 +15,7 @@ import { requireRole } from '../middleware/role.js';
 import { ApiResponse, ErrorCodes } from '../utils/response.js';
 import { logger } from '../utils/logger.js';
 import { getJwtSecret } from '../utils/jwt.js';
-import { quizStore } from './quizStore.js';
+import { QuizCapacityError, quizStore } from './quizStore.js';
 import rateLimit from 'express-rate-limit';
 
 export const quizRouter = Router();
@@ -2087,6 +2087,13 @@ quizRouter.post('/:quizId/open', authMiddleware, requireRole('CORE_MEMBER'), asy
 
     return ApiResponse.success(res, { id: quizId, status: 'WAITING', joinCode, pin }, 'Quiz is now open for joining');
   } catch (error) {
+    if (error instanceof QuizCapacityError) {
+      return ApiResponse.error(res, {
+        code: 'CAPACITY_REACHED',
+        message: error.message,
+        status: 503,
+      });
+    }
     logger.error('POST /api/quiz/:quizId/open error', { error: error instanceof Error ? error.message : String(error) });
     return ApiResponse.internal(res);
   }

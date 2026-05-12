@@ -36,6 +36,7 @@ import { creditsRouter } from './routes/credits.js';
 import { attendanceRouter } from './routes/attendance.js';
 import { teamsRouter } from './routes/teams.js';
 import competitionRouter, { recoverActiveRounds } from './routes/competition.js';
+import { problemsRouter } from './routes/problems.js';
 import { initializeAttendanceSocket } from './attendance/attendanceSocket.js';
 import { setupPassport } from './config/passport.js';
 import { requestLogger, logger } from './utils/logger.js';
@@ -46,7 +47,7 @@ import { authMiddleware, getAuthUser } from './middleware/auth.js';
 import { requireRole } from './middleware/role.js';
 import { emailService } from './utils/email.js';
 import { prisma } from './lib/prisma.js';
-import { startReminderScheduler, stopReminderScheduler } from './utils/scheduler.js';
+import { startReminderScheduler, stopReminderScheduler, startQotdAutoPublishScheduler, stopQotdAutoPublishScheduler } from './utils/scheduler.js';
 import { getJwtSecret } from './utils/jwt.js';
 import { setRuntimeAttendanceJwtSecret } from './utils/attendanceToken.js';
 import { updateEventStatuses } from './utils/eventStatus.js';
@@ -183,11 +184,29 @@ const LISTEN_RETRY_DELAY_MS = 1500;
 const EVENT_STATUS_INTERVAL_MS = Number(process.env.EVENT_STATUS_INTERVAL_MS || 30 * 60 * 1000);
 const ENABLE_BACKGROUND_SCHEDULERS = process.env.ENABLE_BACKGROUND_SCHEDULERS === 'true';
 
+let eventStatusRunning = false;
+const runEventStatusTick = async () => {
+  // Skip if a previous tick is still running. On a slow DB (Neon cold-start
+  // beyond the 30-min interval) we'd otherwise double-fire and race writes to
+  // the same Event.status rows.
+  if (eventStatusRunning) return;
+  eventStatusRunning = true;
+  try {
+    await updateEventStatuses();
+  } catch (err) {
+    logger.error('Event status tick failed', {
+      error: err instanceof Error ? err.message : String(err),
+    });
+  } finally {
+    eventStatusRunning = false;
+  }
+};
+
 const startEventStatusScheduler = () => {
   // Run once on startup and then periodically.
-  void updateEventStatuses();
+  void runEventStatusTick();
   eventStatusInterval = setInterval(() => {
-    void updateEventStatuses();
+    void runEventStatusTick();
   }, EVENT_STATUS_INTERVAL_MS);
 };
 
@@ -403,6 +422,7 @@ app.use('/api/audit-logs', auditRouter);
 app.use('/api/mail', mailRouter);
 app.use('/api/quiz', quizRouter);
 app.use('/api/playground', playgroundRouter);
+app.use('/api/problems', problemsRouter);
 app.use('/api/credits', creditsRouter);
 app.use('/api/attendance', attendanceRouter);
 app.use('/api/competition', competitionRouter);
@@ -503,6 +523,7 @@ const shutdown = async () => {
   logger.info('Shutting down gracefully...');
   stopEventStatusScheduler();
   stopReminderScheduler();
+  stopQotdAutoPublishScheduler();
 
   // Close Socket.io server first — disconnects all clients (quiz + attendance)
   io.close();
@@ -582,6 +603,7 @@ initializeDatabase()
     if (ENABLE_BACKGROUND_SCHEDULERS) {
       startEventStatusScheduler();
       startReminderScheduler();
+      startQotdAutoPublishScheduler();
     } else {
       logger.info('Background schedulers disabled (set ENABLE_BACKGROUND_SCHEDULERS=true to enable).');
     }

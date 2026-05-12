@@ -37,6 +37,7 @@ const updateSettingsSchema = z.object({
   playgroundEnabled: z.boolean().optional(),
   playgroundDailyLimit: z.coerce.number().int().min(1).max(10000).optional(),
   competitionEnabled: z.boolean().optional(),
+  problemsEnabled: z.boolean().optional(),
   // Email notification controls
   emailWelcomeEnabled: z.boolean().optional(),
   emailEventCreationEnabled: z.boolean().optional(),
@@ -200,6 +201,7 @@ settingsRouter.get('/public', async (req: Request, res: Response) => {
         playgroundDailyLimit: true,
         announcementsEnabled: true,
         competitionEnabled: true,
+        problemsEnabled: true,
         githubUrl: true,
         linkedinUrl: true,
         twitterUrl: true,
@@ -234,6 +236,7 @@ settingsRouter.get('/public', async (req: Request, res: Response) => {
           playgroundDailyLimit: 100,
           announcementsEnabled: true,
           competitionEnabled: false,
+          problemsEnabled: false,
           githubUrl: null,
           linkedinUrl: null,
           twitterUrl: null,
@@ -314,6 +317,7 @@ settingsRouter.put('/', authMiddleware, requireRole('PRESIDENT'), async (req: Re
       playgroundEnabled,
       playgroundDailyLimit,
       competitionEnabled,
+      problemsEnabled,
       emailWelcomeEnabled,
       emailEventCreationEnabled,
       emailRegistrationEnabled,
@@ -353,6 +357,7 @@ settingsRouter.put('/', authMiddleware, requireRole('PRESIDENT'), async (req: Re
       ...(playgroundEnabled !== undefined && { playgroundEnabled }),
       ...(playgroundDailyLimit !== undefined && { playgroundDailyLimit }),
       ...(competitionEnabled !== undefined && { competitionEnabled }),
+      ...(problemsEnabled !== undefined && { problemsEnabled }),
       ...(emailWelcomeEnabled !== undefined && { emailWelcomeEnabled }),
       ...(emailEventCreationEnabled !== undefined && { emailEventCreationEnabled }),
       ...(emailRegistrationEnabled !== undefined && { emailRegistrationEnabled }),
@@ -623,6 +628,7 @@ settingsRouter.patch('/:key', authMiddleware, requireRole('ADMIN'), async (req: 
       'playgroundEnabled',
       'playgroundDailyLimit',
       'competitionEnabled',
+      'problemsEnabled',
       'emailWelcomeEnabled',
       'emailEventCreationEnabled',
       'emailRegistrationEnabled',
@@ -778,6 +784,12 @@ settingsRouter.post('/reset', authMiddleware, requireRole('ADMIN'), async (req: 
     const settings = await prisma.settings.create({
       data: { id: 'default' },
     });
+
+    // Reset blows away every cached setting field — invalidate both the
+    // notification toggles cache and the email-template config cache so the
+    // next email send doesn't keep using the pre-reset values for 5 minutes.
+    invalidateNotificationSettingsCache();
+    invalidateEmailTemplateConfigCache();
 
     await auditLog(authUser.id, 'UPDATE', 'settings', 'default', { action: 'reset' });
     res.json({ success: true, data: sanitizeSettingsForResponse(settings), message: 'Settings reset to defaults' });
