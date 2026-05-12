@@ -35,14 +35,15 @@ import { normalizeTrustedVideoEmbedUrl } from '@/lib/videoEmbed';
 import { LightboxGallery } from '@/components/media/LightboxGallery';
 import QRTicket from '@/components/attendance/QRTicket';
 import ChiefGuestsStrip from '@/components/events/ChiefGuestsStrip';
+import { eventStatusLabels, getEventStatusBadgeClasses } from '@/lib/eventStatusBadge';
 import { toast } from 'sonner';
 
 type EventStatus = 'UPCOMING' | 'ONGOING' | 'PAST';
 
-const statusConfig: Record<EventStatus, { label: string; variant: 'success' | 'warning' | 'secondary'; color: string }> = {
-  UPCOMING: { label: 'Upcoming', variant: 'success', color: 'bg-green-100 text-green-800 border-green-200' },
-  ONGOING: { label: 'Happening Now', variant: 'warning', color: 'bg-amber-100 text-amber-800 border-amber-200' },
-  PAST: { label: 'Completed', variant: 'secondary', color: 'bg-gray-100 text-gray-600 border-gray-200' },
+const statusConfig: Record<EventStatus, { label: string; color: string }> = {
+  UPCOMING: { label: eventStatusLabels.UPCOMING, color: getEventStatusBadgeClasses('UPCOMING') },
+  ONGOING: { label: eventStatusLabels.ONGOING, color: getEventStatusBadgeClasses('ONGOING') },
+  PAST: { label: eventStatusLabels.PAST, color: getEventStatusBadgeClasses('PAST') },
 };
 
 // Resource type icons
@@ -266,34 +267,34 @@ export default function EventDetailPage() {
     return getPlaygroundLaunchUrl(`/competition/${round.id}`);
   };
 
-  useEffect(() => {
-    const fetchEvent = async () => {
-      if (!id) {
-        setError('Event not found');
-        setLoading(false);
+  const loadEvent = useCallback(async ({ showLoading = false }: { showLoading?: boolean } = {}) => {
+    if (!id) {
+      setError('Event not found');
+      setLoading(false);
+      return;
+    }
+
+    try {
+      if (showLoading) setLoading(true);
+      setError(null);
+      const eventData = await api.getEvent(id, token || undefined);
+      if (eventData.slug && id !== eventData.slug) {
+        navigate(`/events/${eventData.slug}`, { replace: true });
         return;
       }
+      setEvent(eventData);
+      setIsRegistered(Boolean(eventData.isRegistered || eventData.userInvitation?.status === 'ACCEPTED'));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load event');
+    } finally {
+      if (showLoading) setLoading(false);
+    }
+  }, [id, navigate, token]);
 
-      try {
-        setAutoRegisterTriggered(false);
-        setLoading(true);
-        setError(null);
-        const eventData = await api.getEvent(id, token || undefined);
-        if (eventData.slug && id !== eventData.slug) {
-          navigate(`/events/${eventData.slug}`, { replace: true });
-          return;
-        }
-        setEvent(eventData);
-        setIsRegistered(Boolean(eventData.isRegistered || eventData.userInvitation?.status === 'ACCEPTED'));
-      } catch (err) {
-        setError(err instanceof Error ? err.message : 'Failed to load event');
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchEvent();
-  }, [id, token]);
+  useEffect(() => {
+    setAutoRegisterTriggered(false);
+    void loadEvent({ showLoading: true });
+  }, [loadEvent]);
 
   // Fetch team data for team events
   useEffect(() => {
@@ -321,30 +322,55 @@ export default function EventDetailPage() {
     fetchTeam();
   }, [event?.id, event?.teamRegistration, token]);
 
-  useEffect(() => {
-    const fetchCompetitionRounds = async () => {
-      if (!event?.id) {
-        setCompetitionRounds([]);
-        return;
-      }
+  const loadCompetitionRounds = useCallback(async () => {
+    if (!event?.id) {
+      setCompetitionRounds([]);
+      return;
+    }
 
-      try {
-        const data = await api.getCompetitionRounds(event.id, token || undefined);
-        setCompetitionRounds(
-          (data.rounds || []).filter((round) =>
-            round.status === 'ACTIVE' ||
-            round.status === 'LOCKED' ||
-            round.status === 'JUDGING' ||
-            round.status === 'FINISHED'
-          )
-        );
-      } catch {
-        setCompetitionRounds([]);
-      }
-    };
-
-    void fetchCompetitionRounds();
+    try {
+      const data = await api.getCompetitionRounds(event.id, token || undefined);
+      setCompetitionRounds(
+        (data.rounds || []).filter((round) =>
+          round.status === 'ACTIVE' ||
+          round.status === 'LOCKED' ||
+          round.status === 'JUDGING' ||
+          round.status === 'FINISHED'
+        )
+      );
+    } catch {
+      setCompetitionRounds([]);
+    }
   }, [event?.id, token]);
+
+  useEffect(() => {
+    void loadCompetitionRounds();
+    if (!event?.id) return;
+
+    const interval = window.setInterval(() => {
+      void loadCompetitionRounds();
+    }, 30_000);
+
+    return () => window.clearInterval(interval);
+  }, [event?.id, loadCompetitionRounds]);
+
+  useEffect(() => {
+    const hasActiveCountdown = competitionRounds.some((round) => round.status === 'ACTIVE' && round.remainingSeconds !== undefined && round.remainingSeconds !== null);
+    if (!hasActiveCountdown) return;
+
+    const interval = window.setInterval(() => {
+      setCompetitionRounds((prev) =>
+        prev.map((round) => {
+          if (round.status !== 'ACTIVE' || round.remainingSeconds === undefined || round.remainingSeconds === null) {
+            return round;
+          }
+          return { ...round, remainingSeconds: Math.max(0, round.remainingSeconds - 1) };
+        })
+      );
+    }, 1_000);
+
+    return () => window.clearInterval(interval);
+  }, [competitionRounds]);
 
   // Fetch attendance summary for past events — restricted to CORE_MEMBER+ to avoid
   // disclosing attendee counts to the public.
