@@ -1661,6 +1661,7 @@ export default function EventDetailPage() {
               setMyTeam(team);
               setIsRegistered(true);
               setShowCreateTeamModal(false);
+              void loadEvent();
             }}
           />
           <TeamJoinModal
@@ -1671,6 +1672,7 @@ export default function EventDetailPage() {
               setMyTeam(team);
               setIsRegistered(true);
               setShowJoinTeamModal(false);
+              void loadEvent();
             }}
           />
         </>

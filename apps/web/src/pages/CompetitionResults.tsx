@@ -8,7 +8,7 @@ import { api } from '@/lib/api';
 import { extractApiErrorMessage } from '@/lib/error';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Loader2, Trophy } from 'lucide-react';
+import { Award, Crown, Loader2, Medal, Trophy } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 function podiumItemClass(rank: number) {
@@ -17,10 +17,10 @@ function podiumItemClass(rank: number) {
   return 'from-orange-100 to-orange-50 border-orange-300 text-orange-900';
 }
 
-function getRankLabel(rank: number) {
-  if (rank === 1) return '🥇 #1';
-  if (rank === 2) return '🥈 #2';
-  return '🥉 #3';
+function getRankIcon(rank: number) {
+  if (rank === 1) return <Crown className="h-4 w-4 text-yellow-600" />;
+  if (rank === 2) return <Medal className="h-4 w-4 text-gray-600" />;
+  return <Award className="h-4 w-4 text-orange-600" />;
 }
 
 function formatElapsed(seconds?: number | null) {
@@ -166,7 +166,10 @@ export default function CompetitionResults() {
                           className="flex flex-col items-center flex-1 max-w-[150px]"
                         >
                           <div className={cn('w-full rounded-xl border bg-gradient-to-b p-3 text-center', podiumItemClass(rank))}>
-                            <p className="text-sm font-bold">{getRankLabel(rank)}</p>
+                            <p className="inline-flex items-center justify-center gap-1.5 text-sm font-bold">
+                              {getRankIcon(rank)}
+                              #{rank}
+                            </p>
                             <p className="mt-1 text-sm font-semibold truncate">{entry.teamName}</p>
                             <p className="text-xs mt-1">Score: {entry.score ?? '--'}</p>
                             <p className="text-[11px] mt-2 opacity-80 line-clamp-2">{entry.members.join(', ')}</p>

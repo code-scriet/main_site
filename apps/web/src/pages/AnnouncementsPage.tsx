@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { Layout } from '@/components/layout/Layout';
 import { SEO } from '@/components/SEO';
 import { BreadcrumbSchema } from '@/components/ui/schema';
@@ -20,12 +20,26 @@ const priorityConfig = {
   URGENT: { color: 'bg-red-100 text-red-700 border-red-300', icon: AlertCircle },
 };
 
+const priorityFilters = ['ALL', 'URGENT', 'HIGH', 'MEDIUM', 'LOW'] as const;
+type PriorityFilter = typeof priorityFilters[number];
+
+function parsePriorityFilter(value: string | null): PriorityFilter {
+  const normalized = value?.toUpperCase();
+  return priorityFilters.includes(normalized as PriorityFilter) ? normalized as PriorityFilter : 'ALL';
+}
+
 export default function AnnouncementsPage() {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const priorityParam = searchParams.get('priority');
   const [announcements, setAnnouncements] = useState<Announcement[]>([]);
   const [polls, setPolls] = useState<Poll[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [filter, setFilter] = useState<'ALL' | 'URGENT' | 'HIGH' | 'MEDIUM' | 'LOW'>('ALL');
+  const [filter, setFilter] = useState<PriorityFilter>(() => parsePriorityFilter(priorityParam));
+
+  useEffect(() => {
+    setFilter(parsePriorityFilter(priorityParam));
+  }, [priorityParam]);
 
   useEffect(() => {
     const loadAnnouncements = async () => {
@@ -45,6 +59,17 @@ export default function AnnouncementsPage() {
     };
     loadAnnouncements();
   }, []);
+
+  const updateFilter = (priority: PriorityFilter) => {
+    setFilter(priority);
+    const next = new URLSearchParams(searchParams);
+    if (priority === 'ALL') {
+      next.delete('priority');
+    } else {
+      next.set('priority', priority);
+    }
+    setSearchParams(next);
+  };
 
   const filteredAnnouncements = filter === 'ALL' 
     ? announcements 
@@ -109,10 +134,10 @@ export default function AnnouncementsPage() {
             transition={{ delay: 0.2 }}
             className="flex flex-wrap gap-2 justify-center mb-8"
           >
-            {(['ALL', 'URGENT', 'HIGH', 'MEDIUM', 'LOW'] as const).map((priority) => (
+            {priorityFilters.map((priority) => (
               <button
                 key={priority}
-                onClick={() => setFilter(priority)}
+                onClick={() => updateFilter(priority)}
                 aria-pressed={filter === priority}
                 className={`px-4 py-2 rounded-full font-medium transition-all ${
                   filter === priority

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Layout } from '@/components/layout/Layout';
 import { SEO } from '@/components/SEO';
 import { BreadcrumbSchema } from '@/components/ui/schema';
@@ -13,22 +13,10 @@ import { useNavigate, Link } from 'react-router-dom';
 import { formatDate } from '@/lib/dateUtils';
 import { processImageUrl } from '@/lib/imageUtils';
 import { getRegistrationStatus } from '@/lib/registrationStatus';
+import { getEventStatusBadgeVariant } from '@/lib/eventStatusBadge';
 import { toast } from 'sonner';
 
 type EventStatus = 'UPCOMING' | 'ONGOING' | 'PAST';
-
-const statusBadgeVariant = (status: EventStatus) => {
-  switch (status) {
-    case 'UPCOMING':
-      return 'success';
-    case 'ONGOING':
-      return 'warning';
-    case 'PAST':
-      return 'secondary';
-    default:
-      return 'default';
-  }
-};
 
 export default function EventsPage() {
   const [activeTab, setActiveTab] = useState<EventStatus | 'ALL'>('ALL');
@@ -42,33 +30,34 @@ export default function EventsPage() {
   const { user, token } = useAuth();
   const navigate = useNavigate();
 
-  useEffect(() => {
-    const fetchData = async () => {
-      try {
-        setLoading(true);
-        setError(null);
+  const loadEvents = useCallback(async () => {
+    try {
+      setLoading(true);
+      setError(null);
 
-        // Fetch events
-        const eventsData = await api.getEvents();
-        setEvents(eventsData);
+      const eventsData = await api.getEvents();
+      setEvents(eventsData);
 
-        // Fetch user registrations if logged in
-        if (token) {
-          try {
-            const registrations = await api.getMyRegistrations(token);
-            setRegisteredEventIds(new Set(registrations.map(r => r.eventId)));
-          } catch {
-            toast.error('Could not load your event registrations');
-          }
+      if (token) {
+        try {
+          const registrations = await api.getMyRegistrations(token);
+          setRegisteredEventIds(new Set(registrations.map(r => r.eventId)));
+        } catch {
+          toast.error('Could not load your event registrations');
         }
-      } catch (err) {
-        setError(err instanceof Error ? err.message : 'Failed to load events');
-      } finally {
-        setLoading(false);
       }
-    };
-    fetchData();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to load events';
+      setError(message);
+      toast.error(message);
+    } finally {
+      setLoading(false);
+    }
   }, [token]);
+
+  useEffect(() => {
+    void loadEvents();
+  }, [loadEvents]);
 
   const handleRegister = async (event: Event) => {
     const regStatus = getRegistrationStatus(event);
@@ -125,13 +114,7 @@ export default function EventsPage() {
       await api.registerForEvent(event.id, token);
       toast.success(`Successfully registered for "${event.title}"!`);
 
-      // Refresh events to update registration count
-      const updatedEvents = await api.getEvents();
-      setEvents(updatedEvents);
-
-      // Refresh user registrations
-      const registrations = await api.getMyRegistrations(token);
-      setRegisteredEventIds(new Set(registrations.map(r => r.eventId)));
+      await loadEvents();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Failed to register');
     } finally {
@@ -208,7 +191,7 @@ export default function EventsPage() {
           ) : error ? (
             <div className="text-center py-20">
               <p className="text-red-500">{error}</p>
-              <Button onClick={() => window.location.reload()} className="mt-4">
+              <Button onClick={() => void loadEvents()} className="mt-4">
                 Try Again
               </Button>
             </div>
@@ -247,7 +230,7 @@ export default function EventsPage() {
                             </div>
                           )}
                           <div className="absolute top-4 left-4 flex gap-2">
-                            <Badge variant={statusBadgeVariant(event.status)}>
+                            <Badge variant={getEventStatusBadgeVariant(event.status)}>
                               {event.status}
                             </Badge>
                             {event.eventType && (
