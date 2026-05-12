@@ -30,12 +30,20 @@ import {
   Code2,
   Cpu,
   X,
+  ArrowLeft,
+  BookOpenCheck,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import { useKeyboardShortcuts, getShortcutKey } from '@/hooks/useKeyboardShortcuts';
 
-export function Toolbar() {
+interface ToolbarProps {
+  problemMode?: boolean;
+  onExitProblem?: () => void;
+  onOpenPractice?: () => void;
+}
+
+export function Toolbar({ problemMode = false, onExitProblem, onOpenPractice }: ToolbarProps = {}) {
   const {
     code,
     language,
@@ -166,12 +174,43 @@ export function Toolbar() {
     toast.success('Code reset to default');
   };
 
+  if (problemMode) {
+    return (
+      <div className={cn(
+        'flex items-center justify-between gap-3 p-3 border-b flex-wrap transition-colors',
+        theme === 'dark' ? 'bg-card/50 backdrop-blur-sm' : 'bg-white/60 backdrop-blur-sm'
+      )}>
+        <div className="flex items-center gap-2">
+          {onExitProblem && (
+            <Button onClick={onExitProblem} variant="outline" size="sm" className="gap-2">
+              <ArrowLeft className="h-4 w-4" />
+              Back to playground
+            </Button>
+          )}
+          {onOpenPractice && (
+            <Button onClick={onOpenPractice} variant="ghost" size="sm" className="gap-2">
+              <BookOpenCheck className="h-4 w-4" />
+              Practice problems
+            </Button>
+          )}
+        </div>
+        <div className="text-xs text-muted-foreground">Run / Submit lives inside the editor panel.</div>
+      </div>
+    );
+  }
+
   return (
     <div className={cn(
       'flex items-center justify-between gap-3 p-3 border-b flex-wrap transition-colors',
       theme === 'dark' ? 'bg-card/50 backdrop-blur-sm' : 'bg-white/60 backdrop-blur-sm'
     )}>
       <div className="flex items-center gap-3 flex-1 min-w-[200px]">
+        {onOpenPractice && (
+          <Button onClick={onOpenPractice} variant="outline" size="sm" className="gap-2" title="Practice problems">
+            <BookOpenCheck className="h-4 w-4" />
+            Practice
+          </Button>
+        )}
         <Select value={language.id} onValueChange={setLanguage}>
           <SelectTrigger className="w-[180px]">
             <SelectValue>

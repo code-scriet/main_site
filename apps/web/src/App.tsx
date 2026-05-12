@@ -63,6 +63,9 @@ const JoinOurNetworkPage = lazy(() => import('@/pages/JoinOurNetworkPage'));
 const PrivacyPolicyPage = lazy(() => import('@/pages/PrivacyPolicyPage'));
 const CreditsPage = lazy(() => import('@/pages/CreditsPage'));
 const ContactPage = lazy(() => import('@/pages/ContactPage'));
+const QOTDSolvePage = lazy(() => import('@/pages/QOTDSolvePage'));
+const QOTDLeaderboardPage = lazy(() => import('@/pages/QOTDLeaderboardPage'));
+const CompetitionSolvePage = lazy(() => import('@/pages/CompetitionSolvePage'));
 
 // Dashboard - lazy loaded
 const DashboardLayout = lazy(() => import('@/components/dashboard/DashboardLayout'));
@@ -70,6 +73,7 @@ const DashboardOverview = lazy(() => import('@/pages/dashboard/DashboardOverview
 const DashboardEvents = lazy(() => import('@/pages/dashboard/DashboardEvents'));
 const DashboardAnnouncements = lazy(() => import('@/pages/dashboard/DashboardAnnouncements'));
 const DashboardLeaderboard = lazy(() => import('@/pages/dashboard/DashboardLeaderboard'));
+const DashboardCoding = lazy(() => import('@/pages/dashboard/DashboardCoding'));
 const CreateEvent = lazy(() => import('@/pages/dashboard/CreateEvent'));
 const CreateAnnouncement = lazy(() => import('@/pages/dashboard/CreateAnnouncement'));
 const CreateQOTD = lazy(() => import('@/pages/dashboard/CreateQOTD'));
@@ -95,6 +99,7 @@ const AdminCertificates = lazy(() => import('@/pages/admin/AdminCertificates'));
 const AdminNetwork = lazy(() => import('@/pages/admin/AdminNetwork'));
 const AdminCredits = lazy(() => import('@/pages/admin/AdminCredits'));
 const AdminCompetition = lazy(() => import('@/pages/admin/AdminCompetition'));
+const AdminProblems = lazy(() => import('@/pages/admin/AdminProblems'));
 const CompetitionJudge = lazy(() => import('@/pages/admin/CompetitionJudge'));
 const AdminAuditLog = lazy(() => import('@/pages/admin/AdminAuditLog'));
 const AdminMail = lazy(() => import('@/pages/admin/AdminMail'));
@@ -160,6 +165,7 @@ function App() {
                   <Route path="/join-our-network" element={withRouteBoundary(<JoinOurNetworkPage />)} />
                   <Route path="/privacy-policy" element={withRouteBoundary(<PrivacyPolicyPage />)} />
                   <Route path="/credits" element={withRouteBoundary(<CreditsPage />)} />
+                  <Route path="/qotd/leaderboard" element={withRouteBoundary(<QOTDLeaderboardPage />)} />
                   <Route path="/competition/:roundId/results" element={withRouteBoundary(<CompetitionResults />)} />
                   <Route path="/contact" element={withRouteBoundary(<ContactPage />)} />
 
@@ -176,11 +182,15 @@ function App() {
                   <Route element={<ProtectedRoute minRole="USER" />}>
                     <Route path="/quiz/:quizId" element={withRouteBoundary(<QuizPage />)} />
                     <Route path="/quiz/:quizId/results" element={withRouteBoundary(<QuizResultsPage />)} />
+                    <Route path="/qotd/today" element={withRouteBoundary(<QOTDSolvePage />)} />
+                    <Route path="/qotd/:date" element={withRouteBoundary(<QOTDSolvePage />)} />
+                    <Route path="/competition/:roundId/solve/:problemId" element={withRouteBoundary(<CompetitionSolvePage />)} />
                     <Route path="/dashboard" element={withRouteBoundary(<DashboardLayout />)}>
                       <Route index element={withRouteBoundary(<DashboardOverview />)} />
                       <Route path="events" element={withRouteBoundary(<DashboardEvents />)} />
                       <Route path="announcements" element={withRouteBoundary(<DashboardAnnouncements />)} />
                       <Route path="leaderboard" element={withRouteBoundary(<DashboardLeaderboard />)} />
+                      <Route path="coding" element={withRouteBoundary(<DashboardCoding />)} />
                       <Route path="events/new" element={withRouteBoundary(<CreateEvent />)} />
                       <Route path="announcements/new" element={withRouteBoundary(<CreateAnnouncement />)} />
                       <Route path="qotd" element={withRouteBoundary(<CreateQOTD />)} />
@@ -205,6 +215,7 @@ function App() {
                       <Route path="users" element={withRouteBoundary(<AdminUsersRealtime />)} />
                       <Route path="team" element={withRouteBoundary(<AdminTeam />)} />
                       <Route path="achievements" element={withRouteBoundary(<AdminAchievements />)} />
+                      <Route path="problems" element={withRouteBoundary(<AdminProblems />)} />
                       <Route path="event-registrations" element={withRouteBoundary(<AdminEventRegistrations />)} />
                       <Route path="events/:id/edit" element={withRouteBoundary(<EditEvent />)} />
                       <Route path="hiring" element={withRouteBoundary(<AdminHiring />)} />

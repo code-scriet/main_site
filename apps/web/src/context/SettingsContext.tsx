@@ -28,6 +28,7 @@ const defaultSettings: Settings = {
   hiringSocialMedia: true,
   hiringManagement: true,
   competitionEnabled: false,
+  problemsEnabled: false,
   showNetwork: true,
   certificatesEnabled: true,
   playgroundEnabled: true,

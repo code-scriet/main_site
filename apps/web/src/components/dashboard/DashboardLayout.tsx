@@ -50,15 +50,18 @@ const breadcrumbNames: Record<string, string> = {
   '/dashboard/certificates': 'Certificates',
   '/dashboard/invitations': 'Invitations',
   '/dashboard/leaderboard': 'Leaderboard',
+  '/dashboard/coding': 'Coding',
   '/dashboard/events/new': 'Create Event',
   '/dashboard/announcements/new': 'Create Announcement',
   '/dashboard/qotd': 'Manage QOTD',
+  '/qotd/today': 'QOTD',
   '/dashboard/quiz': 'Quiz Manager',
   '/dashboard/upload': 'Upload Image',
   '/dashboard/attendance': 'Take Attendance',
   '/admin/users': 'User Management',
   '/admin/team': 'Team Management',
   '/admin/achievements': 'Achievements',
+  '/admin/problems': 'Problems',
   '/admin/credits': 'Credits',
   '/admin/hiring': 'Hiring Applications',
   '/admin/network': 'Network Management',
@@ -87,6 +90,7 @@ const getAdminNavItems = (
   showNetwork: boolean,
   certificatesEnabled: boolean,
   competitionEnabled: boolean,
+  problemsEnabled: boolean,
   isSuperAdmin?: boolean,
   isPresident?: boolean,
 ) => {
@@ -94,6 +98,7 @@ const getAdminNavItems = (
     { id: 'admin-users', name: 'User Management', href: '/admin/users', icon: Users },
     { id: 'admin-team', name: 'Team Management', href: '/admin/team', icon: Shield },
     { id: 'admin-achievements', name: 'Achievements', href: '/admin/achievements', icon: Trophy },
+    ...(problemsEnabled ? [{ id: 'admin-problems', name: 'Problems', href: '/admin/problems', icon: Code }] : []),
     { id: 'admin-credits', name: 'Credits', href: '/admin/credits', icon: Award },
     { id: 'admin-public-view', name: 'Public View', href: '/admin/public-view', icon: BarChart3 },
   ] satisfies NavItem[];
@@ -219,6 +224,9 @@ export default function DashboardLayout() {
       { id: 'user-overview', name: 'Overview', href: '/dashboard', icon: Home },
       { id: 'user-events', name: 'My Events', href: '/dashboard/events', icon: Calendar },
       { id: 'user-announcements', name: 'Announcements', href: '/dashboard/announcements', icon: Bell },
+      // Coding hub is always visible — the inner page degrades gracefully when
+      // problemsEnabled is false (shows "feature disabled" instead of a 404).
+      { id: 'user-coding', name: 'Coding', href: '/dashboard/coding', icon: Code },
       { id: 'user-live-quiz', name: 'Live Quiz', href: '/quiz', icon: Zap },
       ...(settings?.showLeaderboard !== false
         ? [{ id: 'user-leaderboard', name: 'Leaderboard', href: '/dashboard/leaderboard', icon: Trophy }]
@@ -235,7 +243,7 @@ export default function DashboardLayout() {
         badge: pendingInvitationCount,
       },
     ];
-  }, [isNetworkUser, pendingInvitationCount, settings?.showLeaderboard, settings?.certificatesEnabled]);
+  }, [isNetworkUser, pendingInvitationCount, settings?.showLeaderboard, settings?.certificatesEnabled, settings?.problemsEnabled]);
 
   const adminNavItems = useMemo<NavItem[]>(() => {
     if (!isAdmin) return [];
@@ -244,10 +252,11 @@ export default function DashboardLayout() {
       !settingsLoading && settings?.showNetwork !== false,
       !settingsLoading && settings?.certificatesEnabled !== false,
       settings?.competitionEnabled === true,
+      settings?.problemsEnabled === true,
       user?.isSuperAdmin,
       user?.role === 'PRESIDENT',
     );
-  }, [isAdmin, settingsLoading, settings?.hiringEnabled, settings?.showNetwork, settings?.certificatesEnabled, settings?.competitionEnabled, user?.isSuperAdmin, user?.role]);
+  }, [isAdmin, settingsLoading, settings?.hiringEnabled, settings?.showNetwork, settings?.certificatesEnabled, settings?.competitionEnabled, settings?.problemsEnabled, user?.isSuperAdmin, user?.role]);
 
   const allNavItems = useMemo(
     () => [

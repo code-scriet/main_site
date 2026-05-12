@@ -1,12 +1,12 @@
-import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useParams } from 'react-router-dom';
-import Editor, { type Monaco } from '@monaco-editor/react';
-import { emmetHTML, emmetCSS } from 'emmet-monaco-es';
+import Editor from '@monaco-editor/react';
 import { Panel, PanelGroup, PanelResizeHandle } from 'react-resizable-panels';
 import { useAuth } from '@/context/AuthContext';
 import { useTheme } from '@/context/ThemeContext';
 import { Loader2, Trophy, AlertCircle, CheckCircle2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { BASE_MONACO_EDITOR_OPTIONS, registerMonacoEmmet } from '@/lib/monacoEditor';
 import { cn } from '@/lib/utils';
 import { getMainSiteOrigin, requestMainApiJson } from '@/lib/utils';
 import { toast } from 'sonner';
@@ -459,12 +459,6 @@ export default function CompetitionPage() {
 
   const progressColor = remainingSeconds <= 60 ? 'bg-red-500' : remainingSeconds <= 300 ? 'bg-yellow-500' : 'bg-green-500';
 
-  // Register Emmet for HTML & CSS expansion (e.g. div.container>h1+p Tab)
-  const handleEditorBeforeMount = useCallback((monaco: Monaco) => {
-    emmetHTML(monaco);
-    emmetCSS(monaco);
-  }, []);
-
   // Compute "Saved Xs ago" text reactively (displayTick forces re-render every 10s)
   const savedAgoText = useMemo(() => {
     void displayTick; // subscribe to tick updates
@@ -661,7 +655,7 @@ export default function CompetitionPage() {
                 height="100%"
                 language="html"
                 value={code}
-                beforeMount={handleEditorBeforeMount}
+                beforeMount={registerMonacoEmmet}
                 onChange={(value) => {
                   if (isReadOnly) return;
                   const nextCode = value ?? '';
@@ -671,24 +665,7 @@ export default function CompetitionPage() {
                     setIsDirty(true);
                   }
                 }}
-                options={{
-                  readOnly: isReadOnly,
-                  minimap: { enabled: false },
-                  lineNumbers: 'on',
-                  wordWrap: 'on',
-                  automaticLayout: true,
-                  scrollBeyondLastLine: false,
-                  fontSize: 14,
-                  tabCompletion: 'on',
-                  quickSuggestions: true,
-                  suggestOnTriggerCharacters: true,
-                  acceptSuggestionOnEnter: 'on',
-                  suggest: {
-                    snippetsPreventQuickSuggestions: false,
-                    showSnippets: true,
-                    showWords: true,
-                  },
-                }}
+                options={{ ...BASE_MONACO_EDITOR_OPTIONS, readOnly: isReadOnly, fontSize: 14 }}
                 theme={editorTheme}
               />
             </div>
