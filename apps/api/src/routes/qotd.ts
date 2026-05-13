@@ -89,6 +89,16 @@ const dailyLeaderboardCache = new Map<string, { data: unknown; expiresAt: number
 let totalLeaderboardCache: { data: unknown; expiresAt: number } | null = null;
 let statsLeaderboardCache: { data: unknown; expiresAt: number } | null = null;
 
+// Free expired entries every 60s so a fresh insert isn't blocked by stale
+// keys squatting on the 30-entry cap. Readers already gate on expiresAt.
+const dailyLeaderboardSweep = setInterval(() => {
+  const now = Date.now();
+  for (const [key, entry] of dailyLeaderboardCache) {
+    if (entry.expiresAt <= now) dailyLeaderboardCache.delete(key);
+  }
+}, 60_000);
+if (typeof dailyLeaderboardSweep.unref === 'function') dailyLeaderboardSweep.unref();
+
 type QotdWithProblem = QOTD & {
   problem?: Problem | null;
   _count?: { submissions: number };

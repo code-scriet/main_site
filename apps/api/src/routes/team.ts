@@ -585,7 +585,7 @@ teamRouter.patch('/:id/link-user', authMiddleware, requireRole('ADMIN'), async (
 
     // If linking to a user, verify user exists
     if (userId) {
-      const user = await prisma.user.findUnique({ where: { id: userId } });
+      const user = await prisma.user.findUnique({ where: { id: userId }, select: { id: true } });
       if (!user) {
         return res.status(404).json({ success: false, error: { message: 'User not found' } });
       }

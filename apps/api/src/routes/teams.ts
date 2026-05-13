@@ -330,18 +330,18 @@ teamsRouter.post('/create', authMiddleware, async (req: Request, res: Response) 
             };
           }
 
-          // Generate unique invite code
-          let inviteCode = generateInviteCode();
-          for (let i = 0; i < 5; i++) {
-            const existingCode = await tx.eventTeam.findUnique({
-              where: { inviteCode },
-              select: { id: true },
-            });
-            if (!existingCode) break;
-            inviteCode = generateInviteCode();
-            if (i === 4) {
-              throw { status: 500, message: 'Failed to generate unique invite code. Please try again.' };
-            }
+          // Generate unique invite code. Single batched lookup vs. 5 sequential
+          // findUnique calls — same guarantee (the @unique constraint is the
+          // real correctness floor) but holds the serializable tx open less.
+          const candidates = Array.from({ length: 5 }, () => generateInviteCode());
+          const taken = await tx.eventTeam.findMany({
+            where: { inviteCode: { in: candidates } },
+            select: { inviteCode: true },
+          });
+          const takenSet = new Set(taken.map((row) => row.inviteCode));
+          const inviteCode = candidates.find((code) => !takenSet.has(code));
+          if (!inviteCode) {
+            throw { status: 500, message: 'Failed to generate unique invite code. Please try again.' };
           }
 
           // Create registration

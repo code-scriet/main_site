@@ -102,8 +102,24 @@ export function calculatePoints(
 
 const quizRooms = new Map<string, QuizRoom>();
 
-// Rate limiter for submit_answer
+// Rate limiter for submit_answer. The 500 ms check (line ~313) is the real
+// throttle; entries older than 5 min can never block a future submit so they
+// are safe to evict. A lazy sweep keeps the map bounded across long-lived
+// quiz sessions and abandoned participants.
 const answerRateLimit = new Map<string, number>();
+const ANSWER_RATE_LIMIT_STALE_MS = 5 * 60 * 1000;
+let answerRateLimitSweep: ReturnType<typeof setInterval> | null = null;
+function ensureAnswerRateLimitSweep(): void {
+  if (answerRateLimitSweep) return;
+  answerRateLimitSweep = setInterval(() => {
+    const cutoff = Date.now() - ANSWER_RATE_LIMIT_STALE_MS;
+    for (const [key, ts] of answerRateLimit) {
+      if (ts < cutoff) answerRateLimit.delete(key);
+    }
+  }, ANSWER_RATE_LIMIT_STALE_MS);
+  // Don't keep the process alive solely for this sweep.
+  if (typeof answerRateLimitSweep.unref === 'function') answerRateLimitSweep.unref();
+}
 const MAX_ANSWER_LENGTH = 200;
 const MAX_OPEN_ENDED_LENGTH = 1000;
 const MAX_ANALYTICS_KEY_LENGTH = 80;
@@ -245,6 +261,7 @@ export const quizStore = {
     };
 
     quizRooms.set(quizId, room);
+    ensureAnswerRateLimitSweep();
     return room;
   },
 

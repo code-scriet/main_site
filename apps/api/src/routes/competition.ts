@@ -384,8 +384,15 @@ async function autoLockRound(roundId: string): Promise<boolean> {
 function scheduleRoundLock(roundId: string, durationSeconds: number): void {
   const existing = activeTimers.get(roundId);
   if (existing) clearTimeout(existing);
-  const timeout = setTimeout(() => {
-    void autoLockRound(roundId);
+  const timeout = setTimeout(async () => {
+    // Always release the map slot even if autoLockRound throws or rejects.
+    // autoLockRound's own success path also clears the entry; the redundant
+    // delete is a safe no-op on a missing key.
+    try {
+      await autoLockRound(roundId);
+    } finally {
+      activeTimers.delete(roundId);
+    }
   }, durationSeconds * 1000);
   activeTimers.set(roundId, timeout);
 }
