@@ -16,6 +16,7 @@ import { Link } from 'react-router-dom';
 import { QuizDashboardWidget } from '@/components/dashboard/QuizDashboardWidget';
 import { PlaygroundCard } from '@/components/dashboard/PlaygroundCard';
 import { PlaygroundSnippetsCard } from '@/components/dashboard/PlaygroundSnippetsCard';
+import { AdminPendingRequestsCard } from '@/components/dashboard/AdminPendingRequestsCard';
 import { QOTDStreakWidget } from '@/components/dashboard/QOTDStreakWidget';
 import { PollCard } from '@/components/polls/PollCard';
 import AttendanceHistory from '@/components/attendance/AttendanceHistory';
@@ -124,6 +125,7 @@ export default function DashboardOverview() {
     settings?.hiringEnabled === true;
 
   const playgroundEnabled = settings?.playgroundEnabled !== false;
+  const isAdmin = user?.role === 'ADMIN' || user?.role === 'PRESIDENT' || user?.isSuperAdmin === true;
 
   return (
     <div className="space-y-6 w-full">
@@ -165,6 +167,12 @@ export default function DashboardOverview() {
           </div>
         </div>
       </motion.div>
+
+      {isAdmin && (
+        <motion.div {...stagger(1)}>
+          <AdminPendingRequestsCard />
+        </motion.div>
+      )}
 
       {/* ─── Stat Cards (3 equal, full width) ───────────────────────── */}
       <motion.div {...stagger(1)} className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
