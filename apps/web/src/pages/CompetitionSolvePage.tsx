@@ -39,7 +39,10 @@ export default function CompetitionSolvePage() {
     refetchInterval: 30_000,
   });
 
-  const roundProblems = (roundQuery.data?.problems ?? []) as unknown as RoundProblemLink[];
+  const roundProblems = useMemo(
+    () => (roundQuery.data?.problems ?? []) as unknown as RoundProblemLink[],
+    [roundQuery.data?.problems],
+  );
   const currentProblemId = problemId || getProblemId(roundProblems[0] ?? {});
   const currentLink = useMemo(
     () => roundProblems.find((link) => getProblemId(link) === currentProblemId),

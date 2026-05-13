@@ -235,7 +235,7 @@ export default function EventCertificateWizard({
   const deferredRecipientSearch = useDeferredValue(recipientSearch);
   const deferredManagementSearch = useDeferredValue(managementSearch);
 
-  const competitionRounds = competitionSummary?.rounds ?? [];
+  const competitionRounds = useMemo(() => competitionSummary?.rounds ?? [], [competitionSummary?.rounds]);
   const competitionTeamMode = useMemo(
     () => isTeamCompetition(competitionRounds),
     [competitionRounds],

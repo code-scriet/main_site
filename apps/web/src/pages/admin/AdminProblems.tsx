@@ -300,7 +300,6 @@ function BulkImportCard({ token, onImported }: { token: string; onImported: () =
         created += 1;
       } catch (err) {
         failed += 1;
-        // eslint-disable-next-line no-console
         console.warn('[bulk-import] failed row', row.input.slug, err);
       }
     }
@@ -614,6 +613,9 @@ export default function AdminProblems() {
 
   useEffect(() => {
     setTagText(form.tags.join(', '));
+    // Re-sync only when switching between problems; adding form.tags would
+    // overwrite the textbox on every keystroke.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editingId]);
 
   const saveMutation = useMutation({

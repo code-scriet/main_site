@@ -108,7 +108,10 @@ function CodeBlock({ title, value }: { title: string; value: string }) {
 export function ProblemSolverShell({ problem, context }: ProblemSolverShellProps) {
   const { token } = useAuth();
   const queryClient = useQueryClient();
-  const allowedLanguages = (problem.allowedLanguages?.length ? problem.allowedLanguages : ['PYTHON']) as ProblemLanguage[];
+  const allowedLanguages = useMemo<ProblemLanguage[]>(
+    () => (problem.allowedLanguages?.length ? problem.allowedLanguages : ['PYTHON']) as ProblemLanguage[],
+    [problem.allowedLanguages],
+  );
   const [tab, setTab] = useState<SolverTab>('overview');
   const [testPanel, setTestPanel] = useState<TestPanel>('public');
   const [language, setLanguage] = useState<ProblemLanguage>(allowedLanguages[0]);

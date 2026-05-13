@@ -106,7 +106,7 @@ export default function DashboardInvitations() {
     refetchOnWindowFocus: true,
   });
 
-  const invitations = invitationsQuery.data ?? [];
+  const invitations = useMemo(() => invitationsQuery.data ?? [], [invitationsQuery.data]);
 
   const pendingInvitations = useMemo(
     () => invitations.filter((invitation) => invitation.status === 'PENDING'),

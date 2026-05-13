@@ -244,7 +244,7 @@ export default function DashboardLayout() {
         badge: pendingInvitationCount,
       },
     ];
-  }, [isNetworkUser, pendingInvitationCount, settings?.showLeaderboard, settings?.certificatesEnabled, settings?.problemsEnabled]);
+  }, [isNetworkUser, pendingInvitationCount, settings?.showLeaderboard, settings?.certificatesEnabled]);
 
   const adminNavItems = useMemo<NavItem[]>(() => {
     if (!isAdmin) return [];

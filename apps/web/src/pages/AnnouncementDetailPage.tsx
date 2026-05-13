@@ -74,7 +74,7 @@ export default function AnnouncementDetailPage() {
     };
 
     fetchAnnouncement();
-  }, [id]);
+  }, [id, navigate]);
 
   const handleShare = async () => {
     const url = window.location.href;

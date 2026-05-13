@@ -136,7 +136,7 @@ export default function AchievementDetailPage() {
       }
     };
     fetchAchievement();
-  }, [id]);
+  }, [id, navigate]);
 
   const handleShare = async () => {
     if (!achievement) return;
