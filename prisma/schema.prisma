@@ -71,6 +71,15 @@ model User {
   @@map("users")
 }
 
+// Settings — singleton (id="default"). Flag usage status (audited 2026-05-13):
+//   ACTIVE: hiring* (JoinUsPage), email*Enabled (utils/email.ts category guard),
+//     showQOTD/showLeaderboard/showNetwork (dashboard + layout gates),
+//     certificatesEnabled/playgroundEnabled/competitionEnabled/problemsEnabled
+//     (feature gates), playgroundDailyLimit, emailTestingMode/emailTestRecipients,
+//     attendanceJwtSecret/indexNowKey (security env), mailingEnabled, hiringEnabled.
+//   ADMIN-UI-ONLY: showAchievements, show_tech_blogs — toggled in AdminSettings
+//     but no downstream reader. Kept for future feature gating.
+//   Do NOT drop any column without a follow-up code change.
 model Settings {
   id                       String   @id @default("default")
   clubName                 String   @default("code.scriet") @map("club_name")
@@ -610,6 +619,8 @@ model AuditLog {
   user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
 
   @@index([userId, timestamp])
+  @@index([entity, timestamp(sort: Desc)], map: "audit_logs_entity_timestamp_desc_idx")
+  @@index([action, timestamp(sort: Desc)], map: "audit_logs_action_timestamp_desc_idx")
   @@map("audit_logs")
 }
 
