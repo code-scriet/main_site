@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback, type KeyboardEvent } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { Layout } from '@/components/layout/Layout';
 import { SEO } from '@/components/SEO';
 import { BreadcrumbSchema } from '@/components/ui/schema';
@@ -6,12 +6,7 @@ import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
-  Linkedin,
-  Twitter,
-  Github,
-  Globe,
   Search,
-  Users,
   Briefcase,
   Building2,
   Loader2,
@@ -21,12 +16,9 @@ import {
   Heart,
   GraduationCap,
   Mic,
-  Award,
   Sparkles,
-  MapPin,
   Star,
   Handshake,
-  MessageSquare,
   Trophy,
   Rocket,
 } from 'lucide-react';
@@ -35,10 +27,7 @@ import { useSettings } from '@/context/SettingsContext';
 import { useAuth } from '@/context/AuthContext';
 import { useNavigate, Link } from 'react-router-dom';
 import { useMotionConfig } from '@/hooks/useMotionConfig';
-import {
-  connectionTypeLabels,
-  connectionTypeIcons,
-} from '@/components/network/profileHelpers';
+import { connectionTypeLabels } from '@/components/network/profileHelpers';
 import { FeaturedCard } from '@/components/network/FeaturedCard';
 import { MemberCard } from '@/components/network/MemberCard';
 
@@ -850,26 +839,3 @@ function EmptyState({
   );
 }
 
- { socials: SocialLink[] }) {
-  if (socials.length === 0) {
-    return <span className="text-[11px] italic text-gray-300 dark:text-zinc-600">No links</span>;
-  }
-
-  return (
-    <div className="flex items-center gap-1.5">
-      {socials.map((social) => (
-        <a
-          key={social.label}
-          href={social.href}
-          target="_blank"
-          rel="noopener noreferrer"
-          onClick={(event) => event.stopPropagation()}
-          className={`rounded-xl border border-gray-100 bg-gray-50/80 p-1.5 text-gray-400 shadow-sm transition-all hover:border-amber-200 hover:bg-amber-50 hover:text-amber-600 hover:shadow dark:border-zinc-800 dark:bg-zinc-900/80 dark:text-zinc-500 dark:hover:border-red-950/80 dark:hover:bg-zinc-800 ${social.hoverClass}`}
-          aria-label={social.label}
-        >
-          <social.icon className="h-3.5 w-3.5" />
-        </a>
-      ))}
-    </div>
-  );
-}

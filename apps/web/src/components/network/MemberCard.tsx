@@ -1,4 +1,4 @@
-import { KeyboardEvent, useState } from 'react';
+import { useState, type KeyboardEvent } from 'react';
 import { motion } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
 import { ChevronRight, MapPin } from 'lucide-react';

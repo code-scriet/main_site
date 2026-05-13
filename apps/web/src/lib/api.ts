@@ -1,13 +1,7 @@
 // Helpers (request, requestEnvelope, requestForm, requestBlob, UnauthorizedError)
-// live in ./api/_internal.ts. Re-exported here so existing imports keep working.
-import {
-  API_URL,
-  UnauthorizedError,
-  request,
-  requestEnvelope,
-  requestForm,
-  requestBlob,
-} from './api/_internal';
+// live in ./api/_internal.ts. The class is re-exported here so existing
+// `import { UnauthorizedError } from '@/lib/api'` call sites keep working.
+import { UnauthorizedError } from './api/_internal';
 import { authApi } from './api/auth';
 import { eventsApi } from './api/events';
 import { contentApi } from './api/content';

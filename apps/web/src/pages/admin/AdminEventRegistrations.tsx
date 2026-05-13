@@ -15,7 +15,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import { Loader2, Calendar, Users, Search, Download, Mail, Trash2, Pencil, Phone, GraduationCap, RefreshCw, CheckCircle, AlertCircle, Lock, Unlock, Crown, LayoutList, LayoutGrid } from 'lucide-react';
+import { Loader2, Calendar, Users, Search, Download, Mail, Trash2, Pencil, Phone, GraduationCap, RefreshCw, CheckCircle, AlertCircle, LayoutList, LayoutGrid } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { api, type EventAdminRegistration } from '@/lib/api';
 import type { EventTeam } from '@/lib/api';
