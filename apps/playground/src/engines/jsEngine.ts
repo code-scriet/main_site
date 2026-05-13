@@ -110,8 +110,8 @@ function buildWorkerCode(): string {
 
       function parseStdinLines(rawStdin) {
         if (!rawStdin) return [];
-        const normalized = String(rawStdin).replace(/\r\n/g, '\n');
-        const lines = normalized.split('\n');
+        const normalized = String(rawStdin).replace(/\\r\\n/g, '\\n');
+        const lines = normalized.split('\\n');
         if (lines.length > 0 && lines[lines.length - 1] === '') {
           lines.pop();
         }
