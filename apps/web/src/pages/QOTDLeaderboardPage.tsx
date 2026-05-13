@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { ArrowLeft, Loader2, Trophy } from 'lucide-react';
 import { api, type ProblemLeaderboardEntry } from '@/lib/api';
+import { SEO } from '@/components/SEO';
 
 function LeaderboardTable({ entries }: { entries: ProblemLeaderboardEntry[] }) {
   return (
@@ -59,6 +60,11 @@ export default function QOTDLeaderboardPage() {
 
   return (
     <main className="min-h-screen bg-gray-50 px-4 py-8">
+      <SEO
+        title="QOTD Leaderboard"
+        description="Daily and all-time leaderboards for code.scriet's Question of the Day coding challenges."
+        url="/qotd/leaderboard"
+      />
       <div className="mx-auto max-w-5xl space-y-6">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <Link to="/qotd/today" className="inline-flex items-center gap-2 text-sm font-semibold text-gray-600 hover:text-gray-900">

@@ -21,6 +21,7 @@ import {
   AlertCircle,
 } from 'lucide-react';
 import { formatDate } from '@/lib/dateUtils';
+import { SEO } from '@/components/SEO';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5001/api';
 
@@ -551,6 +552,11 @@ export default function VerifyCertificatePage() {
 
   return (
     <Layout>
+      <SEO
+        title="Verify Certificate"
+        description="Verify the authenticity of any code.scriet certificate by ID or QR code."
+        url="/verify"
+      />
       <div className="bg-gradient-to-br from-amber-50 via-white to-orange-50">
       <main className="py-12 px-4">
         <div className="max-w-lg mx-auto space-y-8">
