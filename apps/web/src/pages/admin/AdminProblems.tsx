@@ -1,11 +1,12 @@
-import { useEffect, useMemo, useState } from 'react';
+import { ChangeEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Edit3, Loader2, PlayCircle, Plus, RefreshCcw, Save, Trash2 } from 'lucide-react';
+import { Edit3, FileJson, FileSpreadsheet, Loader2, PlayCircle, Plus, RefreshCcw, Save, Trash2, Upload } from 'lucide-react';
 import { toast } from 'sonner';
 import { useAuth } from '@/context/AuthContext';
-import { api, type Problem, type ProblemInput, type ProblemLanguage, type ProblemSubmission, type ProblemTestCase, type SubmissionVerdict } from '@/lib/api';
+import { api, type Problem, type ProblemContextType, type ProblemInput, type ProblemLanguage, type ProblemSubmission, type ProblemTestCase, type SubmissionVerdict } from '@/lib/api';
 import { Markdown } from '@/components/ui/markdown';
+import { Button } from '@/components/ui/button';
 import { PendingCapRequestsTray } from '@/components/problems/PendingCapRequestsTray';
 import {
   AlertDialog,
@@ -121,8 +122,23 @@ function SubmissionRows({ problem, token }: { problem: Problem; token: string })
   const submissions = submissionsQuery.data?.submissions ?? [];
 
   return (
-    <div className="overflow-auto rounded-md border border-gray-200">
-      <table className="w-full min-w-[760px] text-left text-sm">
+    <div className="space-y-2">
+      {hasFilter && (
+        <div className="flex items-center justify-between rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+          <span>
+            Filtering: <strong>{contextType}</strong>
+            {contextKey ? <> · key <strong>{contextKey}</strong></> : null}
+            {' · '}showing up to 500 submissions
+          </span>
+          {onClearFilter && (
+            <button type="button" onClick={onClearFilter} className="font-semibold text-amber-800 hover:underline">
+              Clear filter
+            </button>
+          )}
+        </div>
+      )}
+      <div className="overflow-auto rounded-md border border-gray-200">
+        <table className="w-full min-w-[760px] text-left text-sm">
         <thead className="bg-gray-50 text-xs uppercase tracking-wide text-gray-500">
           <tr>
             <th className="px-3 py-2">User</th>
@@ -172,6 +188,7 @@ function SubmissionRows({ problem, token }: { problem: Problem; token: string })
           )}
         </tbody>
       </table>
+      </div>
     </div>
   );
 }
@@ -268,6 +285,22 @@ export default function AdminProblems() {
       cancelled = true;
     };
   }, [deepLinkProblemId, token, editingId, searchParams, setSearchParams]);
+
+  // Deep-link support: ?submissionsFor=<id>&contextType=<X>&contextKey=<Y>
+  // auto-expands that problem's submissions panel with the context filter.
+  const submissionsFor = searchParams.get('submissionsFor');
+  const submissionsContextType = searchParams.get('contextType') as ProblemContextType | null;
+  const submissionsContextKey = searchParams.get('contextKey');
+  useEffect(() => {
+    if (submissionsFor) setExpandedSubmissions(submissionsFor);
+  }, [submissionsFor]);
+  const clearSubmissionsFilter = useCallback(() => {
+    const next = new URLSearchParams(searchParams);
+    next.delete('submissionsFor');
+    next.delete('contextType');
+    next.delete('contextKey');
+    setSearchParams(next, { replace: true });
+  }, [searchParams, setSearchParams]);
 
   const problems = problemsQuery.data?.problems ?? [];
   const languageOptions = useMemo(() => new Set(form.allowedLanguages), [form.allowedLanguages]);
@@ -406,7 +439,13 @@ export default function AdminProblems() {
         </div>
         {expandedSubmissions && token && (
           <div className="border-t border-gray-100 p-5">
-            <SubmissionRows problem={problems.find((problem) => problem.id === expandedSubmissions)!} token={token} />
+            <SubmissionRows
+              problem={problems.find((problem) => problem.id === expandedSubmissions)!}
+              token={token}
+              contextType={submissionsFor === expandedSubmissions && submissionsContextType ? submissionsContextType : undefined}
+              contextKey={submissionsFor === expandedSubmissions && submissionsContextKey ? submissionsContextKey : undefined}
+              onClearFilter={submissionsFor === expandedSubmissions ? clearSubmissionsFilter : undefined}
+            />
           </div>
         )}
       </section>

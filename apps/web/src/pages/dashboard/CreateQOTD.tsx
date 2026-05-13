@@ -544,6 +544,14 @@ export default function CreateQOTD() {
                           </a>
                         )}
                         {qotd.problemId && (
+                          <Link to={`/admin/problems?submissionsFor=${qotd.problemId}&contextType=QOTD&contextKey=${qotdDateKey}`}>
+                            <Button variant="ghost" size="sm" disabled={busy} aria-label={`View submissions for QOTD on ${formatDate(qotd.date)}`}>
+                              <Users className="h-4 w-4 mr-1" />
+                              Submissions
+                            </Button>
+                          </Link>
+                        )}
+                        {qotd.problemId && (
                           <Link to={`/admin/problems?problemId=${qotd.problemId}`}>
                             <Button variant="ghost" size="sm" disabled={busy} aria-label="Edit underlying problem">
                               <Pencil className="h-4 w-4 mr-1" />
