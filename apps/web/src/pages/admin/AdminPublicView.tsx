@@ -27,44 +27,27 @@ import { api, type AdminPollDetail, type AdminPollListItem, type PollInput } fro
 import { formatDateTime, formatDateTimeLocal } from '@/lib/dateUtils';
 import { useAuth } from '@/context/AuthContext';
 import { cn } from '@/lib/utils';
-
-type ListStatusFilter = 'ALL' | 'OPEN' | 'CLOSED' | 'DRAFT';
-type ListAnonymityFilter = 'ALL' | 'ANONYMOUS' | 'NAMED';
-type DetailTab = 'overview' | 'responses' | 'feedback' | 'editor';
-type ResponseSort = 'NEWEST' | 'OLDEST';
-type FeedbackSort = 'NEWEST' | 'OLDEST' | 'LONGEST';
-type FeedbackLengthFilter = 'ALL' | 'SHORT' | 'MEDIUM' | 'LONG';
-type PollType = 'NORMAL' | 'QUESTION';
-
-const EMPTY_FORM: PollInput = {
-  question: '',
-  description: '',
-  options: ['', ''],
-  allowMultipleChoices: false,
-  allowVoteChange: true,
-  isAnonymous: false,
-  deadline: '',
-  isPublished: true,
-};
-
-const formatCsvCell = (value: string | number) => `"${String(value ?? '').replace(/"/g, '""')}"`;
-
-const downloadCsvFile = (filename: string, headers: string[], rows: Array<Array<string | number>>) => {
-  const csvRows = [
-    headers.map(formatCsvCell).join(','),
-    ...rows.map((row) => row.map(formatCsvCell).join(',')),
-  ];
-  const content = `\uFEFF${csvRows.join('\n')}`;
-  const blob = new Blob([content], { type: 'text/csv;charset=utf-8;' });
-  const url = window.URL.createObjectURL(blob);
-  const anchor = document.createElement('a');
-  anchor.href = url;
-  anchor.download = filename;
-  document.body.appendChild(anchor);
-  anchor.click();
-  anchor.remove();
-  window.URL.revokeObjectURL(url);
-};
+import {
+  downloadCsvFile,
+  buildResponsesCsvRows,
+  RESPONSES_CSV_HEADERS,
+  buildFeedbackCsvRows,
+  FEEDBACK_CSV_HEADERS,
+} from '@/lib/pollCsv';
+import {
+  ANONYMITY_TABS,
+  EMPTY_POLL_FORM,
+  filterAndSortFeedback,
+  filterAndSortResponses,
+  STATUS_TABS,
+  type DetailTab,
+  type FeedbackLengthFilter,
+  type FeedbackSort,
+  type ListAnonymityFilter,
+  type ListStatusFilter,
+  type PollType,
+  type ResponseSort,
+} from '@/lib/pollAdmin';
 
 export default function AdminPublicView() {
   const { token } = useAuth();
@@ -92,7 +75,7 @@ export default function AdminPublicView() {
   const [feedbackSort, setFeedbackSort] = useState<FeedbackSort>('NEWEST');
   const [selectedResponseIds, setSelectedResponseIds] = useState<string[]>([]);
   const [selectedFeedbackIds, setSelectedFeedbackIds] = useState<string[]>([]);
-  const [form, setForm] = useState<PollInput>(EMPTY_FORM);
+  const [form, setForm] = useState<PollInput>(EMPTY_POLL_FORM);
   const [pollType, setPollType] = useState<PollType>('NORMAL');
 
   const deferredSearch = useDeferredValue(search);
@@ -210,7 +193,7 @@ export default function AdminPublicView() {
     setEditorMode('create');
     setSelectedPollId(null);
     setSelectedPoll(null);
-    setForm(EMPTY_FORM);
+    setForm(EMPTY_POLL_FORM);
     setPollType('NORMAL');
     setDetailTab('editor');
   };
@@ -231,31 +214,12 @@ export default function AdminPublicView() {
 
   const filteredResponses = useMemo(() => {
     if (!selectedPoll) return [];
-    const query = deferredResponseSearch.trim().toLowerCase();
-    const withFilters = selectedPoll.responses.filter((response) => {
-      if (responseRoleFilter !== 'ALL' && response.user.role !== responseRoleFilter) {
-        return false;
-      }
-
-      if (responseOptionFilter !== 'ALL' && !response.optionIds.includes(responseOptionFilter)) {
-        return false;
-      }
-
-      if (!query) {
-        return true;
-      }
-
-      return `${response.user.name} ${response.user.email} ${response.user.role} ${response.optionLabels.join(' ')}`
-        .toLowerCase()
-        .includes(query);
-    });
-
-    return [...withFilters].sort((left, right) => {
-      if (responseSort === 'OLDEST') {
-        return new Date(left.updatedAt).getTime() - new Date(right.updatedAt).getTime();
-      }
-
-      return new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime();
+    return filterAndSortResponses({
+      responses: selectedPoll.responses,
+      search: deferredResponseSearch,
+      roleFilter: responseRoleFilter,
+      optionFilter: responseOptionFilter,
+      sort: responseSort,
     });
   }, [deferredResponseSearch, selectedPoll, responseRoleFilter, responseOptionFilter, responseSort]);
 
@@ -266,44 +230,12 @@ export default function AdminPublicView() {
 
   const filteredFeedback = useMemo(() => {
     if (!selectedPoll) return [];
-    const query = deferredFeedbackSearch.trim().toLowerCase();
-    const withFilters = selectedPoll.feedback.filter((entry) => {
-      if (feedbackRoleFilter !== 'ALL' && entry.user.role !== feedbackRoleFilter) {
-        return false;
-      }
-
-      const messageLength = entry.message.trim().length;
-      if (feedbackLengthFilter === 'SHORT' && messageLength > 120) {
-        return false;
-      }
-
-      if (feedbackLengthFilter === 'MEDIUM' && (messageLength <= 120 || messageLength > 350)) {
-        return false;
-      }
-
-      if (feedbackLengthFilter === 'LONG' && messageLength <= 350) {
-        return false;
-      }
-
-      if (!query) {
-        return true;
-      }
-
-      return `${entry.user.name} ${entry.user.email} ${entry.user.role} ${entry.message}`
-        .toLowerCase()
-        .includes(query);
-    });
-
-    return [...withFilters].sort((left, right) => {
-      if (feedbackSort === 'OLDEST') {
-        return new Date(left.updatedAt).getTime() - new Date(right.updatedAt).getTime();
-      }
-
-      if (feedbackSort === 'LONGEST') {
-        return right.message.trim().length - left.message.trim().length;
-      }
-
-      return new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime();
+    return filterAndSortFeedback({
+      feedback: selectedPoll.feedback,
+      search: deferredFeedbackSearch,
+      roleFilter: feedbackRoleFilter,
+      lengthFilter: feedbackLengthFilter,
+      sort: feedbackSort,
     });
   }, [deferredFeedbackSearch, selectedPoll, feedbackRoleFilter, feedbackLengthFilter, feedbackSort]);
 
@@ -368,14 +300,8 @@ export default function AdminPublicView() {
     const dateStamp = new Date().toISOString().slice(0, 10);
     downloadCsvFile(
       `${selectedPoll.slug}-responses-${mode}-${dateStamp}.csv`,
-      ['Name', 'Email', 'Role', 'Selected Options', 'Updated At'],
-      source.map((response) => [
-        response.user.name,
-        response.user.email,
-        response.user.role.replace(/_/g, ' '),
-        response.optionLabels.join(' | '),
-        formatDateTime(response.updatedAt),
-      ]),
+      RESPONSES_CSV_HEADERS,
+      buildResponsesCsvRows(source),
     );
 
     toast.success(`Extracted ${source.length} responses.`);
@@ -400,15 +326,8 @@ export default function AdminPublicView() {
     const dateStamp = new Date().toISOString().slice(0, 10);
     downloadCsvFile(
       `${selectedPoll.slug}-feedback-${mode}-${dateStamp}.csv`,
-      ['Message', 'Name', 'Email', 'Role', 'Length', 'Updated At'],
-      source.map((entry) => [
-        entry.message,
-        entry.user.name,
-        entry.user.email,
-        entry.user.role.replace(/_/g, ' '),
-        entry.message.trim().length,
-        formatDateTime(entry.updatedAt),
-      ]),
+      FEEDBACK_CSV_HEADERS,
+      buildFeedbackCsvRows(source),
     );
 
     toast.success(`Extracted ${source.length} feedback entries.`);
@@ -520,7 +439,7 @@ export default function AdminPublicView() {
       setSelectedPoll(null);
       setSelectedPollId(null);
       setEditorMode('create');
-      setForm(EMPTY_FORM);
+      setForm(EMPTY_POLL_FORM);
       await loadPolls();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Failed to delete poll');
@@ -559,9 +478,6 @@ export default function AdminPublicView() {
       toast.error('Could not copy link.');
     }
   };
-
-  const statusTabs: ListStatusFilter[] = ['ALL', 'OPEN', 'CLOSED', 'DRAFT'];
-  const anonymityTabs: ListAnonymityFilter[] = ['ALL', 'ANONYMOUS', 'NAMED'];
 
   return (
     <div className="space-y-6">
@@ -611,7 +527,7 @@ export default function AdminPublicView() {
               <div className="space-y-2">
                 <Label>Status</Label>
                 <div className="flex flex-wrap gap-2">
-                  {statusTabs.map((tab) => (
+                  {STATUS_TABS.map((tab) => (
                     <Button
                       key={tab}
                       variant={statusFilter === tab ? 'default' : 'outline'}
@@ -627,7 +543,7 @@ export default function AdminPublicView() {
               <div className="space-y-2">
                 <Label>Anonymity</Label>
                 <div className="flex flex-wrap gap-2">
-                  {anonymityTabs.map((tab) => (
+                  {ANONYMITY_TABS.map((tab) => (
                     <Button
                       key={tab}
                       variant={anonymityFilter === tab ? 'default' : 'outline'}
