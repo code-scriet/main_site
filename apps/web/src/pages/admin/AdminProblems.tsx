@@ -841,7 +841,7 @@ export default function AdminProblems() {
             </tbody>
           </table>
         </div>
-        {expandedSubmissions && token && (
+        {expandedSubmissions && token && problems.find((p) => p.id === expandedSubmissions) && (
           <div className="border-t border-gray-100 p-5">
             <SubmissionRows
               problem={problems.find((problem) => problem.id === expandedSubmissions)!}
