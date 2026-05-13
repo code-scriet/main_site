@@ -119,3 +119,6 @@ Screenshot*
 # Documentation and temporary files
 *.md
 html.html
+
+# Local design briefs (handed to Claude Design — never committed)
+prompt.md

@@ -47,6 +47,25 @@ When generating code or architectural proposals for this codebase:
 
 ---
 
+## Runtime Lifecycle (API)
+
+Startup sequence in `apps/api/src/index.ts`:
+
+1. Load env (`../../.env` then local `.env`) and fail-fast on insecure/missing JWT secret.
+2. Initialize HTTP + Socket.io server (`/quiz` + `/attendance` namespaces).
+3. Configure middleware pipeline (helmet → compression → CORS allow-list → JSON parser → CSRF guard for cookie-auth writes → optional request logger → rate limits).
+4. Mount root health/SEO endpoints and API routers.
+5. Initialize DB bootstrap chain: `initializeDatabase()` → hydrate runtime security env from settings → slug backfills.
+6. Conditionally start background schedulers (`ENABLE_BACKGROUND_SCHEDULERS=true`): event status, reminder emails, QOTD auto-publish.
+7. Start HTTP listener with port-retry handling for `EADDRINUSE`.
+8. Recover active competition timers (`recoverActiveRounds()`).
+
+Shutdown behavior:
+
+- On `SIGTERM` / `SIGINT`: stop schedulers, close Socket.io, persist active quiz sessions as `ABANDONED`, close HTTP server, disconnect Prisma, hard-timeout at 28s to beat Render's 30s SIGKILL window.
+
+---
+
 ## Monorepo Structure
 
 ```
@@ -244,7 +263,7 @@ club_site/
 | Layer | Technology |
 |-------|-----------|
 | Backend | Express.js, TypeScript, Node.js 20, ESM (`"type": "module"`) |
-| Frontend | React 19, Vite, TypeScript, TailwindCSS, shadcn/ui, Zustand (quiz UI state), Recharts (analytics charts), Sonner (toasts), React Query (`@tanstack/react-query`), React Router v7, Monaco Editor |
+| Frontend | React 19, Vite, TypeScript, TailwindCSS, shadcn/ui, Zustand (quiz UI state), Recharts (analytics charts), Sonner (toasts), React Query (`@tanstack/react-query`), React Router v7, Monaco Editor, cmdk, react-markdown + remark-gfm |
 | Database | PostgreSQL (Neon serverless) via Prisma ORM |
 | Auth | Passport.js (Google, GitHub OAuth), JWT (7-day), bcryptjs |
 | Real-time | Socket.io (`/quiz` + `/attendance` namespaces) |
@@ -324,8 +343,8 @@ npm run lint --workspace=apps/web
 | `/api/audit-logs/*` | auditRouter | Admin |
 | `/api/mail/*` | mailRouter | Admin |
 | `/api/quiz/*` | quizRouter | Some |
-| `/api/playground/*` | playgroundRouter | Some |
-| `/api/problems/*` | problemsRouter | Mixed (`GET /` public if `problemsEnabled`; run/submit/request-cap = User; create/update/rejudge/override/cap-admin = Admin) |
+| `/api/playground/*` | playgroundRouter | Some (snippets/stats/history = User; `request-reset`/`my-reset-request` = User; `admin/reset-limit/:userId`, `admin/pending-reset-requests`, `admin/reset-requests/:id/grant\|deny` = Admin) |
+| `/api/problems/*` | problemsRouter | Mixed (`GET /` public if `problemsEnabled`; run/submit/request-cap = User; `POST /` create = CORE_MEMBER+ (non-admins forced to `isPublished: false`); update/delete/rejudge/override/cap-admin = Admin) |
 | `/api/credits/*` | creditsRouter | GET=public, POST/PUT/DELETE=Admin |
 | `/api/attendance/*` | attendanceRouter | Some (user QR + history = auth, admin endpoints = Admin, summary = CORE_MEMBER+) |
 | `/api/competition/*` | competitionRouter | Mixed (feature-gated by `competitionEnabled`; results GET is public; save/submit/my-submission = auth; create/start/lock/judging/finish/score/edit/delete/publish-as-practice/raise-cap = Admin) |
@@ -1025,6 +1044,7 @@ UserPlaygroundPrefs: userId (PK), theme, fontSize, keybinding, lastLanguage
 Snippet: id, userId, title, language, code, isPublic, shareToken? (unique), createdAt, updatedAt
 PlaygroundDailyUsage: [userId, usageDate] (composite PK), count, updatedAt
 PlaygroundLimitReset: id, userId, resetBy, resetAt, note?
+PlaygroundLimitResetRequest: id, userId, note?, status, decidedBy?, decidedAt?, createdAt
 ```
 
 ### Enums
@@ -1047,6 +1067,7 @@ CompetitionRoundType: IMAGE_TARGET | DSA
 CompetitionParticipantScope: ALL | SELECTED_TEAMS
 ProblemContextType: QOTD | CONTEST | PRACTICE
 ProblemLanguage: PYTHON | JAVASCRIPT | CPP | JAVA
+PlaygroundResetRequestStatus: PENDING | GRANTED | DENIED
 SubmissionVerdict: PENDING | ACCEPTED | WRONG_ANSWER | TIME_LIMIT_EXCEEDED | RUNTIME_ERROR | COMPILATION_ERROR | JUDGE_ERROR
 ```
 
@@ -1407,7 +1428,8 @@ When `emailTestingMode` is `true`:
   - Fallback: Piston API
   - Python: Pyodide (browser-only, no server call)
   - Daily execution limits (configurable, default 100/day per `playgroundDailyLimit` in Settings)
-  - Uses Prisma models: `PlaygroundDailyUsage`, `PlaygroundLimitReset`
+  - Uses Prisma models: `PlaygroundDailyUsage`, `PlaygroundLimitReset`, `PlaygroundLimitResetRequest`
+  - Users can request a same-day daily-limit reset; admins grant/deny from the dashboard, and grants call `resetDailyQuotaAndPracticeCounters()`
 - **Auth:** Shares JWT secret with main API, reads `scriet_session` cookie
 
 ---
@@ -1503,7 +1525,7 @@ All pages are lazy-loaded with `React.lazy()` + `<Suspense>`.
 | `/admin/users` | AdminUsersRealtime |
 | `/admin/team` | AdminTeam |
 | `/admin/achievements` | AdminAchievements |
-| `/admin/problems` | AdminProblems (effective only when `problemsEnabled`) |
+| `/admin/problems` | AdminProblems (effective only when `problemsEnabled`; includes a CSV/JSON `BulkImportCard` for batch problem creation — see [AdminProblems.tsx](apps/web/src/pages/admin/AdminProblems.tsx) `BulkImportCard`) |
 | `/admin/credits` | AdminCredits |
 | `/admin/event-registrations` | AdminEventRegistrations |
 | `/admin/events/:id/edit` | EditEvent |
@@ -1526,9 +1548,11 @@ All pages are lazy-loaded with `React.lazy()` + `<Suspense>`.
 
 **User nav** (always): Overview, My Events, Announcements, **Coding** (`/dashboard/coding`), Live Quiz, Leaderboard (if `showLeaderboard`), My Profile, My Certificates (if `certificatesEnabled`), My Invitations (pending badge)
 
+**Overview admin block:** When the signed-in user is ADMIN / PRESIDENT / superAdmin, `DashboardOverview` mounts `AdminPendingRequestsCard` at the top of the grid (`apps/web/src/components/dashboard/AdminPendingRequestsCard.tsx`). It surfaces two queues with 15s refetch: playground daily-limit reset requests (new `/api/playground/admin/pending-reset-requests`) and extra submit-attempt requests (existing `/api/problems/admin/pending-cap-requests`). Grant/deny is wired inline; non-admins do not see the card.
+
 > **NETWORK role override:** Network users see a stripped-down nav: My Events, My Certificates (if enabled), My Invitations. No Overview / Announcements / Quiz / Leaderboard / Profile.
 
-**Core Member nav** (CORE_MEMBER+): Take Attendance (`/dashboard/attendance`), Create Event, Create Announcement, Manage QOTD, Quiz Manager, Upload Image
+**Core Member nav** (CORE_MEMBER+): Take Attendance (`/dashboard/attendance`), Create Event, Create Announcement, Create Problem (`/dashboard/problems/new`), Manage QOTD, Quiz Manager, Upload Image. The Create Problem flow is a stepper-style page (`apps/web/src/pages/dashboard/CreateProblem.tsx`) — non-admin authors create unpublished drafts that an admin reviews from the Problems admin page.
 
 **Admin nav** (ADMIN/PRESIDENT) — built by `getAdminNavItems()`:
 1. User Management
@@ -1564,7 +1588,7 @@ All requests use `fetch` with `credentials: 'include'` for cross-origin cookie s
 - Problems/QOTD coding: `getProblems`, `adminGetProblems`, `getProblem`, `createProblem`, `updateProblem`, `deleteProblem`, `runProblem`, `submitProblem`, `getMyProblemSubmission`, `getProblemLeaderboard`, `adminGetProblemSubmissions`, `adminOverrideSubmission`, `adminRejudgeProblem`, `adminRejudgeStatus`, `adminResetSubmitCap`, `requestSubmitCap`, `adminGetPendingCapRequests`, `getTodayQOTD`, `getQOTDHistory`, `getQOTDLeaderboard`, `getQOTDDailyLeaderboard`, `getQOTDTotalLeaderboard`, `createQOTD`, `publishQOTD`, `holdQOTD`, `publishQOTDToPractice`, `unpublishQOTDFromPractice`, `submitQOTD`, `getQOTDStats`
 - Competition: `getCompetitionRounds`, `getCompetitionRoundsAdmin`, `getCompetitionRound`, `createCompetitionRound`, `startCompetitionRound`, `lockCompetitionRound`, `beginJudging`, `finishCompetition`, `saveCompetitionCode`, `submitCompetitionCode`, `getMyCompetitionSubmission`, `getCompetitionSubmissions`, `scoreCompetitionSubmission`, `getCompetitionResults`, `getCompetitionResultsSummary`, `updateCompetitionRound`, `deleteCompetitionRound`, `publishContestAsPractice`, `raiseContestCap`, `exportCompetitionResults`
 - Users/settings/profile/hiring/network/audit/quiz/certificates: `getUsers`, `getUser`, `updateUser`, `updateUserRole`, `deleteUser`, `getSettings`, `updateSettings`, `patchSetting`, `getSecurityEnvStatus`, `updateSecurityEnvSettings`, `getProfile`, `updateProfile`, `changePassword`, `addPassword`, `getMyHiringApplication`, `submitHiringApplication`, `getNetworkProfiles`, `getNetworkProfile`, `joinNetwork`, `getMyNetworkProfile`, `createNetworkProfile`, `updateNetworkProfile`, `getNetworkPending`, `getNetworkAll`, `getNetworkPendingUsers`, `revertPendingNetworkUser`, `deletePendingNetworkUser`, `verifyNetworkProfile`, `rejectNetworkProfile`, `updateNetworkProfileAdmin`, `deleteNetworkProfile`, `getNetworkStats`, `getAuditLogs`, `getMyQuizDashboard`, `getQuizAdminList`, `importQuizFile`, `createQuiz`, `updateQuiz`, `getQuiz`, `joinQuizByPin`, `openQuiz`, `checkQuizHost`, `getQuizResults`, `deleteQuiz`, `getCertificates`, `generateCertificate`, `bulkGenerateCertificates`, `downloadCertificate`, `getMyCertificates`, `revokeCertificate`, `deleteCertificate`, `resendCertificateEmail`
-- Auxiliary surfaces: `getPlaygroundSnippets`, `getPlaygroundStats`, `getPlaygroundHistory`, `getActiveSignatories`, `getSignatories`, `createSignatory`, `updateSignatory`, `deleteSignatory`, `uploadImage`, all attendance helpers (`getMyQR`, `scanAttendance`, `scanAttendanceBatch`, `manualCheckin`, `unmarkAttendance`, `bulkUpdateAttendance`, `editAttendance`, `regenerateAttendanceToken`, `regenerateAttendanceTokensForEvent`, `searchAttendance`, `getAttendanceLive`, `getAttendanceFull`, `exportAttendanceExcel`, `emailAbsentees`, `getAttendanceCertRecipients`, `getMyAttendanceHistory`, `getAttendanceSummary`, `backfillAttendanceTokens`)
+- Auxiliary surfaces: `getPlaygroundSnippets`, `getPlaygroundStats`, `getPlaygroundHistory`, `requestPlaygroundReset`, `getMyPlaygroundResetRequest`, `adminGetPendingPlaygroundResetRequests`, `adminGrantPlaygroundResetRequest`, `adminDenyPlaygroundResetRequest`, `getActiveSignatories`, `getSignatories`, `createSignatory`, `updateSignatory`, `deleteSignatory`, `uploadImage`, all attendance helpers (`getMyQR`, `scanAttendance`, `scanAttendanceBatch`, `manualCheckin`, `unmarkAttendance`, `bulkUpdateAttendance`, `editAttendance`, `regenerateAttendanceToken`, `regenerateAttendanceTokensForEvent`, `searchAttendance`, `getAttendanceLive`, `getAttendanceFull`, `exportAttendanceExcel`, `emailAbsentees`, `getAttendanceCertRecipients`, `getMyAttendanceHistory`, `getAttendanceSummary`, `backfillAttendanceTokens`)
 
 ---
 
