@@ -347,15 +347,24 @@ problemsRouter.get('/admin/pending-cap-requests', authMiddleware, requireRole('A
   }
 });
 
-problemsRouter.post('/', authMiddleware, requireRole('ADMIN'), async (req, res) => {
+problemsRouter.post('/', authMiddleware, requireRole('CORE_MEMBER'), async (req, res) => {
   try {
-    const admin = getAuthUser(req);
-    if (!admin) return ApiResponse.unauthorized(res);
+    const author = getAuthUser(req);
+    if (!author) return ApiResponse.unauthorized(res);
     const parsed = problemInputSchema.safeParse(req.body);
     if (!parsed.success) return ApiResponse.badRequest(res, parsed.error.errors[0]?.message || 'Invalid problem payload');
-    const problem = await createProblemFromInput(toProblemInput(parsed.data), admin.id);
-    await auditLog(admin.id, 'PROBLEM_CREATED', 'Problem', problem.id, { slug: problem.slug, title: problem.title });
-    return ApiResponse.created(res, { problem: await serializeProblemDetail(problem, admin) }, 'Problem created');
+    const input = toProblemInput(parsed.data);
+    // Non-admins can author problems but cannot publish them directly; admins
+    // review and publish from the catalog. Admins keep the requested flag.
+    const safeInput = isAdminUser(author) ? input : { ...input, isPublished: false };
+    const problem = await createProblemFromInput(safeInput, author.id);
+    await auditLog(author.id, 'PROBLEM_CREATED', 'Problem', problem.id, {
+      slug: problem.slug,
+      title: problem.title,
+      publishedOnCreate: safeInput.isPublished,
+      authorRole: author.role,
+    });
+    return ApiResponse.created(res, { problem: await serializeProblemDetail(problem, author) }, 'Problem created');
   } catch (error) {
     return handleProblemError(res, error, 'Failed to create problem');
   }

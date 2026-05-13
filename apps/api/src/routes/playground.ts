@@ -65,6 +65,32 @@ const getCachedPlaygroundSettings = async (): Promise<{ enabled: boolean; dailyL
   };
 };
 
+const serializeResetRequest = (request: {
+  id: string;
+  userId: string;
+  note: string | null;
+  status: string;
+  decidedBy: string | null;
+  decidedAt: Date | null;
+  createdAt: Date;
+  user?: { id: string; name: string; email: string; avatar: string | null };
+}) => ({
+  id: request.id,
+  userId: request.userId,
+  note: request.note,
+  status: request.status,
+  decidedBy: request.decidedBy,
+  decidedAt: request.decidedAt?.toISOString() ?? null,
+  createdAt: request.createdAt.toISOString(),
+  ...(request.user ? { user: request.user } : {}),
+});
+
+const normalizeResetNote = (value: unknown): string | null => {
+  if (typeof value !== 'string') return null;
+  const note = value.trim().slice(0, 500);
+  return note.length ? note : null;
+};
+
 // All routes require authentication
 router.use(authMiddleware);
 
@@ -84,6 +110,165 @@ router.use(async (req: Request, res: Response, next: NextFunction) => {
 // ---------------------------------------------------------------------------
 // Snippets
 // ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Daily limit reset requests
+// ---------------------------------------------------------------------------
+
+/** User asks an admin to reset today's playground limit */
+router.post('/request-reset', async (req: Request, res: Response) => {
+  try {
+    const user = getAuthUser(req);
+    if (!user) return res.status(401).json({ error: 'Not authenticated' });
+
+    const existing = await prisma.playgroundLimitResetRequest.findFirst({
+      where: { userId: user.id, status: 'PENDING' },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    if (existing) {
+      return res.json({ success: true, data: { request: serializeResetRequest(existing) } });
+    }
+
+    const request = await prisma.playgroundLimitResetRequest.create({
+      data: {
+        userId: user.id,
+        note: normalizeResetNote(req.body?.note),
+      },
+    });
+
+    return res.status(201).json({ success: true, data: { request: serializeResetRequest(request) } });
+  } catch (error) {
+    logger.error('[Playground] Failed to create reset request', { error: error instanceof Error ? error.message : String(error) });
+    return res.status(500).json({ success: false, error: 'Failed to request reset' });
+  }
+});
+
+/** Latest reset request for the current user */
+router.get('/my-reset-request', async (req: Request, res: Response) => {
+  try {
+    const user = getAuthUser(req);
+    if (!user) return res.status(401).json({ error: 'Not authenticated' });
+
+    const request = await prisma.playgroundLimitResetRequest.findFirst({
+      where: { userId: user.id },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    return res.json({
+      success: true,
+      data: { request: request ? serializeResetRequest(request) : null },
+    });
+  } catch (error) {
+    logger.error('[Playground] Failed to fetch my reset request', { error: error instanceof Error ? error.message : String(error) });
+    return res.status(500).json({ success: false, error: 'Failed to fetch reset request' });
+  }
+});
+
+/** Admin inbox of pending playground reset requests */
+router.get('/admin/pending-reset-requests', requireRole('ADMIN'), async (_req: Request, res: Response) => {
+  try {
+    const requests = await prisma.playgroundLimitResetRequest.findMany({
+      where: { status: 'PENDING' },
+      orderBy: { createdAt: 'asc' },
+      take: 100,
+      include: {
+        user: { select: { id: true, name: true, email: true, avatar: true } },
+      },
+    });
+
+    return res.json({
+      success: true,
+      data: { requests: requests.map(serializeResetRequest) },
+    });
+  } catch (error) {
+    logger.error('[Playground] Failed to fetch pending reset requests', { error: error instanceof Error ? error.message : String(error) });
+    return res.status(500).json({ success: false, error: 'Failed to fetch reset requests' });
+  }
+});
+
+/** Admin grants a pending reset request */
+router.post('/admin/reset-requests/:id/grant', requireRole('ADMIN'), async (req: Request, res: Response) => {
+  try {
+    const admin = getAuthUser(req);
+    if (!admin) return res.status(401).json({ error: 'Not authenticated' });
+
+    const request = await prisma.playgroundLimitResetRequest.findUnique({
+      where: { id: req.params.id },
+      include: { user: { select: { id: true, name: true, email: true, avatar: true } } },
+    });
+    if (!request) return res.status(404).json({ success: false, error: 'Reset request not found' });
+    if (request.status !== 'PENDING') {
+      return res.status(409).json({ success: false, error: 'Reset request was already decided' });
+    }
+
+    const decidedAt = new Date();
+    const note = normalizeResetNote(req.body?.note) ?? request.note ?? 'Granted from reset request inbox';
+    const updated = await prisma.$transaction(async (tx) => {
+      const granted = await tx.playgroundLimitResetRequest.update({
+        where: { id: request.id },
+        data: { status: 'GRANTED', decidedBy: admin.id, decidedAt },
+        include: { user: { select: { id: true, name: true, email: true, avatar: true } } },
+      });
+      await tx.playgroundLimitReset.create({
+        data: {
+          userId: request.userId,
+          resetBy: admin.id,
+          note,
+        },
+      });
+      return granted;
+    });
+
+    await resetDailyQuotaAndPracticeCounters(request.userId);
+    await auditLog(admin.id, 'PLAYGROUND_LIMIT_RESET_REQUEST_GRANTED', 'PlaygroundLimitResetRequest', request.id, {
+      userId: request.userId,
+      resetDailyQuota: true,
+      resetPracticeProblemCounters: true,
+      note,
+    });
+
+    logger.info('[Playground] Admin granted reset request', { adminEmail: admin.email, targetEmail: request.user.email, requestId: request.id });
+    return res.json({ success: true, data: { request: serializeResetRequest(updated) } });
+  } catch (error) {
+    logger.error('[Playground] Failed to grant reset request', { error: error instanceof Error ? error.message : String(error) });
+    return res.status(500).json({ success: false, error: 'Failed to grant reset request' });
+  }
+});
+
+/** Admin denies a pending reset request */
+router.post('/admin/reset-requests/:id/deny', requireRole('ADMIN'), async (req: Request, res: Response) => {
+  try {
+    const admin = getAuthUser(req);
+    if (!admin) return res.status(401).json({ error: 'Not authenticated' });
+
+    const request = await prisma.playgroundLimitResetRequest.findUnique({
+      where: { id: req.params.id },
+      include: { user: { select: { id: true, name: true, email: true, avatar: true } } },
+    });
+    if (!request) return res.status(404).json({ success: false, error: 'Reset request not found' });
+    if (request.status !== 'PENDING') {
+      return res.status(409).json({ success: false, error: 'Reset request was already decided' });
+    }
+
+    const updated = await prisma.playgroundLimitResetRequest.update({
+      where: { id: request.id },
+      data: { status: 'DENIED', decidedBy: admin.id, decidedAt: new Date() },
+      include: { user: { select: { id: true, name: true, email: true, avatar: true } } },
+    });
+
+    await auditLog(admin.id, 'PLAYGROUND_LIMIT_RESET_REQUEST_DENIED', 'PlaygroundLimitResetRequest', request.id, {
+      userId: request.userId,
+      note: normalizeResetNote(req.body?.note),
+    });
+
+    logger.info('[Playground] Admin denied reset request', { adminEmail: admin.email, targetEmail: request.user.email, requestId: request.id });
+    return res.json({ success: true, data: { request: serializeResetRequest(updated) } });
+  } catch (error) {
+    logger.error('[Playground] Failed to deny reset request', { error: error instanceof Error ? error.message : String(error) });
+    return res.status(500).json({ success: false, error: 'Failed to deny reset request' });
+  }
+});
 
 /** List current user's snippets */
 router.get('/snippets', async (req: Request, res: Response) => {
@@ -252,6 +437,14 @@ router.post('/admin/reset-limit/:userId', authMiddleware, requireRole('ADMIN'), 
         userId,
         resetBy: admin.id,
         note,
+      },
+    });
+    await prisma.playgroundLimitResetRequest.updateMany({
+      where: { userId, status: 'PENDING' },
+      data: {
+        status: 'GRANTED',
+        decidedBy: admin.id,
+        decidedAt: new Date(),
       },
     });
     await resetDailyQuotaAndPracticeCounters(userId);
