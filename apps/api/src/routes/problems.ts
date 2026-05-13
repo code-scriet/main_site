@@ -226,11 +226,12 @@ problemsRouter.post('/admin/reset-cap', authMiddleware, requireRole('ADMIN'), as
   }
 });
 
-// In-memory per-user/context throttle for cap-request spam (small bounded map)
+// In-memory per-user/context throttle for cap-request spam.
+// Why: free-tier RAM is tight; entries older than the throttle window can
+// never block a future request, so they're safe to drop on every call.
 const capRequestThrottle = new Map<string, number>();
 const CAP_REQUEST_MIN_INTERVAL_MS = 60_000;
 function pruneCapRequestThrottle() {
-  if (capRequestThrottle.size < 5_000) return;
   const cutoff = Date.now() - CAP_REQUEST_MIN_INTERVAL_MS;
   for (const [key, ts] of capRequestThrottle) {
     if (ts < cutoff) capRequestThrottle.delete(key);
@@ -491,7 +492,8 @@ problemsRouter.get('/:id/all-submissions', authMiddleware, requireRole('ADMIN'),
     const contextType = req.query.contextType as ProblemContextType | undefined;
     const contextKey = typeof req.query.contextKey === 'string' ? req.query.contextKey : undefined;
     const problemId = await resolveProblemId(req.params.id);
-    const limit = Math.min(100, Math.max(1, Number(req.query.limit) || 50));
+    // 500 cap fits a full QOTD day or contest round in one response.
+    const limit = Math.min(500, Math.max(1, Number(req.query.limit) || 50));
     const submissions = await prisma.problemSubmission.findMany({
       where: {
         problemId,
