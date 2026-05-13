@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion } from 'framer-motion';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -11,119 +11,23 @@ import {
   type Resource,
   type FAQ,
   type EventRegistrationField,
-  type EventRegistrationFieldType,
 } from '@/lib/api';
-import { 
-  Calendar, Loader2, AlertCircle, ArrowLeft, Clock, MapPin, Users, 
+import {
+  Calendar, Loader2, AlertCircle, ArrowLeft, Clock, MapPin, Users,
   Image, FileText, Plus, X, Star, Target, User, Link as LinkIcon,
   HelpCircle, Video, Tag, Trash2
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '@/context/AuthContext';
 import { useUnsavedChangesWarning } from '@/hooks/useUnsavedChangesWarning';
-
-const eventTypes = [
-  'Workshop',
-  'Hackathon',
-  'Meetup',
-  'Bootcamp',
-  'Competition',
-  'Webinar',
-  'Social Event',
-  'Other',
-];
-
-const resourceTypes = [
-  { value: 'pdf', label: 'PDF Document' },
-  { value: 'video', label: 'Video' },
-  { value: 'github', label: 'GitHub Repo' },
-  { value: 'slides', label: 'Slides' },
-  { value: 'link', label: 'External Link' },
-  { value: 'other', label: 'Other' },
-];
-
-const registrationFieldTypes: Array<{ value: EventRegistrationFieldType; label: string }> = [
-  { value: 'TEXT', label: 'Text' },
-  { value: 'TEXTAREA', label: 'Long Text' },
-  { value: 'NUMBER', label: 'Number' },
-  { value: 'EMAIL', label: 'Email' },
-  { value: 'PHONE', label: 'Phone' },
-  { value: 'URL', label: 'URL' },
-];
-
-const createNewRegistrationField = (): EventRegistrationField => ({
-  id: `field_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
-  label: '',
-  type: 'TEXT',
-  required: true,
-  placeholder: '',
-});
-
-// Collapsible Section Component
-function CollapsibleSection({ 
-  title, 
-  icon, 
-  children, 
-  defaultOpen = false,
-  badge
-}: { 
-  title: string; 
-  icon: React.ReactNode; 
-  children: React.ReactNode; 
-  defaultOpen?: boolean;
-  badge?: string;
-}) {
-  const [isOpen, setIsOpen] = useState(defaultOpen);
-  const sectionId = `${title.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-section`;
-  
-  return (
-    <Card className={isOpen ? 'border-amber-200' : ''}>
-      <CardHeader 
-        className="cursor-pointer hover:bg-amber-50/50 transition-colors"
-        onClick={() => setIsOpen(!isOpen)}
-        onKeyDown={(event) => {
-          if (event.key === 'Enter' || event.key === ' ') {
-            event.preventDefault();
-            setIsOpen((prev) => !prev);
-          }
-        }}
-        role="button"
-        tabIndex={0}
-        aria-expanded={isOpen}
-        aria-controls={sectionId}
-      >
-        <div className="flex items-center justify-between">
-          <CardTitle className="flex items-center gap-2 text-lg">
-            {icon}
-            {title}
-            {badge && <Badge variant="secondary" className="ml-2">{badge}</Badge>}
-          </CardTitle>
-          <motion.div
-            animate={{ rotate: isOpen ? 180 : 0 }}
-            transition={{ duration: 0.2 }}
-          >
-            <svg className="h-5 w-5 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-            </svg>
-          </motion.div>
-        </div>
-      </CardHeader>
-      <AnimatePresence>
-        {isOpen && (
-          <motion.div
-            id={sectionId}
-            initial={{ height: 0, opacity: 0 }}
-            animate={{ height: 'auto', opacity: 1 }}
-            exit={{ height: 0, opacity: 0 }}
-            transition={{ duration: 0.2 }}
-          >
-            <CardContent className="pt-0">{children}</CardContent>
-          </motion.div>
-        )}
-      </AnimatePresence>
-    </Card>
-  );
-}
+import {
+  createNewRegistrationField,
+  eventTypes,
+  registrationFieldTypes,
+  resourceTypes,
+  validateEventFormDates,
+} from '@/lib/eventForm';
+import { CollapsibleSection } from '@/components/events/form/CollapsibleSection';
 
 export default function CreateEvent() {
   const navigate = useNavigate();
@@ -280,29 +184,15 @@ export default function CreateEvent() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    if (!form.title.trim() || !form.description.trim() || !form.startDate) {
-      setError('Please fill in all required fields (Title, Description, Event Start Date)');
+    const baseValidation = validateEventFormDates(form);
+    if (!baseValidation.ok) {
+      setError(baseValidation.error);
       return;
     }
+    const { startDate, endDate, regStartDate, regEndDate } = baseValidation.dates;
 
     if (!token) {
       setError('Authentication token not found. Please log in again.');
-      return;
-    }
-
-    // Validate dates
-    const startDate = new Date(form.startDate);
-    const endDate = form.endDate ? new Date(form.endDate) : null;
-    const regStartDate = form.registrationStartDate ? new Date(form.registrationStartDate) : null;
-    const regEndDate = form.registrationEndDate ? new Date(form.registrationEndDate) : null;
-
-    if (endDate && endDate < startDate) {
-      setError('Event end date must be after start date');
-      return;
-    }
-
-    if (regStartDate && regEndDate && regEndDate < regStartDate) {
-      setError('Registration end date must be after registration start date');
       return;
     }
 
