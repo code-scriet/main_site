@@ -5,10 +5,10 @@ import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import {
   Trash2, Terminal, AlertCircle, CheckCircle2, Loader2,
-  ChevronUp, ChevronDown, History, Clock, Play, Cloud, Cpu,
+  ChevronUp, ChevronDown, History, Clock, Play,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import {
   getExecutionHistory,
   getExecutionStats,
@@ -20,7 +20,7 @@ import {
 import { getLanguageById } from '@/utils/languageConfig';
 import { CLIENT_SUPPORTED_LANGUAGES } from '@/engines/types';
 
-type Tab = 'output' | 'history';
+type Tab = 'output' | 'history' | 'tests';
 
 export function OutputPanel() {
   const {
@@ -29,9 +29,9 @@ export function OutputPanel() {
     output,
     error,
     isRunning,
+    statusMessage,
     executionTime,
     executionTier,
-    statusMessage,
     clearOutput,
     language,
     setCode,
@@ -42,10 +42,37 @@ export function OutputPanel() {
   const { theme } = useTheme();
   const { isAuthenticated } = useAuth();
 
+  const commandPreamble = useMemo(() => {
+    const runner = (() => {
+      switch (language.id) {
+        case 'python': return executionTier === 'client' ? `python main.py · pyodide` : `python main.py · cloud`;
+        case 'javascript': return `node main.js · web worker`;
+        case 'typescript': return `ts-node main.ts · web worker`;
+        case 'cpp': return `g++ -O2 -std=c++17 main.cpp · cloud`;
+        case 'c': return `gcc -O2 main.c · cloud`;
+        case 'java': return `javac Main.java · cloud`;
+        case 'web': return `preview · iframe`;
+        default: return `${language.id}${language.fileExtension ?? ''}`;
+      }
+    })();
+    return `› ${runner}`;
+  }, [language.id, language.fileExtension, executionTier]);
+
+  const isWarning = Boolean(error?.startsWith('Warning:'));
+  const failed = Boolean(error) && !isWarning;
+  const hasRunOutput = Boolean(output || error);
+  const exitLine = useMemo(() => {
+    if (!hasRunOutput || isRunning) return null;
+    const time = executionTime || '—';
+    return failed
+      ? `› process exited with code 1 in ${time}`
+      : `› process exited with code 0 in ${time}`;
+  }, [hasRunOutput, isRunning, failed, executionTime]);
+
   const isWebLanguage = language.id === 'web';
   const isCloudOnly = !CLIENT_SUPPORTED_LANGUAGES.has(language.id);
   const isDark = theme === 'dark';
-  const [stdinCollapsed, setStdinCollapsed] = useState(false);
+  const [stdinCollapsed, setStdinCollapsed] = useState(true);
 
   // Auto-expand stdin when switching to a cloud-only language (C/C++/Java)
   useEffect(() => {
@@ -156,14 +183,14 @@ export function OutputPanel() {
       {/* Input Section */}
       {!isWebLanguage && (
         <div className={cn(
-          'border-b transition-colors',
-          isDark ? 'bg-card/30' : 'bg-secondary/40'
+          'order-last border-t transition-colors',
+          isDark ? 'bg-inknight' : 'bg-warmwhite'
         )}>
           <button
             onClick={() => setStdinCollapsed(!stdinCollapsed)}
-            className="w-full flex items-center justify-between px-4 py-2 text-sm font-medium hover:bg-accent/50 transition-colors"
+            className="w-full flex items-center justify-between px-4 py-2 text-xs font-medium text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900 transition-colors dark:hover:bg-zinc-900 dark:hover:text-zinc-100"
           >
-            <span>Custom Input (stdin){isCloudOnly && <span className="text-xs text-muted-foreground ml-2 font-normal">— required for {language.name} input</span>}</span>
+            <span>{stdinCollapsed ? '+ Add input (stdin)   ⌘I' : 'Input (stdin)'}{isCloudOnly && <span className="ml-2 font-normal">required for {language.name} input</span>}</span>
             {stdinCollapsed ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronUp className="h-3.5 w-3.5" />}
           </button>
           {!stdinCollapsed && (
@@ -182,8 +209,8 @@ export function OutputPanel() {
                 className={cn(
                   'min-h-[70px] font-mono text-sm resize-none',
                   isDark
-                    ? 'bg-background/50 border-border'
-                    : 'bg-white border-border'
+                    ? 'bg-zinc-950 border-zinc-800'
+                    : 'bg-white border-zinc-200'
                 )}
               />
             </div>
@@ -195,8 +222,8 @@ export function OutputPanel() {
       <div className="flex-1 flex flex-col min-h-0">
         {/* Tab header */}
         <div className={cn(
-          'flex items-center justify-between px-2 py-1.5 border-b transition-colors',
-          isDark ? 'bg-card/30' : 'bg-secondary/40'
+          'flex items-center justify-between px-3 py-2 border-b transition-colors',
+          isDark ? 'bg-inknight border-zinc-800' : 'bg-warmwhite border-zinc-200'
         )}>
           <div className="flex items-center gap-1">
             {isWebLanguage ? (
@@ -207,66 +234,52 @@ export function OutputPanel() {
                 <button
                   onClick={() => setActiveTab('output')}
                   className={cn(
-                    'flex items-center gap-1.5 text-sm font-medium px-3 py-1.5 rounded-md transition-colors',
+                    'relative flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded transition-colors',
                     activeTab === 'output'
-                      ? isDark ? 'bg-primary/15 text-primary' : 'bg-primary/10 text-primary'
-                      : 'text-muted-foreground hover:text-foreground hover:bg-accent/50'
+                      ? 'text-amber-500 after:absolute after:-bottom-2 after:left-3 after:right-3 after:h-0.5 after:bg-amber-400'
+                      : 'text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100'
                   )}
                 >
                   <Terminal className="h-3.5 w-3.5" />
                   Output
-                  {executionTime && activeTab === 'output' && (
-                    <span className={cn(
-                      'text-[10px] px-1.5 py-0.5 rounded font-mono',
-                      isDark ? 'bg-amber-500/10 text-amber-400' : 'bg-amber-100 text-amber-700'
-                    )}>
-                      {executionTime}
-                    </span>
-                  )}
-                  {executionTier && activeTab === 'output' && (
-                    <span className={cn(
-                      'text-[10px] px-1.5 py-0.5 rounded font-mono flex items-center gap-0.5',
-                      executionTier === 'client'
-                        ? isDark ? 'bg-green-500/10 text-green-400' : 'bg-green-100 text-green-700'
-                        : isDark ? 'bg-blue-500/10 text-blue-400' : 'bg-blue-100 text-blue-700'
-                    )}>
-                      {executionTier === 'client' ? <Cpu className="h-2.5 w-2.5" /> : <Cloud className="h-2.5 w-2.5" />}
-                      {executionTier === 'client' ? 'Local' : 'Cloud'}
-                    </span>
-                  )}
                 </button>
 
                 {/* History tab */}
                 <button
                   onClick={() => setActiveTab('history')}
                   className={cn(
-                    'flex items-center gap-1.5 text-sm font-medium px-3 py-1.5 rounded-md transition-colors',
+                    'relative flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded transition-colors',
                     activeTab === 'history'
-                      ? isDark ? 'bg-primary/15 text-primary' : 'bg-primary/10 text-primary'
-                      : 'text-muted-foreground hover:text-foreground hover:bg-accent/50'
+                      ? 'text-amber-500 after:absolute after:-bottom-2 after:left-3 after:right-3 after:h-0.5 after:bg-amber-400'
+                      : 'text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100'
                   )}
                 >
                   <History className="h-3.5 w-3.5" />
                   History
+                  {history.length > 0 && (
+                    <span className="rounded bg-zinc-200 px-1.5 font-mono text-[10px] text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300">
+                      {history.length}
+                    </span>
+                  )}
+                </button>
+
+                <button
+                  onClick={() => setActiveTab('tests')}
+                  className={cn(
+                    'relative flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded transition-colors',
+                    activeTab === 'tests'
+                      ? 'text-amber-500 after:absolute after:-bottom-2 after:left-3 after:right-3 after:h-0.5 after:bg-amber-400'
+                      : 'text-zinc-500 hover:text-zinc-900 dark:hover:text-zinc-100'
+                  )}
+                >
+                  <CheckCircle2 className="h-3.5 w-3.5" />
+                  Tests
                 </button>
               </>
             )}
           </div>
 
           <div className="flex items-center gap-2">
-            {/* Daily limit counter */}
-            {stats && (
-              <span className={cn(
-                'text-[11px] font-mono px-2 py-0.5 rounded-md',
-                stats.todayCount >= stats.dailyLimit
-                  ? 'bg-red-500/10 text-red-400'
-                  : isDark ? 'bg-muted/50 text-muted-foreground' : 'bg-muted text-muted-foreground'
-              )}>
-                <Cloud className="h-3 w-3 inline mr-1 -mt-0.5" />
-                {stats.todayCount}/{stats.dailyLimit}
-              </span>
-            )}
-
             {!isWebLanguage && activeTab === 'output' && (
               <Button
                 onClick={clearOutput}
@@ -283,93 +296,85 @@ export function OutputPanel() {
 
         {/* Tab body */}
         {activeTab === 'output' ? (
-          <div className="flex-1 overflow-auto p-4 font-mono text-sm terminal-output animate-fade-in">
-            {isRunning && !output && inputPrompt === null ? (
-              <div className="flex items-center gap-2" style={{ color: 'hsl(var(--terminal-warning))' }}>
-                <Loader2 className="h-4 w-4 animate-spin" />
-                <span>{statusMessage || 'Executing code...'}</span>
-              </div>
-            ) : isWebLanguage ? (
+          <div className="flex-1 overflow-auto p-4 font-mono text-[12.5px] leading-relaxed terminal-output animate-fade-in">
+            {isWebLanguage ? (
               <WebPreview />
+            ) : isRunning && !output && !error && inputPrompt === null ? (
+              <>
+                <p className="text-zinc-500 dark:text-zinc-400">{commandPreamble}</p>
+                <div className="mt-2 flex items-center gap-2 text-amber-600 dark:text-amber-300">
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  <span>{statusMessage || 'Executing code…'}</span>
+                </div>
+              </>
+            ) : !hasRunOutput && !isRunning && inputPrompt === null ? (
+              <div className="flex flex-col items-center justify-center h-full text-center py-12"
+                   style={{ color: 'hsl(var(--terminal-muted))' }}>
+                <Terminal className="h-10 w-10 mb-3 opacity-30" />
+                <p className="text-sm">Click <strong>Run</strong> to execute. Output appears here.</p>
+                <p className="text-xs mt-1 opacity-60">
+                  {language.name} • {language.tiers.includes('client') ? 'Runs locally in browser' : 'Runs on cloud'}
+                </p>
+              </div>
             ) : (
               <>
-                {error && (
-                  <div className="mb-4">
-                    <div className="flex items-start gap-2" style={{ 
-                      color: error.startsWith('Warning:') 
-                        ? 'hsl(var(--terminal-warning))' 
-                        : 'hsl(var(--terminal-error))' 
-                    }}>
-                      <AlertCircle className="h-4 w-4 mt-0.5 flex-shrink-0" />
-                      <div>
-                        <div className="font-semibold mb-1">
-                          {error.startsWith('Warning:') ? 'Warning:' : 'Error:'}
-                        </div>
-                        <pre className="whitespace-pre-wrap text-[13px] leading-relaxed">
-                          {error.startsWith('Warning:') ? error.slice(9) : error}
-                        </pre>
-                      </div>
-                    </div>
-                  </div>
-                )}
+                <p className="text-zinc-500 dark:text-zinc-400">{commandPreamble}</p>
 
                 {output && (
-                  <div>
-                    {!error && !isRunning && (
-                      <div className="flex items-center gap-2 mb-2" style={{ color: 'hsl(var(--terminal-success))' }}>
-                        <CheckCircle2 className="h-4 w-4" />
-                        <span className="font-semibold">Output:</span>
-                      </div>
-                    )}
-                    <pre className="whitespace-pre-wrap text-[13px] leading-relaxed">{output}</pre>
+                  <pre className="mt-2 whitespace-pre-wrap text-zinc-800 dark:text-zinc-100">{output}</pre>
+                )}
+
+                {isWarning && (
+                  <pre className="mt-2 whitespace-pre-wrap text-amber-600 dark:text-amber-300">
+                    <span className="font-semibold">warning: </span>{error?.slice(9)}
+                  </pre>
+                )}
+
+                {failed && (
+                  <pre className="mt-2 whitespace-pre-wrap text-red-600 dark:text-red-400">{error}</pre>
+                )}
+
+                {/* Interactive input prompt — inline, like a real terminal */}
+                {inputPrompt !== null && isRunning && (
+                  <div className="mt-2 flex items-center gap-1">
+                    <span className="select-none text-amber-600 dark:text-amber-300">›</span>
+                    <input
+                      ref={inputFieldRef}
+                      type="text"
+                      value={interactiveInput}
+                      onChange={(e) => setInteractiveInput(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          submitInteractiveInput();
+                        }
+                      }}
+                      className={cn(
+                        'flex-1 bg-transparent outline-none font-mono text-[12.5px] caret-amber-500',
+                        'border-b border-amber-500/30 focus:border-amber-500 pb-0.5',
+                        'text-zinc-800 dark:text-zinc-100'
+                      )}
+                      placeholder="Type input and press Enter…"
+                      autoComplete="off"
+                      spellCheck={false}
+                    />
                   </div>
                 )}
 
-                {/* Interactive input prompt */}
-                {inputPrompt !== null && isRunning && (
-                  <div className="mt-1">
-                    <div className="flex items-center gap-0">
-                      <span className="text-primary font-bold select-none">&gt;&nbsp;</span>
-                      <input
-                        ref={inputFieldRef}
-                        type="text"
-                        value={interactiveInput}
-                        onChange={(e) => setInteractiveInput(e.target.value)}
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter') {
-                            e.preventDefault();
-                            submitInteractiveInput();
-                          }
-                        }}
-                        className={cn(
-                          'flex-1 bg-transparent outline-none font-mono text-sm caret-primary',
-                          'border-b border-primary/40 focus:border-primary pb-0.5',
-                          isDark ? 'text-foreground' : 'text-foreground'
-                        )}
-                        placeholder="Type input and press Enter..."
-                        autoComplete="off"
-                        spellCheck={false}
-                      />
-                    </div>
-                  </div>
+                {exitLine && (
+                  <p className={cn(
+                    'mt-3',
+                    failed ? 'text-red-600 dark:text-red-400' : 'text-zinc-500 dark:text-zinc-400',
+                  )}>
+                    {exitLine}
+                  </p>
                 )}
 
                 <div ref={outputEndRef} />
-
-                {!isRunning && !output && !error && (
-                  <div className="flex flex-col items-center justify-center h-full text-center py-12"
-                       style={{ color: 'hsl(var(--terminal-muted))' }}>
-                    <Terminal className="h-10 w-10 mb-3 opacity-30" />
-                    <p className="text-sm">Click <strong>Run Code</strong> to see output here</p>
-                    <p className="text-xs mt-1 opacity-60">
-                      {language.name} • {language.tiers.includes('client') ? 'Runs locally in browser' : 'Runs on cloud'}
-                    </p>
-                  </div>
-                )}
               </>
             )}
           </div>
-        ) : (
+        ) : activeTab === 'history' ? (
           /* History tab */
           <div className="flex-1 overflow-auto animate-fade-in">
             {!isAuthenticated ? (
@@ -430,6 +435,16 @@ export function OutputPanel() {
                 })}
               </div>
             )}
+          </div>
+        ) : (
+          <div className="flex flex-1 flex-col items-center justify-center p-6 text-center text-zinc-500 dark:text-zinc-400">
+            <CheckCircle2 className="mb-3 h-10 w-10 opacity-30" />
+            <p className="text-sm font-medium text-zinc-700 dark:text-zinc-200">Open a problem to use the test runner</p>
+            <p className="mt-1 max-w-sm text-xs">
+              Tests are wired to QOTD and practice problems. Open one from the
+              <span className="font-mono"> ?qotd=today </span>
+              link or the Practice button on the language rail.
+            </p>
           </div>
         )}
       </div>

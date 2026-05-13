@@ -2,6 +2,7 @@ import { usePlayground } from '@/context/PlaygroundContext';
 import { Button } from '@/components/ui/button';
 import { X, BookOpen, AlertCircle } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { MarkdownView } from './MarkdownView';
 
 export function ProblemPanel() {
   const { currentProblem, toggleProblemPanel } = usePlayground();
@@ -79,9 +80,7 @@ export function ProblemPanel() {
         {/* Description */}
         <div>
           <h4 className="font-semibold mb-2">Description</h4>
-          <p className="text-sm text-muted-foreground leading-relaxed">
-            {currentProblem.description}
-          </p>
+          <MarkdownView source={currentProblem.description} />
         </div>
 
         {/* Examples */}

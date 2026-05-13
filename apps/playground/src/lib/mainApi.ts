@@ -102,6 +102,17 @@ export interface SubmissionResult extends ProblemSubmission {
   remainingDailyQuota: number;
 }
 
+export interface PlaygroundLimitResetRequest {
+  id: string;
+  userId: string;
+  note: string | null;
+  status: 'PENDING' | 'GRANTED' | 'DENIED';
+  decidedBy: string | null;
+  decidedAt: string | null;
+  createdAt: string;
+  user?: { id: string; name: string; email: string; avatar: string | null };
+}
+
 export class ApiError extends Error {
   status: number;
   code?: string;
@@ -172,4 +183,14 @@ export const mainApi = {
     }>(`/api/problems/${problemId}/my-submission?contextType=${encodeURIComponent(contextType)}&contextKey=${encodeURIComponent(contextKey)}`),
   requestSubmitCap: (problemId: string, body: { contextType: ProblemContextType; contextKey: string; note?: string }) =>
     call<{ success: boolean }>(`/api/problems/${problemId}/request-cap`, { method: 'POST', body: JSON.stringify(body) }),
+  requestPlaygroundReset: (note?: string) =>
+    call<{ request: PlaygroundLimitResetRequest }>('/api/playground/request-reset', { method: 'POST', body: JSON.stringify({ note }) }),
+  getMyPlaygroundResetRequest: () =>
+    call<{ request: PlaygroundLimitResetRequest | null }>('/api/playground/my-reset-request'),
+  adminGetPendingPlaygroundResetRequests: () =>
+    call<{ requests: PlaygroundLimitResetRequest[] }>('/api/playground/admin/pending-reset-requests'),
+  adminGrantPlaygroundResetRequest: (id: string) =>
+    call<{ request: PlaygroundLimitResetRequest }>(`/api/playground/admin/reset-requests/${id}/grant`, { method: 'POST' }),
+  adminDenyPlaygroundResetRequest: (id: string) =>
+    call<{ request: PlaygroundLimitResetRequest }>(`/api/playground/admin/reset-requests/${id}/deny`, { method: 'POST' }),
 };

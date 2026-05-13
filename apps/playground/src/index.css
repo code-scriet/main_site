@@ -3,69 +3,66 @@
 @tailwind utilities;
 
 @layer base {
-  /* ─── Light mode: warm amber-cream palette matching main site ─── */
+  /* Claude playground redesign: warmwhite + zinc neutrals with amber accent. */
   :root {
-    --background: 43 100% 98%;            /* warm cream – matches amber-50 */
-    --foreground: 20 14% 8%;              /* warm near-black */
-    --card: 40 60% 99%;                   /* slightly warm white */
-    --card-foreground: 20 14% 8%;
-    --popover: 0 0% 100%;
-    --popover-foreground: 20 14% 8%;
-    --primary: 38 100% 57%;               /* amber-500 (main site match) */
-    --primary-foreground: 0 0% 100%;
-    --secondary: 35 60% 95%;              /* warm tinted secondary */
-    --secondary-foreground: 20 14% 12%;
-    --muted: 40 40% 95%;                  /* warm muted */
-    --muted-foreground: 25 10% 45%;
-    --accent: 40 50% 95%;                 /* warm accent */
-    --accent-foreground: 20 14% 8%;
-    --destructive: 0 84% 60%;
+    --background: 45 71% 99%;
+    --foreground: 240 10% 4%;
+    --card: 45 71% 99%;
+    --card-foreground: 240 10% 4%;
+    --popover: 45 71% 99%;
+    --popover-foreground: 240 10% 4%;
+    --primary: 43 96% 56%;
+    --primary-foreground: 26 83% 14%;
+    --secondary: 240 5% 96%;
+    --secondary-foreground: 240 6% 10%;
+    --muted: 240 5% 96%;
+    --muted-foreground: 240 4% 46%;
+    --accent: 43 96% 56%;
+    --accent-foreground: 26 83% 14%;
+    --destructive: 0 72% 51%;
     --destructive-foreground: 0 0% 100%;
-    --border: 30 30% 89%;                 /* warm border */
-    --input: 30 30% 89%;
-    --ring: 38 100% 57%;                  /* amber-500 */
+    --border: 240 6% 90%;
+    --input: 240 6% 90%;
+    --ring: 43 96% 56%;
     --radius: 0.5rem;
 
-    /* Terminal tokens — light mode */
-    --terminal-bg: 35 30% 96%;            /* warm off-white */
-    --terminal-fg: 20 14% 12%;            /* dark warm gray */
-    --terminal-error: 0 72% 46%;          /* red-700 */
-    --terminal-success: 142 64% 30%;      /* green-700 */
-    --terminal-warning: 32 95% 40%;       /* amber-700 */
-    --terminal-muted: 25 10% 52%;
-    --terminal-border: 30 30% 89%;
+    --terminal-bg: 45 71% 99%;
+    --terminal-fg: 240 6% 10%;
+    --terminal-error: 0 72% 46%;
+    --terminal-success: 142 64% 30%;
+    --terminal-warning: 32 95% 40%;
+    --terminal-muted: 240 4% 46%;
+    --terminal-border: 240 6% 90%;
   }
 
-  /* ─── Dark mode: deep navy ─── */
   .dark {
-    --background: 224 71% 4%;
-    --foreground: 210 40% 98%;
-    --card: 224 71% 4%;
-    --card-foreground: 210 40% 98%;
-    --popover: 224 71% 4%;
-    --popover-foreground: 210 40% 98%;
-    --primary: 38 92% 50%;                /* amber-500 */
-    --primary-foreground: 0 0% 100%;
-    --secondary: 217.2 32.6% 12%;
-    --secondary-foreground: 210 40% 98%;
-    --muted: 217.2 32.6% 12%;
-    --muted-foreground: 215 20.2% 55%;
-    --accent: 217.2 32.6% 12%;
-    --accent-foreground: 210 40% 98%;
-    --destructive: 0 62.8% 30.6%;
-    --destructive-foreground: 210 40% 98%;
-    --border: 217.2 32.6% 14%;
-    --input: 217.2 32.6% 14%;
-    --ring: 38 92% 50%;                   /* amber-500 */
+    --background: 240 10% 4%;
+    --foreground: 240 5% 96%;
+    --card: 240 10% 4%;
+    --card-foreground: 240 5% 96%;
+    --popover: 240 10% 4%;
+    --popover-foreground: 240 5% 96%;
+    --primary: 43 96% 56%;
+    --primary-foreground: 26 83% 14%;
+    --secondary: 240 4% 16%;
+    --secondary-foreground: 240 5% 96%;
+    --muted: 240 4% 16%;
+    --muted-foreground: 240 5% 65%;
+    --accent: 240 4% 16%;
+    --accent-foreground: 240 5% 96%;
+    --destructive: 0 63% 31%;
+    --destructive-foreground: 240 5% 96%;
+    --border: 240 4% 16%;
+    --input: 240 4% 16%;
+    --ring: 43 96% 56%;
 
-    /* Terminal tokens — dark mode */
-    --terminal-bg: 228 60% 6%;            /* slightly lighter than bg */
-    --terminal-fg: 210 40% 92%;
-    --terminal-error: 0 91% 71%;          /* red-400 */
-    --terminal-success: 142 69% 58%;      /* green-400 */
-    --terminal-warning: 48 96% 53%;       /* yellow-400 */
-    --terminal-muted: 215 20% 55%;
-    --terminal-border: 217.2 32.6% 14%;
+    --terminal-bg: 240 10% 4%;
+    --terminal-fg: 240 5% 92%;
+    --terminal-error: 0 91% 71%;
+    --terminal-success: 142 69% 58%;
+    --terminal-warning: 48 96% 53%;
+    --terminal-muted: 240 5% 65%;
+    --terminal-border: 240 4% 16%;
   }
 }
 
@@ -118,6 +115,45 @@
   color: hsl(var(--terminal-warning));
 }
 
+.editor-cursor {
+  display: inline-block;
+  width: 1px;
+  height: 1em;
+  margin-left: 2px;
+  vertical-align: -0.15em;
+  background: currentColor;
+  animation: blink 1s steps(2, start) infinite;
+}
+
+.hatch {
+  background-image: repeating-linear-gradient(
+    135deg,
+    rgba(239, 68, 68, 0.16) 0,
+    rgba(239, 68, 68, 0.16) 8px,
+    transparent 8px,
+    transparent 16px
+  );
+}
+
+.sel {
+  background: rgba(251, 191, 36, 0.18);
+}
+
+.tk-kw { color: #d97706; }
+.tk-fn { color: #2563eb; }
+.tk-str { color: #16a34a; }
+.tk-num { color: #dc2626; }
+.tk-com { color: #71717a; }
+.tk-pn { color: #52525b; }
+.tk-var { color: #7c3aed; }
+.dark .tk-kw { color: #fbbf24; }
+.dark .tk-fn { color: #60a5fa; }
+.dark .tk-str { color: #34d399; }
+.dark .tk-num { color: #f87171; }
+.dark .tk-com { color: #71717a; }
+.dark .tk-pn { color: #a1a1aa; }
+.dark .tk-var { color: #c084fc; }
+
 /* ─── Code editor container ─── */
 .code-editor-container {
   @apply w-full h-full overflow-hidden;
@@ -155,4 +191,9 @@
 }
 .animate-fade-in {
   animation: fadeIn 200ms ease-out;
+}
+
+@keyframes blink {
+  0%, 49% { opacity: 1; }
+  50%, 100% { opacity: 0; }
 }

@@ -558,19 +558,19 @@ export default function CompetitionPage() {
   const submissionMethod = submission?.isAutoSubmit ? 'Auto-submitted at expiry' : 'Manual submit';
 
   return (
-    <div className="h-screen flex flex-col overflow-hidden bg-background">
-      <div className="h-12 border-b border-border px-3 sm:px-4 flex items-center justify-between gap-3 bg-card/70">
+    <div className="h-screen flex flex-col overflow-hidden bg-warmwhite dark:bg-inknight">
+      <div className="h-14 border-b border-zinc-200 px-3 sm:px-4 flex items-center justify-between gap-3 bg-warmwhite dark:border-zinc-800 dark:bg-inknight">
         <div className="min-w-0">
-          <p className="text-sm font-semibold truncate">{round.title}</p>
-          <p className="text-[11px] text-muted-foreground truncate">{round.myTeam?.teamName || 'No team'}</p>
+          <p className="text-sm font-semibold truncate text-zinc-950 dark:text-zinc-50">{round.title}</p>
+          <p className="text-[11px] text-zinc-500 truncate">Auto-saved · {savedAgoText}</p>
         </div>
         <div className="min-w-[96px] text-center">
           {round.status === 'ACTIVE' ? (
             <>
-              <p className={cn('font-mono text-xl font-bold', timerColorClass)}>
+              <p className={cn('font-mono text-xl font-bold', remainingSeconds <= 120 ? 'text-amber-400' : timerColorClass)}>
                 {remainingSeconds <= 0 ? "TIME'S UP" : formatClock(remainingSeconds)}
               </p>
-              <div className="h-1 rounded-full bg-muted overflow-hidden mt-1">
+              <div className="h-1 rounded-full bg-zinc-200 overflow-hidden mt-1 dark:bg-zinc-800">
                 <div
                   className={cn('h-full transition-all duration-1000 linear', progressColor)}
                   style={{ width: `${progressPercent}%` }}
@@ -591,7 +591,7 @@ export default function CompetitionPage() {
               Locked
             </Button>
           ) : (
-            <Button size="sm" onClick={() => setShowSubmitConfirm(true)}>
+            <Button size="sm" onClick={() => setShowSubmitConfirm(true)} className="bg-amber-400 text-amber-950 hover:bg-amber-300">
               Submit
             </Button>
           )}

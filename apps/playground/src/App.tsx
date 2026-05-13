@@ -1,9 +1,10 @@
 import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { PlaygroundProvider } from './context/PlaygroundContext';
 import { ThemeProvider } from './context/ThemeContext';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { AuthGate } from './components/auth/AuthGate';
+import { CommandPalette } from './components/playground/CommandPalette';
 import PlaygroundPage from './pages/PlaygroundPage';
 import SnippetsPage from './pages/SnippetsPage';
 import SnippetViewPage from './pages/SnippetViewPage';
@@ -51,6 +52,29 @@ function SessionLifecycle() {
   return null;
 }
 
+function CommandPaletteController() {
+  const [open, setOpen] = useState(false);
+
+  useEffect(() => {
+    const openPalette = () => setOpen(true);
+    const onKeyDown = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
+        event.preventDefault();
+        setOpen((current) => !current);
+      }
+      if (event.key === 'Escape') setOpen(false);
+    };
+    window.addEventListener('playground:command-palette', openPalette);
+    window.addEventListener('keydown', onKeyDown);
+    return () => {
+      window.removeEventListener('playground:command-palette', openPalette);
+      window.removeEventListener('keydown', onKeyDown);
+    };
+  }, []);
+
+  return <CommandPalette open={open} onOpenChange={setOpen} />;
+}
+
 function App() {
   return (
     <ThemeProvider>
@@ -58,6 +82,7 @@ function App() {
         <SessionLifecycle />
         <ConditionalAuthGate>
           <PlaygroundProvider>
+            <CommandPaletteController />
             <Routes>
               <Route path="/" element={<PlaygroundPage />} />
               <Route path="/competition/:roundId" element={<CompetitionPage />} />

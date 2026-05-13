@@ -9,8 +9,8 @@ import { CodeEditor } from '@/components/playground/CodeEditor';
 import { OutputPanel } from '@/components/playground/OutputPanel';
 import { ProblemPanel } from '@/components/playground/ProblemPanel';
 import { LanguageSidebar } from '@/components/playground/LanguageSidebar';
+import { StatusStrip } from '@/components/playground/StatusStrip';
 import { Navbar } from '@/components/playground/Navbar';
-import { ProblemRails } from '@/components/problems/ProblemRails';
 import { QOTDSolverShell, buildQOTDLeaderboardHref, type QOTDSolverContext } from '@/components/problems/QOTDSolverShell';
 import { PracticeProblemsBrowser } from '@/components/problems/PracticeProblemsBrowser';
 import { usePlayground } from '@/context/PlaygroundContext';
@@ -191,8 +191,6 @@ export default function PlaygroundPage() {
         onExitProblem={clearMode}
         onOpenPractice={enterPracticeBrowser}
       />
-      {!inProblemMode && <ProblemRails onOpenPractice={enterPracticeBrowser} />}
-
       <div className="flex-1 flex overflow-hidden">
         <div className="hidden md:block">
           <LanguageSidebar onOpenPractice={enterPracticeBrowser} />
@@ -231,28 +229,49 @@ export default function PlaygroundPage() {
           ) : mode.kind === 'solver' ? (
             <QOTDSolverShell problem={mode.problem} context={mode.context} onExit={clearMode} />
           ) : (
-            <PanelGroup direction="horizontal" className="h-full">
-              {showProblemPanel && (
-                <>
-                  <Panel defaultSize={25} minSize={20} maxSize={40} className="hidden md:block">
-                    <ProblemPanel />
-                  </Panel>
-                  <PanelResizeHandle className="w-1 bg-border hover:bg-amber-500/50 transition-colors" />
-                </>
-              )}
-
-              <Panel defaultSize={showProblemPanel ? 45 : 60} minSize={30}>
-                <div className="h-full border-r border-border">
-                  <CodeEditor />
+            <>
+              <div className="flex h-full flex-col md:hidden">
+                <LanguageSidebar onOpenPractice={enterPracticeBrowser} mobile />
+                <div className="min-h-0 flex-[0_0_58%] border-b border-zinc-200 dark:border-zinc-800">
+                  <div className="flex h-full flex-col">
+                    <div className="min-h-0 flex-1">
+                      <CodeEditor />
+                    </div>
+                    <StatusStrip />
+                  </div>
                 </div>
-              </Panel>
+                <div className="min-h-0 flex-1">
+                  <OutputPanel />
+                </div>
+              </div>
+              <div className="hidden h-full md:block">
+                <PanelGroup direction="horizontal" className="h-full">
+                  {showProblemPanel && (
+                    <>
+                      <Panel defaultSize={25} minSize={20} maxSize={40}>
+                        <ProblemPanel />
+                      </Panel>
+                      <PanelResizeHandle className="w-1 bg-zinc-200 hover:bg-amber-500/50 transition-colors dark:bg-zinc-800" />
+                    </>
+                  )}
 
-              <PanelResizeHandle className="w-1 bg-border hover:bg-amber-500/50 transition-colors" />
+                  <Panel defaultSize={showProblemPanel ? 45 : 60} minSize={30}>
+                    <div className="flex h-full flex-col border-r border-zinc-200 dark:border-zinc-800">
+                      <div className="min-h-0 flex-1">
+                        <CodeEditor />
+                      </div>
+                      <StatusStrip />
+                    </div>
+                  </Panel>
 
-              <Panel defaultSize={30} minSize={25}>
-                <OutputPanel />
-              </Panel>
-            </PanelGroup>
+                  <PanelResizeHandle className="w-1 bg-zinc-200 hover:bg-amber-500/50 transition-colors dark:bg-zinc-800" />
+
+                  <Panel defaultSize={30} minSize={25}>
+                    <OutputPanel />
+                  </Panel>
+                </PanelGroup>
+              </div>
+            </>
           )}
         </div>
       </div>

@@ -1,8 +1,10 @@
+import { useState } from 'react';
+import { Link } from 'react-router-dom';
+import { ArrowLeft, ChevronDown, LogOut, Moon, Search, Sun, User } from 'lucide-react';
 import { useAuth, getLoginUrl } from '@/context/AuthContext';
 import { useTheme } from '@/context/ThemeContext';
-import { Code2, ExternalLink, LogOut, User, FolderCode } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Link } from 'react-router-dom';
+import { cn } from '@/lib/utils';
 
 const MAIN_SITE_URL =
   import.meta.env.VITE_MAIN_SITE_URL ||
@@ -10,91 +12,105 @@ const MAIN_SITE_URL =
 
 export function Navbar() {
   const { user, isAuthenticated, logout } = useAuth();
-  const { theme } = useTheme();
-  const isDark = theme === 'dark';
+  const { theme, toggleTheme } = useTheme();
+  const [menuOpen, setMenuOpen] = useState(false);
+
+  const openCommandPalette = () => {
+    window.dispatchEvent(new Event('playground:command-palette'));
+  };
 
   return (
-    <header className={cn(
-      'h-12 border-b border-border flex items-center justify-between px-4 shrink-0 transition-colors',
-      isDark ? 'bg-card/60 backdrop-blur-sm' : 'bg-white/80 backdrop-blur-sm shadow-sm'
-    )}>
-      {/* Left: Logo */}
-      <div className="flex items-center gap-2">
-        <Link to="/" className="flex items-center gap-2 group">
-          <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-amber-500 to-orange-500 flex items-center justify-center shadow-sm group-hover:shadow-md group-hover:shadow-amber-500/20 transition-shadow">
-            <Code2 className="h-4 w-4 text-white" />
-          </div>
-          <span className="font-display font-bold text-base bg-gradient-to-r from-amber-500 to-orange-500 bg-clip-text text-transparent">
-            Code.Scriet
-          </span>
-          <span className={cn(
-            'text-xs font-medium px-1.5 py-0.5 rounded',
-            isDark
-              ? 'text-muted-foreground bg-secondary/60'
-              : 'text-amber-700 bg-amber-100/70'
-          )}>
-            Playground
-          </span>
-        </Link>
-      </div>
-
-      {/* Right: Nav links + user */}
-      <div className="flex items-center gap-3">
-        <Link
-          to="/snippets"
-          className="hidden sm:flex items-center gap-1.5 text-xs font-medium text-muted-foreground hover:text-foreground transition-colors"
-        >
-          <FolderCode className="h-3.5 w-3.5" />
-          Snippets
-        </Link>
-
+    <header className="flex h-14 shrink-0 items-center justify-between border-b border-zinc-200 bg-warmwhite px-3 dark:border-zinc-800 dark:bg-inknight">
+      <div className="flex min-w-0 items-center gap-3">
         <a
           href={MAIN_SITE_URL}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="hidden sm:flex items-center gap-1.5 text-xs font-medium text-muted-foreground hover:text-foreground transition-colors"
+          className="hidden h-8 items-center gap-1.5 rounded px-2 text-xs font-medium text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900 sm:inline-flex dark:hover:bg-zinc-900 dark:hover:text-zinc-100"
         >
-          <ExternalLink className="h-3.5 w-3.5" />
-          Main Site
+          <ArrowLeft className="h-3.5 w-3.5" />
+          Main site
         </a>
+        <div className="hidden h-6 w-px bg-zinc-200 sm:block dark:bg-zinc-800" />
+        <Link to="/" className="flex min-w-0 items-center gap-2.5">
+          <span className="relative grid h-9 w-9 place-items-center overflow-hidden rounded-md bg-gradient-to-br from-amber-400 to-amber-500 text-white shadow-[inset_0_-2px_0_rgba(180,83,9,0.35)]">
+            <svg viewBox="0 0 32 32" className="h-6 w-6" aria-hidden="true">
+              <path d="M11 22 L21 10" stroke="white" strokeWidth="3" strokeLinecap="round" />
+            </svg>
+          </span>
+          <span className="min-w-0 leading-tight">
+            <span className="block truncate font-display text-[15px] font-semibold tracking-tight text-zinc-950 dark:text-zinc-50">
+              codescriet
+            </span>
+            <span className="block text-[10px] font-semibold uppercase tracking-[0.2em] text-amber-600 dark:text-amber-400">
+              playground
+            </span>
+          </span>
+        </Link>
+        <nav className="hidden items-center gap-1 pl-2 md:flex">
+          <Link to="/snippets" className="rounded px-2 py-1.5 text-xs font-medium text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900 dark:hover:bg-zinc-900 dark:hover:text-zinc-100">
+            Snippets
+          </Link>
+          <Link to="/?qotd=today" className="rounded px-2 py-1.5 text-xs font-medium text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900 dark:hover:bg-zinc-900 dark:hover:text-zinc-100">
+            Today&apos;s QOTD
+          </Link>
+          <Link to="/?practice=1" className="rounded px-2 py-1.5 text-xs font-medium text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900 dark:hover:bg-zinc-900 dark:hover:text-zinc-100">
+            Problems
+          </Link>
+        </nav>
+      </div>
 
-        <div className="h-5 w-px bg-border" />
+      <div className="flex items-center gap-2">
+        <button
+          type="button"
+          onClick={openCommandPalette}
+          className="hidden h-8 items-center gap-2 rounded border border-zinc-200 px-2.5 text-xs text-zinc-500 hover:text-zinc-900 md:inline-flex dark:border-zinc-800 dark:hover:text-zinc-100"
+        >
+          <Search className="h-3.5 w-3.5" />
+          Search
+          <kbd className="rounded bg-zinc-100 px-1.5 py-0.5 font-mono text-[10px] dark:bg-zinc-900">⌘K</kbd>
+        </button>
+        <Button onClick={toggleTheme} variant="ghost" size="icon" className="h-8 w-8 text-zinc-500 hover:text-zinc-950 dark:hover:text-zinc-50" title="Toggle theme">
+          {theme === 'dark' ? <Sun className="h-3.5 w-3.5" /> : <Moon className="h-3.5 w-3.5" />}
+        </Button>
 
         {isAuthenticated && user ? (
-          <div className="flex items-center gap-2">
-            {/* Avatar */}
-            {user.avatar ? (
-              <img
-                src={user.avatar}
-                alt={user.name}
-                className="w-6 h-6 rounded-full ring-1 ring-border"
-              />
-            ) : (
-              <div className="w-6 h-6 rounded-full bg-gradient-to-br from-amber-500 to-orange-500 flex items-center justify-center text-[10px] font-bold text-white">
-                {user.name?.charAt(0).toUpperCase() || 'U'}
+          <div className="relative">
+            <button
+              type="button"
+              onClick={() => setMenuOpen((open) => !open)}
+              className="flex h-8 items-center gap-2 rounded border border-zinc-200 px-1.5 pr-2 text-xs text-zinc-700 hover:bg-zinc-100 dark:border-zinc-800 dark:text-zinc-200 dark:hover:bg-zinc-900"
+            >
+              {user.avatar ? (
+                <img src={user.avatar} alt={user.name} className="h-5 w-5 rounded-full" />
+              ) : (
+                <span className="grid h-5 w-5 place-items-center rounded-full bg-amber-400 text-[10px] font-bold text-amber-950">
+                  {user.name?.charAt(0).toUpperCase() || 'U'}
+                </span>
+              )}
+              <span className="hidden max-w-[110px] truncate sm:block">{user.name}</span>
+              <ChevronDown className={cn('h-3 w-3 transition', menuOpen && 'rotate-180')} />
+            </button>
+
+            {menuOpen && (
+              <div className="absolute right-0 top-10 z-50 w-52 rounded border border-zinc-200 bg-warmwhite p-1 shadow-xl dark:border-zinc-800 dark:bg-inknight">
+                <div className="px-2 py-2">
+                  <p className="truncate text-xs font-medium text-zinc-900 dark:text-zinc-100">{user.name}</p>
+                  <p className="truncate text-[11px] text-zinc-500">{user.email}</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={logout}
+                  className="flex w-full items-center gap-2 rounded px-2 py-2 text-left text-xs text-zinc-600 hover:bg-zinc-100 hover:text-zinc-950 dark:text-zinc-300 dark:hover:bg-zinc-900 dark:hover:text-zinc-50"
+                >
+                  <LogOut className="h-3.5 w-3.5" />
+                  Sign out
+                </button>
               </div>
             )}
-            <span className="text-xs font-medium hidden sm:block max-w-[100px] truncate">
-              {user.name}
-            </span>
-            <Button
-              onClick={logout}
-              variant="ghost"
-              size="icon"
-              className="h-7 w-7 text-muted-foreground hover:text-foreground"
-              title="Logout"
-            >
-              <LogOut className="h-3.5 w-3.5" />
-            </Button>
           </div>
         ) : (
-          <Button
-            asChild
-            size="sm"
-            className="h-7 text-xs bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white"
-          >
+          <Button asChild size="sm" className="h-8 bg-amber-400 text-xs text-amber-950 hover:bg-amber-300">
             <a href={getLoginUrl()}>
-              <User className="h-3 w-3 mr-1" />
+              <User className="mr-1.5 h-3.5 w-3.5" />
               Sign in
             </a>
           </Button>
@@ -102,8 +118,4 @@ export function Navbar() {
       </div>
     </header>
   );
-}
-
-function cn(...classes: (string | boolean | undefined)[]) {
-  return classes.filter(Boolean).join(' ');
 }
