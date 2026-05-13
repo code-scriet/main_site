@@ -95,8 +95,9 @@ export default function DashboardCoding() {
 
   const qotd = todayQuery.data as QOTDDetail | null | undefined;
   const problems = problemsQuery.data?.problems ?? [];
+  const qotdDate = qotd?.date;
 
-  const todayQOTDDate = useMemo(() => (qotd?.date ? qotd.date.slice(0, 10) : null), [qotd?.date]);
+  const todayQOTDDate = useMemo(() => (qotdDate ? qotdDate.slice(0, 10) : null), [qotdDate]);
 
   if (!problemsEnabled) {
     return (

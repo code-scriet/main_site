@@ -34,17 +34,18 @@ export function QOTDStreakWidget({ token }: QOTDStreakWidgetProps) {
   });
 
   const stats = statsQuery.data ?? null;
+  const last30Days = stats?.last30Days;
 
   const weeks = useMemo(() => {
-    if (!stats?.last30Days?.length) return [];
+    if (!last30Days?.length) return [];
     // 28 days → 4 weeks × 7 columns, ending on the most recent day.
-    const tail = stats.last30Days.slice(-28);
+    const tail = last30Days.slice(-28);
     const rows: Array<Array<{ date: string; solved: boolean }>> = [[], [], [], []];
     tail.forEach((entry, index) => {
       rows[Math.floor(index / 7)].push(entry);
     });
     return rows;
-  }, [stats?.last30Days]);
+  }, [last30Days]);
 
   if (statsQuery.isLoading || statsQuery.isFetching && !stats) {
     return (
