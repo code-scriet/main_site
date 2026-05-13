@@ -399,6 +399,25 @@ problemsRouter.delete('/:id', authMiddleware, requireRole('ADMIN'), async (req, 
   }
 });
 
+problemsRouter.patch('/:id/publish', authMiddleware, requireRole('ADMIN'), async (req, res) => {
+  try {
+    const admin = getAuthUser(req);
+    if (!admin) return ApiResponse.unauthorized(res);
+    const parsed = z.object({ isPublished: z.boolean() }).safeParse(req.body);
+    if (!parsed.success) return ApiResponse.badRequest(res, 'isPublished must be a boolean');
+    const existing = await prisma.problem.findUnique({ where: { id: req.params.id }, select: { id: true } });
+    if (!existing) return ApiResponse.notFound(res, 'Problem not found');
+    const problem = await prisma.problem.update({
+      where: { id: req.params.id },
+      data: { isPublished: parsed.data.isPublished },
+    });
+    await auditLog(admin.id, 'PROBLEM_PUBLISH_TOGGLED', 'Problem', problem.id, { isPublished: problem.isPublished });
+    return ApiResponse.success(res, { problem: serializeProblemSummary(problem) }, 'Publish state updated');
+  } catch (error) {
+    return handleProblemError(res, error, 'Failed to update publish state');
+  }
+});
+
 problemsRouter.post('/:id/run', authMiddleware, async (req: Request, res: Response) => {
   try {
     const user = getAuthUser(req);

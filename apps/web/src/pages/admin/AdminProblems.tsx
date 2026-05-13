@@ -1,13 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Edit3, FileJson, FileSpreadsheet, Loader2, PlayCircle, Plus, RefreshCcw, Save, Trash2, Upload } from 'lucide-react';
+import { CalendarPlus, Copy, Edit3, Eye, EyeOff, FileJson, FileSpreadsheet, Loader2, MoreHorizontal, PlayCircle, Plus, RefreshCcw, Save, Trash2, Trophy, Upload } from 'lucide-react';
 import { toast } from 'sonner';
 import { useAuth } from '@/context/AuthContext';
-import { api, type Problem, type ProblemContextType, type ProblemInput, type ProblemLanguage, type ProblemSubmission, type ProblemTestCase, type SubmissionVerdict } from '@/lib/api';
+import { api, type CompetitionRound, type Event as ApiEvent, type Problem, type ProblemContextType, type ProblemInput, type ProblemLanguage, type ProblemSubmission, type ProblemTestCase, type SubmissionVerdict } from '@/lib/api';
 import { Markdown } from '@/components/ui/markdown';
 import { Button } from '@/components/ui/button';
 import { PendingCapRequestsTray } from '@/components/problems/PendingCapRequestsTray';
+import { getPlaygroundLaunchUrl } from '@/lib/playgroundUrl';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -18,6 +19,22 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 
 const LANGUAGES: ProblemLanguage[] = ['PYTHON', 'JAVASCRIPT', 'CPP', 'JAVA'];
 const VERDICTS: SubmissionVerdict[] = ['ACCEPTED', 'WRONG_ANSWER', 'TIME_LIMIT_EXCEEDED', 'RUNTIME_ERROR', 'COMPILATION_ERROR', 'JUDGE_ERROR'];
@@ -597,6 +614,13 @@ export default function AdminProblems() {
   const [expandedSubmissions, setExpandedSubmissions] = useState<string | null>(null);
   const [job, setJob] = useState<{ problemId: string; jobId: string } | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Problem | null>(null);
+  const [qotdTarget, setQotdTarget] = useState<Problem | null>(null);
+  const [qotdDate, setQotdDate] = useState<string>(() => new Date(Date.now() + 330 * 60 * 1000).toISOString().slice(0, 10));
+  const [qotdPublishNow, setQotdPublishNow] = useState(true);
+  const [contestTarget, setContestTarget] = useState<Problem | null>(null);
+  const [contestEventId, setContestEventId] = useState<string>('');
+  const [contestRoundId, setContestRoundId] = useState<string>('');
+  const [contestPoints, setContestPoints] = useState<number>(100);
 
   const problemsQuery = useQuery({
     queryKey: ['admin-problems'],
@@ -645,6 +669,102 @@ export default function AdminProblems() {
       await queryClient.invalidateQueries({ queryKey: ['admin-problems'] });
     },
     onError: (error) => toast.error(error instanceof Error ? error.message : 'Failed to delete problem'),
+  });
+
+  const togglePublishMutation = useMutation({
+    mutationFn: ({ id, isPublished }: { id: string; isPublished: boolean }) =>
+      api.setProblemPublished(id, isPublished, token!),
+    onSuccess: async (_data, variables) => {
+      toast.success(variables.isPublished ? 'Published to practice' : 'Unpublished from practice');
+      await queryClient.invalidateQueries({ queryKey: ['admin-problems'] });
+    },
+    onError: (error) => toast.error(error instanceof Error ? error.message : 'Failed to update publish state'),
+  });
+
+  const duplicateMutation = useMutation({
+    mutationFn: async (problem: Problem) => {
+      const detail = await api.getProblem(problem.id, { token: token! });
+      const source = detail.problem;
+      const baseSlug = (source.slug || 'problem').slice(0, 100);
+      const newSlug = `${baseSlug}-copy-${Date.now().toString(36).slice(-5)}`;
+      const input: ProblemInput = {
+        slug: newSlug,
+        title: `${source.title} (copy)`,
+        body: source.body ?? '',
+        difficulty: source.difficulty,
+        tags: source.tags ?? [],
+        allowedLanguages: source.allowedLanguages,
+        timeLimitMs: source.timeLimitMs ?? 2000,
+        defaultSubmitCap: source.defaultSubmitCap ?? 5,
+        sampleTests: source.sampleTests ?? [],
+        hiddenTests: source.hiddenTests ?? [],
+        referenceSolution: source.referenceSolution ?? '',
+        referenceLanguage: source.referenceLanguage,
+        isPublished: false,
+      };
+      return api.createProblem(input, token!);
+    },
+    onSuccess: async () => {
+      toast.success('Problem duplicated (as unpublished draft)');
+      await queryClient.invalidateQueries({ queryKey: ['admin-problems'] });
+    },
+    onError: (error) => toast.error(error instanceof Error ? error.message : 'Failed to duplicate problem'),
+  });
+
+  const useAsQotdMutation = useMutation({
+    mutationFn: async ({ problemId, date, publishNow }: { problemId: string; date: string; publishNow: boolean }) =>
+      api.createQOTD({ date, problemId, publishNow }, token!),
+    onSuccess: async () => {
+      toast.success(qotdPublishNow ? 'QOTD scheduled and published' : 'QOTD scheduled as draft');
+      setQotdTarget(null);
+    },
+    onError: (error) => toast.error(error instanceof Error ? error.message : 'Failed to create QOTD'),
+  });
+
+  const eventsQuery = useQuery({
+    queryKey: ['admin-events-for-contest-picker'],
+    queryFn: () => api.getEvents(),
+    enabled: Boolean(contestTarget),
+    staleTime: 30_000,
+  });
+
+  const contestRoundsQuery = useQuery({
+    queryKey: ['admin-contest-rounds', contestEventId],
+    queryFn: () => api.getCompetitionRoundsAdmin(contestEventId, token!),
+    enabled: Boolean(contestTarget && contestEventId && token),
+  });
+
+  const eligibleContestRounds = useMemo<CompetitionRound[]>(() => {
+    const rounds = contestRoundsQuery.data?.rounds ?? [];
+    return rounds.filter((round) => round.roundType === 'DSA' && (round.status === 'DRAFT' || round.status === 'LOCKED'));
+  }, [contestRoundsQuery.data?.rounds]);
+
+  const addToContestMutation = useMutation({
+    mutationFn: async ({ roundId, problemId, points }: { roundId: string; problemId: string; points: number }) => {
+      const round = await api.getCompetitionRound(roundId, token!);
+      const existing = (round.problems ?? []).map((link, index) => ({
+        problemId: link.problemId ?? link.problem?.id ?? '',
+        displayOrder: link.displayOrder ?? index,
+        points: link.points ?? 100,
+      })).filter((entry) => entry.problemId);
+      if (existing.some((entry) => entry.problemId === problemId)) {
+        throw new Error('This problem is already part of the selected round.');
+      }
+      const nextProblems = [
+        ...existing,
+        { problemId, displayOrder: existing.length, points },
+      ];
+      return api.updateCompetitionRound(roundId, { problems: nextProblems }, token!);
+    },
+    onSuccess: async () => {
+      toast.success('Problem added to contest round');
+      setContestTarget(null);
+      setContestEventId('');
+      setContestRoundId('');
+      setContestPoints(100);
+      await queryClient.invalidateQueries({ queryKey: ['admin-contest-rounds'] });
+    },
+    onError: (error) => toast.error(error instanceof Error ? error.message : 'Failed to add to contest'),
   });
 
   const editProblem = async (problem: Problem) => {
@@ -828,9 +948,65 @@ export default function AdminProblems() {
                   <td className="px-4 py-3">{problem.isPublished ? 'Yes' : 'No'}</td>
                   <td className="px-4 py-3">
                     <div className="flex flex-wrap gap-2">
-                      <button type="button" aria-label={`Edit ${problem.title}`} onClick={() => void editProblem(problem)} className="rounded p-2 text-blue-700 hover:bg-blue-50"><Edit3 className="h-4 w-4" /></button>
-                      <button type="button" aria-label={`View submissions for ${problem.title}`} onClick={() => setExpandedSubmissions(expandedSubmissions === problem.id ? null : problem.id)} className="rounded p-2 text-gray-700 hover:bg-gray-50"><RefreshCcw className="h-4 w-4" /></button>
-                      <button type="button" aria-label={`Delete ${problem.title}`} onClick={() => setDeleteTarget(problem)} className="rounded p-2 text-red-700 hover:bg-red-50"><Trash2 className="h-4 w-4" /></button>
+                      <button type="button" aria-label={`Edit ${problem.title}`} title="Edit" onClick={() => void editProblem(problem)} className="rounded p-2 text-blue-700 hover:bg-blue-50"><Edit3 className="h-4 w-4" /></button>
+                      <button type="button" aria-label={`View submissions for ${problem.title}`} title="View submissions" onClick={() => setExpandedSubmissions(expandedSubmissions === problem.id ? null : problem.id)} className="rounded p-2 text-gray-700 hover:bg-gray-50"><RefreshCcw className="h-4 w-4" /></button>
+                      <button
+                        type="button"
+                        aria-label={problem.isPublished ? `Unpublish ${problem.title}` : `Publish ${problem.title} to practice`}
+                        title={problem.isPublished ? 'Unpublish from practice' : 'Publish to practice'}
+                        disabled={togglePublishMutation.isPending}
+                        onClick={() => togglePublishMutation.mutate({ id: problem.id, isPublished: !problem.isPublished })}
+                        className={problem.isPublished ? 'rounded p-2 text-emerald-700 hover:bg-emerald-50' : 'rounded p-2 text-gray-500 hover:bg-gray-50'}
+                      >
+                        {problem.isPublished ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
+                      </button>
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <button type="button" aria-label={`More actions for ${problem.title}`} title="More actions" className="rounded p-2 text-gray-700 hover:bg-gray-50">
+                            <MoreHorizontal className="h-4 w-4" />
+                          </button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end" className="w-56">
+                          <DropdownMenuLabel>Use this problem</DropdownMenuLabel>
+                          <DropdownMenuItem
+                            onSelect={() => {
+                              setQotdDate(new Date(Date.now() + 330 * 60 * 1000).toISOString().slice(0, 10));
+                              setQotdPublishNow(true);
+                              setQotdTarget(problem);
+                            }}
+                          >
+                            <CalendarPlus className="mr-2 h-4 w-4" /> Use as QOTD…
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            onSelect={() => {
+                              setContestEventId('');
+                              setContestRoundId('');
+                              setContestPoints(100);
+                              setContestTarget(problem);
+                            }}
+                          >
+                            <Trophy className="mr-2 h-4 w-4" /> Add to Contest…
+                          </DropdownMenuItem>
+                          <DropdownMenuSeparator />
+                          <DropdownMenuLabel>Manage</DropdownMenuLabel>
+                          <DropdownMenuItem
+                            onSelect={() => duplicateMutation.mutate(problem)}
+                            disabled={duplicateMutation.isPending}
+                          >
+                            <Copy className="mr-2 h-4 w-4" /> Duplicate as draft
+                          </DropdownMenuItem>
+                          <DropdownMenuItem asChild>
+                            <a
+                              href={getPlaygroundLaunchUrl(`/?problem=${encodeURIComponent(problem.slug)}`)}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                            >
+                              <PlayCircle className="mr-2 h-4 w-4" /> Open in Playground
+                            </a>
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                      <button type="button" aria-label={`Delete ${problem.title}`} title="Delete" onClick={() => setDeleteTarget(problem)} className="rounded p-2 text-red-700 hover:bg-red-50"><Trash2 className="h-4 w-4" /></button>
                     </div>
                   </td>
                 </tr>
@@ -878,6 +1054,128 @@ export default function AdminProblems() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <Dialog open={Boolean(qotdTarget)} onOpenChange={(open) => { if (!open) setQotdTarget(null); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Use as QOTD</DialogTitle>
+            <DialogDescription>
+              {qotdTarget ? `Schedule "${qotdTarget.title}" as the Question of the Day for a chosen date.` : ''}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="space-y-1.5">
+              <label htmlFor="qotd-date-picker" className="text-sm font-medium text-gray-700">Date (IST)</label>
+              <input
+                id="qotd-date-picker"
+                type="date"
+                value={qotdDate}
+                onChange={(event) => setQotdDate(event.target.value)}
+                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
+              />
+              <p className="text-xs text-gray-500">Each date can have only one QOTD. Choosing a past date is allowed for backfills.</p>
+            </div>
+            <label className="flex items-center gap-2 text-sm text-gray-700">
+              <input
+                type="checkbox"
+                checked={qotdPublishNow}
+                onChange={(event) => setQotdPublishNow(event.target.checked)}
+              />
+              Publish immediately (otherwise saved as scheduled draft)
+            </label>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setQotdTarget(null)}>Cancel</Button>
+            <Button
+              disabled={useAsQotdMutation.isPending || !qotdDate}
+              onClick={() => {
+                if (!qotdTarget || !qotdDate) return;
+                useAsQotdMutation.mutate({ problemId: qotdTarget.id, date: qotdDate, publishNow: qotdPublishNow });
+              }}
+            >
+              {useAsQotdMutation.isPending ? (<><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Scheduling…</>) : 'Schedule QOTD'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={Boolean(contestTarget)} onOpenChange={(open) => { if (!open) { setContestTarget(null); setContestEventId(''); setContestRoundId(''); } }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Add to Contest Round</DialogTitle>
+            <DialogDescription>
+              {contestTarget ? `Append "${contestTarget.title}" to a DSA contest round that isn't currently running.` : ''}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="space-y-1.5">
+              <label htmlFor="contest-event-picker" className="text-sm font-medium text-gray-700">Event</label>
+              <select
+                id="contest-event-picker"
+                value={contestEventId}
+                onChange={(event) => { setContestEventId(event.target.value); setContestRoundId(''); }}
+                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
+                disabled={eventsQuery.isLoading}
+              >
+                <option value="">{eventsQuery.isLoading ? 'Loading events…' : 'Select an event…'}</option>
+                {(eventsQuery.data ?? []).map((event: ApiEvent) => (
+                  <option key={event.id} value={event.id}>{event.title}</option>
+                ))}
+              </select>
+            </div>
+            {contestEventId && (
+              <div className="space-y-1.5">
+                <label htmlFor="contest-round-picker" className="text-sm font-medium text-gray-700">DSA round</label>
+                <select
+                  id="contest-round-picker"
+                  value={contestRoundId}
+                  onChange={(event) => setContestRoundId(event.target.value)}
+                  className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
+                  disabled={contestRoundsQuery.isLoading}
+                >
+                  <option value="">
+                    {contestRoundsQuery.isLoading
+                      ? 'Loading rounds…'
+                      : eligibleContestRounds.length === 0
+                        ? 'No editable DSA rounds on this event'
+                        : 'Select a round…'}
+                  </option>
+                  {eligibleContestRounds.map((round) => (
+                    <option key={round.id} value={round.id}>{round.title} ({round.status})</option>
+                  ))}
+                </select>
+                <p className="text-xs text-gray-500">Only DSA rounds in DRAFT or LOCKED status are listed — ACTIVE/JUDGING/FINISHED rounds cannot be edited.</p>
+              </div>
+            )}
+            {contestRoundId && (
+              <div className="space-y-1.5">
+                <label htmlFor="contest-points" className="text-sm font-medium text-gray-700">Points</label>
+                <input
+                  id="contest-points"
+                  type="number"
+                  min={1}
+                  max={1000}
+                  value={contestPoints}
+                  onChange={(event) => setContestPoints(Math.max(1, Math.min(1000, Number(event.target.value) || 100)))}
+                  className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
+                />
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { setContestTarget(null); setContestEventId(''); setContestRoundId(''); }}>Cancel</Button>
+            <Button
+              disabled={addToContestMutation.isPending || !contestRoundId}
+              onClick={() => {
+                if (!contestTarget || !contestRoundId) return;
+                addToContestMutation.mutate({ roundId: contestRoundId, problemId: contestTarget.id, points: contestPoints });
+              }}
+            >
+              {addToContestMutation.isPending ? (<><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Adding…</>) : 'Add to Round'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

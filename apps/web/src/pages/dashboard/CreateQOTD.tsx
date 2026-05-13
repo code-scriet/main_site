@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Label } from '@/components/ui/label';
-import { Code, Loader2, Plus, ExternalLink, Pause, Play, BookOpenCheck, EyeOff, Pencil, FileCode2, Link2, Pen, Users } from 'lucide-react';
+import { Code, Loader2, Plus, ExternalLink, Pause, Play, BookOpenCheck, EyeOff, Pencil, FileCode2, Link2, Pen, Users, Trash2 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { formatDate } from '@/lib/dateUtils';
 import { Link } from 'react-router-dom';
@@ -152,6 +152,11 @@ export default function CreateQOTD() {
     runRowAction(qotd.id, () => api.publishQOTDToPractice(qotd.id, token!), 'Published to practice catalog');
   const handleUnpublishFromPractice = (qotd: QOTD) =>
     runRowAction(qotd.id, () => api.unpublishQOTDFromPractice(qotd.id, token!), 'Removed from practice catalog');
+  const handleDelete = (qotd: QOTD) => {
+    const dateLabel = String(qotd.date).slice(0, 10);
+    if (!window.confirm(`Delete QOTD for ${dateLabel}? This removes the QOTD entry only — the underlying problem (if any) stays in the catalog. This cannot be undone.`)) return;
+    return runRowAction(qotd.id, () => api.deleteQOTD(qotd.id, token!), 'QOTD deleted');
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -634,6 +639,16 @@ export default function CreateQOTD() {
                             Remove from Practice
                           </Button>
                         )}
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          disabled={busy}
+                          onClick={() => void handleDelete(qotd)}
+                          className="text-rose-700 hover:bg-rose-50 hover:text-rose-800"
+                          aria-label={`Delete QOTD for ${qotdDateKey}`}
+                        >
+                          {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+                        </Button>
                       </div>
                     </div>
                   </motion.div>

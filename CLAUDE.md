@@ -685,6 +685,7 @@ api.resendInvitationEmail(id, token)
 | `/api/problems` | POST | Admin | Create problem |
 | `/api/problems/:id` | PUT | Admin | Update problem |
 | `/api/problems/:id` | DELETE | Admin | Delete problem (blocked if linked to contest) |
+| `/api/problems/:id/publish` | PATCH | Admin | Toggle `isPublished` for the practice catalog |
 | `/api/problems/:id/run` | POST | User | Run sample tests only (no grading persistence) |
 | `/api/problems/:id/submit` | POST | User | Judge + persist graded submission |
 | `/api/problems/:id/my-submission` | GET | User | My submission + cap usage for context |

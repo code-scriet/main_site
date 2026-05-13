@@ -48,6 +48,8 @@ export const codingApi = {
     request<{ problem: Problem }>(`/problems/${id}`, { method: 'PUT', body: JSON.stringify({ ...input, rejudge }), token }),
   deleteProblem: (id: string, token: string) =>
     request<{ success: boolean }>(`/problems/${id}`, { method: 'DELETE', token }),
+  setProblemPublished: (id: string, isPublished: boolean, token: string) =>
+    request<{ problem: Problem }>(`/problems/${id}/publish`, { method: 'PATCH', body: JSON.stringify({ isPublished }), token }),
   runProblem: (id: string, data: { language: ProblemLanguage; code: string; contextType?: ProblemContextType; contextKey?: string }, token: string) =>
     request<TestRunResult>(`/problems/${id}/run`, { method: 'POST', body: JSON.stringify(data), token }),
   submitProblem: (id: string, data: { language: ProblemLanguage; code: string; contextType: ProblemContextType; contextKey: string }, token: string) =>
@@ -111,5 +113,7 @@ export const codingApi = {
     request<{ success: boolean }>(`/qotd/${id}/unpublish-practice`, { method: 'POST', token }),
   submitQOTD: (id: string, token: string) =>
     request(`/qotd/${id}/submit`, { method: 'POST', token }),
+  deleteQOTD: (id: string, token: string) =>
+    request<{ success: boolean }>(`/qotd/${id}`, { method: 'DELETE', token }),
   getQOTDStats: (token: string) => request<QOTDStats>('/users/me/qotd-stats', { token }),
 } as const;
