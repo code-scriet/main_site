@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { motion } from 'framer-motion';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -87,7 +87,7 @@ export default function CreateQOTD() {
   });
   const [publishNow, setPublishNow] = useState(true);
   const [rowBusy, setRowBusy] = useState<string | null>(null);
-  const publishedProblems = useMemo(() => problemCatalog.filter((problem) => problem.isPublished), [problemCatalog]);
+  const publishedProblems = problemCatalog;
 
   const loadRecentQOTDs = useCallback(async () => {
     if (!token) {
