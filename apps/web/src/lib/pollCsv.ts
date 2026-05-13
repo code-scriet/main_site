@@ -8,7 +8,7 @@ export const downloadCsvFile = (filename: string, headers: string[], rows: Array
     headers.map(formatCsvCell).join(','),
     ...rows.map((row) => row.map(formatCsvCell).join(',')),
   ];
-  const content = `﻿${csvRows.join('\n')}`;
+  const content = `\uFEFF${csvRows.join('\n')}`;
   const blob = new Blob([content], { type: 'text/csv;charset=utf-8;' });
   const url = window.URL.createObjectURL(blob);
   const anchor = document.createElement('a');
