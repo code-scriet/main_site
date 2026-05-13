@@ -80,6 +80,7 @@ const coreMemberNavItems = [
   { id: 'core-attendance', name: 'Take Attendance', href: '/dashboard/attendance', icon: QrCode },
   { id: 'core-create-event', name: 'Create Event', href: '/dashboard/events/new', icon: Calendar },
   { id: 'core-create-announcement', name: 'Create Announcement', href: '/dashboard/announcements/new', icon: Bell },
+  { id: 'core-create-problem', name: 'Create Problem', href: '/dashboard/problems/new', icon: Code },
   { id: 'core-qotd', name: 'Manage QOTD', href: '/dashboard/qotd', icon: Code },
   { id: 'core-quiz', name: 'Quiz Manager', href: '/dashboard/quiz', icon: Zap },
   { id: 'core-upload', name: 'Upload Image', href: '/dashboard/upload', icon: Upload },

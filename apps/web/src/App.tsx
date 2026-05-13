@@ -77,6 +77,7 @@ const DashboardCoding = lazy(() => import('@/pages/dashboard/DashboardCoding'));
 const CreateEvent = lazy(() => import('@/pages/dashboard/CreateEvent'));
 const CreateAnnouncement = lazy(() => import('@/pages/dashboard/CreateAnnouncement'));
 const CreateQOTD = lazy(() => import('@/pages/dashboard/CreateQOTD'));
+const CreateProblem = lazy(() => import('@/pages/dashboard/CreateProblem'));
 const ProfilePage = lazy(() => import('@/pages/dashboard/ProfilePage'));
 const ImageUploadTool = lazy(() => import('@/pages/dashboard/ImageUploadTool'));
 const EditTeamProfile = lazy(() => import('@/pages/dashboard/EditTeamProfile'));
@@ -204,6 +205,8 @@ function App() {
                       <Route element={<ProtectedRoute minRole="CORE_MEMBER" />}>
                         <Route path="attendance" element={withRouteBoundary(<AttendancePage />)} />
                         <Route path="events/:eventId/attendance" element={withRouteBoundary(<EventAdminHub />)} />
+                        <Route path="problems/new" element={withRouteBoundary(<CreateProblem />)} />
+                        <Route path="problems/:id/edit" element={withRouteBoundary(<CreateProblem />)} />
                       </Route>
                     </Route>
                     <Route path="/quiz/create" element={withRouteBoundary(<AdminQuizCreator />)} />
