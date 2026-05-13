@@ -1,31 +1,17 @@
 import { useDeferredValue, useEffect, useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
-import {
-  BarChart3,
-  CheckCircle2,
-  Copy,
-  Download,
-  Loader2,
-  MessageSquare,
-  Pencil,
-  Plus,
-  RefreshCw,
-  Search,
-  Trash2,
-  Users,
-} from 'lucide-react';
+import { Loader2, Plus, RefreshCw } from 'lucide-react';
 import { toast } from 'sonner';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { InfoRow, StatTile } from '@/components/admin/polls/atoms';
 import { PollEditor } from '@/components/admin/polls/PollEditor';
 import { PollListSidebar } from '@/components/admin/polls/PollListSidebar';
+import { PollDetailHeader } from '@/components/admin/polls/PollDetailHeader';
+import { PollOverviewTab } from '@/components/admin/polls/PollOverviewTab';
+import { PollResponsesTab } from '@/components/admin/polls/PollResponsesTab';
+import { PollFeedbackTab } from '@/components/admin/polls/PollFeedbackTab';
 import { api, type AdminPollDetail, type AdminPollListItem, type PollInput } from '@/lib/api';
-import { formatDateTime, formatDateTimeLocal } from '@/lib/dateUtils';
+import { formatDateTimeLocal } from '@/lib/dateUtils';
 import { useAuth } from '@/context/AuthContext';
 import { cn } from '@/lib/utils';
 import {
@@ -36,11 +22,9 @@ import {
   FEEDBACK_CSV_HEADERS,
 } from '@/lib/pollCsv';
 import {
-  ANONYMITY_TABS,
   EMPTY_POLL_FORM,
   filterAndSortFeedback,
   filterAndSortResponses,
-  STATUS_TABS,
   type DetailTab,
   type FeedbackLengthFilter,
   type FeedbackSort,
@@ -549,51 +533,15 @@ export default function AdminPublicView() {
             />
           ) : selectedPoll ? (
             <Card className="border-gray-200 shadow-sm">
-              <CardHeader className="border-b border-gray-100">
-                <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-                  <div className="space-y-3">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <Badge variant={selectedPoll.isClosed ? 'secondary' : 'success'}>
-                        {selectedPoll.isClosed ? 'Closed' : 'Open'}
-                      </Badge>
-                      {!selectedPoll.isPublished && <Badge variant="outline">Draft</Badge>}
-                      <Badge variant="outline">{selectedPoll.options.length === 0 ? 'Question' : 'Normal'}</Badge>
-                      <Badge variant="outline">
-                        {selectedPoll.allowMultipleChoices ? 'Multiple choice' : 'Single choice'}
-                      </Badge>
-                      <Badge variant="outline">{selectedPoll.isAnonymous ? 'Anonymous' : 'Named'}</Badge>
-                    </div>
-                    <div>
-                      <CardTitle className="text-2xl text-gray-950">{selectedPoll.question}</CardTitle>
-                      <CardDescription className="mt-1 max-w-3xl text-sm leading-6 text-gray-600">
-                        {selectedPoll.description || 'No description added.'}
-                      </CardDescription>
-                    </div>
-                  </div>
-
-                  <div className="flex flex-wrap gap-2">
-                    <Button variant="outline" size="sm" onClick={handleCopyLink}>
-                      <Copy className="h-4 w-4" />
-                      Copy link
-                    </Button>
-                    <Link to={`/polls/${selectedPoll.slug}`} target="_blank" rel="noreferrer">
-                      <Button variant="outline" size="sm">Open public page</Button>
-                    </Link>
-                    <Button variant="outline" size="sm" onClick={handleExport} disabled={exporting}>
-                      {exporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
-                      Export
-                    </Button>
-                    <Button variant="outline" size="sm" onClick={openEditForm}>
-                      <Pencil className="h-4 w-4" />
-                      Edit
-                    </Button>
-                    <Button variant="destructive" size="sm" onClick={handleDelete} disabled={saving}>
-                      <Trash2 className="h-4 w-4" />
-                      Delete
-                    </Button>
-                  </div>
-                </div>
-              </CardHeader>
+              <PollDetailHeader
+                poll={selectedPoll}
+                onCopyLink={handleCopyLink}
+                onExport={handleExport}
+                onEdit={openEditForm}
+                onDelete={handleDelete}
+                exporting={exporting}
+                saving={saving}
+              />
 
               <CardContent className="pt-6">
                 <Tabs value={detailTab} onValueChange={(value) => setDetailTab(value as DetailTab)}>
@@ -604,360 +552,52 @@ export default function AdminPublicView() {
                     <TabsTrigger value="editor">Editor</TabsTrigger>
                   </TabsList>
 
-                  <TabsContent value="overview" className="space-y-6">
-                    <div className="grid gap-4 md:grid-cols-4">
-                      <StatTile label="Votes" value={selectedPoll.totalVotes} icon={Users} />
-                      <StatTile label="Feedback" value={selectedPoll.totalFeedback} icon={MessageSquare} />
-                      <StatTile label="Options" value={selectedPoll.options.length} icon={BarChart3} />
-                      <StatTile label="Type" valueText={selectedPoll.options.length === 0 ? 'Question' : 'Normal'} icon={CheckCircle2} />
-                    </div>
-
-                    {selectedPoll.options.length === 0 ? (
-                      <Card className="border-gray-200 shadow-none">
-                        <CardContent className="py-8 text-sm text-gray-600">
-                          This is a question-type poll. Participants submit free-text questions in the feedback area, and no option voting is collected.
-                        </CardContent>
-                      </Card>
-                    ) : (
-                      <div className="space-y-3">
-                        {selectedPoll.options.map((option) => (
-                          <div key={option.id} className="rounded-xl border border-gray-200 bg-white px-4 py-4">
-                            <div className="flex items-center justify-between gap-3">
-                              <div className="font-medium text-gray-900">{option.text}</div>
-                              <div className="text-sm text-gray-500">
-                                {option.voteCount} votes · {option.percentage}%
-                              </div>
-                            </div>
-                            <div className="mt-3 h-2 overflow-hidden rounded-full bg-gray-100">
-                              <div
-                                className="h-full rounded-full bg-amber-500"
-                                style={{ width: `${Math.max(option.percentage, option.voteCount > 0 ? 4 : 0)}%` }}
-                              />
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-
-                    <div className="grid gap-4 md:grid-cols-2">
-                      <InfoRow label="Created" value={formatDateTime(selectedPoll.createdAt)} />
-                      <InfoRow label="Last updated" value={formatDateTime(selectedPoll.updatedAt)} />
-                      <InfoRow label="Deadline" value={selectedPoll.deadline ? formatDateTime(selectedPoll.deadline) : 'No deadline'} />
-                      <InfoRow label="Created by" value={`${selectedPoll.creator.name} · ${selectedPoll.creator.email}`} />
-                    </div>
+                  <TabsContent value="overview">
+                    <PollOverviewTab poll={selectedPoll} />
                   </TabsContent>
 
-                  <TabsContent value="responses" className="space-y-4">
-                    {selectedPoll.options.length === 0 ? (
-                      <Card className="border-gray-200 shadow-none">
-                        <CardContent className="py-10 text-center text-sm text-gray-500">
-                          Question-type polls do not collect option votes. Use the Feedback tab to review submitted questions.
-                        </CardContent>
-                      </Card>
-                    ) : selectedPoll.isAnonymous ? (
-                      <Card className="border-gray-200 shadow-none">
-                        <CardContent className="py-10 text-center text-sm text-gray-500">
-                          This poll is anonymous. Individual voter identities are intentionally hidden here and in exports.
-                        </CardContent>
-                      </Card>
-                    ) : (
-                      <>
-                        <div className="rounded-xl border border-gray-200 bg-gray-50 p-4">
-                          <div className="grid gap-3 lg:grid-cols-4">
-                            <div className="relative lg:col-span-2">
-                              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
-                              <Input
-                                value={responseSearch}
-                                onChange={(event) => setResponseSearch(event.target.value)}
-                                placeholder="Search by user, email, role, or option"
-                                className="pl-9"
-                              />
-                            </div>
-
-                            <select
-                              value={responseRoleFilter}
-                              onChange={(event) => setResponseRoleFilter(event.target.value)}
-                              className="h-10 rounded-md border border-input bg-background px-3 text-sm"
-                            >
-                              <option value="ALL">All roles</option>
-                              {responseRoleOptions.map((role) => (
-                                <option key={role} value={role}>{role.replace(/_/g, ' ')}</option>
-                              ))}
-                            </select>
-
-                            <select
-                              value={responseOptionFilter}
-                              onChange={(event) => setResponseOptionFilter(event.target.value)}
-                              className="h-10 rounded-md border border-input bg-background px-3 text-sm"
-                            >
-                              <option value="ALL">All options</option>
-                              {selectedPoll.options.map((option) => (
-                                <option key={option.id} value={option.id}>{option.text}</option>
-                              ))}
-                            </select>
-                          </div>
-
-                          <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
-                            <div className="flex items-center gap-2">
-                              <Label htmlFor="responses-sort" className="text-xs text-gray-600">Sort</Label>
-                              <select
-                                id="responses-sort"
-                                value={responseSort}
-                                onChange={(event) => setResponseSort(event.target.value as ResponseSort)}
-                                className="h-9 rounded-md border border-input bg-background px-3 text-sm"
-                              >
-                                <option value="NEWEST">Newest first</option>
-                                <option value="OLDEST">Oldest first</option>
-                              </select>
-                            </div>
-
-                            <div className="flex items-center gap-3">
-                              <span className="text-xs text-gray-600">
-                                Showing {filteredResponses.length} of {selectedPoll.responses.length} responses
-                              </span>
-                              <Button type="button" variant="outline" size="sm" onClick={clearResponseFilters}>
-                                Clear filters
-                              </Button>
-                            </div>
-                          </div>
-
-                          <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-gray-200 pt-3">
-                            <span className="text-xs text-gray-600">{selectedResponseIds.length} selected</span>
-                            <div className="flex flex-wrap gap-2">
-                              <Button type="button" variant="outline" size="sm" onClick={selectFilteredResponses}>
-                                Select filtered
-                              </Button>
-                              <Button
-                                type="button"
-                                variant="outline"
-                                size="sm"
-                                onClick={() => setSelectedResponseIds([])}
-                                disabled={selectedResponseIds.length === 0}
-                              >
-                                Clear selected
-                              </Button>
-                              <Button
-                                type="button"
-                                variant="outline"
-                                size="sm"
-                                onClick={() => exportResponses('selected')}
-                                disabled={selectedResponseIds.length === 0}
-                              >
-                                Extract selected
-                              </Button>
-                              <Button
-                                type="button"
-                                variant="outline"
-                                size="sm"
-                                onClick={() => exportResponses('filtered')}
-                                disabled={filteredResponses.length === 0}
-                              >
-                                Extract filtered
-                              </Button>
-                              <Button
-                                type="button"
-                                variant="outline"
-                                size="sm"
-                                onClick={() => exportResponses('all')}
-                                disabled={selectedPoll.responses.length === 0}
-                              >
-                                Extract all
-                              </Button>
-                            </div>
-                          </div>
-                        </div>
-
-                        <div className="space-y-3">
-                          {filteredResponses.length === 0 ? (
-                            <Card className="border-gray-200 shadow-none">
-                              <CardContent className="py-10 text-center text-sm text-gray-500">
-                                No responses matched that search.
-                              </CardContent>
-                            </Card>
-                          ) : (
-                            filteredResponses.map((response) => (
-                              <div key={response.id} className="rounded-xl border border-gray-200 bg-white px-4 py-4">
-                                <div className="flex items-start gap-3">
-                                  <input
-                                    type="checkbox"
-                                    className="mt-1 h-4 w-4 rounded border-gray-300 text-amber-600 focus:ring-amber-500"
-                                    checked={selectedResponseIds.includes(response.id)}
-                                    onChange={() => toggleResponseSelection(response.id)}
-                                    aria-label={`Select response from ${response.user.name}`}
-                                  />
-                                  <div className="min-w-0 flex-1">
-                                    <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-                                      <div>
-                                        <div className="font-medium text-gray-950">{response.user.name}</div>
-                                        <div className="text-sm text-gray-500">{response.user.email}</div>
-                                        <div className="mt-1 text-xs text-gray-500">{response.user.role.replace(/_/g, ' ')}</div>
-                                      </div>
-                                      <div className="text-xs text-gray-500">
-                                        Updated {formatDateTime(response.updatedAt)}
-                                      </div>
-                                    </div>
-                                    <div className="mt-3 flex flex-wrap gap-2">
-                                      {response.optionLabels.map((label) => (
-                                        <Badge key={label} variant="secondary" className="bg-amber-100 text-amber-900">
-                                          {label}
-                                        </Badge>
-                                      ))}
-                                    </div>
-                                  </div>
-                                </div>
-                              </div>
-                            ))
-                          )}
-                        </div>
-                      </>
-                    )}
+                  <TabsContent value="responses">
+                    <PollResponsesTab
+                      poll={selectedPoll}
+                      responseSearch={responseSearch}
+                      onResponseSearchChange={setResponseSearch}
+                      responseRoleFilter={responseRoleFilter}
+                      onResponseRoleFilterChange={setResponseRoleFilter}
+                      responseOptionFilter={responseOptionFilter}
+                      onResponseOptionFilterChange={setResponseOptionFilter}
+                      responseSort={responseSort}
+                      onResponseSortChange={setResponseSort}
+                      responseRoleOptions={responseRoleOptions}
+                      filteredResponses={filteredResponses}
+                      selectedResponseIds={selectedResponseIds}
+                      onToggleResponseSelection={toggleResponseSelection}
+                      onSelectFilteredResponses={selectFilteredResponses}
+                      onClearSelectedResponses={() => setSelectedResponseIds([])}
+                      onClearResponseFilters={clearResponseFilters}
+                      onExport={exportResponses}
+                    />
                   </TabsContent>
 
-                  <TabsContent value="feedback" className="space-y-4">
-                    <div className="rounded-xl border border-gray-200 bg-gray-50 p-4">
-                      <div className="grid gap-3 lg:grid-cols-4">
-                        <div className="relative lg:col-span-2">
-                          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
-                          <Input
-                            value={feedbackSearch}
-                            onChange={(event) => setFeedbackSearch(event.target.value)}
-                            placeholder="Search feedback by user, role, email, or text"
-                            className="pl-9"
-                          />
-                        </div>
-
-                        <select
-                          value={feedbackRoleFilter}
-                          onChange={(event) => setFeedbackRoleFilter(event.target.value)}
-                          className="h-10 rounded-md border border-input bg-background px-3 text-sm"
-                        >
-                          <option value="ALL">All roles</option>
-                          {feedbackRoleOptions.map((role) => (
-                            <option key={role} value={role}>{role.replace(/_/g, ' ')}</option>
-                          ))}
-                        </select>
-
-                        <select
-                          value={feedbackLengthFilter}
-                          onChange={(event) => setFeedbackLengthFilter(event.target.value as FeedbackLengthFilter)}
-                          className="h-10 rounded-md border border-input bg-background px-3 text-sm"
-                        >
-                          <option value="ALL">All lengths</option>
-                          <option value="SHORT">Short (0-120)</option>
-                          <option value="MEDIUM">Medium (121-350)</option>
-                          <option value="LONG">Long (351+)</option>
-                        </select>
-                      </div>
-
-                      <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
-                        <div className="flex items-center gap-2">
-                          <Label htmlFor="feedback-sort" className="text-xs text-gray-600">Sort</Label>
-                          <select
-                            id="feedback-sort"
-                            value={feedbackSort}
-                            onChange={(event) => setFeedbackSort(event.target.value as FeedbackSort)}
-                            className="h-9 rounded-md border border-input bg-background px-3 text-sm"
-                          >
-                            <option value="NEWEST">Newest first</option>
-                            <option value="OLDEST">Oldest first</option>
-                            <option value="LONGEST">Longest message</option>
-                          </select>
-                        </div>
-
-                        <div className="flex items-center gap-3">
-                          <span className="text-xs text-gray-600">
-                            Showing {filteredFeedback.length} of {selectedPoll.feedback.length} entries
-                          </span>
-                          <Button type="button" variant="outline" size="sm" onClick={clearFeedbackFilters}>
-                            Clear filters
-                          </Button>
-                        </div>
-                      </div>
-
-                      <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-gray-200 pt-3">
-                        <span className="text-xs text-gray-600">{selectedFeedbackIds.length} selected</span>
-                        <div className="flex flex-wrap gap-2">
-                          <Button type="button" variant="outline" size="sm" onClick={selectFilteredFeedback}>
-                            Select filtered
-                          </Button>
-                          <Button
-                            type="button"
-                            variant="outline"
-                            size="sm"
-                            onClick={() => setSelectedFeedbackIds([])}
-                            disabled={selectedFeedbackIds.length === 0}
-                          >
-                            Clear selected
-                          </Button>
-                          <Button
-                            type="button"
-                            variant="outline"
-                            size="sm"
-                            onClick={() => exportFeedback('selected')}
-                            disabled={selectedFeedbackIds.length === 0}
-                          >
-                            Extract selected
-                          </Button>
-                          <Button
-                            type="button"
-                            variant="outline"
-                            size="sm"
-                            onClick={() => exportFeedback('filtered')}
-                            disabled={filteredFeedback.length === 0}
-                          >
-                            Extract filtered
-                          </Button>
-                          <Button
-                            type="button"
-                            variant="outline"
-                            size="sm"
-                            onClick={() => exportFeedback('all')}
-                            disabled={selectedPoll.feedback.length === 0}
-                          >
-                            Extract all
-                          </Button>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="space-y-3">
-                      {filteredFeedback.length === 0 ? (
-                        <Card className="border-gray-200 shadow-none">
-                          <CardContent className="py-10 text-center text-sm text-gray-500">
-                            No feedback matched that search.
-                          </CardContent>
-                        </Card>
-                      ) : (
-                        filteredFeedback.map((entry) => (
-                          <div key={entry.id} className="rounded-xl border border-gray-200 bg-white px-4 py-4">
-                            <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-[15px] leading-7 text-gray-900">
-                              {entry.message}
-                            </div>
-                            <div className="mt-3 flex items-start gap-3">
-                              <input
-                                type="checkbox"
-                                className="mt-1 h-4 w-4 rounded border-gray-300 text-amber-600 focus:ring-amber-500"
-                                checked={selectedFeedbackIds.includes(entry.id)}
-                                onChange={() => toggleFeedbackSelection(entry.id)}
-                                aria-label={`Select feedback from ${entry.user.name}`}
-                              />
-                              <div className="min-w-0 flex-1">
-                                <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-                                  <div>
-                                    <div className="font-medium text-gray-950">{entry.user.name}</div>
-                                    <div className="text-sm text-gray-500">{entry.user.email}</div>
-                                    <div className="mt-1 text-xs text-gray-500">{entry.user.role.replace(/_/g, ' ')}</div>
-                                  </div>
-                                  <div className="text-xs text-gray-500">
-                                    Updated {formatDateTime(entry.updatedAt)}
-                                  </div>
-                                </div>
-                              </div>
-                            </div>
-                          </div>
-                        ))
-                      )}
-                    </div>
+                  <TabsContent value="feedback">
+                    <PollFeedbackTab
+                      poll={selectedPoll}
+                      feedbackSearch={feedbackSearch}
+                      onFeedbackSearchChange={setFeedbackSearch}
+                      feedbackRoleFilter={feedbackRoleFilter}
+                      onFeedbackRoleFilterChange={setFeedbackRoleFilter}
+                      feedbackLengthFilter={feedbackLengthFilter}
+                      onFeedbackLengthFilterChange={setFeedbackLengthFilter}
+                      feedbackSort={feedbackSort}
+                      onFeedbackSortChange={setFeedbackSort}
+                      feedbackRoleOptions={feedbackRoleOptions}
+                      filteredFeedback={filteredFeedback}
+                      selectedFeedbackIds={selectedFeedbackIds}
+                      onToggleFeedbackSelection={toggleFeedbackSelection}
+                      onSelectFilteredFeedback={selectFilteredFeedback}
+                      onClearSelectedFeedback={() => setSelectedFeedbackIds([])}
+                      onClearFeedbackFilters={clearFeedbackFilters}
+                      onExport={exportFeedback}
+                    />
                   </TabsContent>
 
                   <TabsContent value="editor">
