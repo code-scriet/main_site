@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { motion } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -11,6 +11,7 @@ import {
   type Resource,
   type FAQ,
   type EventRegistrationField,
+  type EventRegistrationFieldType,
 } from '@/lib/api';
 import {
   Calendar, Loader2, AlertCircle, ArrowLeft, Clock, MapPin, Users,

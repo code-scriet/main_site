@@ -11,6 +11,7 @@ import {
   type Resource,
   type FAQ,
   type EventRegistrationField,
+  type EventRegistrationFieldType,
 } from '@/lib/api';
 import {
   Calendar, Loader2, AlertCircle, ArrowLeft, Clock, MapPin, Users,
