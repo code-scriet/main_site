@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { motion } from 'framer-motion';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -194,12 +194,28 @@ export default function AdminEventRegistrations() {
     setActiveDetailTab(tab);
   };
 
-  const filteredEvents = events.filter(event =>
-    event.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    event.registrations.some(r => 
-      r.user.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      r.user.email.toLowerCase().includes(searchQuery.toLowerCase())
-    )
+  const filteredEvents = useMemo(() => {
+    const q = searchQuery.toLowerCase();
+    return events.filter((event) =>
+      event.title.toLowerCase().includes(q) ||
+      event.registrations.some((r) =>
+        r.user.name.toLowerCase().includes(q) ||
+        r.user.email.toLowerCase().includes(q),
+      ),
+    );
+  }, [events, searchQuery]);
+
+  // Precompute per-event derived data once per filteredEvents change so the
+  // render loop body becomes pure projection. Cuts O(n) work per re-render
+  // (e.g. typing into the search field used to re-filter on every keystroke).
+  const enrichedEvents = useMemo(
+    () => filteredEvents.map((event) => ({
+      event,
+      participantRegistrations: event.registrations.filter((r) => r.registrationType === 'PARTICIPANT'),
+      guestRegistrations: event.registrations.filter((r) => r.registrationType === 'GUEST'),
+      userRoleOptions: Array.from(new Set(event.registrations.map((r) => r.user.role))).sort(),
+    })),
+    [filteredEvents],
   );
 
   const exportRegistrations = async (event: EventWithRegistrations) => {
@@ -444,12 +460,9 @@ export default function AdminEventRegistrations() {
             </CardContent>
           </Card>
         ) : (
-          filteredEvents.map((event) => {
-            const participantRegistrations = event.registrations.filter((registration) => registration.registrationType === 'PARTICIPANT');
-            const guestRegistrations = event.registrations.filter((registration) => registration.registrationType === 'GUEST');
+          enrichedEvents.map(({ event, participantRegistrations, guestRegistrations, userRoleOptions }) => {
             const exportFilters = getExportFiltersForEvent(event.id);
             const isFilteredExport = hasActiveExportFilters(exportFilters);
-            const userRoleOptions = Array.from(new Set(event.registrations.map((registration) => registration.user.role))).sort();
 
             return (
               <motion.div
