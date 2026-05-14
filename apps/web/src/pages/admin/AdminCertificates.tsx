@@ -1,7 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -16,34 +15,17 @@ import {
 import { useAuth } from '@/context/AuthContext';
 import { useSettings } from '@/context/SettingsContext';
 import { api } from '@/lib/api';
-import {
-  Award,
-  Loader2,
-  AlertCircle,
-  Search,
-  Plus,
-  Mail,
-  Download,
-  XCircle,
-  RefreshCw,
-  Copy,
-  CheckCircle2,
-  ChevronLeft,
-  ChevronRight,
-  Users,
-  FileDown,
-  Eye,
-  Trash2,
-} from 'lucide-react';
+import { Award, Loader2, AlertCircle, Plus, Users, FileDown, Eye } from 'lucide-react';
 import { toast } from 'sonner';
-import { formatDate } from '@/lib/dateUtils';
 import { SignatoryPicker, type ActiveSignatory } from '@/components/admin/certificates/SignatoryPicker';
-import { CERT_TYPES, CertTypeBadge, type CertType } from '@/components/admin/certificates/CertTypeBadge';
+import { CERT_TYPES, type CertType } from '@/components/admin/certificates/CertTypeBadge';
 import { RevokeCertificateDialog } from '@/components/admin/certificates/RevokeCertificateDialog';
 import { DeleteCertificateDialog } from '@/components/admin/certificates/DeleteCertificateDialog';
 import { SignatureFormDialog } from '@/components/admin/certificates/SignatureFormDialog';
 import { SavedSignaturesCard } from '@/components/admin/certificates/SavedSignaturesCard';
 import { DeleteSignatoryDialog } from '@/components/admin/certificates/DeleteSignatoryDialog';
+import { CertificateFiltersBar } from '@/components/admin/certificates/CertificateFiltersBar';
+import { CertificateListCard } from '@/components/admin/certificates/CertificateListCard';
 import {
   DEFAULT_SIGNATORY_DEFAULTS,
   loadSignatoryDefaults,
@@ -646,150 +628,29 @@ export default function AdminCertificates() {
         onConfirm={(id) => { void deleteSig(id); }}
       />
 
-      {/* Filters */}
-      <Card>
-        <CardContent className="p-4 flex flex-col sm:flex-row gap-3">
-          <div className="relative flex-1">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-            <Input
-              placeholder="Search name, email, event, or cert ID…"
-              value={search}
-              onChange={e => setSearch(e.target.value)}
-              className="pl-9"
-            />
-          </div>
-          <select
-            value={typeFilter}
-            onChange={e => setTypeFilter(e.target.value)}
-            className="border border-gray-200 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
-          >
-            <option value="">All Types</option>
-            {CERT_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
-          </select>
-          <Button variant="outline" size="sm" onClick={fetchCerts} className="gap-1.5">
-            <RefreshCw className="w-3.5 h-3.5" />
-            Refresh
-          </Button>
-        </CardContent>
-      </Card>
+      <CertificateFiltersBar
+        search={search}
+        onSearchChange={setSearch}
+        typeFilter={typeFilter}
+        onTypeFilterChange={(value) => setTypeFilter(value)}
+        onRefresh={fetchCerts}
+      />
 
-      {/* Table */}
-      {loading ? (
-        <div className="flex justify-center items-center h-48"><Loader2 className="w-6 h-6 animate-spin text-amber-500" /></div>
-      ) : error ? (
-        <div className="flex items-center gap-2 text-red-600 bg-red-50 p-4 rounded-lg">
-          <AlertCircle className="w-5 h-5 flex-shrink-0" />
-          <span>{error}</span>
-        </div>
-      ) : certs.length === 0 ? (
-        <div className="text-center py-16 text-gray-400">
-          <Award className="w-10 h-10 mx-auto mb-2 opacity-30" />
-          <p>No certificates found</p>
-        </div>
-      ) : (
-        <Card>
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b bg-gray-50">
-                  <th className="text-left px-4 py-3 font-medium text-gray-600">Cert ID</th>
-                  <th className="text-left px-4 py-3 font-medium text-gray-600">Recipient</th>
-                  <th className="text-left px-4 py-3 font-medium text-gray-600">Event</th>
-                  <th className="text-left px-4 py-3 font-medium text-gray-600">Type</th>
-                  <th className="text-left px-4 py-3 font-medium text-gray-600">Status</th>
-                  <th className="text-left px-4 py-3 font-medium text-gray-600">Issued</th>
-                  <th className="text-right px-4 py-3 font-medium text-gray-600">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100">
-                {certs.map(cert => (
-                  <tr key={cert.certId} className="hover:bg-gray-50 transition-colors">
-                    <td className="px-4 py-3 font-mono text-xs text-amber-700 font-medium">{cert.certId}</td>
-                    <td className="px-4 py-3">
-                      <p className="font-medium text-gray-800">{cert.recipientName}</p>
-                      <p className="text-gray-400 text-xs">{cert.recipientEmail}</p>
-                    </td>
-                    <td className="px-4 py-3 text-gray-700 max-w-[160px] truncate">{cert.eventName}</td>
-                    <td className="px-4 py-3"><CertTypeBadge type={cert.type} /></td>
-                    <td className="px-4 py-3">
-                      {cert.isRevoked ? (
-                        <span className="inline-flex items-center gap-1 text-xs text-red-600 font-medium">
-                          <XCircle className="w-3.5 h-3.5" /> Revoked
-                        </span>
-                      ) : (
-                        <span className="inline-flex items-center gap-1 text-xs text-green-600 font-medium">
-                          <CheckCircle2 className="w-3.5 h-3.5" /> Active
-                        </span>
-                      )}
-                    </td>
-                    <td className="px-4 py-3 text-gray-500 text-xs">
-                      {formatDate(cert.issuedAt, 'short')}
-                    </td>
-                    <td className="px-4 py-3">
-                      <div className="flex items-center justify-end gap-1.5">
-                        {cert.pdfUrl && (
-                          <Button variant="outline" size="sm" className="h-7 w-7 p-0" onClick={() => void downloadPdf(cert.certId)} title="Download PDF" disabled={downloadingId === cert.certId}>
-                            {downloadingId === cert.certId ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
-                          </Button>
-                        )}
-                        <Button variant="outline" size="sm" className="h-7 w-7 p-0" onClick={() => copyVerifyLink(cert.certId)} title="Copy verify link">
-                          <Copy className="w-3.5 h-3.5" />
-                        </Button>
-                        {!cert.isRevoked && (
-                          <>
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              className="h-7 w-7 p-0"
-                              onClick={() => handleResend(cert.certId)}
-                              disabled={resendingId === cert.certId}
-                              title="Resend email"
-                            >
-                              {resendingId === cert.certId ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Mail className="w-3.5 h-3.5" />}
-                            </Button>
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              className="h-7 w-7 p-0 text-red-500 hover:text-red-600 hover:bg-red-50"
-                              onClick={() => setRevokeTarget(cert)}
-                              title="Revoke"
-                            >
-                              <XCircle className="w-3.5 h-3.5" />
-                            </Button>
-                          </>
-                        )}
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="h-7 w-7 p-0 text-red-600 hover:text-red-700 hover:bg-red-50"
-                          onClick={() => setDeleteTarget(cert)}
-                          title="Delete Permanently"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </Button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          {/* Pagination */}
-          {totalPages > 1 && (
-            <div className="flex items-center justify-between px-4 py-3 border-t">
-              <p className="text-sm text-gray-500">Page {page} of {totalPages}</p>
-              <div className="flex gap-2">
-                <Button variant="outline" size="sm" disabled={page === 1} onClick={() => setPage(p => p - 1)} className="h-8 w-8 p-0">
-                  <ChevronLeft className="w-4 h-4" />
-                </Button>
-                <Button variant="outline" size="sm" disabled={page === totalPages} onClick={() => setPage(p => p + 1)} className="h-8 w-8 p-0">
-                  <ChevronRight className="w-4 h-4" />
-                </Button>
-              </div>
-            </div>
-          )}
-        </Card>
-      )}
+      <CertificateListCard
+        certificates={certs}
+        loading={loading}
+        error={error}
+        page={page}
+        totalPages={totalPages}
+        onPageChange={setPage}
+        downloadingId={downloadingId}
+        resendingId={resendingId}
+        onDownload={(certId) => { void downloadPdf(certId); }}
+        onCopyVerifyLink={copyVerifyLink}
+        onResend={handleResend}
+        onRevoke={(cert) => setRevokeTarget(cert as Certificate)}
+        onDelete={(cert) => setDeleteTarget(cert as Certificate)}
+      />
 
       {/* Generate Modal */}
       <Dialog open={showGenerate} onOpenChange={(open) => { setShowGenerate(open); if (!open) setGenerateError(''); }}>
