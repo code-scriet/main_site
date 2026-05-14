@@ -17,16 +17,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent as ConfirmDialogContent,
-  AlertDialogDescription as ConfirmDialogDescription,
-  AlertDialogFooter as ConfirmDialogFooter,
-  AlertDialogHeader as ConfirmDialogHeader,
-  AlertDialogTitle as ConfirmDialogTitle,
-} from '@/components/ui/alert-dialog';
+import { RoundActionDialog } from '@/components/admin/competition/RoundActionDialog';
 import {
   Calendar,
   Loader2,
@@ -968,52 +959,21 @@ export default function AdminCompetition() {
         </DialogContent>
       </Dialog>
 
-      <AlertDialog open={Boolean(roundActionDialog)} onOpenChange={(open) => !open && setRoundActionDialog(null)}>
-        <ConfirmDialogContent>
-          <ConfirmDialogHeader>
-            <ConfirmDialogTitle>
-              {roundActionDialog?.action === 'start'
-                ? 'Start round?'
-                : roundActionDialog?.action === 'lock'
-                  ? 'Lock round now?'
-                  : 'Delete round?'}
-            </ConfirmDialogTitle>
-            <ConfirmDialogDescription>
-              {roundActionDialog?.action === 'start' && 'Contestants will be able to see the editor and the countdown timer will begin.'}
-              {roundActionDialog?.action === 'lock' && 'All unsaved work will be auto-submitted and contestants will no longer be able to edit.'}
-              {roundActionDialog?.action === 'delete' && (
-                roundActionDialog.round
-                  ? `This will permanently delete "${roundActionDialog.round.title}".`
-                  : 'This round will be permanently deleted.'
-              )}
-            </ConfirmDialogDescription>
-          </ConfirmDialogHeader>
-          <ConfirmDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              className={roundActionDialog?.action === 'delete' ? 'bg-red-600 hover:bg-red-700' : ''}
-              onClick={() => {
-                if (!roundActionDialog) return;
-                if (roundActionDialog.action === 'start') {
-                  void onStartRound(roundActionDialog.round.id);
-                  return;
-                }
-                if (roundActionDialog.action === 'lock') {
-                  void onLockRound(roundActionDialog.round.id);
-                  return;
-                }
-                void onDeleteRound(roundActionDialog.round);
-              }}
-            >
-              {roundActionDialog?.action === 'start'
-                ? 'Start Round'
-                : roundActionDialog?.action === 'lock'
-                  ? 'Lock Round'
-                  : 'Delete Round'}
-            </AlertDialogAction>
-          </ConfirmDialogFooter>
-        </ConfirmDialogContent>
-      </AlertDialog>
+      <RoundActionDialog
+        action={roundActionDialog}
+        onCancel={() => setRoundActionDialog(null)}
+        onConfirm={(act) => {
+          if (act.action === 'start') {
+            void onStartRound(act.round.id);
+            return;
+          }
+          if (act.action === 'lock') {
+            void onLockRound(act.round.id);
+            return;
+          }
+          void onDeleteRound(act.round);
+        }}
+      />
     </div>
   );
 }
