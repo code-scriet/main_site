@@ -45,7 +45,6 @@ import {
   Eye,
   Trash2,
   PenLine,
-  ImageIcon,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { formatDate } from '@/lib/dateUtils';
@@ -53,6 +52,7 @@ import { SignatoryPicker, type ActiveSignatory } from '@/components/admin/certif
 import { CERT_TYPES, CertTypeBadge, type CertType } from '@/components/admin/certificates/CertTypeBadge';
 import { RevokeCertificateDialog } from '@/components/admin/certificates/RevokeCertificateDialog';
 import { DeleteCertificateDialog } from '@/components/admin/certificates/DeleteCertificateDialog';
+import { SignatureFormDialog } from '@/components/admin/certificates/SignatureFormDialog';
 import {
   DEFAULT_SIGNATORY_DEFAULTS,
   loadSignatoryDefaults,
@@ -1147,84 +1147,24 @@ export default function AdminCertificates() {
         deleting={deleting}
       />
 
-      {/* Add / Edit Signature Modal */}
-      <Dialog open={sigModalOpen} onOpenChange={open => { if (!sigModalSaving) setSigModalOpen(open); }}>
-        <DialogContent className="max-w-sm">
-          <DialogHeader>
-            <DialogTitle>{sigModalEdit ? 'Edit Signature' : 'Add Signature'}</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-3 pt-1">
-            <div>
-              <label htmlFor="admin-certificates-signatory-name" className="text-xs text-gray-500 block mb-1">Name <span className="text-red-500">*</span></label>
-              <Input id="admin-certificates-signatory-name" value={sigModalName} onChange={e => setSigModalName(e.target.value)} placeholder="e.g. Aarav Mehta" className="h-9" />
-            </div>
-            <div>
-              <label htmlFor="admin-certificates-signatory-title" className="text-xs text-gray-500 block mb-1">Title</label>
-              <Input id="admin-certificates-signatory-title" value={sigModalTitle} onChange={e => setSigModalTitle(e.target.value)} placeholder="e.g. Club President" className="h-9" />
-            </div>
-            <div>
-              <label htmlFor="admin-certificates-signatory-file" className="text-xs text-gray-500 block mb-1">Signature Image <span className="text-gray-400">(optional, PNG/JPG)</span></label>
-              {sigModalEdit?.signatureUrl && !sigModalUploadedUrl && !sigModalClearImg && (
-                <div className="flex items-center gap-2 rounded border p-2 bg-gray-50 mb-2">
-                  <img src={sigModalEdit.signatureUrl} alt="Current" className="h-8 max-w-[100px] object-contain" onError={e => { (e.target as HTMLImageElement).src = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII='; }} />
-                  <button type="button" className="text-xs text-red-500 hover:text-red-700 ml-auto" onClick={() => setSigModalClearImg(true)}>Remove</button>
-                </div>
-              )}
-              {sigModalClearImg && (
-                <p className="text-xs text-amber-600 mb-2">
-                  Signature image will be removed on save.{' '}
-                  <button type="button" className="underline" onClick={() => setSigModalClearImg(false)}>Undo</button>
-                </p>
-              )}
-              {sigModalUploading ? (
-                <div className="flex items-center gap-2 rounded border p-2 bg-gray-50">
-                  <Loader2 className="w-4 h-4 animate-spin text-amber-500 shrink-0" />
-                  <span className="text-xs text-gray-500">Uploading to Cloudinary…</span>
-                </div>
-              ) : sigModalUploadedUrl ? (
-                <div className="flex items-center gap-2 rounded border p-2 bg-gray-50 overflow-hidden">
-                  <img src={sigModalUploadedUrl} alt="Preview" className="h-8 max-w-[80px] object-contain shrink-0" />
-                  <p className="text-xs text-gray-500 truncate flex-1 min-w-0">{sigModalUploadedUrl.split('/').pop()}</p>
-                  <button type="button" className="text-xs text-red-500 shrink-0" onClick={() => setSigModalUploadedUrl(null)}>Remove</button>
-                </div>
-              ) : (
-                <label htmlFor="admin-certificates-signatory-file" className="flex items-center gap-2 cursor-pointer rounded-md border border-dashed border-gray-300 bg-white px-3 py-2 text-sm text-gray-500 hover:border-amber-400 hover:text-amber-600 transition-colors">
-                  <ImageIcon className="w-4 h-4 shrink-0" />
-                  <span>Choose image file</span>
-                  <input
-                    id="admin-certificates-signatory-file"
-                    type="file"
-                    accept="image/*"
-                    className="hidden"
-                    onChange={async e => {
-                      const file = e.target.files?.[0];
-                      e.target.value = '';
-                      if (!file) return;
-                      setSigModalClearImg(false);
-                      setSigModalUploading(true);
-                      try {
-                        const url = await api.uploadImage(file, token!);
-                        setSigModalUploadedUrl(url);
-                      } catch (err) {
-                        toast.error(err instanceof Error ? err.message : 'Upload failed');
-                      } finally {
-                        setSigModalUploading(false);
-                      }
-                    }}
-                  />
-                </label>
-              )}
-            </div>
-          </div>
-          <DialogFooter className="pt-2">
-            <Button variant="outline" onClick={() => setSigModalOpen(false)} disabled={sigModalSaving}>Cancel</Button>
-            <Button onClick={saveSigModal} disabled={sigModalSaving || sigModalUploading || !sigModalName.trim()} className="bg-amber-500 hover:bg-amber-600 text-white">
-              {sigModalSaving && <Loader2 className="w-4 h-4 animate-spin mr-1.5" />}
-              {sigModalEdit ? 'Save Changes' : 'Add Signature'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <SignatureFormDialog
+        open={sigModalOpen}
+        onOpenChange={setSigModalOpen}
+        editTarget={sigModalEdit}
+        name={sigModalName}
+        onNameChange={setSigModalName}
+        title={sigModalTitle}
+        onTitleChange={setSigModalTitle}
+        uploadedUrl={sigModalUploadedUrl}
+        onUploadedUrlChange={setSigModalUploadedUrl}
+        uploading={sigModalUploading}
+        onUploadingChange={setSigModalUploading}
+        saving={sigModalSaving}
+        clearImg={sigModalClearImg}
+        onClearImgChange={setSigModalClearImg}
+        onSave={saveSigModal}
+        token={token}
+      />
 
     </div>
   );
