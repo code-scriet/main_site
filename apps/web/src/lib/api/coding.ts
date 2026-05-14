@@ -9,6 +9,7 @@ import type {
   ProblemContextType,
   ProblemInput,
   ProblemLanguage,
+  ProblemLeaderboardEntry,
   ProblemSubmission,
   QOTDDailyLeaderboard,
   QOTDDetail,
