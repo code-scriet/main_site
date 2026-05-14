@@ -10,6 +10,7 @@ import {
   ResetPlaygroundLimitDialog,
   RoleChangeDialog,
 } from '@/components/admin/users/UserConfirmDialogs';
+import { UserStatsRow } from '@/components/admin/users/UserStatsRow';
 import { api } from '@/lib/api';
 import type { User, UserListMeta } from '@/lib/api';
 import { formatDate } from '@/lib/dateUtils';
@@ -455,48 +456,11 @@ export default function AdminUsers() {
         </motion.div>
       )}
 
-      {/* Stats */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <Card>
-          <CardContent className="p-4 flex items-center gap-3">
-            <div className="bg-blue-500 p-3 rounded-lg">
-              <UserCheck className="h-5 w-5 text-white" />
-            </div>
-            <div>
-              <p className="text-2xl font-bold text-amber-900">
-                {users.filter(u => u.role === 'USER').length}
-              </p>
-              <p className="text-xs text-gray-500">Members</p>
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-4 flex items-center gap-3">
-            <div className="bg-orange-500 p-3 rounded-lg">
-              <Shield className="h-5 w-5 text-white" />
-            </div>
-            <div>
-              <p className="text-2xl font-bold text-amber-900">
-                {users.filter(u => u.role === 'CORE_MEMBER').length}
-              </p>
-              <p className="text-xs text-gray-500">Core Members</p>
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-4 flex items-center gap-3">
-            <div className="bg-red-500 p-3 rounded-lg">
-              <Crown className="h-5 w-5 text-white" />
-            </div>
-            <div>
-              <p className="text-2xl font-bold text-amber-900">
-                {users.filter(u => u.role === 'ADMIN').length}
-              </p>
-              <p className="text-xs text-gray-500">Admins</p>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
+      <UserStatsRow
+        totalUsers={users.filter(u => u.role === 'USER').length}
+        totalCoreMembers={users.filter(u => u.role === 'CORE_MEMBER').length}
+        totalAdmins={users.filter(u => u.role === 'ADMIN').length}
+      />
 
       {/* Filters & Search */}
       <div className="flex flex-col sm:flex-row gap-4">
