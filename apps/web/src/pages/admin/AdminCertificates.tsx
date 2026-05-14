@@ -51,6 +51,8 @@ import { toast } from 'sonner';
 import { formatDate } from '@/lib/dateUtils';
 import { SignatoryPicker, type ActiveSignatory } from '@/components/admin/certificates/SignatoryPicker';
 import { CERT_TYPES, CertTypeBadge, type CertType } from '@/components/admin/certificates/CertTypeBadge';
+import { RevokeCertificateDialog } from '@/components/admin/certificates/RevokeCertificateDialog';
+import { DeleteCertificateDialog } from '@/components/admin/certificates/DeleteCertificateDialog';
 import {
   DEFAULT_SIGNATORY_DEFAULTS,
   loadSignatoryDefaults,
@@ -1129,61 +1131,21 @@ export default function AdminCertificates() {
         </DialogContent>
       </Dialog>
 
-      {/* Revoke Modal */}
-      <Dialog open={!!revokeTarget} onOpenChange={open => { if (!open) setRevokeTarget(null); }}>
-        <DialogContent className="max-w-sm">
-          <DialogHeader>
-            <DialogTitle className="text-red-600 flex items-center gap-2">
-              <XCircle className="w-5 h-5" />
-              Revoke Certificate
-            </DialogTitle>
-          </DialogHeader>
-          <div className="py-2 space-y-3">
-            <p className="text-sm text-gray-600">
-              Are you sure you want to revoke certificate <strong className="font-mono">{revokeTarget?.certId}</strong> for <strong>{revokeTarget?.recipientName}</strong>?
-              This action cannot be undone.
-            </p>
-            <div>
-              <label htmlFor="admin-certificates-revoke-reason" className="text-sm font-medium text-gray-700">Reason (optional)</label>
-              <Input id="admin-certificates-revoke-reason" value={revokeReason} onChange={e => setRevokeReason(e.target.value)} placeholder="Reason for revocation" className="mt-1" />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setRevokeTarget(null)}>Cancel</Button>
-            <Button onClick={handleRevoke} disabled={revoking} className="bg-red-500 hover:bg-red-600 text-white">
-              {revoking ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <XCircle className="w-4 h-4 mr-2" />}
-              {revoking ? 'Revoking…' : 'Revoke'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <RevokeCertificateDialog
+        target={revokeTarget}
+        reason={revokeReason}
+        onReasonChange={setRevokeReason}
+        onCancel={() => setRevokeTarget(null)}
+        onConfirm={handleRevoke}
+        revoking={revoking}
+      />
 
-      {/* Delete Modal */}
-      <Dialog open={!!deleteTarget} onOpenChange={open => { if (!open) setDeleteTarget(null); }}>
-        <DialogContent className="max-w-sm">
-          <DialogHeader>
-            <DialogTitle className="text-red-600 flex items-center gap-2">
-              <Trash2 className="w-5 h-5" />
-              Delete Certificate
-            </DialogTitle>
-          </DialogHeader>
-          <div className="py-2 space-y-3">
-            <p className="text-sm text-gray-600">
-              Are you sure you want to <strong>permanently delete</strong> certificate <strong className="font-mono">{deleteTarget?.certId}</strong> for <strong>{deleteTarget?.recipientName}</strong>?
-            </p>
-            <p className="text-sm text-red-600 font-medium bg-red-50 p-2 rounded border border-red-100">
-              This will completely remove it from the database and invalidate the local PDF mapping. This action cannot be undone.
-            </p>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setDeleteTarget(null)}>Cancel</Button>
-            <Button onClick={handleDelete} disabled={deleting} className="bg-red-600 hover:bg-red-700 text-white">
-              {deleting ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Trash2 className="w-4 h-4 mr-2" />}
-              {deleting ? 'Deleting…' : 'Delete'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <DeleteCertificateDialog
+        target={deleteTarget}
+        onCancel={() => setDeleteTarget(null)}
+        onConfirm={handleDelete}
+        deleting={deleting}
+      />
 
       {/* Add / Edit Signature Modal */}
       <Dialog open={sigModalOpen} onOpenChange={open => { if (!sigModalSaving) setSigModalOpen(open); }}>
