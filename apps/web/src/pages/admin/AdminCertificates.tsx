@@ -25,7 +25,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import { useAuth } from '@/context/AuthContext';
 import { useSettings } from '@/context/SettingsContext';
-import { api, type CertificateTemplate } from '@/lib/api';
+import { api } from '@/lib/api';
 import {
   Award,
   Loader2,
@@ -51,9 +51,22 @@ import { toast } from 'sonner';
 import { formatDate } from '@/lib/dateUtils';
 import { SignatoryPicker, type ActiveSignatory } from '@/components/admin/certificates/SignatoryPicker';
 import { CERT_TYPES, CertTypeBadge, type CertType } from '@/components/admin/certificates/CertTypeBadge';
+import {
+  DEFAULT_SIGNATORY_DEFAULTS,
+  loadSignatoryDefaults,
+  saveSignatoryDefaults,
+  type SignatoryDefaults,
+} from '@/lib/signatoryDefaults';
+import {
+  BULK_CSV_HEADER_ALIASES,
+  isHeaderRow,
+  normalizeCertTypeValue,
+  normalizeCsvHeader,
+  normalizeTemplateValue,
+  parseCsvRow,
+  type BulkEntry,
+} from '@/lib/certificatesCsv';
 
-// CertType + CertTypeBadge + typeColors moved to
-// /components/admin/certificates/CertTypeBadge.tsx
 interface Certificate {
   id: string;
   certId: string;
@@ -91,44 +104,6 @@ interface GenerateFormData {
   sendEmail: boolean;
 }
 
-const SIGNATORY_STORAGE_KEY = 'cert_signatory_defaults';
-
-type SignatoryDefaults = Pick<
-  GenerateFormData,
-  'signatoryId' | 'signatoryName' | 'signatoryTitle' | 'facultySignatoryId' | 'facultyName' | 'facultyTitle'
->;
-
-const DEFAULT_SIGNATORY_DEFAULTS: SignatoryDefaults = {
-  signatoryId: '',
-  signatoryName: '',
-  signatoryTitle: 'Club President',
-  facultySignatoryId: '',
-  facultyName: '',
-  facultyTitle: 'Faculty Coordinator',
-};
-
-function loadSignatoryDefaults(): SignatoryDefaults {
-  try {
-    const saved = localStorage.getItem(SIGNATORY_STORAGE_KEY);
-    if (saved) {
-      const parsed = JSON.parse(saved);
-      return {
-        signatoryId: parsed.signatoryId || '',
-        signatoryName: parsed.signatoryName || '',
-        signatoryTitle: parsed.signatoryTitle || 'Club President',
-        facultySignatoryId: parsed.facultySignatoryId || '',
-        facultyName: parsed.facultyName || '',
-        facultyTitle: parsed.facultyTitle || 'Faculty Coordinator',
-      };
-    }
-  } catch { /* ignore */ }
-  return DEFAULT_SIGNATORY_DEFAULTS;
-}
-
-function saveSignatoryDefaults(data: SignatoryDefaults) {
-  try { localStorage.setItem(SIGNATORY_STORAGE_KEY, JSON.stringify(data)); } catch { /* ignore */ }
-}
-
 function createDefaultForm(defaults: SignatoryDefaults = DEFAULT_SIGNATORY_DEFAULTS): GenerateFormData {
   return {
     recipientName: '',
@@ -149,97 +124,6 @@ function createDefaultForm(defaults: SignatoryDefaults = DEFAULT_SIGNATORY_DEFAU
     facultyImageUrl: '',
     sendEmail: false,
   };
-}
-
-interface BulkEntry {
-  name: string;
-  email: string;
-  position?: string;
-  domain?: string;
-  description?: string;
-  teamName?: string;
-  type?: CertType;
-  template?: CertificateTemplate;
-  userId?: string;
-}
-
-const BULK_CSV_HEADER_ALIASES: Record<string, keyof BulkEntry> = {
-  name: 'name',
-  recipientname: 'name',
-  email: 'email',
-  recipientemail: 'email',
-  position: 'position',
-  rank: 'position',
-  placement: 'position',
-  domain: 'domain',
-  track: 'domain',
-  description: 'description',
-  teamname: 'teamName',
-  team: 'teamName',
-  type: 'type',
-  template: 'template',
-  userid: 'userId',
-  useridnumber: 'userId',
-};
-
-function normalizeCsvHeader(value: string): string {
-  return value.trim().toLowerCase().replace(/[^a-z0-9]+/g, '');
-}
-
-function parseCsvRow(row: string): string[] {
-  const values: string[] = [];
-  let current = '';
-  let inQuotes = false;
-
-  for (let index = 0; index < row.length; index++) {
-    const char = row[index];
-
-    if (char === '"') {
-      if (inQuotes && row[index + 1] === '"') {
-        current += '"';
-        index++;
-      } else {
-        inQuotes = !inQuotes;
-      }
-      continue;
-    }
-
-    if (char === ',' && !inQuotes) {
-      values.push(current.trim());
-      current = '';
-      continue;
-    }
-
-    current += char;
-  }
-
-  values.push(current.trim());
-  return values.map((value) => value.replace(/\r$/, ''));
-}
-
-function isHeaderRow(values: string[]): boolean {
-  const normalized = values.slice(0, 3).map(normalizeCsvHeader);
-  return normalized[0] === 'name' && normalized[1] === 'email';
-}
-
-function normalizeTemplateValue(value: string | undefined | null): CertificateTemplate | undefined {
-  if (!value) {
-    return undefined;
-  }
-
-  const normalized = value.trim().toLowerCase();
-  return normalized === 'gold' || normalized === 'dark' || normalized === 'white' || normalized === 'emerald'
-    ? normalized
-    : undefined;
-}
-
-function normalizeCertTypeValue(value: string | undefined | null): CertType | undefined {
-  if (!value) {
-    return undefined;
-  }
-
-  const normalized = value.trim().toUpperCase();
-  return CERT_TYPES.includes(normalized as CertType) ? (normalized as CertType) : undefined;
 }
 
 interface FullSignatory {
