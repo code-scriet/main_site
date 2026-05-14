@@ -6,7 +6,6 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Label } from '@/components/ui/label';
-import { Card, CardContent } from '@/components/ui/card';
 import {
   Dialog,
   DialogContent,
@@ -22,9 +21,7 @@ import {
   Search,
   CheckCircle2,
   XCircle,
-  Clock,
   Trash2,
-  Eye,
   ExternalLink,
   Linkedin,
   Twitter,
@@ -47,6 +44,7 @@ import { PendingUsersBanner } from '@/components/admin/network/PendingUsersBanne
 import { RejectProfileDialog } from '@/components/admin/network/RejectProfileDialog';
 import { DeleteProfileDialog } from '@/components/admin/network/DeleteProfileDialog';
 import { PendingUserActionDialog } from '@/components/admin/network/PendingUserActionDialog';
+import { NetworkProfileCard } from '@/components/admin/network/NetworkProfileCard';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5001/api';
 
@@ -64,12 +62,6 @@ const statusColors: Record<NetworkStatus, string> = {
   PENDING: 'bg-amber-100 text-amber-700 border-amber-200',
   VERIFIED: 'bg-green-100 text-green-700 border-green-200',
   REJECTED: 'bg-red-100 text-red-700 border-red-200',
-};
-
-const statusIcons: Record<NetworkStatus, typeof Clock> = {
-  PENDING: Clock,
-  VERIFIED: CheckCircle2,
-  REJECTED: XCircle,
 };
 
 type NetworkCategoryFilter = 'ANY' | 'PROFESSIONAL' | 'ALUMNI';
@@ -507,107 +499,25 @@ export default function AdminNetwork() {
         ) : (
           <div className="space-y-4">
             <AnimatePresence>
-              {filteredProfiles.map((profile, index) => {
-                const StatusIcon = statusIcons[profile.status];
-                return (
-                  <motion.div
-                    key={profile.id}
-                    initial={{ opacity: 0, y: 10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0, y: -10 }}
-                    transition={{ delay: index * 0.03 }}
-                  >
-                    <Card className="hover:shadow-md transition-shadow">
-                      <CardContent className="p-4">
-                        <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
-                          {/* Avatar */}
-                          <div className="w-14 h-14 rounded-full overflow-hidden flex-shrink-0 bg-amber-100">
-                            <img
-                              src={
-                                profile.profilePhoto ||
-                                '/fallback-avatar.svg'
-                              }
-                              alt={profile.fullName}
-                              className="w-full h-full object-cover"
-                              onError={(event) => {
-                                event.currentTarget.src = '/fallback-avatar.svg';
-                              }}
-                            />
-                          </div>
-
-                          {/* Info */}
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-2 flex-wrap">
-                              <h3 className="font-semibold text-gray-900">{profile.fullName}</h3>
-                              <Badge variant="outline" className={statusColors[profile.status]}>
-                                <StatusIcon className="h-3 w-3 mr-1" />
-                                {profile.status}
-                              </Badge>
-                              <Badge variant="secondary" className="text-xs">
-                                {connectionTypeLabels[profile.connectionType]}
-                              </Badge>
-                              <Badge variant="outline" className="text-xs">
-                                Order: {profile.displayOrder ?? 0}
-                              </Badge>
-                            </div>
-                            <p className="text-sm text-gray-600">
-                              {profile.designation} at {profile.company}
-                            </p>
-                            <p className="text-xs text-gray-400 mt-1">
-                              {profile.user?.email} • {profile.industry}
-                            </p>
-                          </div>
-
-                          {/* Actions */}
-                          <div className="flex items-center gap-2 flex-shrink-0">
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => setViewProfile(profile)}
-                            >
-                              <Eye className="h-4 w-4 mr-1" /> View
-                            </Button>
-                                <Button
-                                  variant="outline"
-                                  size="sm"
-                                  onClick={() => openEditDialog(profile)}
-                                >
-                                  <Pencil className="h-4 w-4 mr-1" /> Edit
-                                </Button>
-                                {profile.status === 'PENDING' && (
-                                  <>
-                                    <Button
-                                      size="sm"
-                                      className="bg-green-600 hover:bg-green-700"
-                                      onClick={() => handleVerify(profile)}
-                                      disabled={actionLoading}
-                                    >
-                                      <CheckCircle2 className="h-4 w-4 mr-1" /> Verify
-                                    </Button>
-                                    <Button
-                                      variant="destructive"
-                                      size="sm"
-                                      onClick={() => setRejectDialog({ profile })}
-                                    >
-                                      <XCircle className="h-4 w-4 mr-1" /> Reject
-                                    </Button>
-                                  </>
-                                )}
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  className="text-red-500 hover:text-red-700 hover:bg-red-50"
-                                  onClick={() => setDeleteDialog(profile)}
-                                >
-                                  <Trash2 className="h-4 w-4" />
-                                </Button>
-                          </div>
-                        </div>
-                      </CardContent>
-                    </Card>
-                  </motion.div>
-                );
-              })}
+              {filteredProfiles.map((profile, index) => (
+                <motion.div
+                  key={profile.id}
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -10 }}
+                  transition={{ delay: index * 0.03 }}
+                >
+                  <NetworkProfileCard
+                    profile={profile}
+                    actionLoading={actionLoading}
+                    onView={() => setViewProfile(profile)}
+                    onEdit={() => openEditDialog(profile)}
+                    onVerify={() => handleVerify(profile)}
+                    onReject={() => setRejectDialog({ profile })}
+                    onDelete={() => setDeleteDialog(profile)}
+                  />
+                </motion.div>
+              ))}
             </AnimatePresence>
           </div>
         )}
