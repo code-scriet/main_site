@@ -9,16 +9,7 @@ import { Markdown } from '@/components/ui/markdown';
 import { Button } from '@/components/ui/button';
 import { PendingCapRequestsTray } from '@/components/problems/PendingCapRequestsTray';
 import { getPlaygroundLaunchUrl } from '@/lib/playgroundUrl';
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from '@/components/ui/alert-dialog';
+import { DeleteProblemDialog } from '@/components/admin/problems/DeleteProblemDialog';
 import {
   Dialog,
   DialogContent,
@@ -1030,30 +1021,12 @@ export default function AdminProblems() {
         )}
       </section>
 
-      <AlertDialog open={Boolean(deleteTarget)} onOpenChange={(open) => !open && setDeleteTarget(null)}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Delete problem?</AlertDialogTitle>
-            <AlertDialogDescription>
-              {deleteTarget
-                ? `This will delete "${deleteTarget.title}". This will also break any active QOTD or competition using this problem.`
-                : 'This will delete the selected problem.'}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              className="bg-red-600 hover:bg-red-700"
-              disabled={deleteMutation.isPending}
-              onClick={() => {
-                if (deleteTarget) deleteMutation.mutate(deleteTarget.id);
-              }}
-            >
-              {deleteMutation.isPending ? 'Deleting...' : 'Delete Problem'}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <DeleteProblemDialog
+        target={deleteTarget}
+        onCancel={() => setDeleteTarget(null)}
+        onConfirm={(id) => deleteMutation.mutate(id)}
+        pending={deleteMutation.isPending}
+      />
 
       <Dialog open={Boolean(qotdTarget)} onOpenChange={(open) => { if (!open) setQotdTarget(null); }}>
         <DialogContent>
