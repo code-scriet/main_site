@@ -6,15 +6,10 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from '@/components/ui/alert-dialog';
+  DeleteUserDialog,
+  ResetPlaygroundLimitDialog,
+  RoleChangeDialog,
+} from '@/components/admin/users/UserConfirmDialogs';
 import { api } from '@/lib/api';
 import type { User, UserListMeta } from '@/lib/api';
 import { formatDate } from '@/lib/dateUtils';
@@ -1043,81 +1038,23 @@ export default function AdminUsers() {
         )}
       </AnimatePresence>
 
-      <AlertDialog open={Boolean(limitResetTarget)} onOpenChange={(open) => !open && setLimitResetTarget(null)}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Reset playground limit?</AlertDialogTitle>
-            <AlertDialogDescription>
-              {limitResetTarget
-                ? `This will reset today's playground execution allowance for ${limitResetTarget.userName}.`
-                : 'This will reset today’s playground execution allowance for the selected user.'}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={() => {
-                if (limitResetTarget) {
-                  void handleResetLimit(limitResetTarget.userId, limitResetTarget.userName);
-                }
-              }}
-            >
-              Reset Limit
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <ResetPlaygroundLimitDialog
+        target={limitResetTarget}
+        onCancel={() => setLimitResetTarget(null)}
+        onConfirm={(userId, userName) => { void handleResetLimit(userId, userName); }}
+      />
 
-      <AlertDialog open={Boolean(deleteTarget)} onOpenChange={(open) => !open && setDeleteTarget(null)}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Delete user account?</AlertDialogTitle>
-            <AlertDialogDescription>
-              {deleteTarget
-                ? `This will permanently delete ${deleteTarget.userName}'s account and cannot be undone.`
-                : 'This user account will be permanently deleted.'}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              className="bg-red-600 hover:bg-red-700"
-              onClick={() => {
-                if (deleteTarget) {
-                  void handleDeleteUser(deleteTarget.userId, deleteTarget.userName, deleteTarget.userRole);
-                }
-              }}
-            >
-              Delete User
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <DeleteUserDialog
+        target={deleteTarget}
+        onCancel={() => setDeleteTarget(null)}
+        onConfirm={(userId, userName, userRole) => { void handleDeleteUser(userId, userName, userRole); }}
+      />
 
-      <AlertDialog open={Boolean(roleChangeTarget)} onOpenChange={(open) => !open && setRoleChangeTarget(null)}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Change user role?</AlertDialogTitle>
-            <AlertDialogDescription>
-              {roleChangeTarget
-                ? `${roleChangeTarget.userName}: ${roleChangeTarget.currentRole} to ${roleChangeTarget.newRole}. This changes their dashboard permissions immediately.`
-                : 'This changes the selected user role immediately.'}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={() => {
-                if (roleChangeTarget) {
-                  void handleRoleChange(roleChangeTarget.userId, roleChangeTarget.newRole);
-                }
-              }}
-            >
-              Confirm Role Change
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <RoleChangeDialog
+        target={roleChangeTarget}
+        onCancel={() => setRoleChangeTarget(null)}
+        onConfirm={(userId, newRole) => { void handleRoleChange(userId, newRole); }}
+      />
     </div>
   );
 }
