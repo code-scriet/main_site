@@ -7,10 +7,6 @@ import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import {
   api,
-  type Speaker,
-  type Resource,
-  type FAQ,
-  type EventRegistrationField,
   type EventRegistrationFieldType,
 } from '@/lib/api';
 import {
@@ -21,8 +17,8 @@ import {
 import { Link } from 'react-router-dom';
 import { useAuth } from '@/context/AuthContext';
 import { useUnsavedChangesWarning } from '@/hooks/useUnsavedChangesWarning';
+import { useEventForm } from '@/hooks/useEventForm';
 import {
-  createNewRegistrationField,
   eventTypes,
   registrationFieldTypes,
   resourceTypes,
@@ -69,14 +65,14 @@ export default function CreateEvent() {
     teamMaxSize: 4,
   });
   
-  // Array fields
-  const [speakers, setSpeakers] = useState<Speaker[]>([]);
-  const [resources, setResources] = useState<Resource[]>([]);
-  const [faqs, setFaqs] = useState<FAQ[]>([]);
-  const [imageGallery, setImageGallery] = useState<string[]>([]);
-  const [tags, setTags] = useState<string[]>([]);
-  const [registrationFields, setRegistrationFields] = useState<EventRegistrationField[]>([]);
-  const [newTag, setNewTag] = useState('');
+  const {
+    speakers, addSpeaker, updateSpeaker, removeSpeaker,
+    resources, addResource, updateResource, removeResource,
+    faqs, addFaq, updateFaq, removeFaq,
+    imageGallery, addGalleryImage, updateGalleryImage, removeGalleryImage,
+    tags, newTag, setNewTag, addTag, removeTag,
+    registrationFields, addRegistrationField, updateRegistrationField, removeRegistrationField,
+  } = useEventForm({ onChange: () => setIsDirty(true) });
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
     const { name, value, type } = e.target;
@@ -86,100 +82,6 @@ export default function CreateEvent() {
     } else {
       setForm(prev => ({ ...prev, [name]: value }));
     }
-  };
-
-  // Speaker management
-  const addSpeaker = () => {
-    setIsDirty(true);
-    setSpeakers(prev => [...prev, { name: '', role: '', bio: '', image: '' }]);
-  };
-  
-  const updateSpeaker = (index: number, field: keyof Speaker, value: string) => {
-    setSpeakers(prev => prev.map((s, i) => i === index ? { ...s, [field]: value } : s));
-  };
-  
-  const removeSpeaker = (index: number) => {
-    setIsDirty(true);
-    setSpeakers(prev => prev.filter((_, i) => i !== index));
-  };
-
-  // Resource management
-  const addResource = () => {
-    setIsDirty(true);
-    setResources(prev => [...prev, { title: '', url: '', type: 'link' }]);
-  };
-  
-  const updateResource = (index: number, field: keyof Resource, value: string) => {
-    setResources(prev => prev.map((r, i) => i === index ? { ...r, [field]: value } : r));
-  };
-  
-  const removeResource = (index: number) => {
-    setIsDirty(true);
-    setResources(prev => prev.filter((_, i) => i !== index));
-  };
-
-  // FAQ management
-  const addFaq = () => {
-    setIsDirty(true);
-    setFaqs(prev => [...prev, { question: '', answer: '' }]);
-  };
-  
-  const updateFaq = (index: number, field: keyof FAQ, value: string) => {
-    setFaqs(prev => prev.map((f, i) => i === index ? { ...f, [field]: value } : f));
-  };
-  
-  const removeFaq = (index: number) => {
-    setIsDirty(true);
-    setFaqs(prev => prev.filter((_, i) => i !== index));
-  };
-
-  // Gallery management
-  const addGalleryImage = () => {
-    setIsDirty(true);
-    setImageGallery(prev => [...prev, '']);
-  };
-  
-  const updateGalleryImage = (index: number, value: string) => {
-    setImageGallery(prev => prev.map((url, i) => i === index ? value : url));
-  };
-  
-  const removeGalleryImage = (index: number) => {
-    setIsDirty(true);
-    setImageGallery(prev => prev.filter((_, i) => i !== index));
-  };
-
-  // Tag management
-  const addTag = () => {
-    if (newTag.trim() && !tags.includes(newTag.trim())) {
-      setIsDirty(true);
-      setTags(prev => [...prev, newTag.trim()]);
-      setNewTag('');
-    }
-  };
-  
-  const removeTag = (index: number) => {
-    setIsDirty(true);
-    setTags(prev => prev.filter((_, i) => i !== index));
-  };
-
-  // Dynamic registration fields management
-  const addRegistrationField = () => {
-    setIsDirty(true);
-    setRegistrationFields((prev) => [...prev, createNewRegistrationField()]);
-  };
-
-  const updateRegistrationField = (
-    index: number,
-    patch: Partial<EventRegistrationField>
-  ) => {
-    setRegistrationFields((prev) =>
-      prev.map((field, i) => (i === index ? { ...field, ...patch } : field))
-    );
-  };
-
-  const removeRegistrationField = (index: number) => {
-    setIsDirty(true);
-    setRegistrationFields((prev) => prev.filter((_, i) => i !== index));
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
