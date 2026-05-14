@@ -3,20 +3,14 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Badge } from '@/components/ui/badge';
 import { api } from '@/lib/api';
-import {
-  Calendar, Loader2, AlertCircle, ArrowLeft, Users,
-  Image, Plus, X, Star, Target, User, Link as LinkIcon,
-  HelpCircle, Tag, Trash2
-} from 'lucide-react';
+import { Calendar, Loader2, AlertCircle, ArrowLeft, Users, Star, Target } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '@/context/AuthContext';
 import { formatDateTimeLocal } from '@/lib/dateUtils';
 import { useUnsavedChangesWarning } from '@/hooks/useUnsavedChangesWarning';
 import { useEventForm } from '@/hooks/useEventForm';
-import { resourceTypes, validateEventFormDates } from '@/lib/eventForm';
+import { validateEventFormDates } from '@/lib/eventForm';
 import { CollapsibleSection } from '@/components/events/form/CollapsibleSection';
 import { ExtraRegistrationFieldsSection } from '@/components/events/form/ExtraRegistrationFieldsSection';
 import { RegistrationTimelineSection } from '@/components/events/form/RegistrationTimelineSection';
@@ -24,6 +18,11 @@ import { BasicInformationSection } from '@/components/events/form/BasicInformati
 import { EventScheduleSection } from '@/components/events/form/EventScheduleSection';
 import { LocationCapacitySection } from '@/components/events/form/LocationCapacitySection';
 import { MediaSection } from '@/components/events/form/MediaSection';
+import { EventSpeakersSection } from '@/components/events/form/EventSpeakersSection';
+import { EventResourcesSection } from '@/components/events/form/EventResourcesSection';
+import { EventFaqsSection } from '@/components/events/form/EventFaqsSection';
+import { EventGallerySection } from '@/components/events/form/EventGallerySection';
+import { EventTagsSection } from '@/components/events/form/EventTagsSection';
 
 export default function EditEvent() {
   const navigate = useNavigate();
@@ -426,232 +425,44 @@ export default function EditEvent() {
           />
         </CollapsibleSection>
 
-        {/* Speakers */}
-        <CollapsibleSection 
-          title="Speakers & Instructors" 
-          icon={<User className="h-5 w-5 text-amber-600" />}
-          badge={speakers.length > 0 ? `${speakers.length}` : undefined}
-          defaultOpen={speakers.length > 0}
-        >
-          <div className="space-y-4">
-            {speakers.map((speaker, index) => (
-              <div key={index} className="p-4 border border-gray-200 rounded-lg space-y-3">
-                <div className="flex items-center justify-between">
-                  <span className="font-medium text-gray-700">Speaker {index + 1}</span>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    onClick={() => removeSpeaker(index)}
-                    className="text-red-500 hover:text-red-700"
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </Button>
-                </div>
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <Input
-                    placeholder="Name"
-                    value={speaker.name}
-                    onChange={(e) => updateSpeaker(index, 'name', e.target.value)}
-                  />
-                  <Input
-                    placeholder="Role"
-                    value={speaker.role}
-                    onChange={(e) => updateSpeaker(index, 'role', e.target.value)}
-                  />
-                </div>
-                <Input
-                  placeholder="Image URL"
-                  value={speaker.image || ''}
-                  onChange={(e) => updateSpeaker(index, 'image', e.target.value)}
-                />
-                <textarea
-                  placeholder="Bio..."
-                  value={speaker.bio || ''}
-                  onChange={(e) => updateSpeaker(index, 'bio', e.target.value)}
-                  className="w-full min-h-[60px] px-3 py-2 border border-input rounded-md bg-background text-sm"
-                />
-              </div>
-            ))}
-            <Button type="button" variant="outline" onClick={addSpeaker} className="w-full">
-              <Plus className="h-4 w-4 mr-2" />
-              Add Speaker
-            </Button>
-          </div>
-        </CollapsibleSection>
+        <EventSpeakersSection
+          speakers={speakers}
+          onAdd={addSpeaker}
+          onUpdate={updateSpeaker}
+          onRemove={removeSpeaker}
+          rolePlaceholder="Role"
+          imagePlaceholder="Image URL"
+          bioPlaceholder="Bio..."
+        />
 
-        {/* Resources */}
-        <CollapsibleSection 
-          title="Resources & Materials" 
-          icon={<LinkIcon className="h-5 w-5 text-amber-600" />}
-          badge={resources.length > 0 ? `${resources.length}` : undefined}
-          defaultOpen={resources.length > 0}
-        >
-          <div className="space-y-4">
-            {resources.map((resource, index) => (
-              <div key={index} className="p-4 border border-gray-200 rounded-lg space-y-3">
-                <div className="flex items-center justify-between">
-                  <span className="font-medium text-gray-700">Resource {index + 1}</span>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    onClick={() => removeResource(index)}
-                    className="text-red-500 hover:text-red-700"
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </Button>
-                </div>
-                <div className="grid gap-3 sm:grid-cols-3">
-                  <Input
-                    placeholder="Title"
-                    value={resource.title}
-                    onChange={(e) => updateResource(index, 'title', e.target.value)}
-                  />
-                  <Input
-                    placeholder="URL"
-                    value={resource.url}
-                    onChange={(e) => updateResource(index, 'url', e.target.value)}
-                  />
-                  <select
-                    value={resource.type}
-                    onChange={(e) => updateResource(index, 'type', e.target.value)}
-                    className="h-10 px-3 border border-input rounded-md bg-background text-sm"
-                  >
-                    {resourceTypes.map(type => (
-                      <option key={type.value} value={type.value}>{type.label}</option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-            ))}
-            <Button type="button" variant="outline" onClick={addResource} className="w-full">
-              <Plus className="h-4 w-4 mr-2" />
-              Add Resource
-            </Button>
-          </div>
-        </CollapsibleSection>
+        <EventResourcesSection
+          resources={resources}
+          onAdd={addResource}
+          onUpdate={updateResource}
+          onRemove={removeResource}
+        />
 
-        {/* FAQs */}
-        <CollapsibleSection 
-          title="FAQs" 
-          icon={<HelpCircle className="h-5 w-5 text-amber-600" />}
-          badge={faqs.length > 0 ? `${faqs.length}` : undefined}
-          defaultOpen={faqs.length > 0}
-        >
-          <div className="space-y-4">
-            {faqs.map((faq, index) => (
-              <div key={index} className="p-4 border border-gray-200 rounded-lg space-y-3">
-                <div className="flex items-center justify-between">
-                  <span className="font-medium text-gray-700">FAQ {index + 1}</span>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    onClick={() => removeFaq(index)}
-                    className="text-red-500 hover:text-red-700"
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </Button>
-                </div>
-                <Input
-                  placeholder="Question"
-                  value={faq.question}
-                  onChange={(e) => updateFaq(index, 'question', e.target.value)}
-                />
-                <textarea
-                  placeholder="Answer"
-                  value={faq.answer}
-                  onChange={(e) => updateFaq(index, 'answer', e.target.value)}
-                  className="w-full min-h-[80px] px-3 py-2 border border-input rounded-md bg-background text-sm"
-                />
-              </div>
-            ))}
-            <Button type="button" variant="outline" onClick={addFaq} className="w-full">
-              <Plus className="h-4 w-4 mr-2" />
-              Add FAQ
-            </Button>
-          </div>
-        </CollapsibleSection>
+        <EventFaqsSection
+          faqs={faqs}
+          onAdd={addFaq}
+          onUpdate={updateFaq}
+          onRemove={removeFaq}
+        />
 
-        {/* Image Gallery */}
-        <CollapsibleSection 
-          title="Image Gallery" 
-          icon={<Image className="h-5 w-5 text-amber-600" />}
-          badge={imageGallery.filter(u => u.trim()).length > 0 ? `${imageGallery.filter(u => u.trim()).length}` : undefined}
-          defaultOpen={imageGallery.length > 0}
-        >
-          <div className="space-y-4">
-            <p className="text-sm text-gray-500">Add Google Drive shareable links for event images</p>
-            {imageGallery.map((url, index) => (
-              <div key={index} className="flex gap-2">
-                <Input
-                  placeholder="Google Drive image URL"
-                  value={url}
-                  onChange={(e) => updateGalleryImage(index, e.target.value)}
-                  className="flex-1"
-                />
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  onClick={() => removeGalleryImage(index)}
-                  className="text-red-500 hover:text-red-700"
-                >
-                  <Trash2 className="h-4 w-4" />
-                </Button>
-              </div>
-            ))}
-            <Button type="button" variant="outline" onClick={addGalleryImage} className="w-full">
-              <Plus className="h-4 w-4 mr-2" />
-              Add Image
-            </Button>
-          </div>
-        </CollapsibleSection>
+        <EventGallerySection
+          imageGallery={imageGallery}
+          onAdd={addGalleryImage}
+          onUpdate={updateGalleryImage}
+          onRemove={removeGalleryImage}
+        />
 
-        {/* Tags */}
-        <CollapsibleSection 
-          title="Tags" 
-          icon={<Tag className="h-5 w-5 text-amber-600" />}
-          badge={tags.length > 0 ? `${tags.length}` : undefined}
-          defaultOpen={tags.length > 0}
-        >
-          <div className="space-y-4">
-            <div className="flex gap-2">
-              <Input
-                placeholder="Add a tag"
-                value={newTag}
-                onChange={(e) => setNewTag(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') {
-                    e.preventDefault();
-                    addTag();
-                  }
-                }}
-                className="flex-1"
-              />
-              <Button type="button" variant="outline" onClick={addTag}>
-                <Plus className="h-4 w-4" />
-              </Button>
-            </div>
-            {tags.length > 0 && (
-              <div className="flex flex-wrap gap-2">
-                {tags.map((tag, index) => (
-                  <Badge key={index} variant="secondary" className="px-3 py-1 gap-2">
-                    {tag}
-                    <button
-                      type="button"
-                      onClick={() => removeTag(index)}
-                      className="text-gray-500 hover:text-gray-700"
-                    >
-                      <X className="h-3 w-3" />
-                    </button>
-                  </Badge>
-                ))}
-              </div>
-            )}
-          </div>
-        </CollapsibleSection>
+        <EventTagsSection
+          tags={tags}
+          newTag={newTag}
+          onNewTagChange={setNewTag}
+          onAddTag={addTag}
+          onRemoveTag={removeTag}
+        />
 
         {/* Submit */}
         <div className="flex gap-4 sticky bottom-4 bg-white p-4 rounded-lg shadow-lg border border-gray-200">
