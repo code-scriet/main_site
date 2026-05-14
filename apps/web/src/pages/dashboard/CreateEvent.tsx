@@ -9,7 +9,6 @@ import { useAuth } from '@/context/AuthContext';
 import { useUnsavedChangesWarning } from '@/hooks/useUnsavedChangesWarning';
 import { useEventForm } from '@/hooks/useEventForm';
 import { validateEventFormDates } from '@/lib/eventForm';
-import { CollapsibleSection } from '@/components/events/form/CollapsibleSection';
 import { ExtraRegistrationFieldsSection } from '@/components/events/form/ExtraRegistrationFieldsSection';
 import { RegistrationTimelineSection } from '@/components/events/form/RegistrationTimelineSection';
 import { BasicInformationSection } from '@/components/events/form/BasicInformationSection';
@@ -21,6 +20,7 @@ import { EventResourcesSection } from '@/components/events/form/EventResourcesSe
 import { EventFaqsSection } from '@/components/events/form/EventFaqsSection';
 import { EventGallerySection } from '@/components/events/form/EventGallerySection';
 import { EventTagsSection } from '@/components/events/form/EventTagsSection';
+import { EventTextareaSection } from '@/components/events/form/EventTextareaSection';
 
 export default function CreateEvent() {
   const navigate = useNavigate();
@@ -256,59 +256,39 @@ export default function CreateEvent() {
           description="Cover image, video, and gallery"
         />
 
-        {/* Event Highlights */}
-        <CollapsibleSection 
-          title="Event Highlights" 
+        <EventTextareaSection
+          idPrefix="create-event"
+          name="highlights"
+          title="Event Highlights"
           icon={<Star className="h-5 w-5 text-amber-600" />}
-        >
-          <div className="space-y-2">
-            <label htmlFor="create-event-highlights" className="text-sm font-medium text-gray-700">Key highlights of the event</label>
-            <textarea
-              id="create-event-highlights"
-              name="highlights"
-              value={form.highlights}
-              onChange={handleChange}
-              placeholder="- Hands-on coding sessions&#10;- Certificate of completion&#10;- Networking opportunities"
-              className="w-full min-h-[120px] px-3 py-2 border border-input rounded-md bg-background text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 font-mono"
-            />
-          </div>
-        </CollapsibleSection>
+          value={form.highlights}
+          onChange={handleChange}
+          label="Key highlights of the event"
+          placeholder={"- Hands-on coding sessions\n- Certificate of completion\n- Networking opportunities"}
+        />
 
-        {/* Agenda */}
-        <CollapsibleSection 
-          title="Agenda / Schedule" 
+        <EventTextareaSection
+          idPrefix="create-event"
+          name="agenda"
+          title="Agenda / Schedule"
           icon={<Calendar className="h-5 w-5 text-amber-600" />}
-        >
-          <div className="space-y-2">
-            <label htmlFor="create-event-agenda" className="text-sm font-medium text-gray-700">Detailed event schedule</label>
-            <textarea
-              id="create-event-agenda"
-              name="agenda"
-              value={form.agenda}
-              onChange={handleChange}
-              placeholder="## Day 1&#10;- 10:00 AM - Opening Ceremony&#10;- 11:00 AM - Keynote Session&#10;&#10;## Day 2&#10;- 10:00 AM - Workshops"
-              className="w-full min-h-[150px] px-3 py-2 border border-input rounded-md bg-background text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 font-mono"
-            />
-          </div>
-        </CollapsibleSection>
+          value={form.agenda}
+          onChange={handleChange}
+          label="Detailed event schedule"
+          placeholder={"## Day 1\n- 10:00 AM - Opening Ceremony\n- 11:00 AM - Keynote Session\n\n## Day 2\n- 10:00 AM - Workshops"}
+          minHeight="150px"
+        />
 
-        {/* Learning Outcomes */}
-        <CollapsibleSection 
-          title="What You'll Learn" 
+        <EventTextareaSection
+          idPrefix="create-event"
+          name="learningOutcomes"
+          title="What You'll Learn"
           icon={<Target className="h-5 w-5 text-amber-600" />}
-        >
-          <div className="space-y-2">
-            <label htmlFor="create-event-learning-outcomes" className="text-sm font-medium text-gray-700">What participants will gain</label>
-            <textarea
-              id="create-event-learning-outcomes"
-              name="learningOutcomes"
-              value={form.learningOutcomes}
-              onChange={handleChange}
-              placeholder="- Master the fundamentals of React&#10;- Build a complete project from scratch&#10;- Understand best practices"
-              className="w-full min-h-[120px] px-3 py-2 border border-input rounded-md bg-background text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 font-mono"
-            />
-          </div>
-        </CollapsibleSection>
+          value={form.learningOutcomes}
+          onChange={handleChange}
+          label="What participants will gain"
+          placeholder={"- Master the fundamentals of React\n- Build a complete project from scratch\n- Understand best practices"}
+        />
 
         <EventSpeakersSection
           speakers={speakers}

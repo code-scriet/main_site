@@ -1,7 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { api } from '@/lib/api';
 import { Calendar, Loader2, AlertCircle, ArrowLeft, Users, Star, Target } from 'lucide-react';
@@ -11,7 +10,6 @@ import { formatDateTimeLocal } from '@/lib/dateUtils';
 import { useUnsavedChangesWarning } from '@/hooks/useUnsavedChangesWarning';
 import { useEventForm } from '@/hooks/useEventForm';
 import { validateEventFormDates } from '@/lib/eventForm';
-import { CollapsibleSection } from '@/components/events/form/CollapsibleSection';
 import { ExtraRegistrationFieldsSection } from '@/components/events/form/ExtraRegistrationFieldsSection';
 import { RegistrationTimelineSection } from '@/components/events/form/RegistrationTimelineSection';
 import { BasicInformationSection } from '@/components/events/form/BasicInformationSection';
@@ -23,6 +21,8 @@ import { EventResourcesSection } from '@/components/events/form/EventResourcesSe
 import { EventFaqsSection } from '@/components/events/form/EventFaqsSection';
 import { EventGallerySection } from '@/components/events/form/EventGallerySection';
 import { EventTagsSection } from '@/components/events/form/EventTagsSection';
+import { EventTextareaSection } from '@/components/events/form/EventTextareaSection';
+import { EventStatusSection } from '@/components/events/form/EventStatusSection';
 
 export default function EditEvent() {
   const navigate = useNavigate();
@@ -282,47 +282,12 @@ export default function EditEvent() {
       )}
 
       <form onSubmit={handleSubmit} onChange={() => setIsDirty(true)} className="space-y-6">
-        {/* Event Status */}
-        <Card className="border-amber-200 bg-amber-50/50">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Calendar className="h-5 w-5 text-amber-600" />
-              Event Status
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="flex items-center gap-4">
-              <div className="space-y-2">
-                <label htmlFor="edit-event-status" className="text-sm font-medium text-gray-700">Status</label>
-                <select
-                  id="edit-event-status"
-                  name="status"
-                  value={form.status}
-                  onChange={handleChange}
-                  className="h-10 px-3 border border-input rounded-md bg-background text-sm focus:outline-none focus:ring-2 focus:ring-amber-500"
-                >
-                  <option value="UPCOMING">Upcoming</option>
-                  <option value="ONGOING">Ongoing</option>
-                  <option value="PAST">Past</option>
-                </select>
-              </div>
-              <div className="flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  id="featured"
-                  name="featured"
-                  checked={form.featured}
-                  onChange={handleChange}
-                  className="w-4 h-4 text-amber-600 rounded focus:ring-amber-500"
-                />
-                <label htmlFor="featured" className="text-sm font-medium text-gray-700 flex items-center gap-2">
-                  <Star className="h-4 w-4 text-amber-500" />
-                  Featured
-                </label>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+        <EventStatusSection
+          idPrefix="edit-event"
+          status={form.status}
+          featured={form.featured}
+          onChange={handleChange}
+        />
 
         <BasicInformationSection
           idPrefix="edit-event"
@@ -379,51 +344,39 @@ export default function EditEvent() {
           imageUrlHint=""
         />
 
-        {/* Extended Content Sections */}
-        <CollapsibleSection 
-          title="Event Highlights" 
+        <EventTextareaSection
+          idPrefix="edit-event"
+          name="highlights"
+          title="Event Highlights"
           icon={<Star className="h-5 w-5 text-amber-600" />}
+          value={form.highlights}
+          onChange={handleChange}
+          placeholder="Key highlights..."
           defaultOpen={!!form.highlights}
-        >
-          <textarea
-            aria-label="Event highlights"
-            name="highlights"
-            value={form.highlights}
-            onChange={handleChange}
-            placeholder="Key highlights..."
-            className="w-full min-h-[120px] px-3 py-2 border border-input rounded-md bg-background text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 font-mono"
-          />
-        </CollapsibleSection>
+        />
 
-        <CollapsibleSection 
-          title="Agenda / Schedule" 
+        <EventTextareaSection
+          idPrefix="edit-event"
+          name="agenda"
+          title="Agenda / Schedule"
           icon={<Calendar className="h-5 w-5 text-amber-600" />}
+          value={form.agenda}
+          onChange={handleChange}
+          placeholder="Event schedule..."
+          minHeight="150px"
           defaultOpen={!!form.agenda}
-        >
-          <textarea
-            aria-label="Event agenda"
-            name="agenda"
-            value={form.agenda}
-            onChange={handleChange}
-            placeholder="Event schedule..."
-            className="w-full min-h-[150px] px-3 py-2 border border-input rounded-md bg-background text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 font-mono"
-          />
-        </CollapsibleSection>
+        />
 
-        <CollapsibleSection 
-          title="What You'll Learn" 
+        <EventTextareaSection
+          idPrefix="edit-event"
+          name="learningOutcomes"
+          title="What You'll Learn"
           icon={<Target className="h-5 w-5 text-amber-600" />}
+          value={form.learningOutcomes}
+          onChange={handleChange}
+          placeholder="Learning outcomes..."
           defaultOpen={!!form.learningOutcomes}
-        >
-          <textarea
-            aria-label="Learning outcomes"
-            name="learningOutcomes"
-            value={form.learningOutcomes}
-            onChange={handleChange}
-            placeholder="Learning outcomes..."
-            className="w-full min-h-[120px] px-3 py-2 border border-input rounded-md bg-background text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 font-mono"
-          />
-        </CollapsibleSection>
+        />
 
         <EventSpeakersSection
           speakers={speakers}
