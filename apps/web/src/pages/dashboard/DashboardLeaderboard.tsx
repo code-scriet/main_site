@@ -268,8 +268,8 @@ export default function DashboardLeaderboard() {
                         <p className="text-xs text-gray-500 flex items-center gap-1 tabular-nums">
                           <Clock className="h-3 w-3" />
                           {tab === 'today'
-                            ? entry.timeTakenMs !== undefined
-                              ? `Solved in ${formatDurationMs(entry.timeTakenMs)} (at ${formatIstTime(entry.submittedAt)} IST)`
+                            ? entry.activeMs != null
+                              ? `Solved in ${formatDurationMs(entry.activeMs)} (at ${formatIstTime(entry.submittedAt)} IST)`
                               : `Solved at ${formatIstTime(entry.submittedAt)} IST`
                             : `Last solve ${formatIstDateTime(entry.submittedAt)}${entry.solveDays ? ` · ${entry.solveDays} day${entry.solveDays === 1 ? '' : 's'}` : ''}`}
                         </p>

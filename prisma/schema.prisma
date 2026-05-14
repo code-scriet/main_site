@@ -1053,6 +1053,7 @@ model ProblemSubmission {
   compilerOutput  String?            @map("compiler_output") @db.Text
   manualOverride  Boolean            @default(false) @map("manual_override")
   overrideNotes   String?            @map("override_notes") @db.Text
+  activeMs        Int?               @map("active_ms")
   submittedAt     DateTime           @default(now()) @map("submitted_at")
   updatedAt       DateTime           @updatedAt @map("updated_at")
 

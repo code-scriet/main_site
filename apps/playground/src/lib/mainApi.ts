@@ -174,7 +174,7 @@ export const mainApi = {
   },
   runProblem: (problemId: string, body: { language: ProblemLanguage; code: string; contextType?: ProblemContextType; contextKey?: string }) =>
     call<TestRunResult>(`/api/problems/${problemId}/run`, { method: 'POST', body: JSON.stringify(body) }),
-  submitProblem: (problemId: string, body: { language: ProblemLanguage; code: string; contextType: ProblemContextType; contextKey: string }) =>
+  submitProblem: (problemId: string, body: { language: ProblemLanguage; code: string; contextType: ProblemContextType; contextKey: string; activeMs?: number }) =>
     call<SubmissionResult>(`/api/problems/${problemId}/submit`, { method: 'POST', body: JSON.stringify(body) }),
   getMySubmission: (problemId: string, contextType: ProblemContextType, contextKey: string) =>
     call<{

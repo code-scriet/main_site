@@ -170,6 +170,8 @@ export interface ProblemLeaderboardEntry {
   runtimeMs?: number | null;
   /** Daily QOTD leaderboard only — ms between QOTD publish and the user's submission. */
   timeTakenMs?: number;
+  /** Daily QOTD leaderboard only — active-tab solve time the client reported on submit. */
+  activeMs?: number | null;
   /** All-time QOTD leaderboard only — earliest QOTD AC across all days. */
   firstSolveAt?: string;
   /** All-time QOTD leaderboard only — unique IST days the user has solved. */

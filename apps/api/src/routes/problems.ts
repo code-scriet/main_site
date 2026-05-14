@@ -72,6 +72,9 @@ const runSchema = z.object({
 const submitSchema = runSchema.extend({
   contextType: z.nativeEnum(ProblemContextType),
   contextKey: z.string().min(1).max(120),
+  // Active-tab solve time reported by the client. Cap at 24h so a runaway
+  // counter (or a hostile client) can't poison the leaderboard.
+  activeMs: z.coerce.number().int().min(0).max(86_400_000).optional(),
 });
 
 function toProblemInput(raw: z.infer<typeof problemInputSchema>): ProblemInput {

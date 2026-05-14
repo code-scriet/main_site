@@ -68,7 +68,7 @@ function LeaderboardTable({ entries, mode }: { entries: ProblemLeaderboardEntry[
                 <td className="px-4 py-3 text-right font-semibold text-gray-900 tabular-nums">{entry.score}</td>
                 <td className="px-4 py-3 text-gray-600 tabular-nums">
                   {mode === 'today'
-                    ? formatDurationMs(entry.timeTakenMs)
+                    ? formatDurationMs(entry.activeMs ?? undefined)
                     : entry.solveDays !== undefined
                       ? `${entry.solveDays} day${entry.solveDays === 1 ? '' : 's'}`
                       : '—'}
@@ -132,8 +132,8 @@ export default function QOTDLeaderboardPage() {
         <div>
           <h1 className="text-3xl font-bold text-gray-900">QOTD Leaderboard</h1>
           <p className="mt-2 text-gray-600">
-            {tab === 'today' && publishedAt
-              ? `Time taken is measured from today’s QOTD publish at ${formatIstTime(publishedAt)} IST.`
+            {tab === 'today'
+              ? `Time taken is active-tab solve time reported by each solver${publishedAt ? ` (QOTD published at ${formatIstTime(publishedAt)} IST)` : ''}.`
               : 'Daily scores and all-time totals use IST dates.'}
           </p>
         </div>

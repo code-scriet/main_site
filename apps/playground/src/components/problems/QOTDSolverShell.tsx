@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import Editor from '@monaco-editor/react';
 import {
@@ -12,6 +12,7 @@ import {
   Maximize2,
   Play,
   Send,
+  Timer,
   Trophy,
   XCircle,
 } from 'lucide-react';
@@ -57,6 +58,98 @@ const LANGUAGE_META: Record<ProblemLanguage, { label: string; filename: string; 
 
 function draftKey(problemId: string, language: ProblemLanguage) {
   return `problem_draft:v1:${problemId}:${language}`;
+}
+
+function activeTimerKey(problemId: string, contextType: string, contextKey: string) {
+  return `qotd_active_ms:v1:${contextType}:${contextKey}:${problemId}`;
+}
+
+function formatActiveDuration(ms: number): string {
+  const total = Math.max(0, Math.floor(ms / 1000));
+  const h = Math.floor(total / 3600);
+  const m = Math.floor((total % 3600) / 60);
+  const s = total % 60;
+  if (h > 0) return `${h}h ${m.toString().padStart(2, '0')}m ${s.toString().padStart(2, '0')}s`;
+  if (m > 0) return `${m}m ${s.toString().padStart(2, '0')}s`;
+  return `${s}s`;
+}
+
+/**
+ * Ticks once per second while the tab is visible, accumulating active solve
+ * time keyed by (contextType, contextKey, problemId). The value is persisted
+ * in localStorage so a reload doesn't reset the clock, and exposed via
+ * `getElapsed()` for the submit payload.
+ */
+function useActiveTimer(problemId: string, contextType: string, contextKey: string) {
+  const storageKey = useMemo(
+    () => activeTimerKey(problemId, contextType, contextKey),
+    [problemId, contextType, contextKey],
+  );
+  const [elapsed, setElapsed] = useState<number>(() => {
+    if (typeof window === 'undefined') return 0;
+    const raw = localStorage.getItem(storageKey);
+    const parsed = raw ? Number(raw) : 0;
+    return Number.isFinite(parsed) && parsed >= 0 ? parsed : 0;
+  });
+  const elapsedRef = useRef(elapsed);
+  elapsedRef.current = elapsed;
+
+  // Reset state when the keying tuple changes (different QOTD, same component).
+  const loadedKeyRef = useRef(storageKey);
+  if (loadedKeyRef.current !== storageKey) {
+    loadedKeyRef.current = storageKey;
+    const raw = typeof window !== 'undefined' ? localStorage.getItem(storageKey) : null;
+    const parsed = raw ? Number(raw) : 0;
+    const next = Number.isFinite(parsed) && parsed >= 0 ? parsed : 0;
+    setElapsed(next);
+    elapsedRef.current = next;
+  }
+
+  useEffect(() => {
+    let lastTick = document.visibilityState === 'visible' ? Date.now() : null;
+    let writeAccumulator = 0;
+
+    const tick = () => {
+      if (document.visibilityState !== 'visible' || lastTick === null) return;
+      const now = Date.now();
+      const delta = now - lastTick;
+      lastTick = now;
+      // Guard against device sleep / clock skew producing huge jumps.
+      if (delta <= 0 || delta > 5_000) return;
+      const next = elapsedRef.current + delta;
+      elapsedRef.current = next;
+      setElapsed(next);
+      writeAccumulator += delta;
+      if (writeAccumulator >= 5_000) {
+        writeAccumulator = 0;
+        localStorage.setItem(storageKey, String(next));
+      }
+    };
+
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        lastTick = Date.now();
+      } else {
+        lastTick = null;
+        // Persist the latest value the moment we lose visibility so a tab
+        // close from a hidden state still preserves accurate solve time.
+        localStorage.setItem(storageKey, String(elapsedRef.current));
+        writeAccumulator = 0;
+      }
+    };
+
+    const interval = window.setInterval(tick, 1000);
+    document.addEventListener('visibilitychange', handleVisibility);
+
+    return () => {
+      window.clearInterval(interval);
+      document.removeEventListener('visibilitychange', handleVisibility);
+      localStorage.setItem(storageKey, String(elapsedRef.current));
+    };
+  }, [storageKey]);
+
+  const getElapsed = useCallback(() => elapsedRef.current, []);
+  return { elapsed, getElapsed };
 }
 
 function verdictLabel(verdict?: string | null) {
@@ -140,6 +233,12 @@ export function QOTDSolverShell({ problem, context, onExit }: QOTDSolverShellPro
   const [capRequestNote, setCapRequestNote] = useState('');
   const loadedKeyRef = useRef('');
 
+  const { elapsed: activeElapsedMs, getElapsed: getActiveElapsedMs } = useActiveTimer(
+    problem.id,
+    context.type,
+    context.key,
+  );
+
   const submissionQuery = useQuery({
     queryKey: ['qotd-shell-submission', problem.id, context.type, context.key],
     queryFn: () => mainApi.getMySubmission(problem.id, context.type, context.key),
@@ -194,7 +293,13 @@ export function QOTDSolverShell({ problem, context, onExit }: QOTDSolverShellPro
   });
 
   const submitMutation = useMutation({
-    mutationFn: () => mainApi.submitProblem(problem.id, { language, code, contextType: context.type, contextKey: context.key }),
+    mutationFn: () => mainApi.submitProblem(problem.id, {
+      language,
+      code,
+      contextType: context.type,
+      contextKey: context.key,
+      activeMs: getActiveElapsedMs(),
+    }),
     onSuccess: async (result) => {
       toast.success(`Submitted. Verdict: ${verdictLabel(result.verdict)}`);
       setRemainingCap(result.remainingSubmits);
@@ -255,6 +360,13 @@ export function QOTDSolverShell({ problem, context, onExit }: QOTDSolverShellPro
           </span>
         </div>
         <div className="flex flex-wrap items-center gap-2">
+          <span
+            title="Active solve time — counts only while this tab is focused"
+            className="inline-flex items-center gap-1.5 rounded border border-zinc-200 bg-white px-2.5 py-0.5 text-xs font-semibold tabular-nums text-zinc-700 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-200"
+          >
+            <Timer className="h-3.5 w-3.5" />
+            {formatActiveDuration(activeElapsedMs)}
+          </span>
           {remainingCap !== null && (
             <span className={`inline-flex items-center gap-1.5 rounded border px-2.5 py-0.5 text-xs font-semibold ${
               capExhausted

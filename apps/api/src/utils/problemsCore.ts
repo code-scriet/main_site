@@ -55,6 +55,10 @@ export interface SubmitProblemParams {
   code: string;
   contextType: ProblemContextType;
   contextKey: string;
+  // Client-reported active-tab solve time in ms. Optional; clients that don't
+  // run a timer simply omit it. Persisted as-is and surfaced on the QOTD
+  // daily leaderboard as "time taken".
+  activeMs?: number;
 }
 
 export interface RunProblemParams {
@@ -543,6 +547,7 @@ export async function submitProblemForUser(params: SubmitProblemParams): Promise
       perTestVerdicts: scored.perTestVerdicts as unknown as Prisma.InputJsonValue,
       runtimeMs: judge.totalRuntimeMs,
       compilerOutput: judge.compilerOutput,
+      activeMs: params.activeMs,
     },
     update: {
       language: params.language,
@@ -554,6 +559,12 @@ export async function submitProblemForUser(params: SubmitProblemParams): Promise
       perTestVerdicts: scored.perTestVerdicts as unknown as Prisma.InputJsonValue,
       runtimeMs: judge.totalRuntimeMs,
       compilerOutput: judge.compilerOutput,
+      // Only overwrite when the client reports a fresh measurement so a stale
+      // submit (or a client without the timer) doesn't wipe a prior value.
+      activeMs:
+        params.activeMs !== undefined
+          ? { set: params.activeMs }
+          : undefined,
       manualOverride: false,
       overrideNotes: null,
     },

@@ -224,16 +224,24 @@ qotdRouter.get('/leaderboard/total', async (req: Request, res: Response) => {
       return ApiResponse.success(res, totalLeaderboardCache.data);
     }
 
+    // Prisma stores DateTime as `timestamp(3)` (without time zone) holding the
+    // UTC instant. To get the IST calendar date we must first say "this is UTC"
+    // (`AT TIME ZONE 'UTC'` lifts naive → tstz) and then convert to IST
+    // (`AT TIME ZONE 'Asia/Kolkata'` flattens tstz → naive local). Skipping the
+    // first step inverts the offset and silently drops every row whose IST date
+    // differs from its UTC date (i.e. anything submitted before 05:30 IST or
+    // QOTD rows whose UTC midnight is the previous IST day).
     const rows = await prisma.$queryRaw<Array<{ user_id: string; total_score: bigint | number; first_solve: Date; latest_solve: Date; solve_days: bigint | number }>>`
       SELECT ps.user_id,
              SUM(ps.score)::int AS total_score,
              MIN(ps.submitted_at) AS first_solve,
              MAX(ps.submitted_at) AS latest_solve,
-             COUNT(DISTINCT DATE(ps.submitted_at AT TIME ZONE 'Asia/Kolkata'))::int AS solve_days
+             COUNT(DISTINCT DATE(ps.submitted_at AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Kolkata'))::int AS solve_days
       FROM problem_submissions ps
       JOIN qotd q ON q.id = ps.context_key
       WHERE ps.context_type = 'QOTD'
-        AND DATE(ps.submitted_at AT TIME ZONE 'Asia/Kolkata') = DATE(q.date AT TIME ZONE 'Asia/Kolkata')
+        AND DATE(ps.submitted_at AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Kolkata')
+            = DATE(q.date AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Kolkata')
       GROUP BY ps.user_id
       ORDER BY total_score DESC, first_solve ASC
       LIMIT ${limit};
@@ -367,6 +375,7 @@ qotdRouter.get('/:qotdId/leaderboard', async (req: Request, res: Response) => {
           verdict: submission.verdict,
           submittedAt: submission.submittedAt.toISOString(),
           timeTakenMs,
+          activeMs: submission.activeMs ?? null,
         };
       }),
     };
