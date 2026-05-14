@@ -6,15 +6,9 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from '@/components/ui/alert-dialog';
+  RegistrationConfirmDialog,
+  type ConfirmDialogTarget,
+} from '@/components/admin/event-registrations/RegistrationConfirmDialog';
 import { Loader2, Calendar, Users, Search, Download, Mail, Trash2, Pencil, Phone, GraduationCap, RefreshCw, CheckCircle, AlertCircle, LayoutList, LayoutGrid } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { api, type EventAdminRegistration } from '@/lib/api';
@@ -81,12 +75,7 @@ export default function AdminEventRegistrations() {
   const [teamGroupView, setTeamGroupView] = useState<string | null>(null);
   const [teamData, setTeamData] = useState<Map<string, EventTeam[]>>(new Map());
   const [teamDataLoading, setTeamDataLoading] = useState<string | null>(null);
-  const [confirmDialog, setConfirmDialog] = useState<
-    | { type: 'event'; eventId: string; eventTitle: string }
-    | { type: 'registration'; eventId: string; registrationId: string; userName: string }
-    | { type: 'team'; eventId: string; teamId: string; teamName: string }
-    | null
-  >(null);
+  const [confirmDialog, setConfirmDialog] = useState<ConfirmDialogTarget | null>(null);
 
   const getExportFiltersForEvent = (eventId: string): ExportFilterState => (
     exportFiltersByEvent[eventId] ?? DEFAULT_EXPORT_FILTERS
@@ -881,54 +870,21 @@ export default function AdminEventRegistrations() {
         )}
       </div>
 
-      <AlertDialog open={Boolean(confirmDialog)} onOpenChange={(open) => !open && setConfirmDialog(null)}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>
-              {confirmDialog?.type === 'event'
-                ? 'Delete event?'
-                : confirmDialog?.type === 'team'
-                  ? 'Dissolve team?'
-                  : 'Remove registration?'}
-            </AlertDialogTitle>
-            <AlertDialogDescription>
-              {confirmDialog?.type === 'event' && (
-                `This will permanently delete "${confirmDialog.eventTitle}" and remove all registrations for this event.`
-              )}
-              {confirmDialog?.type === 'team' && (
-                `This will dissolve "${confirmDialog.teamName}" and cancel all member registrations.`
-              )}
-              {confirmDialog?.type === 'registration' && (
-                `This will remove "${confirmDialog.userName}" from this event.`
-              )}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              className="bg-red-600 hover:bg-red-700"
-              onClick={() => {
-                if (!confirmDialog) return;
-                if (confirmDialog.type === 'event') {
-                  void handleDeleteEvent(confirmDialog.eventId, confirmDialog.eventTitle);
-                  return;
-                }
-                if (confirmDialog.type === 'team') {
-                  void handleAdminDissolve(confirmDialog.teamId, confirmDialog.teamName, confirmDialog.eventId);
-                  return;
-                }
-                void handleDeleteRegistration(confirmDialog.eventId, confirmDialog.registrationId, confirmDialog.userName);
-              }}
-            >
-              {confirmDialog?.type === 'event'
-                ? 'Delete Event'
-                : confirmDialog?.type === 'team'
-                  ? 'Dissolve Team'
-                  : 'Remove Registration'}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <RegistrationConfirmDialog
+        target={confirmDialog}
+        onCancel={() => setConfirmDialog(null)}
+        onConfirm={(target) => {
+          if (target.type === 'event') {
+            void handleDeleteEvent(target.eventId, target.eventTitle);
+            return;
+          }
+          if (target.type === 'team') {
+            void handleAdminDissolve(target.teamId, target.teamName, target.eventId);
+            return;
+          }
+          void handleDeleteRegistration(target.eventId, target.registrationId, target.userName);
+        }}
+      />
     </div>
   );
 }
