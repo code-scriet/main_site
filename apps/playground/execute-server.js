@@ -626,8 +626,11 @@ setInterval(() => {
 const COMPILERS = {
   javascript: { compiler: 'nodejs-20.17.0',      version: 'Node.js 20.17',  options: '' },
   python:     { compiler: 'cpython-3.12.7',       version: 'Python 3.12',    options: '' },
-  cpp:        { compiler: 'gcc-13.2.0',            version: 'GCC 13.2',      options: 'warning,c++17' },
-  c:          { compiler: 'gcc-13.2.0-c',          version: 'GCC 13.2',      options: 'warning' },
+  // -DONLINE_JUDGE matches the de-facto competitive-programming convention so
+  // `#ifndef ONLINE_JUDGE freopen("input.txt", …) #endif` templates skip the
+  // file-IO block on the judge.
+  cpp:        { compiler: 'gcc-13.2.0',            version: 'GCC 13.2',      options: 'warning,c++17', compilerOptionRaw: '-DONLINE_JUDGE' },
+  c:          { compiler: 'gcc-13.2.0-c',          version: 'GCC 13.2',      options: 'warning',       compilerOptionRaw: '-DONLINE_JUDGE' },
   java:       { compiler: 'openjdk-jdk-22+36',     version: 'JDK 22',        options: '' },
   typescript: { compiler: 'typescript-5.6.2',      version: 'TypeScript 5.6', options: '' },
 };
@@ -678,6 +681,9 @@ async function executeCode(language, code, stdin) {
     // Add compiler options if specified and valid
     if (config.options && COMPILER_OPTIONS_REGEX.test(config.options)) {
       body.options = config.options;
+    }
+    if (config.compilerOptionRaw) {
+      body['compiler-option-raw'] = config.compilerOptionRaw;
     }
 
     console.log(`[Execute] Running ${language} via ${config.compiler}...`);

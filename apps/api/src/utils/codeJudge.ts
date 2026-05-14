@@ -31,6 +31,7 @@ export interface JudgeResult {
 interface CompilerConfig {
   compiler: string;
   options?: string;
+  compilerOptionRaw?: string;
 }
 
 const EXECUTOR_URL = process.env.EXECUTOR_URL || 'https://codescriet-executor.developer-aary.workers.dev/execute';
@@ -50,7 +51,10 @@ const COMPILER_OUTPUT_LIMIT = 10 * 1024;
 const COMPILERS: Record<ProblemLanguage, CompilerConfig> = {
   PYTHON: { compiler: 'cpython-3.12.7' },
   JAVASCRIPT: { compiler: 'nodejs-20.17.0' },
-  CPP: { compiler: 'gcc-13.2.0', options: 'warning,c++17' },
+  // -DONLINE_JUDGE matches the de-facto competitive-programming convention
+  // (Codeforces, AtCoder, etc). Lets users guard their `freopen("input.txt", …)`
+  // template blocks with `#ifndef ONLINE_JUDGE` so they don't trip the judge.
+  CPP: { compiler: 'gcc-13.2.0', options: 'warning,c++17', compilerOptionRaw: '-DONLINE_JUDGE' },
   JAVA: { compiler: 'openjdk-jdk-22+36' },
 };
 
@@ -184,6 +188,7 @@ export async function runJudge(req: JudgeRequest): Promise<JudgeResult> {
           code: wrappedCode,
           stdin,
           options: compiler.options || '',
+          ...(compiler.compilerOptionRaw ? { 'compiler-option-raw': compiler.compilerOptionRaw } : {}),
         }),
         signal: controller.signal,
       });

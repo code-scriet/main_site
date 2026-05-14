@@ -41,7 +41,10 @@ def _read_tests():
 def _run_one(input_str):
     real_stdin = sys.stdin
     real_stdout = sys.stdout
-    sys.stdin = io.StringIO(input_str)
+    # Use TextIOWrapper(BytesIO) instead of StringIO so user code that does
+    # sys.stdin.buffer.read() (a very common competitive-Python pattern) keeps
+    # working — StringIO does not expose .buffer at all.
+    sys.stdin = io.TextIOWrapper(io.BytesIO(input_str.encode("utf-8")), encoding="utf-8")
     sys.stdout = io.StringIO()
     t0 = time.perf_counter()
     err = [None]
