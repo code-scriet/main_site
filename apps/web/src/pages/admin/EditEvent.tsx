@@ -134,7 +134,7 @@ export default function EditEvent() {
     } finally {
       setLoading(false);
     }
-  }, [id]);
+  }, [id, setSpeakers, setResources, setFaqs, setImageGallery, setTags, setRegistrationFields]);
 
   useEffect(() => {
     void loadEvent();
