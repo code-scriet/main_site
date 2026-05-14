@@ -4,7 +4,6 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Switch } from '@/components/ui/switch';
 import { Save, AlertCircle, CheckCircle, Globe, Mail, Shield, Loader2, RefreshCw, Share2, FileText, Eye, Code, Search, Clock, AlertTriangle } from 'lucide-react';
 import { api } from '@/lib/api';
 import type { Settings, SecurityEnvStatus } from '@/lib/api';
@@ -12,34 +11,11 @@ import { useAuth } from '@/context/AuthContext';
 import { useSettings } from '@/context/SettingsContext';
 import { Markdown } from '@/components/ui/markdown';
 import { formatDateTime } from '@/lib/dateUtils';
+import { ToggleRow as SharedToggleRow } from '@/components/admin/settings/ToggleRow';
+import { GeneralSettingsCard } from '@/components/admin/settings/GeneralSettingsCard';
+import { RegistrationEventsCard } from '@/components/admin/settings/RegistrationEventsCard';
 
-type ToggleRowProps = {
-  id: string;
-  label: string;
-  description: string;
-  checked: boolean;
-  onCheckedChange: (checked: boolean) => void;
-  compact?: boolean;
-};
-
-function ToggleRow({ id, label, description, checked, onCheckedChange, compact = false }: ToggleRowProps) {
-  return (
-    <div className={`flex items-center justify-between rounded-lg border border-amber-100 ${compact ? 'bg-white p-3' : 'bg-amber-50 p-4'}`}>
-      <div className="pr-4">
-        <Label htmlFor={id} className="font-medium text-amber-900">
-          {label}
-        </Label>
-        <p className={`mt-1 ${compact ? 'text-xs text-gray-400' : 'text-sm text-gray-500'}`}>{description}</p>
-      </div>
-      <Switch
-        id={id}
-        checked={checked}
-        onCheckedChange={onCheckedChange}
-        className={compact ? 'scale-90' : ''}
-      />
-    </div>
-  );
-}
+const ToggleRow = SharedToggleRow;
 
 export default function AdminSettings() {
   const { user, token } = useAuth();
@@ -296,79 +272,9 @@ export default function AdminSettings() {
       )}
 
       {/* General Settings */}
-      <Card className="border-amber-100">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Globe className="h-5 w-5 text-amber-600" />
-            General Settings
-          </CardTitle>
-          <CardDescription>Basic club information</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="space-y-2">
-            <Label htmlFor="club-name">Club Name</Label>
-            <Input
-              id="club-name"
-              value={settings.clubName}
-              onChange={(e) => setSettings({ ...settings, clubName: e.target.value })}
-              placeholder="Enter club name"
-            />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="club-email">Contact Email</Label>
-            <Input
-              id="club-email"
-              type="email"
-              value={settings.clubEmail}
-              onChange={(e) => setSettings({ ...settings, clubEmail: e.target.value })}
-              placeholder="contact@example.com"
-            />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="club-description">Description</Label>
-            <textarea
-              id="club-description"
-              value={settings.clubDescription}
-              onChange={(e) => setSettings({ ...settings, clubDescription: e.target.value })}
-              className="w-full min-h-[100px] px-3 py-2 border border-input rounded-md bg-background text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent"
-              placeholder="Describe your club..."
-            />
-            <p className="text-xs text-gray-500">This description appears on the homepage and about page</p>
-          </div>
-        </CardContent>
-      </Card>
+      <GeneralSettingsCard settings={settings} onChange={setSettings} />
 
-      {/* Registration Settings */}
-      <Card className="border-amber-100">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Shield className="h-5 w-5 text-amber-600" />
-            Registration & Events
-          </CardTitle>
-          <CardDescription>Control event registration settings</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <ToggleRow
-            id="registration-open"
-            label="Event Registration"
-            description="Allow users to register for events"
-            checked={settings.registrationOpen}
-            onCheckedChange={(checked) => setSettings({ ...settings, registrationOpen: checked })}
-          />
-          <div className="space-y-2">
-            <Label htmlFor="max-events-per-user">Max Events Per User</Label>
-            <Input
-              id="max-events-per-user"
-              type="number"
-              min="1"
-              max="50"
-              value={settings.maxEventsPerUser}
-              onChange={(e) => setSettings({ ...settings, maxEventsPerUser: parseInt(e.target.value) || 5 })}
-            />
-            <p className="text-xs text-gray-500">Maximum number of concurrent event registrations per user (1-50)</p>
-          </div>
-        </CardContent>
-      </Card>
+      <RegistrationEventsCard settings={settings} onChange={setSettings} />
 
       {/* Email & Notifications */}
       <Card className="border-amber-100">
