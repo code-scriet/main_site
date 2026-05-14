@@ -96,6 +96,10 @@ export default function DashboardInvitations() {
   const { invitationId: highlightedInvitationId } = useParams<{ invitationId?: string }>();
   const queryClient = useQueryClient();
   const [historyOpen, setHistoryOpen] = useState(false);
+  // Tracks which highlighted invitation we have already auto-opened the
+  // history panel for, so the user can collapse it again without us
+  // re-opening on the next render.
+  const [autoOpenedForId, setAutoOpenedForId] = useState<string | null>(null);
   const [actionState, setActionState] = useState<InvitationActionState>(null);
 
   const invitationsQuery = useQuery({
@@ -125,12 +129,19 @@ export default function DashboardInvitations() {
     [highlightedInvitationId, invitations],
   );
 
-  useEffect(() => {
-    if (!highlightedInvitation) return;
-    if (['DECLINED', 'REVOKED', 'EXPIRED'].includes(highlightedInvitation.status)) {
-      setHistoryOpen(true);
-    }
-  }, [highlightedInvitation]);
+  // Auto-open the history panel when a deep-link lands on a DECLINED /
+  // REVOKED / EXPIRED invitation — done via the reset-state-during-render
+  // pattern (https://react.dev/learn/you-might-not-need-an-effect#adjusting-some-state-when-a-prop-changes)
+  // so the user can still collapse the panel after we've opened it once.
+  const shouldAutoOpenHistory = Boolean(
+    highlightedInvitation
+      && ['DECLINED', 'REVOKED', 'EXPIRED'].includes(highlightedInvitation.status)
+      && autoOpenedForId !== highlightedInvitation.id,
+  );
+  if (shouldAutoOpenHistory && highlightedInvitation) {
+    setAutoOpenedForId(highlightedInvitation.id);
+    setHistoryOpen(true);
+  }
 
   useEffect(() => {
     if (!highlightedInvitationId || invitationsQuery.isLoading) return;

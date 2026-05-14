@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import Editor from '@monaco-editor/react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { CheckCircle2, Clipboard, Copy, FileCode2, Lock, Maximize2, Play, Send, XCircle } from 'lucide-react';
@@ -114,12 +114,16 @@ export function ProblemSolverShell({ problem, context }: ProblemSolverShellProps
   );
   const [tab, setTab] = useState<SolverTab>('overview');
   const [testPanel, setTestPanel] = useState<TestPanel>('public');
-  const [language, setLanguage] = useState<ProblemLanguage>(allowedLanguages[0]);
+  const [languageIntent, setLanguage] = useState<ProblemLanguage>(allowedLanguages[0]);
+  // Render-time clamp: if the persisted language slips out of allowedLanguages
+  // (e.g. the problem owner restricted the set), fall back to the first allowed
+  // entry. Avoids the cascading-render trap of syncing via an effect.
+  const language: ProblemLanguage = allowedLanguages.includes(languageIntent)
+    ? languageIntent
+    : allowedLanguages[0];
   const [fontSize, setFontSize] = useState(14);
-  const [code, setCode] = useState('');
   const [lastRun, setLastRun] = useState<TestRunResult | null>(null);
   const [selectedPublicId, setSelectedPublicId] = useState<string | null>(null);
-  const loadedKeyRef = useRef('');
 
   const submissionQuery = useQuery({
     queryKey: ['problem-submission', problem.id, context.type, context.key],
@@ -134,19 +138,22 @@ export function ProblemSolverShell({ problem, context }: ProblemSolverShellProps
   const meta = LANGUAGE_META[language];
   const currentDraftKey = useMemo(() => draftKey(problem.id, language), [problem.id, language]);
 
-  useEffect(() => {
-    if (!allowedLanguages.includes(language)) {
-      setLanguage(allowedLanguages[0]);
-    }
-  }, [allowedLanguages, language]);
-
-  useEffect(() => {
-    if (loadedKeyRef.current === currentDraftKey) return;
+  // Reset-state-during-render pattern (https://react.dev/learn/you-might-not-need-an-effect#adjusting-some-state-when-a-prop-changes).
+  // Whenever currentDraftKey rolls (problem or language change), recompute the
+  // initial editor contents from localStorage / the most recent submission and
+  // discard whatever the user was typing under the old key.
+  const [loadedKey, setLoadedKey] = useState(currentDraftKey);
+  const [code, setCode] = useState(() => {
+    const saved = localStorage.getItem(currentDraftKey);
+    const submittedCode = latestSubmission?.language === language ? latestSubmission.code : '';
+    return saved ?? submittedCode ?? '';
+  });
+  if (loadedKey !== currentDraftKey) {
+    setLoadedKey(currentDraftKey);
     const saved = localStorage.getItem(currentDraftKey);
     const submittedCode = latestSubmission?.language === language ? latestSubmission.code : '';
     setCode(saved ?? submittedCode ?? '');
-    loadedKeyRef.current = currentDraftKey;
-  }, [currentDraftKey, language, latestSubmission]);
+  }
 
   useEffect(() => {
     const handle = window.setTimeout(() => {
@@ -340,8 +347,10 @@ export function ProblemSolverShell({ problem, context }: ProblemSolverShellProps
               <select
                 value={language}
                 onChange={(event) => {
+                  // Flush the in-flight buffer for the current draft before
+                  // switching — the reset-state-during-render block in the
+                  // component body will pick up the new draft on next render.
                   localStorage.setItem(currentDraftKey, code.slice(0, 100_000));
-                  loadedKeyRef.current = '';
                   setLanguage(event.target.value as ProblemLanguage);
                 }}
                 className="rounded-md border border-white/10 bg-white/10 px-3 py-2 text-sm font-semibold text-white outline-none"
