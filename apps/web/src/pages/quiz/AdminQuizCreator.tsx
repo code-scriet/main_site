@@ -39,81 +39,18 @@ import {
 import { cn, getWebAppOrigin } from '@/lib/utils';
 import { api, type QuizQuestionInput } from '@/lib/api';
 
-type QuestionType = 'MCQ' | 'TRUE_FALSE' | 'SHORT_ANSWER' | 'POLL' | 'RATING' | 'MULTI_SELECT' | 'OPEN_ENDED';
-
-const QUESTION_TYPE_LABELS: Record<QuestionType, string> = {
-  MCQ: 'Multiple Choice',
-  TRUE_FALSE: 'True / False',
-  SHORT_ANSWER: 'Short Answer',
-  POLL: 'Poll',
-  RATING: 'Rating',
-  MULTI_SELECT: 'Multi-Select',
-  OPEN_ENDED: 'Open Ended',
-};
-
-const isUnscoredQuestion = (type: QuestionType) =>
-  type === 'POLL' || type === 'RATING' || type === 'OPEN_ENDED';
-
-const usesOptions = (type: QuestionType) =>
-  type === 'MCQ' || type === 'POLL' || type === 'MULTI_SELECT';
-
-interface QuestionDraft {
-  id: string;
-  questionText: string;
-  questionType: QuestionType;
-  options: string[];
-  correctAnswer: string;
-  correctAnswers: string[];
-  timeLimitSeconds: number;
-  points: number;
-  mediaUrl: string;
-}
-
-function createEmptyQuestion(): QuestionDraft {
-  return {
-    id: crypto.randomUUID(),
-    questionText: '',
-    questionType: 'MCQ',
-    options: ['', '', '', ''],
-    correctAnswer: '',
-    correctAnswers: [],
-    timeLimitSeconds: 20,
-    points: 100,
-    mediaUrl: '',
-  };
-}
-
-const STEP_LABELS = ['Details', 'Questions', 'Review'];
-
-const QUIZ_IMPORT_TEMPLATE_FILENAME = 'quiz-import-template.csv';
-const QUIZ_IMPORT_TEMPLATE_HEADERS = [
-  'questionText',
-  'questionType',
-  'option1',
-  'option2',
-  'option3',
-  'option4',
-  'option5',
-  'option6',
-  'correctAnswer',
-  'timeLimitSeconds',
-  'points',
-  'mediaUrl',
-];
-const QUIZ_IMPORT_TEMPLATE_EXAMPLE = [
-  'What is 2+2?',
-  'MCQ',
-  '1',
-  '2',
-  '3',
-  '4',
-  '',
-  '',
-  '4',
-  '20',
-  '100',
-  '',
-];
+import {
+  QUESTION_TYPE_LABELS,
+  QUIZ_IMPORT_TEMPLATE_EXAMPLE,
+  QUIZ_IMPORT_TEMPLATE_FILENAME,
+  QUIZ_IMPORT_TEMPLATE_HEADERS,
+  createEmptyQuestion,
+  isUnscoredQuestion,
+  usesOptions,
+  type QuestionDraft,
+  type QuestionType,
+} from '@/lib/quizDrafts';
+import { WizardStepper } from '@/components/admin/quiz-creator/WizardStepper';
 
 export default function AdminQuizCreator() {
   const navigate = useNavigate();
@@ -501,47 +438,7 @@ export default function AdminQuizCreator() {
         </div>
       )}
 
-      {/* Step indicator — hidden on success */}
-      {step <= 3 && (
-        <div className="max-w-4xl mx-auto px-4 pt-6">
-          <div className="flex items-center justify-center gap-0 mb-8">
-            {[1, 2, 3].map((s) => (
-              <div key={s} className="flex items-center">
-                <button
-                  onClick={() => s < step && setStep(s)}
-                  disabled={s > step}
-                  className="flex flex-col items-center gap-1"
-                >
-                  <div
-                    className={cn(
-                      'w-9 h-9 rounded-full flex items-center justify-center text-sm font-bold transition-all duration-300',
-                      step === s
-                        ? 'bg-gradient-to-br from-orange-500 to-amber-600 text-white shadow-md shadow-amber-300/40'
-                        : step > s
-                          ? 'bg-green-500 text-white'
-                          : 'bg-amber-100 text-amber-700/40',
-                    )}
-                  >
-                    {step > s ? <Check className="h-4 w-4" /> : s}
-                  </div>
-                  <span className={cn(
-                    'text-[10px] font-semibold',
-                    step >= s ? 'text-amber-800' : 'text-amber-700/30',
-                  )}>
-                    {STEP_LABELS[s - 1]}
-                  </span>
-                </button>
-                {s < 3 && (
-                  <div className={cn(
-                    'w-16 sm:w-24 h-0.5 mx-1 mt-[-12px] rounded-full transition-colors duration-300',
-                    step > s ? 'bg-green-500' : 'bg-amber-200',
-                  )} />
-                )}
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
+      {step <= 3 && <WizardStepper step={step} onJumpBack={setStep} />}
 
       <div className="max-w-4xl mx-auto px-4 pb-24">
         <AnimatePresence mode="wait">
