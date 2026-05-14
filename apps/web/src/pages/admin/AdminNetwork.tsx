@@ -4,7 +4,6 @@ import { api, type NetworkProfile, type NetworkStatus, type NetworkEvent, type P
 import { useAuth } from '@/context/AuthContext';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Badge } from '@/components/ui/badge';
 import { Label } from '@/components/ui/label';
 import {
   Dialog,
@@ -19,10 +18,7 @@ import { Markdown } from '@/components/ui/markdown';
 import {
   Loader2,
   Search,
-  CheckCircle2,
-  XCircle,
   Trash2,
-  ExternalLink,
   Linkedin,
   Twitter,
   Github,
@@ -45,6 +41,7 @@ import { RejectProfileDialog } from '@/components/admin/network/RejectProfileDia
 import { DeleteProfileDialog } from '@/components/admin/network/DeleteProfileDialog';
 import { PendingUserActionDialog } from '@/components/admin/network/PendingUserActionDialog';
 import { NetworkProfileCard } from '@/components/admin/network/NetworkProfileCard';
+import { ViewProfileDialog } from '@/components/admin/network/ViewProfileDialog';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5001/api';
 
@@ -56,12 +53,6 @@ const connectionTypeLabels: Record<string, string> = {
   INDUSTRY_PARTNER: 'Industry Partner',
   ALUMNI: 'Alumni',
   OTHER: 'Other',
-};
-
-const statusColors: Record<NetworkStatus, string> = {
-  PENDING: 'bg-amber-100 text-amber-700 border-amber-200',
-  VERIFIED: 'bg-green-100 text-green-700 border-green-200',
-  REJECTED: 'bg-red-100 text-red-700 border-red-200',
 };
 
 type NetworkCategoryFilter = 'ANY' | 'PROFESSIONAL' | 'ALUMNI';
@@ -522,205 +513,17 @@ export default function AdminNetwork() {
           </div>
         )}
 
-        {/* View Profile Dialog */}
-        <Dialog open={!!viewProfile} onOpenChange={() => setViewProfile(null)}>
-          <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-            {viewProfile && (
-              <>
-                <DialogHeader>
-                  <DialogTitle className="flex items-center gap-3">
-                    <div className="w-12 h-12 rounded-full overflow-hidden">
-                      <img
-                        src={
-                          viewProfile.profilePhoto ||
-                          '/fallback-avatar.svg'
-                        }
-                        alt={viewProfile.fullName}
-                        className="w-full h-full object-cover"
-                        onError={(event) => {
-                          event.currentTarget.src = '/fallback-avatar.svg';
-                        }}
-                      />
-                    </div>
-                    <div>
-                      <span>{viewProfile.fullName}</span>
-                      <Badge
-                        variant="outline"
-                        className={`ml-2 ${statusColors[viewProfile.status]}`}
-                      >
-                        {viewProfile.status}
-                      </Badge>
-                    </div>
-                  </DialogTitle>
-                  <DialogDescription>
-                    {viewProfile.designation} at {viewProfile.company}
-                  </DialogDescription>
-                </DialogHeader>
-
-                <div className="space-y-4 py-4">
-                  {/* Basic Info */}
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
-                    <div>
-                      <p className="text-gray-500">Email</p>
-                      <p className="font-medium">{viewProfile.user?.email}</p>
-                    </div>
-                    <div>
-                      <p className="text-gray-500">Industry</p>
-                      <p className="font-medium">{viewProfile.industry}</p>
-                    </div>
-                    <div>
-                      <p className="text-gray-500">Connection Type</p>
-                      <p className="font-medium">
-                        {connectionTypeLabels[viewProfile.connectionType]}
-                      </p>
-                    </div>
-                    <div>
-                      <p className="text-gray-500">Connected Since</p>
-                      <p className="font-medium">{viewProfile.connectedSince || 'Not specified'}</p>
-                    </div>
-                    {viewProfile.phone && (
-                      <div>
-                        <p className="text-gray-500">Phone</p>
-                        <p className="font-medium flex items-center gap-1">
-                          <Phone className="h-3 w-3" />
-                          {viewProfile.phone}
-                        </p>
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Bio */}
-                  {viewProfile.bio && (
-                    <div>
-                      <p className="text-gray-500 text-sm mb-1">Bio</p>
-                      <p className="text-sm bg-gray-50 p-3 rounded-md">{viewProfile.bio}</p>
-                    </div>
-                  )}
-
-                  {/* Connection Note */}
-                  {viewProfile.connectionNote && (
-                    <div>
-                      <p className="text-gray-500 text-sm mb-1">Connection Details</p>
-                      <p className="text-sm bg-amber-50 p-3 rounded-md border border-amber-100">
-                        {viewProfile.connectionNote}
-                      </p>
-                    </div>
-                  )}
-
-                  {/* Admin Notes */}
-                  {viewProfile.adminNotes && (
-                    <div>
-                      <p className="text-gray-500 text-sm mb-1 flex items-center gap-1">
-                        <FileText className="h-3 w-3" /> Admin Notes (Highlights)
-                      </p>
-                      <div className="text-sm bg-gray-50 p-3 rounded-md border prose prose-sm max-w-none">
-                        <Markdown>{viewProfile.adminNotes}</Markdown>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Social Links */}
-                  <div>
-                    <p className="text-gray-500 text-sm mb-2">Social Links</p>
-                    <div className="flex gap-3">
-                      {viewProfile.linkedinUsername && (
-                        <a
-                          href={`https://linkedin.com/in/${viewProfile.linkedinUsername}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="flex items-center gap-1 text-blue-600 hover:underline text-sm"
-                        >
-                          <Linkedin className="h-4 w-4" /> LinkedIn
-                          <ExternalLink className="h-3 w-3" />
-                        </a>
-                      )}
-                      {viewProfile.twitterUsername && (
-                        <a
-                          href={`https://twitter.com/${viewProfile.twitterUsername}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="flex items-center gap-1 text-sky-500 hover:underline text-sm"
-                        >
-                          <Twitter className="h-4 w-4" /> Twitter
-                          <ExternalLink className="h-3 w-3" />
-                        </a>
-                      )}
-                      {viewProfile.githubUsername && (
-                        <a
-                          href={`https://github.com/${viewProfile.githubUsername}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="flex items-center gap-1 text-gray-800 hover:underline text-sm"
-                        >
-                          <Github className="h-4 w-4" /> GitHub
-                          <ExternalLink className="h-3 w-3" />
-                        </a>
-                      )}
-                      {viewProfile.personalWebsite && (
-                        <a
-                          href={viewProfile.personalWebsite}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="flex items-center gap-1 text-green-600 hover:underline text-sm"
-                        >
-                          <Globe className="h-4 w-4" /> Website
-                          <ExternalLink className="h-3 w-3" />
-                        </a>
-                      )}
-                      {!viewProfile.linkedinUsername &&
-                        !viewProfile.twitterUsername &&
-                        !viewProfile.githubUsername &&
-                        !viewProfile.personalWebsite && (
-                          <span className="text-gray-400 text-sm">No social links provided</span>
-                        )}
-                    </div>
-                  </div>
-
-                  {/* Rejection Reason */}
-                  {viewProfile.status === 'REJECTED' && viewProfile.rejectionReason && (
-                    <div className="p-3 bg-red-50 border border-red-200 rounded-md">
-                      <p className="text-red-700 text-sm font-medium">Rejection Reason:</p>
-                      <p className="text-red-600 text-sm">{viewProfile.rejectionReason}</p>
-                    </div>
-                  )}
-                </div>
-
-                <DialogFooter className="flex gap-2 w-full flex-wrap justify-end">
-                      <Button
-                        variant="outline"
-                        onClick={() => openEditDialog(viewProfile)}
-                      >
-                        <Pencil className="h-4 w-4 mr-1" /> Edit Profile
-                      </Button>
-                      {viewProfile.status === 'PENDING' && (
-                        <>
-                          <Button
-                            className="bg-green-600 hover:bg-green-700"
-                            onClick={() => handleVerify(viewProfile)}
-                            disabled={actionLoading}
-                          >
-                            {actionLoading && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-                            <CheckCircle2 className="h-4 w-4 mr-1" /> Verify
-                          </Button>
-                          <Button
-                            variant="destructive"
-                            onClick={() => {
-                              setViewProfile(null);
-                              setRejectDialog({ profile: viewProfile });
-                            }}
-                          >
-                            <XCircle className="h-4 w-4 mr-1" /> Reject
-                          </Button>
-                        </>
-                      )}
-                  <Button variant="outline" onClick={() => setViewProfile(null)}>
-                    Close
-                  </Button>
-                </DialogFooter>
-              </>
-            )}
-          </DialogContent>
-        </Dialog>
+        <ViewProfileDialog
+          profile={viewProfile}
+          actionLoading={actionLoading}
+          onClose={() => setViewProfile(null)}
+          onEdit={(profile) => openEditDialog(profile)}
+          onVerify={(profile) => handleVerify(profile)}
+          onReject={(profile) => {
+            setViewProfile(null);
+            setRejectDialog({ profile });
+          }}
+        />
 
         {/* Reject Dialog */}
         <RejectProfileDialog
