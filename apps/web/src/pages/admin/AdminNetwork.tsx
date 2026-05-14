@@ -15,16 +15,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent as ConfirmDialogContent,
-  AlertDialogDescription as ConfirmDialogDescription,
-  AlertDialogFooter as ConfirmDialogFooter,
-  AlertDialogHeader as ConfirmDialogHeader,
-  AlertDialogTitle as ConfirmDialogTitle,
-} from '@/components/ui/alert-dialog';
 import { Textarea } from '@/components/ui/textarea';
 import { Markdown } from '@/components/ui/markdown';
 import {
@@ -52,7 +42,11 @@ import {
   Download,
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { formatDate } from '@/lib/dateUtils';
+import { NetworkStatsRow } from '@/components/admin/network/NetworkStatsRow';
+import { PendingUsersBanner } from '@/components/admin/network/PendingUsersBanner';
+import { RejectProfileDialog } from '@/components/admin/network/RejectProfileDialog';
+import { DeleteProfileDialog } from '@/components/admin/network/DeleteProfileDialog';
+import { PendingUserActionDialog } from '@/components/admin/network/PendingUserActionDialog';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5001/api';
 
@@ -76,12 +70,6 @@ const statusIcons: Record<NetworkStatus, typeof Clock> = {
   PENDING: Clock,
   VERIFIED: CheckCircle2,
   REJECTED: XCircle,
-};
-
-const colorClasses: Record<string, { ring: string; text: string }> = {
-  amber: { ring: 'ring-amber-500', text: 'text-amber-500' },
-  green: { ring: 'ring-green-500', text: 'text-green-500' },
-  red: { ring: 'ring-red-500', text: 'text-red-500' },
 };
 
 type NetworkCategoryFilter = 'ANY' | 'PROFESSIONAL' | 'ALUMNI';
@@ -452,30 +440,7 @@ export default function AdminNetwork() {
           </div>
         </div>
 
-        {/* Stats */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">{/* responsive: stack on mobile */}
-          {([
-            { status: 'PENDING' as const, label: 'Pending', icon: Clock, color: 'amber' },
-            { status: 'VERIFIED' as const, label: 'Verified', icon: CheckCircle2, color: 'green' },
-            { status: 'REJECTED' as const, label: 'Rejected', icon: XCircle, color: 'red' },
-          ] as const).map((item) => (
-            <Card
-              key={item.status}
-              className={`cursor-pointer transition-all ${
-                activeTab === item.status ? `ring-2 ${colorClasses[item.color]?.ring ?? 'ring-gray-500'}` : ''
-              }`}
-              onClick={() => setActiveTab(item.status)}
-            >
-              <CardContent className="p-4 flex items-center justify-between">
-                <div>
-                  <p className="text-sm text-gray-500">{item.label}</p>
-                  <p className="text-2xl font-bold">{counts[item.status]}</p>
-                </div>
-                <item.icon className={`h-8 w-8 ${colorClasses[item.color]?.text ?? 'text-gray-500'} opacity-50`} />
-              </CardContent>
-            </Card>
-          ))}
-        </div>
+        <NetworkStatsRow counts={counts} activeTab={activeTab} onSelect={setActiveTab} />
 
         {/* Tabs & Search */}
         <div className="flex flex-col sm:flex-row gap-4 mb-6">
@@ -518,55 +483,12 @@ export default function AdminNetwork() {
           </div>
         </div>
 
-        {/* Users who joined network but have not submitted onboarding form */}
-        {pendingUsers.length > 0 && (
-          <Card className="mb-6 border-amber-200 bg-amber-50/50">
-            <CardContent className="p-4">
-              <div className="flex items-center justify-between gap-2 mb-3">
-                <h3 className="text-sm font-semibold text-amber-900">
-                  Pending Onboarding Accounts
-                </h3>
-                <Badge variant="secondary" className="bg-amber-100 text-amber-700">
-                  {pendingUsers.length}
-                </Badge>
-              </div>
-              <div className="space-y-2">
-                {pendingUsers.map((pendingUser) => (
-                  <div
-                    key={pendingUser.id}
-                    className="flex flex-col gap-2 rounded-md border border-amber-200 bg-white px-3 py-2 text-sm sm:flex-row sm:items-center sm:justify-between"
-                  >
-                    <div className="min-w-0">
-                      <div className="font-medium text-gray-900">{pendingUser.name}</div>
-                      <div className="truncate text-gray-600">{pendingUser.email}</div>
-                    </div>
-                    <div className="flex items-center gap-2 self-start sm:self-auto">
-                      <div className="text-xs text-gray-500">
-                        Joined {formatDate(pendingUser.createdAt, 'short')}
-                      </div>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => setPendingUserAction({ type: 'revert', pendingUser })}
-                            disabled={actionLoading}
-                          >
-                            Move to Users
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="destructive"
-                            onClick={() => setPendingUserAction({ type: 'delete', pendingUser })}
-                            disabled={actionLoading}
-                          >
-                            Delete
-                          </Button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
-        )}
+        <PendingUsersBanner
+          pendingUsers={pendingUsers}
+          actionLoading={actionLoading}
+          onRevert={(pendingUser) => setPendingUserAction({ type: 'revert', pendingUser })}
+          onDelete={(pendingUser) => setPendingUserAction({ type: 'delete', pendingUser })}
+        />
 
         {/* Profiles List */}
         {loading ? (
@@ -891,56 +813,21 @@ export default function AdminNetwork() {
         </Dialog>
 
         {/* Reject Dialog */}
-        <Dialog open={!!rejectDialog} onOpenChange={() => setRejectDialog(null)}>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle className="text-red-600">Reject Profile</DialogTitle>
-              <DialogDescription>
-                Provide a reason for rejecting {rejectDialog?.profile.fullName}'s profile. They will
-                be notified via email.
-              </DialogDescription>
-            </DialogHeader>
-            <div className="py-4">
-              <Textarea
-                placeholder="Reason for rejection (required for email notification)..."
-                value={rejectReason}
-                onChange={(e) => setRejectReason(e.target.value)}
-                rows={4}
-              />
-            </div>
-            <DialogFooter>
-              <Button variant="outline" onClick={() => setRejectDialog(null)}>
-                Cancel
-              </Button>
-              <Button variant="destructive" onClick={handleReject} disabled={actionLoading}>
-                {actionLoading && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-                Reject Profile
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
+        <RejectProfileDialog
+          target={rejectDialog?.profile ?? null}
+          reason={rejectReason}
+          onReasonChange={setRejectReason}
+          onCancel={() => setRejectDialog(null)}
+          onConfirm={handleReject}
+          loading={actionLoading}
+        />
 
-        {/* Delete Dialog */}
-        <Dialog open={!!deleteDialog} onOpenChange={() => setDeleteDialog(null)}>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle className="text-red-600">Delete Profile</DialogTitle>
-              <DialogDescription>
-                Are you sure you want to permanently delete {deleteDialog?.fullName}'s profile? This
-                action cannot be undone.
-              </DialogDescription>
-            </DialogHeader>
-            <DialogFooter>
-              <Button variant="outline" onClick={() => setDeleteDialog(null)}>
-                Cancel
-              </Button>
-              <Button variant="destructive" onClick={handleDelete} disabled={actionLoading}>
-                {actionLoading && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-                Delete
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
+        <DeleteProfileDialog
+          target={deleteDialog}
+          onCancel={() => setDeleteDialog(null)}
+          onConfirm={handleDelete}
+          loading={actionLoading}
+        />
 
         {/* Edit Dialog */}
         <Dialog open={!!editDialog} onOpenChange={() => setEditDialog(null)}>
@@ -1344,38 +1231,17 @@ export default function AdminNetwork() {
           </DialogContent>
         </Dialog>
 
-        <AlertDialog open={Boolean(pendingUserAction)} onOpenChange={(open) => !open && setPendingUserAction(null)}>
-          <ConfirmDialogContent>
-            <ConfirmDialogHeader>
-              <ConfirmDialogTitle>
-                {pendingUserAction?.type === 'revert' ? 'Move user back to normal flow?' : 'Delete pending onboarding account?'}
-              </ConfirmDialogTitle>
-              <ConfirmDialogDescription>
-                {pendingUserAction?.type === 'revert' && pendingUserAction?.pendingUser
-                  ? `${pendingUserAction.pendingUser.email} will no longer appear in pending onboarding.`
-                  : pendingUserAction?.pendingUser
-                    ? `This will permanently delete ${pendingUserAction.pendingUser.email}.`
-                    : 'Confirm this pending user action.'}
-              </ConfirmDialogDescription>
-            </ConfirmDialogHeader>
-            <ConfirmDialogFooter>
-              <AlertDialogCancel>Cancel</AlertDialogCancel>
-              <AlertDialogAction
-                className={pendingUserAction?.type === 'delete' ? 'bg-red-600 hover:bg-red-700' : ''}
-                onClick={() => {
-                  if (!pendingUserAction) return;
-                  if (pendingUserAction.type === 'revert') {
-                    void handleRevertPendingUser(pendingUserAction.pendingUser);
-                    return;
-                  }
-                  void handleDeletePendingUser(pendingUserAction.pendingUser);
-                }}
-              >
-                {pendingUserAction?.type === 'revert' ? 'Move to Users' : 'Delete Account'}
-              </AlertDialogAction>
-            </ConfirmDialogFooter>
-          </ConfirmDialogContent>
-        </AlertDialog>
+        <PendingUserActionDialog
+          action={pendingUserAction}
+          onCancel={() => setPendingUserAction(null)}
+          onConfirm={(act) => {
+            if (act.type === 'revert') {
+              void handleRevertPendingUser(act.pendingUser);
+            } else {
+              void handleDeletePendingUser(act.pendingUser);
+            }
+          }}
+        />
     </div>
   );
 }
