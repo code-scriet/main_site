@@ -9,12 +9,12 @@ import type {
   ProblemContextType,
   ProblemInput,
   ProblemLanguage,
-  ProblemLeaderboardEntry,
   ProblemSubmission,
+  QOTDDailyLeaderboard,
   QOTDDetail,
   QOTDHistoryEntry,
-  QOTDLeaderboardEntry,
   QOTDStats,
+  QOTDTotalLeaderboard,
   SubmissionResult,
   SubmissionVerdict,
   TestRunResult,
@@ -95,12 +95,10 @@ export const codingApi = {
     const query = params.toString() ? `?${params.toString()}` : '';
     return request<QOTDHistoryEntry[]>(`/qotd/history${query}`, options?.token ? { token: options.token } : undefined);
   },
-  getQOTDLeaderboard: (limit = 50) =>
-    request<QOTDLeaderboardEntry[]>(`/qotd/stats/leaderboard?limit=${limit}`),
   getQOTDDailyLeaderboard: (qotdId: string) =>
-    request<{ entries: ProblemLeaderboardEntry[] }>(`/qotd/${qotdId}/leaderboard`),
+    request<QOTDDailyLeaderboard>(`/qotd/${qotdId}/leaderboard`),
   getQOTDTotalLeaderboard: () =>
-    request<{ entries: ProblemLeaderboardEntry[] }>('/qotd/leaderboard/total'),
+    request<QOTDTotalLeaderboard>('/qotd/leaderboard/total'),
   createQOTD: (data: { date: string; question?: string; problemLink?: string; difficulty?: string; problemId?: string; newProblem?: ProblemInput; publishNow?: boolean }, token: string) =>
     request('/qotd', { method: 'POST', body: JSON.stringify(data), token }),
   publishQOTD: (id: string, token: string) =>

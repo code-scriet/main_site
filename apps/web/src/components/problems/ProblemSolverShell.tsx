@@ -184,6 +184,15 @@ export function ProblemSolverShell({ problem, context }: ProblemSolverShellProps
     onSuccess: async (result) => {
       toast.success(`Submitted. Verdict: ${verdictLabel(result.verdict)}`);
       await queryClient.invalidateQueries({ queryKey: ['problem-submission', problem.id, context.type, context.key] });
+      if (context.type === 'QOTD') {
+        // Keep leaderboards + streak widget consistent with the server-side
+        // cache bust we now issue on /submit.
+        await Promise.all([
+          queryClient.invalidateQueries({ queryKey: ['qotd', 'leaderboard', 'daily', context.key] }),
+          queryClient.invalidateQueries({ queryKey: ['qotd', 'leaderboard', 'total'] }),
+          queryClient.invalidateQueries({ queryKey: ['qotd-stats'] }),
+        ]);
+      }
       setTab('overview');
     },
     onError: (error) => toast.error(error instanceof Error ? error.message : 'Submit failed'),

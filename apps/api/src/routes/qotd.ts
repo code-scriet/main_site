@@ -104,6 +104,13 @@ type QotdWithProblem = QOTD & {
   _count?: { submissions: number };
 };
 
+export function invalidateQotdLeaderboardCaches(qotdId?: string): void {
+  if (qotdId) dailyLeaderboardCache.delete(qotdId);
+  else dailyLeaderboardCache.clear();
+  totalLeaderboardCache = null;
+  statsLeaderboardCache = null;
+}
+
 function rememberDailyCache(qotdId: string, data: unknown): void {
   dailyLeaderboardCache.set(qotdId, { data, expiresAt: Date.now() + 60_000 });
   if (dailyLeaderboardCache.size > 30) {
@@ -217,8 +224,12 @@ qotdRouter.get('/leaderboard/total', async (req: Request, res: Response) => {
       return ApiResponse.success(res, totalLeaderboardCache.data);
     }
 
-    const rows = await prisma.$queryRaw<Array<{ user_id: string; total_score: bigint | number; first_solve: Date }>>`
-      SELECT ps.user_id, SUM(ps.score)::int AS total_score, MIN(ps.submitted_at) AS first_solve
+    const rows = await prisma.$queryRaw<Array<{ user_id: string; total_score: bigint | number; first_solve: Date; latest_solve: Date; solve_days: bigint | number }>>`
+      SELECT ps.user_id,
+             SUM(ps.score)::int AS total_score,
+             MIN(ps.submitted_at) AS first_solve,
+             MAX(ps.submitted_at) AS latest_solve,
+             COUNT(DISTINCT DATE(ps.submitted_at AT TIME ZONE 'Asia/Kolkata'))::int AS solve_days
       FROM problem_submissions ps
       JOIN qotd q ON q.id = ps.context_key
       WHERE ps.context_type = 'QOTD'
@@ -240,12 +251,14 @@ qotdRouter.get('/leaderboard/total', async (req: Request, res: Response) => {
           userId: row.user_id,
           name: user?.name ?? 'Unknown',
           avatar: user?.avatar ?? null,
-          totalScore: Number(row.total_score),
-          firstSolve: row.first_solve.toISOString(),
+          score: Number(row.total_score),
+          submittedAt: row.latest_solve.toISOString(),
+          firstSolveAt: row.first_solve.toISOString(),
+          solveDays: Number(row.solve_days),
         };
       }),
     };
-    totalLeaderboardCache = { data, expiresAt: Date.now() + 5 * 60_000 };
+    totalLeaderboardCache = { data, expiresAt: Date.now() + 60_000 };
     return ApiResponse.success(res, data);
   } catch {
     return ApiResponse.internal(res, 'Failed to fetch QOTD total leaderboard');
@@ -325,9 +338,9 @@ qotdRouter.get('/:qotdId/leaderboard', async (req: Request, res: Response) => {
 
     const qotd = await prisma.qOTD.findUnique({
       where: { id: req.params.qotdId },
-      select: { id: true, problemId: true },
+      select: { id: true, problemId: true, date: true, publishedAt: true },
     });
-    if (!qotd?.problemId) return ApiResponse.success(res, { entries: [] });
+    if (!qotd?.problemId) return ApiResponse.success(res, { entries: [], publishedAt: null, date: null });
 
     const submissions = await prisma.problemSubmission.findMany({
       where: { problemId: qotd.problemId, contextType: 'QOTD', contextKey: qotd.id },
@@ -335,16 +348,27 @@ qotdRouter.get('/:qotdId/leaderboard', async (req: Request, res: Response) => {
       take: 10,
       include: { user: { select: { id: true, name: true, avatar: true } } },
     });
+    // Reference point for "time taken": prefer explicit publish moment, fall
+    // back to IST midnight of the QOTD's date so legacy rows without
+    // publishedAt still produce a meaningful delta.
+    const referenceTs = (qotd.publishedAt ?? midnightIstUtcFor(qotd.date)).getTime();
     const data = {
-      entries: submissions.map((submission, index) => ({
-        rank: index + 1,
-        userId: submission.userId,
-        name: submission.user.name,
-        avatar: submission.user.avatar,
-        score: submission.score,
-        verdict: submission.verdict,
-        submittedAt: submission.submittedAt.toISOString(),
-      })),
+      publishedAt: qotd.publishedAt?.toISOString() ?? null,
+      date: qotd.date.toISOString(),
+      entries: submissions.map((submission, index) => {
+        const submittedTs = submission.submittedAt.getTime();
+        const timeTakenMs = Math.max(0, submittedTs - referenceTs);
+        return {
+          rank: index + 1,
+          userId: submission.userId,
+          name: submission.user.name,
+          avatar: submission.user.avatar,
+          score: submission.score,
+          verdict: submission.verdict,
+          submittedAt: submission.submittedAt.toISOString(),
+          timeTakenMs,
+        };
+      }),
     };
     rememberDailyCache(qotd.id, data);
     return ApiResponse.success(res, data);
@@ -460,8 +484,7 @@ qotdRouter.post('/:id/publish', authMiddleware, requireRole('ADMIN'), async (req
       data: { isPublished: true, publishedAt: qotd.publishedAt ?? new Date(), heldBy: null, holdReason: null },
       include: { problem: true },
     });
-    dailyLeaderboardCache.delete(qotd.id);
-    totalLeaderboardCache = null;
+    invalidateQotdLeaderboardCaches(qotd.id);
     await auditLog(authUser.id, 'QOTD_PUBLISHED', 'qotd', qotd.id);
     return ApiResponse.success(res, updated, 'QOTD published');
   } catch {
@@ -482,8 +505,7 @@ qotdRouter.post('/:id/hold', authMiddleware, requireRole('ADMIN'), async (req: R
       data: { isPublished: false, heldBy: authUser.id, holdReason: parsed.data.reason ?? null },
       include: { problem: true },
     });
-    dailyLeaderboardCache.delete(qotd.id);
-    totalLeaderboardCache = null;
+    invalidateQotdLeaderboardCaches(qotd.id);
     await auditLog(authUser.id, 'QOTD_HELD', 'qotd', qotd.id, { reason: parsed.data.reason });
     return ApiResponse.success(res, updated, 'QOTD held');
   } catch {

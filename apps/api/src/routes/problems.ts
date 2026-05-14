@@ -20,6 +20,7 @@ import {
   type ProblemInput,
 } from '../utils/problemsCore.js';
 import { enqueueRejudgeJob, getRejudgeJob } from '../utils/rejudgeJobs.js';
+import { invalidateQotdLeaderboardCaches } from './qotd.js';
 
 export const problemsRouter = Router();
 
@@ -440,6 +441,7 @@ problemsRouter.post('/:id/submit', authMiddleware, async (req: Request, res: Res
     if (!parsed.success) return ApiResponse.badRequest(res, parsed.error.errors[0]?.message || 'Invalid submit payload');
     const problemId = await resolveProblemId(req.params.id);
     const result = await submitProblemForUser({ user, problemId, ...parsed.data });
+    if (parsed.data.contextType === 'QOTD') invalidateQotdLeaderboardCaches(parsed.data.contextKey);
     return ApiResponse.success(res, result);
   } catch (error) {
     return handleProblemError(res, error, 'Failed to submit problem');
@@ -552,7 +554,7 @@ problemsRouter.patch('/:id/override/:submissionId', authMiddleware, requireRole(
     const problemId = await resolveProblemId(req.params.id);
     const existing = await prisma.problemSubmission.findUnique({
       where: { id: req.params.submissionId },
-      select: { id: true, problemId: true },
+      select: { id: true, problemId: true, contextType: true, contextKey: true },
     });
     if (!existing || existing.problemId !== problemId) {
       return ApiResponse.notFound(res, 'Submission not found for this problem');
@@ -566,6 +568,7 @@ problemsRouter.patch('/:id/override/:submissionId', authMiddleware, requireRole(
         manualOverride: true,
       },
     });
+    if (existing.contextType === 'QOTD') invalidateQotdLeaderboardCaches(existing.contextKey);
     await auditLog(admin.id, 'PROBLEM_SUBMISSION_OVERRIDDEN', 'ProblemSubmission', submission.id, {
       problemId,
       verdict: parsed.data.verdict,

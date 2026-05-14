@@ -168,6 +168,22 @@ export interface ProblemLeaderboardEntry {
   verdict?: SubmissionVerdict;
   submittedAt?: string;
   runtimeMs?: number | null;
+  /** Daily QOTD leaderboard only — ms between QOTD publish and the user's submission. */
+  timeTakenMs?: number;
+  /** All-time QOTD leaderboard only — earliest QOTD AC across all days. */
+  firstSolveAt?: string;
+  /** All-time QOTD leaderboard only — unique IST days the user has solved. */
+  solveDays?: number;
+}
+
+export interface QOTDDailyLeaderboard {
+  entries: ProblemLeaderboardEntry[];
+  publishedAt: string | null;
+  date: string | null;
+}
+
+export interface QOTDTotalLeaderboard {
+  entries: ProblemLeaderboardEntry[];
 }
 
 export interface PendingCapRequest {
@@ -220,15 +236,6 @@ export interface TestRunResult {
   totalRuntimeMs: number;
   compilerOutput?: string;
   remainingDailyQuota: number;
-}
-
-export interface QOTDLeaderboardEntry {
-  user: {
-    id: string;
-    name: string;
-    avatar?: string | null;
-  };
-  submissions: number;
 }
 
 export interface QuizAdminSummary {
