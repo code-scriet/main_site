@@ -13,16 +13,6 @@ import {
   DialogTitle,
   DialogFooter,
 } from '@/components/ui/dialog';
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent as ConfirmDialogContent,
-  AlertDialogDescription as ConfirmDialogDescription,
-  AlertDialogFooter as ConfirmDialogFooter,
-  AlertDialogHeader as ConfirmDialogHeader,
-  AlertDialogTitle as ConfirmDialogTitle,
-} from '@/components/ui/alert-dialog';
 import { useAuth } from '@/context/AuthContext';
 import { useSettings } from '@/context/SettingsContext';
 import { api } from '@/lib/api';
@@ -44,7 +34,6 @@ import {
   FileDown,
   Eye,
   Trash2,
-  PenLine,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { formatDate } from '@/lib/dateUtils';
@@ -53,6 +42,8 @@ import { CERT_TYPES, CertTypeBadge, type CertType } from '@/components/admin/cer
 import { RevokeCertificateDialog } from '@/components/admin/certificates/RevokeCertificateDialog';
 import { DeleteCertificateDialog } from '@/components/admin/certificates/DeleteCertificateDialog';
 import { SignatureFormDialog } from '@/components/admin/certificates/SignatureFormDialog';
+import { SavedSignaturesCard } from '@/components/admin/certificates/SavedSignaturesCard';
+import { DeleteSignatoryDialog } from '@/components/admin/certificates/DeleteSignatoryDialog';
 import {
   DEFAULT_SIGNATORY_DEFAULTS,
   loadSignatoryDefaults,
@@ -641,92 +632,19 @@ export default function AdminCertificates() {
         </div>
       </motion.div>
 
-      {/* Saved Signatures */}
-      <Card>
-        <CardContent className="p-4">
-          <div className="flex items-center justify-between mb-3">
-            <h2 className="text-sm font-semibold text-gray-700 flex items-center gap-1.5">
-              <PenLine className="w-4 h-4 text-amber-500" />
-              Saved Signatures
-              <span className="text-xs text-gray-400 font-normal ml-1">
-                ({allSignatories.length} {allSignatories.length === 1 ? 'entry' : 'entries'})
-              </span>
-            </h2>
-            <Button size="sm" onClick={() => openSigModal()} className="gap-1.5 bg-amber-500 hover:bg-amber-600 text-white h-8">
-              <Plus className="w-3.5 h-3.5" />
-              Add Signature
-            </Button>
-          </div>
-          {loadingAllSigs ? (
-            <div className="flex justify-center py-4"><Loader2 className="w-5 h-5 animate-spin text-amber-500" /></div>
-          ) : allSignatories.length === 0 ? (
-            <p className="text-sm text-gray-400 text-center py-4">No saved signatures yet. Add one to make it available in all certificate forms.</p>
-          ) : (
-            <div className="divide-y divide-gray-100">
-              {allSignatories.map(sig => {
-                const certCount = sig._count.certificatesAsPrimary + sig._count.certificatesAsFaculty;
-                return (
-                  <div key={sig.id} className="flex items-center gap-3 py-2.5">
-                    {sig.signatureUrl ? (
-                      <img
-                        src={sig.signatureUrl}
-                        alt={sig.name}
-                        className="h-8 w-24 object-contain shrink-0 rounded border border-gray-100 bg-white"
-                        onError={e => { (e.target as HTMLImageElement).src = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII='; }}
-                      />
-                    ) : (
-                      <div className="h-8 w-24 rounded border border-dashed border-gray-200 flex items-center justify-center shrink-0">
-                        <PenLine className="w-4 h-4 text-gray-300" />
-                      </div>
-                    )}
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-gray-800 truncate">{sig.name}</p>
-                      <p className="text-xs text-gray-400">{sig.title} · {certCount} cert{certCount !== 1 ? 's' : ''}</p>
-                    </div>
-                    {!sig.isActive && (
-                      <span className="text-xs text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded shrink-0">Inactive</span>
-                    )}
-                    <div className="flex gap-1 shrink-0">
-                      <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-gray-400 hover:text-gray-700" onClick={() => openSigModal(sig)} title="Edit">
-                        <PenLine className="w-3.5 h-3.5" />
-                      </Button>
-                      <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-gray-400 hover:text-red-600" onClick={() => setSignatoryToDelete(sig)} title="Delete">
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </Button>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </CardContent>
-      </Card>
+      <SavedSignaturesCard
+        signatories={allSignatories}
+        loading={loadingAllSigs}
+        onAdd={() => openSigModal()}
+        onEdit={(sig) => openSigModal(sig as FullSignatory)}
+        onDelete={(sig) => setSignatoryToDelete(sig as FullSignatory)}
+      />
 
-      <AlertDialog open={Boolean(signatoryToDelete)} onOpenChange={(open) => !open && setSignatoryToDelete(null)}>
-        <ConfirmDialogContent>
-          <ConfirmDialogHeader>
-            <ConfirmDialogTitle>Delete saved signature?</ConfirmDialogTitle>
-            <ConfirmDialogDescription>
-              {signatoryToDelete
-                ? `This will delete "${signatoryToDelete.name}" unless it is referenced by existing certificates, in which case it will be deactivated.`
-                : 'This signature will be removed from the certificate picker.'}
-            </ConfirmDialogDescription>
-          </ConfirmDialogHeader>
-          <ConfirmDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              className="bg-red-600 hover:bg-red-700"
-              onClick={() => {
-                if (signatoryToDelete) {
-                  void deleteSig(signatoryToDelete.id);
-                }
-              }}
-            >
-              Delete Signature
-            </AlertDialogAction>
-          </ConfirmDialogFooter>
-        </ConfirmDialogContent>
-      </AlertDialog>
+      <DeleteSignatoryDialog
+        target={signatoryToDelete}
+        onCancel={() => setSignatoryToDelete(null)}
+        onConfirm={(id) => { void deleteSig(id); }}
+      />
 
       {/* Filters */}
       <Card>
