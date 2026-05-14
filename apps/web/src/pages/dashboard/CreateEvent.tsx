@@ -1,28 +1,27 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { api } from '@/lib/api';
 import {
-  Calendar, Loader2, AlertCircle, ArrowLeft, MapPin, Users,
-  Image, FileText, Plus, X, Star, Target, User, Link as LinkIcon,
-  HelpCircle, Video, Tag, Trash2
+  Calendar, Loader2, AlertCircle, ArrowLeft,
+  Image, Plus, X, Star, Target, User, Link as LinkIcon,
+  HelpCircle, Tag, Trash2
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '@/context/AuthContext';
 import { useUnsavedChangesWarning } from '@/hooks/useUnsavedChangesWarning';
 import { useEventForm } from '@/hooks/useEventForm';
-import {
-  eventTypes,
-  resourceTypes,
-  validateEventFormDates,
-} from '@/lib/eventForm';
+import { resourceTypes, validateEventFormDates } from '@/lib/eventForm';
 import { CollapsibleSection } from '@/components/events/form/CollapsibleSection';
 import { ExtraRegistrationFieldsSection } from '@/components/events/form/ExtraRegistrationFieldsSection';
 import { RegistrationTimelineSection } from '@/components/events/form/RegistrationTimelineSection';
+import { BasicInformationSection } from '@/components/events/form/BasicInformationSection';
+import { EventScheduleSection } from '@/components/events/form/EventScheduleSection';
+import { LocationCapacitySection } from '@/components/events/form/LocationCapacitySection';
+import { MediaSection } from '@/components/events/form/MediaSection';
 
 export default function CreateEvent() {
   const navigate = useNavigate();
@@ -204,147 +203,24 @@ export default function CreateEvent() {
       )}
 
       <form onSubmit={handleSubmit} onChange={() => setIsDirty(true)} className="space-y-6">
-        {/* Basic Info - Always Open */}
-        <Card className="border-amber-200">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <FileText className="h-5 w-5 text-amber-600" />
-              Basic Information
-            </CardTitle>
-            <CardDescription>Event title, description, and type</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="grid gap-4 sm:grid-cols-3">
-              <div className="sm:col-span-2 space-y-2">
-                <label htmlFor="create-event-title" className="text-sm font-medium text-gray-700">
-                  Title <span className="text-red-500">*</span>
-                </label>
-                <Input
-                  id="create-event-title"
-                  name="title"
-                  value={form.title}
-                  onChange={handleChange}
-                  placeholder="e.g., DSA Bootcamp 2026"
-                  required
-                />
-              </div>
-              <div className="space-y-2">
-                <label htmlFor="create-event-type" className="text-sm font-medium text-gray-700">Event Type</label>
-                <select
-                  id="create-event-type"
-                  name="eventType"
-                  value={form.eventType}
-                  onChange={handleChange}
-                  className="w-full h-10 px-3 border border-input rounded-md bg-background text-sm focus:outline-none focus:ring-2 focus:ring-amber-500"
-                >
-                  {eventTypes.map(type => (
-                    <option key={type} value={type}>{type}</option>
-                  ))}
-                </select>
-              </div>
-            </div>
+        <BasicInformationSection
+          idPrefix="create-event"
+          form={form}
+          onChange={handleChange}
+          description="Event title, description, and type"
+          showFeatured
+          titlePlaceholder="e.g., DSA Bootcamp 2026"
+          shortDescriptionLabelHint="(for event cards - max 300 chars)"
+          shortDescriptionPlaceholder="Brief summary that appears on event cards..."
+          descriptionPlaceholder="Detailed description. Supports basic markdown:&#10;# Heading&#10;- Bullet points&#10;1. Numbered lists"
+        />
 
-            <div className="space-y-2">
-              <label htmlFor="create-event-short-description" className="text-sm font-medium text-gray-700">
-                Short Description <span className="text-gray-400">(for event cards - max 300 chars)</span>
-              </label>
-              <textarea
-                id="create-event-short-description"
-                name="shortDescription"
-                value={form.shortDescription}
-                onChange={handleChange}
-                placeholder="Brief summary that appears on event cards..."
-                maxLength={300}
-                className="w-full min-h-[80px] px-3 py-2 border border-input rounded-md bg-background text-sm focus:outline-none focus:ring-2 focus:ring-amber-500"
-              />
-              <p className="text-xs text-gray-500 text-right">{form.shortDescription.length}/300</p>
-            </div>
-
-            <div className="space-y-2">
-              <label htmlFor="create-event-description" className="text-sm font-medium text-gray-700">
-                Full Description <span className="text-red-500">*</span>
-              </label>
-              <textarea
-                id="create-event-description"
-                name="description"
-                value={form.description}
-                onChange={handleChange}
-                placeholder="Detailed description. Supports basic markdown:&#10;# Heading&#10;- Bullet points&#10;1. Numbered lists"
-                className="w-full min-h-[150px] px-3 py-2 border border-input rounded-md bg-background text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 font-mono"
-                required
-              />
-            </div>
-
-            <div className="flex items-center gap-3">
-              <input
-                type="checkbox"
-                id="featured"
-                name="featured"
-                checked={form.featured}
-                onChange={handleChange}
-                className="w-4 h-4 text-amber-600 rounded focus:ring-amber-500"
-              />
-              <label htmlFor="featured" className="text-sm font-medium text-gray-700 flex items-center gap-2">
-                <Star className="h-4 w-4 text-amber-500" />
-                Featured Event <span className="text-gray-400">(will be highlighted)</span>
-              </label>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Event Schedule */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Calendar className="h-5 w-5 text-amber-600" />
-              Event Schedule
-            </CardTitle>
-            <CardDescription>When will the event take place?</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div className="space-y-2">
-                <label htmlFor="create-event-start-date" className="text-sm font-medium text-gray-700">
-                  Event Start Date & Time <span className="text-red-500">*</span>
-                </label>
-                <Input
-                  id="create-event-start-date"
-                  name="startDate"
-                  type="datetime-local"
-                  value={form.startDate}
-                  onChange={handleChange}
-                  required
-                />
-              </div>
-              <div className="space-y-2">
-                <label htmlFor="create-event-end-date" className="text-sm font-medium text-gray-700">Event End Date & Time</label>
-                <Input
-                  id="create-event-end-date"
-                  name="endDate"
-                  type="datetime-local"
-                  value={form.endDate}
-                  onChange={handleChange}
-                />
-                <p className="text-xs text-gray-500">Leave empty for single-day events</p>
-              </div>
-              <div className="space-y-2">
-                <label htmlFor="create-event-days" className="text-sm font-medium text-gray-700">
-                  Attendance Days
-                </label>
-                <Input
-                  id="create-event-days"
-                  name="eventDays"
-                  type="number"
-                  min="1"
-                  max="10"
-                  value={form.eventDays}
-                  onChange={handleChange}
-                />
-                <p className="text-xs text-gray-500">Use more than 1 for multi-day attendance tracking.</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+        <EventScheduleSection
+          idPrefix="create-event"
+          form={form}
+          onChange={handleChange}
+          description="When will the event take place?"
+        />
 
         <RegistrationTimelineSection
           idPrefix="create-event"
@@ -367,122 +243,19 @@ export default function CreateEvent() {
           emptyMessage="No extra fields configured. Users will register directly without a popup form."
         />
 
-        {/* Location & Capacity */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <MapPin className="h-5 w-5 text-amber-600" />
-              Location & Capacity
-            </CardTitle>
-            <CardDescription>Where and how many participants</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div className="space-y-2">
-                <label htmlFor="create-event-location" className="text-sm font-medium text-gray-700">Location</label>
-                <Input
-                  id="create-event-location"
-                  name="location"
-                  value={form.location}
-                  onChange={handleChange}
-                  placeholder="e.g., Online / Campus / City Name"
-                />
-              </div>
-              <div className="space-y-2">
-                <label htmlFor="create-event-venue" className="text-sm font-medium text-gray-700">Venue</label>
-                <Input
-                  id="create-event-venue"
-                  name="venue"
-                  value={form.venue}
-                  onChange={handleChange}
-                  placeholder="e.g., Room 101 / Zoom / Google Meet"
-                />
-              </div>
-            </div>
+        <LocationCapacitySection
+          idPrefix="create-event"
+          form={form}
+          onChange={handleChange}
+          description="Where and how many participants"
+        />
 
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div className="space-y-2">
-                <label htmlFor="create-event-capacity" className="text-sm font-medium text-gray-700 flex items-center gap-2">
-                  <Users className="h-4 w-4" />
-                  Maximum Capacity
-                </label>
-                <Input
-                  id="create-event-capacity"
-                  name="capacity"
-                  type="number"
-                  min="1"
-                  value={form.capacity}
-                  onChange={handleChange}
-                  placeholder="Leave empty for unlimited"
-                />
-              </div>
-              <div className="space-y-2">
-                <label htmlFor="create-event-target-audience" className="text-sm font-medium text-gray-700">Target Audience</label>
-                <Input
-                  id="create-event-target-audience"
-                  name="targetAudience"
-                  value={form.targetAudience}
-                  onChange={handleChange}
-                  placeholder="e.g., Beginners, 2nd Year Students, etc."
-                />
-              </div>
-            </div>
-
-            <div className="space-y-2">
-              <label htmlFor="create-event-prerequisites" className="text-sm font-medium text-gray-700">Prerequisites</label>
-              <textarea
-                id="create-event-prerequisites"
-                name="prerequisites"
-                value={form.prerequisites}
-                onChange={handleChange}
-                placeholder="What should participants know or bring? e.g., Basic programming knowledge, Laptop required"
-                className="w-full min-h-[80px] px-3 py-2 border border-input rounded-md bg-background text-sm focus:outline-none focus:ring-2 focus:ring-amber-500"
-              />
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Media - Cover Image & Video */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Image className="h-5 w-5 text-amber-600" />
-              Media
-            </CardTitle>
-            <CardDescription>Cover image, video, and gallery</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div className="space-y-2">
-                <label htmlFor="create-event-image-url" className="text-sm font-medium text-gray-700">Cover Image URL</label>
-                <Input
-                  id="create-event-image-url"
-                  name="imageUrl"
-                  type="url"
-                  value={form.imageUrl}
-                  onChange={handleChange}
-                  placeholder="Google Drive link or direct image URL"
-                />
-                <p className="text-xs text-gray-500">Supports Google Drive shareable links</p>
-              </div>
-              <div className="space-y-2">
-                <label htmlFor="create-event-video-url" className="text-sm font-medium text-gray-700 flex items-center gap-2">
-                  <Video className="h-4 w-4" />
-                  Video URL
-                </label>
-                <Input
-                  id="create-event-video-url"
-                  name="videoUrl"
-                  type="url"
-                  value={form.videoUrl}
-                  onChange={handleChange}
-                  placeholder="YouTube, Vimeo, or Loom link"
-                />
-                <p className="text-xs text-gray-500">We convert supported video links into a safe embed URL automatically.</p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
+        <MediaSection
+          idPrefix="create-event"
+          form={form}
+          onChange={handleChange}
+          description="Cover image, video, and gallery"
+        />
 
         {/* Event Highlights */}
         <CollapsibleSection 
