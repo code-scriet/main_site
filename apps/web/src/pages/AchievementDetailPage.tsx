@@ -25,11 +25,14 @@ import { processImageUrl, processImageGallery } from '@/lib/imageUtils';
 // ============================================
 
 function CinematicGallery({ images }: { images: string[] }) {
-  const [activeSlide, setActiveSlide] = useState(0);
+  const [rawActiveSlide, setActiveSlide] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
 
   const processedImages = processImageGallery(images, 'gallery');
   const hasImages = processedImages.length > 0;
+  // Clamp at render time instead of via a sync-state effect — if the gallery
+  // shrinks, fall back to index 0 without touching state.
+  const activeSlide = rawActiveSlide < processedImages.length ? rawActiveSlide : 0;
 
   useEffect(() => {
     if (!isPlaying || processedImages.length <= 1) return;
@@ -40,11 +43,6 @@ function CinematicGallery({ images }: { images: string[] }) {
 
     return () => window.clearInterval(intervalId);
   }, [isPlaying, processedImages.length]);
-
-  useEffect(() => {
-    if (activeSlide < processedImages.length) return;
-    setActiveSlide(0);
-  }, [activeSlide, processedImages.length]);
 
   if (!hasImages) {
     return <LightboxGallery images={[]} imageAltPrefix="Achievement photo" />;
