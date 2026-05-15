@@ -782,6 +782,53 @@ async function safeList(name, url) {
   }
 }
 
+async function writeTasks(tasks, template) {
+  let written = 0;
+  let failed = 0;
+  for (const t of tasks) {
+    try {
+      const html = buildHtml(template, t);
+      await writeIfChanged(t.outPath, html);
+      written += 1;
+    } catch (err) {
+      failed += 1;
+      console.error(`[prerender] failed ${t.outPath}: ${err.message}`);
+    }
+  }
+  return { written, failed };
+}
+
+async function fetchAllWithTimeout(timeoutMs) {
+  // Race the API fetches against a hard timeout. If Render's build container
+  // can't reach api.codescriet.dev within timeoutMs, return empty arrays so
+  // listing pages still land — never let the API decide whether prerender
+  // output exists in dist.
+  const empty = { team: [], network: [], events: [], achievements: [], announcements: [], credits: [] };
+  const fetched = (async () => {
+    const [team, network, events, achievements, announcements, credits] = await Promise.all([
+      safeList('team', `${API_URL}/team`),
+      safeList('network', `${API_URL}/network`),
+      safeList('events', `${API_URL}/events`),
+      safeList('achievements', `${API_URL}/achievements`),
+      safeList('announcements', `${API_URL}/announcements`),
+      safeList('credits', `${API_URL}/credits`),
+    ]);
+    return { team, network, events, achievements, announcements, credits };
+  })();
+  let timer;
+  const timedOut = new Promise((resolve) => {
+    timer = setTimeout(() => {
+      console.log(`[prerender] API fetch exceeded ${timeoutMs}ms — proceeding with empty data`);
+      resolve(empty);
+    }, timeoutMs);
+  });
+  try {
+    return await Promise.race([fetched, timedOut]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function main() {
   const started = Date.now();
   let template;
@@ -795,26 +842,18 @@ async function main() {
   console.log(`[prerender] API: ${API_URL}`);
   console.log(`[prerender] site: ${SITE_URL}`);
 
-  // Pull lists in parallel. All endpoints are public.
-  const overall = setTimeout(() => {
-    console.error('[prerender] global timeout — exiting');
-    process.exit(0);
-  }, FETCH_TIMEOUT_MS * 10);
+  // PHASE 1 — write listing/static pages immediately with empty lists.
+  // Guarantees dist/<route>/index.html exists even if the API is unreachable
+  // from the build container.
+  const phase1 = buildListingTasks({});
+  const phase1Result = await writeTasks(phase1, template);
+  console.log(`[prerender] phase 1 (empty listing pages): wrote ${phase1Result.written}, failed ${phase1Result.failed}`);
 
-  const [team, network, events, achievements, announcements, credits] = await Promise.all([
-    safeList('team', `${API_URL}/team`),
-    safeList('network', `${API_URL}/network`),
-    safeList('events', `${API_URL}/events`),
-    safeList('achievements', `${API_URL}/achievements`),
-    safeList('announcements', `${API_URL}/announcements`),
-    safeList('credits', `${API_URL}/credits`),
-  ]);
-
-  clearTimeout(overall);
+  // PHASE 2 — fetch API with a hard 30s ceiling; if it succeeds, overwrite
+  // listing pages with richer content and write detail pages too.
+  const { team, network, events, achievements, announcements, credits } = await fetchAllWithTimeout(30000);
 
   const tasks = [];
-
-  // Listing + static routes (always emitted — independent of API success).
   tasks.push(...buildListingTasks({ team, network, events, achievements, announcements, credits }));
 
   for (const m of team) {
@@ -846,22 +885,13 @@ async function main() {
   }
 
   if (!tasks.length) {
-    console.log('[prerender] no entities to prerender — exiting');
+    console.log('[prerender] phase 2: no entities to prerender — phase 1 listing pages remain in dist');
+    const ms = Date.now() - started;
+    console.log(`[prerender] done in ${ms}ms (only phase 1 pages written)`);
     return;
   }
 
-  let written = 0;
-  let failed = 0;
-  for (const t of tasks) {
-    try {
-      const html = buildHtml(template, t);
-      await writeIfChanged(t.outPath, html);
-      written += 1;
-    } catch (err) {
-      failed += 1;
-      console.error(`[prerender] failed ${t.outPath}: ${err.message}`);
-    }
-  }
+  const { written, failed } = await writeTasks(tasks, template);
 
   const ms = Date.now() - started;
   console.log(`[prerender] wrote ${written} pages (${failed} failed) in ${ms}ms`);
