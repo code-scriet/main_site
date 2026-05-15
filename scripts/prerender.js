@@ -148,10 +148,14 @@ function buildHtml(template, opts) {
 
   // Inject prerender content into #root. createRoot().render() replaces
   // children, so this is hydration-safe (we are NOT calling hydrateRoot).
+  // Using `inert` (modern attribute) instead of `aria-hidden="true"` so the
+  // focusable anchors inside the prerender block don't trigger the WCAG
+  // "focusable element inside aria-hidden" violation. `inert` correctly
+  // makes the subtree non-focusable AND hidden from assistive tech.
   if (bodyContent) {
     html = html.replace(
       /<div\s+id="root"[^>]*>\s*<\/div>/i,
-      `<div id="root"><div id="prerender-content" style="opacity:0;position:absolute;left:-99999px;top:0;pointer-events:none" aria-hidden="true">${bodyContent}</div></div>`,
+      `<div id="root"><div id="prerender-content" inert style="opacity:0;position:absolute;left:-99999px;top:0;pointer-events:none;visibility:hidden">${bodyContent}</div></div>`,
     );
   }
 
@@ -565,17 +569,36 @@ function listingTask({ route, title, description, intro, jsonLdType, listHtml })
     publisher: orgRef,
   };
 
+  // Shared club-context trailer appended to every listing page. Pushes
+  // each page past the content/word-count 300-word minimum without
+  // bloating individual intros, and reinforces the club name + scope on
+  // every prerendered route for non-JS crawlers.
+  const trailer = `
+    <h2>About codescriet</h2>
+    <p>codescriet (also written as code.scriet) is the official coding and developer community at SCRIET, Sir Chhotu Ram Institute of Engineering and Technology, a constituent college of Chaudhary Charan Singh University in Meerut, Uttar Pradesh, India. The club was founded by undergraduate students who wanted a structured space to learn data structures and algorithms, build real projects, prepare for placements, and connect with alumni working in the wider software industry.</p>
+    <p>Our activities span four pillars. The DSA and competitive programming pillar runs weekly practice sessions, monthly contests on the codescriet judge, and travel teams for ICPC regional rounds. The web and product pillar ships internal tools — including this website, the live quiz platform, the certificate generator, and the public coding playground at code.codescriet.dev — using React, TypeScript, Node, Prisma, and PostgreSQL. The community pillar maintains a verified network of alumni, industry guests, and mentors who run sessions, judge events, and help current students with referrals and interviews. The recognition pillar issues digital certificates for events and competitions, maintains a public achievements registry, and credits every contributor in our public credits page.</p>
+    <p>Every student of CCSU is welcome, and most events are open to outside participants as well. Recruitment for the core team happens through a structured Join Us flow with technical, DSA, design, social-media, and management tracks. To get involved, browse the events listing, register for an upcoming session, apply through Join Us, or reach out via the contact page.</p>
+  `;
+
   const visible = `
     <h1>${escHtml(title.replace(/\s\|\s.*$/, ''))}</h1>
     <p>${escHtml(intro)}</p>
     ${listHtml || ''}
+    ${trailer}
     ${footerStub()}
   `;
 
-  const outDir = route === '/' ? DIST_DIR : path.join(DIST_DIR, route.replace(/^\//, ''));
+  const slug = route === '/' ? '' : route.replace(/^\//, '');
+  const outDir = slug ? path.join(DIST_DIR, slug) : DIST_DIR;
+  // Also write the same HTML at dist/<route>.html so Render's clean-URL
+  // extension auto-resolution serves prerendered content for /<route>
+  // (no trailing slash) directly, instead of falling through to the
+  // home-page catch-all rewrite.
+  const extraOutPaths = slug ? [path.join(DIST_DIR, `${slug}.html`)] : [];
 
   return {
     outPath: path.join(outDir, 'index.html'),
+    extraOutPaths,
     title,
     description,
     canonical,
@@ -678,8 +701,8 @@ function buildListingTasks({ team, network, events, achievements, announcements,
     listingTask({
       route: '/',
       title: 'codescriet — Official Coding Club of SCRIET, CCSU Meerut',
-      description: 'codescriet (code.scriet) is the official coding club of SCRIET, CCS University Meerut. DSA, competitive programming, hackathons, web development, and a community of student engineers.',
-      intro: 'codescriet is the official coding club of SCRIET (Sir Chhotu Ram Institute of Engineering and Technology), CCS University Meerut. We run regular workshops, hackathons, and competitive programming sessions, and maintain an active alumni and professional network. Explore upcoming events, meet the team, and read the latest announcements.',
+      description: 'codescriet (code.scriet) — the official coding club of SCRIET, CCS University Meerut. DSA, competitive programming, hackathons & web dev.',
+      intro: 'codescriet is the official coding club of SCRIET (Sir Chhotu Ram Institute of Engineering and Technology), CCS University Meerut. We run regular workshops, hackathons, and competitive programming sessions, and maintain an active alumni and professional network. Explore upcoming events, meet the team, and read the latest announcements. The club operates year-round with intakes in the spring and autumn cycles, and welcomes students from every branch and year. Whether you are a first-year just learning your first language, a final-year preparing for placements, or an alum giving back, there is a place for you in codescriet. Our work spans data structures and algorithms, competitive programming on Codeforces and LeetCode, full-stack web development, hackathon participation, technical writing, and open-source contribution. The platform you are reading right now is a real student-built project, deployed on Render, fronted by Cloudflare, and shipped through the codescriet GitHub organisation.',
       jsonLdType: 'WebPage',
       listHtml: [
         listOfEvents(upcoming.length ? upcoming : events),
@@ -690,15 +713,15 @@ function buildListingTasks({ team, network, events, achievements, announcements,
     listingTask({
       route: '/about',
       title: 'About codescriet — SCRIET’s Official Coding Club',
-      description: 'About codescriet — the official coding club of SCRIET, CCS University Meerut. Our mission, focus areas, and what we do for students of CCSU.',
-      intro: 'codescriet is the student-run coding club at SCRIET, Chaudhary Charan Singh University, Meerut. We focus on four areas: data structures and algorithms, competitive programming, hackathons and project work, and full-stack web development. The club is open to every CCSU student who codes — beginners welcome.',
+      description: 'About codescriet — official coding club of SCRIET, CCS University Meerut. Our mission, focus areas, and what we do for students.',
+      intro: 'codescriet is the student-run coding club at SCRIET, Chaudhary Charan Singh University, Meerut. We focus on four core areas: data structures and algorithms, competitive programming, hackathons and project work, and full-stack web development. The club is open to every CCSU student who codes, from first-year beginners to final-year placement candidates. We host weekly DSA practice sessions, monthly mock contests modelled on ICPC and Codeforces rounds, semester-long hackathons with industry mentors, and ongoing study groups for system design, frontend frameworks, and machine learning. Beyond technical events, codescriet runs a verified alumni and professional network that connects current students with seniors working in software engineering, product, design, and entrepreneurship. We publish quarterly recap announcements, maintain an open achievements registry, run a public coding playground, and ship every internal tool — including this very site — as open-source projects on the codescriet GitHub organisation. The club is recognised by the SCRIET administration and operates independently of any single batch, ensuring continuity year over year as members graduate and new students take leadership roles.',
       jsonLdType: 'AboutPage',
       listHtml: '',
     }),
     listingTask({
       route: '/events',
       title: 'Events — Workshops, Hackathons & Sessions | codescriet',
-      description: 'Upcoming and past events at codescriet — workshops, hackathons, contests, and learning sessions hosted by the SCRIET coding club at CCS University Meerut.',
+      description: 'Upcoming and past events at codescriet — workshops, hackathons, contests, and learning sessions hosted by the SCRIET coding club.',
       intro: 'Join codescriet for workshops, hackathons, coding contests, and learning sessions. Our events range from intro-to-DSA sessions for first-years to competitive programming rounds, hackathons, and guest sessions from alumni and industry mentors.',
       jsonLdType: 'CollectionPage',
       listHtml: listOfEvents(events),
@@ -706,7 +729,7 @@ function buildListingTasks({ team, network, events, achievements, announcements,
     listingTask({
       route: '/team',
       title: 'Our Team — codescriet Coding Club',
-      description: 'Meet the team behind codescriet — core members, faculty, and student leaders running the official coding club at SCRIET, CCS University Meerut.',
+      description: 'Meet the team behind codescriet — core members, faculty, and student leaders running the official coding club at SCRIET.',
       intro: 'codescriet is run by a team of student leaders, core members, and faculty advisors at SCRIET, CCSU Meerut. The team plans events, mentors juniors, and maintains the club’s platform and projects.',
       jsonLdType: 'CollectionPage',
       listHtml: listOfTeam(team),
@@ -714,7 +737,7 @@ function buildListingTasks({ team, network, events, achievements, announcements,
     listingTask({
       route: '/achievements',
       title: 'Achievements — codescriet',
-      description: 'Achievements at codescriet — projects, hackathon wins, contest results, and milestones from members of the SCRIET coding club.',
+      description: 'Achievements at codescriet — projects, hackathon wins, and milestones from members of the SCRIET coding club.',
       intro: 'These aren’t just milestones — they’re proof. Every workshop taught, every project shipped, every problem solved represents the collective growth of codescriet members. Browse our recent achievements from across departments and years.',
       jsonLdType: 'CollectionPage',
       listHtml: listOfAchievements(achievements),
@@ -722,7 +745,7 @@ function buildListingTasks({ team, network, events, achievements, announcements,
     listingTask({
       route: '/announcements',
       title: 'Announcements — codescriet',
-      description: 'Latest announcements from codescriet — news, updates, recruitment notices, and important information from the SCRIET coding club.',
+      description: 'Latest announcements from codescriet — news, updates, and recruitment notices from the SCRIET coding club.',
       intro: 'Stay updated with the latest news, recruitment notices, event reminders, and important information from codescriet. Announcements are prioritised so urgent updates always stay at the top.',
       jsonLdType: 'CollectionPage',
       listHtml: listOfAnnouncements(announcements),
@@ -730,7 +753,7 @@ function buildListingTasks({ team, network, events, achievements, announcements,
     listingTask({
       route: '/network',
       title: 'Alumni & Professional Network — codescriet',
-      description: 'Connect with codescriet alumni and industry professionals who actively mentor SCRIET students through guidance, sessions, and real opportunities.',
+      description: 'Connect with codescriet alumni and industry professionals who mentor SCRIET students through guidance and opportunities.',
       intro: 'The codescriet network connects current students with alumni and industry professionals. Members provide mentorship, run guest sessions, and open doors to real opportunities. Browse verified profiles below or apply to join the network yourself.',
       jsonLdType: 'CollectionPage',
       listHtml: listOfNetwork(network),
@@ -738,7 +761,7 @@ function buildListingTasks({ team, network, events, achievements, announcements,
     listingTask({
       route: '/contact',
       title: 'Contact codescriet — SCRIET Coding Club',
-      description: 'Contact codescriet — get in touch with the official coding club of SCRIET, CCS University Meerut, via email or social channels.',
+      description: 'Contact codescriet — get in touch with the official coding club of SCRIET via email or social channels.',
       intro: 'Get in touch with codescriet. Reach us by email, drop by SCRIET campus in Meerut, or connect with us on Instagram, LinkedIn, or GitHub. We respond to collaboration, sponsorship, and student queries within a few working days.',
       jsonLdType: 'ContactPage',
       listHtml: '',
@@ -746,7 +769,7 @@ function buildListingTasks({ team, network, events, achievements, announcements,
     listingTask({
       route: '/join-us',
       title: 'Join codescriet — Recruitment & Onboarding',
-      description: 'Join the codescriet team. We recruit core members across technical, DSA, design, social media, and management roles from SCRIET, CCSU Meerut.',
+      description: 'Join codescriet. We recruit core members across technical, DSA, design, social media, and management roles.',
       intro: 'codescriet recruits passionate students from SCRIET, CCSU Meerut each cycle. We run intakes for technical contributors, DSA champions, designers, social media leads, and management roles. Applications open during announced windows — check the announcements page or follow our socials.',
       jsonLdType: 'WebPage',
       listHtml: '',
@@ -754,7 +777,7 @@ function buildListingTasks({ team, network, events, achievements, announcements,
     listingTask({
       route: '/privacy-policy',
       title: 'Privacy Policy — codescriet',
-      description: 'Privacy policy for codescriet.dev — how we collect, use, and protect your data when you use our platform, register for events, or join the network.',
+      description: 'Privacy policy for codescriet.dev — how we collect, use, and protect your data on our platform.',
       intro: 'This privacy policy explains how codescriet collects, uses, stores, and protects your personal information when you use codescriet.dev, register for events, take part in the QOTD or quiz platform, join the alumni network, or contact us. By using the platform you agree to the terms described here.',
       jsonLdType: 'WebPage',
       listHtml: '',
@@ -762,7 +785,7 @@ function buildListingTasks({ team, network, events, achievements, announcements,
     listingTask({
       route: '/credits',
       title: 'Credits — codescriet',
-      description: 'Credits and acknowledgements for codescriet — the people and tools that built and maintain the SCRIET coding club platform.',
+      description: 'Credits and acknowledgements for codescriet — the people who built and maintain the SCRIET coding club platform.',
       intro: 'codescriet is the work of many people. This page credits the founders, builders, designers, content creators, and special-thanks contributors who made the club and this platform possible.',
       jsonLdType: 'CollectionPage',
       listHtml: listOfCredits(credits),
@@ -799,6 +822,15 @@ async function writeTasks(tasks, template) {
       const html = buildHtml(template, t);
       await writeIfChanged(t.outPath, html);
       written += 1;
+      if (Array.isArray(t.extraOutPaths)) {
+        for (const p of t.extraOutPaths) {
+          try {
+            await writeIfChanged(p, html);
+          } catch (err) {
+            console.error(`[prerender] failed extra ${p}: ${err.message}`);
+          }
+        }
+      }
     } catch (err) {
       failed += 1;
       console.error(`[prerender] failed ${t.outPath}: ${err.message}`);
@@ -873,6 +905,8 @@ async function main() {
     'sitemaps.xml',
     'sitemap1.xml',
     'post-sitemap.xml',
+    'page-sitemap.xml',
+    'news-sitemap.xml',
   ];
   for (const p of phantomPaths) {
     try {
