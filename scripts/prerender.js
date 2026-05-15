@@ -831,6 +831,20 @@ async function fetchAllWithTimeout(timeoutMs) {
 
 async function main() {
   const started = Date.now();
+
+  // Deploy-verification sentinel. Writing this BEFORE anything else means
+  // if /prerender-ran.txt is 200 on the live site, prerender at least
+  // started. If it's 404, prerender is not running in the Render build.
+  try {
+    await writeIfChanged(
+      path.join(DIST_DIR, 'prerender-ran.txt'),
+      `prerender executed at ${new Date().toISOString()}\nDIST_DIR=${DIST_DIR}\nNode ${process.version}\n`,
+    );
+    console.log('[prerender] sentinel written to dist/prerender-ran.txt');
+  } catch (err) {
+    console.error(`[prerender] could not write sentinel: ${err.message}`);
+  }
+
   let template;
   try {
     template = await fs.readFile(path.join(DIST_DIR, 'index.html'), 'utf8');
