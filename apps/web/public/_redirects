@@ -1,11 +1,29 @@
-# Consolidate phantom sitemap discovery paths to the canonical sitemap.
-# Crawlers probe these standard names; without these rules, the SPA catch-all
-# returns the index.html shell, which the audit flags as "Unknown sitemap format".
+# Phantom sitemap discovery paths → canonical /sitemap.xml.
 /sitemap_index.xml  /sitemap.xml  301
 /sitemap-index.xml  /sitemap.xml  301
 /sitemaps.xml       /sitemap.xml  301
 /sitemap1.xml       /sitemap.xml  301
 /post-sitemap.xml   /sitemap.xml  301
 
-# SPA catch-all (must stay last)
+# Detail-page prerendered HTML (clean URLs).
+# /team/<slug> → /team/<slug>/index.html if the file exists.
+/team/*           /team/:splat/index.html           200
+/events/*         /events/:splat/index.html         200
+/achievements/*   /achievements/:splat/index.html   200
+/announcements/*  /announcements/:splat/index.html  200
+/network/*        /network/:splat/index.html        200
+
+# Listing-page prerendered HTML.
+/about            /about/index.html            200
+/events           /events/index.html           200
+/team             /team/index.html             200
+/achievements     /achievements/index.html     200
+/announcements    /announcements/index.html    200
+/network          /network/index.html          200
+/contact          /contact/index.html          200
+/join-us          /join-us/index.html          200
+/privacy-policy   /privacy-policy/index.html   200
+/credits          /credits/index.html          200
+
+# SPA catch-all (must stay last).
 /* /index.html 200

@@ -52,12 +52,66 @@ services:
     buildCommand: npm install && node scripts/generate-sitemap.js && npm run build --workspace=apps/web && node scripts/prerender.js
     staticPublishPath: ./apps/web/dist
     routes:
+      # Phantom sitemap discovery paths → canonical sitemap (closes
+      # crawl/sitemap-valid). Specific rules must precede the catch-all.
+      - type: rewrite
+        source: /sitemap_index.xml
+        destination: /sitemap.xml
+      - type: rewrite
+        source: /sitemap-index.xml
+        destination: /sitemap.xml
+      - type: rewrite
+        source: /sitemaps.xml
+        destination: /sitemap.xml
+      - type: rewrite
+        source: /sitemap1.xml
+        destination: /sitemap.xml
+      - type: rewrite
+        source: /post-sitemap.xml
+        destination: /sitemap.xml
+      # Listing/static prerendered routes — make /about resolve to the real
+      # apps/web/dist/about/index.html file built by scripts/prerender.js.
+      # Render's default routing rewrites every extension-less path to
+      # /index.html, bypassing the prerender output, so we need these
+      # explicit mappings (clean_urls semantics).
+      - type: rewrite
+        source: /about
+        destination: /about/index.html
+      - type: rewrite
+        source: /events
+        destination: /events/index.html
+      - type: rewrite
+        source: /team
+        destination: /team/index.html
+      - type: rewrite
+        source: /achievements
+        destination: /achievements/index.html
+      - type: rewrite
+        source: /announcements
+        destination: /announcements/index.html
+      - type: rewrite
+        source: /network
+        destination: /network/index.html
+      - type: rewrite
+        source: /contact
+        destination: /contact/index.html
+      - type: rewrite
+        source: /join-us
+        destination: /join-us/index.html
+      - type: rewrite
+        source: /privacy-policy
+        destination: /privacy-policy/index.html
+      - type: rewrite
+        source: /credits
+        destination: /credits/index.html
+      # SPA catch-all — everything else (including dynamic detail routes
+      # like /team/<slug>, /events/<slug>) falls through to the SPA shell.
       - type: rewrite
         source: /*
         destination: /index.html
-    # Headers also defined in apps/web/public/_headers (Netlify-style, takes
-    # precedence at runtime on Render's static service). Mirrored here so
-    # config-as-code stays accurate.
+    # Headers also defined in apps/web/public/static.json (Heroku-style),
+    # which Render honors with clean_urls and per-path headers. Mirrored
+    # here so config-as-code stays accurate.
     headers:
       - path: /*
         name: Strict-Transport-Security
