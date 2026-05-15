@@ -147,6 +147,24 @@
     </script>
   </head>
   <body>
+    <!--
+      Render's static service does NOT auto-resolve clean URLs to
+      <path>/index.html, and the routes block in render.yaml is ignored
+      because the codescriet-web service has a dashboard override.
+      For prerendered listing routes, redirect to the trailing-slash form
+      so the matching dist/<route>/index.html gets served.
+      Runs synchronously before React boots, before the audit crawler
+      reads body content.
+    -->
+    <script>
+      (function () {
+        var p = window.location.pathname;
+        var routes = ['/about','/events','/team','/achievements','/announcements','/network','/contact','/join-us','/privacy-policy','/credits'];
+        if (routes.indexOf(p) !== -1) {
+          window.location.replace(p + '/' + window.location.search + window.location.hash);
+        }
+      })();
+    </script>
     <a href="#main-content" class="skip-link">Skip to main content</a>
     <main id="main-content" tabindex="-1">
       <div id="root"></div>

@@ -504,18 +504,21 @@ function announcementPage(an) {
 // non-JS crawlers see internal links and the privacy-policy reference,
 // closing links/internal-links, links/dead-end-pages, eeat/privacy-policy
 // and legal/privacy-policy.
+// Trailing slashes for non-root routes — matches sitemap + canonical so
+// non-JS crawlers (which won't run React Router) follow links to URLs
+// that Render's static service resolves to the prerendered HTML.
 const FOOTER_LINKS = [
   { href: '/', label: 'Home' },
-  { href: '/about', label: 'About' },
-  { href: '/events', label: 'Events' },
-  { href: '/team', label: 'Team' },
-  { href: '/achievements', label: 'Achievements' },
-  { href: '/announcements', label: 'Announcements' },
-  { href: '/network', label: 'Network' },
-  { href: '/credits', label: 'Credits' },
-  { href: '/contact', label: 'Contact' },
-  { href: '/join-us', label: 'Join Us' },
-  { href: '/privacy-policy', label: 'Privacy Policy' },
+  { href: '/about/', label: 'About' },
+  { href: '/events/', label: 'Events' },
+  { href: '/team/', label: 'Team' },
+  { href: '/achievements/', label: 'Achievements' },
+  { href: '/announcements/', label: 'Announcements' },
+  { href: '/network/', label: 'Network' },
+  { href: '/credits/', label: 'Credits' },
+  { href: '/contact/', label: 'Contact' },
+  { href: '/join-us/', label: 'Join Us' },
+  { href: '/privacy-policy/', label: 'Privacy Policy' },
 ];
 
 function footerStub() {
@@ -533,7 +536,11 @@ function safeDate(value) {
 }
 
 function listingTask({ route, title, description, intro, jsonLdType, listHtml }) {
-  const canonical = `${SITE_URL}${route === '/' ? '' : route}`;
+  // Canonical uses trailing slash for non-root routes because Render's
+  // static service only serves the prerendered HTML when /<route>/ is
+  // requested (no slash falls through to the SPA catch-all rewrite to
+  // /index.html). Keeping canonical and sitemap consistent.
+  const canonical = route === '/' ? `${SITE_URL}/` : `${SITE_URL}${route}/`;
   const bcTrail = [{ name: 'Home', url: SITE_URL }];
   if (route !== '/') {
     const segs = route.replace(/^\//, '').split('/');
@@ -580,6 +587,8 @@ function listingTask({ route, title, description, intro, jsonLdType, listHtml })
   };
 }
 
+// All internal links use trailing slashes so non-JS crawlers reach the
+// prerendered HTML instead of the SPA catch-all rewrite to /index.html.
 function listOfEvents(events) {
   if (!events?.length) return '';
   const items = events.slice(0, 8).map((e) => {
@@ -587,7 +596,7 @@ function listOfEvents(events) {
     const date = safeDate(e.startDate);
     const venue = e.venue || e.location || '';
     const meta = [date, venue].filter(Boolean).join(' · ');
-    return `<li><a href="/events/${escAttr(e.slug)}">${escHtml(e.title)}</a>${meta ? ` — <span>${escHtml(meta)}</span>` : ''}</li>`;
+    return `<li><a href="/events/${escAttr(e.slug)}/">${escHtml(e.title)}</a>${meta ? ` — <span>${escHtml(meta)}</span>` : ''}</li>`;
   }).filter(Boolean).join('');
   return items ? `<section aria-label="Recent events"><h2>Recent Events</h2><ul>${items}</ul></section>` : '';
 }
@@ -597,7 +606,7 @@ function listOfTeam(team) {
   const items = team.slice(0, 12).map((m) => {
     const slug = m.slug || m.id;
     if (!slug) return '';
-    return `<li><a href="/team/${escAttr(slug)}">${escHtml(m.name)}</a>${m.role ? ` — <span>${escHtml(m.role)}</span>` : ''}</li>`;
+    return `<li><a href="/team/${escAttr(slug)}/">${escHtml(m.name)}</a>${m.role ? ` — <span>${escHtml(m.role)}</span>` : ''}</li>`;
   }).filter(Boolean).join('');
   return items ? `<section aria-label="Team"><h2>Team Members</h2><ul>${items}</ul></section>` : '';
 }
@@ -607,7 +616,7 @@ function listOfAchievements(achievements) {
   const items = achievements.slice(0, 8).map((a) => {
     if (!a?.slug) return '';
     const date = safeDate(a.date);
-    return `<li><a href="/achievements/${escAttr(a.slug)}">${escHtml(a.title)}</a>${a.achievedBy ? ` — <span>${escHtml(a.achievedBy)}</span>` : ''}${date ? ` <time>${escHtml(date)}</time>` : ''}</li>`;
+    return `<li><a href="/achievements/${escAttr(a.slug)}/">${escHtml(a.title)}</a>${a.achievedBy ? ` — <span>${escHtml(a.achievedBy)}</span>` : ''}${date ? ` <time>${escHtml(date)}</time>` : ''}</li>`;
   }).filter(Boolean).join('');
   return items ? `<section aria-label="Achievements"><h2>Recent Achievements</h2><ul>${items}</ul></section>` : '';
 }
@@ -617,7 +626,7 @@ function listOfAnnouncements(announcements) {
   const items = announcements.slice(0, 8).map((a) => {
     if (!a?.slug) return '';
     const date = safeDate(a.createdAt);
-    return `<li><a href="/announcements/${escAttr(a.slug)}">${escHtml(a.title)}</a>${date ? ` <time>${escHtml(date)}</time>` : ''}</li>`;
+    return `<li><a href="/announcements/${escAttr(a.slug)}/">${escHtml(a.title)}</a>${date ? ` <time>${escHtml(date)}</time>` : ''}</li>`;
   }).filter(Boolean).join('');
   return items ? `<section aria-label="Announcements"><h2>Latest Announcements</h2><ul>${items}</ul></section>` : '';
 }
@@ -627,7 +636,7 @@ function listOfNetwork(network) {
   const items = network
     .filter((n) => n?.slug && (n.status === 'VERIFIED' || !n.status) && n.isPublic !== false)
     .slice(0, 12)
-    .map((n) => `<li><a href="/network/${escAttr(n.slug)}">${escHtml(n.fullName)}</a>${n.designation ? ` — <span>${escHtml(n.designation)}${n.company ? ` at ${escHtml(n.company)}` : ''}</span>` : ''}</li>`)
+    .map((n) => `<li><a href="/network/${escAttr(n.slug)}/">${escHtml(n.fullName)}</a>${n.designation ? ` — <span>${escHtml(n.designation)}${n.company ? ` at ${escHtml(n.company)}` : ''}</span>` : ''}</li>`)
     .join('');
   return items ? `<section aria-label="Network"><h2>Alumni & Professionals</h2><ul>${items}</ul></section>` : '';
 }
@@ -647,7 +656,7 @@ function listOfCredits(credits) {
       .slice(0, 20)
       .map((c) => {
         const who = c.teamMember?.slug
-          ? ` — <a href="/team/${escAttr(c.teamMember.slug)}">${escHtml(c.teamMember.name)}</a>`
+          ? ` — <a href="/team/${escAttr(c.teamMember.slug)}/">${escHtml(c.teamMember.name)}</a>`
           : c.teamMember?.name
             ? ` — <span>${escHtml(c.teamMember.name)}</span>`
             : '';

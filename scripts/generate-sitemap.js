@@ -5,16 +5,24 @@
 
 const SITE_URL = 'https://codescriet.dev';
 
+// Trailing slashes are intentional. Render's static service does NOT
+// auto-resolve clean URLs (/about → /about/index.html) and the catch-all
+// rewrite is configured in Render's UI (not render.yaml), so /about
+// without a slash returns the homepage shell. /about/ does resolve to
+// the prerendered file. Until Render's dashboard rewrite is fixed,
+// listing routes use trailing-slash form so crawlers see unique content.
 const STATIC_PAGES = [
   { path: '/', priority: '1.0', changefreq: 'weekly' },
-  { path: '/events', priority: '0.9', changefreq: 'daily' },
-  { path: '/achievements', priority: '0.9', changefreq: 'daily' },
-  { path: '/announcements', priority: '0.8', changefreq: 'daily' },
-  { path: '/network', priority: '0.8', changefreq: 'daily' },
-  { path: '/team', priority: '0.7', changefreq: 'monthly' },
-  { path: '/about', priority: '0.7', changefreq: 'monthly' },
-  { path: '/join-us', priority: '0.8', changefreq: 'weekly' },
-  { path: '/join-our-network', priority: '0.7', changefreq: 'weekly' },
+  { path: '/events/', priority: '0.9', changefreq: 'daily' },
+  { path: '/achievements/', priority: '0.9', changefreq: 'daily' },
+  { path: '/announcements/', priority: '0.8', changefreq: 'daily' },
+  { path: '/network/', priority: '0.8', changefreq: 'daily' },
+  { path: '/team/', priority: '0.7', changefreq: 'monthly' },
+  { path: '/about/', priority: '0.7', changefreq: 'monthly' },
+  { path: '/credits/', priority: '0.5', changefreq: 'monthly' },
+  { path: '/contact/', priority: '0.5', changefreq: 'monthly' },
+  { path: '/join-us/', priority: '0.8', changefreq: 'weekly' },
+  { path: '/privacy-policy/', priority: '0.3', changefreq: 'yearly' },
 ];
 
 function buildStaticSitemap() {
