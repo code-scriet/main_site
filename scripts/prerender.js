@@ -845,6 +845,35 @@ async function main() {
     console.error(`[prerender] could not write sentinel: ${err.message}`);
   }
 
+  // Phantom sitemap files — crawlers probe these standard discovery names,
+  // and Render's static service ignores _redirects/static.json route rules
+  // on this deployment, so the cleanest fix is to serve a real sitemap
+  // index at each phantom path that points at /sitemap.xml. The audit
+  // sees a valid <sitemapindex> + valid <sitemap> entry and stops flagging.
+  const phantomSitemapIndex = `<?xml version="1.0" encoding="UTF-8"?>
+<sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <sitemap>
+    <loc>${SITE_URL}/sitemap.xml</loc>
+    <lastmod>${new Date().toISOString().split('T')[0]}</lastmod>
+  </sitemap>
+</sitemapindex>
+`;
+  const phantomPaths = [
+    'sitemap_index.xml',
+    'sitemap-index.xml',
+    'sitemaps.xml',
+    'sitemap1.xml',
+    'post-sitemap.xml',
+  ];
+  for (const p of phantomPaths) {
+    try {
+      await writeIfChanged(path.join(DIST_DIR, p), phantomSitemapIndex);
+    } catch (err) {
+      console.error(`[prerender] could not write phantom sitemap ${p}: ${err.message}`);
+    }
+  }
+  console.log(`[prerender] wrote ${phantomPaths.length} phantom sitemap-index files`);
+
   let template;
   try {
     template = await fs.readFile(path.join(DIST_DIR, 'index.html'), 'utf8');
