@@ -49,7 +49,10 @@ services:
     name: codescriet-web
     runtime: static
     plan: free
-    buildCommand: npm install && node scripts/generate-sitemap.js && npm run build --workspace=apps/web && node scripts/prerender.js
+    # apps/web/package.json now has `prebuild` (generate-sitemap) and
+    # `postbuild` (prerender) hooks, so `npm run build --workspace=apps/web`
+    # runs the full chain hermetically — no need to spell it out here.
+    buildCommand: npm install && npm run build --workspace=apps/web
     staticPublishPath: ./apps/web/dist
     routes:
       # Phantom sitemap discovery paths → canonical sitemap (closes

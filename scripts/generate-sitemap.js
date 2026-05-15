@@ -35,6 +35,15 @@ function buildStaticSitemap() {
 
 async function main() {
   const fs = await import('fs');
+  const path = await import('path');
+  const { fileURLToPath } = await import('url');
+
+  // Resolve output path relative to this script's location, NOT the CWD.
+  // Lets the script be invoked from anywhere — including npm's prebuild
+  // hook that runs in apps/web/ rather than the repo root.
+  const __dirname = path.dirname(fileURLToPath(import.meta.url));
+  const SITEMAP_PATH = path.resolve(__dirname, '..', 'apps/web/public/sitemap.xml');
+
   const apiUrl = process.env.VITE_API_URL || process.env.BACKEND_URL || 'https://api.codescriet.dev';
 
   // Try to fetch the full dynamic sitemap from the API
@@ -48,7 +57,7 @@ async function main() {
     if (res.ok) {
       const xml = await res.text();
       if (xml.includes('<urlset')) {
-        fs.writeFileSync('apps/web/public/sitemap.xml', xml);
+        fs.writeFileSync(SITEMAP_PATH, xml);
         console.log(`✅ Sitemap generated from API — dynamic URLs included`);
         return;
       }
@@ -59,7 +68,7 @@ async function main() {
   }
 
   // Fallback: write a sitemap with static pages only
-  fs.writeFileSync('apps/web/public/sitemap.xml', buildStaticSitemap());
+  fs.writeFileSync(SITEMAP_PATH, buildStaticSitemap());
   console.log('✅ Static-only sitemap generated');
 }
 
