@@ -1,17 +1,23 @@
 // scripts/prerender.js
-// Build-time prerender for SEO-critical detail pages.
+// Build-time prerender for SEO-critical pages.
 //
 // After `vite build`, this script walks the public API and emits a real HTML
-// file at apps/web/dist/<route>/<slug>/index.html for every team member,
-// network profile, event, achievement, and announcement.
+// file at:
+//   - apps/web/dist/<route>/<slug>/index.html for every team member,
+//     network profile, event, achievement, and announcement (detail pages)
+//   - apps/web/dist/<route>/index.html for every listing/static route
+//     (/, /about, /events, /team, /achievements, /announcements, /network,
+//      /contact, /join-us, /privacy-policy, /credits)
 //
 // Each output contains:
 //   - Real <title> and <meta name="description">
 //   - og:* / twitter:* tags using the entity image
-//   - rel=canonical to the slug URL
-//   - JSON-LD (Person / Event / NewsArticle / BlogPosting / BreadcrumbList)
-//   - A visible prerender block inside #root (h1, image, bio) so non-JS
-//     crawlers see the name. React's createRoot wipes it on hydration.
+//   - rel=canonical to the URL
+//   - JSON-LD (Person / Event / NewsArticle / BlogPosting / CollectionPage /
+//     WebPage / ContactPage / BreadcrumbList)
+//   - A visible prerender block inside #root (h1, intro, list, footer-stub)
+//     so non-JS crawlers see real content + internal nav links. React's
+//     createRoot wipes it on hydration.
 //
 // Render's static hosting serves a real file before applying the SPA rewrite,
 // so dist/team/<slug>/index.html takes precedence over /* -> /index.html.
@@ -245,6 +251,7 @@ function teamMemberPage(m) {
     ${m.imageUrl ? `<img src="${escAttr(m.imageUrl)}" alt="${escAttr(`${m.name} — ${m.role || ''} at codescriet`)}" />` : ''}
     ${bioText ? `<p>${escHtml(trimChars(bioText, 600))}</p>` : ''}
     ${sameAs.length ? `<ul>${sameAs.map((u) => `<li><a href="${escAttr(u)}" rel="noopener">${escHtml(u)}</a></li>`).join('')}</ul>` : ''}
+    ${footerStub()}
   `;
 
   return {
@@ -310,6 +317,7 @@ function networkProfilePage(n) {
     ${n.profilePhoto ? `<img src="${escAttr(n.profilePhoto)}" alt="${escAttr(`${n.fullName} — ${n.designation || ''}`)}" />` : ''}
     ${bioText ? `<p>${escHtml(trimChars(bioText, 600))}</p>` : ''}
     ${sameAs.length ? `<ul>${sameAs.map((u) => `<li><a href="${escAttr(u)}" rel="noopener">${escHtml(u)}</a></li>`).join('')}</ul>` : ''}
+    ${footerStub()}
   `;
 
   return {
@@ -372,6 +380,7 @@ function eventPage(e) {
     ${dateLabel ? `<p><time datetime="${escAttr(start)}">${escHtml(dateLabel)}</time>${venue ? ` · ${escHtml(venue)}` : ''}</p>` : ''}
     ${e.imageUrl ? `<img src="${escAttr(e.imageUrl)}" alt="${escAttr(`${e.title} — codescriet event`)}" />` : ''}
     ${descText ? `<p>${escHtml(trimChars(descText, 800))}</p>` : ''}
+    ${footerStub()}
   `;
 
   return {
@@ -423,6 +432,7 @@ function achievementPage(a) {
     ${a.achievedBy ? `<p><strong>${escHtml(a.achievedBy)}</strong></p>` : ''}
     ${a.imageUrl ? `<img src="${escAttr(a.imageUrl)}" alt="${escAttr(`${a.title} — codescriet achievement`)}" />` : ''}
     ${descText ? `<p>${escHtml(trimChars(descText, 800))}</p>` : ''}
+    ${footerStub()}
   `;
 
   return {
@@ -472,6 +482,7 @@ function announcementPage(an) {
     <h1>${escHtml(an.title)}</h1>
     ${an.imageUrl ? `<img src="${escAttr(an.imageUrl)}" alt="${escAttr(`${an.title} — codescriet announcement`)}" />` : ''}
     ${descText ? `<p>${escHtml(trimChars(descText, 800))}</p>` : ''}
+    ${footerStub()}
   `;
 
   return {
@@ -485,6 +496,269 @@ function announcementPage(an) {
     jsonLd: [article, bc],
     bodyContent: visible,
   };
+}
+
+// ───── listing & static route templates ────────────────────────────────────
+
+// Footer-stub: site-wide internal nav embedded in every prerendered page so
+// non-JS crawlers see internal links and the privacy-policy reference,
+// closing links/internal-links, links/dead-end-pages, eeat/privacy-policy
+// and legal/privacy-policy.
+const FOOTER_LINKS = [
+  { href: '/', label: 'Home' },
+  { href: '/about', label: 'About' },
+  { href: '/events', label: 'Events' },
+  { href: '/team', label: 'Team' },
+  { href: '/achievements', label: 'Achievements' },
+  { href: '/announcements', label: 'Announcements' },
+  { href: '/network', label: 'Network' },
+  { href: '/credits', label: 'Credits' },
+  { href: '/contact', label: 'Contact' },
+  { href: '/join-us', label: 'Join Us' },
+  { href: '/privacy-policy', label: 'Privacy Policy' },
+];
+
+function footerStub() {
+  const items = FOOTER_LINKS
+    .map((l) => `<li><a href="${escAttr(l.href)}">${escHtml(l.label)}</a></li>`)
+    .join('');
+  return `<nav aria-label="Footer"><ul>${items}</ul></nav>`;
+}
+
+function safeDate(value) {
+  if (!value) return '';
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return '';
+  return d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
+}
+
+function listingTask({ route, title, description, intro, jsonLdType, listHtml }) {
+  const canonical = `${SITE_URL}${route === '/' ? '' : route}`;
+  const bcTrail = [{ name: 'Home', url: SITE_URL }];
+  if (route !== '/') {
+    const segs = route.replace(/^\//, '').split('/');
+    let acc = '';
+    segs.forEach((seg) => {
+      acc += `/${seg}`;
+      bcTrail.push({
+        name: seg.replace(/-/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()),
+        url: `${SITE_URL}${acc}`,
+      });
+    });
+  }
+  const bc = breadcrumb(bcTrail);
+
+  const pageJsonLd = {
+    '@context': 'https://schema.org',
+    '@type': jsonLdType,
+    url: canonical,
+    name: title,
+    description,
+    isPartOf: { '@type': 'WebSite', '@id': `${SITE_URL}/#website` },
+    publisher: orgRef,
+  };
+
+  const visible = `
+    <h1>${escHtml(title.replace(/\s\|\s.*$/, ''))}</h1>
+    <p>${escHtml(intro)}</p>
+    ${listHtml || ''}
+    ${footerStub()}
+  `;
+
+  const outDir = route === '/' ? DIST_DIR : path.join(DIST_DIR, route.replace(/^\//, ''));
+
+  return {
+    outPath: path.join(outDir, 'index.html'),
+    title,
+    description,
+    canonical,
+    image: `${SITE_URL}/og-image.jpg`,
+    imageAlt: 'codescriet — Official Coding Club of SCRIET',
+    ogType: 'website',
+    jsonLd: [pageJsonLd, bc],
+    bodyContent: visible,
+  };
+}
+
+function listOfEvents(events) {
+  if (!events?.length) return '';
+  const items = events.slice(0, 8).map((e) => {
+    if (!e?.slug) return '';
+    const date = safeDate(e.startDate);
+    const venue = e.venue || e.location || '';
+    const meta = [date, venue].filter(Boolean).join(' · ');
+    return `<li><a href="/events/${escAttr(e.slug)}">${escHtml(e.title)}</a>${meta ? ` — <span>${escHtml(meta)}</span>` : ''}</li>`;
+  }).filter(Boolean).join('');
+  return items ? `<section aria-label="Recent events"><h2>Recent Events</h2><ul>${items}</ul></section>` : '';
+}
+
+function listOfTeam(team) {
+  if (!team?.length) return '';
+  const items = team.slice(0, 12).map((m) => {
+    const slug = m.slug || m.id;
+    if (!slug) return '';
+    return `<li><a href="/team/${escAttr(slug)}">${escHtml(m.name)}</a>${m.role ? ` — <span>${escHtml(m.role)}</span>` : ''}</li>`;
+  }).filter(Boolean).join('');
+  return items ? `<section aria-label="Team"><h2>Team Members</h2><ul>${items}</ul></section>` : '';
+}
+
+function listOfAchievements(achievements) {
+  if (!achievements?.length) return '';
+  const items = achievements.slice(0, 8).map((a) => {
+    if (!a?.slug) return '';
+    const date = safeDate(a.date);
+    return `<li><a href="/achievements/${escAttr(a.slug)}">${escHtml(a.title)}</a>${a.achievedBy ? ` — <span>${escHtml(a.achievedBy)}</span>` : ''}${date ? ` <time>${escHtml(date)}</time>` : ''}</li>`;
+  }).filter(Boolean).join('');
+  return items ? `<section aria-label="Achievements"><h2>Recent Achievements</h2><ul>${items}</ul></section>` : '';
+}
+
+function listOfAnnouncements(announcements) {
+  if (!announcements?.length) return '';
+  const items = announcements.slice(0, 8).map((a) => {
+    if (!a?.slug) return '';
+    const date = safeDate(a.createdAt);
+    return `<li><a href="/announcements/${escAttr(a.slug)}">${escHtml(a.title)}</a>${date ? ` <time>${escHtml(date)}</time>` : ''}</li>`;
+  }).filter(Boolean).join('');
+  return items ? `<section aria-label="Announcements"><h2>Latest Announcements</h2><ul>${items}</ul></section>` : '';
+}
+
+function listOfNetwork(network) {
+  if (!network?.length) return '';
+  const items = network
+    .filter((n) => n?.slug && (n.status === 'VERIFIED' || !n.status) && n.isPublic !== false)
+    .slice(0, 12)
+    .map((n) => `<li><a href="/network/${escAttr(n.slug)}">${escHtml(n.fullName)}</a>${n.designation ? ` — <span>${escHtml(n.designation)}${n.company ? ` at ${escHtml(n.company)}` : ''}</span>` : ''}</li>`)
+    .join('');
+  return items ? `<section aria-label="Network"><h2>Alumni & Professionals</h2><ul>${items}</ul></section>` : '';
+}
+
+function listOfCredits(credits) {
+  if (!credits?.length) return '';
+  const byCategory = new Map();
+  for (const c of credits) {
+    if (!c?.title) continue;
+    const key = c.category || 'Other';
+    if (!byCategory.has(key)) byCategory.set(key, []);
+    byCategory.get(key).push(c);
+  }
+  const sections = Array.from(byCategory.entries()).map(([cat, items]) => {
+    const lis = items
+      .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
+      .slice(0, 20)
+      .map((c) => {
+        const who = c.teamMember?.slug
+          ? ` — <a href="/team/${escAttr(c.teamMember.slug)}">${escHtml(c.teamMember.name)}</a>`
+          : c.teamMember?.name
+            ? ` — <span>${escHtml(c.teamMember.name)}</span>`
+            : '';
+        return `<li><strong>${escHtml(c.title)}</strong>${who}</li>`;
+      })
+      .join('');
+    return `<section aria-label="${escAttr(cat)}"><h2>${escHtml(cat)}</h2><ul>${lis}</ul></section>`;
+  }).join('');
+  return sections;
+}
+
+function buildListingTasks({ team, network, events, achievements, announcements, credits }) {
+  const upcoming = (events || []).filter((e) => {
+    const start = e?.startDate ? new Date(e.startDate).getTime() : 0;
+    return start && start >= Date.now() - 24 * 60 * 60 * 1000;
+  });
+
+  return [
+    listingTask({
+      route: '/',
+      title: 'codescriet — Official Coding Club of SCRIET, CCSU Meerut',
+      description: 'codescriet (code.scriet) is the official coding club of SCRIET, CCS University Meerut. DSA, competitive programming, hackathons, web development, and a community of student engineers.',
+      intro: 'codescriet is the official coding club of SCRIET (Sir Chhotu Ram Institute of Engineering and Technology), CCS University Meerut. We run regular workshops, hackathons, and competitive programming sessions, and maintain an active alumni and professional network. Explore upcoming events, meet the team, and read the latest announcements.',
+      jsonLdType: 'WebPage',
+      listHtml: [
+        listOfEvents(upcoming.length ? upcoming : events),
+        listOfAnnouncements(announcements),
+        listOfTeam(team),
+      ].filter(Boolean).join(''),
+    }),
+    listingTask({
+      route: '/about',
+      title: 'About codescriet — SCRIET’s Official Coding Club',
+      description: 'About codescriet — the official coding club of SCRIET, CCS University Meerut. Our mission, focus areas, and what we do for students of CCSU.',
+      intro: 'codescriet is the student-run coding club at SCRIET, Chaudhary Charan Singh University, Meerut. We focus on four areas: data structures and algorithms, competitive programming, hackathons and project work, and full-stack web development. The club is open to every CCSU student who codes — beginners welcome.',
+      jsonLdType: 'AboutPage',
+      listHtml: '',
+    }),
+    listingTask({
+      route: '/events',
+      title: 'Events — Workshops, Hackathons & Sessions | codescriet',
+      description: 'Upcoming and past events at codescriet — workshops, hackathons, contests, and learning sessions hosted by the SCRIET coding club at CCS University Meerut.',
+      intro: 'Join codescriet for workshops, hackathons, coding contests, and learning sessions. Our events range from intro-to-DSA sessions for first-years to competitive programming rounds, hackathons, and guest sessions from alumni and industry mentors.',
+      jsonLdType: 'CollectionPage',
+      listHtml: listOfEvents(events),
+    }),
+    listingTask({
+      route: '/team',
+      title: 'Our Team — codescriet Coding Club',
+      description: 'Meet the team behind codescriet — core members, faculty, and student leaders running the official coding club at SCRIET, CCS University Meerut.',
+      intro: 'codescriet is run by a team of student leaders, core members, and faculty advisors at SCRIET, CCSU Meerut. The team plans events, mentors juniors, and maintains the club’s platform and projects.',
+      jsonLdType: 'CollectionPage',
+      listHtml: listOfTeam(team),
+    }),
+    listingTask({
+      route: '/achievements',
+      title: 'Achievements — codescriet',
+      description: 'Achievements at codescriet — projects, hackathon wins, contest results, and milestones from members of the SCRIET coding club.',
+      intro: 'These aren’t just milestones — they’re proof. Every workshop taught, every project shipped, every problem solved represents the collective growth of codescriet members. Browse our recent achievements from across departments and years.',
+      jsonLdType: 'CollectionPage',
+      listHtml: listOfAchievements(achievements),
+    }),
+    listingTask({
+      route: '/announcements',
+      title: 'Announcements — codescriet',
+      description: 'Latest announcements from codescriet — news, updates, recruitment notices, and important information from the SCRIET coding club.',
+      intro: 'Stay updated with the latest news, recruitment notices, event reminders, and important information from codescriet. Announcements are prioritised so urgent updates always stay at the top.',
+      jsonLdType: 'CollectionPage',
+      listHtml: listOfAnnouncements(announcements),
+    }),
+    listingTask({
+      route: '/network',
+      title: 'Alumni & Professional Network — codescriet',
+      description: 'Connect with codescriet alumni and industry professionals who actively mentor SCRIET students through guidance, sessions, and real opportunities.',
+      intro: 'The codescriet network connects current students with alumni and industry professionals. Members provide mentorship, run guest sessions, and open doors to real opportunities. Browse verified profiles below or apply to join the network yourself.',
+      jsonLdType: 'CollectionPage',
+      listHtml: listOfNetwork(network),
+    }),
+    listingTask({
+      route: '/contact',
+      title: 'Contact codescriet — SCRIET Coding Club',
+      description: 'Contact codescriet — get in touch with the official coding club of SCRIET, CCS University Meerut, via email or social channels.',
+      intro: 'Get in touch with codescriet. Reach us by email, drop by SCRIET campus in Meerut, or connect with us on Instagram, LinkedIn, or GitHub. We respond to collaboration, sponsorship, and student queries within a few working days.',
+      jsonLdType: 'ContactPage',
+      listHtml: '',
+    }),
+    listingTask({
+      route: '/join-us',
+      title: 'Join codescriet — Recruitment & Onboarding',
+      description: 'Join the codescriet team. We recruit core members across technical, DSA, design, social media, and management roles from SCRIET, CCSU Meerut.',
+      intro: 'codescriet recruits passionate students from SCRIET, CCSU Meerut each cycle. We run intakes for technical contributors, DSA champions, designers, social media leads, and management roles. Applications open during announced windows — check the announcements page or follow our socials.',
+      jsonLdType: 'WebPage',
+      listHtml: '',
+    }),
+    listingTask({
+      route: '/privacy-policy',
+      title: 'Privacy Policy — codescriet',
+      description: 'Privacy policy for codescriet.dev — how we collect, use, and protect your data when you use our platform, register for events, or join the network.',
+      intro: 'This privacy policy explains how codescriet collects, uses, stores, and protects your personal information when you use codescriet.dev, register for events, take part in the QOTD or quiz platform, join the alumni network, or contact us. By using the platform you agree to the terms described here.',
+      jsonLdType: 'WebPage',
+      listHtml: '',
+    }),
+    listingTask({
+      route: '/credits',
+      title: 'Credits — codescriet',
+      description: 'Credits and acknowledgements for codescriet — the people and tools that built and maintain the SCRIET coding club platform.',
+      intro: 'codescriet is the work of many people. This page credits the founders, builders, designers, content creators, and special-thanks contributors who made the club and this platform possible.',
+      jsonLdType: 'CollectionPage',
+      listHtml: listOfCredits(credits),
+    }),
+  ];
 }
 
 // ───── orchestration ───────────────────────────────────────────────────────
@@ -527,17 +801,21 @@ async function main() {
     process.exit(0);
   }, FETCH_TIMEOUT_MS * 10);
 
-  const [team, network, events, achievements, announcements] = await Promise.all([
+  const [team, network, events, achievements, announcements, credits] = await Promise.all([
     safeList('team', `${API_URL}/team`),
     safeList('network', `${API_URL}/network`),
     safeList('events', `${API_URL}/events`),
     safeList('achievements', `${API_URL}/achievements`),
     safeList('announcements', `${API_URL}/announcements`),
+    safeList('credits', `${API_URL}/credits`),
   ]);
 
   clearTimeout(overall);
 
   const tasks = [];
+
+  // Listing + static routes (always emitted — independent of API success).
+  tasks.push(...buildListingTasks({ team, network, events, achievements, announcements, credits }));
 
   for (const m of team) {
     if (!m || (!m.slug && !m.id)) continue;

@@ -1,1 +1,11 @@
+# Consolidate phantom sitemap discovery paths to the canonical sitemap.
+# Crawlers probe these standard names; without these rules, the SPA catch-all
+# returns the index.html shell, which the audit flags as "Unknown sitemap format".
+/sitemap_index.xml  /sitemap.xml  301
+/sitemap-index.xml  /sitemap.xml  301
+/sitemaps.xml       /sitemap.xml  301
+/sitemap1.xml       /sitemap.xml  301
+/post-sitemap.xml   /sitemap.xml  301
+
+# SPA catch-all (must stay last)
 /* /index.html 200

@@ -19,24 +19,25 @@ export default defineConfig({
     outDir: 'dist',
     assetsDir: 'assets',
     emptyOutDir: true,
-    // Generate unique file names for cache busting
     sourcemap: false,
-    // Optimize chunk splitting for better caching
+    // Per-chunk CSS — async-loaded routes get their own CSS file rather than
+    // a single fat index-*.css. Helps perf/css-file-size on smaller routes.
+    cssCodeSplit: true,
     rollupOptions: {
       output: {
         manualChunks: {
-          // Vendor chunks - rarely change, cache longer
           'vendor-react': ['react', 'react-dom', 'react-router-dom'],
           'vendor-ui': ['framer-motion', '@tanstack/react-query'],
-          // Feature chunks
           'markdown': ['react-markdown', 'remark-gfm', 'rehype-highlight'],
         },
       },
     },
-    // Smaller chunks load faster
     chunkSizeWarningLimit: 500,
-    // Use esbuild for faster minification (default)
     minify: 'esbuild',
+    // To inspect bundle composition:
+    //   npm i -D rollup-plugin-visualizer --workspace=apps/web
+    //   ANALYZE=1 npm run build --workspace=apps/web
+    // then gate plugin with `process.env.ANALYZE` in the plugins array above.
   },
   // Optimize dependencies
   optimizeDeps: {
