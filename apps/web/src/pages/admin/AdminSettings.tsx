@@ -65,6 +65,7 @@ export default function AdminSettings() {
     twitterUrl: '',
     instagramUrl: '',
     discordUrl: '',
+    whatsappUrl: '',
     emailWelcomeBody: '',
     emailAnnouncementBody: '',
     emailEventBody: '',

@@ -53,6 +53,7 @@ const updateSettingsSchema = z.object({
   twitterUrl: optionalUrl,
   instagramUrl: optionalUrl,
   discordUrl: optionalUrl,
+  whatsappUrl: optionalUrl,
 });
 
 const updateEmailTemplatesSchema = z.object({
@@ -207,6 +208,7 @@ settingsRouter.get('/public', async (req: Request, res: Response) => {
         twitterUrl: true,
         instagramUrl: true,
         discordUrl: true,
+        whatsappUrl: true,
       },
     });
 
@@ -242,6 +244,7 @@ settingsRouter.get('/public', async (req: Request, res: Response) => {
           twitterUrl: null,
           instagramUrl: null,
           discordUrl: null,
+          whatsappUrl: null,
         },
       });
     }
@@ -332,6 +335,7 @@ settingsRouter.put('/', authMiddleware, requireRole('PRESIDENT'), async (req: Re
       twitterUrl,
       instagramUrl,
       discordUrl,
+      whatsappUrl,
     } = parsed.data;
 
     const settingsData = {
@@ -372,6 +376,7 @@ settingsRouter.put('/', authMiddleware, requireRole('PRESIDENT'), async (req: Re
       ...(twitterUrl !== undefined && { twitterUrl: twitterUrl || null }),
       ...(instagramUrl !== undefined && { instagramUrl: instagramUrl || null }),
       ...(discordUrl !== undefined && { discordUrl: discordUrl || null }),
+      ...(whatsappUrl !== undefined && { whatsappUrl: whatsappUrl || null }),
     };
 
     const settings = await prisma.settings.upsert({
@@ -643,6 +648,7 @@ settingsRouter.patch('/:key', authMiddleware, requireRole('ADMIN'), async (req: 
       'twitterUrl',
       'instagramUrl',
       'discordUrl',
+      'whatsappUrl',
     ];
 
     if (!allowedKeys.includes(key)) {
@@ -685,6 +691,7 @@ settingsRouter.patch('/:key', authMiddleware, requireRole('ADMIN'), async (req: 
       'twitterUrl',
       'instagramUrl',
       'discordUrl',
+      'whatsappUrl',
     ]);
 
     if (booleanKeys.has(key) && typeof value !== 'boolean') {

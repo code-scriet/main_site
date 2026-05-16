@@ -356,6 +356,7 @@ export interface Settings {
   twitterUrl?: string;
   instagramUrl?: string;
   discordUrl?: string;
+  whatsappUrl?: string;
   // Email Template Customization
   emailWelcomeBody?: string;
   emailAnnouncementBody?: string;

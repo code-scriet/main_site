@@ -98,6 +98,7 @@ model Settings {
   instagramUrl             String?  @map("instagram_url")
   linkedinUrl              String?  @map("linkedin_url")
   twitterUrl               String?  @map("twitter_url")
+  whatsappUrl              String?  @map("whatsapp_url")
   hiringEnabled            Boolean  @default(true) @map("hiring_enabled")
   emailAnnouncementBody    String?  @map("email_announcement_body")
   emailEventBody           String?  @map("email_event_body")

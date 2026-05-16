@@ -60,15 +60,27 @@ export function SocialLinksCard({ settings, onChange }: SocialLinksCardProps) {
             />
           </div>
         </div>
-        <div className="space-y-2">
-          <Label htmlFor="discord-url">Discord Invite URL</Label>
-          <Input
-            id="discord-url"
-            value={settings.discordUrl || ''}
-            onChange={(e) => onChange({ ...settings, discordUrl: e.target.value })}
-            placeholder="https://discord.gg/invite-code"
-          />
-          <p className="text-xs text-gray-500">Leave empty to hide Discord from the footer</p>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div className="space-y-2">
+            <Label htmlFor="discord-url">Discord Invite URL</Label>
+            <Input
+              id="discord-url"
+              value={settings.discordUrl || ''}
+              onChange={(e) => onChange({ ...settings, discordUrl: e.target.value })}
+              placeholder="https://discord.gg/invite-code"
+            />
+            <p className="text-xs text-gray-500">Leave empty to hide Discord from the footer</p>
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="whatsapp-url">WhatsApp Community Invite URL</Label>
+            <Input
+              id="whatsapp-url"
+              value={settings.whatsappUrl || ''}
+              onChange={(e) => onChange({ ...settings, whatsappUrl: e.target.value })}
+              placeholder="https://chat.whatsapp.com/invite-code"
+            />
+            <p className="text-xs text-gray-500">Leave empty to hide WhatsApp from the footer</p>
+          </div>
         </div>
       </CardContent>
     </Card>

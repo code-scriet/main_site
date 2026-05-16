@@ -63,14 +63,19 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
   const [error, setError] = useState<string | null>(null);
 
   const refreshSettings = useCallback(async () => {
+    // Initial state is `loading: true`. Subsequent refetches keep the
+    // stale settings visible and never flip `loading` back to true —
+    // otherwise every window-focus refetch briefly unmounts every
+    // consumer that gates on `settingsLoading` (dashboard Hiring CTA,
+    // playground card, etc.), causing right-column cards to flicker out
+    // and back in with Framer Motion's fade-in.
     try {
-      setLoading(true);
       setError(null);
       const data = await api.getSettings();
       setSettings(data);
     } catch {
       setError('Failed to load settings');
-      // Use default settings on error
+      // Use default settings on error so consumers never block forever.
       setSettings(defaultSettings);
     } finally {
       setLoading(false);
