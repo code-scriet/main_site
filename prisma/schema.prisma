@@ -13,62 +13,89 @@ datasource db {
 // - DATABASE_URL can use the pooler for application queries
 
 model User {
-  id                     String                     @id @default(uuid())
-  name                   String
-  email                  String                     @unique
-  avatar                 String?
-  oauthProvider          String?                    @map("oauth_provider")
-  oauthId                String?                    @map("oauth_id")
-  role                   Role                       @default(USER)
-  createdAt              DateTime                   @default(now()) @map("created_at")
-  updatedAt              DateTime                   @updatedAt @map("updated_at")
-  password               String?
-  bio                    String?
-  githubUrl              String?                    @map("github_url")
-  linkedinUrl            String?                    @map("linkedin_url")
-  twitterUrl             String?                    @map("twitter_url")
-  websiteUrl             String?                    @map("website_url")
-  branch                 String?
-  course                 String?
-  phone                  String?
-  profileCompleted       Boolean                    @default(false) @map("profile_completed")
-  year                   String?
-  announcements          Announcement[]
-  registrations          EventRegistration[]
-  hiringApplications     HiringApplication[]
-  qotdSubmissions        QOTDSubmission[]
-  networkProfile         NetworkProfile?
-  teamMember             TeamMember?
+  id               String   @id @default(uuid())
+  name             String
+  email            String   @unique
+  avatar           String?
+  oauthProvider    String?  @map("oauth_provider")
+  oauthId          String?  @map("oauth_id")
+  role             Role     @default(USER)
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+  password         String?
+  bio              String?
+  githubUrl        String?  @map("github_url")
+  linkedinUrl      String?  @map("linkedin_url")
+  twitterUrl       String?  @map("twitter_url")
+  websiteUrl       String?  @map("website_url")
+  branch           String?
+  course           String?
+  phone            String?
+  profileCompleted Boolean  @default(false) @map("profile_completed")
+  year             String?
+
+  // Login telemetry (admin-deep-control)
+  lastLoginAt DateTime? @map("last_login_at")
+  lastLoginIp String?   @map("last_login_ip")
+
+  // Auth invalidation — JWT carries tokenVersion claim; force-logout increments this.
+  // Legacy tokens (no claim) are treated as version 0 and only rejected when DB > 0.
+  tokenVersion Int @default(0) @map("token_version")
+
+  // Materialized QOTD streak — consecutive published-and-not-held QOTD days the user solved on.
+  // Days without a published QOTD are transparent (neither extend nor break the streak).
+  currentStreak   Int       @default(0) @map("current_streak")
+  longestStreak   Int       @default(0) @map("longest_streak")
+  longestStreakAt DateTime? @map("longest_streak_at")
+
+  // Soft delete — auth middleware rejects rows with isDeleted=true.
+  isDeleted Boolean   @default(false) @map("is_deleted")
+  deletedAt DateTime? @map("deleted_at")
+  deletedBy String?   @map("deleted_by")
+
+  // Admin-initiated password reset — hashed token + expiry. Consumer endpoint is /api/auth/reset-password.
+  passwordResetToken     String?   @unique @map("password_reset_token")
+  passwordResetExpiresAt DateTime? @map("password_reset_expires_at")
+
+  announcements           Announcement[]
+  registrations           EventRegistration[]
+  hiringApplications      HiringApplication[]
+  qotdSubmissions         QOTDSubmission[]
+  networkProfile          NetworkProfile?
+  teamMember              TeamMember?
   // Quiz relations
-  createdQuizzes         Quiz[]
-  quizParticipants       QuizParticipant[]
-  quizAnswers            QuizAnswer[]
+  createdQuizzes          Quiz[]
+  quizParticipants        QuizParticipant[]
+  quizAnswers             QuizAnswer[]
   // Certificate relations
-  certificates           Certificate[]
+  certificates            Certificate[]
   // Team registration relations
-  ledTeams               EventTeam[]                @relation("teamLeader")
-  teamMemberships        EventTeamMember[]          @relation("teamMemberships")
-  competitionSubmissions CompetitionSubmission[]
-  competitionAutoSaves   CompetitionAutoSave[]
-  createdPolls           Poll[]
-  pollVotes              PollVote[]
-  pollFeedback           PollFeedback[]
-  eventsCreated          Event[]                    @relation("eventCreator")
-  invitationsReceived    EventInvitation[]          @relation("InvitationInvitee")
-  invitationsSent        EventInvitation[]          @relation("InvitationInviter")
-  qotdsCreated           QOTD[]                     @relation("qotdCreator")
-  auditLogs              AuditLog[]
-  executions             Execution[]
-  snippets               Snippet[]
-  playgroundPrefs        UserPlaygroundPrefs?
-  playgroundDailyUsage   PlaygroundDailyUsage[]
-  playgroundLimitResets  PlaygroundLimitReset[]
+  ledTeams                EventTeam[]                   @relation("teamLeader")
+  teamMemberships         EventTeamMember[]             @relation("teamMemberships")
+  competitionSubmissions  CompetitionSubmission[]
+  competitionAutoSaves    CompetitionAutoSave[]
+  createdPolls            Poll[]
+  pollVotes               PollVote[]
+  pollFeedback            PollFeedback[]
+  eventsCreated           Event[]                       @relation("eventCreator")
+  invitationsReceived     EventInvitation[]             @relation("InvitationInvitee")
+  invitationsSent         EventInvitation[]             @relation("InvitationInviter")
+  qotdsCreated            QOTD[]                        @relation("qotdCreator")
+  auditLogs               AuditLog[]
+  executions              Execution[]
+  snippets                Snippet[]
+  playgroundPrefs         UserPlaygroundPrefs?
+  playgroundDailyUsage    PlaygroundDailyUsage[]
+  playgroundLimitResets   PlaygroundLimitReset[]
   playgroundResetRequests PlaygroundLimitResetRequest[]
-  problemsCreated        Problem[]                  @relation("ProblemsCreated")
-  problemSubmissions     ProblemSubmission[]
-  problemCounters        ProblemSubmissionCounter[]
+  problemsCreated         Problem[]                     @relation("ProblemsCreated")
+  problemSubmissions      ProblemSubmission[]
+  problemCounters         ProblemSubmissionCounter[]
+  blocks                  UserBlock[]
 
   @@index([role, createdAt(sort: Desc)], map: "users_role_created_at_desc_idx")
+  @@index([lastLoginAt(sort: Desc)], map: "users_last_login_at_desc_idx")
+  @@index([isDeleted, role], map: "users_is_deleted_role_idx")
   @@map("users")
 }
 
@@ -132,6 +159,8 @@ model Settings {
   emailCertificateEnabled   Boolean @default(true) @map("email_certificate_enabled")
   emailReminderEnabled      Boolean @default(true) @map("email_reminder_enabled")
   emailInvitationEnabled    Boolean @default(true) @map("email_invitation_enabled")
+  emailPasswordResetEnabled Boolean @default(true) @map("email_password_reset_enabled")
+  emailPasswordResetBody    String? @map("email_password_reset_body")
 
   // Email testing mode
   emailTestingMode    Boolean @default(false) @map("email_testing_mode")
@@ -626,6 +655,25 @@ model AuditLog {
   @@map("audit_logs")
 }
 
+// Per-feature block enforced by the `requireNotBlocked(feature)` middleware
+// (apps/api/src/middleware/blocks.ts) and the JWT auth hook in the /quiz socket
+// namespace. Lazy expiry on read — no background job.
+model UserBlock {
+  id        String           @id @default(uuid())
+  userId    String           @map("user_id")
+  feature   UserBlockFeature
+  blockedAt DateTime         @default(now()) @map("blocked_at")
+  blockedBy String           @map("blocked_by")
+  reason    String?          @db.Text
+  expiresAt DateTime?        @map("expires_at")
+  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, feature])
+  @@index([userId])
+  @@index([feature, expiresAt])
+  @@map("user_blocks")
+}
+
 model HiringApplication {
   id           String            @id @default(uuid())
   name         String
@@ -653,6 +701,14 @@ enum Role {
   ADMIN
   PRESIDENT
   MEMBER
+  NETWORK
+}
+
+enum UserBlockFeature {
+  EVENT
+  PLAYGROUND
+  QOTD
+  QUIZ
   NETWORK
 }
 
@@ -1066,22 +1122,22 @@ model ProblemSubmission {
 }
 
 model ProblemSubmissionCounter {
-  id              String             @id @default(uuid())
-  userId          String             @map("user_id")
-  user            User               @relation(fields: [userId], references: [id], onDelete: Cascade)
-  problemId       String             @map("problem_id")
-  problem         Problem            @relation(fields: [problemId], references: [id], onDelete: Cascade)
-  contextType     ProblemContextType @map("context_type")
-  contextKey      String             @map("context_key")
-  count           Int                @default(0)
-  capOverride     Int?               @map("cap_override")
-  lastResetAt     DateTime?          @map("last_reset_at")
-  updatedAt       DateTime           @updatedAt @map("updated_at")
-  pendingRequest  Boolean            @default(false) @map("pending_request")
-  requestedAt     DateTime?          @map("requested_at")
-  requestNote     String?            @map("request_note")
-  lastGrantedBy   String?            @map("last_granted_by")
-  lastGrantedAt   DateTime?          @map("last_granted_at")
+  id             String             @id @default(uuid())
+  userId         String             @map("user_id")
+  user           User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  problemId      String             @map("problem_id")
+  problem        Problem            @relation(fields: [problemId], references: [id], onDelete: Cascade)
+  contextType    ProblemContextType @map("context_type")
+  contextKey     String             @map("context_key")
+  count          Int                @default(0)
+  capOverride    Int?               @map("cap_override")
+  lastResetAt    DateTime?          @map("last_reset_at")
+  updatedAt      DateTime           @updatedAt @map("updated_at")
+  pendingRequest Boolean            @default(false) @map("pending_request")
+  requestedAt    DateTime?          @map("requested_at")
+  requestNote    String?            @map("request_note")
+  lastGrantedBy  String?            @map("last_granted_by")
+  lastGrantedAt  DateTime?          @map("last_granted_at")
 
   @@unique([userId, problemId, contextType, contextKey])
   @@index([problemId, contextType, contextKey])
