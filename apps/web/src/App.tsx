@@ -89,7 +89,8 @@ const VerifyCertificatePage = lazy(() => import('@/pages/VerifyCertificatePage')
 const QuizManager = lazy(() => import('@/pages/dashboard/QuizManager'));
 
 // Admin Pages - lazy loaded
-const AdminUsersRealtime = lazy(() => import('@/pages/admin/AdminUsersRealtime'));
+const AdminUsersPage = lazy(() => import('@/pages/admin/AdminUsersPage'));
+const UserDetailPage = lazy(() => import('@/pages/admin/UserDetailPage'));
 const AdminTeam = lazy(() => import('@/pages/admin/AdminTeam'));
 const AdminAchievements = lazy(() => import('@/pages/admin/AdminAchievements'));
 const AdminSettings = lazy(() => import('@/pages/admin/AdminSettings'));
@@ -215,7 +216,8 @@ function App() {
                   {/* Protected Admin Routes */}
                   <Route element={<ProtectedRoute minRole="ADMIN" />}>
                     <Route path="/admin" element={withRouteBoundary(<DashboardLayout />)}>
-                      <Route path="users" element={withRouteBoundary(<AdminUsersRealtime />)} />
+                      <Route path="users" element={withRouteBoundary(<AdminUsersPage />)} />
+                      <Route path="users/:id" element={withRouteBoundary(<UserDetailPage />)} />
                       <Route path="team" element={withRouteBoundary(<AdminTeam />)} />
                       <Route path="achievements" element={withRouteBoundary(<AdminAchievements />)} />
                       <Route path="problems" element={withRouteBoundary(<AdminProblems />)} />

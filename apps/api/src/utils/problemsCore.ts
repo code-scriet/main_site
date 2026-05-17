@@ -13,6 +13,8 @@ import { runJudge, type JudgeResult } from './codeJudge.js';
 import { consumeDailyQuota, formatUsageDate, getIstDateKey } from './dailyLimit.js';
 import { auditLog } from './audit.js';
 import { sanitizeHtml, sanitizeText } from './sanitize.js';
+import { recomputeUserStreakSafe } from './qotdStreak.js';
+import { isUserBlocked } from '../middleware/blocks.js';
 
 export class ProblemHttpError extends Error {
   constructor(
@@ -499,6 +501,13 @@ export async function submitProblemForUser(params: SubmitProblemParams): Promise
     throw new ProblemHttpError(400, 'Language is not allowed for this problem');
   }
 
+  // admin-deep-control: QOTD block applies to problem-backed QOTD submissions too.
+  // The legacy /api/qotd/:id/submit path is gated by requireNotBlocked middleware;
+  // this is the parallel gate for problem-backed QOTDs.
+  if (params.contextType === 'QOTD' && await isUserBlocked(params.user.id, 'QOTD')) {
+    throw new ProblemHttpError(403, 'Your account has been blocked from QOTD submissions.', 'FORBIDDEN');
+  }
+
   await validateProblemContext(problem, params.user, params.contextType, params.contextKey);
 
   const capReservation = await reserveSubmitCap(problem, params.user.id, params.contextType, params.contextKey);
@@ -577,6 +586,12 @@ export async function submitProblemForUser(params: SubmitProblemParams): Promise
     contextType: params.contextType,
     contextKey: params.contextKey,
   });
+
+  // Materialize QOTD streak when a QOTD-context submission becomes ACCEPTED.
+  // Fire-and-forget; never blocks the response.
+  if (params.contextType === 'QOTD' && judge.verdict === 'ACCEPTED') {
+    recomputeUserStreakSafe(params.user.id);
+  }
 
   return {
     submissionId: submission.id,

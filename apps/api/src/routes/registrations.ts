@@ -3,6 +3,7 @@ import { Prisma, RegistrationType } from '@prisma/client';
 import { randomUUID } from 'crypto';
 import { prisma } from '../lib/prisma.js';
 import { authMiddleware, getAuthUser } from '../middleware/auth.js';
+import { requireNotBlocked } from '../middleware/blocks.js';
 import { auditLog } from '../utils/audit.js';
 import { generateAttendanceToken } from '../utils/attendanceToken.js';
 import { emailService } from '../utils/email.js';
@@ -33,7 +34,7 @@ const isSchemaDriftError = (error: unknown): boolean => (
 );
 
 // Register for an event
-registrationsRouter.post('/events/:eventId', authMiddleware, async (req: Request, res: Response) => {
+registrationsRouter.post('/events/:eventId', authMiddleware, requireNotBlocked('EVENT'), async (req: Request, res: Response) => {
   try {
     const authUser = getAuthUser(req)!;
     const { eventId } = req.params;

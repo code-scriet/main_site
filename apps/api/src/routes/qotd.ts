@@ -4,11 +4,13 @@ import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
 import { authMiddleware, optionalAuthMiddleware, getAuthUser } from '../middleware/auth.js';
 import { requireRole } from '../middleware/role.js';
+import { requireNotBlocked } from '../middleware/blocks.js';
 import { auditLog } from '../utils/audit.js';
 import { parsePaginationNumber } from '../utils/pagination.js';
 import { ApiResponse } from '../utils/response.js';
 import { createProblemFromInput, serializeProblemDetail, toIstDateKey, type ProblemInput } from '../utils/problemsCore.js';
 import { formatUsageDate } from '../utils/dailyLimit.js';
+import { recomputeUserStreakSafe, invalidatePublishedQotdCache } from '../utils/qotdStreak.js';
 
 export const qotdRouter = Router();
 
@@ -400,7 +402,7 @@ qotdRouter.get('/:id', optionalAuthMiddleware, async (req: Request, res: Respons
   }
 });
 
-qotdRouter.post('/:id/submit', authMiddleware, async (req: Request, res: Response) => {
+qotdRouter.post('/:id/submit', authMiddleware, requireNotBlocked('QOTD'), async (req: Request, res: Response) => {
   try {
     const authUser = getAuthUser(req)!;
     const qotd = await prisma.qOTD.findUnique({ where: { id: req.params.id } });
@@ -417,6 +419,10 @@ qotdRouter.post('/:id/submit', authMiddleware, async (req: Request, res: Respons
     const submission = await prisma.qOTDSubmission.create({
       data: { qotdId: qotd.id, userId: authUser.id },
     });
+
+    // Materialize streak (fire-and-forget; never blocks the response).
+    recomputeUserStreakSafe(authUser.id);
+
     return ApiResponse.created(res, submission, 'Submission recorded');
   } catch {
     return ApiResponse.internal(res, 'Failed to submit');
@@ -476,6 +482,7 @@ qotdRouter.post('/', authMiddleware, requireRole('CORE_MEMBER'), async (req: Req
       include: { problem: true },
     });
 
+    if (qotd.isPublished) invalidatePublishedQotdCache();
     await auditLog(authUser.id, 'CREATE', 'qotd', qotd.id, { question: qotd.question, problemId: qotd.problemId, isPublished: qotd.isPublished });
     return ApiResponse.created(res, qotd, 'QOTD created successfully');
   } catch {
@@ -494,6 +501,7 @@ qotdRouter.post('/:id/publish', authMiddleware, requireRole('ADMIN'), async (req
       include: { problem: true },
     });
     invalidateQotdLeaderboardCaches(qotd.id);
+    invalidatePublishedQotdCache(); // streak depends on published-day set; new day shifts streaks
     await auditLog(authUser.id, 'QOTD_PUBLISHED', 'qotd', qotd.id);
     return ApiResponse.success(res, updated, 'QOTD published');
   } catch {
@@ -515,6 +523,7 @@ qotdRouter.post('/:id/hold', authMiddleware, requireRole('ADMIN'), async (req: R
       include: { problem: true },
     });
     invalidateQotdLeaderboardCaches(qotd.id);
+    invalidatePublishedQotdCache(); // streak depends on published-day set; held days shift streaks
     await auditLog(authUser.id, 'QOTD_HELD', 'qotd', qotd.id, { reason: parsed.data.reason });
     return ApiResponse.success(res, updated, 'QOTD held');
   } catch {

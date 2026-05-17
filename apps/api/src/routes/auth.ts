@@ -1,7 +1,7 @@
 import { Router, Request, Response } from 'express';
 import passport from 'passport';
 import bcrypt from 'bcryptjs';
-import { randomUUID } from 'crypto';
+import { randomUUID, createHash } from 'crypto';
 import { z } from 'zod';
 import rateLimit from 'express-rate-limit';
 import { authMiddleware, getAuthUser } from '../middleware/auth.js';
@@ -36,14 +36,38 @@ const getCookie = (req: Request, name: string): string | undefined => {
   return match ? decodeURIComponent(match.split('=').slice(1).join('=').trim()) : undefined;
 };
 
-const generateToken = (user: { id: string; name?: string | null; email: string; role: string }): string =>
+const generateToken = (
+  user: { id: string; name?: string | null; email: string; role: string; tokenVersion?: number | null }
+): string =>
   signAccessToken({
     userId: user.id,
     id: user.id,
     name: user.name || undefined,
     email: user.email,
     role: user.role,
+    tokenVersion: typeof user.tokenVersion === 'number' ? user.tokenVersion : 0,
   });
+
+/** Extract requester's IP for login telemetry. Truncated to v4 prefix or v6 first-block to limit retained PII. */
+const getRequestIp = (req: Request): string | null => {
+  const fwd = req.headers['x-forwarded-for'];
+  const raw = (Array.isArray(fwd) ? fwd[0] : fwd?.split(',')[0]?.trim()) || req.ip || req.socket?.remoteAddress || null;
+  if (!raw) return null;
+  // Strip IPv6 zone identifier and ::ffff: prefix
+  const cleaned = String(raw).replace(/^::ffff:/, '').split('%')[0];
+  return cleaned.slice(0, 64); // hard cap for safety
+};
+
+/** Fire-and-forget login telemetry write. Never blocks the response. */
+const recordLogin = (userId: string, req: Request): void => {
+  const ip = getRequestIp(req);
+  prisma.user.update({
+    where: { id: userId },
+    data: { lastLoginAt: new Date(), lastLoginIp: ip },
+  }).catch((err) => {
+    logger.warn('Failed to record login telemetry', { userId, err: err instanceof Error ? err.message : String(err) });
+  });
+};
 
 /**
  * Set cross-subdomain auth cookie so the playground at code.codescriet.dev
@@ -180,7 +204,8 @@ authRouter.post('/register', registerLimiter, async (req: Request, res: Response
     });
 
     const token = generateToken(user);
-    
+    recordLogin(user.id, req);
+
     // Emit socket event for real-time updates
     socketEvents.userCreated(user.id);
 
@@ -190,7 +215,7 @@ authRouter.post('/register', registerLimiter, async (req: Request, res: Response
         logger.error('Failed to send welcome email', { error: err instanceof Error ? err.message : 'Unknown' });
       });
     }
-    
+
     setSessionCookie(res, token);
     res.status(201).json({ token, user: withSuperAdmin({ id: user.id, name: user.name, email: user.email, role: user.role, avatar: user.avatar }) });
   } catch (error) {
@@ -207,12 +232,20 @@ authRouter.post('/login', loginLimiter, async (req: Request, res: Response) => {
     }
 
     const { email, password } = validation.data;
-    const fetchedUser = await prisma.user.findFirst({ 
+    const fetchedUser = await prisma.user.findFirst({
       where: { email: { equals: email, mode: 'insensitive' } },
-      select: { id: true, name: true, email: true, password: true, role: true, avatar: true, oauthProvider: true },
+      select: {
+        id: true, name: true, email: true, password: true, role: true, avatar: true, oauthProvider: true,
+        tokenVersion: true, isDeleted: true,
+      },
     });
-    
+
     if (!fetchedUser) {
+      return res.status(401).json({ error: 'Invalid email or password' });
+    }
+
+    if (fetchedUser.isDeleted) {
+      // Same error message as bad-password to avoid account enumeration.
       return res.status(401).json({ error: 'Invalid email or password' });
     }
 
@@ -227,6 +260,7 @@ authRouter.post('/login', loginLimiter, async (req: Request, res: Response) => {
 
     const user = await demoteOrphanNetworkUser(fetchedUser);
     const token = generateToken(user);
+    recordLogin(user.id, req);
     setSessionCookie(res, token);
     res.json({ token, user: withSuperAdmin({ id: user.id, name: user.name, email: user.email, role: user.role, avatar: user.avatar }) });
   } catch (error) {
@@ -278,10 +312,13 @@ const handleOAuthCallback = (provider: 'google' | 'github') =>
 
       let user = await prisma.user.findUnique({
         where: { id: passportUser.id },
-        select: { id: true, name: true, email: true, role: true },
+        select: { id: true, name: true, email: true, role: true, tokenVersion: true, isDeleted: true },
       });
 
       if (!user) {
+        return res.redirect(errorRedirect);
+      }
+      if (user.isDeleted) {
         return res.redirect(errorRedirect);
       }
 
@@ -311,6 +348,7 @@ const handleOAuthCallback = (provider: 'google' | 'github') =>
       }
 
       const token = generateToken(user);
+      recordLogin(user.id, req);
       setSessionCookie(res, token);
       const code = signOAuthExchangeCode({
         userId: user.id,
@@ -403,12 +441,13 @@ authRouter.post('/dev-login', async (req: Request, res: Response) => {
 
     user = await demoteOrphanNetworkUser(user);
     const token = generateToken(user);
-    
+    recordLogin(user.id, req);
+
     // For new dev users, emit socket event
     if (isNewUser) {
       socketEvents.userCreated(user.id);
     }
-    
+
     setSessionCookie(res, token);
     res.json({ token, user: withSuperAdmin({ id: user.id, name: user.name, email: user.email, role: user.role }) });
   } catch (error) {
@@ -455,11 +494,16 @@ authRouter.post('/exchange-code', async (req: Request, res: Response) => {
         branch: true,
         year: true,
         profileCompleted: true,
+        tokenVersion: true,
+        isDeleted: true,
       },
     });
 
     if (!fetchedUser) {
       return res.status(401).json({ error: 'User not found' });
+    }
+    if (fetchedUser.isDeleted) {
+      return res.status(401).json({ error: 'Account has been disabled' });
     }
 
     // Standard sign-ins should not remain on NETWORK if no profile exists.
@@ -468,6 +512,7 @@ authRouter.post('/exchange-code', async (req: Request, res: Response) => {
       : await demoteOrphanNetworkUser(fetchedUser);
 
     const token = generateToken(authUser);
+    recordLogin(authUser.id, req);
     setSessionCookie(res, token);
 
     return res.json({
@@ -484,4 +529,62 @@ authRouter.post('/exchange-code', async (req: Request, res: Response) => {
 authRouter.post('/logout', (_req: Request, res: Response) => {
   clearSessionCookie(res);
   res.json({ message: 'Logged out successfully' });
+});
+
+// ─── Password reset consumer (admin-deep-control PR2 of "PR1 schema" rollout) ───
+// Companion to admin-initiated POST /api/users/:id/password-reset. The admin route
+// stored a sha-256 hash of the random token; here we verify and let the user set a
+// new password. Token is single-use: cleared from the row on success.
+const resetPasswordSchema = z.object({
+  email: z.string().email().transform((value) => value.trim().toLowerCase()),
+  token: z.string().min(32).max(256),
+  newPassword: z.string().min(8).max(128),
+});
+
+const resetPasswordLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  skipSuccessfulRequests: true,
+  message: { error: 'Too many reset attempts, please try again later.' },
+});
+
+authRouter.post('/reset-password', resetPasswordLimiter, async (req: Request, res: Response) => {
+  try {
+    const parsed = resetPasswordSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: parsed.error.errors[0]?.message || 'Invalid reset payload' });
+    }
+    const { email, token, newPassword } = parsed.data;
+    const hashed = createHash('sha256').update(token).digest('hex');
+
+    const user = await prisma.user.findFirst({
+      where: { email: { equals: email, mode: 'insensitive' }, passwordResetToken: hashed },
+      select: { id: true, passwordResetExpiresAt: true, isDeleted: true },
+    });
+    if (!user || user.isDeleted) {
+      // Generic error message to avoid leaking whether the email or token is wrong.
+      return res.status(400).json({ error: 'Reset link is invalid or has expired' });
+    }
+    if (!user.passwordResetExpiresAt || user.passwordResetExpiresAt.getTime() < Date.now()) {
+      return res.status(400).json({ error: 'Reset link is invalid or has expired' });
+    }
+
+    const hashedPassword = await bcrypt.hash(newPassword, 12);
+    await prisma.user.update({
+      where: { id: user.id },
+      data: {
+        password: hashedPassword,
+        passwordResetToken: null,
+        passwordResetExpiresAt: null,
+        tokenVersion: { increment: 1 }, // invalidate every active session — fresh login required
+      },
+    });
+    await auditLog(user.id, 'PASSWORD_RESET_COMPLETED', 'user', user.id);
+    return res.json({ success: true, message: 'Password updated. Please sign in with your new password.' });
+  } catch (error) {
+    logger.error('Password reset error:', { error: error instanceof Error ? error.message : String(error) });
+    return res.status(500).json({ error: 'Password reset failed' });
+  }
 });

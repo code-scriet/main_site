@@ -6,6 +6,14 @@ export interface AccessTokenPayload {
   name?: string;
   email: string;
   role: string;
+  /**
+   * Token-version watermark. When the DB-side `User.tokenVersion` exceeds the
+   * value carried by the JWT, the middleware rejects the token. Used for
+   * force-logout (PR5 of admin-deep-control). Legacy tokens issued before this
+   * change have no claim — treated as 0 in the middleware, so existing sessions
+   * keep working unless an admin explicitly force-logs the user out.
+   */
+  tokenVersion?: number;
 }
 
 export interface OAuthExchangeCodePayload {
@@ -154,5 +162,6 @@ export const verifyToken = (token: string): AccessTokenPayload => {
     name: typeof decoded.name === 'string' ? decoded.name : undefined,
     email: decoded.email,
     role: decoded.role,
+    tokenVersion: typeof decoded.tokenVersion === 'number' ? decoded.tokenVersion : 0,
   };
 };
