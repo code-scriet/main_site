@@ -22,6 +22,7 @@ export type EmailCategory =
   | 'reminder'
   | 'invitation'
   | 'admin_mail'
+  | 'password_reset'
   | 'other';
 
 interface NotificationSettings {
@@ -32,6 +33,7 @@ interface NotificationSettings {
   emailCertificateEnabled: boolean;
   emailReminderEnabled: boolean;
   emailInvitationEnabled: boolean;
+  emailPasswordResetEnabled: boolean;
   mailingEnabled: boolean;
   emailTestingMode: boolean;
   emailTestRecipients: string | null;
@@ -46,6 +48,7 @@ const CATEGORY_TOGGLE_MAP: Record<EmailCategory, keyof NotificationSettings | nu
   reminder: 'emailReminderEnabled',
   invitation: 'emailInvitationEnabled',
   admin_mail: 'mailingEnabled',
+  password_reset: 'emailPasswordResetEnabled',
   other: null,
 };
 
@@ -66,6 +69,7 @@ const ALL_ENABLED_DEFAULTS: NotificationSettings = {
   emailCertificateEnabled: true,
   emailReminderEnabled: true,
   emailInvitationEnabled: true,
+  emailPasswordResetEnabled: true,
   mailingEnabled: true,
   emailTestingMode: false,
   emailTestRecipients: null,
@@ -88,6 +92,7 @@ async function getNotificationSettings(): Promise<NotificationSettings> {
         emailCertificateEnabled: true,
         emailReminderEnabled: true,
         emailInvitationEnabled: true,
+        emailPasswordResetEnabled: true,
         mailingEnabled: true,
         emailTestingMode: true,
         emailTestRecipients: true,
@@ -102,6 +107,7 @@ async function getNotificationSettings(): Promise<NotificationSettings> {
       emailCertificateEnabled: settings?.emailCertificateEnabled ?? true,
       emailReminderEnabled: settings?.emailReminderEnabled ?? true,
       emailInvitationEnabled: settings?.emailInvitationEnabled ?? true,
+      emailPasswordResetEnabled: settings?.emailPasswordResetEnabled ?? true,
       mailingEnabled: settings?.mailingEnabled ?? true,
       emailTestingMode: settings?.emailTestingMode ?? false,
       emailTestRecipients: settings?.emailTestRecipients ?? null,
@@ -1911,11 +1917,6 @@ class EmailService {
     return this.send({ to: recipientEmail, ...template, category: 'invitation' });
   }
 
-  async sendPasswordReset(email: string, name: string, resetLink: string): Promise<boolean> {
-    const template = EmailTemplates.passwordReset(sanitizeText(name), resetLink);
-    return this.send({ to: email, ...template });
-  }
-
   async sendEventReminder(email: string, name: string, eventTitle: string, eventDate: Date, eventSlug: string): Promise<boolean> {
     const template = EmailTemplates.eventReminder(sanitizeText(name), sanitizeText(eventTitle), eventDate, eventSlug);
     return this.send({ to: email, ...template, category: 'reminder' });
@@ -2198,6 +2199,47 @@ class EmailService {
       text: `Hi ${safeName}, your certificate for ${safeEventName} is ready! Certificate ID: ${safeCertId}. Download PDF: ${downloadUrl}. Verify at: ${verifyUrl}`,
     };
     return this.send({ to: email, ...template, category: 'certificate' });
+  }
+
+  async sendPasswordReset(
+    email: string,
+    name: string,
+    resetUrl: string,
+    expiresInMinutes: number,
+    initiatedBy?: string,
+  ): Promise<boolean> {
+    const config = await getEmailTemplateConfig();
+    const safeName = sanitizeText(name || 'there');
+    const safeInitiator = initiatedBy ? sanitizeText(initiatedBy) : null;
+    const settings = await prisma.settings.findUnique({
+      where: { id: 'default' },
+      select: { emailPasswordResetBody: true },
+    });
+    const customBody = settings?.emailPasswordResetBody ?? null;
+    const bodyText = customBody
+      ? sanitizeText(customBody)
+      : `An administrator has initiated a password reset for your account. Use the button below to set a new password. The link expires in ${expiresInMinutes} minute(s). If you didn't request this and don't recognise the activity, ignore this email — no change has been made.`;
+
+    const html = generateEmailTemplate({
+      preheader: `Reset your ${config.clubName} password (expires in ${expiresInMinutes} min)`,
+      accentColor: '#dc2626',
+      badge: { text: 'Password reset', icon: '🔐' },
+      title: `Hi ${safeName},`,
+      subtitle: `Set a new password for your ${sanitizeText(config.clubName)} account.`,
+      body: `
+        <p style="margin: 0 0 16px; font-size: 15px; color: #d1d5db; line-height: 1.7;">${bodyText}</p>
+        ${safeInitiator ? `<p style="margin: 0 0 8px; font-size: 13px; color: #9ca3af;">Initiated by ${safeInitiator}.</p>` : ''}
+        <div style="padding: 12px 16px; background: rgba(220, 38, 38, 0.08); border-left: 3px solid #dc2626; border-radius: 0 10px 10px 0; margin-top: 12px;">
+          <p style="margin: 0; font-size: 13px; color: #fca5a5; line-height: 1.6;">
+            <strong>Heads up:</strong> If you didn't expect this email, contact ${sanitizeText(config.clubName)} — your account is still safe until the link is used.
+          </p>
+        </div>
+      `,
+      cta: { text: 'Set a new password', url: resetUrl },
+      footer: config.footerText,
+    });
+    const text = `Hi ${safeName},\n\n${bodyText}\n\nReset link: ${resetUrl}\n\nThis link expires in ${expiresInMinutes} minute(s).`;
+    return this.send({ to: email, subject: `Reset your ${config.clubName} password`, html, text, category: 'password_reset' });
   }
 
   isConfigured(): boolean {

@@ -15,6 +15,8 @@ export interface AuthUser {
   branch?: string | null;
   year?: string | null;
   profileCompleted?: boolean | null;
+  /** Current DB-side tokenVersion. Carried so /me refresh signs tokens with the right watermark. */
+  tokenVersion?: number;
 }
 
 // AuthRequest extends Request with custom user
@@ -93,6 +95,9 @@ const authMiddlewareImpl = async (
         branch: true,
         year: true,
         profileCompleted: true,
+        // admin-deep-control: tokenVersion + soft-delete enforcement
+        tokenVersion: true,
+        isDeleted: true,
       },
     });
 
@@ -100,8 +105,25 @@ const authMiddlewareImpl = async (
       return res.status(401).json({ error: 'User not found' });
     }
 
-    // Assign auth user to custom property
-    (req as AuthRequest).authUser = user;
+    // Soft-delete + force-logout enforcement (admin-deep-control).
+    // - isDeleted: account disabled by admin → reject token even if signed
+    // - tokenVersion: DB watermark must be <= claim. Legacy tokens (no claim)
+    //   treat the claim as 0; new tokens carry the watermark from issuance.
+    if (user.isDeleted === true) {
+      return res.status(401).json({ error: 'Account has been disabled' });
+    }
+    const claimVersion = typeof (decoded as Record<string, unknown>).tokenVersion === 'number'
+      ? (decoded as Record<string, unknown>).tokenVersion as number
+      : 0;
+    const dbVersion = typeof user.tokenVersion === 'number' ? user.tokenVersion : 0;
+    if (dbVersion > claimVersion) {
+      return res.status(401).json({ error: 'Session expired. Please sign in again.' });
+    }
+
+    // Strip isDeleted before attaching authUser; keep tokenVersion so /me refresh
+    // signs new tokens with the current DB watermark.
+    const { isDeleted: _isd, ...authUser } = user;
+    (req as AuthRequest).authUser = authUser as AuthUser;
     next();
   } catch (error) {
     return res.status(401).json({ error: 'Invalid token' });
@@ -151,13 +173,22 @@ const optionalAuthMiddlewareImpl = async (
         branch: true,
         year: true,
         profileCompleted: true,
+        tokenVersion: true,
+        isDeleted: true,
       },
     });
 
-    if (user) {
-      (req as AuthRequest).authUser = user;
+    if (user && !user.isDeleted) {
+      const claimVersion = typeof (decoded as Record<string, unknown>).tokenVersion === 'number'
+        ? (decoded as Record<string, unknown>).tokenVersion as number
+        : 0;
+      const dbVersion = typeof user.tokenVersion === 'number' ? user.tokenVersion : 0;
+      if (dbVersion <= claimVersion) {
+        const { isDeleted: _isd, ...authUser } = user;
+        (req as AuthRequest).authUser = authUser as AuthUser;
+      }
     }
-    
+
     next();
   } catch (error) {
     next();

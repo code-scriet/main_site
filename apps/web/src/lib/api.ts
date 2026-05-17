@@ -302,27 +302,132 @@ export interface User {
   year?: string;
   profileCompleted?: boolean;
   createdAt?: string;
-  isSuperAdmin?: boolean; // ISSUE-014: Added to support audit log visibility
+  isSuperAdmin?: boolean;
+  isPresident?: boolean;
   oauthProvider?: string;
   githubUrl?: string;
   linkedinUrl?: string;
   twitterUrl?: string;
   websiteUrl?: string;
+  // admin-deep-control
+  lastLoginAt?: string | null;
+  lastLoginIp?: string | null;
+  isDeleted?: boolean;
+  deletedAt?: string | null;
+  deletedBy?: string | null;
+  currentStreak?: number;
+  longestStreak?: number;
+  longestStreakAt?: string | null;
+  blocks?: Array<{ feature: UserBlockFeature; expiresAt?: string | null }>;
+}
+
+export type UserBlockFeature = 'EVENT' | 'PLAYGROUND' | 'QOTD' | 'QUIZ' | 'NETWORK';
+
+export interface UserBlock {
+  id: string;
+  feature: UserBlockFeature;
+  blockedAt: string;
+  blockedBy: string;
+  reason: string | null;
+  expiresAt: string | null;
 }
 
 export interface UserListMeta {
   totalUsers: number;
-  privilegedUsers: number;
-  regularUsersTotal: number;
-  regularUsersReturned: number;
-  regularLimit: number | null;
-  includeAll: boolean;
-  hasMoreRegular: boolean;
+  privilegedUsers?: number;
+  regularUsersTotal?: number;
+  regularUsersReturned?: number;
+  regularLimit?: number | null;
+  includeAll?: boolean;
+  hasMoreRegular?: boolean;
+  // advanced mode (admin-deep-control)
+  returned?: number;
+  nextCursor?: string | null;
+  hasMore?: boolean;
+  mode?: 'legacy' | 'advanced';
+  appliedFilters?: {
+    q: string | null;
+    role: string[];
+    branch: string[];
+    year: string[];
+    blockedFrom: string[];
+    hasNetwork: boolean;
+    includeDeleted: boolean;
+    sort: string;
+  };
 }
 
 export interface UserListResponse {
   users: User[];
   meta: UserListMeta;
+}
+
+export interface UserListAdvancedQuery {
+  q?: string;
+  role?: string[];
+  branch?: string[];
+  year?: string[];
+  blockedFrom?: UserBlockFeature[];
+  hasNetwork?: boolean;
+  includeDeleted?: boolean;
+  sort?: 'created' | 'last_seen' | 'name';
+  cursor?: string | null;
+  take?: number;
+  searchAll?: boolean;
+}
+
+export interface UserFullDetail {
+  user: User & {
+    bio?: string;
+    networkProfile?: Record<string, unknown> | null;
+    hiringApplications?: Array<{ id: string; applyingRole: string; status: string; department: string; year: string; createdAt: string }>;
+    blocks?: UserBlock[];
+    tokenVersion?: number;
+  };
+  counts: {
+    eventRegistrations: number;
+    certificates: number;
+    qotdSubmissions: number;
+    executions: number;
+    snippets: number;
+    quizParticipants: number;
+    competitionSubmissions: number;
+    pollVotes: number;
+    pollFeedback: number;
+    createdPolls: number;
+    ledTeams: number;
+    teamMemberships: number;
+    auditEntries: number;
+  };
+  eventRegistrations: Array<{
+    id: string;
+    eventId: string;
+    timestamp: string;
+    attended: boolean;
+    scannedAt: string | null;
+    registrationType: 'PARTICIPANT' | 'GUEST';
+    event: { id: string; title: string; slug: string; startDate: string; status: string };
+  }>;
+  certificates: Array<{ id: string; certId: string; type: string; eventName: string; issuedAt: string; isRevoked: boolean; viewCount: number }>;
+  qotdSubmissions: Array<{ id: string; timestamp: string; qotd: { id: string; date: string; difficulty: string; question: string } }>;
+  playgroundUsage: Array<{ usageDate: string; count: number }>;
+  quizParticipants: Array<{ id: string; finalScore: number; finalRank: number | null; joinedAt: string; quiz: { id: string; title: string; status: string } }>;
+}
+
+export interface UserActivityItem {
+  kind: 'event_registered' | 'invitation_accepted' | 'qotd_submitted' | 'certificate_issued' | 'quiz_joined' | 'playground_run';
+  ts: string;
+  data: unknown;
+}
+
+export interface UserAuditEntry {
+  id: string;
+  userId: string | null;
+  action: string;
+  entity: string;
+  entityId: string | null;
+  metadata: unknown;
+  timestamp: string;
 }
 
 export interface Settings {

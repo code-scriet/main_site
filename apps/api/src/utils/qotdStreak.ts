@@ -1,5 +1,6 @@
 import { prisma } from '../lib/prisma.js';
 import { formatUsageDate } from './dailyLimit.js';
+import { logger } from './logger.js';
 
 export type BadgeKind = 'streak' | 'volume';
 
@@ -133,6 +134,118 @@ function makeBadges(currentStreak: number, longestStreak: number, totalSolved: n
   };
 }
 
+// Publish-day-aware streak helper (admin-deep-control).
+// Definition: consecutive QOTD-publish-days the user submitted on.
+// Days without a published QOTD are transparent — they neither extend nor break.
+// `heldBy IS NULL` excludes administratively held QOTDs from the chain.
+// Result is materialized into User.currentStreak / longestStreak / longestStreakAt.
+
+interface PublishedDateCache { count: number; dateKeys: string[] }
+let publishedDateCache: { expiresAt: number; data: PublishedDateCache } | null = null;
+const PUBLISHED_DATE_CACHE_TTL_MS = 60 * 1000;
+
+async function loadPublishedQotdDates(): Promise<string[]> {
+  const now = Date.now();
+  if (publishedDateCache && publishedDateCache.expiresAt > now) {
+    return publishedDateCache.data.dateKeys;
+  }
+  const rows = await prisma.qOTD.findMany({
+    where: {
+      isPublished: true,
+      heldBy: null,
+      OR: [
+        { publishedAt: { lte: new Date() } },
+        { publishedAt: null },
+      ],
+    },
+    select: { date: true },
+    orderBy: { date: 'asc' },
+  });
+  const dateKeys = rows.map((r) => formatUsageDate(r.date));
+  publishedDateCache = {
+    expiresAt: now + PUBLISHED_DATE_CACHE_TTL_MS,
+    data: { count: dateKeys.length, dateKeys },
+  };
+  return dateKeys;
+}
+
+export function invalidatePublishedQotdCache(): void {
+  publishedDateCache = null;
+}
+
+export interface StreakResult { currentStreak: number; longestStreak: number; longestStreakAt: Date | null }
+
+export async function recomputeUserStreak(userId: string): Promise<StreakResult> {
+  const publishedDates = await loadPublishedQotdDates();
+  if (publishedDates.length === 0) {
+    await prisma.user.update({ where: { id: userId }, data: { currentStreak: 0 } }).catch(() => undefined);
+    return { currentStreak: 0, longestStreak: 0, longestStreakAt: null };
+  }
+
+  const [legacyRows, problemRows] = await Promise.all([
+    prisma.qOTDSubmission.findMany({ where: { userId }, select: { qotd: { select: { date: true } } } }),
+    prisma.problemSubmission.findMany({
+      where: { userId, contextType: 'QOTD', verdict: 'ACCEPTED' },
+      select: { contextKey: true },
+    }),
+  ]);
+
+  const qotdIds = Array.from(new Set(problemRows.map((r) => r.contextKey)));
+  const qotdLookup = qotdIds.length
+    ? await prisma.qOTD.findMany({ where: { id: { in: qotdIds } }, select: { id: true, date: true } })
+    : [];
+  const qotdById = new Map(qotdLookup.map((q) => [q.id, q.date] as const));
+
+  const solvedDays = new Set<string>();
+  for (const row of legacyRows) solvedDays.add(formatUsageDate(row.qotd.date));
+  for (const row of problemRows) {
+    const d = qotdById.get(row.contextKey);
+    if (d) solvedDays.add(formatUsageDate(d));
+  }
+
+  const todayKey = formatUsageDate();
+  let currentStreak = 0;
+  for (let i = publishedDates.length - 1; i >= 0; i--) {
+    const d = publishedDates[i];
+    if (d > todayKey) continue;
+    if (solvedDays.has(d)) currentStreak += 1;
+    else break;
+  }
+
+  let longestStreak = 0;
+  let run = 0;
+  for (const d of publishedDates) {
+    if (solvedDays.has(d)) {
+      run += 1;
+      if (run > longestStreak) longestStreak = run;
+    } else {
+      run = 0;
+    }
+  }
+
+  const existing = await prisma.user.findUnique({
+    where: { id: userId },
+    select: { currentStreak: true, longestStreak: true, longestStreakAt: true },
+  });
+
+  let longestStreakAt = existing?.longestStreakAt ?? null;
+  const longestImproved = longestStreak > (existing?.longestStreak ?? 0);
+  if (longestImproved) longestStreakAt = new Date();
+
+  if (!existing || existing.currentStreak !== currentStreak || existing.longestStreak !== longestStreak) {
+    await prisma.user.update({
+      where: { id: userId },
+      data: {
+        currentStreak,
+        longestStreak,
+        ...(longestImproved ? { longestStreakAt } : {}),
+      },
+    });
+  }
+
+  return { currentStreak, longestStreak, longestStreakAt };
+}
+
 export async function computeQOTDStats(userId: string): Promise<QOTDStats> {
   const today = formatUsageDate();
 
@@ -220,4 +333,15 @@ export async function computeQOTDStats(userId: string): Promise<QOTDStats> {
     nextMilestone,
     recentSubmissions,
   };
+}
+
+/**
+ * Best-effort fire-and-forget streak recompute. Use in submit paths where the request
+ * has already succeeded and a delayed streak update is acceptable. Errors are logged,
+ * never thrown.
+ */
+export function recomputeUserStreakSafe(userId: string): void {
+  recomputeUserStreak(userId).catch((err) => {
+    logger.warn('recomputeUserStreak failed', { userId, err: err instanceof Error ? err.message : String(err) });
+  });
 }

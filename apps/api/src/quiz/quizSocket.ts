@@ -12,6 +12,7 @@ import { QuizCapacityError, quizStore } from './quizStore.js';
 import type { QuizQuestionData } from './quizStore.js';
 import type { QuizRoom } from './quizStore.js';
 import { authenticateSocketConnection } from '../utils/socketAuth.js';
+import { isUserBlocked } from '../middleware/blocks.js';
 
 // ─── Throttle map for answer_count_update broadcasts ─────────────────────────
 const answerCountThrottles = new Map<string, NodeJS.Timeout>();
@@ -104,7 +105,11 @@ export function initQuizSocket(io: SocketIOServer) {
 
   quizNamespace.use((socket: QuizSocket, next) => {
     void authenticateSocketConnection(socket)
-      .then((authUser) => {
+      .then(async (authUser) => {
+        // admin-deep-control: QUIZ-block gate (single indexed lookup, lazy expiry).
+        if (await isUserBlocked(authUser.id, 'QUIZ')) {
+          return next(new Error('BLOCKED_FROM_QUIZ'));
+        }
         socket.userId = authUser.id;
         socket.userDisplayName = authUser.name || authUser.email || 'Anonymous';
         socket.userRole = authUser.role;

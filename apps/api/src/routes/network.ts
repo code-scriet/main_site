@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
 import { authMiddleware, getAuthUser } from '../middleware/auth.js';
 import { requireRole } from '../middleware/role.js';
+import { requireNotBlocked } from '../middleware/blocks.js';
 import { auditLog } from '../utils/audit.js';
 import { logger } from '../utils/logger.js';
 import { submitUrl } from '../utils/indexnow.js';
@@ -154,7 +155,7 @@ const toNullableJsonValue = (
 // ====================
 
 // Allow authenticated users to join the network without OAuth
-networkRouter.post('/join', authMiddleware, async (req: Request, res: Response) => {
+networkRouter.post('/join', authMiddleware, requireNotBlocked('NETWORK'), async (req: Request, res: Response) => {
   try {
     const user = getAuthUser(req);
     if (!user) {
@@ -406,7 +407,7 @@ networkRouter.get('/profile/me', authMiddleware, async (req: Request, res: Respo
 });
 
 // Submit onboarding form (create profile)
-networkRouter.post('/profile', authMiddleware, async (req: Request, res: Response) => {
+networkRouter.post('/profile', authMiddleware, requireNotBlocked('NETWORK'), async (req: Request, res: Response) => {
   try {
     const authUser = getAuthUser(req)!;
 

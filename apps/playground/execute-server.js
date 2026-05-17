@@ -803,6 +803,32 @@ app.post('/api/execute', async (req, res) => {
 
     let userSession = null;
 
+    // PLAYGROUND block gate (admin-deep-control). Indexed unique lookup; fails-open on
+    // DB blip so legitimate users don't see transient failures. Table is added in
+    // the admin_deep_control migration; pre-migration the catch keeps things working.
+    if (req.user && pool) {
+      try {
+        const blockCheck = await pool.query(
+          'SELECT expires_at FROM user_blocks WHERE user_id = $1 AND feature = $2 LIMIT 1',
+          [req.user.id, 'PLAYGROUND'],
+        );
+        if (blockCheck.rows.length > 0) {
+          const expiresAt = blockCheck.rows[0].expires_at;
+          if (!expiresAt || new Date(expiresAt) > new Date()) {
+            return res.status(403).json({
+              success: false,
+              error: 'Your account has been blocked from playground execution. Contact an administrator.',
+            });
+          }
+        }
+      } catch (err) {
+        // Fail-open: pre-migration the table doesn't exist (42P01) — don't kill legitimate runs.
+        if (err?.code !== '42P01') {
+          console.warn('[playground] block check failed', err?.message || err);
+        }
+      }
+    }
+
     // Rate limiting — all languages are metered
     if (req.user) {
       const limit = await checkUserRateLimit(req.user.id);

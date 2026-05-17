@@ -14,6 +14,12 @@ import type {
   SecurityEnvStatus,
   Settings,
   User,
+  UserActivityItem,
+  UserAuditEntry,
+  UserBlock,
+  UserBlockFeature,
+  UserFullDetail,
+  UserListAdvancedQuery,
   UserListResponse,
 } from '../api';
 
@@ -51,6 +57,70 @@ export const usersApi = {
     request(`/users/${id}/role`, { method: 'PUT', body: JSON.stringify({ role }), token }),
   deleteUser: (id: string, token: string) =>
     request(`/users/${id}`, { method: 'DELETE', token }),
+
+  // ─── admin-deep-control ────────────────────────────────────────────────
+  getUsersAdvanced: (token: string, query: UserListAdvancedQuery = {}) => {
+    const params = new URLSearchParams();
+    if (query.q) params.set('q', query.q);
+    if (query.role?.length) params.set('role', query.role.join(','));
+    if (query.branch?.length) params.set('branch', query.branch.join(','));
+    if (query.year?.length) params.set('year', query.year.join(','));
+    if (query.blockedFrom?.length) params.set('blockedFrom', query.blockedFrom.join(','));
+    if (query.hasNetwork) params.set('hasNetwork', '1');
+    if (query.includeDeleted) params.set('includeDeleted', '1');
+    if (query.sort) params.set('sort', query.sort);
+    if (query.cursor) params.set('cursor', query.cursor);
+    if (typeof query.take === 'number') params.set('take', String(query.take));
+    if (query.searchAll) params.set('searchAll', '1');
+    const qs = params.toString();
+    return request<UserListResponse>(`/users${qs ? `?${qs}` : ''}`, { token });
+  },
+  getUserFull: (id: string, token: string) =>
+    request<UserFullDetail>(`/users/${id}/full`, { token }),
+  getUserActivity: (id: string, token: string, opts: { take?: number } = {}) => {
+    const qs = typeof opts.take === 'number' ? `?take=${opts.take}` : '';
+    return request<{ items: UserActivityItem[] }>(`/users/${id}/activity${qs}`, { token });
+  },
+  getUserAudit: (
+    id: string,
+    token: string,
+    opts: { as?: 'actor' | 'target'; cursor?: string | null; take?: number } = {},
+  ) => {
+    const params = new URLSearchParams();
+    if (opts.as) params.set('as', opts.as);
+    if (opts.cursor) params.set('cursor', opts.cursor);
+    if (typeof opts.take === 'number') params.set('take', String(opts.take));
+    const qs = params.toString();
+    return request<{ entries: UserAuditEntry[]; meta: { hasMore: boolean; nextCursor: string | null; as: string } }>(
+      `/users/${id}/audit${qs ? `?${qs}` : ''}`,
+      { token },
+    );
+  },
+  resetCurrentStreak: (id: string, token: string) =>
+    request<{ id: string; currentStreak: number }>(`/users/${id}/streak/reset-current`, { method: 'POST', token }),
+  restoreLongestStreak: (id: string, token: string) =>
+    request<{ id: string; currentStreak: number }>(`/users/${id}/streak/restore-longest`, { method: 'POST', token }),
+
+  listUserBlocks: (id: string, token: string) =>
+    request<UserBlock[]>(`/users/${id}/blocks`, { token }),
+  addUserBlock: (
+    id: string,
+    data: { feature: UserBlockFeature; reason?: string | null; expiresAt?: string | null },
+    token: string,
+  ) => request<UserBlock>(`/users/${id}/blocks`, { method: 'POST', body: JSON.stringify(data), token }),
+  removeUserBlock: (id: string, feature: UserBlockFeature, token: string) =>
+    request<{ removed: number }>(`/users/${id}/blocks/${feature}`, { method: 'DELETE', token }),
+
+  forceLogoutUser: (id: string, token: string) =>
+    request<{ id: string; tokenVersion: number }>(`/users/${id}/force-logout`, { method: 'POST', token }),
+  sendPasswordResetEmail: (id: string, token: string) =>
+    request<{ sent: boolean; expiresAt: string }>(`/users/${id}/password-reset`, { method: 'POST', token }),
+  softDeleteUser: (id: string, token: string) =>
+    request<{ id: string; isDeleted: true }>(`/users/${id}`, { method: 'DELETE', token }),
+  hardDeleteUser: (id: string, token: string) =>
+    request<{ id: string }>(`/users/${id}?hard=true`, { method: 'DELETE', token }),
+  restoreUser: (id: string, token: string) =>
+    request<{ id: string; isDeleted: false }>(`/users/${id}/restore`, { method: 'POST', token }),
 
   // Settings
   getSettings: () => request<Settings>('/settings/public'),

@@ -217,8 +217,8 @@ club_site/
 │   │           │   ├── EditNetworkProfile.tsx
 │   │           │   └── QuizManager.tsx
 │   │           ├── admin/
-│   │           │   ├── AdminUsersRealtime.tsx    # routed component for /admin/users
-│   │           │   ├── AdminUsers.tsx            # legacy non-realtime variant (not routed)
+│   │           │   ├── AdminUsersPage.tsx        # routed component for /admin/users (admin-deep-control consolidated rewrite)
+│   │           │   ├── UserDetailPage.tsx        # routed component for /admin/users/:id (full-page detail surface)
 │   │           │   ├── AdminTeam.tsx
 │   │           │   ├── AdminAchievements.tsx
 │   │           │   ├── AdminProblems.tsx        # /admin/problems (gated by problemsEnabled)
@@ -332,7 +332,19 @@ npm run lint --workspace=apps/web
 | `/api/invitations/*` | invitationsRouter | Mixed |
 | `/api/achievements/*` | achievementsRouter | Some |
 | `/api/qotd/*` | qotdRouter | Some |
-| `/api/users/*` | usersRouter | Yes |
+| `/api/users/*` | usersRouter | Yes (admin-deep-control endpoints below) |
+| `/api/users/:id/full` | usersRouter | Admin |
+| `/api/users/:id/activity` | usersRouter | Admin |
+| `/api/users/:id/audit` | usersRouter | Admin |
+| `/api/users/:id/streak/reset-current` | usersRouter | PRESIDENT/superAdmin |
+| `/api/users/:id/streak/restore-longest` | usersRouter | PRESIDENT/superAdmin |
+| `/api/users/:id/blocks` (GET/POST) | usersRouter | Admin (GET) / PRESIDENT+superAdmin (POST) |
+| `/api/users/:id/blocks/:feature` (DELETE) | usersRouter | PRESIDENT/superAdmin |
+| `/api/users/:id/force-logout` | usersRouter | PRESIDENT/superAdmin |
+| `/api/users/:id/password-reset` | usersRouter | PRESIDENT/superAdmin |
+| `/api/users/:id/restore` | usersRouter | superAdmin only |
+| `/api/users/:id` (DELETE, `?hard=true`) | usersRouter | PRESIDENT (soft) / superAdmin (hard) |
+| `/api/auth/reset-password` | authRouter | Public (token-based, rate-limited 20/15min) |
 | `/api/stats/*` | statsRouter | No (public) |
 | `/api/settings/*` | settingsRouter | Some (`/settings`, `/settings/email-templates`, `/settings/security-env` are superAdmin/PRESIDENT only) |
 | `/api/hiring/*` | hiringRouter | Some |
@@ -802,7 +814,12 @@ All models use PostgreSQL via Prisma. `DATABASE_URL` = pooler, `DIRECT_URL` = no
 id, name, email (unique), password?, oauthProvider, oauthId,
 role (Role enum), avatar, bio, githubUrl, linkedinUrl, twitterUrl,
 websiteUrl, branch, course, phone, profileCompleted, year,
-createdAt, updatedAt
+createdAt, updatedAt,
+// admin-deep-control additions:
+lastLoginAt, lastLoginIp, tokenVersion (default 0),
+currentStreak, longestStreak, longestStreakAt,
+isDeleted (default false), deletedAt, deletedBy,
+passwordResetToken (unique), passwordResetExpiresAt
 Relations: announcements, registrations, hiringApplications,
            qotdSubmissions, networkProfile, teamMember,
            invitationsReceived, invitationsSent,
@@ -812,8 +829,20 @@ Relations: announcements, registrations, hiringApplications,
            createdPolls, pollVotes, pollFeedback,
            eventsCreated, qotdsCreated, auditLogs,
            executions, snippets, playgroundPrefs,
-           playgroundDailyUsage, playgroundLimitResets
+           playgroundDailyUsage, playgroundLimitResets,
+           blocks (UserBlock[])
 ```
+
+### UserBlock (admin-deep-control)
+```
+id, userId, feature (UserBlockFeature),
+blockedAt, blockedBy, reason?, expiresAt?
+Unique: [userId, feature]
+Index: [userId], [feature, expiresAt]
+```
+Enum `UserBlockFeature`: `EVENT | PLAYGROUND | QOTD | QUIZ | NETWORK`.
+
+Lazy expiry: `requireNotBlocked(feature)` middleware checks `expiresAt > now() OR expiresAt IS NULL`. No background job sweeps stale rows.
 
 ### Settings (singleton, id='default')
 ```
@@ -830,6 +859,7 @@ competitionEnabled, problemsEnabled,
 emailWelcomeEnabled, emailEventCreationEnabled, emailRegistrationEnabled,
 emailAnnouncementEnabled, emailCertificateEnabled, emailReminderEnabled,
 emailInvitationEnabled,
+emailPasswordResetEnabled, emailPasswordResetBody?,
 emailTestingMode, emailTestRecipients?,
 attendanceJwtSecret?, indexNowKey?
 ```
@@ -1091,6 +1121,10 @@ PRESIDENT = 4  (same level as ADMIN)
 Super admin is determined by `process.env.SUPER_ADMIN_EMAIL`. Only super admin and PRESIDENT can modify settings.
 
 Use `requireRole('ADMIN')` for admin-only routes. PRESIDENT is treated as ADMIN by the role middleware.
+
+`requireRole('ADMIN')` admits PRESIDENT (same numeric tier). There is no literal `requireRole('PRESIDENT')` — to gate to PRESIDENT or superAdmin specifically, combine `requireRole('ADMIN')` with an inline check: `isSuperAdmin(authUser) || authUser.role === 'PRESIDENT'`. The shared helper lives at [apps/api/src/utils/superAdmin.ts](apps/api/src/utils/superAdmin.ts) and exports `isSuperAdmin`, `isPresident`, `isPresidentOrSuperAdmin`.
+
+**Admin-deep-control rule:** only superAdmin can act on a PRESIDENT account. PRESIDENT can act on ADMIN-and-below but cannot promote anyone to ADMIN/PRESIDENT and cannot edit existing ADMIN/PRESIDENT accounts. No actor can edit themselves through `/api/users/*` — they must use `/dashboard/profile`. The `PUT /api/users/:id/role` floor is tightened from CORE_MEMBER to PRESIDENT/superAdmin only.
 
 ---
 
@@ -1380,6 +1414,7 @@ type EmailCategory = 'welcome' | 'event_creation' | 'registration' | 'announceme
 | `certificate` | `emailCertificateEnabled` | `sendCertificateIssued` | certificates.ts |
 | `reminder` | `emailReminderEnabled` | `sendEventReminder` | scheduler.ts |
 | `invitation` | `emailInvitationEnabled` | `sendEventInvitation`, `sendEventInvitationWithdrawn` | invitations.ts |
+| `password_reset` | `emailPasswordResetEnabled` | `sendPasswordReset` | users.ts (admin-deep-control) |
 | `admin_mail` | `mailingEnabled` (existing) | `sendBulk` via mail route | mail.ts |
 | `other` | *(no toggle — always allowed)* | raw `send()` | attendance.ts, hiring.ts, network.ts |
 
@@ -1448,6 +1483,11 @@ When `emailTestingMode` is `true`:
 - **Response format:** `{ success: true, data: T }` via `ApiResponse.success()` or raw `res.json()` depending on route. Frontend `api.ts` unwraps `.data` automatically.
 - **Prisma migrate --create-only:** Never apply schema changes with bare `prisma migrate dev`. Always generate first with `--create-only`, review the SQL in `prisma/migrations/`, then deploy with `db:migrate:deploy`. (Hard Constraint #5)
 - **Prisma N+1 guard:** Any query executed inside a loop must be annotated `// N+1: consider batching` with justification, or replaced with `findMany({ where: { id: { in: ids } } })` batching.
+- **Force logout via tokenVersion (admin-deep-control):** Every JWT carries a `tokenVersion` claim (default 0 for legacy tokens). `authMiddleware` rejects when DB `user.tokenVersion` exceeds the claim. Admin "Force logout" increments the DB column. Legacy tokens issued before this rollout default to claim 0 and stay valid until explicitly revoked.
+- **User feature blocks (admin-deep-control):** `prisma.userBlock` rows + `requireNotBlocked(feature)` middleware (`apps/api/src/middleware/blocks.ts`) gate event registration, QOTD submit, and network apply. A single line in `/quiz` socket auth checks `isUserBlocked(userId, 'QUIZ')`. The playground service (`apps/playground/execute-server.js`) has an equivalent pre-flight in `POST /api/execute` that fail-opens on pre-migration `42P01` (table missing). Lazy expiry on read — no background job.
+- **Materialized QOTD streaks (publish-day semantics):** `User.currentStreak`/`longestStreak` count consecutive *published-and-not-held* QOTD days the user submitted on. Days without a published QOTD are transparent. Updated transactionally from both `POST /api/qotd/:id/submit` and `submitProblemForUser()` (contextType=QOTD, verdict=ACCEPTED) via `recomputeUserStreakSafe()` in `apps/api/src/utils/qotdStreak.ts`. A 60-second in-process cache holds the published-date set; `invalidatePublishedQotdCache()` is called on publish/hold.
+- **Soft delete + restore (admin-deep-control):** `DELETE /api/users/:id` sets `isDeleted=true`, increments `tokenVersion`, and upserts a `UserBlock` row per feature (reason: `Auto-block on soft-delete`). `authMiddleware` rejects soft-deleted users on every request. `POST /api/users/:id/restore` (superAdmin only) reverses the flags and deletes only the auto-blocks. `?hard=true` (superAdmin only) refuses with 409 + blocker counts when any `Restrict` FK relation exists; otherwise writes audit FIRST then deletes inside the same `$transaction` (entityId snapshot survives the row).
+- **Admin login telemetry:** `User.lastLoginAt` and `lastLoginIp` are written from every successful login path (email/password, OAuth, dev-login, OAuth exchange-code) as fire-and-forget updates. IP is truncated to 64 chars and `::ffff:` IPv4-mapped prefix is stripped. The IP is only exposed to superAdmin viewers on `/api/users/:id/full`.
 
 ---
 
@@ -1523,7 +1563,8 @@ All pages are lazy-loaded with `React.lazy()` + `<Suspense>`.
 ### Protected Admin Routes (`minRole="ADMIN"`)
 | Path | Component |
 |------|-----------|
-| `/admin/users` | AdminUsersRealtime |
+| `/admin/users` | AdminUsersPage (admin-deep-control: list + filters + slide-over detail) |
+| `/admin/users/:id` | UserDetailPage (admin-deep-control: full-page detail with tabs) |
 | `/admin/team` | AdminTeam |
 | `/admin/achievements` | AdminAchievements |
 | `/admin/problems` | AdminProblems (effective only when `problemsEnabled`; includes a CSV/JSON `BulkImportCard` for batch problem creation — see [AdminProblems.tsx](apps/web/src/pages/admin/AdminProblems.tsx) `BulkImportCard`) |
@@ -1724,6 +1765,16 @@ When proposing any non-trivial architectural change — new system, new DB model
 |------|-------|
 | API entry point | `apps/api/src/index.ts` |
 | Auth routes | `apps/api/src/routes/auth.ts` |
+| Users routes (incl. admin-deep-control) | `apps/api/src/routes/users.ts` |
+| User block enforcement middleware | `apps/api/src/middleware/blocks.ts` |
+| Super admin helpers | `apps/api/src/utils/superAdmin.ts` |
+| Admin users page (list + detail sheet) | `apps/web/src/pages/admin/AdminUsersPage.tsx` |
+| Admin user detail (full page) | `apps/web/src/pages/admin/UserDetailPage.tsx` |
+| Admin user detail body (shared) | `apps/web/src/components/admin/users/UserDetailContent.tsx` |
+| Admin user permission hook | `apps/web/src/hooks/useAdminPermissions.ts` |
+| Admin user React Query hooks | `apps/web/src/hooks/useUserDetail.ts` |
+| Streak materialization helper | `apps/api/src/utils/qotdStreak.ts` (`recomputeUserStreak`, `recomputeUserStreakSafe`) |
+| Streak backfill script | `scripts/backfill-user-streaks.ts` |
 | Problems routes | `apps/api/src/routes/problems.ts` |
 | QOTD routes | `apps/api/src/routes/qotd.ts` |
 | Credits routes | `apps/api/src/routes/credits.ts` |
