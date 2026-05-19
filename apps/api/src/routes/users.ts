@@ -866,15 +866,13 @@ usersRouter.put('/:id', authMiddleware, requireRole('ADMIN'), async (req: Reques
   }
 });
 
-// Update user role — tightened (admin-deep-control): only PRESIDENT or superAdmin
-// can change anyone's role. ADMIN can no longer modify roles.
+// Update user role — admin-deep-control:
+//   - ADMIN can change USER/MEMBER/CORE_MEMBER only.
+//   - PRESIDENT or superAdmin can change any role except the env-derived superAdmin account.
 usersRouter.put('/:id/role', authMiddleware, requireRole('ADMIN'), async (req: Request, res: Response) => {
   try {
     const authUser = getAuthUser(req)!;
 
-    if (!isPresidentOrSuperAdmin(authUser)) {
-      return ApiResponse.forbidden(res, 'Only PRESIDENT or super admin can change roles.');
-    }
     if (req.params.id === authUser.id) {
       return ApiResponse.forbidden(res, 'You cannot change your own role. Ask another administrator.');
     }
@@ -895,6 +893,8 @@ usersRouter.put('/:id/role', authMiddleware, requireRole('ADMIN'), async (req: R
     }
 
     const actorIsSuper = isSuperAdmin(authUser);
+    const actorIsAdmin = authUser.role === 'ADMIN';
+    const actorIsPresident = authUser.role === 'PRESIDENT';
     const targetIsSuper = isSuperAdmin(targetUser);
 
     // Nobody can touch the superAdmin account's role (it's env-derived anyway).
@@ -902,14 +902,17 @@ usersRouter.put('/:id/role', authMiddleware, requireRole('ADMIN'), async (req: R
       return ApiResponse.forbidden(res, 'The super admin role is determined by environment and cannot be changed here.');
     }
 
-    // PRESIDENT cannot touch ADMIN/PRESIDENT accounts, nor promote anyone to ADMIN/PRESIDENT.
-    // superAdmin can do anything below this point.
+    // PRESIDENT and superAdmin can edit ADMIN/PRESIDENT accounts.
+    // ADMIN can only edit users below ADMIN and can never assign privileged roles.
+    if (!actorIsSuper && !actorIsPresident && !actorIsAdmin) {
+      return ApiResponse.forbidden(res, 'Only ADMIN, PRESIDENT, or super admin can change roles.');
+    }
     if (!actorIsSuper) {
       if (targetUser.role === 'ADMIN' || targetUser.role === 'PRESIDENT') {
-        return ApiResponse.forbidden(res, 'Only super admin can edit ADMIN or PRESIDENT accounts.');
+        return ApiResponse.forbidden(res, 'Only president or super admin can edit ADMIN or PRESIDENT accounts.');
       }
       if (newRole === 'ADMIN' || newRole === 'PRESIDENT') {
-        return ApiResponse.forbidden(res, 'Only super admin can promote to ADMIN or PRESIDENT.');
+        return ApiResponse.forbidden(res, 'Only president or super admin can promote to ADMIN or PRESIDENT.');
       }
     }
 
