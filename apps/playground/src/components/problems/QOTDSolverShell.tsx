@@ -64,6 +64,23 @@ function activeTimerKey(problemId: string, contextType: string, contextKey: stri
   return `qotd_active_ms:v1:${contextType}:${contextKey}:${problemId}`;
 }
 
+// Safe wrappers: localStorage can throw on quota exceeded, private-mode Safari,
+// or when storage is disabled. We never want a write failure to crash the solve UI.
+function safeLocalGet(key: string): string | null {
+  try {
+    return typeof window !== 'undefined' ? localStorage.getItem(key) : null;
+  } catch {
+    return null;
+  }
+}
+function safeLocalSet(key: string, value: string) {
+  try {
+    if (typeof window !== 'undefined') localStorage.setItem(key, value);
+  } catch {
+    // Swallow QuotaExceededError / SecurityError — solve flow must not break.
+  }
+}
+
 function formatActiveDuration(ms: number): string {
   const total = Math.max(0, Math.floor(ms / 1000));
   const h = Math.floor(total / 3600);
@@ -86,8 +103,7 @@ function useActiveTimer(problemId: string, contextType: string, contextKey: stri
     [problemId, contextType, contextKey],
   );
   const [elapsed, setElapsed] = useState<number>(() => {
-    if (typeof window === 'undefined') return 0;
-    const raw = localStorage.getItem(storageKey);
+    const raw = safeLocalGet(storageKey);
     const parsed = raw ? Number(raw) : 0;
     return Number.isFinite(parsed) && parsed >= 0 ? parsed : 0;
   });
@@ -98,7 +114,7 @@ function useActiveTimer(problemId: string, contextType: string, contextKey: stri
   const loadedKeyRef = useRef(storageKey);
   if (loadedKeyRef.current !== storageKey) {
     loadedKeyRef.current = storageKey;
-    const raw = typeof window !== 'undefined' ? localStorage.getItem(storageKey) : null;
+    const raw = safeLocalGet(storageKey);
     const parsed = raw ? Number(raw) : 0;
     const next = Number.isFinite(parsed) && parsed >= 0 ? parsed : 0;
     setElapsed(next);
@@ -122,7 +138,7 @@ function useActiveTimer(problemId: string, contextType: string, contextKey: stri
       writeAccumulator += delta;
       if (writeAccumulator >= 5_000) {
         writeAccumulator = 0;
-        localStorage.setItem(storageKey, String(next));
+        safeLocalSet(storageKey, String(next));
       }
     };
 
@@ -133,7 +149,7 @@ function useActiveTimer(problemId: string, contextType: string, contextKey: stri
         lastTick = null;
         // Persist the latest value the moment we lose visibility so a tab
         // close from a hidden state still preserves accurate solve time.
-        localStorage.setItem(storageKey, String(elapsedRef.current));
+        safeLocalSet(storageKey, String(elapsedRef.current));
         writeAccumulator = 0;
       }
     };
@@ -144,7 +160,7 @@ function useActiveTimer(problemId: string, contextType: string, contextKey: stri
     return () => {
       window.clearInterval(interval);
       document.removeEventListener('visibilitychange', handleVisibility);
-      localStorage.setItem(storageKey, String(elapsedRef.current));
+      safeLocalSet(storageKey, String(elapsedRef.current));
     };
   }, [storageKey]);
 
@@ -261,7 +277,7 @@ export function QOTDSolverShell({ problem, context, onExit }: QOTDSolverShellPro
 
   useEffect(() => {
     if (loadedKeyRef.current === currentDraftKey) return;
-    const saved = localStorage.getItem(currentDraftKey);
+    const saved = safeLocalGet(currentDraftKey);
     const submittedCode = latestSubmission?.language === language ? latestSubmission.code : '';
     setCode(saved ?? submittedCode ?? '');
     loadedKeyRef.current = currentDraftKey;
@@ -269,7 +285,7 @@ export function QOTDSolverShell({ problem, context, onExit }: QOTDSolverShellPro
 
   useEffect(() => {
     const handle = window.setTimeout(() => {
-      localStorage.setItem(currentDraftKey, code.slice(0, 100_000));
+      safeLocalSet(currentDraftKey, code.slice(0, 100_000));
     }, 500);
     return () => window.clearTimeout(handle);
   }, [code, currentDraftKey]);
@@ -588,7 +604,7 @@ export function QOTDSolverShell({ problem, context, onExit }: QOTDSolverShellPro
                 <div className="grid min-h-[360px] place-items-center rounded border border-dashed border-zinc-300 bg-zinc-50 px-8 text-center dark:border-zinc-700 dark:bg-zinc-900">
                   <div>
                     <Lock className="mx-auto h-10 w-10 text-zinc-400" />
-                    <p className="mt-4 text-base font-semibold text-zinc-900 dark:text-zinc-100">Solution unlocks after the deadline once you have submitted at least 2 times.</p>
+                    <p className="mt-4 text-base font-semibold text-zinc-900 dark:text-zinc-100">Solution unlocks once you have submitted at least 2 times in this problem and the deadline has passed.</p>
                   </div>
                 </div>
               )
@@ -602,7 +618,7 @@ export function QOTDSolverShell({ problem, context, onExit }: QOTDSolverShellPro
               <select
                 value={language}
                 onChange={(event) => {
-                  localStorage.setItem(currentDraftKey, code.slice(0, 100_000));
+                  safeLocalSet(currentDraftKey, code.slice(0, 100_000));
                   loadedKeyRef.current = '';
                   setLanguage(event.target.value as ProblemLanguage);
                 }}
