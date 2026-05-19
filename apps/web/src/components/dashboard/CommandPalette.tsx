@@ -28,12 +28,28 @@ interface PaletteHit {
   route: string;
 }
 
-const ACTIONS: PaletteHit[] = [
+const ROLE_TIERS: Record<string, number> = {
+  PUBLIC: 0,
+  USER: 1,
+  NETWORK: 1,
+  MEMBER: 2,
+  CORE_MEMBER: 3,
+  ADMIN: 4,
+  PRESIDENT: 4,
+};
+
+const BASE_ACTIONS: PaletteHit[] = [
   { kind: 'action', label: 'Toggle theme', icon: 'theme', route: '__toggle-theme__' },
   { kind: 'action', label: 'Open my profile', icon: 'user', route: '/dashboard/profile' },
+];
+
+const CORE_MEMBER_ACTIONS: PaletteHit[] = [
   { kind: 'action', label: 'Take attendance', icon: 'scan', route: '/dashboard/attendance' },
   { kind: 'action', label: 'Create event', icon: 'plus', route: '/dashboard/events/new' },
   { kind: 'action', label: 'Create announcement', icon: 'plus', route: '/dashboard/announcements/new' },
+];
+
+const ADMIN_ACTIONS: PaletteHit[] = [
   { kind: 'action', label: 'Send mail', icon: 'mail', route: '/admin/mail' },
 ];
 
@@ -74,7 +90,7 @@ const GROUP_ORDER = ['page', 'event', 'problem', 'poll', 'announcement', 'person
 
 export function CommandPalette({ open, onClose }: Props) {
   const navigate = useNavigate();
-  const { token } = useAuth();
+  const { token, user } = useAuth();
   const { toggleTheme, theme } = useTheme();
   const [q, setQ] = useState('');
   const [active, setActive] = useState(0);
@@ -83,6 +99,15 @@ export function CommandPalette({ open, onClose }: Props) {
   const [searchError, setSearchError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const abortRef = useRef<AbortController | null>(null);
+  const roleTier = ROLE_TIERS[user?.role ?? 'PUBLIC'] ?? 0;
+
+  const availableActions = useMemo(() => {
+    return [
+      ...BASE_ACTIONS,
+      ...(roleTier >= 3 ? CORE_MEMBER_ACTIONS : []),
+      ...(roleTier >= 4 ? ADMIN_ACTIONS : []),
+    ];
+  }, [roleTier]);
 
   // Focus input on open, reset state on close
   useEffect(() => {
@@ -126,10 +151,10 @@ export function CommandPalette({ open, onClose }: Props) {
 
   const flat = useMemo<PaletteHit[]>(() => {
     if (!results) {
-      if (!q.trim()) return ACTIONS;
+      if (!q.trim()) return availableActions;
       // No backend results: degrade gracefully to local action matches so the
       // palette stays useful even when /api/search/global is down.
-      return ACTIONS.filter((a) => a.label.toLowerCase().includes(q.toLowerCase()));
+      return availableActions.filter((a) => a.label.toLowerCase().includes(q.toLowerCase()));
     }
     return [
       ...results.pages,
@@ -138,9 +163,9 @@ export function CommandPalette({ open, onClose }: Props) {
       ...results.polls,
       ...results.announcements,
       ...results.people,
-      ...(q.trim() ? ACTIONS.filter((a) => a.label.toLowerCase().includes(q.toLowerCase())) : []),
+      ...(q.trim() ? availableActions.filter((a) => a.label.toLowerCase().includes(q.toLowerCase())) : []),
     ];
-  }, [results, q]);
+  }, [results, q, availableActions]);
 
   // Group results by kind for the eyebrow headers + maintain a flat index for keyboard nav.
   const grouped = useMemo(() => {

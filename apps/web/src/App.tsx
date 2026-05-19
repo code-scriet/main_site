@@ -195,25 +195,27 @@ function App() {
                       <Route path="announcements" element={withRouteBoundary(<DashboardAnnouncements />)} />
                       <Route path="leaderboard" element={withRouteBoundary(<DashboardLeaderboard />)} />
                       <Route path="coding" element={withRouteBoundary(<DashboardCoding />)} />
-                      <Route path="events/new" element={withRouteBoundary(<CreateEvent />)} />
-                      <Route path="announcements/new" element={withRouteBoundary(<CreateAnnouncement />)} />
-                      <Route path="announcements/:id/edit" element={withRouteBoundary(<CreateAnnouncement />)} />
-                      <Route path="qotd" element={withRouteBoundary(<CreateQOTD />)} />
-                      <Route path="quiz" element={withRouteBoundary(<QuizManager />)} />
-                      <Route path="upload" element={withRouteBoundary(<ImageUploadTool />)} />
                       <Route path="profile" element={withRouteBoundary(<ProfilePage />)} />
                       <Route path="team/:id/edit" element={withRouteBoundary(<EditTeamProfile />)} />
                       <Route path="certificates" element={withRouteBoundary(<DashboardCertificates />)} />
                       <Route path="invitations" element={withRouteBoundary(<DashboardInvitations />)} />
                       <Route path="invitations/:invitationId" element={withRouteBoundary(<DashboardInvitations />)} />
                       <Route element={<ProtectedRoute minRole="CORE_MEMBER" />}>
+                        <Route path="events/new" element={withRouteBoundary(<CreateEvent />)} />
+                        <Route path="announcements/new" element={withRouteBoundary(<CreateAnnouncement />)} />
+                        <Route path="announcements/:id/edit" element={withRouteBoundary(<CreateAnnouncement />)} />
+                        <Route path="qotd" element={withRouteBoundary(<CreateQOTD />)} />
+                        <Route path="quiz" element={withRouteBoundary(<QuizManager />)} />
+                        <Route path="upload" element={withRouteBoundary(<ImageUploadTool />)} />
                         <Route path="attendance" element={withRouteBoundary(<AttendancePage />)} />
                         <Route path="events/:eventId/attendance" element={withRouteBoundary(<EventAdminHub />)} />
                         <Route path="problems/new" element={withRouteBoundary(<CreateProblem />)} />
                         <Route path="problems/:id/edit" element={withRouteBoundary(<CreateProblem />)} />
                       </Route>
                     </Route>
-                    <Route path="/quiz/create" element={withRouteBoundary(<AdminQuizCreator />)} />
+                    <Route element={<ProtectedRoute minRole="CORE_MEMBER" />}>
+                      <Route path="/quiz/create" element={withRouteBoundary(<AdminQuizCreator />)} />
+                    </Route>
                   </Route>
 
                   {/* Protected Admin Routes */}
