@@ -7,7 +7,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Link, useNavigate } from 'react-router-dom';
 import {
-  Zap, Calendar, Trophy, Terminal, Inbox, Award, Briefcase,
+  Zap, Calendar, Trophy, Terminal, Inbox, Briefcase,
   ChevronRight, ArrowRight, Flame, Check, Bookmark, Activity, TrendingUp,
 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
@@ -939,14 +939,6 @@ function EarnedSection({
 }) {
   if (loading || certs.length === 0) return null;
   const recent = certs.slice(0, 6);
-  const CERT_GRADIENTS = [
-    'from-rose-500 to-orange-600',
-    'from-amber-500 to-yellow-600',
-    'from-emerald-500 to-teal-600',
-    'from-sky-500 to-indigo-600',
-    'from-violet-500 to-fuchsia-600',
-    'from-pink-500 to-rose-600',
-  ];
   return (
     <Section
       eyebrow="Earned"

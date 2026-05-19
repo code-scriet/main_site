@@ -4,7 +4,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { ExternalLink, Copy, Check, ArrowDownAZ, ArrowUpAZ, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Award, ExternalLink, Download, Copy, Check, ArrowDownAZ, ArrowUpAZ, ChevronLeft, ChevronRight } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { api } from '@/lib/api';
 import { DSCard, EmptyState, MonoChip, Pill, SegmentedTabs } from '@/components/dash';
