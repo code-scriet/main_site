@@ -36,6 +36,9 @@ export default function QuizJoinPage() {
     const presetPin = (searchParams.get('pin') || '').replace(/\D/g, '').slice(0, 6);
     if (presetPin.length === 6) {
       setPin(presetPin.split(''));
+    } else {
+      // CAT 19 — autofocus the first PIN digit on mount so admins can start typing immediately.
+      inputRefs.current[0]?.focus();
     }
   }, [searchParams]);
 
@@ -130,15 +133,14 @@ export default function QuizJoinPage() {
 
   return (
     <Layout>
-      <section className="min-h-[80vh] flex items-center justify-center py-20 bg-gradient-to-br from-amber-50 via-orange-50 to-amber-100">
+      <section data-dashboard="true" data-accent="rust" className="min-h-[80vh] flex items-center justify-center py-20 bg-[var(--bg-canvas)] text-[var(--ds-text-1)]">
         <div className="container mx-auto px-4">
           <div className="max-w-md mx-auto">
             {/* Back button */}
             <Button
-              variant="ghost"
               size="sm"
               onClick={() => navigate('/quiz')}
-              className="mb-4 -ml-2 text-gray-600 hover:text-amber-700"
+              className="mb-4 -ml-2 bg-[var(--accent)] text-[var(--accent-fg)] hover:bg-[var(--accent-hover)] shadow-md shadow-[var(--accent)]/20"
             >
               <ArrowLeft className="h-4 w-4 mr-1" />
               Back to Quizzes
@@ -149,7 +151,7 @@ export default function QuizJoinPage() {
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.5 }}
             >
-              <Card className="shadow-2xl border-amber-200/50 backdrop-blur-sm bg-white/90">
+              <Card className="shadow-2xl border-[var(--accent-ring)]/50 backdrop-blur-sm bg-white/90">
                 <CardContent className="p-6 sm:p-8 space-y-6">
                   {/* Header */}
                   <div className="text-center space-y-3">
@@ -157,11 +159,11 @@ export default function QuizJoinPage() {
                       initial={{ scale: 0 }}
                       animate={{ scale: 1 }}
                       transition={{ type: 'spring', delay: 0.1 }}
-                      className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-gradient-to-r from-amber-500 to-orange-500 shadow-lg"
+                      className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-gradient-to-r from-[var(--accent)]0 to-[var(--accent-hover)]0 shadow-lg"
                     >
                       <Zap className="h-8 w-8 text-white" />
                     </motion.div>
-                    <h1 className="text-3xl md:text-4xl font-bold text-amber-900 tracking-tight font-display">
+                    <h1 className="text-3xl md:text-4xl font-bold text-[var(--ds-text-1)] tracking-tight font-display">
                       Join Quiz
                     </h1>
                     <p className="text-gray-600">
@@ -194,15 +196,15 @@ export default function QuizJoinPage() {
                           className={cn(
                             'w-11 h-14 sm:w-14 sm:h-[4.5rem] text-center text-2xl sm:text-3xl font-bold font-mono rounded-xl',
                             'bg-white border-2 text-gray-800',
-                            'focus:outline-none focus:border-amber-400 focus:ring-2 focus:ring-amber-400/20',
+                            'focus:outline-none focus:border-[var(--accent)] focus:ring-2 focus:ring-[var(--accent)]/20',
                             'transition-all duration-200',
                             'placeholder:text-gray-300',
                             i === 2 && 'mr-2 sm:mr-3',
                             error
                               ? 'border-red-300 bg-red-50/50'
                               : digit
-                                ? 'border-amber-400 bg-amber-50/50'
-                                : 'border-amber-200',
+                                ? 'border-[var(--accent)] bg-[var(--accent-subtle)]/50'
+                                : 'border-[var(--accent-ring)]',
                           )}
                           placeholder="·"
                           autoComplete="off"
@@ -231,7 +233,7 @@ export default function QuizJoinPage() {
                     onClick={handleJoin}
                     disabled={fullPin.length !== 6 || loading}
                     size="lg"
-                    className="w-full h-12 text-base font-medium"
+                    className="w-full h-12 text-base font-medium bg-[var(--accent)] text-[var(--accent-fg)] hover:bg-[var(--accent-hover)] shadow-md shadow-[var(--accent)]/20"
                   >
                     {loading ? (
                       <Loader2 className="h-5 w-5 animate-spin" />

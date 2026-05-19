@@ -1,319 +1,585 @@
-import { useMemo, useState } from 'react';
+// Dashboard v2 — Coding hub with five tabs: Practice / QOTD / Competitions / Leaderboard / Playground.
+// All "solve" CTAs redirect to the playground (no in-app Monaco).
+// Design source: code-scriet-innerdashboard/project/js/screen-coding.jsx.
+
+import { useEffect, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Card, CardContent } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import {
-  Code,
-  CalendarDays,
-  ExternalLink,
-  Search,
-  CheckCircle2,
-  Sparkles,
-  Trophy,
-} from 'lucide-react';
-import { api, type Problem, type QOTDDetail } from '@/lib/api';
+import { useSearchParams } from 'react-router-dom';
+import { Search, ExternalLink, Trophy, ArrowUpRight, Calendar, Clock } from 'lucide-react';
+import { useAuth } from '@/context/AuthContext';
 import { useSettings } from '@/context/SettingsContext';
+import { api, type Problem } from '@/lib/api';
 import { getPlaygroundLaunchUrl } from '@/lib/playgroundUrl';
-import { getDifficultyBadgeClasses } from '@/lib/difficultyBadge';
-import { Link } from 'react-router-dom';
+import { CountdownPill, DSCard, Difficulty, EmptyState, MonoChip, Pill, SegmentedTabs, UnderlineTabs } from '@/components/dash';
+import { Input } from '@/components/ui/input';
+import QOTDLeaderboardSurface from '@/components/dashboard/QOTDLeaderboardSurface';
+import { cn } from '@/lib/utils';
 
-const DIFFICULTIES: Array<{ label: string; value?: string }> = [
-  { label: 'All', value: undefined },
-  { label: 'Easy', value: 'EASY' },
-  { label: 'Medium', value: 'MEDIUM' },
-  { label: 'Hard', value: 'HARD' },
-];
-
-function describeProblem(problem: Problem | undefined | null): string {
-  if (!problem) return '';
-  const trimmed = (problem.body ?? '')
-    .replace(/^#.*$/gm, '')
-    .replace(/[*_`>#-]/g, '')
-    .replace(/\s+/g, ' ')
-    .trim();
-  return trimmed.length > 220 ? `${trimmed.slice(0, 220).trim()}…` : trimmed;
-}
-
-function QotdSkeleton() {
-  return (
-    <Card className="rounded-2xl border-amber-100 bg-white">
-      <CardContent className="p-6">
-        <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-          <div className="flex-1 space-y-3">
-            <div className="h-5 w-28 animate-pulse rounded-full bg-amber-100" />
-            <div className="h-6 w-2/3 animate-pulse rounded bg-gray-100" />
-            <div className="h-4 w-full animate-pulse rounded bg-gray-100" />
-            <div className="h-4 w-4/5 animate-pulse rounded bg-gray-100" />
-          </div>
-          <div className="h-11 w-40 animate-pulse rounded-md bg-amber-100" />
-        </div>
-      </CardContent>
-    </Card>
-  );
-}
-
-function ProblemCardSkeleton() {
-  return (
-    <Card className="rounded-2xl border-gray-100">
-      <CardContent className="p-5">
-        <div className="mb-3 h-4 w-20 animate-pulse rounded-full bg-gray-100" />
-        <div className="h-5 w-2/3 animate-pulse rounded bg-gray-100" />
-        <div className="mt-3 h-4 w-full animate-pulse rounded bg-gray-100" />
-        <div className="mt-2 h-4 w-4/5 animate-pulse rounded bg-gray-100" />
-        <div className="mt-5 flex items-center justify-between">
-          <div className="h-3 w-24 animate-pulse rounded bg-gray-100" />
-          <div className="h-9 w-36 animate-pulse rounded-md bg-gray-100" />
-        </div>
-      </CardContent>
-    </Card>
-  );
-}
+type TabId = 'practice' | 'qotd' | 'competitions' | 'leaderboard' | 'playground';
 
 export default function DashboardCoding() {
   const { settings } = useSettings();
-  const problemsEnabled = settings?.problemsEnabled === true;
-  const [difficulty, setDifficulty] = useState<string | undefined>(undefined);
-  const [search, setSearch] = useState('');
+  const [params, setParams] = useSearchParams();
+  const initialTab = (params.get('tab') as TabId) || 'practice';
+  const [tab, setTab] = useState<TabId>(initialTab);
 
-  const todayQuery = useQuery({
-    queryKey: ['dashboard-coding-qotd'],
-    queryFn: () => api.getTodayQOTD(),
-    enabled: problemsEnabled,
-  });
+  useEffect(() => {
+    const t = params.get('tab') as TabId | null;
+    if (t && t !== tab) {
+      setTab(t);
+    } else if (!t) {
+      // First load with no ?tab=: write the default into the URL so the sidebar
+      // sub-item highlights correctly and Cmd+K deep-links round-trip.
+      const next = new URLSearchParams(params);
+      next.set('tab', tab);
+      setParams(next, { replace: true });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [params]);
 
-  const problemsQuery = useQuery({
-    queryKey: ['dashboard-coding-problems', difficulty, search],
-    queryFn: () =>
-      api.getProblems({
-        difficulty,
-        search: search.trim() || undefined,
-        limit: 50,
-      }),
-    enabled: problemsEnabled,
-  });
+  const changeTab = (v: TabId) => {
+    setTab(v);
+    const next = new URLSearchParams(params);
+    next.set('tab', v);
+    setParams(next, { replace: true });
+  };
 
-  const qotd = todayQuery.data as QOTDDetail | null | undefined;
-  const problems = problemsQuery.data?.problems ?? [];
-  const qotdDate = qotd?.date;
+  const items = useMemo(() => {
+    const out: Array<{ value: TabId; label: string }> = [
+      { value: 'practice', label: 'Practice' },
+      { value: 'qotd', label: 'QOTD' },
+      { value: 'competitions', label: 'Competitions' },
+    ];
+    if (settings?.showLeaderboard !== false) out.push({ value: 'leaderboard', label: 'Leaderboard' });
+    out.push({ value: 'playground', label: 'Playground' });
+    return out;
+  }, [settings?.showLeaderboard]);
 
-  const todayQOTDDate = useMemo(() => (qotdDate ? qotdDate.slice(0, 10) : null), [qotdDate]);
-
-  if (!problemsEnabled) {
-    return (
-      <div className="space-y-6">
+  return (
+    <div className="flex flex-col gap-6">
+      <div className="flex items-end justify-between gap-3 flex-wrap">
         <div>
-          <h1 className="text-2xl font-bold text-amber-900">Coding</h1>
-          <p className="text-gray-600">Today's QOTD and the full practice catalog.</p>
+          <div className="text-[10.5px] uppercase tracking-[0.08em] font-semibold text-[var(--ds-text-3)]">Coding</div>
+          <h1 className="text-[24px] font-semibold tracking-tight mt-1">Practice, compete, climb.</h1>
         </div>
-        <Card className="rounded-2xl border-dashed border-amber-200">
-          <CardContent className="p-8 text-center">
-            <Code className="mx-auto h-10 w-10 text-amber-400" />
-            <h2 className="mt-3 text-lg font-bold text-amber-900">Coding is not enabled yet</h2>
-            <p className="mt-2 text-sm text-gray-600">
-              An admin needs to flip <span className="font-mono text-xs bg-amber-50 px-1.5 py-0.5 rounded border border-amber-200">problemsEnabled</span> in Settings before this tab has anything to show.
-            </p>
-          </CardContent>
-        </Card>
+        <a
+          href={getPlaygroundLaunchUrl('/')}
+          target="_blank"
+          rel="noreferrer"
+          className="inline-flex items-center gap-1.5 h-8 px-3 rounded-[8px] bg-[var(--bg-raised)] border border-[var(--border-default)] text-[var(--ds-text-1)] hover:border-[var(--border-strong)] text-[12.5px] font-medium transition-colors"
+        >
+          Open playground
+          <ExternalLink size={12} />
+        </a>
       </div>
+
+      <UnderlineTabs items={items} value={tab} onChange={changeTab} />
+
+      {tab === 'practice' && <PracticeTab />}
+      {tab === 'qotd' && <QOTDTab />}
+      {tab === 'competitions' && <CompetitionsTab />}
+      {tab === 'leaderboard' && <LeaderboardTab />}
+      {tab === 'playground' && <PlaygroundTab />}
+    </div>
+  );
+}
+
+// ─── Practice tab
+function PracticeTab() {
+  const { settings } = useSettings();
+  const [diff, setDiff] = useState<'ALL' | 'EASY' | 'MEDIUM' | 'HARD'>('ALL');
+  const [search, setSearch] = useState('');
+  const enabled = settings?.problemsEnabled !== false;
+  const problemsQ = useQuery({
+    queryKey: ['problems', 'practice'],
+    queryFn: () => api.getProblems({ published: true, limit: 100 }),
+    enabled,
+  });
+
+  if (!enabled) {
+    return (
+      <DSCard padded>
+        <EmptyState
+          icon={<Trophy size={18} />}
+          title="Problems are off right now"
+          body="Practice and QOTD are turned off by admins. Check back later."
+        />
+      </DSCard>
     );
   }
 
+  const raw = problemsQ.data;
+  const all: Problem[] = Array.isArray(raw)
+    ? raw
+    : ((raw as { problems?: Problem[] } | undefined)?.problems ?? []);
+  const filtered = all
+    .filter((p) => diff === 'ALL' || p.difficulty === diff)
+    .filter((p) => !search.trim() || p.title.toLowerCase().includes(search.toLowerCase()) || (p.tags ?? []).some((t) => t.toLowerCase().includes(search.toLowerCase())));
+
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-amber-900">Coding</h1>
-        <p className="text-gray-600">Today's QOTD and the full practice catalog — open any problem straight in the playground.</p>
+    <div className="flex flex-col gap-4">
+      <div className="flex items-center gap-2 flex-wrap">
+        <Input
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search problems or tags…"
+          className="max-w-[280px] h-8 text-[13px]"
+        />
+        <SegmentedTabs
+          items={[
+            { value: 'ALL', label: 'All' },
+            { value: 'EASY', label: 'Easy' },
+            { value: 'MEDIUM', label: 'Medium' },
+            { value: 'HARD', label: 'Hard' },
+          ]}
+          value={diff}
+          onChange={(v) => setDiff(v as 'ALL' | 'EASY' | 'MEDIUM' | 'HARD')}
+        />
+        <div className="flex-1" />
+        <span className="text-[11.5px] text-[var(--ds-text-3)] font-mono tabular-nums">
+          {filtered.length} / {all.length}
+        </span>
       </div>
 
-      {/* Today's QOTD — pinned */}
-      {todayQuery.isLoading ? (
-        <QotdSkeleton />
-      ) : qotd && qotd.problemId ? (
-        <Card className="rounded-2xl overflow-hidden border-amber-200 shadow-sm bg-gradient-to-br from-amber-50 via-orange-50 to-amber-50">
-          <CardContent className="p-6">
-            <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-              <div className="flex-1 min-w-0">
-                <div className="mb-2 inline-flex items-center gap-1.5 rounded-full bg-amber-200/60 px-3 py-0.5 text-xs font-bold uppercase tracking-wide text-amber-900">
-                  <Sparkles className="h-3.5 w-3.5" />
-                  Today's QOTD
-                </div>
-                <h2 className="text-xl font-bold text-amber-950">{qotd.problem?.title ?? qotd.question}</h2>
-                <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
-	                  <span
-	                    className={`inline-flex rounded-full border px-2.5 py-0.5 font-semibold ${
-	                      getDifficultyBadgeClasses(qotd.problem?.difficulty ?? qotd.difficulty)
-	                    }`}
-	                  >
-                    {(qotd.problem?.difficulty ?? qotd.difficulty).toString()}
-                  </span>
-                  {todayQOTDDate && (
-                    <span className="inline-flex items-center gap-1 text-amber-800/80">
-                      <CalendarDays className="h-3.5 w-3.5" />
-                      {todayQOTDDate}
-                    </span>
-                  )}
-                  {qotd.hasSubmitted && (
-                    <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2.5 py-0.5 font-semibold text-emerald-800 border border-emerald-300">
-                      <CheckCircle2 className="h-3.5 w-3.5" />
-                      Solved
-                    </span>
-                  )}
-                </div>
-                <p className="mt-3 text-sm text-amber-900/85">
-                  {describeProblem(qotd.problem ?? null) || 'Open in the playground to see the full statement.'}
-                </p>
-              </div>
-              <a href={getPlaygroundLaunchUrl('/?qotd=today')} target="_blank" rel="noopener noreferrer" className="flex-shrink-0">
-                <Button size="lg" className="gap-2 bg-amber-600 text-white hover:bg-amber-700 font-semibold">
-                  <Code className="h-4 w-4" />
-                  Solve in Playground
-                  <ExternalLink className="h-4 w-4" />
-                </Button>
-              </a>
-            </div>
-            <div className="mt-4 flex flex-wrap items-center gap-3 text-xs">
-              <Link to="/dashboard/leaderboard" className="inline-flex items-center gap-1 font-semibold text-amber-800 hover:text-amber-900">
-                <Trophy className="h-3.5 w-3.5" />
-                Leaderboard
-              </Link>
-            </div>
-          </CardContent>
-        </Card>
-      ) : qotd ? (
-        <Card className="rounded-2xl border-amber-200 bg-amber-50">
-          <CardContent className="p-6 text-sm text-amber-800">
-            Today's QOTD is a legacy text-only entry.{' '}
-            <a href={qotd.problemLink} target="_blank" rel="noopener noreferrer" className="underline font-semibold">
-              Open external link
-            </a>
-          </CardContent>
-        </Card>
+      {problemsQ.isLoading ? (
+        <DSCard padded={false}>
+          <div className="p-6 animate-pulse space-y-3">
+            {[0, 1, 2, 3].map((i) => (
+              <div key={i} className="h-10 bg-[var(--surface-soft)] rounded" />
+            ))}
+          </div>
+        </DSCard>
+      ) : filtered.length === 0 ? (
+        <DSCard padded>
+          <EmptyState icon={<Search size={18} />} title="No matches" body="Try a different filter or search term." />
+        </DSCard>
       ) : (
-        <Card className="rounded-2xl border-dashed border-amber-200">
-          <CardContent className="p-6 text-sm text-gray-600">
-            Today&apos;s QOTD hasn&apos;t dropped yet. In the meantime, browse{' '}
-            <a href="#practice-problems" className="font-semibold text-amber-700 hover:text-amber-900">
-              practice problems
-            </a>{' '}
-            below or check the{' '}
-            <Link to="/dashboard/leaderboard" className="font-semibold text-amber-700 hover:text-amber-900">
-              all-time leaderboard
-            </Link>
-            .
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Practice catalog */}
-      <div id="practice-problems" className="space-y-3 scroll-mt-24">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <h2 className="text-lg font-bold text-amber-900">Practice problems</h2>
-          {!problemsQuery.isLoading && (
-            <span className="text-xs font-semibold text-gray-500">{problems.length} available</span>
-          )}
-        </div>
-
-        <div className="grid gap-3 sm:grid-cols-[1fr_auto]">
-          <div className="relative">
-            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
-            <Input
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-              placeholder="Search problems by title or slug"
-              className="pl-9"
-            />
-          </div>
-          <div className="flex flex-wrap gap-1">
-            {DIFFICULTIES.map((option) => (
-              <button
-                key={option.label}
-                type="button"
-                onClick={() => setDifficulty(option.value)}
-                className={`rounded-md border px-3 py-1.5 text-xs font-semibold ${
-                  difficulty === option.value
-                    ? 'border-amber-500 bg-amber-50 text-amber-700'
-                    : 'border-gray-200 bg-white text-gray-700 hover:bg-gray-50'
-                }`}
-              >
-                {option.label}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {problemsQuery.isLoading ? (
-          <div className="grid gap-3 md:grid-cols-2">
-            {Array.from({ length: 4 }).map((_, index) => (
-              <ProblemCardSkeleton key={index} />
-            ))}
-          </div>
-        ) : problems.length === 0 ? (
-          <Card className="rounded-2xl border-dashed border-gray-200">
-            <CardContent className="p-6 text-center text-sm text-gray-500">
-              No practice problems match those filters. Admins can publish past QOTDs / finished contest problems to populate this list.
-            </CardContent>
-          </Card>
-        ) : (
-          <div className="grid gap-3 md:grid-cols-2">
-            {problems.map((problem) => {
-              const isTodayProblem = qotd?.problemId === problem.id;
-              const href = isTodayProblem
-                ? getPlaygroundLaunchUrl('/?qotd=today')
-                : getPlaygroundLaunchUrl(`/?problem=${encodeURIComponent(problem.id)}`);
-              return (
-                <Card
-                  key={problem.id}
-                  className="group rounded-2xl border-gray-100 shadow-sm overflow-hidden transition hover:border-amber-300 hover:shadow-md"
-                >
-                  <CardContent className="p-5">
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0 flex-1">
-                        <div className="mb-1 flex flex-wrap items-center gap-1.5">
-	                          <span
-	                            className={`inline-flex rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide ${
-	                              getDifficultyBadgeClasses(problem.difficulty)
-	                            }`}
-	                          >
-                            {problem.difficulty}
-                          </span>
-                          {isTodayProblem && (
-                            <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-amber-800 border border-amber-300">
-                              <Sparkles className="h-3 w-3" />
-                              Today's QOTD
-                            </span>
-                          )}
-                        </div>
-                        <h3 className="truncate text-base font-bold text-gray-900">{problem.title}</h3>
-                        <p className="mt-1 line-clamp-2 text-xs text-gray-500">{describeProblem(problem) || 'No description provided.'}</p>
-                        {(problem.tags?.length ?? 0) > 0 && (
-                          <div className="mt-2 flex flex-wrap gap-1">
-                            {(problem.tags ?? []).slice(0, 4).map((tag) => (
-                              <span key={tag} className="rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-semibold text-blue-700">
-                                {tag}
-                              </span>
-                            ))}
-                          </div>
-                        )}
+        <DSCard padded={false}>
+          <div className="overflow-x-auto">
+            <table className="w-full text-[13px]">
+              <thead className="text-left text-[11px] uppercase tracking-[0.06em] text-[var(--ds-text-3)] font-semibold">
+                <tr className="border-b border-[var(--border-subtle)]">
+                  <th className="px-4 py-2.5">Title</th>
+                  <th className="px-4 py-2.5 w-[100px]">Difficulty</th>
+                  <th className="px-4 py-2.5">Tags</th>
+                  <th className="px-4 py-2.5 w-[80px]" />
+                </tr>
+              </thead>
+              <tbody>
+                {filtered.map((p) => (
+                  <tr key={p.id} className="border-t border-[var(--border-subtle)] hover:bg-[var(--surface-soft)]">
+                    <td className="px-4 py-3 font-medium">{p.title}</td>
+                    <td className="px-4 py-3"><Difficulty level={p.difficulty} /></td>
+                    <td className="px-4 py-3">
+                      <div className="flex gap-1 flex-wrap">
+                        {(p.tags ?? []).slice(0, 3).map((t) => (
+                          <MonoChip key={t}>{t}</MonoChip>
+                        ))}
                       </div>
-                    </div>
-                    <div className="mt-4 flex items-center justify-between gap-2">
-                      <span className="text-[11px] text-gray-400">{problem.submissionCount ?? 0} submission{(problem.submissionCount ?? 0) === 1 ? '' : 's'}</span>
-                      <a href={href} target="_blank" rel="noopener noreferrer">
-	                        <Button size="sm" variant="outline" className="gap-1.5 group-hover:border-amber-400">
-	                          <Code className="h-4 w-4" />
-	                          Solve in Playground
-	                          <ExternalLink className="h-3.5 w-3.5" />
-	                        </Button>
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      <a
+                        href={getPlaygroundLaunchUrl(`/?problem=${encodeURIComponent(p.slug || p.id)}`)}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex items-center gap-1 text-[12px] font-medium text-[var(--accent)] hover:underline"
+                      >
+                        Solve <ArrowUpRight size={12} />
                       </a>
-                    </div>
-                  </CardContent>
-                </Card>
-              );
-            })}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
-        )}
+        </DSCard>
+      )}
+    </div>
+  );
+}
+
+// ─── QOTD tab
+// QOTD tab — design source: screen-coding.jsx QotdTab (lines 125-241).
+// Layout: lg:grid-cols-12, left col-span-8 (Today + history table), right col-span-4
+// (Streak + 30-day calendar grid). The calendar uses statsQ.last30Days.
+function QOTDTab() {
+  const { token } = useAuth();
+  const todayQ = useQuery({
+    queryKey: ['qotd-today'],
+    queryFn: () => api.getTodayQOTD(),
+  });
+  const historyQ = useQuery({
+    queryKey: ['qotd-history'],
+    queryFn: () => api.getQOTDHistory(30, 0),
+  });
+  const statsQ = useQuery({
+    queryKey: ['qotd-stats'],
+    queryFn: () => api.getQOTDStats(token!),
+    enabled: Boolean(token),
+  });
+
+  const today = todayQ.data;
+  const todayDateLabel = today?.date
+    ? new Date(today.date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })
+    : null;
+  const todayTags = today?.problem?.tags ?? [];
+
+  const history = historyQ.data ?? [];
+  const solvedCount = history.filter((q) => q.hasSubmitted).length;
+  const calendar = statsQ.data?.last30Days ?? [];
+
+  return (
+    <div className="grid lg:grid-cols-12 gap-4">
+      {/* LEFT — Today + history (col-span-8) */}
+      <div className="lg:col-span-8 flex flex-col gap-4">
+        {/* Today card — design line 138-157 */}
+        <DSCard>
+          <div className="flex items-center gap-2 mb-3 flex-wrap">
+            <span className="size-[6px] rounded-full bg-[var(--accent)] live-dot" />
+            <span className="text-[11px] uppercase tracking-[0.08em] font-semibold text-[var(--accent)] whitespace-nowrap">
+              Today{todayDateLabel ? ` · ${todayDateLabel}` : ''}
+            </span>
+            <Pill tone="warning" size="xs" className="ml-auto">
+              <Clock className="h-3 w-3" /> 11:59 PM IST
+            </Pill>
+          </div>
+
+          {today ? (
+            <>
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <Difficulty level={String(today.difficulty || 'EASY').toUpperCase()} />
+                {todayTags.slice(0, 4).map((t) => (
+                  <MonoChip key={t}>{t}</MonoChip>
+                ))}
+              </div>
+              <h3 className="text-[22px] font-semibold tracking-tight mt-2 leading-tight">{today.question}</h3>
+              <p className="text-[13px] text-[var(--ds-text-3)] mt-2 max-w-prose leading-[1.6]">
+                Submit your solution in the playground. Your verdict and leaderboard rank update
+                here within a minute of an Accepted run.
+              </p>
+              <div className="flex items-center gap-2 mt-4 flex-wrap">
+                <a
+                  href={getPlaygroundLaunchUrl(`/?qotd=today`)}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex items-center gap-1.5 h-9 px-3.5 rounded-[8px] bg-[var(--accent)] text-[var(--accent-fg)] text-[13px] font-medium hover:bg-[var(--accent-hover)]"
+                >
+                  Solve
+                  <ArrowUpRight size={13} />
+                </a>
+                {today.problemLink && (
+                  <a
+                    href={today.problemLink}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center gap-1.5 h-9 px-3.5 rounded-[8px] border border-[var(--border-default)] bg-[var(--bg-raised)] text-[13px] font-medium text-[var(--ds-text-2)] hover:bg-[var(--surface-soft)]"
+                  >
+                    View constraints
+                    <ExternalLink size={13} />
+                  </a>
+                )}
+              </div>
+            </>
+          ) : (
+            <EmptyState
+              icon={<Calendar size={18} />}
+              title="No QOTD published today yet"
+              body="Catch up on missed days from the history below — the calendar on the right shows your last 30 days."
+            />
+          )}
+        </DSCard>
+
+        {/* History — design line 159-197 */}
+        <DSCard padded={false}>
+          <div className="flex items-center justify-between px-4 py-3 gap-2">
+            <div className="text-[13.5px] font-semibold">Your history</div>
+            {history.length > 0 && (
+              <span className="text-[11.5px] text-[var(--ds-text-3)] font-mono tabular-nums whitespace-nowrap">
+                {solvedCount}/{history.length} solved
+              </span>
+            )}
+          </div>
+          {historyQ.isLoading ? (
+            <div className="p-6 animate-pulse text-[12px] text-[var(--ds-text-3)] text-center border-t border-[var(--border-subtle)]">Loading…</div>
+          ) : history.length === 0 ? (
+            <div className="border-t border-[var(--border-subtle)]">
+              <EmptyState icon={<Calendar size={18} />} title="No QOTDs yet" />
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-[13px]">
+                <thead>
+                  <tr className="text-left text-[10.5px] uppercase tracking-[0.06em] text-[var(--ds-text-3)] font-semibold border-t border-[var(--border-subtle)]">
+                    <th className="px-4 py-2 w-[100px]">Date</th>
+                    <th className="px-4 py-2">Problem</th>
+                    <th className="px-4 py-2 w-[100px]">Difficulty</th>
+                    <th className="px-4 py-2 w-[100px]">Status</th>
+                    <th className="px-4 py-2 w-[80px] text-right"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {history.slice(0, 12).map((q) => {
+                    const isHeld = Boolean(q.heldBy);
+                    const isToday = today?.id === q.id;
+                    return (
+                      <tr
+                        key={q.id}
+                        className="border-t border-[var(--border-subtle)] hover:bg-[var(--surface-soft)] transition-colors"
+                      >
+                        <td className="px-4 py-2.5 font-mono tabular-nums text-[var(--ds-text-3)]">
+                          {new Date(q.date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}
+                        </td>
+                        <td className="px-4 py-2.5 font-medium truncate max-w-[320px]">{q.question}</td>
+                        <td className="px-4 py-2.5">
+                          <Difficulty level={String(q.difficulty || 'EASY').toUpperCase()} />
+                        </td>
+                        <td className="px-4 py-2.5">
+                          {isHeld ? (
+                            <Pill tone="warning" size="xs">Held</Pill>
+                          ) : q.hasSubmitted ? (
+                            <Pill tone="success" size="xs">Solved</Pill>
+                          ) : isToday ? (
+                            <Pill tone="info" size="xs" dot>Live</Pill>
+                          ) : (
+                            <Pill tone="neutral" size="xs">Missed</Pill>
+                          )}
+                        </td>
+                        <td className="px-4 py-2.5 text-right">
+                          {!isHeld && (
+                            <a
+                              href={getPlaygroundLaunchUrl(`/?qotd=${q.date.slice(0, 10)}`)}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="text-[12px] font-medium text-[var(--accent)] hover:underline inline-flex items-center gap-1"
+                            >
+                              Solve <ArrowUpRight size={12} />
+                            </a>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </DSCard>
       </div>
+
+      {/* RIGHT — Streak + 30-day calendar (col-span-4) */}
+      <div className="lg:col-span-4 flex flex-col gap-4">
+        {/* Streak card — design line 202-211 */}
+        <DSCard>
+          <div className="text-[11px] uppercase tracking-[0.06em] font-semibold text-[var(--ds-text-3)] mb-3">Streak</div>
+          <div className="flex items-baseline gap-2">
+            <span className="text-[40px] font-semibold tabular-nums leading-none text-[var(--ds-text-1)]">
+              {statsQ.data?.currentStreak ?? 0}
+            </span>
+            <span className="text-[12px] text-[var(--ds-text-3)]">
+              days · longest <span className="font-mono tabular-nums text-[var(--ds-text-2)]">{statsQ.data?.longestStreak ?? 0}</span>
+            </span>
+          </div>
+          <p className="mt-3 text-[12px] text-[var(--ds-text-3)] leading-snug">
+            {statsQ.data?.todaySolved
+              ? "Today's QOTD is in the bag. See you tomorrow."
+              : today
+                ? "Solve today's QOTD before midnight to keep your streak alive."
+                : 'Solve the next published QOTD to start a new streak.'}
+          </p>
+          {statsQ.data?.totalSolved != null && (
+            <p className="mt-1.5 text-[11px] text-[var(--ds-text-3)] font-mono tabular-nums">
+              Lifetime · {statsQ.data.totalSolved} solved
+            </p>
+          )}
+        </DSCard>
+
+        {/* Last 30 days calendar — design line 213-237 */}
+        <DSCard>
+          <div className="flex items-center justify-between mb-3 gap-2 flex-wrap">
+            <div className="text-[11px] uppercase tracking-[0.06em] font-semibold text-[var(--ds-text-3)]">Last 30 days</div>
+            <div className="flex items-center gap-2 text-[10.5px] text-[var(--ds-text-3)]">
+              <span className="inline-flex items-center gap-1">
+                <span className="size-[8px] rounded-[2px] bg-[var(--accent)]" /> solved
+              </span>
+              <span className="inline-flex items-center gap-1">
+                <span className="size-[8px] rounded-[2px] bg-[var(--warning-bg)] border border-[var(--warning-border)]" /> live
+              </span>
+              <span className="inline-flex items-center gap-1">
+                <span className="size-[8px] rounded-[2px] bg-[var(--surface-soft)] border border-[var(--border-subtle)]" /> missed
+              </span>
+            </div>
+          </div>
+          <div className="grid grid-cols-7 gap-1.5">
+            {calendar.length === 0 ? (
+              Array.from({ length: 30 }, (_, i) => (
+                <div
+                  key={i}
+                  className="aspect-square rounded-[5px] bg-[var(--surface-soft)] border border-[var(--border-subtle)] animate-pulse"
+                />
+              ))
+            ) : (
+              calendar.map((d) => {
+                const isToday = d.date === (today?.date?.slice(0, 10) ?? '');
+                const state: 'live' | 'solved' | 'missed' = isToday && !d.solved
+                  ? 'live'
+                  : d.solved
+                    ? 'solved'
+                    : 'missed';
+                return (
+                  <div
+                    key={d.date}
+                    title={`${new Date(d.date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })} · ${state}`}
+                    className={cn(
+                      'aspect-square rounded-[5px] border',
+                      state === 'solved' && 'bg-[var(--accent)] border-transparent opacity-90',
+                      state === 'live' && 'bg-[var(--warning-bg)] border-[var(--warning-border)] live-dot',
+                      state === 'missed' && 'bg-[var(--surface-soft)] border-[var(--border-subtle)]',
+                    )}
+                  />
+                );
+              })
+            )}
+          </div>
+        </DSCard>
+      </div>
+    </div>
+  );
+}
+
+// ─── Competitions tab
+function CompetitionsTab() {
+  const { token } = useAuth();
+  const regsQ = useQuery({
+    queryKey: ['my-registrations'],
+    queryFn: () => api.getMyRegistrations(token!),
+    enabled: Boolean(token),
+  });
+
+  const eligibleEvents = (regsQ.data ?? []).filter((r) => r.event && r.event.status !== 'PAST');
+
+  if (regsQ.isLoading) {
+    return (
+      <DSCard padded={false}>
+        <div className="p-6 animate-pulse text-[12px] text-[var(--ds-text-3)] text-center">Loading…</div>
+      </DSCard>
+    );
+  }
+  if (eligibleEvents.length === 0) {
+    return (
+      <DSCard padded>
+        <EmptyState
+          icon={<Trophy size={18} />}
+          title="No competitions in your queue"
+          body="Register for an event that runs a competition round and it'll show up here."
+        />
+      </DSCard>
+    );
+  }
+  return (
+    <div className="grid md:grid-cols-2 gap-3">
+      {eligibleEvents.map((r) => (
+        <CompetitionEventCard key={r.id} eventId={r.event!.id!} eventTitle={r.event!.title!} eventStatus={r.event!.status ?? 'UPCOMING'} />
+      ))}
+    </div>
+  );
+}
+
+function CompetitionEventCard({ eventId, eventTitle, eventStatus }: { eventId: string; eventTitle: string; eventStatus: string }) {
+  const { token } = useAuth();
+  const roundsQ = useQuery({
+    queryKey: ['competition-rounds', eventId],
+    queryFn: () => api.getCompetitionRounds(eventId, token!),
+    enabled: Boolean(token),
+  });
+  const rounds = (roundsQ.data as { rounds?: Array<{ id: string; title: string; status: string; duration?: number }> } | undefined)?.rounds ?? [];
+
+  return (
+    <DSCard padded className="flex flex-col gap-3">
+      <div className="flex items-center justify-between">
+        <Pill
+          tone={eventStatus === 'ONGOING' ? 'success' : eventStatus === 'UPCOMING' ? 'info' : 'neutral'}
+          size="xs"
+          dot={eventStatus === 'ONGOING'}
+        >
+          {eventStatus}
+        </Pill>
+        <span className="text-[11px] text-[var(--ds-text-3)] font-mono tabular-nums">
+          {rounds.length} {rounds.length === 1 ? 'round' : 'rounds'}
+        </span>
+      </div>
+      <div className="text-[14px] font-semibold leading-tight">{eventTitle}</div>
+      {rounds.length === 0 ? (
+        <div className="text-[12px] text-[var(--ds-text-3)]">No rounds yet.</div>
+      ) : (
+        <div className="flex flex-col gap-1">
+          {rounds.slice(0, 3).map((r) => (
+            <a
+              key={r.id}
+              href={r.status === 'ACTIVE' ? getPlaygroundLaunchUrl(`/?contest=${r.id}`) : `/competition/${r.id}/results`}
+              target={r.status === 'ACTIVE' ? '_blank' : undefined}
+              rel="noreferrer"
+              className="flex items-center gap-2 py-1.5 -mx-1 px-1 rounded-[6px] hover:bg-[var(--surface-soft)] transition-colors"
+            >
+              <span className="text-[12.5px] font-medium flex-1 truncate">{r.title}</span>
+              <Pill
+                tone={r.status === 'ACTIVE' ? 'success' : r.status === 'FINISHED' ? 'neutral' : 'warning'}
+                size="xs"
+                dot={r.status === 'ACTIVE'}
+              >
+                {r.status}
+              </Pill>
+              {r.status === 'ACTIVE' && r.duration && (
+                <CountdownPill seconds={r.duration} tone="accent" />
+              )}
+            </a>
+          ))}
+        </div>
+      )}
+    </DSCard>
+  );
+}
+
+// ─── Leaderboard tab
+// Renders the shared QOTDLeaderboardSurface so this view stays identical to
+// /dashboard/leaderboard. The host already shows a top-level UnderlineTab nav,
+// so we skip the page-level title block and the around-me callout for a tighter
+// footprint inside the coding hub.
+function LeaderboardTab() {
+  return <QOTDLeaderboardSurface defaultTab="today" showAroundMeCta={false} />;
+}
+
+// ─── Playground tab
+function PlaygroundTab() {
+  const url = getPlaygroundLaunchUrl('/');
+  return (
+    <div className="flex flex-col gap-4">
+      <DSCard padded>
+        <div className="flex items-center justify-between gap-3 flex-wrap">
+          <div>
+            <h3 className="text-[15px] font-semibold">In-browser code playground</h3>
+            <p className="text-[12.5px] text-[var(--ds-text-3)] mt-1 max-w-prose">
+              Python / JavaScript / C++ / Java with snippet saving and a daily quota. Solve QOTDs and competition problems inside.
+            </p>
+          </div>
+          <a
+            href={url}
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex items-center gap-2 h-9 px-3.5 rounded-[8px] bg-[var(--accent)] text-[var(--accent-fg)] text-[13.5px] font-medium hover:bg-[var(--accent-hover)]"
+          >
+            Open in new tab
+            <ExternalLink size={13} />
+          </a>
+        </div>
+      </DSCard>
+      <DSCard padded={false} className="overflow-hidden">
+        <iframe
+          src={url}
+          title="Code playground"
+          className="w-full h-[70vh] block"
+          style={{ border: 0 }}
+        />
+      </DSCard>
     </div>
   );
 }

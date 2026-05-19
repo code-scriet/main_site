@@ -23,7 +23,7 @@ export function CertificateFiltersBar({
     <Card>
       <CardContent className="p-4 flex flex-col sm:flex-row gap-3">
         <div className="relative flex-1">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--ds-text-3)]" />
           <Input
             placeholder="Search name, email, event, or cert ID…"
             value={search}
@@ -35,7 +35,7 @@ export function CertificateFiltersBar({
           aria-label="Filter by certificate type"
           value={typeFilter}
           onChange={e => onTypeFilterChange(e.target.value as CertType | '')}
-          className="border border-gray-200 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
+          className="border border-[var(--border-subtle)] rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
         >
           <option value="">All Types</option>
           {CERT_TYPES.map(t => <option key={t} value={t}>{t}</option>)}

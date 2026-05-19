@@ -8,6 +8,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
 import { useAuth } from '@/context/AuthContext';
 import { api, UnauthorizedError, type NetworkProfile, type NetworkProfileInput } from '@/lib/api';
+import { useUnsavedChangesWarning } from '@/hooks/useUnsavedChangesWarning';
 import {
   ArrowLeft,
   Save,
@@ -46,6 +47,9 @@ export default function EditNetworkProfile() {
   const [error, setError] = useState<string | null>(null);
   const successTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
   const [redirectingToSignIn, setRedirectingToSignIn] = useState(false);
+  const [isDirty, setIsDirty] = useState(false);
+  const skipDirtyRef = useRef(true);
+  useUnsavedChangesWarning(isDirty && !saving);
   const nextPath = `${location.pathname}${location.search}${location.hash}`;
   const backPath = user?.role === 'NETWORK' ? '/network/status' : '/dashboard';
   const backLabel = user?.role === 'NETWORK' ? 'Network Status' : 'Dashboard';
@@ -73,10 +77,19 @@ export default function EditNetworkProfile() {
     personalWebsite: '',
   });
 
+  useEffect(() => {
+    if (skipDirtyRef.current) {
+      skipDirtyRef.current = false;
+      return;
+    }
+    setIsDirty(true);
+  }, [form]);
+
   const isAdmin = user && ['ADMIN', 'PRESIDENT'].includes(user.role);
 
   const populateForm = (data: NetworkProfile) => {
     setProfile(data);
+    skipDirtyRef.current = true;
     setForm({
       fullName: data.fullName || '',
       designation: data.designation || '',
@@ -201,6 +214,7 @@ export default function EditNetworkProfile() {
       }
 
       setSuccess('Profile updated successfully!');
+      setIsDirty(false);
       successTimerRef.current = setTimeout(() => setSuccess(null), 3000);
     } catch (err) {
       if (err instanceof UnauthorizedError) {
@@ -243,16 +257,16 @@ export default function EditNetworkProfile() {
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
-          <div className="flex items-center gap-2 text-sm text-gray-500 mb-2">
+          <div className="flex items-center gap-2 text-sm text-[var(--ds-text-3)] mb-2">
             <Link to={backPath} className="hover:text-amber-600 transition-colors">{backLabel}</Link>
             <span>›</span>
             <span className="text-amber-600 font-medium">Edit Network Profile</span>
           </div>
-          <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-3">
+          <h1 className="text-2xl font-bold text-[var(--ds-text-1)] flex items-center gap-3">
             Edit Profile
             <Badge variant="secondary" className="text-xs">{profile.fullName}</Badge>
           </h1>
-          <p className="text-sm text-gray-500 mt-1">Update the network profile visible to visitors</p>
+          <p className="text-sm text-[var(--ds-text-3)] mt-1">Update the network profile visible to visitors</p>
         </div>
         <div className="flex items-center gap-2">
           {profile.slug && (
@@ -270,16 +284,16 @@ export default function EditNetworkProfile() {
       <motion.div
         initial={{ opacity: 0, y: 10 }}
         animate={{ opacity: 1, y: 0 }}
-        className="flex items-center gap-3 p-3 rounded-xl border border-amber-200 bg-gradient-to-r from-amber-50 to-orange-50"
+        className="flex items-center gap-3 p-3 rounded-xl border border-[var(--warning-border)] bg-gradient-to-r from-amber-50 to-orange-50"
       >
-        <div className="flex h-10 w-10 items-center justify-center rounded-full bg-amber-100 flex-shrink-0">
+        <div className="flex h-10 w-10 items-center justify-center rounded-full bg-[var(--warning-bg)] flex-shrink-0">
           {isAdmin && !isOwner ? <Shield className="h-5 w-5 text-amber-600" /> : <User className="h-5 w-5 text-amber-600" />}
         </div>
         <div>
-          <p className="text-sm font-medium text-amber-900">
+          <p className="text-sm font-medium text-[var(--ds-text-1)]">
             {isAdmin && !isOwner ? 'Admin Access' : 'Profile Owner'}
           </p>
-          <p className="text-xs text-amber-700/70">
+          <p className="text-xs text-[var(--warning)]/70">
             {isAdmin && !isOwner ? 'You are editing this profile as an administrator.' : 'You are editing your own network profile.'}
           </p>
         </div>
@@ -311,7 +325,7 @@ export default function EditNetworkProfile() {
           <CardContent className="space-y-4">
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-2">
-                <label htmlFor="edit-network-full-name" className="text-sm font-medium text-gray-600">Full Name</label>
+                <label htmlFor="edit-network-full-name" className="text-sm font-medium text-[var(--ds-text-2)]">Full Name</label>
                 <Input
                   id="edit-network-full-name"
                   value={form.fullName}
@@ -320,7 +334,7 @@ export default function EditNetworkProfile() {
                 />
               </div>
               <div className="space-y-2">
-                <label htmlFor="edit-network-designation" className="text-sm font-medium text-gray-600">Designation</label>
+                <label htmlFor="edit-network-designation" className="text-sm font-medium text-[var(--ds-text-2)]">Designation</label>
                 <Input
                   id="edit-network-designation"
                   value={form.designation}
@@ -329,7 +343,7 @@ export default function EditNetworkProfile() {
                 />
               </div>
               <div className="space-y-2">
-                <label htmlFor="edit-network-company" className="text-sm font-medium text-gray-600 flex items-center gap-2">
+                <label htmlFor="edit-network-company" className="text-sm font-medium text-[var(--ds-text-2)] flex items-center gap-2">
                   <Building2 className="h-4 w-4" /> Company
                 </label>
                 <Input
@@ -340,7 +354,7 @@ export default function EditNetworkProfile() {
                 />
               </div>
               <div className="space-y-2">
-                <label htmlFor="edit-network-industry" className="text-sm font-medium text-gray-600">Industry</label>
+                <label htmlFor="edit-network-industry" className="text-sm font-medium text-[var(--ds-text-2)]">Industry</label>
                 <Input
                   id="edit-network-industry"
                   value={form.industry}
@@ -350,7 +364,7 @@ export default function EditNetworkProfile() {
               </div>
             </div>
             <div className="space-y-2">
-              <label htmlFor="edit-network-location" className="text-sm font-medium text-gray-600 flex items-center gap-2">
+              <label htmlFor="edit-network-location" className="text-sm font-medium text-[var(--ds-text-2)] flex items-center gap-2">
                 <MapPin className="h-4 w-4" /> Current Location
               </label>
               <Input
@@ -381,7 +395,7 @@ export default function EditNetworkProfile() {
               rows={3}
               className="resize-y"
             />
-            <p className="text-xs text-gray-400 mt-2">Supports Markdown formatting</p>
+            <p className="text-xs text-[var(--ds-text-3)] mt-2">Supports Markdown formatting</p>
           </CardContent>
         </Card>
 
@@ -504,7 +518,7 @@ export default function EditNetworkProfile() {
             <CardContent className="space-y-4">
               <div className="grid gap-4 sm:grid-cols-3">
                 <div className="space-y-2">
-                  <label htmlFor="edit-network-passout-year" className="text-sm font-medium text-gray-600">Passout Year</label>
+                  <label htmlFor="edit-network-passout-year" className="text-sm font-medium text-[var(--ds-text-2)]">Passout Year</label>
                   <Input
                     id="edit-network-passout-year"
                     value={form.passoutYear}
@@ -514,7 +528,7 @@ export default function EditNetworkProfile() {
                   />
                 </div>
                 <div className="space-y-2">
-                  <label htmlFor="edit-network-degree" className="text-sm font-medium text-gray-600">Degree</label>
+                  <label htmlFor="edit-network-degree" className="text-sm font-medium text-[var(--ds-text-2)]">Degree</label>
                   <Input
                     id="edit-network-degree"
                     value={form.degree}
@@ -523,7 +537,7 @@ export default function EditNetworkProfile() {
                   />
                 </div>
                 <div className="space-y-2">
-                  <label htmlFor="edit-network-branch" className="text-sm font-medium text-gray-600">Branch</label>
+                  <label htmlFor="edit-network-branch" className="text-sm font-medium text-[var(--ds-text-2)]">Branch</label>
                   <Input
                     id="edit-network-branch"
                     value={form.branch}
@@ -549,7 +563,7 @@ export default function EditNetworkProfile() {
           <CardContent className="space-y-4">
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-2">
-                <label htmlFor="edit-network-github" className="text-sm font-medium text-gray-600 flex items-center gap-2">
+                <label htmlFor="edit-network-github" className="text-sm font-medium text-[var(--ds-text-2)] flex items-center gap-2">
                   <Github className="h-4 w-4" /> GitHub
                 </label>
                 <Input
@@ -560,7 +574,7 @@ export default function EditNetworkProfile() {
                 />
               </div>
               <div className="space-y-2">
-                <label htmlFor="edit-network-linkedin" className="text-sm font-medium text-gray-600 flex items-center gap-2">
+                <label htmlFor="edit-network-linkedin" className="text-sm font-medium text-[var(--ds-text-2)] flex items-center gap-2">
                   <Linkedin className="h-4 w-4" /> LinkedIn
                 </label>
                 <Input
@@ -571,7 +585,7 @@ export default function EditNetworkProfile() {
                 />
               </div>
               <div className="space-y-2">
-                <label htmlFor="edit-network-twitter" className="text-sm font-medium text-gray-600 flex items-center gap-2">
+                <label htmlFor="edit-network-twitter" className="text-sm font-medium text-[var(--ds-text-2)] flex items-center gap-2">
                   <Twitter className="h-4 w-4" /> Twitter
                 </label>
                 <Input
@@ -582,7 +596,7 @@ export default function EditNetworkProfile() {
                 />
               </div>
               <div className="space-y-2">
-                <label htmlFor="edit-network-website" className="text-sm font-medium text-gray-600 flex items-center gap-2">
+                <label htmlFor="edit-network-website" className="text-sm font-medium text-[var(--ds-text-2)] flex items-center gap-2">
                   <Lightbulb className="h-4 w-4" /> Website
                 </label>
                 <Input

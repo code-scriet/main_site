@@ -209,6 +209,7 @@ settingsRouter.get('/public', async (req: Request, res: Response) => {
         instagramUrl: true,
         discordUrl: true,
         whatsappUrl: true,
+        accentColor: true,
       },
     });
 
@@ -245,6 +246,7 @@ settingsRouter.get('/public', async (req: Request, res: Response) => {
           instagramUrl: null,
           discordUrl: null,
           whatsappUrl: null,
+          accentColor: 'rust',
         },
       });
     }
@@ -649,6 +651,7 @@ settingsRouter.patch('/:key', authMiddleware, requireRole('ADMIN'), async (req: 
       'instagramUrl',
       'discordUrl',
       'whatsappUrl',
+      'accentColor',
     ];
 
     if (!allowedKeys.includes(key)) {
@@ -731,6 +734,16 @@ settingsRouter.patch('/:key', authMiddleware, requireRole('ADMIN'), async (req: 
 
     if (urlKeys.has(key) && value !== null && typeof value !== 'string') {
       return res.status(400).json({ success: false, error: { message: `${key} must be a URL string or empty` } });
+    }
+
+    if (key === 'accentColor') {
+      const allowedAccents = ['rust', 'teal', 'indigo', 'violet', 'mint', 'mono'];
+      if (typeof value !== 'string' || !allowedAccents.includes(value)) {
+        return res.status(400).json({
+          success: false,
+          error: { message: `accentColor must be one of: ${allowedAccents.join(', ')}` },
+        });
+      }
     }
 
     if (urlKeys.has(key) && typeof value === 'string' && value.trim() !== '') {

@@ -49,10 +49,10 @@ export function Step4Success({
         transition={{ delay: 0.35 }}
         className="text-center"
       >
-        <h2 className="text-2xl sm:text-3xl font-bold text-amber-900 font-display">
+        <h2 className="text-2xl sm:text-3xl font-bold text-[var(--ds-text-1)] font-display">
           {createdQuiz.status === 'WAITING' ? 'Quiz Opened!' : 'Draft Saved!'}
         </h2>
-        <p className="text-amber-700/60 mt-1">
+        <p className="text-[var(--warning)]/60 mt-1">
           {createdQuiz.status === 'WAITING'
             ? `"${title}" is live. Share the PIN to get started.`
             : `"${title}" is saved as a draft. Open it from Quiz Manager when you're ready.`}
@@ -66,10 +66,10 @@ export function Step4Success({
           transition={{ delay: 0.5 }}
           className="w-full max-w-md"
         >
-          <Card className="border-amber-300/60 shadow-xl overflow-hidden">
+          <Card className="border-[var(--warning-border)]/60 shadow-xl overflow-hidden">
             <div className="bg-gradient-to-r from-amber-400 via-orange-500 to-amber-600 p-1" />
             <CardContent className="p-6 sm:p-8 text-center">
-              <p className="text-xs font-semibold text-amber-700/50 uppercase tracking-widest mb-3">Your Game PIN</p>
+              <p className="text-xs font-semibold text-[var(--warning)]/50 uppercase tracking-widest mb-3">Your Game PIN</p>
               <div className="flex items-center justify-center gap-2 sm:gap-3">
                 {createdQuiz.pin.split('').map((digit, i) => (
                   <motion.span
@@ -77,7 +77,7 @@ export function Step4Success({
                     initial={{ opacity: 0, y: 20 }}
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ delay: 0.6 + i * 0.08 }}
-                    className="w-11 h-14 sm:w-14 sm:h-16 rounded-xl bg-amber-50 border-2 border-amber-200 flex items-center justify-center text-2xl sm:text-3xl font-black text-amber-900 font-mono"
+                    className="w-11 h-14 sm:w-14 sm:h-16 rounded-xl bg-[var(--warning-bg)] border-2 border-[var(--warning-border)] flex items-center justify-center text-2xl sm:text-3xl font-black text-[var(--ds-text-1)] font-mono"
                   >
                     {digit}
                   </motion.span>
@@ -85,7 +85,7 @@ export function Step4Success({
               </div>
               <button
                 onClick={onCopyPin}
-                className="mt-4 inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-amber-100 text-amber-800 text-sm font-semibold hover:bg-amber-200 transition-colors duration-200"
+                className="mt-4 inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-[var(--warning-bg)] text-[var(--warning)] text-sm font-semibold hover:bg-amber-200 transition-colors duration-200"
               >
                 {pinCopied ? (
                   <>
@@ -111,7 +111,7 @@ export function Step4Success({
           transition={{ delay: 0.7 }}
           className="w-full max-w-xs"
         >
-          <Card className="border-amber-200/60 shadow-md">
+          <Card className="border-[var(--warning-border)]/60 shadow-md">
             <CardContent className="p-5 flex flex-col items-center">
               <div ref={qrRef} className="bg-white p-3 rounded-xl">
                 <QRCodeSVG value={joinUrl} size={160} level="M" />
@@ -119,7 +119,7 @@ export function Step4Success({
               <p className="text-[10px] text-amber-600/40 mt-2 text-center break-all">{joinUrl}</p>
               <button
                 onClick={onDownloadQR}
-                className="mt-3 inline-flex items-center gap-1.5 text-xs font-semibold text-amber-700 hover:text-amber-900 transition-colors"
+                className="mt-3 inline-flex items-center gap-1.5 text-xs font-semibold text-[var(--warning)] hover:text-[var(--ds-text-1)] transition-colors"
               >
                 <Download className="h-3.5 w-3.5" />
                 Download QR
@@ -148,7 +148,7 @@ export function Step4Success({
         <Button
           asChild
           variant="outline"
-          className="w-full sm:flex-1 border-amber-300 text-amber-700 hover:bg-amber-50"
+          className="w-full sm:flex-1 border-[var(--warning-border)] text-[var(--warning)] hover:bg-[var(--warning-bg)]"
           size="lg"
         >
           <Link to="/quiz">

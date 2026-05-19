@@ -53,8 +53,8 @@ export function PollResponsesTab({
 }: PollResponsesTabProps) {
   if (poll.options.length === 0) {
     return (
-      <Card className="border-gray-200 shadow-none">
-        <CardContent className="py-10 text-center text-sm text-gray-500">
+      <Card className="border-[var(--border-subtle)] shadow-none">
+        <CardContent className="py-10 text-center text-sm text-[var(--ds-text-3)]">
           Question-type polls do not collect option votes. Use the Feedback tab to review submitted questions.
         </CardContent>
       </Card>
@@ -63,8 +63,8 @@ export function PollResponsesTab({
 
   if (poll.isAnonymous) {
     return (
-      <Card className="border-gray-200 shadow-none">
-        <CardContent className="py-10 text-center text-sm text-gray-500">
+      <Card className="border-[var(--border-subtle)] shadow-none">
+        <CardContent className="py-10 text-center text-sm text-[var(--ds-text-3)]">
           This poll is anonymous. Individual voter identities are intentionally hidden here and in exports.
         </CardContent>
       </Card>
@@ -73,10 +73,10 @@ export function PollResponsesTab({
 
   return (
     <div className="space-y-4">
-      <div className="rounded-xl border border-gray-200 bg-gray-50 p-4">
+      <div className="rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-soft)] p-4">
         <div className="grid gap-3 lg:grid-cols-4">
           <div className="relative lg:col-span-2">
-            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--ds-text-3)]" />
             <Input
               value={responseSearch}
               onChange={(event) => onResponseSearchChange(event.target.value)}
@@ -110,7 +110,7 @@ export function PollResponsesTab({
 
         <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
           <div className="flex items-center gap-2">
-            <Label htmlFor="responses-sort" className="text-xs text-gray-600">Sort</Label>
+            <Label htmlFor="responses-sort" className="text-xs text-[var(--ds-text-2)]">Sort</Label>
             <select
               id="responses-sort"
               value={responseSort}
@@ -123,7 +123,7 @@ export function PollResponsesTab({
           </div>
 
           <div className="flex items-center gap-3">
-            <span className="text-xs text-gray-600">
+            <span className="text-xs text-[var(--ds-text-2)]">
               Showing {filteredResponses.length} of {poll.responses.length} responses
             </span>
             <Button type="button" variant="outline" size="sm" onClick={onClearResponseFilters}>
@@ -132,8 +132,8 @@ export function PollResponsesTab({
           </div>
         </div>
 
-        <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-gray-200 pt-3">
-          <span className="text-xs text-gray-600">{selectedResponseIds.length} selected</span>
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-[var(--border-subtle)] pt-3">
+          <span className="text-xs text-[var(--ds-text-2)]">{selectedResponseIds.length} selected</span>
           <div className="flex flex-wrap gap-2">
             <Button type="button" variant="outline" size="sm" onClick={onSelectFilteredResponses}>
               Select filtered
@@ -180,18 +180,18 @@ export function PollResponsesTab({
 
       <div className="space-y-3">
         {filteredResponses.length === 0 ? (
-          <Card className="border-gray-200 shadow-none">
-            <CardContent className="py-10 text-center text-sm text-gray-500">
+          <Card className="border-[var(--border-subtle)] shadow-none">
+            <CardContent className="py-10 text-center text-sm text-[var(--ds-text-3)]">
               No responses matched that search.
             </CardContent>
           </Card>
         ) : (
           filteredResponses.map((response) => (
-            <div key={response.id} className="rounded-xl border border-gray-200 bg-white px-4 py-4">
+            <div key={response.id} className="rounded-xl border border-[var(--border-subtle)] bg-white px-4 py-4">
               <div className="flex items-start gap-3">
                 <input
                   type="checkbox"
-                  className="mt-1 h-4 w-4 rounded border-gray-300 text-amber-600 focus:ring-amber-500"
+                  className="mt-1 h-4 w-4 rounded border-[var(--border-default)] text-amber-600 focus:ring-amber-500"
                   checked={selectedResponseIds.includes(response.id)}
                   onChange={() => onToggleResponseSelection(response.id)}
                   aria-label={`Select response from ${response.user.name}`}
@@ -200,16 +200,16 @@ export function PollResponsesTab({
                   <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                     <div>
                       <div className="font-medium text-gray-950">{response.user.name}</div>
-                      <div className="text-sm text-gray-500">{response.user.email}</div>
-                      <div className="mt-1 text-xs text-gray-500">{response.user.role.replace(/_/g, ' ')}</div>
+                      <div className="text-sm text-[var(--ds-text-3)]">{response.user.email}</div>
+                      <div className="mt-1 text-xs text-[var(--ds-text-3)]">{response.user.role.replace(/_/g, ' ')}</div>
                     </div>
-                    <div className="text-xs text-gray-500">
+                    <div className="text-xs text-[var(--ds-text-3)]">
                       Updated {formatDateTime(response.updatedAt)}
                     </div>
                   </div>
                   <div className="mt-3 flex flex-wrap gap-2">
                     {response.optionLabels.map((label) => (
-                      <Badge key={label} variant="secondary" className="bg-amber-100 text-amber-900">
+                      <Badge key={label} variant="secondary" className="bg-[var(--warning-bg)] text-[var(--ds-text-1)]">
                         {label}
                       </Badge>
                     ))}

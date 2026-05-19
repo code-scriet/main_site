@@ -56,7 +56,7 @@ export function TeamRegistrationCard({
             {isComplete ? (
               <Badge className="bg-green-100 text-green-700 text-xs">Complete</Badge>
             ) : (
-              <Badge variant="outline" className="text-amber-600 border-amber-300 text-xs">Incomplete</Badge>
+              <Badge variant="outline" className="text-amber-600 border-[var(--warning-border)] text-xs">Incomplete</Badge>
             )}
           </div>
           <div className="flex items-center gap-1">
@@ -81,7 +81,7 @@ export function TeamRegistrationCard({
             return (
               <div key={registration.id} className="py-2 flex items-center justify-between">
                 <div className="flex items-center gap-2">
-                  <div className="h-8 w-8 rounded-full bg-amber-100 flex items-center justify-center text-amber-700 text-xs font-semibold flex-shrink-0">
+                  <div className="h-8 w-8 rounded-full bg-[var(--warning-bg)] flex items-center justify-center text-[var(--warning)] text-xs font-semibold flex-shrink-0">
                     {registration.user.name.charAt(0).toUpperCase()}
                   </div>
                   <div>
@@ -89,7 +89,7 @@ export function TeamRegistrationCard({
                       <span className="text-sm font-medium">{registration.user.name}</span>
                       {isLeader && <Crown className="h-3.5 w-3.5 text-amber-500" />}
                     </div>
-                    <span className="text-xs text-gray-500">{registration.user.email}</span>
+                    <span className="text-xs text-[var(--ds-text-3)]">{registration.user.email}</span>
                   </div>
                 </div>
                 <Button

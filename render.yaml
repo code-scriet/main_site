@@ -6,6 +6,9 @@ services:
     runtime: node
     plan: free
     buildCommand: npm install --include=dev && npx prisma generate --schema=./prisma/schema.prisma && npm run build --workspace=apps/api
+    # TODO(remove after 2026-08-01): this keeps one historical failed deploy
+    # unblocked while Render catches up; delete once every environment has moved
+    # past 20260220003000_harden_email_and_network_query_indexes.
     startCommand: npx prisma migrate resolve --rolled-back 20260220003000_harden_email_and_network_query_indexes --schema=./prisma/schema.prisma || true && npx prisma migrate deploy --schema=./prisma/schema.prisma && npm run start --workspace=apps/api
     healthCheckPath: /ping
     envVars:

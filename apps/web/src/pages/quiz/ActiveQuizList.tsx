@@ -144,6 +144,12 @@ export default function ActiveQuizList() {
     if (isAdmin) {
       void fetchAdminQuizzes();
     }
+    // CAT 8 — refetch every 15s so new live quizzes appear without a manual refresh.
+    const interval = setInterval(() => {
+      void fetchDashboardData();
+      if (isAdmin) void fetchAdminQuizzes();
+    }, 15_000);
+    return () => clearInterval(interval);
   }, [fetchAdminQuizzes, fetchDashboardData, isAdmin, user]);
 
   // PIN input handlers
@@ -297,9 +303,9 @@ export default function ActiveQuizList() {
 
   return (
     <Layout>
-      <div className="min-h-screen bg-gradient-to-br from-amber-50 via-orange-50 to-amber-100">
+      <div data-dashboard="true" data-accent="rust" className="min-h-screen bg-[var(--bg-canvas)] text-[var(--ds-text-1)]">
       {/* Hero Header */}
-      <div className="bg-gradient-to-r from-amber-400 via-orange-500 to-amber-600 text-white">
+      <div className="bg-gradient-to-r from-[var(--accent)] via-[var(--accent)] to-[var(--accent-hover)] text-[var(--accent-fg)]">
         <div className="max-w-4xl mx-auto px-4 py-12 text-center">
           <motion.div
             initial={{ opacity: 0, y: 20 }}
@@ -310,7 +316,7 @@ export default function ActiveQuizList() {
               <Zap className="h-9 w-9" />
             </div>
             <h1 className="text-4xl font-bold font-display tracking-tight mb-2">Live Quizzes</h1>
-            <p className="text-amber-100 text-lg">
+            <p className="text-[var(--accent-subtle)] text-lg">
               Enter the 6-digit PIN from your host to join
             </p>
             {liveQuizCount > 0 && (
@@ -333,11 +339,11 @@ export default function ActiveQuizList() {
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.1 }}
         >
-          <Card className="shadow-xl border-amber-200/60 mb-8 overflow-hidden">
+          <Card className="shadow-xl border-[var(--accent-ring)]/60 mb-8 overflow-hidden">
             <CardContent className="p-8">
               <div className="text-center mb-6">
-                <h2 className="text-2xl font-bold font-display text-amber-900 tracking-tight mb-1">Enter Game PIN</h2>
-                <p className="text-amber-700/50 text-sm">Ask your host for the 6-digit code</p>
+                <h2 className="text-2xl font-bold font-display text-[var(--ds-text-1)] tracking-tight mb-1">Enter Game PIN</h2>
+                <p className="text-[var(--ds-text-2)]/50 text-sm">Ask your host for the 6-digit code</p>
               </div>
 
               {/* 6-digit PIN input */}
@@ -356,8 +362,8 @@ export default function ActiveQuizList() {
                     onPaste={i === 0 ? handlePinPaste : undefined}
                     className={cn(
                       'w-12 h-14 sm:w-14 sm:h-16 text-center text-2xl sm:text-3xl font-bold font-mono rounded-xl border-2 transition-all duration-200',
-                      'focus:outline-none focus:ring-2 focus:ring-amber-400/20 focus:border-amber-400',
-                      digit ? 'border-amber-400 bg-amber-50 text-amber-900' : 'border-amber-200 bg-white text-amber-900',
+                      'focus:outline-none focus:ring-2 focus:ring-[var(--accent)]/20 focus:border-[var(--accent)]',
+                      digit ? 'border-[var(--accent)] bg-[var(--accent-subtle)] text-[var(--ds-text-1)]' : 'border-[var(--accent-ring)] bg-white text-[var(--ds-text-1)]',
                     )}
                   />
                 ))}
@@ -370,7 +376,7 @@ export default function ActiveQuizList() {
                     initial={{ opacity: 0, y: -10 }}
                     animate={{ opacity: 1, y: 0 }}
                     exit={{ opacity: 0 }}
-                    className="flex items-center justify-center gap-2 text-amber-700 text-sm mb-4"
+                    className="flex items-center justify-center gap-2 text-[var(--ds-text-2)] text-sm mb-4"
                   >
                     <AlertCircle className="h-4 w-4 flex-shrink-0" />
                     {pinPasteNotice}
@@ -405,7 +411,7 @@ export default function ActiveQuizList() {
                 <Button
                   onClick={handleJoinByPin}
                   disabled={joinLoading || pin.some(d => !d)}
-                  className="bg-gradient-to-r from-orange-500 to-amber-600 hover:from-orange-600 hover:to-amber-700 text-white px-12 py-6 text-lg font-bold rounded-xl shadow-lg shadow-amber-500/20 transition-all duration-300 active:scale-[0.98]"
+                  className="bg-[var(--accent)] hover:bg-[var(--accent-hover)] text-[var(--accent-fg)] px-12 py-6 text-lg font-bold rounded-xl shadow-lg shadow-[var(--accent)]/20 transition-all duration-300 active:scale-[0.98]"
                   size="lg"
                 >
                   {joinLoading ? (
@@ -417,7 +423,7 @@ export default function ActiveQuizList() {
                 </Button>
               </div>
 
-              <p className="text-xs text-amber-700/40 text-center mt-4">
+              <p className="text-xs text-[var(--ds-text-2)]/40 text-center mt-4">
                 The PIN is shown on your host's screen or in their invitation
               </p>
             </CardContent>
@@ -427,17 +433,17 @@ export default function ActiveQuizList() {
         {/* Tabs for History / Admin */}
         {user && (
           <Tabs value={activeTab} onValueChange={setActiveTab} className="mb-8">
-            <TabsList className="w-full justify-start bg-white border border-amber-200/60 p-1 rounded-xl shadow-sm">
-              <TabsTrigger value="join" className="flex-1 data-[state=active]:bg-amber-100 data-[state=active]:text-amber-900 rounded-lg transition-all">
+            <TabsList className="w-full justify-start bg-white border border-[var(--accent-ring)]/60 p-1 rounded-xl shadow-sm">
+              <TabsTrigger value="join" className="flex-1 data-[state=active]:bg-[var(--accent-subtle)] data-[state=active]:text-[var(--ds-text-1)] rounded-lg transition-all">
                 <Play className="h-4 w-4 mr-2" />
                 Join
               </TabsTrigger>
-              <TabsTrigger value="history" className="flex-1 data-[state=active]:bg-amber-100 data-[state=active]:text-amber-900 rounded-lg transition-all">
+              <TabsTrigger value="history" className="flex-1 data-[state=active]:bg-[var(--accent-subtle)] data-[state=active]:text-[var(--ds-text-1)] rounded-lg transition-all">
                 <History className="h-4 w-4 mr-2" />
                 My History
               </TabsTrigger>
               {isAdmin && (
-                <TabsTrigger value="manage" className="flex-1 data-[state=active]:bg-amber-100 data-[state=active]:text-amber-900 rounded-lg transition-all">
+                <TabsTrigger value="manage" className="flex-1 data-[state=active]:bg-[var(--accent-subtle)] data-[state=active]:text-[var(--ds-text-1)] rounded-lg transition-all">
                   <Settings className="h-4 w-4 mr-2" />
                   My Quizzes
                 </TabsTrigger>
@@ -446,16 +452,16 @@ export default function ActiveQuizList() {
 
             {/* Join Tab - info */}
             <TabsContent value="join" className="mt-6">
-              <Card className="border-amber-200/60">
+              <Card className="border-[var(--accent-ring)]/60">
                 <CardContent className="p-6 text-center">
-                  <div className="w-12 h-12 rounded-xl bg-amber-100 flex items-center justify-center mx-auto mb-3">
-                    <BookOpen className="h-6 w-6 text-amber-600" />
+                  <div className="w-12 h-12 rounded-xl bg-[var(--accent-subtle)] flex items-center justify-center mx-auto mb-3">
+                    <BookOpen className="h-6 w-6 text-[var(--accent)]" />
                   </div>
-                  <h3 className="text-lg font-semibold font-display text-amber-900 mb-3">How to Join a Quiz</h3>
-                  <ol className="text-sm text-amber-800/70 text-left max-w-md mx-auto space-y-2.5">
+                  <h3 className="text-lg font-semibold font-display text-[var(--ds-text-1)] mb-3">How to Join a Quiz</h3>
+                  <ol className="text-sm text-[var(--ds-text-1)]/70 text-left max-w-md mx-auto space-y-2.5">
                     {['Get the 6-digit PIN from your quiz host', 'Enter the PIN in the boxes above', 'Click "Join Quiz" and wait in the lobby', 'Answer questions as they appear!'].map((text, i) => (
                       <li key={i} className="flex items-start gap-2.5">
-                        <span className="w-5 h-5 rounded-full bg-gradient-to-br from-orange-500 to-amber-600 text-white text-xs flex items-center justify-center flex-shrink-0 mt-0.5 font-semibold">
+                        <span className="w-5 h-5 rounded-full bg-gradient-to-br from-[var(--accent)]0 to-[var(--accent-hover)] text-white text-xs flex items-center justify-center flex-shrink-0 mt-0.5 font-semibold">
                           {i + 1}
                         </span>
                         {text}
@@ -468,10 +474,10 @@ export default function ActiveQuizList() {
 
             {/* History Tab */}
             <TabsContent value="history" className="mt-6">
-              <Card className="border-amber-200/60 overflow-hidden">
-                <div className="p-4 border-b border-amber-100 flex items-center justify-between">
-                  <h3 className="font-semibold font-display text-amber-900 flex items-center gap-2 tracking-tight">
-                    <Trophy className="h-5 w-5 text-amber-500" />
+              <Card className="border-[var(--accent-ring)]/60 overflow-hidden">
+                <div className="p-4 border-b border-[var(--border-subtle)] flex items-center justify-between">
+                  <h3 className="font-semibold font-display text-[var(--ds-text-1)] flex items-center gap-2 tracking-tight">
+                    <Trophy className="h-5 w-5 text-[var(--accent)]" />
                     Quiz History
                   </h3>
                   <div className="flex items-center gap-1">
@@ -480,7 +486,7 @@ export default function ActiveQuizList() {
                         variant="ghost"
                         size="sm"
                         onClick={exportHistoryCSV}
-                        className="text-amber-700/50 hover:text-amber-700 h-8"
+                        className="text-[var(--ds-text-2)]/50 hover:text-[var(--ds-text-2)] h-8"
                         title="Export history as CSV"
                         aria-label="Export quiz history as CSV"
                       >
@@ -488,42 +494,42 @@ export default function ActiveQuizList() {
                       </Button>
                     )}
                     <Button variant="ghost" size="sm" onClick={() => void fetchDashboardData()} className="h-8" aria-label="Refresh quiz history">
-                      <RefreshCw className={cn('h-4 w-4 text-amber-700/50', historyLoading && 'animate-spin')} />
+                      <RefreshCw className={cn('h-4 w-4 text-[var(--ds-text-2)]/50', historyLoading && 'animate-spin')} />
                     </Button>
                   </div>
                 </div>
 
                 {historyLoading ? (
                   <div className="p-8 text-center">
-                    <Loader2 className="h-8 w-8 animate-spin mx-auto text-amber-500" />
+                    <Loader2 className="h-8 w-8 animate-spin mx-auto text-[var(--accent)]" />
                   </div>
                 ) : myHistory.length === 0 ? (
                   <div className="p-8 text-center">
-                    <History className="h-12 w-12 mx-auto text-amber-300 mb-3" />
-                    <p className="text-amber-800/80 font-medium">No quiz history yet</p>
-                    <p className="text-sm text-amber-700/40 mt-1">Join a quiz to see your results here</p>
+                    <History className="h-12 w-12 mx-auto text-[var(--accent)] mb-3" />
+                    <p className="text-[var(--ds-text-1)]/80 font-medium">No quiz history yet</p>
+                    <p className="text-sm text-[var(--ds-text-2)]/40 mt-1">Join a quiz to see your results here</p>
                   </div>
                 ) : (
-                  <div className="divide-y divide-amber-100">
+                  <div className="divide-y divide-[var(--border-subtle)]">
                     {myHistory.map((item, i) => (
                       <motion.div
                         key={item.quizId}
                         initial={{ opacity: 0, y: 10 }}
                         animate={{ opacity: 1, y: 0 }}
                         transition={{ delay: i * 0.05 }}
-                        className="p-4 hover:bg-amber-50/50 transition-colors duration-200"
+                        className="p-4 hover:bg-[var(--accent-subtle)]/50 transition-colors duration-200"
                       >
                         <div className="flex items-center justify-between gap-3">
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center gap-2">
-                              <h4 className="font-medium text-amber-900 truncate">{item.title}</h4>
+                              <h4 className="font-medium text-[var(--ds-text-1)] truncate">{item.title}</h4>
                               {item.joinedMidQuiz && (
-                                <Badge variant="outline" className="text-[10px] border-amber-300 text-amber-600 px-1.5 py-0 flex-shrink-0">
+                                <Badge variant="outline" className="text-[10px] border-[var(--accent-ring)] text-[var(--accent)] px-1.5 py-0 flex-shrink-0">
                                   Late join
                                 </Badge>
                               )}
                             </div>
-                            <div className="flex items-center gap-3 mt-1 text-xs text-amber-700/50">
+                            <div className="flex items-center gap-3 mt-1 text-xs text-[var(--ds-text-2)]/50">
                               <span className="flex items-center gap-1">
                                 <Clock className="h-3 w-3" />
                                 {item.endedAt ? formatDate(item.endedAt, 'short') : 'Pending'}
@@ -536,23 +542,23 @@ export default function ActiveQuizList() {
                           </div>
                           <div className="flex items-center gap-3 sm:gap-4 ml-2">
                             <div className="text-right">
-                              <div className="text-lg font-bold font-display text-amber-800 tabular-nums">
+                              <div className="text-lg font-bold font-display text-[var(--ds-text-1)] tabular-nums">
                                 #{item.finalRank || '—'}
                               </div>
-                              <div className="text-[10px] text-amber-700/50 tabular-nums">
+                              <div className="text-[10px] text-[var(--ds-text-2)]/50 tabular-nums">
                                 {item.finalScore} pts
                               </div>
                             </div>
-                            <div className="w-px h-6 bg-amber-200 hidden sm:block" />
+                            <div className="w-px h-6 bg-[var(--accent-subtle)] hidden sm:block" />
                             <div className="text-right hidden sm:block">
                               <div className="font-semibold text-sm text-green-600 tabular-nums">
                                 {item.correctCount}/{item.questionCount}
                               </div>
-                              <div className="text-[10px] text-amber-700/50">correct</div>
+                              <div className="text-[10px] text-[var(--ds-text-2)]/50">correct</div>
                             </div>
                             {/* #46 — Clearly labeled "View Results" link */}
                             <Link to={`/quiz/${item.quizId}/results`}>
-                              <Button variant="outline" size="sm" className="border-amber-200 text-amber-700 hover:bg-amber-50 h-8 text-xs gap-1">
+                              <Button variant="outline" size="sm" className="border-[var(--accent-ring)] text-[var(--ds-text-2)] hover:bg-[var(--accent-subtle)] h-8 text-xs gap-1">
                                 <Eye className="h-3.5 w-3.5" />
                                 <span className="hidden sm:inline">Results</span>
                               </Button>
@@ -570,11 +576,11 @@ export default function ActiveQuizList() {
             {isAdmin && (
               <TabsContent value="manage" className="mt-6 space-y-4">
                 <div className="flex items-center justify-between">
-                  <h3 className="font-semibold font-display text-amber-900 flex items-center gap-2 tracking-tight">
-                    <Settings className="h-5 w-5 text-amber-500" />
+                  <h3 className="font-semibold font-display text-[var(--ds-text-1)] flex items-center gap-2 tracking-tight">
+                    <Settings className="h-5 w-5 text-[var(--accent)]" />
                     Your Quizzes
                   </h3>
-                  <Button asChild className="bg-gradient-to-r from-orange-500 to-amber-600 hover:from-orange-600 hover:to-amber-700 shadow-md shadow-amber-500/20">
+                  <Button asChild className="bg-gradient-to-r from-[var(--accent)]0 to-[var(--accent-hover)] hover:from-[var(--accent)] hover:to-[var(--accent-hover)] shadow-md shadow-[var(--accent)]/20">
                     <Link to="/quiz/create">
                       <Plus className="h-4 w-4 mr-2" />
                       Create Quiz
@@ -592,15 +598,15 @@ export default function ActiveQuizList() {
                         className={cn(
                           'px-3 py-1 rounded-full text-xs font-semibold border transition-all duration-200 whitespace-nowrap',
                           statusFilter === filter
-                            ? 'bg-amber-100 border-amber-300 text-amber-800'
-                            : 'bg-white border-amber-200/60 text-amber-700/50 hover:border-amber-300 hover:text-amber-700',
+                            ? 'bg-[var(--accent-subtle)] border-[var(--accent-ring)] text-[var(--ds-text-1)]'
+                            : 'bg-white border-[var(--accent-ring)]/60 text-[var(--ds-text-2)]/50 hover:border-[var(--accent-ring)] hover:text-[var(--ds-text-2)]',
                         )}
                       >
                         {filter === 'ALL' ? 'All' : filter.charAt(0) + filter.slice(1).toLowerCase()}
                         {filter === 'ALL' ? (
-                          <span className="ml-1.5 text-amber-700/40">{adminQuizzes.length}</span>
+                          <span className="ml-1.5 text-[var(--ds-text-2)]/40">{adminQuizzes.length}</span>
                         ) : statusCounts[filter] ? (
-                          <span className="ml-1.5 text-amber-700/40">{statusCounts[filter]}</span>
+                          <span className="ml-1.5 text-[var(--ds-text-2)]/40">{statusCounts[filter]}</span>
                         ) : null}
                       </button>
                     ))}
@@ -608,21 +614,21 @@ export default function ActiveQuizList() {
                 )}
 
                 {adminQuizzes.length === 0 ? (
-                  <Card className="border-amber-200/60">
+                  <Card className="border-[var(--accent-ring)]/60">
                     <CardContent className="p-8 text-center">
-                      <div className="w-12 h-12 rounded-xl bg-amber-100 flex items-center justify-center mx-auto mb-3">
-                        <BookOpen className="h-6 w-6 text-amber-500" />
+                      <div className="w-12 h-12 rounded-xl bg-[var(--accent-subtle)] flex items-center justify-center mx-auto mb-3">
+                        <BookOpen className="h-6 w-6 text-[var(--accent)]" />
                       </div>
-                      <p className="text-amber-800/80 font-medium">No quizzes created yet</p>
-                      <Button asChild className="mt-4 bg-gradient-to-r from-orange-500 to-amber-600 hover:from-orange-600 hover:to-amber-700">
+                      <p className="text-[var(--ds-text-1)]/80 font-medium">No quizzes created yet</p>
+                      <Button asChild className="mt-4 bg-gradient-to-r from-[var(--accent)]0 to-[var(--accent-hover)] hover:from-[var(--accent)] hover:to-[var(--accent-hover)]">
                         <Link to="/quiz/create">Create Your First Quiz</Link>
                       </Button>
                     </CardContent>
                   </Card>
                 ) : filteredAdminQuizzes.length === 0 ? (
-                  <Card className="border-amber-200/60">
+                  <Card className="border-[var(--accent-ring)]/60">
                     <CardContent className="p-6 text-center">
-                      <p className="text-amber-700/50 text-sm">No quizzes with status "{statusFilter.toLowerCase()}"</p>
+                      <p className="text-[var(--ds-text-2)]/50 text-sm">No quizzes with status "{statusFilter.toLowerCase()}"</p>
                     </CardContent>
                   </Card>
                 ) : (
@@ -634,12 +640,12 @@ export default function ActiveQuizList() {
                         animate={{ opacity: 1, y: 0 }}
                         transition={{ delay: i * 0.04 }}
                       >
-                        <Card className="border-amber-200/60 hover:shadow-md transition-shadow duration-200">
+                        <Card className="border-[var(--accent-ring)]/60 hover:shadow-md transition-shadow duration-200">
                           <CardContent className="p-4">
                             <div className="flex items-center justify-between gap-3">
                               <div className="flex-1 min-w-0">
                                 <div className="flex items-center gap-2 flex-wrap">
-                                  <span className="font-semibold text-amber-900 truncate">{quiz.title}</span>
+                                  <span className="font-semibold text-[var(--ds-text-1)] truncate">{quiz.title}</span>
                                   {/* Status badge — per spec: ACTIVE gets pulsing dot */}
                                   <Badge variant="outline" className={cn('text-[10px] border', statusConfig[quiz.status]?.classes || 'bg-gray-100 text-gray-600 border-gray-300')}>
                                     {statusConfig[quiz.status]?.dot && (
@@ -651,7 +657,7 @@ export default function ActiveQuizList() {
                                     {quiz.status}
                                   </Badge>
                                 </div>
-                                <div className="flex items-center gap-3 mt-1.5 text-xs text-amber-700/50 flex-wrap">
+                                <div className="flex items-center gap-3 mt-1.5 text-xs text-[var(--ds-text-2)]/50 flex-wrap">
                                   <span>{quiz.questionCount} questions</span>
                                   {quiz._count && (
                                     <span className="flex items-center gap-1">
@@ -667,7 +673,7 @@ export default function ActiveQuizList() {
                                   {quiz.pin && (quiz.status === 'WAITING' || quiz.status === 'ACTIVE') && (
                                     <button
                                       onClick={() => copyPin(quiz.pin!)}
-                                      className="flex items-center gap-1 font-mono font-bold text-amber-800 bg-amber-100 rounded-md px-2 py-0.5 hover:bg-amber-200 transition-colors"
+                                      className="flex items-center gap-1 font-mono font-bold text-[var(--ds-text-1)] bg-[var(--accent-subtle)] rounded-md px-2 py-0.5 hover:bg-[var(--accent-subtle)] transition-colors"
                                       aria-label={`Copy PIN ${quiz.pin} for ${quiz.title}`}
                                     >
                                       PIN: {quiz.pin}
@@ -696,7 +702,7 @@ export default function ActiveQuizList() {
                                     size="sm"
                                     variant="outline"
                                     onClick={() => navigate(`/quiz/${quiz.id}`)}
-                                    className="border-amber-300 text-amber-700 hover:bg-amber-50 h-8 text-xs"
+                                    className="border-[var(--accent-ring)] text-[var(--ds-text-2)] hover:bg-[var(--accent-subtle)] h-8 text-xs"
                                   >
                                     <ExternalLink className="h-3 w-3 mr-1" />
                                     Enter
@@ -741,11 +747,11 @@ export default function ActiveQuizList() {
 
         {/* Not logged in message */}
         {!user && (
-          <Card className="border-amber-200/60 mb-8">
+          <Card className="border-[var(--accent-ring)]/60 mb-8">
             <CardContent className="p-6 text-center">
-              <Users className="h-10 w-10 mx-auto text-amber-400 mb-3" />
-              <p className="text-amber-800/80 mb-3">Sign in to track your quiz history and scores</p>
-              <Button asChild variant="outline" className="border-amber-300 text-amber-700 hover:bg-amber-50">
+              <Users className="h-10 w-10 mx-auto text-[var(--accent)] mb-3" />
+              <p className="text-[var(--ds-text-1)]/80 mb-3">Sign in to track your quiz history and scores</p>
+              <Button asChild variant="outline" className="border-[var(--accent-ring)] text-[var(--ds-text-2)] hover:bg-[var(--accent-subtle)]">
                 <Link to="/signin">Sign In</Link>
               </Button>
             </CardContent>

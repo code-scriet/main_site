@@ -803,9 +803,11 @@ app.post('/api/execute', async (req, res) => {
 
     let userSession = null;
 
-    // PLAYGROUND block gate (admin-deep-control). Indexed unique lookup; fails-open on
-    // DB blip so legitimate users don't see transient failures. Table is added in
-    // the admin_deep_control migration; pre-migration the catch keeps things working.
+    // PLAYGROUND block gate (admin-deep-control). Indexed unique lookup.
+    // Fail-closed for security: an enforcement guard must not become a no-op
+    // when the DB hiccups. The single exception is 42P01 (relation does not
+    // exist) which is the documented "pre-migration" safety net — without it
+    // the playground would be unreachable until the migration runs.
     if (req.user && pool) {
       try {
         const blockCheck = await pool.query(
@@ -822,9 +824,18 @@ app.post('/api/execute', async (req, res) => {
           }
         }
       } catch (err) {
-        // Fail-open: pre-migration the table doesn't exist (42P01) — don't kill legitimate runs.
-        if (err?.code !== '42P01') {
-          console.warn('[playground] block check failed', err?.message || err);
+        if (err?.code === '42P01') {
+          // Pre-migration: user_blocks table not yet created. Allow the request
+          // through; once the migration runs the gate engages automatically.
+        } else {
+          console.error('[playground] block check failed; failing closed', {
+            code: err?.code,
+            message: err?.message || String(err),
+          });
+          return res.status(503).json({
+            success: false,
+            error: 'Service temporarily unavailable. Please retry shortly.',
+          });
         }
       }
     }

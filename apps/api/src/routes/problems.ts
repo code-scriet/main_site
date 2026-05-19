@@ -6,6 +6,7 @@ import { authMiddleware, optionalAuthMiddleware, getAuthUser } from '../middlewa
 import { requireRole } from '../middleware/role.js';
 import { ApiResponse, ErrorCodes } from '../utils/response.js';
 import { logger } from '../utils/logger.js';
+import { broadcastNotification } from '../utils/notifications.js';
 import { auditLog } from '../utils/audit.js';
 import {
   ProblemHttpError,
@@ -351,6 +352,113 @@ problemsRouter.get('/admin/pending-cap-requests', authMiddleware, requireRole('A
   }
 });
 
+// Dashboard v2: one-click grant for cap requests from the admin pending-requests card.
+problemsRouter.post('/admin/cap-requests/:counterId/grant', authMiddleware, requireRole('ADMIN'), async (req, res) => {
+  try {
+    const admin = getAuthUser(req)!;
+    const schema = z.object({
+      deltaSubmits: z.coerce.number().int().min(1).max(50).optional(),
+      newCap: z.coerce.number().int().min(1).max(100).optional(),
+    });
+    const parsed = schema.safeParse(req.body ?? {});
+    if (!parsed.success) return ApiResponse.badRequest(res, parsed.error.errors[0]?.message || 'Invalid grant payload');
+
+    const counter = await prisma.problemSubmissionCounter.findUnique({
+      where: { id: req.params.counterId },
+      include: { problem: { select: { defaultSubmitCap: true } } },
+    });
+    if (!counter) return ApiResponse.notFound(res, 'Cap request not found');
+    const base = counter.capOverride ?? counter.problem.defaultSubmitCap;
+    const targetCap = parsed.data.newCap ?? base + (parsed.data.deltaSubmits ?? 2);
+
+    await prisma.problemSubmissionCounter.update({
+      where: { id: counter.id },
+      data: {
+        capOverride: targetCap,
+        pendingRequest: false,
+        lastGrantedBy: admin.id,
+        lastGrantedAt: new Date(),
+      },
+    });
+    await auditLog(admin.id, 'PROBLEM_CAP_GRANTED', 'Problem', counter.problemId, {
+      userId: counter.userId,
+      contextType: counter.contextType,
+      contextKey: counter.contextKey,
+      newCap: targetCap,
+    });
+    return ApiResponse.success(res, { success: true, capOverride: targetCap });
+  } catch (error) {
+    return handleProblemError(res, error, 'Failed to grant cap request');
+  }
+});
+
+problemsRouter.post('/admin/cap-requests/:counterId/deny', authMiddleware, requireRole('ADMIN'), async (req, res) => {
+  try {
+    const admin = getAuthUser(req)!;
+    const counter = await prisma.problemSubmissionCounter.findUnique({
+      where: { id: req.params.counterId },
+    });
+    if (!counter) return ApiResponse.notFound(res, 'Cap request not found');
+    await prisma.problemSubmissionCounter.update({
+      where: { id: counter.id },
+      data: { pendingRequest: false, requestNote: null },
+    });
+    await auditLog(admin.id, 'PROBLEM_CAP_DENIED', 'Problem', counter.problemId, {
+      userId: counter.userId,
+      contextType: counter.contextType,
+      contextKey: counter.contextKey,
+    });
+    return ApiResponse.success(res, { success: true });
+  } catch (error) {
+    return handleProblemError(res, error, 'Failed to deny cap request');
+  }
+});
+
+// Dashboard v2: cross-problem recent submissions for the current user (overview widget).
+problemsRouter.get('/me/recent', authMiddleware, async (req, res) => {
+  try {
+    const user = getAuthUser(req)!;
+    const limit = Math.min(20, Math.max(1, Number(req.query.limit) || 5));
+    const submissions = await prisma.problemSubmission.findMany({
+      where: { userId: user.id },
+      orderBy: { submittedAt: 'desc' },
+      take: limit,
+      select: {
+        id: true,
+        problemId: true,
+        language: true,
+        verdict: true,
+        score: true,
+        passedCount: true,
+        totalCount: true,
+        runtimeMs: true,
+        submittedAt: true,
+        contextType: true,
+        contextKey: true,
+        problem: { select: { title: true, slug: true, difficulty: true } },
+      },
+    });
+    return ApiResponse.success(res, submissions.map(s => ({
+      id: s.id,
+      problemId: s.problemId,
+      problemTitle: s.problem?.title ?? '',
+      problemSlug: s.problem?.slug ?? null,
+      difficulty: s.problem?.difficulty ?? null,
+      language: s.language,
+      verdict: s.verdict,
+      score: s.score,
+      passedCount: s.passedCount,
+      totalCount: s.totalCount,
+      runtimeMs: s.runtimeMs,
+      submittedAt: s.submittedAt.toISOString(),
+      contextType: s.contextType,
+      contextKey: s.contextKey,
+    })));
+  } catch (error) {
+    return handleProblemError(res, error, 'Failed to load recent submissions');
+  }
+});
+
 problemsRouter.post('/', authMiddleware, requireRole('CORE_MEMBER'), async (req, res) => {
   try {
     const author = getAuthUser(req);
@@ -368,6 +476,21 @@ problemsRouter.post('/', authMiddleware, requireRole('CORE_MEMBER'), async (req,
       publishedOnCreate: safeInput.isPublished,
       authorRole: author.role,
     });
+    // Dashboard v3: in-app broadcast only if the problem went live (drafts don't notify).
+    if (safeInput.isPublished) {
+      broadcastNotification({
+        source: 'AUTO_PROBLEM',
+        audience: 'ALL',
+        category: 'problem',
+        icon: 'terminal',
+        title: `New problem: ${problem.title}`,
+        body: `${problem.difficulty} · solve it from the practice catalog.`,
+        link: `/dashboard/coding?tab=practice&problem=${problem.slug}`,
+        refEntity: 'problem',
+        refEntityId: problem.id,
+        createdById: author.id,
+      }).catch(() => undefined);
+    }
     return ApiResponse.created(res, { problem: await serializeProblemDetail(problem, author) }, 'Problem created');
   } catch (error) {
     return handleProblemError(res, error, 'Failed to create problem');
@@ -416,6 +539,20 @@ problemsRouter.patch('/:id/publish', authMiddleware, requireRole('ADMIN'), async
       data: { isPublished: parsed.data.isPublished },
     });
     await auditLog(admin.id, 'PROBLEM_PUBLISH_TOGGLED', 'Problem', problem.id, { isPublished: problem.isPublished });
+    if (problem.isPublished) {
+      broadcastNotification({
+        source: 'AUTO_PROBLEM',
+        audience: 'ALL',
+        category: 'problem',
+        icon: 'terminal',
+        title: `New problem published: ${problem.title}`,
+        body: `${problem.difficulty} · solve it from the practice catalog.`,
+        link: `/dashboard/coding?tab=practice&problem=${problem.slug}`,
+        refEntity: 'problem',
+        refEntityId: problem.id,
+        createdById: admin.id,
+      }).catch(() => undefined);
+    }
     return ApiResponse.success(res, { problem: serializeProblemSummary(problem) }, 'Publish state updated');
   } catch (error) {
     return handleProblemError(res, error, 'Failed to update publish state');

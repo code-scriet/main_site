@@ -17,6 +17,7 @@ import { logger } from '../utils/logger.js';
 import { getJwtSecret } from '../utils/jwt.js';
 import { QuizCapacityError, quizStore } from './quizStore.js';
 import rateLimit from 'express-rate-limit';
+import { socketEvents } from '../utils/socket.js';
 
 export const quizRouter = Router();
 
@@ -234,6 +235,8 @@ function decodeCsvBuffer(buffer: Buffer): string {
   }
 
   // If text has many null bytes, it is likely UTF-16LE from Excel.
+  // The null in the regex is intentional — that's the BOM pattern we're detecting.
+  // eslint-disable-next-line no-control-regex
   const nullByteCount = (decoded.match(/\u0000/g) || []).length;
   const nullByteRatio = nullByteCount / Math.max(decoded.length, 1);
 
@@ -2084,6 +2087,9 @@ quizRouter.post('/:quizId/open', authMiddleware, requireRole('CORE_MEMBER'), asy
         pin,
       );
     }
+
+    // Dashboard v2: broadcast a notification to all connected /notifications clients.
+    socketEvents.quizStarting({ quizId, title: quiz.title, pin });
 
     return ApiResponse.success(res, { id: quizId, status: 'WAITING', joinCode, pin }, 'Quiz is now open for joining');
   } catch (error) {

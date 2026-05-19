@@ -1,14 +1,18 @@
+// Admin Competition page — round lifecycle management.
+// Design source: code-scriet-innerdashboard/project/js/screen-admin.jsx
+//   - AdminCompetitionScreen (lines 371-431) — header, round-card grid, global lifecycle stepper.
+
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/context/AuthContext';
 import { api, type CompetitionRound, type Event, type EventTeam, type Problem } from '@/lib/api';
 import { extractApiErrorMessage } from '@/lib/error';
 import { getPlaygroundLaunchUrl, getPlaygroundPublicUrl } from '@/lib/playgroundUrl';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { useSettings } from '@/context/SettingsContext';
+import { DSCard, EmptyState, Pill, type PillTone } from '@/components/dash';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
-import { Badge } from '@/components/ui/badge';
 import {
   Dialog,
   DialogContent,
@@ -18,23 +22,29 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { RoundActionDialog } from '@/components/admin/competition/RoundActionDialog';
+import { NumericPromptDialog } from '@/components/dash';
 import {
+  AlertCircle,
   Calendar,
+  Check,
+  CheckCircle2,
+  ClipboardCheck,
+  Clock,
+  Download,
+  Eye,
+  FileText,
   Loader2,
-  Plus,
+  Pencil,
   Play,
+  Plus,
+  RefreshCw,
+  Search,
   Square,
   Trash2,
-  Pencil,
-  Search,
   Trophy,
-  RefreshCw,
-  Eye,
-  ClipboardCheck,
-  CheckCircle2,
-  Download,
-  ExternalLink,
+  Users,
 } from 'lucide-react';
+import { cn } from '@/lib/utils';
 
 type FormState = {
   eventId: string;
@@ -62,17 +72,57 @@ const DEFAULT_FORM: FormState = {
   problems: [],
 };
 
-const statusBadgeClass: Record<CompetitionRound['status'], string> = {
-  DRAFT: 'bg-gray-100 text-gray-700 border-gray-300',
-  ACTIVE: 'bg-green-100 text-green-700 border-green-300',
-  LOCKED: 'bg-yellow-100 text-yellow-700 border-yellow-300',
-  JUDGING: 'bg-blue-100 text-blue-700 border-blue-300',
-  FINISHED: 'bg-amber-100 text-amber-800 border-amber-300',
+// Map each round status to a dashboard v2 Pill tone (matches design line 387).
+const statusPill: Record<CompetitionRound['status'], { tone: PillTone; label: string; dot: boolean }> = {
+  DRAFT:    { tone: 'neutral', label: 'Draft',    dot: false },
+  ACTIVE:   { tone: 'success', label: 'Active',   dot: true  },
+  LOCKED:   { tone: 'warning', label: 'Locked',   dot: false },
+  JUDGING:  { tone: 'info',    label: 'Judging',  dot: false },
+  FINISHED: { tone: 'accent',  label: 'Finished', dot: false },
 };
 
-function formatDuration(seconds: number): string {
-  const minutes = Math.max(1, Math.floor(seconds / 60));
-  return `${minutes} min`;
+const LIFECYCLE: Array<CompetitionRound['status']> = ['DRAFT', 'ACTIVE', 'LOCKED', 'JUDGING', 'FINISHED'];
+const LIFECYCLE_LABELS: Record<CompetitionRound['status'], string> = {
+  DRAFT: 'Draft',
+  ACTIVE: 'Start',
+  LOCKED: 'Lock',
+  JUDGING: 'Judging',
+  FINISHED: 'Finish',
+};
+
+// Inline per-card lifecycle indicator (one chip per stage, highlights current).
+// Design line 412-427 has this as a global stepper; we use a per-card slim
+// version to keep the at-a-glance "where is this round" cue per row.
+function LifecycleStepper({ status }: { status: CompetitionRound['status'] }) {
+  const activeIdx = LIFECYCLE.indexOf(status);
+  return (
+    <div className="flex items-center gap-1 text-[10px] uppercase tracking-[0.06em] font-semibold">
+      {LIFECYCLE.map((s, i) => {
+        const done = i < activeIdx;
+        const current = i === activeIdx;
+        return (
+          <div key={s} className="flex items-center gap-1">
+            <span
+              className={cn(
+                'inline-flex items-center justify-center size-[6px] rounded-full',
+                current ? 'bg-[var(--accent)]' : done ? 'bg-[var(--accent)]/40' : 'bg-[var(--border-default)]',
+              )}
+            />
+            <span
+              className={cn(
+                current ? 'text-[var(--ds-text-1)]' : done ? 'text-[var(--ds-text-2)]' : 'text-[var(--ds-text-3)]',
+              )}
+            >
+              {LIFECYCLE_LABELS[s]}
+            </span>
+            {i < LIFECYCLE.length - 1 && (
+              <span className={cn('h-px w-2', done ? 'bg-[var(--accent)]/40' : 'bg-[var(--border-subtle)]')} />
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
 }
 
 function formatRemaining(seconds: number | null | undefined): string {
@@ -85,6 +135,8 @@ function formatRemaining(seconds: number | null | undefined): string {
 
 export default function AdminCompetition() {
   const { token } = useAuth();
+  const { settings } = useSettings();
+  const accent = settings?.accentColor || 'rust';
   const navigate = useNavigate();
   const [events, setEvents] = useState<Event[]>([]);
   const [roundsByEvent, setRoundsByEvent] = useState<Record<string, CompetitionRound[]>>({});
@@ -98,6 +150,8 @@ export default function AdminCompetition() {
   const [editingRound, setEditingRound] = useState<CompetitionRound | null>(null);
   const [form, setForm] = useState<FormState>(DEFAULT_FORM);
   const [eventTeamsMap, setEventTeamsMap] = useState<Record<string, EventTeam[]>>({});
+  // NumericPromptDialog replaces the window.prompt for "raise submit cap" on a round.
+  const [capTarget, setCapTarget] = useState<CompetitionRound | null>(null);
   const [problemCatalog, setProblemCatalog] = useState<Problem[]>([]);
   const [roundActionDialog, setRoundActionDialog] = useState<{
     action: 'start' | 'lock' | 'delete';
@@ -380,13 +434,16 @@ export default function AdminCompetition() {
     }
   };
 
-  const raiseCap = async (round: CompetitionRound) => {
-    if (!token) return;
-    const value = window.prompt('New submit cap for this round', '10');
-    if (!value) return;
+  const raiseCap = (round: CompetitionRound) => {
+    setCapTarget(round);
+  };
+
+  const commitRaiseCap = async (newCap: number) => {
+    if (!token || !capTarget) return;
     try {
-      await api.raiseContestCap(round.id, { newCap: Number(value) }, token);
+      await api.raiseContestCap(capTarget.id, { newCap }, token);
       setSuccess('Submit cap raised');
+      setCapTarget(null);
       await load();
     } catch (err) {
       setError(extractApiErrorMessage(err, 'Failed to raise submit cap'));
@@ -395,316 +452,324 @@ export default function AdminCompetition() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center py-20">
-        <Loader2 className="h-8 w-8 animate-spin text-amber-600" />
+      <div data-dashboard data-accent={accent} className="flex items-center justify-center py-20">
+        <Loader2 className="h-8 w-8 animate-spin text-[var(--accent)]" />
       </div>
     );
   }
 
+  // Flat round list across all events for the grid (kept ordered by event group).
+  const totalRounds = Object.values(roundsByEvent).reduce((sum, list) => sum + list.length, 0);
+
   return (
-    <div className="space-y-5">
-      <div className="flex flex-wrap items-center justify-between gap-3">
+    <div data-dashboard data-accent={accent} className="flex flex-col gap-5">
+      {/* Header — matches design line 374-381 */}
+      <div className="flex items-end justify-between gap-3 flex-wrap">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Competition Management</h1>
-          <p className="text-sm text-gray-500">Create, start, lock, judge, and publish competition rounds.</p>
+          <h1 className="text-[24px] font-semibold tracking-tight text-[var(--ds-text-1)]">Competition</h1>
+          <p className="text-[13px] text-[var(--ds-text-3)] mt-1">Round lifecycle and judging.</p>
         </div>
-        <div className="flex items-center gap-2">
-          <Button variant="outline" onClick={() => void load()} className="gap-2">
-            <RefreshCw className="h-4 w-4" />
+        <div className="flex items-center gap-1.5">
+          <Button variant="outline" size="sm" onClick={() => void load()} className="gap-1.5">
+            <RefreshCw className="h-3.5 w-3.5" />
             Refresh
           </Button>
-          <Button onClick={() => openCreate()} className="gap-2">
-            <Plus className="h-4 w-4" />
-            New Round
+          <Button size="sm" onClick={() => openCreate()} className="gap-1.5">
+            <Plus className="h-3.5 w-3.5" />
+            Create round
           </Button>
         </div>
       </div>
 
+      {/* Inline alerts */}
       {error && (
-        <Card className="border-red-200 bg-red-50">
-          <CardContent className="pt-5 text-sm text-red-700">
-            {error}
-          </CardContent>
-        </Card>
+        <div className="flex items-start gap-2 px-3.5 py-2.5 rounded-[10px] border border-[var(--danger-border)] bg-[var(--danger-bg)] text-[var(--danger)] text-[12.5px]">
+          <AlertCircle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+          <span className="flex-1">{error}</span>
+        </div>
       )}
-
       {success && (
-        <Card className="border-green-200 bg-green-50">
-          <CardContent className="pt-5 text-sm text-green-700">
-            {success}
-          </CardContent>
-        </Card>
+        <div className="flex items-start gap-2 px-3.5 py-2.5 rounded-[10px] border border-[var(--success-border)] bg-[var(--success-bg)] text-[var(--success)] text-[12.5px]">
+          <CheckCircle2 className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+          <span className="flex-1">{success}</span>
+        </div>
       )}
 
-      <Card>
-        <CardContent className="pt-5">
-          <div className="grid grid-cols-1 md:grid-cols-[1fr,220px] gap-3">
-            <div className="relative">
-              <Search className="h-4 w-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-              <Input
-                value={eventFilter}
-                onChange={(e) => setEventFilter(e.target.value)}
-                placeholder="Filter events"
-                className="pl-10"
-              />
-            </div>
-            <select
-              value={selectedEventId}
-              onChange={(e) => setSelectedEventId(e.target.value)}
-              className="h-10 rounded-lg border-2 border-amber-200 bg-white px-3 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-amber-400/20"
-            >
-              <option value="">All events</option>
-              {filteredEvents.map((event) => (
-                <option key={event.id} value={event.id}>
-                  {event.title}
-                </option>
-              ))}
-            </select>
+      {/* Filter row */}
+      <DSCard padded={false} className="p-3">
+        <div className="grid grid-cols-1 md:grid-cols-[1fr_240px] gap-2.5">
+          <div className="relative">
+            <Search className="h-3.5 w-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-[var(--ds-text-3)] pointer-events-none" />
+            <Input
+              value={eventFilter}
+              onChange={(e) => setEventFilter(e.target.value)}
+              placeholder="Filter events…"
+              className="pl-9 h-9 text-[13px]"
+            />
           </div>
-        </CardContent>
-      </Card>
+          <select
+            value={selectedEventId}
+            onChange={(e) => setSelectedEventId(e.target.value)}
+            className="h-9 w-full px-3 text-[13px] bg-[var(--bg-raised)] border border-[var(--border-default)] rounded-[8px] outline-none focus:border-[var(--accent)]"
+          >
+            <option value="">All events</option>
+            {filteredEvents.map((event) => (
+              <option key={event.id} value={event.id}>{event.title}</option>
+            ))}
+          </select>
+        </div>
+      </DSCard>
 
+      {/* Event-grouped rounds */}
       {selectedEvents.length === 0 ? (
-        <Card>
-          <CardContent className="py-12 text-center">
-            <Calendar className="h-10 w-10 text-gray-300 mx-auto mb-3" />
-            <p className="text-gray-500">No events found.</p>
-          </CardContent>
-        </Card>
+        <DSCard>
+          <EmptyState
+            icon={<Calendar size={18} />}
+            title="No events found"
+            body="Try clearing the filter, or create a new event first."
+          />
+        </DSCard>
       ) : (
-        <div className="space-y-4">
+        <div className="flex flex-col gap-5">
           {selectedEvents.map((event) => {
             const rounds = roundsByEvent[event.id] || [];
             return (
-              <Card key={event.id}>
-                <CardHeader className="border-b border-amber-100">
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <div>
-                      <CardTitle className="text-lg">{event.title}</CardTitle>
-                      <CardDescription>
-                        {event.status} · {event.teamRegistration
-                          ? `${event.teamMinSize || 1}-${event.teamMaxSize || 4} members per team`
-                          : 'Open participation'}
-                      </CardDescription>
-                    </div>
-                    <Button size="sm" onClick={() => openCreate(event.id)} className="gap-2">
-                      <Plus className="h-4 w-4" />
-                      Add Round
-                    </Button>
+              <section key={event.id} className="flex flex-col gap-3">
+                {/* Event group header — single line, matches the design's
+                    inline event-meta on each card but elevated to a section
+                    header so the per-card row stays compact. */}
+                <div className="flex items-center justify-between gap-3 flex-wrap">
+                  <div className="min-w-0">
+                    <h2 className="text-[15px] font-semibold tracking-tight truncate">{event.title}</h2>
+                    <p className="text-[12px] text-[var(--ds-text-3)] mt-0.5">
+                      <Pill tone={event.status === 'UPCOMING' ? 'info' : event.status === 'ONGOING' ? 'success' : 'neutral'} size="xs">{event.status}</Pill>
+                      <span className="ml-2">
+                        {event.teamRegistration
+                          ? `${event.teamMinSize || 1}–${event.teamMaxSize || 4} per team`
+                          : 'Individual participation'}
+                      </span>
+                      <span className="ml-2 font-mono tabular-nums">{rounds.length} round{rounds.length === 1 ? '' : 's'}</span>
+                    </p>
                   </div>
-                </CardHeader>
-                <CardContent className="pt-4 space-y-3">
-                  {rounds.length === 0 ? (
-                    <div className="rounded-lg border border-dashed border-amber-300 bg-amber-50/50 px-4 py-6 text-sm text-amber-700">
+                  <Button size="sm" variant="outline" onClick={() => openCreate(event.id)} className="gap-1.5 shrink-0">
+                    <Plus className="h-3.5 w-3.5" />
+                    Add round
+                  </Button>
+                </div>
+
+                {rounds.length === 0 ? (
+                  <DSCard className="border-dashed border-[var(--border-default)]">
+                    <div className="text-[12.5px] text-[var(--ds-text-3)] text-center py-3">
                       No rounds yet for this event.
                     </div>
-                  ) : (
-                    rounds.map((round) => (
-                      <div
-                        key={round.id}
-                        className="rounded-xl border border-gray-200 bg-white p-4 space-y-3"
-                      >
-                        <div className="flex flex-wrap items-start justify-between gap-2">
+                  </DSCard>
+                ) : (
+                  <div className="grid md:grid-cols-2 gap-3">
+                    {rounds.map((round) => {
+                      const sp = statusPill[round.status];
+                      const teamCount = event.teamRegistration
+                        ? (round.participantScope === 'SELECTED_TEAMS'
+                            ? round.allowedTeamIds?.length || 0
+                            : (eventTeamsMap[event.id] || []).length)
+                        : null;
+                      return (
+                        <DSCard key={round.id} className="flex flex-col gap-3">
+                          {/* Top row: status + type pills (design line 386-389) */}
+                          <div className="flex items-center justify-between gap-2">
+                            <Pill tone={sp.tone} size="xs" dot={sp.dot}>{sp.label}</Pill>
+                            <Pill tone="neutral" size="xs">
+                              {round.roundType === 'DSA' ? 'DSA' : 'Image Target'}
+                            </Pill>
+                          </div>
+
+                          {/* Title block (design line 390-393) */}
                           <div>
-                            <p className="text-base font-semibold text-gray-900">{round.title}</p>
-                            <p className="text-sm text-gray-500">
-                              {round.roundType === 'DSA' ? 'DSA coding round' : 'HTML/CSS build round'} · Duration: {formatDuration(round.duration)}
-                              {round.status === 'ACTIVE' && (
-                                <span className="ml-2 font-mono text-green-700">· {formatRemaining(round.remainingSeconds)}</span>
-                              )}
-                            </p>
+                            <div className="text-[11px] text-[var(--ds-text-3)] truncate">{event.title}</div>
+                            <div className="text-[15px] font-semibold mt-0.5 text-[var(--ds-text-1)] leading-tight">{round.title}</div>
                             {round.description && (
-                              <p className="text-sm text-gray-600 mt-1">{round.description}</p>
+                              <p className="text-[12px] text-[var(--ds-text-3)] mt-1 line-clamp-2">{round.description}</p>
                             )}
                           </div>
-                          <Badge variant="outline" className={statusBadgeClass[round.status]}>
-                            {round.status}
-                          </Badge>
-                        </div>
 
-                        <div className="text-xs text-gray-500">
-                          Submissions: {round.submissionCount ?? 0}
-                        </div>
-                        <div className="text-xs text-gray-500">
-                          Teams: {event.teamRegistration
-                            ? (
-                                round.participantScope === 'SELECTED_TEAMS'
-                                  ? `Selected teams (${round.allowedTeamIds?.length || 0})`
-                                  : 'All teams'
-                              )
-                            : 'All registered participants'}
-                        </div>
-                        {event.teamRegistration && (
-                          <div className="text-xs text-gray-500">
-                            Access: {round.leadersOnly ? 'Only team leaders' : 'All team members'}
+                          {/* Meta row (design line 394-398) */}
+                          <div className="flex items-center gap-3 text-[11.5px] text-[var(--ds-text-3)] flex-wrap">
+                            {teamCount !== null && (
+                              <span className="inline-flex items-center gap-1">
+                                <Users className="h-3 w-3" />
+                                <span className="font-mono tabular-nums">{teamCount}</span> teams
+                              </span>
+                            )}
+                            {round.roundType === 'DSA' && (
+                              <span className="inline-flex items-center gap-1">
+                                <FileText className="h-3 w-3" />
+                                <span className="font-mono tabular-nums">{(round.problems ?? []).length}</span> problems
+                              </span>
+                            )}
+                            <span className="inline-flex items-center gap-1">
+                              <Clock className="h-3 w-3" />
+                              <span className="font-mono tabular-nums">{Math.round(round.duration / 60)}m</span>
+                            </span>
+                            {(round.submissionCount ?? 0) > 0 && (
+                              <span className="inline-flex items-center gap-1">
+                                <Check className="h-3 w-3" />
+                                <span className="font-mono tabular-nums">{round.submissionCount}</span> submitted
+                              </span>
+                            )}
+                            {round.status === 'ACTIVE' && (
+                              <span className="font-mono tabular-nums text-[var(--success)]">
+                                {formatRemaining(round.remainingSeconds)} left
+                              </span>
+                            )}
                           </div>
-                        )}
 
-                        {(round.status === 'DRAFT' || round.status === 'ACTIVE' || round.status === 'LOCKED' || round.status === 'JUDGING' || round.status === 'FINISHED') && (
-                          <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
-                            Contestant link:{' '}
+                          {/* Per-card lifecycle indicator */}
+                          <div className="-mx-0.5 -mb-0.5 pt-1 border-t border-[var(--border-subtle)]">
+                            <LifecycleStepper status={round.status} />
+                          </div>
+
+                          {/* DSA problem chips */}
+                          {round.roundType === 'DSA' && (round.problems ?? []).length > 0 && (
+                            <div className="flex flex-wrap gap-1">
+                              {((round.problems ?? []) as unknown as Array<{ id?: string; title?: string; points?: number; problem?: Problem }>).map((link, index) => (
+                                <Pill key={link.id ?? link.problem?.id ?? index} tone="info" size="xs">
+                                  {link.title ?? link.problem?.title ?? `Problem ${index + 1}`} · {link.points ?? 100}p
+                                </Pill>
+                              ))}
+                            </div>
+                          )}
+
+                          {/* Contestant link */}
+                          <div className="rounded-[8px] border border-[var(--border-subtle)] bg-[var(--surface-soft)] px-2.5 py-2 text-[11px] text-[var(--ds-text-2)] truncate">
+                            <span className="text-[var(--ds-text-3)] mr-1">Link:</span>
                             <a
                               href={getCompetitionRoundUrl(round)}
                               target="_blank"
                               rel="noreferrer"
-                              className="font-semibold underline break-all"
+                              className="font-mono text-[var(--accent)] hover:underline break-all"
                             >
                               {getCompetitionRoundPublicUrl(round)}
                             </a>
                           </div>
-                        )}
 
-                        {round.roundType === 'DSA' && (
-                          <div className="flex flex-wrap gap-2 text-xs">
-                            {((round.problems ?? []) as unknown as Array<{ id?: string; title?: string; points?: number; problem?: Problem }>).map((link, index) => (
-                              <span key={link.id ?? link.problem?.id ?? index} className="rounded-full bg-blue-50 px-3 py-1 font-semibold text-blue-700">
-                                {link.title ?? link.problem?.title ?? `Problem ${index + 1}`} · {link.points ?? 100} pts
-                              </span>
-                            ))}
-                          </div>
-                        )}
-
-                        <div className="flex flex-wrap gap-2">
-                          {round.status === 'DRAFT' && (
-                            <>
-                              <Button size="sm" className="gap-2" onClick={() => setRoundActionDialog({ action: 'start', round })}>
-                                <Play className="h-4 w-4" />
-                                Start Round
-                              </Button>
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                className="gap-2"
-                                asChild
-                              >
-                                <a href={getCompetitionRoundUrl(round)} target="_blank" rel="noreferrer">
-                                  <ExternalLink className="h-4 w-4" />
-                                  Open Round Link
-                                </a>
-                              </Button>
-                              <Button size="sm" variant="outline" className="gap-2" onClick={() => openEdit(round)}>
-                                <Pencil className="h-4 w-4" />
-                                Edit
-                              </Button>
-                              <Button size="sm" variant="outline" className="gap-2 text-red-600" onClick={() => setRoundActionDialog({ action: 'delete', round })}>
-                                <Trash2 className="h-4 w-4" />
-                                Delete
-                              </Button>
-                            </>
-                          )}
-
-                          {round.status === 'ACTIVE' && (
-                            <>
-                              <Button size="sm" variant="outline" className="gap-2" onClick={() => setRoundActionDialog({ action: 'lock', round })}>
-                                <Square className="h-4 w-4" />
-                                Lock Now
-                              </Button>
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                className="gap-2"
-                                asChild
-                              >
-                                <a href={getCompetitionRoundUrl(round)} target="_blank" rel="noreferrer">
-                                  <ExternalLink className="h-4 w-4" />
-                                  Open Round Link
-                                </a>
-                              </Button>
-                              <Button size="sm" variant="outline" className="gap-2" onClick={() => navigate(`/admin/competition/${round.id}/judge`)}>
-                                <Eye className="h-4 w-4" />
-                                View Submissions
-                              </Button>
-                              {round.roundType === 'DSA' && (
-                                <Button size="sm" variant="outline" className="gap-2" onClick={() => void raiseCap(round)}>
-                                  Raise Cap
+                          {/* Actions — primary action + secondary in a single row.
+                              Matches design line 399-403 (Judge / Edit / Manage)
+                              while keeping every real-world status-dependent op. */}
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            {round.status === 'DRAFT' && (
+                              <>
+                                <Button size="sm" onClick={() => setRoundActionDialog({ action: 'start', round })} className="gap-1.5">
+                                  <Play className="h-3.5 w-3.5" /> Start
                                 </Button>
-                              )}
-                              <Button size="sm" variant="outline" className="gap-2 text-red-600" onClick={() => setRoundActionDialog({ action: 'delete', round })}>
-                                <Trash2 className="h-4 w-4" />
-                                Delete
-                              </Button>
-                            </>
-                          )}
-
-                          {round.status === 'LOCKED' && (
-                            <>
-                              <Button size="sm" variant="outline" className="gap-2" onClick={() => void onBeginJudging(round.id)}>
-                                <ClipboardCheck className="h-4 w-4" />
-                                Begin Judging
-                              </Button>
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                className="gap-2"
-                                asChild
-                              >
-                                <a href={getCompetitionRoundUrl(round)} target="_blank" rel="noreferrer">
-                                  <ExternalLink className="h-4 w-4" />
-                                  Open Round Link
-                                </a>
-                              </Button>
-                              <Button size="sm" variant="outline" className="gap-2" onClick={() => navigate(`/admin/competition/${round.id}/judge`)}>
-                                <Eye className="h-4 w-4" />
-                                View Submissions
-                              </Button>
-                              <Button size="sm" variant="outline" className="gap-2 text-red-600" onClick={() => setRoundActionDialog({ action: 'delete', round })}>
-                                <Trash2 className="h-4 w-4" />
-                                Delete
-                              </Button>
-                            </>
-                          )}
-
-                           {round.status === 'JUDGING' && (
-                             <>
-                               <Button size="sm" variant="outline" className="gap-2" onClick={() => navigate(`/admin/competition/${round.id}/judge`)}>
-                                 <Trophy className="h-4 w-4" />
-                                 Judge Submissions
-                               </Button>
-                               <Button size="sm" className="gap-2" onClick={() => void onFinishRound(round.id)}>
-                                 <CheckCircle2 className="h-4 w-4" />
-                                 Publish Results
-                               </Button>
-                               <Button size="sm" variant="outline" className="gap-2 text-red-600" onClick={() => setRoundActionDialog({ action: 'delete', round })}>
-                                 <Trash2 className="h-4 w-4" />
-                                 Delete
-                               </Button>
-                             </>
-                           )}
-
-                           {round.status === 'FINISHED' && (
-                             <>
-                              <Button size="sm" variant="outline" className="gap-2" onClick={() => viewResults(round.id)}>
-                                <Eye className="h-4 w-4" />
-                                View Results
-                              </Button>
-                                {round.roundType === 'DSA' && (
-                                  <Button size="sm" variant="outline" className="gap-2" onClick={() => void publishAsPractice(round)}>
-                                    Publish as Practice
-                                  </Button>
-                                )}
-                                <Button size="sm" variant="outline" className="gap-2" onClick={() => void exportResults(round)}>
-                                  <Download className="h-4 w-4" />
-                                  Export Results
+                                <Button size="sm" variant="ghost" onClick={() => openEdit(round)} className="gap-1.5">
+                                  <Pencil className="h-3.5 w-3.5" /> Edit
                                 </Button>
-                                <Button size="sm" variant="outline" className="gap-2 text-red-600" onClick={() => setRoundActionDialog({ action: 'delete', round })}>
-                                  <Trash2 className="h-4 w-4" />
-                                  Delete
+                                <Button size="sm" variant="ghost" onClick={() => setRoundActionDialog({ action: 'delete', round })} className="gap-1.5 text-[var(--danger)]">
+                                  <Trash2 className="h-3.5 w-3.5" />
                                 </Button>
                               </>
                             )}
-                        </div>
-                      </div>
-                    ))
-                  )}
-                </CardContent>
-              </Card>
+                            {round.status === 'ACTIVE' && (
+                              <>
+                                <Button size="sm" variant="secondary" onClick={() => navigate(`/admin/competition/${round.id}/judge`)} className="gap-1.5">
+                                  <Eye className="h-3.5 w-3.5" /> View submissions
+                                </Button>
+                                <Button size="sm" variant="ghost" onClick={() => setRoundActionDialog({ action: 'lock', round })} className="gap-1.5">
+                                  <Square className="h-3.5 w-3.5" /> Lock
+                                </Button>
+                                {round.roundType === 'DSA' && (
+                                  <Button size="sm" variant="ghost" onClick={() => void raiseCap(round)} className="gap-1.5">
+                                    Raise cap
+                                  </Button>
+                                )}
+                                <Button size="sm" variant="ghost" onClick={() => setRoundActionDialog({ action: 'delete', round })} className="gap-1.5 text-[var(--danger)]">
+                                  <Trash2 className="h-3.5 w-3.5" />
+                                </Button>
+                              </>
+                            )}
+                            {round.status === 'LOCKED' && (
+                              <>
+                                <Button size="sm" onClick={() => void onBeginJudging(round.id)} className="gap-1.5">
+                                  <ClipboardCheck className="h-3.5 w-3.5" /> Begin judging
+                                </Button>
+                                <Button size="sm" variant="ghost" onClick={() => navigate(`/admin/competition/${round.id}/judge`)} className="gap-1.5">
+                                  <Eye className="h-3.5 w-3.5" /> View
+                                </Button>
+                                <Button size="sm" variant="ghost" onClick={() => setRoundActionDialog({ action: 'delete', round })} className="gap-1.5 text-[var(--danger)]">
+                                  <Trash2 className="h-3.5 w-3.5" />
+                                </Button>
+                              </>
+                            )}
+                            {round.status === 'JUDGING' && (
+                              <>
+                                <Button size="sm" variant="secondary" onClick={() => navigate(`/admin/competition/${round.id}/judge`)} className="gap-1.5">
+                                  <Trophy className="h-3.5 w-3.5" /> Judge
+                                </Button>
+                                <Button size="sm" onClick={() => void onFinishRound(round.id)} className="gap-1.5">
+                                  <CheckCircle2 className="h-3.5 w-3.5" /> Publish
+                                </Button>
+                                <Button size="sm" variant="ghost" onClick={() => setRoundActionDialog({ action: 'delete', round })} className="gap-1.5 text-[var(--danger)]">
+                                  <Trash2 className="h-3.5 w-3.5" />
+                                </Button>
+                              </>
+                            )}
+                            {round.status === 'FINISHED' && (
+                              <>
+                                <Button size="sm" variant="secondary" onClick={() => viewResults(round.id)} className="gap-1.5">
+                                  <Eye className="h-3.5 w-3.5" /> Results
+                                </Button>
+                                <Button size="sm" variant="ghost" onClick={() => void exportResults(round)} className="gap-1.5">
+                                  <Download className="h-3.5 w-3.5" /> Export
+                                </Button>
+                                {round.roundType === 'DSA' && (
+                                  <Button size="sm" variant="ghost" onClick={() => void publishAsPractice(round)} className="gap-1.5">
+                                    Practice
+                                  </Button>
+                                )}
+                                <Button size="sm" variant="ghost" onClick={() => setRoundActionDialog({ action: 'delete', round })} className="gap-1.5 text-[var(--danger)]">
+                                  <Trash2 className="h-3.5 w-3.5" />
+                                </Button>
+                              </>
+                            )}
+                          </div>
+                        </DSCard>
+                      );
+                    })}
+                  </div>
+                )}
+              </section>
             );
           })}
         </div>
       )}
 
+      {/* Global lifecycle reference — design line 408-428 */}
+      {totalRounds > 0 && (
+        <DSCard>
+          <div className="text-[13.5px] font-semibold mb-1">Round lifecycle</div>
+          <p className="text-[12.5px] text-[var(--ds-text-3)] mb-4">
+            Stages run linearly. Draft → Start → Lock → Judging → Finish. You can re-open a previous stage with explicit confirmation.
+          </p>
+          <div className="flex items-center gap-2 overflow-x-auto pb-1">
+            {(['Draft', 'Start', 'Lock', 'Judging', 'Finish'] as const).map((s, i) => (
+              <div key={s} className="flex items-center gap-2 shrink-0">
+                <div
+                  className={cn(
+                    'px-3 h-9 rounded-[8px] inline-flex items-center gap-2 text-[12.5px] font-medium border',
+                    'bg-[var(--bg-raised)] text-[var(--ds-text-2)] border-[var(--border-default)]',
+                  )}
+                >
+                  <span className="size-[6px] rounded-full bg-[var(--ds-text-3)]/40" />
+                  {s}
+                </div>
+                {i < 4 && <span className="h-px w-4 bg-[var(--border-subtle)]" />}
+              </div>
+            ))}
+          </div>
+        </DSCard>
+      )}
+
       <Dialog open={createOpen} onOpenChange={(open) => (!open ? closeDialog() : setCreateOpen(open))}>
-        <DialogContent>
+        <DialogContent data-dashboard data-accent={accent}>
             <DialogHeader>
               <DialogTitle>{editingRound ? 'Edit Round' : 'Create Competition Round'}</DialogTitle>
               <DialogDescription>
@@ -713,7 +778,7 @@ export default function AdminCompetition() {
             </DialogHeader>
             <form onSubmit={onSubmitForm} className="space-y-3">
             <div>
-              <label htmlFor="competition-event" className="text-sm font-medium text-gray-700 mb-1 block">Event</label>
+              <label htmlFor="competition-event" className="text-sm font-medium text-[var(--ds-text-2)] mb-1 block">Event</label>
               <select
                 id="competition-event"
                 value={form.eventId}
@@ -728,7 +793,7 @@ export default function AdminCompetition() {
                     allowedTeamIds: [],
                   }));
                 }}
-                className="h-10 w-full rounded-lg border-2 border-amber-200 bg-white px-3 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-amber-400/20"
+                className="h-10 w-full rounded-lg border-2 border-[var(--accent-ring)] bg-[var(--bg-raised)] px-3 text-sm text-[var(--ds-text-2)] focus:outline-none focus:ring-2 focus:ring-[var(--accent)]/20"
                 required
                 disabled={Boolean(editingRound)}
               >
@@ -742,7 +807,7 @@ export default function AdminCompetition() {
             </div>
 
             <div>
-              <label htmlFor="competition-round-type" className="text-sm font-medium text-gray-700 mb-1 block">Round type</label>
+              <label htmlFor="competition-round-type" className="text-sm font-medium text-[var(--ds-text-2)] mb-1 block">Round type</label>
               <select
                 id="competition-round-type"
                 value={form.roundType}
@@ -751,7 +816,7 @@ export default function AdminCompetition() {
                   roundType: e.target.value as 'IMAGE_TARGET' | 'DSA',
                   targetImageUrl: e.target.value === 'DSA' ? '' : prev.targetImageUrl,
                 }))}
-                className="h-10 w-full rounded-lg border-2 border-amber-200 bg-white px-3 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-amber-400/20"
+                className="h-10 w-full rounded-lg border-2 border-[var(--accent-ring)] bg-[var(--bg-raised)] px-3 text-sm text-[var(--ds-text-2)] focus:outline-none focus:ring-2 focus:ring-[var(--accent)]/20"
               >
                 <option value="IMAGE_TARGET">HTML/CSS Build (image target)</option>
                 <option value="DSA">DSA Coding (auto judge)</option>
@@ -760,7 +825,7 @@ export default function AdminCompetition() {
 
             {selectedFormEvent?.teamRegistration && (
               <div>
-                <label htmlFor="competition-participant-scope" className="text-sm font-medium text-gray-700 mb-1 block">Which teams can participate?</label>
+                <label htmlFor="competition-participant-scope" className="text-sm font-medium text-[var(--ds-text-2)] mb-1 block">Which teams can participate?</label>
                 <select
                   id="competition-participant-scope"
                   value={form.participantScope}
@@ -772,7 +837,7 @@ export default function AdminCompetition() {
                       allowedTeamIds: nextScope === 'SELECTED_TEAMS' ? prev.allowedTeamIds : [],
                     }));
                   }}
-                  className="h-10 w-full rounded-lg border-2 border-amber-200 bg-white px-3 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-amber-400/20"
+                  className="h-10 w-full rounded-lg border-2 border-[var(--accent-ring)] bg-[var(--bg-raised)] px-3 text-sm text-[var(--ds-text-2)] focus:outline-none focus:ring-2 focus:ring-[var(--accent)]/20"
                 >
                   <option value="ALL">Allow everyone (all teams)</option>
                   <option value="SELECTED_TEAMS">Allow only teams selected by admin</option>
@@ -782,7 +847,7 @@ export default function AdminCompetition() {
 
             {selectedFormEvent?.teamRegistration && (
               <div>
-                <label htmlFor="competition-leaders-only" className="text-sm font-medium text-gray-700 mb-1 block">Who can submit from each eligible team?</label>
+                <label htmlFor="competition-leaders-only" className="text-sm font-medium text-[var(--ds-text-2)] mb-1 block">Who can submit from each eligible team?</label>
                 <select
                   id="competition-leaders-only"
                   value={form.leadersOnly ? 'LEADERS_ONLY' : 'ALL_MEMBERS'}
@@ -792,7 +857,7 @@ export default function AdminCompetition() {
                       leadersOnly: e.target.value === 'LEADERS_ONLY',
                     }));
                   }}
-                  className="h-10 w-full rounded-lg border-2 border-amber-200 bg-white px-3 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-amber-400/20"
+                  className="h-10 w-full rounded-lg border-2 border-[var(--accent-ring)] bg-[var(--bg-raised)] px-3 text-sm text-[var(--ds-text-2)] focus:outline-none focus:ring-2 focus:ring-[var(--accent)]/20"
                 >
                   <option value="ALL_MEMBERS">Allow everyone on an eligible team</option>
                   <option value="LEADERS_ONLY">Allow only one representative (team leader)</option>
@@ -801,27 +866,27 @@ export default function AdminCompetition() {
             )}
 
             {selectedFormEvent && !selectedFormEvent.teamRegistration && (
-              <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+              <div className="rounded-lg border border-[var(--accent-ring)] bg-[var(--accent-subtle)] px-3 py-2 text-xs text-[var(--ds-text-1)]">
                 This event is individual-based, so everyone registered for the event can participate.
               </div>
             )}
 
             {selectedFormEvent?.teamRegistration && form.participantScope === 'SELECTED_TEAMS' && (
               <div>
-                <p className="mb-1 block text-sm font-medium text-gray-700">
+                <p className="mb-1 block text-sm font-medium text-[var(--ds-text-2)]">
                   Selected teams ({form.allowedTeamIds.length})
                 </p>
                 {selectedFormTeams.length === 0 ? (
-                  <div className="rounded-lg border border-dashed border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+                  <div className="rounded-lg border border-dashed border-[var(--accent-ring)] bg-[var(--accent-subtle)] px-3 py-2 text-sm text-[var(--ds-text-1)]">
                     No teams found for this event yet.
                   </div>
                 ) : (
-                  <div className="max-h-44 space-y-2 overflow-y-auto rounded-lg border border-amber-200 bg-amber-50/40 p-3">
+                  <div className="max-h-44 space-y-2 overflow-y-auto rounded-lg border border-[var(--accent-ring)] bg-[var(--accent-subtle)]/40 p-3">
                     {selectedFormTeams.map((team) => {
                       const checked = form.allowedTeamIds.includes(team.id);
                       return (
-                        <div key={team.id} className="flex items-center justify-between gap-3 rounded-md border border-amber-100 bg-white px-3 py-2 text-sm">
-                          <span className="min-w-0 truncate font-medium text-gray-800">{team.teamName}</span>
+                        <div key={team.id} className="flex items-center justify-between gap-3 rounded-md border border-[var(--border-subtle)] bg-[var(--bg-raised)] px-3 py-2 text-sm">
+                          <span className="min-w-0 truncate font-medium text-[var(--ds-text-1)]">{team.teamName}</span>
                           <input
                             id={`admin-competition-team-${team.id}`}
                             type="checkbox"
@@ -834,14 +899,14 @@ export default function AdminCompetition() {
                                 return { ...prev, allowedTeamIds: prev.allowedTeamIds.filter((id) => id !== team.id) };
                               });
                             }}
-                            className="h-4 w-4 rounded border-amber-300 text-amber-600 focus:ring-amber-500"
+                            className="h-4 w-4 rounded border-[var(--accent-ring)] text-[var(--accent)] focus:ring-[var(--accent)]"
                           />
                         </div>
                       );
                     })}
                   </div>
                 )}
-                <p className="mt-1 text-xs text-gray-500">
+                <p className="mt-1 text-xs text-[var(--ds-text-3)]">
                   {form.leadersOnly
                     ? 'Only team leaders from admin-selected teams can open and submit this round.'
                     : 'Everyone from admin-selected teams can open and submit this round.'}
@@ -850,7 +915,7 @@ export default function AdminCompetition() {
             )}
 
             <div>
-              <label htmlFor="competition-title" className="text-sm font-medium text-gray-700 mb-1 block">Title</label>
+              <label htmlFor="competition-title" className="text-sm font-medium text-[var(--ds-text-2)] mb-1 block">Title</label>
               <Input
                 id="competition-title"
                 required
@@ -861,7 +926,7 @@ export default function AdminCompetition() {
             </div>
 
             <div>
-              <label htmlFor="competition-description" className="text-sm font-medium text-gray-700 mb-1 block">Description (optional)</label>
+              <label htmlFor="competition-description" className="text-sm font-medium text-[var(--ds-text-2)] mb-1 block">Description (optional)</label>
               <Textarea
                 id="competition-description"
                 value={form.description}
@@ -872,7 +937,7 @@ export default function AdminCompetition() {
             </div>
 
             <div>
-              <label htmlFor="competition-duration" className="text-sm font-medium text-gray-700 mb-1 block">Duration (minutes)</label>
+              <label htmlFor="competition-duration" className="text-sm font-medium text-[var(--ds-text-2)] mb-1 block">Duration (minutes)</label>
               <Input
                 id="competition-duration"
                 type="number"
@@ -886,7 +951,7 @@ export default function AdminCompetition() {
 
             {form.roundType === 'IMAGE_TARGET' ? (
               <div>
-                <label htmlFor="competition-target-image" className="text-sm font-medium text-gray-700 mb-1 block">Reference image URL (optional)</label>
+                <label htmlFor="competition-target-image" className="text-sm font-medium text-[var(--ds-text-2)] mb-1 block">Reference image URL (optional)</label>
                 <Input
                   id="competition-target-image"
                   type="url"
@@ -897,8 +962,8 @@ export default function AdminCompetition() {
               </div>
             ) : (
               <div>
-                <p className="mb-1 block text-sm font-medium text-gray-700">Problems</p>
-                <div className="space-y-2 rounded-lg border border-amber-200 bg-amber-50/40 p-3">
+                <p className="mb-1 block text-sm font-medium text-[var(--ds-text-2)]">Problems</p>
+                <div className="space-y-2 rounded-lg border border-[var(--accent-ring)] bg-[var(--accent-subtle)]/40 p-3">
                   <select
                     value=""
                     onChange={(event) => {
@@ -909,7 +974,7 @@ export default function AdminCompetition() {
                         problems: [...prev.problems, { problemId, displayOrder: prev.problems.length, points: 100 }],
                       }));
                     }}
-                    className="h-10 w-full rounded-lg border border-amber-200 bg-white px-3 text-sm text-gray-700"
+                    className="h-10 w-full rounded-lg border border-[var(--accent-ring)] bg-[var(--bg-raised)] px-3 text-sm text-[var(--ds-text-2)]"
                   >
                     <option value="">Add a problem</option>
                     {problemCatalog.map((problem) => (
@@ -919,8 +984,8 @@ export default function AdminCompetition() {
                   {form.problems.map((link, index) => {
                     const problem = problemCatalog.find((item) => item.id === link.problemId);
                     return (
-                      <div key={link.problemId} className="grid grid-cols-[1fr,96px,36px] items-center gap-2 rounded-md border border-amber-100 bg-white px-3 py-2 text-sm">
-                        <span className="min-w-0 truncate font-medium text-gray-800">{problem?.title ?? link.problemId}</span>
+                      <div key={link.problemId} className="grid grid-cols-[1fr,96px,36px] items-center gap-2 rounded-md border border-[var(--border-subtle)] bg-[var(--bg-raised)] px-3 py-2 text-sm">
+                        <span className="min-w-0 truncate font-medium text-[var(--ds-text-1)]">{problem?.title ?? link.problemId}</span>
                         <Input
                           type="number"
                           min={1}
@@ -934,7 +999,7 @@ export default function AdminCompetition() {
                         <button
                           type="button"
                           onClick={() => setForm((prev) => ({ ...prev, problems: prev.problems.filter((_, itemIndex) => itemIndex !== index) }))}
-                          className="rounded p-2 text-red-600 hover:bg-red-50"
+                          className="rounded p-2 text-[var(--danger)] hover:bg-[var(--danger-bg)]"
                           title="Remove problem"
                         >
                           <Trash2 className="h-4 w-4" />
@@ -973,6 +1038,19 @@ export default function AdminCompetition() {
           }
           void onDeleteRound(act.round);
         }}
+      />
+
+      <NumericPromptDialog
+        open={Boolean(capTarget)}
+        onOpenChange={(o) => !o && setCapTarget(null)}
+        title="Raise submit cap"
+        description={capTarget ? `Round: ${capTarget.title}` : undefined}
+        label="New submit cap"
+        defaultValue={10}
+        min={1}
+        max={1000}
+        confirmLabel="Raise cap"
+        onCommit={(value) => void commitRaiseCap(Math.max(1, Math.round(value)))}
       />
     </div>
   );

@@ -68,7 +68,7 @@ export function UserDetailContent({ userId }: Props) {
     <div className="space-y-5">
       {/* Header */}
       <header className="flex items-start gap-3">
-        <div className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-full bg-zinc-100 text-lg font-medium text-zinc-700 dark:bg-zinc-800 dark:text-zinc-200">
+        <div className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-full bg-[var(--surface-soft)] text-lg font-medium text-[var(--ds-text-2)]">
           {user.avatar ? (
             <img src={user.avatar} alt="" className="h-full w-full object-cover" />
           ) : (
@@ -77,14 +77,14 @@ export function UserDetailContent({ userId }: Props) {
         </div>
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
-            <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-50">{user.name}</h2>
+            <h2 className="text-lg font-semibold text-[var(--ds-text-1)]">{user.name}</h2>
             <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium ${badge.className}`}>
               <RoleIcon className="h-3 w-3" /> {badge.label}
             </span>
             {user.isDeleted && <Badge variant="destructive">Deleted</Badge>}
           </div>
-          <div className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">{user.email}</div>
-          <div className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
+          <div className="mt-1 text-sm text-zinc-500 dark:text-[var(--ds-text-3)]">{user.email}</div>
+          <div className="mt-1 text-xs text-zinc-500 dark:text-[var(--ds-text-3)]">
             Last seen {relativeTime(user.lastLoginAt)}
             {user.lastLoginIp && perms.isSuperAdmin && ` · ${user.lastLoginIp}`}
             {' · '}
@@ -157,8 +157,8 @@ function OverviewTab({ userId }: { userId: string }) {
       </div>
 
       {perms.canMutate && (
-        <div className="flex flex-wrap items-center gap-2 rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 dark:border-zinc-800 dark:bg-zinc-900/40">
-          <span className="text-xs font-medium text-zinc-500 dark:text-zinc-400">Streak controls:</span>
+        <div className="flex flex-wrap items-center gap-2 rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-soft)] px-3 py-2">
+          <span className="text-xs font-medium text-zinc-500 dark:text-[var(--ds-text-3)]">Streak controls:</span>
           <Button
             variant="outline"
             size="sm"
@@ -193,12 +193,12 @@ function OverviewTab({ userId }: { userId: string }) {
 
 function StatCard({ icon, label, value }: { icon: React.ReactNode; label: string; value: number }) {
   return (
-    <div className="rounded-lg border border-zinc-200 bg-white p-3 dark:border-zinc-800 dark:bg-zinc-950">
-      <div className="flex items-center gap-2 text-xs text-zinc-500 dark:text-zinc-400">
+    <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-raised)] p-3">
+      <div className="flex items-center gap-2 text-xs text-zinc-500 dark:text-[var(--ds-text-3)]">
         {icon}
         {label}
       </div>
-      <div className="mt-1 text-2xl font-semibold text-zinc-900 dark:text-zinc-50">{value}</div>
+      <div className="mt-1 text-2xl font-semibold text-[var(--ds-text-1)]">{value}</div>
     </div>
   );
 }
@@ -265,7 +265,7 @@ function ProfileTab({ userId }: { userId: string }) {
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
-        <div className="text-xs text-zinc-500 dark:text-zinc-400">Email cannot be changed from this surface.</div>
+        <div className="text-xs text-zinc-500 dark:text-[var(--ds-text-3)]">Email cannot be changed from this surface.</div>
         {perms.canActOnTarget && !editing && (
           <Button variant="outline" size="sm" onClick={() => setEditing(true)}>
             Edit
@@ -313,11 +313,11 @@ function FieldRow({
   onChange?: (v: string) => void;
 }) {
   return (
-    <div className="flex flex-col gap-1 rounded-md border border-zinc-200 px-3 py-2 dark:border-zinc-800">
-      <dt className="text-[10px] font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">{label}</dt>
+    <div className="flex flex-col gap-1 rounded-md border border-[var(--border-subtle)] px-3 py-2">
+      <dt className="text-[10px] font-medium uppercase tracking-wide text-zinc-500 dark:text-[var(--ds-text-3)]">{label}</dt>
       <dd>
         {readOnly ? (
-          <span className="text-sm text-zinc-700 dark:text-zinc-200">{value || <span className="text-zinc-400">—</span>}</span>
+          <span className="text-sm text-[var(--ds-text-2)]">{value || <span className="text-[var(--ds-text-3)]">—</span>}</span>
         ) : multiline ? (
           <Textarea value={value} onChange={(e) => onChange?.(e.target.value)} rows={3} className="text-sm" />
         ) : (
@@ -340,12 +340,12 @@ function ActivityTab({ userId }: { userId: string }) {
         {data.eventRegistrations.length === 0 ? (
           <Empty>No event registrations yet.</Empty>
         ) : (
-          <ul className="divide-y divide-zinc-100 dark:divide-zinc-900">
+          <ul className="divide-y divide-[var(--border-subtle)]">
             {data.eventRegistrations.slice(0, 25).map((r) => (
               <li key={r.id} className="flex items-center justify-between py-2 text-sm">
                 <div className="min-w-0">
-                  <div className="truncate font-medium text-zinc-900 dark:text-zinc-100">{r.event.title}</div>
-                  <div className="text-xs text-zinc-500 dark:text-zinc-400">
+                  <div className="truncate font-medium text-[var(--ds-text-1)]">{r.event.title}</div>
+                  <div className="text-xs text-zinc-500 dark:text-[var(--ds-text-3)]">
                     {new Date(r.timestamp).toLocaleDateString()} · {r.registrationType === 'GUEST' ? 'Guest' : 'Participant'}
                     {r.attended ? ' · Attended' : ''}
                   </div>
@@ -361,17 +361,17 @@ function ActivityTab({ userId }: { userId: string }) {
         {data.certificates.length === 0 ? (
           <Empty>No certificates issued.</Empty>
         ) : (
-          <ul className="divide-y divide-zinc-100 dark:divide-zinc-900">
+          <ul className="divide-y divide-[var(--border-subtle)]">
             {data.certificates.slice(0, 15).map((c) => (
               <li key={c.id} className="flex items-center justify-between py-2 text-sm">
                 <div className="min-w-0">
-                  <div className="truncate font-medium text-zinc-900 dark:text-zinc-100">{c.eventName}</div>
-                  <div className="text-xs text-zinc-500 dark:text-zinc-400">
+                  <div className="truncate font-medium text-[var(--ds-text-1)]">{c.eventName}</div>
+                  <div className="text-xs text-zinc-500 dark:text-[var(--ds-text-3)]">
                     {c.certId} · {c.type}
                     {c.isRevoked ? ' · Revoked' : ''}
                   </div>
                 </div>
-                <span className="text-xs text-zinc-500 dark:text-zinc-400">{relativeTime(c.issuedAt)}</span>
+                <span className="text-xs text-zinc-500 dark:text-[var(--ds-text-3)]">{relativeTime(c.issuedAt)}</span>
               </li>
             ))}
           </ul>
@@ -382,11 +382,11 @@ function ActivityTab({ userId }: { userId: string }) {
         {data.qotdSubmissions.length === 0 ? (
           <Empty>No QOTD submissions.</Empty>
         ) : (
-          <ul className="divide-y divide-zinc-100 dark:divide-zinc-900">
+          <ul className="divide-y divide-[var(--border-subtle)]">
             {data.qotdSubmissions.slice(0, 15).map((s) => (
               <li key={s.id} className="flex items-center justify-between py-2 text-sm">
                 <div className="min-w-0 truncate">{s.qotd?.question ?? '—'}</div>
-                <span className="ml-3 shrink-0 text-xs text-zinc-500 dark:text-zinc-400">
+                <span className="ml-3 shrink-0 text-xs text-zinc-500 dark:text-[var(--ds-text-3)]">
                   {s.qotd?.difficulty}
                 </span>
               </li>
@@ -399,11 +399,11 @@ function ActivityTab({ userId }: { userId: string }) {
         {data.quizParticipants.length === 0 ? (
           <Empty>No quiz games played.</Empty>
         ) : (
-          <ul className="divide-y divide-zinc-100 dark:divide-zinc-900">
+          <ul className="divide-y divide-[var(--border-subtle)]">
             {data.quizParticipants.slice(0, 15).map((q) => (
               <li key={q.id} className="flex items-center justify-between py-2 text-sm">
                 <div className="min-w-0 truncate font-medium">{q.quiz.title}</div>
-                <span className="text-xs text-zinc-500 dark:text-zinc-400">
+                <span className="text-xs text-zinc-500 dark:text-[var(--ds-text-3)]">
                   Score {q.finalScore}
                   {q.finalRank != null ? ` · Rank ${q.finalRank}` : ''}
                 </span>
@@ -439,7 +439,7 @@ function ActivityTab({ userId }: { userId: string }) {
 function Section({ title, icon, children }: { title: string; icon: React.ReactNode; children: React.ReactNode }) {
   return (
     <section>
-      <div className="mb-2 flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+      <div className="mb-2 flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-zinc-500 dark:text-[var(--ds-text-3)]">
         {icon}
         {title}
       </div>
@@ -449,7 +449,7 @@ function Section({ title, icon, children }: { title: string; icon: React.ReactNo
 }
 
 function Empty({ children }: { children: React.ReactNode }) {
-  return <div className="rounded-md border border-dashed border-zinc-200 px-3 py-4 text-center text-xs text-zinc-500 dark:border-zinc-800 dark:text-zinc-400">{children}</div>;
+  return <div className="rounded-md border border-dashed border-[var(--border-subtle)] px-3 py-4 text-center text-xs text-[var(--ds-text-3)]">{children}</div>;
 }
 
 // ─── Blocks ───────────────────────────────────────────────────────────────
@@ -483,15 +483,15 @@ function BlocksTab({ userId, blocks, isLoading }: { userId: string; blocks: User
   return (
     <div className="space-y-4">
       {perms.canMutate && (
-        <div className="rounded-lg border border-zinc-200 bg-white p-3 dark:border-zinc-800 dark:bg-zinc-950">
-          <div className="text-xs font-medium text-zinc-500 dark:text-zinc-400">Add or refresh a block</div>
+        <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-raised)] p-3">
+          <div className="text-xs font-medium text-zinc-500 dark:text-[var(--ds-text-3)]">Add or refresh a block</div>
           <div className="mt-2 flex flex-wrap items-end gap-2">
             <label className="flex flex-col gap-1 text-xs">
-              <span className="text-zinc-500 dark:text-zinc-400">Feature</span>
+              <span className="text-zinc-500 dark:text-[var(--ds-text-3)]">Feature</span>
               <select
                 value={feature}
                 onChange={(e) => setFeature(e.target.value as UserBlockFeature)}
-                className="h-9 rounded-md border border-zinc-200 bg-white px-3 text-sm dark:border-zinc-800 dark:bg-zinc-900"
+                className="h-9 rounded-md border border-[var(--border-subtle)] bg-[var(--bg-raised)] px-3 text-sm"
               >
                 {BLOCK_FEATURES.map((f) => (
                   <option key={f} value={f}>
@@ -501,11 +501,11 @@ function BlocksTab({ userId, blocks, isLoading }: { userId: string; blocks: User
               </select>
             </label>
             <label className="flex flex-1 flex-col gap-1 text-xs">
-              <span className="text-zinc-500 dark:text-zinc-400">Reason (optional)</span>
+              <span className="text-zinc-500 dark:text-[var(--ds-text-3)]">Reason (optional)</span>
               <Input value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Internal note" />
             </label>
             <label className="flex flex-col gap-1 text-xs">
-              <span className="text-zinc-500 dark:text-zinc-400">Expires (optional)</span>
+              <span className="text-zinc-500 dark:text-[var(--ds-text-3)]">Expires (optional)</span>
               <Input type="datetime-local" value={expires} onChange={(e) => setExpires(e.target.value)} />
             </label>
             <Button onClick={submit} disabled={actions.block.isPending}>
@@ -516,24 +516,24 @@ function BlocksTab({ userId, blocks, isLoading }: { userId: string; blocks: User
       )}
 
       <div>
-        <div className="mb-2 text-xs font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">Active blocks</div>
+        <div className="mb-2 text-xs font-medium uppercase tracking-wide text-zinc-500 dark:text-[var(--ds-text-3)]">Active blocks</div>
         {isLoading ? (
           <Skeleton className="h-16" />
         ) : !blocks || blocks.length === 0 ? (
           <Empty>This user has no blocks.</Empty>
         ) : (
-          <ul className="divide-y divide-zinc-100 rounded-md border border-zinc-200 dark:divide-zinc-900 dark:border-zinc-800">
+          <ul className="divide-y divide-[var(--border-subtle)] rounded-md border border-[var(--border-subtle)]">
             {blocks.map((b) => {
               const expired = b.expiresAt && new Date(b.expiresAt).getTime() < Date.now();
               return (
                 <li key={b.id} className="flex items-center gap-3 px-3 py-2">
-                  <ShieldOff className={`h-4 w-4 ${expired ? 'text-zinc-400' : 'text-red-500'}`} />
+                  <ShieldOff className={`h-4 w-4 ${expired ? 'text-[var(--ds-text-3)]' : 'text-red-500'}`} />
                   <div className="min-w-0 flex-1">
-                    <div className="text-sm font-medium text-zinc-900 dark:text-zinc-100">
+                    <div className="text-sm font-medium text-[var(--ds-text-1)]">
                       {b.feature.toLowerCase()}
                       {expired && <span className="ml-2 text-xs text-zinc-500">(expired)</span>}
                     </div>
-                    <div className="text-xs text-zinc-500 dark:text-zinc-400">
+                    <div className="text-xs text-zinc-500 dark:text-[var(--ds-text-3)]">
                       {b.reason ? `${b.reason} · ` : ''}
                       since {relativeTime(b.blockedAt)}
                       {b.expiresAt ? ` · until ${new Date(b.expiresAt).toLocaleString()}` : ''}
@@ -586,17 +586,17 @@ function AuditTab({ userId }: { userId: string }) {
       ) : (
         <ul className="space-y-2">
           {audit.data.entries.map((e) => (
-            <li key={e.id} className="rounded-md border border-zinc-200 px-3 py-2 dark:border-zinc-800">
+            <li key={e.id} className="rounded-md border border-[var(--border-subtle)] px-3 py-2">
               <div className="flex items-center justify-between text-sm">
-                <span className="font-medium text-zinc-900 dark:text-zinc-100">{e.action}</span>
+                <span className="font-medium text-[var(--ds-text-1)]">{e.action}</span>
                 <span className="text-xs text-zinc-500">{new Date(e.timestamp).toLocaleString()}</span>
               </div>
-              <div className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
+              <div className="mt-1 text-xs text-zinc-500 dark:text-[var(--ds-text-3)]">
                 {e.entity}
                 {e.entityId ? ` #${e.entityId.slice(0, 8)}` : ''}
               </div>
               {Boolean(e.metadata && typeof e.metadata === 'object' && Object.keys(e.metadata).length > 0) && (
-                <pre className="mt-2 overflow-x-auto rounded bg-zinc-50 p-2 text-[11px] text-zinc-700 dark:bg-zinc-900 dark:text-zinc-300">
+                <pre className="mt-2 overflow-x-auto rounded bg-[var(--surface-soft)] p-2 text-[11px] text-[var(--ds-text-2)]">
                   {JSON.stringify(e.metadata, null, 2)}
                 </pre>
               )}
@@ -750,11 +750,11 @@ function DangerRow({
   variant?: 'destructive';
 }) {
   return (
-    <div className="flex items-start gap-3 rounded-lg border border-zinc-200 bg-white p-3 dark:border-zinc-800 dark:bg-zinc-950">
+    <div className="flex items-start gap-3 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-raised)] p-3">
       <div className="mt-0.5">{icon}</div>
       <div className="min-w-0 flex-1">
-        <div className="text-sm font-medium text-zinc-900 dark:text-zinc-100">{title}</div>
-        <div className="text-xs text-zinc-500 dark:text-zinc-400">{description}</div>
+        <div className="text-sm font-medium text-[var(--ds-text-1)]">{title}</div>
+        <div className="text-xs text-zinc-500 dark:text-[var(--ds-text-3)]">{description}</div>
       </div>
       <Button variant={variant === 'destructive' ? 'destructive' : 'outline'} size="sm" onClick={onClick} disabled={disabled}>
         Run

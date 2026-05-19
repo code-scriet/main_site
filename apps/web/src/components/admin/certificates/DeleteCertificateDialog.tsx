@@ -31,7 +31,7 @@ export function DeleteCertificateDialog({
           </DialogTitle>
         </DialogHeader>
         <div className="py-2 space-y-3">
-          <p className="text-sm text-gray-600">
+          <p className="text-sm text-[var(--ds-text-2)]">
             Are you sure you want to <strong>permanently delete</strong> certificate{' '}
             <strong className="font-mono">{target?.certId}</strong> for{' '}
             <strong>{target?.recipientName}</strong>?

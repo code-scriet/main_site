@@ -12,6 +12,7 @@ import { useEventForm } from '@/hooks/useEventForm';
 import { validateEventFormDates } from '@/lib/eventForm';
 import { ExtraRegistrationFieldsSection } from '@/components/events/form/ExtraRegistrationFieldsSection';
 import { RegistrationTimelineSection } from '@/components/events/form/RegistrationTimelineSection';
+import { TeamRegistrationSection } from '@/components/events/form/TeamRegistrationSection';
 import { BasicInformationSection } from '@/components/events/form/BasicInformationSection';
 import { EventScheduleSection } from '@/components/events/form/EventScheduleSection';
 import { LocationCapacitySection } from '@/components/events/form/LocationCapacitySection';
@@ -259,8 +260,8 @@ export default function EditEvent() {
           </Button>
         </Link>
         <div className="flex-1">
-          <h1 className="text-2xl font-bold text-amber-900">Edit Event</h1>
-          <p className="text-gray-600">Update event details</p>
+          <h1 className="text-2xl font-bold text-[var(--ds-text-1)]">Edit Event</h1>
+          <p className="text-[var(--ds-text-2)]">Update event details</p>
         </div>
         <Link to={`/admin/event-registrations?eventId=${id}&tab=invitations`}>
           <Button variant="outline">
@@ -306,6 +307,13 @@ export default function EditEvent() {
         />
 
         <RegistrationTimelineSection
+          idPrefix="edit-event"
+          form={form}
+          onChange={handleChange}
+          hasRegistrations={hasRegistrations}
+        />
+
+        <TeamRegistrationSection
           idPrefix="edit-event"
           form={form}
           onChange={handleChange}
@@ -418,7 +426,7 @@ export default function EditEvent() {
         />
 
         {/* Submit */}
-        <div className="flex gap-4 sticky bottom-4 bg-white p-4 rounded-lg shadow-lg border border-gray-200">
+        <div className="flex gap-4 sticky bottom-4 bg-white p-4 rounded-lg shadow-lg border border-[var(--border-subtle)]">
           <Button type="submit" className="flex-1 bg-amber-600 hover:bg-amber-700" disabled={saving}>
             {saving ? (
               <>

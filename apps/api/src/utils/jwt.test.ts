@@ -3,6 +3,9 @@ import test from 'node:test';
 import jwt from 'jsonwebtoken';
 import { signAccessToken } from './jwt.js';
 
+process.env.NODE_ENV = 'test';
+process.env.JWT_SECRET = 'jwt-unit-test-secret';
+
 test('signAccessToken always issues 7-day tokens', () => {
   const token = signAccessToken({
     userId: 'user-1',

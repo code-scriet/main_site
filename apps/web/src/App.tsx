@@ -95,6 +95,7 @@ const AdminTeam = lazy(() => import('@/pages/admin/AdminTeam'));
 const AdminAchievements = lazy(() => import('@/pages/admin/AdminAchievements'));
 const AdminSettings = lazy(() => import('@/pages/admin/AdminSettings'));
 const AdminEventRegistrations = lazy(() => import('@/pages/admin/AdminEventRegistrations'));
+const AdminEventRegistrationDetail = lazy(() => import('@/pages/admin/AdminEventRegistrationDetail'));
 const EditEvent = lazy(() => import('@/pages/admin/EditEvent'));
 const AdminHiring = lazy(() => import('@/pages/admin/AdminHiring'));
 const AdminCertificates = lazy(() => import('@/pages/admin/AdminCertificates'));
@@ -105,6 +106,7 @@ const AdminProblems = lazy(() => import('@/pages/admin/AdminProblems'));
 const CompetitionJudge = lazy(() => import('@/pages/admin/CompetitionJudge'));
 const AdminAuditLog = lazy(() => import('@/pages/admin/AdminAuditLog'));
 const AdminMail = lazy(() => import('@/pages/admin/AdminMail'));
+const AdminNotifications = lazy(() => import('@/pages/admin/AdminNotifications'));
 const AdminPublicView = lazy(() => import('@/pages/admin/AdminPublicView'));
 const EventAdminHub = lazy(() => import('@/components/attendance/EventAdminHub'));
 const CompetitionResults = lazy(() => import('@/pages/CompetitionResults'));
@@ -195,6 +197,7 @@ function App() {
                       <Route path="coding" element={withRouteBoundary(<DashboardCoding />)} />
                       <Route path="events/new" element={withRouteBoundary(<CreateEvent />)} />
                       <Route path="announcements/new" element={withRouteBoundary(<CreateAnnouncement />)} />
+                      <Route path="announcements/:id/edit" element={withRouteBoundary(<CreateAnnouncement />)} />
                       <Route path="qotd" element={withRouteBoundary(<CreateQOTD />)} />
                       <Route path="quiz" element={withRouteBoundary(<QuizManager />)} />
                       <Route path="upload" element={withRouteBoundary(<ImageUploadTool />)} />
@@ -222,6 +225,7 @@ function App() {
                       <Route path="achievements" element={withRouteBoundary(<AdminAchievements />)} />
                       <Route path="problems" element={withRouteBoundary(<AdminProblems />)} />
                       <Route path="event-registrations" element={withRouteBoundary(<AdminEventRegistrations />)} />
+                      <Route path="event-registrations/:eventId" element={withRouteBoundary(<AdminEventRegistrationDetail />)} />
                       <Route path="events/:id/edit" element={withRouteBoundary(<EditEvent />)} />
                       <Route path="hiring" element={withRouteBoundary(<AdminHiring />)} />
                       <Route path="network" element={withRouteBoundary(<AdminNetwork />)} />
@@ -233,6 +237,7 @@ function App() {
                       </Route>
                       <Route path="audit-log" element={withRouteBoundary(<AdminAuditLog />)} />
                       <Route path="mail" element={withRouteBoundary(<AdminMail />)} />
+                      <Route path="notifications" element={withRouteBoundary(<AdminNotifications />)} />
                       <Route path="public-view" element={withRouteBoundary(<AdminPublicView />)} />
                       <Route path="certificates" element={withRouteBoundary(<AdminCertificates />)} />
                       <Route path="events/:eventId/attendance" element={withRouteBoundary(<EventAdminHub />)} />

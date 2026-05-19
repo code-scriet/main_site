@@ -188,7 +188,7 @@ export function TeamCreateModal({ open, onOpenChange, event, onSuccess }: TeamCr
                 Your team needs at least {event.teamMinSize} member{event.teamMinSize !== 1 ? 's' : ''} to be complete.
               </p>
             </div>
-            <p className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+            <p className="text-sm text-[var(--warning)] bg-[var(--warning-bg)] border border-[var(--warning-border)] rounded-lg px-3 py-2">
               Make sure you copy the invite code before closing this dialog.
             </p>
           </div>

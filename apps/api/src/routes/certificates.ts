@@ -17,6 +17,7 @@ import { emailService } from '../utils/email.js';
 import { sanitizeText } from '../utils/sanitize.js';
 import { auditLog } from '../utils/audit.js';
 import { buildPublicCertificateDownloadUrl } from '../utils/publicUrl.js';
+import { socketEvents } from '../utils/socket.js';
 import { cloudinary, isCloudinaryConfigured } from '../config/cloudinary.js';
 
 const FRONTEND_URL = (process.env.FRONTEND_URL || 'https://codescriet.dev').replace(/\/+$/, '');
@@ -1072,6 +1073,15 @@ certificatesRouter.post('/generate', authMiddleware, requireRole('ADMIN'), async
     logger.info('Certificate generated', { certId, recipientEmail, eventName: safeEventName, type, issuedBy: authUser.id });
     await auditLog(authUser.id, 'CERTIFICATE_GENERATE', 'certificate', certId, { recipientEmail, eventName: safeEventName, type });
 
+    // Dashboard v2: push to the recipient's bell menu (best-effort, no-op if no userId).
+    if (resolvedRecipientId) {
+      socketEvents.certificateIssued(resolvedRecipientId, {
+        certId,
+        eventName: safeEventName,
+        type: normalizedCertType,
+      });
+    }
+
     return ApiResponse.success(res, {
       certId,
       pdfUrl,
@@ -1367,6 +1377,15 @@ certificatesRouter.post('/bulk', authMiddleware, requireRole('ADMIN'), async (re
           }
 
           const downloadUrl = buildPublicCertificateDownloadUrl(certId);
+
+          // Dashboard v2: push to recipient's bell menu (best-effort, no-op if no userId).
+          if (resolvedRecipientId) {
+            socketEvents.certificateIssued(resolvedRecipientId, {
+              certId,
+              eventName: safeEventName,
+              type: r.type,
+            });
+          }
 
           if (sendEmail) {
             try {

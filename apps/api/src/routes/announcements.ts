@@ -7,6 +7,7 @@ import { requireRole } from '../middleware/role.js';
 import { auditLog } from '../utils/audit.js';
 import { generateSlug, generateUniqueSlug } from '../utils/slug.js';
 import { emailService } from '../utils/email.js';
+import { broadcastNotification } from '../utils/notifications.js';
 import { logger } from '../utils/logger.js';
 import { submitUrl } from '../utils/indexnow.js';
 import { parsePaginationNumber } from '../utils/pagination.js';
@@ -252,6 +253,20 @@ announcementsRouter.post('/', authMiddleware, requireRole('CORE_MEMBER'), async 
 
     // Send email notification to all users (async, don't wait)
     void sendAnnouncementEmailsAsync(announcement);
+
+    // Dashboard v3: in-app broadcast
+    broadcastNotification({
+      source: 'AUTO_ANNOUNCEMENT',
+      audience: 'ALL',
+      category: 'announcement',
+      icon: 'megaphone',
+      title: announcement.title,
+      body: announcement.shortDescription || announcement.body?.slice(0, 200) || undefined,
+      link: `/announcements/${announcement.slug || announcement.id}`,
+      refEntity: 'announcement',
+      refEntityId: announcement.id,
+      createdById: authUser.id,
+    }).catch((err) => logger.error('broadcastNotification(announcement) failed', { id: announcement.id, error: err instanceof Error ? err.message : String(err) }));
 
     res.status(201).json({ success: true, data: announcement, message: 'Announcement created successfully' });
   } catch (error) {

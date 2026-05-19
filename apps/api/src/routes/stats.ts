@@ -339,35 +339,151 @@ statsRouter.get('/dashboard', authMiddleware, requireRole('ADMIN'), async (_req:
     const now = new Date();
     const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
     const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+    const previousWeek = new Date(now.getTime() - 14 * 24 * 60 * 60 * 1000);
+    const oneHourAgo = new Date(now.getTime() - 60 * 60 * 1000);
 
     const [
       totalUsers,
       newUsersThisMonth,
+      newUsersLastWeek,
+      newUsersPriorWeek,
       totalEvents,
       upcomingEvents,
+      activeEvents,
       totalRegistrations,
       recentRegistrations,
       totalAnnouncements,
       totalQOTDs,
       qotdSubmissionsThisWeek,
+      pendingInvitationsCount,
+      certificatesThisMonth,
+      liveScansLastHour,
+      quizSessionsLast7d,
+      registrationsThisWeek,
+      attendedThisWeekRows,
+      streakAggregate,
+      acRateRows,
+      networkPendingRows,
+      playgroundPressureRows,
+      topContributorRows,
     ] = await Promise.all([
       prisma.user.count(),
       prisma.user.count({ where: { createdAt: { gte: thirtyDaysAgo } } }),
+      prisma.user.count({ where: { createdAt: { gte: sevenDaysAgo } } }),
+      prisma.user.count({ where: { createdAt: { gte: previousWeek, lt: sevenDaysAgo } } }),
       prisma.event.count(),
       prisma.event.count({ where: { status: 'UPCOMING' } }),
-      // Dashboard registration totals track participant signups, not guest invitations.
+      prisma.event.count({ where: { status: 'ONGOING' } }),
       prisma.eventRegistration.count({ where: { registrationType: RegistrationType.PARTICIPANT } }),
-      // Dashboard registration totals track participant signups, not guest invitations.
       prisma.eventRegistration.count({
-        where: {
-          registrationType: RegistrationType.PARTICIPANT,
-          timestamp: { gte: sevenDaysAgo },
-        },
+        where: { registrationType: RegistrationType.PARTICIPANT, timestamp: { gte: sevenDaysAgo } },
       }),
       prisma.announcement.count(),
       prisma.qOTD.count(),
       prisma.qOTDSubmission.count({ where: { timestamp: { gte: sevenDaysAgo } } }),
+      prisma.eventInvitation.count({ where: { status: 'PENDING' } }),
+      prisma.certificate.count({ where: { issuedAt: { gte: startOfMonth }, isRevoked: false } }),
+      prisma.eventRegistration.count({ where: { scannedAt: { gte: oneHourAgo } } }),
+      prisma.quiz.count({ where: { updatedAt: { gte: sevenDaysAgo }, status: { in: ['ACTIVE', 'FINISHED'] } } }),
+      prisma.eventRegistration.count({
+        where: { registrationType: RegistrationType.PARTICIPANT, timestamp: { gte: sevenDaysAgo } },
+      }),
+      prisma.eventRegistration.count({
+        where: { registrationType: RegistrationType.PARTICIPANT, attended: true, scannedAt: { gte: sevenDaysAgo } },
+      }),
+      prisma.user.aggregate({
+        _avg: { currentStreak: true },
+        _max: { currentStreak: true },
+        where: { isDeleted: false },
+      }),
+      prisma.problemSubmission.groupBy({
+        by: ['verdict'],
+        where: { submittedAt: { gte: sevenDaysAgo } },
+        _count: { verdict: true },
+      }),
+      prisma.networkProfile.count({ where: { status: 'PENDING' } }),
+      // Playground pressure: distinct users hitting the cap today vs total active users today
+      prisma.playgroundDailyUsage.count({
+        where: { usageDate: new Date(now.toISOString().slice(0, 10)) },
+      }),
+      // Top contributor this month — most QOTD submissions in the month
+      prisma.qOTDSubmission.groupBy({
+        by: ['userId'],
+        where: { timestamp: { gte: startOfMonth } },
+        _count: { userId: true },
+        orderBy: { _count: { userId: 'desc' } },
+        take: 1,
+      }),
     ]);
+
+    // Second wave: top-contributor user resolution + settings + playground-at-cap
+    // were previously three sequential round-trips. Batch them with Promise.all
+    // so admin dashboards on the free-tier API service feel snappier.
+    const topUserId = topContributorRows.length > 0 ? topContributorRows[0].userId : null;
+    const todayDateKey = new Date(now.toISOString().slice(0, 10));
+
+    const [topContributorUser, settings] = await Promise.all([
+      topUserId
+        ? prisma.user.findUnique({
+            where: { id: topUserId },
+            select: { id: true, name: true, avatar: true },
+          })
+        : Promise.resolve(null),
+      prisma.settings.findUnique({ where: { id: 'default' }, select: { playgroundDailyLimit: true } }),
+    ]);
+
+    let topContributor: { id: string; name: string; avatar: string | null; count: number } | null = null;
+    if (topContributorUser && topContributorRows.length > 0) {
+      topContributor = { ...topContributorUser, count: topContributorRows[0]._count.userId };
+    }
+
+    const totalSubmissionsThisWeek = acRateRows.reduce((sum, r) => sum + r._count.verdict, 0);
+    const acCountThisWeek = acRateRows.find(r => r.verdict === 'ACCEPTED')?._count.verdict ?? 0;
+    const acRatePct = totalSubmissionsThisWeek > 0 ? Math.round((acCountThisWeek / totalSubmissionsThisWeek) * 100) : 0;
+
+    const dailyLimit = settings?.playgroundDailyLimit ?? 100;
+    const playgroundAtCap = await prisma.playgroundDailyUsage.count({
+      where: { usageDate: todayDateKey, count: { gte: dailyLimit } },
+    });
+    const playgroundPressurePct = playgroundPressureRows > 0
+      ? Math.round((playgroundAtCap / playgroundPressureRows) * 100)
+      : 0;
+
+    const insights = {
+      // 1. Total users + Δ last week
+      totalUsers,
+      newUsersLastWeek,
+      usersDelta: newUsersLastWeek - newUsersPriorWeek,
+      // 2. Active events count
+      activeEvents,
+      upcomingEvents,
+      // 3. Pending invitations
+      pendingInvitationsCount,
+      // 4. Certificates issued this month
+      certificatesThisMonth,
+      // 5. Live attendance scans · last 1h
+      liveScansLastHour,
+      // 6. Quiz sessions · last 7d
+      quizSessionsLast7d,
+      // 7. Registration funnel — created vs attended
+      registrationsThisWeek,
+      attendedThisWeek: attendedThisWeekRows,
+      // 8. QOTD streak distribution
+      averageStreak: Math.round((streakAggregate._avg.currentStreak ?? 0) * 10) / 10,
+      longestStreakOverall: streakAggregate._max.currentStreak ?? 0,
+      // 9. Problem AC rate this week
+      acRatePct,
+      submissionsThisWeek: totalSubmissionsThisWeek,
+      // 10. Top contributor this month
+      topContributor,
+      // 11. Network pending
+      networkPending: networkPendingRows,
+      // 12. Playground daily-quota pressure
+      playgroundPressurePct,
+      playgroundActiveToday: playgroundPressureRows,
+      playgroundAtCap,
+    };
 
     // Public-facing popularity should rank by participant registrations, not guest invitations.
     const popularEventCounts = await prisma.eventRegistration.groupBy({
@@ -429,6 +545,7 @@ statsRouter.get('/dashboard', authMiddleware, requireRole('ADMIN'), async (_req:
       success: true,
       data: {
         overview: { totalUsers, newUsersThisMonth, totalEvents, upcomingEvents, totalRegistrations, recentRegistrations, totalAnnouncements, totalQOTDs, qotdSubmissionsThisWeek },
+        insights,
         popularEvents,
         recentUsers,
       },

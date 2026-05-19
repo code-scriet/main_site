@@ -35,10 +35,10 @@ export function NetworkStatsRow({ counts, activeTab, onSelect }: NetworkStatsRow
           >
             <CardContent className="p-4 flex items-center justify-between">
               <div>
-                <p className="text-sm text-gray-500">{item.label}</p>
+                <p className="text-sm text-[var(--ds-text-3)]">{item.label}</p>
                 <p className="text-2xl font-bold">{counts[item.status]}</p>
               </div>
-              <item.icon className={`h-8 w-8 ${palette?.text ?? 'text-gray-500'} opacity-50`} />
+              <item.icon className={`h-8 w-8 ${palette?.text ?? 'text-[var(--ds-text-3)]'} opacity-50`} />
             </CardContent>
           </Card>
         );

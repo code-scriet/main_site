@@ -1,15 +1,23 @@
+// Admin Competition Judge — inner submissions / scoring page.
+// Design source: code-scriet-innerdashboard/project/js/screen-admin.jsx
+//   - AdminJudgeScreen (lines 433-535) — header w/ back + judging pill,
+//     12-col grid: submissions list (col-span-5) + code preview + score form
+//     (col-span-7). The IMAGE_TARGET path adopts that two-pane layout; DSA
+//     retains its tabular auto-judge view (no design equivalent — preserved
+//     because real scoring runs through the Problems judge).
+
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useAuth } from '@/context/AuthContext';
+import { useSettings } from '@/context/SettingsContext';
 import { api, type CompetitionRound, type CompetitionSubmission, type CompetitionMissingTeam, type SubmissionVerdict } from '@/lib/api';
 import { extractApiErrorMessage } from '@/lib/error';
 import { formatDateTime } from '@/lib/dateUtils';
 import { PendingCapRequestsTray } from '@/components/problems/PendingCapRequestsTray';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Avatar, DSCard, EmptyState, Field, NumericPromptDialog, Pill } from '@/components/dash';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
-import { Badge } from '@/components/ui/badge';
 import {
   Dialog,
   DialogContent,
@@ -29,21 +37,23 @@ import {
   AlertDialogTitle as ConfirmDialogTitle,
 } from '@/components/ui/alert-dialog';
 import {
-  ArrowLeft,
+  AlertCircle,
+  ChevronLeft,
+  CheckCircle2,
   ClipboardCheck,
+  Code,
   Copy,
-  Eye,
   FileCode2,
-  ImageIcon,
-  LayoutGrid,
-  LayoutList,
+  Image as ImageIcon,
   Loader2,
+  Monitor,
   RefreshCw,
   Save,
   Trophy,
+  Users,
 } from 'lucide-react';
+import { cn } from '@/lib/utils';
 
-type ViewMode = 'grid' | 'list';
 type SortMode = 'score' | 'time';
 type ScoreFilter = 'all' | 'unscored' | 'scored';
 const DSA_VERDICTS: SubmissionVerdict[] = ['ACCEPTED', 'WRONG_ANSWER', 'TIME_LIMIT_EXCEEDED', 'RUNTIME_ERROR', 'COMPILATION_ERROR', 'JUDGE_ERROR'];
@@ -150,6 +160,9 @@ export default function CompetitionJudge() {
   const navigate = useNavigate();
   const { token } = useAuth();
 
+  const { settings } = useSettings();
+  const accent = settings?.accentColor || 'rust';
+
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
@@ -158,16 +171,21 @@ export default function CompetitionJudge() {
   const [missingTeams, setMissingTeams] = useState<CompetitionMissingTeam[]>([]);
   const [drafts, setDrafts] = useState<Record<string, DraftScore>>({});
   const [draftsHydrated, setDraftsHydrated] = useState(false);
-  const [viewMode, setViewMode] = useState<ViewMode>('grid');
   const [sortMode, setSortMode] = useState<SortMode>('score');
   const [scoreFilter, setScoreFilter] = useState<ScoreFilter>('all');
-  const [showReference, setShowReference] = useState(true);
+  const [showReference, setShowReference] = useState(false);
   const [codeModalOpen, setCodeModalOpen] = useState(false);
   const [activeCodeSubmission, setActiveCodeSubmission] = useState<CompetitionSubmission | null>(null);
   const [savingAll, setSavingAll] = useState(false);
   const [publishDialogOpen, setPublishDialogOpen] = useState(false);
   const [referenceDialogOpen, setReferenceDialogOpen] = useState(false);
   const [referenceImageUrl, setReferenceImageUrl] = useState('');
+  // NumericPromptDialog replaces the legacy window.prompt for DSA score override.
+  const [dsaScoreTarget, setDsaScoreTarget] = useState<CompetitionSubmission | null>(null);
+  // Right-pane state for the IMAGE_TARGET two-pane layout — which submission
+  // is currently selected, and which tab is showing (preview vs source).
+  const [pickedId, setPickedId] = useState<string | null>(null);
+  const [previewMode, setPreviewMode] = useState<'preview' | 'code'>('preview');
 
   const load = useCallback(async () => {
     if (!token || !roundId) return;
@@ -417,456 +435,595 @@ export default function CompetitionJudge() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center py-20">
-        <Loader2 className="h-8 w-8 animate-spin text-amber-600" />
+      <div data-dashboard data-accent={accent} className="flex items-center justify-center py-20">
+        <Loader2 className="h-8 w-8 animate-spin text-[var(--accent)]" />
       </div>
     );
   }
 
   if (!round) {
     return (
-      <Card>
-        <CardContent className="pt-6 text-sm text-red-600">
-          Round not found.
-        </CardContent>
-      </Card>
+      <div data-dashboard data-accent={accent}>
+        <DSCard>
+          <EmptyState
+            icon={<AlertCircle size={18} />}
+            title="Round not found"
+            body="It may have been deleted or you don't have access."
+            action={<Button size="sm" onClick={() => navigate('/admin/competition')}>Back to rounds</Button>}
+          />
+        </DSCard>
+      </div>
     );
   }
 
+  // Shared header — used by both DSA and IMAGE_TARGET paths. Matches design
+  // line 437-448: back chevron + event/title eyebrow + Judging pill.
+  const statusToneMap: Record<CompetitionRound['status'], 'neutral' | 'success' | 'warning' | 'info' | 'accent'> = {
+    DRAFT: 'neutral',
+    ACTIVE: 'success',
+    LOCKED: 'warning',
+    JUDGING: 'info',
+    FINISHED: 'accent',
+  };
+  const judgeHeader = (
+    <div className="flex flex-wrap items-center gap-3">
+      <button
+        onClick={() => navigate('/admin/competition')}
+        className="size-8 rounded-[8px] hover:bg-[var(--surface-soft)] text-[var(--ds-text-3)] hover:text-[var(--ds-text-1)] flex items-center justify-center transition-colors"
+        aria-label="Back to rounds"
+      >
+        <ChevronLeft className="h-4 w-4" />
+      </button>
+      <div className="min-w-0 flex-1">
+        <div className="text-[11.5px] text-[var(--ds-text-3)] truncate">
+          {round.eventTitle || 'Event'} · {round.roundType === 'DSA' ? 'DSA' : 'Image Target'}
+        </div>
+        <h1 className="text-[20px] font-semibold tracking-tight truncate">{round.title}</h1>
+      </div>
+      <Pill tone={statusToneMap[round.status]} size="md" dot={round.status === 'ACTIVE'}>
+        {round.status === 'JUDGING' ? 'Judging' : round.status.charAt(0) + round.status.slice(1).toLowerCase()}
+      </Pill>
+      <Button variant="outline" size="sm" onClick={() => void load()} className="gap-1.5">
+        <RefreshCw className="h-3.5 w-3.5" />
+        Refresh
+      </Button>
+    </div>
+  );
+
+  const errorAlert = error ? (
+    <div className="flex items-start gap-2 px-3.5 py-2.5 rounded-[10px] border border-[var(--danger-border)] bg-[var(--danger-bg)] text-[var(--danger)] text-[12.5px]">
+      <AlertCircle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+      <span className="flex-1">{error}</span>
+    </div>
+  ) : null;
+  const successAlert = success ? (
+    <div className="flex items-start gap-2 px-3.5 py-2.5 rounded-[10px] border border-[var(--success-border)] bg-[var(--success-bg)] text-[var(--success)] text-[12.5px]">
+      <CheckCircle2 className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+      <span className="flex-1">{success}</span>
+    </div>
+  ) : null;
+
   if (round.roundType === 'DSA') {
     return (
-      <div className="space-y-5">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex items-center gap-2">
-            <Button variant="outline" size="sm" onClick={() => navigate('/admin/competition')} className="gap-2">
-              <ArrowLeft className="h-4 w-4" />
-              Back to Rounds
-            </Button>
-            <h1 className="text-2xl font-bold text-gray-900">{round.title}</h1>
-          </div>
-          <Button variant="outline" size="sm" className="gap-2" onClick={() => void load()}>
-            <RefreshCw className="h-4 w-4" />
-            Refresh
-          </Button>
-        </div>
-
+      <div data-dashboard data-accent={accent} className="flex flex-col gap-4">
+        {judgeHeader}
         <PendingCapRequestsTray
           contextType="CONTEST"
           contextKey={round.id}
           title="Pending submit-cap requests for this round"
           defaultExpanded
         />
+        {errorAlert}
+        {successAlert}
 
-        {error && <Card className="border-red-200 bg-red-50"><CardContent className="pt-5 text-sm text-red-700">{error}</CardContent></Card>}
-        {success && <Card className="border-green-200 bg-green-50"><CardContent className="pt-5 text-sm text-green-700">{success}</CardContent></Card>}
-
-        <Card>
-          <CardHeader>
-            <CardTitle>DSA Auto-Judged Submissions</CardTitle>
-            <CardDescription>Scores are produced by the Problems judge. Use overrides only for exceptional cases.</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[980px] text-sm">
-                <thead>
-                  <tr className="border-b border-gray-200 text-left text-gray-500">
-                    <th className="py-2 pr-3">User</th>
-                    <th className="py-2 pr-3">Problem</th>
-                    <th className="py-2 pr-3">Verdict</th>
-                    <th className="py-2 pr-3">Score</th>
-                    <th className="py-2 pr-3">Tests</th>
-                    <th className="py-2 pr-3">Runtime</th>
-                    <th className="py-2 pr-3">Override</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {submissions.map((submission) => (
-                    <tr key={submission.id} className="border-b border-gray-100 align-top">
-                      <td className="py-3 pr-3">
-                        <p className="font-semibold text-gray-900">{submission.userName}</p>
-                        <p className="text-xs text-gray-500">{submission.userEmail}</p>
+        <DSCard padded={false}>
+          <div className="p-3 flex items-center justify-between border-b border-[var(--border-subtle)] gap-2 flex-wrap">
+            <div>
+              <div className="text-[13.5px] font-semibold">Auto-judged submissions</div>
+              <div className="text-[11.5px] text-[var(--ds-text-3)] mt-0.5">
+                Scores come from the Problems judge. Overrides only for exceptional cases.
+              </div>
+            </div>
+            <Pill tone="info" size="xs">{submissions.length} submission{submissions.length === 1 ? '' : 's'}</Pill>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[980px] text-[13px]">
+              <thead>
+                <tr className="border-b border-[var(--border-subtle)] text-left text-[10.5px] uppercase tracking-[0.06em] font-semibold text-[var(--ds-text-3)]">
+                  <th className="py-2 px-3">User</th>
+                  <th className="py-2 px-3">Problem</th>
+                  <th className="py-2 px-3">Verdict</th>
+                  <th className="py-2 px-3 text-right">Score</th>
+                  <th className="py-2 px-3">Tests</th>
+                  <th className="py-2 px-3 text-right">Runtime</th>
+                  <th className="py-2 px-3 text-right">Override</th>
+                </tr>
+              </thead>
+              <tbody>
+                {submissions.map((submission) => {
+                  const vTone: 'success' | 'danger' | 'warning' | 'neutral' =
+                    submission.verdict === 'ACCEPTED' ? 'success'
+                      : submission.verdict === 'WRONG_ANSWER' ? 'danger'
+                      : submission.verdict === 'TIME_LIMIT_EXCEEDED' || submission.verdict === 'RUNTIME_ERROR' ? 'warning'
+                      : 'neutral';
+                  return (
+                    <tr key={submission.id} className="border-b border-[var(--border-subtle)] hover:bg-[var(--surface-soft)]/40 align-top">
+                      <td className="py-3 px-3">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <Avatar name={submission.userName || 'User'} size={26} />
+                          <div className="min-w-0">
+                            <p className="font-medium text-[var(--ds-text-1)] truncate">{submission.userName}</p>
+                            <p className="text-[11px] text-[var(--ds-text-3)] truncate font-mono">{submission.userEmail}</p>
+                          </div>
+                        </div>
                       </td>
-                      <td className="py-3 pr-3">{submission.problemTitle}</td>
-                      <td className="py-3 pr-3">{submission.verdict}</td>
-                      <td className="py-3 pr-3 font-semibold">{submission.score ?? 0}</td>
-                      <td className="py-3 pr-3">{submission.passedCount ?? 0}/{submission.totalCount ?? 0}</td>
-                      <td className="py-3 pr-3">{submission.runtimeMs ?? '-'} ms</td>
-                      <td className="py-3 pr-3">
-                        <div className="flex flex-wrap gap-2">
+                      <td className="py-3 px-3 text-[var(--ds-text-2)]">{submission.problemTitle}</td>
+                      <td className="py-3 px-3"><Pill tone={vTone} size="xs">{submission.verdict}</Pill></td>
+                      <td className="py-3 px-3 text-right font-mono tabular-nums font-semibold">{submission.score ?? 0}</td>
+                      <td className="py-3 px-3 font-mono tabular-nums text-[var(--ds-text-2)]">
+                        {submission.passedCount ?? 0}/{submission.totalCount ?? 0}
+                      </td>
+                      <td className="py-3 px-3 text-right font-mono tabular-nums text-[var(--ds-text-2)]">
+                        {submission.runtimeMs ?? '—'}{submission.runtimeMs != null && ' ms'}
+                      </td>
+                      <td className="py-3 px-3">
+                        <div className="flex flex-wrap items-center gap-1.5 justify-end">
                           <select
                             defaultValue=""
                             onChange={(event) => {
                               if (event.target.value) void overrideDsaSubmission(submission, { verdict: event.target.value as SubmissionVerdict });
                             }}
-                            className="rounded border border-gray-200 px-2 py-1 text-xs"
+                            className="h-7 rounded-[6px] border border-[var(--border-default)] bg-[var(--bg-raised)] px-2 text-[11.5px] focus:border-[var(--accent)] outline-none"
                           >
-                            <option value="">Verdict</option>
+                            <option value="">Verdict…</option>
                             {DSA_VERDICTS.map((verdict) => <option key={verdict} value={verdict}>{verdict}</option>)}
                           </select>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => {
-                              const value = window.prompt('Override score 0-100', String(submission.score ?? 0));
-                              if (value !== null) void overrideDsaSubmission(submission, { score: Number(value) });
-                            }}
-                          >
-                            Score
-                          </Button>
+                          <Button variant="outline" size="sm" onClick={() => setDsaScoreTarget(submission)}>Score</Button>
                         </div>
                       </td>
                     </tr>
-                  ))}
-                  {submissions.length === 0 && (
-                    <tr><td colSpan={7} className="py-10 text-center text-gray-500">No submissions yet.</td></tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </CardContent>
-        </Card>
+                  );
+                })}
+                {submissions.length === 0 && (
+                  <tr><td colSpan={7} className="py-10 text-center text-[var(--ds-text-3)]">No submissions yet.</td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </DSCard>
 
-        <Card>
-          <CardContent className="pt-5 flex flex-wrap items-center justify-between gap-3">
-            <p className="text-sm text-gray-600">Auto-judged results can be published after the round is locked.</p>
-            <Button className="gap-2" disabled={!['LOCKED', 'JUDGING'].includes(round.status)} onClick={() => void publishResults()}>
-              <Trophy className="h-4 w-4" />
-              Publish Results
+        <DSCard>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <p className="text-[12.5px] text-[var(--ds-text-2)]">Auto-judged results can be published after the round is locked.</p>
+            <Button
+              className="gap-1.5"
+              disabled={!['LOCKED', 'JUDGING'].includes(round.status)}
+              onClick={() => void publishResults()}
+            >
+              <Trophy className="h-3.5 w-3.5" />
+              Publish results
             </Button>
-          </CardContent>
-        </Card>
+          </div>
+        </DSCard>
       </div>
     );
   }
 
+  // IMAGE_TARGET — two-pane judging layout (design line 450-531).
+  // Default the right pane to the highest-ranked / first submission so the
+  // page doesn't open with an empty preview.
+  const effectivePickedId = pickedId && submissions.some((s) => s.id === pickedId)
+    ? pickedId
+    : sortedSubmissions[0]?.id ?? null;
+  const pickedSubmission = effectivePickedId
+    ? submissions.find((s) => s.id === effectivePickedId) ?? null
+    : null;
+  const pickedDraft: DraftScore = pickedSubmission
+    ? drafts[pickedSubmission.id] || {
+        score: scoreToInput(pickedSubmission.score),
+        adminNotes: pickedSubmission.adminNotes || '',
+        dirty: false,
+        saving: false,
+      }
+    : { score: '', adminNotes: '', dirty: false, saving: false };
+  const pickedAutoRank = pickedSubmission ? autoRanks.get(pickedSubmission.id) : undefined;
+  const pickedReviewed = pickedSubmission
+    ? parseScore(pickedDraft.score) !== undefined
+    : false;
+
   return (
-    <div className="space-y-5">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" onClick={() => navigate('/admin/competition')} className="gap-2">
-            <ArrowLeft className="h-4 w-4" />
-            Back to Rounds
-          </Button>
-          <h1 className="text-2xl font-bold text-gray-900">{round.title}</h1>
-        </div>
-        <div className="flex items-center gap-2">
-          <Badge variant="outline" className="border-blue-300 bg-blue-100 text-blue-800">
-            {submissions.length} submissions
-          </Badge>
-          <Badge variant="outline" className="border-green-300 bg-green-100 text-green-800">
-            {scoredCount}/{submissions.length} scored
-          </Badge>
-          <Badge variant="outline" className="border-amber-300 bg-amber-100 text-amber-800">
-            {missingTeams.length} pending
-          </Badge>
-          <Button variant="outline" size="sm" className="gap-2" onClick={() => void load()}>
-            <RefreshCw className="h-4 w-4" />
-            Refresh
-          </Button>
-        </div>
+    <div data-dashboard data-accent={accent} className="flex flex-col gap-4">
+      {judgeHeader}
+
+      {/* Stat strip */}
+      <div className="flex items-center gap-1.5 flex-wrap">
+        <Pill tone="info" size="sm">{submissions.length} submission{submissions.length === 1 ? '' : 's'}</Pill>
+        <Pill tone={scoredCount === submissions.length && submissions.length > 0 ? 'success' : 'warning'} size="sm">
+          {scoredCount}/{submissions.length} scored
+        </Pill>
+        {missingTeams.length > 0 && (
+          <Pill tone="accent" size="sm" icon={<Users size={11} />}>{missingTeams.length} team{missingTeams.length === 1 ? '' : 's'} missing</Pill>
+        )}
+        {unsavedIds.length > 0 && (
+          <Pill tone="warning" size="sm" dot>
+            <span className="font-mono tabular-nums">{unsavedIds.length}</span> unsaved
+          </Pill>
+        )}
       </div>
 
-      {error && (
-        <Card className="border-red-200 bg-red-50">
-          <CardContent className="pt-5 text-sm text-red-700">{error}</CardContent>
-        </Card>
-      )}
-      {success && (
-        <Card className="border-green-200 bg-green-50">
-          <CardContent className="pt-5 text-sm text-green-700">{success}</CardContent>
-        </Card>
-      )}
+      {errorAlert}
+      {successAlert}
 
-      {/* Rank preview: shows what the auto-computed ranking will look like on publish */}
-      {submissions.length > 0 && autoRanks.size > 0 && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-lg">Rank Preview</CardTitle>
-            <CardDescription>
-              Ranks are auto-computed from scores. Highest score = #1. Ties broken by submission time.
-              {!allScored && ` Score all ${submissions.length - scoredCount} remaining submission(s) to publish.`}
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-gray-200 text-left text-gray-500">
-                    <th className="py-1.5 pr-3 w-16">Rank</th>
-                    <th className="py-1.5 pr-3">Team</th>
-                    <th className="py-1.5 pr-3 w-20">Score</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {submissions
-                    .filter((sub) => autoRanks.has(sub.id))
-                    .sort((a, b) => (autoRanks.get(a.id) ?? 0) - (autoRanks.get(b.id) ?? 0))
-                    .map((sub) => {
-                      const rank = autoRanks.get(sub.id)!;
-                      const draft = drafts[sub.id];
-                      const score = draft ? parseScore(draft.score) : sub.score;
-                      return (
-                        <tr key={sub.id} className="border-b border-gray-100">
-                          <td className="py-1.5 pr-3 font-semibold">
-                            {rank === 1 ? '🥇' : rank === 2 ? '🥈' : rank === 3 ? '🥉' : `#${rank}`}
-                          </td>
-                          <td className="py-1.5 pr-3">{sub.teamName || sub.userName}</td>
-                          <td className="py-1.5 pr-3 tabular-nums">{score ?? '--'}</td>
-                        </tr>
-                      );
-                    })}
-                </tbody>
-              </table>
+      {/* Reference image — collapsed by default; toggles in the header bar */}
+      <DSCard padded={false} className="p-3 flex items-center justify-between gap-3 flex-wrap">
+        <div className="flex items-center gap-2 min-w-0">
+          <ImageIcon className="h-4 w-4 text-[var(--ds-text-3)] shrink-0" />
+          <div className="min-w-0">
+            <div className="text-[13px] font-semibold">Reference image</div>
+            <div className="text-[11.5px] text-[var(--ds-text-3)] truncate">
+              {round.targetImageUrl ? 'Admin-only design reference for judging comparison.' : 'No reference image set.'}
             </div>
-          </CardContent>
-        </Card>
+          </div>
+        </div>
+        <div className="flex items-center gap-1.5">
+          {round.targetImageUrl && (
+            <Button variant="ghost" size="sm" onClick={() => setShowReference((prev) => !prev)}>
+              {showReference ? 'Hide' : 'Show'}
+            </Button>
+          )}
+          <Button
+            variant="outline"
+            size="sm"
+            className="gap-1.5"
+            onClick={() => {
+              setReferenceImageUrl(round.targetImageUrl || '');
+              setReferenceDialogOpen(true);
+            }}
+          >
+            <ImageIcon className="h-3.5 w-3.5" />
+            {round.targetImageUrl ? 'Update' : 'Set reference'}
+          </Button>
+        </div>
+      </DSCard>
+      {showReference && round.targetImageUrl && (
+        <DSCard padded={false} className="overflow-hidden">
+          <img
+            src={round.targetImageUrl}
+            alt="Round reference"
+            className="w-full max-h-[360px] object-contain bg-[var(--surface-soft)]"
+          />
+        </DSCard>
       )}
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-lg">Reference Image</CardTitle>
-          <CardDescription>Admin-only design reference for judging comparison.</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          {showReference ? (
-            round.targetImageUrl ? (
-              <img
-                src={round.targetImageUrl}
-                alt="Round reference"
-                className="w-full max-h-[420px] object-contain rounded-lg border border-gray-200 bg-white"
-              />
-            ) : (
-              <div className="rounded-lg border border-dashed border-gray-300 bg-gray-50 p-6 text-sm text-gray-600 flex items-center gap-2">
-                <ImageIcon className="h-4 w-4" />
-                No reference image set.
+      {/* Two-pane: submissions list + preview/code + score form */}
+      <div className="grid lg:grid-cols-12 gap-4">
+        {/* Submissions list — design line 451-477 */}
+        <DSCard padded={false} className="lg:col-span-5 flex flex-col min-h-[480px]">
+          <div className="p-3 flex items-center justify-between border-b border-[var(--border-subtle)] gap-2 flex-wrap">
+            <div className="text-[13px] font-semibold">Submissions</div>
+            <div className="flex items-center gap-1.5">
+              {unscoredCount > 0 && <Pill tone="warning" size="xs">{unscoredCount} pending</Pill>}
+              {scoredCount > 0 && <Pill tone="success" size="xs">{scoredCount} done</Pill>}
+            </div>
+          </div>
+
+          {/* Filter / sort row */}
+          <div className="px-3 py-2 border-b border-[var(--border-subtle)] flex items-center gap-1.5 flex-wrap text-[11.5px]">
+            <span className="text-[var(--ds-text-3)] uppercase tracking-[0.06em] font-semibold mr-1">Sort</span>
+            {(['score', 'time'] as const).map((mode) => (
+              <button
+                key={mode}
+                onClick={() => setSortMode(mode)}
+                className={cn(
+                  'h-6 px-2 rounded-[5px] capitalize transition-colors',
+                  sortMode === mode
+                    ? 'bg-[var(--ds-text-1)] text-[var(--text-inverse)]'
+                    : 'bg-[var(--surface-soft)] text-[var(--ds-text-2)] hover:bg-[var(--bg-sunken)]',
+                )}
+              >
+                {mode}
+              </button>
+            ))}
+            <span className="text-[var(--ds-text-3)] uppercase tracking-[0.06em] font-semibold mx-2">Show</span>
+            {(['all', 'unscored', 'scored'] as const).map((mode) => (
+              <button
+                key={mode}
+                onClick={() => setScoreFilter(mode)}
+                className={cn(
+                  'h-6 px-2 rounded-[5px] capitalize transition-colors',
+                  scoreFilter === mode
+                    ? 'bg-[var(--ds-text-1)] text-[var(--text-inverse)]'
+                    : 'bg-[var(--surface-soft)] text-[var(--ds-text-2)] hover:bg-[var(--bg-sunken)]',
+                )}
+              >
+                {mode}
+              </button>
+            ))}
+          </div>
+
+          <div className="flex-1 max-h-[600px] overflow-y-auto">
+            {sortedSubmissions.length === 0 ? (
+              <div className="py-10 text-center text-[12.5px] text-[var(--ds-text-3)]">
+                No submissions match the current filter.
               </div>
-            )
-          ) : (
-            <div className="rounded-lg border border-dashed border-gray-300 bg-gray-50 p-4 text-sm text-gray-600">
-              Reference image hidden.
+            ) : (
+              sortedSubmissions.map((submission) => {
+                const draft = drafts[submission.id] || {
+                  score: scoreToInput(submission.score),
+                  adminNotes: submission.adminNotes || '',
+                  dirty: false,
+                  saving: false,
+                };
+                const score = parseScore(draft.score) ?? submission.score ?? null;
+                const reviewed = score !== null && score !== undefined;
+                const autoRank = autoRanks.get(submission.id);
+                const isPicked = effectivePickedId === submission.id;
+                return (
+                  <button
+                    key={submission.id}
+                    onClick={() => setPickedId(submission.id)}
+                    className={cn(
+                      'w-full px-3 py-2.5 flex items-center gap-3 border-t border-[var(--border-subtle)] text-left transition-colors first:border-t-0',
+                      isPicked
+                        ? 'bg-[var(--accent-subtle)]/40'
+                        : 'hover:bg-[var(--surface-soft)]',
+                    )}
+                  >
+                    <span className="font-mono tabular-nums text-[var(--ds-text-3)] w-[28px] text-[12px] shrink-0">
+                      {autoRank ? `#${autoRank}` : '—'}
+                    </span>
+                    <Avatar name={submission.teamName || submission.userName || 'P'} size={28} />
+                    <div className="flex-1 min-w-0">
+                      <div className="text-[13px] font-medium leading-tight truncate">
+                        {submission.teamName || submission.userName || 'Participant'}
+                      </div>
+                      <div className="text-[11px] text-[var(--ds-text-3)] mt-0.5 truncate">
+                        {submission.isAutoSubmit ? 'Auto · ' : 'Manual · '}
+                        <span className="font-mono tabular-nums">{submission.code.length}</span> chars
+                      </div>
+                    </div>
+                    <span className="font-mono tabular-nums text-[14px] font-semibold w-[36px] text-right shrink-0">
+                      {score !== null && score !== undefined ? score : '—'}
+                    </span>
+                    <Pill tone={reviewed ? 'success' : 'warning'} size="xs">
+                      {draft.dirty ? 'Draft' : reviewed ? 'Done' : 'Pending'}
+                    </Pill>
+                  </button>
+                );
+              })
+            )}
+          </div>
+
+          {missingTeams.length > 0 && (
+            <div className="border-t border-[var(--border-subtle)] p-3 flex flex-col gap-1.5 max-h-[140px] overflow-y-auto">
+              <div className="text-[10.5px] uppercase tracking-[0.06em] font-semibold text-[var(--ds-text-3)] mb-0.5">
+                Teams without a submission
+              </div>
+              {missingTeams.map((team) => (
+                <div key={team.id} className="text-[11.5px] text-[var(--ds-text-2)] flex items-center gap-2">
+                  <Users className="h-3 w-3 text-[var(--ds-text-3)]" />
+                  <span className="font-medium">{team.teamName}</span>
+                  {team.members.length > 0 && (
+                    <span className="text-[var(--ds-text-3)] truncate">· {team.members.join(', ')}</span>
+                  )}
+                </div>
+              ))}
             </div>
           )}
+        </DSCard>
 
-          <div className="flex flex-wrap gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              className="gap-2"
-              onClick={() => {
-                setReferenceImageUrl(round.targetImageUrl || '');
-                setReferenceDialogOpen(true);
-              }}
-            >
-              <ImageIcon className="h-4 w-4" />
-              Set/Update Reference
-            </Button>
-            <Button variant="outline" size="sm" onClick={() => setShowReference((prev) => !prev)}>
-              {showReference ? 'Hide Reference' : 'Show Reference'}
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
-
-      {missingTeams.length > 0 && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="text-lg">Eligible teams with no submission</CardTitle>
-            <CardDescription>These eligible teams did not submit any code before lock.</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-2">
-            {missingTeams.map((team) => (
-              <div key={team.id} className="rounded-lg border border-dashed border-amber-300 bg-amber-50 px-3 py-2 text-sm">
-                <p className="font-semibold text-amber-900">{team.teamName}</p>
-                <p className="text-amber-700">{team.members.join(', ') || 'No members listed'}</p>
-              </div>
-            ))}
-          </CardContent>
-        </Card>
-      )}
-
-      <Card>
-        <CardContent className="pt-5">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <div className="flex items-center gap-2">
-              <span className="text-sm text-gray-500">View:</span>
-              <Button
-                variant={viewMode === 'grid' ? 'default' : 'outline'}
-                size="sm"
-                onClick={() => setViewMode('grid')}
-                className="gap-2"
-              >
-                <LayoutGrid className="h-4 w-4" />
-                Grid
-              </Button>
-              <Button
-                variant={viewMode === 'list' ? 'default' : 'outline'}
-                size="sm"
-                onClick={() => setViewMode('list')}
-                className="gap-2"
-              >
-                <LayoutList className="h-4 w-4" />
-                List
-              </Button>
-            </div>
-
-            <div className="flex items-center gap-2">
-              <span className="text-sm text-gray-500">Sort:</span>
-              <Button variant={sortMode === 'score' ? 'default' : 'outline'} size="sm" onClick={() => setSortMode('score')}>
-                Score
-              </Button>
-              <Button variant={sortMode === 'time' ? 'default' : 'outline'} size="sm" onClick={() => setSortMode('time')}>
-                Time
-              </Button>
-            </div>
-
-            <div className="flex items-center gap-2">
-              <span className="text-sm text-gray-500">Show:</span>
-              <Button variant={scoreFilter === 'all' ? 'default' : 'outline'} size="sm" onClick={() => setScoreFilter('all')}>
-                All
-              </Button>
-              <Button variant={scoreFilter === 'unscored' ? 'default' : 'outline'} size="sm" onClick={() => setScoreFilter('unscored')}>
-                Unscored only
-              </Button>
-              <Button variant={scoreFilter === 'scored' ? 'default' : 'outline'} size="sm" onClick={() => setScoreFilter('scored')}>
-                Scored only
-              </Button>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-
-      <div className={viewMode === 'grid' ? 'grid grid-cols-1 xl:grid-cols-2 gap-4' : 'space-y-4'}>
-        {sortedSubmissions.length === 0 && (
-          <Card className="border-dashed border-gray-300">
-            <CardContent className="py-10 text-center text-sm text-gray-500">
-              No submissions match the current scoring filter.
-            </CardContent>
-          </Card>
-        )}
-        {sortedSubmissions.map((submission) => {
-          const draft = drafts[submission.id] || {
-            score: scoreToInput(submission.score),
-            adminNotes: submission.adminNotes || '',
-            dirty: false,
-            saving: false,
-          };
-          const autoRank = autoRanks.get(submission.id);
-
-          return (
-            <Card key={submission.id}>
-              <CardContent className="pt-4 space-y-3">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <div className="flex items-center gap-2">
-                    {autoRank !== undefined && (
-                      <span className="text-lg font-bold text-amber-600">
-                        {autoRank === 1 ? '🥇' : autoRank === 2 ? '🥈' : autoRank === 3 ? '🥉' : `#${autoRank}`}
-                      </span>
+        {/* Right pane: preview + score form — design line 480-531 */}
+        <div className="lg:col-span-7 flex flex-col gap-3">
+          {pickedSubmission ? (
+            <>
+              <DSCard padded={false} className="overflow-hidden">
+                <div className="h-10 border-b border-[var(--border-subtle)] flex items-center justify-between px-3 bg-[var(--bg-sunken)] gap-2 flex-wrap">
+                  <div className="flex items-center gap-2 text-[12px] min-w-0">
+                    <Avatar name={pickedSubmission.teamName || pickedSubmission.userName || 'P'} size={22} />
+                    <span className="font-medium text-[var(--ds-text-1)] truncate">
+                      {pickedSubmission.teamName || pickedSubmission.userName || 'Participant'}
+                    </span>
+                    <span className="h-3 w-px bg-[var(--border-default)] mx-1" />
+                    <span className="text-[var(--ds-text-3)] font-mono">
+                      {pickedSubmission.code.length} chars
+                    </span>
+                    {pickedAutoRank && (
+                      <>
+                        <span className="h-3 w-px bg-[var(--border-default)] mx-1" />
+                        <span className="text-[var(--ds-text-3)] font-mono tabular-nums">
+                          rank #{pickedAutoRank}
+                        </span>
+                      </>
                     )}
-                    <div>
-                      <p className="font-semibold text-gray-900">{submission.teamName || submission.userName || 'Participant'}</p>
-                      <p className="text-xs text-gray-500">{submission.userName}</p>
-                    </div>
                   </div>
-                  <Badge variant="outline" className="text-xs">
-                    {getAutoSubmitLabel(submission.isAutoSubmit)}
-                  </Badge>
+                  <div className="flex items-center gap-1.5">
+                    {/* Preview / Code toggle */}
+                    <div className="flex items-center gap-0.5 p-0.5 rounded-[6px] bg-[var(--bg-raised)] border border-[var(--border-subtle)]">
+                      <button
+                        onClick={() => setPreviewMode('preview')}
+                        className={cn(
+                          'inline-flex items-center gap-1 h-6 px-2 rounded-[4px] text-[11px] font-medium transition-colors',
+                          previewMode === 'preview'
+                            ? 'bg-[var(--accent-subtle)] text-[var(--accent)]'
+                            : 'text-[var(--ds-text-3)] hover:text-[var(--ds-text-1)]',
+                        )}
+                      >
+                        <Monitor className="h-3 w-3" /> Preview
+                      </button>
+                      <button
+                        onClick={() => setPreviewMode('code')}
+                        className={cn(
+                          'inline-flex items-center gap-1 h-6 px-2 rounded-[4px] text-[11px] font-medium transition-colors',
+                          previewMode === 'code'
+                            ? 'bg-[var(--accent-subtle)] text-[var(--accent)]'
+                            : 'text-[var(--ds-text-3)] hover:text-[var(--ds-text-1)]',
+                        )}
+                      >
+                        <Code className="h-3 w-3" /> Code
+                      </button>
+                    </div>
+                    <Button variant="ghost" size="sm" onClick={() => openCodeModal(pickedSubmission)} className="gap-1.5">
+                      <FileCode2 className="h-3.5 w-3.5" /> Expand
+                    </Button>
+                  </div>
                 </div>
+                {previewMode === 'preview' ? (
+                  <div className="bg-white">
+                    {/* sandbox="" renders HTML/CSS safely without JS execution. */}
+                    <iframe
+                      title={`Submission ${pickedSubmission.id}`}
+                      sandbox=""
+                      srcDoc={pickedSubmission.code}
+                      style={{ width: '100%', height: '380px', border: '0', display: 'block' }}
+                    />
+                  </div>
+                ) : (
+                  <pre className="font-mono text-[12px] leading-[1.6] p-4 bg-[#0a0a0b] text-[#e6e6e8] max-h-[380px] overflow-auto whitespace-pre">
+                    {pickedSubmission.code}
+                  </pre>
+                )}
+              </DSCard>
 
-                <div className="rounded-lg border border-gray-200 overflow-hidden bg-white">
-                  {/* sandbox="" renders HTML/CSS safely without JS execution */}
-                  <iframe
-                    title={`Submission ${submission.id}`}
-                    sandbox=""
-                    srcDoc={submission.code}
-                    style={{ width: '400px', height: '300px', maxWidth: '100%', border: '0' }}
-                  />
+              {/* Score form — design line 513-530 */}
+              <DSCard>
+                <div className="flex items-center justify-between gap-2 mb-3">
+                  <div className="text-[13.5px] font-semibold">Score</div>
+                  <div className="text-[11.5px] text-[var(--ds-text-3)] font-mono">
+                    {formatDateTime(pickedSubmission.submittedAt)} · {getAutoSubmitLabel(pickedSubmission.isAutoSubmit)}
+                  </div>
                 </div>
-
-                <div>
-                  <label htmlFor={`judge-score-${submission.id}`} className="text-xs text-gray-500 block mb-1">Score (0-100)</label>
+                <Field label="Score (0-100)" hint="Single weighted score. Ranks auto-compute from this.">
                   <Input
-                    id={`judge-score-${submission.id}`}
                     type="number"
                     min={0}
                     max={100}
                     step={0.5}
-                    value={draft.score}
-                    onChange={(e) => onDraftChange(submission.id, 'score', e.target.value)}
-                    placeholder="Enter score"
-                    className="max-w-[160px]"
+                    value={pickedDraft.score}
+                    onChange={(e) => onDraftChange(pickedSubmission.id, 'score', e.target.value)}
+                    placeholder="0"
+                    className="max-w-[180px]"
                   />
-                </div>
-
-                <div>
-                  <label htmlFor={`judge-notes-${submission.id}`} className="text-xs text-gray-500 block mb-1">Notes (optional)</label>
+                </Field>
+                <div className="h-3" />
+                <Field label="Admin notes" hint="Visible to admins only.">
                   <Textarea
-                    id={`judge-notes-${submission.id}`}
-                    value={draft.adminNotes}
-                    onChange={(e) => onDraftChange(submission.id, 'adminNotes', e.target.value)}
-                    rows={2}
+                    value={pickedDraft.adminNotes}
+                    onChange={(e) => onDraftChange(pickedSubmission.id, 'adminNotes', e.target.value)}
+                    rows={3}
                     maxLength={2000}
-                    placeholder="Feedback for this team..."
+                    placeholder="Strong detection accuracy, runtime well under limit. Edge case at low contrast worth re-running."
                   />
-                </div>
-
-                <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-gray-500">
-                  <span>{formatDateTime(submission.submittedAt)}</span>
-                  <span>{submission.code.length} chars</span>
-                </div>
-
-                <div className="flex flex-wrap items-center gap-2">
-                  <Button variant="outline" size="sm" className="gap-2" onClick={() => openCodeModal(submission)}>
-                    <Eye className="h-4 w-4" />
-                    View Code
-                  </Button>
+                </Field>
+                <div className="flex items-center justify-between gap-2 mt-4 flex-wrap">
                   <Button
                     size="sm"
-                    className="gap-2"
-                    disabled={draft.saving || !draft.dirty}
-                    onClick={() => void saveSubmission(submission.id)}
+                    variant="ghost"
+                    onClick={() => {
+                      const next = sortedSubmissions.findIndex((s) => s.id === pickedSubmission.id);
+                      const skip = sortedSubmissions[(next + 1) % sortedSubmissions.length];
+                      if (skip) setPickedId(skip.id);
+                    }}
                   >
-                    {draft.saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-                    Save Score
+                    Skip
                   </Button>
+                  <div className="flex items-center gap-1.5">
+                    <Button variant="outline" size="sm" onClick={() => void saveSubmission(pickedSubmission.id)} disabled={pickedDraft.saving || !pickedDraft.dirty} className="gap-1.5">
+                      {pickedDraft.saving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
+                      Save draft
+                    </Button>
+                    <Button
+                      size="sm"
+                      onClick={() => void saveSubmission(pickedSubmission.id)}
+                      disabled={pickedDraft.saving || !pickedDraft.dirty || !pickedReviewed}
+                      className="gap-1.5"
+                    >
+                      <CheckCircle2 className="h-3.5 w-3.5" />
+                      Confirm score
+                    </Button>
+                  </div>
                 </div>
-              </CardContent>
-            </Card>
-          );
-        })}
+              </DSCard>
+            </>
+          ) : (
+            <DSCard>
+              <EmptyState
+                icon={<ClipboardCheck size={18} />}
+                title="No submissions to judge yet"
+                body="When teams submit their work, you'll be able to preview each entry and assign scores here."
+              />
+            </DSCard>
+          )}
+        </div>
       </div>
 
-      <Card>
-        <CardContent className="pt-5 flex flex-wrap items-center justify-between gap-3">
-          <div className="text-sm text-gray-600">
-            {unsavedIds.length > 0 && (
-              <span>Unsaved: <span className="font-semibold">{unsavedIds.length}</span> · </span>
-            )}
-            Scored: <span className="font-semibold">{scoredCount}/{submissions.length}</span>
-            {!allScored && (
-              <span className="ml-2 text-amber-600">
-                — {unscoredCount} of {submissions.length} submissions still need scoring
-              </span>
-            )}
+      {/* Action bar */}
+      <DSCard padded={false} className="p-3 flex flex-wrap items-center justify-between gap-3">
+        <div className="text-[12.5px] text-[var(--ds-text-2)]">
+          {unsavedIds.length > 0 && (
+            <span>Unsaved: <span className="font-semibold font-mono tabular-nums">{unsavedIds.length}</span> · </span>
+          )}
+          Scored: <span className="font-semibold font-mono tabular-nums">{scoredCount}/{submissions.length}</span>
+          {!allScored && submissions.length > 0 && (
+            <span className="ml-2 text-[var(--accent)]">
+              · {unscoredCount} still need scoring
+            </span>
+          )}
+        </div>
+        <div className="flex flex-wrap items-center gap-1.5">
+          <Button variant="outline" size="sm" disabled={unsavedIds.length === 0 || savingAll} onClick={() => void saveAll()} className="gap-1.5">
+            {savingAll ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ClipboardCheck className="h-3.5 w-3.5" />}
+            Save all
+          </Button>
+          <Button
+            size="sm"
+            disabled={!allScored || round.status !== 'JUDGING'}
+            onClick={() => setPublishDialogOpen(true)}
+            className="gap-1.5"
+          >
+            <Trophy className="h-3.5 w-3.5" />
+            Publish results
+          </Button>
+        </div>
+      </DSCard>
+
+      {/* Rank preview — kept compact below the action bar */}
+      {submissions.length > 0 && autoRanks.size > 0 && (
+        <DSCard>
+          <div className="flex items-center justify-between gap-2 mb-2">
+            <div className="text-[13.5px] font-semibold">Rank preview</div>
+            <Pill tone="neutral" size="xs">{autoRanks.size} ranked</Pill>
           </div>
-          <div className="flex flex-wrap gap-2">
-            <Button variant="outline" className="gap-2" disabled={unsavedIds.length === 0 || savingAll} onClick={() => void saveAll()}>
-              {savingAll ? <Loader2 className="h-4 w-4 animate-spin" /> : <ClipboardCheck className="h-4 w-4" />}
-              Save All Scores
-            </Button>
-            <Button
-              className="gap-2"
-              disabled={!allScored || round.status !== 'JUDGING'}
-              onClick={() => setPublishDialogOpen(true)}
-            >
-              <Trophy className="h-4 w-4" />
-              Publish Results
-            </Button>
+          <p className="text-[12px] text-[var(--ds-text-3)] mb-3">
+            Ranks auto-compute from scores. Highest score = #1. Ties broken by submission time.
+            {!allScored && ` Score all ${submissions.length - scoredCount} remaining to publish.`}
+          </p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            {submissions
+              .filter((sub) => autoRanks.has(sub.id))
+              .sort((a, b) => (autoRanks.get(a.id) ?? 0) - (autoRanks.get(b.id) ?? 0))
+              .slice(0, 12)
+              .map((sub) => {
+                const rank = autoRanks.get(sub.id)!;
+                const draft = drafts[sub.id];
+                const score = draft ? parseScore(draft.score) : sub.score;
+                return (
+                  <button
+                    key={sub.id}
+                    onClick={() => setPickedId(sub.id)}
+                    className="flex items-center gap-2 px-2.5 py-1.5 rounded-[7px] border border-[var(--border-subtle)] hover:bg-[var(--surface-soft)] text-left transition-colors"
+                  >
+                    <span className="font-mono tabular-nums text-[12px] font-semibold w-[28px] text-[var(--ds-text-3)]">#{rank}</span>
+                    <span className="flex-1 min-w-0 truncate text-[12.5px] font-medium">{sub.teamName || sub.userName}</span>
+                    <span className="font-mono tabular-nums text-[12.5px] font-semibold">{score ?? '—'}</span>
+                  </button>
+                );
+              })}
           </div>
-        </CardContent>
-      </Card>
+        </DSCard>
+      )}
 
       <Dialog open={codeModalOpen} onOpenChange={setCodeModalOpen}>
-        <DialogContent className="max-w-4xl">
+        <DialogContent data-dashboard data-accent={accent} className="max-w-4xl">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">
               <FileCode2 className="h-5 w-5" />
@@ -877,7 +1034,7 @@ export default function CompetitionJudge() {
             </DialogDescription>
           </DialogHeader>
 
-          <pre className="max-h-[60vh] overflow-auto rounded-lg border border-gray-200 bg-gray-50 p-4 text-xs leading-5 text-gray-800">
+          <pre className="max-h-[60vh] overflow-auto rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-soft)] p-4 text-xs leading-5 text-[var(--ds-text-1)]">
             <code>{activeCodeSubmission?.code || ''}</code>
           </pre>
 
@@ -894,7 +1051,7 @@ export default function CompetitionJudge() {
       </Dialog>
 
       <Dialog open={referenceDialogOpen} onOpenChange={setReferenceDialogOpen}>
-        <DialogContent className="sm:max-w-lg">
+        <DialogContent data-dashboard data-accent={accent} className="sm:max-w-lg">
           <DialogHeader>
             <DialogTitle>Update Reference Image</DialogTitle>
             <DialogDescription>
@@ -918,7 +1075,7 @@ export default function CompetitionJudge() {
       </Dialog>
 
       <AlertDialog open={publishDialogOpen} onOpenChange={setPublishDialogOpen}>
-        <ConfirmDialogContent>
+        <ConfirmDialogContent data-dashboard data-accent={accent}>
           <ConfirmDialogHeader>
             <ConfirmDialogTitle>Publish results?</ConfirmDialogTitle>
             <ConfirmDialogDescription>
@@ -935,6 +1092,23 @@ export default function CompetitionJudge() {
           </ConfirmDialogFooter>
         </ConfirmDialogContent>
       </AlertDialog>
+
+      <NumericPromptDialog
+        open={Boolean(dsaScoreTarget)}
+        onOpenChange={(o) => !o && setDsaScoreTarget(null)}
+        title="Override DSA submission score"
+        description={dsaScoreTarget ? `Submission ${dsaScoreTarget.id.slice(0, 8)} · current ${dsaScoreTarget.score ?? 0}` : undefined}
+        label="Score"
+        defaultValue={dsaScoreTarget?.score ?? 0}
+        min={0}
+        max={100}
+        confirmLabel="Save override"
+        onCommit={(value) => {
+          if (!dsaScoreTarget) return;
+          void overrideDsaSubmission(dsaScoreTarget, { score: Math.max(0, Math.min(100, Math.round(value))) });
+          setDsaScoreTarget(null);
+        }}
+      />
     </div>
   );
 }

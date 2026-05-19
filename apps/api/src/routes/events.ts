@@ -7,6 +7,7 @@ import { auditLog } from '../utils/audit.js';
 import { EventStatus, Prisma, RegistrationType } from '@prisma/client';
 import { generateSlug, generateUniqueSlug } from '../utils/slug.js';
 import { emailService } from '../utils/email.js';
+import { broadcastNotification } from '../utils/notifications.js';
 import { logger } from '../utils/logger.js';
 import { submitUrl } from '../utils/indexnow.js';
 import { sanitizeEventRegistrationFields } from '../utils/eventRegistrationFields.js';
@@ -591,6 +592,20 @@ eventsRouter.post('/', authMiddleware, requireRole('CORE_MEMBER'), async (req: R
 
     // Send email notification to all users about new event (async, don't wait)
     sendNewEventEmailsAsync(event);
+
+    // Dashboard v3: also drop an in-app broadcast for the bell menu
+    broadcastNotification({
+      source: 'AUTO_EVENT',
+      audience: 'ALL',
+      category: 'event',
+      icon: 'calendar',
+      title: `New event: ${event.title}`,
+      body: event.shortDescription || event.description?.slice(0, 200) || undefined,
+      link: `/events/${event.slug}`,
+      refEntity: 'event',
+      refEntityId: event.id,
+      createdById: authUser.id,
+    }).catch((err) => logger.error('broadcastNotification(event) failed', { id: event.id, error: err instanceof Error ? err.message : String(err) }));
 
     res.status(201).json({ success: true, data: event, message: 'Event created successfully' });
   } catch (error) {

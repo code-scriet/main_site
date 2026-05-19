@@ -367,6 +367,15 @@ npm run lint --workspace=apps/web
 | `/health/db` | inline | Public (DB ping, 2s timeout) |
 | `/ping` | inline | Public (plain text "pong") |
 | `/api/test-email` | inline | Admin |
+| `/api/notifications` (GET) | notificationsRouter | User (Dashboard v2) |
+| `/api/notifications/mark-read` (POST) | notificationsRouter | User (Dashboard v2) |
+| `/api/search/global` (GET) | searchRouter | User (Dashboard v2, role-aware visibility) |
+| `/api/problems/me/recent` (GET) | problemsRouter | User (Dashboard v2 — cross-context recent submissions) |
+| `/api/problems/admin/cap-requests/:counterId/grant` (POST) | problemsRouter | Admin (Dashboard v2) |
+| `/api/problems/admin/cap-requests/:counterId/deny` (POST) | problemsRouter | Admin (Dashboard v2) |
+| `/api/qotd/leaderboard/around-me` (GET) | qotdRouter | User (Dashboard v2 — rank ± window slice) |
+| `/api/teams/my-all` (GET) | teamsRouter | User (Dashboard v2 — all teams across events) |
+| `/api/upload/history` (GET) | uploadRouter | User (Dashboard v2 — image library) |
 
 **Rate Limiting:** General API = 500 req/15min per IP; Auth = 50 req/15min (successful requests not counted).
 
@@ -1456,6 +1465,95 @@ When `emailTestingMode` is `true`:
 
 ---
 
+## Dashboard v2 (May 2026)
+
+A complete re-skin + IA overhaul of the signed-in dashboard. Scoped to `[data-dashboard]` so the public site is unaffected. Source spec: `tmp/design_bundle/code-scriet-innerdashboard/`.
+
+### Scope of change
+
+- **Tokens (CSS):** New rust-accent token system (`--bg-canvas/sunken/raised`, `--ds-text-1/2/3`, `--accent`, semantic + role pill colors, shadows, motion vars) lives in `apps/web/src/index.css` under `[data-dashboard]` selectors. Public-site tokens (`--background`, `--foreground`, existing dark overrides) are untouched. The shadcn HSL bridge (`--primary`, `--ring`, etc.) is overridden inside the dashboard scope so shadcn primitives pick up the new accent.
+- **Fonts:** Geist + Geist Mono loaded in `apps/web/index.html`; applied only inside `[data-dashboard]` (public site keeps Outfit/Sora).
+- **Accent picker:** `Settings.accentColor` (new column, default `rust`, values `rust|teal|indigo|violet|mint|mono`). Admin picks in [BrandAccentCard](apps/web/src/components/admin/settings/BrandAccentCard.tsx) — saves via `PATCH /api/settings/accentColor` and live-applies by setting `data-accent` on every `[data-dashboard]` element.
+- **Density + motion:** `data-density="compact"` and `data-motion="reduced"` attributes both supported. Currently always `regular`/`normal`; switching is reserved for a future user-facing toggle.
+
+### New DB additions
+
+- `User.notificationsReadAt: DateTime?` — single read cutoff for the bell menu. Items older than the cutoff are 'read'. Avoids an unbounded per-notification join.
+- `Settings.accentColor: String @default("rust")` — club-wide accent token.
+- `UploadedImage` model — new table written on every `POST /api/upload/image`, powers the image-library gallery on `/dashboard/upload`. Fields: `userId`, `url`, `publicId` (unique), `filename`, `bytes`, `width`, `height`, `format`, `createdAt`. Cascade-delete with User.
+
+Migration: `prisma/migrations/20260517210000_dashboard_v2/migration.sql` (additive, no destructive ops).
+
+### New backend routers / endpoints
+
+- **`apps/api/src/routes/notifications.ts`** — `/api/notifications` aggregate (invitations + certificates + quiz + system audit events grouped) and `/api/notifications/mark-read`. Updates `User.notificationsReadAt` to mark read.
+- **`apps/api/src/routes/search.ts`** — `/api/search/global?q=...` returns 5 hits each from pages / events / problems / polls / people / announcements. Role-aware (admins see unpublished + users). All `findMany` capped with `take: 5`.
+- **`apps/api/src/routes/problems.ts`** — adds `me/recent`, `admin/cap-requests/:counterId/grant`, `admin/cap-requests/:counterId/deny`.
+- **`apps/api/src/routes/qotd.ts`** — adds `leaderboard/around-me` using a `RANK() OVER ()` CTE to slice ± window around the caller. Returns `{ slice, myRank, totalRanked, nextUpDelta, nextUp }`.
+- **`apps/api/src/routes/teams.ts`** — adds `my-all` returning every `EventTeam` the caller is a member of (with event + member avatars).
+- **`apps/api/src/routes/upload.ts`** — adds `history?limit=24`; the existing `POST /image` now persists into `UploadedImage` (best-effort fire-and-forget).
+- **`apps/api/src/routes/stats.ts`** — expanded `/dashboard` (admin) now includes a 12-tile `insights` payload: total users + Δ, active/upcoming events, pending invitations, certs this month, live scans · 1h, quiz sessions · 7d, registration funnel (created vs attended), average + max streak, AC rate · 7d, top contributor this month, network-pending, playground daily-quota pressure.
+
+### New socket events
+
+A new `/notifications` Socket.io namespace open to all authenticated users. Each client joins room `user:<id>` on connect. Server→client events:
+
+| Event | Direction | Audience | Emitted from |
+|---|---|---|---|
+| `invitation:received` | server→client (room) | recipient | `invitations.ts` `sendInvitationEmail` flow |
+| `certificate:issued` | server→client (room) | recipient | `certificates.ts` generate + bulk |
+| `quiz:starting` | server→client (broadcast) | all `/notifications` clients | `quizRouter.ts` `POST /:quizId/open` |
+
+Free-tier safe — no per-event buffer, fan-out is room-scoped or single broadcast.
+
+### Frontend shell
+
+- **[apps/web/src/components/dashboard/DashboardLayout.tsx](apps/web/src/components/dashboard/DashboardLayout.tsx)** — full rewrite. Sidebar 244 px expanded / 60 px collapsed (collapse state in `localStorage`), brand "code.scriet" with the accent dot, search shortcut button, role-aware sections, "Coding" parent with expanded sub-items (Practice/QOTD/Competitions/Leaderboard/Playground), user card pinned bottom with sign-out. Topbar 56 px frosted: breadcrumb / Cmd+K button / theme toggle / bell (with unread dot) / avatar menu. Mobile drawer + bottom-tab (Home/Events/Coding/Profile). Topbar exposes a desktop collapse toggle button next to the breadcrumb.
+- **[apps/web/src/components/dashboard/CommandPalette.tsx](apps/web/src/components/dashboard/CommandPalette.tsx)** — global Cmd/Ctrl+K. Debounced search hits `/api/search/global`. Sections: Pages / Events / Problems / Polls / Announcements / People / Actions (Toggle theme, Open profile, etc.). Keyboard nav ↑↓ + Enter + Esc.
+- **[apps/web/src/components/dashboard/NotifMenu.tsx](apps/web/src/components/dashboard/NotifMenu.tsx)** — bell popover. Tabs All / Unread. Hits `/api/notifications` (refetch every 30s when open). "Mark all as read" calls `/mark-read`.
+
+### Frontend design-system primitives — `apps/web/src/components/dash/`
+
+| Primitive | File | Notes |
+|---|---|---|
+| `Pill` | `Pill.tsx` | Tones: neutral/accent/success/warning/danger/info + 6 role tones. Sizes xs/sm/md. `roleTone()` helper. |
+| `KBD` | `KBD.tsx` | Keyboard hint chip. |
+| `MonoChip` | `MonoChip.tsx` | IDs, scores. |
+| `Difficulty` | `Difficulty.tsx` | EASY/MEDIUM/HARD locked colors. |
+| `CountdownPill` | `CountdownPill.tsx` | Live timer with `.live-dot` pulse. |
+| `StatTile` | `StatTile.tsx` | Label + value + delta + sparkline slot. |
+| `Banner` | `Banner.tsx` | Tones + action + dismiss. |
+| `EmptyState` | `EmptyState.tsx` | Icon + title + body + action. |
+| `ProgressBar` | `ProgressBar.tsx` | Optional label. |
+| `SegmentedTabs` | `SegmentedTabs.tsx` | Pill-style. |
+| `UnderlineTabs` | `UnderlineTabs.tsx` | Underlined (for Coding hub etc.). |
+| `Avatar` | `Avatar.tsx` | Deterministic-hue initials + status dot. |
+| `Field` | `Field.tsx` | `<label>` wrapper with label/hint/required marker. |
+| `IconButton` | `IconButton.tsx` | Ghost/soft/border variants. |
+| `DSCard` | `DSCard.tsx` | Padded/hover variants, polymorphic `as`. |
+| `Section`, `SectionHead`, `Divider` | `Section.tsx` | Page-level section wrapper with eyebrow + title + action. |
+
+shadcn primitives (`Button`, `Card`, `Input`, `Switch`, `Dialog`, `Tabs`, etc.) are kept and re-skinned via the HSL bridge inside `[data-dashboard]`.
+
+### New frontend API methods (in `apps/web/src/lib/api/dashboard.ts`)
+
+`getNotifications`, `markNotificationsRead`, `globalSearch`, `getMyRecentSubmissions`, `getQOTDLeaderboardAroundMe`, `getMyAllTeams`, `getUploadHistory`, `getAdminDashboardStats`, `adminGrantCapRequest`, `adminDenyCapRequest`. Re-exported types: `NotifItem`, `NotificationsPayload`, `GlobalSearchPayload`, `RecentSubmission`, `AroundMeLeaderboard`, `MyTeamCard`, `UploadHistoryItem`, `AdminInsights`, `AdminDashboardStats`.
+
+### Pages rewritten
+
+- **[DashboardOverview.tsx](apps/web/src/pages/dashboard/DashboardOverview.tsx)** — flat typography-led layout. Dynamic greeting (`Good morning/afternoon/evening, <first name>.` from IST hour). USER/NETWORK/ADMIN variants. Admin variant prepends a 12-tile `AdminStatStrip` + the existing `AdminPendingRequestsCard` restyled. Sections: QOTDHero with streak ring, StatsRow, MyEvents, ReadUp (announcements + active poll), Standing (rank ± 2), MyCode, Earned (certs), HiringStatus (if applied).
+- **[DashboardCoding.tsx](apps/web/src/pages/dashboard/DashboardCoding.tsx)** — five tabs: Practice (problems table) / QOTD (today + history + streak) / Competitions (rounds per registered event) / Leaderboard (all-time + days) / Playground (iframe embed). Every "Solve" CTA opens the playground in a new tab — no in-app Monaco editor.
+- **[QOTDSolvePage.tsx](apps/web/src/pages/QOTDSolvePage.tsx) / [CompetitionSolvePage.tsx](apps/web/src/pages/CompetitionSolvePage.tsx)** — both now redirect to the playground with `?qotd=<date>` or `?contest=<roundId>&problem=<id>` and a one-time auth handoff in the URL hash. No Monaco in the main app.
+- **[AdminSettings.tsx](apps/web/src/pages/admin/AdminSettings.tsx)** — added `BrandAccentCard` (between General and Registration Events).
+
+### Hard rules carried forward
+
+- The dashboard layout wraps everything in `<div data-dashboard data-accent={settings.accentColor || 'rust'} data-density data-motion>`. Anything that needs the new tokens MUST render inside this scope.
+- Public pages stay on Outfit/Sora + the existing amber palette. Do not move any public-page styles into the dashboard scope or vice versa.
+- The solve flow is playground-only — never add a Monaco editor to the main web app. If you need in-app editing, redirect to `code.codescriet.dev`.
+
+---
+
 ## Playground Architecture
 
 - **Frontend:** React app at `code.codescriet.dev` (separate Vite build)
@@ -1679,12 +1777,11 @@ All requests use `fetch` with `credentials: 'include'` for cross-origin cookie s
 
 ## Known Issues
 
-1. Session cookie `httpOnly: false` — XSS can steal tokens
-2. JWT in URL hash fragment after OAuth — security concern
-3. Automated coverage is partial (stability tests + utility tests + Playwright), not full regression coverage
-4. Some routes use raw `res.json()` instead of `ApiResponse` utility
-5. `AdminEventRegistrations` makes N+1 fetch calls (one per event for registrations) — acceptable at current scale, annotated in code
-6. Certificate email fire-and-forget pattern means `emailSent` flag update could fail silently — try-catch added but pattern is inherently lossy during restarts
+1. JWT in URL hash fragment after OAuth — security concern
+2. Automated coverage is partial (stability tests + utility tests + Playwright), not full regression coverage
+3. Some routes use raw `res.json()` instead of `ApiResponse` utility
+4. `AdminEventRegistrations` makes N+1 fetch calls (one per event for registrations) — acceptable at current scale, annotated in code
+5. Certificate email fire-and-forget pattern means `emailSent` flag update could fail silently — try-catch added but pattern is inherently lossy during restarts
 
 ---
 

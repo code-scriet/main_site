@@ -53,14 +53,14 @@ export function SignatoryPicker({
   }
 
   return (
-    <div className="col-span-2 rounded-lg border border-gray-200 bg-gray-50 p-3 space-y-3">
-      <p className="text-sm font-semibold text-gray-700">
+    <div className="col-span-2 rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-soft)] p-3 space-y-3">
+      <p className="text-sm font-semibold text-[var(--ds-text-2)]">
         {label}{required && <span className="text-red-500 ml-0.5">*</span>}
       </p>
 
       <select
         id={`${pickerId}-select`}
-        className="w-full rounded-md border border-gray-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
+        className="w-full rounded-md border border-[var(--border-subtle)] bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
         value={selectedId || '__custom__'}
         onChange={(e) => {
           const val = e.target.value;
@@ -82,10 +82,10 @@ export function SignatoryPicker({
       </select>
 
       {selected && (
-        <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-gray-100 bg-white p-2">
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-[var(--border-subtle)] bg-white p-2">
           <div>
-            <p className="text-sm font-medium text-gray-800">{selected.name}</p>
-            <p className="text-xs text-gray-500">{selected.title}</p>
+            <p className="text-sm font-medium text-[var(--ds-text-1)]">{selected.name}</p>
+            <p className="text-xs text-[var(--ds-text-3)]">{selected.title}</p>
           </div>
           {selected.signatureUrl ? (
             <div className="flex items-center gap-2 rounded border border-green-200 bg-green-50 px-2 py-1.5">
@@ -99,9 +99,9 @@ export function SignatoryPicker({
               />
             </div>
           ) : (
-            <div className="flex items-center gap-1.5 rounded border border-amber-200 bg-amber-50 px-2 py-1.5">
+            <div className="flex items-center gap-1.5 rounded border border-[var(--warning-border)] bg-[var(--warning-bg)] px-2 py-1.5">
               <PenLine className="w-3.5 h-3.5 text-amber-600 shrink-0" />
-              <span className="text-xs text-amber-700">Cursive text fallback</span>
+              <span className="text-xs text-[var(--warning)]">Cursive text fallback</span>
             </div>
           )}
         </div>
@@ -111,7 +111,7 @@ export function SignatoryPicker({
         <div className="space-y-2.5">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
             <div>
-              <label htmlFor={`${pickerId}-name`} className="text-xs text-gray-500 block mb-0.5">Name{required && ' *'}</label>
+              <label htmlFor={`${pickerId}-name`} className="text-xs text-[var(--ds-text-3)] block mb-0.5">Name{required && ' *'}</label>
               <Input
                 id={`${pickerId}-name`}
                 value={name}
@@ -121,7 +121,7 @@ export function SignatoryPicker({
               />
             </div>
             <div>
-              <label htmlFor={`${pickerId}-title`} className="text-xs text-gray-500 block mb-0.5">Title</label>
+              <label htmlFor={`${pickerId}-title`} className="text-xs text-[var(--ds-text-3)] block mb-0.5">Title</label>
               <Input
                 id={`${pickerId}-title`}
                 value={title}
@@ -137,7 +137,7 @@ export function SignatoryPicker({
               <img src={imageUrl} alt="Signature preview" className="h-10 max-w-[120px] object-contain shrink-0" />
               <div className="flex-1 min-w-0">
                 <p className="text-xs font-medium text-green-700">Signature uploaded</p>
-                <p className="text-xs text-gray-400 truncate">{imageUrl.split('/').pop()}</p>
+                <p className="text-xs text-[var(--ds-text-3)] truncate">{imageUrl.split('/').pop()}</p>
               </div>
               <button
                 type="button"
@@ -150,13 +150,13 @@ export function SignatoryPicker({
           ) : (
             <label htmlFor={`${pickerId}-signature-file`} className={`flex items-center gap-2 cursor-pointer rounded-md border border-dashed px-3 py-2.5 text-sm transition-colors ${
               uploading
-                ? 'border-amber-300 bg-amber-50 text-amber-600 cursor-not-allowed'
-                : 'border-gray-300 bg-white text-gray-500 hover:border-amber-400 hover:text-amber-600'
+                ? 'border-[var(--warning-border)] bg-[var(--warning-bg)] text-amber-600 cursor-not-allowed'
+                : 'border-[var(--border-default)] bg-white text-[var(--ds-text-3)] hover:border-amber-400 hover:text-amber-600'
             }`}>
               {uploading ? (
                 <><Loader2 className="w-4 h-4 animate-spin shrink-0" /><span>Uploading to Cloudinary…</span></>
               ) : (
-                <><ImageIcon className="w-4 h-4 shrink-0" /><span>Upload signature image <span className="text-xs text-gray-400">(PNG/JPG — optional)</span></span></>
+                <><ImageIcon className="w-4 h-4 shrink-0" /><span>Upload signature image <span className="text-xs text-[var(--ds-text-3)]">(PNG/JPG — optional)</span></span></>
               )}
               <input id={`${pickerId}-signature-file`} type="file" accept="image/*" className="hidden" disabled={uploading} onChange={handleImageFile} />
             </label>

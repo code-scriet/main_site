@@ -10,7 +10,8 @@ import { parsePaginationNumber } from '../utils/pagination.js';
 import { ApiResponse } from '../utils/response.js';
 import { createProblemFromInput, serializeProblemDetail, toIstDateKey, type ProblemInput } from '../utils/problemsCore.js';
 import { formatUsageDate } from '../utils/dailyLimit.js';
-import { recomputeUserStreakSafe, invalidatePublishedQotdCache } from '../utils/qotdStreak.js';
+import { recomputeUserStreakSafe, invalidatePublishedQotdCache, recomputeStreaksForQOTDSafe } from '../utils/qotdStreak.js';
+import { broadcastNotification } from '../utils/notifications.js';
 
 export const qotdRouter = Router();
 
@@ -275,6 +276,70 @@ qotdRouter.get('/leaderboard/total', async (req: Request, res: Response) => {
   }
 });
 
+// Dashboard v2: rank ± window around the current user — powers the overview "Where you stand" slice.
+qotdRouter.get('/leaderboard/around-me', authMiddleware, async (req: Request, res: Response) => {
+  try {
+    const user = getAuthUser(req);
+    if (!user) return ApiResponse.unauthorized(res);
+    const windowSize = Math.min(5, Math.max(1, Number(req.query.window) || 2));
+
+    // Compute total scores for everyone, rank them, then slice around the caller.
+    // RANK() handles ties (same score → same rank). Single query, capped result set.
+    const ranked = await prisma.$queryRaw<Array<{ user_id: string; total_score: bigint | number; first_solve: Date; rk: bigint | number; total_rows: bigint | number }>>`
+      WITH scored AS (
+        SELECT ps.user_id,
+               SUM(ps.score)::int AS total_score,
+               MIN(ps.submitted_at) AS first_solve
+        FROM problem_submissions ps
+        JOIN qotd q ON q.id = ps.context_key
+        WHERE ps.context_type = 'QOTD'
+          AND DATE(ps.submitted_at AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Kolkata')
+              = DATE(q.date AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Kolkata')
+        GROUP BY ps.user_id
+      ), ranked AS (
+        SELECT user_id, total_score, first_solve,
+               RANK() OVER (ORDER BY total_score DESC, first_solve ASC) AS rk,
+               COUNT(*) OVER () AS total_rows
+        FROM scored
+      ), my_rank AS (
+        SELECT rk FROM ranked WHERE user_id = ${user.id}
+      )
+      SELECT r.user_id, r.total_score, r.first_solve, r.rk, r.total_rows
+      FROM ranked r, my_rank m
+      WHERE ABS(r.rk - m.rk) <= ${windowSize}
+      ORDER BY r.rk ASC;
+    `;
+
+    if (ranked.length === 0) {
+      return ApiResponse.success(res, { slice: [], myRank: null, totalRanked: 0, nextUpDelta: null });
+    }
+    const users = await prisma.user.findMany({
+      where: { id: { in: ranked.map((row) => row.user_id) } },
+      select: { id: true, name: true, avatar: true },
+    });
+    const usersById = new Map(users.map((u) => [u.id, u]));
+    const slice = ranked.map((row) => {
+      const u = usersById.get(row.user_id);
+      return {
+        rank: Number(row.rk),
+        userId: row.user_id,
+        name: u?.name ?? 'Unknown',
+        avatar: u?.avatar ?? null,
+        score: Number(row.total_score),
+        you: row.user_id === user.id,
+      };
+    });
+    const myIdx = slice.findIndex((r) => r.you);
+    const myRank = myIdx >= 0 ? slice[myIdx].rank : null;
+    const totalRanked = ranked.length > 0 ? Number(ranked[0].total_rows) : 0;
+    const nextUp = myIdx > 0 ? slice[myIdx - 1] : null;
+    const nextUpDelta = nextUp && myIdx >= 0 ? nextUp.score - slice[myIdx].score : null;
+    return ApiResponse.success(res, { slice, myRank, totalRanked, nextUpDelta, nextUp });
+  } catch {
+    return ApiResponse.internal(res, 'Failed to fetch around-me leaderboard');
+  }
+});
+
 qotdRouter.get('/stats/leaderboard', async (req: Request, res: Response) => {
   try {
     const limit = parsePaginationNumber(req.query.limit, 10, { min: 1, max: 100 });
@@ -502,7 +567,21 @@ qotdRouter.post('/:id/publish', authMiddleware, requireRole('ADMIN'), async (req
     });
     invalidateQotdLeaderboardCaches(qotd.id);
     invalidatePublishedQotdCache(); // streak depends on published-day set; new day shifts streaks
+    // Materialized streaks for every submitter on this day must reflect the flip.
+    recomputeStreaksForQOTDSafe(qotd.id);
     await auditLog(authUser.id, 'QOTD_PUBLISHED', 'qotd', qotd.id);
+    broadcastNotification({
+      source: 'AUTO_QOTD',
+      audience: 'ALL',
+      category: 'qotd',
+      icon: 'zap',
+      title: `QOTD is live · ${updated.problem?.title ?? updated.question}`,
+      body: 'Solve before midnight IST to keep your streak going.',
+      link: '/qotd/today',
+      refEntity: 'qotd',
+      refEntityId: qotd.id,
+      createdById: authUser.id,
+    }).catch(() => undefined);
     return ApiResponse.success(res, updated, 'QOTD published');
   } catch {
     return ApiResponse.internal(res, 'Failed to publish QOTD');
@@ -524,6 +603,9 @@ qotdRouter.post('/:id/hold', authMiddleware, requireRole('ADMIN'), async (req: R
     });
     invalidateQotdLeaderboardCaches(qotd.id);
     invalidatePublishedQotdCache(); // streak depends on published-day set; held days shift streaks
+    // Held QOTD becomes "transparent" — every submitter's materialized streak
+    // must be recomputed so we don't credit a day that's no longer published.
+    recomputeStreaksForQOTDSafe(qotd.id);
     await auditLog(authUser.id, 'QOTD_HELD', 'qotd', qotd.id, { reason: parsed.data.reason });
     return ApiResponse.success(res, updated, 'QOTD held');
   } catch {

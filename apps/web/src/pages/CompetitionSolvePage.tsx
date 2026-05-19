@@ -1,118 +1,80 @@
-import { useMemo } from 'react';
-import { useQuery } from '@tanstack/react-query';
+// Dashboard v2 — competition solve redirects to the playground.
+// No in-app Monaco. The playground reads the contest context from query params
+// and provides the editor + judging UI there.
+
+import { useEffect, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { ArrowLeft, Clock, Loader2 } from 'lucide-react';
-import { useAuth } from '@/context/AuthContext';
-import ProblemSolverShell from '@/components/problems/ProblemSolverShell';
-import { api, type Problem } from '@/lib/api';
-
-type RoundProblemLink = {
-  id?: string;
-  problemId?: string;
-  title?: string;
-  difficulty?: string;
-  points?: number;
-  displayOrder?: number;
-  problem?: Problem;
-  submission?: { score?: number; verdict?: string } | null;
-};
-
-function getProblemId(link: RoundProblemLink) {
-  return link.problem?.id ?? link.problemId ?? link.id ?? '';
-}
-
-function formatRemaining(seconds?: number | null) {
-  const safe = Math.max(0, seconds ?? 0);
-  const minutes = Math.floor(safe / 60);
-  const secs = safe % 60;
-  return `${minutes}:${String(secs).padStart(2, '0')}`;
-}
+import { AlertCircle, ArrowLeft, ExternalLink, Loader2 } from 'lucide-react';
+import { getPlaygroundLaunchUrl } from '@/lib/playgroundUrl';
 
 export default function CompetitionSolvePage() {
   const { roundId, problemId } = useParams();
-  const { token } = useAuth();
+  const [redirectFailed, setRedirectFailed] = useState(false);
 
-  const roundQuery = useQuery({
-    queryKey: ['competition-round', roundId],
-    queryFn: () => api.getCompetitionRound(roundId!, token!),
-    enabled: Boolean(roundId && token),
-    refetchInterval: 30_000,
-  });
+  const target = useMemo(() => {
+    const qs = new URLSearchParams();
+    if (roundId) qs.set('contest', roundId);
+    if (problemId) qs.set('problem', problemId);
+    return getPlaygroundLaunchUrl(`/?${qs.toString()}`);
+  }, [roundId, problemId]);
 
-  const roundProblems = useMemo(
-    () => (roundQuery.data?.problems ?? []) as unknown as RoundProblemLink[],
-    [roundQuery.data?.problems],
-  );
-  const currentProblemId = problemId || getProblemId(roundProblems[0] ?? {});
-  const currentLink = useMemo(
-    () => roundProblems.find((link) => getProblemId(link) === currentProblemId),
-    [currentProblemId, roundProblems],
-  );
-
-  const problemQuery = useQuery({
-    queryKey: ['problem-detail', currentProblemId, 'CONTEST', roundId],
-    queryFn: () => api.getProblem(currentProblemId, { contextType: 'CONTEST', contextKey: roundId!, token: token ?? undefined }),
-    enabled: Boolean(currentProblemId && roundId && token),
-  });
-
-  const loading = roundQuery.isLoading || problemQuery.isLoading;
-  const problem = problemQuery.data?.problem ?? currentLink?.problem ?? null;
+  useEffect(() => {
+    // Scrub any auth-handoff hash from the address bar before we hop domains —
+    // browser history would otherwise retain it and it could leak via the
+    // Referer header or browser extensions.
+    if (typeof window !== 'undefined' && window.location.hash) {
+      try {
+        window.history.replaceState(null, '', window.location.pathname + window.location.search);
+      } catch {
+        // history API blocked — non-fatal
+      }
+    }
+    if (!target) {
+      setRedirectFailed(true);
+      return;
+    }
+    try {
+      window.location.replace(target);
+    } catch {
+      setRedirectFailed(true);
+    }
+  }, [target]);
 
   return (
-    <main className="min-h-screen bg-gray-50 px-4 py-6">
-      <div className="mx-auto max-w-7xl space-y-4">
-        <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-gray-200 bg-white px-4 py-3">
-          <Link to={`/competition/${roundId}/results`} className="inline-flex items-center gap-2 text-sm font-semibold text-gray-600 hover:text-gray-900">
-            <ArrowLeft className="h-4 w-4" />
-            Results
-          </Link>
-          <div className="flex flex-wrap items-center gap-2">
-            {roundProblems.map((link, index) => {
-              const id = getProblemId(link);
-              return (
-                <Link
-                  key={id || index}
-                  to={`/competition/${roundId}/solve/${id}`}
-                  className={`rounded-md border px-3 py-2 text-sm font-semibold ${id === currentProblemId ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-gray-200 bg-white text-gray-700 hover:border-blue-200'}`}
-                >
-                  {link.title ?? link.problem?.title ?? `Problem ${index + 1}`}
-                  {link.submission?.score !== undefined && <span className="ml-2 rounded-full bg-gray-100 px-2 py-0.5 text-xs">{link.submission.score}</span>}
-                </Link>
-              );
-            })}
-          </div>
-          <div className="inline-flex items-center gap-2 rounded-full bg-gray-100 px-3 py-1 text-sm font-semibold text-gray-700">
-            <Clock className="h-4 w-4" />
-            {roundQuery.data?.status === 'ACTIVE' ? formatRemaining(roundQuery.data.remainingSeconds) : roundQuery.data?.status ?? 'ROUND'}
-          </div>
+    <main
+      data-dashboard="true"
+      className="min-h-screen flex items-center justify-center px-4 py-10 bg-[var(--bg-canvas)] text-[var(--ds-text-1)]"
+    >
+      <div className="mx-auto max-w-2xl w-full space-y-6 text-center">
+        <Link
+          to={roundId ? `/competition/${roundId}/results` : '/dashboard/coding?tab=competitions'}
+          className="inline-flex items-center gap-2 text-sm font-medium text-[var(--ds-text-3)] hover:text-[var(--ds-text-1)]"
+        >
+          <ArrowLeft className="h-4 w-4" />
+          Back
+        </Link>
+        <div className="rounded-[14px] border border-[var(--border-subtle)] bg-[var(--bg-raised)] p-10 shadow-[var(--shadow-sm)]">
+          {redirectFailed ? (
+            <AlertCircle className="mx-auto h-8 w-8 text-[var(--warning)]" />
+          ) : (
+            <Loader2 className="mx-auto h-8 w-8 animate-spin text-[var(--accent)]" />
+          )}
+          <h1 className="mt-5 text-2xl font-semibold tracking-tight">
+            {redirectFailed ? 'Could not open the playground' : 'Opening playground…'}
+          </h1>
+          <p className="mt-2 text-sm text-[var(--ds-text-3)]">
+            {redirectFailed
+              ? 'Automatic redirect was blocked. Use the button below to continue.'
+              : 'Competition problems are solved in the playground. We’re sending you there with the round context preloaded.'}
+          </p>
+          <a
+            href={target}
+            className="mt-6 inline-flex items-center gap-2 rounded-[8px] bg-[var(--accent)] px-4 h-9 text-[13.5px] font-medium text-[var(--accent-fg)] hover:bg-[var(--accent-hover)]"
+          >
+            Solve in Playground
+            <ExternalLink className="h-4 w-4" />
+          </a>
         </div>
-
-        {loading && (
-          <div className="grid min-h-[520px] place-items-center rounded-lg border border-gray-200 bg-white">
-            <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
-          </div>
-        )}
-
-        {!loading && !problem && (
-          <div className="rounded-lg border border-dashed border-gray-300 bg-white p-10 text-center">
-            <h1 className="text-2xl font-bold text-gray-900">Problem not found</h1>
-            <p className="mt-2 text-gray-600">This round does not include the selected problem.</p>
-          </div>
-        )}
-
-        {!loading && problem && roundId && (
-          <ProblemSolverShell
-            problem={problem}
-            context={{
-              type: 'CONTEST',
-              key: roundId,
-              submitEnabled: roundQuery.data?.status === 'ACTIVE',
-              deadlineLabel: roundQuery.data?.status === 'ACTIVE'
-                ? `Contest round is active. Time remaining: ${formatRemaining(roundQuery.data.remainingSeconds)}`
-                : 'Contest submissions are closed.',
-            }}
-          />
-        )}
       </div>
     </main>
   );

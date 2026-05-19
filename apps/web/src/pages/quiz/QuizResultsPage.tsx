@@ -125,10 +125,10 @@ interface SpeedScatterPoint {
 function AccuracyBar({ accuracy, className }: { accuracy: number; className?: string }) {
   const color =
     accuracy >= 80 ? 'bg-green-500' :
-    accuracy >= 50 ? 'bg-amber-500' :
+    accuracy >= 50 ? 'bg-[var(--accent)]' :
     'bg-red-500';
   return (
-    <div className={cn('w-full h-2 bg-amber-100 rounded-full overflow-hidden', className)}>
+    <div className={cn('w-full h-2 bg-[var(--accent-subtle)] rounded-full overflow-hidden', className)}>
       <motion.div
         initial={{ width: 0 }}
         animate={{ width: `${accuracy}%` }}
@@ -228,8 +228,8 @@ export default function QuizResultsPage() {
   if (loading) {
     return (
       <Layout>
-        <div className="min-h-[70vh] flex items-center justify-center bg-gradient-to-br from-amber-50 via-orange-50 to-amber-100">
-          <Loader2 className="h-8 w-8 text-amber-500 animate-spin" />
+        <div data-dashboard="true" data-accent="rust" className="min-h-[70vh] flex items-center justify-center bg-[var(--bg-canvas)] text-[var(--ds-text-1)]">
+          <Loader2 className="h-8 w-8 text-[var(--accent)] animate-spin" />
         </div>
       </Layout>
     );
@@ -238,18 +238,18 @@ export default function QuizResultsPage() {
   if (error || !result) {
     return (
       <Layout>
-        <div className="min-h-[70vh] flex items-center justify-center bg-gradient-to-br from-amber-50 via-orange-50 to-amber-100">
-          <Card className="border-amber-200/60 shadow-md max-w-md w-full mx-4">
+        <div data-dashboard="true" data-accent="rust" className="min-h-[70vh] flex items-center justify-center bg-[var(--bg-canvas)] text-[var(--ds-text-1)]">
+          <Card className="border-[var(--accent-ring)]/60 shadow-md max-w-md w-full mx-4">
             <CardContent className="p-6 text-center space-y-4">
               <p className="text-red-600 font-medium">{error || 'Results not found'}</p>
               <div className="flex items-center justify-center gap-3">
-                <Button asChild variant="outline" className="border-amber-300 text-amber-700 hover:bg-amber-50">
+                <Button asChild variant="outline" className="border-[var(--accent-ring)] text-[var(--ds-text-2)] hover:bg-[var(--accent-subtle)]">
                   <Link to="/dashboard">
                     <LayoutDashboard className="h-4 w-4 mr-2" />
                     Dashboard
                   </Link>
                 </Button>
-                <Button asChild variant="outline" className="border-amber-300 text-amber-700 hover:bg-amber-50">
+                <Button asChild variant="outline" className="border-[var(--accent-ring)] text-[var(--ds-text-2)] hover:bg-[var(--accent-subtle)]">
                   <Link to="/quiz">
                     <ArrowLeft className="h-4 w-4 mr-2" />
                     Quizzes
@@ -276,18 +276,18 @@ export default function QuizResultsPage() {
 
   return (
     <Layout>
-      <div className="min-h-screen bg-gradient-to-br from-amber-50 via-orange-50 to-amber-100">
+      <div data-dashboard="true" data-accent="rust" className="min-h-screen bg-[var(--bg-canvas)] text-[var(--ds-text-1)]">
         {/* Hero header */}
-        <div className="bg-white/80 backdrop-blur-sm border-b border-amber-200/60">
+        <div className="bg-white/80 backdrop-blur-sm border-b border-[var(--accent-ring)]/60">
           <div className="max-w-5xl mx-auto px-4 py-6">
             <div className="mb-4 flex items-center gap-2 flex-wrap">
-              <Button asChild variant="ghost" size="sm" className="text-amber-700 hover:bg-amber-50">
+              <Button asChild variant="ghost" size="sm" className="text-[var(--ds-text-2)] hover:bg-[var(--accent-subtle)]">
                 <Link to="/dashboard">
                   <LayoutDashboard className="h-4 w-4 mr-1" />
                   Dashboard
                 </Link>
               </Button>
-              <Button asChild variant="ghost" size="sm" className="text-amber-700 hover:bg-amber-50">
+              <Button asChild variant="ghost" size="sm" className="text-[var(--ds-text-2)] hover:bg-[var(--accent-subtle)]">
                 <Link to="/quiz">
                   <ArrowLeft className="h-4 w-4 mr-1" />
                   Quizzes
@@ -297,7 +297,7 @@ export default function QuizResultsPage() {
                 <Button
                   variant="outline"
                   size="sm"
-                  className="ml-auto border-amber-300 text-amber-700 hover:bg-amber-50"
+                  className="ml-auto border-[var(--accent-ring)] text-[var(--ds-text-2)] hover:bg-[var(--accent-subtle)]"
                   onClick={handleExport}
                   disabled={exporting}
                 >
@@ -310,9 +310,9 @@ export default function QuizResultsPage() {
                 </Button>
               )}
             </div>
-            <h1 className="text-2xl font-bold text-amber-900 font-display">{quiz.title}</h1>
-            {quiz.description && <p className="text-amber-700/60 mt-1">{quiz.description}</p>}
-            <div className="flex items-center gap-4 mt-3 text-xs font-medium text-amber-700/50 flex-wrap">
+            <h1 className="text-2xl font-bold text-[var(--ds-text-1)] font-display">{quiz.title}</h1>
+            {quiz.description && <p className="text-[var(--ds-text-2)]/60 mt-1">{quiz.description}</p>}
+            <div className="flex items-center gap-4 mt-3 text-xs font-medium text-[var(--ds-text-2)]/50 flex-wrap">
               <span className="flex items-center gap-1">
                 <BookOpen className="h-3.5 w-3.5" />
                 {quiz.questionCount} questions
@@ -333,7 +333,7 @@ export default function QuizResultsPage() {
                   {formatDate(quiz.finishedAt, 'short')}
                 </span>
               )}
-              <Badge variant="outline" className="border-amber-300 text-amber-700 bg-amber-50 text-[10px]">
+              <Badge variant="outline" className="border-[var(--accent-ring)] text-[var(--ds-text-2)] bg-[var(--accent-subtle)] text-[10px]">
                 {quiz.status}
               </Badge>
             </div>
@@ -344,13 +344,13 @@ export default function QuizResultsPage() {
           {/* Winner hero card */}
           {leaderboard[0] && (
             <motion.div initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }}>
-              <Card className="border-amber-300/60 shadow-lg overflow-hidden">
-                <div className="bg-gradient-to-r from-amber-100 via-orange-100 to-amber-100 p-6 sm:p-8 text-center">
-                  <Trophy className="h-10 w-10 mx-auto text-amber-500 mb-2" />
-                  <h2 className="text-2xl font-bold text-amber-900 font-display">
+              <Card className="border-[var(--accent-ring)]/60 shadow-lg overflow-hidden">
+                <div className="bg-gradient-to-r from-[var(--accent)] via-[var(--accent-subtle)] to-[var(--accent-hover)] p-6 sm:p-8 text-center">
+                  <Trophy className="h-10 w-10 mx-auto text-[var(--accent)] mb-2" />
+                  <h2 className="text-2xl font-bold text-[var(--ds-text-1)] font-display">
                     {leaderboard[0].displayName}
                   </h2>
-                  <p className="text-amber-700/70 font-medium">Winner with {leaderboard[0].score} points</p>
+                  <p className="text-[var(--ds-text-2)]/70 font-medium">Winner with {leaderboard[0].score} points</p>
                 </div>
               </Card>
             </motion.div>
@@ -359,17 +359,17 @@ export default function QuizResultsPage() {
           {/* My result */}
           {myResult && (
             <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}>
-              <Card className="border-amber-200/60 shadow-md">
+              <Card className="border-[var(--accent-ring)]/60 shadow-md">
                 <CardContent className="p-5 text-center">
-                  <p className="text-xs font-semibold text-amber-700/50 uppercase tracking-wide mb-1">Your Result</p>
-                  <p className="text-3xl font-black text-amber-900 tabular-nums font-display">
+                  <p className="text-xs font-semibold text-[var(--ds-text-2)]/50 uppercase tracking-wide mb-1">Your Result</p>
+                  <p className="text-3xl font-black text-[var(--ds-text-1)] tabular-nums font-display">
                     #{myResult.rank ?? '—'}
                   </p>
-                  <div className="flex items-center justify-center gap-5 mt-3 text-sm text-amber-700/60 font-medium flex-wrap">
+                  <div className="flex items-center justify-center gap-5 mt-3 text-sm text-[var(--ds-text-2)]/60 font-medium flex-wrap">
                     <span className="tabular-nums">{myResult.score} pts</span>
-                    <span className="w-px h-4 bg-amber-200" />
+                    <span className="w-px h-4 bg-[var(--accent-subtle)]" />
                     <span className="tabular-nums">{myResult.correctCount}/{quiz.questionCount} correct</span>
-                    <span className="w-px h-4 bg-amber-200" />
+                    <span className="w-px h-4 bg-[var(--accent-subtle)]" />
                     <span className="tabular-nums">{(myResult.totalAnswerTimeMs / 1000).toFixed(1)}s</span>
                   </div>
                 </CardContent>
@@ -379,7 +379,7 @@ export default function QuizResultsPage() {
 
           {/* Section tabs */}
           <div
-            className="flex items-center gap-1 bg-white/60 backdrop-blur-sm rounded-xl border border-amber-200/60 p-1"
+            className="flex items-center gap-1 bg-white/60 backdrop-blur-sm rounded-xl border border-[var(--accent-ring)]/60 p-1"
             role="tablist"
             aria-label="Quiz result sections"
           >
@@ -394,8 +394,8 @@ export default function QuizResultsPage() {
                 className={cn(
                   'flex-1 flex items-center justify-center gap-2 px-3 py-2.5 text-sm font-semibold rounded-lg transition-all',
                   activeTab === t.key
-                    ? 'bg-gradient-to-r from-orange-500 to-amber-600 text-white shadow-md'
-                    : 'text-amber-700/60 hover:text-amber-800 hover:bg-amber-50',
+                    ? 'bg-gradient-to-r from-[var(--accent)]0 to-[var(--accent-hover)] text-white shadow-md'
+                    : 'text-[var(--ds-text-2)]/60 hover:text-[var(--ds-text-1)] hover:bg-[var(--accent-subtle)]',
                 )}
               >
                 {t.icon}
@@ -419,42 +419,42 @@ export default function QuizResultsPage() {
               >
                 {/* Stat cards */}
                 <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-                  <Card className="border-amber-200/60 shadow-sm">
+                  <Card className="border-[var(--accent-ring)]/60 shadow-sm">
                     <CardContent className="p-4 text-center">
-                      <Users className="h-5 w-5 mx-auto text-amber-500 mb-1" />
-                      <p className="text-2xl font-black text-amber-900 tabular-nums font-display">
+                      <Users className="h-5 w-5 mx-auto text-[var(--accent)] mb-1" />
+                      <p className="text-2xl font-black text-[var(--ds-text-1)] tabular-nums font-display">
                         {insights.totalParticipants}
                       </p>
-                      <p className="text-[11px] font-medium text-amber-700/50 uppercase tracking-wide">Participants</p>
+                      <p className="text-[11px] font-medium text-[var(--ds-text-2)]/50 uppercase tracking-wide">Participants</p>
                     </CardContent>
                   </Card>
-                  <Card className="border-amber-200/60 shadow-sm">
+                  <Card className="border-[var(--accent-ring)]/60 shadow-sm">
                     <CardContent className="p-4 text-center">
-                      <TrendingUp className="h-5 w-5 mx-auto text-amber-500 mb-1" />
-                      <p className="text-2xl font-black text-amber-900 tabular-nums font-display">
-                        {insights.avgScore}<span className="text-sm font-medium text-amber-700/40">/{insights.maxPossibleScore}</span>
+                      <TrendingUp className="h-5 w-5 mx-auto text-[var(--accent)] mb-1" />
+                      <p className="text-2xl font-black text-[var(--ds-text-1)] tabular-nums font-display">
+                        {insights.avgScore}<span className="text-sm font-medium text-[var(--ds-text-2)]/40">/{insights.maxPossibleScore}</span>
                       </p>
-                      <p className="text-[11px] font-medium text-amber-700/50 uppercase tracking-wide">Avg Score</p>
+                      <p className="text-[11px] font-medium text-[var(--ds-text-2)]/50 uppercase tracking-wide">Avg Score</p>
                     </CardContent>
                   </Card>
-                  <Card className="border-amber-200/60 shadow-sm">
+                  <Card className="border-[var(--accent-ring)]/60 shadow-sm">
                     <CardContent className="p-4 text-center">
-                      <Target className="h-5 w-5 mx-auto text-amber-500 mb-1" />
-                      <p className="text-2xl font-black text-amber-900 tabular-nums font-display">
+                      <Target className="h-5 w-5 mx-auto text-[var(--accent)] mb-1" />
+                      <p className="text-2xl font-black text-[var(--ds-text-1)] tabular-nums font-display">
                         {insights.avgAccuracy}%
                       </p>
-                      <p className="text-[11px] font-medium text-amber-700/50 uppercase tracking-wide">Avg Accuracy</p>
+                      <p className="text-[11px] font-medium text-[var(--ds-text-2)]/50 uppercase tracking-wide">Avg Accuracy</p>
                     </CardContent>
                   </Card>
-                  <Card className="border-amber-200/60 shadow-sm">
+                  <Card className="border-[var(--accent-ring)]/60 shadow-sm">
                     <CardContent className="p-4 text-center">
-                      <Timer className="h-5 w-5 mx-auto text-amber-500 mb-1" />
-                      <p className="text-2xl font-black text-amber-900 tabular-nums font-display">
+                      <Timer className="h-5 w-5 mx-auto text-[var(--accent)] mb-1" />
+                      <p className="text-2xl font-black text-[var(--ds-text-1)] tabular-nums font-display">
                         {insights.durationMs
                           ? `${Math.floor(insights.durationMs / 60000)}:${String(Math.floor((insights.durationMs % 60000) / 1000)).padStart(2, '0')}`
                           : '—'}
                       </p>
-                      <p className="text-[11px] font-medium text-amber-700/50 uppercase tracking-wide">Duration</p>
+                      <p className="text-[11px] font-medium text-[var(--ds-text-2)]/50 uppercase tracking-wide">Duration</p>
                     </CardContent>
                   </Card>
                 </div>
@@ -553,15 +553,15 @@ export default function QuizResultsPage() {
 
                 {/* Quick accuracy overview per question */}
                 {scoredQuestions.length > 0 && (
-                  <Card className="border-amber-200/60 shadow-sm">
+                  <Card className="border-[var(--accent-ring)]/60 shadow-sm">
                     <CardContent className="p-5 space-y-3">
-                      <h3 className="text-sm font-bold text-amber-900 font-display">
+                      <h3 className="text-sm font-bold text-[var(--ds-text-1)] font-display">
                         Accuracy by Question
                       </h3>
                       <div className="space-y-2.5">
                         {scoredQuestions.map((q) => (
                           <div key={q.id} className="flex items-center gap-3">
-                            <span className="text-xs font-bold text-amber-700 w-7 text-right tabular-nums">
+                            <span className="text-xs font-bold text-[var(--ds-text-2)] w-7 text-right tabular-nums">
                               Q{q.position + 1}
                             </span>
                             <div className="flex-1">
@@ -570,7 +570,7 @@ export default function QuizResultsPage() {
                             <span className={cn(
                               'text-xs font-bold tabular-nums w-10 text-right',
                               q.accuracy >= 80 ? 'text-green-600' :
-                              q.accuracy >= 50 ? 'text-amber-600' :
+                              q.accuracy >= 50 ? 'text-[var(--accent)]' :
                               'text-red-600',
                             )}>
                               {q.accuracy}%
@@ -584,9 +584,9 @@ export default function QuizResultsPage() {
 
                 {/* Difficulty Curve Chart */}
                 {scoredQuestions.length > 2 && (
-                  <Card className="border-amber-200/60 shadow-sm">
+                  <Card className="border-[var(--accent-ring)]/60 shadow-sm">
                     <CardContent className="p-5">
-                      <h3 className="text-sm font-bold text-amber-900 font-display mb-4">Difficulty Curve</h3>
+                      <h3 className="text-sm font-bold text-[var(--ds-text-1)] font-display mb-4">Difficulty Curve</h3>
                       <div style={{ width: '100%', height: 220 }}>
                         <ResponsiveContainer width="100%" height="100%">
                           <LineChart
@@ -640,10 +640,10 @@ export default function QuizResultsPage() {
                           </LineChart>
                         </ResponsiveContainer>
                       </div>
-                      <p className="text-[10px] text-amber-700/40 text-center mt-1">
+                      <p className="text-[10px] text-[var(--ds-text-2)]/40 text-center mt-1">
                         <span className="inline-block w-2 h-2 rounded-full bg-red-400 mr-1" />Hardest
                         <span className="inline-block w-2 h-2 rounded-full bg-emerald-400 ml-3 mr-1" />Easiest
-                        <span className="inline-block w-6 border-t border-dashed border-amber-500 ml-3 mr-1 align-middle" />Average
+                        <span className="inline-block w-6 border-t border-dashed border-[var(--accent)] ml-3 mr-1 align-middle" />Average
                       </p>
                     </CardContent>
                   </Card>
@@ -651,19 +651,19 @@ export default function QuizResultsPage() {
 
                 {/* Drop-off Analysis */}
                 {questionAnalytics.length > 1 && (
-                  <Card className="border-amber-200/60 shadow-sm">
+                  <Card className="border-[var(--accent-ring)]/60 shadow-sm">
                     <CardContent className="p-5">
-                      <h3 className="text-sm font-bold text-amber-900 font-display mb-3">Participation Drop-off</h3>
+                      <h3 className="text-sm font-bold text-[var(--ds-text-1)] font-display mb-3">Participation Drop-off</h3>
                       <div className="space-y-2">
                         {questionAnalytics.map((q) => {
                           const participation = insights.totalParticipants > 0
                             ? Math.round((q.totalAnswers / insights.totalParticipants) * 100)
                             : 0;
-                          const barColor = participation >= 90 ? 'bg-green-500' : participation >= 70 ? 'bg-amber-500' : 'bg-red-500';
+                          const barColor = participation >= 90 ? 'bg-green-500' : participation >= 70 ? 'bg-[var(--accent)]' : 'bg-red-500';
                           return (
                             <div key={q.id} className="flex items-center gap-2">
-                              <span className="text-xs font-bold text-amber-700 w-7 text-right tabular-nums">Q{q.position + 1}</span>
-                              <div className="flex-1 h-3 bg-amber-100 rounded-full overflow-hidden">
+                              <span className="text-xs font-bold text-[var(--ds-text-2)] w-7 text-right tabular-nums">Q{q.position + 1}</span>
+                              <div className="flex-1 h-3 bg-[var(--accent-subtle)] rounded-full overflow-hidden">
                                 <motion.div
                                   initial={{ width: 0 }}
                                   animate={{ width: `${participation}%` }}
@@ -673,13 +673,13 @@ export default function QuizResultsPage() {
                               </div>
                               <span className={cn(
                                 'text-xs font-bold tabular-nums w-10 text-right',
-                                participation >= 90 ? 'text-green-600' : participation >= 70 ? 'text-amber-600' : 'text-red-600',
+                                participation >= 90 ? 'text-green-600' : participation >= 70 ? 'text-[var(--accent)]' : 'text-red-600',
                               )}>{participation}%</span>
                             </div>
                           );
                         })}
                       </div>
-                      <p className="text-[10px] text-amber-700/40 mt-2">
+                      <p className="text-[10px] text-[var(--ds-text-2)]/40 mt-2">
                         Shows how many participants answered each question. Drop-offs may indicate disengagement.
                       </p>
                     </CardContent>
@@ -706,13 +706,13 @@ export default function QuizResultsPage() {
                   const isPollRating = q.questionType === 'POLL' || q.questionType === 'RATING';
                   const isOpenEnded = q.questionType === 'OPEN_ENDED';
                   return (
-                    <Card key={q.id} className="border-amber-200/60 shadow-sm overflow-hidden">
+                    <Card key={q.id} className="border-[var(--accent-ring)]/60 shadow-sm overflow-hidden">
                       <button
                         type="button"
                         onClick={() => setExpandedQ(isExpanded ? null : q.id)}
                         aria-expanded={isExpanded}
                         aria-controls={`question-details-${q.id}`}
-                        className="w-full text-left p-4 flex items-start gap-3 hover:bg-amber-50/50 transition-colors"
+                        className="w-full text-left p-4 flex items-start gap-3 hover:bg-[var(--accent-subtle)]/50 transition-colors"
                       >
                         {/* Question number */}
                         <div className={cn(
@@ -724,18 +724,18 @@ export default function QuizResultsPage() {
                             : q.accuracy >= 80
                               ? 'bg-gradient-to-br from-green-500 to-emerald-600'
                               : q.accuracy >= 50
-                                ? 'bg-gradient-to-br from-amber-500 to-orange-600'
+                                ? 'bg-gradient-to-br from-[var(--accent)]0 to-[var(--accent-hover)]'
                                 : 'bg-gradient-to-br from-red-500 to-rose-600',
                         )}>
                           {q.position + 1}
                         </div>
 
                         <div className="flex-1 min-w-0">
-                          <p className="text-sm font-semibold text-amber-900 leading-snug line-clamp-2">
+                          <p className="text-sm font-semibold text-[var(--ds-text-1)] leading-snug line-clamp-2">
                             {q.questionText}
                           </p>
                           <div className="flex items-center gap-3 mt-1.5 flex-wrap">
-                            <Badge variant="outline" className="border-amber-200 text-amber-600 text-[10px] py-0 px-1.5">
+                            <Badge variant="outline" className="border-[var(--accent-ring)] text-[var(--accent)] text-[10px] py-0 px-1.5">
                               {q.questionType.replace(/_/g, ' ')}
                             </Badge>
                             {!isUnscoredQuestion && (
@@ -744,7 +744,7 @@ export default function QuizResultsPage() {
                                 className={cn(
                                   'text-[10px] py-0 px-1.5',
                                   q.accuracy > 75 ? 'border-green-300 text-green-600 bg-green-50' :
-                                  q.accuracy >= 40 ? 'border-amber-300 text-amber-600 bg-amber-50' :
+                                  q.accuracy >= 40 ? 'border-[var(--accent-ring)] text-[var(--accent)] bg-[var(--accent-subtle)]' :
                                   'border-red-300 text-red-600 bg-red-50',
                                 )}
                               >
@@ -755,7 +755,7 @@ export default function QuizResultsPage() {
                               <span className={cn(
                                 'text-xs font-bold tabular-nums',
                                 q.accuracy >= 80 ? 'text-green-600' :
-                                q.accuracy >= 50 ? 'text-amber-600' :
+                                q.accuracy >= 50 ? 'text-[var(--accent)]' :
                                 'text-red-600',
                               )}>
                                 {q.accuracy}% correct
@@ -767,23 +767,23 @@ export default function QuizResultsPage() {
                               </span>
                             )}
                             {q.questionType === 'RATING' && q.avgRating !== null && (
-                              <span className="text-xs font-bold text-amber-600 flex items-center gap-0.5">
-                                <Star className="h-3 w-3 fill-amber-400 text-amber-400" />
+                              <span className="text-xs font-bold text-[var(--accent)] flex items-center gap-0.5">
+                                <Star className="h-3 w-3 fill-[var(--accent)] text-[var(--accent)]" />
                                 {q.avgRating}
                               </span>
                             )}
-                            <span className="text-[11px] text-amber-700/40 font-medium tabular-nums">
+                            <span className="text-[11px] text-[var(--ds-text-2)]/40 font-medium tabular-nums">
                               {q.totalAnswers} answers
                             </span>
                             {q.avgAnswerTimeMs > 0 && (
-                              <span className="text-[11px] text-amber-700/40 font-medium tabular-nums">
+                              <span className="text-[11px] text-[var(--ds-text-2)]/40 font-medium tabular-nums">
                                 {(q.avgAnswerTimeMs / 1000).toFixed(1)}s avg
                               </span>
                             )}
                           </div>
                         </div>
 
-                        <div className="flex-shrink-0 text-amber-500 mt-1">
+                        <div className="flex-shrink-0 text-[var(--accent)] mt-1">
                           {isExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
                         </div>
                       </button>
@@ -798,34 +798,34 @@ export default function QuizResultsPage() {
                             transition={{ duration: 0.2 }}
                             className="overflow-hidden"
                           >
-                            <div className="px-4 pb-4 pt-0 space-y-4 border-t border-amber-100">
+                            <div className="px-4 pb-4 pt-0 space-y-4 border-t border-[var(--border-subtle)]">
                               {/* Stats row */}
                               <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-3">
-                                <div className="bg-amber-50 rounded-lg p-2.5 text-center">
-                                  <p className="text-lg font-black text-amber-900 tabular-nums">
+                                <div className="bg-[var(--accent-subtle)] rounded-lg p-2.5 text-center">
+                                  <p className="text-lg font-black text-[var(--ds-text-1)] tabular-nums">
                                     {q.totalAnswers}
                                   </p>
-                                  <p className="text-[10px] font-semibold text-amber-700/50 uppercase">Answers</p>
+                                  <p className="text-[10px] font-semibold text-[var(--ds-text-2)]/50 uppercase">Answers</p>
                                 </div>
                                 {!isUnscoredQuestion && (
-                                  <div className="bg-amber-50 rounded-lg p-2.5 text-center">
-                                    <p className="text-lg font-black text-amber-900 tabular-nums">
+                                  <div className="bg-[var(--accent-subtle)] rounded-lg p-2.5 text-center">
+                                    <p className="text-lg font-black text-[var(--ds-text-1)] tabular-nums">
                                       {q.correctCount}
                                     </p>
-                                    <p className="text-[10px] font-semibold text-amber-700/50 uppercase">Correct</p>
+                                    <p className="text-[10px] font-semibold text-[var(--ds-text-2)]/50 uppercase">Correct</p>
                                   </div>
                                 )}
-                                <div className="bg-amber-50 rounded-lg p-2.5 text-center">
-                                  <p className="text-lg font-black text-amber-900 tabular-nums">
+                                <div className="bg-[var(--accent-subtle)] rounded-lg p-2.5 text-center">
+                                  <p className="text-lg font-black text-[var(--ds-text-1)] tabular-nums">
                                     {q.avgAnswerTimeMs > 0 ? `${(q.avgAnswerTimeMs / 1000).toFixed(1)}s` : '—'}
                                   </p>
-                                  <p className="text-[10px] font-semibold text-amber-700/50 uppercase">Avg Time</p>
+                                  <p className="text-[10px] font-semibold text-[var(--ds-text-2)]/50 uppercase">Avg Time</p>
                                 </div>
-                                <div className="bg-amber-50 rounded-lg p-2.5 text-center">
-                                  <p className="text-lg font-black text-amber-900 tabular-nums">
+                                <div className="bg-[var(--accent-subtle)] rounded-lg p-2.5 text-center">
+                                  <p className="text-lg font-black text-[var(--ds-text-1)] tabular-nums">
                                     {q.unansweredCount}
                                   </p>
-                                  <p className="text-[10px] font-semibold text-amber-700/50 uppercase">Skipped</p>
+                                  <p className="text-[10px] font-semibold text-[var(--ds-text-2)]/50 uppercase">Skipped</p>
                                 </div>
                               </div>
 
@@ -882,12 +882,12 @@ export default function QuizResultsPage() {
 
                               {/* Rating average */}
                               {q.questionType === 'RATING' && q.avgRating !== null && (
-                                <div className="flex items-center gap-2 bg-amber-50 border border-amber-200/60 rounded-lg px-3 py-2">
-                                  <Star className="h-4 w-4 text-amber-500 fill-amber-400 flex-shrink-0" />
+                                <div className="flex items-center gap-2 bg-[var(--accent-subtle)] border border-[var(--accent-ring)]/60 rounded-lg px-3 py-2">
+                                  <Star className="h-4 w-4 text-[var(--accent)] fill-[var(--accent)] flex-shrink-0" />
                                   <div>
-                                    <p className="text-[10px] font-semibold text-amber-600/70 uppercase">Average Rating</p>
+                                    <p className="text-[10px] font-semibold text-[var(--accent)]/70 uppercase">Average Rating</p>
                                     <div className="flex items-center gap-1.5">
-                                      <p className="text-sm font-bold text-amber-900">{q.avgRating}</p>
+                                      <p className="text-sm font-bold text-[var(--ds-text-1)]">{q.avgRating}</p>
                                       <div className="flex gap-px">
                                         {[1, 2, 3, 4, 5].map((s) => (
                                           <Star
@@ -895,8 +895,8 @@ export default function QuizResultsPage() {
                                             className={cn(
                                               'h-3.5 w-3.5',
                                               s <= Math.round(q.avgRating!)
-                                                ? 'text-amber-400 fill-amber-400'
-                                                : 'text-amber-200',
+                                                ? 'text-[var(--accent)] fill-[var(--accent)]'
+                                                : 'text-[var(--ds-text-3)]',
                                             )}
                                           />
                                         ))}
@@ -929,7 +929,7 @@ export default function QuizResultsPage() {
                                       const consensusLabel = entropy < 0.5 ? 'Strong consensus'
                                         : entropy < 0.75 ? 'Moderate spread' : 'Highly divided';
                                       const consensusColor = entropy < 0.5 ? 'text-emerald-600'
-                                        : entropy < 0.75 ? 'text-amber-600' : 'text-red-600';
+                                        : entropy < 0.75 ? 'text-[var(--accent)]' : 'text-red-600';
                                       return (
                                         <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">{/* responsive: stack on mobile */}
                                           <div className="bg-purple-50 border border-purple-200/40 rounded-lg px-3 py-2 text-center">
@@ -998,9 +998,9 @@ export default function QuizResultsPage() {
 
                 {/* CP9: Performance scatter chart — accuracy vs speed */}
                 {leaderboard.length > 1 && (
-                  <Card className="border-amber-200/60 shadow-sm mt-6">
+                  <Card className="border-[var(--accent-ring)]/60 shadow-sm mt-6">
                     <CardContent className="p-5">
-                      <h3 className="text-sm font-bold text-amber-900 font-display mb-3">Accuracy vs Speed</h3>
+                      <h3 className="text-sm font-bold text-[var(--ds-text-1)] font-display mb-3">Accuracy vs Speed</h3>
                       {(() => {
                         const data: SpeedScatterPoint[] = leaderboard
                           .filter((player) => (player.questionsAnswered ?? quiz.questionCount) > 0)
@@ -1026,7 +1026,7 @@ export default function QuizResultsPage() {
                           <div style={{ width: '100%', height: 280 }} className="relative">
                             {/* Quadrant labels */}
                             <div className="absolute top-1 left-8 text-[9px] text-green-600/40 font-semibold">Fast & Accurate</div>
-                            <div className="absolute top-1 right-2 text-[9px] text-amber-600/40 font-semibold">Quick Guessers</div>
+                            <div className="absolute top-1 right-2 text-[9px] text-[var(--accent)]/40 font-semibold">Quick Guessers</div>
                             <div className="absolute bottom-6 left-8 text-[9px] text-blue-600/40 font-semibold">Slow but Sure</div>
                             <div className="absolute bottom-6 right-2 text-[9px] text-red-600/40 font-semibold">Struggling</div>
                             <ResponsiveContainer width="100%" height="100%">
@@ -1084,7 +1084,7 @@ export default function QuizResultsPage() {
             {isCreator && (
               <Button
                 variant="outline"
-                className="border-amber-300 text-amber-700 hover:bg-amber-50"
+                className="border-[var(--accent-ring)] text-[var(--ds-text-2)] hover:bg-[var(--accent-subtle)]"
                 onClick={handleExport}
                 disabled={exporting}
               >
@@ -1092,13 +1092,13 @@ export default function QuizResultsPage() {
                 Export Excel
               </Button>
             )}
-            <Button asChild variant="outline" className="border-amber-300 text-amber-700 hover:bg-amber-50">
+            <Button asChild variant="outline" className="border-[var(--accent-ring)] text-[var(--ds-text-2)] hover:bg-[var(--accent-subtle)]">
               <Link to="/dashboard">
                 <LayoutDashboard className="h-4 w-4 mr-2" />
                 Dashboard
               </Link>
             </Button>
-            <Button asChild className="bg-gradient-to-r from-orange-500 to-amber-600 hover:from-orange-600 hover:to-amber-700 text-white shadow-md">
+            <Button asChild className="bg-gradient-to-r from-[var(--accent)]0 to-[var(--accent-hover)] hover:from-[var(--accent)] hover:to-[var(--accent-hover)] text-white shadow-md">
               <Link to="/quiz">
                 <ArrowLeft className="h-4 w-4 mr-2" />
                 Back to Quizzes

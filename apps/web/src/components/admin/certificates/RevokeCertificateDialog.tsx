@@ -36,14 +36,14 @@ export function RevokeCertificateDialog({
           </DialogTitle>
         </DialogHeader>
         <div className="py-2 space-y-3">
-          <p className="text-sm text-gray-600">
+          <p className="text-sm text-[var(--ds-text-2)]">
             Are you sure you want to revoke certificate{' '}
             <strong className="font-mono">{target?.certId}</strong> for{' '}
             <strong>{target?.recipientName}</strong>?
             This action cannot be undone.
           </p>
           <div>
-            <label htmlFor="admin-certificates-revoke-reason" className="text-sm font-medium text-gray-700">
+            <label htmlFor="admin-certificates-revoke-reason" className="text-sm font-medium text-[var(--ds-text-2)]">
               Reason (optional)
             </label>
             <Input

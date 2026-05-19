@@ -1,418 +1,264 @@
-/**
- * QuizManager — Dashboard page for CORE_MEMBER+ to manage quizzes.
- * 
- * Features:
- * - List all quizzes (own for CORE_MEMBER, all for ADMIN)
- * - Create new quiz
- * - Host/monitor live quizzes
- * - View quiz results
- * 
- * Single DB call per page load (optimized).
- */
+// Dashboard v2 — Quiz Manager (CORE_MEMBER+).
+// Counts strip + table of quizzes with status pill, participants, creator, actions.
+// Pixel-port of screen-admin2.jsx:1037 (QuizManagerScreen). Real api.getQuizAdminList.
 
-import { useState, useEffect, useCallback } from 'react';
-import { Link } from 'react-router-dom';
-import { motion } from 'framer-motion';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from '@/components/ui/alert-dialog';
+import { useMemo, useState } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { Plus, Copy, Trash2, ExternalLink, Play, Loader2, Pencil } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/context/AuthContext';
 import { api, type QuizAdminSummary } from '@/lib/api';
-import { formatDate } from '@/lib/dateUtils';
-import { toast } from 'sonner';
+import { DSCard, EmptyState, Pill, Section } from '@/components/dash';
+import { Button } from '@/components/ui/button';
+import { relativeTime } from '@/lib/dateUtils';
 import {
-  Zap,
-  Plus,
-  Play,
-  Eye,
-  Users,
-  Loader2,
-  Clock,
-  CheckCircle,
-  Trash2,
-  Edit,
-  BarChart3,
-} from 'lucide-react';
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription,
+  AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
+import { toast } from 'sonner';
+import { cn } from '@/lib/utils';
+
+const TONES: Record<string, 'success' | 'warning' | 'neutral' | 'danger'> = {
+  ACTIVE: 'success',
+  WAITING: 'warning',
+  FINISHED: 'neutral',
+  DRAFT: 'neutral',
+  ABANDONED: 'danger',
+};
 
 export default function QuizManager() {
-  const { user, token } = useAuth();
-  const [quizzes, setQuizzes] = useState<QuizAdminSummary[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [deleting, setDeleting] = useState<string | null>(null);
-  const [opening, setOpening] = useState<string | null>(null);
-  const [quizToDelete, setQuizToDelete] = useState<QuizAdminSummary | null>(null);
+  const { token } = useAuth();
+  const navigate = useNavigate();
+  const qc = useQueryClient();
+  const [deleting, setDeleting] = useState<QuizAdminSummary | null>(null);
 
-  const isAdmin = user?.role === 'ADMIN' || user?.role === 'PRESIDENT';
+  const q = useQuery({
+    queryKey: ['quiz-admin-list'],
+    queryFn: () => api.getQuizAdminList(token!),
+    enabled: Boolean(token),
+  });
 
-  const loadQuizzes = useCallback(async () => {
-    if (!token) {
-      setLoading(false);
-      return;
-    }
+  const quizzes = q.data ?? [];
+  const counts = useMemo(() => ({
+    active: quizzes.filter((q) => q.status === 'ACTIVE').length,
+    waiting: quizzes.filter((q) => q.status === 'WAITING').length,
+    finished: quizzes.filter((q) => q.status === 'FINISHED').length,
+    drafts: quizzes.filter((q) => q.status === 'DRAFT').length,
+  }), [quizzes]);
 
-    try {
-      setLoading(true);
-      setError(null);
-      const data = await api.getQuizAdminList(token);
-      setQuizzes(data);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load quizzes');
-    } finally {
-      setLoading(false);
-    }
-  }, [token]);
-
-  useEffect(() => {
-    void loadQuizzes();
-  }, [loadQuizzes]);
-
-  const handleDelete = async (quizId: string) => {
-    if (!token) {
-      toast.error('You need to sign in again to manage quizzes');
-      return;
-    }
-
-    setDeleting(quizId);
-    try {
-      await api.deleteQuiz(quizId, token);
-      setQuizzes((prev) => prev.filter((q) => q.id !== quizId));
-      setQuizToDelete(null);
+  const deleteMut = useMutation({
+    mutationFn: (quizId: string) => api.deleteQuiz(quizId, token!),
+    onMutate: async (quizId: string) => {
+      await qc.cancelQueries({ queryKey: ['quiz-admin-list'] });
+      const prev = qc.getQueryData<QuizAdminSummary[]>(['quiz-admin-list']);
+      if (prev) {
+        qc.setQueryData<QuizAdminSummary[]>(['quiz-admin-list'], prev.filter((quiz) => quiz.id !== quizId));
+      }
+      return { prev };
+    },
+    onSuccess: () => {
       toast.success('Quiz deleted');
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Failed to delete quiz');
-    } finally {
       setDeleting(null);
-    }
-  };
+    },
+    onError: (_e, _v, ctx) => {
+      if (ctx?.prev) qc.setQueryData(['quiz-admin-list'], ctx.prev);
+      toast.error('Failed to delete quiz');
+    },
+    onSettled: () => qc.invalidateQueries({ queryKey: ['quiz-admin-list'] }),
+  });
 
-  const handleOpenDraft = async (quizId: string) => {
-    if (!token) {
-      toast.error('You need to sign in again to manage quizzes');
-      return;
-    }
-
-    setOpening(quizId);
-    try {
-      await api.openQuiz(quizId, token);
+  // DRAFT quizzes must transition through `POST /api/quiz/:quizId/open` before they
+  // become joinable. CLAUDE.md hard-codes that contract — the host view alone won't open it.
+  const openMut = useMutation({
+    mutationFn: (quizId: string) => api.openQuiz(quizId, token!),
+    onSuccess: (_data, quizId) => {
       toast.success('Quiz opened successfully');
-      await loadQuizzes();
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Failed to open quiz');
-    } finally {
-      setOpening(null);
+      qc.invalidateQueries({ queryKey: ['quiz-admin-list'] });
+      navigate(`/quiz/${quizId}`);
+    },
+    onError: (e: unknown) => toast.error(e instanceof Error ? e.message : 'Failed to open quiz'),
+  });
+
+  // Branch on status: DRAFT → open then navigate; everything else just navigates.
+  const handleOpen = (quiz: QuizAdminSummary) => {
+    if (quiz.status === 'DRAFT') {
+      openMut.mutate(quiz.id);
+    } else {
+      navigate(`/quiz/${quiz.id}`);
     }
   };
-
-  const getStatusBadge = (status: string) => {
-    const configs: Record<string, { color: string; icon: React.ReactNode; label: string }> = {
-      WAITING: { color: 'bg-yellow-100 text-yellow-700', icon: <Clock className="h-3 w-3" />, label: 'Lobby' },
-      ACTIVE: { color: 'bg-green-100 text-green-700', icon: <Play className="h-3 w-3" />, label: 'Live' },
-      FINISHED: { color: 'bg-gray-100 text-gray-700', icon: <CheckCircle className="h-3 w-3" />, label: 'Finished' },
-      ABANDONED: { color: 'bg-orange-100 text-orange-700', icon: <Clock className="h-3 w-3" />, label: 'Abandoned' },
-      DRAFT: { color: 'bg-blue-100 text-blue-700', icon: <Edit className="h-3 w-3" />, label: 'Draft' },
-    };
-    const config = configs[status] || configs.DRAFT;
-    return (
-      <Badge className={`${config.color} flex items-center gap-1`}>
-        {config.icon}
-        {config.label}
-      </Badge>
-    );
-  };
-
-  const liveQuizzes = quizzes.filter((q) => q.status === 'WAITING' || q.status === 'ACTIVE');
-  const finishedQuizzes = quizzes.filter((q) => q.status === 'FINISHED');
-
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center py-20">
-        <Loader2 className="h-8 w-8 animate-spin text-amber-600" />
-      </div>
-    );
-  }
 
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.3 }}
-        className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4"
-      >
+    <div className="flex flex-col gap-6">
+      <div className="flex items-end justify-between gap-3 flex-wrap">
         <div>
-          <h1 className="text-2xl font-bold text-amber-900">Quiz Manager</h1>
-          <p className="text-gray-600">
-            {isAdmin ? 'Manage all quizzes' : 'Manage your quizzes'}
+          <div className="text-[10.5px] uppercase tracking-[0.06em] font-semibold text-[var(--ds-text-3)]">Manage</div>
+          <h1 className="text-[24px] font-semibold tracking-tight mt-1">Quizzes</h1>
+          <p className="text-[13px] text-[var(--ds-text-3)] mt-1 max-w-prose">
+            Run live Kahoot-style quiz sessions. Quizzes are private — joined by PIN only.
           </p>
         </div>
-        <Link to="/quiz/create">
-          <Button className="bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600">
-            <Plus className="h-4 w-4 mr-2" />
-            Create Quiz
-          </Button>
-        </Link>
-      </motion.div>
+        <Button size="sm" onClick={() => navigate('/quiz/create')}>
+          <Plus size={13} className="mr-1.5" />
+          New quiz
+        </Button>
+      </div>
 
-      {error && (
-        <div className="p-4 bg-red-50 border border-red-200 rounded-lg text-red-700 flex items-center justify-between gap-3">
-          <span>{error}</span>
-          <Button variant="outline" size="sm" onClick={() => void loadQuizzes()}>
-            Retry
-          </Button>
-        </div>
+      {/* Counts */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-y-3 border-y border-[var(--border-subtle)] py-4">
+        {([
+          ['Active', counts.active, 'var(--success)'],
+          ['Waiting', counts.waiting, 'var(--warning)'],
+          ['Finished', counts.finished, 'var(--ds-text-2)'],
+          ['Drafts', counts.drafts, 'var(--ds-text-3)'],
+        ] as Array<[string, number, string]>).map(([k, v, c], i) => (
+          <div key={k} className={cn(i > 0 && 'md:border-l md:border-[var(--border-subtle)] md:pl-5')}>
+            <div className="text-[10.5px] uppercase tracking-[0.06em] font-semibold text-[var(--ds-text-3)]">{k}</div>
+            <div className="text-[24px] font-semibold tabular-nums leading-none mt-1.5" style={{ color: c }}>{v}</div>
+          </div>
+        ))}
+      </div>
+
+      {q.isLoading ? (
+        <DSCard padded={false}>
+          <div className="p-6">
+            {[0, 1, 2].map((i) => <div key={i} className="h-10 bg-[var(--surface-soft)] rounded mb-2 animate-pulse" />)}
+          </div>
+        </DSCard>
+      ) : quizzes.length === 0 ? (
+        <DSCard padded>
+          <EmptyState
+            icon={<Play size={18} />}
+            title="No quizzes yet"
+            body="Create your first live quiz from scratch or by importing a CSV/XLSX."
+            action={<Button size="sm" onClick={() => navigate('/quiz/create')}>Create a quiz</Button>}
+          />
+        </DSCard>
+      ) : (
+        <DSCard padded={false}>
+          <div className="overflow-x-auto">
+            <table className="w-full text-[13px]">
+              <thead className="text-left text-[11px] uppercase tracking-[0.06em] text-[var(--ds-text-3)] font-semibold">
+                <tr className="border-b border-[var(--border-subtle)]">
+                  <th className="px-4 py-2.5">Title</th>
+                  <th className="px-4 py-2.5 w-[100px]">Status</th>
+                  <th className="px-4 py-2.5 w-[100px] text-right">Players</th>
+                  <th className="px-4 py-2.5 w-[120px]">Created</th>
+                  <th className="px-4 py-2.5 w-[120px]">Format</th>
+                  <th className="px-4 py-2.5 w-[200px] text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {quizzes.map((qu) => (
+                  <Row
+                    key={qu.id}
+                    quiz={qu}
+                    onOpen={() => handleOpen(qu)}
+                    onResults={() => navigate(`/quiz/${qu.id}/results`)}
+                    onDelete={() => setDeleting(qu)}
+                    onEdit={() => navigate(`/quiz/create?edit=${qu.id}`)}
+                    opening={openMut.isPending && openMut.variables === qu.id}
+                  />
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </DSCard>
       )}
 
-      {/* Live/Active Quizzes */}
-      {liveQuizzes.length > 0 && (
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.3, delay: 0.1 }}
-        >
-          <Card className="border-green-200 bg-green-50/50">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2 text-green-800">
-                <span className="relative flex h-3 w-3">
-                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
-                  <span className="relative inline-flex rounded-full h-3 w-3 bg-green-500"></span>
-                </span>
-                Live Quizzes
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              {liveQuizzes.map((quiz) => (
-                <div
-                  key={quiz.id}
-                  className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between p-4 bg-white rounded-lg border border-green-200"
-                >
-                  <div className="flex items-center gap-3 sm:gap-4 min-w-0">
-                    <div className="w-12 h-12 rounded-lg bg-green-500 flex items-center justify-center">
-                      <Zap className="h-6 w-6 text-white" />
-                    </div>
-                    <div className="min-w-0">
-                      <h3 className="font-semibold text-gray-900 break-words">{quiz.title}</h3>
-                      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-gray-500">
-                        <span>{quiz.questionCount} questions</span>
-                        <span className="flex items-center gap-1">
-                          <Users className="h-3 w-3" />
-                          {quiz.participantCount} players
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-                  <div className="flex flex-wrap items-center gap-2">
-                    {getStatusBadge(quiz.status)}
-                    <Link to={`/quiz/${quiz.id}?host=true`}>
-                      <Button size="sm" className="bg-green-600 hover:bg-green-700">
-                        <Eye className="h-4 w-4 mr-1" />
-                        Host Dashboard
-                      </Button>
-                    </Link>
-                  </div>
-                </div>
-              ))}
-            </CardContent>
-          </Card>
-        </motion.div>
-      )}
+      <Section eyebrow="Tips" title="Hosting tips">
+        <ul className="text-[12.5px] text-[var(--ds-text-3)] space-y-1.5 list-disc pl-5 max-w-prose">
+          <li>Open the quiz a few minutes before kickoff so the lobby fills.</li>
+          <li>Use the host view to extend time on slow questions.</li>
+          <li>Quizzes don&apos;t recover if your tab closes — leave it open during the session.</li>
+        </ul>
+      </Section>
 
-      {/* All Quizzes */}
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.3, delay: 0.2 }}
-      >
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <BarChart3 className="h-5 w-5 text-amber-600" />
-              {isAdmin ? 'All Quizzes' : 'My Quizzes'}
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            {quizzes.length === 0 ? (
-              <div className="text-center py-10">
-                <Zap className="h-12 w-12 text-gray-300 mx-auto mb-3" />
-                <p className="text-gray-500 mb-4">No quizzes created yet</p>
-                <Link to="/quiz/create">
-                  <Button variant="outline">Create Your First Quiz</Button>
-                </Link>
-              </div>
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full min-w-[760px]">
-                  <thead>
-                    <tr className="border-b text-left text-sm text-gray-500">
-                      <th className="pb-3 font-medium">Quiz</th>
-                      <th className="pb-3 font-medium">Status</th>
-                      <th className="pb-3 font-medium">Questions</th>
-                      <th className="pb-3 font-medium">Players</th>
-                      {isAdmin && <th className="pb-3 font-medium">Created By</th>}
-                      <th className="pb-3 font-medium">Created</th>
-                      <th className="pb-3 font-medium text-right">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y">
-                    {quizzes.map((quiz) => (
-                      <tr key={quiz.id} className="hover:bg-amber-50/50">
-                        <td className="py-3">
-                          <div className="font-medium text-gray-900 break-words">{quiz.title}</div>
-                        </td>
-                        <td className="py-3">{getStatusBadge(quiz.status)}</td>
-                        <td className="py-3 text-gray-600">{quiz.questionCount}</td>
-                        <td className="py-3 text-gray-600">{quiz.participantCount}</td>
-                        {isAdmin && (
-                          <td className="py-3 text-gray-600">{quiz.createdBy?.name ?? 'Unknown'}</td>
-                        )}
-                        <td className="py-3 text-gray-600 text-sm">
-                          {formatDate(quiz.createdAt)}
-                        </td>
-                        <td className="py-3">
-                          <div className="flex items-center justify-end gap-2">
-                            {(quiz.status === 'WAITING' || quiz.status === 'ACTIVE') && (
-                              <Link to={`/quiz/${quiz.id}?host=true`}>
-                                <Button size="sm" variant="outline" className="text-green-600 border-green-200" aria-label={`Open host dashboard for ${quiz.title}`}>
-                                  <Eye className="h-4 w-4" />
-                                </Button>
-                              </Link>
-                            )}
-                            {quiz.status === 'DRAFT' && (
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                className="text-blue-700 border-blue-200 hover:bg-blue-50"
-                                onClick={() => void handleOpenDraft(quiz.id)}
-                                disabled={opening === quiz.id}
-                                aria-label={`Open draft quiz ${quiz.title}`}
-                              >
-                                {opening === quiz.id ? (
-                                  <Loader2 className="h-4 w-4 animate-spin" />
-                                ) : (
-                                  <Play className="h-4 w-4" />
-                                )}
-                              </Button>
-                            )}
-                            {quiz.status === 'FINISHED' && (
-                              <Link to={`/quiz/${quiz.id}/results`}>
-                                <Button size="sm" variant="outline" aria-label={`View results for ${quiz.title}`}>
-                                  <BarChart3 className="h-4 w-4" />
-                                </Button>
-                              </Link>
-                            )}
-                            {quiz.status === 'DRAFT' && (
-                              <Link to={`/quiz/create?edit=${quiz.id}`}>
-                                <Button size="sm" variant="outline" aria-label={`Edit ${quiz.title}`}>
-                                  <Edit className="h-4 w-4" />
-                                </Button>
-                              </Link>
-                            )}
-                            {(quiz.status === 'DRAFT' || quiz.status === 'FINISHED' || quiz.status === 'ABANDONED') && (
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                className="text-red-600 border-red-200 hover:bg-red-50"
-                                onClick={() => setQuizToDelete(quiz)}
-                                disabled={deleting === quiz.id}
-                                aria-label={`Delete ${quiz.title}`}
-                              >
-                                {deleting === quiz.id ? (
-                                  <Loader2 className="h-4 w-4 animate-spin" />
-                                ) : (
-                                  <Trash2 className="h-4 w-4" />
-                                )}
-                              </Button>
-                            )}
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      </motion.div>
-
-      {/* Quick Stats */}
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.3, delay: 0.3 }}
-        className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4"
-      >
-        <Card>
-          <CardContent className="p-4 text-center">
-            <p className="text-3xl font-bold text-amber-600">{quizzes.length}</p>
-            <p className="text-sm text-gray-500">Total Quizzes</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-4 text-center">
-            <p className="text-3xl font-bold text-green-600">{liveQuizzes.length}</p>
-            <p className="text-sm text-gray-500">Live Now</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-4 text-center">
-            <p className="text-3xl font-bold text-gray-600">{finishedQuizzes.length}</p>
-            <p className="text-sm text-gray-500">Completed</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="p-4 text-center">
-            <p className="text-3xl font-bold text-blue-600">
-              {quizzes.reduce((sum, q) => sum + q.participantCount, 0)}
-            </p>
-            <p className="text-sm text-gray-500">Total Players</p>
-          </CardContent>
-        </Card>
-      </motion.div>
-
-      <AlertDialog open={Boolean(quizToDelete)} onOpenChange={(open) => !open && setQuizToDelete(null)}>
-        <AlertDialogContent>
+      <AlertDialog open={Boolean(deleting)} onOpenChange={(open) => !open && setDeleting(null)}>
+        <AlertDialogContent data-dashboard="true" className="bg-[var(--bg-raised)] border-[var(--border-subtle)]">
           <AlertDialogHeader>
-            <AlertDialogTitle>Delete quiz?</AlertDialogTitle>
+            <AlertDialogTitle>Delete &ldquo;{deleting?.title}&rdquo;?</AlertDialogTitle>
             <AlertDialogDescription>
-              {quizToDelete
-                ? `Delete "${quizToDelete.title}" permanently? This action cannot be undone.`
-                : 'This action cannot be undone.'}
+              This removes the quiz and all of its participation data. There&apos;s no undo.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel disabled={Boolean(deleting)}>Cancel</AlertDialogCancel>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction
-              className="bg-red-600 hover:bg-red-700 focus-visible:ring-red-500"
-              onClick={() => {
-                if (quizToDelete) {
-                  void handleDelete(quizToDelete.id);
-                }
-              }}
+              onClick={() => deleting && deleteMut.mutate(deleting.id)}
+              disabled={deleteMut.isPending}
+              className="bg-[var(--danger)] hover:opacity-90 text-white"
             >
-              {deleting && quizToDelete?.id === deleting ? (
-                <>
-                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                  Deleting...
-                </>
-              ) : (
-                'Delete Quiz'
-              )}
+              {deleteMut.isPending ? <Loader2 size={13} className="mr-1.5 animate-spin" /> : null}
+              Delete
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
     </div>
+  );
+}
+
+function Row({ quiz, onOpen, onResults, onDelete, onEdit, opening }: { quiz: QuizAdminSummary; onOpen: () => void; onResults: () => void; onDelete: () => void; onEdit: () => void; opening?: boolean }) {
+  const status = quiz.status;
+  const copyPin = async () => {
+    if (!quiz.pin) return;
+    try {
+      await navigator.clipboard.writeText(quiz.pin);
+      toast.success(`PIN ${quiz.pin} copied`);
+    } catch {
+      toast.error('Could not copy');
+    }
+  };
+  return (
+    <tr className="border-t border-[var(--border-subtle)] hover:bg-[var(--surface-soft)]">
+      <td className="px-4 py-3 font-medium">
+        <div className="flex items-center gap-2">
+          <span className="truncate max-w-[280px]">{quiz.title}</span>
+          {quiz.pin && status !== 'FINISHED' && (
+            <button
+              type="button"
+              onClick={copyPin}
+              title="Copy PIN"
+              className="font-mono tabular-nums text-[11px] px-1.5 h-5 rounded-[5px] bg-[var(--surface-soft)] text-[var(--ds-text-2)] hover:bg-[var(--bg-sunken)] inline-flex items-center gap-1"
+            >
+              {quiz.pin}
+              <Copy size={9} />
+            </button>
+          )}
+        </div>
+      </td>
+      <td className="px-4 py-3"><Pill tone={TONES[status]} size="xs" dot={status === 'ACTIVE'}>{status}</Pill></td>
+      <td className="px-4 py-3 font-mono tabular-nums text-right text-[var(--ds-text-2)]">{quiz.participantCount ?? quiz._count?.participants ?? 0}</td>
+      <td className="px-4 py-3 font-mono tabular-nums text-[var(--ds-text-3)]">{relativeTime(quiz.createdAt)}</td>
+      <td className="px-4 py-3 text-[var(--ds-text-3)]">{quiz.questionCount} questions</td>
+      <td className="px-4 py-3">
+        <div className="flex items-center gap-1 justify-end">
+          {status === 'ACTIVE' && <Button size="sm" onClick={onOpen}><ExternalLink size={11} className="mr-1" />Open</Button>}
+          {status === 'WAITING' && <Button size="sm" variant="outline" onClick={onOpen}>Start</Button>}
+          {status === 'FINISHED' && <Button size="sm" variant="outline" onClick={onResults}>Results</Button>}
+          {status === 'DRAFT' && (
+            <Button size="sm" variant="outline" onClick={onOpen} disabled={opening}>
+              {opening ? <Loader2 size={11} className="mr-1 animate-spin" /> : null}
+              Continue
+            </Button>
+          )}
+          {(status === 'DRAFT' || status === 'WAITING') && (
+            <button
+              type="button"
+              title="Edit quiz"
+              aria-label="Edit quiz"
+              onClick={onEdit}
+              className="size-7 rounded-[6px] hover:bg-[var(--surface-soft)] text-[var(--ds-text-3)] hover:text-[var(--ds-text-1)] flex items-center justify-center"
+            >
+              <Pencil size={12} />
+            </button>
+          )}
+          <button title="Delete" aria-label="Delete quiz" onClick={onDelete} className="size-7 rounded-[6px] hover:bg-[var(--surface-soft)] text-[var(--ds-text-3)] hover:text-[var(--danger)] flex items-center justify-center">
+            <Trash2 size={12} />
+          </button>
+        </div>
+      </td>
+    </tr>
   );
 }

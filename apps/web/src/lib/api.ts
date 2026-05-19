@@ -477,8 +477,12 @@ export interface Settings {
   emailInvitationEnabled?: boolean;
   emailTestingMode?: boolean;
   emailTestRecipients?: string | null;
+  // Dashboard v2 — admin-controlled accent token. rust | teal | indigo | violet | mint | mono.
+  accentColor?: string;
   updatedAt: string;
 }
+
+export type DashAccent = 'rust' | 'teal' | 'indigo' | 'violet' | 'mint' | 'mono';
 
 export interface SecurityEnvStatus {
   attendanceJwtSecretConfigured: boolean;
@@ -1482,6 +1486,22 @@ export interface HomePageData {
   networkHighlights: HomeNetworkPreview[];
 }
 
+import { dashboardApi } from './api/dashboard';
+export type {
+  NotifItem,
+  NotificationsPayload,
+  GlobalSearchPayload,
+  RecentSubmission,
+  AroundMeLeaderboard,
+  MyTeamCard,
+  UploadHistoryItem,
+  AdminInsights,
+  AdminDashboardStats,
+  NotifAudience,
+  ComposeNotificationInput,
+  BroadcastRow,
+} from './api/dashboard';
+
 export const api = {
   // Auth — implementation in ./api/auth.ts
   ...authApi,
@@ -1503,4 +1523,7 @@ export const api = {
 
   // Certificates + Attendance + Invitations + Teams + Competition — implementation in ./api/event-ops.ts
   ...eventOpsApi,
+
+  // Dashboard v2 — notifications, global search, admin insights, recent subs, leaderboard slice, teams, upload history.
+  ...dashboardApi,
 };

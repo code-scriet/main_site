@@ -1,6 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { motion } from 'framer-motion';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -15,6 +14,8 @@ import { ToggleRow as SharedToggleRow } from '@/components/admin/settings/Toggle
 import { GeneralSettingsCard } from '@/components/admin/settings/GeneralSettingsCard';
 import { RegistrationEventsCard } from '@/components/admin/settings/RegistrationEventsCard';
 import { SocialLinksCard } from '@/components/admin/settings/SocialLinksCard';
+import { BrandAccentCard } from '@/components/admin/settings/BrandAccentCard';
+import { SettingsCard } from '@/components/admin/settings/SettingsCard';
 
 const ToggleRow = SharedToggleRow;
 
@@ -25,6 +26,10 @@ export default function AdminSettings() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  // Bumped on every successful save (toggle, patch, or bulk). Drives the "Saved {relative}"
+  // indicator on each <SettingsCard>. One global timestamp keeps the wiring simple — the
+  // design pattern is "each card auto-saves", not "each card has independent history".
+  const [lastSavedAt, setLastSavedAt] = useState<number | null>(null);
   
   const [settings, setSettings] = useState<Settings>({
     id: 'default',
@@ -161,6 +166,7 @@ export default function AdminSettings() {
     try {
       await api.patchSetting(key as string, value, token);
       await refreshGlobalSettings();
+      setLastSavedAt(Date.now());
     } catch {
       // Revert on failure
       setSettings((prev) => ({ ...prev, [key]: !value }));
@@ -212,6 +218,7 @@ export default function AdminSettings() {
       // Refresh global settings so all components get the update
       await refreshGlobalSettings();
       setSaved(true);
+      setLastSavedAt(Date.now());
       if (savedTimerRef.current) {
         window.clearTimeout(savedTimerRef.current);
       }
@@ -227,8 +234,8 @@ export default function AdminSettings() {
     return (
       <div className="flex items-center justify-center min-h-[200px] sm:min-h-[400px]">{/* responsive: reduced on mobile */}
         <div className="text-center">
-          <Loader2 className="h-8 w-8 animate-spin text-amber-600 mx-auto mb-2" />
-          <p className="text-gray-600">Loading settings...</p>
+          <Loader2 className="h-8 w-8 animate-spin text-[var(--accent)] mx-auto mb-2" />
+          <p className="text-[var(--ds-text-2)]">Loading settings...</p>
         </div>
       </div>
     );
@@ -239,8 +246,8 @@ export default function AdminSettings() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-amber-900">Settings</h1>
-          <p className="text-gray-600">Configure club settings and preferences</p>
+          <h1 className="text-[24px] font-semibold tracking-tight text-[var(--ds-text-1)]">Settings</h1>
+          <p className="text-[13px] text-[var(--ds-text-3)] mt-0.5">Configure club settings and preferences</p>
         </div>
         <Button variant="outline" size="sm" onClick={fetchSettings} disabled={loading}>
           <RefreshCw className={`h-4 w-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
@@ -252,12 +259,13 @@ export default function AdminSettings() {
         <motion.div
           initial={{ opacity: 0, y: -10 }}
           animate={{ opacity: 1, y: 0 }}
-          className="flex items-start gap-3 p-4 bg-red-50 border border-red-200 rounded-lg text-red-700"
+          className="flex items-start gap-3 px-4 py-2.5 rounded-[10px] border border-[var(--danger-border)] bg-[var(--danger-bg)] text-[var(--danger)] text-[13px]"
+          role="alert"
         >
-          <AlertCircle className="h-5 w-5 shrink-0 mt-0.5" />
+          <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
           <div>
-            <p className="text-sm font-medium">Error</p>
-            <p className="text-sm">{error}</p>
+            <p className="font-medium">Error</p>
+            <p>{error}</p>
           </div>
         </motion.div>
       )}
@@ -266,96 +274,100 @@ export default function AdminSettings() {
         <motion.div
           initial={{ opacity: 0, y: -10 }}
           animate={{ opacity: 1, y: 0 }}
-          className="flex items-start gap-3 p-4 bg-green-50 border border-green-200 rounded-lg text-green-700"
+          className="flex items-start gap-3 px-4 py-2.5 rounded-[10px] border border-[var(--success-border)] bg-[var(--success-bg)] text-[var(--success)] text-[13px]"
+          role="status"
         >
-          <CheckCircle className="h-5 w-5 shrink-0 mt-0.5" />
-          <p className="text-sm">Settings saved successfully!</p>
+          <CheckCircle className="h-4 w-4 shrink-0 mt-0.5" />
+          <p>Settings saved successfully!</p>
         </motion.div>
       )}
 
+      {/* Card-per-block grid (design source: screen-admin.jsx:546).
+          Heavy cards mark themselves lg:col-span-2 below. */}
+      <div className="grid lg:grid-cols-2 gap-4">
+
       {/* General Settings */}
-      <GeneralSettingsCard settings={settings} onChange={setSettings} />
+      <GeneralSettingsCard settings={settings} onChange={setSettings} lastSavedAt={lastSavedAt} />
 
-      <RegistrationEventsCard settings={settings} onChange={setSettings} />
+      {/* Dashboard v2 — accent picker (writes Settings.accentColor and live-applies via [data-accent]) */}
+      <BrandAccentCard settings={settings} onChange={setSettings} lastSavedAt={lastSavedAt} onSaved={() => setLastSavedAt(Date.now())} />
 
-      {/* Email & Notifications */}
-      <Card className="border-amber-100">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Mail className="h-5 w-5 text-amber-600" />
-            Email & Notifications
-          </CardTitle>
-          <CardDescription>Control which emails are sent and enable testing mode to prevent accidental mass emails</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          {/* Testing Mode Banner */}
-          {settings.emailTestingMode && (
-            <div className="flex items-start gap-3 p-4 bg-amber-50 border border-amber-300 rounded-lg">
-              <AlertTriangle className="h-5 w-5 text-amber-600 shrink-0 mt-0.5" />
-              <div>
-                <p className="text-sm font-semibold text-amber-900">Testing Mode Active</p>
-                <p className="text-xs text-amber-700 mt-1">
-                  All emails are being redirected to test addresses below. No real users will receive emails.
-                  {!settings.emailTestRecipients?.trim() && (
-                    <span className="block mt-1 text-red-600 font-medium">No test recipients configured — all emails are being suppressed!</span>
-                  )}
-                </p>
-              </div>
+      <RegistrationEventsCard settings={settings} onChange={setSettings} lastSavedAt={lastSavedAt} />
+
+      {/* Email & Notifications — half-width per design intent (compact toggles only). */}
+      <SettingsCard
+        title="Email & notifications"
+        description="Choose which categories send, and route all mail to test addresses while debugging."
+        icon={Mail}
+        lastSavedAt={lastSavedAt}
+      >
+        {settings.emailTestingMode && (
+          <div className="flex items-start gap-2 p-3 bg-[var(--warning-bg)] border border-[var(--warning-border)] rounded-[8px]">
+            <AlertTriangle className="h-3.5 w-3.5 text-[var(--warning)] shrink-0 mt-0.5" />
+            <div className="min-w-0">
+              <p className="text-[12.5px] font-semibold text-[var(--warning)]">Testing mode is on</p>
+              <p className="text-[11.5px] text-[var(--ds-text-2)] mt-0.5 leading-snug">
+                Email goes only to test addresses below.
+                {!settings.emailTestRecipients?.trim() && (
+                  <span className="block mt-0.5 text-[var(--danger)] font-medium">
+                    No test recipients — all email is currently suppressed.
+                  </span>
+                )}
+              </p>
             </div>
-          )}
+          </div>
+        )}
 
-          {/* Testing Mode Toggle */}
-          <ToggleRow
-            id="email-testing-mode"
-            label="Testing Mode"
-            description="Redirect all emails to test addresses instead of real users"
-            checked={settings.emailTestingMode ?? false}
-            onCheckedChange={(checked) => void handleToggle('emailTestingMode', checked)}
-          />
+        <ToggleRow
+          id="email-testing-mode"
+          label="Testing mode"
+          description="Redirect outbound email to test addresses."
+          checked={settings.emailTestingMode ?? false}
+          onCheckedChange={(checked) => void handleToggle('emailTestingMode', checked)}
+        />
 
-          {/* Test Recipients Input */}
-          {settings.emailTestingMode && (
-            <div className="ml-4 border-l-2 border-amber-200 pl-4 space-y-2">
-              <Label htmlFor="email-test-recipients">Test Recipients</Label>
-              <Input
-                id="email-test-recipients"
-                value={settings.emailTestRecipients || ''}
-                onChange={(e) => setSettings({ ...settings, emailTestRecipients: e.target.value })}
-                onBlur={async () => {
-                  if (!token) return;
-                  try {
-                    await api.patchSetting('emailTestRecipients', settings.emailTestRecipients || '', token);
-                  } catch {
-                    setError('Failed to save test recipients');
-                  }
-                }}
-                placeholder="admin@example.com, dev@example.com"
-              />
-              <p className="text-xs text-gray-500">Comma-separated email addresses. All outgoing emails will be redirected here.</p>
-            </div>
-          )}
+        {settings.emailTestingMode && (
+          <div className="ml-3 border-l-2 border-[var(--accent-ring)] pl-3 space-y-1.5">
+            <Label htmlFor="email-test-recipients" className="text-[11px] uppercase tracking-[0.06em] font-semibold text-[var(--ds-text-3)]">Test recipients</Label>
+            <Input
+              id="email-test-recipients"
+              value={settings.emailTestRecipients || ''}
+              onChange={(e) => setSettings({ ...settings, emailTestRecipients: e.target.value })}
+              onBlur={async () => {
+                if (!token) return;
+                try {
+                  await api.patchSetting('emailTestRecipients', settings.emailTestRecipients || '', token);
+                } catch {
+                  setError('Failed to save test recipients');
+                }
+              }}
+              placeholder="admin@example.com, dev@example.com"
+              className="h-8 text-[12.5px]"
+            />
+            <p className="text-[10.5px] text-[var(--ds-text-3)]">Comma-separated. All outbound email lands here.</p>
+          </div>
+        )}
 
-          {/* Announcements Feature Toggle */}
-          <ToggleRow
-            id="announcements-enabled"
-            label="Announcements"
-            description="Enable announcement notifications"
-            checked={settings.announcementsEnabled}
-            onCheckedChange={(checked) => setSettings({ ...settings, announcementsEnabled: checked })}
-          />
+        <ToggleRow
+          id="announcements-enabled"
+          label="Announcements"
+          description="Show announcement notifications to users."
+          checked={settings.announcementsEnabled}
+          onCheckedChange={(checked) => setSettings({ ...settings, announcementsEnabled: checked })}
+        />
 
-          {/* Email Category Toggles */}
-          <div className="space-y-1 pt-2">
-            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">Email Category Toggles</p>
+        <div className="pt-1">
+          <p className="text-[10.5px] font-semibold text-[var(--ds-text-3)] uppercase tracking-[0.06em] mb-1.5">Categories</p>
+          <div className="flex flex-col">
             {[
-              { key: 'emailWelcomeEnabled' as const, label: 'Welcome Emails', desc: 'Sent when a new user registers' },
-              { key: 'emailEventCreationEnabled' as const, label: 'New Event Emails', desc: 'Sent to all users when a new event is created' },
-              { key: 'emailRegistrationEnabled' as const, label: 'Registration Confirmation', desc: 'Sent when a user registers for an event' },
-              { key: 'emailAnnouncementEnabled' as const, label: 'Announcement Emails', desc: 'Sent to all users for new announcements' },
-              { key: 'emailCertificateEnabled' as const, label: 'Certificate Emails', desc: 'Sent when a certificate is issued to a user' },
-              { key: 'emailReminderEnabled' as const, label: 'Event Reminders', desc: 'Automated reminders before events start' },
-              { key: 'emailInvitationEnabled' as const, label: 'Event Invitations', desc: 'Sent to invited guests and speakers for event invitations' },
-              { key: 'mailingEnabled' as const, label: 'Admin Bulk Mail', desc: 'Enable the admin email composer to send emails to users' },
+              { key: 'emailWelcomeEnabled' as const, label: 'Welcome', desc: 'New user registration' },
+              { key: 'emailEventCreationEnabled' as const, label: 'New event', desc: 'When an event is created' },
+              { key: 'emailRegistrationEnabled' as const, label: 'Registration confirmed', desc: 'On event registration' },
+              { key: 'emailAnnouncementEnabled' as const, label: 'Announcement digest', desc: 'New club announcements' },
+              { key: 'emailCertificateEnabled' as const, label: 'Certificate issued', desc: 'On certificate generation' },
+              { key: 'emailReminderEnabled' as const, label: 'Event reminders', desc: 'Scheduled before event start' },
+              { key: 'emailInvitationEnabled' as const, label: 'Invitations', desc: 'Guest/speaker invitations' },
+              { key: 'mailingEnabled' as const, label: 'Admin bulk mail', desc: 'Composer for ad-hoc sends' },
             ].map(({ key, label, desc }) => (
               <ToggleRow
                 key={key}
@@ -368,64 +380,110 @@ export default function AdminSettings() {
               />
             ))}
           </div>
-        </CardContent>
-      </Card>
+        </div>
+      </SettingsCard>
 
-      {/* Feature Toggles */}
-      <Card className="border-amber-100">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Shield className="h-5 w-5 text-amber-600" />
-            Feature Toggles
-          </CardTitle>
-          <CardDescription>Show or hide features on user dashboard</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
+      {/* Feature toggles — wide per design (many switches in a 2-col layout). */}
+      <SettingsCard
+        title="Feature toggles"
+        description="Show or hide features on the user dashboard."
+        icon={Shield}
+        lastSavedAt={lastSavedAt}
+        wide
+      >
+        <div className="grid sm:grid-cols-2 gap-x-6 gap-y-1">
           <ToggleRow
             id="show-leaderboard"
             label="Leaderboard"
-            description="Show leaderboard on user dashboard"
+            description="Dashboard leaderboard widget."
             checked={settings.showLeaderboard ?? false}
             onCheckedChange={(checked) => void handleToggle('showLeaderboard', checked)}
+            compact
           />
           <ToggleRow
             id="show-qotd"
-            label="Question of the Day (QOTD)"
-            description="Show QOTD widget on dashboard"
+            label="Question of the Day"
+            description="QOTD widget + solve flow."
             checked={settings.showQOTD ?? true}
             onCheckedChange={(checked) => void handleToggle('showQOTD', checked)}
+            compact
           />
           <ToggleRow
             id="show-achievements"
-            label="Achievements Section"
-            description="Show achievements on dashboard overview"
+            label="Achievements"
+            description="Dashboard achievements strip."
             checked={settings.showAchievements ?? true}
             onCheckedChange={(checked) => void handleToggle('showAchievements', checked)}
+            compact
           />
           <ToggleRow
             id="show-tech-blogs"
-            label="Tech Blogs"
-            description="Show the tech blogs section wherever this frontend feature is enabled"
+            label="Tech blogs"
+            description="Show tech blogs section where supported."
             checked={settings.show_tech_blogs ?? true}
             onCheckedChange={(checked) => void handleToggle('show_tech_blogs', checked)}
+            compact
+          />
+          <ToggleRow
+            id="show-network"
+            label="Network"
+            description="Alumni / industry network page."
+            checked={settings.showNetwork ?? true}
+            onCheckedChange={(checked) => void handleToggle('showNetwork', checked)}
+            compact
+          />
+          <ToggleRow
+            id="certificates-enabled"
+            label="Certificates"
+            description="Admin certificate generation."
+            checked={settings.certificatesEnabled ?? true}
+            onCheckedChange={(checked) => void handleToggle('certificatesEnabled', checked)}
+            compact
+          />
+          <ToggleRow
+            id="playground-enabled"
+            label="Code playground"
+            description="Editor link + execution widget."
+            checked={settings.playgroundEnabled ?? true}
+            onCheckedChange={(checked) => void handleToggle('playgroundEnabled', checked)}
+            compact
+          />
+          <ToggleRow
+            id="competition-enabled"
+            label="Competition"
+            description="Contest rounds (admin + solve)."
+            checked={settings.competitionEnabled ?? false}
+            onCheckedChange={(checked) => void handleToggle('competitionEnabled', checked)}
+            compact
+          />
+          <ToggleRow
+            id="problems-enabled"
+            label="Problems"
+            description="QOTD / practice / DSA judge stack."
+            checked={settings.problemsEnabled ?? false}
+            onCheckedChange={(checked) => void handleToggle('problemsEnabled', checked)}
+            compact
           />
           <ToggleRow
             id="hiring-enabled"
-            label="Hiring/Recruitment"
-            description="Allow users to apply for team positions"
+            label="Hiring"
+            description="Application pipeline + kanban."
             checked={settings.hiringEnabled ?? true}
             onCheckedChange={(checked) => void handleToggle('hiringEnabled', checked)}
+            compact
           />
-          {/* Per-team hiring toggles */}
-          {settings.hiringEnabled && (
-            <div className="ml-4 mt-2 space-y-2 border-l-2 border-amber-200 pl-4">
-              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Team-specific Hiring</p>
+        </div>
+
+        {settings.hiringEnabled && (
+          <div className="border-l-2 border-[var(--accent-ring)] pl-3 ml-1 mt-1 flex flex-col gap-1">
+            <p className="text-[10.5px] font-semibold text-[var(--ds-text-3)] uppercase tracking-[0.06em] mb-0.5">Team-specific hiring</p>
+            <div className="grid sm:grid-cols-2 gap-x-6 gap-y-0">
               {[
-                { key: 'hiringTechnical' as const, label: 'Technical Team', desc: 'Enable hiring for Technical division' },
-                { key: 'hiringDsaChamps' as const, label: 'DSA Champs', desc: 'Enable hiring for DSA Champs division' },
-                { key: 'hiringDesigning' as const, label: 'Design Team', desc: 'Enable hiring for Design division' },
-                { key: 'hiringSocialMedia' as const, label: 'Social Media', desc: 'Enable hiring for Social Media division' },
-                { key: 'hiringManagement' as const, label: 'Management', desc: 'Enable hiring for Management division' },
+                { key: 'hiringTechnical' as const, label: 'Technical', desc: 'Technical division.' },
+                { key: 'hiringDsaChamps' as const, label: 'DSA Champs', desc: 'DSA Champs division.' },
+                { key: 'hiringDesigning' as const, label: 'Design', desc: 'Design division.' },
+                { key: 'hiringSocialMedia' as const, label: 'Social media', desc: 'Social media division.' },
+                { key: 'hiringManagement' as const, label: 'Management', desc: 'Management division.' },
               ].map(({ key, label, desc }) => (
                 <ToggleRow
                   key={key}
@@ -438,548 +496,425 @@ export default function AdminSettings() {
                 />
               ))}
             </div>
-          )}
-          <ToggleRow
-            id="show-network"
-            label="Network"
-            description="Show industry network page and allow professionals to join"
-            checked={settings.showNetwork ?? true}
-            onCheckedChange={(checked) => void handleToggle('showNetwork', checked)}
+          </div>
+        )}
+
+        <div className="flex items-center justify-between gap-3 p-2.5 rounded-[8px] bg-[var(--surface-soft)] mt-1">
+          <div className="min-w-0">
+            <Label htmlFor="playground-daily-limit" className="text-[12.5px] font-medium text-[var(--ds-text-1)]">
+              Playground daily limit
+            </Label>
+            <p className="text-[11px] text-[var(--ds-text-3)] mt-0.5">Shared cap across dashboard + executor.</p>
+          </div>
+          <Input
+            id="playground-daily-limit"
+            type="number"
+            min="1"
+            max="10000"
+            value={settings.playgroundDailyLimit ?? 100}
+            onChange={(e) =>
+              setSettings({
+                ...settings,
+                playgroundDailyLimit: Math.min(10000, Math.max(1, parseInt(e.target.value, 10) || 100)),
+              })
+            }
+            className="h-8 w-[88px] text-[12.5px] tabular-nums font-mono text-right"
           />
-          <ToggleRow
-            id="certificates-enabled"
-            label="Certificate Generation"
-            description="Allow admins to generate and issue certificates to participants"
-            checked={settings.certificatesEnabled ?? true}
-            onCheckedChange={(checked) => void handleToggle('certificatesEnabled', checked)}
+        </div>
+      </SettingsCard>
+
+      <SocialLinksCard settings={settings} onChange={setSettings} lastSavedAt={lastSavedAt} />
+
+      {/* Email templates — wide because the markdown editor needs horizontal room. */}
+      <SettingsCard
+        title="Email templates"
+        description="Customise automated email copy. Markdown supported. Leave empty to use defaults."
+        icon={FileText}
+        lastSavedAt={lastSavedAt}
+        wide
+      >
+        <div className="space-y-1.5">
+          <Label htmlFor="email-footer-text" className="text-[11px] uppercase tracking-[0.06em] font-semibold text-[var(--ds-text-3)]">
+            Email footer text
+          </Label>
+          <Input
+            id="email-footer-text"
+            value={settings.emailFooterText || ''}
+            onChange={(e) => setSettings({ ...settings, emailFooterText: e.target.value })}
+            placeholder="Building the next generation of developers."
+            className="h-8 text-[12.5px]"
           />
-          <ToggleRow
-            id="playground-enabled"
-            label="Code Playground"
-            description="Show the Code Playground link and dashboard widgets for members"
-            checked={settings.playgroundEnabled ?? true}
-            onCheckedChange={(checked) => void handleToggle('playgroundEnabled', checked)}
-          />
-          <ToggleRow
-            id="competition-enabled"
-            label="Competition System"
-            description="Enable competition rounds for events (admin panel link and management)"
-            checked={settings.competitionEnabled ?? false}
-            onCheckedChange={(checked) => void handleToggle('competitionEnabled', checked)}
-          />
-          <ToggleRow
-            id="problems-enabled"
-            label="Problems System"
-            description="Enable QOTD solving, practice problems, DSA contest rounds, and admin problem tools"
-            checked={settings.problemsEnabled ?? false}
-            onCheckedChange={(checked) => void handleToggle('problemsEnabled', checked)}
-          />
-          <div className="space-y-2 p-4 bg-amber-50 rounded-lg">
-            <Label htmlFor="playground-daily-limit">Playground Daily Execution Limit</Label>
-            <Input
-              id="playground-daily-limit"
-              type="number"
-              min="1"
-              max="10000"
-              value={settings.playgroundDailyLimit ?? 100}
-              onChange={(e) =>
-                setSettings({
-                  ...settings,
-                  playgroundDailyLimit: Math.min(10000, Math.max(1, parseInt(e.target.value, 10) || 100)),
-                })
+          <p className="text-[10.5px] text-[var(--ds-text-3)]">Appears at the bottom of every email.</p>
+        </div>
+
+        {/* Tab nav + preview toggle */}
+        <div className="flex items-center justify-between gap-2 border-b border-[var(--border-subtle)]" role="tablist" aria-label="Email templates">
+          <div className="flex gap-0">
+            {(['welcome', 'announcement', 'event'] as const).map((tab) => {
+              const label = tab === 'welcome' ? 'Welcome' : tab === 'announcement' ? 'Announcement' : 'New event';
+              const active = activeEmailTab === tab;
+              return (
+                <button
+                  key={tab}
+                  type="button"
+                  role="tab"
+                  aria-selected={active}
+                  aria-controls="email-template-panel"
+                  onClick={() => setActiveEmailTab(tab)}
+                  className={`px-3 h-9 text-[12.5px] font-medium border-b-2 -mb-px transition-colors ${
+                    active
+                      ? 'border-[var(--accent)] text-[var(--ds-text-1)]'
+                      : 'border-transparent text-[var(--ds-text-3)] hover:text-[var(--ds-text-2)]'
+                  }`}
+                >
+                  {label}
+                </button>
+              );
+            })}
+          </div>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setShowPreview(!showPreview)}
+            className="gap-1.5 -mb-1"
+          >
+            {showPreview ? <Code className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+            {showPreview ? 'Edit' : 'Preview'}
+          </Button>
+        </div>
+
+        {activeEmailTab === 'welcome' && (
+          <div id="email-template-panel" role="tabpanel" className="space-y-2">
+            <Label htmlFor="email-welcome-body" className="text-[11px] uppercase tracking-[0.06em] font-semibold text-[var(--ds-text-3)]">
+              Custom welcome intro <span className="font-normal normal-case tracking-normal text-[var(--ds-text-3)]">(optional)</span>
+            </Label>
+            <p className="text-[11px] text-[var(--ds-text-3)]">
+              Prepended to the premium welcome template. Variables: <code className="font-mono text-[var(--ds-text-2)]">{'{{name}}'}</code> <code className="font-mono text-[var(--ds-text-2)]">{'{{clubName}}'}</code>
+            </p>
+            {showPreview ? (
+              <div className="min-h-[160px] p-3 bg-[var(--bg-sunken)] rounded-[8px] border border-[var(--border-subtle)] text-[12.5px]">
+                <Markdown>{settings.emailWelcomeBody || `*No custom message set. Default premium template will render.*`}</Markdown>
+              </div>
+            ) : (
+              <textarea
+                id="email-welcome-body"
+                value={settings.emailWelcomeBody || ''}
+                onChange={(e) => setSettings({ ...settings, emailWelcomeBody: e.target.value })}
+                className="w-full min-h-[160px] px-3 py-2 border border-[var(--border-default)] rounded-[8px] bg-[var(--bg-raised)] text-[12.5px] font-mono focus:outline-none focus:border-[var(--accent)] resize-y"
+                placeholder={`Hey **{{name}}**, welcome to {{clubName}}!\nYour journey starts now…`}
+              />
+            )}
+          </div>
+        )}
+
+        {activeEmailTab === 'announcement' && (
+          <div id="email-template-panel" role="tabpanel" className="space-y-2">
+            <Label htmlFor="email-announcement-body" className="text-[11px] uppercase tracking-[0.06em] font-semibold text-[var(--ds-text-3)]">
+              Custom announcement intro <span className="font-normal normal-case tracking-normal text-[var(--ds-text-3)]">(optional)</span>
+            </Label>
+            <p className="text-[11px] text-[var(--ds-text-3)]">Prepended to the actual announcement body in emails.</p>
+            {showPreview ? (
+              <div className="min-h-[120px] p-3 bg-[var(--bg-sunken)] rounded-[8px] border border-[var(--border-subtle)] text-[12.5px]">
+                <Markdown>{settings.emailAnnouncementBody || `Hey there! 👋\n\nHere's the latest update from **code.scriet**:`}</Markdown>
+              </div>
+            ) : (
+              <textarea
+                id="email-announcement-body"
+                value={settings.emailAnnouncementBody || ''}
+                onChange={(e) => setSettings({ ...settings, emailAnnouncementBody: e.target.value })}
+                className="w-full min-h-[120px] px-3 py-2 border border-[var(--border-default)] rounded-[8px] bg-[var(--bg-raised)] text-[12.5px] font-mono focus:outline-none focus:border-[var(--accent)] resize-y"
+                placeholder={`Hey there! 👋\n\nHere's the latest update from **code.scriet**:`}
+              />
+            )}
+          </div>
+        )}
+
+        {activeEmailTab === 'event' && (
+          <div id="email-template-panel" role="tabpanel" className="space-y-2">
+            <Label htmlFor="email-event-body" className="text-[11px] uppercase tracking-[0.06em] font-semibold text-[var(--ds-text-3)]">
+              Custom event intro <span className="font-normal normal-case tracking-normal text-[var(--ds-text-3)]">(optional)</span>
+            </Label>
+            <p className="text-[11px] text-[var(--ds-text-3)]">Prepended to event detail in notification emails.</p>
+            {showPreview ? (
+              <div className="min-h-[120px] p-3 bg-[var(--bg-sunken)] rounded-[8px] border border-[var(--border-subtle)] text-[12.5px]">
+                <Markdown>{settings.emailEventBody || `🎯 **New event alert!**\n\nWe've got something exciting lined up for you:`}</Markdown>
+              </div>
+            ) : (
+              <textarea
+                id="email-event-body"
+                value={settings.emailEventBody || ''}
+                onChange={(e) => setSettings({ ...settings, emailEventBody: e.target.value })}
+                className="w-full min-h-[120px] px-3 py-2 border border-[var(--border-default)] rounded-[8px] bg-[var(--bg-raised)] text-[12.5px] font-mono focus:outline-none focus:border-[var(--accent)] resize-y"
+                placeholder={`🎯 **New event alert!**\n\nWe've got something exciting lined up for you:`}
+              />
+            )}
+          </div>
+        )}
+
+        <details className="rounded-[8px] bg-[var(--surface-soft)] px-2.5 py-2 text-[11.5px]">
+          <summary className="cursor-pointer font-medium text-[var(--ds-text-2)]">Markdown tips</summary>
+          <ul className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1 text-[var(--ds-text-3)]">
+            <li><code className="font-mono bg-[var(--bg-raised)] px-1 rounded">**bold**</code> → <strong>bold</strong></li>
+            <li><code className="font-mono bg-[var(--bg-raised)] px-1 rounded">*italic*</code> → <em>italic</em></li>
+            <li><code className="font-mono bg-[var(--bg-raised)] px-1 rounded">## Heading</code></li>
+            <li><code className="font-mono bg-[var(--bg-raised)] px-1 rounded">- item</code></li>
+            <li><code className="font-mono bg-[var(--bg-raised)] px-1 rounded">[link](url)</code></li>
+            <li><code className="font-mono bg-[var(--bg-raised)] px-1 rounded">&gt; quote</code></li>
+          </ul>
+        </details>
+      </SettingsCard>
+
+      {/* Event status sync — half-width admin tool. */}
+      <SettingsCard
+        title="Event status sync"
+        description="Background sync runs every 30 min. Trigger an instant pass here."
+        icon={Clock}
+        lastSavedAt={lastSavedAt}
+      >
+        <div className="flex items-center gap-2 flex-wrap">
+          <Button
+            variant="outline"
+            size="sm"
+            className="gap-1.5"
+            disabled={eventSyncSubmitting}
+            onClick={async () => {
+              if (!token) return;
+              setEventSyncSubmitting(true);
+              setEventSyncResult(null);
+              try {
+                const res = await fetch(`${import.meta.env.VITE_API_URL}/settings/event-status/sync-now`, {
+                  method: 'POST',
+                  headers: { Authorization: `Bearer ${token}` },
+                  credentials: 'include',
+                });
+                const data = await res.json();
+                if (data.success && data.data) {
+                  setEventSyncResult(data.data);
+                } else {
+                  setEventSyncResult({ toOngoing: 0, toPastFromOngoing: 0, toPastFromUpcoming: 0, error: data.error?.message || 'Sync failed' });
+                }
+              } catch {
+                setEventSyncResult({ toOngoing: 0, toPastFromOngoing: 0, toPastFromUpcoming: 0, error: 'Network error' });
+              } finally {
+                setEventSyncSubmitting(false);
               }
-            />
-            <p className="text-xs text-gray-500">Shared across dashboard and playground runtime. Editable by super admin or president.</p>
-          </div>
-        </CardContent>
-      </Card>
+            }}
+          >
+            {eventSyncSubmitting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+            Sync now
+          </Button>
+          {eventSyncResult && !eventSyncResult.error && (
+            <span className="inline-flex items-center gap-1 text-[12px] text-[var(--success)]">
+              <CheckCircle className="h-3.5 w-3.5" />
+              <span className="font-mono tabular-nums">
+                {eventSyncResult.toOngoing + eventSyncResult.toPastFromOngoing + eventSyncResult.toPastFromUpcoming}
+              </span> updated
+            </span>
+          )}
+          {eventSyncResult?.error && (
+            <span className="inline-flex items-center gap-1 text-[12px] text-[var(--danger)]">
+              <AlertCircle className="h-3.5 w-3.5" />
+              {eventSyncResult.error}
+            </span>
+          )}
+        </div>
+        {eventSyncResult && !eventSyncResult.error && (
+          <p className="text-[11px] text-[var(--ds-text-3)] font-mono">
+            <span className="tabular-nums">{eventSyncResult.toOngoing}</span> → ONGOING
+            <span className="mx-1.5 text-[var(--border-default)]">·</span>
+            <span className="tabular-nums">{eventSyncResult.toPastFromOngoing}</span> → PAST (live)
+            <span className="mx-1.5 text-[var(--border-default)]">·</span>
+            <span className="tabular-nums">{eventSyncResult.toPastFromUpcoming}</span> → PAST (skipped)
+          </p>
+        )}
+      </SettingsCard>
 
-      <SocialLinksCard settings={settings} onChange={setSettings} />
+      {/* IndexNow — half-width admin tool. */}
+      <SettingsCard
+        title="IndexNow"
+        description="Notify Bing, Yandex and Google about all your pages so they index faster."
+        icon={Search}
+        lastSavedAt={lastSavedAt}
+      >
+        <div className="flex items-center gap-2 flex-wrap">
+          <Button
+            variant="outline"
+            size="sm"
+            className="gap-1.5"
+            disabled={indexNowSubmitting}
+            onClick={async () => {
+              if (!token) return;
+              setIndexNowSubmitting(true);
+              setIndexNowResult(null);
+              try {
+                const res = await fetch(`${import.meta.env.VITE_API_URL}/indexnow/submit-all`, {
+                  method: 'POST',
+                  headers: { Authorization: `Bearer ${token}` },
+                });
+                const data = await res.json();
+                if (data.success) {
+                  setIndexNowResult({ count: data.data.submitted });
+                } else {
+                  setIndexNowResult({ count: 0, error: data.error?.message || 'Submission failed' });
+                }
+              } catch {
+                setIndexNowResult({ count: 0, error: 'Network error' });
+              } finally {
+                setIndexNowSubmitting(false);
+              }
+            }}
+          >
+            {indexNowSubmitting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Globe className="h-3.5 w-3.5" />}
+            Submit all URLs
+          </Button>
+          {indexNowResult && !indexNowResult.error && (
+            <span className="inline-flex items-center gap-1 text-[12px] text-[var(--success)]">
+              <CheckCircle className="h-3.5 w-3.5" />
+              <span className="font-mono tabular-nums">{indexNowResult.count}</span> URLs
+            </span>
+          )}
+          {indexNowResult?.error && (
+            <span className="inline-flex items-center gap-1 text-[12px] text-[var(--danger)]">
+              <AlertCircle className="h-3.5 w-3.5" />
+              {indexNowResult.error}
+            </span>
+          )}
+        </div>
+        <p className="text-[11px] text-[var(--ds-text-3)]">
+          New pages submit automatically on create/update; this only catches up.
+        </p>
+      </SettingsCard>
 
-      {/* Email Template Settings */}
-      <Card className="border-amber-100">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <FileText className="h-5 w-5 text-amber-600" />
-            Email Templates
-          </CardTitle>
-          <CardDescription>
-            Customize the content of automated emails. Use Markdown for formatting.
-            Leave empty to use default templates.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-6">
-          {/* Email Footer Text */}
-          <div className="space-y-2">
-            <Label htmlFor="email-footer-text">Email Footer Text</Label>
-            <Input
-              id="email-footer-text"
-              value={settings.emailFooterText || ''}
-              onChange={(e) => setSettings({ ...settings, emailFooterText: e.target.value })}
-              placeholder="Building the next generation of developers."
-            />
-            <p className="text-xs text-gray-500">Appears at the bottom of all emails</p>
+      {/* Security keys — wide so the two key inputs fit side-by-side. Super admin / PRESIDENT only. */}
+      {canManageSecurityEnv && (
+        <SettingsCard
+          title="Security keys"
+          description="ATTENDANCE_JWT_SECRET and INDEXNOW_KEY live in settings. Env values are legacy fallbacks only."
+          icon={Shield}
+          lastSavedAt={lastSavedAt}
+          wide
+        >
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="space-y-1.5">
+              <Label htmlFor="attendance-jwt-secret" className="text-[11px] uppercase tracking-[0.06em] font-semibold text-[var(--ds-text-3)]">
+                Attendance JWT secret
+              </Label>
+              <Input
+                id="attendance-jwt-secret"
+                type="password"
+                value={securityEnvValues.attendanceJwtSecret}
+                onChange={(e) =>
+                  setSecurityEnvValues((prev) => ({ ...prev, attendanceJwtSecret: e.target.value }))
+                }
+                placeholder="Paste new secret"
+                className="h-8 text-[12.5px] font-mono"
+              />
+              <p className="text-[10.5px] text-[var(--ds-text-3)]">Leave empty to keep current value.</p>
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="indexnow-key" className="text-[11px] uppercase tracking-[0.06em] font-semibold text-[var(--ds-text-3)]">
+                IndexNow key
+              </Label>
+              <Input
+                id="indexnow-key"
+                value={securityEnvValues.indexNowKey}
+                onChange={(e) =>
+                  setSecurityEnvValues((prev) => ({ ...prev, indexNowKey: e.target.value }))
+                }
+                placeholder="Paste new key"
+                className="h-8 text-[12.5px] font-mono"
+              />
+              <p className="text-[10.5px] text-[var(--ds-text-3)]">Leave empty to keep current value.</p>
+            </div>
           </div>
-          
-          {/* Tab Navigation */}
-          <div className="flex gap-2 border-b border-gray-200" role="tablist" aria-label="Email templates">
-            <button
-              type="button"
-              role="tab"
-              aria-selected={activeEmailTab === 'welcome'}
-              aria-controls="email-template-panel"
-              onClick={() => setActiveEmailTab('welcome')}
-              className={`px-4 py-2 text-sm font-medium transition-colors ${
-                activeEmailTab === 'welcome'
-                  ? 'border-b-2 border-amber-500 text-amber-600'
-                  : 'text-gray-500 hover:text-gray-700'
-              }`}
-            >
-              Welcome Email
-            </button>
-            <button
-              type="button"
-              role="tab"
-              aria-selected={activeEmailTab === 'announcement'}
-              aria-controls="email-template-panel"
-              onClick={() => setActiveEmailTab('announcement')}
-              className={`px-4 py-2 text-sm font-medium transition-colors ${
-                activeEmailTab === 'announcement'
-                  ? 'border-b-2 border-amber-500 text-amber-600'
-                  : 'text-gray-500 hover:text-gray-700'
-              }`}
-            >
-              Announcement
-            </button>
-            <button
-              type="button"
-              role="tab"
-              aria-selected={activeEmailTab === 'event'}
-              aria-controls="email-template-panel"
-              onClick={() => setActiveEmailTab('event')}
-              className={`px-4 py-2 text-sm font-medium transition-colors ${
-                activeEmailTab === 'event'
-                  ? 'border-b-2 border-amber-500 text-amber-600'
-                  : 'text-gray-500 hover:text-gray-700'
-              }`}
-            >
-              New Event
-            </button>
-          </div>
-          
-          {/* Preview Toggle */}
-          <div className="flex justify-end">
+
+          <div className="flex flex-wrap items-center gap-1.5">
             <Button
               variant="outline"
               size="sm"
-              onClick={() => setShowPreview(!showPreview)}
-              className="gap-2"
+              className="gap-1.5"
+              disabled={securityEnvChecking}
+              onClick={() => void fetchSecurityEnvStatus()}
             >
-              {showPreview ? <Code className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-              {showPreview ? 'Edit' : 'Preview'}
+              {securityEnvChecking ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+              Refresh status
             </Button>
-          </div>
-          
-          {/* Welcome Email Template */}
-          {activeEmailTab === 'welcome' && (
-            <div id="email-template-panel" role="tabpanel" className="space-y-3">
-              <div className="flex flex-col gap-2">
-                <Label htmlFor="email-welcome-body">Custom Welcome Message (Optional)</Label>
-                <p className="text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded-md px-3 py-2">
-                  💡 <strong>Note:</strong> This text will be added to the beginning of the premium welcome email (before the power-ups section). 
-                  Leave empty to use only the default premium template shown in your screenshot.
-                </p>
-                <span className="text-xs text-gray-400">Variables: {'{{name}}'} {'{{clubName}}'}</span>
-              </div>
-              {showPreview ? (
-                <div className="min-h-[200px] p-4 bg-gray-900 rounded-lg border border-gray-700">
-                  <Markdown>{settings.emailWelcomeBody || `*No custom message set. Using default premium template with:*
-
-- Welcome message
-- 4 Power-up cards (QOTD, Events, Leaderboard, Community)  
-- Next Steps section with numbered actions
-- Pro tip box`}</Markdown>
-                </div>
-              ) : (
-                <textarea
-                  id="email-welcome-body"
-                  value={settings.emailWelcomeBody || ''}
-                  onChange={(e) => setSettings({ ...settings, emailWelcomeBody: e.target.value })}
-                  className="w-full min-h-[200px] px-3 py-2 border border-gray-300 rounded-md bg-white text-sm font-mono focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent"
-                  placeholder={`Add a personalized intro message here (optional)...
-
-Example:
-Hey **{{name}}**, we're excited to have you! 🎉
-
-Your journey with {{clubName}} starts now...
-
-(The premium template with power-ups and next steps will appear after this)`}
-                />
-              )}
-              <p className="text-xs text-gray-500">
-                Custom text is added <strong>before</strong> the premium design. Leave empty to use default only.
-              </p>
-            </div>
-          )}
-          
-          {/* Announcement Email Template */}
-          {activeEmailTab === 'announcement' && (
-            <div id="email-template-panel" role="tabpanel" className="space-y-3">
-              <div className="flex flex-col gap-2">
-                <Label htmlFor="email-announcement-body">Custom Announcement Intro (Optional)</Label>
-                <p className="text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded-md px-3 py-2">
-                  💡 <strong>Note:</strong> This intro appears before the actual announcement content in emails.
-                </p>
-              </div>
-              {showPreview ? (
-                <div className="min-h-[150px] p-4 bg-gray-900 rounded-lg border border-gray-700">
-                  <Markdown>{settings.emailAnnouncementBody || `Hey there! 👋
-
-Here's the latest update from **code.scriet**:`}</Markdown>
-                </div>
-              ) : (
-                <textarea
-                  id="email-announcement-body"
-                  value={settings.emailAnnouncementBody || ''}
-                  onChange={(e) => setSettings({ ...settings, emailAnnouncementBody: e.target.value })}
-                  className="w-full min-h-[150px] px-3 py-2 border border-gray-300 rounded-md bg-white text-sm font-mono focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent"
-                  placeholder={`Hey there! 👋
-
-Here's the latest update from **code.scriet**:`}
-                />
-              )}
-              <p className="text-xs text-gray-500">
-                This intro text appears before the announcement content in emails.
-              </p>
-            </div>
-          )}
-          
-          {/* Event Email Template */}
-          {activeEmailTab === 'event' && (
-            <div id="email-template-panel" role="tabpanel" className="space-y-3">
-              <div className="flex flex-col gap-2">
-                <Label htmlFor="email-event-body">Custom Event Intro (Optional)</Label>
-                <p className="text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded-md px-3 py-2">
-                  💡 <strong>Note:</strong> This intro appears before event details in notification emails.
-                </p>
-              </div>
-              {showPreview ? (
-                <div className="min-h-[150px] p-4 bg-gray-900 rounded-lg border border-gray-700">
-                  <Markdown>{settings.emailEventBody || `🎯 **New Event Alert!**
-
-We've got something exciting lined up for you:`}</Markdown>
-                </div>
-              ) : (
-                <textarea
-                  id="email-event-body"
-                  value={settings.emailEventBody || ''}
-                  onChange={(e) => setSettings({ ...settings, emailEventBody: e.target.value })}
-                  className="w-full min-h-[150px] px-3 py-2 border border-gray-300 rounded-md bg-white text-sm font-mono focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent"
-                  placeholder={`🎯 **New Event Alert!**
-
-We've got something exciting lined up for you:`}
-                />
-              )}
-              <p className="text-xs text-gray-500">
-                This intro text appears before event details in notification emails.
-              </p>
-            </div>
-          )}
-          
-          {/* Help Text */}
-          <div className="p-4 bg-amber-50 rounded-lg border border-amber-100">
-            <h4 className="text-sm font-medium text-amber-900 mb-2">Markdown Tips</h4>
-            <ul className="text-xs text-amber-700 space-y-1">
-              <li><code className="bg-amber-100 px-1 rounded">**bold**</code> → <strong>bold</strong></li>
-              <li><code className="bg-amber-100 px-1 rounded">*italic*</code> → <em>italic</em></li>
-              <li><code className="bg-amber-100 px-1 rounded">## Heading</code> → Creates a heading</li>
-              <li><code className="bg-amber-100 px-1 rounded">- item</code> → Creates a bullet list</li>
-              <li><code className="bg-amber-100 px-1 rounded">[link](url)</code> → Creates a link</li>
-              <li><code className="bg-amber-100 px-1 rounded">&gt; quote</code> → Creates a blockquote</li>
-            </ul>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Save Button */}
-
-      {/* Event Status Sync */}
-      <Card className="border-amber-100">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Clock className="h-5 w-5 text-amber-600" />
-            Event Status Sync
-          </CardTitle>
-          <CardDescription>
-            Background sync runs every 30 minutes. Use this button to run an instant sync for everyone right now.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="flex items-center gap-4 flex-wrap">
             <Button
-              variant="outline"
-              className="gap-2"
-              disabled={eventSyncSubmitting}
+              size="sm"
+              className="gap-1.5"
+              disabled={securityEnvSaving}
               onClick={async () => {
                 if (!token) return;
-                setEventSyncSubmitting(true);
-                setEventSyncResult(null);
+                const payload: { attendanceJwtSecret?: string | null; indexNowKey?: string | null } = {};
+                const attendanceValue = securityEnvValues.attendanceJwtSecret.trim();
+                const indexNowValue = securityEnvValues.indexNowKey.trim();
+                if (attendanceValue) payload.attendanceJwtSecret = attendanceValue;
+                if (indexNowValue) payload.indexNowKey = indexNowValue;
+                if (!payload.attendanceJwtSecret && !payload.indexNowKey) {
+                  setError('Enter at least one security value before saving.');
+                  return;
+                }
+                setSecurityEnvSaving(true);
+                setError(null);
                 try {
-                  const res = await fetch(`${import.meta.env.VITE_API_URL}/settings/event-status/sync-now`, {
-                    method: 'POST',
-                    headers: { Authorization: `Bearer ${token}` },
-                    credentials: 'include',
-                  });
-                  const data = await res.json();
-                  if (data.success && data.data) {
-                    setEventSyncResult(data.data);
-                  } else {
-                    setEventSyncResult({ toOngoing: 0, toPastFromOngoing: 0, toPastFromUpcoming: 0, error: data.error?.message || 'Sync failed' });
+                  const status = await api.updateSecurityEnvSettings(payload, token);
+                  setSecurityEnvStatus(status);
+                  setSecurityEnvValues({ attendanceJwtSecret: '', indexNowKey: '' });
+                  setSaved(true);
+                  if (savedTimerRef.current) {
+                    window.clearTimeout(savedTimerRef.current);
                   }
+                  savedTimerRef.current = window.setTimeout(() => setSaved(false), 3000);
                 } catch {
-                  setEventSyncResult({ toOngoing: 0, toPastFromOngoing: 0, toPastFromUpcoming: 0, error: 'Network error' });
+                  setError('Failed to save security env references');
                 } finally {
-                  setEventSyncSubmitting(false);
+                  setSecurityEnvSaving(false);
                 }
               }}
             >
-              {eventSyncSubmitting ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <RefreshCw className="h-4 w-4" />
-              )}
-              Sync Event Status Now
+              {securityEnvSaving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
+              Save
             </Button>
-
-            {eventSyncResult && !eventSyncResult.error && (
-              <span className="text-sm text-green-600 flex items-center gap-1">
-                <CheckCircle className="h-4 w-4" />
-                Updated: {eventSyncResult.toOngoing + eventSyncResult.toPastFromOngoing + eventSyncResult.toPastFromUpcoming}
-              </span>
-            )}
-
-            {eventSyncResult?.error && (
-              <span className="text-sm text-red-600 flex items-center gap-1">
-                <AlertCircle className="h-4 w-4" />
-                {eventSyncResult.error}
-              </span>
-            )}
           </div>
 
-          {eventSyncResult && !eventSyncResult.error && (
-            <p className="text-xs text-gray-600">
-              UPCOMING -&gt; ONGOING: {eventSyncResult.toOngoing} | ONGOING -&gt; PAST: {eventSyncResult.toPastFromOngoing} | UPCOMING -&gt; PAST: {eventSyncResult.toPastFromUpcoming}
-            </p>
+          {securityEnvStatus && (
+            <div className="rounded-[8px] bg-[var(--surface-soft)] p-2.5 text-[11.5px] space-y-1">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-[var(--ds-text-2)] font-medium">Attendance JWT secret</span>
+                <span className={`font-mono tabular-nums text-[10.5px] ${securityEnvStatus.attendanceJwtSecretConfigured ? 'text-[var(--success)]' : 'text-[var(--ds-text-3)]'}`}>
+                  {securityEnvStatus.attendanceJwtSecretConfigured ? 'Configured' : 'Not set'}
+                  {securityEnvStatus.runtimeStatus.attendanceJwtSecretActive ? ' · active' : ''}
+                </span>
+              </div>
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-[var(--ds-text-2)] font-medium">IndexNow key</span>
+                <span className={`font-mono tabular-nums text-[10.5px] ${securityEnvStatus.indexNowKeyConfigured ? 'text-[var(--success)]' : 'text-[var(--ds-text-3)]'}`}>
+                  {securityEnvStatus.indexNowKeyConfigured ? 'Configured' : 'Not set'}
+                  {securityEnvStatus.runtimeStatus.indexNowKeyActive ? ' · active' : ''}
+                </span>
+              </div>
+              {securityEnvStatus.updatedAt && (
+                <div className="text-[10.5px] text-[var(--ds-text-3)] pt-1 border-t border-[var(--border-subtle)] mt-1">
+                  Updated {formatDateTime(securityEnvStatus.updatedAt)} · {securityEnvStatus.runtimeStatus.nodeEnv}
+                </div>
+              )}
+              {securityEnvStatus.runtimeOnlyApplied && (
+                <div className="text-[10.5px] text-[var(--warning)]">
+                  Applied for current runtime only. Run migrations to persist.
+                </div>
+              )}
+            </div>
           )}
-        </CardContent>
-      </Card>
-
-      {/* SEO — IndexNow */}
-      <Card className="border-amber-100">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Search className="h-5 w-5 text-amber-600" />
-            IndexNow — Search Engine Indexing
-          </CardTitle>
-          <CardDescription>
-            Instantly notify Bing, Yandex and Google about all your pages so they get indexed faster.
-            New content is submitted automatically when created or updated.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="flex items-center gap-4 flex-wrap">
-            <Button
-              variant="outline"
-              className="gap-2"
-              disabled={indexNowSubmitting}
-              onClick={async () => {
-                if (!token) return;
-                setIndexNowSubmitting(true);
-                setIndexNowResult(null);
-                try {
-                  const res = await fetch(`${import.meta.env.VITE_API_URL}/indexnow/submit-all`, {
-                    method: 'POST',
-                    headers: { Authorization: `Bearer ${token}` },
-                  });
-                  const data = await res.json();
-                  if (data.success) {
-                    setIndexNowResult({ count: data.data.submitted });
-                  } else {
-                    setIndexNowResult({ count: 0, error: data.error?.message || 'Submission failed' });
-                  }
-                } catch {
-                  setIndexNowResult({ count: 0, error: 'Network error' });
-                } finally {
-                  setIndexNowSubmitting(false);
-                }
-              }}
-            >
-              {indexNowSubmitting ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <Globe className="h-4 w-4" />
-              )}
-              Submit All URLs to IndexNow
-            </Button>
-            {indexNowResult && !indexNowResult.error && (
-              <span className="text-sm text-green-600 flex items-center gap-1">
-                <CheckCircle className="h-4 w-4" />
-                {indexNowResult.count} URLs submitted
-              </span>
-            )}
-            {indexNowResult?.error && (
-              <span className="text-sm text-red-600 flex items-center gap-1">
-                <AlertCircle className="h-4 w-4" />
-                {indexNowResult.error}
-              </span>
-            )}
-          </div>
-          <p className="text-xs text-gray-500">
-            Individual pages are submitted automatically when events, achievements, announcements, team members, or network profiles are created/updated.
-          </p>
-        </CardContent>
-      </Card>
-
-      {/* Security Env Settings (super admin / president only) */}
-      {canManageSecurityEnv && (
-        <Card className="border-amber-100">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Shield className="h-5 w-5 text-amber-600" />
-              Security Keys (Settings)
-            </CardTitle>
-            <CardDescription>
-              ATTENDANCE_JWT_SECRET and INDEXNOW_KEY are managed from privileged settings.
-              Env variables are optional legacy fallbacks, not required.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div className="space-y-2">
-                <Label htmlFor="attendance-jwt-secret">ATTENDANCE_JWT_SECRET Reference</Label>
-                <Input
-                  id="attendance-jwt-secret"
-                  type="password"
-                  value={securityEnvValues.attendanceJwtSecret}
-                  onChange={(e) =>
-                    setSecurityEnvValues((prev) => ({ ...prev, attendanceJwtSecret: e.target.value }))
-                  }
-                  placeholder="Paste new attendance JWT secret"
-                />
-                <p className="text-xs text-gray-500">Saved as a privileged settings reference. Leave empty to keep current stored value.</p>
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="indexnow-key">INDEXNOW_KEY Reference</Label>
-                <Input
-                  id="indexnow-key"
-                  value={securityEnvValues.indexNowKey}
-                  onChange={(e) =>
-                    setSecurityEnvValues((prev) => ({ ...prev, indexNowKey: e.target.value }))
-                  }
-                  placeholder="Paste new IndexNow key"
-                />
-                <p className="text-xs text-gray-500">Saved as a privileged settings reference. Leave empty to keep current stored value.</p>
-              </div>
-            </div>
-
-            <div className="flex flex-wrap items-center gap-3">
-              <Button
-                variant="outline"
-                className="gap-2"
-                disabled={securityEnvChecking}
-                onClick={() => void fetchSecurityEnvStatus()}
-              >
-                {securityEnvChecking ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
-                Refresh Key Status
-              </Button>
-              <Button
-                className="gap-2 bg-amber-600 hover:bg-amber-700"
-                disabled={securityEnvSaving}
-                onClick={async () => {
-                  if (!token) return;
-
-                  const payload: { attendanceJwtSecret?: string | null; indexNowKey?: string | null } = {};
-                  const attendanceValue = securityEnvValues.attendanceJwtSecret.trim();
-                  const indexNowValue = securityEnvValues.indexNowKey.trim();
-
-                  if (attendanceValue) payload.attendanceJwtSecret = attendanceValue;
-                  if (indexNowValue) payload.indexNowKey = indexNowValue;
-
-                  if (!payload.attendanceJwtSecret && !payload.indexNowKey) {
-                    setError('Enter at least one security value before saving.');
-                    return;
-                  }
-
-                  setSecurityEnvSaving(true);
-                  setError(null);
-                  try {
-                    const status = await api.updateSecurityEnvSettings(payload, token);
-                    setSecurityEnvStatus(status);
-                    setSecurityEnvValues({ attendanceJwtSecret: '', indexNowKey: '' });
-                    setSaved(true);
-                    if (savedTimerRef.current) {
-                      window.clearTimeout(savedTimerRef.current);
-                    }
-                    savedTimerRef.current = window.setTimeout(() => setSaved(false), 3000);
-                  } catch {
-                    setError('Failed to save security env references');
-                  } finally {
-                    setSecurityEnvSaving(false);
-                  }
-                }}
-              >
-                {securityEnvSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-                Save Security Values
-              </Button>
-            </div>
-
-            {securityEnvStatus && (
-              <div className="rounded-lg border border-amber-100 bg-amber-50 p-4 space-y-2 text-sm">
-                <p className="font-medium text-amber-900">
-                  Security Status ({securityEnvStatus.runtimeStatus.nodeEnv})
-                </p>
-                <p className="text-gray-700">
-                  ATTENDANCE_JWT_SECRET: {securityEnvStatus.attendanceJwtSecretConfigured ? 'configured in settings' : 'not configured'}
-                  {securityEnvStatus.runtimeStatus.attendanceJwtSecretActive ? ' · active at runtime' : ' · not active yet'}
-                </p>
-                <p className="text-gray-700">
-                  INDEXNOW_KEY: {securityEnvStatus.indexNowKeyConfigured ? 'configured in settings' : 'not configured'}
-                  {securityEnvStatus.runtimeStatus.indexNowKeyActive ? ' · active at runtime' : ' · not active yet'}
-                </p>
-                <p className="text-xs text-gray-500">
-                  Mode: settings-only.
-                  {securityEnvStatus.persistenceSupported === false ? ' Database persistence unavailable (runtime-only mode).' : ' Database persistence available.'}
-                </p>
-                {securityEnvStatus.runtimeStatus.legacyEnvDetected.attendanceJwtSecret || securityEnvStatus.runtimeStatus.legacyEnvDetected.indexNowKey ? (
-                  <p className="text-xs text-amber-700">
-                    Legacy env values were detected. Settings values remain the primary source.
-                  </p>
-                ) : null}
-                {securityEnvStatus.runtimeOnlyApplied ? (
-                  <p className="text-xs text-amber-700">
-                    Values were applied for current runtime only. Run migrations to persist them.
-                  </p>
-                ) : null}
-                {securityEnvStatus.updatedAt ? (
-                  <p className="text-xs text-gray-500">Last updated: {formatDateTime(securityEnvStatus.updatedAt)}</p>
-                ) : null}
-                {!securityEnvStatus.updatedAt ? (
-                  <p className="text-xs text-gray-500">No persisted keys yet.</p>
-                ) : null}
-                <p className="text-xs text-gray-500">
-                  This section is visible only to super admin and PRESIDENT.
-                </p>
-              </div>
-            )}
-          </CardContent>
-        </Card>
+        </SettingsCard>
       )}
+
+      </div>{/* /grid lg:grid-cols-2 */}
 
       <div className="flex justify-end gap-4">
         <Button variant="outline" onClick={fetchSettings} disabled={saving}>
           Reset
         </Button>
-        <Button onClick={handleSave} disabled={saving} className="min-w-[140px] bg-amber-600 hover:bg-amber-700">
+        <Button onClick={handleSave} disabled={saving} className="min-w-[140px] bg-[var(--accent)] hover:bg-[var(--accent-hover)] text-[var(--accent-fg)]">
           {saving ? (
             <>
               <Loader2 className="h-4 w-4 mr-2 animate-spin" />
@@ -996,7 +931,7 @@ We've got something exciting lined up for you:`}
 
       {/* Last Updated */}
       {settings.updatedAt && (
-        <p className="text-xs text-gray-400 text-right">
+        <p className="text-xs text-[var(--ds-text-3)] text-right">
           Last updated: {formatDateTime(settings.updatedAt)}
         </p>
       )}

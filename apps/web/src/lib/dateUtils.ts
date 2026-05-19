@@ -135,3 +135,71 @@ export function getDayOfMonth(dateString: string | Date | undefined | null): num
   });
   return parseInt(day, 10);
 }
+
+/**
+ * Format a duration in milliseconds as Hh Mm Ss / Mm Ss / Ss.
+ */
+export function formatDurationMs(ms: number | null | undefined): string {
+  if (ms == null || !Number.isFinite(ms) || ms < 0) return '';
+  const totalSec = Math.floor(ms / 1000);
+  const hours = Math.floor(totalSec / 3600);
+  const minutes = Math.floor((totalSec % 3600) / 60);
+  const seconds = totalSec % 60;
+  if (hours > 0) return `${hours}h ${minutes}m ${seconds}s`;
+  if (minutes > 0) return `${minutes}m ${seconds}s`;
+  return `${seconds}s`;
+}
+
+/**
+ * Format time in IST (HH:MM 24-hr style).
+ */
+export function formatIstTime(dateString: string | Date | undefined | null): string {
+  if (!dateString) return '';
+  const date = new Date(dateString);
+  return date.toLocaleTimeString(LOCALE, {
+    timeZone: IST_TIMEZONE,
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  });
+}
+
+/**
+ * Format date + time in IST (DD MMM YYYY HH:MM).
+ */
+export function formatIstDateTime(dateString: string | Date | undefined | null): string {
+  if (!dateString) return '';
+  const date = new Date(dateString);
+  return date.toLocaleString(LOCALE, {
+    timeZone: IST_TIMEZONE,
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  });
+}
+
+/**
+ * Relative time string: "just now", "5m ago", "3h ago", "2d ago", or absolute for older.
+ */
+export function relativeTime(dateString: string | Date | undefined | null): string {
+  if (!dateString) return '';
+  const date = new Date(dateString);
+  const ts = date.getTime();
+  if (!Number.isFinite(ts)) return '';
+  const now = Date.now();
+  const diffMs = now - ts;
+  const future = diffMs < 0;
+  const abs = Math.abs(diffMs);
+  const sec = Math.round(abs / 1000);
+  const min = Math.round(abs / 60_000);
+  const hour = Math.round(abs / 3_600_000);
+  const day = Math.round(abs / 86_400_000);
+  if (sec < 45) return future ? 'in a few seconds' : 'just now';
+  if (min < 60) return future ? `in ${min}m` : `${min}m ago`;
+  if (hour < 24) return future ? `in ${hour}h` : `${hour}h ago`;
+  if (day < 7) return future ? `in ${day}d` : `${day}d ago`;
+  return formatDate(date, 'short');
+}

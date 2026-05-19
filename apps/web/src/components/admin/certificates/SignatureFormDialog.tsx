@@ -63,7 +63,7 @@ export function SignatureFormDialog({
         </DialogHeader>
         <div className="space-y-3 pt-1">
           <div>
-            <label htmlFor="admin-certificates-signatory-name" className="text-xs text-gray-500 block mb-1">
+            <label htmlFor="admin-certificates-signatory-name" className="text-xs text-[var(--ds-text-3)] block mb-1">
               Name <span className="text-red-500">*</span>
             </label>
             <Input
@@ -75,7 +75,7 @@ export function SignatureFormDialog({
             />
           </div>
           <div>
-            <label htmlFor="admin-certificates-signatory-title" className="text-xs text-gray-500 block mb-1">
+            <label htmlFor="admin-certificates-signatory-title" className="text-xs text-[var(--ds-text-3)] block mb-1">
               Title
             </label>
             <Input
@@ -87,11 +87,11 @@ export function SignatureFormDialog({
             />
           </div>
           <div>
-            <label htmlFor="admin-certificates-signatory-file" className="text-xs text-gray-500 block mb-1">
-              Signature Image <span className="text-gray-400">(optional, PNG/JPG)</span>
+            <label htmlFor="admin-certificates-signatory-file" className="text-xs text-[var(--ds-text-3)] block mb-1">
+              Signature Image <span className="text-[var(--ds-text-3)]">(optional, PNG/JPG)</span>
             </label>
             {editTarget?.signatureUrl && !uploadedUrl && !clearImg && (
-              <div className="flex items-center gap-2 rounded border p-2 bg-gray-50 mb-2">
+              <div className="flex items-center gap-2 rounded border p-2 bg-[var(--surface-soft)] mb-2">
                 <img
                   src={editTarget.signatureUrl}
                   alt="Current"
@@ -116,14 +116,14 @@ export function SignatureFormDialog({
               </p>
             )}
             {uploading ? (
-              <div className="flex items-center gap-2 rounded border p-2 bg-gray-50">
+              <div className="flex items-center gap-2 rounded border p-2 bg-[var(--surface-soft)]">
                 <Loader2 className="w-4 h-4 animate-spin text-amber-500 shrink-0" />
-                <span className="text-xs text-gray-500">Uploading to Cloudinary…</span>
+                <span className="text-xs text-[var(--ds-text-3)]">Uploading to Cloudinary…</span>
               </div>
             ) : uploadedUrl ? (
-              <div className="flex items-center gap-2 rounded border p-2 bg-gray-50 overflow-hidden">
+              <div className="flex items-center gap-2 rounded border p-2 bg-[var(--surface-soft)] overflow-hidden">
                 <img src={uploadedUrl} alt="Preview" className="h-8 max-w-[80px] object-contain shrink-0" />
-                <p className="text-xs text-gray-500 truncate flex-1 min-w-0">{uploadedUrl.split('/').pop()}</p>
+                <p className="text-xs text-[var(--ds-text-3)] truncate flex-1 min-w-0">{uploadedUrl.split('/').pop()}</p>
                 <button
                   type="button"
                   className="text-xs text-red-500 shrink-0"
@@ -135,7 +135,7 @@ export function SignatureFormDialog({
             ) : (
               <label
                 htmlFor="admin-certificates-signatory-file"
-                className="flex items-center gap-2 cursor-pointer rounded-md border border-dashed border-gray-300 bg-white px-3 py-2 text-sm text-gray-500 hover:border-amber-400 hover:text-amber-600 transition-colors"
+                className="flex items-center gap-2 cursor-pointer rounded-md border border-dashed border-[var(--border-default)] bg-white px-3 py-2 text-sm text-[var(--ds-text-3)] hover:border-amber-400 hover:text-amber-600 transition-colors"
               >
                 <ImageIcon className="w-4 h-4 shrink-0" />
                 <span>Choose image file</span>

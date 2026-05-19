@@ -67,9 +67,9 @@ export default function AttendanceHistory({ token }: AttendanceHistoryProps) {
   }, [token]);
 
   return (
-    <Card className="border-gray-100 shadow-sm dark:border-gray-800">
+    <Card className="border-[var(--border-subtle)] shadow-sm dark:border-gray-800">
       <CardHeader className="pb-3">
-        <CardTitle className="text-base font-semibold text-gray-900 flex items-center gap-2">
+        <CardTitle className="text-base font-semibold text-[var(--ds-text-1)] flex items-center gap-2">
           <div className="p-2 rounded-lg bg-orange-50">
             <Calendar className="h-4 w-4 text-orange-600" />
           </div>
@@ -95,8 +95,8 @@ export default function AttendanceHistory({ token }: AttendanceHistoryProps) {
 
         {!loading && !error && events.length === 0 && (
           <div className="flex flex-col items-center justify-center py-12 text-center">
-            <div className="mb-3 rounded-full bg-gray-100 p-4 dark:bg-gray-800">
-              <Calendar className="h-7 w-7 text-gray-400" />
+            <div className="mb-3 rounded-full bg-[var(--surface-soft)] p-4 dark:bg-gray-800">
+              <Calendar className="h-7 w-7 text-[var(--ds-text-3)]" />
             </div>
             <p className="text-sm font-medium text-muted-foreground">
               No attendance history yet
@@ -109,7 +109,7 @@ export default function AttendanceHistory({ token }: AttendanceHistoryProps) {
 
         {!loading && !error && events.length > 0 && (
           <>
-            <p className="mb-4 text-sm font-medium text-gray-600 dark:text-gray-400">
+            <p className="mb-4 text-sm font-medium text-[var(--ds-text-2)] dark:text-[var(--ds-text-3)]">
               You've attended{' '}
               <span className="font-bold">
                 {events.length} {events.length === 1 ? 'event' : 'events'}
@@ -124,9 +124,9 @@ export default function AttendanceHistory({ token }: AttendanceHistoryProps) {
             >
               {events.map((record) => (
                 <motion.li key={record.id} variants={itemVariants}>
-                  <div className="flex items-start gap-4 rounded-lg border border-gray-100 bg-gray-50/50 p-4 transition-colors hover:bg-gray-50 dark:border-gray-800 dark:bg-gray-900/20 dark:hover:bg-gray-900/30">
+                  <div className="flex items-start gap-4 rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-soft)]/50 p-4 transition-colors hover:bg-[var(--surface-soft)] dark:border-gray-800 dark:bg-gray-900/20 dark:hover:bg-gray-900/30">
                     {/* Thumbnail */}
-                    <div className="h-14 w-14 flex-shrink-0 overflow-hidden rounded-md bg-gray-100 dark:bg-gray-800">
+                    <div className="h-14 w-14 flex-shrink-0 overflow-hidden rounded-md bg-[var(--surface-soft)] dark:bg-gray-800">
                       {record.event.imageUrl ? (
                         <img
                           src={record.event.imageUrl}
@@ -135,7 +135,7 @@ export default function AttendanceHistory({ token }: AttendanceHistoryProps) {
                         />
                       ) : (
                         <div className="flex h-full w-full items-center justify-center">
-                          <Calendar className="h-6 w-6 text-gray-400 dark:text-gray-500" />
+                          <Calendar className="h-6 w-6 text-[var(--ds-text-3)] dark:text-[var(--ds-text-3)]" />
                         </div>
                       )}
                     </div>

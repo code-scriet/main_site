@@ -44,20 +44,20 @@ export function Step3Review({
       exit={{ opacity: 0, x: -50 }}
       className="space-y-6"
     >
-      <h2 className="text-2xl font-bold text-amber-900 font-display">Review Quiz</h2>
+      <h2 className="text-2xl font-bold text-[var(--ds-text-1)] font-display">Review Quiz</h2>
 
-      <Card className="border-amber-200/60 shadow-md">
+      <Card className="border-[var(--warning-border)]/60 shadow-md">
         <CardContent className="p-6">
-          <h3 className="text-xl font-bold text-amber-900 font-display">{title}</h3>
-          {description && <p className="text-amber-700/60 mt-1 text-sm">{description}</p>}
+          <h3 className="text-xl font-bold text-[var(--ds-text-1)] font-display">{title}</h3>
+          {description && <p className="text-[var(--warning)]/60 mt-1 text-sm">{description}</p>}
           <div className="mt-3 flex gap-2 flex-wrap">
-            <Badge className="bg-amber-100 text-amber-800 border-amber-300">
+            <Badge className="bg-[var(--warning-bg)] text-[var(--warning)] border-[var(--warning-border)]">
               {questions.length} question{questions.length !== 1 ? 's' : ''}
             </Badge>
-            <Badge variant="outline" className="border-amber-300 text-amber-700 font-mono text-xs">
+            <Badge variant="outline" className="border-[var(--warning-border)] text-[var(--warning)] font-mono text-xs">
               ~{totalSeconds}s total
             </Badge>
-            <Badge variant="outline" className="border-amber-300 text-amber-700 font-mono text-xs">
+            <Badge variant="outline" className="border-[var(--warning-border)] text-[var(--warning)] font-mono text-xs">
               {totalPoints} pts max
             </Badge>
           </div>
@@ -66,21 +66,21 @@ export function Step3Review({
 
       <div className="space-y-2">
         {questions.map((q, i) => (
-          <Card key={q.id} className="border-amber-200/60">
+          <Card key={q.id} className="border-[var(--warning-border)]/60">
             <CardContent className="p-4 flex items-start gap-3">
               <span className="w-7 h-7 rounded-full bg-gradient-to-br from-orange-500 to-amber-600 text-white flex items-center justify-center text-xs font-bold flex-shrink-0 shadow-sm">
                 {i + 1}
               </span>
               <div className="flex-1 min-w-0">
-                <p className="font-semibold text-amber-900 truncate text-sm">{q.questionText || '(empty)'}</p>
+                <p className="font-semibold text-[var(--ds-text-1)] truncate text-sm">{q.questionText || '(empty)'}</p>
                 <div className="flex gap-1.5 mt-1.5 flex-wrap">
-                  <Badge variant="outline" className="text-[10px] border-amber-200 text-amber-600 px-1.5 py-0">
+                  <Badge variant="outline" className="text-[10px] border-[var(--warning-border)] text-amber-600 px-1.5 py-0">
                     {QUESTION_TYPE_LABELS[q.questionType]}
                   </Badge>
-                  <Badge variant="outline" className="text-[10px] border-amber-200 text-amber-600 px-1.5 py-0 font-mono">
+                  <Badge variant="outline" className="text-[10px] border-[var(--warning-border)] text-amber-600 px-1.5 py-0 font-mono">
                     {q.timeLimitSeconds}s
                   </Badge>
-                  <Badge variant="outline" className="text-[10px] border-amber-200 text-amber-600 px-1.5 py-0 font-mono">
+                  <Badge variant="outline" className="text-[10px] border-[var(--warning-border)] text-amber-600 px-1.5 py-0 font-mono">
                     {isUnscoredQuestion(q.questionType) ? '0pts' : `${q.points}pts`}
                   </Badge>
                   {q.questionType === 'MULTI_SELECT' && q.correctAnswers.length > 0 && (
@@ -111,7 +111,7 @@ export function Step3Review({
       )}
 
       <div className="flex justify-between">
-        <Button variant="outline" onClick={onBack} className="border-amber-300 text-amber-700 hover:bg-amber-50">
+        <Button variant="outline" onClick={onBack} className="border-[var(--warning-border)] text-[var(--warning)] hover:bg-[var(--warning-bg)]">
           <ArrowLeft className="h-4 w-4 mr-2" />
           Edit Questions
         </Button>
@@ -120,7 +120,7 @@ export function Step3Review({
             onClick={() => onSubmit('draft')}
             disabled={isSubmitting}
             variant="outline"
-            className="border-amber-300 text-amber-700 hover:bg-amber-50"
+            className="border-[var(--warning-border)] text-[var(--warning)] hover:bg-[var(--warning-bg)]"
             size="lg"
           >
             {isSubmitting && submitMode === 'draft' ? (

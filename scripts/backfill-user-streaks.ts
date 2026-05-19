@@ -6,12 +6,16 @@
  * calendar-consecutive semantics. PR2 introduces publish-day semantics and a
  * dedicated recomputeUserStreak() helper; the script can be re-run then to overwrite.
  *
- * Usage: npx tsx scripts/backfill-user-streaks.ts
+ * Usage:
+ *   npx tsx scripts/backfill-user-streaks.ts            # write changes
+ *   npx tsx scripts/backfill-user-streaks.ts --dry-run  # report only, no writes
  */
 import { prisma } from '../apps/api/src/lib/prisma.js';
 import { computeQOTDStats } from '../apps/api/src/utils/qotdStreak.js';
 const BATCH_SIZE = 100;
 const RECOMPUTE_CONCURRENCY = 5;
+
+const DRY_RUN = process.argv.includes('--dry-run');
 
 interface Outcome {
   userId: string;

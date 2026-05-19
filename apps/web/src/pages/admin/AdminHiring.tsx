@@ -1,54 +1,20 @@
-import { useState, useEffect, useCallback } from 'react';
-import { motion } from 'framer-motion';
-import { Card, CardContent } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
-import { Input } from '@/components/ui/input';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent as ConfirmDialogContent,
-  AlertDialogDescription as ConfirmDialogDescription,
-  AlertDialogFooter as ConfirmDialogFooter,
-  AlertDialogHeader as ConfirmDialogHeader,
-  AlertDialogTitle as ConfirmDialogTitle,
-} from '@/components/ui/alert-dialog';
+// Dashboard v2 — Admin · Hiring Applications.
+// Kanban (PENDING → INTERVIEW_SCHEDULED → SELECTED → REJECTED) with click-to-move + detail dialog.
+// Pixel-port of screen-stubs.jsx:241 + brief §7.14.
+
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Search, Loader2, Download, Mail, Phone, GraduationCap, Eye, AlertCircle, Briefcase, Trash2 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
-import { 
-  Users, 
-  Loader2, 
-  AlertCircle, 
-  Search,
-  Clock,
-  CheckCircle2,
-  XCircle,
-  Calendar,
-  Palette,
-  Megaphone,
-  Trophy,
-  Briefcase,
-  ChevronDown,
-  Mail,
-  Phone,
-  GraduationCap,
-  Sparkles,
-  Eye,
-  Download
-} from 'lucide-react';
-import { formatDate } from '@/lib/dateUtils';
+import { Avatar, DSCard, EmptyState, Pill, SegmentedTabs } from '@/components/dash';
+import { Input } from '@/components/ui/input';
+import { Button } from '@/components/ui/button';
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { toast } from 'sonner';
+import { cn } from '@/lib/utils';
+import { formatDate } from '@/lib/dateUtils';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5001/api';
-const MAX_APPLICATIONS_LIMIT = 100; // Maximum allowed by backend API
 
 interface HiringApplication {
   id: string;
@@ -62,613 +28,333 @@ interface HiringApplication {
   status: string;
   userId?: string;
   createdAt: string;
-  user?: {
-    id: string;
-    name: string;
-    email: string;
-    avatar?: string;
-  };
 }
 
-interface HiringStats {
-  total: number;
-  byStatus: Record<string, number>;
-  byRole: Record<string, number>;
-}
+const STATUSES = ['PENDING', 'INTERVIEW_SCHEDULED', 'SELECTED', 'REJECTED'] as const;
+type Status = typeof STATUSES[number];
 
-const roleConfig = {
-  TECHNICAL: {
-    label: 'Technical',
-    icon: Users,
-    color: 'bg-blue-100 text-blue-700 border-blue-200',
-  },
-  DESIGNING: {
-    label: 'Designing',
-    icon: Palette,
-    color: 'bg-purple-100 text-purple-700 border-purple-200',
-  },
-  SOCIAL_MEDIA: {
-    label: 'Social Media',
-    icon: Megaphone,
-    color: 'bg-rose-100 text-rose-700 border-rose-200',
-  },
-  DSA_CHAMPS: {
-    label: 'DSA Champs',
-    icon: Trophy,
-    color: 'bg-emerald-100 text-emerald-700 border-emerald-200',
-  },
-  MANAGEMENT: {
-    label: 'Management',
-    icon: Briefcase,
-    color: 'bg-amber-100 text-amber-700 border-amber-200',
-  },
+const COL_LABEL: Record<Status, string> = {
+  PENDING: 'Pending',
+  INTERVIEW_SCHEDULED: 'Interview scheduled',
+  SELECTED: 'Selected',
+  REJECTED: 'Rejected',
 };
 
-const roleFilterTabs = [
-  { value: '', label: 'All' },
-  { value: 'TECHNICAL', label: 'Technical' },
-  { value: 'DSA_CHAMPS', label: 'DSA Champs' },
-  { value: 'SOCIAL_MEDIA', label: 'Social Media' },
-  { value: 'DESIGNING', label: 'Designing' },
-  { value: 'MANAGEMENT', label: 'Management' },
-];
+const COL_TONE: Record<Status, 'warning' | 'info' | 'success' | 'danger'> = {
+  PENDING: 'warning',
+  INTERVIEW_SCHEDULED: 'info',
+  SELECTED: 'success',
+  REJECTED: 'danger',
+};
 
-const statusConfig = {
-  PENDING: {
-    label: 'Pending',
-    icon: Clock,
-    color: 'bg-gray-100 text-gray-700',
-  },
-  INTERVIEW_SCHEDULED: {
-    label: 'Interview Scheduled',
-    icon: Calendar,
-    color: 'bg-blue-100 text-blue-700',
-  },
-  SELECTED: {
-    label: 'Selected',
-    icon: CheckCircle2,
-    color: 'bg-green-100 text-green-700',
-  },
-  REJECTED: {
-    label: 'Rejected',
-    icon: XCircle,
-    color: 'bg-red-100 text-red-700',
-  },
+const ROLE_LABEL: Record<string, string> = {
+  TECHNICAL: 'Technical',
+  DSA_CHAMPS: 'DSA Champs',
+  DESIGNING: 'Designing',
+  SOCIAL_MEDIA: 'Social Media',
+  MANAGEMENT: 'Management',
 };
 
 export default function AdminHiring() {
   const { token } = useAuth();
-  const [applications, setApplications] = useState<HiringApplication[]>([]);
-  const [stats, setStats] = useState<HiringStats | null>(null);
+  const [apps, setApps] = useState<HiringApplication[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [statusFilter, setStatusFilter] = useState<string>('');
-  const [roleFilter, setRoleFilter] = useState<string>('');
-  const [updatingId, setUpdatingId] = useState<string | null>(null);
-  const [selectedApplication, setSelectedApplication] = useState<HiringApplication | null>(null);
-  const [applicationToDelete, setApplicationToDelete] = useState<HiringApplication | null>(null);
+  const [roleFilter, setRoleFilter] = useState<string>('all');
+  const [statusFilter, setStatusFilter] = useState<'' | Status>('');
+  const [search, setSearch] = useState('');
+  const [picked, setPicked] = useState<HiringApplication | null>(null);
+  const [moving, setMoving] = useState<string | null>(null);
   const [downloading, setDownloading] = useState(false);
+  const [applicationToDelete, setApplicationToDelete] = useState<HiringApplication | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
-  const loadData = useCallback(async () => {
-    if (!token) {
-      setError('Authentication required');
-      setLoading(false);
-      return;
-    }
-    try {
-      setLoading(true);
-      setError(null);
-
-      const params = new URLSearchParams();
-      if (statusFilter) params.append('status', statusFilter);
-      if (roleFilter) params.append('role', roleFilter);
-      params.append('limit', String(MAX_APPLICATIONS_LIMIT));
-
-      const [applicationsRes, statsRes] = await Promise.all([
-        fetch(`${API_URL}/hiring/applications?${params}`, {
-          headers: { Authorization: `Bearer ${token}` },
-        }),
-        fetch(`${API_URL}/hiring/stats`, {
-          headers: { Authorization: `Bearer ${token}` },
-        }),
-      ]);
-
-      if (!applicationsRes.ok || !statsRes.ok) {
-        throw new Error('Failed to fetch data');
-      }
-
-      const applicationsData = await applicationsRes.json();
-      const statsData = await statsRes.json();
-
-      setApplications(applicationsData.data || []);
-      setStats(statsData.data || null);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load applications');
-    } finally {
-      setLoading(false);
-    }
-  }, [roleFilter, statusFilter, token]);
-
-  useEffect(() => {
-    void loadData();
-  }, [loadData]);
-
-  const handleStatusUpdate = async (applicationId: string, newStatus: string) => {
+  const load = useCallback(async () => {
     if (!token) return;
-    
+    setLoading(true); setError(null);
     try {
-      setUpdatingId(applicationId);
-      const response = await fetch(`${API_URL}/hiring/applications/${applicationId}/status`, {
-        method: 'PATCH',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({ status: newStatus }),
-      });
-
-      if (!response.ok) {
-        throw new Error('Failed to update status');
-      }
-
-      await loadData();
-      toast.success('Application status updated');
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Failed to update status');
+      const params = new URLSearchParams();
+      if (roleFilter !== 'all') params.append('role', roleFilter);
+      if (statusFilter) params.append('status', statusFilter);
+      params.append('limit', '100');
+      const res = await fetch(`${API_URL}/hiring/applications?${params}`, { headers: { Authorization: `Bearer ${token}` } });
+      if (!res.ok) throw new Error('Failed to load applications');
+      const data = await res.json();
+      setApps(data.data ?? []);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to load');
     } finally {
-      setUpdatingId(null);
+      setLoading(false);
+    }
+  }, [token, roleFilter, statusFilter]);
+
+  useEffect(() => { void load(); }, [load]);
+
+  const moveTo = async (id: string, status: Status) => {
+    if (!token) return;
+    setMoving(id);
+    // Optimistic — flip the column before the server confirms.
+    const prevApps = apps;
+    setApps((prev) => prev.map((a) => (a.id === id ? { ...a, status } : a)));
+    try {
+      const res = await fetch(`${API_URL}/hiring/applications/${id}/status`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ status }),
+      });
+      if (!res.ok) throw new Error('Failed to update');
+      toast.success('Application status updated');
+    } catch (e) {
+      setApps(prevApps);
+      toast.error(e instanceof Error ? e.message : 'Move failed');
+    } finally {
+      setMoving(null);
     }
   };
 
-  const handleDelete = async (applicationId: string) => {
-    if (!token) return;
-    
+  const confirmDelete = async () => {
+    if (!applicationToDelete || !token) return;
+    setDeleting(true);
     try {
-      setUpdatingId(applicationId);
-      const response = await fetch(`${API_URL}/hiring/applications/${applicationId}`, {
+      const res = await fetch(`${API_URL}/hiring/applications/${applicationToDelete.id}`, {
         method: 'DELETE',
         headers: { Authorization: `Bearer ${token}` },
       });
-
-      if (!response.ok) {
-        throw new Error('Failed to delete application');
-      }
-
-      await loadData();
-      setSelectedApplication(null);
-      setApplicationToDelete(null);
+      if (!res.ok) throw new Error('Failed to delete');
+      setApps((prev) => prev.filter((a) => a.id !== applicationToDelete.id));
       toast.success('Application deleted');
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Failed to delete application');
+      setApplicationToDelete(null);
+      setPicked(null);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Delete failed');
     } finally {
-      setUpdatingId(null);
+      setDeleting(false);
     }
   };
 
-  const handleDownloadExcel = async () => {
+  const exportCsv = async () => {
     if (!token) return;
-    
+    setDownloading(true);
     try {
-      setDownloading(true);
       const params = new URLSearchParams();
+      if (roleFilter !== 'all') params.append('role', roleFilter);
       if (statusFilter) params.append('status', statusFilter);
-      if (roleFilter) params.append('role', roleFilter);
-
-      const response = await fetch(`${API_URL}/hiring/export?${params}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-
-      if (!response.ok) {
-        throw new Error('Failed to download Excel file');
-      }
-
-      // Get filename from Content-Disposition header or create default
-      const contentDisposition = response.headers.get('Content-Disposition');
-      let filename = 'hiring_applications.xlsx';
-      if (contentDisposition) {
-        const filenameMatch = contentDisposition.match(/filename="(.+)"/);
-        if (filenameMatch) {
-          filename = filenameMatch[1];
-        }
-      }
-
-      // Download the file
-      const blob = await response.blob();
-      const url = window.URL.createObjectURL(blob);
+      const res = await fetch(`${API_URL}/hiring/export?${params}`, { headers: { Authorization: `Bearer ${token}` } });
+      if (!res.ok) throw new Error('Export failed');
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
-      a.href = url;
-      a.download = filename;
-      document.body.appendChild(a);
-      a.click();
-      window.URL.revokeObjectURL(url);
-      document.body.removeChild(a);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to download Excel file');
+      a.href = url; a.download = `hiring-${roleFilter}.xlsx`; a.click();
+      URL.revokeObjectURL(url);
+      toast.success('XLSX exported');
+    } catch {
+      toast.error('Export failed');
     } finally {
       setDownloading(false);
     }
   };
 
-  const filteredApplications = applications.filter(app => {
-    if (!searchQuery) return true;
-    const query = searchQuery.toLowerCase();
-    return (
-      app.name.toLowerCase().includes(query) ||
-      app.email.toLowerCase().includes(query) ||
-      app.department.toLowerCase().includes(query)
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return apps.filter((a) =>
+      !q ? true : (a.name + ' ' + a.email + ' ' + a.applyingRole + ' ' + a.department).toLowerCase().includes(q),
     );
-  });
+  }, [apps, search]);
 
-  if (loading && applications.length === 0) {
-    return (
-      <div className="flex items-center justify-center py-20">
-        <Loader2 className="h-8 w-8 animate-spin text-amber-600" />
-      </div>
-    );
-  }
+  const grouped = useMemo(() => {
+    const g: Record<Status, HiringApplication[]> = { PENDING: [], INTERVIEW_SCHEDULED: [], SELECTED: [], REJECTED: [] };
+    for (const a of filtered) {
+      const s = (STATUSES as readonly string[]).includes(a.status) ? (a.status as Status) : 'PENDING';
+      g[s].push(a);
+    }
+    return g;
+  }, [filtered]);
 
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div>
-        <h1 className="text-2xl font-bold text-amber-900">Hiring Applications</h1>
-        <p className="text-gray-600">Review and manage team applications</p>
+    <div className="flex flex-col gap-6">
+      <div className="flex items-end justify-between gap-3 flex-wrap">
+        <div>
+          <div className="text-[10.5px] uppercase tracking-[0.06em] font-semibold text-[var(--ds-text-3)]">Admin</div>
+          <h1 className="text-[24px] font-semibold tracking-tight mt-1">Hiring applications</h1>
+          <p className="text-[13px] text-[var(--ds-text-3)] mt-1">Drag the status pill to move; click a card for the full form.</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <Button size="sm" variant="outline" onClick={exportCsv} disabled={downloading}>
+            {downloading ? <Loader2 size={13} className="mr-1.5 animate-spin" /> : <Download size={13} className="mr-1.5" />}
+            Export XLSX
+          </Button>
+        </div>
+      </div>
+
+      <div className="flex items-center gap-2 flex-wrap">
+        <div className="relative max-w-[280px] flex-1 min-w-[200px]">
+          <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--ds-text-3)] pointer-events-none" />
+          <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search applicants…" className="pl-8 h-8 text-[13px]" />
+        </div>
+        <SegmentedTabs
+          items={[
+            { value: 'all', label: 'All' },
+            { value: 'TECHNICAL', label: 'Technical' },
+            { value: 'DSA_CHAMPS', label: 'DSA' },
+            { value: 'DESIGNING', label: 'Design' },
+          ]}
+          value={roleFilter === 'SOCIAL_MEDIA' || roleFilter === 'MANAGEMENT' ? 'all' : roleFilter}
+          onChange={(v) => setRoleFilter(v)}
+        />
+        <select
+          value={statusFilter}
+          onChange={(e) => setStatusFilter(e.target.value as '' | Status)}
+          className="h-8 px-2.5 text-[12.5px] bg-[var(--bg-raised)] border border-[var(--border-default)] rounded-[6px] outline-none focus:border-[var(--accent)]"
+          aria-label="Filter by status"
+          title="Filter by status"
+        >
+          <option value="">All statuses</option>
+          {STATUSES.map((s) => (
+            <option key={s} value={s}>{COL_LABEL[s]}</option>
+          ))}
+        </select>
       </div>
 
       {error && (
-        <Card className="border-red-200 bg-red-50">
-          <CardContent className="flex items-start gap-3 pt-6 text-red-700">
-            <AlertCircle className="h-5 w-5 shrink-0 mt-0.5" />
-            <p className="text-sm">{error}</p>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Stats */}
-      {stats && (
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-          <Card>
-            <CardContent className="p-4 flex items-center gap-3">
-              <div className="bg-amber-500 p-3 rounded-lg">
-                <Users className="h-5 w-5 text-white" />
-              </div>
-              <div>
-                <p className="text-2xl font-bold text-amber-900">{stats.total}</p>
-                <p className="text-xs text-gray-500">Total</p>
-              </div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="p-4 flex items-center gap-3">
-              <div className="bg-gray-500 p-3 rounded-lg">
-                <Clock className="h-5 w-5 text-white" />
-              </div>
-              <div>
-                <p className="text-2xl font-bold text-amber-900">{stats.byStatus.PENDING || 0}</p>
-                <p className="text-xs text-gray-500">Pending</p>
-              </div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="p-4 flex items-center gap-3">
-              <div className="bg-blue-500 p-3 rounded-lg">
-                <Calendar className="h-5 w-5 text-white" />
-              </div>
-              <div>
-                <p className="text-2xl font-bold text-amber-900">{stats.byStatus.INTERVIEW_SCHEDULED || 0}</p>
-                <p className="text-xs text-gray-500">Scheduled</p>
-              </div>
-            </CardContent>
-          </Card>
-          <Card>
-            <CardContent className="p-4 flex items-center gap-3">
-              <div className="bg-green-500 p-3 rounded-lg">
-                <CheckCircle2 className="h-5 w-5 text-white" />
-              </div>
-              <div>
-                <p className="text-2xl font-bold text-amber-900">{stats.byStatus.SELECTED || 0}</p>
-                <p className="text-xs text-gray-500">Selected</p>
-              </div>
-            </CardContent>
-          </Card>
+        <div className="flex items-start gap-2 px-4 py-2.5 rounded-[10px] border border-[var(--danger-border)] bg-[var(--danger-bg)] text-[var(--danger)] text-[13px]">
+          <AlertCircle size={14} className="mt-0.5 shrink-0" />
+          <span className="flex-1">{error}</span>
         </div>
       )}
 
-      {/* Filters */}
-      <Card>
-        <CardContent className="p-4">
-          <div className="flex flex-col sm:flex-row gap-4">
-            <div className="relative flex-1">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
-              <Input
-                placeholder="Search by name, email, or department..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="pl-10"
-              />
-            </div>
-            <div className="flex gap-2">
-              <div className="relative">
-                <select
-                  value={statusFilter}
-                  onChange={(e) => setStatusFilter(e.target.value)}
-                  className="h-10 pl-3 pr-8 rounded-md border border-gray-300 bg-white text-sm appearance-none"
-                >
-                  <option value="">All Statuses</option>
-                  <option value="PENDING">Pending</option>
-                  <option value="INTERVIEW_SCHEDULED">Scheduled</option>
-                  <option value="SELECTED">Selected</option>
-                  <option value="REJECTED">Rejected</option>
-                </select>
-                <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400 pointer-events-none" />
+      {loading ? (
+        <div className="grid lg:grid-cols-4 gap-3">
+          {[0, 1, 2, 3].map((i) => <div key={i} className="h-64 bg-[var(--surface-soft)] rounded-[12px] animate-pulse" />)}
+        </div>
+      ) : (
+        <div className="grid lg:grid-cols-4 gap-3">
+          {STATUSES.map((s) => (
+            <DSCard key={s} padded className="flex flex-col gap-3 min-h-[200px]">
+              <div className="flex items-center justify-between">
+                <Pill tone={COL_TONE[s]} size="sm">{COL_LABEL[s]}</Pill>
+                <span className="text-[11.5px] text-[var(--ds-text-3)] font-mono tabular-nums">{grouped[s].length}</span>
               </div>
-              <div className="relative">
-                <select
-                  value={roleFilter}
-                  onChange={(e) => setRoleFilter(e.target.value)}
-                  className="h-10 pl-3 pr-8 rounded-md border border-gray-300 bg-white text-sm appearance-none"
-                >
-                  <option value="">All Roles</option>
-                  <option value="TECHNICAL">Technical</option>
-                  <option value="DSA_CHAMPS">DSA Champs</option>
-                  <option value="DESIGNING">Designing</option>
-                  <option value="SOCIAL_MEDIA">Social Media</option>
-                  <option value="MANAGEMENT">Management</option>
-                </select>
-                <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400 pointer-events-none" />
-              </div>
-              <Button
-                onClick={handleDownloadExcel}
-                disabled={downloading || filteredApplications.length === 0}
-                className="bg-green-600 hover:bg-green-700 text-white"
-              >
-                {downloading ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
+              <div className="flex flex-col gap-2">
+                {grouped[s].length === 0 ? (
+                  <div className="text-[11.5px] text-[var(--ds-text-3)] italic py-2">Nothing here.</div>
                 ) : (
-                  <>
-                    <Download className="h-4 w-4 mr-2" />
-                    Export
-                  </>
+                  grouped[s].map((a) => (
+                    <button
+                      key={a.id}
+                      type="button"
+                      onClick={() => setPicked(a)}
+                      className={cn(
+                        'text-left p-2.5 rounded-[8px] border border-[var(--border-subtle)] bg-[var(--bg-raised)] hover:border-[var(--border-default)] hover:bg-[var(--surface-soft)] transition-colors',
+                        moving === a.id && 'opacity-50 pointer-events-none',
+                      )}
+                    >
+                      <div className="flex items-center gap-2">
+                        <Avatar name={a.name} size={24} />
+                        <span className="text-[13px] font-medium truncate flex-1">{a.name}</span>
+                      </div>
+                      <div className="mt-1.5 text-[11px] text-[var(--ds-text-3)]">
+                        {ROLE_LABEL[a.applyingRole] ?? a.applyingRole} · {a.year} · {a.department}
+                      </div>
+                      {STATUSES.filter((st) => st !== s).length > 0 && (
+                        <div className="mt-2 flex flex-wrap gap-1 pt-2 border-t border-[var(--border-subtle)]">
+                          {STATUSES.filter((st) => st !== s).map((st) => (
+                            <button
+                              key={st}
+                              type="button"
+                              onClick={(ev) => { ev.stopPropagation(); moveTo(a.id, st); }}
+                              className={cn(
+                                'text-[10px] font-medium px-1.5 h-5 rounded-[5px] border transition-colors',
+                                COL_TONE[st] === 'warning' && 'text-[var(--warning)] border-[var(--warning-border)] hover:bg-[var(--warning-bg)]',
+                                COL_TONE[st] === 'info' && 'text-[var(--info)] border-[var(--info-border)] hover:bg-[var(--info-bg)]',
+                                COL_TONE[st] === 'success' && 'text-[var(--success)] border-[var(--success-border)] hover:bg-[var(--success-bg)]',
+                                COL_TONE[st] === 'danger' && 'text-[var(--danger)] border-[var(--danger-border)] hover:bg-[var(--danger-bg)]',
+                              )}
+                            >
+                              → {COL_LABEL[st]}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </button>
+                  ))
                 )}
-              </Button>
+              </div>
+            </DSCard>
+          ))}
+        </div>
+      )}
+
+      {filtered.length === 0 && !loading && (
+        <DSCard padded>
+          <EmptyState icon={<Briefcase size={18} />} title="No applications match" body="Try clearing filters or check back later." />
+        </DSCard>
+      )}
+
+      <AlertDialog open={Boolean(applicationToDelete)} onOpenChange={(o) => !o && setApplicationToDelete(null)}>
+        <AlertDialogContent data-dashboard="true" className="bg-[var(--bg-raised)] border-[var(--border-subtle)]">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete this application?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Delete this application from {applicationToDelete?.name}? This cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleting}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={confirmDelete}
+              disabled={deleting}
+              className="bg-[var(--danger)] hover:opacity-90 text-white"
+            >
+              {deleting ? <Loader2 size={13} className="mr-1.5 animate-spin" /> : null}
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Detail dialog */}
+      <Dialog open={Boolean(picked)} onOpenChange={(o) => !o && setPicked(null)}>
+        <DialogContent data-dashboard="true" className="bg-[var(--bg-raised)] border-[var(--border-subtle)] max-w-lg">
+          <DialogHeader>
+            <DialogTitle>{picked?.name}</DialogTitle>
+          </DialogHeader>
+          {picked && (
+            <div className="flex flex-col gap-3 text-[13px]">
+              <div className="flex items-center gap-2"><Pill tone={COL_TONE[picked.status as Status] ?? 'neutral'} size="sm">{COL_LABEL[picked.status as Status] ?? picked.status}</Pill><Pill tone="accent" size="sm">{ROLE_LABEL[picked.applyingRole] ?? picked.applyingRole}</Pill></div>
+              <a href={`mailto:${picked.email}`} className="flex items-center gap-2 text-[var(--ds-text-2)] hover:text-[var(--accent)] hover:underline"><Mail size={13} className="text-[var(--ds-text-3)]" />{picked.email}</a>
+              {picked.phone && <a href={`tel:${picked.phone}`} className="flex items-center gap-2 text-[var(--ds-text-2)] hover:text-[var(--accent)] hover:underline"><Phone size={13} className="text-[var(--ds-text-3)]" />{picked.phone}</a>}
+              <div className="flex items-center gap-2 text-[var(--ds-text-2)]"><GraduationCap size={13} className="text-[var(--ds-text-3)]" />{picked.department} · {picked.year}</div>
+              {picked.skills && (
+                <div>
+                  <div className="text-[11px] uppercase tracking-[0.06em] font-semibold text-[var(--ds-text-3)] mb-1">Skills</div>
+                  <p className="text-[12.5px] text-[var(--ds-text-2)] whitespace-pre-wrap">{picked.skills}</p>
+                </div>
+              )}
+              <div className="text-[11.5px] text-[var(--ds-text-3)] font-mono" title={new Date(picked.createdAt).toISOString()}>
+                applied {formatDate(picked.createdAt, 'long')}
+              </div>
             </div>
-          </div>
-          <div className="mt-4 flex flex-wrap gap-2">
-            {roleFilterTabs.map((tab) => (
-              <Button
-                key={tab.label}
-                type="button"
-                variant={roleFilter === tab.value ? 'default' : 'outline'}
-                className={roleFilter === tab.value ? 'bg-amber-600 hover:bg-amber-700 text-white' : ''}
-                onClick={() => setRoleFilter(tab.value)}
-              >
-                {tab.label}
+          )}
+          <DialogFooter className="flex-wrap gap-1">
+            {picked && STATUSES.filter((s) => s !== picked.status).map((s) => (
+              <Button key={s} size="sm" variant="outline" onClick={() => { moveTo(picked.id, s); setPicked(null); }}>
+                Move to {COL_LABEL[s]}
               </Button>
             ))}
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Applications List */}
-      <div className="grid gap-4">
-        {filteredApplications.length === 0 ? (
-          <Card>
-            <CardContent className="p-6 text-center">
-              <Users className="h-12 w-12 mx-auto text-gray-300 mb-4" />
-              <p className="text-gray-500">No applications found</p>
-            </CardContent>
-          </Card>
-        ) : (
-          filteredApplications.map((app) => {
-            const role = roleConfig[app.applyingRole as keyof typeof roleConfig];
-            const status = statusConfig[app.status as keyof typeof statusConfig];
-            const RoleIcon = role?.icon || Users;
-            const StatusIcon = status?.icon || Clock;
-
-            return (
-              <motion.div
-                key={app.id}
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
+            {picked && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setApplicationToDelete(picked)}
+                className="text-[var(--danger)] border-[var(--danger-border)] hover:bg-[var(--danger-bg)]"
               >
-                <Card className="hover:shadow-md transition-shadow">
-                  <CardContent className="p-4">
-                    <div className="flex flex-col sm:flex-row sm:items-center gap-4">
-                      {/* Avatar & Name */}
-                      <div className="flex items-center gap-3 flex-1 min-w-0">
-                        <div className={`p-3 rounded-lg ${role?.color || 'bg-gray-100'}`}>
-                          <RoleIcon className="h-5 w-5" />
-                        </div>
-                        <div className="min-w-0 flex-1">
-                          <h3 className="font-semibold text-gray-900 truncate">{app.name}</h3>
-                          <p className="text-sm text-gray-500 truncate">{app.email}</p>
-                        </div>
-                      </div>
-
-                      {/* Info */}
-                      <div className="flex flex-wrap gap-2 sm:gap-4 text-sm text-gray-600">
-                        <span className="flex items-center gap-1">
-                          <GraduationCap className="h-4 w-4" />
-                          {app.department}
-                        </span>
-                        <span className="flex items-center gap-1">
-                          <Calendar className="h-4 w-4" />
-                          {app.year}
-                        </span>
-                      </div>
-
-                      {/* Badges */}
-                      <div className="flex items-center gap-2">
-                        <Badge className={role?.color || ''}>
-                          {role?.label || app.applyingRole}
-                        </Badge>
-                        <Badge className={status?.color || ''}>
-                          <StatusIcon className="h-3 w-3 mr-1" />
-                          {status?.label || app.status}
-                        </Badge>
-                      </div>
-
-                      {/* Actions */}
-                      <div className="flex gap-2">
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => setSelectedApplication(app)}
-                        >
-                          <Eye className="h-4 w-4" />
-                        </Button>
-                        <div className="relative">
-                          <select
-                            value={app.status}
-                            onChange={(e) => handleStatusUpdate(app.id, e.target.value)}
-                            disabled={updatingId === app.id}
-                            className="h-8 pl-2 pr-6 text-xs rounded border border-gray-300 bg-white appearance-none"
-                          >
-                            <option value="PENDING">Pending</option>
-                            <option value="INTERVIEW_SCHEDULED">Schedule Interview</option>
-                            <option value="SELECTED">Select</option>
-                            <option value="REJECTED">Reject</option>
-                          </select>
-                          <ChevronDown className="absolute right-1 top-1/2 -translate-y-1/2 h-3 w-3 text-gray-400 pointer-events-none" />
-                        </div>
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              </motion.div>
-            );
-          })
-        )}
-      </div>
-
-      <Dialog open={!!selectedApplication} onOpenChange={(open) => !open && setSelectedApplication(null)}>
-        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
-          {selectedApplication && (
-            <>
-              <DialogHeader>
-                <DialogTitle>{selectedApplication.name}</DialogTitle>
-                <DialogDescription>{selectedApplication.email}</DialogDescription>
-              </DialogHeader>
-
-              <div className="space-y-4 py-2">
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div>
-                    <p className="text-xs text-gray-500">Phone</p>
-                    <p className="font-medium">{selectedApplication.phone || 'Not provided'}</p>
-                  </div>
-                  <div>
-                    <p className="text-xs text-gray-500">Department</p>
-                    <p className="font-medium">{selectedApplication.department}</p>
-                  </div>
-                  <div>
-                    <p className="text-xs text-gray-500">Year</p>
-                    <p className="font-medium">{selectedApplication.year}</p>
-                  </div>
-                  <div>
-                    <p className="text-xs text-gray-500">Applied For</p>
-                    <p className="font-medium">
-                      {roleConfig[selectedApplication.applyingRole as keyof typeof roleConfig]?.label || selectedApplication.applyingRole}
-                    </p>
-                  </div>
-                </div>
-
-                {selectedApplication.skills && (
-                  <div>
-                    <p className="text-xs text-gray-500">Skills</p>
-                    <div className="flex flex-wrap gap-2 mt-1">
-                      {selectedApplication.skills.split(',').map((skill, i) => (
-                        <Badge key={i} variant="outline" className="text-xs">
-                          <Sparkles className="h-3 w-3 mr-1" />
-                          {skill.trim()}
-                        </Badge>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                <div>
-                  <p className="text-xs text-gray-500">Status</p>
-                  <div className="mt-1">
-                    <Badge className={statusConfig[selectedApplication.status as keyof typeof statusConfig]?.color || ''}>
-                      {statusConfig[selectedApplication.status as keyof typeof statusConfig]?.label || selectedApplication.status}
-                    </Badge>
-                  </div>
-                </div>
-
-                <div>
-                  <p className="text-xs text-gray-500">Applied On</p>
-                  <p className="font-medium">
-                    {formatDate(selectedApplication.createdAt)}
-                  </p>
-                </div>
-
-                <div className="flex gap-3 pt-2">
-                  <Button
-                    variant="outline"
-                    className="flex-1"
-                    onClick={() => window.open(`mailto:${selectedApplication.email}`, '_blank')}
-                  >
-                    <Mail className="h-4 w-4 mr-2" />
-                    Send Email
-                  </Button>
-                  {selectedApplication.phone && (
-                    <Button
-                      variant="outline"
-                      className="flex-1"
-                      onClick={() => window.open(`tel:${selectedApplication.phone}`, '_blank')}
-                    >
-                      <Phone className="h-4 w-4 mr-2" />
-                      Call
-                    </Button>
-                  )}
-                </div>
-              </div>
-
-              <DialogFooter>
-                <Button
-                  variant="destructive"
-                  className="w-full sm:w-auto"
-                  onClick={() => setApplicationToDelete(selectedApplication)}
-                  disabled={updatingId === selectedApplication.id}
-                >
-                  {updatingId === selectedApplication.id ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : (
-                    'Delete Application'
-                  )}
-                </Button>
-              </DialogFooter>
-            </>
-          )}
+                <Trash2 size={13} className="mr-1.5" />Delete
+              </Button>
+            )}
+            <Button variant="ghost" size="sm" onClick={() => setPicked(null)}><Eye size={13} className="mr-1.5" />Close</Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
-
-      <AlertDialog open={Boolean(applicationToDelete)} onOpenChange={(open) => !open && setApplicationToDelete(null)}>
-        <ConfirmDialogContent>
-          <ConfirmDialogHeader>
-            <ConfirmDialogTitle>Delete application?</ConfirmDialogTitle>
-            <ConfirmDialogDescription>
-              {applicationToDelete
-                ? `This will permanently delete ${applicationToDelete.name}'s hiring application.`
-                : 'This hiring application will be permanently deleted.'}
-            </ConfirmDialogDescription>
-          </ConfirmDialogHeader>
-          <ConfirmDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              className="bg-red-600 hover:bg-red-700"
-              onClick={() => {
-                if (applicationToDelete) {
-                  void handleDelete(applicationToDelete.id);
-                }
-              }}
-            >
-              Delete Application
-            </AlertDialogAction>
-          </ConfirmDialogFooter>
-        </ConfirmDialogContent>
-      </AlertDialog>
     </div>
   );
 }
