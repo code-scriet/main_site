@@ -20,6 +20,7 @@ interface MyCert {
   certId: string;
   type: string;
   eventName: string;
+  eventImageUrl?: string | null;
   issuedAt: string;
   pdfUrl?: string | null;
   isRevoked?: boolean;
@@ -194,10 +195,14 @@ export default function DashboardCertificates() {
             <>
               <div
                 className={cn(
-                  'aspect-[1.55/1] bg-gradient-to-br relative text-white',
-                  COVERS[sorted.findIndex((c) => c.id === picked.id) % COVERS.length],
+                  'aspect-[1.55/1] bg-gradient-to-br relative text-white overflow-hidden',
+                  !picked.eventImageUrl && COVERS[sorted.findIndex((c) => c.id === picked.id) % COVERS.length],
                 )}
+                style={picked.eventImageUrl ? { backgroundImage: `url(${picked.eventImageUrl})`, backgroundSize: 'cover', backgroundPosition: 'center' } : undefined}
               >
+                {picked.eventImageUrl && (
+                  <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(0,0,0,0.35),rgba(0,0,0,0.72))]" />
+                )}
                 <div className="absolute inset-0 p-5 flex flex-col justify-between">
                   <div className="flex items-start justify-between">
                     <Award size={20} className="opacity-90" />
@@ -264,21 +269,32 @@ function CertCard({
   onCopy: () => void;
   copied: boolean;
 }) {
+  const hasEventImage = Boolean(cert.eventImageUrl);
+
   return (
     <DSCard padded={false} hover className="overflow-hidden cursor-pointer" onClick={onOpen}>
-      <div className={cn('aspect-[1.4/1] bg-gradient-to-br p-4 text-white flex flex-col justify-between relative', cover)}>
+      <div
+        className={cn(
+          'aspect-[1.4/1] bg-gradient-to-br p-4 text-white flex flex-col justify-between relative overflow-hidden',
+          !hasEventImage && cover,
+        )}
+        style={hasEventImage ? { backgroundImage: `url(${cert.eventImageUrl})`, backgroundSize: 'cover', backgroundPosition: 'center' } : undefined}
+      >
+        {hasEventImage && (
+          <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(0,0,0,0.25),rgba(0,0,0,0.78))]" />
+        )}
         {cert.isRevoked && (
-          <div className="absolute inset-0 bg-black/60 flex items-center justify-center">
+          <div className="absolute inset-0 z-20 bg-black/60 flex items-center justify-center">
             <Pill tone="danger" size="md">Revoked</Pill>
           </div>
         )}
-        <div className="flex items-start justify-between">
+        <div className="relative z-10 flex items-start justify-between">
           <Award size={18} className="opacity-90" />
           <span className="inline-flex items-center h-[18px] px-1.5 text-[10.5px] font-medium rounded-[5px] bg-white/20 text-white">
             {cert.type}
           </span>
         </div>
-        <div>
+        <div className="relative z-10">
           <div className="text-[12px] opacity-80 font-mono tabular-nums">{cert.certId}</div>
           <div className="text-[16px] font-semibold leading-tight mt-1 line-clamp-2">{cert.eventName}</div>
         </div>
