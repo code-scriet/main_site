@@ -750,6 +750,62 @@ teamsRouter.post('/join', authMiddleware, joinRateLimiter, async (req: Request, 
 // ========================================
 // GET /api/teams/my-team/:eventId - Get user's team for an event
 // ========================================
+// Dashboard v2: all teams (across all events) where the user is a member or leader.
+// Powers the overview "My team cards" surface.
+teamsRouter.get('/my-all', authMiddleware, async (req: Request, res: Response) => {
+  try {
+    const user = getAuthUser(req)!;
+    const memberships = await prisma.eventTeamMember.findMany({
+      where: { userId: user.id },
+      include: {
+        team: {
+          include: {
+            event: { select: { id: true, title: true, slug: true, startDate: true, status: true, teamMinSize: true, teamMaxSize: true } },
+            members: {
+              include: {
+                user: { select: { id: true, name: true, email: true, avatar: true } },
+              },
+              orderBy: { joinedAt: 'asc' },
+            },
+          },
+        },
+      },
+      orderBy: { joinedAt: 'desc' },
+      take: 20,
+    });
+
+    const teams = memberships.map((m) => {
+      const team = m.team;
+      const isLeader = team.leaderId === user.id;
+      return {
+        id: team.id,
+        eventId: team.eventId,
+        event: team.event,
+        teamName: team.teamName,
+        inviteCode: isLeader ? team.inviteCode : undefined,
+        leaderId: team.leaderId,
+        isLocked: team.isLocked,
+        createdAt: team.createdAt.toISOString(),
+        isLeader,
+        members: team.members.map((mm) => ({
+          id: mm.id,
+          userId: mm.userId,
+          role: mm.role,
+          joinedAt: mm.joinedAt.toISOString(),
+          user: mm.user,
+        })),
+        isComplete: team.members.length >= team.event.teamMinSize,
+        isFull: team.members.length >= team.event.teamMaxSize,
+      };
+    });
+
+    return ApiResponse.success(res, { teams });
+  } catch (error) {
+    logger.error('Failed to load my teams', { error: error instanceof Error ? error.message : String(error) });
+    return ApiResponse.error(res, { code: ErrorCodes.INTERNAL_ERROR, message: 'Failed to load teams', status: 500 });
+  }
+});
+
 teamsRouter.get('/my-team/:eventId', authMiddleware, async (req: Request, res: Response) => {
   try {
     const user = getAuthUser(req)!;

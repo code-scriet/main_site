@@ -345,3 +345,45 @@ export function recomputeUserStreakSafe(userId: string): void {
     logger.warn('recomputeUserStreak failed', { userId, err: err instanceof Error ? err.message : String(err) });
   });
 }
+
+/**
+ * Recompute streaks for every user who submitted on a single QOTD day. Called
+ * after publish/hold flips so that materialized User.currentStreak /
+ * longestStreak stay in sync with the set of published-and-not-held days.
+ *
+ * Fire-and-forget: the publish/hold response is already returned to the admin
+ * by the time this runs; failures are logged.
+ *
+ * Bounded by the unique submitters on a single day, so safe at free-tier
+ * scale even for popular QOTDs.
+ */
+export function recomputeStreaksForQOTDSafe(qotdId: string): void {
+  void (async () => {
+    try {
+      // Always re-resolve the published-day set so our streak math reflects
+      // the publish/hold flip we were called from.
+      invalidatePublishedQotdCache();
+      const [legacyRows, problemRows] = await Promise.all([
+        prisma.qOTDSubmission.findMany({ where: { qotdId }, select: { userId: true } }),
+        prisma.problemSubmission.findMany({
+          where: { contextType: 'QOTD', contextKey: qotdId, verdict: 'ACCEPTED' },
+          select: { userId: true },
+        }),
+      ]);
+      const userIds = new Set<string>();
+      for (const r of legacyRows) userIds.add(r.userId);
+      for (const r of problemRows) userIds.add(r.userId);
+      for (const id of userIds) {
+        await recomputeUserStreak(id).catch((err) => {
+          logger.warn('recomputeUserStreak (batch) failed', {
+            userId: id,
+            qotdId,
+            err: err instanceof Error ? err.message : String(err),
+          });
+        });
+      }
+    } catch (err) {
+      logger.warn('recomputeStreaksForQOTD failed', { qotdId, err: err instanceof Error ? err.message : String(err) });
+    }
+  })();
+}

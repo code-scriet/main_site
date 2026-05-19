@@ -123,11 +123,70 @@ export function initializeSocket(httpServer: HTTPServer) {
     });
   });
 
+  // /notifications namespace — open to all authenticated users.
+  // Each connecting client joins room `user:<userId>` and receives targeted notification pushes
+  // (invitation:received, certificate:issued, quiz:starting). Free-tier safe: no per-user buffers,
+  // just one socket connection per active client, events fan out to room only.
+  const notificationsNs = io.of('/notifications');
+  notificationsNs.use((socket, next) => {
+    const ip = getSocketClientIp(socket);
+    if (!isConnectionAllowed(ip)) {
+      next(new Error('RATE_LIMITED'));
+      return;
+    }
+    void authenticateSocketConnection(socket, { requireAdmin: false })
+      .then(() => next())
+      .catch((error) => {
+        next(new Error(error instanceof Error ? error.message : 'AUTH_INVALID'));
+      });
+  });
+  notificationsNs.on('connection', (socket) => {
+    const authUser = socket.data.authUser as { id: string } | undefined;
+    if (authUser?.id) {
+      socket.join(`user:${authUser.id}`);
+    }
+    socket.on('disconnect', () => {});
+  });
+
   return io;
 }
 
 export function getIO(): SocketIOServer | null {
   return io;
+}
+
+/**
+ * Disconnect every live Socket.io session that belongs to `userId` across all
+ * namespaces. Called from force-logout, soft-delete, and hard-delete handlers
+ * to immediately revoke the user's active socket connections — handshake-time
+ * tokenVersion / isDeleted enforcement (in `socketAuth.ts`) only blocks NEW
+ * connections, so this sweep is required to terminate the ones that were
+ * already open at the moment of revocation.
+ *
+ * Safe to call when Socket.io isn't initialized (no-op).
+ */
+export async function disconnectUserSockets(userId: string): Promise<void> {
+  if (!io || !userId) return;
+  const namespaces = ['/', '/quiz', '/notifications', '/attendance'];
+  for (const nsName of namespaces) {
+    try {
+      const ns = io.of(nsName);
+      const sockets = await ns.fetchSockets();
+      for (const s of sockets) {
+        const data = s.data as { authUser?: { id?: string }; userId?: string };
+        const sid = data?.authUser?.id || data?.userId;
+        if (sid === userId) {
+          try {
+            s.disconnect(true);
+          } catch (err) {
+            logger.warn('Failed to disconnect socket', { nsName, userId, err: err instanceof Error ? err.message : String(err) });
+          }
+        }
+      }
+    } catch (err) {
+      logger.warn('Failed to sweep namespace for user sockets', { nsName, userId, err: err instanceof Error ? err.message : String(err) });
+    }
+  }
 }
 
 // Event emitters for different data types
@@ -157,6 +216,28 @@ export const socketEvents = {
       io?.emit('user:deleted', { userId });
     } catch (error) {
       logger.error('Failed to emit user:deleted', { userId, error: error instanceof Error ? error.message : String(error) });
+    }
+  },
+  /** Dashboard v2 notification pushes — fan out to the recipient's user room on /notifications namespace. */
+  invitationReceived: (toUserId: string, payload: { invitationId: string; eventTitle: string; inviter: string }) => {
+    try {
+      io?.of('/notifications').to(`user:${toUserId}`).emit('invitation:received', payload);
+    } catch (error) {
+      logger.error('Failed to emit invitation:received', { toUserId, error: error instanceof Error ? error.message : String(error) });
+    }
+  },
+  certificateIssued: (toUserId: string, payload: { certId: string; eventName: string; type: string }) => {
+    try {
+      io?.of('/notifications').to(`user:${toUserId}`).emit('certificate:issued', payload);
+    } catch (error) {
+      logger.error('Failed to emit certificate:issued', { toUserId, error: error instanceof Error ? error.message : String(error) });
+    }
+  },
+  quizStarting: (payload: { quizId: string; title: string; pin?: string | null }) => {
+    try {
+      io?.of('/notifications').emit('quiz:starting', payload);
+    } catch (error) {
+      logger.error('Failed to emit quiz:starting', { error: error instanceof Error ? error.message : String(error) });
     }
   },
 };

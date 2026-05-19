@@ -5,6 +5,7 @@ import { authMiddleware, getAuthUser } from '../middleware/auth.js';
 import { requireRole } from '../middleware/role.js';
 import { ApiResponse, ErrorCodes } from '../utils/response.js';
 import { logger } from '../utils/logger.js';
+import { prisma } from '../lib/prisma.js';
 
 export const uploadRouter = Router();
 const CLOUDINARY_PUBLIC_ID_REGEX = /^[a-zA-Z0-9_/-]+$/;
@@ -114,7 +115,7 @@ uploadRouter.post(
             { fetch_format: 'auto' }, // Automatic format (WebP if supported)
           ],
         },
-        (error, result) => {
+        async (error, result) => {
           if (error) {
             logger.error('Cloudinary upload error:', { error: error instanceof Error ? error.message : String(error) });
             return ApiResponse.error(res, {
@@ -132,6 +133,33 @@ uploadRouter.post(
             });
           }
 
+          // Persist image record for the upload-history library. Await the
+          // write so we never leave dangling promises on the hot path; a DB
+          // failure is logged and surfaced via `historyPersisted: false` but
+          // does not break the upload response (the Cloudinary URL is the
+          // primary contract).
+          let historyPersisted = true;
+          try {
+            await prisma.uploadedImage.create({
+              data: {
+                userId: authUser.id,
+                url: result.secure_url,
+                publicId: result.public_id,
+                filename: req.file?.originalname ?? null,
+                bytes: req.file?.buffer?.length ?? null,
+                width: result.width ?? null,
+                height: result.height ?? null,
+                format: result.format ?? null,
+              },
+            });
+          } catch (dbErr) {
+            historyPersisted = false;
+            logger.error('Failed to persist uploaded_image record', {
+              publicId: result.public_id,
+              error: dbErr instanceof Error ? dbErr.message : String(dbErr),
+            });
+          }
+
           // Return the Cloudinary URL
           res.status(201);
           ApiResponse.success(res, {
@@ -141,6 +169,7 @@ uploadRouter.post(
             height: result.height,
             format: result.format,
             uploadedBy: authUser.id,
+            historyPersisted,
           }, 'Image uploaded successfully');
         }
       );
@@ -157,6 +186,36 @@ uploadRouter.post(
     }
   }
 );
+
+/**
+ * Dashboard v2 — list the caller's past uploads for the image-library gallery.
+ * GET /api/upload/history?limit=24
+ */
+uploadRouter.get('/history', authMiddleware, async (req: Request, res: Response) => {
+  try {
+    const auth = getAuthUser(req)!;
+    const limit = Math.min(60, Math.max(1, Number(req.query.limit) || 24));
+    const rows = await prisma.uploadedImage.findMany({
+      where: { userId: auth.id },
+      orderBy: { createdAt: 'desc' },
+      take: limit,
+    });
+    return ApiResponse.success(res, rows.map(r => ({
+      id: r.id,
+      url: r.url,
+      publicId: r.publicId,
+      filename: r.filename,
+      bytes: r.bytes,
+      width: r.width,
+      height: r.height,
+      format: r.format,
+      createdAt: r.createdAt.toISOString(),
+    })));
+  } catch (error) {
+    logger.error('Failed to load upload history', { error: error instanceof Error ? error.message : String(error) });
+    return ApiResponse.error(res, { code: ErrorCodes.INTERNAL_ERROR, message: 'Failed to load upload history', status: 500 });
+  }
+});
 
 /**
  * Delete image from Cloudinary
@@ -189,6 +248,17 @@ uploadRouter.delete(
       const result = await cloudinary.uploader.destroy(publicId);
 
       if (result.result === 'ok') {
+        // Cleanup the library record. Awaited so failures are visible — the
+        // Cloudinary asset is already gone, so a hanging DB row would otherwise
+        // resurface in the gallery as a broken thumbnail.
+        try {
+          await prisma.uploadedImage.deleteMany({ where: { publicId } });
+        } catch (dbErr) {
+          logger.error('Failed to delete uploaded_image record after Cloudinary delete', {
+            publicId,
+            error: dbErr instanceof Error ? dbErr.message : String(dbErr),
+          });
+        }
         ApiResponse.success(res, { deleted: true }, 'Image deleted successfully');
       } else {
         ApiResponse.error(res, {

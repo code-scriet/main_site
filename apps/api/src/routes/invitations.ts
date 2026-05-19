@@ -14,6 +14,7 @@ import { verifyInvitationClaimToken } from '../utils/jwt.js';
 import { logger } from '../utils/logger.js';
 import { sanitizeText } from '../utils/sanitize.js';
 import { deriveInvitationStatus, getEffectiveEventEnd } from '../utils/invitationStatus.js';
+import { socketEvents } from '../utils/socket.js';
 
 export const invitationsRouter = Router();
 
@@ -322,6 +323,15 @@ async function sendInvitationEmail(invitation: InvitationRecord): Promise<void> 
     logger.error('Failed to send invitation email', {
       invitationId: invitation.id,
       error: error instanceof Error ? error.message : String(error),
+    });
+  }
+
+  // Dashboard v2: push a realtime notification to the invitee's bell menu (best-effort).
+  if (invitation.inviteeUserId) {
+    socketEvents.invitationReceived(invitation.inviteeUserId, {
+      invitationId: invitation.id,
+      eventTitle: invitation.event?.title ?? 'an event',
+      inviter: invitation.invitedBy?.name ?? 'A team member',
     });
   }
 }

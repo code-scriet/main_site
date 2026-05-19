@@ -28,6 +28,8 @@ import { networkRouter } from './routes/network.js';
 import { invitationsRouter } from './routes/invitations.js';
 import { auditRouter } from './routes/audit.js';
 import { mailRouter } from './routes/mail.js';
+import { notificationsRouter } from './routes/notifications.js';
+import { searchRouter } from './routes/search.js';
 import { quizRouter } from './quiz/quizRouter.js';
 import { initQuizSocket } from './quiz/quizSocket.js';
 import { quizStore } from './quiz/quizStore.js';
@@ -426,6 +428,8 @@ app.use('/api/problems', problemsRouter);
 app.use('/api/credits', creditsRouter);
 app.use('/api/attendance', attendanceRouter);
 app.use('/api/competition', competitionRouter);
+app.use('/api/notifications', notificationsRouter);
+app.use('/api/search', searchRouter);
 app.use('/api/indexnow', authMiddleware, requireRole('ADMIN'), indexNowRouter);
 
 // Test email endpoint for debugging

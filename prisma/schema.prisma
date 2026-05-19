@@ -57,6 +57,10 @@ model User {
   passwordResetToken     String?   @unique @map("password_reset_token")
   passwordResetExpiresAt DateTime? @map("password_reset_expires_at")
 
+  // Notification bell unread-cutoff — items in /api/notifications older than this are 'read'.
+  // Single timestamp avoids an unbounded per-notification join on the free-tier 512 MB box.
+  notificationsReadAt DateTime? @map("notifications_read_at")
+
   announcements           Announcement[]
   registrations           EventRegistration[]
   hiringApplications      HiringApplication[]
@@ -92,6 +96,8 @@ model User {
   problemSubmissions      ProblemSubmission[]
   problemCounters         ProblemSubmissionCounter[]
   blocks                  UserBlock[]
+  uploadedImages          UploadedImage[]
+  notificationsAuthored   NotificationFeed[]            @relation("NotificationAuthor")
 
   @@index([role, createdAt(sort: Desc)], map: "users_role_created_at_desc_idx")
   @@index([lastLoginAt(sort: Desc)], map: "users_last_login_at_desc_idx")
@@ -173,6 +179,10 @@ model Settings {
   // Competition feature toggle
   competitionEnabled Boolean @default(false) @map("competition_enabled")
   problemsEnabled    Boolean @default(false) @map("problems_enabled")
+
+  // Dashboard v2 — admin-controlled accent token applied to <html data-accent="…">.
+  // Allowed values: rust | teal | indigo | violet | mint | mono. Default rust.
+  accentColor String @default("rust") @map("accent_color")
 
   @@map("settings")
 }
@@ -1303,4 +1313,76 @@ model Credit {
   @@index([category, order])
   @@index([teamMemberId])
   @@map("credits")
+}
+
+// Dashboard v3 — admin-authored & auto-generated notifications.
+// One row per broadcast. Audience is denormalised onto the row so we never
+// fan out per-user (free-tier safe). The bell menu unions these into its feed
+// alongside the auto-derived items (invitations / certs / quiz / audit).
+model NotificationFeed {
+  id          String                @id @default(uuid())
+  source      NotificationSource    @default(ADMIN)
+  audience    NotificationAudience  @default(ALL)
+  // Roles to target when audience = CUSTOM. JSON: ["USER","NETWORK", ...]
+  audienceRoles Json?               @map("audience_roles")
+  // Specific user IDs to target when audience = CUSTOM. JSON string[].
+  audienceUserIds Json?             @map("audience_user_ids")
+  category    String                @default("system")
+  icon        String                @default("bell")
+  title       String                @db.VarChar(200)
+  body        String?               @db.Text
+  link        String?               @db.VarChar(500)
+  // Optional reference back to the entity that triggered the notification
+  // (e.g. for auto-generated event/problem/announcement broadcasts).
+  refEntity   String?               @map("ref_entity")
+  refEntityId String?               @map("ref_entity_id")
+  createdById String?               @map("created_by_id")
+  createdBy   User?                 @relation("NotificationAuthor", fields: [createdById], references: [id], onDelete: SetNull)
+  createdAt   DateTime              @default(now()) @map("created_at")
+  expiresAt   DateTime?             @map("expires_at")
+
+  @@index([createdAt(sort: Desc)])
+  @@index([audience, createdAt(sort: Desc)])
+  @@index([refEntity, refEntityId])
+  @@map("notification_feed")
+}
+
+enum NotificationSource {
+  ADMIN
+  AUTO_EVENT
+  AUTO_ANNOUNCEMENT
+  AUTO_PROBLEM
+  AUTO_QOTD
+  AUTO_QUIZ
+  SYSTEM
+}
+
+enum NotificationAudience {
+  ALL
+  USERS
+  NETWORK
+  ALUMNI
+  NETWORK_AND_ALUMNI
+  ADMIN
+  CORE_MEMBER
+  CUSTOM
+}
+
+// Dashboard v2 — image library record written on every /api/upload/image POST.
+// Powers the upload-history endpoint and the ImageUploadTool gallery.
+model UploadedImage {
+  id        String   @id @default(uuid())
+  userId    String   @map("user_id")
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  url       String
+  publicId  String   @unique @map("public_id")
+  filename  String?
+  bytes     Int?
+  width     Int?
+  height    Int?
+  format    String?
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([userId, createdAt(sort: Desc)])
+  @@map("uploaded_images")
 }

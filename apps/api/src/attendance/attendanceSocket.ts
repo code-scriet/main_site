@@ -1,23 +1,23 @@
 import { Server } from 'socket.io';
-import { verifyToken } from '../utils/jwt.js';
+import { authenticateSocketConnection } from '../utils/socketAuth.js';
 import { logger } from '../utils/logger.js';
 
 export function initializeAttendanceSocket(io: Server): void {
   const ns = io.of('/attendance');
 
   ns.use((socket, next) => {
-    try {
-      const token = socket.handshake.auth.token as string;
-      if (!token) {
-        return next(new Error('Authentication required'));
-      }
-      const decoded = verifyToken(token);
-      socket.data.userId = decoded.userId;
-      socket.data.role = decoded.role;
-      next();
-    } catch {
-      next(new Error('Invalid authentication token'));
-    }
+    void authenticateSocketConnection(socket)
+      .then((authUser) => {
+        // Role is sourced from DB (not the JWT claim) so role downgrades take effect
+        // immediately for fresh handshakes. The shared helper also enforces
+        // tokenVersion + isDeleted, so force-logout / soft-delete cannot reconnect.
+        socket.data.userId = authUser.id;
+        socket.data.role = authUser.role;
+        next();
+      })
+      .catch((error) => {
+        next(new Error(error instanceof Error ? error.message : 'AUTH_INVALID'));
+      });
   });
 
   ns.on('connection', (socket) => {

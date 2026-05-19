@@ -62,7 +62,12 @@ export const getJwtSecret = (): string => {
     return secret;
   }
 
-  if (process.env.NODE_ENV === 'production') {
+  // Fail-fast unless NODE_ENV is explicitly 'development' or 'test'.
+  // An unset NODE_ENV used to fall through to the dev fallback secret, which would
+  // sign real-looking 7-day tokens with a known string on any misconfigured deploy.
+  const nodeEnv = process.env.NODE_ENV;
+  const isDevOrTest = nodeEnv === 'development' || nodeEnv === 'test';
+  if (!isDevOrTest) {
     throw new Error(
       `JWT secret must be configured with a non-default value using one of: ${JWT_SECRET_ENV_CANDIDATES.join(', ')}`
     );

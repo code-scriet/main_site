@@ -8,19 +8,20 @@ import { requireRole } from '../middleware/role.js';
 import { auditLog } from '../utils/audit.js';
 import { logger } from '../utils/logger.js';
 import bcrypt from 'bcryptjs';
-import { socketEvents } from '../utils/socket.js';
+import { socketEvents, disconnectUserSockets } from '../utils/socket.js';
 import { computeQOTDStats } from '../utils/qotdStreak.js';
 import { isSuperAdmin, isPresidentOrSuperAdmin } from '../utils/superAdmin.js';
 import { emailService } from '../utils/email.js';
 import { ApiResponse } from '../utils/response.js';
+import { hashPasswordResetToken } from '../utils/passwordReset.js';
 
 const USER_BLOCK_FEATURES = ['EVENT', 'PLAYGROUND', 'QOTD', 'QUIZ', 'NETWORK'] as const;
 type UserBlockFeatureKey = (typeof USER_BLOCK_FEATURES)[number];
 
-/** Bcrypt-style hash of a one-time password-reset token. Stored on User; the
- * raw value goes out via email and is never persisted. */
-const hashPasswordResetToken = (raw: string): string =>
-  crypto.createHash('sha256').update(raw).digest('hex');
+/** Sentinel reason that identifies a UserBlock row created (or overwritten)
+ * by the soft-delete handler. Restore uses this string to remove the
+ * auto-issued blocks while leaving anything an admin later writes alone. */
+const SOFT_DELETE_AUTO_REASON = 'Auto-block on soft-delete';
 
 export const usersRouter = Router();
 
@@ -1021,11 +1022,18 @@ usersRouter.delete('/:id', authMiddleware, requireRole('ADMIN'), async (req: Req
         prisma.user.delete({ where: { id: targetUser.id } }),
       ]);
 
+      void disconnectUserSockets(targetUser.id);
       socketEvents.userDeleted(targetUser.id);
       return ApiResponse.success(res, { id: targetUser.id }, 'User hard-deleted');
     }
 
     // ─── Soft delete path ────────────────────────────────────────────────
+    // Design note (re: GDPR / right-to-be-forgotten):
+    //   Soft-delete is reversible and intentionally preserves `email` /
+    //   profile fields so the restore handler can bring the account back.
+    //   For irreversible erasure (GDPR-style "forget me") use `?hard=true`
+    //   on this same endpoint — that path purges the User row entirely and
+    //   only the audit log retains an identifier snapshot for forensics.
     if (!actorIsPresident) {
       return ApiResponse.forbidden(res, 'Only PRESIDENT or super admin can delete users.');
     }
@@ -1035,6 +1043,16 @@ usersRouter.delete('/:id', authMiddleware, requireRole('ADMIN'), async (req: Req
     if (targetUser.isDeleted) {
       return ApiResponse.badRequest(res, 'User is already deleted. Use restore to undo.');
     }
+
+    // Snapshot any manual blocks that exist BEFORE we overwrite them, so
+    // restore can re-apply them if the admin wants to keep enforcement.
+    const existingBlocks = await prisma.userBlock.findMany({
+      where: { userId: targetUser.id },
+      select: { feature: true, reason: true, expiresAt: true, blockedBy: true },
+    });
+    const manualSnapshot = existingBlocks
+      .filter((b) => b.reason !== SOFT_DELETE_AUTO_REASON)
+      .map((b) => ({ feature: b.feature, reason: b.reason, expiresAt: b.expiresAt, blockedBy: b.blockedBy }));
 
     await prisma.$transaction(async (tx) => {
       await tx.user.update({
@@ -1047,6 +1065,9 @@ usersRouter.delete('/:id', authMiddleware, requireRole('ADMIN'), async (req: Req
         },
       });
       // Auto-block every feature so any cached session can't act.
+      // Always write the sentinel reason on `update` so restore can match
+      // deterministically. Pre-existing manual block state is captured in the
+      // audit-log metadata below for forensic reference.
       for (const feature of USER_BLOCK_FEATURES) {
         await tx.userBlock.upsert({
           where: { userId_feature: { userId: targetUser.id, feature: feature as UserBlockFeature } },
@@ -1054,14 +1075,24 @@ usersRouter.delete('/:id', authMiddleware, requireRole('ADMIN'), async (req: Req
             userId: targetUser.id,
             feature: feature as UserBlockFeature,
             blockedBy: authUser.id,
-            reason: 'Auto-block on soft-delete',
+            reason: SOFT_DELETE_AUTO_REASON,
           },
-          update: {}, // keep existing reason/expiresAt if already blocked
+          update: {
+            blockedBy: authUser.id,
+            blockedAt: new Date(),
+            reason: SOFT_DELETE_AUTO_REASON,
+            expiresAt: null,
+          },
         });
       }
     });
 
-    await auditLog(authUser.id, 'SOFT_DELETE', 'user', targetUser.id, { email: targetUser.email, role: targetUser.role });
+    await auditLog(authUser.id, 'SOFT_DELETE', 'user', targetUser.id, {
+      email: targetUser.email,
+      role: targetUser.role,
+      manualBlocksOverwritten: manualSnapshot,
+    });
+    void disconnectUserSockets(targetUser.id);
     socketEvents.userDeleted(targetUser.id);
     return ApiResponse.success(res, { id: targetUser.id, isDeleted: true }, 'User soft-deleted');
   } catch (error) {
@@ -1242,9 +1273,14 @@ usersRouter.get('/:id/full', authMiddleware, requireRole('ADMIN'), async (req: R
 });
 
 // GET /api/users/:id/audit — paginated audit feed (as actor + as target)
+// Audit logs are restricted to PRESIDENT or superAdmin only — same gate as
+// /api/audit-logs. Plain ADMIN must not see audit metadata for any user.
 usersRouter.get('/:id/audit', authMiddleware, requireRole('ADMIN'), async (req: Request, res: Response) => {
   try {
     const authUser = getAuthUser(req)!;
+    if (!isPresidentOrSuperAdmin(authUser)) {
+      return ApiResponse.forbidden(res, 'Only PRESIDENT or super admin can view audit logs.');
+    }
     const targetId = req.params.id;
     const cursor = typeof req.query.cursor === 'string' ? req.query.cursor : null;
     const as = req.query.as === 'target' ? 'target' : 'actor';
@@ -1409,7 +1445,7 @@ usersRouter.get('/:id/blocks', authMiddleware, requireRole('ADMIN'), async (req:
 
 const createBlockSchema = z.object({
   feature: z.enum(USER_BLOCK_FEATURES),
-  reason: z.string().trim().max(2000).optional().nullable(),
+  reason: z.string().trim().min(1, 'Reason cannot be empty').max(2000).optional().nullable(),
   expiresAt: z.string().datetime().optional().nullable(),
 });
 
@@ -1493,6 +1529,10 @@ usersRouter.post('/:id/force-logout', authMiddleware, requireRole('ADMIN'), asyn
       select: { id: true, tokenVersion: true },
     });
     await auditLog(authUser.id, 'FORCE_LOGOUT', 'user', target.id, { newTokenVersion: updated.tokenVersion });
+    // Sweep already-open socket sessions. Without this, the bumped tokenVersion
+    // only blocks NEW handshakes — existing connections stay alive until the
+    // user disconnects on their own.
+    void disconnectUserSockets(target.id);
     socketEvents.userUpdated(target.id);
     return ApiResponse.success(res, updated, 'All sessions revoked');
   } catch (error) {
@@ -1557,9 +1597,13 @@ usersRouter.post('/:id/restore', authMiddleware, requireRole('ADMIN'), async (re
         where: { id: target.id },
         data: { isDeleted: false, deletedAt: null, deletedBy: null },
       });
-      // Remove the auto-blocks created on soft-delete; keep manually-set blocks.
+      // Remove the auto-blocks created on soft-delete. The sentinel reason is
+      // always written by the soft-delete handler (both branches of upsert),
+      // so this filter is deterministic. Pre-existing manual blocks were
+      // captured in the SOFT_DELETE audit log entry — to keep them, the admin
+      // can re-issue them after restore.
       await tx.userBlock.deleteMany({
-        where: { userId: target.id, reason: 'Auto-block on soft-delete' },
+        where: { userId: target.id, reason: SOFT_DELETE_AUTO_REASON },
       });
     });
 

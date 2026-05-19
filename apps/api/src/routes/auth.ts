@@ -1,7 +1,7 @@
 import { Router, Request, Response } from 'express';
 import passport from 'passport';
 import bcrypt from 'bcryptjs';
-import { randomUUID, createHash } from 'crypto';
+import { randomUUID } from 'crypto';
 import { z } from 'zod';
 import rateLimit from 'express-rate-limit';
 import { authMiddleware, getAuthUser } from '../middleware/auth.js';
@@ -11,6 +11,7 @@ import { emailService } from '../utils/email.js';
 import { logger } from '../utils/logger.js';
 import { signAccessToken, signOAuthExchangeCode, verifyOAuthExchangeCode } from '../utils/jwt.js';
 import { auditLog } from '../utils/audit.js';
+import { hashPasswordResetToken } from '../utils/passwordReset.js';
 
 export const authRouter = Router();
 
@@ -550,30 +551,58 @@ const resetPasswordLimiter = rateLimit({
   message: { error: 'Too many reset attempts, please try again later.' },
 });
 
-authRouter.post('/reset-password', resetPasswordLimiter, async (req: Request, res: Response) => {
+// Defense-in-depth: also rate-limit by email (lowercased) to stop a botnet from
+// brute-forcing one account across many IPs. 5 attempts per email per 15 min.
+const resetPasswordEmailLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  skipSuccessfulRequests: true,
+  keyGenerator: (req) => {
+    const email = typeof req.body?.email === 'string' ? req.body.email.trim().toLowerCase() : '';
+    return email || req.ip || 'unknown';
+  },
+  message: { error: 'Too many reset attempts, please try again later.' },
+});
+
+authRouter.post('/reset-password', resetPasswordLimiter, resetPasswordEmailLimiter, async (req: Request, res: Response) => {
   try {
     const parsed = resetPasswordSchema.safeParse(req.body);
     if (!parsed.success) {
       return res.status(400).json({ error: parsed.error.errors[0]?.message || 'Invalid reset payload' });
     }
     const { email, token, newPassword } = parsed.data;
-    const hashed = createHash('sha256').update(token).digest('hex');
-
-    const user = await prisma.user.findFirst({
-      where: { email: { equals: email, mode: 'insensitive' }, passwordResetToken: hashed },
-      select: { id: true, passwordResetExpiresAt: true, isDeleted: true },
-    });
-    if (!user || user.isDeleted) {
-      // Generic error message to avoid leaking whether the email or token is wrong.
-      return res.status(400).json({ error: 'Reset link is invalid or has expired' });
-    }
-    if (!user.passwordResetExpiresAt || user.passwordResetExpiresAt.getTime() < Date.now()) {
-      return res.status(400).json({ error: 'Reset link is invalid or has expired' });
-    }
-
+    const hashed = hashPasswordResetToken(token);
     const hashedPassword = await bcrypt.hash(newPassword, 12);
-    await prisma.user.update({
-      where: { id: user.id },
+
+    // Atomic claim-and-consume. `updateMany` with the hashed token in the WHERE
+    // clause guarantees that two concurrent requests can never both succeed:
+    // the first to commit clears `passwordResetToken`, the second matches zero
+    // rows. Email is matched case-insensitively at the DB layer via collation
+    // is not portable, so we resolve the user id first (still safe — the
+    // claim only succeeds if the token is unchanged at write time).
+    const user = await prisma.user.findFirst({
+      where: { email: { equals: email, mode: 'insensitive' } },
+      select: { id: true, passwordResetExpiresAt: true, isDeleted: true, passwordResetToken: true },
+    });
+    const valid =
+      user &&
+      !user.isDeleted &&
+      user.passwordResetToken === hashed &&
+      user.passwordResetExpiresAt &&
+      user.passwordResetExpiresAt.getTime() >= Date.now();
+
+    if (!valid) {
+      return res.status(400).json({ error: 'Reset link is invalid or has expired' });
+    }
+
+    const claim = await prisma.user.updateMany({
+      where: {
+        id: user!.id,
+        passwordResetToken: hashed,
+        passwordResetExpiresAt: { gte: new Date() },
+      },
       data: {
         password: hashedPassword,
         passwordResetToken: null,
@@ -581,7 +610,11 @@ authRouter.post('/reset-password', resetPasswordLimiter, async (req: Request, re
         tokenVersion: { increment: 1 }, // invalidate every active session — fresh login required
       },
     });
-    await auditLog(user.id, 'PASSWORD_RESET_COMPLETED', 'user', user.id);
+    if (claim.count === 0) {
+      // Lost the race to a concurrent consumer.
+      return res.status(400).json({ error: 'Reset link is invalid or has expired' });
+    }
+    await auditLog(user!.id, 'PASSWORD_RESET_COMPLETED', 'user', user!.id);
     return res.json({ success: true, message: 'Password updated. Please sign in with your new password.' });
   } catch (error) {
     logger.error('Password reset error:', { error: error instanceof Error ? error.message : String(error) });

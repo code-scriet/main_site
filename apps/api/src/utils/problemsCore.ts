@@ -222,6 +222,17 @@ export function serializeProblemSummary(problem: Problem & { _count?: { submissi
   };
 }
 
+// Solution unlock policy (strict — matches the product constraint):
+//   1. The context must be "concluded":
+//      - QOTD     → its IST date is strictly before today (i.e. the QOTD has expired)
+//      - CONTEST  → round status is LOCKED, JUDGING, or FINISHED
+//      - PRACTICE → always concluded
+//   2. The viewer must have made at least 2 submissions IN THIS SPECIFIC CONTEXT
+//      (i.e. same problemId, contextType, AND contextKey). Submissions on the
+//      same problem under a different context do NOT count — keeps the gate
+//      from leaking solutions to drive-by readers who happened to attempt the
+//      problem elsewhere.
+// Admins bypass this entirely (handled by the caller).
 async function canUnlockSolution(
   problemId: string,
   user?: AuthUser | null,
@@ -242,11 +253,18 @@ async function canUnlockSolution(
   }
   if (!concluded) return false;
 
-  const attempts = await prisma.problemSubmissionCounter.aggregate({
-    where: { userId: user.id, problemId },
-    _sum: { count: true },
+  const counter = await prisma.problemSubmissionCounter.findUnique({
+    where: {
+      userId_problemId_contextType_contextKey: {
+        userId: user.id,
+        problemId,
+        contextType,
+        contextKey,
+      },
+    },
+    select: { count: true },
   });
-  return (attempts._sum.count ?? 0) >= 2;
+  return (counter?.count ?? 0) >= 2;
 }
 
 async function validateProblemAccess(problemId: string, user: AuthUser | undefined, requirePublished = true) {
