@@ -1,362 +1,199 @@
-import { useState, useEffect, useMemo } from 'react';
-import { motion } from 'framer-motion';
-import { Card, CardContent } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
-import { useAuth } from '@/context/AuthContext';
-import { api } from '@/lib/api';
-import type { Event } from '@/lib/api';
-import { QrCode, Loader2, Calendar, MapPin, Users, ChevronRight, AlertCircle, History } from 'lucide-react';
+// Dashboard v2 — Take Attendance landing page (core-member shortcut).
+// Lists active + upcoming events that the caller can scan attendance for; jumps to the
+// EventAdminHub Scanner tab. Past events are listed under a smaller section.
+
+import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { formatDate, formatTime } from '@/lib/dateUtils';
+import { useQuery } from '@tanstack/react-query';
+import { ScanLine, Calendar, Search, ChevronRight } from 'lucide-react';
+import { useAuth } from '@/context/AuthContext';
+import { api, type Event } from '@/lib/api';
+import { DSCard, EmptyState, Pill, Section } from '@/components/dash';
+import { Input } from '@/components/ui/input';
+import { cn } from '@/lib/utils';
 
-/**
- * Compute the effective event status from actual dates, not the potentially-stale
- * DB field (the background scheduler that updates statuses is off by default).
- */
+// Derives the effective event status from clock time, independent of the DB-stored
+// `status` column. The background status scheduler is off by default on the free tier,
+// so a stale UPCOMING flag would otherwise bury an ONGOING event under the wrong section.
 function computeEffectiveStatus(event: Event): 'UPCOMING' | 'ONGOING' | 'PAST' {
-  const now = new Date();
-  const start = new Date(event.startDate);
-  // Mirror the backend scan window: endDate OR startDate + 4h fallback
-  const end = event.endDate
-    ? new Date(event.endDate)
-    : new Date(start.getTime() + 4 * 60 * 60 * 1000);
-
-  if (now < start) return 'UPCOMING';
-  if (now > end) return 'PAST';
-  return 'ONGOING';
+  const now = Date.now();
+  const start = event.startDate ? new Date(event.startDate).getTime() : null;
+  const end = event.endDate ? new Date(event.endDate).getTime() : null;
+  if (start != null && start > now) return 'UPCOMING';
+  if (end != null && end < now) return 'PAST';
+  // No end-date events default to 4h after start before flipping to PAST.
+  if (start != null && end == null) {
+    return now - start > 4 * 60 * 60 * 1000 ? 'PAST' : 'ONGOING';
+  }
+  if (start != null) return 'ONGOING';
+  // No dates at all — fall back to DB status, then UPCOMING.
+  return event.status ?? 'UPCOMING';
 }
 
+// Comparator that sorts ONGOING first, then UPCOMING (by start asc), then PAST (by start desc).
 function compareAttendanceEvents(a: Event, b: Event): number {
-  const order: Record<ReturnType<typeof computeEffectiveStatus>, number> = {
-    ONGOING: 0,
-    UPCOMING: 1,
-    PAST: 2,
-  };
-
-  const statusA = computeEffectiveStatus(a);
-  const statusB = computeEffectiveStatus(b);
-
-  if (order[statusA] !== order[statusB]) {
-    return order[statusA] - order[statusB];
-  }
-
-  const timeA = new Date(a.startDate).getTime();
-  const timeB = new Date(b.startDate).getTime();
-
-  if (statusA === 'PAST') {
-    return timeB - timeA;
-  }
-
-  return timeA - timeB;
+  const orderRank: Record<'UPCOMING' | 'ONGOING' | 'PAST', number> = { ONGOING: 0, UPCOMING: 1, PAST: 2 };
+  const sa = computeEffectiveStatus(a);
+  const sb = computeEffectiveStatus(b);
+  if (sa !== sb) return orderRank[sa] - orderRank[sb];
+  const ta = a.startDate ? new Date(a.startDate).getTime() : 0;
+  const tb = b.startDate ? new Date(b.startDate).getTime() : 0;
+  return sa === 'PAST' ? tb - ta : ta - tb;
 }
 
 export default function AttendancePage() {
-  const { token } = useAuth();
+  const { token, user } = useAuth();
   const navigate = useNavigate();
+  const [search, setSearch] = useState('');
+  const isAdmin = user?.role === 'ADMIN' || user?.role === 'PRESIDENT';
 
-  const [events, setEvents] = useState<Event[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [selectedEventId, setSelectedEventId] = useState<string>('');
+  const eventsQ = useQuery({
+    queryKey: ['events', 'attendance-picker'],
+    queryFn: () => api.getEvents(),
+    enabled: Boolean(token),
+  });
 
-  useEffect(() => {
-    const loadEvents = async () => {
-      setLoading(true);
-      setError(null);
-
-      try {
-        const all = await api.getEvents();
-        const sorted = [...all].sort(compareAttendanceEvents);
-        setEvents(sorted);
-        setSelectedEventId((current) => {
-          if (current && sorted.some((event) => event.id === current)) {
-            return current;
-          }
-
-          return sorted[0]?.id ?? '';
-        });
-      } catch {
-        setError('Failed to load events for attendance.');
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    void loadEvents();
-  }, [token]);
-
-  const selectedEvent = useMemo(
-    () => events.find((event) => event.id === selectedEventId) ?? null,
-    [events, selectedEventId],
+  const all = useMemo(() => (eventsQ.data ?? []).slice().sort(compareAttendanceEvents), [eventsQ.data]);
+  const filtered = useMemo(
+    () => all.filter((e) => e.title.toLowerCase().includes(search.toLowerCase())),
+    [all, search],
   );
-  const activeEvents = useMemo(
-    () => events.filter((event) => computeEffectiveStatus(event) !== 'PAST'),
-    [events],
-  );
-  const pastEvents = useMemo(
-    () => events.filter((event) => computeEffectiveStatus(event) === 'PAST'),
-    [events],
-  );
-  const selectedEventStatus = selectedEvent ? computeEffectiveStatus(selectedEvent) : null;
-
-  const openScanner = () => {
-    if (!selectedEventId || selectedEventStatus === 'PAST') return;
-    navigate(`/dashboard/events/${selectedEventId}/attendance?tab=scanner`);
-  };
-
-  const openAttendanceManager = (eventId: string) => {
-    navigate(`/dashboard/events/${eventId}/attendance?tab=manage`);
-  };
-
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center py-20">
-        <Loader2 className="h-8 w-8 animate-spin text-amber-600" />
-      </div>
-    );
-  }
-
-  if (error) {
-    return (
-      <div className="max-w-xl w-full">
-        <Card className="border-red-200 bg-red-50">
-          <CardContent className="py-10 text-center space-y-3">
-            <AlertCircle className="mx-auto h-8 w-8 text-red-500" />
-            <p className="text-sm text-red-700">{error}</p>
-            <Button variant="outline" onClick={() => window.location.reload()}>
-              Retry
-            </Button>
-          </CardContent>
-        </Card>
-      </div>
-    );
-  }
-
-  if (events.length === 0) {
-    return (
-      <div className="max-w-xl w-full">
-        <motion.div
-          initial={{ opacity: 0, y: 12 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.3, delay: 0.1 }}
-        >
-          <Card className="border-gray-100 shadow-sm">
-            <CardContent className="py-16 text-center">
-              <QrCode className="h-10 w-10 mx-auto mb-3 text-gray-300" />
-              <p className="text-gray-500 font-medium">No events found</p>
-              <p className="text-sm text-gray-400 mt-1">
-                Once events are created, you can scan live attendance and review past attendance from here.
-              </p>
-            </CardContent>
-          </Card>
-        </motion.div>
-      </div>
-    );
-  }
+  // Bucket using the live computed status so stale DB rows don't misplace events.
+  const active = filtered.filter((e) => computeEffectiveStatus(e) !== 'PAST');
+  const past = filtered.filter((e) => computeEffectiveStatus(e) === 'PAST');
 
   return (
-    <div className="max-w-3xl w-full">
-      {/* Header */}
-      <motion.div
-        initial={{ opacity: 0, y: 12 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.3 }}
-        className="mb-8"
-      >
-        <h1 className="text-2xl font-semibold text-gray-900">Take Attendance</h1>
-        <p className="text-sm text-gray-500 mt-1">
-          Open the scanner for live events, or review attendance records for past ones.
-        </p>
-      </motion.div>
-
-      <motion.div
-        initial={{ opacity: 0, y: 12 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.3, delay: 0.1 }}
-        className="space-y-6"
-      >
-        {activeEvents.length === 0 && (
-          <Card className="border-gray-100 shadow-sm">
-            <CardContent className="py-6 text-center">
-              <History className="h-8 w-8 mx-auto mb-3 text-gray-300" />
-              <p className="text-gray-700 font-medium">No live attendance sessions right now</p>
-              <p className="text-sm text-gray-400 mt-1">
-                You can still review and export attendance for past events below.
-              </p>
-            </CardContent>
-          </Card>
-        )}
-
+    <div className="flex flex-col gap-6">
+      <div className="flex items-end justify-between gap-3 flex-wrap">
         <div>
-          <label htmlFor="event-select" className="block text-sm font-medium text-gray-700 mb-2">
-            Choose event
-          </label>
-          <select
-            id="event-select"
-            value={selectedEventId}
-            onChange={(e) => setSelectedEventId(e.target.value)}
-            className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2.5 text-sm text-gray-900 shadow-sm focus:border-amber-400 focus:outline-none focus:ring-2 focus:ring-amber-400/30 transition"
-          >
-            <option value="">— Select an event —</option>
-            {activeEvents.length > 0 && (
-              <optgroup label="Upcoming & ongoing">
-                {activeEvents.map((event) => {
-                  const status = computeEffectiveStatus(event);
-                  return (
-                    <option key={event.id} value={event.id}>
-                      {status}: {event.title} — {formatDate(event.startDate)}
-                    </option>
-                  );
-                })}
-              </optgroup>
-            )}
-            {pastEvents.length > 0 && (
-              <optgroup label="Past events">
-                {pastEvents.map((event) => (
-                  <option key={event.id} value={event.id}>
-                    Past: {event.title} — {formatDate(event.startDate)}
-                  </option>
-                ))}
-              </optgroup>
-            )}
-          </select>
+          <div className="text-[10.5px] uppercase tracking-[0.08em] font-semibold text-[var(--ds-text-3)]">Core member</div>
+          <h1 className="text-[24px] font-semibold tracking-tight mt-1">Take attendance</h1>
+          <p className="text-[13px] text-[var(--ds-text-3)] mt-1 max-w-prose">
+            Pick an event to open its scanner. Scans queue offline and sync automatically when you reconnect.
+          </p>
         </div>
+        <div className="relative w-full sm:w-[260px]">
+          <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--ds-text-3)] pointer-events-none" />
+          <Input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Find an event…"
+            className="pl-8 h-8 text-[13px]"
+          />
+        </div>
+      </div>
 
-        {selectedEvent && selectedEventStatus && (
-          <motion.div
-            key={selectedEvent.id}
-            initial={{ opacity: 0, y: 8 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.2 }}
-            className="rounded-xl border border-gray-100 bg-white shadow-sm p-5"
-          >
-            <div className="flex items-start justify-between gap-3 mb-3">
-              <h3 className="font-semibold text-gray-900 text-base leading-snug break-words">
-                {selectedEvent.title}
-              </h3>
-              <Badge
-                variant={
-                  selectedEventStatus === 'ONGOING'
-                    ? 'warning'
-                    : selectedEventStatus === 'UPCOMING'
-                      ? 'success'
-                      : 'secondary'
-                }
-                className="shrink-0 text-xs whitespace-nowrap"
-              >
-                {selectedEventStatus}
-              </Badge>
-            </div>
-
-            <div className="space-y-1.5 text-sm text-gray-500">
-              <div className="flex flex-wrap items-center gap-2">
-                <Calendar className="h-3.5 w-3.5 shrink-0" />
-                {formatDate(selectedEvent.startDate)} at {formatTime(selectedEvent.startDate)}
-                {selectedEvent.endDate && (
-                  <span className="text-gray-400">→ {formatTime(selectedEvent.endDate)}</span>
-                )}
+      {eventsQ.isLoading ? (
+        <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
+          {[0, 1, 2].map((i) => (
+            <div key={i} className="h-[120px] bg-[var(--surface-soft)] rounded-[12px] animate-pulse" />
+          ))}
+        </div>
+      ) : active.length === 0 && past.length === 0 ? (
+        <DSCard padded>
+          <EmptyState
+            icon={<Calendar size={18} />}
+            title="No events found"
+            body="There are no events to take attendance for. Create one or wait for an event to go live."
+          />
+        </DSCard>
+      ) : (
+        <>
+          <Section eyebrow="Live & upcoming" title={`${active.length} ${active.length === 1 ? 'event' : 'events'}`}>
+            {active.length === 0 ? (
+              <DSCard padded>
+                <EmptyState title="Nothing live right now" body="When an event goes live, it appears here." />
+              </DSCard>
+            ) : (
+              <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                {active.map((e) => (
+                  <EventPickerCard
+                    key={e.id}
+                    title={e.title}
+                    status={computeEffectiveStatus(e)}
+                    startDate={e.startDate}
+                    venue={e.venue || e.location || null}
+                    onPick={() =>
+                      navigate(
+                        isAdmin
+                          ? `/admin/events/${e.id}/attendance?tab=scanner`
+                          : `/dashboard/events/${e.id}/attendance?tab=scanner`,
+                      )
+                    }
+                  />
+                ))}
               </div>
-              {selectedEvent.location && (
-                <div className="flex items-center gap-2 min-w-0">
-                  <MapPin className="h-3.5 w-3.5 shrink-0" />
-                  <span className="truncate">{selectedEvent.location}</span>
+            )}
+          </Section>
+
+          {past.length > 0 && (
+            <Section eyebrow="Past" title={`${past.length} events`}>
+              <DSCard padded={false}>
+                <div className="divide-y divide-[var(--border-subtle)]">
+                  {past.slice(0, 12).map((e) => (
+                    <button
+                      key={e.id}
+                      type="button"
+                      onClick={() =>
+                        navigate(
+                          isAdmin
+                            ? `/admin/events/${e.id}/attendance?tab=manage`
+                            : `/dashboard/events/${e.id}/attendance?tab=manage`,
+                        )
+                      }
+                      className="w-full px-4 py-2.5 flex items-center gap-3 hover:bg-[var(--surface-soft)] text-left transition-colors"
+                    >
+                      <Pill tone="neutral" size="xs">Past</Pill>
+                      <span className="flex-1 truncate text-[13px] font-medium">{e.title}</span>
+                      <span className="text-[11px] text-[var(--ds-text-3)] font-mono tabular-nums">
+                        {new Date(e.startDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
+                      </span>
+                      <ChevronRight size={14} className="text-[var(--ds-text-3)]" />
+                    </button>
+                  ))}
                 </div>
-              )}
-              {selectedEvent.capacity && (
-                <div className="flex items-center gap-2">
-                  <Users className="h-3.5 w-3.5 shrink-0" />
-                  {selectedEvent._count?.registrations ?? 0} / {selectedEvent.capacity} registered
-                </div>
-              )}
-            </div>
-
-            <div className="mt-5 flex flex-col gap-3 sm:flex-row">
-              {selectedEventStatus !== 'PAST' && (
-                <Button onClick={openScanner} className="h-11 text-sm font-medium sm:flex-1">
-                  <QrCode className="h-4 w-4 mr-2" />
-                  Open Scanner
-                  <ChevronRight className="h-4 w-4 ml-1" />
-                </Button>
-              )}
-              <Button
-                variant={selectedEventStatus === 'PAST' ? 'default' : 'outline'}
-                onClick={() => openAttendanceManager(selectedEvent.id)}
-                className="h-11 text-sm font-medium sm:flex-1"
-              >
-                <History className="h-4 w-4 mr-2" />
-                View Attendance
-                <ChevronRight className="h-4 w-4 ml-1" />
-              </Button>
-            </div>
-          </motion.div>
-        )}
-
-        {activeEvents.length > 1 && (
-          <div>
-            <p className="text-xs font-medium text-gray-400 uppercase tracking-wider mb-2">
-              Live & upcoming events
-            </p>
-            <div className="space-y-1">
-              {activeEvents.map((event) => {
-                const status = computeEffectiveStatus(event);
-                return (
-                  <button
-                    key={event.id}
-                    onClick={() => navigate(`/dashboard/events/${event.id}/attendance?tab=scanner`)}
-                    className="w-full flex items-center justify-between rounded-lg px-4 py-3 bg-gray-50 hover:bg-gray-100 transition-colors text-left group"
-                  >
-                    <div className="flex items-center gap-3 min-w-0">
-                      <Badge
-                        variant={status === 'ONGOING' ? 'warning' : 'success'}
-                        className="shrink-0 text-xs whitespace-nowrap"
-                      >
-                        {status}
-                      </Badge>
-                      <div className="min-w-0">
-                        <p className="text-sm font-medium text-gray-900 truncate">{event.title}</p>
-                        <p className="text-xs text-gray-400">{formatDate(event.startDate)}</p>
-                      </div>
-                    </div>
-                    <ChevronRight className="h-4 w-4 text-gray-300 group-hover:text-gray-500 shrink-0 transition-colors" />
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        )}
-
-        {pastEvents.length > 0 && (
-          <div>
-            <p className="text-xs font-medium text-gray-400 uppercase tracking-wider mb-2">
-              Past events
-            </p>
-            <div className="space-y-1">
-              {pastEvents.map((event) => (
-                <button
-                  key={event.id}
-                  onClick={() => openAttendanceManager(event.id)}
-                  className="w-full flex items-center justify-between rounded-lg px-4 py-3 bg-gray-50 hover:bg-gray-100 transition-colors text-left group"
-                >
-                  <div className="flex items-center gap-3 min-w-0">
-                    <Badge variant="secondary" className="shrink-0 text-xs whitespace-nowrap">
-                      PAST
-                    </Badge>
-                    <div className="min-w-0">
-                      <p className="text-sm font-medium text-gray-900 truncate">{event.title}</p>
-                      <p className="text-xs text-gray-400">{formatDate(event.startDate)}</p>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2 text-xs text-gray-400">
-                    <span className="hidden sm:inline">View attendance</span>
-                    <ChevronRight className="h-4 w-4 text-gray-300 group-hover:text-gray-500 shrink-0 transition-colors" />
-                  </div>
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
-      </motion.div>
+              </DSCard>
+            </Section>
+          )}
+        </>
+      )}
     </div>
+  );
+}
+
+function EventPickerCard({
+  title, status, startDate, venue, onPick,
+}: {
+  title: string;
+  status: string;
+  startDate: string;
+  venue: string | null;
+  onPick: () => void;
+}) {
+  return (
+    <DSCard padded hover onClick={onPick} className="cursor-pointer flex flex-col gap-3">
+      <div className="flex items-center justify-between">
+        <Pill
+          tone={status === 'ONGOING' ? 'success' : 'info'}
+          size="xs"
+          dot={status === 'ONGOING'}
+        >
+          {status === 'ONGOING' ? 'Live now' : 'Upcoming'}
+        </Pill>
+        <span className="text-[11px] text-[var(--ds-text-3)] font-mono tabular-nums">
+          {new Date(startDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}
+        </span>
+      </div>
+      <div>
+        <div className="text-[14.5px] font-semibold leading-tight truncate">{title}</div>
+        {venue && <div className="text-[11.5px] text-[var(--ds-text-3)] mt-0.5 truncate">{venue}</div>}
+      </div>
+      <div className="flex items-center gap-2 mt-1">
+        <span className={cn('inline-flex items-center gap-1.5 h-8 px-3 rounded-[8px] text-[12.5px] font-medium bg-[var(--accent)] text-[var(--accent-fg)]')}>
+          <ScanLine size={13} />
+          Open scanner
+        </span>
+      </div>
+    </DSCard>
   );
 }

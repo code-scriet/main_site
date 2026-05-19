@@ -51,10 +51,10 @@ export function PollFeedbackTab({
 }: PollFeedbackTabProps) {
   return (
     <div className="space-y-4">
-      <div className="rounded-xl border border-gray-200 bg-gray-50 p-4">
+      <div className="rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-soft)] p-4">
         <div className="grid gap-3 lg:grid-cols-4">
           <div className="relative lg:col-span-2">
-            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--ds-text-3)]" />
             <Input
               value={feedbackSearch}
               onChange={(event) => onFeedbackSearchChange(event.target.value)}
@@ -88,7 +88,7 @@ export function PollFeedbackTab({
 
         <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
           <div className="flex items-center gap-2">
-            <Label htmlFor="feedback-sort" className="text-xs text-gray-600">Sort</Label>
+            <Label htmlFor="feedback-sort" className="text-xs text-[var(--ds-text-2)]">Sort</Label>
             <select
               id="feedback-sort"
               value={feedbackSort}
@@ -102,7 +102,7 @@ export function PollFeedbackTab({
           </div>
 
           <div className="flex items-center gap-3">
-            <span className="text-xs text-gray-600">
+            <span className="text-xs text-[var(--ds-text-2)]">
               Showing {filteredFeedback.length} of {poll.feedback.length} entries
             </span>
             <Button type="button" variant="outline" size="sm" onClick={onClearFeedbackFilters}>
@@ -111,8 +111,8 @@ export function PollFeedbackTab({
           </div>
         </div>
 
-        <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-gray-200 pt-3">
-          <span className="text-xs text-gray-600">{selectedFeedbackIds.length} selected</span>
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-[var(--border-subtle)] pt-3">
+          <span className="text-xs text-[var(--ds-text-2)]">{selectedFeedbackIds.length} selected</span>
           <div className="flex flex-wrap gap-2">
             <Button type="button" variant="outline" size="sm" onClick={onSelectFilteredFeedback}>
               Select filtered
@@ -159,21 +159,21 @@ export function PollFeedbackTab({
 
       <div className="space-y-3">
         {filteredFeedback.length === 0 ? (
-          <Card className="border-gray-200 shadow-none">
-            <CardContent className="py-10 text-center text-sm text-gray-500">
+          <Card className="border-[var(--border-subtle)] shadow-none">
+            <CardContent className="py-10 text-center text-sm text-[var(--ds-text-3)]">
               No feedback matched that search.
             </CardContent>
           </Card>
         ) : (
           filteredFeedback.map((entry) => (
-            <div key={entry.id} className="rounded-xl border border-gray-200 bg-white px-4 py-4">
-              <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-[15px] leading-7 text-gray-900">
+            <div key={entry.id} className="rounded-xl border border-[var(--border-subtle)] bg-white px-4 py-4">
+              <div className="rounded-lg border border-[var(--warning-border)] bg-[var(--warning-bg)] px-4 py-3 text-[15px] leading-7 text-[var(--ds-text-1)]">
                 {entry.message}
               </div>
               <div className="mt-3 flex items-start gap-3">
                 <input
                   type="checkbox"
-                  className="mt-1 h-4 w-4 rounded border-gray-300 text-amber-600 focus:ring-amber-500"
+                  className="mt-1 h-4 w-4 rounded border-[var(--border-default)] text-amber-600 focus:ring-amber-500"
                   checked={selectedFeedbackIds.includes(entry.id)}
                   onChange={() => onToggleFeedbackSelection(entry.id)}
                   aria-label={`Select feedback from ${entry.user.name}`}
@@ -182,10 +182,10 @@ export function PollFeedbackTab({
                   <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                     <div>
                       <div className="font-medium text-gray-950">{entry.user.name}</div>
-                      <div className="text-sm text-gray-500">{entry.user.email}</div>
-                      <div className="mt-1 text-xs text-gray-500">{entry.user.role.replace(/_/g, ' ')}</div>
+                      <div className="text-sm text-[var(--ds-text-3)]">{entry.user.email}</div>
+                      <div className="mt-1 text-xs text-[var(--ds-text-3)]">{entry.user.role.replace(/_/g, ' ')}</div>
                     </div>
-                    <div className="text-xs text-gray-500">
+                    <div className="text-xs text-[var(--ds-text-3)]">
                       Updated {formatDateTime(entry.updatedAt)}
                     </div>
                   </div>

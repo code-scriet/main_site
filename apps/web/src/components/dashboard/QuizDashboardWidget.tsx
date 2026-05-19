@@ -71,9 +71,9 @@ export function QuizDashboardWidget({ token }: QuizDashboardWidgetProps) {
 
   if (loading) {
     return (
-      <Card className="border-gray-100 shadow-sm">
+      <Card className="border-[var(--border-subtle)] shadow-sm">
         <CardHeader>
-          <CardTitle className="text-base font-semibold text-gray-900 flex items-center gap-2">
+          <CardTitle className="text-base font-semibold text-[var(--ds-text-1)] flex items-center gap-2">
             <div className="p-2 rounded-lg bg-blue-50">
               <Zap className="h-4 w-4 text-blue-600" />
             </div>
@@ -91,9 +91,9 @@ export function QuizDashboardWidget({ token }: QuizDashboardWidgetProps) {
 
   if (error) {
     return (
-      <Card className="border-gray-100 shadow-sm">
+      <Card className="border-[var(--border-subtle)] shadow-sm">
         <CardHeader>
-          <CardTitle className="text-base font-semibold text-gray-900 flex items-center gap-2">
+          <CardTitle className="text-base font-semibold text-[var(--ds-text-1)] flex items-center gap-2">
             <div className="p-2 rounded-lg bg-blue-50">
               <Zap className="h-4 w-4 text-blue-600" />
             </div>
@@ -112,9 +112,9 @@ export function QuizDashboardWidget({ token }: QuizDashboardWidgetProps) {
   }
 
   return (
-    <Card className="border-gray-100 shadow-sm">
+    <Card className="border-[var(--border-subtle)] shadow-sm">
       <CardHeader className="flex flex-row items-center justify-between pb-3">
-        <CardTitle className="text-base font-semibold text-gray-900 flex items-center gap-2">
+        <CardTitle className="text-base font-semibold text-[var(--ds-text-1)] flex items-center gap-2">
           <div className="p-2 rounded-lg bg-blue-50">
             <Zap className="h-4 w-4 text-blue-600" />
           </div>
@@ -131,7 +131,7 @@ export function QuizDashboardWidget({ token }: QuizDashboardWidgetProps) {
         {/* Live Quizzes */}
         {liveQuizzes.length > 0 && (
           <div>
-            <h4 className="text-sm font-semibold text-gray-700 mb-3 flex items-center gap-2">
+            <h4 className="text-sm font-semibold text-[var(--ds-text-2)] mb-3 flex items-center gap-2">
               <span className="relative flex h-2.5 w-2.5">
                 <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
                 <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-green-500"></span>
@@ -168,7 +168,7 @@ export function QuizDashboardWidget({ token }: QuizDashboardWidgetProps) {
         {/* Quiz History */}
         {history.length > 0 && (
           <div>
-            <h4 className="text-sm font-semibold text-gray-600 mb-3 flex items-center gap-2">
+            <h4 className="text-sm font-semibold text-[var(--ds-text-2)] mb-3 flex items-center gap-2">
               <Trophy className="h-4 w-4" />
               Recent Results
             </h4>
@@ -176,24 +176,24 @@ export function QuizDashboardWidget({ token }: QuizDashboardWidgetProps) {
               {history.map((item) => (
                 <div
                   key={item.quizId}
-                  className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between p-4 rounded-lg bg-gray-50 hover:bg-gray-100 transition-colors"
+                  className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between p-4 rounded-lg bg-[var(--surface-soft)] hover:bg-[var(--surface-soft)] transition-colors"
                 >
                   <div className="flex items-center gap-3 min-w-0">
-                    <div className="w-10 h-10 rounded-lg bg-amber-50 flex items-center justify-center">
+                    <div className="w-10 h-10 rounded-lg bg-[var(--warning-bg)] flex items-center justify-center">
                       <CheckCircle className="h-5 w-5 text-amber-600" />
                     </div>
                     <div className="min-w-0">
-                      <p className="font-medium text-gray-900 text-sm break-words">{item.title}</p>
-                      <p className="text-sm text-gray-500 break-words">
+                      <p className="font-medium text-[var(--ds-text-1)] text-sm break-words">{item.title}</p>
+                      <p className="text-sm text-[var(--ds-text-3)] break-words">
                         {item.correctCount}/{item.questionCount} correct
                         {item.endedAt && ` • ${formatDate(item.endedAt)}`}
                       </p>
                     </div>
                   </div>
                   <div className="text-right">
-                    <p className="font-bold text-gray-900 text-base">{item.finalScore} pts</p>
+                    <p className="font-bold text-[var(--ds-text-1)] text-base">{item.finalScore} pts</p>
                     {item.finalRank != null && item.finalRank > 0 && (
-                      <p className="text-sm text-gray-500">
+                      <p className="text-sm text-[var(--ds-text-3)]">
                         #{item.finalRank} of {item.totalParticipants}
                       </p>
                     )}
@@ -207,8 +207,8 @@ export function QuizDashboardWidget({ token }: QuizDashboardWidgetProps) {
         {/* Empty State */}
         {!hasContent && (
           <div className="text-center py-6">
-            <Zap className="h-12 w-12 text-gray-300 mx-auto mb-3" />
-            <p className="text-gray-500 mb-3 text-sm">No quiz activity yet</p>
+            <Zap className="h-12 w-12 text-[var(--ds-text-3)] mx-auto mb-3" />
+            <p className="text-[var(--ds-text-3)] mb-3 text-sm">No quiz activity yet</p>
             <Link to="/quiz">
               <Button variant="outline" size="sm">
                 Join a Quiz

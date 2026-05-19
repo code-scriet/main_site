@@ -1,196 +1,330 @@
-import { useState, useEffect, useMemo } from 'react';
-import { useQuery } from '@tanstack/react-query';
+// Dashboard v2 — app shell.
+//
+// Layout: [data-dashboard]
+//   ├─ Sidebar (244 / 60 collapsed) — sectioned, role-aware, "Coding" parent with children
+//   ├─ Topbar (56 px frosted) — collapse toggle / breadcrumb / Cmd+K / theme / bell / avatar
+//   ├─ Main outlet (max-w-[1400px])
+//   └─ Bottom-tab on mobile
+//
+// Overlays: <CommandPalette> (⌘K) and <NotifMenu> (bell) mount here.
+// Design source: code-scriet-innerdashboard/project/js/shell.jsx.
+
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
+import { useQuery } from '@tanstack/react-query';
+import {
+  Home, Calendar, Megaphone, Code, Zap, Trophy, User, Award, Inbox,
+  ScanLine, Plus, FileText, Upload as UploadIcon, Play,
+  Users, Layers, Star, Terminal, BookOpen, Activity, Briefcase, Globe, List, Mail,
+  Shield, Settings as SettingsIcon,
+  Search, Bell, Sun, Moon, Menu, X, ChevronRight, ChevronDown, ChevronLeft,
+  LogOut, MoreHorizontal,
+} from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { useSettings } from '@/context/SettingsContext';
+import { useTheme } from '@/context/ThemeContext';
 import { api } from '@/lib/api';
-import { ThemeToggle } from '@/components/theme/ThemeToggle';
-import { Button } from '@/components/ui/button';
-import {
-  Home,
-  Calendar,
-  Bell,
-  Trophy,
-  Settings,
-  LogOut,
-  Menu,
-  X,
-  ChevronRight,
-  Users,
-  Shield,
-  Code,
-  UserPlus,
-  User,
-  Upload,
-  ClipboardList,
-  Mail,
-  Zap,
-  Award,
-  QrCode,
-  PanelLeftClose,
-  PanelLeft,
-  BarChart3,
-  MailOpen,
-} from 'lucide-react';
+import { getPlaygroundLaunchUrl } from '@/lib/playgroundUrl';
+import { CommandPalette } from './CommandPalette';
+import { NotifMenu } from './NotifMenu';
+import { useNotificationsSocket } from '@/hooks/useNotificationsSocket';
+import { Avatar, KBD, Pill, roleTone } from '@/components/dash';
 import { cn } from '@/lib/utils';
 
+type IconCmp = React.ComponentType<{ size?: number; className?: string }>;
+
 interface NavItem {
-  id: string;
-  name: string;
+  route: string;
   href: string;
-  icon: React.ComponentType<{ className?: string }>;
+  label: string;
+  icon: IconCmp;
   badge?: number;
+  children?: NavItem[];
 }
+
+interface NavSection {
+  section: string | null;
+  items: NavItem[];
+}
+
+const STORAGE_COLLAPSED = 'sidebar-collapsed';
+const PROFILE_EXEMPT = new Set(['/dashboard/profile', '/dashboard/certificates']);
 
 const breadcrumbNames: Record<string, string> = {
   '/dashboard': 'Overview',
   '/dashboard/events': 'My Events',
   '/dashboard/announcements': 'Announcements',
-  '/dashboard/profile': 'Profile',
-  '/dashboard/certificates': 'Certificates',
-  '/dashboard/invitations': 'Invitations',
-  '/dashboard/leaderboard': 'Leaderboard',
   '/dashboard/coding': 'Coding',
+  '/dashboard/profile': 'My Profile',
+  '/dashboard/certificates': 'My Certificates',
+  '/dashboard/invitations': 'My Invitations',
+  '/dashboard/leaderboard': 'Leaderboard',
+  '/dashboard/attendance': 'Take Attendance',
   '/dashboard/events/new': 'Create Event',
   '/dashboard/announcements/new': 'Create Announcement',
   '/dashboard/qotd': 'Manage QOTD',
-  '/qotd/today': 'QOTD',
   '/dashboard/quiz': 'Quiz Manager',
   '/dashboard/upload': 'Upload Image',
-  '/dashboard/attendance': 'Take Attendance',
+  '/dashboard/problems/new': 'Create Problem',
   '/admin/users': 'User Management',
   '/admin/team': 'Team Management',
   '/admin/achievements': 'Achievements',
   '/admin/problems': 'Problems',
   '/admin/credits': 'Credits',
+  '/admin/public-view': 'Public View',
   '/admin/hiring': 'Hiring Applications',
   '/admin/network': 'Network Management',
-  '/admin/audit-log': 'Audit Log',
   '/admin/event-registrations': 'Event Registrations',
   '/admin/competition': 'Competition',
   '/admin/certificates': 'Certificates',
   '/admin/mail': 'Send Mail',
-  '/admin/public-view': 'Public View',
+  '/admin/notifications': 'Notifications',
+  '/admin/audit-log': 'Audit Log',
   '/admin/settings': 'Settings',
 };
 
-const PROFILE_EXEMPT_PATHS = new Set(['/dashboard/profile', '/dashboard/certificates']);
-
-const coreMemberNavItems = [
-  { id: 'core-attendance', name: 'Take Attendance', href: '/dashboard/attendance', icon: QrCode },
-  { id: 'core-create-event', name: 'Create Event', href: '/dashboard/events/new', icon: Calendar },
-  { id: 'core-create-announcement', name: 'Create Announcement', href: '/dashboard/announcements/new', icon: Bell },
-  { id: 'core-create-problem', name: 'Create Problem', href: '/dashboard/problems/new', icon: Code },
-  { id: 'core-qotd', name: 'Manage QOTD', href: '/dashboard/qotd', icon: Code },
-  { id: 'core-quiz', name: 'Quiz Manager', href: '/dashboard/quiz', icon: Zap },
-  { id: 'core-upload', name: 'Upload Image', href: '/dashboard/upload', icon: Upload },
-] satisfies NavItem[];
-
-const getAdminNavItems = (
-  hiringEnabled: boolean,
-  showNetwork: boolean,
-  certificatesEnabled: boolean,
-  competitionEnabled: boolean,
-  problemsEnabled: boolean,
-  isSuperAdmin?: boolean,
-  isPresident?: boolean,
-) => {
-  const items = [
-    { id: 'admin-users', name: 'User Management', href: '/admin/users', icon: Users },
-    { id: 'admin-team', name: 'Team Management', href: '/admin/team', icon: Shield },
-    { id: 'admin-achievements', name: 'Achievements', href: '/admin/achievements', icon: Trophy },
-    ...(problemsEnabled ? [{ id: 'admin-problems', name: 'Problems', href: '/admin/problems', icon: Code }] : []),
-    { id: 'admin-credits', name: 'Credits', href: '/admin/credits', icon: Award },
-    { id: 'admin-public-view', name: 'Public View', href: '/admin/public-view', icon: BarChart3 },
-  ] satisfies NavItem[];
-
-  if (hiringEnabled !== false) {
-    items.push({ id: 'admin-hiring', name: 'Hiring Applications', href: '/admin/hiring', icon: UserPlus });
-  }
-
-  if (showNetwork !== false) {
-    items.push({ id: 'admin-network', name: 'Network Management', href: '/admin/network', icon: Users });
-  }
-
-  if (isSuperAdmin || isPresident) {
-    items.push({ id: 'admin-audit', name: 'Audit Log', href: '/admin/audit-log', icon: ClipboardList });
-  }
-
-  items.push(
-    { id: 'admin-registrations', name: 'Event Registrations', href: '/admin/event-registrations', icon: Calendar },
-  );
-
-  if (competitionEnabled) {
-    items.push({ id: 'admin-competition', name: 'Competition', href: '/admin/competition', icon: Trophy });
-  }
-
-  if (certificatesEnabled !== false) {
-    items.push({ id: 'admin-certificates', name: 'Certificates', href: '/admin/certificates', icon: Award });
-  }
-
-  // TODO: Enable when tech blogs feature is built.
-  // items.push({ id: 'admin-tech-blogs', name: 'Tech Blogs', href: '/admin/tech-blogs', icon: FileText });
-
-  items.push({ id: 'admin-mail', name: 'Send Mail', href: '/admin/mail', icon: Mail });
-
-  if (isSuperAdmin || isPresident) {
-    items.push({ id: 'admin-settings', name: 'Settings', href: '/admin/settings', icon: Settings });
-  }
-
-  return items;
+const CODING_TAB_LABELS: Record<string, string> = {
+  practice: 'Coding · Practice',
+  qotd: 'Coding · QOTD',
+  competitions: 'Coding · Competitions',
+  leaderboard: 'Coding · Leaderboard',
+  playground: 'Coding · Playground',
 };
 
-function hrefPathname(href: string): string {
-  return href.split('?')[0];
+function prettyRoute(pathname: string, search?: string): string {
+  // /dashboard/coding gets a richer breadcrumb when a sub-tab is selected via ?tab=
+  if (pathname === '/dashboard/coding' && search) {
+    const params = new URLSearchParams(search);
+    const tab = params.get('tab');
+    if (tab && CODING_TAB_LABELS[tab]) return CODING_TAB_LABELS[tab];
+  }
+  if (breadcrumbNames[pathname]) return breadcrumbNames[pathname];
+  for (const key of Object.keys(breadcrumbNames)) {
+    if (pathname.startsWith(`${key}/`)) return breadcrumbNames[key];
+  }
+  const last = pathname.split('/').filter(Boolean).pop();
+  return last ? last.replace(/-/g, ' ').replace(/^\w/, (c) => c.toUpperCase()) : 'Dashboard';
 }
 
-function isNavHrefActive(href: string, pathname: string): boolean {
-  const path = hrefPathname(href);
-  return pathname === path || pathname.startsWith(`${path}/`);
+function getNav(opts: {
+  role: string;
+  flags: {
+    showLeaderboard: boolean;
+    certificates: boolean;
+    hiring: boolean;
+    network: boolean;
+    problems: boolean;
+    competition: boolean;
+  };
+  pendingInvitationCount: number;
+  isSuperAdminOrPresident: boolean;
+}): NavSection[] {
+  const { role, flags, pendingInvitationCount, isSuperAdminOrPresident } = opts;
+
+  const everyone: NavItem[] = [
+    { route: 'overview', href: '/dashboard', label: 'Overview', icon: Home },
+    { route: 'events', href: '/dashboard/events', label: 'My Events', icon: Calendar },
+    { route: 'announcements', href: '/dashboard/announcements', label: 'Announcements', icon: Megaphone },
+  ];
+
+  const coding: NavItem[] = [
+    {
+      route: 'coding',
+      href: '/dashboard/coding',
+      label: 'Coding',
+      icon: Code,
+      children: [
+        { route: 'coding-practice', href: '/dashboard/coding?tab=practice', label: 'Practice', icon: Terminal },
+        { route: 'coding-qotd', href: '/dashboard/coding?tab=qotd', label: 'QOTD', icon: Zap },
+        { route: 'coding-competitions', href: '/dashboard/coding?tab=competitions', label: 'Competitions', icon: Trophy },
+        ...(flags.showLeaderboard ? [{ route: 'coding-leaderboard', href: '/dashboard/coding?tab=leaderboard', label: 'Leaderboard', icon: Trophy }] : []),
+        { route: 'coding-playground', href: getPlaygroundLaunchUrl(), label: 'Playground', icon: Code },
+      ],
+    },
+    { route: 'quiz', href: '/quiz', label: 'Live Quiz', icon: Zap },
+    ...(flags.showLeaderboard ? [{ route: 'leaderboard', href: '/dashboard/leaderboard', label: 'Leaderboard', icon: Trophy }] : []),
+  ];
+
+  const me: NavItem[] = [
+    { route: 'profile', href: '/dashboard/profile', label: 'My Profile', icon: User },
+    ...(flags.certificates ? [{ route: 'certificates', href: '/dashboard/certificates', label: 'My Certificates', icon: Award }] : []),
+    { route: 'invitations', href: '/dashboard/invitations', label: 'My Invitations', icon: Inbox, badge: pendingInvitationCount },
+  ];
+
+  const create: NavItem[] = [
+    { route: 'attendance', href: '/dashboard/attendance', label: 'Take Attendance', icon: ScanLine },
+    { route: 'create-event', href: '/dashboard/events/new', label: 'Create Event', icon: Plus },
+    { route: 'create-announcement', href: '/dashboard/announcements/new', label: 'Create Announcement', icon: Megaphone },
+    { route: 'create-problem', href: '/dashboard/problems/new', label: 'Create Problem', icon: FileText },
+    { route: 'manage-qotd', href: '/dashboard/qotd', label: 'Manage QOTD', icon: Zap },
+    { route: 'quiz-manager', href: '/dashboard/quiz', label: 'Quiz Manager', icon: Play },
+    { route: 'upload-image', href: '/dashboard/upload', label: 'Upload Image', icon: UploadIcon },
+  ];
+
+  const admin: NavItem[] = [
+    { route: 'admin-users', href: '/admin/users', label: 'User Management', icon: Users },
+    { route: 'admin-team', href: '/admin/team', label: 'Team Management', icon: Layers },
+    { route: 'admin-achievements', href: '/admin/achievements', label: 'Achievements', icon: Star },
+    ...(flags.problems ? [{ route: 'admin-problems', href: '/admin/problems', label: 'Problems', icon: Terminal }] : []),
+    { route: 'admin-credits', href: '/admin/credits', label: 'Credits', icon: BookOpen },
+    { route: 'admin-public-view', href: '/admin/public-view', label: 'Public View', icon: Activity },
+    ...(flags.hiring ? [{ route: 'admin-hiring', href: '/admin/hiring', label: 'Hiring Applications', icon: Briefcase }] : []),
+    ...(flags.network ? [{ route: 'admin-network', href: '/admin/network', label: 'Network Management', icon: Globe }] : []),
+    { route: 'admin-event-registrations', href: '/admin/event-registrations', label: 'Event Registrations', icon: List },
+    ...(flags.competition ? [{ route: 'admin-competition', href: '/admin/competition', label: 'Competition', icon: Trophy }] : []),
+    ...(flags.certificates ? [{ route: 'admin-certificates', href: '/admin/certificates', label: 'Certificates', icon: Award }] : []),
+    { route: 'admin-mail', href: '/admin/mail', label: 'Send Mail', icon: Mail },
+    { route: 'admin-notifications', href: '/admin/notifications', label: 'Notifications', icon: Bell },
+  ];
+
+  // Network: stripped shell.
+  if (role === 'NETWORK') {
+    return [
+      {
+        section: null,
+        items: [
+          { route: 'events', href: '/dashboard/events', label: 'My Events', icon: Calendar },
+          ...(flags.certificates ? [{ route: 'certificates', href: '/dashboard/certificates', label: 'My Certificates', icon: Award }] : []),
+          { route: 'invitations', href: '/dashboard/invitations', label: 'My Invitations', icon: Inbox, badge: pendingInvitationCount },
+        ],
+      },
+    ];
+  }
+
+  // USER
+  if (role === 'USER' || role === 'MEMBER') {
+    return [
+      { section: null, items: everyone },
+      { section: 'CODING', items: coding },
+      { section: 'YOU', items: me },
+    ];
+  }
+
+  // CORE_MEMBER
+  if (role === 'CORE_MEMBER') {
+    return [
+      { section: null, items: everyone },
+      { section: 'CODING', items: coding },
+      { section: 'YOU', items: me },
+      { section: 'CREATE', items: create },
+    ];
+  }
+
+  // ADMIN
+  if (role === 'ADMIN') {
+    return [
+      { section: null, items: everyone },
+      { section: 'CODING', items: coding },
+      { section: 'YOU', items: me },
+      { section: 'CREATE', items: create },
+      { section: 'ADMIN', items: admin },
+      ...(isSuperAdminOrPresident
+        ? [{ section: 'GOVERN', items: [{ route: 'admin-settings', href: '/admin/settings', label: 'Settings', icon: SettingsIcon }] }]
+        : []),
+    ];
+  }
+
+  // PRESIDENT / super admin
+  return [
+    { section: null, items: everyone },
+    { section: 'CODING', items: coding },
+    { section: 'YOU', items: me },
+    { section: 'CREATE', items: create },
+    { section: 'ADMIN', items: admin },
+    {
+      section: 'GOVERNANCE',
+      items: [
+        { route: 'admin-audit', href: '/admin/audit-log', label: 'Audit Log', icon: Shield },
+        { route: 'admin-settings', href: '/admin/settings', label: 'Settings', icon: SettingsIcon },
+      ],
+    },
+  ];
 }
 
-function resolveActiveNavId(items: NavItem[], pathname: string, search: string): string | null {
-  const fullUrl = pathname + search;
-  const exactFull = items.find((item) => item.href === fullUrl);
-  if (exactFull) return exactFull.id;
+// Hrefs that are PARENT roots — never prefix-match. Required so e.g. `/dashboard`
+// doesn't light up on `/dashboard/events`, `/dashboard/coding`, etc.
+const SECTION_ROOTS = new Set(['/dashboard', '/admin', '/network', '/']);
 
-  const matches = items.filter((item) => isNavHrefActive(item.href, pathname));
-  if (matches.length === 0) return null;
-
-  const exactMatches = matches.filter((item) => hrefPathname(item.href) === pathname);
-  const ranked = (exactMatches.length > 0 ? exactMatches : matches).sort((a, b) => hrefPathname(b.href).length - hrefPathname(a.href).length);
-  return ranked[0]?.id ?? null;
+function isActive(href: string, pathname: string, search: string): boolean {
+  // Hrefs with a query (e.g. /dashboard/coding?tab=practice) MUST match exactly —
+  // otherwise every sub-tab would highlight whenever you're on /dashboard/coding,
+  // because the pathname-prefix match below ignores query params.
+  if (href.includes('?')) {
+    const full = pathname + search;
+    return href === full;
+  }
+  // External links (Playground) are never active.
+  if (href.startsWith('http')) return false;
+  if (href === pathname) return true;
+  // Section root hrefs (Overview) must match exactly — they're a prefix of every
+  // sibling, so prefix-match would always light them up.
+  if (SECTION_ROOTS.has(href)) return false;
+  if (pathname.startsWith(`${href}/`)) return true;
+  return false;
 }
 
 export default function DashboardLayout() {
-  const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
-    if (typeof window === 'undefined') return false;
-    return window.localStorage.getItem('sidebar-collapsed') === 'true';
-  });
-  const [clickedNavId, setClickedNavId] = useState<string | null>(null);
   const { user, token, logout } = useAuth();
-  const { settings, loading: settingsLoading } = useSettings();
+  const { settings } = useSettings();
+  const { theme, toggleTheme } = useTheme();
   const location = useLocation();
   const navigate = useNavigate();
 
-  const isNetworkUser = user?.role === 'NETWORK';
-  const isStaff = user?.role === 'CORE_MEMBER' || user?.role === 'ADMIN' || user?.role === 'PRESIDENT';
-  const needsProfileCompletion = user && !isStaff && !isNetworkUser && (!user.phone || !user.course || !user.branch || !user.year);
+  const [collapsed, setCollapsed] = useState(() => {
+    if (typeof window === 'undefined') return false;
+    return window.localStorage.getItem(STORAGE_COLLAPSED) === 'true';
+  });
+  const [mobileOpen, setMobileOpen] = useState(false);
+  const [cmdkOpen, setCmdkOpen] = useState(false);
+  const [notifOpen, setNotifOpen] = useState(false);
+  const [openGroup, setOpenGroup] = useState<string | null>('coding');
+  const [userMenuOpen, setUserMenuOpen] = useState(false);
+  const bellRef = useRef<HTMLButtonElement>(null);
+  const userMenuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (needsProfileCompletion && !PROFILE_EXEMPT_PATHS.has(location.pathname)) {
+    window.localStorage.setItem(STORAGE_COLLAPSED, String(collapsed));
+  }, [collapsed]);
+
+  const isNetwork = user?.role === 'NETWORK';
+  const isStaff = user?.role === 'CORE_MEMBER' || user?.role === 'ADMIN' || user?.role === 'PRESIDENT';
+  const isSuperAdminOrPresident = Boolean(user?.isSuperAdmin) || user?.role === 'PRESIDENT';
+  const needsProfile = user && !isStaff && !isNetwork && (!user.phone || !user.course || !user.branch || !user.year);
+
+  useEffect(() => {
+    if (needsProfile && !PROFILE_EXEMPT.has(location.pathname)) {
       navigate('/dashboard/profile');
     }
-  }, [needsProfileCompletion, location.pathname, navigate]);
+  }, [needsProfile, location.pathname, navigate]);
 
+  // Cmd+K listener
   useEffect(() => {
-    window.localStorage.setItem('sidebar-collapsed', String(sidebarCollapsed));
-  }, [sidebarCollapsed]);
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        setCmdkOpen((o) => !o);
+      } else if (e.key === 'Escape') {
+        setMobileOpen(false);
+        setUserMenuOpen(false);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
 
-  const isCoreMember = user?.role === 'CORE_MEMBER' || user?.role === 'ADMIN' || user?.role === 'PRESIDENT';
-  const isAdmin = user?.role === 'ADMIN' || user?.role === 'PRESIDENT';
+  // Close user menu on outside click
+  useEffect(() => {
+    if (!userMenuOpen) return;
+    const onDoc = (e: MouseEvent) => {
+      if (!userMenuRef.current?.contains(e.target as Node)) {
+        setUserMenuOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', onDoc);
+    return () => document.removeEventListener('mousedown', onDoc);
+  }, [userMenuOpen]);
 
+  // Invitation badge
   const invitationsQuery = useQuery({
     queryKey: ['invitations', 'my', 'layout-badge'],
     queryFn: () => api.getMyInvitations(token!),
@@ -198,382 +332,613 @@ export default function DashboardLayout() {
     staleTime: 60_000,
     refetchOnWindowFocus: true,
   });
-
   const pendingInvitationCount = useMemo(
-    () => (invitationsQuery.data ?? []).filter((invitation) => invitation.status === 'PENDING').length,
+    () => (invitationsQuery.data ?? []).filter((inv) => inv.status === 'PENDING').length,
     [invitationsQuery.data],
   );
 
-  const userNavItems = useMemo<NavItem[]>(() => {
-    if (isNetworkUser) {
-      return [
-        { id: 'user-events', name: 'My Events', href: '/dashboard/events', icon: Calendar },
-        ...(settings?.certificatesEnabled !== false
-          ? [{ id: 'user-certificates', name: 'My Certificates', href: '/dashboard/certificates', icon: Award }]
-          : []),
-        {
-          id: 'user-invitations',
-          name: 'My Invitations',
-          href: '/dashboard/invitations',
-          icon: MailOpen,
-          badge: pendingInvitationCount,
+  // Notification unread count for the bell dot
+  const notifPreview = useQuery({
+    queryKey: ['notifications', 'preview'],
+    queryFn: () => api.getNotifications(token!),
+    enabled: Boolean(token),
+    staleTime: 30_000,
+    refetchInterval: 60_000,
+  });
+  const unreadNotifs = notifPreview.data?.unreadCount ?? 0;
+
+  // Live socket — refreshes both preview + menu queries on any server-pushed event.
+  useNotificationsSocket();
+
+  const sections = useMemo(
+    () =>
+      getNav({
+        role: user?.role ?? 'USER',
+        flags: {
+          showLeaderboard: settings?.showLeaderboard !== false,
+          certificates: settings?.certificatesEnabled !== false,
+          hiring: settings?.hiringEnabled !== false,
+          network: settings?.showNetwork !== false,
+          problems: settings?.problemsEnabled === true,
+          competition: settings?.competitionEnabled === true,
         },
-      ];
+        pendingInvitationCount,
+        isSuperAdminOrPresident,
+      }),
+    [user?.role, settings?.showLeaderboard, settings?.certificatesEnabled, settings?.hiringEnabled, settings?.showNetwork, settings?.problemsEnabled, settings?.competitionEnabled, pendingInvitationCount, isSuperAdminOrPresident],
+  );
+
+  const accent = (settings?.accentColor as string) || 'rust';
+
+  // Resolve breadcrumb pretty name (sub-tabs reflected via ?tab=)
+  const breadcrumb = prettyRoute(location.pathname, location.search);
+
+  // Find the matched search query if any (for Coding subtabs)
+  const fullPath = location.pathname + location.search;
+
+  const handleNavigate = (href: string) => {
+    if (href.startsWith('http')) {
+      window.open(href, '_blank');
+    } else {
+      navigate(href);
     }
-
-    return [
-      { id: 'user-overview', name: 'Overview', href: '/dashboard', icon: Home },
-      { id: 'user-events', name: 'My Events', href: '/dashboard/events', icon: Calendar },
-      { id: 'user-announcements', name: 'Announcements', href: '/dashboard/announcements', icon: Bell },
-      // Coding hub is always visible — the inner page degrades gracefully when
-      // problemsEnabled is false (shows "feature disabled" instead of a 404).
-      { id: 'user-coding', name: 'Coding', href: '/dashboard/coding', icon: Code },
-      { id: 'user-live-quiz', name: 'Live Quiz', href: '/quiz', icon: Zap },
-      ...(settings?.showLeaderboard !== false
-        ? [{ id: 'user-leaderboard', name: 'Leaderboard', href: '/dashboard/leaderboard', icon: Trophy }]
-        : []),
-      { id: 'user-profile', name: 'My Profile', href: '/dashboard/profile', icon: User },
-      ...(settings?.certificatesEnabled !== false
-        ? [{ id: 'user-certificates', name: 'My Certificates', href: '/dashboard/certificates', icon: Award }]
-        : []),
-      {
-        id: 'user-invitations',
-        name: 'My Invitations',
-        href: '/dashboard/invitations',
-        icon: MailOpen,
-        badge: pendingInvitationCount,
-      },
-    ];
-  }, [isNetworkUser, pendingInvitationCount, settings?.showLeaderboard, settings?.certificatesEnabled]);
-
-  const adminNavItems = useMemo<NavItem[]>(() => {
-    if (!isAdmin) return [];
-    return getAdminNavItems(
-      !settingsLoading && settings?.hiringEnabled === true,
-      !settingsLoading && settings?.showNetwork !== false,
-      !settingsLoading && settings?.certificatesEnabled !== false,
-      settings?.competitionEnabled === true,
-      settings?.problemsEnabled === true,
-      user?.isSuperAdmin,
-      user?.role === 'PRESIDENT',
-    );
-  }, [isAdmin, settingsLoading, settings?.hiringEnabled, settings?.showNetwork, settings?.certificatesEnabled, settings?.competitionEnabled, settings?.problemsEnabled, user?.isSuperAdmin, user?.role]);
-
-  const allNavItems = useMemo(
-    () => [
-      ...userNavItems,
-      ...(isCoreMember ? coreMemberNavItems : []),
-      ...adminNavItems,
-    ],
-    [userNavItems, isCoreMember, adminNavItems],
-  );
-
-  const routeActiveNavId = useMemo(
-    () => resolveActiveNavId(allNavItems, location.pathname, location.search),
-    [allNavItems, location.pathname, location.search],
-  );
-
-  const activeNavId = useMemo(() => {
-    if (!clickedNavId) return routeActiveNavId;
-    const clickedNav = allNavItems.find((item) => item.id === clickedNavId);
-    if (clickedNav && isNavHrefActive(clickedNav.href, location.pathname)) return clickedNav.id;
-    return routeActiveNavId;
-  }, [clickedNavId, allNavItems, location.pathname, routeActiveNavId]);
-
-  const handleNavClick = (navId: string) => {
-    setClickedNavId(navId);
-    setSidebarOpen(false);
+    setMobileOpen(false);
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 text-gray-900 transition-colors duration-300 dark:bg-zinc-950 dark:text-zinc-100">
+    <div
+      data-dashboard="true"
+      data-accent={accent}
+      data-density="regular"
+      data-motion="normal"
+      className="h-screen w-screen flex flex-col bg-[var(--bg-canvas)] text-[var(--ds-text-1)] antialiased"
+    >
       <a
-        href="#main-content"
-        className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-[70] focus:rounded focus:bg-amber-500 focus:px-4 focus:py-2 focus:text-white dark:focus:bg-red-500"
+        href="#dashboard-main"
+        className="sr-only focus:not-sr-only focus:absolute focus:left-4 focus:top-4 focus:z-[100] focus:rounded focus:bg-[var(--accent)] focus:px-4 focus:py-2 focus:text-white"
       >
         Skip to content
       </a>
 
-      {/* Mobile overlay */}
-      {sidebarOpen && (
-        <div
-          className="fixed inset-0 z-40 bg-black/40 backdrop-blur-sm lg:hidden dark:bg-black/60"
-          onClick={() => setSidebarOpen(false)}
-          aria-hidden="true"
+      <div className="flex flex-1 min-h-0">
+        {/* Desktop sidebar */}
+        <Sidebar
+          collapsed={collapsed}
+          sections={sections}
+          role={user?.role ?? 'USER'}
+          userName={user?.name ?? 'You'}
+          userAvatar={user?.avatar ?? null}
+          onCmdK={() => setCmdkOpen(true)}
+          onNavigate={handleNavigate}
+          activePath={fullPath}
+          openGroup={openGroup}
+          setOpenGroup={setOpenGroup}
+          onLogout={logout}
+          onToggleCollapse={() => setCollapsed((c) => !c)}
+          className="hidden lg:flex"
         />
-      )}
 
-      {/* ── Sidebar ────────────────────────────────────────────────── */}
-      <aside
-        className={cn(
-          'fixed inset-y-0 left-0 z-50 bg-white border-r border-amber-100/80 shadow-sm transform transition-all duration-300 ease-in-out lg:translate-x-0 flex flex-col dark:border-zinc-800 dark:bg-zinc-950 dark:shadow-black/20',
-          sidebarCollapsed ? 'w-[86px]' : 'w-64',
-          sidebarOpen ? 'translate-x-0' : '-translate-x-full'
-        )}
-      >
-        {/* Logo */}
-        <div className={cn(
-          'flex items-center border-b border-amber-100 shrink-0 dark:border-zinc-800',
-          sidebarCollapsed ? 'justify-center py-4' : 'justify-between px-5 py-4'
-        )}>
-          <Link to="/" className={cn('flex items-center', sidebarCollapsed ? 'w-full justify-center' : 'gap-3 min-w-0')}>
-            <div className={cn(
-              'rounded-xl overflow-hidden shrink-0 ring-1 ring-amber-200 bg-white dark:ring-zinc-700 dark:bg-zinc-900',
-              sidebarCollapsed ? 'h-12 w-12' : 'h-10 w-10'
-            )}>
-              <img src="/logo.jpeg" alt="code.scriet" className="h-full w-full object-contain p-0.5" />
-            </div>
-            {!sidebarCollapsed && (
-              <span className="text-base font-bold text-amber-900 tracking-tight dark:text-amber-100">code.scriet</span>
-            )}
-          </Link>
-          <button
-            onClick={() => setSidebarOpen(false)}
-            className="lg:hidden p-1.5 hover:bg-amber-50 rounded-lg transition-colors dark:hover:bg-zinc-900"
-            aria-label="Close sidebar"
-          >
-            <X className="h-5 w-5 text-amber-400 dark:text-amber-300" />
-          </button>
-        </div>
-
-        {/* User info */}
-        {!sidebarCollapsed ? (
-          <div className="px-4 py-3 border-b border-amber-100 shrink-0 dark:border-zinc-800">
-            <div className="flex items-center gap-3">
-              <div className="h-9 w-9 rounded-full overflow-hidden bg-amber-50 ring-1 ring-amber-200 shrink-0 dark:bg-zinc-900 dark:ring-zinc-700">
-                {user?.avatar ? (
-                  <img src={user.avatar} alt={user.name} className="w-full h-full object-cover" />
-                ) : (
-                  <div className="w-full h-full flex items-center justify-center text-amber-700 font-semibold text-sm dark:text-amber-200">
-                    {user?.name?.charAt(0)?.toUpperCase()}
-                  </div>
-                )}
-              </div>
-              <div className="min-w-0 flex-1">
-                <p className="font-semibold text-gray-900 text-sm truncate leading-tight dark:text-zinc-100">{user?.name}</p>
-                <p
-                  className="text-xs text-amber-600 font-medium mt-0.5 truncate dark:text-amber-300"
-                  title={user?.role?.replace(/_/g, ' ')}
-                >
-                  {user?.role?.replace(/_/g, ' ')}
-                </p>
-              </div>
+        {/* Mobile drawer */}
+        {mobileOpen && (
+          <div className="fixed inset-0 z-50 lg:hidden">
+            <button
+              type="button"
+              className="absolute inset-0 bg-[var(--bg-overlay)] backdrop-blur-sm"
+              onClick={() => setMobileOpen(false)}
+              aria-label="Close menu"
+            />
+            <div className="absolute left-0 top-0 bottom-0">
+              <Sidebar
+                collapsed={false}
+                sections={sections}
+                role={user?.role ?? 'USER'}
+                userName={user?.name ?? 'You'}
+                userAvatar={user?.avatar ?? null}
+                onCmdK={() => {
+                  setCmdkOpen(true);
+                  setMobileOpen(false);
+                }}
+                onNavigate={handleNavigate}
+                activePath={fullPath}
+                openGroup={openGroup}
+                setOpenGroup={setOpenGroup}
+                onLogout={logout}
+                onClose={() => setMobileOpen(false)}
+                mobile
+              />
             </div>
           </div>
-        ) : (
-          <div className="p-3 border-b border-amber-100 flex justify-center shrink-0 dark:border-zinc-800">
-            <div className="h-10 w-10 rounded-full overflow-hidden bg-amber-50 ring-1 ring-amber-200 dark:bg-zinc-900 dark:ring-zinc-700">
-              {user?.avatar ? (
-                <img src={user.avatar} alt={user.name} className="w-full h-full object-cover" />
-              ) : (
-                <div className="w-full h-full flex items-center justify-center text-amber-700 font-semibold text-sm dark:text-amber-200">
-                  {user?.name?.charAt(0)?.toUpperCase()}
+        )}
+
+        {/* Main */}
+        <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+          {/* Topbar */}
+          <header className="h-[56px] frost border-b border-[var(--border-subtle)] flex items-center px-3 sm:px-4 gap-2 shrink-0 sticky top-0 z-30">
+            <button
+              type="button"
+              onClick={() => setMobileOpen(true)}
+              className="lg:hidden size-9 rounded-[8px] hover:bg-[var(--surface-soft)] text-[var(--ds-text-2)] flex items-center justify-center"
+              aria-label="Open menu"
+            >
+              <Menu size={18} />
+            </button>
+
+            <div className="hidden sm:flex items-center gap-1.5 text-[13px] text-[var(--ds-text-3)] whitespace-nowrap min-w-0">
+              <Link to="/dashboard" className="hover:text-[var(--ds-text-1)] transition-colors font-medium">Dashboard</Link>
+              {location.pathname !== '/dashboard' && (
+                <>
+                  <ChevronRight size={12} className="opacity-50 shrink-0" />
+                  <span className="text-[var(--ds-text-1)] font-medium truncate">{breadcrumb}</span>
+                </>
+              )}
+            </div>
+
+            <div className="flex-1" />
+
+            <button
+              type="button"
+              onClick={() => setCmdkOpen(true)}
+              className="hidden md:inline-flex items-center gap-2 h-8 px-2.5 rounded-[7px] border border-[var(--border-subtle)] bg-[var(--bg-raised)] hover:border-[var(--border-default)] text-[var(--ds-text-3)] hover:text-[var(--ds-text-2)] text-[12.5px] transition-colors min-w-[220px]"
+            >
+              <Search size={13} />
+              <span className="flex-1 text-left">Search anything…</span>
+              <span className="flex items-center gap-0.5">
+                <KBD>⌘</KBD>
+                <KBD>K</KBD>
+              </span>
+            </button>
+
+            <button
+              type="button"
+              onClick={toggleTheme}
+              className="size-9 rounded-[8px] hover:bg-[var(--surface-soft)] text-[var(--ds-text-2)] hover:text-[var(--ds-text-1)] flex items-center justify-center transition-colors"
+              aria-label="Toggle theme"
+              title={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}
+            >
+              {theme === 'dark' ? <Sun size={16} /> : <Moon size={16} />}
+            </button>
+
+            <div className="relative">
+              <button
+                ref={bellRef}
+                type="button"
+                onClick={() => setNotifOpen((o) => !o)}
+                className="size-9 rounded-[8px] hover:bg-[var(--surface-soft)] text-[var(--ds-text-2)] hover:text-[var(--ds-text-1)] flex items-center justify-center transition-colors relative"
+                aria-label="Notifications"
+              >
+                <Bell size={16} />
+                {unreadNotifs > 0 && (
+                  <span className="absolute top-1 right-1 size-[6px] rounded-full bg-[var(--accent)] ring-2 ring-[var(--bg-canvas)]" />
+                )}
+              </button>
+            </div>
+
+            {/* Avatar menu */}
+            <div ref={userMenuRef} className="relative">
+              <button
+                type="button"
+                onClick={() => setUserMenuOpen((o) => !o)}
+                className="ml-1 inline-flex items-center gap-1.5 h-9 pl-1 pr-2 rounded-[10px] hover:bg-[var(--surface-soft)] transition-colors"
+                aria-label="User menu"
+              >
+                <Avatar name={user?.name ?? 'You'} src={user?.avatar} size={26} />
+                <ChevronDown size={12} className="text-[var(--ds-text-3)]" />
+              </button>
+              {userMenuOpen && (
+                <div className="absolute right-0 top-[44px] w-[220px] bg-[var(--bg-raised)] border border-[var(--border-subtle)] rounded-[10px] shadow-[var(--shadow-lg)] overflow-hidden z-[60]">
+                  <div className="px-3 py-2.5 border-b border-[var(--border-subtle)]">
+                    <div className="text-[12.5px] font-medium text-[var(--ds-text-1)] truncate">{user?.name}</div>
+                    <div className="text-[11px] text-[var(--ds-text-3)] truncate mt-0.5">{user?.email}</div>
+                    {user?.role && (
+                      <Pill tone={roleTone(user.role)} size="xs" className="mt-1.5">
+                        {user.role.replace(/_/g, ' ')}
+                      </Pill>
+                    )}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => { setUserMenuOpen(false); navigate('/dashboard/profile'); }}
+                    className="w-full px-3 py-2 flex items-center gap-2 text-[12.5px] hover:bg-[var(--surface-soft)] text-left"
+                  >
+                    <User size={13} className="text-[var(--ds-text-3)]" />
+                    My profile
+                  </button>
+                  {settings?.certificatesEnabled !== false && (
+                    <button
+                      type="button"
+                      onClick={() => { setUserMenuOpen(false); navigate('/dashboard/certificates'); }}
+                      className="w-full px-3 py-2 flex items-center gap-2 text-[12.5px] hover:bg-[var(--surface-soft)] text-left"
+                    >
+                      <Award size={13} className="text-[var(--ds-text-3)]" />
+                      My certificates
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => { setUserMenuOpen(false); navigate('/'); }}
+                    className="w-full px-3 py-2 flex items-center gap-2 text-[12.5px] hover:bg-[var(--surface-soft)] text-left"
+                  >
+                    <Globe size={13} className="text-[var(--ds-text-3)]" />
+                    Back to homepage
+                  </button>
+                  <div className="border-t border-[var(--border-subtle)]" />
+                  <button
+                    type="button"
+                    onClick={() => { setUserMenuOpen(false); logout(); }}
+                    className="w-full px-3 py-2 flex items-center gap-2 text-[12.5px] hover:bg-[var(--danger-bg)] hover:text-[var(--danger)] text-left text-[var(--ds-text-2)]"
+                  >
+                    <LogOut size={13} />
+                    Sign out
+                  </button>
                 </div>
               )}
             </div>
-          </div>
-        )}
+          </header>
 
-        {/* Navigation */}
-        <nav className="flex-1 overflow-y-auto py-4 px-3 space-y-0.5">
-          {/* User section */}
-          {!sidebarCollapsed && (
-            <p className="text-xs font-bold text-amber-500 uppercase tracking-wide px-3 pb-2 pt-1 dark:text-amber-300">
-              Dashboard
-            </p>
-          )}
-          {userNavItems.map((item) => (
-            <NavLink
-              key={item.id}
-              item={item}
-              isActive={activeNavId === item.id}
-              onNavigate={() => handleNavClick(item.id)}
-              collapsed={sidebarCollapsed}
+          {/* Page content */}
+          <main
+            id="dashboard-main"
+            className={cn(
+              'flex-1 overflow-y-auto p-4 sm:p-6',
+              // Padding bottom for mobile bottom-tab; admin variant gets extra
+              'pb-[88px] lg:pb-6',
+            )}
+          >
+            <div className="mx-auto max-w-[1400px] w-full min-w-0">
+              <Outlet />
+            </div>
+          </main>
+
+          {/* Mobile bottom tab */}
+          {!isNetwork && (
+            <BottomTab
+              activePath={fullPath}
+              onNavigate={handleNavigate}
+              showLeaderboard={settings?.showLeaderboard !== false}
             />
-          ))}
-
-          {/* Core Member section */}
-          {isCoreMember && (
-            <>
-              <div className={cn('pt-4 pb-1', sidebarCollapsed && 'pt-3 pb-0.5')}>
-                <div className="border-t border-amber-100 dark:border-zinc-800" />
-                {!sidebarCollapsed && (
-                  <p className="text-xs font-bold text-amber-500 uppercase tracking-wide px-3 pt-3 pb-1 dark:text-amber-300">
-                    Core Member
-                  </p>
-                )}
-              </div>
-              {coreMemberNavItems.map((item) => (
-                <NavLink
-                  key={item.id}
-                  item={item}
-                  isActive={activeNavId === item.id}
-                  onNavigate={() => handleNavClick(item.id)}
-                  collapsed={sidebarCollapsed}
-                />
-              ))}
-            </>
           )}
-
-          {/* Admin section */}
-          {isAdmin && (
-            <>
-              <div className={cn('pt-4 pb-1', sidebarCollapsed && 'pt-3 pb-0.5')}>
-                <div className="border-t border-amber-100 dark:border-zinc-800" />
-                {!sidebarCollapsed && (
-                  <p className="text-xs font-bold text-amber-500 uppercase tracking-wide px-3 pt-3 pb-1 dark:text-amber-300">
-                    Admin
-                  </p>
-                )}
-              </div>
-              {adminNavItems.map((item) => (
-                <NavLink
-                  key={item.id}
-                  item={item}
-                  isActive={activeNavId === item.id}
-                  onNavigate={() => handleNavClick(item.id)}
-                  collapsed={sidebarCollapsed}
-                />
-              ))}
-            </>
-          )}
-        </nav>
-
-        {/* Bottom actions */}
-        <div className="p-3 border-t border-amber-100 space-y-1 shrink-0 dark:border-zinc-800">
-          <Button
-            variant="ghost"
-            size="sm"
-            className={cn(
-              'hidden lg:flex w-full text-gray-400 hover:text-gray-700 hover:bg-amber-50 transition-colors dark:text-zinc-500 dark:hover:bg-zinc-900 dark:hover:text-zinc-100',
-              sidebarCollapsed ? 'justify-center px-2' : 'justify-start'
-            )}
-            onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
-            aria-label={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-          >
-            {sidebarCollapsed ? (
-              <PanelLeft className="h-5 w-5" />
-            ) : (
-              <>
-                <PanelLeftClose className="h-5 w-5 mr-2" />
-                <span className="text-sm font-medium">Collapse</span>
-              </>
-            )}
-          </Button>
-
-          <Button
-            variant="ghost"
-            className={cn(
-              'w-full text-gray-400 hover:text-red-600 hover:bg-red-50 font-medium transition-colors dark:text-zinc-500 dark:hover:bg-red-950/30 dark:hover:text-red-300',
-              sidebarCollapsed ? 'justify-center px-2' : 'justify-start'
-            )}
-            onClick={logout}
-            aria-label="Log out"
-          >
-            <LogOut className="h-5 w-5" />
-            {!sidebarCollapsed && <span className="ml-2 text-sm">Logout</span>}
-          </Button>
         </div>
-      </aside>
-
-      {/* ── Main area ──────────────────────────────────────────────── */}
-      <div className={cn('transition-all duration-300', sidebarCollapsed ? 'lg:pl-[86px]' : 'lg:pl-64')}>
-        {/* Top bar */}
-        <header className="sticky top-0 z-30 h-14 flex items-center gap-3 border-b border-gray-200/60 bg-white/90 px-3 backdrop-blur-md sm:gap-4 sm:px-5 lg:px-7 dark:border-zinc-800 dark:bg-zinc-950/90">
-          <button
-            onClick={() => setSidebarOpen(true)}
-            className="lg:hidden p-2 hover:bg-gray-100 rounded-lg dark:hover:bg-zinc-900"
-            aria-label="Open sidebar"
-          >
-            <Menu className="h-5 w-5 text-gray-600 dark:text-zinc-200" />
-          </button>
-
-          <div className="flex min-w-0 items-center text-sm text-gray-500 dark:text-zinc-400">
-            <Link to="/dashboard" className="hover:text-gray-800 transition-colors font-medium dark:hover:text-zinc-100">
-              Dashboard
-            </Link>
-            {location.pathname !== '/dashboard' && (
-              <>
-                <ChevronRight className="h-3.5 w-3.5 mx-1.5 text-gray-300 shrink-0 dark:text-zinc-600" />
-                <span className="truncate text-gray-900 font-semibold dark:text-zinc-100">
-                  {breadcrumbNames[location.pathname] ||
-                    location.pathname.split('/').pop()?.replace(/-/g, ' ').replace(/^\w/, (c) => c.toUpperCase())}
-                </span>
-              </>
-            )}
-          </div>
-
-          <div className="ml-auto">
-            <ThemeToggle />
-          </div>
-        </header>
-
-        {/* Page content */}
-        <main id="main-content" className="p-4 sm:p-6 lg:p-8 w-full min-w-0">
-          <Outlet />
-        </main>
       </div>
+
+      {/* Overlays */}
+      <CommandPalette open={cmdkOpen} onClose={() => setCmdkOpen(false)} />
+      <NotifMenu open={notifOpen} onClose={() => setNotifOpen(false)} anchorRef={bellRef} />
     </div>
   );
 }
 
-function NavLink({
-  item,
-  isActive,
-  onNavigate,
-  collapsed,
-}: {
-  item: NavItem;
-  isActive: boolean;
-  onNavigate?: () => void;
-  collapsed?: boolean;
+// ─── Sidebar
+function Sidebar(props: {
+  collapsed: boolean;
+  sections: NavSection[];
+  role: string;
+  userName: string;
+  userAvatar: string | null;
+  onCmdK: () => void;
+  onNavigate: (href: string) => void;
+  activePath: string;
+  openGroup: string | null;
+  setOpenGroup: (v: string | null) => void;
+  onLogout: () => void;
+  onToggleCollapse?: () => void;
+  onClose?: () => void;
+  mobile?: boolean;
+  className?: string;
 }) {
-  const Icon = item.icon;
-  const badgeValue = item.badge ?? 0;
-  const showBadge = badgeValue > 0;
+  const {
+    collapsed, sections, role, userName, userAvatar, onCmdK, onNavigate, activePath,
+    openGroup, setOpenGroup, onLogout, onToggleCollapse, onClose, mobile = false, className,
+  } = props;
+
   return (
-    <Link
-      to={item.href}
-      onClick={onNavigate}
-      title={collapsed ? item.name : undefined}
+    <aside
       className={cn(
-        'flex items-center rounded-xl transition-all duration-150',
-        collapsed ? 'justify-center p-2.5' : 'gap-3 px-3 py-2.5',
-        isActive
-          ? 'bg-amber-500 text-white font-semibold shadow-sm shadow-amber-200 dark:bg-red-500 dark:shadow-red-950/30'
-          : 'text-gray-700 hover:bg-amber-50 hover:text-amber-900 dark:text-zinc-300 dark:hover:bg-zinc-900 dark:hover:text-amber-100'
+        'h-full flex flex-col bg-[var(--bg-sunken)] border-r border-[var(--border-subtle)]',
+        'transition-[width] duration-200',
+        mobile ? 'w-[272px]' : collapsed ? 'w-[60px]' : 'w-[244px]',
+        className,
       )}
     >
-      <div className="relative shrink-0">
-        <Icon
-          className={cn(
-            'h-[18px] w-[18px] transition-colors',
-            isActive ? 'text-white' : 'text-amber-500 dark:text-amber-300'
+      {/* Brand */}
+      <div className={cn('flex items-center gap-2.5 h-[56px] px-3 shrink-0', collapsed && !mobile && 'justify-center px-0')}>
+        <Link to="/" className={cn('flex items-center gap-2.5 min-w-0', collapsed && !mobile && 'gap-0')}>
+          <img
+            src="/logo.jpeg"
+            alt="SCRIET"
+            className="size-7 shrink-0 rounded-full object-cover ring-1 ring-[var(--border-default)] shadow-[var(--shadow-xs)]"
+          />
+          {(!collapsed || mobile) && (
+            <div className="min-w-0 flex-1">
+              <div className="text-[14px] font-semibold tracking-tight text-[var(--ds-text-1)] leading-tight flex items-baseline">
+                <span>code</span>
+                <span className="text-[var(--accent)]">.</span>
+                <span>scriet</span>
+              </div>
+              <div className="text-[10px] text-[var(--ds-text-3)] leading-tight mt-0.5">CCSU coding club</div>
+            </div>
           )}
-        />
-        {collapsed && showBadge && (
-          <span className="absolute -right-2 -top-2 min-w-[18px] rounded-full bg-amber-900 px-1.5 py-0.5 text-[10px] font-semibold leading-none text-white dark:bg-amber-200 dark:text-zinc-950">
-            {badgeValue > 99 ? '99+' : badgeValue}
-          </span>
+        </Link>
+        {mobile && (
+          <button
+            type="button"
+            onClick={onClose}
+            className="size-7 rounded-[7px] hover:bg-[var(--surface-soft)] flex items-center justify-center text-[var(--ds-text-3)]"
+            aria-label="Close menu"
+          >
+            <X size={16} />
+          </button>
         )}
       </div>
-      {!collapsed && (
-        <>
-          <span className="text-sm leading-none">{item.name}</span>
-          {showBadge && (
-            <span
-              className={cn(
-                'ml-auto min-w-[22px] rounded-full px-2 py-0.5 text-center text-[11px] font-semibold',
-                isActive
-                  ? 'bg-white/20 text-white'
-                  : 'bg-amber-100 text-amber-800 dark:bg-zinc-800 dark:text-amber-200'
-              )}
-            >
-              {badgeValue > 99 ? '99+' : badgeValue}
-            </span>
-          )}
-        </>
+
+      {/* Search shortcut */}
+      {(!collapsed || mobile) ? (
+        <button
+          type="button"
+          onClick={onCmdK}
+          className="mx-3 mt-1 h-8 px-2.5 rounded-[7px] inline-flex items-center gap-2 text-[12.5px] bg-[var(--bg-raised)] border border-[var(--border-subtle)] text-[var(--ds-text-3)] hover:border-[var(--border-default)] hover:text-[var(--ds-text-2)] transition-colors"
+        >
+          <Search size={13} />
+          <span className="flex-1 text-left">Search</span>
+          <span className="flex items-center gap-0.5">
+            <KBD>⌘</KBD>
+            <KBD>K</KBD>
+          </span>
+        </button>
+      ) : (
+        <button
+          type="button"
+          onClick={onCmdK}
+          className="mx-auto mt-1 size-9 rounded-[8px] hover:bg-[var(--surface-soft)] text-[var(--ds-text-3)] hover:text-[var(--ds-text-1)] flex items-center justify-center"
+          title="Search (⌘K)"
+          aria-label="Search"
+        >
+          <Search size={16} />
+        </button>
       )}
-    </Link>
+
+      {/* Sections */}
+      <nav className={cn('flex-1 overflow-y-auto overflow-x-hidden py-3 flex flex-col gap-3.5', collapsed && !mobile ? 'px-2 items-center' : 'px-3')}>
+        {sections.map((sec, i) => (
+          <div key={i} className={cn('flex flex-col w-full', collapsed && !mobile ? 'gap-1 items-center' : 'gap-0.5')}>
+            {sec.section && (!collapsed || mobile) && (
+              <div className="text-[10px] font-semibold uppercase tracking-[0.08em] text-[var(--ds-text-3)] px-2 mb-1">
+                {sec.section}
+              </div>
+            )}
+            {sec.section && collapsed && !mobile && <div className="w-6 h-px bg-[var(--border-subtle)] my-1" />}
+            {sec.items.map((item) => (
+              <SidebarItem
+                key={item.route}
+                item={item}
+                collapsed={collapsed && !mobile}
+                activePath={activePath}
+                openGroup={openGroup}
+                setOpenGroup={setOpenGroup}
+                onNavigate={onNavigate}
+              />
+            ))}
+          </div>
+        ))}
+      </nav>
+
+      {/* User card + logout + (desktop) collapse toggle */}
+      <div className="shrink-0 border-t border-[var(--border-subtle)] p-2 space-y-1">
+        {!mobile && onToggleCollapse && (
+          <button
+            type="button"
+            onClick={onToggleCollapse}
+            className={cn(
+              'w-full flex items-center gap-2 h-8 rounded-[7px] text-[12.5px] text-[var(--ds-text-3)] hover:bg-[var(--surface-soft)] hover:text-[var(--ds-text-1)] transition-colors',
+              collapsed ? 'justify-center px-0' : 'px-2',
+            )}
+            aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+            title={collapsed ? 'Expand' : 'Collapse'}
+          >
+            {collapsed ? <ChevronRight size={14} /> : <ChevronLeft size={14} />}
+            {!collapsed && <span className="flex-1 text-left">Collapse</span>}
+          </button>
+        )}
+
+        <div className={cn('flex items-center gap-2.5 p-1.5 rounded-[8px] hover:bg-[var(--surface-soft)] cursor-default', collapsed && !mobile && 'justify-center')}>
+          <Avatar name={userName} src={userAvatar} size={28} status="online" />
+          {(!collapsed || mobile) && (
+            <>
+              <div className="min-w-0 flex-1">
+                <div className="text-[12.5px] font-medium text-[var(--ds-text-1)] truncate leading-tight">{userName}</div>
+                <div className="text-[11px] text-[var(--ds-text-3)] truncate leading-tight mt-0.5">
+                  <Pill tone={roleTone(role)} size="xs">{role.replace(/_/g, ' ')}</Pill>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={onLogout}
+                className="size-7 rounded-[6px] hover:bg-[var(--danger-bg)] text-[var(--ds-text-3)] hover:text-[var(--danger)] flex items-center justify-center transition-colors shrink-0"
+                aria-label="Sign out"
+                title="Sign out"
+              >
+                <LogOut size={13} />
+              </button>
+            </>
+          )}
+          {collapsed && !mobile && (
+            <button
+              type="button"
+              onClick={onLogout}
+              className="hidden"
+              aria-hidden
+              tabIndex={-1}
+            >
+              <MoreHorizontal size={13} />
+            </button>
+          )}
+        </div>
+      </div>
+    </aside>
+  );
+}
+
+function SidebarItem({
+  item,
+  collapsed,
+  activePath,
+  openGroup,
+  setOpenGroup,
+  onNavigate,
+  depth = 0,
+}: {
+  item: NavItem;
+  collapsed: boolean;
+  activePath: string;
+  openGroup: string | null;
+  setOpenGroup: (v: string | null) => void;
+  onNavigate: (href: string) => void;
+  depth?: number;
+}) {
+  const Icon = item.icon;
+  const hasChildren = !!item.children?.length;
+  const pathOnly = activePath.split('?')[0];
+  const searchOnly = activePath.includes('?') ? '?' + activePath.split('?')[1] : '';
+  // Parent with children is "active" only when one of its children matches the full URL.
+  // Without this, the parent `/dashboard/coding` would highlight every child simultaneously.
+  const selfActive = !hasChildren && isActive(item.href, pathOnly, searchOnly);
+  const childActive = hasChildren && item.children!.some((c) => isActive(c.href, pathOnly, searchOnly));
+  const active = selfActive || childActive;
+  const isOpen = openGroup === item.route;
+
+  if (collapsed) {
+    return (
+      <button
+        type="button"
+        onClick={() => {
+          if (hasChildren) {
+            onNavigate(item.children![0].href);
+          } else {
+            onNavigate(item.href);
+          }
+        }}
+        className={cn(
+          'size-9 flex items-center justify-center rounded-[8px] transition-colors duration-[120ms] relative',
+          active
+            ? 'bg-[var(--accent-subtle)] text-[var(--accent)]'
+            : 'text-[var(--ds-text-3)] hover:text-[var(--ds-text-1)] hover:bg-[var(--surface-soft)]',
+        )}
+        title={item.label}
+        aria-label={item.label}
+      >
+        <Icon size={17} />
+        {item.badge != null && item.badge > 0 && (
+          <span className="absolute -top-0.5 -right-0.5 size-[14px] rounded-full bg-[var(--accent)] text-white text-[9px] font-semibold tabular-nums flex items-center justify-center">
+            {item.badge > 9 ? '9+' : item.badge}
+          </span>
+        )}
+      </button>
+    );
+  }
+
+  return (
+    <div className="w-full">
+      <button
+        type="button"
+        onClick={() => {
+          if (hasChildren) {
+            setOpenGroup(isOpen ? null : item.route);
+            if (!isOpen) onNavigate(item.children![0].href);
+          } else {
+            onNavigate(item.href);
+          }
+        }}
+        className={cn(
+          'w-full h-8 px-2 rounded-[7px] inline-flex items-center gap-2.5',
+          'transition-colors duration-[120ms] text-[13px] leading-none',
+          depth > 0 && 'ml-[26px] w-[calc(100%-26px)] h-7 text-[12.5px]',
+          active && !hasChildren
+            ? 'bg-[var(--accent-subtle)] text-[var(--accent)] font-medium'
+            : active && hasChildren
+            ? 'text-[var(--ds-text-1)] font-medium'
+            : 'text-[var(--ds-text-2)] hover:bg-[var(--surface-soft)] hover:text-[var(--ds-text-1)]',
+        )}
+      >
+        {depth === 0 && <Icon size={15} className="shrink-0 opacity-90" />}
+        {depth > 0 && <span className="size-[3px] rounded-full bg-current opacity-50" />}
+        <span className="flex-1 text-left truncate">{item.label}</span>
+        {item.badge != null && item.badge > 0 && (
+          <span
+            className={cn(
+              'h-[18px] min-w-[18px] px-1 rounded-full text-[10.5px] tabular-nums font-semibold inline-flex items-center justify-center',
+              active ? 'bg-[var(--accent)] text-white' : 'bg-[var(--surface-soft)] text-[var(--ds-text-2)]',
+            )}
+          >
+            {item.badge > 99 ? '99+' : item.badge}
+          </span>
+        )}
+        {hasChildren && (
+          <ChevronRight
+            size={12}
+            className={cn('opacity-50 transition-transform duration-[180ms]', isOpen && 'rotate-90')}
+          />
+        )}
+      </button>
+      {hasChildren && isOpen && (
+        <div className="mt-0.5 flex flex-col gap-px">
+          {item.children!.map((c) => (
+            <SidebarItem
+              key={c.route}
+              item={c}
+              collapsed={false}
+              activePath={activePath}
+              openGroup={openGroup}
+              setOpenGroup={setOpenGroup}
+              onNavigate={onNavigate}
+              depth={1}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Mobile bottom tab
+function BottomTab({
+  activePath,
+  onNavigate,
+  showLeaderboard,
+}: {
+  activePath: string;
+  onNavigate: (href: string) => void;
+  showLeaderboard: boolean;
+}) {
+  void showLeaderboard;
+  const path = activePath.split('?')[0];
+  const tabs: Array<{ href: string; label: string; icon: IconCmp; match?: (p: string) => boolean }> = [
+    { href: '/dashboard', label: 'Home', icon: Home },
+    { href: '/dashboard/events', label: 'Events', icon: Calendar },
+    { href: '/dashboard/coding', label: 'Coding', icon: Code, match: (p) => p.startsWith('/dashboard/coding') || p.startsWith('/qotd') || p.startsWith('/competition') },
+    { href: '/dashboard/profile', label: 'Profile', icon: User },
+  ];
+  return (
+    <nav
+      className="lg:hidden fixed bottom-0 left-0 right-0 z-40 frost border-t border-[var(--border-subtle)] flex items-stretch"
+      style={{ paddingBottom: 'env(safe-area-inset-bottom, 0)' }}
+    >
+      {tabs.map((t) => {
+        const isActiveTab = t.match ? t.match(path) : path === t.href;
+        const Icon = t.icon;
+        return (
+          <button
+            key={t.href}
+            type="button"
+            onClick={() => onNavigate(t.href)}
+            className={cn(
+              'flex-1 h-[56px] flex flex-col items-center justify-center gap-1 transition-colors',
+              isActiveTab ? 'text-[var(--accent)]' : 'text-[var(--ds-text-3)]',
+            )}
+          >
+            <Icon size={20} />
+            <span className="text-[10.5px] font-medium">{t.label}</span>
+          </button>
+        );
+      })}
+    </nav>
   );
 }

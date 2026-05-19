@@ -130,8 +130,8 @@ export function EditProfileDialog({
               </div>
 
               {form.connectionType === 'ALUMNI' && (
-                <div className="p-4 bg-amber-50/50 rounded-lg border border-amber-100 space-y-4">
-                  <h4 className="font-semibold text-amber-900 text-sm">Alumni Details</h4>
+                <div className="p-4 bg-[var(--warning-bg)]/50 rounded-lg border border-[var(--warning-border)] space-y-4">
+                  <h4 className="font-semibold text-[var(--ds-text-1)] text-sm">Alumni Details</h4>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div className="space-y-1.5">
                       <Label htmlFor="admin-network-passout-year">Passout Year</Label>
@@ -203,7 +203,7 @@ export function EditProfileDialog({
                   onChange={(e) => onFormChange({ ...form, phone: e.target.value })}
                   placeholder="+91 9876543210"
                 />
-                <p className="text-xs text-gray-400">Private — not shown publicly</p>
+                <p className="text-xs text-[var(--ds-text-3)]">Private — not shown publicly</p>
               </div>
 
               <div className="space-y-1.5">
@@ -304,7 +304,7 @@ export function EditProfileDialog({
                     onChange={(e) => onFormChange({ ...form, displayOrder: e.target.value })}
                     min={0}
                   />
-                  <p className="text-xs text-gray-400">
+                  <p className="text-xs text-[var(--ds-text-3)]">
                     Lower number appears earlier on network/home listings.
                   </p>
                 </div>
@@ -315,7 +315,7 @@ export function EditProfileDialog({
                   <FileText className="h-4 w-4 text-amber-600" />
                   Highlights &amp; Contributions (Admin Notes)
                 </p>
-                <p className="text-xs text-gray-500">
+                <p className="text-xs text-[var(--ds-text-3)]">
                   Write in Markdown. This content will be displayed publicly on the profile page under "Highlights &amp; Contributions". Use this to note what the person achieved, topics they covered in sessions, awards, etc.
                 </p>
                 <Textarea
@@ -328,8 +328,8 @@ export function EditProfileDialog({
                 />
                 {form.adminNotes && (
                   <div className="mt-3">
-                    <p className="text-xs text-gray-400 mb-2 uppercase tracking-wide font-semibold">Preview</p>
-                    <div className="p-4 bg-gray-50 rounded-lg border prose prose-sm max-w-none">
+                    <p className="text-xs text-[var(--ds-text-3)] mb-2 uppercase tracking-wide font-semibold">Preview</p>
+                    <div className="p-4 bg-[var(--surface-soft)] rounded-lg border prose prose-sm max-w-none">
                       <Markdown>{form.adminNotes}</Markdown>
                     </div>
                   </div>
@@ -346,14 +346,14 @@ export function EditProfileDialog({
                     <Plus className="h-3 w-3 mr-1" /> Add Event
                   </Button>
                 </div>
-                <p className="text-xs text-gray-500">
+                <p className="text-xs text-[var(--ds-text-3)]">
                   Record sessions, talks, or events this person hosted or participated in. This will be displayed as a timeline on their profile.
                 </p>
 
                 {events.length === 0 ? (
-                  <div className="text-center py-6 bg-gray-50 rounded-lg border border-dashed border-gray-200">
-                    <Video className="h-8 w-8 mx-auto text-gray-300 mb-2" />
-                    <p className="text-sm text-gray-400">No events added yet</p>
+                  <div className="text-center py-6 bg-[var(--surface-soft)] rounded-lg border border-dashed border-[var(--border-subtle)]">
+                    <Video className="h-8 w-8 mx-auto text-[var(--ds-text-3)] mb-2" />
+                    <p className="text-sm text-[var(--ds-text-3)]">No events added yet</p>
                     <Button type="button" variant="ghost" size="sm" className="mt-2" onClick={onAddEvent}>
                       <Plus className="h-3 w-3 mr-1" /> Add First Event
                     </Button>
@@ -361,12 +361,12 @@ export function EditProfileDialog({
                 ) : (
                   <div className="space-y-4">
                     {events.map((event, index) => (
-                      <div key={index} className="p-4 bg-gray-50 rounded-lg border relative">
+                      <div key={index} className="p-4 bg-[var(--surface-soft)] rounded-lg border relative">
                         <Button
                           type="button"
                           variant="ghost"
                           size="icon"
-                          className="absolute top-2 right-2 h-6 w-6 text-gray-400 hover:text-red-500"
+                          className="absolute top-2 right-2 h-6 w-6 text-[var(--ds-text-3)] hover:text-red-500"
                           onClick={() => onRemoveEvent(index)}
                         >
                           <Trash2 className="h-3 w-3" />

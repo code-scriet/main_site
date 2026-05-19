@@ -1,563 +1,446 @@
-import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { motion } from 'framer-motion';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
+// Dashboard v2 — Create Announcement.
+// Two-pane: editor (left) + live preview (right).
+// Design source: screen-admin2.jsx:689 (CreateAnnouncementScreen).
+
+import { useEffect, useMemo, useState } from 'react';
+import { useNavigate, useParams } from 'react-router-dom';
+import { Send, Loader2, AlertCircle, Plus, Trash2, Link as LinkIcon } from 'lucide-react';
 import { api } from '@/lib/api';
-import { Bell, Loader2, AlertCircle, ArrowLeft, Image as ImageIcon, Link as LinkIcon, FileText, Tag, Pin, Star, Clock, Trash2, Plus, ChevronDown, ChevronUp } from 'lucide-react';
-import { Link } from 'react-router-dom';
 import { useAuth } from '@/context/AuthContext';
 import { useUnsavedChangesWarning } from '@/hooks/useUnsavedChangesWarning';
+import { DSCard, Field, Pill } from '@/components/dash';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Markdown } from '@/components/ui/markdown';
+import { toast } from 'sonner';
+import { cn } from '@/lib/utils';
 
-interface AttachmentItem {
-  title: string;
-  url: string;
-  type: string;
-}
+type Priority = 'LOW' | 'MEDIUM' | 'HIGH' | 'URGENT';
+const PRIORITY_TONE_CLASS: Record<Priority, string> = {
+  URGENT: 'bg-[var(--danger-bg)] text-[var(--danger)] border-[var(--danger-border)]',
+  HIGH:   'bg-[var(--warning-bg)] text-[var(--warning)] border-[var(--warning-border)]',
+  MEDIUM: 'bg-[var(--info-bg)] text-[var(--info)] border-[var(--info-border)]',
+  LOW:    'bg-[var(--surface-soft)] text-[var(--ds-text-2)] border-[var(--border-default)]',
+};
 
-interface LinkItem {
-  title: string;
-  url: string;
+interface AttachmentItem { title: string; url: string; type: string }
+interface LinkItem { title: string; url: string }
+
+function slugify(s: string): string {
+  return s.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 80);
 }
 
 export default function CreateAnnouncement() {
   const navigate = useNavigate();
   const { token } = useAuth();
-  
+  // Edit mode toggles when the route is `/dashboard/announcements/:id/edit`.
+  // The same form is reused for both create and update, identical to how EditEvent
+  // shares state shape with CreateEvent.
+  const { id: editingId } = useParams<{ id?: string }>();
+  const isEditing = Boolean(editingId);
+
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [showAdvanced, setShowAdvanced] = useState(false);
   const [isDirty, setIsDirty] = useState(false);
+  const [loadingExisting, setLoadingExisting] = useState(isEditing);
   useUnsavedChangesWarning(isDirty);
-  
-  const [form, setForm] = useState({
-    title: '',
-    body: '',
-    shortDescription: '',
-    priority: 'MEDIUM',
-    imageUrl: '',
-    imageGallery: [] as string[],
-    attachments: [] as AttachmentItem[],
-    links: [] as LinkItem[],
-    tags: [] as string[],
-    featured: false,
-    pinned: false,
-    expiresAt: '',
-  });
-  
-  const [newGalleryUrl, setNewGalleryUrl] = useState('');
-  const [newTag, setNewTag] = useState('');
-  const [newAttachment, setNewAttachment] = useState<AttachmentItem>({ title: '', url: '', type: 'link' });
-  const [newLink, setNewLink] = useState<LinkItem>({ title: '', url: '' });
+
+  const [title, setTitle] = useState('');
+  const [body, setBody] = useState('');
+  const [shortDescription, setShortDescription] = useState('');
+  const [priority, setPriority] = useState<Priority>('MEDIUM');
+  const [imageUrl, setImageUrl] = useState('');
   const [coverPreviewError, setCoverPreviewError] = useState(false);
+  const [imageGallery, setImageGallery] = useState<string[]>([]);
+  const [newGalleryUrl, setNewGalleryUrl] = useState('');
+  const [tags, setTags] = useState<string[]>([]);
+  const [newTag, setNewTag] = useState('');
+  const [attachments, setAttachments] = useState<AttachmentItem[]>([]);
+  const [newAttachment, setNewAttachment] = useState<AttachmentItem>({ title: '', url: '', type: 'link' });
+  const [links, setLinks] = useState<LinkItem[]>([]);
+  const [newLink, setNewLink] = useState<LinkItem>({ title: '', url: '' });
+  const [expiresAt, setExpiresAt] = useState('');
+  const [pinned, setPinned] = useState(false);
+  const [featured, setFeatured] = useState(false);
 
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
-    const { name, value, type } = e.target;
-    if (type === 'checkbox') {
-      setForm(prev => ({ ...prev, [name]: (e.target as HTMLInputElement).checked }));
-    } else {
-      if (name === 'imageUrl') {
-        setCoverPreviewError(false);
+  const slug = useMemo(() => slugify(title), [title]);
+  const markDirty = () => setIsDirty(true);
+
+  // Edit-mode prefill — fetch the existing announcement and copy every field.
+  // Always reset isDirty afterwards so the unsaved-changes warning doesn't false-fire.
+  useEffect(() => {
+    if (!isEditing || !editingId) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const data = await api.getAnnouncement(editingId);
+        if (cancelled) return;
+        setTitle(data.title ?? '');
+        setBody(data.body ?? '');
+        setShortDescription(data.shortDescription ?? '');
+        setPriority((data.priority as Priority) ?? 'MEDIUM');
+        setImageUrl(data.imageUrl ?? '');
+        setImageGallery(Array.isArray(data.imageGallery) ? data.imageGallery : []);
+        setTags(Array.isArray(data.tags) ? data.tags : []);
+        setAttachments(Array.isArray(data.attachments) ? (data.attachments as AttachmentItem[]) : []);
+        setLinks(Array.isArray(data.links) ? (data.links as LinkItem[]) : []);
+        setExpiresAt(data.expiresAt ? new Date(data.expiresAt).toISOString().slice(0, 16) : '');
+        setPinned(Boolean(data.pinned));
+        setFeatured(Boolean(data.featured));
+        setIsDirty(false);
+      } catch (err) {
+        if (!cancelled) {
+          toast.error(err instanceof Error ? err.message : 'Failed to load announcement');
+          navigate('/dashboard/announcements');
+        }
+      } finally {
+        if (!cancelled) setLoadingExisting(false);
       }
-      setForm(prev => ({ ...prev, [name]: value }));
-    }
-  };
+    })();
+    return () => { cancelled = true; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editingId, isEditing]);
 
-  const addGalleryImage = () => {
-    if (newGalleryUrl.trim()) {
-      setIsDirty(true);
-      setForm(prev => ({ ...prev, imageGallery: [...prev.imageGallery, newGalleryUrl.trim()] }));
-      setNewGalleryUrl('');
-    }
-  };
-
-  const removeGalleryImage = (index: number) => {
-    setIsDirty(true);
-    setForm(prev => ({ ...prev, imageGallery: prev.imageGallery.filter((_, i) => i !== index) }));
-  };
-
-  const addTag = () => {
-    if (newTag.trim() && !form.tags.includes(newTag.trim())) {
-      setIsDirty(true);
-      setForm(prev => ({ ...prev, tags: [...prev.tags, newTag.trim()] }));
-      setNewTag('');
-    }
-  };
-
-  const removeTag = (tag: string) => {
-    setIsDirty(true);
-    setForm(prev => ({ ...prev, tags: prev.tags.filter(t => t !== tag) }));
-  };
-
-  const addAttachment = () => {
-    if (newAttachment.title.trim() && newAttachment.url.trim()) {
-      setIsDirty(true);
-      setForm(prev => ({ ...prev, attachments: [...prev.attachments, { ...newAttachment }] }));
-      setNewAttachment({ title: '', url: '', type: 'link' });
-    }
-  };
-
-  const removeAttachment = (index: number) => {
-    setIsDirty(true);
-    setForm(prev => ({ ...prev, attachments: prev.attachments.filter((_, i) => i !== index) }));
-  };
-
-  const addLink = () => {
-    if (newLink.title.trim() && newLink.url.trim()) {
-      setIsDirty(true);
-      setForm(prev => ({ ...prev, links: [...prev.links, { ...newLink }] }));
-      setNewLink({ title: '', url: '' });
-    }
-  };
-
-  const removeLink = (index: number) => {
-    setIsDirty(true);
-    setForm(prev => ({ ...prev, links: prev.links.filter((_, i) => i !== index) }));
-  };
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    
-    if (!form.title.trim() || !form.body.trim()) {
-      setError('Please fill in all required fields');
+  const submit = async (publish: boolean) => {
+    if (!title.trim() || !body.trim()) {
+      setError('Title and body are required');
       return;
     }
-
-    if (!token) {
-      setError('Authentication token not found. Please log in again.');
-      return;
-    }
-
+    if (!token) { setError('Not authenticated'); return; }
     try {
       setLoading(true);
       setError(null);
-      
-      await api.createAnnouncement({
-        title: form.title.trim(),
-        body: form.body.trim(),
-        shortDescription: form.shortDescription.trim() || undefined,
-        priority: form.priority as 'LOW' | 'MEDIUM' | 'HIGH' | 'URGENT',
-        imageUrl: form.imageUrl.trim() || undefined,
-        imageGallery: form.imageGallery.length > 0 ? form.imageGallery : undefined,
-        attachments: form.attachments.length > 0 ? form.attachments : undefined,
-        links: form.links.length > 0 ? form.links : undefined,
-        tags: form.tags.length > 0 ? form.tags : undefined,
-        featured: form.featured,
-        pinned: form.pinned,
-        expiresAt: form.expiresAt ? new Date(form.expiresAt).toISOString() : undefined,
-      }, token);
-
+      const payload = {
+        title: title.trim(),
+        body: body.trim(),
+        shortDescription: shortDescription.trim() || undefined,
+        priority,
+        imageUrl: imageUrl.trim() || undefined,
+        imageGallery: imageGallery.length ? imageGallery : undefined,
+        tags: tags.length ? tags : undefined,
+        attachments: attachments.length ? attachments : undefined,
+        links: links.length ? links : undefined,
+        expiresAt: expiresAt ? new Date(expiresAt).toISOString() : undefined,
+        pinned,
+        featured,
+      };
+      if (isEditing && editingId) {
+        await api.updateAnnouncement(editingId, payload, token);
+        toast.success('Announcement updated');
+      } else {
+        await api.createAnnouncement(payload, token);
+        toast.success(publish ? 'Announcement published' : 'Saved as draft');
+      }
       setIsDirty(false);
       navigate('/dashboard/announcements');
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to create announcement');
+    } catch (e) {
+      setError(e instanceof Error ? e.message : isEditing ? 'Failed to update announcement' : 'Failed to publish');
     } finally {
       setLoading(false);
     }
   };
 
+  if (loadingExisting) {
+    return (
+      <div className="flex flex-col gap-3">
+        <div className="h-8 w-48 bg-[var(--surface-soft)] rounded animate-pulse" />
+        <div className="h-[420px] bg-[var(--surface-soft)] rounded animate-pulse" />
+      </div>
+    );
+  }
+
   return (
-    <div className="max-w-3xl mx-auto space-y-6">
-      {/* Header */}
-      <div className="flex items-center gap-4">
-        <Link to="/dashboard/announcements">
-          <Button variant="ghost" size="icon" aria-label="Back to announcements">
-            <ArrowLeft className="h-5 w-5" />
-          </Button>
-        </Link>
+    <div className="flex flex-col gap-6 pb-12">
+      <div className="flex items-end justify-between gap-3 flex-wrap">
         <div>
-          <h1 className="text-2xl font-bold text-amber-900">New Announcement</h1>
-          <p className="text-gray-600">Create a new announcement for members</p>
+          <div className="text-[10.5px] uppercase tracking-[0.06em] font-semibold text-[var(--ds-text-3)]">{isEditing ? 'Edit' : 'Create'}</div>
+          <h1 className="text-[24px] font-semibold tracking-tight mt-1">Announcement</h1>
+        </div>
+        <div className="flex items-center gap-2">
+          {!isEditing && (
+            <Button size="sm" variant="outline" onClick={() => submit(false)} disabled={loading}>
+              Save draft
+            </Button>
+          )}
+          <Button size="sm" onClick={() => submit(true)} disabled={loading || !title.trim() || !body.trim()}>
+            {loading ? <Loader2 size={13} className="mr-1.5 animate-spin" /> : <Send size={13} className="mr-1.5" />}
+            {isEditing ? 'Save changes' : 'Publish'}
+          </Button>
         </div>
       </div>
 
       {error && (
-        <motion.div
-          initial={{ opacity: 0, y: -10 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="flex items-start gap-3 p-4 bg-red-50 border border-red-200 rounded-lg text-red-700"
-        >
-          <AlertCircle className="h-5 w-5 shrink-0 mt-0.5" />
-          <p className="text-sm">{error}</p>
-        </motion.div>
+        <div className="flex items-start gap-2 px-4 py-2.5 rounded-[10px] border border-[var(--danger-border)] bg-[var(--danger-bg)] text-[var(--danger)] text-[13px]">
+          <AlertCircle size={14} className="mt-0.5 shrink-0" />
+          <span className="flex-1">{error}</span>
+        </div>
       )}
 
-      <form onSubmit={handleSubmit} onChange={() => setIsDirty(true)} className="space-y-6">
-        {/* Basic Information */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Bell className="h-5 w-5 text-amber-600" />
-              Basic Information
-            </CardTitle>
-            <CardDescription>Title, content, and priority</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="space-y-2">
-              <label htmlFor="create-announcement-title" className="text-sm font-medium text-gray-700">
-                Title <span className="text-red-500">*</span>
-              </label>
-              <Input
-                id="create-announcement-title"
-                name="title"
-                value={form.title}
-                onChange={handleChange}
-                placeholder="e.g., Important: New Event Registration"
-                required
-              />
-            </div>
-
-            <div className="space-y-2">
-              <label htmlFor="create-announcement-short-description" className="text-sm font-medium text-gray-700">
-                Short Description <span className="text-gray-400">(optional)</span>
-              </label>
-              <Input
-                id="create-announcement-short-description"
-                name="shortDescription"
-                value={form.shortDescription}
-                onChange={handleChange}
-                placeholder="Brief summary for cards and previews"
-                maxLength={200}
-              />
-              <p className="text-xs text-gray-500">{form.shortDescription.length}/200 characters</p>
-            </div>
-
-            <div className="space-y-2">
-              <label htmlFor="create-announcement-body" className="text-sm font-medium text-gray-700">
-                Content <span className="text-red-500">*</span>
-              </label>
-              <textarea
-                id="create-announcement-body"
-                name="body"
-                value={form.body}
-                onChange={handleChange}
-                placeholder="Write your announcement here... Markdown is supported!"
-                className="w-full min-h-[200px] px-3 py-2 border border-input rounded-md bg-background text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 font-mono"
-                required
-              />
-              <p className="text-xs text-gray-500">Supports Markdown formatting</p>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <label htmlFor="create-announcement-priority" className="text-sm font-medium text-gray-700">Priority</label>
-                <select
-                  id="create-announcement-priority"
-                  name="priority"
-                  value={form.priority}
-                  onChange={handleChange}
-                  className="w-full h-10 px-3 py-2 border border-input rounded-md bg-background text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+      <div className="grid lg:grid-cols-12 gap-4">
+        <DSCard padded className="lg:col-span-7 flex flex-col gap-3">
+          <Field label="Title" required>
+            <Input value={title} onChange={(e) => { setTitle(e.target.value); markDirty(); }} placeholder="DSA Sprint registrations close Saturday" />
+          </Field>
+          <Field label="Slug" hint="auto-from-title">
+            <Input value={slug} readOnly className="bg-[var(--surface-soft)] cursor-not-allowed" />
+          </Field>
+          <Field label="Priority">
+            <div className="flex gap-2 flex-wrap">
+              {(['LOW', 'MEDIUM', 'HIGH', 'URGENT'] as const).map((p) => (
+                <button
+                  key={p}
+                  type="button"
+                  onClick={() => { setPriority(p); markDirty(); }}
+                  className={cn(
+                    'px-3 h-8 rounded-[7px] text-[12px] font-medium border transition-colors',
+                    priority === p ? PRIORITY_TONE_CLASS[p] : 'bg-transparent text-[var(--ds-text-3)] border-[var(--border-default)] hover:text-[var(--ds-text-1)]',
+                  )}
                 >
-                  <option value="LOW">Low - General information</option>
-                  <option value="MEDIUM">Medium - Important updates</option>
-                  <option value="HIGH">High - Requires attention</option>
-                  <option value="URGENT">Urgent - Immediate action needed</option>
-                </select>
-              </div>
-
-              <div className="space-y-2">
-                <label htmlFor="create-announcement-expires-at" className="text-sm font-medium text-gray-700 flex items-center gap-2">
-                  <Clock className="h-4 w-4" />
-                  Expires At <span className="text-gray-400">(optional)</span>
-                </label>
-                <Input
-                  id="create-announcement-expires-at"
-                  type="datetime-local"
-                  name="expiresAt"
-                  value={form.expiresAt}
-                  onChange={handleChange}
-                />
-              </div>
+                  {p}
+                </button>
+              ))}
             </div>
+          </Field>
+          <Field label="Short description" hint="One line shown on cards">
+            <Input value={shortDescription} onChange={(e) => { setShortDescription(e.target.value); markDirty(); }} maxLength={300} placeholder="Round 3 closes at 11:59 PM IST on Saturday." />
+          </Field>
+          <Field label="Body" hint="Markdown supported">
+            <textarea
+              value={body}
+              onChange={(e) => { setBody(e.target.value); markDirty(); }}
+              className="w-full h-[260px] p-3 text-[13px] font-mono bg-[var(--bg-raised)] border border-[var(--border-default)] rounded-[8px] outline-none focus:border-[var(--accent)] resize-y"
+              placeholder="## Heading&#10;&#10;Round 3 closes at **11:59 PM IST**.&#10;&#10;- bullet&#10;- bullet"
+            />
+          </Field>
+          <Field label="Cover image URL" hint="Optional">
+            <Input
+              value={imageUrl}
+              onChange={(e) => { setImageUrl(e.target.value); setCoverPreviewError(false); markDirty(); }}
+              placeholder="https://…"
+            />
+          </Field>
+          {imageUrl && coverPreviewError && (
+            <div className="text-[11.5px] text-[var(--warning)] flex items-center gap-1.5 -mt-1">
+              <AlertCircle size={12} />
+              Cover image failed to load. Double-check the URL.
+            </div>
+          )}
 
-            <div className="flex flex-wrap gap-6 pt-2">
-              <label htmlFor="create-announcement-pinned" className="flex items-center gap-2 cursor-pointer">
-                <input
-                  id="create-announcement-pinned"
-                  type="checkbox"
-                  name="pinned"
-                  checked={form.pinned}
-                  onChange={handleChange}
-                  className="h-4 w-4 rounded border-gray-300 text-amber-600 focus:ring-amber-500"
-                />
-                <Pin className="h-4 w-4 text-amber-600" />
-                <span className="text-sm font-medium text-gray-700">Pin to top</span>
+          {/* Image gallery — multi-image carousel for the public detail page */}
+          <div className="border-t border-[var(--border-subtle)] pt-3">
+            <div className="flex items-center justify-between mb-2">
+              <div className="text-[12.5px] font-medium">Image gallery</div>
+              <span className="text-[10.5px] text-[var(--ds-text-3)] font-mono tabular-nums">{imageGallery.length}</span>
+            </div>
+            <div className="flex items-center gap-2 mb-2">
+              <Input
+                value={newGalleryUrl}
+                onChange={(e) => setNewGalleryUrl(e.target.value)}
+                placeholder="https://res.cloudinary.com/…/img.jpg"
+                className="h-8 text-[13px]"
+              />
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={() => {
+                  const url = newGalleryUrl.trim();
+                  if (!url) return;
+                  setImageGallery((prev) => [...prev, url]);
+                  setNewGalleryUrl('');
+                  markDirty();
+                }}
+              >
+                <Plus size={11} />
+              </Button>
+            </div>
+            {imageGallery.map((u, i) => (
+              <div key={i} className="flex items-center gap-2 py-1.5 border-t border-[var(--border-subtle)] text-[12px]">
+                <span className="text-[var(--ds-text-3)] font-mono truncate flex-1 text-[11px]">{u}</span>
+                <button
+                  type="button"
+                  onClick={() => { setImageGallery((p) => p.filter((_, idx) => idx !== i)); markDirty(); }}
+                  className="size-6 rounded-[5px] hover:bg-[var(--danger-bg)] text-[var(--ds-text-3)] hover:text-[var(--danger)] flex items-center justify-center"
+                >
+                  <Trash2 size={10} />
+                </button>
+              </div>
+            ))}
+          </div>
+
+          {/* Links */}
+          <div className="border-t border-[var(--border-subtle)] pt-3">
+            <div className="flex items-center justify-between mb-2">
+              <div className="text-[12.5px] font-medium">Links</div>
+              <span className="text-[10.5px] text-[var(--ds-text-3)] font-mono tabular-nums">{links.length}</span>
+            </div>
+            <div className="flex items-center gap-2 mb-2">
+              <Input value={newLink.title} onChange={(e) => setNewLink({ ...newLink, title: e.target.value })} placeholder="Title" className="h-8 text-[13px]" />
+              <Input value={newLink.url} onChange={(e) => setNewLink({ ...newLink, url: e.target.value })} placeholder="https://…" className="h-8 text-[13px]" />
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={() => {
+                  if (!newLink.title.trim() || !newLink.url.trim()) return;
+                  setLinks((prev) => [...prev, { ...newLink, title: newLink.title.trim(), url: newLink.url.trim() }]);
+                  setNewLink({ title: '', url: '' });
+                  markDirty();
+                }}
+              >
+                <Plus size={11} />
+              </Button>
+            </div>
+            {links.map((l, i) => (
+              <div key={i} className="flex items-center gap-2 py-1.5 border-t border-[var(--border-subtle)] text-[12px]">
+                <LinkIcon size={11} className="text-[var(--ds-text-3)] shrink-0" />
+                <span className="font-medium truncate flex-1">{l.title}</span>
+                <span className="text-[var(--ds-text-3)] truncate max-w-[200px] font-mono text-[11px]">{l.url}</span>
+                <button type="button" onClick={() => { setLinks((p) => p.filter((_, idx) => idx !== i)); markDirty(); }} className="size-6 rounded-[5px] hover:bg-[var(--danger-bg)] text-[var(--ds-text-3)] hover:text-[var(--danger)] flex items-center justify-center">
+                  <Trash2 size={11} />
+                </button>
+              </div>
+            ))}
+          </div>
+
+          {/* Attachments */}
+          <div className="border-t border-[var(--border-subtle)] pt-3">
+            <div className="flex items-center justify-between mb-2">
+              <div className="text-[12.5px] font-medium">Attachments</div>
+              <span className="text-[10.5px] text-[var(--ds-text-3)] font-mono tabular-nums">{attachments.length}</span>
+            </div>
+            <div className="flex items-center gap-2 mb-2">
+              <Input value={newAttachment.title} onChange={(e) => setNewAttachment({ ...newAttachment, title: e.target.value })} placeholder="Title" className="h-8 text-[13px]" />
+              <Input value={newAttachment.url} onChange={(e) => setNewAttachment({ ...newAttachment, url: e.target.value })} placeholder="https://…" className="h-8 text-[13px]" />
+              <select
+                value={newAttachment.type}
+                onChange={(e) => setNewAttachment({ ...newAttachment, type: e.target.value })}
+                className="h-8 px-2 text-[12.5px] bg-[var(--bg-raised)] border border-[var(--border-default)] rounded-[6px] outline-none focus:border-[var(--accent)]"
+              >
+                <option value="link">link</option>
+                <option value="pdf">pdf</option>
+                <option value="image">image</option>
+                <option value="video">video</option>
+              </select>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={() => {
+                  if (!newAttachment.title.trim() || !newAttachment.url.trim()) return;
+                  setAttachments((prev) => [...prev, newAttachment]);
+                  setNewAttachment({ title: '', url: '', type: 'link' });
+                  markDirty();
+                }}
+              >
+                <Plus size={11} />
+              </Button>
+            </div>
+            {attachments.map((a, i) => (
+              <div key={i} className="flex items-center gap-2 py-1.5 border-t border-[var(--border-subtle)] text-[12px]">
+                <span className="font-mono text-[10px] uppercase text-[var(--ds-text-3)] w-[44px]">{a.type}</span>
+                <span className="font-medium truncate flex-1">{a.title}</span>
+                <button type="button" onClick={() => { setAttachments((p) => p.filter((_, idx) => idx !== i)); markDirty(); }} className="size-6 rounded-[5px] hover:bg-[var(--danger-bg)] text-[var(--ds-text-3)] hover:text-[var(--danger)] flex items-center justify-center">
+                  <Trash2 size={11} />
+                </button>
+              </div>
+            ))}
+          </div>
+
+          {/* Tags */}
+          <div className="border-t border-[var(--border-subtle)] pt-3">
+            <div className="text-[12.5px] font-medium mb-2">Tags</div>
+            <div className="flex items-center gap-2 mb-2">
+              <Input
+                value={newTag}
+                onChange={(e) => setNewTag(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    if (newTag.trim() && !tags.includes(newTag.trim())) {
+                      setTags((p) => [...p, newTag.trim()]);
+                      setNewTag('');
+                      markDirty();
+                    }
+                  }
+                }}
+                placeholder="Add tag…"
+                className="h-8 text-[13px]"
+              />
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              {tags.map((t) => (
+                <button key={t} type="button" onClick={() => { setTags((p) => p.filter((x) => x !== t)); markDirty(); }} className="inline-flex items-center gap-1 h-6 px-2 rounded-[5px] bg-[var(--surface-soft)] text-[12px] text-[var(--ds-text-2)] hover:bg-[var(--danger-bg)] hover:text-[var(--danger)]">
+                  {t}
+                  <Trash2 size={9} />
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Misc */}
+          <div className="grid grid-cols-2 gap-3 border-t border-[var(--border-subtle)] pt-3">
+            <Field label="Expires at" hint="Optional">
+              <Input type="datetime-local" value={expiresAt} onChange={(e) => { setExpiresAt(e.target.value); markDirty(); }} />
+            </Field>
+            <div className="flex flex-col gap-2 justify-end">
+              <label className="flex items-center gap-2 text-[12.5px]">
+                <input type="checkbox" checked={pinned} onChange={(e) => { setPinned(e.target.checked); markDirty(); }} />
+                Pinned to top
               </label>
-              
-              <label htmlFor="create-announcement-featured" className="flex items-center gap-2 cursor-pointer">
-                <input
-                  id="create-announcement-featured"
-                  type="checkbox"
-                  name="featured"
-                  checked={form.featured}
-                  onChange={handleChange}
-                  className="h-4 w-4 rounded border-gray-300 text-purple-600 focus:ring-purple-500"
-                />
-                <Star className="h-4 w-4 text-purple-600" />
-                <span className="text-sm font-medium text-gray-700">Featured</span>
+              <label className="flex items-center gap-2 text-[12.5px]">
+                <input type="checkbox" checked={featured} onChange={(e) => { setFeatured(e.target.checked); markDirty(); }} />
+                Featured on home
               </label>
             </div>
-          </CardContent>
-        </Card>
+          </div>
+        </DSCard>
 
-        {/* Advanced Options Toggle */}
-        <Button
-          type="button"
-          variant="outline"
-          className="w-full"
-          onClick={() => setShowAdvanced(!showAdvanced)}
-        >
-          {showAdvanced ? <ChevronUp className="h-4 w-4 mr-2" /> : <ChevronDown className="h-4 w-4 mr-2" />}
-          {showAdvanced ? 'Hide' : 'Show'} Advanced Options
-        </Button>
-
-        {showAdvanced && (
-          <>
-            {/* Images */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <ImageIcon className="h-5 w-5 text-amber-600" />
-                  Images
-                </CardTitle>
-                <CardDescription>Cover image and gallery</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="space-y-2">
-                  <label htmlFor="create-announcement-image-url" className="text-sm font-medium text-gray-700">Cover Image URL</label>
-                  <Input
-                    id="create-announcement-image-url"
-                    name="imageUrl"
-                    value={form.imageUrl}
-                    onChange={handleChange}
-                    placeholder="https://example.com/image.jpg"
+        <div className="lg:col-span-5">
+          <DSCard padded={false} className="sticky top-[72px]">
+            <div className="px-4 h-9 border-b border-[var(--border-subtle)] flex items-center justify-between bg-[var(--bg-sunken)]">
+              <span className="text-[11.5px] font-medium text-[var(--ds-text-3)]">Live preview</span>
+              <span className="text-[10.5px] font-mono text-[var(--ds-text-3)]">/announcements/{slug || '…'}</span>
+            </div>
+            <div className="p-5 max-h-[640px] overflow-y-auto">
+              <div className="flex items-center gap-2 mb-2 flex-wrap">
+                <Pill tone={priority === 'URGENT' ? 'danger' : priority === 'HIGH' ? 'warning' : priority === 'MEDIUM' ? 'info' : 'neutral'} size="xs">{priority}</Pill>
+                {pinned && <Pill tone="accent" size="xs">Pinned</Pill>}
+                {featured && <Pill tone="warning" size="xs">Featured</Pill>}
+                <span className="text-[11.5px] text-[var(--ds-text-3)] font-mono tabular-nums">just now</span>
+              </div>
+              <h3 className="text-[18px] font-semibold tracking-tight leading-tight">{title || 'Title goes here'}</h3>
+              {shortDescription && <p className="text-[13px] text-[var(--ds-text-2)] mt-2 leading-relaxed">{shortDescription}</p>}
+              {imageUrl && !coverPreviewError && (
+                <div className="mt-3 rounded-[10px] overflow-hidden">
+                  <img
+                    src={imageUrl}
+                    alt=""
+                    className="w-full h-auto"
+                    loading="lazy"
+                    onError={() => setCoverPreviewError(true)}
                   />
-                  {form.imageUrl && !coverPreviewError && (
-                    <div className="mt-2 relative rounded-lg overflow-hidden">
-                      <img
-                        src={form.imageUrl}
-                        alt="Cover preview"
-                        className="w-full h-40 object-cover"
-                        onError={() => setCoverPreviewError(true)}
-                      />
-                    </div>
-                  )}
-                  {coverPreviewError && (
-                    <p className="text-sm text-amber-700">Preview unavailable for this image URL.</p>
-                  )}
                 </div>
-
-                <div className="space-y-2">
-                  <label htmlFor="create-announcement-gallery-url" className="text-sm font-medium text-gray-700">Image Gallery</label>
-                  <div className="flex gap-2">
-                    <Input
-                      id="create-announcement-gallery-url"
-                      value={newGalleryUrl}
-                      onChange={(e) => setNewGalleryUrl(e.target.value)}
-                      placeholder="https://example.com/image.jpg"
-                      onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), addGalleryImage())}
-                    />
-                    <Button type="button" onClick={addGalleryImage} variant="outline">
-                      <Plus className="h-4 w-4" />
-                    </Button>
-                  </div>
-                  {form.imageGallery.length > 0 && (
-                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 mt-2">{/* responsive: 2 cols on mobile */}
-                      {form.imageGallery.map((url, index) => (
-                        <div key={index} className="relative group">
-                          <img
-                            src={url}
-                            alt={`Gallery ${index + 1}`}
-                            className="w-full h-20 object-cover rounded-lg"
-                          />
-                          <button
-                            type="button"
-                            onClick={() => removeGalleryImage(index)}
-                            className="absolute top-1 right-1 p-1 bg-red-500 text-white rounded-full opacity-0 group-hover:opacity-100 transition-opacity"
-                          >
-                            <Trash2 className="h-3 w-3" />
-                          </button>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Tags */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Tag className="h-5 w-5 text-amber-600" />
-                  Tags
-                </CardTitle>
-                <CardDescription>Add tags for categorization</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="flex gap-2">
-                  <Input
-                    value={newTag}
-                    onChange={(e) => setNewTag(e.target.value)}
-                    placeholder="Add a tag..."
-                    onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), addTag())}
-                  />
-                  <Button type="button" onClick={addTag} variant="outline">
-                    <Plus className="h-4 w-4" />
-                  </Button>
-                </div>
-                {form.tags.length > 0 && (
-                  <div className="flex flex-wrap gap-2">
-                    {form.tags.map((tag) => (
-                      <span
-                        key={tag}
-                        className="inline-flex items-center gap-1 px-3 py-1 bg-amber-100 text-amber-700 rounded-full text-sm"
-                      >
-                        {tag}
-                        <button
-                          type="button"
-                          onClick={() => removeTag(tag)}
-                          className="hover:text-amber-900"
-                        >
-                          <Trash2 className="h-3 w-3" />
-                        </button>
-                      </span>
+              )}
+              <div className="mt-4 text-[13px] text-[var(--ds-text-2)] prose prose-sm max-w-none">
+                {body.trim() ? <Markdown>{body}</Markdown> : <em className="text-[var(--ds-text-3)]">Markdown body renders here…</em>}
+              </div>
+              {links.length > 0 && (
+                <div className="mt-4 pt-4 border-t border-[var(--border-subtle)]">
+                  <div className="text-[11px] uppercase tracking-[0.06em] font-semibold text-[var(--ds-text-3)] mb-2">Links</div>
+                  <ul className="space-y-1 text-[12.5px]">
+                    {links.map((l, i) => (
+                      <li key={i}>
+                        <a href={l.url} target="_blank" rel="noreferrer" className="text-[var(--accent)] hover:underline">{l.title}</a>
+                      </li>
                     ))}
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-
-            {/* Attachments */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <FileText className="h-5 w-5 text-amber-600" />
-                  Attachments
-                </CardTitle>
-                <CardDescription>Add downloadable files or documents</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                  <Input
-                    value={newAttachment.title}
-                    onChange={(e) => setNewAttachment(prev => ({ ...prev, title: e.target.value }))}
-                    placeholder="Title"
-                  />
-                  <Input
-                    value={newAttachment.url}
-                    onChange={(e) => setNewAttachment(prev => ({ ...prev, url: e.target.value }))}
-                    placeholder="URL"
-                  />
-                  <div className="flex gap-2">
-                    <select
-                      value={newAttachment.type}
-                      onChange={(e) => setNewAttachment(prev => ({ ...prev, type: e.target.value }))}
-                      className="flex-1 h-10 px-3 py-2 border border-input rounded-md bg-background text-sm"
-                    >
-                      <option value="link">Link</option>
-                      <option value="pdf">PDF</option>
-                      <option value="doc">Document</option>
-                      <option value="other">Other</option>
-                    </select>
-                    <Button type="button" onClick={addAttachment} variant="outline">
-                      <Plus className="h-4 w-4" />
-                    </Button>
-                  </div>
+                  </ul>
                 </div>
-                {form.attachments.length > 0 && (
-                  <div className="space-y-2">
-                    {form.attachments.map((att, index) => (
-                      <div key={index} className="flex items-center gap-2 p-2 bg-gray-50 rounded-lg">
-                        <FileText className="h-4 w-4 text-gray-500" />
-                        <span className="font-medium text-sm flex-1">{att.title}</span>
-                        <span className="text-xs text-gray-500 uppercase">{att.type}</span>
-                        <button
-                          type="button"
-                          onClick={() => removeAttachment(index)}
-                          className="text-red-500 hover:text-red-700"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-
-            {/* Related Links */}
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <LinkIcon className="h-5 w-5 text-amber-600" />
-                  Related Links
-                </CardTitle>
-                <CardDescription>Add external links</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                  <Input
-                    value={newLink.title}
-                    onChange={(e) => setNewLink(prev => ({ ...prev, title: e.target.value }))}
-                    placeholder="Link title"
-                  />
-                  <div className="flex gap-2">
-                    <Input
-                      value={newLink.url}
-                      onChange={(e) => setNewLink(prev => ({ ...prev, url: e.target.value }))}
-                      placeholder="https://..."
-                    />
-                    <Button type="button" onClick={addLink} variant="outline">
-                      <Plus className="h-4 w-4" />
-                    </Button>
-                  </div>
-                </div>
-                {form.links.length > 0 && (
-                  <div className="space-y-2">
-                    {form.links.map((link, index) => (
-                      <div key={index} className="flex items-center gap-2 p-2 bg-gray-50 rounded-lg">
-                        <LinkIcon className="h-4 w-4 text-gray-500" />
-                        <span className="font-medium text-sm flex-1">{link.title}</span>
-                        <a href={link.url} target="_blank" rel="noopener noreferrer" className="text-xs text-amber-600 hover:underline truncate max-w-[150px]">
-                          {link.url}
-                        </a>
-                        <button
-                          type="button"
-                          onClick={() => removeLink(index)}
-                          className="text-red-500 hover:text-red-700"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          </>
-        )}
-
-        {/* Submit Buttons */}
-        <div className="flex gap-4">
-          <Button type="submit" className="flex-1" disabled={loading}>
-            {loading ? (
-              <>
-                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                Publishing...
-              </>
-            ) : (
-              'Publish Announcement'
-            )}
-          </Button>
-          <Link to="/dashboard/announcements" className="flex-1">
-            <Button type="button" variant="outline" className="w-full">
-              Cancel
-            </Button>
-          </Link>
+              )}
+            </div>
+          </DSCard>
         </div>
-      </form>
+      </div>
     </div>
   );
 }

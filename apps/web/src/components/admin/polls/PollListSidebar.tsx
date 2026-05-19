@@ -41,14 +41,14 @@ export function PollListSidebar({
 }: PollListSidebarProps) {
   return (
     <div className="space-y-4">
-      <Card className="border-gray-200 shadow-sm">
+      <Card className="border-[var(--border-subtle)] shadow-sm">
         <CardHeader>
           <CardTitle className="text-lg text-gray-950">Find polls</CardTitle>
           <CardDescription>Filter by state, anonymity, or text inside the question.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="relative">
-            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--ds-text-3)]" />
             <Input
               value={search}
               onChange={(event) => onSearchChange(event.target.value)}
@@ -93,14 +93,14 @@ export function PollListSidebar({
 
       <div className="space-y-3">
         {loading ? (
-          <Card className="border-gray-200 shadow-sm">
+          <Card className="border-[var(--border-subtle)] shadow-sm">
             <CardContent className="flex items-center justify-center py-12">
               <Loader2 className="h-6 w-6 animate-spin text-amber-600" />
             </CardContent>
           </Card>
         ) : polls.length === 0 ? (
-          <Card className="border-gray-200 shadow-sm">
-            <CardContent className="py-10 text-center text-sm text-gray-500">
+          <Card className="border-[var(--border-subtle)] shadow-sm">
+            <CardContent className="py-10 text-center text-sm text-[var(--ds-text-3)]">
               No polls matched the current filters.
             </CardContent>
           </Card>
@@ -111,8 +111,8 @@ export function PollListSidebar({
               type="button"
               onClick={() => onSelectPoll(poll.id)}
               className={cn(
-                'w-full rounded-xl border bg-white p-4 text-left shadow-sm transition-colors hover:border-amber-300',
-                selectedPollId === poll.id ? 'border-amber-400 ring-2 ring-amber-100' : 'border-gray-200',
+                'w-full rounded-xl border bg-white p-4 text-left shadow-sm transition-colors hover:border-[var(--warning-border)]',
+                selectedPollId === poll.id ? 'border-amber-400 ring-2 ring-amber-100' : 'border-[var(--border-subtle)]',
               )}
             >
               <div className="flex flex-wrap items-center gap-2">
@@ -125,12 +125,12 @@ export function PollListSidebar({
               </div>
               <div className="mt-3 space-y-2">
                 <div className="font-semibold text-gray-950">{poll.question}</div>
-                <div className="grid grid-cols-3 gap-2 text-xs text-gray-500">
+                <div className="grid grid-cols-3 gap-2 text-xs text-[var(--ds-text-3)]">
                   <div>{poll.totalVotes} votes</div>
                   <div>{poll.totalFeedback} feedback</div>
                   <div>{poll.optionCount} options</div>
                 </div>
-                <div className="text-xs text-gray-500">Updated {formatDateTime(poll.updatedAt)}</div>
+                <div className="text-xs text-[var(--ds-text-3)]">Updated {formatDateTime(poll.updatedAt)}</div>
               </div>
             </button>
           ))

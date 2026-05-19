@@ -1,46 +1,40 @@
-import { Shield } from 'lucide-react';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Calendar } from 'lucide-react';
+import { Field } from '@/components/dash';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import type { Settings } from '@/lib/api';
+import { SettingsCard } from './SettingsCard';
 import { ToggleRow } from './ToggleRow';
 
 interface RegistrationEventsCardProps {
   settings: Settings;
   onChange: (next: Settings) => void;
+  lastSavedAt?: number | null;
 }
 
-export function RegistrationEventsCard({ settings, onChange }: RegistrationEventsCardProps) {
+export function RegistrationEventsCard({ settings, onChange, lastSavedAt }: RegistrationEventsCardProps) {
   return (
-    <Card className="border-amber-100">
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <Shield className="h-5 w-5 text-amber-600" />
-          Registration &amp; Events
-        </CardTitle>
-        <CardDescription>Control event registration settings</CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        <ToggleRow
-          id="registration-open"
-          label="Event Registration"
-          description="Allow users to register for events"
-          checked={settings.registrationOpen}
-          onCheckedChange={(checked) => onChange({ ...settings, registrationOpen: checked })}
+    <SettingsCard
+      title="Registration & events"
+      description="Control event registration limits and behavior club-wide."
+      icon={Calendar}
+      lastSavedAt={lastSavedAt}
+    >
+      <ToggleRow
+        id="registration-open"
+        label="Event registration"
+        description="Allow users to register for events."
+        checked={settings.registrationOpen}
+        onCheckedChange={(checked) => onChange({ ...settings, registrationOpen: checked })}
+      />
+      <Field label="Max events per user" hint="Concurrent registrations cap (1–50)">
+        <Input
+          type="number"
+          min="1"
+          max="50"
+          value={settings.maxEventsPerUser}
+          onChange={(e) => onChange({ ...settings, maxEventsPerUser: parseInt(e.target.value, 10) || 5 })}
         />
-        <div className="space-y-2">
-          <Label htmlFor="max-events-per-user">Max Events Per User</Label>
-          <Input
-            id="max-events-per-user"
-            type="number"
-            min="1"
-            max="50"
-            value={settings.maxEventsPerUser}
-            onChange={(e) => onChange({ ...settings, maxEventsPerUser: parseInt(e.target.value) || 5 })}
-          />
-          <p className="text-xs text-gray-500">Maximum number of concurrent event registrations per user (1-50)</p>
-        </div>
-      </CardContent>
-    </Card>
+      </Field>
+    </SettingsCard>
   );
 }

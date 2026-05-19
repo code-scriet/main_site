@@ -223,9 +223,9 @@ export default function QuizPage() {
   if (accessChecking) {
     return (
       <Layout>
-        <div className="min-h-[70vh] flex items-center justify-center bg-gradient-to-br from-amber-50 to-orange-50">
+        <div data-dashboard="true" data-accent="rust" className="min-h-[70vh] flex items-center justify-center bg-[var(--bg-canvas)] text-[var(--ds-text-1)]">
           <div className="text-center space-y-4">
-            <Loader2 className="h-10 w-10 mx-auto text-amber-600 animate-spin" />
+            <Loader2 className="h-10 w-10 mx-auto text-[var(--accent)] animate-spin" />
             <p className="text-gray-600">Verifying access...</p>
           </div>
         </div>
@@ -237,11 +237,11 @@ export default function QuizPage() {
   if (!accessGranted) {
     return (
       <Layout>
-        <div className="min-h-[70vh] flex items-center justify-center bg-gradient-to-br from-amber-50 to-orange-50">
+        <div data-dashboard="true" data-accent="rust" className="min-h-[70vh] flex items-center justify-center bg-[var(--bg-canvas)] text-[var(--ds-text-1)]">
           <motion.div
             initial={{ opacity: 0, scale: 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
-            className="text-center space-y-6 p-8 max-w-md bg-white rounded-2xl shadow-xl border border-amber-200"
+            className="text-center space-y-6 p-8 max-w-md bg-white rounded-2xl shadow-xl border border-[var(--accent-ring)]"
           >
             <div className="w-16 h-16 mx-auto rounded-full bg-red-50 flex items-center justify-center">
               <Lock className="h-8 w-8 text-red-400" />
@@ -252,7 +252,7 @@ export default function QuizPage() {
             </p>
             <Button
               onClick={() => navigate('/quiz')}
-              className="bg-amber-600 hover:bg-amber-700 w-full"
+              className="bg-[var(--accent)] hover:bg-[var(--accent-hover)] w-full"
               size="lg"
             >
               Go to Quiz Hub
@@ -267,12 +267,12 @@ export default function QuizPage() {
   if (kicked) {
     return (
       <Layout>
-        <div className="min-h-[70vh] flex items-center justify-center bg-gradient-to-br from-amber-50 to-orange-50">
+        <div data-dashboard="true" data-accent="rust" className="min-h-[70vh] flex items-center justify-center bg-[var(--bg-canvas)] text-[var(--ds-text-1)]">
           <div className="text-center space-y-4 p-8 max-w-sm">
             <AlertCircle className="h-12 w-12 mx-auto text-red-400" />
             <h2 className="text-xl font-bold text-gray-700">You've been removed</h2>
             <p className="text-sm text-gray-500">The host removed you from this quiz.</p>
-            <Button onClick={() => navigate('/quiz')} className="bg-amber-600 hover:bg-amber-700">
+            <Button onClick={() => navigate('/quiz')} className="bg-[var(--accent)] hover:bg-[var(--accent-hover)]">
               Back to Quizzes
             </Button>
           </div>
@@ -285,7 +285,7 @@ export default function QuizPage() {
   if (socketStatus === 'disconnected') {
     return (
       <Layout>
-        <div className="min-h-[70vh] flex items-center justify-center bg-gradient-to-br from-amber-50 to-orange-50">
+        <div data-dashboard="true" data-accent="rust" className="min-h-[70vh] flex items-center justify-center bg-[var(--bg-canvas)] text-[var(--ds-text-1)]">
           <div className="text-center space-y-4 p-8">
             <WifiOff className="h-12 w-12 mx-auto text-gray-400" />
             <h2 className="text-xl font-bold text-gray-700">Disconnected</h2>
@@ -302,7 +302,7 @@ export default function QuizPage() {
       (quizError.code === 'QUIZ_ENDED' || quizError.message.toLowerCase().includes('ended'));
     return (
       <Layout>
-        <div className="min-h-[70vh] flex items-center justify-center bg-gradient-to-br from-amber-50 to-orange-50">
+        <div data-dashboard="true" data-accent="rust" className="min-h-[70vh] flex items-center justify-center bg-[var(--bg-canvas)] text-[var(--ds-text-1)]">
           <div className="text-center space-y-4 p-8 max-w-sm">
             <AlertCircle className="h-12 w-12 mx-auto text-red-400" />
             <h2 className="text-xl font-bold text-gray-700">Cannot Join Quiz</h2>
@@ -312,12 +312,12 @@ export default function QuizPage() {
                 <Button
                   variant="outline"
                   onClick={() => navigate(`/quiz/${quizId}/results`)}
-                  className="border-amber-300 text-amber-700 hover:bg-amber-50"
+                  className="border-[var(--accent-ring)] text-[var(--ds-text-2)] hover:bg-[var(--accent-subtle)]"
                 >
                   View Results
                 </Button>
               )}
-              <Button onClick={() => navigate('/quiz')} className="bg-amber-600 hover:bg-amber-700">
+              <Button onClick={() => navigate('/quiz')} className="bg-[var(--accent)] hover:bg-[var(--accent-hover)]">
                 Back to Quizzes
               </Button>
             </div>
@@ -330,9 +330,9 @@ export default function QuizPage() {
   if (socketStatus === 'connecting' || quizStatus === 'idle' || quizStatus === 'joining') {
     return (
       <Layout>
-        <div className="min-h-[70vh] flex items-center justify-center bg-gradient-to-br from-amber-50 to-orange-50">
+        <div data-dashboard="true" data-accent="rust" className="min-h-[70vh] flex items-center justify-center bg-[var(--bg-canvas)] text-[var(--ds-text-1)]">
           <div className="text-center space-y-4 p-8">
-            <Loader2 className="h-10 w-10 mx-auto text-amber-600 animate-spin" />
+            <Loader2 className="h-10 w-10 mx-auto text-[var(--accent)] animate-spin" />
             <h2 className="text-lg font-medium text-gray-700">
               {isHost ? 'Opening host controls...' : 'Joining quiz...'}
             </h2>
@@ -378,9 +378,9 @@ export default function QuizPage() {
   // =====================================================
   return (
     <Layout>
-      <div className="min-h-screen bg-gradient-to-br from-amber-50 to-orange-50">
+      <div data-dashboard="true" data-accent="rust" className="min-h-screen bg-[var(--bg-canvas)] text-[var(--ds-text-1)]">
       {/* Top bar */}
-      <div className="sticky top-under-header z-40 bg-white/80 backdrop-blur-md border-b border-amber-200">
+      <div className="sticky top-under-header z-40 bg-[var(--bg-raised)]/80 backdrop-blur-md border-b border-[var(--border-subtle)]">
         <div className="max-w-4xl mx-auto px-4 py-3 flex items-center justify-between">
           <Button
             variant="ghost"
@@ -391,7 +391,7 @@ export default function QuizPage() {
             <ArrowLeft className="h-4 w-4 mr-1" />
             Back
           </Button>
-          <h1 className="text-lg font-bold text-amber-900 truncate max-w-[50%]">{title}</h1>
+          <h1 className="text-lg font-bold text-[var(--ds-text-1)] truncate max-w-[50%]">{title}</h1>
           <div className="w-16" /> {/* Spacer for centering */}
         </div>
       </div>
@@ -429,9 +429,9 @@ export default function QuizPage() {
                 animate={{ scale: [1, 1.05, 1] }}
                 transition={{ repeat: Infinity, duration: 2 }}
               >
-                <Loader2 className="h-16 w-16 mx-auto text-amber-500" />
+                <Loader2 className="h-16 w-16 mx-auto text-[var(--accent)]" />
               </motion.div>
-              <h2 className="text-2xl font-bold text-amber-900">Quiz Paused</h2>
+              <h2 className="text-2xl font-bold text-[var(--ds-text-1)]">Quiz Paused</h2>
               <p className="text-gray-600">The host has paused the quiz. Hang tight!</p>
             </motion.div>
           )}
@@ -545,33 +545,33 @@ function FinalResults({
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 0.2 }}
         >
-          <Card className="border-2 border-amber-300 shadow-xl overflow-hidden">
-            <CardContent className="p-6 sm:p-8 bg-gradient-to-br from-amber-50 to-orange-50">
+          <Card className="border-2 border-[var(--accent-ring)] shadow-xl overflow-hidden">
+            <CardContent className="p-6 sm:p-8 bg-gradient-to-br from-[var(--accent)] to-[var(--accent-hover)]">
               {/* Rank + contextual message */}
               <div className="text-center mb-4">
                 <p className="text-4xl mb-1">{contextMsg.emoji}</p>
-                <p className="text-3xl sm:text-4xl font-black text-amber-900 tabular-nums font-display">
+                <p className="text-3xl sm:text-4xl font-black text-[var(--ds-text-1)] tabular-nums font-display">
                   {ordinal(myEntry.rank)}
                 </p>
-                <p className="text-sm text-amber-700/60 font-medium">out of {leaderboard.length} players</p>
-                <p className="text-sm text-amber-800 mt-1 font-medium">{contextMsg.text}</p>
+                <p className="text-sm text-[var(--ds-text-2)]/60 font-medium">out of {leaderboard.length} players</p>
+                <p className="text-sm text-[var(--ds-text-1)] mt-1 font-medium">{contextMsg.text}</p>
               </div>
 
               {/* Stats row */}
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-4">{/* responsive: stack on mobile */}
                 <div className="text-center p-3 bg-white/60 rounded-xl">
-                  <p className="text-2xl font-black text-amber-800 tabular-nums">{myEntry.score}</p>
-                  <p className="text-xs text-amber-700/50 font-semibold uppercase tracking-wide">Points</p>
+                  <p className="text-2xl font-black text-[var(--ds-text-1)] tabular-nums">{myEntry.score}</p>
+                  <p className="text-xs text-[var(--ds-text-2)]/50 font-semibold uppercase tracking-wide">Points</p>
                 </div>
                 <div className="text-center p-3 bg-white/60 rounded-xl">
-                  <p className="text-2xl font-black text-amber-800 tabular-nums">{accuracy}%</p>
-                  <p className="text-xs text-amber-700/50 font-semibold uppercase tracking-wide">Accuracy</p>
+                  <p className="text-2xl font-black text-[var(--ds-text-1)] tabular-nums">{accuracy}%</p>
+                  <p className="text-xs text-[var(--ds-text-2)]/50 font-semibold uppercase tracking-wide">Accuracy</p>
                 </div>
                 <div className="text-center p-3 bg-white/60 rounded-xl">
-                  <p className="text-2xl font-black text-amber-800 tabular-nums">
+                  <p className="text-2xl font-black text-[var(--ds-text-1)] tabular-nums">
                     {myEntry.correctCount}/{totalQuestions}
                   </p>
-                  <p className="text-xs text-amber-700/50 font-semibold uppercase tracking-wide">Correct</p>
+                  <p className="text-xs text-[var(--ds-text-2)]/50 font-semibold uppercase tracking-wide">Correct</p>
                 </div>
               </div>
 
@@ -581,7 +581,7 @@ function FinalResults({
                   variant="outline"
                   size="sm"
                   onClick={handleCopyResult}
-                  className="border-amber-300 text-amber-700 hover:bg-amber-100"
+                  className="border-[var(--accent-ring)] text-[var(--ds-text-2)] hover:bg-[var(--accent-subtle)]"
                 >
                   {copied ? (
                     <><Check className="h-4 w-4 mr-1.5" /> Copied!</>
@@ -606,14 +606,14 @@ function FinalResults({
       <div className="pt-4 flex flex-col items-center gap-3">
         <Button
           onClick={() => navigate(`/quiz/${quizId}/results`)}
-          className="bg-gradient-to-r from-orange-500 to-amber-600 hover:from-orange-600 hover:to-amber-700 text-white shadow-lg px-8"
+          className="bg-gradient-to-r from-[var(--accent)]0 to-[var(--accent-hover)] hover:from-[var(--accent)] hover:to-[var(--accent-hover)] text-white shadow-lg px-8"
           size="lg"
         >
           View Full Results
           <ArrowRight className="h-4 w-4 ml-2" />
         </Button>
         {!isHost && redirectState === 'navigating' && (
-          <p className="text-xs text-amber-600/60 font-medium tabular-nums">
+          <p className="text-xs text-[var(--accent)]/60 font-medium tabular-nums">
             Opening full results…
           </p>
         )}
@@ -627,7 +627,7 @@ function FinalResults({
             onClick={() => navigate('/dashboard')}
             variant="ghost"
             size="sm"
-            className="text-amber-700/60 hover:text-amber-700"
+            className="text-[var(--ds-text-2)]/60 hover:text-[var(--ds-text-2)]"
           >
             <LayoutDashboard className="h-3.5 w-3.5 mr-1.5" />
             Dashboard
@@ -636,7 +636,7 @@ function FinalResults({
             onClick={() => navigate('/quiz')}
             variant="ghost"
             size="sm"
-            className="text-amber-700/60 hover:text-amber-700"
+            className="text-[var(--ds-text-2)]/60 hover:text-[var(--ds-text-2)]"
           >
             <Home className="h-3.5 w-3.5 mr-1.5" />
             Quizzes

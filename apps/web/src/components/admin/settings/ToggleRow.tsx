@@ -19,12 +19,20 @@ export function ToggleRow({
   compact = false,
 }: ToggleRowProps) {
   return (
-    <div className={`flex items-center justify-between rounded-lg border border-amber-100 ${compact ? 'bg-white p-3' : 'bg-amber-50 p-4'}`}>
+    <div
+      className={`flex items-center justify-between rounded-[8px] border border-[var(--border-default)] ${
+        compact ? 'bg-[var(--bg-raised)] p-3' : 'bg-[var(--surface-soft)] p-4'
+      }`}
+    >
       <div className="pr-4">
-        <Label htmlFor={id} className="font-medium text-amber-900">
+        <Label htmlFor={id} className="font-medium text-[var(--ds-text-1)]">
           {label}
         </Label>
-        <p className={`mt-1 ${compact ? 'text-xs text-gray-400' : 'text-sm text-gray-500'}`}>{description}</p>
+        <p
+          className={`mt-1 ${compact ? 'text-[11.5px] text-[var(--ds-text-3)]' : 'text-[13px] text-[var(--ds-text-2)]'}`}
+        >
+          {description}
+        </p>
       </div>
       <Switch
         id={id}

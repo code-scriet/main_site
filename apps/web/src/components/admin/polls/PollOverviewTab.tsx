@@ -15,22 +15,22 @@ export function PollOverviewTab({ poll }: { poll: AdminPollDetail }) {
       </div>
 
       {poll.options.length === 0 ? (
-        <Card className="border-gray-200 shadow-none">
-          <CardContent className="py-8 text-sm text-gray-600">
+        <Card className="border-[var(--border-subtle)] shadow-none">
+          <CardContent className="py-8 text-sm text-[var(--ds-text-2)]">
             This is a question-type poll. Participants submit free-text questions in the feedback area, and no option voting is collected.
           </CardContent>
         </Card>
       ) : (
         <div className="space-y-3">
           {poll.options.map((option) => (
-            <div key={option.id} className="rounded-xl border border-gray-200 bg-white px-4 py-4">
+            <div key={option.id} className="rounded-xl border border-[var(--border-subtle)] bg-white px-4 py-4">
               <div className="flex items-center justify-between gap-3">
-                <div className="font-medium text-gray-900">{option.text}</div>
-                <div className="text-sm text-gray-500">
+                <div className="font-medium text-[var(--ds-text-1)]">{option.text}</div>
+                <div className="text-sm text-[var(--ds-text-3)]">
                   {option.voteCount} votes · {option.percentage}%
                 </div>
               </div>
-              <div className="mt-3 h-2 overflow-hidden rounded-full bg-gray-100">
+              <div className="mt-3 h-2 overflow-hidden rounded-full bg-[var(--surface-soft)]">
                 <div
                   className="h-full rounded-full bg-amber-500"
                   style={{ width: `${Math.max(option.percentage, option.voteCount > 0 ? 4 : 0)}%` }}

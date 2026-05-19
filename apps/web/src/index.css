@@ -703,3 +703,312 @@ html.dark [class~="via-orange-500"] {
   will-change: transform, opacity;
   backface-visibility: hidden;
 }
+
+/* ─────────────────────────────────────────────────────────────
+ * Dashboard v2 design tokens (scoped to [data-dashboard])
+ * Public-site styles above stay untouched. The dashboard layout
+ * wrapper carries data-dashboard, so every var below cascades only
+ * into the dashboard subtree.
+ *
+ * Source of truth: code-scriet-innerdashboard/project/js/tokens.css.
+ * Anything you change here changes only the dashboard.
+ * ──────────────────────────────────────────────────────────── */
+
+[data-dashboard] {
+  --radius-sm: 6px;
+  --radius: 10px;
+  --radius-lg: 14px;
+  --radius-xl: 18px;
+
+  --fs-xs: 12px;
+  --fs-sm: 13px;
+  --fs-base: 14px;
+  --fs-md: 15px;
+  --fs-lg: 17px;
+  --fs-xl: 22px;
+  --fs-2xl: 30px;
+  --fs-3xl: 40px;
+
+  --ease-out: cubic-bezier(.22,.61,.36,1);
+  --ease-spring: cubic-bezier(.34,1.56,.64,1);
+  --t-fast: 120ms;
+  --t-base: 180ms;
+  --t-slow: 280ms;
+
+  /* DEFAULT ACCENT — warm rust (matches the brand) */
+  --accent-h: 17;
+  --accent-s: 75%;
+  --accent-l: 55%;
+  --accent: hsl(var(--accent-h) var(--accent-s) var(--accent-l));
+  --accent-hover: hsl(var(--accent-h) var(--accent-s) calc(var(--accent-l) - 6%));
+  --accent-active: hsl(var(--accent-h) var(--accent-s) calc(var(--accent-l) - 12%));
+  --accent-subtle: hsl(var(--accent-h) var(--accent-s) var(--accent-l) / 0.12);
+  --accent-ring: hsl(var(--accent-h) var(--accent-s) var(--accent-l) / 0.45);
+  --accent-fg: #fff;
+
+  /* Light theme — surfaces, borders, text, semantics, roles, shadows */
+  --bg-canvas: #fbfaf8;
+  --bg-sunken: #f4f2ee;
+  --bg-raised: #ffffff;
+  --bg-overlay: rgba(20, 18, 14, 0.42);
+  --bg-inverse: #14110d;
+
+  --surface-soft: #f8f6f2;
+  --surface-elev: #ffffff;
+
+  --border-subtle: rgba(20, 18, 14, 0.06);
+  --border-default: rgba(20, 18, 14, 0.10);
+  --border-strong: rgba(20, 18, 14, 0.18);
+
+  --ds-text-1: #14110d;
+  --ds-text-2: #4a443c;
+  --ds-text-3: #7a7167;
+  --ds-text-inverse: #fbfaf8;
+
+  --success: #1f8a5b;
+  --success-bg: rgba(31, 138, 91, 0.10);
+  --success-border: rgba(31, 138, 91, 0.28);
+  --warning: #c47a14;
+  --warning-bg: rgba(196, 122, 20, 0.10);
+  --warning-border: rgba(196, 122, 20, 0.30);
+  --danger: #d93838;
+  --danger-bg: rgba(217, 56, 56, 0.10);
+  --danger-border: rgba(217, 56, 56, 0.30);
+  --info: #2563eb;
+  --info-bg: rgba(37, 99, 235, 0.10);
+  --info-border: rgba(37, 99, 235, 0.30);
+
+  --role-user-fg: #1d4ed8;     --role-user-bg: rgba(37, 99, 235, 0.10);
+  --role-network-fg: #6d28d9;  --role-network-bg: rgba(139, 92, 246, 0.12);
+  --role-member-fg: #0e7490;   --role-member-bg: rgba(14, 116, 144, 0.10);
+  --role-core-fg: #b45309;     --role-core-bg: rgba(217, 119, 6, 0.12);
+  --role-admin-fg: #be123c;    --role-admin-bg: rgba(225, 29, 72, 0.10);
+  --role-prez-fg: #14110d;     --role-prez-bg: rgba(20, 17, 13, 0.08);
+
+  --shadow-xs: 0 1px 0 rgba(20, 18, 14, .04);
+  --shadow-sm: 0 1px 2px rgba(20, 18, 14, .06), 0 0 0 0.5px rgba(20, 18, 14, .04);
+  --shadow-md: 0 4px 12px -2px rgba(20, 18, 14, .08), 0 1px 3px rgba(20, 18, 14, .04);
+  --shadow-lg: 0 20px 40px -12px rgba(20, 18, 14, .18), 0 4px 12px -4px rgba(20, 18, 14, .08);
+  --shadow-xl: 0 32px 64px -16px rgba(20, 18, 14, .22), 0 12px 24px -8px rgba(20, 18, 14, .10);
+
+  --ds-ring: 0 0 0 2px var(--bg-canvas), 0 0 0 4px var(--accent-ring);
+
+  /* Spacing/density */
+  --sp-card: 20px;
+  --sp-section: 28px;
+  --sp-row: 12px;
+  --row-h: 40px;
+
+  /* shadcn HSL bridge so primitives (Button/Card/Input/etc.) inside the dashboard
+     match the new rust palette without us editing each primitive component. */
+  --background: 36 33% 98%;
+  --foreground: 36 17% 7%;
+  --card: 0 0% 100%;
+  --card-foreground: 36 17% 7%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 36 17% 7%;
+  --primary: var(--accent-h) var(--accent-s) var(--accent-l);
+  --primary-foreground: 0 0% 100%;
+  --secondary: 36 33% 95%;
+  --secondary-foreground: 36 17% 7%;
+  --muted: 36 33% 95%;
+  --muted-foreground: 32 11% 44%;
+  --accent-foreground: 36 17% 7%;
+  --destructive: 0 65% 53%;
+  --destructive-foreground: 0 0% 100%;
+  --border: 36 16% 89%;
+  --input: 36 16% 89%;
+  --ring: var(--accent-h) var(--accent-s) var(--accent-l);
+
+  color-scheme: light;
+}
+
+[data-dashboard][data-accent="teal"]   { --accent-h: 178; --accent-s: 62%; --accent-l: 32%; --accent-fg: #fff; }
+[data-dashboard][data-accent="indigo"] { --accent-h: 240; --accent-s: 99%; --accent-l: 68%; --accent-fg: #fff; }
+[data-dashboard][data-accent="violet"] { --accent-h: 258; --accent-s: 88%; --accent-l: 70%; --accent-fg: #1a0f2e; }
+[data-dashboard][data-accent="mint"]   { --accent-h: 158; --accent-s: 68%; --accent-l: 48%; --accent-fg: #042619; }
+[data-dashboard][data-accent="rust"]   { --accent-h: 17;  --accent-s: 75%; --accent-l: 55%; --accent-fg: #fff; }
+[data-dashboard][data-accent="mono"]   { --accent-h: 0;   --accent-s: 0%;  --accent-l: 12%; --accent-fg: #fff; }
+
+.dark [data-dashboard] {
+  --bg-canvas: #0a0a0b;
+  --bg-sunken: #07070a;
+  --bg-raised: #111114;
+  --bg-overlay: rgba(0, 0, 0, 0.6);
+  --bg-inverse: #fbfaf8;
+
+  --surface-soft: #16161a;
+  --surface-elev: #17171b;
+
+  --border-subtle: rgba(255, 255, 255, 0.05);
+  --border-default: rgba(255, 255, 255, 0.09);
+  --border-strong: rgba(255, 255, 255, 0.16);
+
+  --ds-text-1: #f4f3f0;
+  --ds-text-2: #b8b3ab;
+  --ds-text-3: #7a7167;
+  --ds-text-inverse: #0a0a0b;
+
+  --success: #34d399;
+  --success-bg: rgba(52, 211, 153, 0.12);
+  --success-border: rgba(52, 211, 153, 0.28);
+  --warning: #f5b048;
+  --warning-bg: rgba(245, 176, 72, 0.12);
+  --warning-border: rgba(245, 176, 72, 0.30);
+  --danger: #f56565;
+  --danger-bg: rgba(245, 101, 101, 0.14);
+  --danger-border: rgba(245, 101, 101, 0.30);
+  --info: #60a5fa;
+  --info-bg: rgba(96, 165, 250, 0.14);
+  --info-border: rgba(96, 165, 250, 0.32);
+
+  --role-user-fg: #93c5fd;     --role-user-bg: rgba(96, 165, 250, 0.14);
+  --role-network-fg: #c4b5fd;  --role-network-bg: rgba(167, 139, 250, 0.14);
+  --role-member-fg: #67e8f9;   --role-member-bg: rgba(34, 211, 238, 0.12);
+  --role-core-fg: #fbbf24;     --role-core-bg: rgba(245, 158, 11, 0.14);
+  --role-admin-fg: #fda4af;    --role-admin-bg: rgba(244, 114, 128, 0.14);
+  --role-prez-fg: #f4f3f0;     --role-prez-bg: rgba(255, 255, 255, 0.06);
+
+  --shadow-xs: 0 1px 0 rgba(0, 0, 0, .2);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, .4), 0 0 0 0.5px rgba(255, 255, 255, .04);
+  --shadow-md: 0 8px 24px -8px rgba(0, 0, 0, .55), 0 0 0 0.5px rgba(255, 255, 255, .04);
+  --shadow-lg: 0 24px 48px -16px rgba(0, 0, 0, .65), 0 0 0 0.5px rgba(255, 255, 255, .04);
+  --shadow-xl: 0 40px 80px -24px rgba(0, 0, 0, .7), 0 0 0 0.5px rgba(255, 255, 255, .06);
+
+  /* shadcn HSL bridge — dark theme */
+  --background: 240 5% 5%;
+  --foreground: 40 17% 95%;
+  --card: 240 9% 7%;
+  --card-foreground: 40 17% 95%;
+  --popover: 240 9% 7%;
+  --popover-foreground: 40 17% 95%;
+  --primary: var(--accent-h) var(--accent-s) var(--accent-l);
+  --primary-foreground: 0 0% 100%;
+  --secondary: 240 6% 12%;
+  --secondary-foreground: 40 17% 95%;
+  --muted: 240 6% 12%;
+  --muted-foreground: 32 10% 65%;
+  --accent-foreground: 40 17% 95%;
+  --destructive: 0 65% 60%;
+  --destructive-foreground: 0 0% 100%;
+  --border: 240 5% 14%;
+  --input: 240 5% 14%;
+  --ring: var(--accent-h) var(--accent-s) var(--accent-l);
+
+  color-scheme: dark;
+}
+
+[data-dashboard][data-density="compact"] {
+  --sp-card: 14px;
+  --sp-section: 20px;
+  --sp-row: 8px;
+  --row-h: 34px;
+}
+
+/* Reduced-motion mode */
+[data-dashboard][data-motion="reduced"] *,
+[data-dashboard][data-motion="reduced"] *::before,
+[data-dashboard][data-motion="reduced"] *::after {
+  animation-duration: 0.001ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.001ms !important;
+  scroll-behavior: auto !important;
+}
+
+/* Geist + Geist Mono inside the dashboard only */
+[data-dashboard] {
+  font-family: 'Geist', ui-sans-serif, system-ui, -apple-system, sans-serif;
+  font-size: var(--fs-base);
+  font-feature-settings: 'cv11', 'ss01', 'ss03';
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  background-color: var(--bg-canvas);
+  color: var(--ds-text-1);
+  transition: background-color var(--t-base) var(--ease-out), color var(--t-base) var(--ease-out);
+}
+
+[data-dashboard] .tabular { font-variant-numeric: tabular-nums; }
+[data-dashboard] .mono { font-family: 'Geist Mono', ui-monospace, monospace; font-feature-settings: 'zero', 'ss01'; }
+
+/* Cards primitive (used directly without the React Card) */
+[data-dashboard] .card {
+  background: var(--bg-raised);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+}
+
+/* Headings inside the dashboard get tighter, design-aligned defaults */
+[data-dashboard] h1, [data-dashboard] h2, [data-dashboard] h3, [data-dashboard] h4 {
+  color: var(--ds-text-1);
+  letter-spacing: -0.015em;
+  text-wrap: balance;
+  font-family: 'Geist', ui-sans-serif, system-ui, sans-serif;
+}
+[data-dashboard] h1 { font-weight: 600; line-height: 1.12; }
+[data-dashboard] h2 { font-weight: 600; line-height: 1.2; }
+[data-dashboard] h3 { font-weight: 600; line-height: 1.3; }
+
+/* Frosted backdrop for topbar/popovers */
+[data-dashboard] .frost {
+  background: color-mix(in oklab, var(--bg-canvas) 78%, transparent);
+  -webkit-backdrop-filter: blur(20px) saturate(160%);
+  backdrop-filter: blur(20px) saturate(160%);
+}
+
+[data-dashboard] *:focus { outline: none; }
+[data-dashboard] :is(button, a, [role="button"], input, select, textarea, [tabindex="0"]):focus-visible {
+  box-shadow: var(--ds-ring);
+  border-radius: var(--radius-sm);
+}
+
+[data-dashboard] ::selection { background: var(--accent-subtle); color: var(--ds-text-1); }
+
+[data-dashboard] .dark .card-edge,
+.dark [data-dashboard] .card-edge {
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .04), var(--shadow-sm);
+}
+
+/* Animations */
+@keyframes ds-shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+[data-dashboard] .shimmer {
+  background: linear-gradient(90deg, transparent 0%, rgba(255, 255, 255, .08) 50%, transparent 100%);
+  background-size: 200% 100%;
+  animation: ds-shimmer 1.4s ease-in-out infinite;
+}
+
+@keyframes ds-live-pulse {
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(1.4); opacity: 0.5; }
+}
+[data-dashboard] .live-dot { animation: ds-live-pulse 1.6s ease-in-out infinite; }
+
+@keyframes ds-slow-ping {
+  0% { transform: scale(1); opacity: 1; }
+  80%, 100% { transform: scale(2.2); opacity: 0; }
+}
+[data-dashboard] .slow-ping { animation: ds-slow-ping 2.4s cubic-bezier(0, 0, .2, 1) infinite; }
+
+/* Scrollbar — slim inside the dashboard */
+[data-dashboard] *, [data-dashboard] {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-strong) transparent;
+}
+[data-dashboard] *::-webkit-scrollbar { width: 8px; height: 8px; }
+[data-dashboard] *::-webkit-scrollbar-track { background: transparent; }
+[data-dashboard] *::-webkit-scrollbar-thumb {
+  background: var(--border-default);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+[data-dashboard] *::-webkit-scrollbar-thumb:hover {
+  background: var(--border-strong);
+  background-clip: content-box;
+}
+
+/* Disable page scroll when overlay open */
+body.overlay-open { overflow: hidden; }

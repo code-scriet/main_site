@@ -4,6 +4,17 @@ import { Loader2, ShieldAlert, Check, Plus } from 'lucide-react';
 import { toast } from 'sonner';
 import { useAuth } from '@/context/AuthContext';
 import { api, type PendingCapRequest, type ProblemContextType } from '@/lib/api';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
+import { NumericPromptDialog } from '@/components/dash';
 
 interface PendingCapRequestsTrayProps {
   contextType?: ProblemContextType;
@@ -23,6 +34,8 @@ export function PendingCapRequestsTray({
   const { token } = useAuth();
   const queryClient = useQueryClient();
   const [expanded, setExpanded] = useState(defaultExpanded);
+  const [dismissTarget, setDismissTarget] = useState<PendingCapRequest | null>(null);
+  const [setCapTarget, setSetCapTarget] = useState<PendingCapRequest | null>(null);
 
   const filters = useMemo(
     () => ({ contextType, contextKey }),
@@ -176,15 +189,7 @@ export function PendingCapRequestsTray({
                         <button
                           type="button"
                           disabled={isBusy}
-                          onClick={() => {
-                            const value = window.prompt(
-                              `Set absolute cap for ${request.user.name} on "${request.problem.title}":`,
-                              String(Math.max(request.currentCap, request.used + 1)),
-                            );
-                            const parsed = Number(value);
-                            if (!value || Number.isNaN(parsed) || parsed < 1 || parsed > 100) return;
-                            grantMutation.mutate({ request, mode: 'set', value: Math.floor(parsed) });
-                          }}
+                          onClick={() => setSetCapTarget(request)}
                           className="inline-flex items-center gap-1 rounded-md border border-gray-300 bg-white px-2.5 py-1 text-xs font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-50"
                         >
                           Set…
@@ -192,11 +197,7 @@ export function PendingCapRequestsTray({
                         <button
                           type="button"
                           disabled={isBusy}
-                          onClick={() => {
-                            if (window.confirm('Dismiss this request without granting more submits?')) {
-                              dismissMutation.mutate(request);
-                            }
-                          }}
+                          onClick={() => setDismissTarget(request)}
                           className="inline-flex items-center gap-1 rounded-md border border-gray-300 bg-white px-2.5 py-1 text-xs font-semibold text-gray-500 hover:bg-gray-50 disabled:opacity-50"
                         >
                           <Check className="h-3.5 w-3.5" />
@@ -211,6 +212,50 @@ export function PendingCapRequestsTray({
           </table>
         </div>
       )}
+
+      <AlertDialog open={Boolean(dismissTarget)} onOpenChange={(o) => !o && setDismissTarget(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Dismiss this request?</AlertDialogTitle>
+            <AlertDialogDescription>
+              The user keeps their existing submit cap. They can submit a new request later if they still need more attempts.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={dismissMutation.isPending}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                if (dismissTarget) {
+                  dismissMutation.mutate(dismissTarget);
+                  setDismissTarget(null);
+                }
+              }}
+              disabled={dismissMutation.isPending}
+            >
+              {dismissMutation.isPending ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : null}
+              Dismiss
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <NumericPromptDialog
+        open={Boolean(setCapTarget)}
+        onOpenChange={(o) => !o && setSetCapTarget(null)}
+        title="Set absolute submit cap"
+        description={setCapTarget ? `${setCapTarget.user.name} on "${setCapTarget.problem.title}"` : undefined}
+        label="New cap"
+        defaultValue={setCapTarget ? Math.max(setCapTarget.currentCap, setCapTarget.used + 1) : 1}
+        min={1}
+        max={100}
+        confirmLabel="Grant cap"
+        pending={grantMutation.isPending}
+        onCommit={(value) => {
+          if (!setCapTarget) return;
+          grantMutation.mutate({ request: setCapTarget, mode: 'set', value: Math.floor(value) });
+          setSetCapTarget(null);
+        }}
+      />
     </div>
   );
 }

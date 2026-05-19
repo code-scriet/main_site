@@ -3,6 +3,7 @@ import { Html5Qrcode } from 'html5-qrcode';
 import { useOfflineScanner } from '@/hooks/useOfflineScanner';
 import { api, type AttendanceLiveData, type AttendanceSearchResult } from '@/lib/api';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { DSCard, StatTile } from '@/components/dash';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -573,7 +574,7 @@ export default function AdminScanner({ eventId, token, onEndSession }: AdminScan
       ref={containerRef}
       className={cn(
         'flex flex-col lg:flex-row gap-4 w-full',
-        isFullscreen && 'bg-gray-50 dark:bg-gray-900 p-4 overflow-y-auto',
+        isFullscreen && 'bg-[var(--surface-soft)] dark:bg-gray-900 p-4 overflow-y-auto',
       )}
     >
       {/* ================================================================= */}
@@ -828,49 +829,39 @@ export default function AdminScanner({ eventId, token, onEndSession }: AdminScan
           )}
         </div>
 
-        {/* Stats bar */}
+        {/* Stats strip — compact tiles, matches design line 113-124. */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-          <Card className="p-3">
-            <p className="text-xs text-muted-foreground">Registered</p>
-            <p className="text-xl font-bold">{totalRegistered}</p>
-          </Card>
-          <Card className="p-3">
-            <p className="text-xs text-muted-foreground">Attended</p>
-            <p className="text-xl font-bold text-green-600 dark:text-green-400">{attendedCount}</p>
-          </Card>
-          <Card className="p-3">
-            <p className="text-xs text-muted-foreground">Rate</p>
-            <p className="text-xl font-bold">{attendanceRate}%</p>
-          </Card>
-          <Card className="p-3">
-            <p className="text-xs text-muted-foreground">Pending Sync</p>
-            <p className={`text-xl font-bold ${scanStats.pending > 0 ? 'text-yellow-600 dark:text-yellow-400' : ''}`}>
-              {scanStats.pending}
-            </p>
-          </Card>
+          <StatTile label="Registered" value={totalRegistered} />
+          <StatTile label="Attended" value={attendedCount} delta={`${attendanceRate}%`} />
+          <StatTile label="Rate" value={`${attendanceRate}%`} />
+          <StatTile label="Pending sync" value={scanStats.pending} />
         </div>
 
         {eventDays > 1 && (
-          <Card className="p-3">
-            <p className="text-xs text-muted-foreground mb-2">Day-wise attendance</p>
-            <div className="space-y-1.5">
+          <DSCard padded={false} className="p-3">
+            <p className="text-[10.5px] uppercase tracking-[0.06em] font-semibold text-[var(--ds-text-3)] mb-1.5">Day-wise attendance</p>
+            <div className="flex flex-col gap-0.5">
               {Array.from({ length: eventDays }, (_, index) => index + 1).map((day) => {
                 const count = dayStatsMap.get(day) ?? 0;
                 const label = dayLabels[day - 1] || `Day ${day}`;
+                const isSelected = day === selectedDay;
                 return (
-                  <p
+                  <div
                     key={day}
                     className={cn(
-                      'text-sm',
-                      day === selectedDay ? 'font-semibold text-amber-700 dark:text-amber-300' : 'text-muted-foreground',
+                      'flex items-center justify-between gap-2 text-[12.5px]',
+                      isSelected ? 'font-semibold text-[var(--ds-text-1)]' : 'text-[var(--ds-text-3)]',
                     )}
                   >
-                    {label}: {count}/{totalRegistered}
-                  </p>
+                    <span>{label}</span>
+                    <span className="font-mono tabular-nums">
+                      {count}/{totalRegistered}
+                    </span>
+                  </div>
                 );
               })}
             </div>
-          </Card>
+          </DSCard>
         )}
 
         {/* Sync button (visible when pending) */}

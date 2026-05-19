@@ -5,7 +5,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import type { NetworkProfile, NetworkStatus } from '@/lib/api';
 
 const statusColors: Record<NetworkStatus, string> = {
-  PENDING: 'bg-amber-100 text-amber-700 border-amber-200',
+  PENDING: 'bg-[var(--warning-bg)] text-[var(--warning)] border-[var(--warning-border)]',
   VERIFIED: 'bg-green-100 text-green-700 border-green-200',
   REJECTED: 'bg-red-100 text-red-700 border-red-200',
 };
@@ -50,7 +50,7 @@ export function NetworkProfileCard({
     <Card className="hover:shadow-md transition-shadow">
       <CardContent className="p-4">
         <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
-          <div className="w-14 h-14 rounded-full overflow-hidden flex-shrink-0 bg-amber-100">
+          <div className="w-14 h-14 rounded-full overflow-hidden flex-shrink-0 bg-[var(--warning-bg)]">
             <img
               src={profile.profilePhoto || '/fallback-avatar.svg'}
               alt={profile.fullName}
@@ -63,7 +63,7 @@ export function NetworkProfileCard({
 
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 flex-wrap">
-              <h3 className="font-semibold text-gray-900">{profile.fullName}</h3>
+              <h3 className="font-semibold text-[var(--ds-text-1)]">{profile.fullName}</h3>
               <Badge variant="outline" className={statusColors[profile.status]}>
                 <StatusIcon className="h-3 w-3 mr-1" />
                 {profile.status}
@@ -75,10 +75,10 @@ export function NetworkProfileCard({
                 Order: {profile.displayOrder ?? 0}
               </Badge>
             </div>
-            <p className="text-sm text-gray-600">
+            <p className="text-sm text-[var(--ds-text-2)]">
               {profile.designation} at {profile.company}
             </p>
-            <p className="text-xs text-gray-400 mt-1">
+            <p className="text-xs text-[var(--ds-text-3)] mt-1">
               {profile.user?.email} • {profile.industry}
             </p>
           </div>

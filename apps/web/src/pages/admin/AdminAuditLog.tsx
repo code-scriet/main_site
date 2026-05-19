@@ -1,418 +1,272 @@
-import { useState, useEffect, useCallback } from 'react';
-import { motion } from 'framer-motion';
-import { Card, CardContent } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import {
-  ClipboardList,
-  Search,
-  ChevronLeft,
-  ChevronRight,
-  Loader2,
-  AlertCircle,
-  RefreshCw,
-  Filter,
-  User,
-  Settings,
-  Calendar,
-  Bell,
-  Users,
-  Trophy,
-  Shield,
-  Trash2,
-  PenLine,
-  Plus,
-  Download,
-  Eye,
-  Key,
-} from 'lucide-react';
-import { api } from '@/lib/api';
-import type { AuditLogEntry } from '@/lib/api';
+// Dashboard v2 — Admin · Audit Log (PRESIDENT/superAdmin only).
+// Filterable timeline with collapsible JSON metadata.
+// Pixel-port of screen-stubs.jsx:361 (AdminAuditScreen) + brief §7.20.
+
+import { useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { Shield, ChevronDown, ChevronRight, Search, Filter } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
-import { formatDate, formatDateTime } from '@/lib/dateUtils';
+import { api, type AuditLogEntry } from '@/lib/api';
+import { Avatar, DSCard, EmptyState, MonoChip, Pill } from '@/components/dash';
+import { Input } from '@/components/ui/input';
+import { Button } from '@/components/ui/button';
+import { cn } from '@/lib/utils';
+import { relativeTime } from '@/lib/dateUtils';
 
-// Friendly labels for action types
-const ACTION_LABELS: Record<string, { label: string; color: string; icon: React.ComponentType<{ className?: string }> }> = {
-  CREATE: { label: 'Created', color: 'bg-green-100 text-green-700', icon: Plus },
-  UPDATE: { label: 'Updated', color: 'bg-blue-100 text-blue-700', icon: PenLine },
-  DELETE: { label: 'Deleted', color: 'bg-red-100 text-red-700', icon: Trash2 },
-  REGISTER: { label: 'Registered', color: 'bg-emerald-100 text-emerald-700', icon: Plus },
-  UNREGISTER: { label: 'Unregistered', color: 'bg-orange-100 text-orange-700', icon: Trash2 },
-  UPDATE_ROLE: { label: 'Role Changed', color: 'bg-purple-100 text-purple-700', icon: Key },
-  EXPORT: { label: 'Exported', color: 'bg-cyan-100 text-cyan-700', icon: Download },
-  HIRING_APPLICATION_SUBMITTED: { label: 'Applied', color: 'bg-green-100 text-green-700', icon: Plus },
-  HIRING_STATUS_UPDATED: { label: 'Status Changed', color: 'bg-blue-100 text-blue-700', icon: PenLine },
-  HIRING_APPLICATION_DELETED: { label: 'Deleted', color: 'bg-red-100 text-red-700', icon: Trash2 },
-  NETWORK_PROFILE_VERIFIED: { label: 'Verified', color: 'bg-green-100 text-green-700', icon: Eye },
-  NETWORK_PROFILE_REJECTED: { label: 'Rejected', color: 'bg-red-100 text-red-700', icon: Trash2 },
-  NETWORK_PROFILE_UPDATED: { label: 'Updated', color: 'bg-blue-100 text-blue-700', icon: PenLine },
-  NETWORK_PROFILE_DELETED: { label: 'Deleted', color: 'bg-red-100 text-red-700', icon: Trash2 },
-  NETWORK_EXPORT: { label: 'Exported', color: 'bg-cyan-100 text-cyan-700', icon: Download },
-  NETWORK_PENDING_USER_REVERTED: { label: 'Reverted User', color: 'bg-orange-100 text-orange-700', icon: Users },
-  NETWORK_PENDING_USER_DELETED: { label: 'Deleted User', color: 'bg-red-100 text-red-700', icon: Trash2 },
-};
+function actionTone(action: string): 'success' | 'danger' | 'warning' | 'info' | 'neutral' {
+  const a = action.toUpperCase();
+  if (a.includes('DELETE') || a.includes('REVOKE') || a.includes('REJECT')) return 'danger';
+  if (a.includes('CREATE') || a.includes('VERIFY') || a.includes('GRANT')) return 'success';
+  if (a.includes('UPDATE') || a.includes('OVERRIDE') || a.includes('PATCH')) return 'warning';
+  if (a.includes('LOGIN') || a.includes('VIEW') || a.includes('READ')) return 'info';
+  return 'neutral';
+}
 
-// Friendly labels for entity types
-const ENTITY_ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
-  settings: Settings,
-  event: Calendar,
-  announcement: Bell,
-  user: User,
-  team_member: Users,
-  achievement: Trophy,
-  qotd: ClipboardList,
-  HiringApplication: Shield,
-  NetworkProfile: Users,
-  'email-templates': Settings,
-  hiring_applications: Shield,
-  network_profiles: Users,
-  User: User,
-};
-
+// Human-readable labels for entity strings (HEAD parity, E13).
 const ENTITY_LABELS: Record<string, string> = {
   settings: 'Settings',
   event: 'Event',
+  events: 'Events',
   announcement: 'Announcement',
   user: 'User',
   team_member: 'Team Member',
   achievement: 'Achievement',
   qotd: 'QOTD',
+  problem: 'Problem',
+  problems: 'Problems',
   HiringApplication: 'Hiring Application',
-  NetworkProfile: 'Network Profile',
-  'email-templates': 'Email Templates',
   hiring_applications: 'Hiring Applications',
+  NetworkProfile: 'Network Profile',
   network_profiles: 'Network Profiles',
+  'email-templates': 'Email Templates',
   User: 'User',
+  poll: 'Poll',
+  certificate: 'Certificate',
+  competition: 'Competition',
+  invitation: 'Invitation',
+  team: 'Team',
 };
 
-function formatTimestamp(timestamp: string) {
-  const date = new Date(timestamp);
-  const now = new Date();
-  const diffMs = now.getTime() - date.getTime();
-  const diffMins = Math.floor(diffMs / 60000);
-  const diffHours = Math.floor(diffMs / 3600000);
-  const diffDays = Math.floor(diffMs / 86400000);
+// Human-readable labels for action strings.
+const ACTION_LABELS: Record<string, string> = {
+  CREATE: 'Created',
+  UPDATE: 'Updated',
+  DELETE: 'Deleted',
+  REGISTER: 'Registered',
+  UNREGISTER: 'Unregistered',
+  UPDATE_ROLE: 'Role changed',
+  EXPORT: 'Exported',
+  BLOCK_USER: 'Blocked user',
+  UNBLOCK_USER: 'Unblocked user',
+  FORCE_LOGOUT: 'Forced logout',
+  PASSWORD_RESET_INITIATED: 'Password reset',
+  RESET_STREAK_CURRENT: 'Reset streak',
+  RESTORE_STREAK_LONGEST: 'Restored streak',
+  RESTORE_USER: 'Restored user',
+  NETWORK_PROFILE_VERIFIED: 'Verified profile',
+  NETWORK_PROFILE_REJECTED: 'Rejected profile',
+  NETWORK_PROFILE_UPDATED: 'Updated profile',
+  NETWORK_PROFILE_DELETED: 'Deleted profile',
+  HIRING_STATUS_UPDATED: 'Hiring status changed',
+  HIRING_APPLICATION_DELETED: 'Hiring deleted',
+};
 
-  let relative: string;
-  if (diffMins < 1) relative = 'Just now';
-  else if (diffMins < 60) relative = `${diffMins}m ago`;
-  else if (diffHours < 24) relative = `${diffHours}h ago`;
-  else if (diffDays < 7) relative = `${diffDays}d ago`;
-  else relative = formatDate(date, 'short');
-
-  const full = formatDateTime(date);
-
-  return { relative, full };
+function entityLabel(e: string): string {
+  return ENTITY_LABELS[e] ?? e;
 }
-
-function formatMetadata(metadata: Record<string, unknown> | null | undefined): string {
-  if (!metadata) return '';
-  const parts: string[] = [];
-  for (const [key, value] of Object.entries(metadata)) {
-    if (key === 'action') {
-      parts.push(String(value));
-    } else if (key === 'title' || key === 'question' || key === 'eventTitle') {
-      parts.push(`"${String(value)}"`);
-    } else if (key === 'newRole') {
-      parts.push(`→ ${String(value)}`);
-    } else if (key === 'fields' && Array.isArray(value)) {
-      parts.push(`fields: ${value.join(', ')}`);
-    } else if (key === 'name') {
-      parts.push(String(value));
-    } else if (key === 'updatedBy') {
-      // skip
-    } else if (typeof value === 'boolean') {
-      parts.push(`${key}: ${value ? 'on' : 'off'}`);
-    } else if (typeof value === 'string' || typeof value === 'number') {
-      parts.push(`${key}: ${value}`);
-    }
-  }
-  return parts.join(' · ');
+function actionLabel(a: string): string {
+  return ACTION_LABELS[a] ?? a.replace(/_/g, ' ');
 }
 
 export default function AdminAuditLog() {
   const { token } = useAuth();
-  const [logs, setLogs] = useState<AuditLogEntry[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [entityFilter, setEntityFilter] = useState<string>('');
+  const [actionFilter, setActionFilter] = useState<string>('');
+  const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
-  const [totalPages, setTotalPages] = useState(1);
-  const [total, setTotal] = useState(0);
-  const [entityFilter, setEntityFilter] = useState('');
-  const [actionFilter, setActionFilter] = useState('');
-  const [searchInput, setSearchInput] = useState('');
-  const [searchQuery, setSearchQuery] = useState('');
-  const [availableEntities, setAvailableEntities] = useState<string[]>([]);
-  const [availableActions, setAvailableActions] = useState<string[]>([]);
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [showFilters, setShowFilters] = useState(false);
 
-  const fetchLogs = useCallback(async () => {
-    if (!token) return;
-    setLoading(true);
-    setError(null);
-    try {
-      const data = await api.getAuditLogs(token, {
-        page,
-        limit: 30,
-        entity: entityFilter || undefined,
-        action: actionFilter || undefined,
-        search: searchQuery || undefined,
-      });
-      setLogs(data.logs);
-      setTotalPages(data.pagination.totalPages);
-      setTotal(data.pagination.total);
-      setAvailableEntities(data.filters.entities);
-      setAvailableActions(data.filters.actions);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to fetch audit logs');
-    } finally {
-      setLoading(false);
-    }
-  }, [token, page, entityFilter, actionFilter, searchQuery]);
+  const q = useQuery({
+    queryKey: ['audit-logs', { page, entityFilter, actionFilter, search }],
+    queryFn: () => api.getAuditLogs(token!, {
+      page,
+      limit: 50,
+      entity: entityFilter || undefined,
+      action: actionFilter || undefined,
+      search: search || undefined,
+    }),
+    enabled: Boolean(token),
+  });
 
-  useEffect(() => {
-    fetchLogs();
-  }, [fetchLogs]);
+  const entities = q.data?.filters?.entities ?? [];
+  const actions = q.data?.filters?.actions ?? [];
+  const logs = q.data?.logs ?? [];
+  const total = q.data?.pagination?.total ?? 0;
+  const totalPages = q.data?.pagination?.totalPages ?? 1;
 
-  useEffect(() => {
-    const timer = window.setTimeout(() => setSearchQuery(searchInput.trim()), 300);
-    return () => window.clearTimeout(timer);
-  }, [searchInput]);
+  const toggle = (id: string) => {
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
 
-  // Reset to page 1 when filters change
-  useEffect(() => {
+  const clearFilters = () => {
+    setEntityFilter('');
+    setActionFilter('');
+    setSearch('');
     setPage(1);
-  }, [entityFilter, actionFilter, searchQuery]);
-
-  if (loading && logs.length === 0) {
-    return (
-      <div className="flex items-center justify-center min-h-[400px]">
-        <div className="text-center">
-          <Loader2 className="h-8 w-8 animate-spin text-amber-600 mx-auto mb-2" />
-          <p className="text-gray-600">Loading audit logs...</p>
-        </div>
-      </div>
-    );
-  }
+  };
 
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+    <div className="flex flex-col gap-6">
+      <div className="flex items-end justify-between gap-3 flex-wrap">
         <div>
-          <h1 className="text-2xl font-bold text-amber-900">Audit Log</h1>
-          <p className="text-gray-600">Track who changed what and when ({total} total entries)</p>
+          <div className="text-[10.5px] uppercase tracking-[0.06em] font-semibold text-[var(--ds-text-3)]">Governance</div>
+          <h1 className="text-[24px] font-semibold tracking-tight mt-1">Audit log</h1>
+          <p className="text-[13px] text-[var(--ds-text-3)] mt-1">Every admin mutation is recorded with actor, action, entity, and metadata.</p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex items-center gap-2">
           <Button
-            variant="outline"
             size="sm"
-            onClick={() => setShowFilters(!showFilters)}
-            className={showFilters ? 'bg-amber-50 border-amber-300' : ''}
+            variant="outline"
+            onClick={() => setShowFilters((o) => !o)}
+            className={showFilters ? 'bg-[var(--accent-subtle)]/40 border-[var(--accent)]' : ''}
           >
-            <Filter className="h-4 w-4 mr-2" />
+            <Filter size={13} className="mr-1.5" />
             Filters
+            {(entityFilter || actionFilter || search) && (
+              <Pill tone="accent" size="xs" className="ml-1.5">on</Pill>
+            )}
           </Button>
-          <Button variant="outline" size="sm" onClick={fetchLogs} disabled={loading}>
-            <RefreshCw className={`h-4 w-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
-            Refresh
-          </Button>
+          <Pill tone="neutral" size="sm">
+            <span className="font-mono tabular-nums">{total.toLocaleString()}</span> entries
+          </Pill>
         </div>
       </div>
 
-      {error && (
-        <motion.div
-          initial={{ opacity: 0, y: -10 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="flex items-start gap-3 p-4 bg-red-50 border border-red-200 rounded-lg text-red-700"
-        >
-          <AlertCircle className="h-5 w-5 shrink-0 mt-0.5" />
-          <p className="text-sm">{error}</p>
-        </motion.div>
-      )}
-
-      {/* Filters */}
       {showFilters && (
-        <motion.div
-          initial={{ opacity: 0, height: 0 }}
-          animate={{ opacity: 1, height: 'auto' }}
-          exit={{ opacity: 0, height: 0 }}
-        >
-          <Card className="border-amber-100">
-            <CardContent className="pt-4 pb-4">
-              <div className="grid gap-4 sm:grid-cols-3">
-                <div className="space-y-1">
-                  <label htmlFor="audit-log-entity" className="text-xs font-medium text-gray-500 uppercase tracking-wider">Entity</label>
-                  <select
-                    id="audit-log-entity"
-                    value={entityFilter}
-                    onChange={(e) => setEntityFilter(e.target.value)}
-                    className="w-full h-9 px-3 rounded-md border border-input bg-background text-sm focus:outline-none focus:ring-2 focus:ring-amber-500"
-                  >
-                    <option value="">All entities</option>
-                    {availableEntities.map((e) => (
-                      <option key={e} value={e}>{ENTITY_LABELS[e] || e}</option>
-                    ))}
-                  </select>
-                </div>
-                <div className="space-y-1">
-                  <label htmlFor="audit-log-action" className="text-xs font-medium text-gray-500 uppercase tracking-wider">Action</label>
-                  <select
-                    id="audit-log-action"
-                    value={actionFilter}
-                    onChange={(e) => setActionFilter(e.target.value)}
-                    className="w-full h-9 px-3 rounded-md border border-input bg-background text-sm focus:outline-none focus:ring-2 focus:ring-amber-500"
-                  >
-                    <option value="">All actions</option>
-                    {availableActions.map((a) => (
-                      <option key={a} value={a}>{ACTION_LABELS[a]?.label || a}</option>
-                    ))}
-                  </select>
-                </div>
-                <div className="space-y-1">
-                  <label htmlFor="audit-log-search" className="text-xs font-medium text-gray-500 uppercase tracking-wider">Search</label>
-                  <div className="relative">
-                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
-                    <Input
-                      id="audit-log-search"
-                      value={searchInput}
-                      onChange={(e) => setSearchInput(e.target.value)}
-                      placeholder="Search logs..."
-                      className="pl-9 h-9"
-                    />
-                  </div>
-                </div>
-              </div>
-              {(entityFilter || actionFilter || searchInput) && (
-                <div className="mt-3 flex items-center gap-2">
-                  <span className="text-xs text-gray-500">{total} results</span>
-                  <button
-                    onClick={() => {
-                      setEntityFilter('');
-                      setActionFilter('');
-                      setSearchInput('');
-                      setSearchQuery('');
-                    }}
-                    className="text-xs text-amber-600 hover:text-amber-700 underline"
-                  >
-                    Clear all filters
-                  </button>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        </motion.div>
+        <DSCard padded>
+          <div className="grid sm:grid-cols-4 gap-3">
+            <div className="sm:col-span-2 relative">
+              <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--ds-text-3)] pointer-events-none" />
+              <Input
+                value={search}
+                onChange={(e) => { setSearch(e.target.value); setPage(1); }}
+                placeholder="Search by entityId, action, or user…"
+                className="pl-8 h-9 text-[13px]"
+              />
+            </div>
+            <select
+              value={entityFilter}
+              onChange={(e) => { setEntityFilter(e.target.value); setPage(1); }}
+              className="h-9 px-3 text-[13.5px] bg-[var(--bg-raised)] border border-[var(--border-default)] rounded-[8px] outline-none focus:border-[var(--accent)]"
+              aria-label="Filter by entity"
+            >
+              <option value="">All entities</option>
+              {entities.map((e) => <option key={e} value={e}>{entityLabel(e)}</option>)}
+            </select>
+            <select
+              value={actionFilter}
+              onChange={(e) => { setActionFilter(e.target.value); setPage(1); }}
+              className="h-9 px-3 text-[13.5px] bg-[var(--bg-raised)] border border-[var(--border-default)] rounded-[8px] outline-none focus:border-[var(--accent)]"
+              aria-label="Filter by action"
+            >
+              <option value="">All actions</option>
+              {actions.map((a) => <option key={a} value={a}>{actionLabel(a)}</option>)}
+            </select>
+          </div>
+          {(entityFilter || actionFilter || search) && (
+            <div className="mt-3 flex items-center gap-2">
+              <span className="text-[12px] text-[var(--ds-text-3)]">Filters applied</span>
+              <Button size="sm" variant="ghost" onClick={clearFilters}>Clear</Button>
+            </div>
+          )}
+        </DSCard>
       )}
 
-      {/* Log entries */}
-      <Card className="border-amber-100 overflow-hidden">
-        <div className="divide-y divide-gray-100">
-          {logs.length === 0 ? (
-            <div className="p-12 text-center">
-              <ClipboardList className="h-12 w-12 text-gray-300 mx-auto mb-3" />
-              <p className="text-gray-500 font-medium">No audit logs found</p>
-              <p className="text-sm text-gray-400 mt-1">
-                {entityFilter || actionFilter || searchQuery
-                  ? 'Try adjusting your filters'
-                  : 'Actions will appear here as admins make changes'}
-              </p>
-            </div>
-          ) : (
-            logs.map((log, index) => {
-              const actionInfo = ACTION_LABELS[log.action] || {
-                label: log.action,
-                color: 'bg-gray-100 text-gray-700',
-                icon: PenLine,
-              };
-              const ActionIcon = actionInfo.icon;
-              const EntityIcon = ENTITY_ICONS[log.entity] || ClipboardList;
-              const entityLabel = ENTITY_LABELS[log.entity] || log.entity;
-              const time = formatTimestamp(log.timestamp);
-              const metaStr = formatMetadata(log.metadata as Record<string, unknown> | null);
+      <DSCard padded={false}>
+        {q.isLoading ? (
+          <div className="p-6 animate-pulse space-y-2">
+            {[0, 1, 2, 3].map((i) => <div key={i} className="h-12 bg-[var(--surface-soft)] rounded" />)}
+          </div>
+        ) : logs.length === 0 ? (
+          <EmptyState icon={<Shield size={18} />} title="No entries match" body="Try clearing filters or widen the date range." />
+        ) : (
+          <div className="divide-y divide-[var(--border-subtle)]">
+            {logs.map((log) => (
+              <AuditRow
+                key={log.id}
+                log={log}
+                expanded={expanded.has(log.id)}
+                onToggle={() => toggle(log.id)}
+              />
+            ))}
+          </div>
+        )}
+      </DSCard>
 
-              return (
-                <motion.div
-                  key={log.id}
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  transition={{ delay: index * 0.02 }}
-                  className="flex items-start gap-3 px-4 py-3 hover:bg-amber-50/50 transition-colors"
-                >
-                  {/* Avatar */}
-                  <div className="h-8 w-8 rounded-full overflow-hidden bg-amber-200 shrink-0 mt-0.5">
-                    {log.user.avatar ? (
-                      <img src={log.user.avatar} alt={log.user.name} className="w-full h-full object-cover" />
-                    ) : (
-                      <div className="w-full h-full flex items-center justify-center text-amber-700 font-bold text-xs">
-                        {log.user.name?.charAt(0)?.toUpperCase() || '?'}
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Content */}
-                  <div className="flex-1 min-w-0">
-                    <div className="flex flex-wrap items-center gap-1.5 text-sm">
-                      <span className="font-medium text-amber-900">{log.user.name}</span>
-                      <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs font-medium ${actionInfo.color}`}>
-                        <ActionIcon className="h-3 w-3" />
-                        {actionInfo.label}
-                      </span>
-                      <span className="inline-flex items-center gap-1 text-gray-600">
-                        <EntityIcon className="h-3.5 w-3.5" />
-                        {entityLabel}
-                      </span>
-                      {log.entityId && log.entityId !== 'default' && log.entityId !== 'batch' && log.entityId !== 'bulk' && log.entityId !== 'config' && (
-                        <span className="text-xs text-gray-400 font-mono truncate max-w-[120px]" title={log.entityId}>
-                          ({log.entityId.slice(0, 8)}…)
-                        </span>
-                      )}
-                    </div>
-                    {metaStr && (
-                      <p className="text-xs text-gray-500 mt-0.5 truncate" title={metaStr}>
-                        {metaStr}
-                      </p>
-                    )}
-                  </div>
-
-                  {/* Timestamp */}
-                  <div className="text-right shrink-0">
-                    <p className="text-xs text-gray-500" title={time.full}>{time.relative}</p>
-                  </div>
-                </motion.div>
-              );
-            })
-          )}
-        </div>
-      </Card>
-
-      {/* Pagination */}
       {totalPages > 1 && (
-        <div className="flex items-center justify-between">
-          <p className="text-sm text-gray-500">
-            Page {page} of {totalPages}
-          </p>
-          <div className="flex gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={page <= 1 || loading}
-              onClick={() => setPage(p => p - 1)}
-            >
-              <ChevronLeft className="h-4 w-4 mr-1" />
-              Previous
+        <div className="flex items-center justify-between text-[12.5px] text-[var(--ds-text-3)]">
+          <span>Page {page} of {totalPages}</span>
+          <div className="flex items-center gap-1.5">
+            <Button size="sm" variant="ghost" disabled={page <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>
+              <ChevronRight size={12} className="rotate-180 mr-1" />
+              Prev
             </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={page >= totalPages || loading}
-              onClick={() => setPage(p => p + 1)}
-            >
+            <Button size="sm" variant="ghost" disabled={page >= totalPages} onClick={() => setPage((p) => Math.min(totalPages, p + 1))}>
               Next
-              <ChevronRight className="h-4 w-4 ml-1" />
+              <ChevronRight size={12} className="ml-1" />
             </Button>
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+function AuditRow({ log, expanded, onToggle }: { log: AuditLogEntry; expanded: boolean; onToggle: () => void }) {
+  const meta = log.metadata && Object.keys(log.metadata).length > 0 ? log.metadata : null;
+  return (
+    <div className="px-4 py-3">
+      <div className="flex items-start gap-3 flex-wrap">
+        <Avatar name={log.user?.name ?? 'system'} src={log.user?.avatar} size={28} />
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 flex-wrap mb-1">
+            <span className="text-[13px] font-medium">{log.user?.name ?? 'System'}</span>
+            <Pill tone={actionTone(log.action)} size="xs" title={log.action}>{actionLabel(log.action)}</Pill>
+            <span className="text-[11px] text-[var(--ds-text-3)]">on</span>
+            <MonoChip>{entityLabel(log.entity)}</MonoChip>
+            {log.entityId && <MonoChip>{log.entityId.slice(0, 8)}</MonoChip>}
+            <span className="text-[11px] text-[var(--ds-text-3)] font-mono tabular-nums ml-auto" title={new Date(log.timestamp).toLocaleString()}>
+              {relativeTime(log.timestamp)}
+            </span>
+          </div>
+          {log.user?.email && (
+            <div className="text-[11.5px] text-[var(--ds-text-3)] truncate">{log.user.email}</div>
+          )}
+          {meta && (
+            <button
+              type="button"
+              onClick={onToggle}
+              className="mt-2 inline-flex items-center gap-1 text-[11.5px] text-[var(--ds-text-3)] hover:text-[var(--ds-text-1)]"
+            >
+              {expanded ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
+              metadata
+            </button>
+          )}
+          {meta && expanded && (
+            <pre className={cn(
+              'mt-2 p-3 rounded-[8px] bg-[var(--surface-soft)] text-[11.5px] font-mono leading-[1.6] overflow-x-auto whitespace-pre',
+              'text-[var(--ds-text-2)]',
+            )}>
+              {JSON.stringify(meta, null, 2)}
+            </pre>
+          )}
+        </div>
+      </div>
     </div>
   );
 }

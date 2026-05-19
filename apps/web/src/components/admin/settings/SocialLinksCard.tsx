@@ -1,88 +1,48 @@
-import { Share2 } from 'lucide-react';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Globe } from 'lucide-react';
+import { Field } from '@/components/dash';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import type { Settings } from '@/lib/api';
+import { SettingsCard } from './SettingsCard';
 
 interface SocialLinksCardProps {
   settings: Settings;
   onChange: (next: Settings) => void;
+  lastSavedAt?: number | null;
 }
 
-export function SocialLinksCard({ settings, onChange }: SocialLinksCardProps) {
+const SOCIAL_FIELDS: Array<{
+  key: keyof Pick<Settings, 'githubUrl' | 'linkedinUrl' | 'twitterUrl' | 'instagramUrl' | 'discordUrl' | 'whatsappUrl'>;
+  label: string;
+  placeholder: string;
+  hint?: string;
+}> = [
+  { key: 'githubUrl',    label: 'GitHub',    placeholder: 'https://github.com/your-org' },
+  { key: 'linkedinUrl',  label: 'LinkedIn',  placeholder: 'https://linkedin.com/company/your-org' },
+  { key: 'twitterUrl',   label: 'Twitter',   placeholder: 'https://twitter.com/your-org' },
+  { key: 'instagramUrl', label: 'Instagram', placeholder: 'https://instagram.com/your-org' },
+  { key: 'discordUrl',   label: 'Discord',   placeholder: 'https://discord.gg/invite-code', hint: 'Leave blank to hide from footer' },
+  { key: 'whatsappUrl',  label: 'WhatsApp community', placeholder: 'https://chat.whatsapp.com/invite-code', hint: 'Leave blank to hide from footer' },
+];
+
+export function SocialLinksCard({ settings, onChange, lastSavedAt }: SocialLinksCardProps) {
   return (
-    <Card className="border-amber-100">
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <Share2 className="h-5 w-5 text-amber-600" />
-          Social Links
-        </CardTitle>
-        <CardDescription>Configure "Connect With Us" links shown in the footer</CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        <div className="grid gap-4 sm:grid-cols-2">
-          <div className="space-y-2">
-            <Label htmlFor="github-url">GitHub URL</Label>
+    <SettingsCard
+      title="Social links"
+      description='Configure "Connect with us" links shown in the public footer.'
+      icon={Globe}
+      lastSavedAt={lastSavedAt}
+    >
+      <div className="grid gap-3 sm:grid-cols-2">
+        {SOCIAL_FIELDS.map((f) => (
+          <Field key={f.key as string} label={f.label} hint={f.hint}>
             <Input
-              id="github-url"
-              value={settings.githubUrl || ''}
-              onChange={(e) => onChange({ ...settings, githubUrl: e.target.value })}
-              placeholder="https://github.com/your-org"
+              value={(settings[f.key] as string | undefined) || ''}
+              onChange={(e) => onChange({ ...settings, [f.key]: e.target.value })}
+              placeholder={f.placeholder}
             />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="linkedin-url">LinkedIn URL</Label>
-            <Input
-              id="linkedin-url"
-              value={settings.linkedinUrl || ''}
-              onChange={(e) => onChange({ ...settings, linkedinUrl: e.target.value })}
-              placeholder="https://linkedin.com/company/your-org"
-            />
-          </div>
-        </div>
-        <div className="grid gap-4 sm:grid-cols-2">
-          <div className="space-y-2">
-            <Label htmlFor="twitter-url">Twitter URL</Label>
-            <Input
-              id="twitter-url"
-              value={settings.twitterUrl || ''}
-              onChange={(e) => onChange({ ...settings, twitterUrl: e.target.value })}
-              placeholder="https://twitter.com/your-org"
-            />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="instagram-url">Instagram URL</Label>
-            <Input
-              id="instagram-url"
-              value={settings.instagramUrl || ''}
-              onChange={(e) => onChange({ ...settings, instagramUrl: e.target.value })}
-              placeholder="https://instagram.com/your-org"
-            />
-          </div>
-        </div>
-        <div className="grid gap-4 sm:grid-cols-2">
-          <div className="space-y-2">
-            <Label htmlFor="discord-url">Discord Invite URL</Label>
-            <Input
-              id="discord-url"
-              value={settings.discordUrl || ''}
-              onChange={(e) => onChange({ ...settings, discordUrl: e.target.value })}
-              placeholder="https://discord.gg/invite-code"
-            />
-            <p className="text-xs text-gray-500">Leave empty to hide Discord from the footer</p>
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="whatsapp-url">WhatsApp Community Invite URL</Label>
-            <Input
-              id="whatsapp-url"
-              value={settings.whatsappUrl || ''}
-              onChange={(e) => onChange({ ...settings, whatsappUrl: e.target.value })}
-              placeholder="https://chat.whatsapp.com/invite-code"
-            />
-            <p className="text-xs text-gray-500">Leave empty to hide WhatsApp from the footer</p>
-          </div>
-        </div>
-      </CardContent>
-    </Card>
+          </Field>
+        ))}
+      </div>
+    </SettingsCard>
   );
 }

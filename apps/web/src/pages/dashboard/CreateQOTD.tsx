@@ -1,663 +1,512 @@
-import { useState, useEffect, useCallback } from 'react';
-import { motion } from 'framer-motion';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Badge } from '@/components/ui/badge';
-import { Label } from '@/components/ui/label';
-import { Code, Loader2, Plus, ExternalLink, Pause, Play, BookOpenCheck, EyeOff, Pencil, FileCode2, Link2, Pen, Users, Trash2 } from 'lucide-react';
+// Dashboard v2 — Manage QOTD.
+// 3-mode picker (pick existing / create inline / legacy text-only) + 30-day calendar grid.
+// Pixel-port of screen-admin2.jsx:915 (ManageQotdScreen).
+
+import { useEffect, useMemo, useState } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useNavigate, useSearchParams } from 'react-router-dom';
+import {
+  Search, Plus, FileText, Loader2, Check, ChevronLeft, ChevronRight, Link as LinkIcon,
+  Trash2, Pause, Play, BookOpen, BookOpenCheck,
+} from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
-import { formatDate } from '@/lib/dateUtils';
-import { Link } from 'react-router-dom';
-import { api, type Problem, type ProblemInput, type ProblemLanguage } from '@/lib/api';
-import { getPlaygroundLaunchUrl } from '@/lib/playgroundUrl';
+import { api, type Problem, type QOTDHistoryEntry } from '@/lib/api';
+import { DSCard, EmptyState, Field, Pill, Section } from '@/components/dash';
+import { Input } from '@/components/ui/input';
+import { Button } from '@/components/ui/button';
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { toast } from 'sonner';
+import { cn } from '@/lib/utils';
+import { useUnsavedChangesWarning } from '@/hooks/useUnsavedChangesWarning';
 
-interface QOTD {
-  id: string;
-  date: string;
-  question: string;
-  problemLink: string;
-  difficulty: 'Easy' | 'Medium' | 'Hard' | 'EASY' | 'MEDIUM' | 'HARD';
-  problemId?: string | null;
-  problem?: Problem | null;
-  isPublished?: boolean;
-  publishAt?: string | null;
-  publishedAt?: string | null;
-  heldBy?: string | null;
-  holdReason?: string | null;
+type Mode = 'pick' | 'create' | 'legacy';
+type Status = 'live' | 'published' | 'scheduled' | 'held' | 'empty';
+
+function toIsoDate(d: Date): string {
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  return `${yyyy}-${mm}-${dd}`;
 }
 
-function istTodayKey(): string {
-  return new Date(Date.now() + 330 * 60 * 1000).toISOString().slice(0, 10);
-}
-
-const difficultyColors = {
-  Easy: 'success',
-  Medium: 'warning',
-  Hard: 'destructive',
-  EASY: 'success',
-  MEDIUM: 'warning',
-  HARD: 'destructive',
-} as const;
-
-const blankProblem = (): ProblemInput => ({
-  slug: '',
-  title: '',
-  body: '# Problem\n\nDescribe the challenge.',
-  difficulty: 'EASY',
-  tags: [],
-  allowedLanguages: ['PYTHON'],
-  timeLimitMs: 2000,
-  defaultSubmitCap: 5,
-  sampleTests: [{ id: 'sample-1', input: '', expectedOutput: '' }],
-  hiddenTests: [{ id: 'hidden-1', input: '', expectedOutput: '' }],
-  referenceSolution: '',
-  referenceLanguage: 'PYTHON',
-  isPublished: false,
-});
-
-function slugify(value: string) {
-  return value.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 120);
-}
-
-function hasInvalidTestCase(test: { input?: string; expectedOutput?: string }) {
-  const input = test.input?.trim() ?? '';
-  const expectedOutput = test.expectedOutput?.trim() ?? '';
-  return !expectedOutput || (!input && !expectedOutput);
+function dayCellStatus(date: Date, history: QOTDHistoryEntry[]): { status: Status; qotd: QOTDHistoryEntry | null } {
+  const iso = toIsoDate(date);
+  const today = new Date();
+  const isToday = toIsoDate(today) === iso;
+  const past = date < today && !isToday;
+  const matched = history.find((q) => q.date.slice(0, 10) === iso);
+  if (matched) {
+    if (matched.heldBy) return { status: 'held', qotd: matched };
+    if (isToday && matched.isPublished) return { status: 'live', qotd: matched };
+    if (!matched.isPublished && !past) return { status: 'scheduled', qotd: matched };
+    return { status: 'published', qotd: matched };
+  }
+  return { status: 'empty', qotd: null };
 }
 
 export default function CreateQOTD() {
   const { token } = useAuth();
-  
-  const [loading, setLoading] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [showForm, setShowForm] = useState(false);
-  const [recentQOTDs, setRecentQOTDs] = useState<QOTD[]>([]);
-  const [problemCatalog, setProblemCatalog] = useState<Problem[]>([]);
-  const [mode, setMode] = useState<'existing' | 'inline' | 'legacy'>('existing');
-  const [problemId, setProblemId] = useState('');
-  const [newProblem, setNewProblem] = useState<ProblemInput>(blankProblem);
-  
-  const [form, setForm] = useState({
-    date: new Date().toISOString().split('T')[0],
-    question: '',
-    problemLink: '',
-    difficulty: 'Medium' as 'Easy' | 'Medium' | 'Hard',
-  });
-  const [publishNow, setPublishNow] = useState(true);
-  const [rowBusy, setRowBusy] = useState<string | null>(null);
-  const publishedProblems = problemCatalog;
+  const navigate = useNavigate();
+  const qc = useQueryClient();
 
-  const loadRecentQOTDs = useCallback(async () => {
-    if (!token) {
-      setLoading(false);
-      return;
-    }
-    try {
-      setLoading(true);
-      // Use allSettled so a problem-catalog fetch failure doesn't silently
-      // strip the inline-create dropdown when the history loaded fine (or
-      // vice versa). Surface each failure as its own toast so the admin
-      // knows which call broke.
-      const [historyResult, problemsResult] = await Promise.allSettled([
-        api.getQOTDHistory(15, undefined, { includeUnpublished: true, token }),
-        api.adminGetProblems(token),
-      ]);
-      if (historyResult.status === 'fulfilled') {
-        setRecentQOTDs(historyResult.value);
-      } else {
-        toast.error(historyResult.reason instanceof Error ? historyResult.reason.message : 'Failed to load QOTD history');
-      }
-      if (problemsResult.status === 'fulfilled') {
-        setProblemCatalog(problemsResult.value.problems);
-      } else {
-        toast.error(problemsResult.reason instanceof Error ? problemsResult.reason.message : 'Failed to load problem catalog');
-      }
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Failed to load recent QOTDs');
-    } finally {
-      setLoading(false);
-    }
-  }, [token]);
+  const [mode, setMode] = useState<Mode>('pick');
+  const [problemSearch, setProblemSearch] = useState('');
+  const [problemId, setProblemId] = useState<string | null>(null);
+  const [date, setDate] = useState<string>(toIsoDate(new Date()));
+  const [publishTime, setPublishTime] = useState<string>('00:00');
+  const [publishToPractice, setPublishToPractice] = useState(true);
+  const [legacyQuestion, setLegacyQuestion] = useState('');
+  const [legacyLink, setLegacyLink] = useState('');
+  const [calMonth, setCalMonth] = useState(() => new Date());
 
+  const isDirty = (mode === 'pick' && Boolean(problemId)) || (mode === 'legacy' && (legacyQuestion.trim().length > 0 || legacyLink.trim().length > 0));
+  useUnsavedChangesWarning(isDirty);
+
+  // E10 — returning from /dashboard/problems/new?qotd=1: CreateProblem redirects to
+  // /dashboard/qotd?problemId=<newId>. Pre-select that problem in pick mode + restore the
+  // pending date from localStorage so the admin can schedule with one click.
+  const [searchParams, setSearchParams] = useSearchParams();
   useEffect(() => {
-    void loadRecentQOTDs();
-  }, [loadRecentQOTDs]);
+    const incomingId = searchParams.get('problemId');
+    if (!incomingId) return;
+    let pendingDate = '';
+    try { pendingDate = localStorage.getItem('pendingQOTDDate') ?? ''; } catch { /* ignore */ }
+    setMode('pick');
+    setProblemId(incomingId);
+    if (pendingDate) setDate(pendingDate);
+    try { localStorage.removeItem('pendingQOTDDate'); } catch { /* ignore */ }
+    const next = new URLSearchParams(searchParams);
+    next.delete('problemId');
+    setSearchParams(next, { replace: true });
+    toast.success('Problem ready — review and click Schedule to publish as QOTD');
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
-    setForm(prev => ({ ...prev, [e.target.name]: e.target.value }));
-  };
+  // Hold dialog (CAT 34): mandatory reason textarea before holding a published QOTD.
+  const [holdTarget, setHoldTarget] = useState<QOTDHistoryEntry | null>(null);
+  const [holdReason, setHoldReason] = useState('');
+  // Delete dialog (CAT 41): named confirmation before destructive delete.
+  const [deleteTarget, setDeleteTarget] = useState<QOTDHistoryEntry | null>(null);
+  // Per-row spinner (CAT 4).
+  const [rowBusy, setRowBusy] = useState<string | null>(null);
 
-  const runRowAction = async (id: string, action: () => Promise<unknown>, successMessage: string) => {
-    if (!token) return;
-    try {
-      setRowBusy(id);
-      await action();
-      toast.success(successMessage);
-      await loadRecentQOTDs();
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Action failed');
-    } finally {
-      setRowBusy(null);
-    }
-  };
+  const historyQ = useQuery({
+    queryKey: ['qotd-history-admin'],
+    queryFn: () => api.getQOTDHistory(60, 0, { includeUnpublished: true, token: token! }),
+    enabled: Boolean(token),
+  });
+  const problemsQ = useQuery({
+    queryKey: ['admin-problems-for-qotd'],
+    queryFn: () => api.adminGetProblems(token!),
+    enabled: Boolean(token) && mode === 'pick',
+  });
+  const problems: Problem[] = useMemo(() => problemsQ.data?.problems ?? [], [problemsQ.data]);
+  const history = historyQ.data ?? [];
 
-  const handlePublishNow = (qotd: QOTD) => runRowAction(qotd.id, () => api.publishQOTD(qotd.id, token!), 'QOTD published');
-  const handleHold = (qotd: QOTD) => {
-    const reason = window.prompt('Why are you holding this QOTD? (optional)') ?? undefined;
-    return runRowAction(qotd.id, () => api.holdQOTD(qotd.id, reason || undefined, token!), 'QOTD held');
-  };
-  const handlePublishToPractice = (qotd: QOTD) =>
-    runRowAction(qotd.id, () => api.publishQOTDToPractice(qotd.id, token!), 'Published to practice catalog');
-  const handleUnpublishFromPractice = (qotd: QOTD) =>
-    runRowAction(qotd.id, () => api.unpublishQOTDFromPractice(qotd.id, token!), 'Removed from practice catalog');
-  const handleDelete = (qotd: QOTD) => {
-    const dateLabel = String(qotd.date).slice(0, 10);
-    if (!window.confirm(`Delete QOTD for ${dateLabel}? This removes the QOTD entry only — the underlying problem (if any) stays in the catalog. This cannot be undone.`)) return;
-    return runRowAction(qotd.id, () => api.deleteQOTD(qotd.id, token!), 'QOTD deleted');
-  };
+  const filteredProblems = useMemo(() => {
+    if (!problemSearch.trim()) return problems.slice(0, 20);
+    return problems
+      .filter((p) => p.title.toLowerCase().includes(problemSearch.toLowerCase()) || p.tags?.some((t) => t.toLowerCase().includes(problemSearch.toLowerCase())))
+      .slice(0, 20);
+  }, [problems, problemSearch]);
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    
-    if (mode === 'legacy' && (!form.question.trim() || !form.problemLink.trim())) {
-      toast.error('Please fill in all required legacy fields');
-      return;
+  // Compose calendar grid
+  const calDays = useMemo(() => {
+    const year = calMonth.getFullYear();
+    const month = calMonth.getMonth();
+    const first = new Date(year, month, 1);
+    const firstWeekday = (first.getDay() + 6) % 7; // Monday = 0
+    const totalDays = new Date(year, month + 1, 0).getDate();
+    const cells: Array<{ date: Date | null; status: Status; qotd: QOTDHistoryEntry | null }> = [];
+    for (let i = 0; i < firstWeekday; i++) cells.push({ date: null, status: 'empty', qotd: null });
+    for (let d = 1; d <= totalDays; d++) {
+      const cellDate = new Date(year, month, d);
+      const { status, qotd } = dayCellStatus(cellDate, history);
+      cells.push({ date: cellDate, status, qotd });
     }
-    if (mode === 'existing' && !problemId) {
-      toast.error('Please select a problem');
-      return;
-    }
-    if (mode === 'inline' && (!newProblem.title.trim() || !newProblem.slug.trim())) {
-      toast.error('Please add a title and slug for the inline problem');
-      return;
-    }
-    if (
-      mode === 'inline' &&
-      [...newProblem.sampleTests, ...newProblem.hiddenTests].some(hasInvalidTestCase)
-    ) {
-      toast.error('Sample and hidden test expected outputs are required');
-      return;
-    }
+    return cells;
+  }, [calMonth, history]);
 
-    if (!token) {
-      toast.error('You need to sign in to create a QOTD');
-      return;
-    }
+  const monthLabel = calMonth.toLocaleDateString('en-IN', { month: 'long', year: 'numeric' });
+  const publishedCount = history.filter((q) => q.isPublished).length;
+  const scheduledCount = history.filter((q) => !q.isPublished && !q.heldBy).length;
 
-    try {
-      setSaving(true);
-      const payload: Parameters<typeof api.createQOTD>[0] = mode === 'existing'
-        ? { date: form.date, problemId, publishNow }
-        : mode === 'inline'
-          ? { date: form.date, newProblem, publishNow }
-          : {
-              date: form.date,
-              question: form.question.trim(),
-              problemLink: form.problemLink.trim(),
-              difficulty: form.difficulty,
-              publishNow,
-            };
-      await api.createQOTD(payload, token);
+  const scheduleMut = useMutation({
+    mutationFn: async () => {
+      if (!token) throw new Error('Not authenticated');
+      const body: Parameters<typeof api.createQOTD>[0] = mode === 'pick'
+        ? { date, problemId: problemId!, publishNow: false }
+        : mode === 'legacy'
+        ? { date, question: legacyQuestion.trim(), problemLink: legacyLink.trim() || undefined }
+        : { date };
+      void publishTime; void publishToPractice;
+      await api.createQOTD(body, token);
+    },
+    onSuccess: () => {
+      toast.success('QOTD scheduled');
+      qc.invalidateQueries({ queryKey: ['qotd-history-admin'] });
+      setProblemId(null);
+      setLegacyQuestion('');
+      setLegacyLink('');
+    },
+    onError: (e: Error) => toast.error(e.message || 'Failed to schedule'),
+  });
 
-      toast.success('QOTD created successfully');
-      setForm({
-        date: new Date().toISOString().split('T')[0],
-        question: '',
-        problemLink: '',
-        difficulty: 'Medium',
-      });
-      setProblemId('');
-      setNewProblem(blankProblem());
-      setShowForm(false);
-      await loadRecentQOTDs();
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Failed to create QOTD');
-    } finally {
-      setSaving(false);
-    }
-  };
+  const publishMut = useMutation({
+    mutationFn: (id: string) => api.publishQOTD(id, token!),
+    onMutate: (id) => { setRowBusy(id); },
+    onSuccess: () => { toast.success('QOTD published'); qc.invalidateQueries({ queryKey: ['qotd-history-admin'] }); },
+    onError: (e: Error) => toast.error(e.message || 'Failed to publish'),
+    onSettled: () => setRowBusy(null),
+  });
+  const holdMut = useMutation({
+    mutationFn: ({ id, reason }: { id: string; reason: string }) => api.holdQOTD(id, reason, token!),
+    onMutate: ({ id }) => { setRowBusy(id); },
+    onSuccess: () => {
+      toast.success('QOTD held');
+      setHoldTarget(null);
+      setHoldReason('');
+      qc.invalidateQueries({ queryKey: ['qotd-history-admin'] });
+    },
+    onError: (e: Error) => toast.error(e.message || 'Failed to hold'),
+    onSettled: () => setRowBusy(null),
+  });
+  const deleteMut = useMutation({
+    mutationFn: (id: string) => api.deleteQOTD(id, token!),
+    onMutate: (id) => { setRowBusy(id); },
+    onSuccess: () => {
+      toast.success('QOTD deleted');
+      setDeleteTarget(null);
+      qc.invalidateQueries({ queryKey: ['qotd-history-admin'] });
+    },
+    onError: (e: Error) => toast.error(e.message || 'Failed to delete'),
+    onSettled: () => setRowBusy(null),
+  });
+  const publishPracticeMut = useMutation({
+    mutationFn: (id: string) => api.publishQOTDToPractice(id, token!),
+    onMutate: (id) => { setRowBusy(id); },
+    onSuccess: () => { toast.success('Published to practice catalog'); qc.invalidateQueries({ queryKey: ['qotd-history-admin'] }); },
+    onError: (e: Error) => toast.error(e.message || 'Failed to publish to practice'),
+    onSettled: () => setRowBusy(null),
+  });
+  const unpublishPracticeMut = useMutation({
+    mutationFn: (id: string) => api.unpublishQOTDFromPractice(id, token!),
+    onMutate: (id) => { setRowBusy(id); },
+    onSuccess: () => { toast.success('Removed from practice catalog'); qc.invalidateQueries({ queryKey: ['qotd-history-admin'] }); },
+    onError: (e: Error) => toast.error(e.message || 'Failed to remove from practice'),
+    onSettled: () => setRowBusy(null),
+  });
+
+  const canSchedule = mode === 'pick' ? Boolean(problemId) : mode === 'legacy' ? Boolean(legacyQuestion.trim()) : false;
 
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
+    <div className="flex flex-col gap-6">
+      <div className="flex items-end justify-between gap-3 flex-wrap">
         <div>
-          <Badge variant="outline" className="mb-2 border-amber-400/40 bg-amber-50 text-amber-700 dark:bg-amber-500/10 dark:text-amber-300">
-            <Code className="mr-1 h-3 w-3" />
-            QOTD scheduler
-          </Badge>
-          <h1 className="font-display text-2xl font-bold text-foreground sm:text-3xl">Question of the Day</h1>
-          <p className="mt-1 text-sm text-muted-foreground max-w-xl">
-            Pick the day's challenge from your judged problem catalog, write a quick one-off, or just drop in an external link.
-          </p>
+          <div className="text-[10.5px] uppercase tracking-[0.06em] font-semibold text-[var(--ds-text-3)]">Manage</div>
+          <h1 className="text-[24px] font-semibold tracking-tight mt-1">Question of the day</h1>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <Link to="/dashboard/problems/new">
-            <Button variant="outline">
-              <FileCode2 className="h-4 w-4 mr-2" />
-              Create problem
-            </Button>
-          </Link>
-          <Link to="/admin/problems">
-            <Button variant="outline">
-              <Code className="h-4 w-4 mr-2" />
-              Manage problems
-            </Button>
-          </Link>
-          <Button onClick={() => setShowForm(!showForm)} className="bg-amber-500 text-white hover:bg-amber-400">
-            <Plus className="h-4 w-4 mr-2" />
-            {showForm ? 'Close form' : 'Create QOTD'}
-          </Button>
-        </div>
+        <Pill tone="neutral" size="sm">
+          <span className="font-mono tabular-nums">{publishedCount}</span> published
+          {' · '}
+          <span className="font-mono tabular-nums ml-1">{scheduledCount}</span> scheduled
+        </Pill>
       </div>
 
-      {/* Create Form */}
-      {showForm && (
-        <motion.div
-          initial={{ opacity: 0, height: 0 }}
-          animate={{ opacity: 1, height: 'auto' }}
-        >
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Code className="h-5 w-5 text-amber-600" />
-                Create New QOTD
-              </CardTitle>
-              <CardDescription>Add a new problem for members to solve</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <form onSubmit={handleSubmit} className="space-y-4">
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <div className="space-y-2">
-                    <Label htmlFor="qotd-date">Date *</Label>
-                    <Input
-                      id="qotd-date"
-                      name="date"
-                      type="date"
-                      value={form.date}
-                      onChange={(e) => {
-                        handleChange(e);
-                        // When user picks a future date, default to scheduled (publishNow=false)
-                        setPublishNow(e.target.value <= istTodayKey());
-                      }}
-                      required
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="qotd-difficulty">Difficulty *</Label>
-                    <select
-                      id="qotd-difficulty"
-                      name="difficulty"
-                      value={form.difficulty}
-                      onChange={handleChange}
-                      className="w-full h-10 px-3 py-2 border border-input rounded-md bg-background text-sm"
-                    >
-                      <option value="Easy">Easy</option>
-                      <option value="Medium">Medium</option>
-                      <option value="Hard">Hard</option>
-                    </select>
-                  </div>
-                </div>
+      {/* Mode picker */}
+      <div className="grid sm:grid-cols-3 gap-2">
+        {([
+          { id: 'pick', icon: Search, title: 'Pick existing problem', body: 'Schedule a published problem for a date.' },
+          { id: 'create', icon: Plus, title: 'Create new problem', body: 'Author inline, scheduled in one go.' },
+          { id: 'legacy', icon: FileText, title: 'Legacy text-only', body: 'A question + a problem link, no judging.' },
+        ] as const).map((m) => (
+          <button
+            key={m.id}
+            type="button"
+            onClick={() => setMode(m.id)}
+            className={cn(
+              'p-4 rounded-[10px] border text-left transition-all',
+              mode === m.id
+                ? 'bg-[var(--accent-subtle)]/40 border-[var(--accent)] ring-2 ring-[var(--accent-ring)]'
+                : 'bg-[var(--bg-raised)] border-[var(--border-subtle)] hover:border-[var(--border-default)]',
+            )}
+          >
+            <div className={cn(
+              'size-8 rounded-[8px] flex items-center justify-center mb-2',
+              mode === m.id ? 'bg-[var(--accent-subtle)] text-[var(--accent)]' : 'bg-[var(--surface-soft)] text-[var(--ds-text-2)]',
+            )}>
+              <m.icon size={15} />
+            </div>
+            <div className="text-[13.5px] font-semibold">{m.title}</div>
+            <div className="text-[11.5px] text-[var(--ds-text-3)] mt-1 leading-snug">{m.body}</div>
+          </button>
+        ))}
+      </div>
 
-                <label className="flex items-start gap-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm">
-                  <input
-                    type="checkbox"
-                    checked={publishNow}
-                    onChange={(e) => setPublishNow(e.target.checked)}
-                    className="mt-0.5"
-                  />
-                  <div>
-                    <span className="font-semibold text-amber-900">Publish immediately</span>
-                    <p className="text-xs text-amber-800">
-                      {publishNow
-                        ? form.date > istTodayKey()
-                          ? `Will go live now, but only appears as "today's QOTD" once ${form.date} arrives in IST.`
-                          : 'Goes live as soon as you click create.'
-                        : `Stays as a draft. Will auto-publish at midnight IST on ${form.date} unless an admin holds it.`}
-                    </p>
-                  </div>
-                </label>
+      <div className="grid lg:grid-cols-12 gap-5">
+        {/* Form */}
+        <DSCard padded className="lg:col-span-7 flex flex-col gap-3">
+          <div className="text-[13.5px] font-semibold">
+            {mode === 'pick' ? 'Schedule existing' : mode === 'create' ? 'New problem inline' : 'Quick text question'}
+          </div>
 
-                <div className="space-y-2">
-                  <Label className="text-xs uppercase tracking-wide text-muted-foreground">How are you sourcing today's question?</Label>
-                  <div className="grid gap-2 sm:grid-cols-3">
-                    {[
-                      { value: 'existing', label: 'Pick existing problem', description: 'Reuse a judged problem from the catalog.', icon: FileCode2 },
-                      { value: 'inline', label: 'Quick inline problem', description: 'A lightweight one-shot — for richer authoring use Create Problem.', icon: Pen },
-                      { value: 'legacy', label: 'External link only', description: 'Just a title and a LeetCode/HackerRank URL.', icon: Link2 },
-                    ].map(({ value, label, description, icon: Icon }) => {
-                      const active = mode === value;
-                      return (
-                        <button
-                          key={value}
-                          type="button"
-                          onClick={() => setMode(value as typeof mode)}
-                          className={`flex flex-col gap-1 rounded-lg border px-3 py-2 text-left transition ${active
-                              ? 'border-amber-500 bg-amber-50 ring-1 ring-amber-400/30 dark:bg-amber-500/10'
-                              : 'border-border bg-card hover:border-amber-300'
-                            }`}
-                        >
-                          <span className="flex items-center gap-1.5 text-sm font-semibold">
-                            <Icon className="h-3.5 w-3.5 text-amber-500" />
-                            {label}
-                          </span>
-                          <span className="text-[11px] leading-snug text-muted-foreground">{description}</span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-
-                {mode === 'existing' && (
-                  <div className="space-y-2 rounded-md border border-border bg-card p-3">
-                    <Label htmlFor="qotd-existing-problem">Problem *</Label>
-                    {publishedProblems.length > 0 ? (
-                      <select
-                        id="qotd-existing-problem"
-                        value={problemId}
-                        onChange={(event) => setProblemId(event.target.value)}
-                        className="w-full h-10 px-3 py-2 border border-input rounded-md bg-background text-sm"
-                        required
-                      >
-                        <option value="">Select a problem…</option>
-                        {publishedProblems.map((problem) => (
-                          <option key={problem.id} value={problem.id}>{problem.title} ({problem.difficulty})</option>
-                        ))}
-                      </select>
-                    ) : (
-                      <div className="rounded border border-dashed border-amber-300 bg-amber-50 px-3 py-3 text-sm text-amber-800 dark:bg-amber-500/10 dark:text-amber-200">
-                        <p className="font-semibold">No published problems yet.</p>
-                        <p className="mt-1 text-xs">
-                          Author one with rich validation, then publish from the Problems page.
-                        </p>
-                        <div className="mt-2 flex flex-wrap gap-2">
-                          <Link to="/dashboard/problems/new" className="inline-flex h-8 items-center gap-1 rounded bg-amber-500 px-3 text-xs font-semibold text-white hover:bg-amber-400">
-                            <Plus className="h-3 w-3" /> Create problem
-                          </Link>
-                          <Link to="/admin/problems" className="inline-flex h-8 items-center gap-1 rounded border border-amber-300 bg-white px-3 text-xs font-semibold text-amber-700 hover:bg-amber-50">
-                            Open Problems admin
-                          </Link>
-                        </div>
-                      </div>
-                    )}
-                    <p className="text-[11px] text-muted-foreground">
-                      Only published problems appear here. Publish drafts from the Problems page first.
-                    </p>
-                  </div>
-                )}
-
-                {mode === 'inline' && (
-                  <div className="space-y-4 rounded-lg border border-amber-200 bg-amber-50/50 p-4">
-                    <div className="grid gap-4 sm:grid-cols-2">
-                      <div className="space-y-2">
-                        <Label htmlFor="inline-problem-title">Problem title *</Label>
-                        <Input
-                          id="inline-problem-title"
-                          value={newProblem.title}
-                          onChange={(event) => setNewProblem((prev) => ({ ...prev, title: event.target.value, slug: prev.slug || slugify(event.target.value) }))}
-                        />
-                      </div>
-                      <div className="space-y-2">
-                        <Label htmlFor="inline-problem-slug">Slug *</Label>
-                        <Input
-                          id="inline-problem-slug"
-                          value={newProblem.slug}
-                          onChange={(event) => setNewProblem((prev) => ({ ...prev, slug: slugify(event.target.value) }))}
-                        />
-                      </div>
-                    </div>
-                    <div className="grid gap-4 sm:grid-cols-3">
-                      <select value={newProblem.difficulty} onChange={(event) => setNewProblem((prev) => ({ ...prev, difficulty: event.target.value as ProblemInput['difficulty'] }))} className="h-10 rounded-md border border-input bg-background px-3 text-sm">
-                        <option value="EASY">Easy</option>
-                        <option value="MEDIUM">Medium</option>
-                        <option value="HARD">Hard</option>
-                      </select>
-                      <Input type="number" min={500} max={10000} value={newProblem.timeLimitMs} onChange={(event) => setNewProblem((prev) => ({ ...prev, timeLimitMs: Number(event.target.value) }))} />
-                      <Input type="number" min={1} max={100} value={newProblem.defaultSubmitCap} onChange={(event) => setNewProblem((prev) => ({ ...prev, defaultSubmitCap: Number(event.target.value) }))} />
-                    </div>
-                    <div className="flex flex-wrap gap-2">
-                      {(['PYTHON', 'JAVASCRIPT', 'CPP', 'JAVA'] as ProblemLanguage[]).map((language) => (
-                        <label key={language} className="inline-flex items-center gap-2 rounded-md border border-amber-200 bg-white px-3 py-2 text-sm">
-                          <input
-                            type="checkbox"
-                            checked={newProblem.allowedLanguages.includes(language)}
-                            onChange={(event) => setNewProblem((prev) => ({
-                              ...prev,
-                              allowedLanguages: event.target.checked
-                                ? [...prev.allowedLanguages, language]
-                                : prev.allowedLanguages.filter((item) => item !== language),
-                            }))}
-                          />
-                          {language}
-                        </label>
-                      ))}
-                    </div>
-                    <textarea
-                      value={newProblem.body}
-                      onChange={(event) => setNewProblem((prev) => ({ ...prev, body: event.target.value }))}
-                      className="w-full min-h-[140px] rounded-md border border-input bg-background px-3 py-2 font-mono text-sm"
-                    />
-                    <div className="grid gap-3 sm:grid-cols-2">
-                      <textarea
-                        value={newProblem.sampleTests[0]?.input ?? ''}
-                        onChange={(event) => setNewProblem((prev) => ({ ...prev, sampleTests: [{ ...(prev.sampleTests[0] ?? { id: 'sample-1', expectedOutput: '' }), input: event.target.value }] }))}
-                        placeholder="Sample input"
-                        className="min-h-[90px] rounded-md border border-input bg-background px-3 py-2 font-mono text-sm"
-                      />
-                      <textarea
-                        value={newProblem.sampleTests[0]?.expectedOutput ?? ''}
-                        onChange={(event) => setNewProblem((prev) => ({ ...prev, sampleTests: [{ ...(prev.sampleTests[0] ?? { id: 'sample-1', input: '' }), expectedOutput: event.target.value }] }))}
-                        placeholder="Sample expected output"
-                        className="min-h-[90px] rounded-md border border-input bg-background px-3 py-2 font-mono text-sm"
-                      />
-                      <textarea
-                        value={newProblem.hiddenTests[0]?.input ?? ''}
-                        onChange={(event) => setNewProblem((prev) => ({ ...prev, hiddenTests: [{ ...(prev.hiddenTests[0] ?? { id: 'hidden-1', expectedOutput: '' }), input: event.target.value }] }))}
-                        placeholder="Hidden input"
-                        className="min-h-[90px] rounded-md border border-input bg-background px-3 py-2 font-mono text-sm"
-                      />
-                      <textarea
-                        value={newProblem.hiddenTests[0]?.expectedOutput ?? ''}
-                        onChange={(event) => setNewProblem((prev) => ({ ...prev, hiddenTests: [{ ...(prev.hiddenTests[0] ?? { id: 'hidden-1', input: '' }), expectedOutput: event.target.value }] }))}
-                        placeholder="Hidden expected output"
-                        className="min-h-[90px] rounded-md border border-input bg-background px-3 py-2 font-mono text-sm"
-                      />
-                    </div>
-                  </div>
-                )}
-
-                {mode === 'legacy' && <div className="space-y-2">
-                  <Label htmlFor="qotd-problem-link">Problem Link *</Label>
+          {mode === 'pick' && (
+            <>
+              <Field label="Problem" required>
+                <div className="relative">
+                  <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--ds-text-3)] pointer-events-none" />
                   <Input
-                    id="qotd-problem-link"
-                    name="problemLink"
-                    type="url"
-                    value={form.problemLink}
-                    onChange={handleChange}
-                    placeholder="https://leetcode.com/problems/..."
-                    required
+                    value={problemSearch}
+                    onChange={(e) => setProblemSearch(e.target.value)}
+                    placeholder="Search by title or tag…"
+                    className="pl-8 h-9"
                   />
-                </div>}
-
-                {mode === 'legacy' && <div className="space-y-2">
-                  <Label htmlFor="qotd-question">Question / Description *</Label>
-                  <textarea
-                    id="qotd-question"
-                    name="question"
-                    value={form.question}
-                    onChange={handleChange}
-                    placeholder="Describe the problem or add a brief summary..."
-                    className="w-full min-h-[100px] px-3 py-2 border border-input rounded-md bg-background text-sm"
-                    required
-                  />
-                </div>}
-
-                <div className="flex gap-3">
-                  <Button type="submit" disabled={saving}>
-                    {saving ? (
-                      <>
-                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                        Creating...
-                      </>
-                    ) : (
-                      'Create QOTD'
-                    )}
-                  </Button>
-                  <Button type="button" variant="outline" onClick={() => setShowForm(false)}>
-                    Cancel
-                  </Button>
                 </div>
-              </form>
-            </CardContent>
-          </Card>
-        </motion.div>
-      )}
+              </Field>
+              <div className="border border-[var(--border-subtle)] rounded-[8px] max-h-[200px] overflow-y-auto bg-[var(--surface-soft)]/40">
+                {problemsQ.isLoading ? (
+                  <div className="p-4 text-[12px] text-[var(--ds-text-3)] text-center">Loading…</div>
+                ) : filteredProblems.length === 0 ? (
+                  <div className="p-4 text-[12px] text-[var(--ds-text-3)] text-center">No problems match</div>
+                ) : (
+                  filteredProblems.map((p) => (
+                    <button
+                      key={p.id}
+                      type="button"
+                      onClick={() => setProblemId(p.id)}
+                      className={cn(
+                        'w-full px-3 py-2 flex items-center gap-2 border-b border-[var(--border-subtle)] last:border-b-0 text-left transition-colors',
+                        problemId === p.id ? 'bg-[var(--accent-subtle)]/40' : 'hover:bg-[var(--surface-soft)]',
+                      )}
+                    >
+                      <span className="text-[12.5px] font-medium flex-1 truncate">{p.title}</span>
+                      <Pill tone="neutral" size="xs">{p.difficulty}</Pill>
+                      {problemId === p.id && <Check size={12} className="text-[var(--accent)]" />}
+                    </button>
+                  ))
+                )}
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <Field label="Date" required><Input type="date" value={date} onChange={(e) => setDate(e.target.value)} /></Field>
+                <Field label="Publish time" hint="defaults to 00:00 IST"><Input type="time" value={publishTime} onChange={(e) => setPublishTime(e.target.value)} /></Field>
+              </div>
+              <label className="flex items-center gap-2 text-[12.5px]">
+                <input type="checkbox" checked={publishToPractice} onChange={(e) => setPublishToPractice(e.target.checked)} />
+                Publish to practice catalog after the day ends
+              </label>
+            </>
+          )}
 
-      {/* Recent QOTDs */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Recent QOTDs</CardTitle>
-          <CardDescription>Previously created questions of the day</CardDescription>
-        </CardHeader>
-        <CardContent>
-          {loading ? (
-            <div className="flex justify-center py-8">
-              <Loader2 className="h-6 w-6 animate-spin text-amber-600" />
-            </div>
-          ) : recentQOTDs.length === 0 ? (
-            <div className="text-center py-8 text-gray-500">
-              <Code className="h-12 w-12 mx-auto mb-4 text-gray-300" />
-              <p>No QOTDs created yet.</p>
-              <p className="text-sm">Create the first one!</p>
-            </div>
-          ) : (
-            <div className="space-y-3">
-              {recentQOTDs.map((qotd, index) => {
-                const today = istTodayKey();
-                const qotdDateKey = String(qotd.date).slice(0, 10);
-                const isPast = qotdDateKey < today;
-                const isFuture = qotdDateKey > today;
-                const isPublished = qotd.isPublished !== false;
-                const isHeld = Boolean(qotd.heldBy);
-                const problemPracticePublished = qotd.problem?.isPublished === true;
-                const status = isHeld
-                  ? { label: 'Held', tone: 'bg-rose-100 text-rose-800 border-rose-300' }
-                  : !isPublished
-                    ? { label: isFuture ? 'Scheduled' : 'Draft', tone: 'bg-gray-100 text-gray-700 border-gray-300' }
-                    : isPast && problemPracticePublished
-                      ? { label: 'Published · in Practice', tone: 'bg-emerald-100 text-emerald-800 border-emerald-300' }
-                      : { label: 'Published', tone: 'bg-blue-100 text-blue-800 border-blue-300' };
-                const playgroundHref = qotd.problemId ? getPlaygroundLaunchUrl(`/?qotd=${encodeURIComponent(qotdDateKey)}`) : null;
-                const busy = rowBusy === qotd.id;
-                return (
-                  <motion.div
-                    key={qotd.id}
-                    initial={{ opacity: 0, y: 10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: Math.min(index * 0.05, 0.3) }}
-                    className="rounded-lg border border-amber-200 bg-amber-50/50 p-4"
-                  >
-                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                      <div className="flex-1 min-w-0">
-                        <div className="flex flex-wrap items-center gap-2 mb-1">
-                          <span className="text-sm text-gray-500">{formatDate(qotd.date)}</span>
-                          <Badge variant={difficultyColors[qotd.difficulty]}>{qotd.difficulty}</Badge>
-                          <span className={`inline-flex rounded-full border px-2.5 py-0.5 text-xs font-semibold ${status.tone}`}>
-                            {status.label}
-                          </span>
-                          {!qotd.problemId && (
-                            <span className="inline-flex rounded-full border border-gray-200 bg-white px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-gray-500">
-                              Legacy
-                            </span>
-                          )}
-                        </div>
-                        <p className="text-amber-900 line-clamp-1">{qotd.problem?.title ?? qotd.question}</p>
-                        {isHeld && qotd.holdReason && (
-                          <p className="mt-1 text-xs text-rose-700">Hold reason: {qotd.holdReason}</p>
-                        )}
-                      </div>
-                      <div className="flex flex-wrap items-center gap-2">
-                        {playgroundHref && (
-                          <a href={playgroundHref} target="_blank" rel="noopener noreferrer">
-                            <Button variant="ghost" size="sm" disabled={busy} aria-label={`Open QOTD on ${formatDate(qotd.date)}`}>
-                              <Code className="h-4 w-4 mr-1" />
-                              Open
-                            </Button>
-                          </a>
-                        )}
-                        {qotd.problemId && (
-                          <Link to={`/admin/problems?submissionsFor=${qotd.problemId}&contextType=QOTD&contextKey=${qotd.id}`}>
-                            <Button variant="ghost" size="sm" disabled={busy} aria-label={`View submissions for QOTD on ${formatDate(qotd.date)}`}>
-                              <Users className="h-4 w-4 mr-1" />
-                              Submissions
-                            </Button>
-                          </Link>
-                        )}
-                        {qotd.problemId && (
-                          <Link to={`/admin/problems?problemId=${qotd.problemId}`}>
-                            <Button variant="ghost" size="sm" disabled={busy} aria-label="Edit underlying problem">
-                              <Pencil className="h-4 w-4 mr-1" />
-                              Edit problem
-                            </Button>
-                          </Link>
-                        )}
-                        {!qotd.problemId && (
-                          <a href={qotd.problemLink} target="_blank" rel="noopener noreferrer">
-                            <Button variant="ghost" size="sm" disabled={busy} aria-label={`Open link for QOTD on ${formatDate(qotd.date)}`}>
-                              <ExternalLink className="h-4 w-4" />
-                            </Button>
-                          </a>
-                        )}
-                        {!isPublished && (
-                          <Button
-                            size="sm"
-                            disabled={busy}
-                            onClick={() => void handlePublishNow(qotd)}
-                            title={isFuture ? `Approves this QOTD so it goes live automatically on ${qotdDateKey} (IST).` : 'Publish so users can see it immediately.'}
-                          >
-                            {busy ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Play className="h-4 w-4 mr-1" />}
-                            {isFuture ? `Approve for ${qotdDateKey}` : 'Publish Now'}
-                          </Button>
-                        )}
-                        {isPublished && isFuture && (
-                          <Button variant="outline" size="sm" disabled={busy} onClick={() => void handleHold(qotd)}>
-                            {busy ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Pause className="h-4 w-4 mr-1" />}
-                            Hold
-                          </Button>
-                        )}
-                        {isPast && qotd.problemId && !problemPracticePublished && (
-                          <Button variant="outline" size="sm" disabled={busy} onClick={() => void handlePublishToPractice(qotd)}>
-                            {busy ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <BookOpenCheck className="h-4 w-4 mr-1" />}
-                            Publish to Practice
-                          </Button>
-                        )}
-                        {isPast && qotd.problemId && problemPracticePublished && (
-                          <Button variant="outline" size="sm" disabled={busy} onClick={() => void handleUnpublishFromPractice(qotd)}>
-                            {busy ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <EyeOff className="h-4 w-4 mr-1" />}
-                            Remove from Practice
-                          </Button>
-                        )}
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          disabled={busy}
-                          onClick={() => void handleDelete(qotd)}
-                          className="text-rose-700 hover:bg-rose-50 hover:text-rose-800"
-                          aria-label={`Delete QOTD for ${qotdDateKey}`}
-                        >
-                          {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
-                        </Button>
-                      </div>
-                    </div>
-                  </motion.div>
-                );
-              })}
+          {mode === 'create' && (
+            <div className="text-[12.5px] text-[var(--ds-text-3)] space-y-2">
+              <p>
+                Use the{' '}
+                <button
+                  type="button"
+                  onClick={() => {
+                    // Persist the picked date so we can offer one-click scheduling after the
+                    // admin finishes authoring the new problem. CreateProblem clears this on save.
+                    try { localStorage.setItem('pendingQOTDDate', date); } catch { /* quota */ }
+                    navigate('/dashboard/problems/new?qotd=1');
+                  }}
+                  className="text-[var(--accent)] hover:underline"
+                >
+                  Create problem stepper
+                </button>
+                , then come back — we&apos;ll prompt you to schedule it as QOTD for {date}.
+              </p>
+              <p className="text-[11.5px]">
+                Tip: this is the same as picking an existing problem in the &ldquo;Schedule existing&rdquo; mode once you publish the new problem.
+              </p>
             </div>
           )}
-        </CardContent>
-      </Card>
+
+          {mode === 'legacy' && (
+            <>
+              <Field label="Question" required>
+                <Input value={legacyQuestion} onChange={(e) => setLegacyQuestion(e.target.value)} placeholder="What is the time complexity of heap-build?" />
+              </Field>
+              <Field label="Problem link" hint="Optional · LeetCode / HackerRank / etc.">
+                <div className="relative">
+                  <LinkIcon size={12} className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--ds-text-3)] pointer-events-none" />
+                  <Input value={legacyLink} onChange={(e) => setLegacyLink(e.target.value)} placeholder="https://…" className="pl-8" />
+                </div>
+              </Field>
+              <Field label="Date" required><Input type="date" value={date} onChange={(e) => setDate(e.target.value)} /></Field>
+            </>
+          )}
+
+          <div className="flex items-center justify-end gap-2 pt-2">
+            <Button size="sm" onClick={() => scheduleMut.mutate()} disabled={!canSchedule || scheduleMut.isPending}>
+              {scheduleMut.isPending && <Loader2 size={13} className="mr-1.5 animate-spin" />}
+              Schedule <Check size={13} className="ml-1" />
+            </Button>
+          </div>
+        </DSCard>
+
+        {/* Calendar */}
+        <DSCard padded className="lg:col-span-5">
+          <div className="flex items-center justify-between mb-3">
+            <div className="text-[13.5px] font-semibold">{monthLabel}</div>
+            <div className="flex items-center gap-1">
+              <button onClick={() => setCalMonth((d) => new Date(d.getFullYear(), d.getMonth() - 1, 1))} className="size-7 rounded-[6px] hover:bg-[var(--surface-soft)] flex items-center justify-center text-[var(--ds-text-3)]">
+                <ChevronLeft size={12} />
+              </button>
+              <button onClick={() => setCalMonth((d) => new Date(d.getFullYear(), d.getMonth() + 1, 1))} className="size-7 rounded-[6px] hover:bg-[var(--surface-soft)] flex items-center justify-center text-[var(--ds-text-3)]">
+                <ChevronRight size={12} />
+              </button>
+            </div>
+          </div>
+          <div className="grid grid-cols-7 gap-1.5 mb-2 text-[10px] text-[var(--ds-text-3)] uppercase tracking-[0.06em] font-semibold text-center">
+            {['M', 'T', 'W', 'T', 'F', 'S', 'S'].map((d, i) => <div key={i}>{d}</div>)}
+          </div>
+          <div className="grid grid-cols-7 gap-1.5">
+            {calDays.map((c, i) => (
+              <button
+                key={i}
+                type="button"
+                disabled={!c.date}
+                onClick={() => {
+                  if (!c.date) return;
+                  setDate(toIsoDate(c.date));
+                }}
+                className={cn(
+                  'aspect-square rounded-[6px] relative flex items-center justify-center text-[11.5px] font-medium border transition-colors',
+                  !c.date && 'opacity-0 pointer-events-none',
+                  c.status === 'live' && 'bg-[var(--accent)] text-white border-transparent ring-2 ring-[var(--accent-ring)]',
+                  c.status === 'published' && 'bg-[var(--accent-subtle)] text-[var(--accent)] border-transparent',
+                  c.status === 'scheduled' && 'bg-[var(--surface-soft)] text-[var(--ds-text-1)] border-dashed border-[var(--border-strong)]',
+                  c.status === 'held' && 'bg-[var(--warning-bg)] text-[var(--warning)] border-[var(--warning-border)]',
+                  c.status === 'empty' && 'bg-transparent text-[var(--ds-text-3)] border-[var(--border-subtle)] hover:bg-[var(--surface-soft)]',
+                )}
+                title={c.qotd?.question}
+              >
+                <span className="font-mono tabular-nums">{c.date?.getDate()}</span>
+                {c.status === 'live' && <span className="absolute -top-0.5 -right-0.5 size-[6px] rounded-full bg-white live-dot" />}
+              </button>
+            ))}
+          </div>
+          <hr className="border-0 h-px bg-[var(--border-subtle)] my-3" />
+          <div className="grid grid-cols-2 gap-x-3 gap-y-1.5 text-[10.5px]">
+            {([
+              ['Live now', 'bg-[var(--accent)]'],
+              ['Published', 'bg-[var(--accent-subtle)] border border-[var(--accent)]/30'],
+              ['Scheduled', 'bg-[var(--surface-soft)] border border-dashed border-[var(--border-strong)]'],
+              ['Held', 'bg-[var(--warning-bg)] border border-[var(--warning-border)]'],
+            ] as const).map(([l, c]) => (
+              <div key={l} className="flex items-center gap-1.5">
+                <span className={cn('size-2.5 rounded-[3px]', c)} />
+                <span className="text-[var(--ds-text-3)]">{l}</span>
+              </div>
+            ))}
+          </div>
+        </DSCard>
+      </div>
+
+      {/* Recent history with actions */}
+      <Section eyebrow="History" title={`${history.length} entries`}>
+        {historyQ.isLoading ? (
+          <div className="h-24 bg-[var(--surface-soft)] rounded animate-pulse" />
+        ) : history.length === 0 ? (
+          <DSCard padded><EmptyState icon={<BookOpen size={18} />} title="No QOTDs yet" /></DSCard>
+        ) : (
+          <DSCard padded={false}>
+            <div className="divide-y divide-[var(--border-subtle)]">
+              {history.slice(0, 12).map((q) => (
+                <div key={q.id} className="px-4 py-2.5 flex items-center gap-3">
+                  <span className="font-mono tabular-nums text-[12px] text-[var(--ds-text-3)] w-[88px]">
+                    {new Date(q.date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
+                  </span>
+                  <span className="flex-1 truncate text-[13px] font-medium">{q.question}</span>
+                  <Pill tone={q.isPublished && !q.heldBy ? 'success' : q.heldBy ? 'warning' : 'neutral'} size="xs">
+                    {q.heldBy ? 'Held' : q.isPublished ? 'Published' : 'Scheduled'}
+                  </Pill>
+                  {rowBusy === q.id && <Loader2 size={11} className="animate-spin text-[var(--ds-text-3)]" />}
+                  {!q.isPublished && (
+                    <button onClick={() => publishMut.mutate(q.id)} disabled={rowBusy === q.id} title="Publish" className="size-7 rounded-[6px] hover:bg-[var(--accent-subtle)] text-[var(--ds-text-3)] hover:text-[var(--accent)] flex items-center justify-center disabled:opacity-40">
+                      <Play size={11} />
+                    </button>
+                  )}
+                  {q.isPublished && !q.heldBy && (
+                    <button onClick={() => { setHoldTarget(q); setHoldReason(''); }} disabled={rowBusy === q.id} title="Hold" className="size-7 rounded-[6px] hover:bg-[var(--warning-bg)] text-[var(--ds-text-3)] hover:text-[var(--warning)] flex items-center justify-center disabled:opacity-40">
+                      <Pause size={11} />
+                    </button>
+                  )}
+                  {q.problemId && !q.problem?.isPublished && (
+                    <button onClick={() => publishPracticeMut.mutate(q.id)} disabled={rowBusy === q.id} title="Publish to practice catalog" aria-label="Publish to practice catalog" className="size-7 rounded-[6px] hover:bg-[var(--surface-soft)] text-[var(--ds-text-3)] hover:text-[var(--ds-text-1)] flex items-center justify-center disabled:opacity-40">
+                      <BookOpen size={11} />
+                    </button>
+                  )}
+                  {q.problemId && q.problem?.isPublished && (
+                    <button onClick={() => unpublishPracticeMut.mutate(q.id)} disabled={rowBusy === q.id} title="Remove from practice catalog" aria-label="Remove from practice catalog" className="size-7 rounded-[6px] hover:bg-[var(--warning-bg)] text-[var(--ds-text-3)] hover:text-[var(--warning)] flex items-center justify-center disabled:opacity-40">
+                      <BookOpenCheck size={11} />
+                    </button>
+                  )}
+                  <button onClick={() => setDeleteTarget(q)} disabled={rowBusy === q.id} title="Delete" className="size-7 rounded-[6px] hover:bg-[var(--danger-bg)] text-[var(--ds-text-3)] hover:text-[var(--danger)] flex items-center justify-center disabled:opacity-40">
+                    <Trash2 size={11} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          </DSCard>
+        )}
+      </Section>
+
+      <AlertDialog open={Boolean(holdTarget)} onOpenChange={(o) => { if (!o) { setHoldTarget(null); setHoldReason(''); } }}>
+        <AlertDialogContent data-dashboard="true" className="bg-[var(--bg-raised)] border-[var(--border-subtle)]">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Hold this QOTD?</AlertDialogTitle>
+            <AlertDialogDescription>
+              The question stops accepting submissions immediately. Add a short reason so other admins know why.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <Field label="Reason" required>
+            <textarea
+              value={holdReason}
+              onChange={(e) => setHoldReason(e.target.value)}
+              rows={3}
+              autoFocus
+              placeholder="e.g. solution leaked on a public channel"
+              className="w-full px-3 py-2 text-[13.5px] bg-[var(--bg-raised)] border border-[var(--border-default)] rounded-[8px] outline-none focus:border-[var(--accent)] resize-y"
+            />
+          </Field>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => holdTarget && holdReason.trim() && holdMut.mutate({ id: holdTarget.id, reason: holdReason.trim() })}
+              disabled={!holdReason.trim() || holdMut.isPending}
+              className="bg-[var(--warning)] hover:opacity-90 text-white"
+            >
+              {holdMut.isPending ? <Loader2 size={13} className="mr-1.5 animate-spin" /> : null}
+              Hold
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={Boolean(deleteTarget)} onOpenChange={(o) => !o && setDeleteTarget(null)}>
+        <AlertDialogContent data-dashboard="true" className="bg-[var(--bg-raised)] border-[var(--border-subtle)]">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete this QOTD?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Removes the QOTD entry for{' '}
+              {deleteTarget && new Date(deleteTarget.date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}.
+              The underlying problem (if any) stays in the catalog. This cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => deleteTarget && deleteMut.mutate(deleteTarget.id)}
+              disabled={deleteMut.isPending}
+              className="bg-[var(--danger)] hover:opacity-90 text-white"
+            >
+              {deleteMut.isPending ? <Loader2 size={13} className="mr-1.5 animate-spin" /> : null}
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

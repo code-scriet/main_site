@@ -29,6 +29,7 @@ const defaultSettings: Settings = {
   hiringManagement: true,
   competitionEnabled: false,
   problemsEnabled: false,
+  accentColor: 'rust',
   showNetwork: true,
   certificatesEnabled: true,
   playgroundEnabled: true,

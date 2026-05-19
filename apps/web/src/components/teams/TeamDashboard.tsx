@@ -171,7 +171,7 @@ export function TeamDashboard({ team, event, onTeamChange }: TeamDashboardProps)
                 Complete
               </Badge>
             ) : (
-              <Badge variant="outline" className="text-amber-600 border-amber-300">
+              <Badge variant="outline" className="text-amber-600 border-[var(--warning-border)]">
                 Need {teamMinSize - memberCount} more
               </Badge>
             )}

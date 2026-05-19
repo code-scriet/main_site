@@ -75,7 +75,7 @@ export function CertificateListCard({
   }
   if (certificates.length === 0) {
     return (
-      <div className="text-center py-16 text-gray-400">
+      <div className="text-center py-16 text-[var(--ds-text-3)]">
         <Award className="w-10 h-10 mx-auto mb-2 opacity-30" />
         <p>No certificates found</p>
       </div>
@@ -87,25 +87,25 @@ export function CertificateListCard({
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
-            <tr className="border-b bg-gray-50">
-              <th className="text-left px-4 py-3 font-medium text-gray-600">Cert ID</th>
-              <th className="text-left px-4 py-3 font-medium text-gray-600">Recipient</th>
-              <th className="text-left px-4 py-3 font-medium text-gray-600">Event</th>
-              <th className="text-left px-4 py-3 font-medium text-gray-600">Type</th>
-              <th className="text-left px-4 py-3 font-medium text-gray-600">Status</th>
-              <th className="text-left px-4 py-3 font-medium text-gray-600">Issued</th>
-              <th className="text-right px-4 py-3 font-medium text-gray-600">Actions</th>
+            <tr className="border-b bg-[var(--surface-soft)]">
+              <th className="text-left px-4 py-3 font-medium text-[var(--ds-text-2)]">Cert ID</th>
+              <th className="text-left px-4 py-3 font-medium text-[var(--ds-text-2)]">Recipient</th>
+              <th className="text-left px-4 py-3 font-medium text-[var(--ds-text-2)]">Event</th>
+              <th className="text-left px-4 py-3 font-medium text-[var(--ds-text-2)]">Type</th>
+              <th className="text-left px-4 py-3 font-medium text-[var(--ds-text-2)]">Status</th>
+              <th className="text-left px-4 py-3 font-medium text-[var(--ds-text-2)]">Issued</th>
+              <th className="text-right px-4 py-3 font-medium text-[var(--ds-text-2)]">Actions</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100">
             {certificates.map(cert => (
-              <tr key={cert.certId} className="hover:bg-gray-50 transition-colors">
-                <td className="px-4 py-3 font-mono text-xs text-amber-700 font-medium">{cert.certId}</td>
+              <tr key={cert.certId} className="hover:bg-[var(--surface-soft)] transition-colors">
+                <td className="px-4 py-3 font-mono text-xs text-[var(--warning)] font-medium">{cert.certId}</td>
                 <td className="px-4 py-3">
-                  <p className="font-medium text-gray-800">{cert.recipientName}</p>
-                  <p className="text-gray-400 text-xs">{cert.recipientEmail}</p>
+                  <p className="font-medium text-[var(--ds-text-1)]">{cert.recipientName}</p>
+                  <p className="text-[var(--ds-text-3)] text-xs">{cert.recipientEmail}</p>
                 </td>
-                <td className="px-4 py-3 text-gray-700 max-w-[160px] truncate">{cert.eventName}</td>
+                <td className="px-4 py-3 text-[var(--ds-text-2)] max-w-[160px] truncate">{cert.eventName}</td>
                 <td className="px-4 py-3"><CertTypeBadge type={cert.type} /></td>
                 <td className="px-4 py-3">
                   {cert.isRevoked ? (
@@ -118,7 +118,7 @@ export function CertificateListCard({
                     </span>
                   )}
                 </td>
-                <td className="px-4 py-3 text-gray-500 text-xs">
+                <td className="px-4 py-3 text-[var(--ds-text-3)] text-xs">
                   {formatDate(cert.issuedAt, 'short')}
                 </td>
                 <td className="px-4 py-3">
@@ -189,7 +189,7 @@ export function CertificateListCard({
       </div>
       {totalPages > 1 && (
         <div className="flex items-center justify-between px-4 py-3 border-t">
-          <p className="text-sm text-gray-500">Page {page} of {totalPages}</p>
+          <p className="text-sm text-[var(--ds-text-3)]">Page {page} of {totalPages}</p>
           <div className="flex gap-2">
             <Button
               variant="outline"

@@ -400,8 +400,8 @@ export default function AdminQuizCreator() {
   if (loadingExistingQuiz) {
     return (
       <Layout>
-        <div className="min-h-[60vh] flex items-center justify-center">
-          <div className="flex items-center gap-2 text-amber-800">
+        <div data-dashboard="true" data-accent="rust" className="min-h-[60vh] flex items-center justify-center bg-[var(--bg-canvas)] text-[var(--ds-text-1)]">
+          <div className="flex items-center gap-2 text-[var(--ds-text-1)]">
             <Loader2 className="h-5 w-5 animate-spin" />
             <span className="text-sm font-medium">Loading draft quiz...</span>
           </div>
@@ -412,21 +412,21 @@ export default function AdminQuizCreator() {
 
   return (
     <Layout>
-      <div className="min-h-screen bg-gradient-to-br from-amber-50 via-orange-50 to-amber-100">
+      <div data-dashboard="true" data-accent="rust" className="min-h-screen bg-[var(--bg-canvas)] text-[var(--ds-text-1)]">
       {/* Header — hidden on success screen */}
       {step <= 3 && (
-        <div className="sticky top-0 z-40 bg-white/80 backdrop-blur-md border-b border-amber-200/60">
+        <div className="sticky top-0 z-40 bg-white/80 backdrop-blur-md border-b border-[var(--accent-ring)]/60">
           <div className="max-w-4xl mx-auto px-4 py-3 flex items-center justify-between">
             <Button
               variant="ghost"
               size="sm"
               onClick={() => navigate('/quiz')}
-              className="text-amber-700 hover:bg-amber-50"
+              className="text-[var(--ds-text-2)] hover:bg-[var(--accent-subtle)]"
             >
               <ArrowLeft className="h-4 w-4 mr-1" />
               Back
             </Button>
-            <h1 className="text-lg font-bold text-amber-900 font-display">
+            <h1 className="text-lg font-bold text-[var(--ds-text-1)] font-display">
               {editId ? 'Edit Quiz' : 'Create Quiz'}
             </h1>
             <div className="w-16" />
@@ -466,8 +466,8 @@ export default function AdminQuizCreator() {
               className="space-y-6"
             >
               <div className="flex items-center justify-between">
-                <h2 className="text-2xl font-bold text-amber-900 font-display">Questions</h2>
-                <Badge variant="outline" className="border-amber-300 text-amber-700 bg-amber-50 font-mono text-xs">
+                <h2 className="text-2xl font-bold text-[var(--ds-text-1)] font-display">Questions</h2>
+                <Badge variant="outline" className="border-[var(--accent-ring)] text-[var(--ds-text-2)] bg-[var(--accent-subtle)] font-mono text-xs">
                   {questions.length} question{questions.length !== 1 ? 's' : ''}
                 </Badge>
               </div>
@@ -482,11 +482,11 @@ export default function AdminQuizCreator() {
                       className={cn(
                         'w-full px-3 py-2 rounded-lg text-left text-sm flex items-center gap-2 transition-all duration-200',
                         activeQIndex === i
-                          ? 'bg-amber-100 border border-amber-300 font-medium text-amber-900 shadow-sm'
-                          : 'hover:bg-amber-50 text-amber-700/60',
+                          ? 'bg-[var(--accent-subtle)] border border-[var(--accent-ring)] font-medium text-[var(--ds-text-1)] shadow-sm'
+                          : 'hover:bg-[var(--accent-subtle)] text-[var(--ds-text-2)]/60',
                       )}
                     >
-                      <GripVertical className="h-3 w-3 text-amber-400/50 flex-shrink-0 cursor-grab" />
+                      <GripVertical className="h-3 w-3 text-[var(--accent)]/50 flex-shrink-0 cursor-grab" />
                       <span className="truncate">
                         {q.questionText.trim() || `Question ${i + 1}`}
                       </span>
@@ -495,7 +495,7 @@ export default function AdminQuizCreator() {
                   {/* "Add Question" — dashed border card */}
                   <button
                     onClick={addQuestion}
-                    className="w-full px-3 py-2.5 rounded-lg border-2 border-dashed border-amber-300 text-amber-600 text-sm font-medium flex items-center justify-center gap-1.5 hover:bg-amber-50 hover:border-amber-400 transition-colors duration-200"
+                    className="w-full px-3 py-2.5 rounded-lg border-2 border-dashed border-[var(--accent-ring)] text-[var(--accent)] text-sm font-medium flex items-center justify-center gap-1.5 hover:bg-[var(--accent-subtle)] hover:border-[var(--accent)] transition-colors duration-200"
                   >
                     <Plus className="h-3.5 w-3.5" />
                     Add
@@ -511,8 +511,8 @@ export default function AdminQuizCreator() {
                       className={cn(
                         'w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 transition-colors',
                         activeQIndex === i
-                          ? 'bg-amber-500 text-white'
-                          : 'bg-amber-100 text-amber-700',
+                          ? 'bg-[var(--accent)] text-white'
+                          : 'bg-[var(--accent-subtle)] text-[var(--ds-text-2)]',
                       )}
                     >
                       {i + 1}
@@ -520,7 +520,7 @@ export default function AdminQuizCreator() {
                   ))}
                   <button
                     onClick={addQuestion}
-                    className="w-8 h-8 rounded-full flex items-center justify-center text-xs border-2 border-dashed border-amber-300 text-amber-500 flex-shrink-0"
+                    className="w-8 h-8 rounded-full flex items-center justify-center text-xs border-2 border-dashed border-[var(--accent-ring)] text-[var(--accent)] flex-shrink-0"
                   >
                     <Plus className="h-3.5 w-3.5" />
                   </button>
@@ -528,10 +528,10 @@ export default function AdminQuizCreator() {
 
                 {/* Question editor */}
                 {activeQ && (
-                  <Card className="flex-1 border-amber-200/60 shadow-md">
+                  <Card className="flex-1 border-[var(--accent-ring)]/60 shadow-md">
                     <CardContent className="p-5 sm:p-6 space-y-5">
                       <div className="flex items-center justify-between">
-                        <Badge className="bg-amber-100 text-amber-800 border-amber-300">
+                        <Badge className="bg-[var(--accent-subtle)] text-[var(--ds-text-1)] border-[var(--accent-ring)]">
                           Question {activeQIndex + 1}
                         </Badge>
                         <div className="flex gap-1">
@@ -540,7 +540,7 @@ export default function AdminQuizCreator() {
                             size="sm"
                             onClick={() => duplicateQuestion(activeQIndex)}
                             title="Duplicate"
-                            className="text-amber-600 hover:text-amber-800 hover:bg-amber-50"
+                            className="text-[var(--accent)] hover:text-[var(--ds-text-1)] hover:bg-[var(--accent-subtle)]"
                           >
                             <Copy className="h-4 w-4" />
                           </Button>
@@ -559,7 +559,7 @@ export default function AdminQuizCreator() {
 
                       {/* Question type */}
                       <div>
-                        <p className="block text-sm font-semibold text-amber-800 mb-2">Type</p>
+                        <p className="block text-sm font-semibold text-[var(--ds-text-1)] mb-2">Type</p>
                         <div className="flex gap-2 flex-wrap">
                           {([
                             { type: 'MCQ', label: 'Multiple Choice', icon: CircleDot },
@@ -603,8 +603,8 @@ export default function AdminQuizCreator() {
                               className={cn(
                                 'flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-sm transition-all duration-200',
                                 activeQ.questionType === type
-                                  ? 'bg-amber-100 border-amber-400 text-amber-800 font-semibold shadow-sm'
-                                  : 'border-amber-200 hover:bg-amber-50 text-amber-700/60',
+                                  ? 'bg-[var(--accent-subtle)] border-[var(--accent)] text-[var(--ds-text-1)] font-semibold shadow-sm'
+                                  : 'border-[var(--accent-ring)] hover:bg-[var(--accent-subtle)] text-[var(--ds-text-2)]/60',
                               )}
                             >
                               <Icon className="h-4 w-4" />
@@ -616,27 +616,27 @@ export default function AdminQuizCreator() {
 
                       {/* Question text */}
                       <div>
-                        <label htmlFor={`admin-quiz-question-text-${activeQ.id}`} className="block text-sm font-semibold text-amber-800 mb-1.5">Question *</label>
+                        <label htmlFor={`admin-quiz-question-text-${activeQ.id}`} className="block text-sm font-semibold text-[var(--ds-text-1)] mb-1.5">Question *</label>
                         <textarea
                           id={`admin-quiz-question-text-${activeQ.id}`}
                           value={activeQ.questionText}
                           onChange={(e) => updateQuestion(activeQIndex, { questionText: e.target.value })}
                           placeholder="Enter question text..."
                           rows={3}
-                          className="w-full rounded-lg border-2 border-amber-200 px-3 py-2 text-sm focus:outline-none focus:border-amber-400 focus:ring-2 focus:ring-amber-400/20 transition-colors duration-200"
+                          className="w-full rounded-lg border-2 border-[var(--accent-ring)] px-3 py-2 text-sm focus:outline-none focus:border-[var(--accent)] focus:ring-2 focus:ring-[var(--accent)]/20 transition-colors duration-200"
                         />
                       </div>
 
                       {/* Options (MCQ / POLL / MULTI_SELECT) */}
                       {usesOptions(activeQ.questionType) && (
                         <div>
-                          <p className="block text-sm font-semibold text-amber-800 mb-2">
+                          <p className="block text-sm font-semibold text-[var(--ds-text-1)] mb-2">
                             Options
                             {activeQ.questionType === 'MCQ' && (
-                              <span className="font-normal text-amber-600/60 text-xs ml-1">— click the circle to mark the correct answer</span>
+                              <span className="font-normal text-[var(--accent)]/60 text-xs ml-1">— click the circle to mark the correct answer</span>
                             )}
                             {activeQ.questionType === 'MULTI_SELECT' && (
-                              <span className="font-normal text-amber-600/60 text-xs ml-1">— click the circles to mark every correct answer</span>
+                              <span className="font-normal text-[var(--accent)]/60 text-xs ml-1">— click the circles to mark every correct answer</span>
                             )}
                           </p>
                           <div className="space-y-2">
@@ -666,7 +666,7 @@ export default function AdminQuizCreator() {
                                           : activeQ.correctAnswers.includes(opt)
                                       )
                                         ? 'border-green-500 bg-green-500 text-white scale-110'
-                                        : 'border-amber-300 hover:border-amber-400',
+                                        : 'border-[var(--accent-ring)] hover:border-[var(--accent)]',
                                     )}
                                     title={activeQ.questionType === 'MCQ' ? 'Mark as correct' : 'Toggle correct answer'}
                                   >
@@ -700,7 +700,7 @@ export default function AdminQuizCreator() {
                                     updateQuestion(activeQIndex, patch);
                                   }}
                                   placeholder={`Option ${oi + 1}`}
-                                  className="flex-1 border-amber-200 focus:border-amber-400 focus:ring-amber-400/20"
+                                  className="flex-1 border-[var(--accent-ring)] focus:border-[var(--accent)] focus:ring-[var(--accent)]/20"
                                 />
                                 {activeQ.options.length > 2 && (
                                   <Button
@@ -719,7 +719,7 @@ export default function AdminQuizCreator() {
                                           : {}),
                                       });
                                     }}
-                                    className="text-amber-400 hover:text-red-500 hover:bg-red-50"
+                                    className="text-[var(--accent)] hover:text-red-500 hover:bg-red-50"
                                   >
                                     <Trash2 className="h-3 w-3" />
                                   </Button>
@@ -731,7 +731,7 @@ export default function AdminQuizCreator() {
                                 onClick={() =>
                                   updateQuestion(activeQIndex, { options: [...activeQ.options, ''] })
                                 }
-                                className="w-full py-2 rounded-lg border-2 border-dashed border-amber-200 text-amber-600 text-sm font-medium flex items-center justify-center gap-1.5 hover:bg-amber-50 hover:border-amber-300 transition-colors duration-200"
+                                className="w-full py-2 rounded-lg border-2 border-dashed border-[var(--accent-ring)] text-[var(--accent)] text-sm font-medium flex items-center justify-center gap-1.5 hover:bg-[var(--accent-subtle)] hover:border-[var(--accent-ring)] transition-colors duration-200"
                               >
                                 <Plus className="h-3.5 w-3.5" />
                                 Add Option
@@ -744,7 +744,7 @@ export default function AdminQuizCreator() {
                       {/* True/False correct answer */}
                       {activeQ.questionType === 'TRUE_FALSE' && (
                         <div>
-                          <p className="block text-sm font-semibold text-amber-800 mb-2">Correct Answer *</p>
+                          <p className="block text-sm font-semibold text-[var(--ds-text-1)] mb-2">Correct Answer *</p>
                           <div className="flex gap-3">
                             {['True', 'False'].map((val) => (
                               <button
@@ -754,7 +754,7 @@ export default function AdminQuizCreator() {
                                   'flex-1 px-6 py-3 rounded-xl border-2 font-semibold transition-all duration-200',
                                   activeQ.correctAnswer === val
                                     ? 'border-green-500 bg-green-50 text-green-700 shadow-sm'
-                                    : 'border-amber-200 hover:bg-amber-50 text-amber-700/60',
+                                    : 'border-[var(--accent-ring)] hover:bg-[var(--accent-subtle)] text-[var(--ds-text-2)]/60',
                                 )}
                               >
                                 {val}
@@ -767,25 +767,25 @@ export default function AdminQuizCreator() {
                       {/* Short answer correct answer */}
                       {activeQ.questionType === 'SHORT_ANSWER' && (
                         <div>
-                          <label htmlFor={`admin-quiz-question-answer-${activeQ.id}`} className="block text-sm font-semibold text-amber-800 mb-1.5">
-                            Correct Answer * <span className="font-normal text-amber-600/40 text-xs">(case-insensitive match)</span>
+                          <label htmlFor={`admin-quiz-question-answer-${activeQ.id}`} className="block text-sm font-semibold text-[var(--ds-text-1)] mb-1.5">
+                            Correct Answer * <span className="font-normal text-[var(--accent)]/40 text-xs">(case-insensitive match)</span>
                           </label>
                           <Input
                             id={`admin-quiz-question-answer-${activeQ.id}`}
                             value={activeQ.correctAnswer}
                             onChange={(e) => updateQuestion(activeQIndex, { correctAnswer: e.target.value })}
                             placeholder="Expected answer..."
-                            className="border-amber-200 focus:border-amber-400 focus:ring-amber-400/20"
+                            className="border-[var(--accent-ring)] focus:border-[var(--accent)] focus:ring-[var(--accent)]/20"
                           />
                         </div>
                       )}
 
                       {/* Multi-select preview */}
                       {activeQ.questionType === 'MULTI_SELECT' && (
-                        <Card className="border-amber-200/60 bg-amber-50/50">
+                        <Card className="border-[var(--accent-ring)]/60 bg-[var(--accent-subtle)]/50">
                           <CardContent className="p-4">
-                            <p className="text-sm text-amber-800 font-semibold">Participants can select multiple answers before submitting.</p>
-                            <p className="text-xs text-amber-600/60 mt-1">
+                            <p className="text-sm text-[var(--ds-text-1)] font-semibold">Participants can select multiple answers before submitting.</p>
+                            <p className="text-xs text-[var(--accent)]/60 mt-1">
                               Fully correct selections earn full points. Partial selections earn proportional credit only when no wrong option is selected.
                             </p>
                           </CardContent>
@@ -794,28 +794,28 @@ export default function AdminQuizCreator() {
 
                       {/* Open-ended preview */}
                       {activeQ.questionType === 'OPEN_ENDED' && (
-                        <Card className="border-amber-200/60 bg-amber-50/50">
+                        <Card className="border-[var(--accent-ring)]/60 bg-[var(--accent-subtle)]/50">
                           <CardContent className="p-4 space-y-3">
-                            <p className="text-sm text-amber-800 font-semibold">Participants will type a free-text response. Nothing is right or wrong.</p>
-                            <div className="rounded-lg border border-dashed border-amber-300 bg-white px-3 py-3 text-sm text-amber-600/60">
+                            <p className="text-sm text-[var(--ds-text-1)] font-semibold">Participants will type a free-text response. Nothing is right or wrong.</p>
+                            <div className="rounded-lg border border-dashed border-[var(--accent-ring)] bg-white px-3 py-3 text-sm text-[var(--accent)]/60">
                               Feedback textarea preview
                             </div>
-                            <p className="text-xs text-amber-600/50">Ideal for session reflections, suggestions, and qualitative feedback.</p>
+                            <p className="text-xs text-[var(--accent)]/50">Ideal for session reflections, suggestions, and qualitative feedback.</p>
                           </CardContent>
                         </Card>
                       )}
 
                       {/* Rating preview */}
                       {activeQ.questionType === 'RATING' && (
-                        <Card className="border-amber-200/60 bg-amber-50/50">
+                        <Card className="border-[var(--accent-ring)]/60 bg-[var(--accent-subtle)]/50">
                           <CardContent className="p-4 text-center">
-                            <p className="text-sm text-amber-800 mb-2 font-semibold">Preview: 1–5 Star Rating</p>
+                            <p className="text-sm text-[var(--ds-text-1)] mb-2 font-semibold">Preview: 1–5 Star Rating</p>
                             <div className="flex justify-center gap-1">
                               {[1, 2, 3, 4, 5].map((s) => (
-                                <span key={s} className="text-2xl text-amber-400">★</span>
+                                <span key={s} className="text-2xl text-[var(--accent)]">★</span>
                               ))}
                             </div>
-                            <p className="text-xs text-amber-600/50 mt-2">No correct answer — responses are collected as feedback</p>
+                            <p className="text-xs text-[var(--accent)]/50 mt-2">No correct answer — responses are collected as feedback</p>
                           </CardContent>
                         </Card>
                       )}
@@ -823,7 +823,7 @@ export default function AdminQuizCreator() {
                       {/* Settings row */}
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         <div>
-                          <label htmlFor={`admin-quiz-time-limit-${activeQ.id}`} className="block text-sm font-semibold text-amber-800 mb-1.5">
+                          <label htmlFor={`admin-quiz-time-limit-${activeQ.id}`} className="block text-sm font-semibold text-[var(--ds-text-1)] mb-1.5">
                             Time Limit (seconds)
                           </label>
                           <Input
@@ -837,11 +837,11 @@ export default function AdminQuizCreator() {
                                 timeLimitSeconds: Math.max(5, Math.min(120, parseInt(e.target.value) || 20)),
                               })
                             }
-                            className="border-amber-200 focus:border-amber-400 focus:ring-amber-400/20 font-mono"
+                            className="border-[var(--accent-ring)] focus:border-[var(--accent)] focus:ring-[var(--accent)]/20 font-mono"
                           />
                         </div>
                         <div>
-                          <label htmlFor={`admin-quiz-points-${activeQ.id}`} className="block text-sm font-semibold text-amber-800 mb-1.5">Points</label>
+                          <label htmlFor={`admin-quiz-points-${activeQ.id}`} className="block text-sm font-semibold text-[var(--ds-text-1)] mb-1.5">Points</label>
                           <Input
                             id={`admin-quiz-points-${activeQ.id}`}
                             type="number"
@@ -854,27 +854,27 @@ export default function AdminQuizCreator() {
                               })
                             }
                             disabled={isUnscoredQuestion(activeQ.questionType)}
-                            className="border-amber-200 focus:border-amber-400 focus:ring-amber-400/20 font-mono"
+                            className="border-[var(--accent-ring)] focus:border-[var(--accent)] focus:ring-[var(--accent)]/20 font-mono"
                           />
                           {isUnscoredQuestion(activeQ.questionType) && (
-                            <p className="mt-1 text-[11px] text-amber-600/60">This question type does not affect scores or streaks.</p>
+                            <p className="mt-1 text-[11px] text-[var(--accent)]/60">This question type does not affect scores or streaks.</p>
                           )}
                         </div>
                       </div>
 
                       {/* Media URL */}
                       <div>
-                        <label htmlFor={`admin-quiz-media-url-${activeQ.id}`} className="block text-sm font-semibold text-amber-800 mb-1.5">
-                          Media URL <span className="font-normal text-amber-600/40 text-xs">(optional image)</span>
+                        <label htmlFor={`admin-quiz-media-url-${activeQ.id}`} className="block text-sm font-semibold text-[var(--ds-text-1)] mb-1.5">
+                          Media URL <span className="font-normal text-[var(--accent)]/40 text-xs">(optional image)</span>
                         </label>
                         <div className="flex gap-2">
-                          <Image className="h-5 w-5 text-amber-400 mt-2" />
+                          <Image className="h-5 w-5 text-[var(--accent)] mt-2" />
                           <Input
                             id={`admin-quiz-media-url-${activeQ.id}`}
                             value={activeQ.mediaUrl}
                             onChange={(e) => updateQuestion(activeQIndex, { mediaUrl: e.target.value })}
                             placeholder="https://example.com/image.png"
-                            className="flex-1 border-amber-200 focus:border-amber-400 focus:ring-amber-400/20"
+                            className="flex-1 border-[var(--accent-ring)] focus:border-[var(--accent)] focus:ring-[var(--accent)]/20"
                           />
                         </div>
                       </div>
@@ -884,13 +884,13 @@ export default function AdminQuizCreator() {
               </div>
 
               <div className="flex justify-between">
-                <Button variant="outline" onClick={() => setStep(1)} className="border-amber-300 text-amber-700 hover:bg-amber-50">
+                <Button variant="outline" onClick={() => setStep(1)} className="border-[var(--accent-ring)] text-[var(--ds-text-2)] hover:bg-[var(--accent-subtle)]">
                   <ArrowLeft className="h-4 w-4 mr-2" />
                   Back
                 </Button>
                 <Button
                   onClick={() => setStep(3)}
-                  className="bg-gradient-to-r from-orange-500 to-amber-600 hover:from-orange-600 hover:to-amber-700 text-white shadow-md active:scale-[0.98] transition-all duration-300"
+                  className="bg-gradient-to-r from-[var(--accent)]0 to-[var(--accent-hover)] hover:from-[var(--accent)] hover:to-[var(--accent-hover)] text-white shadow-md active:scale-[0.98] transition-all duration-300"
                 >
                   Review Quiz
                   <ArrowRight className="h-4 w-4 ml-2" />

@@ -25,7 +25,7 @@ export function PollDetailHeader({
   saving,
 }: PollDetailHeaderProps) {
   return (
-    <CardHeader className="border-b border-gray-100">
+    <CardHeader className="border-b border-[var(--border-subtle)]">
       <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
         <div className="space-y-3">
           <div className="flex flex-wrap items-center gap-2">
@@ -41,7 +41,7 @@ export function PollDetailHeader({
           </div>
           <div>
             <CardTitle className="text-2xl text-gray-950">{poll.question}</CardTitle>
-            <CardDescription className="mt-1 max-w-3xl text-sm leading-6 text-gray-600">
+            <CardDescription className="mt-1 max-w-3xl text-sm leading-6 text-[var(--ds-text-2)]">
               {poll.description || 'No description added.'}
             </CardDescription>
           </div>

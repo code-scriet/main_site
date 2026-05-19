@@ -49,8 +49,8 @@ export function QOTDStreakWidget({ token }: QOTDStreakWidgetProps) {
 
   if (statsQuery.isLoading || statsQuery.isFetching && !stats) {
     return (
-      <Card className="rounded-2xl border-gray-100 shadow-sm overflow-hidden">
-        <CardContent className="p-6 text-sm text-gray-400">Loading streak…</CardContent>
+      <Card className="rounded-2xl border-[var(--border-subtle)] shadow-sm overflow-hidden">
+        <CardContent className="p-6 text-sm text-[var(--ds-text-3)]">Loading streak…</CardContent>
       </Card>
     );
   }
@@ -72,7 +72,7 @@ export function QOTDStreakWidget({ token }: QOTDStreakWidgetProps) {
         : 'from-gray-300 to-gray-400';
 
   return (
-    <Card className="rounded-2xl border-gray-100 shadow-sm overflow-hidden">
+    <Card className="rounded-2xl border-[var(--border-subtle)] shadow-sm overflow-hidden">
       <CardContent className="p-0">
         <div className="grid grid-cols-1 lg:grid-cols-[1fr_1fr_auto] gap-0">
           {/* LEFT: Big flame + current streak */}
@@ -92,20 +92,20 @@ export function QOTDStreakWidget({ token }: QOTDStreakWidgetProps) {
               </motion.div>
               <div className="min-w-0">
                 <div className="flex items-baseline gap-2">
-                  <span className="text-3xl sm:text-4xl font-extrabold text-amber-900 tabular-nums">{stats.currentStreak}</span>
-                  <span className="text-sm font-semibold text-amber-700">day{stats.currentStreak === 1 ? '' : 's'}</span>
+                  <span className="text-3xl sm:text-4xl font-extrabold text-[var(--ds-text-1)] tabular-nums">{stats.currentStreak}</span>
+                  <span className="text-sm font-semibold text-[var(--warning)]">day{stats.currentStreak === 1 ? '' : 's'}</span>
                 </div>
-                <p className="text-sm font-semibold text-amber-900">{streakHeadline(stats.currentStreak, todaySolved)}</p>
-                <p className="mt-0.5 text-xs text-amber-800/80">{streakSubcopy(stats.currentStreak, todaySolved)}</p>
+                <p className="text-sm font-semibold text-[var(--ds-text-1)]">{streakHeadline(stats.currentStreak, todaySolved)}</p>
+                <p className="mt-0.5 text-xs text-[var(--warning)]/80">{streakSubcopy(stats.currentStreak, todaySolved)}</p>
               </div>
             </div>
 
             <div className="mt-5 flex flex-wrap items-center gap-3 text-xs">
-              <div className="inline-flex items-center gap-1.5 rounded-full bg-white/70 px-2.5 py-1 font-semibold text-amber-900 ring-1 ring-amber-200">
+              <div className="inline-flex items-center gap-1.5 rounded-full bg-white/70 px-2.5 py-1 font-semibold text-[var(--ds-text-1)] ring-1 ring-amber-200">
                 <Trophy className="h-3.5 w-3.5 text-amber-600" />
                 Longest {stats.longestStreak}d
               </div>
-              <div className="inline-flex items-center gap-1.5 rounded-full bg-white/70 px-2.5 py-1 font-semibold text-amber-900 ring-1 ring-amber-200">
+              <div className="inline-flex items-center gap-1.5 rounded-full bg-white/70 px-2.5 py-1 font-semibold text-[var(--ds-text-1)] ring-1 ring-amber-200">
                 <Calendar className="h-3.5 w-3.5 text-amber-600" />
                 {stats.totalSolved} solved
               </div>
@@ -128,10 +128,10 @@ export function QOTDStreakWidget({ token }: QOTDStreakWidgetProps) {
           </div>
 
           {/* MIDDLE: 4×7 activity heatmap */}
-          <div className="border-t lg:border-t-0 lg:border-l border-gray-100 p-6 lg:p-7">
+          <div className="border-t lg:border-t-0 lg:border-l border-[var(--border-subtle)] p-6 lg:p-7">
             <div className="mb-3 flex items-center justify-between gap-2">
-              <p className="text-xs font-bold uppercase tracking-wide text-gray-500">Last 4 weeks</p>
-              <p className="text-[11px] text-gray-400">IST</p>
+              <p className="text-xs font-bold uppercase tracking-wide text-[var(--ds-text-3)]">Last 4 weeks</p>
+              <p className="text-[11px] text-[var(--ds-text-3)]">IST</p>
             </div>
             <div className="space-y-1.5">
               {weeks.map((week, rowIndex) => (
@@ -145,9 +145,9 @@ export function QOTDStreakWidget({ token }: QOTDStreakWidgetProps) {
                         className={cn(
                           'h-6 w-6 sm:h-7 sm:w-7 rounded-md border transition-colors',
                           day.solved
-                            ? 'bg-gradient-to-br from-amber-400 to-orange-500 border-amber-500/40'
-                            : 'bg-gray-100 border-gray-200',
-                          isToday && 'ring-2 ring-amber-500 ring-offset-1',
+                            ? 'bg-[var(--accent)] border-[color:color-mix(in_oklab,var(--accent)_55%,transparent)]'
+                            : 'bg-[var(--surface-soft)] border-[var(--border-subtle)]',
+                          isToday && 'ring-2 ring-[var(--accent)] ring-offset-1',
                         )}
                       />
                     );
@@ -158,18 +158,18 @@ export function QOTDStreakWidget({ token }: QOTDStreakWidgetProps) {
             {next && (
               <div className="mt-5">
                 <div className="mb-1.5 flex items-center justify-between text-xs">
-                  <span className="font-semibold text-gray-700">
+                  <span className="font-semibold text-[var(--ds-text-2)]">
                     Next: {next.icon} {next.label}
                   </span>
-                  <span className="font-semibold text-gray-500 tabular-nums">{next.progress}/{next.target}</span>
+                  <span className="font-semibold text-[var(--ds-text-3)] tabular-nums">{next.progress}/{next.target}</span>
                 </div>
-                <div className="h-1.5 overflow-hidden rounded-full bg-gray-100">
+                <div className="h-1.5 overflow-hidden rounded-full bg-[var(--surface-soft)]">
                   <div
-                    className="h-full rounded-full bg-gradient-to-r from-amber-400 to-orange-500"
+                    className="h-full rounded-full bg-[var(--accent)]"
                     style={{ width: `${Math.min(100, (next.progress / next.target) * 100)}%` }}
                   />
                 </div>
-                <p className="mt-1 text-[11px] text-gray-500">
+                <p className="mt-1 text-[11px] text-[var(--ds-text-3)]">
                   {next.remaining === 1 ? '1 more to go.' : `${next.remaining} more to go.`}
                 </p>
               </div>
@@ -177,10 +177,10 @@ export function QOTDStreakWidget({ token }: QOTDStreakWidgetProps) {
           </div>
 
           {/* RIGHT: Badges */}
-          <div className="border-t lg:border-t-0 lg:border-l border-gray-100 p-6 lg:p-7 lg:w-[240px]">
-            <p className="mb-3 text-xs font-bold uppercase tracking-wide text-gray-500">Badges</p>
+          <div className="border-t lg:border-t-0 lg:border-l border-[var(--border-subtle)] p-6 lg:p-7 lg:w-[240px]">
+            <p className="mb-3 text-xs font-bold uppercase tracking-wide text-[var(--ds-text-3)]">Badges</p>
             {earnedBadges.length === 0 ? (
-              <p className="text-xs text-gray-400">Solve a QOTD to earn your first badge.</p>
+              <p className="text-xs text-[var(--ds-text-3)]">Solve a QOTD to earn your first badge.</p>
             ) : (
               <ul className="space-y-2">
                 {earnedBadges.slice(0, 4).map((badge) => (
@@ -188,12 +188,12 @@ export function QOTDStreakWidget({ token }: QOTDStreakWidgetProps) {
                     key={badge.id}
                     initial={{ opacity: 0, x: -6 }}
                     animate={{ opacity: 1, x: 0 }}
-                    className="flex items-center gap-2 rounded-md bg-amber-50/70 px-2.5 py-1.5 ring-1 ring-amber-200"
+                    className="flex items-center gap-2 rounded-md bg-[var(--warning-bg)]/70 px-2.5 py-1.5 ring-1 ring-amber-200"
                   >
                     <span className="text-lg leading-none">{badge.icon}</span>
                     <div className="min-w-0">
-                      <p className="truncate text-xs font-semibold text-amber-900">{badge.label}</p>
-                      <p className="truncate text-[10px] text-amber-700/80">{badge.description}</p>
+                      <p className="truncate text-xs font-semibold text-[var(--ds-text-1)]">{badge.label}</p>
+                      <p className="truncate text-[10px] text-[var(--warning)]/80">{badge.description}</p>
                     </div>
                   </motion.li>
                 ))}
@@ -201,13 +201,13 @@ export function QOTDStreakWidget({ token }: QOTDStreakWidgetProps) {
             )}
             {lockedBadges.length > 0 && (
               <div className="mt-3">
-                <p className="mb-1.5 text-[10px] font-bold uppercase tracking-wide text-gray-400">Up next</p>
+                <p className="mb-1.5 text-[10px] font-bold uppercase tracking-wide text-[var(--ds-text-3)]">Up next</p>
                 <ul className="space-y-1.5">
                   {lockedBadges.map((badge) => (
-                    <li key={badge.id} className="flex items-center gap-2 rounded-md bg-gray-50 px-2.5 py-1.5 text-gray-500">
-                      <Lock className="h-3 w-3 text-gray-400" />
+                    <li key={badge.id} className="flex items-center gap-2 rounded-md bg-[var(--surface-soft)] px-2.5 py-1.5 text-[var(--ds-text-3)]">
+                      <Lock className="h-3 w-3 text-[var(--ds-text-3)]" />
                       <span className="truncate text-[11px] font-medium">{badge.label}</span>
-                      <ChevronRight className="ml-auto h-3 w-3 text-gray-300" />
+                      <ChevronRight className="ml-auto h-3 w-3 text-[var(--ds-text-3)]" />
                     </li>
                   ))}
                 </ul>

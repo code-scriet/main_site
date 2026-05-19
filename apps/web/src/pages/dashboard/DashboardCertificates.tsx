@@ -1,316 +1,316 @@
-import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { motion } from 'framer-motion';
-import { Card, CardContent } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
+// Dashboard v2 — My Certificates.
+// Grid of gradient cert cards; click → preview Dialog with download + verify links.
+// Design source: screen-stubs.jsx:136 (CertificatesScreen).
+
+import { useEffect, useMemo, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { Award, ExternalLink, Download, Copy, Check, Share2, ArrowDownAZ, ArrowUpAZ, ChevronLeft, ChevronRight } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
-import { useSettings } from '@/context/SettingsContext';
 import { api } from '@/lib/api';
-import { copyTextToClipboard } from '@/lib/clipboard';
-import { formatDate } from '@/lib/dateUtils';
-import {
-  Award,
-  Loader2,
-  AlertCircle,
-  Download,
-  Copy,
-  ExternalLink,
-  ShieldCheck,
-  ChevronLeft,
-  ChevronRight,
-} from 'lucide-react';
+import { DSCard, EmptyState, MonoChip, Pill, SegmentedTabs } from '@/components/dash';
+import { Button } from '@/components/ui/button';
+import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import { toast } from 'sonner';
+import { cn } from '@/lib/utils';
 
-type CertType = 'PARTICIPATION' | 'COMPLETION' | 'WINNER' | 'SPEAKER';
-type Template = 'gold' | 'dark' | 'white' | 'emerald';
+const PAGE_SIZE = 12;
 
-interface Certificate {
+interface MyCert {
+  id: string;
   certId: string;
-  recipientName: string;
+  type: string;
   eventName: string;
-  type: CertType;
-  position?: string;
-  domain?: string;
-  template: Template;
   issuedAt: string;
-  pdfUrl?: string;
+  pdfUrl?: string | null;
+  isRevoked?: boolean;
+  revokedReason?: string | null;
+  recipientName?: string;
 }
 
-const typeColors: Record<CertType, string> = {
-  PARTICIPATION: 'bg-blue-100 text-blue-700',
-  COMPLETION: 'bg-green-100 text-green-700',
-  WINNER: 'bg-amber-100 text-amber-700',
-  SPEAKER: 'bg-purple-100 text-purple-700',
+const COVERS = [
+  'from-rose-500 to-orange-600',
+  'from-amber-500 to-yellow-600',
+  'from-emerald-500 to-teal-600',
+  'from-sky-500 to-indigo-600',
+  'from-violet-500 to-fuchsia-600',
+  'from-pink-500 to-rose-600',
+];
+
+const TYPE_TONE: Record<string, 'neutral' | 'success' | 'warning' | 'info'> = {
+  PARTICIPATION: 'neutral',
+  COMPLETION: 'success',
+  WINNER: 'warning',
+  SPEAKER: 'info',
 };
 
-const templateGradients: Record<Template, string> = {
-  gold: 'from-amber-50 to-yellow-100 border-amber-200',
-  dark: 'from-gray-800 to-gray-900 border-gray-700',
-  white: 'from-gray-50 to-white border-gray-200',
-  emerald: 'from-emerald-50 to-teal-100 border-emerald-200',
-};
-
-const templateTextColor: Record<Template, string> = {
-  gold: 'text-amber-900',
-  dark: 'text-gray-100',
-  white: 'text-gray-800',
-  emerald: 'text-emerald-900',
-};
-
-function CertCard({
-  cert,
-  downloading,
-  onDownload,
-}: {
-  cert: Certificate;
-  downloading: boolean;
-  onDownload: () => void;
-}) {
-  const verifyUrl = `${window.location.origin}/verify/${cert.certId}`;
-
-  async function copyLink() {
-    const copied = await copyTextToClipboard(verifyUrl);
-    if (copied) {
-      toast.success('Verify link copied!');
-      return;
-    }
-    toast.error('Copy failed');
-  }
-
-  return (
-    <motion.div
-      initial={{ opacity: 0, y: 10 }}
-      animate={{ opacity: 1, y: 0 }}
-      className={`rounded-xl border bg-gradient-to-br p-5 shadow-sm ${templateGradients[cert.template]}`}
-    >
-      <div className="flex items-start justify-between mb-3 gap-3">
-        <Award className={`w-8 h-8 ${cert.template === 'dark' ? 'text-amber-400' : 'text-amber-500'}`} />
-        <span className={`inline-block px-2 py-0.5 rounded text-xs font-medium whitespace-nowrap ${typeColors[cert.type]}`}>
-          {cert.type}
-        </span>
-      </div>
-
-      <h3 className={`font-bold text-base mb-0.5 break-words ${templateTextColor[cert.template]}`}>
-        {cert.eventName}
-      </h3>
-
-      {cert.position && (
-        <p className={`text-xs mb-0.5 ${cert.template === 'dark' ? 'text-gray-300' : 'text-gray-600'}`}>
-          {cert.position}
-        </p>
-      )}
-      {cert.domain && (
-        <p className={`text-xs mb-2 ${cert.template === 'dark' ? 'text-gray-400' : 'text-gray-500'}`}>
-          {cert.domain}
-        </p>
-      )}
-
-      <div className={`font-mono text-xs mb-3 break-all ${cert.template === 'dark' ? 'text-amber-400' : 'text-amber-700'}`}>
-        {cert.certId}
-      </div>
-
-      <p className={`text-xs mb-4 ${cert.template === 'dark' ? 'text-gray-400' : 'text-gray-500'}`}>
-        Issued {formatDate(cert.issuedAt, 'long')}
-      </p>
-
-      <div className="flex gap-2 flex-wrap">
-        {cert.pdfUrl && (
-          <Button
-            size="sm"
-            onClick={onDownload}
-            disabled={downloading}
-            className="w-full sm:flex-1 gap-1.5 bg-amber-500 hover:bg-amber-600 text-white text-xs"
-          >
-            {downloading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
-            {downloading ? 'Downloading…' : 'Download PDF'}
-          </Button>
-        )}
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={copyLink}
-          className="w-full sm:w-auto gap-1.5 text-xs"
-          title="Copy verify link"
-        >
-          <Copy className="w-3.5 h-3.5" />
-          Copy Link
-        </Button>
-        <a href={verifyUrl} target="_blank" rel="noopener noreferrer" className="w-full sm:w-auto">
-          <Button variant="outline" size="sm" className="w-full sm:w-auto gap-1.5 text-xs" title="Open verify page">
-            <ExternalLink className="w-3.5 h-3.5" />
-          </Button>
-        </a>
-      </div>
-    </motion.div>
-  );
-}
+type TypeFilter = 'all' | 'PARTICIPATION' | 'COMPLETION' | 'WINNER' | 'SPEAKER';
 
 export default function DashboardCertificates() {
   const { token } = useAuth();
-  const { settings, loading: settingsLoading } = useSettings();
-  const navigate = useNavigate();
-
-  // Redirect if certificates feature is disabled
-  useEffect(() => {
-    if (!settingsLoading && settings?.certificatesEnabled === false) {
-      navigate('/dashboard', { replace: true });
-    }
-  }, [settings, settingsLoading, navigate]);
-
-  const [certs, setCerts] = useState<Certificate[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
-  const [page, setPage] = useState(1);
-  const [totalPages, setTotalPages] = useState(1);
-  const [total, setTotal] = useState(0);
-  const [typeFilter, setTypeFilter] = useState('');
+  const [picked, setPicked] = useState<MyCert | null>(null);
+  const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [typeFilter, setTypeFilter] = useState<TypeFilter>('all');
   const [sortOrder, setSortOrder] = useState<'desc' | 'asc'>('desc');
-  const [downloadingId, setDownloadingId] = useState<string | null>(null);
+  const [page, setPage] = useState(1);
 
-  useEffect(() => {
-    async function load() {
-      setLoading(true);
-      setError('');
-      try {
-        const data = await api.getMyCertificates(token!, {
-          page,
-          limit: 12,
-          type: typeFilter || undefined,
-          sort: sortOrder,
-        }) as { certificates: Certificate[]; total: number; page: number; totalPages: number };
-        setCerts(data.certificates as Certificate[]);
-        setTotal(data.total);
-        setTotalPages(data.totalPages);
-      } catch (err) {
-        setError(err instanceof Error ? err.message : 'Failed to load certificates');
-      } finally {
-        setLoading(false);
-      }
-    }
-    load();
-  }, [token, page, typeFilter, sortOrder]);
+  const q = useQuery({
+    queryKey: ['my-certificates'],
+    queryFn: async () => {
+      const r = await api.getMyCertificates(token!);
+      const list = Array.isArray(r) ? r : (r as { certificates: unknown[] }).certificates;
+      return (list ?? []) as MyCert[];
+    },
+    enabled: Boolean(token),
+  });
 
-  // Reset page when filters change
+  const allSorted = useMemo(() => {
+    const arr = [...(q.data ?? [])];
+    arr.sort((a, b) => {
+      const ta = new Date(a.issuedAt).getTime();
+      const tb = new Date(b.issuedAt).getTime();
+      return sortOrder === 'desc' ? tb - ta : ta - tb;
+    });
+    return arr;
+  }, [q.data, sortOrder]);
+  const filtered = useMemo(
+    () => (typeFilter === 'all' ? allSorted : allSorted.filter((c) => c.type === typeFilter)),
+    [allSorted, typeFilter],
+  );
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  // Reset to page 1 when the filter / sort changes so empty pages aren't shown.
   useEffect(() => { setPage(1); }, [typeFilter, sortOrder]);
-
-  async function handleDownload(certId: string) {
-    if (!token) {
-      toast.error('You need to be signed in to download certificates');
-      return;
-    }
-
-    setDownloadingId(certId);
+  // Clamp page if filtered list shrinks below current page boundary.
+  useEffect(() => { if (page > totalPages) setPage(totalPages); }, [page, totalPages]);
+  const sorted = useMemo(
+    () => filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE),
+    [filtered, page],
+  );
+  const typeCounts = useMemo(() => ({
+    all: allSorted.length,
+    PARTICIPATION: allSorted.filter((c) => c.type === 'PARTICIPATION').length,
+    COMPLETION: allSorted.filter((c) => c.type === 'COMPLETION').length,
+    WINNER: allSorted.filter((c) => c.type === 'WINNER').length,
+    SPEAKER: allSorted.filter((c) => c.type === 'SPEAKER').length,
+  }), [allSorted]);
+  const verifyLink = (certId: string) => `${window.location.origin}/verify/${certId}`;
+  const copyLink = async (certId: string) => {
     try {
-      const { url } = await api.downloadCertificate(certId, token);
-      
-      // Open the certificate PDF in a new tab natively
-      window.open(url, '_blank', 'noopener,noreferrer');
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : 'Download failed');
-    } finally {
-      setDownloadingId(null);
+      await navigator.clipboard.writeText(verifyLink(certId));
+      setCopiedId(certId);
+      setTimeout(() => setCopiedId((c) => (c === certId ? null : c)), 1800);
+      toast.success('Verification link copied');
+    } catch {
+      toast.error('Could not copy');
     }
-  }
+  };
 
   return (
-    <div className="p-4 sm:p-6 max-w-5xl mx-auto space-y-6">
-      <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }}>
-        <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
-          <Award className="w-6 h-6 text-amber-500" />
-          My Certificates
-        </h1>
-        <p className="text-gray-500 text-sm mt-0.5">
-          {total} certificate{total !== 1 ? 's' : ''} earned through club events and activities
-        </p>
-      </motion.div>
-
-      {/* Filters */}
-      <div className="flex flex-wrap gap-3 items-center">
-        <select
-          value={typeFilter}
-          onChange={e => setTypeFilter(e.target.value)}
-          className="w-full sm:w-auto border border-gray-200 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
-        >
-          <option value="">All Types</option>
-          <option value="PARTICIPATION">Participation</option>
-          <option value="COMPLETION">Completion</option>
-          <option value="WINNER">Winner</option>
-          <option value="SPEAKER">Speaker</option>
-        </select>
-        <select
-          value={sortOrder}
-          onChange={e => setSortOrder(e.target.value as 'asc' | 'desc')}
-          className="w-full sm:w-auto border border-gray-200 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
-        >
-          <option value="desc">Newest First</option>
-          <option value="asc">Oldest First</option>
-        </select>
+    <div className="flex flex-col gap-5">
+      <div className="flex items-end justify-between gap-3 flex-wrap">
+        <div>
+          <h1 className="text-[24px] font-semibold tracking-tight">My certificates</h1>
+          <p className="text-[13px] text-[var(--ds-text-3)] mt-1">All certificates are verifiable on a public URL.</p>
+        </div>
+        <Button size="sm" variant="outline" asChild>
+          <a href="/verify" target="_blank" rel="noreferrer">
+            <ExternalLink size={13} className="mr-1.5" />
+            Verify a certificate
+          </a>
+        </Button>
       </div>
 
-      {loading ? (
-        <div className="flex justify-center items-center h-48">
-          <Loader2 className="w-6 h-6 animate-spin text-amber-500" />
+      {allSorted.length > 0 && (
+        <div className="flex items-center gap-2 flex-wrap justify-between">
+          <SegmentedTabs
+            items={[
+              { value: 'all', label: 'All', count: typeCounts.all },
+              { value: 'PARTICIPATION', label: 'Participation', count: typeCounts.PARTICIPATION },
+              { value: 'COMPLETION', label: 'Completion', count: typeCounts.COMPLETION },
+              { value: 'WINNER', label: 'Winner', count: typeCounts.WINNER },
+              { value: 'SPEAKER', label: 'Speaker', count: typeCounts.SPEAKER },
+            ]}
+            value={typeFilter}
+            onChange={(v) => setTypeFilter(v as TypeFilter)}
+          />
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => setSortOrder((o) => (o === 'desc' ? 'asc' : 'desc'))}
+            title={`Sort ${sortOrder === 'desc' ? 'oldest first' : 'newest first'}`}
+          >
+            {sortOrder === 'desc' ? <ArrowDownAZ size={13} className="mr-1.5" /> : <ArrowUpAZ size={13} className="mr-1.5" />}
+            {sortOrder === 'desc' ? 'Newest first' : 'Oldest first'}
+          </Button>
         </div>
-      ) : error ? (
-        <div className="flex items-center gap-2 text-red-600 bg-red-50 p-4 rounded-lg">
-          <AlertCircle className="w-5 h-5 flex-shrink-0" />
-          <span>{error}</span>
+      )}
+
+      {q.isLoading ? (
+        <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
+          {[0, 1, 2].map((i) => (
+            <div key={i} className="h-[260px] bg-[var(--surface-soft)] rounded-[12px] animate-pulse" />
+          ))}
         </div>
-      ) : certs.length === 0 ? (
-        <Card>
-          <CardContent className="py-16 text-center">
-            <Award className="w-10 h-10 mx-auto mb-3 text-gray-300" />
-            <p className="text-gray-500 font-medium">No certificates yet</p>
-            <p className="text-gray-400 text-sm mt-1">
-              Participate in club events to earn certificates
-            </p>
-          </CardContent>
-        </Card>
+      ) : sorted.length === 0 ? (
+        <DSCard padded>
+          <EmptyState
+            icon={<Award size={18} />}
+            title="No certificates yet"
+            body="Attend an event or win a competition round — your certificates appear here."
+          />
+        </DSCard>
       ) : (
         <>
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {certs.map(cert => (
-              <CertCard
-                key={cert.certId}
-                cert={cert}
-                downloading={downloadingId === cert.certId}
-                onDownload={() => void handleDownload(cert.certId)}
-              />
+          <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            {sorted.map((c, i) => (
+              <CertCard key={c.id} cert={c} cover={COVERS[i % COVERS.length]} onOpen={() => setPicked(c)} onCopy={() => copyLink(c.certId)} copied={copiedId === c.certId} />
             ))}
           </div>
-
-          {/* Pagination */}
           {totalPages > 1 && (
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-              <p className="text-sm text-gray-500">Page {page} of {totalPages}</p>
-              <div className="flex gap-2">
-                <Button variant="outline" size="sm" disabled={page === 1} onClick={() => setPage(p => p - 1)} className="h-8 w-8 p-0">
-                  <ChevronLeft className="w-4 h-4" />
+            <div className="flex items-center justify-between text-[12.5px] text-[var(--ds-text-3)]">
+              <span>
+                Showing <span className="font-mono tabular-nums text-[var(--ds-text-2)]">{(page - 1) * PAGE_SIZE + 1}</span>
+                –<span className="font-mono tabular-nums text-[var(--ds-text-2)]">{Math.min(page * PAGE_SIZE, filtered.length)}</span>
+                {' '}of <span className="font-mono tabular-nums text-[var(--ds-text-2)]">{filtered.length}</span>
+              </span>
+              <div className="flex items-center gap-1.5">
+                <Button size="sm" variant="ghost" disabled={page <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>
+                  <ChevronLeft size={12} className="mr-1" /> Prev
                 </Button>
-                <Button variant="outline" size="sm" disabled={page === totalPages} onClick={() => setPage(p => p + 1)} className="h-8 w-8 p-0">
-                  <ChevronRight className="w-4 h-4" />
+                <span className="font-mono tabular-nums text-[12px]">{page} / {totalPages}</span>
+                <Button size="sm" variant="ghost" disabled={page >= totalPages} onClick={() => setPage((p) => Math.min(totalPages, p + 1))}>
+                  Next <ChevronRight size={12} className="ml-1" />
                 </Button>
               </div>
             </div>
           )}
-
-          {/* Verify tip */}
-          <Card className="border-amber-100 bg-amber-50/50">
-            <CardContent className="p-4 flex gap-3 items-start">
-              <ShieldCheck className="w-5 h-5 text-amber-500 flex-shrink-0 mt-0.5" />
-              <div>
-                <p className="text-sm font-medium text-amber-800">Share & Verify</p>
-                <p className="text-xs text-amber-700 mt-0.5">
-                  Use the copy link button on any certificate to share a verification link. Anyone can verify your certificate at{' '}
-                  <a href="https://codescriet.dev/verify" target="_blank" rel="noopener noreferrer" className="underline underline-offset-2">
-                    codescriet.dev/verify
-                  </a>
-                </p>
-              </div>
-            </CardContent>
-          </Card>
         </>
       )}
+
+      {/* Preview dialog */}
+      <Dialog open={Boolean(picked)} onOpenChange={(open) => !open && setPicked(null)}>
+        <DialogContent className="max-w-[640px] p-0 overflow-hidden bg-[var(--bg-raised)] border-[var(--border-subtle)]" data-dashboard="true">
+          <DialogTitle className="sr-only">Certificate preview</DialogTitle>
+          {picked && (
+            <>
+              <div
+                className={cn(
+                  'aspect-[1.55/1] bg-gradient-to-br relative text-white',
+                  COVERS[sorted.findIndex((c) => c.id === picked.id) % COVERS.length],
+                )}
+              >
+                <div className="absolute inset-0 p-5 flex flex-col justify-between">
+                  <div className="flex items-start justify-between">
+                    <Award size={20} className="opacity-90" />
+                    <span className="inline-flex items-center h-[20px] px-2 text-[11px] font-medium rounded-[5px] bg-white/20 text-white">
+                      {picked.type}
+                    </span>
+                  </div>
+                  <div>
+                    {picked.recipientName && (
+                      <div className="text-[14px] opacity-80 mb-1">{picked.recipientName}</div>
+                    )}
+                    <div className="text-[20px] font-semibold leading-tight">{picked.eventName}</div>
+                    <div className="text-[12px] opacity-80 font-mono tabular-nums mt-2">{picked.certId}</div>
+                  </div>
+                </div>
+              </div>
+              <div className="p-5">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <Pill tone={TYPE_TONE[picked.type] ?? 'neutral'} size="sm">{picked.type}</Pill>
+                  <MonoChip>{picked.certId}</MonoChip>
+                  <span className="text-[12px] text-[var(--ds-text-3)] font-mono tabular-nums">
+                    Issued {new Date(picked.issuedAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
+                  </span>
+                  {picked.isRevoked && <Pill tone="danger" size="sm">Revoked</Pill>}
+                </div>
+                {picked.isRevoked && picked.revokedReason && (
+                  <p className="text-[12.5px] text-[var(--danger)] mt-3">Revoked: {picked.revokedReason}</p>
+                )}
+                <div className="flex items-center gap-2 mt-5 flex-wrap">
+                  {picked.pdfUrl && (
+                    <Button size="sm" asChild>
+                      <a href={picked.pdfUrl} target="_blank" rel="noreferrer" download>
+                        <Download size={13} className="mr-1.5" />
+                        Download PDF
+                      </a>
+                    </Button>
+                  )}
+                  <Button size="sm" variant="outline" onClick={() => copyLink(picked.certId)}>
+                    {copiedId === picked.certId ? <Check size={13} className="mr-1.5" /> : <Copy size={13} className="mr-1.5" />}
+                    {copiedId === picked.certId ? 'Copied' : 'Copy verify link'}
+                  </Button>
+                  <Button size="sm" variant="outline" asChild>
+                    <a href={verifyLink(picked.certId)} target="_blank" rel="noreferrer">
+                      <ExternalLink size={13} className="mr-1.5" />
+                      Open verify page
+                    </a>
+                  </Button>
+                </div>
+              </div>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
+  );
+}
+
+function CertCard({
+  cert, cover, onOpen, onCopy, copied,
+}: {
+  cert: MyCert;
+  cover: string;
+  onOpen: () => void;
+  onCopy: () => void;
+  copied: boolean;
+}) {
+  return (
+    <DSCard padded={false} hover className="overflow-hidden cursor-pointer" onClick={onOpen}>
+      <div className={cn('aspect-[1.4/1] bg-gradient-to-br p-4 text-white flex flex-col justify-between relative', cover)}>
+        {cert.isRevoked && (
+          <div className="absolute inset-0 bg-black/60 flex items-center justify-center">
+            <Pill tone="danger" size="md">Revoked</Pill>
+          </div>
+        )}
+        <div className="flex items-start justify-between">
+          <Award size={18} className="opacity-90" />
+          <span className="inline-flex items-center h-[18px] px-1.5 text-[10.5px] font-medium rounded-[5px] bg-white/20 text-white">
+            {cert.type}
+          </span>
+        </div>
+        <div>
+          <div className="text-[12px] opacity-80 font-mono tabular-nums">{cert.certId}</div>
+          <div className="text-[16px] font-semibold leading-tight mt-1 line-clamp-2">{cert.eventName}</div>
+        </div>
+      </div>
+      <div className="p-3 flex items-center justify-between">
+        <div className="text-[11.5px] text-[var(--ds-text-3)] font-mono tabular-nums">
+          Issued {new Date(cert.issuedAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}
+        </div>
+        <div className="flex items-center gap-1">
+          <button
+            type="button"
+            title="Copy verify link"
+            onClick={(ev) => { ev.stopPropagation(); onCopy(); }}
+            className="size-7 rounded-[6px] hover:bg-[var(--surface-soft)] text-[var(--ds-text-3)] hover:text-[var(--ds-text-1)] flex items-center justify-center"
+          >
+            {copied ? <Check size={12} /> : <Share2 size={12} />}
+          </button>
+          {cert.pdfUrl && (
+            <a
+              href={cert.pdfUrl}
+              target="_blank"
+              rel="noreferrer"
+              download
+              onClick={(ev) => ev.stopPropagation()}
+              title="Download PDF"
+              className="size-7 rounded-[6px] hover:bg-[var(--surface-soft)] text-[var(--ds-text-3)] hover:text-[var(--ds-text-1)] flex items-center justify-center"
+            >
+              <Download size={12} />
+            </a>
+          )}
+        </div>
+      </div>
+    </DSCard>
   );
 }

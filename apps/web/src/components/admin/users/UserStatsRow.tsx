@@ -16,8 +16,8 @@ export function UserStatsRow({ totalUsers, totalCoreMembers, totalAdmins }: User
             <UserCheck className="h-5 w-5 text-white" />
           </div>
           <div>
-            <p className="text-2xl font-bold text-amber-900">{totalUsers}</p>
-            <p className="text-xs text-gray-500">Members</p>
+            <p className="text-2xl font-bold text-[var(--ds-text-1)]">{totalUsers}</p>
+            <p className="text-xs text-[var(--ds-text-3)]">Members</p>
           </div>
         </CardContent>
       </Card>
@@ -27,8 +27,8 @@ export function UserStatsRow({ totalUsers, totalCoreMembers, totalAdmins }: User
             <Shield className="h-5 w-5 text-white" />
           </div>
           <div>
-            <p className="text-2xl font-bold text-amber-900">{totalCoreMembers}</p>
-            <p className="text-xs text-gray-500">Core Members</p>
+            <p className="text-2xl font-bold text-[var(--ds-text-1)]">{totalCoreMembers}</p>
+            <p className="text-xs text-[var(--ds-text-3)]">Core Members</p>
           </div>
         </CardContent>
       </Card>
@@ -38,8 +38,8 @@ export function UserStatsRow({ totalUsers, totalCoreMembers, totalAdmins }: User
             <Crown className="h-5 w-5 text-white" />
           </div>
           <div>
-            <p className="text-2xl font-bold text-amber-900">{totalAdmins}</p>
-            <p className="text-xs text-gray-500">Admins</p>
+            <p className="text-2xl font-bold text-[var(--ds-text-1)]">{totalAdmins}</p>
+            <p className="text-xs text-[var(--ds-text-3)]">Admins</p>
           </div>
         </CardContent>
       </Card>

@@ -1,518 +1,1190 @@
-import { useState, useEffect } from 'react';
-import { motion } from 'framer-motion';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
+// Dashboard v2 — Overview.
+// Everything dynamic from real API calls. No fixtures.
+// Admin variant prepends a 12-tile insights strip + AdminPendingRequestsCard.
+// Design source: code-scriet-innerdashboard/project/js/screen-overview.jsx.
+
+import { useEffect, useMemo, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { Link, useNavigate } from 'react-router-dom';
+import {
+  Zap, Calendar, Trophy, Terminal, Inbox, Award, Briefcase,
+  ChevronRight, ArrowRight, Flame, Check, Bookmark, Activity, TrendingUp,
+} from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { useSettings } from '@/context/SettingsContext';
 import { api } from '@/lib/api';
-import type { Registration, Announcement, Poll } from '@/lib/api';
 import {
-  Calendar, Bell, ArrowRight, Loader2, Users, CheckCircle,
-  Clock, XCircle, Zap, AlertCircle, Award, ExternalLink,
-  LayoutDashboard, Trophy,
-} from 'lucide-react';
-import { Link } from 'react-router-dom';
-import { QuizDashboardWidget } from '@/components/dashboard/QuizDashboardWidget';
-import { PlaygroundCard } from '@/components/dashboard/PlaygroundCard';
-import { PlaygroundSnippetsCard } from '@/components/dashboard/PlaygroundSnippetsCard';
-import { AdminPendingRequestsCard } from '@/components/dashboard/AdminPendingRequestsCard';
-import { QOTDStreakWidget } from '@/components/dashboard/QOTDStreakWidget';
-import { PollCard } from '@/components/polls/PollCard';
-import AttendanceHistory from '@/components/attendance/AttendanceHistory';
-import { formatDate } from '@/lib/dateUtils';
+  Avatar, DSCard, Difficulty, MonoChip, Pill, Section, roleTone,
+} from '@/components/dash';
+import { Button } from '@/components/ui/button';
+import { AdminPendingRequestsCardV2 } from '@/components/dashboard/AdminPendingRequestsCardV2';
+import { relativeTime } from '@/lib/dateUtils';
+import { getPlaygroundLaunchUrl } from '@/lib/playgroundUrl';
+import { cn } from '@/lib/utils';
 
-const fadeUp = {
-  initial: { opacity: 0, y: 16 },
-  animate: { opacity: 1, y: 0 },
-  transition: { duration: 0.35 },
-};
-
-function stagger(index: number) {
-  return { ...fadeUp, transition: { ...fadeUp.transition, delay: index * 0.06 } };
+function greetingFromIST(): string {
+  const istHour = new Date().toLocaleString('en-GB', { hour: 'numeric', hour12: false, timeZone: 'Asia/Kolkata' });
+  const h = parseInt(istHour, 10) || new Date().getHours();
+  if (h < 12) return 'Good morning';
+  if (h < 17) return 'Good afternoon';
+  return 'Good evening';
 }
 
-const priorityConfig = {
-  URGENT: { color: 'bg-red-500' },
-  HIGH:   { color: 'bg-orange-400' },
-  MEDIUM: { color: 'bg-amber-400' },
-  LOW:    { color: 'bg-gray-300' },
+function formatISTDate(): string {
+  return new Date().toLocaleDateString('en-IN', {
+    weekday: 'long', day: 'numeric', month: 'short',
+    timeZone: 'Asia/Kolkata',
+  });
+}
+
+function pct(num: number, denom: number): number {
+  if (!denom) return 0;
+  return Math.round((num / denom) * 100);
+}
+
+const PRIORITY_TONE: Record<string, 'neutral' | 'info' | 'warning' | 'danger'> = {
+  LOW: 'neutral',
+  MEDIUM: 'info',
+  HIGH: 'warning',
+  URGENT: 'danger',
+  MED: 'info',
+};
+const VERDICT_TONE: Record<string, 'success' | 'warning' | 'danger' | 'neutral'> = {
+  ACCEPTED: 'success',
+  WRONG_ANSWER: 'danger',
+  TIME_LIMIT_EXCEEDED: 'warning',
+  RUNTIME_ERROR: 'warning',
+  COMPILATION_ERROR: 'neutral',
+  PENDING: 'neutral',
+  JUDGE_ERROR: 'neutral',
 };
 
 export default function DashboardOverview() {
   const { user, token } = useAuth();
-  const { settings, loading: settingsLoading } = useSettings();
-  const [registrations, setRegistrations] = useState<Registration[]>([]);
-  const [announcements, setAnnouncements] = useState<Announcement[]>([]);
-  const [polls, setPolls] = useState<Poll[]>([]);
-  const [hiringStatus, setHiringStatus] = useState<{
-    hasApplied: boolean;
-    hasApplication?: boolean;
-    application?: { id: string; applyingRole: string; status: string; createdAt: string };
-  } | null>(null);
-  const [isTeamMember, setIsTeamMember] = useState(false);
-  const [teamMemberId, setTeamMemberId] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [partialError, setPartialError] = useState<string | null>(null);
-  const [totalRegistrations, setTotalRegistrations] = useState(0);
-  const [totalAnnouncements, setTotalAnnouncements] = useState(0);
+  const { settings } = useSettings();
+  const navigate = useNavigate();
 
+  const isAdmin = user?.role === 'ADMIN' || user?.role === 'PRESIDENT';
+  const isNetwork = user?.role === 'NETWORK';
+
+  const regsQ = useQuery({
+    queryKey: ['my-registrations'],
+    queryFn: () => api.getMyRegistrations(token!),
+    enabled: Boolean(token),
+  });
+  const qotdStatsQ = useQuery({
+    queryKey: ['qotd-stats'],
+    queryFn: () => api.getQOTDStats(token!),
+    enabled: Boolean(token) && settings?.showQOTD !== false,
+  });
+  const todayQOTDQ = useQuery({
+    queryKey: ['qotd-today'],
+    queryFn: () => api.getTodayQOTD(),
+    enabled: settings?.showQOTD !== false,
+  });
+  const announcementsQ = useQuery({
+    queryKey: ['announcements'],
+    queryFn: () => api.getAnnouncements(),
+  });
+  const pollsQ = useQuery({
+    queryKey: ['polls', 'public'],
+    queryFn: () => api.getPolls({ limit: 2 }, token ?? undefined),
+  });
+  const recentSubsQ = useQuery({
+    queryKey: ['my-recent-submissions'],
+    queryFn: () => api.getMyRecentSubmissions(token!, 5),
+    enabled: Boolean(token),
+  });
+  const aroundMeQ = useQuery({
+    queryKey: ['leaderboard-around-me'],
+    queryFn: () => api.getQOTDLeaderboardAroundMe(token!, 2),
+    enabled: Boolean(token) && settings?.showLeaderboard !== false,
+  });
+  const certsQ = useQuery({
+    queryKey: ['my-certificates'],
+    queryFn: async () => {
+      const res = await api.getMyCertificates(token!);
+      return (res.certificates as Array<{ id: string; certId: string; type: string; eventName: string; issuedAt: string }>) ?? [];
+    },
+    enabled: Boolean(token) && settings?.certificatesEnabled !== false,
+  });
+  const hiringQ = useQuery({
+    queryKey: ['my-hiring'],
+    queryFn: () => api.getMyHiringApplication(token!),
+    enabled: Boolean(token),
+  });
+  const adminStatsQ = useQuery({
+    queryKey: ['admin-dashboard-stats'],
+    queryFn: () => api.getAdminDashboardStats(token!),
+    enabled: Boolean(token) && isAdmin,
+    // Free-tier-friendly cadence: refresh every 60s while the tab is in focus
+    // so admins see live attendance counts, scan rate, etc. without the page
+    // hammering the API endpoint on the 512 MB Render instance.
+    refetchInterval: 60_000,
+    refetchIntervalInBackground: false,
+    refetchOnWindowFocus: false,
+    staleTime: 30_000,
+  });
+
+  const registrations = regsQ.data ?? [];
+  void registrations;
+
+  // Compute this-week stats from QOTD stats' last30Days + recent submissions
+  const last30 = qotdStatsQ.data?.last30Days ?? [];
+  const solvedThisWeek = useMemo(() => last30.slice(-7).filter((d) => d.solved).length, [last30]);
+  const attemptsThisWeek = useMemo(() => {
+    const cutoff = Date.now() - 7 * 24 * 3600 * 1000;
+    return (recentSubsQ.data ?? []).filter((s) => new Date(s.submittedAt).getTime() >= cutoff).length;
+  }, [recentSubsQ.data]);
+  const pointsThisWeek = useMemo(() => {
+    const cutoff = Date.now() - 7 * 24 * 3600 * 1000;
+    return (recentSubsQ.data ?? [])
+      .filter((s) => new Date(s.submittedAt).getTime() >= cutoff && s.verdict === 'ACCEPTED')
+      .reduce((sum, s) => sum + (s.score ?? 0), 0);
+  }, [recentSubsQ.data]);
+  const totalSolved = qotdStatsQ.data?.totalSolved ?? 0;
+  const avgWeekly = totalSolved > 0 ? Math.round((totalSolved / 4) * 100) / 100 : null; // rough 4-week-avg
+  const pointsDeltaPct = avgWeekly && avgWeekly > 0 && pointsThisWeek > 0
+    ? Math.round(((pointsThisWeek - avgWeekly * 100) / (avgWeekly * 100)) * 100)
+    : null;
+  const myRank = aroundMeQ.data?.myRank ?? null;
+
+  // Live countdown to midnight IST — re-render every minute
+  const [now, setNow] = useState(Date.now());
   useEffect(() => {
-    const loadData = async () => {
-      if (!token) { setLoading(false); return; }
-      try {
-        const [regsResult, annsResult, pollsResult, hiringResult, myTeamProfileResult] = await Promise.allSettled([
-          api.getMyRegistrations(token),
-          api.getAnnouncements(),
-          api.getPolls({ limit: 2 }, token),
-          api.getMyHiringApplication(token),
-          api.getMyTeamProfile(token),
-        ]);
+    const t = setInterval(() => setNow(Date.now()), 30 * 1000);
+    return () => clearInterval(t);
+  }, []);
+  void now;
+  const secsLeft = secondsUntilMidnightIST();
 
-        const regs = regsResult.status === 'fulfilled' ? regsResult.value : [];
-        const anns = annsResult.status === 'fulfilled' ? annsResult.value : [];
-        const pollData = pollsResult.status === 'fulfilled' ? pollsResult.value : [];
-        const hiring = hiringResult.status === 'fulfilled' ? hiringResult.value : null;
-        const myTeamProfile = myTeamProfileResult.status === 'fulfilled' ? myTeamProfileResult.value : null;
+  const todaysQOTD = todayQOTDQ.data ?? null;
+  const todaySolved = qotdStatsQ.data?.todaySolved ?? false;
 
-        setPartialError(
-          [regsResult, annsResult, pollsResult, hiringResult, myTeamProfileResult].some((result) => result.status === 'rejected')
-            ? 'Some dashboard data could not be loaded. You can still use the rest of the dashboard.'
-            : null
-        );
+  if (!user) return null;
+  if (isNetwork) return <NetworkOverview />;
 
-        setTotalRegistrations(regs.length);
-        setTotalAnnouncements(anns.length);
-        setRegistrations(regs.slice(0, 5));
-        setAnnouncements(anns.slice(0, 10));
-        setPolls(pollData.slice(0, 2));
-        setHiringStatus(hiring);
-        setIsTeamMember(!!myTeamProfile);
-        if (myTeamProfile && 'id' in myTeamProfile) {
-          setTeamMemberId((myTeamProfile as { id: string }).id);
-        }
-      } catch {
-        setError('Failed to load dashboard data.');
-      } finally {
-        setLoading(false);
-      }
-    };
-    loadData();
-  }, [token]);
+  return (
+    <div className="flex flex-col gap-10">
+      <WelcomeStrip
+        role={user.role}
+        firstName={user.name?.split(' ')[0] ?? 'there'}
+        qotdLive={Boolean(todaysQOTD)}
+        qotdSolved={todaySolved}
+        secondsUntilMidnightIST={secsLeft}
+        onSolve={() => navigate('/qotd/today')}
+      />
+
+      {isAdmin && adminStatsQ.data && <AdminStatStrip data={adminStatsQ.data} />}
+      {isAdmin && <AdminPendingRequestsCardV2 />}
+
+      <QOTDHero
+        loading={todayQOTDQ.isLoading || qotdStatsQ.isLoading}
+        qotd={todayQOTDQ.data ?? null}
+        currentStreak={qotdStatsQ.data?.currentStreak ?? 0}
+        longestStreak={qotdStatsQ.data?.longestStreak ?? 0}
+        todaySolved={qotdStatsQ.data?.todaySolved ?? false}
+        last30Days={last30}
+        onSolve={() => navigate('/qotd/today')}
+        onHistory={() => navigate('/dashboard/coding?tab=qotd')}
+      />
+
+      <StatsRow
+        solvedThisWeek={solvedThisWeek}
+        attemptsThisWeek={attemptsThisWeek}
+        pointsThisWeek={pointsThisWeek}
+        pointsDeltaPct={pointsDeltaPct}
+        myRank={myRank}
+        rankDelta={null}
+      />
+
+      <MyEventsSection
+        loading={regsQ.isLoading}
+        registrations={registrations}
+        onAll={() => navigate('/dashboard/events')}
+      />
+
+      <ReadUpSection
+        announcements={(announcementsQ.data ?? []).slice(0, 3)}
+        polls={(pollsQ.data ?? []).filter((p) => p.isPublished !== false).slice(0, 1)}
+        onAll={() => navigate('/dashboard/announcements')}
+      />
+
+      {settings?.showLeaderboard !== false && (
+        <StandingSection
+          loading={aroundMeQ.isLoading}
+          data={aroundMeQ.data}
+          onAll={() => navigate('/dashboard/coding?tab=leaderboard')}
+          onSolveQotd={() => navigate('/qotd/today')}
+        />
+      )}
+
+      <MyCodeSection
+        loading={recentSubsQ.isLoading}
+        subs={recentSubsQ.data ?? []}
+        onAll={() => navigate('/dashboard/coding?tab=practice')}
+        onSolveQotd={() => navigate('/qotd/today')}
+      />
+
+      {settings?.certificatesEnabled !== false && (
+        <EarnedSection
+          loading={certsQ.isLoading}
+          certs={certsQ.data ?? []}
+          onAll={() => navigate('/dashboard/certificates')}
+        />
+      )}
+
+      {hiringQ.data?.hasApplied && hiringQ.data.application && (
+        <HiringStatusSection application={hiringQ.data.application} />
+      )}
+
+      {settings?.playgroundEnabled !== false && <PlaygroundPromoSection />}
+    </div>
+  );
+}
+
+// ─── Playground + brand promotion (user side)
+function PlaygroundPromoSection() {
+  return (
+    <DSCard padded={false} className="overflow-hidden relative">
+      <div
+        className="pointer-events-none absolute -top-20 -right-20 w-[320px] h-[320px] rounded-full opacity-[0.10]"
+        style={{ background: 'radial-gradient(circle, var(--accent) 0%, transparent 70%)' }}
+      />
+      <div className="flex flex-col md:flex-row gap-6 p-6 md:p-7 relative">
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 mb-3">
+            <Terminal size={14} className="text-[var(--accent)]" />
+            <span className="text-[10.5px] uppercase tracking-[0.08em] font-semibold text-[var(--accent)]">code.scriet · playground</span>
+          </div>
+          <h3 className="text-[24px] font-semibold tracking-tight leading-[1.15]">
+            Run code instantly. <span className="text-[var(--accent)]">Solve, save, submit.</span>
+          </h3>
+          <p className="text-[13.5px] text-[var(--ds-text-3)] mt-2.5 max-w-prose leading-relaxed">
+            A full in-browser playground for Python, JavaScript, C++ and Java. Save snippets,
+            track your daily quota, and submit to QOTD / contests in the same tab.
+          </p>
+          <div className="flex items-center gap-2 mt-4 flex-wrap">
+            <a
+              href={getPlaygroundLaunchUrl()}
+              target="_blank"
+              rel="noreferrer"
+              className="inline-flex items-center gap-1.5 h-9 px-3.5 rounded-[8px] bg-[var(--accent)] text-[var(--accent-fg)] text-[13.5px] font-medium hover:bg-[var(--accent-hover)]"
+            >
+              Open playground <ArrowRight size={13} />
+            </a>
+            <a
+              href="/dashboard/coding?tab=practice"
+              className="inline-flex items-center gap-1.5 h-9 px-3.5 rounded-[8px] bg-[var(--bg-raised)] border border-[var(--border-default)] text-[var(--ds-text-1)] text-[13px] font-medium hover:border-[var(--border-strong)]"
+            >
+              Browse practice problems
+            </a>
+          </div>
+        </div>
+        <div className="md:w-[280px] shrink-0 grid grid-cols-2 gap-2.5">
+          {[
+            { l: 'Python', v: 'Pyodide' },
+            { l: 'JavaScript', v: 'Node 20' },
+            { l: 'C++', v: 'GCC 13' },
+            { l: 'Java', v: 'OpenJDK 17' },
+          ].map((s) => (
+            <div key={s.l} className="bg-[var(--surface-soft)] rounded-[10px] px-3 py-2.5">
+              <div className="text-[11px] uppercase tracking-[0.06em] font-semibold text-[var(--ds-text-3)]">{s.l}</div>
+              <div className="text-[12.5px] font-mono tabular-nums text-[var(--ds-text-1)] font-medium mt-0.5">{s.v}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </DSCard>
+  );
+}
+
+// ─── Welcome strip with contextual QOTD chip on the right
+function WelcomeStrip({
+  role, firstName, qotdLive, qotdSolved, secondsUntilMidnightIST, onSolve,
+}: {
+  role: string;
+  firstName: string;
+  qotdLive: boolean;
+  qotdSolved: boolean;
+  secondsUntilMidnightIST: number;
+  onSolve: () => void;
+}) {
+  const greet = greetingFromIST();
+  const date = formatISTDate();
+  const h = Math.floor(secondsUntilMidnightIST / 3600);
+  const m = Math.floor((secondsUntilMidnightIST % 3600) / 60);
+  const ttl = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+  return (
+    <div className="flex items-end justify-between gap-4 flex-wrap">
+      <div>
+        <div className="flex items-center gap-2 text-[12px] text-[var(--ds-text-3)] mb-1.5 whitespace-nowrap">
+          <span className="font-mono tabular-nums">{date}</span>
+          <span className="inline-block w-px h-4 bg-[var(--border-default)]" />
+          <Pill tone={roleTone(role)} size="xs">{role.replace(/_/g, ' ')}</Pill>
+        </div>
+        <h1 className="text-[32px] font-semibold tracking-tight text-[var(--ds-text-1)] leading-[1.05]">
+          {greet}, <span>{firstName}</span>.
+        </h1>
+      </div>
+      {qotdLive && !qotdSolved && (
+        <div className="flex items-center gap-2 flex-wrap">
+          <div className="inline-flex items-center gap-2 h-9 px-3 rounded-[8px] bg-[var(--accent-subtle)] text-[var(--accent)] text-[12.5px] font-medium border border-transparent">
+            <Zap size={13} />
+            <span>QOTD closes in</span>
+            <span className="font-mono tabular-nums font-semibold">{ttl}</span>
+          </div>
+          <Button
+            size="sm"
+            onClick={onSolve}
+            className="bg-[var(--accent)] hover:bg-[var(--accent-hover)] text-[var(--accent-fg)]"
+          >
+            Solve now <ArrowRight size={13} className="ml-1" />
+          </Button>
+        </div>
+      )}
+      {qotdLive && qotdSolved && (
+        <div className="inline-flex items-center gap-2 h-9 px-3 rounded-[8px] bg-[var(--success-bg)] text-[var(--success)] text-[12.5px] font-medium border border-[var(--success-border)]">
+          <Check size={13} />
+          <span>Today&apos;s QOTD solved</span>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Compute seconds until next midnight in IST (UTC+5:30)
+function secondsUntilMidnightIST(): number {
+  const now = new Date();
+  const istNow = new Date(now.toLocaleString('en-US', { timeZone: 'Asia/Kolkata' }));
+  const ms = (24 - istNow.getHours()) * 3600 * 1000 - istNow.getMinutes() * 60 * 1000 - istNow.getSeconds() * 1000;
+  return Math.max(0, Math.floor(ms / 1000));
+}
+
+// ─── QOTD Hero
+function QOTDHero({
+  loading, qotd, currentStreak, longestStreak, todaySolved, last30Days, onSolve, onHistory,
+}: {
+  loading: boolean;
+  qotd: { id: string; date: string; title?: string | null; question?: string; difficulty?: string; tags?: string[]; problemId?: string | null } | null;
+  currentStreak: number;
+  longestStreak: number;
+  todaySolved: boolean;
+  last30Days?: Array<{ date: string; solved: boolean }>;
+  onSolve: () => void;
+  onHistory: () => void;
+}) {
+  const c = 2 * Math.PI * 28;
+  const r = Math.min(1, currentStreak / 30);
+  const dash = c * r;
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center py-32">
-        <Loader2 className="h-8 w-8 animate-spin text-amber-500" />
-      </div>
+      <DSCard padded={false} className="overflow-hidden">
+        <div className="p-6 animate-pulse">
+          <div className="h-3 w-32 bg-[var(--surface-soft)] rounded mb-3" />
+          <div className="h-8 w-2/3 bg-[var(--surface-soft)] rounded mb-2" />
+          <div className="h-4 w-1/2 bg-[var(--surface-soft)] rounded" />
+        </div>
+      </DSCard>
     );
   }
 
-  if (error) {
+  if (!qotd) {
     return (
-      <div className="flex flex-col items-center justify-center py-24 text-center gap-3">
-        <AlertCircle className="h-10 w-10 text-red-400" />
-        <p className="text-gray-500">{error}</p>
-      </div>
+      <DSCard padded={false} className="overflow-hidden">
+        <div className="p-6 flex items-center gap-5 flex-wrap">
+          <Zap size={22} className="text-[var(--ds-text-3)]" />
+          <div className="flex-1 min-w-0">
+            <div className="text-[10.5px] uppercase tracking-[0.08em] font-semibold text-[var(--ds-text-3)]">Question of the day</div>
+            <h3 className="text-[20px] font-semibold tracking-tight mt-1">No question today</h3>
+            <p className="text-[13px] text-[var(--ds-text-3)] mt-1.5 max-w-prose">
+              Catch up on missed days from the QOTD history — every solved question counts toward your lifetime total.
+            </p>
+          </div>
+          <Button size="sm" variant="outline" onClick={onHistory}>
+            View history <ArrowRight size={12} className="ml-1" />
+          </Button>
+        </div>
+      </DSCard>
     );
   }
 
-  const firstName = user?.name?.split(' ')[0] || 'there';
-  const showHiring = !isTeamMember &&
-    (user?.role === 'USER' || user?.role === 'MEMBER') &&
-    !settingsLoading &&
-    settings?.hiringEnabled === true;
-
-  const playgroundEnabled = settings?.playgroundEnabled !== false;
-  const isAdmin = user?.role === 'ADMIN' || user?.role === 'PRESIDENT' || user?.isSuperAdmin === true;
+  const title = qotd.title ?? qotd.question ?? "Today's problem";
+  const diff = qotd.difficulty?.toUpperCase() ?? 'EASY';
+  const tags = qotd.tags ?? [];
+  const headline =
+    currentStreak === 0
+      ? 'Start your streak'
+      : todaySolved
+      ? `Day ${currentStreak} · locked in`
+      : `${currentStreak} days in a row`;
+  const sub =
+    currentStreak === 0
+      ? "Solve today's QOTD to light the flame."
+      : todaySolved
+      ? "You're set for today. See you tomorrow."
+      : 'Solve today before midnight IST to keep it going.';
 
   return (
-    <div className="space-y-6 w-full">
-
-      {/* ─── Welcome Banner ─────────────────────────────────────────── */}
-      <motion.div
-        {...fadeUp}
-        className="relative overflow-hidden rounded-2xl bg-gradient-to-br from-amber-500 via-amber-500 to-orange-500 text-white"
-      >
-        <div
-          className="pointer-events-none absolute inset-0"
-          style={{
-            backgroundImage: 'radial-gradient(circle, rgba(221,212,191,0.12) 1.5px, transparent 1.5px)',
-            backgroundSize: '22px 22px',
-          }}
-        />
-        <div className="pointer-events-none absolute -top-10 -right-10 h-48 w-48 rounded-full bg-white/10 blur-3xl" />
-
-        <div className="relative flex flex-wrap items-start gap-3 sm:gap-5 px-4 sm:px-7 py-5 sm:py-6">
-          <div className="h-12 w-12 sm:h-14 sm:w-14 rounded-2xl overflow-hidden bg-white/20 ring-2 ring-white/30 shrink-0 shadow-lg">
-            {user?.avatar ? (
-              <img src={user.avatar} alt={user.name} className="w-full h-full object-cover" />
-            ) : (
-              <div className="w-full h-full flex items-center justify-center text-white font-bold text-lg sm:text-xl">
-                {user?.name?.charAt(0)?.toUpperCase()}
-              </div>
+    <DSCard padded={false} className="overflow-hidden relative">
+      <div
+        className="pointer-events-none absolute -top-24 -right-24 w-[280px] h-[280px] rounded-full opacity-[0.12]"
+        style={{ background: 'radial-gradient(circle, var(--accent) 0%, transparent 70%)' }}
+      />
+      <div className="flex flex-col md:flex-row relative">
+        <div className="flex-1 p-6 md:p-7 min-w-0">
+          <div className="flex items-center gap-2 mb-3 whitespace-nowrap flex-wrap">
+            <span className="size-[6px] rounded-full bg-[var(--accent)] live-dot" />
+            <span className="text-[10.5px] uppercase tracking-[0.08em] font-semibold text-[var(--accent)]">
+              Question of the day · live
+            </span>
+            {todaySolved && (
+              <Pill tone="success" size="xs" icon={<Check size={9} />}>Solved</Pill>
             )}
           </div>
-          <div className="flex-1 min-w-[220px]">
-            <p className="text-white/70 text-sm font-medium">Good {getGreeting()}</p>
-            <h1 className="text-xl sm:text-2xl font-bold tracking-tight mt-0.5 break-words">{firstName}</h1>
-            <p className="text-white/70 text-sm mt-0.5 break-all sm:break-normal sm:truncate">{user?.email}</p>
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <Difficulty level={diff} />
+            {tags.slice(0, 3).map((t) => (
+              <MonoChip key={t}>{t}</MonoChip>
+            ))}
           </div>
-          <div className="flex shrink-0 w-full sm:w-auto">
-            <span className="inline-flex items-center gap-2 rounded-xl bg-white/15 px-4 py-2 text-sm font-semibold backdrop-blur-sm">
-              <Trophy className="h-4 w-4 text-amber-200" />
-              <span className="truncate">{user?.role?.replace(/_/g, ' ')}</span>
-            </span>
+          <h3 className="text-[28px] font-semibold tracking-tight text-[var(--ds-text-1)] mt-3 leading-[1.1]">{title}</h3>
+          <p className="text-[13.5px] text-[var(--ds-text-3)] mt-2.5 max-w-prose leading-relaxed">{sub}</p>
+          <div className="flex items-center gap-2 mt-6 flex-wrap">
+            {!todaySolved ? (
+              <Button size="sm" onClick={onSolve} className="bg-[var(--accent)] hover:bg-[var(--accent-hover)] text-[var(--accent-fg)]">
+                Solve <ArrowRight size={13} className="ml-1" />
+              </Button>
+            ) : (
+              <Button size="sm" variant="outline" onClick={onSolve}>View solution</Button>
+            )}
+            <Button size="sm" variant="ghost" onClick={onHistory}>History</Button>
           </div>
         </div>
-      </motion.div>
 
-      {isAdmin && (
-        <motion.div {...stagger(1)}>
-          <AdminPendingRequestsCard />
-        </motion.div>
-      )}
-
-      {/* ─── Stat Cards (3 equal, full width) ───────────────────────── */}
-      <motion.div {...stagger(1)} className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
-        <StatCard
-          icon={<Calendar className="h-5 w-5 text-amber-600" />}
-          iconBg="bg-amber-50"
-          label="Registered Events"
-          value={totalRegistrations}
-          linkTo="/dashboard/events"
-        />
-        <StatCard
-          icon={<Bell className="h-5 w-5 text-purple-500" />}
-          iconBg="bg-purple-50"
-          label="Announcements"
-          value={totalAnnouncements}
-          linkTo="/dashboard/announcements"
-        />
-        <StatCard
-          icon={<LayoutDashboard className="h-5 w-5 text-blue-500" />}
-          iconBg="bg-blue-50"
-          label="Your Role"
-          valueText={user?.role?.replace(/_/g, ' ')}
-        />
-      </motion.div>
-
-      {partialError && (
-        <motion.div {...stagger(2)}>
-          <Card className="border-amber-200 bg-amber-50">
-            <CardContent className="flex items-center gap-3 px-4 py-3 text-sm text-amber-900">
-              <AlertCircle className="h-4 w-4 shrink-0" />
-              <p>{partialError}</p>
-            </CardContent>
-          </Card>
-        </motion.div>
-      )}
-
-      {/* ─── Quick Actions ───────────────────────────────────────────── */}
-      <motion.div {...stagger(2)} className="flex gap-2 flex-wrap">
-        {[
-          { to: '/dashboard/events', icon: Calendar, label: 'My Events', hover: 'hover:bg-amber-50 hover:text-amber-700 hover:border-amber-200' },
-          { to: '/dashboard/announcements', icon: Bell, label: 'Announcements', hover: 'hover:bg-purple-50 hover:text-purple-700 hover:border-purple-200' },
-          { to: '/quiz', icon: Zap, label: 'Live Quizzes', hover: 'hover:bg-blue-50 hover:text-blue-700 hover:border-blue-200' },
-          {
-            to: isTeamMember && teamMemberId ? `/dashboard/team/${teamMemberId}/edit` : '/dashboard/profile',
-            icon: Users,
-            label: isTeamMember ? 'Team Profile' : 'My Profile',
-            hover: 'hover:bg-emerald-50 hover:text-emerald-700 hover:border-emerald-200',
-          },
-          ...(settings?.certificatesEnabled !== false
-            ? [{ to: '/dashboard/certificates', icon: Award, label: 'Certificates', hover: 'hover:bg-amber-50 hover:text-amber-700 hover:border-amber-200' }]
-            : []),
-        ].map((item) => (
-          <Link key={item.to} to={item.to} className="w-full sm:w-auto">
-            <Button
-              variant="outline"
-              className={`h-10 w-full sm:w-auto px-4 text-sm font-medium border-gray-200 text-gray-600 rounded-xl transition-all ${item.hover}`}
-            >
-              <item.icon className="h-4 w-4 mr-2" />
-              {item.label}
-            </Button>
-          </Link>
-        ))}
-      </motion.div>
-
-      {/* ─── Playground CTA (full width) ───────────────────────────── */}
-      {playgroundEnabled && (
-        <motion.div {...stagger(3)}>
-          <PlaygroundCard />
-        </motion.div>
-      )}
-
-      {/* ─── QOTD streak / badges (full width) ─────────────────────── */}
-      {settings?.showQOTD !== false && token && (
-        <motion.div {...stagger(3)}>
-          <QOTDStreakWidget token={token} />
-        </motion.div>
-      )}
-
-      {/* ─── Main Grid: 2/3 content + 1/3 sidebar ──────────────────── */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-
-        {/* LEFT COLUMN: Events → Attendance History → Quiz */}
-        <div className="lg:col-span-2 flex flex-col gap-6">
-
-          {/* My Events */}
-          <motion.div {...stagger(4)}>
-            <Card className="rounded-2xl border-gray-100 shadow-sm overflow-hidden">
-              <CardHeader className="flex flex-row items-center justify-between px-4 sm:px-6 py-4 border-b border-gray-50">
-                <CardTitle className="text-[15px] font-semibold text-gray-900 flex items-center gap-2.5">
-                  <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-amber-50">
-                    <Calendar className="h-4 w-4 text-amber-600" />
-                  </span>
-                  My Events
-                </CardTitle>
-                <Link to="/dashboard/events">
-                  <Button variant="ghost" size="sm" className="h-8 text-sm text-gray-400 hover:text-amber-600 rounded-lg gap-1">
-                    View all <ArrowRight className="h-3.5 w-3.5" />
-                  </Button>
-                </Link>
-              </CardHeader>
-              <CardContent className="p-0">
-                {registrations.length === 0 ? (
-                  <div className="flex flex-col items-center justify-center py-12 gap-2">
-                    <div className="h-12 w-12 rounded-2xl bg-gray-50 flex items-center justify-center">
-                      <Calendar className="h-6 w-6 text-gray-300" />
-                    </div>
-                    <p className="text-sm text-gray-400 font-medium">No registered events</p>
-                    <Link to="/dashboard/events" className="text-sm text-amber-600 font-medium hover:underline inline-flex items-center gap-1 mt-1">
-                      Browse events <ExternalLink className="h-3.5 w-3.5" />
-                    </Link>
-                  </div>
-                ) : (
-                  <div className="divide-y divide-gray-50">
-                    {registrations.map((reg) => (
-                      <Link
-                        key={reg.id}
-                        to={`/events/${reg.event.slug || reg.event.id}`}
-                        className="flex items-center gap-3 sm:gap-4 px-4 sm:px-6 py-4 hover:bg-amber-50/40 transition-colors group"
-                      >
-                        <div className={`h-2.5 w-2.5 rounded-full shrink-0 ${
-                          reg.event.status === 'ONGOING'
-                            ? 'bg-green-400 shadow-[0_0_0_3px_rgb(134,239,172,0.3)]'
-                            : reg.event.status === 'UPCOMING'
-                            ? 'bg-amber-400'
-                            : 'bg-gray-300'
-                        }`} />
-                        <div className="min-w-0 flex-1">
-                          <p className="font-medium text-gray-900 text-sm break-words sm:truncate group-hover:text-amber-700 transition-colors">
-                            {reg.event.title}
-                          </p>
-                          <p className="text-xs text-gray-400 mt-0.5">{formatDate(reg.event.startDate)}</p>
-                        </div>
-                        <Badge
-                          variant={reg.event.status === 'UPCOMING' ? 'success' : reg.event.status === 'ONGOING' ? 'warning' : 'secondary'}
-                          className="shrink-0 text-xs whitespace-nowrap"
-                        >
-                          {reg.event.status}
-                        </Badge>
-                      </Link>
-                    ))}
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          </motion.div>
-
-          {/* Attendance History */}
-          {token && (
-            <motion.div {...stagger(5)}>
-              <AttendanceHistory token={token} />
-            </motion.div>
-          )}
-
-          {/* Quiz Widget */}
-          <motion.div {...stagger(6)} className="flex-1">
-            <QuizDashboardWidget token={token || ''} />
-          </motion.div>
-        </div>
-
-        {/* RIGHT COLUMN: Announcements → Hiring CTA → Playground Activity */}
-        <div className="flex flex-col gap-6">
-
-          {/* Polls */}
-          <motion.div {...stagger(4)}>
-            <Card className="rounded-2xl border-gray-100 shadow-sm overflow-hidden">
-              <CardHeader className="flex flex-row items-center justify-between px-4 sm:px-5 py-4 border-b border-gray-50">
-                <CardTitle className="text-[15px] font-semibold text-gray-900 flex items-center gap-2.5">
-                  <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-amber-50">
-                    <Zap className="h-4 w-4 text-amber-600" />
-                  </span>
-                  Active Polls
-                </CardTitle>
-                <Link to="/dashboard/announcements">
-                  <Button variant="ghost" size="sm" className="h-8 text-sm text-gray-400 hover:text-amber-600 rounded-lg gap-1">
-                    All <ArrowRight className="h-3.5 w-3.5" />
-                  </Button>
-                </Link>
-              </CardHeader>
-              <CardContent className="space-y-4 p-4">
-                {polls.length === 0 ? (
-                  <div className="flex flex-col items-center justify-center py-8 gap-2 text-center">
-                    <div className="h-12 w-12 rounded-2xl bg-gray-50 flex items-center justify-center">
-                      <Zap className="h-6 w-6 text-gray-300" />
-                    </div>
-                    <p className="text-sm text-gray-400 font-medium">No active polls right now</p>
-                  </div>
-                ) : (
-                  polls.map((poll) => (
-                    <PollCard key={poll.id} poll={poll} compact actionLabel="Vote" />
-                  ))
-                )}
-              </CardContent>
-            </Card>
-          </motion.div>
-
-          {/* Announcements — stretched vertically with more items */}
-          <motion.div {...stagger(4)}>
-            <Card className="rounded-2xl border-gray-100 shadow-sm overflow-hidden">
-              <CardHeader className="flex flex-row items-center justify-between px-4 sm:px-5 py-4 border-b border-gray-50">
-                <CardTitle className="text-[15px] font-semibold text-gray-900 flex items-center gap-2.5">
-                  <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-purple-50">
-                    <Bell className="h-4 w-4 text-purple-500" />
-                  </span>
-                  Announcements
-                </CardTitle>
-                <Link to="/dashboard/announcements">
-                  <Button variant="ghost" size="sm" className="h-8 text-sm text-gray-400 hover:text-purple-600 rounded-lg gap-1">
-                    All <ArrowRight className="h-3.5 w-3.5" />
-                  </Button>
-                </Link>
-              </CardHeader>
-              <CardContent className="p-0">
-                {announcements.length === 0 ? (
-                  <div className="flex flex-col items-center justify-center py-8 gap-2">
-                    <div className="h-12 w-12 rounded-2xl bg-gray-50 flex items-center justify-center">
-                      <Bell className="h-6 w-6 text-gray-300" />
-                    </div>
-                    <p className="text-sm text-gray-400 font-medium">No announcements yet</p>
-                  </div>
-                ) : (
-                  <div className="divide-y divide-gray-50">
-                    {announcements.map((a) => {
-                      const p = priorityConfig[a.priority as keyof typeof priorityConfig] ?? priorityConfig.LOW;
-                      return (
-                        <Link
-                          key={a.id}
-                          to={`/announcements/${a.slug || a.id}`}
-                          className="flex items-start gap-3 px-4 py-3.5 hover:bg-purple-50/30 transition-colors group"
-                        >
-                          <div className={`mt-1.5 w-1 rounded-full shrink-0 self-stretch min-h-[1.75rem] ${p.color}`} />
-                          <div className="min-w-0 flex-1">
-                            <p className="font-medium text-gray-900 text-sm leading-snug line-clamp-2 break-words group-hover:text-purple-700 transition-colors">
-                              {a.title}
-                            </p>
-                            <p className="text-xs text-gray-400 mt-1">{formatDate(a.createdAt)}</p>
-                          </div>
-                        </Link>
-                      );
-                    })}
-                  </div>
-                )}
-              </CardContent>
-            </Card>
-          </motion.div>
-
-          {/* Hiring CTA / Status */}
-          {showHiring && (
-            <motion.div {...stagger(5)}>
-              <Card className="rounded-2xl border-gray-100 shadow-sm overflow-hidden">
-                <CardContent className="p-5">
-                  {(hiringStatus?.hasApplied || hiringStatus?.hasApplication) ? (
-                     <div className="flex items-start gap-3 p-4 rounded-xl bg-gray-50">
-                      {hiringStatus.application?.status === 'PENDING' && <Clock className="h-5 w-5 text-yellow-500 shrink-0 mt-0.5" />}
-                      {(hiringStatus.application?.status === 'SELECTED' || hiringStatus.application?.status === 'APPROVED') && (
-                        <CheckCircle className="h-5 w-5 text-green-500 shrink-0 mt-0.5" />
-                      )}
-                      {hiringStatus.application?.status === 'REJECTED' && (
-                        <XCircle className="h-5 w-5 text-red-400 shrink-0 mt-0.5" />
-                      )}
-                      <div className="min-w-0 flex-1">
-                        <p className="text-sm font-semibold text-gray-900">Application submitted</p>
-                         <p className="text-sm text-gray-500 mt-0.5 break-words">
-                           {hiringStatus.application?.applyingRole?.replace(/_/g, ' ')}
-                         </p>
-                        <Badge
-                          variant={
-                            hiringStatus.application?.status === 'SELECTED' || hiringStatus.application?.status === 'APPROVED'
-                              ? 'success'
-                              : hiringStatus.application?.status === 'REJECTED'
-                              ? 'destructive'
-                              : 'warning'
-                          }
-                          className="text-xs mt-2"
-                        >
-                          {hiringStatus.application?.status}
-                        </Badge>
-                      </div>
-                    </div>
-                  ) : (
-                    <Link to="/join-us" className="flex items-center gap-4 group">
-                      <div className="h-12 w-12 rounded-2xl bg-gradient-to-br from-amber-400 to-orange-500 flex items-center justify-center shrink-0 shadow-sm group-hover:shadow-md transition-shadow">
-                        <Users className="h-6 w-6 text-white" />
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-semibold text-gray-900 group-hover:text-amber-700 transition-colors">Join the Club</p>
-                        <p className="text-sm text-gray-400 mt-0.5 leading-tight">Apply to become a core member</p>
-                      </div>
-                      <ArrowRight className="h-4 w-4 text-gray-300 group-hover:text-amber-500 group-hover:translate-x-1 transition-all shrink-0" />
-                    </Link>
+        <div className="border-t md:border-t-0 md:border-l border-[var(--border-subtle)] p-6 md:w-[260px] shrink-0 flex flex-col items-center justify-center bg-[var(--surface-soft)]/30 relative overflow-hidden">
+          <div className="relative size-[112px]">
+            <svg viewBox="0 0 64 64" className="size-full -rotate-90">
+              <circle cx="32" cy="32" r="28" fill="none" stroke="var(--border-default)" strokeWidth="3" />
+              <circle
+                cx="32" cy="32" r="28" fill="none" stroke="var(--accent)" strokeWidth="3" strokeLinecap="round"
+                style={{
+                  strokeDasharray: c,
+                  strokeDashoffset: c - dash,
+                  transition: 'stroke-dashoffset 1s var(--ease-out)',
+                }}
+              />
+            </svg>
+            <div className="absolute inset-0 flex flex-col items-center justify-center">
+              <Flame size={15} className={currentStreak > 0 ? 'text-[var(--accent)]' : 'text-[var(--ds-text-3)]'} />
+              <span className="text-[34px] font-semibold tabular-nums leading-none mt-0.5">{currentStreak}</span>
+              <span className="text-[9.5px] uppercase tracking-[0.08em] text-[var(--ds-text-3)] mt-1">day streak</span>
+            </div>
+          </div>
+          <div className="text-[11px] text-[var(--ds-text-1)] font-medium mt-3 text-center leading-tight">{headline}</div>
+          {last30Days && last30Days.length > 0 && (
+            <div className="flex items-center gap-[3px] mt-3 max-w-full">
+              {last30Days.slice(-30).map((d, i) => (
+                <span
+                  key={i}
+                  title={`${d.date}: ${d.solved ? 'solved' : 'missed'}`}
+                  className={cn(
+                    'inline-block size-[7px] rounded-[2px]',
+                    d.solved ? 'bg-[var(--accent)]' : 'bg-[var(--border-default)]',
                   )}
-                </CardContent>
-              </Card>
-            </motion.div>
+                />
+              ))}
+            </div>
           )}
+          <div className="text-[10.5px] text-[var(--ds-text-3)] mt-1.5 whitespace-nowrap font-mono tabular-nums">
+            longest {longestStreak}
+          </div>
+        </div>
+      </div>
+    </DSCard>
+  );
+}
 
-          {/* Playground Activity — last item, fills remaining column space */}
-          {playgroundEnabled && (
-            <motion.div {...stagger(6)} className="flex-1">
-              <PlaygroundSnippetsCard />
-            </motion.div>
-          )}
+// ─── Stats row — pixel-port: SOLVED / ATTEMPTS / POINTS / RANK
+function StatsRow({
+  solvedThisWeek, attemptsThisWeek, pointsThisWeek, pointsDeltaPct, myRank, rankDelta,
+}: {
+  solvedThisWeek: number;
+  attemptsThisWeek: number;
+  pointsThisWeek: number;
+  pointsDeltaPct: number | null;
+  myRank: number | null;
+  rankDelta: number | null;
+}) {
+  const fmtSigned = (n: number) => (n > 0 ? `+${n}` : `${n}`);
+  return (
+    <div className="grid grid-cols-2 md:grid-cols-4 gap-y-4 border-y border-[var(--border-subtle)] py-5">
+      <div className="min-w-0">
+        <div className="text-[10.5px] uppercase tracking-[0.06em] font-semibold text-[var(--ds-text-3)] whitespace-nowrap">Solved</div>
+        <div className="text-[32px] font-semibold tabular-nums leading-none mt-2">{solvedThisWeek}</div>
+        <div className="text-[11px] text-[var(--ds-text-3)] mt-1.5">this week</div>
+      </div>
+      <div className="min-w-0 md:border-l md:border-[var(--border-subtle)] md:pl-6">
+        <div className="text-[10.5px] uppercase tracking-[0.06em] font-semibold text-[var(--ds-text-3)] whitespace-nowrap">Attempts</div>
+        <div className="text-[32px] font-semibold tabular-nums leading-none mt-2">{attemptsThisWeek}</div>
+        <div className="text-[11px] text-[var(--ds-text-3)] mt-1.5">this week</div>
+      </div>
+      <div className="min-w-0 md:border-l md:border-[var(--border-subtle)] md:pl-6">
+        <div className="text-[10.5px] uppercase tracking-[0.06em] font-semibold text-[var(--ds-text-3)] whitespace-nowrap">Points</div>
+        <div className="text-[32px] font-semibold tabular-nums leading-none mt-2 text-[var(--accent)]">
+          {fmtSigned(pointsThisWeek)}
+        </div>
+        <div className="text-[11px] text-[var(--ds-text-3)] mt-1.5 font-mono tabular-nums">
+          {pointsDeltaPct == null ? 'this week' : `${pointsDeltaPct >= 0 ? '+' : ''}${pointsDeltaPct}% vs avg`}
+        </div>
+      </div>
+      <div className="min-w-0 md:border-l md:border-[var(--border-subtle)] md:pl-6">
+        <div className="text-[10.5px] uppercase tracking-[0.06em] font-semibold text-[var(--ds-text-3)] whitespace-nowrap">Rank</div>
+        <div className="text-[32px] font-semibold tabular-nums leading-none mt-2">
+          {myRank ? `#${myRank}` : '—'}
+        </div>
+        <div className="text-[11px] text-[var(--ds-text-3)] mt-1.5 font-mono tabular-nums">
+          {myRank == null ? 'not ranked yet' : rankDelta == null || rankDelta === 0 ? 'no change' : rankDelta < 0 ? <><TrendingUp size={11} className="inline" /> {Math.abs(rankDelta)} {Math.abs(rankDelta) === 1 ? 'place' : 'places'}</> : `↓ ${Math.abs(rankDelta)} ${Math.abs(rankDelta) === 1 ? 'place' : 'places'}`}
         </div>
       </div>
     </div>
   );
 }
 
-function getGreeting(): string {
-  const h = new Date().getHours();
-  if (h < 12) return 'morning';
-  if (h < 17) return 'afternoon';
-  return 'evening';
-}
+// ─── My events
+function MyEventsSection({
+  loading, registrations, onAll,
+}: {
+  loading: boolean;
+  registrations: Array<{ id: string; event?: { id?: string; slug?: string; title?: string; status?: string; startDate?: string; venue?: string | null } | null }>;
+  onAll: () => void;
+}) {
+  const navigate = useNavigate();
+  const events = registrations
+    .filter((r) => r.event)
+    .sort((a, b) => new Date(a.event!.startDate ?? 0).getTime() - new Date(b.event!.startDate ?? 0).getTime())
+    .slice(0, 5);
 
-interface StatCardProps {
-  icon: React.ReactNode;
-  iconBg: string;
-  label: string;
-  value?: number;
-  valueText?: string;
-  linkTo?: string;
-}
-
-function StatCard({ icon, iconBg, label, value, valueText, linkTo }: StatCardProps) {
-  const inner = (
-    <Card className={`rounded-2xl border-gray-100 shadow-sm hover:shadow-md transition-shadow h-full ${linkTo ? 'cursor-pointer' : ''}`}>
-      <CardContent className="flex items-center gap-4 p-5">
-        <div className={`h-11 w-11 rounded-xl ${iconBg} flex items-center justify-center shrink-0`}>
-          {icon}
+  if (loading) {
+    return (
+      <Section eyebrow="Schedule" title="My events">
+        <div className="border-y border-[var(--border-subtle)] divide-y divide-[var(--border-subtle)]">
+          {[0, 1, 2].map((i) => (
+            <div key={i} className="py-3 flex items-center gap-3 animate-pulse">
+              <div className="size-[10px] rounded-full bg-[var(--surface-soft)]" />
+              <div className="h-4 w-1/2 bg-[var(--surface-soft)] rounded" />
+            </div>
+          ))}
         </div>
-        <div className="min-w-0 flex-1">
-          <p className="text-xs text-gray-400 font-medium uppercase tracking-wide leading-tight">{label}</p>
-          <p className="text-2xl font-bold text-gray-900 mt-1 leading-none">
-            {value !== undefined ? value : <span className="text-base font-semibold capitalize">{valueText}</span>}
+      </Section>
+    );
+  }
+
+  if (events.length === 0) {
+    return (
+      <Section
+        eyebrow="Schedule"
+        title="No registrations yet"
+        action={
+          <Button size="sm" variant="ghost" onClick={onAll}>
+            Browse <ChevronRight size={12} />
+          </Button>
+        }
+      >
+        <div className="flex items-center gap-4 py-5 border-y border-[var(--border-subtle)]">
+          <Calendar size={20} className="text-[var(--ds-text-3)]" />
+          <p className="text-[13.5px] text-[var(--ds-text-2)] flex-1 max-w-prose leading-relaxed">
+            Once you register for a workshop, sprint, or hackathon it&apos;ll show up here with a ticket and status.
           </p>
+          <Button size="sm" variant="outline" onClick={onAll}>
+            See upcoming <ArrowRight size={12} className="ml-1" />
+          </Button>
         </div>
-      </CardContent>
-    </Card>
-  );
+      </Section>
+    );
+  }
 
-  if (linkTo) return <Link to={linkTo} className="h-full">{inner}</Link>;
-  return inner;
+  return (
+    <Section
+      eyebrow="Schedule"
+      title="My events"
+      action={
+        <Button size="sm" variant="ghost" onClick={onAll}>
+          All <ChevronRight size={12} />
+        </Button>
+      }
+    >
+      <div className="border-y border-[var(--border-subtle)] divide-y divide-[var(--border-subtle)]">
+        {events.map((r) => {
+          const e = r.event!;
+          const status = e.status ?? 'UPCOMING';
+          const startDate = e.startDate ? new Date(e.startDate) : null;
+          return (
+            <button
+              key={r.id}
+              type="button"
+              onClick={() => navigate(`/events/${e.slug || e.id}`)}
+              className="w-full py-3 flex items-center gap-3 -mx-2 px-2 hover:bg-[var(--surface-soft)] rounded-[6px] text-left transition-colors"
+            >
+              <span
+                className={cn(
+                  'size-[10px] rounded-full shrink-0',
+                  status === 'ONGOING' && 'bg-[var(--success)] live-dot',
+                  status === 'UPCOMING' && 'bg-[var(--accent)]',
+                  status === 'PAST' && 'bg-[var(--border-strong)]',
+                )}
+              />
+              <div className="flex-1 min-w-0">
+                <div className="text-[13.5px] font-medium text-[var(--ds-text-1)] truncate">{e.title}</div>
+                <div className="text-[11.5px] text-[var(--ds-text-3)] mt-0.5">
+                  <span className="font-mono tabular-nums">
+                    {startDate?.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}
+                    {startDate && ` · ${startDate.toLocaleTimeString('en-IN', { hour: 'numeric', minute: '2-digit' })}`}
+                  </span>
+                  {e.venue && <span> · {e.venue}</span>}
+                </div>
+              </div>
+              <Pill
+                tone={status === 'ONGOING' ? 'success' : status === 'UPCOMING' ? 'info' : 'neutral'}
+                size="xs"
+                dot={status === 'ONGOING'}
+              >
+                {status === 'ONGOING' ? 'Live' : status === 'UPCOMING' ? 'Upcoming' : 'Past'}
+              </Pill>
+              <ChevronRight size={14} className="text-[var(--ds-text-3)] shrink-0" />
+            </button>
+          );
+        })}
+      </div>
+    </Section>
+  );
+}
+
+// ─── Read up: announcements + polls
+function ReadUpSection({
+  announcements, polls, onAll,
+}: {
+  announcements: Array<{ id: string; slug?: string; title: string; body?: string; priority?: string; pinned?: boolean; createdAt?: string }>;
+  polls: Array<{ id: string; slug: string; question: string; options: Array<{ id: string; text: string; voteCount?: number }>; totalVotes?: number }>;
+  onAll: () => void;
+}) {
+  const navigate = useNavigate();
+  if (announcements.length === 0 && polls.length === 0) return null;
+  return (
+    <Section
+      eyebrow="Read up"
+      title="Announcements & polls"
+      action={
+        <Button size="sm" variant="ghost" onClick={onAll}>
+          All <ChevronRight size={12} />
+        </Button>
+      }
+    >
+      <div className="border-y border-[var(--border-subtle)] divide-y divide-[var(--border-subtle)]">
+        {polls.map((p) => (
+          <button
+            key={p.id}
+            type="button"
+            onClick={() => navigate(`/polls/${p.slug}`)}
+            className="w-full py-3 -mx-2 px-2 rounded-[6px] hover:bg-[var(--surface-soft)] transition-colors text-left"
+          >
+            <div className="flex items-center gap-2 mb-2">
+              <Pill tone="accent" size="xs" icon={<Activity size={9} />}>Poll · open</Pill>
+              <span className="text-[13px] font-medium flex-1">{p.question}</span>
+              <span className="text-[11px] text-[var(--ds-text-3)] font-mono tabular-nums">{p.totalVotes ?? 0} votes</span>
+            </div>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+              {p.options.slice(0, 4).map((opt) => (
+                <span
+                  key={opt.id}
+                  className="px-2.5 h-7 rounded-[6px] text-[12px] font-medium border border-[var(--border-default)] bg-[var(--bg-raised)] text-[var(--ds-text-2)] inline-flex items-center truncate"
+                >
+                  {opt.text}
+                </span>
+              ))}
+            </div>
+          </button>
+        ))}
+        {announcements.map((a) => {
+          const priority = a.priority ?? 'LOW';
+          return (
+            <button
+              key={a.id}
+              type="button"
+              onClick={() => navigate(`/announcements/${a.slug || a.id}`)}
+              className="w-full py-3 flex items-start gap-3 -mx-2 px-2 rounded-[6px] hover:bg-[var(--surface-soft)] text-left transition-colors"
+            >
+              <span
+                className={cn(
+                  'w-[3px] self-stretch rounded-full shrink-0 mt-0.5',
+                  priority === 'URGENT' && 'bg-[var(--danger)]',
+                  priority === 'HIGH' && 'bg-[var(--warning)]',
+                  (priority === 'MEDIUM' || priority === 'MED') && 'bg-[var(--info)]',
+                  priority === 'LOW' && 'bg-[var(--ds-text-3)] opacity-50',
+                )}
+              />
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-1.5 mb-1 flex-wrap">
+                  <Pill tone={PRIORITY_TONE[priority] ?? 'neutral'} size="xs">{priority}</Pill>
+                  {a.pinned && <Pill tone="accent" size="xs" icon={<Bookmark size={9} />}>Pinned</Pill>}
+                  {a.createdAt && (
+                    <span className="text-[11px] text-[var(--ds-text-3)] font-mono tabular-nums">
+                      {new Date(a.createdAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}
+                    </span>
+                  )}
+                </div>
+                <div className="text-[13.5px] font-medium leading-snug">{a.title}</div>
+                {a.body && <p className="text-[12px] text-[var(--ds-text-3)] mt-1 line-clamp-1">{a.body}</p>}
+              </div>
+            </button>
+          );
+        })}
+      </div>
+    </Section>
+  );
+}
+
+// ─── Standing (leaderboard slice)
+function StandingSection({
+  loading, data, onAll, onSolveQotd,
+}: {
+  loading: boolean;
+  data: { slice: Array<{ rank: number; userId: string; name: string; avatar: string | null; score: number; you: boolean }>; myRank: number | null; nextUpDelta: number | null; nextUp: { rank: number; name: string; score: number } | null } | undefined;
+  onAll: () => void;
+  onSolveQotd: () => void;
+}) {
+  if (loading) {
+    return (
+      <Section eyebrow="Climbing" title="Where you stand">
+        <div className="border-y border-[var(--border-subtle)] divide-y divide-[var(--border-subtle)]">
+          {[0, 1, 2].map((i) => (
+            <div key={i} className="py-2.5 flex items-center gap-3 animate-pulse">
+              <div className="size-6 bg-[var(--surface-soft)] rounded-full" />
+              <div className="h-3 flex-1 bg-[var(--surface-soft)] rounded" />
+            </div>
+          ))}
+        </div>
+      </Section>
+    );
+  }
+  if (!data || !data.myRank) {
+    return (
+      <Section
+        eyebrow="Climbing"
+        title="Solve to enter the leaderboard"
+        action={
+          <Button size="sm" variant="ghost" onClick={onAll}>
+            View top <ChevronRight size={12} />
+          </Button>
+        }
+      >
+        <div className="flex items-center gap-4 py-5 border-y border-[var(--border-subtle)]">
+          <Trophy size={20} className="text-[var(--ds-text-3)]" />
+          <p className="text-[13.5px] text-[var(--ds-text-2)] flex-1 leading-relaxed">
+            Solve QOTDs and practice problems to earn points. Your rank shows up here once you cross your first scored submission.
+          </p>
+          <Button size="sm" variant="outline" onClick={onSolveQotd}>Solve QOTD</Button>
+        </div>
+      </Section>
+    );
+  }
+  const max = Math.max(...data.slice.map((s) => s.score));
+  return (
+    <Section
+      eyebrow="Climbing"
+      title="Where you stand"
+      action={
+        <Button size="sm" variant="ghost" onClick={onAll}>
+          Full leaderboard <ChevronRight size={12} />
+        </Button>
+      }
+    >
+      <div className="border-y border-[var(--border-subtle)] divide-y divide-[var(--border-subtle)]">
+        {data.slice.map((r) => {
+          const w = max > 0 ? (r.score / max) * 100 : 0;
+          return (
+            <div
+              key={r.userId}
+              className={cn(
+                'py-2.5 flex items-center gap-3 -mx-2 px-2 rounded-[6px] transition-colors',
+                r.you ? 'bg-[var(--accent-subtle)]/50' : 'hover:bg-[var(--surface-soft)]',
+              )}
+            >
+              <span className={cn('font-mono tabular-nums text-[12px] font-semibold w-[28px]', r.you ? 'text-[var(--accent)]' : 'text-[var(--ds-text-3)]')}>
+                #{r.rank}
+              </span>
+              <Avatar name={r.name} src={r.avatar} size={24} />
+              <span className={cn('text-[13px] truncate flex-1 min-w-0', r.you ? 'font-semibold text-[var(--ds-text-1)]' : 'font-medium text-[var(--ds-text-1)]')}>
+                {r.name}
+                {r.you && <span className="text-[var(--accent)] font-semibold ml-1.5">— you</span>}
+              </span>
+              <div className="hidden sm:block flex-1 max-w-[200px] h-[5px] rounded-full bg-[var(--surface-soft)] overflow-hidden">
+                <div className={cn('h-full rounded-full', r.you ? 'bg-[var(--accent)]' : 'bg-[var(--ds-text-3)]/40')} style={{ width: `${w}%` }} />
+              </div>
+              <span className="font-mono tabular-nums text-[13px] font-medium w-[64px] text-right">{r.score.toLocaleString()}</span>
+            </div>
+          );
+        })}
+      </div>
+      {data.nextUp && data.nextUpDelta != null && data.nextUpDelta > 0 && (
+        <div className="mt-3 text-[12px] text-[var(--ds-text-3)]">
+          <span className="font-mono tabular-nums text-[var(--ds-text-1)] font-semibold">{data.nextUpDelta}</span> points to overtake{' '}
+          <span className="text-[var(--ds-text-2)] font-medium">{data.nextUp.name}</span> at #{data.nextUp.rank}.
+        </div>
+      )}
+    </Section>
+  );
+}
+
+// ─── My code
+function MyCodeSection({
+  loading, subs, onAll, onSolveQotd,
+}: {
+  loading: boolean;
+  subs: Array<{ id: string; problemTitle: string; problemSlug: string | null; language: string; verdict: string; score: number; runtimeMs: number | null; submittedAt: string }>;
+  onAll: () => void;
+  onSolveQotd: () => void;
+}) {
+  const navigate = useNavigate();
+  if (loading) {
+    return (
+      <Section eyebrow="My code" title="Recent submissions">
+        <div className="border-y border-[var(--border-subtle)] divide-y divide-[var(--border-subtle)]">
+          {[0, 1, 2].map((i) => (
+            <div key={i} className="py-2.5 animate-pulse">
+              <div className="h-4 w-1/2 bg-[var(--surface-soft)] rounded" />
+            </div>
+          ))}
+        </div>
+      </Section>
+    );
+  }
+  if (subs.length === 0) {
+    return (
+      <Section
+        eyebrow="My code"
+        title="No submissions yet"
+        action={
+          <Button size="sm" variant="ghost" onClick={onAll}>
+            Browse <ChevronRight size={12} />
+          </Button>
+        }
+      >
+        <div className="flex items-center gap-4 py-5 border-y border-[var(--border-subtle)]">
+          <Terminal size={20} className="text-[var(--ds-text-3)]" />
+          <p className="text-[13.5px] text-[var(--ds-text-2)] flex-1 leading-relaxed">
+            Submit on a QOTD or practice problem and your verdict, score, and timing show up here.
+          </p>
+          <Button size="sm" variant="outline" onClick={onSolveQotd}>Solve QOTD</Button>
+        </div>
+      </Section>
+    );
+  }
+  return (
+    <Section
+      eyebrow="My code"
+      title="Recent submissions"
+      action={
+        <Button size="sm" variant="ghost" onClick={onAll}>
+          All <ChevronRight size={12} />
+        </Button>
+      }
+    >
+      <div className="border-y border-[var(--border-subtle)] divide-y divide-[var(--border-subtle)]">
+        {subs.map((s) => {
+          const tone = VERDICT_TONE[s.verdict] ?? 'neutral';
+          return (
+            <button
+              key={s.id}
+              type="button"
+              onClick={() => s.problemSlug && navigate(`/dashboard/coding?tab=practice&problem=${s.problemSlug}`)}
+              className="w-full py-2.5 flex items-center gap-3 hover:bg-[var(--surface-soft)] text-left -mx-2 px-2 rounded-[6px] transition-colors"
+            >
+              <span className="flex-1 min-w-0 truncate text-[13px] font-medium">{s.problemTitle}</span>
+              <Pill tone="neutral" size="xs">{s.language}</Pill>
+              <Pill tone={tone} size="xs">{shortVerdict(s.verdict)}</Pill>
+              <span className="hidden sm:inline w-[44px] text-right font-mono tabular-nums text-[12px] text-[var(--ds-text-2)] font-medium">{s.score}</span>
+              <span className="hidden md:inline w-[72px] text-right text-[11.5px] text-[var(--ds-text-3)] font-mono tabular-nums">
+                {s.runtimeMs != null ? `${s.runtimeMs}ms` : '—'}
+              </span>
+              <span className="hidden lg:inline w-[80px] text-right text-[11.5px] text-[var(--ds-text-3)] whitespace-nowrap">
+                {relativeTime(s.submittedAt)}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+    </Section>
+  );
+}
+
+function shortVerdict(v: string): string {
+  return v === 'ACCEPTED' ? 'AC'
+    : v === 'WRONG_ANSWER' ? 'WA'
+    : v === 'TIME_LIMIT_EXCEEDED' ? 'TLE'
+    : v === 'RUNTIME_ERROR' ? 'RE'
+    : v === 'COMPILATION_ERROR' ? 'CE'
+    : v;
+}
+
+// ─── Earned: certificates
+function EarnedSection({
+  loading, certs, onAll,
+}: {
+  loading: boolean;
+  certs: Array<{ id: string; certId: string; type: string; eventName: string; issuedAt: string }>;
+  onAll: () => void;
+}) {
+  if (loading || certs.length === 0) return null;
+  const recent = certs.slice(0, 6);
+  const CERT_GRADIENTS = [
+    'from-rose-500 to-orange-600',
+    'from-amber-500 to-yellow-600',
+    'from-emerald-500 to-teal-600',
+    'from-sky-500 to-indigo-600',
+    'from-violet-500 to-fuchsia-600',
+    'from-pink-500 to-rose-600',
+  ];
+  return (
+    <Section
+      eyebrow="Earned"
+      title="Certificates"
+      action={
+        <Button size="sm" variant="ghost" onClick={onAll}>
+          All <ChevronRight size={12} />
+        </Button>
+      }
+    >
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+        {recent.map((c, i) => (
+          <Link key={c.id} to="/dashboard/certificates" className="text-left group">
+            <div
+              className={cn(
+                'aspect-[1.55/1] rounded-[10px] bg-gradient-to-br relative overflow-hidden group-hover:shadow-[var(--shadow-md)] transition-shadow',
+                CERT_GRADIENTS[i % CERT_GRADIENTS.length],
+              )}
+            >
+              <div className="absolute inset-0 p-3 flex flex-col justify-between text-white">
+                <div className="flex justify-between items-start">
+                  <Award size={14} className="opacity-90" />
+                  <span className="inline-flex items-center h-[18px] px-1.5 text-[10.5px] font-medium rounded-[5px] bg-white/20 text-white">
+                    {c.type}
+                  </span>
+                </div>
+                <div>
+                  <div className="text-[11.5px] font-medium leading-tight line-clamp-1">{c.eventName}</div>
+                  <div className="text-[10px] opacity-80 font-mono tabular-nums mt-0.5">{c.certId}</div>
+                </div>
+              </div>
+            </div>
+          </Link>
+        ))}
+      </div>
+    </Section>
+  );
+}
+
+// ─── Hiring status
+function HiringStatusSection({
+  application,
+}: {
+  application: { id: string; applyingRole: string; status: string; createdAt: string };
+}) {
+  const navigate = useNavigate();
+  const status = application.status;
+  const tone: 'warning' | 'info' | 'success' | 'danger' =
+    status === 'PENDING' ? 'warning'
+    : status === 'INTERVIEW_SCHEDULED' ? 'info'
+    : status === 'SELECTED' ? 'success'
+    : 'danger';
+  return (
+    <Section eyebrow="Application" title="Hiring status">
+      <div className="border-y border-[var(--border-subtle)] py-4 flex items-center gap-4 flex-wrap">
+        <div className="size-10 rounded-[10px] bg-[var(--info-bg)] text-[var(--info)] flex items-center justify-center shrink-0">
+          <Briefcase size={16} />
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-[14px] font-semibold">Applied for {application.applyingRole.replace(/_/g, ' ')}</span>
+            <Pill tone={tone} size="xs">{status.replace(/_/g, ' ')}</Pill>
+          </div>
+          <div className="text-[11.5px] text-[var(--ds-text-3)] mt-1 font-mono tabular-nums">
+            applied {new Date(application.createdAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
+          </div>
+        </div>
+        <Button size="sm" variant="ghost" onClick={() => navigate('/dashboard/profile')}>View details</Button>
+      </div>
+    </Section>
+  );
+}
+
+// ─── Admin: 12-tile stat strip
+function AdminStatStrip({
+  data,
+}: {
+  data: { overview: { totalUsers: number; upcomingEvents: number; totalAnnouncements: number }; insights: import('@/lib/api').AdminInsights };
+}) {
+  // Defensive against API contract drift: each numeric tile coerces undefined
+  // to 0 and renders an em-dash if the value is still not a number. Prevents
+  // the admin dashboard from showing "undefined" tiles after a schema/shape
+  // change.
+  const raw = (data.insights ?? {}) as Partial<import('@/lib/api').AdminInsights>;
+  const num = (v: unknown, fallback = 0): number =>
+    typeof v === 'number' && Number.isFinite(v) ? v : fallback;
+  const i = {
+    totalUsers: num(raw.totalUsers),
+    usersDelta: num(raw.usersDelta),
+    activeEvents: num(raw.activeEvents),
+    upcomingEvents: num(raw.upcomingEvents),
+    pendingInvitationsCount: num(raw.pendingInvitationsCount),
+    certificatesThisMonth: num(raw.certificatesThisMonth),
+    liveScansLastHour: num(raw.liveScansLastHour),
+    quizSessionsLast7d: num(raw.quizSessionsLast7d),
+    registrationsThisWeek: num(raw.registrationsThisWeek),
+    attendedThisWeek: num(raw.attendedThisWeek),
+    averageStreak: num(raw.averageStreak),
+    longestStreakOverall: num(raw.longestStreakOverall),
+    acRatePct: num(raw.acRatePct),
+    submissionsThisWeek: num(raw.submissionsThisWeek),
+    topContributor: raw.topContributor ?? null,
+    networkPending: num(raw.networkPending),
+    playgroundPressurePct: num(raw.playgroundPressurePct),
+    playgroundAtCap: num(raw.playgroundAtCap),
+    playgroundActiveToday: num(raw.playgroundActiveToday),
+  };
+  const fmt = (n: number) => n.toLocaleString();
+  const tiles: Array<{ l: string; v: string; d?: string | null; tone?: 'success' | 'danger' | 'neutral' }> = [
+    { l: 'Total users', v: fmt(i.totalUsers), d: i.usersDelta >= 0 ? `+${i.usersDelta} wow` : `${i.usersDelta} wow`, tone: i.usersDelta >= 0 ? 'success' : 'danger' },
+    { l: 'Active events', v: `${i.activeEvents}`, d: i.upcomingEvents > 0 ? `${i.upcomingEvents} upcoming` : null, tone: 'neutral' },
+    { l: 'Pending invites', v: fmt(i.pendingInvitationsCount), d: null },
+    { l: 'Certs this month', v: fmt(i.certificatesThisMonth), d: null },
+    { l: 'Live scans · 1h', v: fmt(i.liveScansLastHour), d: i.liveScansLastHour > 0 ? 'live' : null, tone: 'neutral' },
+    { l: 'Quiz sessions · 7d', v: fmt(i.quizSessionsLast7d), d: null },
+    { l: 'Reg → attended', v: `${pct(i.attendedThisWeek, i.registrationsThisWeek)}%`, d: `${i.attendedThisWeek}/${i.registrationsThisWeek}`, tone: 'neutral' },
+    { l: 'Avg streak', v: `${i.averageStreak}`, d: `max ${i.longestStreakOverall}`, tone: 'neutral' },
+    { l: 'AC rate · 7d', v: `${i.acRatePct}%`, d: `${fmt(i.submissionsThisWeek)} subs`, tone: 'neutral' },
+    {
+      l: 'Top contributor',
+      v: i.topContributor?.name?.split(' ')[0] ?? '—',
+      d: i.topContributor ? `${i.topContributor.count} QOTDs` : null,
+      tone: 'neutral',
+    },
+    { l: 'Network pending', v: fmt(i.networkPending), d: null },
+    { l: 'Playground cap', v: `${i.playgroundPressurePct}%`, d: `${i.playgroundAtCap}/${i.playgroundActiveToday}`, tone: i.playgroundPressurePct > 70 ? 'danger' : 'neutral' },
+  ];
+  return (
+    <Section eyebrow="Admin" title="Today at a glance">
+      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-y-4 border-y border-[var(--border-subtle)] py-4">
+        {tiles.map((s, idx) => (
+          <div
+            key={idx}
+            className={cn(
+              'min-w-0',
+              idx % 6 !== 0 && 'lg:border-l lg:border-[var(--border-subtle)] lg:pl-5',
+            )}
+          >
+            <div className="text-[10.5px] uppercase tracking-[0.06em] font-semibold text-[var(--ds-text-3)] whitespace-nowrap">{s.l}</div>
+            <div className="flex items-baseline gap-2 mt-1.5">
+              <span className="text-[22px] font-semibold tabular-nums leading-none text-[var(--ds-text-1)]">{s.v}</span>
+              {s.d && (
+                <span
+                  className={cn(
+                    'text-[11px] font-mono tabular-nums font-medium',
+                    s.tone === 'success' && 'text-[var(--success)]',
+                    s.tone === 'danger' && 'text-[var(--danger)]',
+                    (!s.tone || s.tone === 'neutral') && 'text-[var(--ds-text-3)]',
+                  )}
+                >
+                  {s.d}
+                </span>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+    </Section>
+  );
+}
+
+// ─── NETWORK overview
+function NetworkOverview() {
+  const { user, token } = useAuth();
+  const navigate = useNavigate();
+  const firstName = user?.name?.split(' ')[0] ?? 'there';
+  const regsQ = useQuery({
+    queryKey: ['my-registrations'],
+    queryFn: () => api.getMyRegistrations(token!),
+    enabled: Boolean(token),
+  });
+  const invitationsQ = useQuery({
+    queryKey: ['my-invitations'],
+    queryFn: () => api.getMyInvitations(token!),
+    enabled: Boolean(token),
+  });
+  const certsQ = useQuery({
+    queryKey: ['my-certificates'],
+    queryFn: async () => {
+      const res = await api.getMyCertificates(token!);
+      return (res.certificates as Array<{ id: string; certId: string; type: string; eventName: string; issuedAt: string }>) ?? [];
+    },
+    enabled: Boolean(token),
+  });
+  const pending = (invitationsQ.data ?? []).filter((i) => i.status === 'PENDING');
+  return (
+    <div className="flex flex-col gap-10">
+      <div>
+        <div className="text-[12px] text-[var(--ds-text-3)] mb-1">Network member · welcome back</div>
+        <h1 className="text-[28px] font-semibold tracking-tight">Welcome back, {firstName}.</h1>
+      </div>
+
+      <MyEventsSection
+        loading={regsQ.isLoading}
+        registrations={regsQ.data ?? []}
+        onAll={() => navigate('/dashboard/events')}
+      />
+
+      <Section
+        eyebrow="Invitations"
+        title={pending.length > 0 ? `${pending.length} pending` : 'No invitations'}
+        action={
+          <Button size="sm" variant="ghost" onClick={() => navigate('/dashboard/invitations')}>
+            All <ChevronRight size={12} />
+          </Button>
+        }
+      >
+        {pending.length === 0 ? (
+          <div className="flex items-center gap-4 py-5 border-y border-[var(--border-subtle)]">
+            <Inbox size={20} className="text-[var(--ds-text-3)]" />
+            <p className="text-[13.5px] text-[var(--ds-text-2)] flex-1 leading-relaxed">
+              When someone invites you as a speaker, judge, or guest, the invitation appears here with full context.
+            </p>
+          </div>
+        ) : (
+          <div className="border-y border-[var(--border-subtle)] divide-y divide-[var(--border-subtle)]">
+            {pending.map((inv) => (
+              <button
+                key={inv.id}
+                type="button"
+                onClick={() => navigate(`/dashboard/invitations/${inv.id}`)}
+                className="w-full py-3 flex items-start gap-4 -mx-2 px-2 rounded-[6px] hover:bg-[var(--surface-soft)] transition-colors text-left flex-wrap"
+              >
+                <Pill tone="accent" size="xs" className="mt-1 shrink-0">{inv.role ?? 'Guest'}</Pill>
+                <div className="flex-1 min-w-0">
+                  <div className="text-[13.5px] font-medium">{inv.event?.title ?? 'Event'}</div>
+                  {inv.customMessage && <div className="text-[11.5px] text-[var(--ds-text-2)] mt-0.5 line-clamp-1">{inv.customMessage}</div>}
+                </div>
+              </button>
+            ))}
+          </div>
+        )}
+      </Section>
+
+      <EarnedSection
+        loading={certsQ.isLoading}
+        certs={certsQ.data ?? []}
+        onAll={() => navigate('/dashboard/certificates')}
+      />
+    </div>
+  );
 }

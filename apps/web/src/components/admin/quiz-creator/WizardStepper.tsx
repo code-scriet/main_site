@@ -25,7 +25,7 @@ export function WizardStepper({ step, onJumpBack }: WizardStepperProps) {
                     ? 'bg-gradient-to-br from-orange-500 to-amber-600 text-white shadow-md shadow-amber-300/40'
                     : step > s
                       ? 'bg-green-500 text-white'
-                      : 'bg-amber-100 text-amber-700/40',
+                      : 'bg-[var(--warning-bg)] text-[var(--warning)]/40',
                 )}
               >
                 {step > s ? <Check className="h-4 w-4" /> : s}
@@ -33,7 +33,7 @@ export function WizardStepper({ step, onJumpBack }: WizardStepperProps) {
               <span
                 className={cn(
                   'text-[10px] font-semibold',
-                  step >= s ? 'text-amber-800' : 'text-amber-700/30',
+                  step >= s ? 'text-[var(--warning)]' : 'text-[var(--warning)]/30',
                 )}
               >
                 {STEP_LABELS[s - 1]}

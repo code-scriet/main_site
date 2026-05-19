@@ -122,11 +122,11 @@ function AdminUsersPageInner() {
     <div className="space-y-5 px-4 py-6 md:px-6">
       <header className="flex flex-wrap items-end justify-between gap-3">
         <div>
-          <div className="flex items-center gap-2 text-zinc-900 dark:text-zinc-50">
+          <div className="flex items-center gap-2 text-[var(--ds-text-1)] dark:text-zinc-50">
             <Users2 className="h-5 w-5" />
             <h1 className="text-xl font-semibold">User Management</h1>
           </div>
-          <p className="mt-1 text-sm text-zinc-500 dark:text-zinc-400">
+          <p className="mt-1 text-sm text-[var(--ds-text-3)] dark:text-[var(--ds-text-3)]">
             {meta ? `${meta.totalUsers ?? '—'} total` : 'Loading…'}
             {meta?.returned ? ` · ${meta.returned} on this page` : ''}
             {meta?.hasMore ? ' · more available' : ''}
@@ -141,10 +141,10 @@ function AdminUsersPageInner() {
       </header>
 
       {/* Filter bar */}
-      <div className="rounded-xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-950">
+      <div className="rounded-xl border border-[var(--border-subtle)] bg-white p-4 dark:border-[var(--border-subtle)] dark:bg-zinc-950">
         <div className="flex flex-col gap-3 md:flex-row md:items-center">
           <div className="relative flex-1">
-            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-400" />
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--ds-text-3)]" />
             <Input
               placeholder="Search name, email, branch, course, phone, socials…"
               value={filters.q}
@@ -155,7 +155,7 @@ function AdminUsersPageInner() {
           <select
             value={filters.sort}
             onChange={(e) => setFilters((f) => ({ ...f, sort: e.target.value as FilterState['sort'] }))}
-            className="h-9 rounded-md border border-zinc-200 bg-white px-3 text-sm dark:border-zinc-800 dark:bg-zinc-900"
+            className="h-9 rounded-md border border-[var(--border-subtle)] bg-white px-3 text-sm dark:border-[var(--border-subtle)] dark:bg-zinc-900"
           >
             {SORT_OPTIONS.map((o) => (
               <option key={o.value} value={o.value}>
@@ -164,14 +164,14 @@ function AdminUsersPageInner() {
             ))}
           </select>
           {filtersActive && (
-            <Button variant="ghost" size="sm" onClick={clearFilters} className="text-zinc-500">
+            <Button variant="ghost" size="sm" onClick={clearFilters} className="text-[var(--ds-text-3)]">
               <X className="mr-1 h-3.5 w-3.5" /> Clear
             </Button>
           )}
         </div>
 
         <div className="mt-3 flex flex-wrap items-center gap-2">
-          <span className="text-xs font-medium text-zinc-500 dark:text-zinc-400">Roles:</span>
+          <span className="text-xs font-medium text-[var(--ds-text-3)] dark:text-[var(--ds-text-3)]">Roles:</span>
           {ROLE_OPTIONS.map((r) => {
             const active = filters.roles.includes(r);
             const badge = getRoleBadge(r);
@@ -181,7 +181,7 @@ function AdminUsersPageInner() {
                 type="button"
                 onClick={() => toggleRole(r)}
                 className={`rounded-full px-2.5 py-1 text-xs font-medium transition ${
-                  active ? badge.className : 'bg-zinc-100 text-zinc-500 hover:bg-zinc-200 dark:bg-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800'
+                  active ? badge.className : 'bg-[var(--surface-soft)] text-[var(--ds-text-3)] hover:bg-zinc-200 dark:bg-zinc-900 dark:text-[var(--ds-text-3)] dark:hover:bg-zinc-800'
                 }`}
               >
                 {badge.label}
@@ -191,7 +191,7 @@ function AdminUsersPageInner() {
         </div>
 
         <div className="mt-2 flex flex-wrap items-center gap-2">
-          <span className="text-xs font-medium text-zinc-500 dark:text-zinc-400">Blocked from:</span>
+          <span className="text-xs font-medium text-[var(--ds-text-3)] dark:text-[var(--ds-text-3)]">Blocked from:</span>
           {BLOCK_FEATURE_OPTIONS.map((f) => {
             const active = filters.blockedFrom.includes(f);
             return (
@@ -202,7 +202,7 @@ function AdminUsersPageInner() {
                 className={`rounded-full px-2.5 py-1 text-xs font-medium transition ${
                   active
                     ? 'bg-red-50 text-red-700 ring-1 ring-red-200 dark:bg-red-950/60 dark:text-red-200 dark:ring-red-900'
-                    : 'bg-zinc-100 text-zinc-500 hover:bg-zinc-200 dark:bg-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800'
+                    : 'bg-[var(--surface-soft)] text-[var(--ds-text-3)] hover:bg-zinc-200 dark:bg-zinc-900 dark:text-[var(--ds-text-3)] dark:hover:bg-zinc-800'
                 }`}
               >
                 {f.toLowerCase()}
@@ -239,7 +239,7 @@ function AdminUsersPageInner() {
         </div>
       )}
 
-      <div className="rounded-xl border border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-950">
+      <div className="rounded-xl border border-[var(--border-subtle)] bg-white dark:border-[var(--border-subtle)] dark:bg-zinc-950">
         {listQuery.isLoading ? (
           <div className="space-y-2 p-4">
             {Array.from({ length: 6 }).map((_, i) => (
@@ -247,7 +247,7 @@ function AdminUsersPageInner() {
             ))}
           </div>
         ) : users.length === 0 ? (
-          <div className="flex flex-col items-center justify-center gap-2 p-12 text-center text-sm text-zinc-500 dark:text-zinc-400">
+          <div className="flex flex-col items-center justify-center gap-2 p-12 text-center text-sm text-[var(--ds-text-3)] dark:text-[var(--ds-text-3)]">
             <Users2 className="h-8 w-8 opacity-40" />
             No users match these filters.
           </div>
@@ -284,9 +284,9 @@ function UserRow({ user, onOpen }: { user: User; onOpen: () => void }) {
       <button
         type="button"
         onClick={onOpen}
-        className="flex flex-1 items-center gap-3 text-left transition hover:bg-zinc-50 -mx-2 px-2 rounded-md dark:hover:bg-zinc-900/50"
+        className="flex flex-1 items-center gap-3 text-left transition hover:bg-[var(--surface-soft)] -mx-2 px-2 rounded-md dark:hover:bg-zinc-900/50"
       >
-        <div className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full bg-zinc-100 text-sm font-medium text-zinc-700 dark:bg-zinc-800 dark:text-zinc-200">
+        <div className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full bg-[var(--surface-soft)] text-sm font-medium text-[var(--ds-text-2)] dark:bg-zinc-800 dark:text-zinc-200">
           {user.avatar ? (
             <img src={user.avatar} alt="" className="h-full w-full object-cover" />
           ) : (
@@ -295,7 +295,7 @@ function UserRow({ user, onOpen }: { user: User; onOpen: () => void }) {
         </div>
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
-            <span className={`truncate text-sm font-medium ${user.isDeleted ? 'line-through' : 'text-zinc-900 dark:text-zinc-100'}`}>
+            <span className={`truncate text-sm font-medium ${user.isDeleted ? 'line-through' : 'text-[var(--ds-text-1)] dark:text-zinc-100'}`}>
               {user.name}
             </span>
             <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium ${badge.className}`}>
@@ -314,14 +314,14 @@ function UserRow({ user, onOpen }: { user: User; onOpen: () => void }) {
               </Tooltip>
             )}
           </div>
-          <div className="mt-0.5 truncate text-xs text-zinc-500 dark:text-zinc-400">
+          <div className="mt-0.5 truncate text-xs text-[var(--ds-text-3)] dark:text-[var(--ds-text-3)]">
             {user.email}
             {user.branch && ` · ${user.branch}`}
             {user.year && ` · Year ${user.year}`}
           </div>
         </div>
         <div className="hidden flex-col items-end gap-0.5 text-right md:flex">
-          <span className="text-xs text-zinc-500 dark:text-zinc-400">
+          <span className="text-xs text-[var(--ds-text-3)] dark:text-[var(--ds-text-3)]">
             Seen {relativeTime(user.lastLoginAt)}
           </span>
         </div>
@@ -333,7 +333,7 @@ function UserRow({ user, onOpen }: { user: User; onOpen: () => void }) {
         <Tooltip content="Open full page">
           <Link
             to={`/admin/users/${user.id}`}
-            className="inline-flex h-9 w-9 items-center justify-center rounded-md text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900 dark:hover:bg-zinc-900 dark:hover:text-zinc-100"
+            className="inline-flex h-9 w-9 items-center justify-center rounded-md text-[var(--ds-text-3)] hover:bg-[var(--surface-soft)] hover:text-[var(--ds-text-1)] dark:hover:bg-zinc-900 dark:hover:text-zinc-100"
             aria-label="Open detail page"
           >
             <ExternalLink className="h-3.5 w-3.5" />

@@ -21,7 +21,7 @@ function Avatar({ user }: { user: { name: string; avatar?: string | null } }) {
   return user.avatar ? (
     <img src={user.avatar} alt={user.name} className="h-8 w-8 rounded-full object-cover" />
   ) : (
-    <div className="grid h-8 w-8 place-items-center rounded-full bg-amber-100 text-xs font-bold text-amber-700">
+    <div className="grid h-8 w-8 place-items-center rounded-full bg-[var(--warning-bg)] text-xs font-bold text-[var(--warning)]">
       {user.name.charAt(0).toUpperCase()}
     </div>
   );
@@ -109,13 +109,13 @@ export function AdminPendingRequestsCard() {
 
   return (
     <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-      <Card className="rounded-2xl border-amber-200 shadow-sm">
+      <Card className="rounded-2xl border-[var(--warning-border)] shadow-sm">
         <CardHeader className="flex flex-row items-center justify-between px-4 py-3">
           <CardTitle className="flex items-center gap-2 text-sm font-semibold text-foreground">
             <RotateCcw className="h-4 w-4 text-amber-600" />
             Playground daily-limit reset requests
           </CardTitle>
-          <span className="rounded-full bg-amber-50 px-2 py-0.5 text-xs font-bold text-amber-700">{resetRequests.length}</span>
+          <span className="rounded-full bg-[var(--warning-bg)] px-2 py-0.5 text-xs font-bold text-[var(--warning)]">{resetRequests.length}</span>
         </CardHeader>
         <CardContent className="space-y-2 px-4 pb-4">
           {resetQuery.isLoading ? (
@@ -161,13 +161,13 @@ export function AdminPendingRequestsCard() {
         </CardContent>
       </Card>
 
-      <Card className="rounded-2xl border-amber-200 shadow-sm">
+      <Card className="rounded-2xl border-[var(--warning-border)] shadow-sm">
         <CardHeader className="flex flex-row items-center justify-between px-4 py-3">
           <CardTitle className="flex items-center gap-2 text-sm font-semibold text-foreground">
             <ShieldAlert className="h-4 w-4 text-amber-600" />
             Extra submit-attempt requests
           </CardTitle>
-          <span className="rounded-full bg-amber-50 px-2 py-0.5 text-xs font-bold text-amber-700">{capRequests.length}</span>
+          <span className="rounded-full bg-[var(--warning-bg)] px-2 py-0.5 text-xs font-bold text-[var(--warning)]">{capRequests.length}</span>
         </CardHeader>
         <CardContent className="space-y-2 px-4 pb-4">
           {capQuery.isLoading ? (

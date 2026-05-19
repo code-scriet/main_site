@@ -33,10 +33,10 @@ export function SavedSignaturesCard({
     <Card>
       <CardContent className="p-4">
         <div className="flex items-center justify-between mb-3">
-          <h2 className="text-sm font-semibold text-gray-700 flex items-center gap-1.5">
+          <h2 className="text-sm font-semibold text-[var(--ds-text-2)] flex items-center gap-1.5">
             <PenLine className="w-4 h-4 text-amber-500" />
             Saved Signatures
-            <span className="text-xs text-gray-400 font-normal ml-1">
+            <span className="text-xs text-[var(--ds-text-3)] font-normal ml-1">
               ({signatories.length} {signatories.length === 1 ? 'entry' : 'entries'})
             </span>
           </h2>
@@ -50,7 +50,7 @@ export function SavedSignaturesCard({
             <Loader2 className="w-5 h-5 animate-spin text-amber-500" />
           </div>
         ) : signatories.length === 0 ? (
-          <p className="text-sm text-gray-400 text-center py-4">
+          <p className="text-sm text-[var(--ds-text-3)] text-center py-4">
             No saved signatures yet. Add one to make it available in all certificate forms.
           </p>
         ) : (
@@ -63,26 +63,26 @@ export function SavedSignaturesCard({
                     <img
                       src={sig.signatureUrl}
                       alt={sig.name}
-                      className="h-8 w-24 object-contain shrink-0 rounded border border-gray-100 bg-white"
+                      className="h-8 w-24 object-contain shrink-0 rounded border border-[var(--border-subtle)] bg-white"
                       onError={e => { (e.target as HTMLImageElement).src = PIXEL_FALLBACK; }}
                     />
                   ) : (
-                    <div className="h-8 w-24 rounded border border-dashed border-gray-200 flex items-center justify-center shrink-0">
-                      <PenLine className="w-4 h-4 text-gray-300" />
+                    <div className="h-8 w-24 rounded border border-dashed border-[var(--border-subtle)] flex items-center justify-center shrink-0">
+                      <PenLine className="w-4 h-4 text-[var(--ds-text-3)]" />
                     </div>
                   )}
                   <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-gray-800 truncate">{sig.name}</p>
-                    <p className="text-xs text-gray-400">{sig.title} · {certCount} cert{certCount !== 1 ? 's' : ''}</p>
+                    <p className="text-sm font-medium text-[var(--ds-text-1)] truncate">{sig.name}</p>
+                    <p className="text-xs text-[var(--ds-text-3)]">{sig.title} · {certCount} cert{certCount !== 1 ? 's' : ''}</p>
                   </div>
                   {!sig.isActive && (
-                    <span className="text-xs text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded shrink-0">Inactive</span>
+                    <span className="text-xs text-[var(--ds-text-3)] bg-[var(--surface-soft)] px-1.5 py-0.5 rounded shrink-0">Inactive</span>
                   )}
                   <div className="flex gap-1 shrink-0">
                     <Button
                       variant="ghost"
                       size="sm"
-                      className="h-7 w-7 p-0 text-gray-400 hover:text-gray-700"
+                      className="h-7 w-7 p-0 text-[var(--ds-text-3)] hover:text-[var(--ds-text-2)]"
                       onClick={() => onEdit(sig)}
                       title="Edit"
                     >
@@ -91,7 +91,7 @@ export function SavedSignaturesCard({
                     <Button
                       variant="ghost"
                       size="sm"
-                      className="h-7 w-7 p-0 text-gray-400 hover:text-red-600"
+                      className="h-7 w-7 p-0 text-[var(--ds-text-3)] hover:text-red-600"
                       onClick={() => onDelete(sig)}
                       title="Delete"
                     >

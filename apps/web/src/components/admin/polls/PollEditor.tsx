@@ -39,14 +39,14 @@ export function PollEditor({
   description,
 }: PollEditorProps) {
   return (
-    <Card className="border-gray-200 shadow-none">
+    <Card className="border-[var(--border-subtle)] shadow-none">
       <CardHeader>
         <CardTitle className="text-lg text-gray-950">{title}</CardTitle>
         <CardDescription>{description}</CardDescription>
       </CardHeader>
       <CardContent className="space-y-5">
         {lockedStructure && (
-          <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+          <div className="rounded-xl border border-[var(--warning-border)] bg-[var(--warning-bg)] px-4 py-3 text-sm text-[var(--ds-text-1)]">
             This poll already has votes, so its structure is locked. You can still update the description,
             deadline, publish state, and vote-change rule, but options, anonymity, and choice mode stay fixed
             to protect existing results.
@@ -85,7 +85,7 @@ export function PollEditor({
               Question type
             </Button>
           </div>
-          <p className="text-xs text-gray-500">
+          <p className="text-xs text-[var(--ds-text-3)]">
             Normal polls use voting options. Question type shows only a free-text answer box on the public page.
           </p>
         </div>
@@ -99,7 +99,7 @@ export function PollEditor({
             placeholder="Add context, instructions, or why this poll matters."
             rows={4}
           />
-          <p className="text-xs text-gray-500">
+          <p className="text-xs text-[var(--ds-text-3)]">
             Normal polls show feedback below options. Question-type polls show the answer area immediately on the public page.
           </p>
         </div>
@@ -110,7 +110,7 @@ export function PollEditor({
               <div className="space-y-1">
                 <Label>Options</Label>
                 {lockedStructure && (
-                  <p className="text-xs text-amber-700">Options are locked after the first vote is cast.</p>
+                  <p className="text-xs text-[var(--warning)]">Options are locked after the first vote is cast.</p>
                 )}
               </div>
               <Button type="button" variant="outline" size="sm" onClick={onAddOption} disabled={lockedStructure}>
@@ -141,7 +141,7 @@ export function PollEditor({
             </div>
           </div>
         ) : (
-          <div className="rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 text-sm text-gray-600">
+          <div className="rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-soft)] px-4 py-3 text-sm text-[var(--ds-text-2)]">
             Question-type polls skip option voting and show only the answer textbox on the public page.
           </div>
         )}
@@ -156,7 +156,7 @@ export function PollEditor({
               onChange={(event) => setForm((current) => ({ ...current, deadline: event.target.value }))}
             />
           </div>
-          <div className="rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 text-sm text-gray-600">
+          <div className="rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-soft)] px-4 py-3 text-sm text-[var(--ds-text-2)]">
             Share URL becomes available after save and always points to the public poll page.
           </div>
         </div>

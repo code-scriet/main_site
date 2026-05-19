@@ -74,7 +74,7 @@ export function GenerateCertificateDialog({
         <div className="flex-1 overflow-y-auto min-h-0 py-1 pr-1">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div className="col-span-full">
-              <label htmlFor="admin-certificates-recipient-name" className="text-sm font-medium text-gray-700">
+              <label htmlFor="admin-certificates-recipient-name" className="text-sm font-medium text-[var(--ds-text-2)]">
                 Recipient Name *
               </label>
               <Input
@@ -86,7 +86,7 @@ export function GenerateCertificateDialog({
               />
             </div>
             <div className="col-span-full">
-              <label htmlFor="admin-certificates-recipient-email" className="text-sm font-medium text-gray-700">
+              <label htmlFor="admin-certificates-recipient-email" className="text-sm font-medium text-[var(--ds-text-2)]">
                 Recipient Email *
               </label>
               <Input
@@ -99,7 +99,7 @@ export function GenerateCertificateDialog({
               />
             </div>
             <div className="col-span-full">
-              <label htmlFor="admin-certificates-event-name" className="text-sm font-medium text-gray-700">
+              <label htmlFor="admin-certificates-event-name" className="text-sm font-medium text-[var(--ds-text-2)]">
                 Event Name (optional)
               </label>
               <Input
@@ -111,12 +111,12 @@ export function GenerateCertificateDialog({
               />
             </div>
             <div className="col-span-full">
-              <label htmlFor="admin-certificates-type" className="text-sm font-medium text-gray-700">
+              <label htmlFor="admin-certificates-type" className="text-sm font-medium text-[var(--ds-text-2)]">
                 Certificate Type
               </label>
               <select
                 id="admin-certificates-type"
-                className="mt-1 w-full border border-gray-200 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
+                className="mt-1 w-full border border-[var(--border-subtle)] rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
                 value={form.type}
                 onChange={e => onFormChange(f => ({ ...f, type: e.target.value as CertType }))}
               >
@@ -124,7 +124,7 @@ export function GenerateCertificateDialog({
               </select>
             </div>
             <div>
-              <label htmlFor="admin-certificates-position" className="text-sm font-medium text-gray-700">
+              <label htmlFor="admin-certificates-position" className="text-sm font-medium text-[var(--ds-text-2)]">
                 Position / Rank
               </label>
               <Input
@@ -136,7 +136,7 @@ export function GenerateCertificateDialog({
               />
             </div>
             <div>
-              <label htmlFor="admin-certificates-domain" className="text-sm font-medium text-gray-700">
+              <label htmlFor="admin-certificates-domain" className="text-sm font-medium text-[var(--ds-text-2)]">
                 Domain / Track
               </label>
               <Input
@@ -148,7 +148,7 @@ export function GenerateCertificateDialog({
               />
             </div>
             <div className="col-span-full">
-              <label htmlFor="admin-certificates-team-name" className="text-sm font-medium text-gray-700">
+              <label htmlFor="admin-certificates-team-name" className="text-sm font-medium text-[var(--ds-text-2)]">
                 Team Name (optional)
               </label>
               <Input
@@ -201,7 +201,7 @@ export function GenerateCertificateDialog({
               onImageUrlChange={url => onFormChange(f => ({ ...f, facultyImageUrl: url }))}
             />
             <div className="col-span-full">
-              <label htmlFor="admin-certificates-description" className="text-sm font-medium text-gray-700">Description</label>
+              <label htmlFor="admin-certificates-description" className="text-sm font-medium text-[var(--ds-text-2)]">Description</label>
               <Textarea
                 id="admin-certificates-description"
                 value={form.description}
@@ -209,16 +209,16 @@ export function GenerateCertificateDialog({
                 placeholder="Custom recognition text (optional). Markdown supported: **bold**, *italic*, ***bold italic***"
                 className="mt-1 min-h-[92px]"
               />
-              <p className="mt-1 text-xs text-gray-500">
+              <p className="mt-1 text-xs text-[var(--ds-text-3)]">
                 Supports Markdown formatting like <code>**bold**</code>, <code>*italic*</code>, <code>***bold italic***</code>, and <code>~~strikethrough~~</code>.
               </p>
               <p className="mt-1 text-xs text-amber-600">
                 Placeholders resolve when generating: <code>{'{name}'}</code>, <code>{'{email}'}</code>, <code>{'{position}'}</code>, <code>{'{domain}'}</code>, <code>{'{teamName}'}</code>, <code>{'{eventName}'}</code>, <code>{'{type}'}</code>.
               </p>
               {form.description.trim() && (
-                <div className="mt-2 rounded-md border border-gray-200 bg-gray-50 px-3 py-2">
-                  <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">Preview</p>
-                  <div className="mt-1 text-sm text-gray-700 leading-relaxed">
+                <div className="mt-2 rounded-md border border-[var(--border-subtle)] bg-[var(--surface-soft)] px-3 py-2">
+                  <p className="text-[11px] font-semibold uppercase tracking-wide text-[var(--ds-text-3)]">Preview</p>
+                  <div className="mt-1 text-sm text-[var(--ds-text-2)] leading-relaxed">
                     <InlineMarkdown>{form.description}</InlineMarkdown>
                   </div>
                 </div>
@@ -232,11 +232,11 @@ export function GenerateCertificateDialog({
                 onChange={e => onFormChange(f => ({ ...f, sendEmail: e.target.checked }))}
                 className="w-4 h-4 rounded accent-amber-500"
               />
-              <label htmlFor="sendEmail" className="text-sm text-gray-700">Send certificate via email</label>
+              <label htmlFor="sendEmail" className="text-sm text-[var(--ds-text-2)]">Send certificate via email</label>
             </div>
           </div>
         </div>
-        <DialogFooter className="shrink-0 border-t border-gray-100 pt-2">
+        <DialogFooter className="shrink-0 border-t border-[var(--border-subtle)] pt-2">
           <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
           <Button onClick={onGenerate} disabled={generating} className="bg-amber-500 hover:bg-amber-600 text-white">
             {generating ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Award className="w-4 h-4 mr-2" />}

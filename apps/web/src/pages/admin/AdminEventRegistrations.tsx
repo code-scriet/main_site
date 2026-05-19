@@ -1,890 +1,486 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
-import { motion } from 'framer-motion';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
+// Dashboard v2 — Admin · Event Registrations.
+// Per-event cards with registered / attended / teams counts + Manage / Export / Email actions.
+// Pixel-port of screen-admin2.jsx:388 (AdminRegistrationsScreen).
+
+import { useMemo, useState } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useNavigate } from 'react-router-dom';
+import { ScanLine, Download, Mail, Loader2, Calendar, Filter, RotateCcw, RefreshCw, Pencil, Trash2, X } from 'lucide-react';
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
+import { useAuth } from '@/context/AuthContext';
+import { api, type Event as EventT, type EventRegistrationExportFilters, type RegistrationType } from '@/lib/api';
+import { DSCard, EmptyState, Field, Pill, ProgressBar, SegmentedTabs, Section } from '@/components/dash';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import {
-  RegistrationConfirmDialog,
-  type ConfirmDialogTarget,
-} from '@/components/admin/event-registrations/RegistrationConfirmDialog';
-import { Loader2, Calendar, Users, Search, Download, Mail, Trash2, Pencil, Phone, GraduationCap, RefreshCw, CheckCircle, AlertCircle, LayoutList, LayoutGrid } from 'lucide-react';
-import { useAuth } from '@/context/AuthContext';
-import { api, type EventAdminRegistration } from '@/lib/api';
-import type { EventTeam } from '@/lib/api';
-import { Link, useSearchParams } from 'react-router-dom';
-import { formatDate } from '@/lib/dateUtils';
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { toast } from 'sonner';
-import { extractApiErrorMessage } from '@/lib/error';
-import AdminEventInvitations from '@/components/events/AdminEventInvitations';
-import { TeamRegistrationCard } from '@/components/admin/event-registrations/TeamRegistrationCard';
+import { cn } from '@/lib/utils';
 
-interface EventWithRegistrations {
-  id: string;
-  title: string;
-  startDate: string;
-  endDate?: string;
-  location?: string;
-  capacity?: number;
-  status: 'UPCOMING' | 'ONGOING' | 'PAST';
-  teamRegistration?: boolean;
-  teamMinSize?: number;
-  teamMaxSize?: number;
-  registrations: EventAdminRegistration[];
+type ExportFormat = 'xlsx' | 'csv';
+interface ExportFilterState extends EventRegistrationExportFilters {
+  format: ExportFormat;
 }
 
-type ExportFilterState = {
-  year: string;
-  branch: string;
-  course: string;
-  userRole: string;
-  registrationType: '' | 'PARTICIPANT' | 'GUEST';
-  search: string;
-  format: 'xlsx' | 'csv';
-};
-
 const DEFAULT_EXPORT_FILTERS: ExportFilterState = {
+  format: 'xlsx',
+  registrationType: undefined,
   year: '',
   branch: '',
   course: '',
   userRole: '',
-  registrationType: '',
   search: '',
-  format: 'xlsx',
 };
 
+function hasActiveExportFilters(f: ExportFilterState): boolean {
+  return Boolean(
+    f.registrationType || (f.year ?? '').trim() || (f.branch ?? '').trim()
+    || (f.course ?? '').trim() || (f.userRole ?? '').trim() || (f.search ?? '').trim(),
+  );
+}
+
+function countActiveExportFilters(f: ExportFilterState): number {
+  let n = 0;
+  if (f.registrationType) n++;
+  if ((f.year ?? '').trim()) n++;
+  if ((f.branch ?? '').trim()) n++;
+  if ((f.course ?? '').trim()) n++;
+  if ((f.userRole ?? '').trim()) n++;
+  if ((f.search ?? '').trim()) n++;
+  return n;
+}
+
+type FilterId = 'all' | 'upcoming' | 'ongoing' | 'past';
+
+const COVERS = [
+  'from-orange-500 to-red-600',
+  'from-violet-500 to-fuchsia-600',
+  'from-teal-500 to-cyan-600',
+  'from-amber-500 to-orange-600',
+  'from-sky-500 to-indigo-600',
+  'from-emerald-500 to-teal-600',
+];
+
+function gradFor(id: string): string {
+  let h = 0;
+  for (let i = 0; i < id.length; i++) h = (h + id.charCodeAt(i) * 7) % COVERS.length;
+  return COVERS[h];
+}
+
+interface SyncResult {
+  toOngoing: number;
+  toPastFromOngoing: number;
+  toPastFromUpcoming: number;
+}
+
 export default function AdminEventRegistrations() {
-  const { token } = useAuth();
-  const [searchParams, setSearchParams] = useSearchParams();
-  const [events, setEvents] = useState<EventWithRegistrations[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [selectedEvent, setSelectedEvent] = useState<string | null>(searchParams.get('eventId'));
-  const [activeDetailTab, setActiveDetailTab] = useState<'registrations' | 'invitations'>(
-    searchParams.get('tab') === 'invitations' ? 'invitations' : 'registrations',
-  );
-  const [deletingId, setDeletingId] = useState<string | null>(null);
-  const [deletingRegId, setDeletingRegId] = useState<string | null>(null);
-  const [eventSyncSubmitting, setEventSyncSubmitting] = useState(false);
-  const [eventSyncResult, setEventSyncResult] = useState<
-    { toOngoing: number; toPastFromOngoing: number; toPastFromUpcoming: number; error?: string } | null
-  >(null);
-  const [exportFiltersByEvent, setExportFiltersByEvent] = useState<Record<string, ExportFilterState>>({});
-  const [teamGroupView, setTeamGroupView] = useState<string | null>(null);
-  const [teamData, setTeamData] = useState<Map<string, EventTeam[]>>(new Map());
-  const [teamDataLoading, setTeamDataLoading] = useState<string | null>(null);
-  const [confirmDialog, setConfirmDialog] = useState<ConfirmDialogTarget | null>(null);
+  const { token, user } = useAuth();
+  const navigate = useNavigate();
+  const qc = useQueryClient();
+  const [filter, setFilter] = useState<FilterId>('all');
+  const [syncing, setSyncing] = useState(false);
+  const [syncResult, setSyncResult] = useState<SyncResult | null>(null);
+  const [deleteEventTarget, setDeleteEventTarget] = useState<{ id: string; title: string } | null>(null);
+  const canDeleteEvent = user?.isSuperAdmin === true || user?.role === 'PRESIDENT';
 
-  const getExportFiltersForEvent = (eventId: string): ExportFilterState => (
-    exportFiltersByEvent[eventId] ?? DEFAULT_EXPORT_FILTERS
-  );
+  const deleteEventMut = useMutation({
+    mutationFn: (id: string) => api.deleteEvent(id, token!),
+    onSuccess: () => {
+      toast.success('Event deleted');
+      setDeleteEventTarget(null);
+      qc.invalidateQueries({ queryKey: ['admin-events', 'registrations'] });
+    },
+    onError: (e: unknown) => toast.error(e instanceof Error ? e.message : 'Failed to delete event'),
+  });
 
-  const hasActiveExportFilters = (filters: ExportFilterState): boolean => (
-    filters.year.trim().length > 0
-    || filters.branch.trim().length > 0
-    || filters.course.trim().length > 0
-    || filters.userRole.trim().length > 0
-    || filters.registrationType.length > 0
-    || filters.search.trim().length > 0
-  );
-
-  const setExportFilterValue = (
-    eventId: string,
-    key: keyof ExportFilterState,
-    value: string,
-  ) => {
-    setExportFiltersByEvent((prev) => {
-      const current = prev[eventId] ?? DEFAULT_EXPORT_FILTERS;
-      const next: ExportFilterState = {
-        ...current,
-        [key]: value,
-      } as ExportFilterState;
-
-      const isDefault = !hasActiveExportFilters(next) && next.format === DEFAULT_EXPORT_FILTERS.format;
-      if (isDefault) {
-        const { [eventId]: _removed, ...rest } = prev;
-        return rest;
-      }
-
-      return {
-        ...prev,
-        [eventId]: next,
-      };
-    });
-  };
-
-  const clearExportFilters = (eventId: string) => {
-    setExportFiltersByEvent((prev) => {
-      if (!prev[eventId]) {
-        return prev;
-      }
-      const { [eventId]: _removed, ...rest } = prev;
-      return rest;
-    });
-  };
-
-  const loadEvents = useCallback(async () => {
-    if (!token) {
-      setError('Authentication required');
-      setLoading(false);
-      return;
-    }
+  // Manual event-status sync (HEAD parity). Hits the existing settings router endpoint.
+  // The background scheduler is OFF by default in dev/free-tier, so this is the only path
+  // for admins to refresh status badges after editing event timings.
+  const handleSyncStatuses = async () => {
+    if (!token) return;
+    setSyncing(true);
+    setSyncResult(null);
     try {
-      setLoading(true);
-      setError(null);
-      const data = await api.getEvents();
-      // Get detailed registration data for each event
-      // N+1: Fetches registrations per event. Acceptable — admin-only page,
-      // bounded by total event count (typically <50). Would need a dedicated
-      // admin endpoint to batch if event count grows significantly.
-      const eventsWithDetails = await Promise.all(
-        data.map(async (event) => {
-          try {
-            const registrations = await api.getEventRegistrations(event.id, token);
-            return { ...event, registrations };
-          } catch {
-            return { ...event, registrations: [] };
-          }
-        })
-      );
-      setEvents(eventsWithDetails);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load events');
-    } finally {
-      setLoading(false);
-    }
-  }, [token]);
-
-  useEffect(() => {
-    void loadEvents();
-  }, [loadEvents]);
-
-  useEffect(() => {
-    const nextParams = new URLSearchParams(searchParams);
-
-    if (selectedEvent) {
-      nextParams.set('eventId', selectedEvent);
-      nextParams.set('tab', activeDetailTab);
-    } else {
-      nextParams.delete('eventId');
-      nextParams.delete('tab');
-    }
-
-    const current = searchParams.toString();
-    const next = nextParams.toString();
-    if (current !== next) {
-      setSearchParams(nextParams, { replace: true });
-    }
-  }, [activeDetailTab, searchParams, selectedEvent, setSearchParams]);
-
-  const openEventDetails = (eventId: string, tab: 'registrations' | 'invitations' = 'registrations') => {
-    setSelectedEvent((current) => current === eventId && activeDetailTab === tab ? null : eventId);
-    setActiveDetailTab(tab);
-  };
-
-  const filteredEvents = useMemo(() => {
-    const q = searchQuery.toLowerCase();
-    return events.filter((event) =>
-      event.title.toLowerCase().includes(q) ||
-      event.registrations.some((r) =>
-        r.user.name.toLowerCase().includes(q) ||
-        r.user.email.toLowerCase().includes(q),
-      ),
-    );
-  }, [events, searchQuery]);
-
-  // Precompute per-event derived data once per filteredEvents change so the
-  // render loop body becomes pure projection. Cuts O(n) work per re-render
-  // (e.g. typing into the search field used to re-filter on every keystroke).
-  const enrichedEvents = useMemo(
-    () => filteredEvents.map((event) => ({
-      event,
-      participantRegistrations: event.registrations.filter((r) => r.registrationType === 'PARTICIPANT'),
-      guestRegistrations: event.registrations.filter((r) => r.registrationType === 'GUEST'),
-      userRoleOptions: Array.from(new Set(event.registrations.map((r) => r.user.role))).sort(),
-    })),
-    [filteredEvents],
-  );
-
-  const exportRegistrations = async (event: EventWithRegistrations) => {
-    if (!token) {
-      setError('Authentication required');
-      return;
-    }
-    
-    try {
-      const filters = getExportFiltersForEvent(event.id);
-      const normalizedFilters = {
-        year: filters.year.trim() || undefined,
-        branch: filters.branch.trim() || undefined,
-        course: filters.course.trim() || undefined,
-        userRole: filters.userRole.trim() || undefined,
-        registrationType: filters.registrationType || undefined,
-        search: filters.search.trim() || undefined,
-      };
-      const hasFilters = Object.values(normalizedFilters).some(Boolean);
-
-      const blob = await api.exportEventRegistrations(event.id, token, {
-        format: filters.format,
-        filters: hasFilters ? normalizedFilters : undefined,
+      const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:5001/api';
+      const res = await fetch(`${apiUrl}/settings/event-status/sync-now`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
       });
+      if (!res.ok) throw new Error('Sync failed');
+      const data = await res.json();
+      const summary = (data.data ?? {}) as Partial<SyncResult> & { changed?: number; updated?: number };
+      setSyncResult({
+        toOngoing: summary.toOngoing ?? 0,
+        toPastFromOngoing: summary.toPastFromOngoing ?? 0,
+        toPastFromUpcoming: summary.toPastFromUpcoming ?? 0,
+      });
+      const changed = (summary.changed ?? summary.updated
+        ?? ((summary.toOngoing ?? 0) + (summary.toPastFromOngoing ?? 0) + (summary.toPastFromUpcoming ?? 0))) as number;
+      toast.success(changed > 0 ? `Event statuses synced — ${changed} updated` : 'Event statuses synced');
+      qc.invalidateQueries({ queryKey: ['admin-events', 'registrations'] });
+    } catch (e) {
+      toast.error(e instanceof Error ? `Sync failed: ${e.message}` : 'Sync failed');
+    } finally {
+      setSyncing(false);
+    }
+  };
+
+  const eventsQ = useQuery({
+    queryKey: ['admin-events', 'registrations'],
+    queryFn: () => api.getEvents(),
+    enabled: Boolean(token),
+  });
+
+  const all = eventsQ.data ?? [];
+  const counts = useMemo(() => ({
+    all: all.length,
+    upcoming: all.filter((e) => e.status === 'UPCOMING').length,
+    ongoing: all.filter((e) => e.status === 'ONGOING').length,
+    past: all.filter((e) => e.status === 'PAST').length,
+  }), [all]);
+  const filtered = useMemo(() => {
+    if (filter === 'all') return all;
+    return all.filter((e) => e.status === filter.toUpperCase());
+  }, [all, filter]);
+
+  return (
+    <div className="flex flex-col gap-8">
+      <div className="flex items-end justify-between gap-3 flex-wrap">
+        <div>
+          <div className="text-[10.5px] uppercase tracking-[0.06em] font-semibold text-[var(--ds-text-3)]">Admin</div>
+          <h1 className="text-[24px] font-semibold tracking-tight mt-1">Event registrations</h1>
+          <p className="text-[13px] text-[var(--ds-text-3)] mt-1">One stop for who registered, who showed up, and who got a cert.</p>
+        </div>
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={handleSyncStatuses}
+          disabled={syncing}
+          title="Recompute every event's status based on its startDate / endDate"
+        >
+          {syncing ? <Loader2 size={11} className="mr-1.5 animate-spin" /> : <RefreshCw size={11} className="mr-1.5" />}
+          Sync statuses
+        </Button>
+      </div>
+
+      {syncResult && (
+        <div className="flex items-center gap-3 rounded-[10px] border border-[var(--success-border)] bg-[var(--success-bg)] px-4 py-2.5 text-[12.5px] text-[var(--success)]">
+          <RefreshCw size={13} />
+          <span className="flex-1 font-mono tabular-nums">
+            Synced • <strong>{syncResult.toOngoing}</strong> → ONGOING
+            {' · '}<strong>{syncResult.toPastFromOngoing}</strong> → PAST (from ONGOING)
+            {' · '}<strong>{syncResult.toPastFromUpcoming}</strong> → PAST (from UPCOMING)
+          </span>
+          <button
+            type="button"
+            onClick={() => setSyncResult(null)}
+            className="size-5 rounded-[4px] hover:bg-[var(--success-border)]/30 flex items-center justify-center"
+            aria-label="Dismiss sync result"
+          >
+            <X size={11} />
+          </button>
+        </div>
+      )}
+
+      <Section
+        eyebrow="Events"
+        title={`${filtered.length} ${filter === 'all' ? 'total' : filter}`}
+        action={
+          <SegmentedTabs
+            items={[
+              { value: 'all', label: 'All', count: counts.all },
+              { value: 'upcoming', label: 'Upcoming', count: counts.upcoming },
+              { value: 'ongoing', label: 'Ongoing', count: counts.ongoing },
+              { value: 'past', label: 'Past', count: counts.past },
+            ]}
+            value={filter}
+            onChange={(v) => setFilter(v as FilterId)}
+          />
+        }
+      >
+        {eventsQ.isLoading ? (
+          <div className="grid lg:grid-cols-2 gap-3">
+            {[0, 1, 2, 3].map((i) => <div key={i} className="h-[140px] bg-[var(--surface-soft)] rounded-[12px] animate-pulse" />)}
+          </div>
+        ) : filtered.length === 0 ? (
+          <DSCard padded>
+            <EmptyState icon={<Calendar size={18} />} title="No events match" body="Create an event from the Create Event page." />
+          </DSCard>
+        ) : (
+          <div className="grid lg:grid-cols-2 gap-3">
+            {filtered.map((e) => (
+              <EventRow
+                key={e.id}
+                event={e}
+                onAttendance={() => navigate(`/admin/events/${e.id}/attendance`)}
+                onOpenDetail={() => navigate(`/admin/event-registrations/${e.id}`)}
+                onEdit={() => navigate(`/admin/events/${e.id}/edit`)}
+                onDelete={canDeleteEvent ? () => setDeleteEventTarget({ id: e.id, title: e.title }) : undefined}
+                isDeleting={deleteEventMut.isPending && deleteEventTarget?.id === e.id}
+              />
+            ))}
+          </div>
+        )}
+      </Section>
+
+      <AlertDialog open={Boolean(deleteEventTarget)} onOpenChange={(o) => !o && setDeleteEventTarget(null)}>
+        <AlertDialogContent data-dashboard="true" className="bg-[var(--bg-raised)] border-[var(--border-subtle)]">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete &ldquo;{deleteEventTarget?.title}&rdquo;?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This removes the event, every registration, every guest invitation, and every team. Certificates already issued stay valid. This cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleteEventMut.isPending}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => deleteEventTarget && deleteEventMut.mutate(deleteEventTarget.id)}
+              disabled={deleteEventMut.isPending}
+              className="bg-[var(--danger)] hover:opacity-90 text-white"
+            >
+              {deleteEventMut.isPending ? <Loader2 size={13} className="mr-1.5 animate-spin" /> : null}
+              Delete event
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </div>
+  );
+}
+
+function EventRow({ event: e, onAttendance, onOpenDetail, onEdit, onDelete, isDeleting }: {
+  event: EventT;
+  onAttendance: () => void;
+  onOpenDetail: () => void;
+  onEdit?: () => void;
+  onDelete?: () => void;
+  isDeleting?: boolean;
+}) {
+  const { token } = useAuth();
+  const status = e.status;
+  const team = e.teamRegistration;
+  const cover = e.imageUrl;
+  const capacity = e.capacity ?? 0;
+  const startDate = e.startDate ? new Date(e.startDate) : null;
+  const [exporting, setExporting] = useState(false);
+  const [exportDialogOpen, setExportDialogOpen] = useState(false);
+  const [exportFilters, setExportFilters] = useState<ExportFilterState>(DEFAULT_EXPORT_FILTERS);
+
+  const regsQ = useQuery({
+    queryKey: ['admin-event-regs', e.id],
+    queryFn: () => api.getEventRegistrations(e.id, token!),
+    enabled: Boolean(token),
+    staleTime: 60_000,
+  });
+  const regs = regsQ.data ?? [];
+  const participants = regs.filter((r) => (r as { registrationType?: string }).registrationType !== 'GUEST');
+  const registered = participants.length;
+  // EventAdminRegistration doesn't carry an `attended` flag directly — derive from day-level scans
+  // by checking the registration's dayAttendances/dayAttendance count (fallback: 0).
+  const attended = participants.filter((r) => {
+    const rr = r as unknown as { attended?: boolean; dayAttendances?: Array<{ attended: boolean }> };
+    if (rr.attended) return true;
+    if (rr.dayAttendances && rr.dayAttendances.some((d) => d.attended)) return true;
+    return false;
+  }).length;
+  const teamCount = team ? Math.ceil(registered / Math.max(1, e.teamMinSize ?? 2)) : 0;
+  const activeFilterCount = countActiveExportFilters(exportFilters);
+
+  const setFilter = <K extends keyof ExportFilterState>(key: K, value: ExportFilterState[K]) => {
+    setExportFilters((prev) => ({ ...prev, [key]: value }));
+  };
+
+  const handleExport = async () => {
+    if (!token) return;
+    setExporting(true);
+    setExportDialogOpen(false);
+    try {
+      const { format, ...filters } = exportFilters;
+      // Strip empty strings; the server treats them as filters too if not careful.
+      const cleanFilters: EventRegistrationExportFilters = {};
+      if (filters.registrationType) cleanFilters.registrationType = filters.registrationType;
+      if (filters.year?.trim()) cleanFilters.year = filters.year.trim();
+      if (filters.branch?.trim()) cleanFilters.branch = filters.branch.trim();
+      if (filters.course?.trim()) cleanFilters.course = filters.course.trim();
+      if (filters.userRole?.trim()) cleanFilters.userRole = filters.userRole.trim();
+      if (filters.search?.trim()) cleanFilters.search = filters.search.trim();
+      const blob = await api.exportEventRegistrations(e.id, token, { format, filters: cleanFilters });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      const ext = filters.format === 'csv' ? 'csv' : 'xlsx';
-      a.download = `${event.title.replace(/\s+/g, '_')}_registrations.${ext}`;
+      a.download = `${(e.slug || e.id)}-registrations.${format}`;
       a.click();
       URL.revokeObjectURL(url);
-      toast.success(hasFilters ? `Filtered ${ext.toUpperCase()} exported` : `${ext.toUpperCase()} exported`);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to export');
-    }
-  };
-
-  const handleDeleteEvent = async (eventId: string, eventTitle: string) => {
-    if (!token) {
-      setError('Authentication required');
-      return;
-    }
-
-    try {
-      setDeletingId(eventId);
-      setError(null);
-      await api.deleteEvent(eventId, token);
-      setConfirmDialog(null);
-      toast.success(`Deleted "${eventTitle}"`);
-      await loadEvents();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to delete event');
+      toast.success(activeFilterCount > 0 ? `Exported ${activeFilterCount}-filter view` : 'Exported');
+    } catch {
+      toast.error('Export failed');
     } finally {
-      setDeletingId(null);
+      setExporting(false);
     }
   };
-
-  const handleDeleteRegistration = async (eventId: string, registrationId: string, userName: string) => {
-    if (!token) {
-      setError('Authentication required');
-      return;
-    }
-
-    try {
-      setDeletingRegId(registrationId);
-      setError(null);
-      await api.deleteEventRegistration(eventId, registrationId, token);
-      setConfirmDialog(null);
-      toast.success(`Removed ${userName} from the event`);
-      await loadEvents();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to remove participant');
-    } finally {
-      setDeletingRegId(null);
-    }
-  };
-
-  const toggleTeamGroupView = async (eventId: string) => {
-    if (teamGroupView === eventId) {
-      setTeamGroupView(null);
-      return;
-    }
-    setTeamGroupView(eventId);
-    if (!teamData.has(eventId)) {
-      try {
-        setTeamDataLoading(eventId);
-        const result = await api.getEventTeams(eventId, token!);
-        setTeamData(prev => new Map(prev).set(eventId, result.teams));
-      } catch (err) {
-        toast.error(extractApiErrorMessage(err, 'Failed to load teams'));
-        setTeamGroupView(null);
-      } finally {
-        setTeamDataLoading(null);
-      }
-    }
-  };
-
-  const handleAdminToggleLock = async (teamId: string, eventId: string) => {
-    try {
-      await api.adminToggleTeamLock(teamId, token!);
-      const result = await api.getEventTeams(eventId, token!);
-      setTeamData(prev => new Map(prev).set(eventId, result.teams));
-      toast.success('Team lock toggled');
-    } catch (err) {
-      toast.error(extractApiErrorMessage(err, 'Failed to toggle lock'));
-    }
-  };
-
-  const handleAdminDissolve = async (teamId: string, teamName: string, eventId: string) => {
-    try {
-      await api.adminDissolveTeam(teamId, token!);
-      const result = await api.getEventTeams(eventId, token!);
-      setTeamData(prev => new Map(prev).set(eventId, result.teams));
-      await loadEvents();
-      setConfirmDialog(null);
-      toast.success(`Dissolved "${teamName}"`);
-    } catch (err) {
-      toast.error(extractApiErrorMessage(err, 'Failed to dissolve team'));
-    }
-  };
-
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center py-20">
-        <Loader2 className="h-8 w-8 animate-spin text-gray-400" />
-      </div>
-    );
-  }
 
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-semibold text-gray-900">Event Registrations</h1>
-          <p className="text-gray-600">View and manage event participants</p>
-        </div>
-        <div className="flex items-center gap-2">
-          <Button
-            variant="outline"
-            className="gap-2"
-            disabled={eventSyncSubmitting || !token}
-            onClick={async () => {
-              if (!token) return;
-              setEventSyncSubmitting(true);
-              setEventSyncResult(null);
-              try {
-                const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:5001/api';
-                const res = await fetch(`${apiUrl}/settings/event-status/sync-now`, {
-                  method: 'POST',
-                  headers: { Authorization: `Bearer ${token}` },
-                  credentials: 'include',
-                });
-                const data = await res.json();
-                if (data.success && data.data) {
-                  setEventSyncResult(data.data);
-                  await loadEvents();
-                } else {
-                  setEventSyncResult({
-                    toOngoing: 0,
-                    toPastFromOngoing: 0,
-                    toPastFromUpcoming: 0,
-                    error: data.error?.message || 'Sync failed',
-                  });
-                }
-              } catch {
-                setEventSyncResult({
-                  toOngoing: 0,
-                  toPastFromOngoing: 0,
-                  toPastFromUpcoming: 0,
-                  error: 'Network error',
-                });
-              } finally {
-                setEventSyncSubmitting(false);
-              }
-            }}
-          >
-            {eventSyncSubmitting ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <RefreshCw className="h-4 w-4" />
-            )}
-            Sync Event Status Now
-          </Button>
-        </div>
-      </div>
-
-      {eventSyncResult && !eventSyncResult.error && (
-        <Card className="border-green-200 bg-green-50">
-          <CardContent className="pt-6 text-sm text-green-700">
-            <p className="flex items-center gap-2 font-medium mb-1">
-              <CheckCircle className="h-4 w-4" />
-              Event status sync completed.
-            </p>
-            <p>
-              UPCOMING -&gt; ONGOING: {eventSyncResult.toOngoing} | ONGOING -&gt; PAST: {eventSyncResult.toPastFromOngoing} | UPCOMING -&gt; PAST: {eventSyncResult.toPastFromUpcoming}
-            </p>
-          </CardContent>
-        </Card>
-      )}
-
-      {eventSyncResult?.error && (
-        <Card className="border-red-200 bg-red-50">
-          <CardContent className="pt-6 text-sm text-red-700">
-            <p className="flex items-center gap-2 font-medium">
-              <AlertCircle className="h-4 w-4" />
-              {eventSyncResult.error}
-            </p>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Search */}
-      <Card>
-        <CardContent className="pt-6">
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
-            <Input
-              placeholder="Search by event name, participant name, or email..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="pl-10"
-            />
+    <DSCard padded={false} hover className="overflow-hidden">
+      <div className="flex">
+        <div
+          className={cn('w-[120px] shrink-0 bg-gradient-to-br relative', !cover && gradFor(e.id))}
+          style={cover ? { backgroundImage: `url(${cover})`, backgroundSize: 'cover', backgroundPosition: 'center' } : undefined}
+        >
+          <div className="absolute inset-0 bg-gradient-to-t from-black/30 to-transparent" />
+          <div className="absolute bottom-2 left-2 text-white text-[10px] font-mono tabular-nums opacity-90">
+            {startDate?.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}
           </div>
-        </CardContent>
-      </Card>
-
-      {error && (
-        <Card className="border-red-200 bg-red-50">
-          <CardContent className="pt-6">
-            <p className="text-red-700">{error}</p>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Events List */}
-      <div className="space-y-4">
-        {filteredEvents.length === 0 ? (
-          <Card>
-            <CardContent className="py-12 text-center text-gray-500">
-              {searchQuery ? 'No events match your search' : 'No events found'}
-            </CardContent>
-          </Card>
-        ) : (
-          enrichedEvents.map(({ event, participantRegistrations, guestRegistrations, userRoleOptions }) => {
-            const exportFilters = getExportFiltersForEvent(event.id);
-            const isFilteredExport = hasActiveExportFilters(exportFilters);
-
-            return (
-              <motion.div
-                key={event.id}
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
+        </div>
+        <div className="flex-1 p-4 min-w-0">
+          <div className="flex items-center gap-2 mb-1 flex-wrap">
+            <Pill
+              tone={status === 'ONGOING' ? 'success' : status === 'UPCOMING' ? 'info' : 'neutral'}
+              size="xs"
+              dot={status === 'ONGOING'}
+            >
+              {status === 'ONGOING' ? 'Live' : status === 'UPCOMING' ? 'Upcoming' : 'Past'}
+            </Pill>
+            {team && <Pill tone="neutral" size="xs">Team</Pill>}
+          </div>
+          <div className="text-[14px] font-semibold leading-tight truncate">{e.title}</div>
+          <div className="flex items-center gap-4 mt-2.5">
+            <div>
+              <div className="text-[10px] uppercase font-semibold text-[var(--ds-text-3)] tracking-[0.06em]">Registered</div>
+              <div className="font-mono tabular-nums text-[15px] font-semibold mt-0.5">
+                <span>{registered}</span>
+                {capacity > 0 && <span className="text-[var(--ds-text-3)]">/{capacity}</span>}
+              </div>
+            </div>
+            <div>
+              <div className="text-[10px] uppercase font-semibold text-[var(--ds-text-3)] tracking-[0.06em]">Attended</div>
+              <div className="font-mono tabular-nums text-[15px] font-semibold mt-0.5 text-[var(--success)]">{attended}</div>
+            </div>
+            {team && (
+              <div>
+                <div className="text-[10px] uppercase font-semibold text-[var(--ds-text-3)] tracking-[0.06em]">Teams</div>
+                <div className="font-mono tabular-nums text-[15px] font-semibold mt-0.5">{teamCount}</div>
+              </div>
+            )}
+          </div>
+          {capacity > 0 && <ProgressBar value={registered} max={capacity} className="mt-3" />}
+          <div className="flex items-center gap-1.5 mt-3 flex-wrap">
+            <Button size="sm" onClick={onOpenDetail}>
+              Manage
+            </Button>
+            <Button size="sm" variant="outline" onClick={onAttendance}>
+              <ScanLine size={11} className="mr-1.5" />
+              Attendance
+            </Button>
+            <Button size="sm" variant="ghost" onClick={() => setExportDialogOpen(true)} disabled={exporting}>
+              {exporting ? <Loader2 size={11} className="mr-1.5 animate-spin" /> : <Download size={11} className="mr-1.5" />}
+              Export
+              {hasActiveExportFilters(exportFilters) && (
+                <Pill tone="accent" size="xs" className="ml-1.5">{activeFilterCount}</Pill>
+              )}
+            </Button>
+            <Button size="sm" variant="ghost" onClick={onAttendance}>
+              <Mail size={11} className="mr-1.5" />
+              Email
+            </Button>
+            {onEdit && (
+              <Button size="sm" variant="ghost" onClick={onEdit} aria-label="Edit event">
+                <Pencil size={11} className="mr-1.5" />
+                Edit
+              </Button>
+            )}
+            {onDelete && (
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={onDelete}
+                disabled={isDeleting}
+                aria-label="Delete event"
+                className="text-[var(--danger)] hover:bg-[var(--danger-bg)]"
               >
-                <Card className="border-gray-200">
-                  <CardHeader>
-                    <div className="flex items-start justify-between">
-                      <div className="space-y-1">
-                        <CardTitle className="flex items-center gap-3">
-                          <Calendar className="h-5 w-5 text-gray-400" />
-                          {event.title}
-                          {event.teamRegistration && (
-                            <Badge variant="outline" className="ml-2 text-purple-600 border-purple-300">
-                              <Users className="h-3 w-3 mr-1" />
-                              Team Event ({event.teamMinSize}-{event.teamMaxSize})
-                            </Badge>
-                          )}
-                        </CardTitle>
-                        <div className="flex items-center gap-4 text-sm text-gray-500">
-                          <span>{formatDate(event.startDate)}</span>
-                          {event.location && <span>• {event.location}</span>}
-                          <Badge variant={event.status === 'UPCOMING' ? 'default' : 'secondary'}>
-                            {event.status}
-                          </Badge>
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <Badge variant="secondary" className="text-gray-700">
-                          <Users className="h-3 w-3 mr-1" />
-                          {participantRegistrations.length} participants
-                          {event.capacity && ` / ${event.capacity}`}
-                        </Badge>
-                        {guestRegistrations.length > 0 && (
-                          <Badge variant="outline" className="text-amber-700 border-amber-300">
-                            {guestRegistrations.length} guests
-                          </Badge>
-                        )}
-                        <Button
-                          size="sm"
-                          variant={selectedEvent === event.id && activeDetailTab === 'registrations' ? 'default' : 'outline'}
-                          onClick={() => openEventDetails(event.id, 'registrations')}
-                        >
-                          Registrations
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant={selectedEvent === event.id && activeDetailTab === 'invitations' ? 'default' : 'outline'}
-                          onClick={() => openEventDetails(event.id, 'invitations')}
-                        >
-                          Invitations
-                        </Button>
-                      {event.teamRegistration && (
-                        <>
-                          <Button
-                            size="sm"
-                            variant={teamGroupView === event.id ? 'default' : 'outline'}
-                            onClick={() => toggleTeamGroupView(event.id)}
-                            disabled={teamDataLoading === event.id}
-                          >
-                            {teamDataLoading === event.id ? (
-                              <Loader2 className="h-4 w-4 mr-1 animate-spin" />
-                            ) : teamGroupView === event.id ? (
-                              <LayoutList className="h-4 w-4 mr-1" />
-                            ) : (
-                              <LayoutGrid className="h-4 w-4 mr-1" />
-                            )}
-                            {teamGroupView === event.id ? 'Flat View' : 'Group by Team'}
-                          </Button>
-                          <Link to={`/admin/events/${event.id}/attendance`}>
-                            <Button size="sm" variant="outline">
-                              <Users className="h-4 w-4 mr-1" />
-                              Hub
-                            </Button>
-                          </Link>
-                        </>
-                      )}
-                      {event.registrations.length > 0 && (
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => exportRegistrations(event)}
-                        >
-                          <Download className="h-4 w-4 mr-1" />
-                          {isFilteredExport ? 'Export Filtered' : 'Export'}
-                        </Button>
-                      )}
-                      <Link to={`/admin/events/${event.id}/edit`}>
-                        <Button size="sm" variant="outline">
-                          <Pencil className="h-4 w-4 mr-1" />
-                          Edit
-                        </Button>
-                      </Link>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => setConfirmDialog({ type: 'event', eventId: event.id, eventTitle: event.title })}
-                        disabled={deletingId === event.id}
-                        className="text-red-600 hover:text-red-700 hover:bg-red-50"
-                      >
-                        {deletingId === event.id ? (
-                          <Loader2 className="h-4 w-4 animate-spin" />
-                        ) : (
-                          <Trash2 className="h-4 w-4" />
-                        )}
-                      </Button>
-                    </div>
-                    </div>
-                  </CardHeader>
-
-                {selectedEvent === event.id && (
-                  <CardContent>
-                    <Tabs value={activeDetailTab} onValueChange={(value) => setActiveDetailTab(value as 'registrations' | 'invitations')}>
-                      <TabsList className="mb-4 grid w-full max-w-md grid-cols-2">
-                        <TabsTrigger value="registrations">
-                          Registrations
-                        </TabsTrigger>
-                        <TabsTrigger value="invitations">
-                          Invitations
-                        </TabsTrigger>
-                      </TabsList>
-
-                      <TabsContent value="registrations" className="space-y-4">
-                        <Card className="border-slate-200 bg-slate-50/70">
-                          <CardContent className="space-y-3 pb-4 pt-4">
-                            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                              <div>
-                                <p className="text-sm font-semibold text-slate-700">Export Filters</p>
-                                <p className="text-xs text-slate-500">Use any combination of filters, then export only matching registrations.</p>
-                              </div>
-                              <div className="flex items-center gap-2">
-                                <select
-                                  value={exportFilters.format}
-                                  onChange={(e) => setExportFilterValue(event.id, 'format', e.target.value)}
-                                  className="h-9 rounded-md border border-input bg-background px-2 py-1.5 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                                >
-                                  <option value="xlsx">XLSX</option>
-                                  <option value="csv">CSV</option>
-                                </select>
-                                <Button
-                                  size="sm"
-                                  variant="ghost"
-                                  disabled={!isFilteredExport}
-                                  onClick={() => clearExportFilters(event.id)}
-                                >
-                                  Clear
-                                </Button>
-                                <Button
-                                  size="sm"
-                                  variant="outline"
-                                  onClick={() => exportRegistrations(event)}
-                                  disabled={event.registrations.length === 0}
-                                >
-                                  <Download className="mr-1 h-4 w-4" />
-                                  {isFilteredExport ? 'Export Filtered' : 'Export All'}
-                                </Button>
-                              </div>
-                            </div>
-
-                            <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
-                              <Input
-                                value={exportFilters.year}
-                                onChange={(e) => setExportFilterValue(event.id, 'year', e.target.value)}
-                                placeholder="Year (e.g. 3 or 2026)"
-                              />
-                              <Input
-                                value={exportFilters.branch}
-                                onChange={(e) => setExportFilterValue(event.id, 'branch', e.target.value)}
-                                placeholder="Branch (e.g. CSE)"
-                              />
-                              <Input
-                                value={exportFilters.course}
-                                onChange={(e) => setExportFilterValue(event.id, 'course', e.target.value)}
-                                placeholder="Course (e.g. B.Tech)"
-                              />
-
-                              <select
-                                value={exportFilters.userRole}
-                                onChange={(e) => setExportFilterValue(event.id, 'userRole', e.target.value)}
-                                className="h-10 rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                              >
-                                <option value="">All user roles</option>
-                                {userRoleOptions.map((role) => (
-                                  <option key={role} value={role}>{role}</option>
-                                ))}
-                              </select>
-
-                              <select
-                                value={exportFilters.registrationType}
-                                onChange={(e) => setExportFilterValue(event.id, 'registrationType', e.target.value)}
-                                className="h-10 rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                              >
-                                <option value="">All registration types</option>
-                                <option value="PARTICIPANT">PARTICIPANT</option>
-                                <option value="GUEST">GUEST</option>
-                              </select>
-
-                              <div className="relative">
-                                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
-                                <Input
-                                  value={exportFilters.search}
-                                  onChange={(e) => setExportFilterValue(event.id, 'search', e.target.value)}
-                                  placeholder="Search name/email/phone"
-                                  className="pl-9"
-                                />
-                              </div>
-                            </div>
-                          </CardContent>
-                        </Card>
-
-                        {event.registrations.length === 0 ? (
-                          <p className="py-8 text-center text-gray-500">No registrations yet</p>
-                        ) : teamGroupView === event.id && teamData.has(event.id) ? (
-                          <div className="space-y-4">
-                            {teamData.get(event.id)!.map((team) => (
-                              <TeamRegistrationCard
-                                key={team.id}
-                                team={team}
-                                eventId={event.id}
-                                teamMinSize={event.teamMinSize}
-                                teamMaxSize={event.teamMaxSize}
-                                participantRegistrations={participantRegistrations}
-                                deletingRegId={deletingRegId}
-                                onToggleLock={handleAdminToggleLock}
-                                onRequestDeleteTeam={(teamId, teamName, eventId) =>
-                                  setConfirmDialog({ type: 'team', teamId, teamName, eventId })
-                                }
-                                onRequestDeleteRegistration={(registrationId, userName, eventId) =>
-                                  setConfirmDialog({ type: 'registration', eventId, registrationId, userName })
-                                }
-                              />
-                            ))}
-
-                            {(() => {
-                              const allTeamUserIds = new Set(
-                                teamData.get(event.id)!.flatMap((team) => team.members.map((member) => member.userId)),
-                              );
-                              const unaffiliated = participantRegistrations.filter((registration) => !allTeamUserIds.has(registration.user.id));
-                              if (unaffiliated.length === 0) return null;
-                              return (
-                                <Card className="border-gray-200">
-                                  <CardHeader className="py-3 px-4">
-                                    <span className="font-semibold text-sm text-gray-500">Unaffiliated Participants ({unaffiliated.length})</span>
-                                  </CardHeader>
-                                  <CardContent className="pt-0 px-4 pb-3">
-                                    <div className="divide-y divide-gray-100">
-                                      {unaffiliated.map((registration) => (
-                                        <div key={registration.id} className="py-2 flex items-center justify-between">
-                                          <div className="flex items-center gap-2">
-                                            <div className="h-8 w-8 rounded-full bg-gray-300 flex items-center justify-center text-white text-xs font-semibold flex-shrink-0">
-                                              {registration.user.name.charAt(0).toUpperCase()}
-                                            </div>
-                                            <div>
-                                              <span className="text-sm font-medium">{registration.user.name}</span>
-                                              <span className="text-xs text-gray-500 ml-2">{registration.user.email}</span>
-                                            </div>
-                                          </div>
-                                          <Button size="sm" variant="ghost" onClick={() => setConfirmDialog({ type: 'registration', eventId: event.id, registrationId: registration.id, userName: registration.user.name })} disabled={deletingRegId === registration.id} className="text-red-600 hover:text-red-700 hover:bg-red-50 h-7">
-                                            {deletingRegId === registration.id ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
-                                          </Button>
-                                        </div>
-                                      ))}
-                                    </div>
-                                  </CardContent>
-                                </Card>
-                              );
-                            })()}
-
-                            {guestRegistrations.length > 0 && (
-                              <Card className="border-amber-200">
-                                <CardHeader className="py-3 px-4">
-                                  <span className="font-semibold text-sm text-amber-800">Guests ({guestRegistrations.length})</span>
-                                </CardHeader>
-                                <CardContent className="space-y-3 pt-0 px-4 pb-4">
-                                  {guestRegistrations.map((registration) => (
-                                    <div key={registration.id} className="flex items-center justify-between rounded-lg border border-amber-100 bg-amber-50 px-3 py-3">
-                                      <div>
-                                        <div className="flex items-center gap-2">
-                                          <span className="font-medium text-gray-900">{registration.user.name}</span>
-                                          {registration.invitation?.role && <Badge variant="outline">{registration.invitation.role}</Badge>}
-                                        </div>
-                                        <p className="mt-1 text-sm text-gray-500">{registration.user.email}</p>
-                                      </div>
-                                      <Button size="sm" variant="outline" onClick={() => setActiveDetailTab('invitations')}>
-                                        Manage Invitation
-                                      </Button>
-                                    </div>
-                                  ))}
-                                </CardContent>
-                              </Card>
-                            )}
-                          </div>
-                        ) : (
-                          <div className="space-y-6">
-                            <div className="space-y-2">
-                              <h3 className="font-semibold text-sm text-gray-700">
-                                Participants ({participantRegistrations.length})
-                              </h3>
-                              {participantRegistrations.length === 0 ? (
-                                <div className="rounded-lg border border-dashed border-slate-200 px-4 py-6 text-sm text-gray-500">
-                                  No participant registrations yet.
-                                </div>
-                              ) : (
-                                <div className="divide-y divide-gray-100">
-                                  {participantRegistrations.map((registration) => (
-                                    <div
-                                      key={registration.id}
-                                      className="py-3 flex items-start justify-between hover:bg-gray-50 px-3 -mx-3 rounded-lg transition-colors"
-                                    >
-                                      <div className="flex items-start gap-3">
-                                        <div className="h-10 w-10 rounded-full bg-amber-100 flex items-center justify-center text-amber-700 font-semibold flex-shrink-0">
-                                          {registration.user.name.charAt(0).toUpperCase()}
-                                        </div>
-                                        <div>
-                                          <div className="flex items-center gap-2 flex-wrap">
-                                            <span className="font-medium text-gray-900">
-                                              {registration.user.name}
-                                            </span>
-                                            <Badge variant="outline" className="text-xs">
-                                              {registration.user.role}
-                                            </Badge>
-                                          </div>
-                                          <div className="flex items-center gap-4 text-sm text-gray-500 mt-1">
-                                            <span className="flex items-center gap-1">
-                                              <Mail className="h-3 w-3" />
-                                              {registration.user.email}
-                                            </span>
-                                          </div>
-                                          <div className="flex items-center gap-4 text-sm text-gray-500 mt-1 flex-wrap">
-                                            {registration.user.phone && (
-                                              <span className="flex items-center gap-1">
-                                                <Phone className="h-3 w-3" />
-                                                {registration.user.phone}
-                                              </span>
-                                            )}
-                                            {registration.user.course && registration.user.branch && registration.user.year && (
-                                              <span className="flex items-center gap-1">
-                                                <GraduationCap className="h-3 w-3" />
-                                                {registration.user.course} - {registration.user.branch} - {registration.user.year}
-                                              </span>
-                                            )}
-                                            <span className="text-xs text-gray-400">
-                                              Registered: {formatDate(registration.timestamp)}
-                                            </span>
-                                          </div>
-                                        </div>
-                                      </div>
-                                      <Button
-                                        size="sm"
-                                        variant="ghost"
-                                        onClick={() => setConfirmDialog({ type: 'registration', eventId: event.id, registrationId: registration.id, userName: registration.user.name })}
-                                        disabled={deletingRegId === registration.id}
-                                        className="text-red-600 hover:text-red-700 hover:bg-red-50"
-                                      >
-                                        {deletingRegId === registration.id ? (
-                                          <Loader2 className="h-4 w-4 animate-spin" />
-                                        ) : (
-                                          <Trash2 className="h-4 w-4" />
-                                        )}
-                                      </Button>
-                                    </div>
-                                  ))}
-                                </div>
-                              )}
-                            </div>
-
-                            <div className="space-y-2">
-                              <h3 className="font-semibold text-sm text-amber-800">
-                                Guests ({guestRegistrations.length})
-                              </h3>
-                              {guestRegistrations.length === 0 ? (
-                                <div className="rounded-lg border border-dashed border-amber-200 bg-amber-50 px-4 py-6 text-sm text-amber-700">
-                                  No accepted guest registrations yet.
-                                </div>
-                              ) : (
-                                <div className="space-y-3">
-                                  {guestRegistrations.map((registration) => (
-                                    <div
-                                      key={registration.id}
-                                      className="flex items-start justify-between rounded-xl border border-amber-200 bg-amber-50 px-4 py-4"
-                                    >
-                                      <div>
-                                        <div className="flex items-center gap-2 flex-wrap">
-                                          <span className="font-medium text-gray-900">{registration.user.name}</span>
-                                          {registration.invitation?.role && <Badge variant="outline">{registration.invitation.role}</Badge>}
-                                          <Badge variant="outline" className="border-amber-300 text-amber-800">Guest</Badge>
-                                        </div>
-                                        <p className="mt-1 text-sm text-gray-500">{registration.user.email}</p>
-                                        <p className="mt-1 text-xs text-gray-400">Accepted on {formatDate(registration.timestamp)}</p>
-                                      </div>
-                                      <Button size="sm" variant="outline" onClick={() => setActiveDetailTab('invitations')}>
-                                        Manage Invitation
-                                      </Button>
-                                    </div>
-                                  ))}
-                                </div>
-                              )}
-                            </div>
-                          </div>
-                        )}
-                      </TabsContent>
-
-                      <TabsContent value="invitations">
-                        <AdminEventInvitations eventId={event.id} eventTitle={event.title} token={token!} />
-                      </TabsContent>
-                    </Tabs>
-                  </CardContent>
-                )}
-              </Card>
-            </motion.div>
-            );
-          })
-        )}
+                {isDeleting ? <Loader2 size={11} className="animate-spin" /> : <Trash2 size={11} />}
+              </Button>
+            )}
+          </div>
+        </div>
       </div>
 
-      <RegistrationConfirmDialog
-        target={confirmDialog}
-        onCancel={() => setConfirmDialog(null)}
-        onConfirm={(target) => {
-          if (target.type === 'event') {
-            void handleDeleteEvent(target.eventId, target.eventTitle);
-            return;
-          }
-          if (target.type === 'team') {
-            void handleAdminDissolve(target.teamId, target.teamName, target.eventId);
-            return;
-          }
-          void handleDeleteRegistration(target.eventId, target.registrationId, target.userName);
-        }}
-      />
-    </div>
+      <Dialog open={exportDialogOpen} onOpenChange={setExportDialogOpen}>
+        <DialogContent data-dashboard="true" className="bg-[var(--bg-raised)] border-[var(--border-subtle)] max-w-md">
+          <DialogHeader>
+            <DialogTitle className="inline-flex items-center gap-2">
+              <Filter size={14} />
+              Export — {e.title}
+            </DialogTitle>
+          </DialogHeader>
+          <div className="grid sm:grid-cols-2 gap-3">
+            <Field label="Format" required>
+              <SegmentedTabs
+                items={[
+                  { value: 'xlsx', label: 'XLSX' },
+                  { value: 'csv', label: 'CSV' },
+                ]}
+                value={exportFilters.format}
+                onChange={(v) => setFilter('format', v as ExportFormat)}
+              />
+            </Field>
+            <Field label="Registration type">
+              <div className="flex gap-1.5">
+                {([
+                  { value: undefined, label: 'Any' },
+                  { value: 'PARTICIPANT' as RegistrationType, label: 'Participant' },
+                  { value: 'GUEST' as RegistrationType, label: 'Guest' },
+                ]).map((opt) => {
+                  const active = (exportFilters.registrationType ?? undefined) === opt.value;
+                  return (
+                    <button
+                      key={opt.label}
+                      type="button"
+                      onClick={() => setFilter('registrationType', opt.value)}
+                      className={cn(
+                        'h-7 px-2.5 text-[12px] font-medium rounded-[6px] transition-colors',
+                        active
+                          ? 'bg-[var(--ds-text-1)] text-[var(--ds-text-inverse)]'
+                          : 'bg-[var(--surface-soft)] text-[var(--ds-text-2)] hover:bg-[var(--bg-sunken)]',
+                      )}
+                    >
+                      {opt.label}
+                    </button>
+                  );
+                })}
+              </div>
+            </Field>
+            <Field label="Year" hint="exact match">
+              <Input value={exportFilters.year ?? ''} onChange={(ev) => setFilter('year', ev.target.value)} placeholder="3rd Year" />
+            </Field>
+            <Field label="Branch" hint="exact match">
+              <Input value={exportFilters.branch ?? ''} onChange={(ev) => setFilter('branch', ev.target.value)} placeholder="CSE" />
+            </Field>
+            <Field label="Course" hint="exact match">
+              <Input value={exportFilters.course ?? ''} onChange={(ev) => setFilter('course', ev.target.value)} placeholder="BTech" />
+            </Field>
+            <Field label="User role" hint="USER / CORE_MEMBER / …">
+              <Input value={exportFilters.userRole ?? ''} onChange={(ev) => setFilter('userRole', ev.target.value)} placeholder="USER" />
+            </Field>
+            <Field label="Search" hint="name or email substring" className="sm:col-span-2">
+              <Input value={exportFilters.search ?? ''} onChange={(ev) => setFilter('search', ev.target.value)} placeholder="alice@example.com" />
+            </Field>
+          </div>
+          <DialogFooter className="flex items-center justify-between">
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => setExportFilters(DEFAULT_EXPORT_FILTERS)}
+              disabled={!hasActiveExportFilters(exportFilters) && exportFilters.format === 'xlsx'}
+            >
+              <RotateCcw size={11} className="mr-1.5" />
+              Reset
+            </Button>
+            <Button size="sm" onClick={handleExport} disabled={exporting}>
+              {exporting ? <Loader2 size={13} className="mr-1.5 animate-spin" /> : <Download size={13} className="mr-1.5" />}
+              Export {exportFilters.format.toUpperCase()}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </DSCard>
   );
 }

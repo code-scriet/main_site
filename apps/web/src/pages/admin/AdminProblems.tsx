@@ -1,583 +1,620 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react';
-import { useSearchParams } from 'react-router-dom';
+// Dashboard v2 — Admin · Problems.
+// Counts strip + filter bar + table with publish-toggle per row + Create/Edit/Delete + Bulk import.
+// Pixel-port of screen-admin2.jsx:85 (AdminProblemsScreen).
+
+import { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { CalendarPlus, Copy, Edit3, Eye, EyeOff, FileJson, FileSpreadsheet, Loader2, MoreHorizontal, PlayCircle, Plus, RefreshCcw, Save, Trash2, Trophy, Upload } from 'lucide-react';
-import { toast } from 'sonner';
+import { useNavigate, useSearchParams } from 'react-router-dom';
+import { Plus, Search, Trash2, Pencil, Loader2, MoreHorizontal, ExternalLink, FileUp, ListChecks, CalendarPlus, Trophy, Copy, RefreshCw } from 'lucide-react';
+import { Link } from 'react-router-dom';
 import { useAuth } from '@/context/AuthContext';
-import { api, type CompetitionRound, type Event as ApiEvent, type Problem, type ProblemContextType, type ProblemInput, type ProblemLanguage, type ProblemSubmission, type ProblemTestCase, type SubmissionVerdict } from '@/lib/api';
-import { Markdown } from '@/components/ui/markdown';
+import {
+  api,
+  type Problem,
+  type ProblemSubmission,
+  type SubmissionVerdict,
+  type CompetitionRound,
+} from '@/lib/api';
+import { DSCard, Difficulty, EmptyState, MonoChip, NumericPromptDialog, Pill, SegmentedTabs } from '@/components/dash';
+import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
-import { PendingCapRequestsTray } from '@/components/problems/PendingCapRequestsTray';
-import { getPlaygroundLaunchUrl } from '@/lib/playgroundUrl';
-import { DeleteProblemDialog } from '@/components/admin/problems/DeleteProblemDialog';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
+import { Switch } from '@/components/ui/switch';
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { toast } from 'sonner';
+import { cn } from '@/lib/utils';
+import { BulkImportCard } from '@/components/admin/problems/BulkImportCard';
 
-const LANGUAGES: ProblemLanguage[] = ['PYTHON', 'JAVASCRIPT', 'CPP', 'JAVA'];
-const VERDICTS: SubmissionVerdict[] = ['ACCEPTED', 'WRONG_ANSWER', 'TIME_LIMIT_EXCEEDED', 'RUNTIME_ERROR', 'COMPILATION_ERROR', 'JUDGE_ERROR'];
+type DiffFilter = 'ALL' | 'EASY' | 'MEDIUM' | 'HARD';
 
-const emptyCase = (prefix: string, index: number): ProblemTestCase => ({
-  id: `${prefix}-${index}`,
-  input: '',
-  expectedOutput: '',
-});
+const VERDICTS: SubmissionVerdict[] = [
+  'ACCEPTED',
+  'WRONG_ANSWER',
+  'TIME_LIMIT_EXCEEDED',
+  'RUNTIME_ERROR',
+  'COMPILATION_ERROR',
+  'JUDGE_ERROR',
+  'PENDING',
+];
 
-const blankProblem: ProblemInput = {
-  slug: '',
-  title: '',
-  body: '# Problem\n\nDescribe the task, input format, output format, and constraints.',
-  difficulty: 'EASY',
-  tags: [],
-  allowedLanguages: ['PYTHON'],
-  timeLimitMs: 2000,
-  defaultSubmitCap: 5,
-  sampleTests: [emptyCase('sample', 1)],
-  hiddenTests: [emptyCase('hidden', 1)],
-  referenceSolution: '',
-  referenceLanguage: 'PYTHON',
-  isPublished: false,
-};
-
-function slugify(value: string) {
-  return value.toLowerCase().trim().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 120);
+function verdictTone(v: SubmissionVerdict): 'success' | 'danger' | 'warning' | 'info' | 'neutral' {
+  if (v === 'ACCEPTED') return 'success';
+  if (v === 'WRONG_ANSWER' || v === 'RUNTIME_ERROR' || v === 'COMPILATION_ERROR') return 'danger';
+  if (v === 'TIME_LIMIT_EXCEEDED') return 'warning';
+  if (v === 'JUDGE_ERROR') return 'info';
+  return 'neutral';
 }
 
-// ─── Bulk import helpers ────────────────────────────────────────────────
-// CSV columns (header required, case-sensitive):
-//   title,slug?,difficulty,tags?,allowedLanguages,timeLimitMs?,defaultSubmitCap?,body,sampleTests,hiddenTests,referenceSolution?,referenceLanguage?,isPublished?
-// `sampleTests` and `hiddenTests` are JSON-encoded arrays of {id,input,expectedOutput,label?}.
-// `tags` and `allowedLanguages` are pipe-delimited ("arrays|hashing", "PYTHON|JAVASCRIPT").
+export default function AdminProblems() {
+  const { token } = useAuth();
+  const navigate = useNavigate();
+  const qc = useQueryClient();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [search, setSearch] = useState('');
+  const [diff, setDiff] = useState<DiffFilter>('ALL');
 
-type BulkRowResult = { input: ProblemInput; warnings: string[] } | { error: string; row?: number };
+  // Deep-link: external links land here with `?problemId=<id>` (e.g. notification clicks).
+  // Routing to the canonical edit page consumes the param once and strips it.
+  useEffect(() => {
+    const targetId = searchParams.get('problemId');
+    if (!targetId) return;
+    const next = new URLSearchParams(searchParams);
+    next.delete('problemId');
+    setSearchParams(next, { replace: true });
+    navigate(`/dashboard/problems/${targetId}/edit`);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  const [publishedOnly, setPublishedOnly] = useState(false);
+  const [deleting, setDeleting] = useState<Problem | null>(null);
+  const [bulkOpen, setBulkOpen] = useState(false);
 
-function parseCsvLine(line: string): string[] {
-  // RFC4180-lite parser: quoted fields with double-quote escaping, commas as separator.
-  const cells: string[] = [];
-  let cell = '';
-  let quoted = false;
-  for (let i = 0; i < line.length; i++) {
-    const ch = line[i];
-    if (quoted) {
-      if (ch === '"' && line[i + 1] === '"') {
-        cell += '"';
-        i++;
-      } else if (ch === '"') {
-        quoted = false;
-      } else {
-        cell += ch;
-      }
-    } else if (ch === ',') {
-      cells.push(cell);
-      cell = '';
-    } else if (ch === '"' && cell.length === 0) {
-      quoted = true;
-    } else {
-      cell += ch;
-    }
-  }
-  cells.push(cell);
-  return cells;
-}
+  // Restored from HEAD — three admin tools:
+  // 1. View submissions + override verdict / score
+  // 2. Set problem as QOTD (with optional publish-now)
+  // 3. Append problem to a competition round
+  const [submissionsTarget, setSubmissionsTarget] = useState<Problem | null>(null);
+  const [qotdTarget, setQotdTarget] = useState<Problem | null>(null);
+  const [qotdDate, setQotdDate] = useState<string>(() =>
+    new Date(Date.now() + 330 * 60 * 1000).toISOString().slice(0, 10),
+  );
+  const [qotdPublishNow, setQotdPublishNow] = useState(true);
+  const [contestTarget, setContestTarget] = useState<Problem | null>(null);
+  const [contestEventId, setContestEventId] = useState<string>('');
+  const [contestRoundId, setContestRoundId] = useState<string>('');
+  const [contestPoints, setContestPoints] = useState<number>(100);
+  // Rejudge job tracking — polls until complete (HEAD parity, E8).
+  const [rejudgeJob, setRejudgeJob] = useState<{ problemId: string; jobId: string } | null>(null);
 
-function splitCsvRows(text: string): string[] {
-  // Split on newlines while respecting quoted fields containing newlines.
-  const rows: string[] = [];
-  let buffer = '';
-  let quoted = false;
-  for (let i = 0; i < text.length; i++) {
-    const ch = text[i];
-    if (ch === '"') {
-      if (quoted && text[i + 1] === '"') {
-        buffer += '""';
-        i++;
-      } else {
-        quoted = !quoted;
-        buffer += ch;
-      }
-    } else if (!quoted && (ch === '\n' || ch === '\r')) {
-      if (buffer.trim().length > 0) rows.push(buffer);
-      buffer = '';
-      if (ch === '\r' && text[i + 1] === '\n') i++;
-    } else {
-      buffer += ch;
-    }
-  }
-  if (buffer.trim().length > 0) rows.push(buffer);
-  return rows;
-}
-
-function coerceTests(value: unknown, prefix: string): ProblemTestCase[] {
-  if (!Array.isArray(value)) return [];
-  const result: ProblemTestCase[] = [];
-  value.forEach((raw, index) => {
-    if (!raw || typeof raw !== 'object') return;
-    const test = raw as Record<string, unknown>;
-    result.push({
-      id: typeof test.id === 'string' && test.id.trim() ? test.id.trim() : `${prefix}-${index + 1}`,
-      input: typeof test.input === 'string' ? test.input : '',
-      expectedOutput: typeof test.expectedOutput === 'string' ? test.expectedOutput : '',
-      label: typeof test.label === 'string' ? test.label : undefined,
-    });
+  const q = useQuery({
+    queryKey: ['admin-problems'],
+    queryFn: () => api.adminGetProblems(token!),
+    enabled: Boolean(token),
   });
-  return result;
-}
+  const all: Problem[] = q.data?.problems ?? [];
+  const filtered = useMemo(() => {
+    return all
+      .filter((p) => (publishedOnly ? p.isPublished : true))
+      .filter((p) => (diff === 'ALL' ? true : p.difficulty === diff))
+      .filter((p) =>
+        !search.trim()
+          ? true
+          : p.title.toLowerCase().includes(search.toLowerCase()) ||
+            p.slug.toLowerCase().includes(search.toLowerCase()) ||
+            p.tags?.some((t) => t.toLowerCase().includes(search.toLowerCase())),
+      );
+  }, [all, publishedOnly, diff, search]);
 
-function normalizeProblemPayload(raw: unknown, rowNumber: number): BulkRowResult {
-  if (!raw || typeof raw !== 'object') {
-    return { error: 'Row is not an object', row: rowNumber };
-  }
-  const value = raw as Record<string, unknown>;
-  const warnings: string[] = [];
-  const title = typeof value.title === 'string' ? value.title.trim() : '';
-  if (!title) return { error: 'Missing title', row: rowNumber };
+  const counts = useMemo(() => ({
+    published: all.filter((p) => p.isPublished).length,
+    draft: all.filter((p) => !p.isPublished).length,
+    legacy: 0,
+  }), [all]);
 
-  const slug = typeof value.slug === 'string' && value.slug.trim() ? slugify(value.slug) : slugify(title);
-  if (!slug) return { error: 'Could not derive a slug', row: rowNumber };
-
-  const difficulty = String(value.difficulty ?? '').toUpperCase();
-  if (!['EASY', 'MEDIUM', 'HARD'].includes(difficulty)) {
-    return { error: `Invalid difficulty "${value.difficulty ?? ''}" — use EASY, MEDIUM, or HARD`, row: rowNumber };
-  }
-
-  const allowedLanguages = Array.isArray(value.allowedLanguages)
-    ? value.allowedLanguages
-    : typeof value.allowedLanguages === 'string'
-      ? value.allowedLanguages.split('|').map((entry) => entry.trim()).filter(Boolean)
-      : [];
-  const languages = allowedLanguages
-    .map((entry) => String(entry).toUpperCase())
-    .filter((entry): entry is ProblemLanguage => LANGUAGES.includes(entry as ProblemLanguage));
-  if (languages.length === 0) return { error: 'No valid allowedLanguages', row: rowNumber };
-
-  const tags = Array.isArray(value.tags)
-    ? value.tags
-    : typeof value.tags === 'string'
-      ? value.tags.split('|').map((entry) => entry.trim()).filter(Boolean)
-      : [];
-
-  const body = typeof value.body === 'string' ? value.body : '';
-  if (body.trim().length < 10) warnings.push('Problem body is very short');
-
-  const sampleTests = coerceTests(value.sampleTests, 'sample');
-  const hiddenTests = coerceTests(value.hiddenTests, 'hidden');
-  if (sampleTests.length === 0) return { error: 'sampleTests array missing or empty', row: rowNumber };
-  if (hiddenTests.length === 0) return { error: 'hiddenTests array missing or empty', row: rowNumber };
-
-  const timeLimitMs = Number(value.timeLimitMs);
-  const defaultSubmitCap = Number(value.defaultSubmitCap);
-  const referenceLanguage = typeof value.referenceLanguage === 'string'
-    ? value.referenceLanguage.toUpperCase()
-    : undefined;
-  const referenceLanguageSafe = (LANGUAGES as readonly string[]).includes(referenceLanguage ?? '')
-    ? (referenceLanguage as ProblemLanguage)
-    : languages[0];
-
-  const input: ProblemInput = {
-    slug,
-    title,
-    body: body || `# ${title}\n\n_No description provided._`,
-    difficulty: difficulty as ProblemInput['difficulty'],
-    tags: tags.map((entry) => String(entry).trim()).filter(Boolean),
-    allowedLanguages: languages,
-    timeLimitMs: Number.isFinite(timeLimitMs) && timeLimitMs >= 500 ? Math.min(10_000, Math.floor(timeLimitMs)) : 2000,
-    defaultSubmitCap: Number.isFinite(defaultSubmitCap) && defaultSubmitCap >= 1 ? Math.min(100, Math.floor(defaultSubmitCap)) : 5,
-    sampleTests,
-    hiddenTests,
-    referenceSolution: typeof value.referenceSolution === 'string' ? value.referenceSolution : '',
-    referenceLanguage: referenceLanguageSafe,
-    isPublished: Boolean(value.isPublished) && String(value.isPublished).toLowerCase() !== 'false',
-  };
-
-  return { input, warnings };
-}
-
-function parseCsvText(text: string): BulkRowResult[] {
-  const rows = splitCsvRows(text);
-  if (rows.length === 0) return [{ error: 'CSV is empty' }];
-  const header = parseCsvLine(rows[0]).map((cell) => cell.trim());
-  return rows.slice(1).map((row, index) => {
-    const cells = parseCsvLine(row);
-    const payload: Record<string, unknown> = {};
-    header.forEach((column, columnIndex) => {
-      const raw = cells[columnIndex];
-      if (raw === undefined || raw === '') return;
-      if (column === 'sampleTests' || column === 'hiddenTests') {
-        try {
-          payload[column] = JSON.parse(raw);
-        } catch {
-          payload[column] = undefined;
-        }
-      } else if (column === 'tags' || column === 'allowedLanguages') {
-        payload[column] = raw.split('|').map((entry) => entry.trim()).filter(Boolean);
-      } else {
-        payload[column] = raw;
+  const publishMut = useMutation({
+    mutationFn: ({ id, isPublished }: { id: string; isPublished: boolean }) =>
+      api.setProblemPublished(id, isPublished, token!),
+    onMutate: async ({ id, isPublished }) => {
+      await qc.cancelQueries({ queryKey: ['admin-problems'] });
+      const prev = qc.getQueryData<{ problems: Problem[] }>(['admin-problems']);
+      if (prev) {
+        qc.setQueryData<{ problems: Problem[] }>(['admin-problems'], {
+          ...prev,
+          problems: prev.problems.map((p) => (p.id === id ? { ...p, isPublished } : p)),
+        });
       }
-    });
-    return normalizeProblemPayload(payload, index + 2);
+      return { prev };
+    },
+    onError: (_e, _v, ctx) => {
+      if (ctx?.prev) qc.setQueryData(['admin-problems'], ctx.prev);
+      toast.error('Failed to toggle publish');
+    },
+    onSettled: () => qc.invalidateQueries({ queryKey: ['admin-problems'] }),
   });
-}
+  const deleteMut = useMutation({
+    mutationFn: (id: string) => api.deleteProblem(id, token!),
+    onSuccess: () => {
+      toast.success('Problem deleted');
+      setDeleting(null);
+      qc.invalidateQueries({ queryKey: ['admin-problems'] });
+    },
+    onError: (e: Error) => toast.error(e.message || 'Failed to delete'),
+  });
 
-function parseJsonText(text: string): BulkRowResult[] {
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(text);
-  } catch (err) {
-    return [{ error: `Invalid JSON: ${err instanceof Error ? err.message : 'parse failed'}` }];
-  }
-  const list = Array.isArray(parsed) ? parsed : Array.isArray((parsed as { problems?: unknown })?.problems) ? (parsed as { problems: unknown[] }).problems : [];
-  if (list.length === 0) return [{ error: 'JSON must be an array of problems (or { "problems": [...] })' }];
-  return list.map((item, index) => normalizeProblemPayload(item, index + 1));
-}
+  // Duplicate problem — fetches the source, appends -copy-<hash> to the slug, saves as draft.
+  // Mirrors HEAD's duplicateMutation. Navigates to the new edit page on success.
+  const duplicateMut = useMutation({
+    mutationFn: async (source: Problem) => {
+      const detail = await api.getProblem(source.id, { token: token! });
+      const src = detail.problem;
+      const baseSlug = (src.slug || 'problem').slice(0, 100);
+      const newSlug = `${baseSlug}-copy-${Date.now().toString(36).slice(-5)}`;
+      const created = await api.createProblem({
+        slug: newSlug,
+        title: `${src.title} (copy)`,
+        body: src.body ?? '',
+        difficulty: src.difficulty,
+        tags: src.tags ?? [],
+        allowedLanguages: src.allowedLanguages ?? ['PYTHON'],
+        timeLimitMs: src.timeLimitMs ?? 2000,
+        defaultSubmitCap: src.defaultSubmitCap ?? 5,
+        sampleTests: src.sampleTests ?? [],
+        hiddenTests: src.hiddenTests ?? [],
+        referenceSolution: src.referenceSolution ?? '',
+        referenceLanguage: src.referenceLanguage ?? src.allowedLanguages?.[0] ?? 'PYTHON',
+        isPublished: false,
+      }, token!);
+      return created.problem;
+    },
+    onSuccess: (newProblem) => {
+      toast.success(`Duplicated as "${newProblem.title}"`);
+      qc.invalidateQueries({ queryKey: ['admin-problems'] });
+      if (newProblem.id) navigate(`/dashboard/problems/${newProblem.id}/edit`);
+    },
+    onError: (e: Error) => toast.error(e.message || 'Failed to duplicate'),
+  });
 
-function toInput(problem: Problem): ProblemInput {
-  return {
-    slug: problem.slug,
-    title: problem.title,
-    body: problem.body ?? '',
-    difficulty: problem.difficulty,
-    tags: problem.tags ?? [],
-    allowedLanguages: problem.allowedLanguages ?? ['PYTHON'],
-    timeLimitMs: problem.timeLimitMs ?? 2000,
-    defaultSubmitCap: problem.defaultSubmitCap ?? 5,
-    sampleTests: problem.sampleTests?.length ? problem.sampleTests : [emptyCase('sample', 1)],
-    hiddenTests: problem.hiddenTests?.length ? problem.hiddenTests : [emptyCase('hidden', 1)],
-    referenceSolution: problem.referenceSolution ?? '',
-    referenceLanguage: problem.referenceLanguage ?? problem.allowedLanguages?.[0] ?? 'PYTHON',
-    isPublished: problem.isPublished,
-  };
-}
+  // Manual rejudge — queues a job server-side; jobQuery polls until complete.
+  const rejudgeMut = useMutation({
+    mutationFn: (problemId: string) => api.adminRejudgeProblem(problemId, undefined, token!),
+    onSuccess: (data, problemId) => {
+      setRejudgeJob({ problemId, jobId: data.jobId });
+      toast.success('Rejudge queued — running…');
+    },
+    onError: (e: Error) => toast.error(e.message || 'Failed to queue rejudge'),
+  });
 
-function BulkImportCard({ token, onImported }: { token: string; onImported: () => void }) {
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const [parsed, setParsed] = useState<BulkRowResult[]>([]);
-  const [busy, setBusy] = useState(false);
-  const [summary, setSummary] = useState<{ created: number; failed: number } | null>(null);
+  const jobQuery = useQuery({
+    queryKey: ['problem-rejudge', rejudgeJob?.problemId, rejudgeJob?.jobId],
+    queryFn: () => api.adminRejudgeStatus(rejudgeJob!.problemId, rejudgeJob!.jobId, token!),
+    enabled: Boolean(rejudgeJob && token),
+    refetchInterval: (query) => {
+      const status = query.state.data?.status;
+      return status === 'complete' || status === 'failed' ? false : 1500;
+    },
+  });
 
-  const validCount = parsed.filter((row) => 'input' in row).length;
-  const errorCount = parsed.length - validCount;
-
-  const handleFile = async (event: ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
-    const text = await file.text();
-    const isCsv = file.name.toLowerCase().endsWith('.csv') || file.type.includes('csv');
-    const isJson = file.name.toLowerCase().endsWith('.json') || file.type.includes('json');
-    if (!isCsv && !isJson) {
-      toast.error('Pick a .csv or .json file');
-      event.target.value = '';
-      return;
+  // When the job finishes, surface a toast and clear the tracking state.
+  useEffect(() => {
+    if (!jobQuery.data || !rejudgeJob) return;
+    if (jobQuery.data.status === 'complete') {
+      toast.success(`Rejudge complete (${jobQuery.data.processed ?? 0} of ${jobQuery.data.total ?? 0})`);
+      qc.invalidateQueries({ queryKey: ['admin-problems'] });
+      setRejudgeJob(null);
+    } else if (jobQuery.data.status === 'failed') {
+      toast.error('Rejudge failed');
+      setRejudgeJob(null);
     }
-    const rows = isCsv ? parseCsvText(text) : parseJsonText(text);
-    setParsed(rows);
-    setSummary(null);
-    event.target.value = '';
-    if (rows.length === 0) toast.error('No rows found in the file');
-    else {
-      const ok = rows.filter((row) => 'input' in row).length;
-      const bad = rows.length - ok;
-      toast.success(`Parsed ${rows.length} row${rows.length === 1 ? '' : 's'} — ${ok} ready, ${bad} need fixing`);
-    }
-  };
+  }, [jobQuery.data, rejudgeJob, qc]);
 
-  const handleImport = async () => {
-    if (validCount === 0) {
-      toast.error('No valid rows to import');
-      return;
-    }
-    setBusy(true);
-    let created = 0;
-    let failed = 0;
-    for (const row of parsed) {
-      if (!('input' in row)) continue;
-      try {
-        await api.createProblem(row.input, token);
-        created += 1;
-      } catch (err) {
-        failed += 1;
-        console.warn('[bulk-import] failed row', row.input.slug, err);
+  // QOTD scheduling
+  const useAsQotdMut = useMutation({
+    mutationFn: async () => {
+      if (!qotdTarget) throw new Error('no target');
+      return api.createQOTD({ date: qotdDate, problemId: qotdTarget.id, publishNow: qotdPublishNow }, token!);
+    },
+    onSuccess: () => {
+      toast.success(qotdPublishNow ? 'QOTD scheduled and published' : 'QOTD scheduled as draft');
+      setQotdTarget(null);
+    },
+    onError: (e: Error) => toast.error(e.message || 'Failed to create QOTD'),
+  });
+
+  // Contest append — list events + DSA rounds, then update the picked round's problems
+  const eventsQ = useQuery({
+    queryKey: ['admin-events-for-contest'],
+    queryFn: () => api.getEvents(),
+    enabled: Boolean(contestTarget),
+    staleTime: 30_000,
+  });
+  const contestRoundsQ = useQuery({
+    queryKey: ['admin-contest-rounds', contestEventId],
+    queryFn: () => api.getCompetitionRoundsAdmin(contestEventId, token!),
+    enabled: Boolean(contestTarget && contestEventId && token),
+  });
+  const eligibleRounds = useMemo<CompetitionRound[]>(() => {
+    const rounds = (contestRoundsQ.data?.rounds ?? []) as CompetitionRound[];
+    return rounds.filter((r) => r.roundType === 'DSA' && (r.status === 'DRAFT' || r.status === 'LOCKED'));
+  }, [contestRoundsQ.data?.rounds]);
+
+  const addToContestMut = useMutation({
+    mutationFn: async () => {
+      if (!contestTarget || !contestRoundId) throw new Error('no target');
+      const round = await api.getCompetitionRound(contestRoundId, token!);
+      const existing = ((round.problems ?? []) as Array<{ problemId?: string; problem?: { id?: string }; displayOrder?: number; points?: number }>).map(
+        (link, idx) => ({
+          problemId: link.problemId ?? link.problem?.id ?? '',
+          displayOrder: link.displayOrder ?? idx,
+          points: link.points ?? 100,
+        }),
+      ).filter((e) => e.problemId);
+      if (existing.some((e) => e.problemId === contestTarget.id)) {
+        throw new Error('Already in this round');
       }
-    }
-    setBusy(false);
-    setSummary({ created, failed });
-    if (created > 0) toast.success(`Created ${created} problem${created === 1 ? '' : 's'}${failed > 0 ? ` (${failed} failed)` : ''}`);
-    else toast.error(`All ${failed} rows failed — check warnings`);
-    if (created > 0) onImported();
-  };
-
-  const handleDownloadTemplate = () => {
-    const sample = [
-      ['title', 'slug', 'difficulty', 'tags', 'allowedLanguages', 'timeLimitMs', 'defaultSubmitCap', 'body', 'sampleTests', 'hiddenTests', 'referenceSolution', 'referenceLanguage', 'isPublished'].join(','),
-      [
-        '"Two Sum"',
-        'two-sum',
-        'EASY',
-        'arrays|hashing',
-        'PYTHON|JAVASCRIPT',
-        '2000',
-        '5',
-        '"## Two Sum\n\nReturn indices…"',
-        '"[{""id"":""s1"",""input"":""4 5\\n2 7 11 15\\n9"",""expectedOutput"":""0 1""}]"',
-        '"[{""id"":""h1"",""input"":""..."",""expectedOutput"":""...""}]"',
-        '',
-        'PYTHON',
-        'false',
-      ].join(','),
-    ].join('\n');
-    const blob = new Blob([sample], { type: 'text/csv' });
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement('a');
-    anchor.href = url;
-    anchor.download = 'problems-template.csv';
-    document.body.appendChild(anchor);
-    anchor.click();
-    document.body.removeChild(anchor);
-    URL.revokeObjectURL(url);
-  };
+      const next = [
+        ...existing,
+        { problemId: contestTarget.id, displayOrder: existing.length, points: contestPoints },
+      ];
+      return api.updateCompetitionRound(contestRoundId, { problems: next }, token!);
+    },
+    onSuccess: () => {
+      toast.success('Problem added to contest round');
+      setContestTarget(null);
+      setContestEventId('');
+      setContestRoundId('');
+      setContestPoints(100);
+      qc.invalidateQueries({ queryKey: ['admin-contest-rounds'] });
+    },
+    onError: (e: Error) => toast.error(e.message || 'Failed to add to contest'),
+  });
 
   return (
-    <section className="rounded-lg border border-gray-200 bg-white p-5 dark:border-zinc-800 dark:bg-zinc-950">
-      <div className="flex flex-wrap items-center justify-between gap-3">
+    <div className="flex flex-col gap-6">
+      <div className="flex items-end justify-between gap-3 flex-wrap">
         <div>
-          <h2 className="flex items-center gap-2 text-lg font-bold text-foreground">
-            <Upload className="h-4 w-4 text-amber-500" />
-            Bulk import problems
-          </h2>
-          <p className="text-sm text-muted-foreground">Upload a JSON array or CSV with one problem per row. Inputs are validated locally first.</p>
+          <div className="text-[10.5px] uppercase tracking-[0.06em] font-semibold text-[var(--ds-text-3)]">Admin</div>
+          <h1 className="text-[24px] font-semibold tracking-tight mt-1">Problems</h1>
+          <p className="text-[13px] text-[var(--ds-text-3)] mt-1">The full catalog of practice + competition problems.</p>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <Button variant="outline" size="sm" onClick={handleDownloadTemplate} className="h-8 gap-1.5">
-            <FileSpreadsheet className="h-3.5 w-3.5" />
-            CSV template
+        <div className="flex items-center gap-2">
+          <Button size="sm" variant="outline" onClick={() => setBulkOpen((o) => !o)}>
+            <FileUp size={13} className="mr-1.5" />
+            {bulkOpen ? 'Hide bulk import' : 'Bulk import'}
           </Button>
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept=".csv,.json,application/json,text/csv"
-            onChange={handleFile}
-            className="hidden"
-          />
-          <Button onClick={() => fileInputRef.current?.click()} size="sm" className="h-8 gap-1.5 bg-amber-500 text-white hover:bg-amber-400">
-            <Upload className="h-3.5 w-3.5" />
-            Choose file
+          <Button size="sm" onClick={() => navigate('/dashboard/problems/new')}>
+            <Plus size={13} className="mr-1.5" />
+            Create problem
           </Button>
         </div>
       </div>
 
-      {parsed.length > 0 && (
-        <div className="mt-4 space-y-3">
-          <div className="flex flex-wrap gap-3 text-xs">
-            <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 font-semibold text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300">
-              <FileJson className="h-3 w-3" /> {validCount} ready
-            </span>
-            {errorCount > 0 && (
-              <span className="inline-flex items-center gap-1 rounded-full bg-red-50 px-2 py-0.5 font-semibold text-red-700 dark:bg-red-500/10 dark:text-red-300">
-                {errorCount} need fixing
-              </span>
-            )}
-          </div>
+      {bulkOpen && token && (
+        <BulkImportCard
+          token={token}
+          onImported={() => qc.invalidateQueries({ queryKey: ['admin-problems'] })}
+        />
+      )}
 
-          <div className="max-h-48 overflow-auto rounded-md border border-border bg-card">
-            <table className="w-full min-w-[640px] text-left text-xs">
-              <thead className="bg-muted/50 text-[10px] uppercase tracking-wide text-muted-foreground">
+      <div className="grid grid-cols-3 gap-y-3 border-y border-[var(--border-subtle)] py-4">
+        {([
+          ['Published', counts.published, 'var(--success)'],
+          ['Draft', counts.draft, 'var(--warning)'],
+          ['Legacy', counts.legacy, 'var(--ds-text-3)'],
+        ] as Array<[string, number, string]>).map(([k, v, c], i) => (
+          <div key={k} className={cn(i > 0 && 'border-l border-[var(--border-subtle)] pl-5')}>
+            <div className="text-[10.5px] uppercase tracking-[0.06em] font-semibold text-[var(--ds-text-3)]">{k}</div>
+            <div className="text-[24px] font-semibold tabular-nums leading-none mt-1.5" style={{ color: c }}>{v}</div>
+          </div>
+        ))}
+      </div>
+
+      <div className="flex items-center gap-2 flex-wrap">
+        <div className="relative max-w-[280px] flex-1 min-w-[200px]">
+          <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--ds-text-3)] pointer-events-none" />
+          <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search problems…" className="pl-8 h-8 text-[13px]" />
+        </div>
+        <SegmentedTabs
+          items={[
+            { value: 'ALL', label: 'All' },
+            { value: 'EASY', label: 'Easy' },
+            { value: 'MEDIUM', label: 'Medium' },
+            { value: 'HARD', label: 'Hard' },
+          ]}
+          value={diff}
+          onChange={(v) => setDiff(v as DiffFilter)}
+        />
+        <label className="flex items-center gap-2 text-[12.5px] ml-auto">
+          <Switch checked={publishedOnly} onCheckedChange={setPublishedOnly} />
+          Published only
+        </label>
+      </div>
+
+      <DSCard padded={false}>
+        {q.isLoading ? (
+          <div className="p-6 animate-pulse space-y-2">
+            {[0, 1, 2, 3].map((i) => <div key={i} className="h-10 bg-[var(--surface-soft)] rounded" />)}
+          </div>
+        ) : filtered.length === 0 ? (
+          <EmptyState title="No problems match" body="Try a different filter or search." />
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-[13px]">
+              <thead className="text-left text-[11px] uppercase tracking-[0.06em] text-[var(--ds-text-3)] font-semibold">
                 <tr>
-                  <th className="px-3 py-2">Row</th>
-                  <th className="px-3 py-2">Status</th>
-                  <th className="px-3 py-2">Title / slug</th>
-                  <th className="px-3 py-2">Notes</th>
+                  <th className="px-4 py-2.5 w-[40px]">#</th>
+                  <th className="px-4 py-2.5">Title</th>
+                  <th className="px-4 py-2.5 w-[100px]">Difficulty</th>
+                  <th className="px-4 py-2.5">Tags</th>
+                  <th className="px-4 py-2.5 w-[140px]">Languages</th>
+                  <th className="px-4 py-2.5 w-[100px]">Published</th>
+                  <th className="px-4 py-2.5 w-[100px]"></th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-border">
-                {parsed.map((row, index) => (
-                  <tr key={`row-${index}`}>
-                    <td className="px-3 py-1.5 font-mono">{('row' in row && row.row) || index + 1}</td>
-                    <td className="px-3 py-1.5">
-                      {'input' in row ? (
-                        <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-300">ready</span>
-                      ) : (
-                        <span className="rounded-full bg-red-50 px-2 py-0.5 text-[10px] font-semibold text-red-700 dark:bg-red-500/10 dark:text-red-300">error</span>
-                      )}
+              <tbody>
+                {filtered.map((p, i) => (
+                  <tr key={p.id} className="border-t border-[var(--border-subtle)] hover:bg-[var(--surface-soft)]">
+                    <td className="px-4 py-3 font-mono tabular-nums text-[var(--ds-text-3)]">{String(i + 1).padStart(3, '0')}</td>
+                    <td className="px-4 py-3 font-medium">
+                      <div className="flex items-center gap-2">
+                        <Link
+                          to={`/dashboard/coding?tab=practice&problem=${p.slug}`}
+                          className="truncate max-w-[280px] hover:underline hover:text-[var(--accent)]"
+                          title="Open public problem page"
+                        >
+                          {p.title}
+                        </Link>
+                        <span className="text-[10.5px] text-[var(--ds-text-3)] font-mono">{p.slug}</span>
+                      </div>
                     </td>
-                    <td className="px-3 py-1.5 text-foreground">
-                      {'input' in row ? (
-                        <div>
-                          <p className="font-semibold">{row.input.title}</p>
-                          <p className="text-[11px] text-muted-foreground">/{row.input.slug}</p>
-                        </div>
-                      ) : (
-                        '—'
-                      )}
+                    <td className="px-4 py-3"><Difficulty level={p.difficulty} /></td>
+                    <td className="px-4 py-3">
+                      <div className="flex gap-1 flex-wrap">
+                        {(p.tags ?? []).slice(0, 3).map((t) => <MonoChip key={t}>{t}</MonoChip>)}
+                      </div>
                     </td>
-                    <td className="px-3 py-1.5 text-muted-foreground">
-                      {'error' in row ? row.error : row.warnings.length ? row.warnings.join('; ') : '—'}
+                    <td className="px-4 py-3 text-[11.5px] text-[var(--ds-text-3)] font-mono">
+                      {(p.allowedLanguages ?? []).map((l) => l.toLowerCase().slice(0, 4)).join(' · ')}
+                    </td>
+                    <td className="px-4 py-3">
+                      <Switch
+                        checked={p.isPublished}
+                        onCheckedChange={(checked) => publishMut.mutate({ id: p.id, isPublished: checked })}
+                      />
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="flex items-center gap-1 justify-end">
+                        {rejudgeJob?.problemId === p.id ? (
+                          <span className="inline-flex items-center gap-1.5 h-7 px-2 rounded-[6px] bg-[var(--accent-subtle)]/40 text-[10.5px] text-[var(--accent)] font-mono tabular-nums" aria-live="polite">
+                            <Loader2 size={10} className="animate-spin" />
+                            {jobQuery.data?.processed ?? 0}/{jobQuery.data?.total ?? '…'}
+                          </span>
+                        ) : null}
+                        <button onClick={() => setSubmissionsTarget(p)} className="size-7 rounded-[6px] hover:bg-[var(--surface-soft)] text-[var(--ds-text-3)] hover:text-[var(--ds-text-1)] flex items-center justify-center" title="View submissions" aria-label="View submissions">
+                          <ListChecks size={11} />
+                        </button>
+                        <button onClick={() => setQotdTarget(p)} className="size-7 rounded-[6px] hover:bg-[var(--surface-soft)] text-[var(--ds-text-3)] hover:text-[var(--ds-text-1)] flex items-center justify-center" title="Set as QOTD" aria-label="Set as QOTD">
+                          <CalendarPlus size={11} />
+                        </button>
+                        <button onClick={() => setContestTarget(p)} className="size-7 rounded-[6px] hover:bg-[var(--surface-soft)] text-[var(--ds-text-3)] hover:text-[var(--ds-text-1)] flex items-center justify-center" title="Add to contest" aria-label="Add to contest">
+                          <Trophy size={11} />
+                        </button>
+                        <button onClick={() => duplicateMut.mutate(p)} disabled={duplicateMut.isPending} className="size-7 rounded-[6px] hover:bg-[var(--surface-soft)] text-[var(--ds-text-3)] hover:text-[var(--ds-text-1)] flex items-center justify-center disabled:opacity-50" title="Duplicate" aria-label="Duplicate problem">
+                          {duplicateMut.isPending && duplicateMut.variables?.id === p.id ? <Loader2 size={11} className="animate-spin" /> : <Copy size={11} />}
+                        </button>
+                        <button onClick={() => rejudgeMut.mutate(p.id)} disabled={Boolean(rejudgeJob) || rejudgeMut.isPending} className="size-7 rounded-[6px] hover:bg-[var(--surface-soft)] text-[var(--ds-text-3)] hover:text-[var(--ds-text-1)] flex items-center justify-center disabled:opacity-50" title="Rejudge all submissions" aria-label="Rejudge all submissions">
+                          <RefreshCw size={11} />
+                        </button>
+                        <button onClick={() => navigate(`/dashboard/problems/${p.id}/edit`)} className="size-7 rounded-[6px] hover:bg-[var(--surface-soft)] text-[var(--ds-text-3)] hover:text-[var(--ds-text-1)] flex items-center justify-center" title="Edit problem" aria-label="Edit problem">
+                          <Pencil size={11} />
+                        </button>
+                        <a href={`/dashboard/coding?tab=practice&problem=${p.slug}`} target="_blank" rel="noreferrer" className="size-7 rounded-[6px] hover:bg-[var(--surface-soft)] text-[var(--ds-text-3)] hover:text-[var(--ds-text-1)] flex items-center justify-center" title="Open public page" aria-label="Open public page">
+                          <ExternalLink size={11} />
+                        </a>
+                        <button onClick={() => setDeleting(p)} className="size-7 rounded-[6px] hover:bg-[var(--danger-bg)] text-[var(--ds-text-3)] hover:text-[var(--danger)] flex items-center justify-center" title="Delete problem" aria-label="Delete problem">
+                          <Trash2 size={11} />
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
+        )}
+      </DSCard>
 
-          <div className="flex flex-wrap items-center gap-2">
-            <Button onClick={handleImport} disabled={busy || validCount === 0} className="h-9 bg-amber-500 text-white hover:bg-amber-400">
-              {busy ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : <Save className="mr-1.5 h-4 w-4" />}
-              Import {validCount} problem{validCount === 1 ? '' : 's'}
-            </Button>
-            <Button variant="ghost" size="sm" onClick={() => { setParsed([]); setSummary(null); }} className="h-9">
-              Clear
-            </Button>
-            {summary && (
-              <span className="text-xs text-muted-foreground">
-                Last run: {summary.created} created, {summary.failed} failed.
-              </span>
-            )}
-          </div>
-        </div>
-      )}
-    </section>
-  );
-}
+      {/* Submissions + override dialog */}
+      <Dialog open={Boolean(submissionsTarget)} onOpenChange={(o) => !o && setSubmissionsTarget(null)}>
+        <DialogContent data-dashboard="true" className="bg-[var(--bg-raised)] border-[var(--border-subtle)] max-w-5xl max-h-[88vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Submissions · {submissionsTarget?.title}</DialogTitle>
+          </DialogHeader>
+          {submissionsTarget && token && (
+            <SubmissionsTable problemId={submissionsTarget.id} token={token} />
+          )}
+        </DialogContent>
+      </Dialog>
 
-function CaseEditor({ title, cases, onChange, prefix }: { title: string; cases: ProblemTestCase[]; prefix: string; onChange: (cases: ProblemTestCase[]) => void }) {
-  return (
-    <div className="space-y-3">
-      <div className="flex items-center justify-between">
-        <h3 className="text-sm font-bold uppercase tracking-wide text-gray-600">{title}</h3>
-        <button type="button" onClick={() => onChange([...cases, emptyCase(prefix, cases.length + 1)])} className="inline-flex items-center gap-1 rounded-md border border-gray-200 px-3 py-1.5 text-sm font-semibold text-gray-700 hover:bg-gray-50">
-          <Plus className="h-4 w-4" />
-          Add
-        </button>
-      </div>
-      {cases.map((test, index) => (
-        <div key={`${test.id}-${index}`} className="rounded-md border border-gray-200 bg-white p-3">
-          <div className="mb-2 flex items-center gap-2">
-            <input value={test.id} onChange={(event) => onChange(cases.map((item, itemIndex) => itemIndex === index ? { ...item, id: event.target.value } : item))} className="w-40 rounded border border-gray-200 px-2 py-1 text-sm" />
-            <input value={test.label ?? ''} placeholder="Label" onChange={(event) => onChange(cases.map((item, itemIndex) => itemIndex === index ? { ...item, label: event.target.value } : item))} className="min-w-0 flex-1 rounded border border-gray-200 px-2 py-1 text-sm" />
-            <button type="button" title="Delete case" aria-label={`Delete ${title} case ${index + 1}`} onClick={() => onChange(cases.filter((_, itemIndex) => itemIndex !== index))} className="rounded p-2 text-red-600 hover:bg-red-50">
-              <Trash2 className="h-4 w-4" />
-            </button>
+      {/* Set as QOTD dialog */}
+      <Dialog open={Boolean(qotdTarget)} onOpenChange={(o) => !o && setQotdTarget(null)}>
+        <DialogContent data-dashboard="true" className="bg-[var(--bg-raised)] border-[var(--border-subtle)] max-w-md">
+          <DialogHeader>
+            <DialogTitle>Set as QOTD · {qotdTarget?.title}</DialogTitle>
+          </DialogHeader>
+          <div className="flex flex-col gap-3">
+            <div>
+              <label className="text-[10.5px] uppercase tracking-[0.06em] font-semibold text-[var(--ds-text-3)] block mb-1">Date</label>
+              <Input type="date" value={qotdDate} onChange={(e) => setQotdDate(e.target.value)} />
+            </div>
+            <label className="flex items-center gap-2 text-[13px]">
+              <Switch checked={qotdPublishNow} onCheckedChange={setQotdPublishNow} />
+              Publish immediately
+            </label>
+            <p className="text-[11.5px] text-[var(--ds-text-3)]">
+              If unchecked, the QOTD is created as draft and the publish scheduler picks it up on the chosen date.
+            </p>
           </div>
-          <div className="grid gap-3 md:grid-cols-2">
-            <textarea value={test.input} placeholder="Input" onChange={(event) => onChange(cases.map((item, itemIndex) => itemIndex === index ? { ...item, input: event.target.value } : item))} className="min-h-28 rounded border border-gray-200 p-2 font-mono text-sm" />
-            <textarea value={test.expectedOutput} placeholder="Expected output" onChange={(event) => onChange(cases.map((item, itemIndex) => itemIndex === index ? { ...item, expectedOutput: event.target.value } : item))} className="min-h-28 rounded border border-gray-200 p-2 font-mono text-sm" />
+          <DialogFooter>
+            <Button variant="outline" size="sm" onClick={() => setQotdTarget(null)}>Cancel</Button>
+            <Button size="sm" onClick={() => useAsQotdMut.mutate()} disabled={useAsQotdMut.isPending || !qotdDate}>
+              {useAsQotdMut.isPending && <Loader2 size={13} className="mr-1.5 animate-spin" />}
+              Schedule
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Add to contest dialog */}
+      <Dialog open={Boolean(contestTarget)} onOpenChange={(o) => !o && setContestTarget(null)}>
+        <DialogContent data-dashboard="true" className="bg-[var(--bg-raised)] border-[var(--border-subtle)] max-w-md">
+          <DialogHeader>
+            <DialogTitle>Add to contest · {contestTarget?.title}</DialogTitle>
+          </DialogHeader>
+          <div className="flex flex-col gap-3">
+            <div>
+              <label className="text-[10.5px] uppercase tracking-[0.06em] font-semibold text-[var(--ds-text-3)] block mb-1">Event</label>
+              <select
+                value={contestEventId}
+                onChange={(e) => { setContestEventId(e.target.value); setContestRoundId(''); }}
+                className="h-9 w-full px-3 text-[13.5px] bg-[var(--bg-raised)] border border-[var(--border-default)] rounded-[8px] outline-none focus:border-[var(--accent)]"
+              >
+                <option value="">— pick event —</option>
+                {(eventsQ.data ?? []).map((e) => (
+                  <option key={e.id} value={e.id}>{e.title}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="text-[10.5px] uppercase tracking-[0.06em] font-semibold text-[var(--ds-text-3)] block mb-1">DSA round (DRAFT or LOCKED)</label>
+              <select
+                value={contestRoundId}
+                onChange={(e) => setContestRoundId(e.target.value)}
+                disabled={!contestEventId || contestRoundsQ.isLoading}
+                className="h-9 w-full px-3 text-[13.5px] bg-[var(--bg-raised)] border border-[var(--border-default)] rounded-[8px] outline-none focus:border-[var(--accent)] disabled:opacity-50"
+              >
+                <option value="">— pick round —</option>
+                {eligibleRounds.map((r) => (
+                  <option key={r.id} value={r.id}>{r.title} · {r.status}</option>
+                ))}
+              </select>
+              {contestEventId && eligibleRounds.length === 0 && !contestRoundsQ.isLoading && (
+                <p className="text-[11.5px] text-[var(--ds-text-3)] mt-1">No DRAFT/LOCKED DSA rounds on this event.</p>
+              )}
+            </div>
+            <div>
+              <label className="text-[10.5px] uppercase tracking-[0.06em] font-semibold text-[var(--ds-text-3)] block mb-1">Points</label>
+              <Input
+                type="number"
+                min={1}
+                max={1000}
+                value={contestPoints}
+                onChange={(e) => setContestPoints(Math.max(1, Number(e.target.value) || 100))}
+              />
+            </div>
           </div>
-        </div>
-      ))}
+          <DialogFooter>
+            <Button variant="outline" size="sm" onClick={() => setContestTarget(null)}>Cancel</Button>
+            <Button size="sm" onClick={() => addToContestMut.mutate()} disabled={addToContestMut.isPending || !contestRoundId}>
+              {addToContestMut.isPending && <Loader2 size={13} className="mr-1.5 animate-spin" />}
+              Append
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <AlertDialog open={Boolean(deleting)} onOpenChange={(o) => !o && setDeleting(null)}>
+        <AlertDialogContent data-dashboard="true" className="bg-[var(--bg-raised)] border-[var(--border-subtle)]">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete &ldquo;{deleting?.title}&rdquo;?</AlertDialogTitle>
+            <AlertDialogDescription>This removes the problem permanently. Submissions and counter records will cascade.</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => deleting && deleteMut.mutate(deleting.id)}
+              disabled={deleteMut.isPending}
+              className="bg-[var(--danger)] hover:opacity-90 text-white"
+            >
+              {deleteMut.isPending ? <Loader2 size={13} className="mr-1.5 animate-spin" /> : null}
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
 
-function SubmissionRows({
-  problem,
-  token,
-  contextType,
-  contextKey,
-  onClearFilter,
-}: {
-  problem: Problem;
-  token: string;
-  contextType?: ProblemContextType;
-  contextKey?: string;
-  onClearFilter?: () => void;
-}) {
-  const queryClient = useQueryClient();
-  const hasFilter = Boolean(contextType && contextKey);
-  const submissionsQuery = useQuery({
-    queryKey: ['admin-problem-submissions', problem.id, contextType ?? null, contextKey ?? null],
-    queryFn: () =>
-      api.adminGetProblemSubmissions(
-        problem.id,
-        { limit: hasFilter ? 500 : 50, contextType, contextKey },
+// Submissions table for a single problem with per-row verdict + score override.
+// Restored from HEAD — the admin tool that lets us correct judge mistakes.
+function SubmissionsTable({ problemId, token }: { problemId: string; token: string }) {
+  const qc = useQueryClient();
+  const [scoreTarget, setScoreTarget] = useState<ProblemSubmission | null>(null);
+  const q = useQuery({
+    queryKey: ['admin-problem-submissions', problemId],
+    queryFn: () => api.adminGetProblemSubmissions(problemId, { limit: 200 }, token),
+  });
+  const overrideMut = useMutation({
+    mutationFn: ({ submission, verdict, score }: { submission: ProblemSubmission; verdict?: SubmissionVerdict; score?: number }) =>
+      api.adminOverrideSubmission(
+        problemId,
+        submission.id,
+        { verdict, score, notes: 'Manual override from admin Problems page' },
         token,
       ),
-  });
-
-  const overrideMutation = useMutation({
-    mutationFn: ({ submission, verdict, score }: { submission: ProblemSubmission; verdict?: SubmissionVerdict; score?: number }) =>
-      api.adminOverrideSubmission(problem.id, submission.id, { verdict, score, notes: 'Manual override from admin Problems page' }, token),
-    onSuccess: async () => {
-      toast.success('Submission override saved');
-      // Refresh the submissions list AND the parent problem-list query so the
-      // per-problem submission count / latest-score columns reflect the new
-      // verdict without a manual page refresh.
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ['admin-problem-submissions', problem.id] }),
-        queryClient.invalidateQueries({ queryKey: ['admin-problems'] }),
-      ]);
+    onSuccess: () => {
+      toast.success('Override saved');
+      setScoreTarget(null);
+      qc.invalidateQueries({ queryKey: ['admin-problem-submissions', problemId] });
+      qc.invalidateQueries({ queryKey: ['admin-problems'] });
     },
-    onError: (error) => toast.error(error instanceof Error ? error.message : 'Override failed'),
+    onError: (e: Error) => toast.error(e.message || 'Override failed'),
   });
-
-  if (submissionsQuery.isLoading) return <Loader2 className="h-5 w-5 animate-spin text-blue-600" />;
-  const submissions = submissionsQuery.data?.submissions ?? [];
-
+  if (q.isLoading) return <Loader2 size={16} className="animate-spin text-[var(--ds-text-3)]" />;
+  const subs = q.data?.submissions ?? [];
+  if (subs.length === 0) return <EmptyState title="No submissions yet" />;
   return (
-    <div className="space-y-2">
-      {hasFilter && (
-        <div className="flex items-center justify-between rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
-          <span>
-            Filtering: <strong>{contextType}</strong>
-            {contextKey ? <> · key <strong>{contextKey}</strong></> : null}
-            {' · '}showing up to 500 submissions
-          </span>
-          {onClearFilter && (
-            <button type="button" onClick={onClearFilter} className="font-semibold text-amber-800 hover:underline">
-              Clear filter
-            </button>
-          )}
-        </div>
-      )}
-      <div className="overflow-auto rounded-md border border-gray-200">
-        <table className="w-full min-w-[760px] text-left text-sm">
-        <thead className="bg-gray-50 text-xs uppercase tracking-wide text-gray-500">
+    <div className="overflow-x-auto rounded-[8px] border border-[var(--border-subtle)]">
+      <table className="w-full min-w-[760px] text-[13px]">
+        <thead className="text-left text-[11px] uppercase tracking-[0.06em] text-[var(--ds-text-3)] font-semibold bg-[var(--surface-soft)]/40">
           <tr>
-            <th className="px-3 py-2">User</th>
-            <th className="px-3 py-2">Context</th>
-            <th className="px-3 py-2">Verdict</th>
-            <th className="px-3 py-2">Score</th>
-            <th className="px-3 py-2">Updated</th>
-            <th className="px-3 py-2">Override</th>
+            <th className="px-3 py-2.5">User</th>
+            <th className="px-3 py-2.5">Context</th>
+            <th className="px-3 py-2.5">Verdict</th>
+            <th className="px-3 py-2.5">Score</th>
+            <th className="px-3 py-2.5">Updated</th>
+            <th className="px-3 py-2.5">Override</th>
           </tr>
         </thead>
-        <tbody className="divide-y divide-gray-100">
-          {submissions.map((submission) => (
-            <tr key={submission.id}>
-              <td className="px-3 py-2 font-medium text-gray-900">{submission.user?.name ?? submission.userId}</td>
-              <td className="px-3 py-2 text-gray-600">{submission.contextType}</td>
-              <td className="px-3 py-2">{submission.verdict}</td>
-              <td className="px-3 py-2">{submission.score}</td>
-              <td className="px-3 py-2 text-gray-500">{new Date(submission.updatedAt).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })}</td>
-              <td className="px-3 py-2">
-                <div className="flex flex-wrap gap-2">
+        <tbody>
+          {subs.map((s) => (
+            <tr key={s.id} className="border-t border-[var(--border-subtle)]">
+              <td className="px-3 py-2.5 font-medium">{s.user?.name ?? s.userId.slice(0, 8)}</td>
+              <td className="px-3 py-2.5 text-[var(--ds-text-3)] font-mono text-[11.5px]">
+                {s.contextType}
+                {s.contextKey ? ` · ${s.contextKey.slice(0, 8)}` : ''}
+              </td>
+              <td className="px-3 py-2.5"><Pill tone={verdictTone(s.verdict)} size="xs">{s.verdict}</Pill></td>
+              <td className="px-3 py-2.5 font-mono tabular-nums">{s.score}</td>
+              <td className="px-3 py-2.5 text-[var(--ds-text-3)] text-[11.5px]">
+                {new Date(s.updatedAt).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })}
+              </td>
+              <td className="px-3 py-2.5">
+                <div className="flex flex-wrap items-center gap-1.5">
                   <select
                     defaultValue=""
-                    onChange={(event) => {
-                      if (event.target.value) overrideMutation.mutate({ submission, verdict: event.target.value as SubmissionVerdict });
+                    onChange={(e) => {
+                      if (e.target.value) overrideMut.mutate({ submission: s, verdict: e.target.value as SubmissionVerdict });
+                      e.currentTarget.value = '';
                     }}
-                    className="rounded border border-gray-200 px-2 py-1 text-xs"
+                    className="h-7 px-1.5 text-[11.5px] bg-[var(--bg-raised)] border border-[var(--border-default)] rounded-[6px] outline-none focus:border-[var(--accent)]"
                   >
-                    <option value="">Verdict</option>
-                    {VERDICTS.map((verdict) => <option key={verdict} value={verdict}>{verdict}</option>)}
+                    <option value="">Verdict…</option>
+                    {VERDICTS.map((v) => <option key={v} value={v}>{v}</option>)}
                   </select>
                   <button
                     type="button"
-                    onClick={() => {
-                      const value = window.prompt('Override score 0-100', String(submission.score));
-                      if (value !== null) overrideMutation.mutate({ submission, score: Number(value) });
-                    }}
-                    className="rounded border border-gray-200 px-2 py-1 text-xs font-semibold hover:bg-gray-50"
+                    onClick={() => setScoreTarget(s)}
+                    className="h-7 px-2 text-[11.5px] font-semibold bg-[var(--bg-raised)] border border-[var(--border-default)] rounded-[6px] hover:bg-[var(--surface-soft)]"
                   >
                     Score
                   </button>
@@ -585,570 +622,27 @@ function SubmissionRows({
               </td>
             </tr>
           ))}
-          {submissions.length === 0 && (
-            <tr><td colSpan={6} className="px-3 py-8 text-center text-gray-500">No submissions yet.</td></tr>
-          )}
         </tbody>
       </table>
-      </div>
-    </div>
-  );
-}
-
-export default function AdminProblems() {
-  const { token } = useAuth();
-  const queryClient = useQueryClient();
-  const [searchParams, setSearchParams] = useSearchParams();
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [form, setForm] = useState<ProblemInput>(blankProblem);
-  const [tagText, setTagText] = useState('');
-  const [expandedSubmissions, setExpandedSubmissions] = useState<string | null>(null);
-  const [job, setJob] = useState<{ problemId: string; jobId: string } | null>(null);
-  const [deleteTarget, setDeleteTarget] = useState<Problem | null>(null);
-  const [qotdTarget, setQotdTarget] = useState<Problem | null>(null);
-  const [qotdDate, setQotdDate] = useState<string>(() => new Date(Date.now() + 330 * 60 * 1000).toISOString().slice(0, 10));
-  const [qotdPublishNow, setQotdPublishNow] = useState(true);
-  const [contestTarget, setContestTarget] = useState<Problem | null>(null);
-  const [contestEventId, setContestEventId] = useState<string>('');
-  const [contestRoundId, setContestRoundId] = useState<string>('');
-  const [contestPoints, setContestPoints] = useState<number>(100);
-
-  const problemsQuery = useQuery({
-    queryKey: ['admin-problems'],
-    queryFn: () => api.adminGetProblems(token!),
-    enabled: Boolean(token),
-  });
-
-  const jobQuery = useQuery({
-    queryKey: ['problem-rejudge', job?.problemId, job?.jobId],
-    queryFn: () => api.adminRejudgeStatus(job!.problemId, job!.jobId, token!),
-    enabled: Boolean(token && job),
-    refetchInterval: (query) => query.state.data?.status === 'complete' || query.state.data?.status === 'failed' ? false : 1500,
-  });
-
-  useEffect(() => {
-    setTagText(form.tags.join(', '));
-    // Re-sync only when switching between problems; adding form.tags would
-    // overwrite the textbox on every keystroke.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [editingId]);
-
-  const saveMutation = useMutation({
-    mutationFn: async ({ rejudge }: { rejudge: boolean }) => {
-      const input = { ...form, tags: tagText.split(',').map((tag) => tag.trim()).filter(Boolean) };
-      const response = editingId
-        ? await api.updateProblem(editingId, input, rejudge ? 'auto' : 'manual', token!)
-        : await api.createProblem(input, token!);
-      if (rejudge) {
-        const queued = await api.adminRejudgeProblem(response.problem.id, undefined, token!);
-        setJob({ problemId: response.problem.id, jobId: queued.jobId });
-      }
-      return response;
-    },
-    onSuccess: async () => {
-      toast.success('Problem saved');
-      await queryClient.invalidateQueries({ queryKey: ['admin-problems'] });
-    },
-    onError: (error) => toast.error(error instanceof Error ? error.message : 'Failed to save problem'),
-  });
-
-  const deleteMutation = useMutation({
-    mutationFn: (problemId: string) => api.deleteProblem(problemId, token!),
-    onSuccess: async () => {
-      toast.success('Problem deleted');
-      setDeleteTarget(null);
-      await queryClient.invalidateQueries({ queryKey: ['admin-problems'] });
-    },
-    onError: (error) => toast.error(error instanceof Error ? error.message : 'Failed to delete problem'),
-  });
-
-  const togglePublishMutation = useMutation({
-    mutationFn: ({ id, isPublished }: { id: string; isPublished: boolean }) =>
-      api.setProblemPublished(id, isPublished, token!),
-    onSuccess: async (_data, variables) => {
-      toast.success(variables.isPublished ? 'Published to practice' : 'Unpublished from practice');
-      await queryClient.invalidateQueries({ queryKey: ['admin-problems'] });
-    },
-    onError: (error) => toast.error(error instanceof Error ? error.message : 'Failed to update publish state'),
-  });
-
-  const duplicateMutation = useMutation({
-    mutationFn: async (problem: Problem) => {
-      const detail = await api.getProblem(problem.id, { token: token! });
-      const source = detail.problem;
-      const baseSlug = (source.slug || 'problem').slice(0, 100);
-      const newSlug = `${baseSlug}-copy-${Date.now().toString(36).slice(-5)}`;
-      const input: ProblemInput = {
-        slug: newSlug,
-        title: `${source.title} (copy)`,
-        body: source.body ?? '',
-        difficulty: source.difficulty,
-        tags: source.tags ?? [],
-        allowedLanguages: source.allowedLanguages,
-        timeLimitMs: source.timeLimitMs ?? 2000,
-        defaultSubmitCap: source.defaultSubmitCap ?? 5,
-        sampleTests: source.sampleTests ?? [],
-        hiddenTests: source.hiddenTests ?? [],
-        referenceSolution: source.referenceSolution ?? '',
-        referenceLanguage: source.referenceLanguage,
-        isPublished: false,
-      };
-      return api.createProblem(input, token!);
-    },
-    onSuccess: async () => {
-      toast.success('Problem duplicated (as unpublished draft)');
-      await queryClient.invalidateQueries({ queryKey: ['admin-problems'] });
-    },
-    onError: (error) => toast.error(error instanceof Error ? error.message : 'Failed to duplicate problem'),
-  });
-
-  const useAsQotdMutation = useMutation({
-    mutationFn: async ({ problemId, date, publishNow }: { problemId: string; date: string; publishNow: boolean }) =>
-      api.createQOTD({ date, problemId, publishNow }, token!),
-    onSuccess: async () => {
-      toast.success(qotdPublishNow ? 'QOTD scheduled and published' : 'QOTD scheduled as draft');
-      setQotdTarget(null);
-    },
-    onError: (error) => toast.error(error instanceof Error ? error.message : 'Failed to create QOTD'),
-  });
-
-  const eventsQuery = useQuery({
-    queryKey: ['admin-events-for-contest-picker'],
-    queryFn: () => api.getEvents(),
-    enabled: Boolean(contestTarget),
-    staleTime: 30_000,
-  });
-
-  const contestRoundsQuery = useQuery({
-    queryKey: ['admin-contest-rounds', contestEventId],
-    queryFn: () => api.getCompetitionRoundsAdmin(contestEventId, token!),
-    enabled: Boolean(contestTarget && contestEventId && token),
-  });
-
-  const eligibleContestRounds = useMemo<CompetitionRound[]>(() => {
-    const rounds = contestRoundsQuery.data?.rounds ?? [];
-    return rounds.filter((round) => round.roundType === 'DSA' && (round.status === 'DRAFT' || round.status === 'LOCKED'));
-  }, [contestRoundsQuery.data?.rounds]);
-
-  const addToContestMutation = useMutation({
-    mutationFn: async ({ roundId, problemId, points }: { roundId: string; problemId: string; points: number }) => {
-      const round = await api.getCompetitionRound(roundId, token!);
-      const existing = (round.problems ?? []).map((link, index) => ({
-        problemId: link.problemId ?? link.problem?.id ?? '',
-        displayOrder: link.displayOrder ?? index,
-        points: link.points ?? 100,
-      })).filter((entry) => entry.problemId);
-      if (existing.some((entry) => entry.problemId === problemId)) {
-        throw new Error('This problem is already part of the selected round.');
-      }
-      const nextProblems = [
-        ...existing,
-        { problemId, displayOrder: existing.length, points },
-      ];
-      return api.updateCompetitionRound(roundId, { problems: nextProblems }, token!);
-    },
-    onSuccess: async () => {
-      toast.success('Problem added to contest round');
-      setContestTarget(null);
-      setContestEventId('');
-      setContestRoundId('');
-      setContestPoints(100);
-      await queryClient.invalidateQueries({ queryKey: ['admin-contest-rounds'] });
-    },
-    onError: (error) => toast.error(error instanceof Error ? error.message : 'Failed to add to contest'),
-  });
-
-  const editProblem = async (problem: Problem) => {
-    if (!token) return;
-    const detail = await api.getProblem(problem.id, { token });
-    setEditingId(problem.id);
-    setForm(toInput(detail.problem));
-    setTagText((detail.problem.tags ?? []).join(', '));
-    window.scrollTo({ top: 0, behavior: 'smooth' });
-  };
-
-  // Deep-link support: ?problemId=<id> auto-opens that problem in the editor.
-  const deepLinkProblemId = searchParams.get('problemId');
-  useEffect(() => {
-    if (!deepLinkProblemId || !token) return;
-    if (editingId === deepLinkProblemId) return;
-    let cancelled = false;
-    (async () => {
-      try {
-        const detail = await api.getProblem(deepLinkProblemId, { token });
-        if (cancelled) return;
-        setEditingId(detail.problem.id);
-        setForm(toInput(detail.problem));
-        setTagText((detail.problem.tags ?? []).join(', '));
-        window.scrollTo({ top: 0, behavior: 'smooth' });
-        // Strip the query param once consumed so refresh doesn't re-trigger.
-        const next = new URLSearchParams(searchParams);
-        next.delete('problemId');
-        setSearchParams(next, { replace: true });
-      } catch (err) {
-        toast.error(err instanceof Error ? err.message : 'Failed to open problem');
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [deepLinkProblemId, token, editingId, searchParams, setSearchParams]);
-
-  // Deep-link support: ?submissionsFor=<id>&contextType=<X>&contextKey=<Y>
-  // auto-expands that problem's submissions panel with the context filter.
-  const submissionsFor = searchParams.get('submissionsFor');
-  const submissionsContextType = searchParams.get('contextType') as ProblemContextType | null;
-  const submissionsContextKey = searchParams.get('contextKey');
-  useEffect(() => {
-    if (submissionsFor) setExpandedSubmissions(submissionsFor);
-  }, [submissionsFor]);
-  const clearSubmissionsFilter = useCallback(() => {
-    const next = new URLSearchParams(searchParams);
-    next.delete('submissionsFor');
-    next.delete('contextType');
-    next.delete('contextKey');
-    setSearchParams(next, { replace: true });
-  }, [searchParams, setSearchParams]);
-
-  const problems = problemsQuery.data?.problems ?? [];
-  const languageOptions = useMemo(() => new Set(form.allowedLanguages), [form.allowedLanguages]);
-
-  return (
-    <div className="space-y-6">
-      <PendingCapRequestsTray title="Pending submit-cap requests" />
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Problems</h1>
-          <p className="text-gray-600">Catalog, tests, submissions, rejudge, and manual overrides.</p>
-        </div>
-        <button type="button" onClick={() => { setEditingId(null); setForm(blankProblem); setTagText(''); }} className="inline-flex items-center gap-2 rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white">
-          <Plus className="h-4 w-4" />
-          New Problem
-        </button>
-      </div>
-
-      <section className="rounded-lg border border-gray-200 bg-white p-5">
-        <div className="mb-4 flex items-center justify-between">
-          <h2 className="text-lg font-bold text-gray-900">{editingId ? 'Edit Problem' : 'New Problem'}</h2>
-          {jobQuery.data && (
-            <span className="rounded-full bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-700">
-              Rejudge {jobQuery.data.status}: {jobQuery.data.processed}/{jobQuery.data.total}
-            </span>
-          )}
-        </div>
-        <div className="grid gap-4 lg:grid-cols-2">
-          <div className="space-y-4">
-            <input value={form.title} onChange={(event) => setForm((prev) => ({ ...prev, title: event.target.value, slug: prev.slug || slugify(event.target.value) }))} placeholder="Title" className="w-full rounded-md border border-gray-200 px-3 py-2" />
-            <input value={form.slug} onChange={(event) => setForm((prev) => ({ ...prev, slug: slugify(event.target.value) }))} placeholder="slug" className="w-full rounded-md border border-gray-200 px-3 py-2" />
-            <div className="grid gap-3 md:grid-cols-3">
-              <select value={form.difficulty} onChange={(event) => setForm((prev) => ({ ...prev, difficulty: event.target.value as ProblemInput['difficulty'] }))} className="rounded-md border border-gray-200 px-3 py-2">
-                <option value="EASY">Easy</option>
-                <option value="MEDIUM">Medium</option>
-                <option value="HARD">Hard</option>
-              </select>
-              <input type="number" min={500} max={10000} value={form.timeLimitMs} onChange={(event) => setForm((prev) => ({ ...prev, timeLimitMs: Number(event.target.value) }))} className="rounded-md border border-gray-200 px-3 py-2" />
-              <input type="number" min={1} max={100} value={form.defaultSubmitCap} onChange={(event) => setForm((prev) => ({ ...prev, defaultSubmitCap: Number(event.target.value) }))} className="rounded-md border border-gray-200 px-3 py-2" />
-            </div>
-            <input value={tagText} onChange={(event) => setTagText(event.target.value)} placeholder="tags, comma separated" className="w-full rounded-md border border-gray-200 px-3 py-2" />
-            <div className="flex flex-wrap gap-3">
-              {LANGUAGES.map((language) => (
-                <label key={language} className="inline-flex items-center gap-2 rounded-md border border-gray-200 px-3 py-2 text-sm font-semibold">
-                  <input
-                    type="checkbox"
-                    checked={languageOptions.has(language)}
-                    onChange={(event) => setForm((prev) => ({
-                      ...prev,
-                      allowedLanguages: event.target.checked
-                        ? [...prev.allowedLanguages, language]
-                        : prev.allowedLanguages.filter((item) => item !== language),
-                    }))}
-                  />
-                  {language}
-                </label>
-              ))}
-            </div>
-            <label className="inline-flex items-center gap-2 text-sm font-semibold text-gray-700">
-              <input type="checkbox" checked={form.isPublished} onChange={(event) => setForm((prev) => ({ ...prev, isPublished: event.target.checked }))} />
-              Published
-            </label>
-            <p className="text-xs text-gray-500">
-              Unpublished problems will not appear in QOTD or competition pickers.
-            </p>
-            <textarea value={form.body} onChange={(event) => setForm((prev) => ({ ...prev, body: event.target.value }))} className="min-h-80 w-full rounded-md border border-gray-200 p-3 font-mono text-sm" />
-          </div>
-          <div className="rounded-md border border-gray-200 bg-gray-50 p-4">
-            <Markdown>{form.body}</Markdown>
-          </div>
-        </div>
-        <div className="mt-5 grid gap-5 lg:grid-cols-2">
-          <CaseEditor title="Sample Tests" prefix="sample" cases={form.sampleTests} onChange={(sampleTests) => setForm((prev) => ({ ...prev, sampleTests }))} />
-          <CaseEditor title="Hidden Tests" prefix="hidden" cases={form.hiddenTests} onChange={(hiddenTests) => setForm((prev) => ({ ...prev, hiddenTests }))} />
-        </div>
-        <div className="mt-5 grid gap-3 lg:grid-cols-[220px_1fr]">
-          <select value={form.referenceLanguage ?? form.allowedLanguages[0]} onChange={(event) => setForm((prev) => ({ ...prev, referenceLanguage: event.target.value as ProblemLanguage }))} className="rounded-md border border-gray-200 px-3 py-2">
-            {LANGUAGES.map((language) => <option key={language} value={language}>{language}</option>)}
-          </select>
-          <textarea value={form.referenceSolution ?? ''} onChange={(event) => setForm((prev) => ({ ...prev, referenceSolution: event.target.value }))} placeholder="Reference solution" className="min-h-40 rounded-md border border-gray-200 p-3 font-mono text-sm" />
-        </div>
-        <div className="mt-5 flex flex-wrap gap-3">
-          <button type="button" disabled={saveMutation.isPending} onClick={() => saveMutation.mutate({ rejudge: false })} className="inline-flex items-center gap-2 rounded-md bg-gray-900 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">
-            <Save className="h-4 w-4" />
-            Save without re-run
-          </button>
-          <button type="button" disabled={saveMutation.isPending} onClick={() => saveMutation.mutate({ rejudge: true })} className="inline-flex items-center gap-2 rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white disabled:opacity-50">
-            <PlayCircle className="h-4 w-4" />
-            Save & re-run all submissions
-          </button>
-        </div>
-      </section>
-
-      {token && (
-        <BulkImportCard
-          token={token}
-          onImported={() => queryClient.invalidateQueries({ queryKey: ['admin-problems'] })}
-        />
-      )}
-
-      <section className="rounded-lg border border-gray-200 bg-white">
-        <div className="flex items-center justify-between border-b border-gray-100 px-5 py-4">
-          <h2 className="text-lg font-bold text-gray-900">Catalog</h2>
-          {problemsQuery.isLoading && <Loader2 className="h-5 w-5 animate-spin text-blue-600" />}
-        </div>
-        <div className="overflow-auto">
-          <table className="w-full min-w-[900px] text-left text-sm">
-            <thead className="bg-gray-50 text-xs uppercase tracking-wide text-gray-500">
-              <tr>
-                <th className="px-4 py-3">Problem</th>
-                <th className="px-4 py-3">Difficulty</th>
-                <th className="px-4 py-3">Languages</th>
-                <th className="px-4 py-3">Submissions</th>
-                <th className="px-4 py-3">Published</th>
-                <th className="px-4 py-3">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-100">
-              {problems.map((problem) => (
-                <tr key={problem.id}>
-                  <td className="px-4 py-3">
-                    <div className="font-semibold text-gray-900">{problem.title}</div>
-                    <div className="text-xs text-gray-500">{problem.slug}</div>
-                  </td>
-                  <td className="px-4 py-3">{problem.difficulty}</td>
-                  <td className="px-4 py-3">{problem.allowedLanguages.join(', ')}</td>
-                  <td className="px-4 py-3">{problem.submissionCount ?? 0}</td>
-                  <td className="px-4 py-3">{problem.isPublished ? 'Yes' : 'No'}</td>
-                  <td className="px-4 py-3">
-                    <div className="flex flex-wrap gap-2">
-                      <button type="button" aria-label={`Edit ${problem.title}`} title="Edit" onClick={() => void editProblem(problem)} className="rounded p-2 text-blue-700 hover:bg-blue-50"><Edit3 className="h-4 w-4" /></button>
-                      <button type="button" aria-label={`View submissions for ${problem.title}`} title="View submissions" onClick={() => setExpandedSubmissions(expandedSubmissions === problem.id ? null : problem.id)} className="rounded p-2 text-gray-700 hover:bg-gray-50"><RefreshCcw className="h-4 w-4" /></button>
-                      <button
-                        type="button"
-                        aria-label={problem.isPublished ? `Unpublish ${problem.title}` : `Publish ${problem.title} to practice`}
-                        title={problem.isPublished ? 'Unpublish from practice' : 'Publish to practice'}
-                        disabled={togglePublishMutation.isPending}
-                        onClick={() => togglePublishMutation.mutate({ id: problem.id, isPublished: !problem.isPublished })}
-                        className={problem.isPublished ? 'rounded p-2 text-emerald-700 hover:bg-emerald-50' : 'rounded p-2 text-gray-500 hover:bg-gray-50'}
-                      >
-                        {problem.isPublished ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
-                      </button>
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <button type="button" aria-label={`More actions for ${problem.title}`} title="More actions" className="rounded p-2 text-gray-700 hover:bg-gray-50">
-                            <MoreHorizontal className="h-4 w-4" />
-                          </button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end" className="w-56">
-                          <DropdownMenuLabel>Use this problem</DropdownMenuLabel>
-                          <DropdownMenuItem
-                            onSelect={() => {
-                              setQotdDate(new Date(Date.now() + 330 * 60 * 1000).toISOString().slice(0, 10));
-                              setQotdPublishNow(true);
-                              setQotdTarget(problem);
-                            }}
-                          >
-                            <CalendarPlus className="mr-2 h-4 w-4" /> Use as QOTD…
-                          </DropdownMenuItem>
-                          <DropdownMenuItem
-                            onSelect={() => {
-                              setContestEventId('');
-                              setContestRoundId('');
-                              setContestPoints(100);
-                              setContestTarget(problem);
-                            }}
-                          >
-                            <Trophy className="mr-2 h-4 w-4" /> Add to Contest…
-                          </DropdownMenuItem>
-                          <DropdownMenuSeparator />
-                          <DropdownMenuLabel>Manage</DropdownMenuLabel>
-                          <DropdownMenuItem
-                            onSelect={() => duplicateMutation.mutate(problem)}
-                            disabled={duplicateMutation.isPending}
-                          >
-                            <Copy className="mr-2 h-4 w-4" /> Duplicate as draft
-                          </DropdownMenuItem>
-                          <DropdownMenuItem asChild>
-                            <a
-                              href={getPlaygroundLaunchUrl(`/?problem=${encodeURIComponent(problem.slug)}`)}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                            >
-                              <PlayCircle className="mr-2 h-4 w-4" /> Open in Playground
-                            </a>
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
-                      <button type="button" aria-label={`Delete ${problem.title}`} title="Delete" onClick={() => setDeleteTarget(problem)} className="rounded p-2 text-red-700 hover:bg-red-50"><Trash2 className="h-4 w-4" /></button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
-              {problems.length === 0 && (
-                <tr><td colSpan={6} className="px-4 py-10 text-center text-gray-500">No problems created yet.</td></tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-        {expandedSubmissions && token && problems.find((p) => p.id === expandedSubmissions) && (
-          <div className="border-t border-gray-100 p-5">
-            <SubmissionRows
-              problem={problems.find((problem) => problem.id === expandedSubmissions)!}
-              token={token}
-              contextType={submissionsFor === expandedSubmissions && submissionsContextType ? submissionsContextType : undefined}
-              contextKey={submissionsFor === expandedSubmissions && submissionsContextKey ? submissionsContextKey : undefined}
-              onClearFilter={submissionsFor === expandedSubmissions ? clearSubmissionsFilter : undefined}
-            />
-          </div>
-        )}
-      </section>
-
-      <DeleteProblemDialog
-        target={deleteTarget}
-        onCancel={() => setDeleteTarget(null)}
-        onConfirm={(id) => deleteMutation.mutate(id)}
-        pending={deleteMutation.isPending}
+      <NumericPromptDialog
+        open={Boolean(scoreTarget)}
+        onOpenChange={(o) => !o && setScoreTarget(null)}
+        title="Override submission score"
+        description={scoreTarget ? `${scoreTarget.user?.name ?? scoreTarget.userId.slice(0, 8)} · ${scoreTarget.verdict}` : undefined}
+        label="Score"
+        defaultValue={scoreTarget?.score ?? 0}
+        min={0}
+        max={100}
+        confirmLabel="Save override"
+        pending={overrideMut.isPending}
+        onCommit={(value) => {
+          if (!scoreTarget) return;
+          overrideMut.mutate({ submission: scoreTarget, score: Math.max(0, Math.min(100, Math.round(value))) });
+        }}
       />
-
-      <Dialog open={Boolean(qotdTarget)} onOpenChange={(open) => { if (!open) setQotdTarget(null); }}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Use as QOTD</DialogTitle>
-            <DialogDescription>
-              {qotdTarget ? `Schedule "${qotdTarget.title}" as the Question of the Day for a chosen date.` : ''}
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4 py-2">
-            <div className="space-y-1.5">
-              <label htmlFor="qotd-date-picker" className="text-sm font-medium text-gray-700">Date (IST)</label>
-              <input
-                id="qotd-date-picker"
-                type="date"
-                value={qotdDate}
-                onChange={(event) => setQotdDate(event.target.value)}
-                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
-              />
-              <p className="text-xs text-gray-500">Each date can have only one QOTD. Choosing a past date is allowed for backfills.</p>
-            </div>
-            <label className="flex items-center gap-2 text-sm text-gray-700">
-              <input
-                type="checkbox"
-                checked={qotdPublishNow}
-                onChange={(event) => setQotdPublishNow(event.target.checked)}
-              />
-              Publish immediately (otherwise saved as scheduled draft)
-            </label>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setQotdTarget(null)}>Cancel</Button>
-            <Button
-              disabled={useAsQotdMutation.isPending || !qotdDate}
-              onClick={() => {
-                if (!qotdTarget || !qotdDate) return;
-                useAsQotdMutation.mutate({ problemId: qotdTarget.id, date: qotdDate, publishNow: qotdPublishNow });
-              }}
-            >
-              {useAsQotdMutation.isPending ? (<><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Scheduling…</>) : 'Schedule QOTD'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      <Dialog open={Boolean(contestTarget)} onOpenChange={(open) => { if (!open) { setContestTarget(null); setContestEventId(''); setContestRoundId(''); } }}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Add to Contest Round</DialogTitle>
-            <DialogDescription>
-              {contestTarget ? `Append "${contestTarget.title}" to a DSA contest round that isn't currently running.` : ''}
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4 py-2">
-            <div className="space-y-1.5">
-              <label htmlFor="contest-event-picker" className="text-sm font-medium text-gray-700">Event</label>
-              <select
-                id="contest-event-picker"
-                value={contestEventId}
-                onChange={(event) => { setContestEventId(event.target.value); setContestRoundId(''); }}
-                className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
-                disabled={eventsQuery.isLoading}
-              >
-                <option value="">{eventsQuery.isLoading ? 'Loading events…' : 'Select an event…'}</option>
-                {(eventsQuery.data ?? []).map((event: ApiEvent) => (
-                  <option key={event.id} value={event.id}>{event.title}</option>
-                ))}
-              </select>
-            </div>
-            {contestEventId && (
-              <div className="space-y-1.5">
-                <label htmlFor="contest-round-picker" className="text-sm font-medium text-gray-700">DSA round</label>
-                <select
-                  id="contest-round-picker"
-                  value={contestRoundId}
-                  onChange={(event) => setContestRoundId(event.target.value)}
-                  className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
-                  disabled={contestRoundsQuery.isLoading}
-                >
-                  <option value="">
-                    {contestRoundsQuery.isLoading
-                      ? 'Loading rounds…'
-                      : eligibleContestRounds.length === 0
-                        ? 'No editable DSA rounds on this event'
-                        : 'Select a round…'}
-                  </option>
-                  {eligibleContestRounds.map((round) => (
-                    <option key={round.id} value={round.id}>{round.title} ({round.status})</option>
-                  ))}
-                </select>
-                <p className="text-xs text-gray-500">Only DSA rounds in DRAFT or LOCKED status are listed — ACTIVE/JUDGING/FINISHED rounds cannot be edited.</p>
-              </div>
-            )}
-            {contestRoundId && (
-              <div className="space-y-1.5">
-                <label htmlFor="contest-points" className="text-sm font-medium text-gray-700">Points</label>
-                <input
-                  id="contest-points"
-                  type="number"
-                  min={1}
-                  max={1000}
-                  value={contestPoints}
-                  onChange={(event) => setContestPoints(Math.max(1, Math.min(1000, Number(event.target.value) || 100)))}
-                  className="w-full rounded-md border border-gray-300 px-3 py-2 text-sm"
-                />
-              </div>
-            )}
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => { setContestTarget(null); setContestEventId(''); setContestRoundId(''); }}>Cancel</Button>
-            <Button
-              disabled={addToContestMutation.isPending || !contestRoundId}
-              onClick={() => {
-                if (!contestTarget || !contestRoundId) return;
-                addToContestMutation.mutate({ roundId: contestRoundId, problemId: contestTarget.id, points: contestPoints });
-              }}
-            >
-              {addToContestMutation.isPending ? (<><Loader2 className="mr-2 h-4 w-4 animate-spin" /> Adding…</>) : 'Add to Round'}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }
+
+// silence unused
+void MoreHorizontal;

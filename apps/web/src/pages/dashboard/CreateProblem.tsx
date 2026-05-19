@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { toast } from 'sonner';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -11,6 +11,7 @@ import { Badge } from '@/components/ui/badge';
 import { Markdown } from '@/components/ui/markdown';
 import { useAuth } from '@/context/AuthContext';
 import { api, type ProblemInput, type ProblemLanguage, type ProblemTestCase } from '@/lib/api';
+import { useUnsavedChangesWarning } from '@/hooks/useUnsavedChangesWarning';
 import { ArrowLeft, ArrowRight, BookOpen, Check, FileCode2, Loader2, Plus, Save, Trash2 } from 'lucide-react';
 
 const LANGUAGES: ProblemLanguage[] = ['PYTHON', 'JAVASCRIPT', 'CPP', 'JAVA'];
@@ -94,7 +95,7 @@ function CaseList({
         {cases.map((test, index) => (
           <li key={`${test.id}-${index}`} className="rounded-md border border-border bg-card p-3">
             <div className="mb-3 flex flex-wrap items-center gap-2">
-              <span className="rounded-md bg-amber-50 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-amber-700 dark:bg-amber-500/10 dark:text-amber-300">
+              <span className="rounded-md bg-[var(--warning-bg)] px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-[var(--warning)] dark:bg-amber-500/10 dark:text-amber-300">
                 #{index + 1}
               </span>
               <Input
@@ -151,6 +152,10 @@ export default function CreateProblem() {
   const { token, user } = useAuth();
   const navigate = useNavigate();
   const { id: editingId } = useParams();
+  // E10 — when CreateQOTD redirected here with ?qotd=1, hand the new problem back to
+  // /dashboard/qotd?problemId=<id> after save so the admin can schedule with one click.
+  const [createSearchParams] = useSearchParams();
+  const qotdHandoff = createSearchParams.get('qotd') === '1';
   const isAdmin = user?.role === 'ADMIN' || user?.role === 'PRESIDENT' || user?.isSuperAdmin === true;
 
   const [step, setStep] = useState<Step>('basics');
@@ -158,6 +163,18 @@ export default function CreateProblem() {
   const [tagsText, setTagsText] = useState('');
   const [loading, setLoading] = useState(Boolean(editingId));
   const [saving, setSaving] = useState(false);
+  const [isDirty, setIsDirty] = useState(false);
+  const skipDirtyRef = useRef(true);
+
+  useUnsavedChangesWarning(isDirty && !saving);
+
+  useEffect(() => {
+    if (skipDirtyRef.current) {
+      skipDirtyRef.current = false;
+      return;
+    }
+    setIsDirty(true);
+  }, [form, tagsText]);
 
   useEffect(() => {
     if (!editingId || !token) return;
@@ -167,6 +184,7 @@ export default function CreateProblem() {
         const detail = await api.getProblem(editingId, { token });
         if (cancelled) return;
         const problem = detail.problem;
+        skipDirtyRef.current = true;
         setForm({
           slug: problem.slug,
           title: problem.title,
@@ -182,6 +200,7 @@ export default function CreateProblem() {
           referenceLanguage: problem.referenceLanguage ?? problem.allowedLanguages?.[0] ?? 'PYTHON',
           isPublished: problem.isPublished,
         });
+        skipDirtyRef.current = true;
         setTagsText((problem.tags ?? []).join(', '));
       } catch (err) {
         toast.error(err instanceof Error ? err.message : 'Failed to load problem');
@@ -264,9 +283,16 @@ export default function CreateProblem() {
         const response = await api.createProblem(payload, token);
         toast.success(isAdmin && form.isPublished ? 'Problem created and published' : 'Problem saved — admins will review before publishing');
         if (response.problem?.id) {
-          navigate(`/dashboard/problems/${response.problem.id}/edit`, { replace: true });
+          // If we came from CreateQOTD via ?qotd=1, bounce back so the admin can finish
+          // scheduling. Otherwise stay on the edit page for further iteration.
+          if (qotdHandoff) {
+            navigate(`/dashboard/qotd?problemId=${response.problem.id}`, { replace: true });
+          } else {
+            navigate(`/dashboard/problems/${response.problem.id}/edit`, { replace: true });
+          }
         }
       }
+      setIsDirty(false);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Failed to save problem');
     } finally {
@@ -287,7 +313,7 @@ export default function CreateProblem() {
       <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.25 }}>
         <div className="flex flex-wrap items-end justify-between gap-3">
           <div>
-            <Badge variant="outline" className="mb-2 border-amber-400/40 bg-amber-50 text-amber-700 dark:bg-amber-500/10 dark:text-amber-300">
+            <Badge variant="outline" className="mb-2 border-amber-400/40 bg-[var(--warning-bg)] text-[var(--warning)] dark:bg-amber-500/10 dark:text-amber-300">
               <FileCode2 className="mr-1 h-3 w-3" />
               {editingId ? 'Edit problem' : 'Create problem'}
             </Badge>
@@ -316,7 +342,7 @@ export default function CreateProblem() {
                 type="button"
                 onClick={() => reachable && setStep(entry.id)}
                 className={`rounded-md border px-3 py-2 text-left transition ${active
-                    ? 'border-amber-400/60 bg-amber-400/10 text-amber-700 dark:text-amber-300'
+                    ? 'border-amber-400/60 bg-amber-400/10 text-[var(--warning)] dark:text-amber-300'
                     : reachable
                       ? 'border-border bg-card hover:border-amber-400/40 hover:bg-amber-400/5'
                       : 'cursor-not-allowed border-border bg-muted/40 opacity-70'
@@ -432,7 +458,7 @@ export default function CreateProblem() {
                         }))
                       }
                       className={`rounded-md border px-3 py-1.5 text-xs font-semibold transition ${active
-                          ? 'border-amber-400 bg-amber-400/10 text-amber-700 dark:text-amber-300'
+                          ? 'border-amber-400 bg-amber-400/10 text-[var(--warning)] dark:text-amber-300'
                           : 'border-border bg-card text-muted-foreground hover:border-amber-400/40'
                         }`}
                     >

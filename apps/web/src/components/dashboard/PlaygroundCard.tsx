@@ -16,7 +16,7 @@ export function PlaygroundCard() {
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.4, delay: 0.25 }}
     >
-      <Card className="relative overflow-hidden border-gray-100 shadow-sm hover:shadow-md transition-all group">
+      <Card className="relative overflow-hidden border-[var(--border-subtle)] shadow-sm hover:shadow-md transition-all group">
         {/* Subtle gradient background */}
         <div className="absolute inset-0 bg-gradient-to-br from-amber-50/40 via-white to-orange-50/30 opacity-60 group-hover:opacity-100 transition-opacity" />
 
@@ -37,31 +37,31 @@ export function PlaygroundCard() {
             {/* Content */}
             <div className="flex-1 space-y-2">
               <div className="flex items-center gap-2 flex-wrap">
-                <h3 className="text-lg font-bold text-gray-900">
+                <h3 className="text-lg font-bold text-[var(--ds-text-1)]">
                   Code Playground
                 </h3>
-                <span className="flex items-center gap-1 text-xs font-medium text-amber-700 bg-amber-50 px-2 py-0.5 rounded-full">
+                <span className="flex items-center gap-1 text-xs font-medium text-[var(--warning)] bg-[var(--warning-bg)] px-2 py-0.5 rounded-full">
                   <Zap className="h-3 w-3" />
                   Online IDE
                 </span>
               </div>
-              <p className="text-sm text-gray-600 leading-relaxed">
+              <p className="text-sm text-[var(--ds-text-2)] leading-relaxed">
                 Want to code without the hassle of setting up an environment? 
                 Jump into our online playground and start coding instantly in Python, JavaScript, C++, and more!
               </p>
 
               {/* Features */}
               <div className="flex flex-wrap gap-3 pt-2">
-                <span className="flex items-center gap-1.5 text-xs text-gray-500">
-                  <FileCode2 className="h-3.5 w-3.5 text-gray-400" />
+                <span className="flex items-center gap-1.5 text-xs text-[var(--ds-text-3)]">
+                  <FileCode2 className="h-3.5 w-3.5 text-[var(--ds-text-3)]" />
                   7+ Languages
                 </span>
-                <span className="flex items-center gap-1.5 text-xs text-gray-500">
-                  <Zap className="h-3.5 w-3.5 text-gray-400" />
+                <span className="flex items-center gap-1.5 text-xs text-[var(--ds-text-3)]">
+                  <Zap className="h-3.5 w-3.5 text-[var(--ds-text-3)]" />
                   Instant Execution
                 </span>
-                <span className="flex items-center gap-1.5 text-xs text-gray-500">
-                  <PlayCircle className="h-3.5 w-3.5 text-gray-400" />
+                <span className="flex items-center gap-1.5 text-xs text-[var(--ds-text-3)]">
+                  <PlayCircle className="h-3.5 w-3.5 text-[var(--ds-text-3)]" />
                   Save Snippets
                 </span>
               </div>

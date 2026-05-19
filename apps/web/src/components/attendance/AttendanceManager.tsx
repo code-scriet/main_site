@@ -2,7 +2,8 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { api, type AttendanceRecord } from '@/lib/api';
 import { useAuth } from '@/context/AuthContext';
 import { formatDateTime } from '@/lib/dateUtils';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
+import { DSCard, StatTile } from '@/components/dash';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -15,6 +16,16 @@ import {
   DialogTitle,
   DialogFooter,
 } from '@/components/ui/dialog';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { motion } from 'framer-motion';
 import { toast } from 'sonner';
 import {
@@ -58,6 +69,7 @@ export default function AttendanceManager({ eventId, token }: AttendanceManagerP
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [bulkLoading, setBulkLoading] = useState(false);
   const [bulkRegenerateLoading, setBulkRegenerateLoading] = useState(false);
+  const [bulkRegenerateConfirmOpen, setBulkRegenerateConfirmOpen] = useState(false);
 
   const [actionLoadingId, setActionLoadingId] = useState<string | null>(null);
 
@@ -252,24 +264,20 @@ export default function AttendanceManager({ eventId, token }: AttendanceManagerP
     }
   };
 
-  const handleRegenerateAllTokens = async () => {
+  const requestRegenerateAllTokens = () => {
     if (!canRegenerateTokens) {
       toast.error('Only admins can regenerate QR tokens');
       return;
     }
-
     if (records.length === 0) {
       toast.error('No registrations available to regenerate');
       return;
     }
+    setBulkRegenerateConfirmOpen(true);
+  };
 
-    const confirmed = window.confirm(
-      `Regenerate QR tokens for all ${records.length} registrations? Existing QRs for this event will stop working.`
-    );
-    if (!confirmed) {
-      return;
-    }
-
+  const confirmRegenerateAllTokens = async () => {
+    setBulkRegenerateConfirmOpen(false);
     setBulkRegenerateLoading(true);
     try {
       const result = await api.regenerateAttendanceTokensForEvent(eventId, token);
@@ -404,102 +412,51 @@ export default function AttendanceManager({ eventId, token }: AttendanceManagerP
   return (
     <div className="space-y-6">
       {loadError && (
-        <Card className="border-red-200 bg-red-50/80">
-          <CardContent className="p-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <div className="flex items-start gap-3">
-              <AlertCircle className="h-5 w-5 text-red-500 mt-0.5" />
+        <DSCard className="border-[var(--danger-border)] bg-[var(--danger-bg)]">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-start gap-2">
+              <AlertCircle className="h-4 w-4 text-[var(--danger)] mt-0.5 shrink-0" />
               <div>
-                <p className="font-medium text-red-700">Attendance data could not be loaded.</p>
-                <p className="text-sm text-red-600">{loadError}</p>
+                <p className="text-[12.5px] font-medium text-[var(--danger)]">Attendance data could not be loaded.</p>
+                <p className="text-[11.5px] text-[var(--danger)]/80">{loadError}</p>
               </div>
             </div>
-            <Button variant="outline" onClick={() => void handleRefresh()}>
+            <Button variant="outline" size="sm" onClick={() => void handleRefresh()}>
               Retry
             </Button>
-          </CardContent>
-        </Card>
+          </div>
+        </DSCard>
       )}
 
       {eventDays > 1 && (
-        <Card className="border-amber-200">
-          <CardContent className="flex flex-col gap-2 p-4 sm:flex-row sm:items-center sm:justify-between">
-            <p className="text-sm font-medium text-gray-700">Managing attendance for:</p>
-            <select
-              value={selectedDay}
-              onChange={(e) => setSelectedDay(Math.min(Math.max(parseInt(e.target.value, 10) || 1, 1), eventDays))}
-              className="h-9 rounded-md border border-input bg-background px-3 text-sm ring-offset-background focus:outline-none focus:ring-2 focus:ring-ring"
-              aria-label="Select attendance day"
-            >
-              {Array.from({ length: eventDays }, (_, index) => index + 1).map((day) => (
-                <option key={day} value={day}>
-                  {dayLabels[day - 1] || `Day ${day}`}
-                </option>
-              ))}
-            </select>
-          </CardContent>
-        </Card>
+        <DSCard padded={false} className="px-3.5 py-2.5 flex items-center gap-3 flex-wrap">
+          <p className="text-[12.5px] font-medium text-[var(--ds-text-2)]">Managing day:</p>
+          <select
+            value={selectedDay}
+            onChange={(e) => setSelectedDay(Math.min(Math.max(parseInt(e.target.value, 10) || 1, 1), eventDays))}
+            className="h-8 rounded-[8px] border border-[var(--border-default)] bg-[var(--bg-raised)] px-3 text-[12.5px] focus:outline-none focus:border-[var(--accent)]"
+            aria-label="Select attendance day"
+          >
+            {Array.from({ length: eventDays }, (_, index) => index + 1).map((day) => (
+              <option key={day} value={day}>
+                {dayLabels[day - 1] || `Day ${day}`}
+              </option>
+            ))}
+          </select>
+        </DSCard>
       )}
 
-      {/* Summary Bar */}
-      <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">
-              Total Registered
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="flex items-center gap-2">
-              <Users className="h-5 w-5 text-blue-500" />
-              <span className="text-2xl font-bold">{summary.total}</span>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">
-              Present
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="flex items-center gap-2">
-              <CheckCircle className="h-5 w-5 text-green-500" />
-              <span className="text-2xl font-bold">{summary.present}</span>
-              <span className="text-sm text-muted-foreground">
-                ({summary.percentage}%)
-              </span>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">
-              Absent
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="flex items-center gap-2">
-              <XCircle className="h-5 w-5 text-red-500" />
-              <span className="text-2xl font-bold">{summary.absent}</span>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">
-              Manual Overrides
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="flex items-center gap-2">
-              <Edit className="h-5 w-5 text-orange-500" />
-              <span className="text-2xl font-bold">{summary.manualOverrides}</span>
-            </div>
-          </CardContent>
-        </Card>
+      {/* Stat strip — compact StatTiles instead of giant Cards. */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <StatTile label="Registered" value={summary.total} icon={<Users size={14} />} />
+        <StatTile
+          label="Present"
+          value={summary.present}
+          delta={`${summary.percentage}%`}
+          icon={<CheckCircle size={14} />}
+        />
+        <StatTile label="Absent" value={summary.absent} icon={<XCircle size={14} />} />
+        <StatTile label="Manual overrides" value={summary.manualOverrides} icon={<Edit size={14} />} />
       </div>
 
       {/* Toolbar */}
@@ -569,9 +526,7 @@ export default function AttendanceManager({ eventId, token }: AttendanceManagerP
           <Button
             variant="outline"
             size="sm"
-            onClick={() => {
-              void handleRegenerateAllTokens();
-            }}
+            onClick={requestRegenerateAllTokens}
             disabled={bulkRegenerateLoading || records.length === 0}
           >
             {bulkRegenerateLoading ? (
@@ -643,7 +598,7 @@ export default function AttendanceManager({ eventId, token }: AttendanceManagerP
                       type="checkbox"
                       checked={allFilteredSelected}
                       onChange={toggleSelectAll}
-                      className="h-4 w-4 rounded border-gray-300"
+                      className="h-4 w-4 rounded border-[var(--border-default)]"
                       aria-label="Select all visible attendance records"
                     />
                   </th>
@@ -693,7 +648,7 @@ export default function AttendanceManager({ eventId, token }: AttendanceManagerP
                             type="checkbox"
                             checked={selectedIds.has(record.id)}
                             onChange={() => toggleSelect(record.id)}
-                            className="h-4 w-4 rounded border-gray-300"
+                            className="h-4 w-4 rounded border-[var(--border-default)]"
                             aria-label={`Select ${record.user.name}`}
                           />
                         </td>
@@ -952,6 +907,27 @@ export default function AttendanceManager({ eventId, token }: AttendanceManagerP
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <AlertDialog open={bulkRegenerateConfirmOpen} onOpenChange={setBulkRegenerateConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Regenerate QR tokens for all {records.length} registrations?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Existing QR tickets for this event will stop working immediately. Attendees need to refresh their dashboard to fetch the new ticket.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={bulkRegenerateLoading}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => void confirmRegenerateAllTokens()}
+              disabled={bulkRegenerateLoading}
+            >
+              {bulkRegenerateLoading ? <Loader2 className="mr-1.5 h-4 w-4 animate-spin" /> : null}
+              Regenerate all
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

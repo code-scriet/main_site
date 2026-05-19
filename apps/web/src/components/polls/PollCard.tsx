@@ -31,8 +31,8 @@ export function PollCard({
         className,
       )}
     >
-      <Card className="h-full border-gray-200 shadow-sm transition-all group-hover:-translate-y-0.5 group-hover:shadow-md">
-        <CardHeader className="space-y-3 border-b border-gray-100 pb-4">
+      <Card className="h-full border-[var(--border-subtle)] shadow-sm transition-all group-hover:-translate-y-0.5 group-hover:shadow-md">
+        <CardHeader className="space-y-3 border-b border-[var(--border-subtle)] pb-4">
           <div className="flex flex-wrap items-center gap-2">
             <Badge variant={poll.isClosed ? 'secondary' : 'success'}>
               {poll.isClosed ? 'Closed' : 'Open'}
@@ -54,11 +54,11 @@ export function PollCard({
           </div>
 
           <div className="space-y-1.5">
-            <CardTitle className="text-xl leading-snug text-gray-950 transition-colors group-hover:text-amber-900 sm:text-2xl">
+            <CardTitle className="text-xl leading-snug text-gray-950 transition-colors group-hover:text-[var(--ds-text-1)] sm:text-2xl">
               {poll.question}
             </CardTitle>
             {poll.description && (
-              <CardDescription className="line-clamp-3 text-sm leading-6 text-gray-600">
+              <CardDescription className="line-clamp-3 text-sm leading-6 text-[var(--ds-text-2)]">
                 {poll.description}
               </CardDescription>
             )}
@@ -67,18 +67,18 @@ export function PollCard({
         </CardHeader>
 
         <CardContent className="space-y-5 pt-5">
-          <div className="grid gap-3 text-sm text-gray-600 sm:grid-cols-2">
-            <div className="flex items-center gap-2 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2">
+          <div className="grid gap-3 text-sm text-[var(--ds-text-2)] sm:grid-cols-2">
+            <div className="flex items-center gap-2 rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-soft)] px-3 py-2">
               <span>Thoughts welcome</span>
             </div>
-            <div className="flex items-center gap-2 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2">
+            <div className="flex items-center gap-2 rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-soft)] px-3 py-2">
               <CalendarClock className="h-4 w-4 text-amber-600" />
               <span>{poll.deadline ? formatDateTime(poll.deadline) : 'No deadline'}</span>
             </div>
           </div>
 
           <div className="space-y-2.5">
-            <div className="flex items-center gap-2 text-sm font-medium text-gray-900">
+            <div className="flex items-center gap-2 text-sm font-medium text-[var(--ds-text-1)]">
               <BarChart3 className="h-4 w-4 text-amber-600" />
               Public results
             </div>
@@ -88,14 +88,14 @@ export function PollCard({
                 return (
                   <div key={option.id} className="space-y-1.5">
                     <div className="flex items-center justify-between gap-3 text-sm">
-                      <span className={cn('truncate text-gray-700', isSelected && 'font-semibold text-amber-900')}>
+                      <span className={cn('truncate text-[var(--ds-text-2)]', isSelected && 'font-semibold text-[var(--ds-text-1)]')}>
                         {option.text}
                       </span>
-                      <span className="shrink-0 text-xs font-medium text-gray-500">
+                      <span className="shrink-0 text-xs font-medium text-[var(--ds-text-3)]">
                         {option.percentage}%
                       </span>
                     </div>
-                    <div className="h-2 overflow-hidden rounded-full bg-gray-100">
+                    <div className="h-2 overflow-hidden rounded-full bg-[var(--surface-soft)]">
                       <div
                         className={cn(
                           'h-full rounded-full transition-[width] duration-300',
@@ -109,14 +109,14 @@ export function PollCard({
               })}
             </div>
             {poll.options.length > visibleOptions.length && (
-              <p className="text-xs text-gray-500">
+              <p className="text-xs text-[var(--ds-text-3)]">
                 +{poll.options.length - visibleOptions.length} more option{poll.options.length - visibleOptions.length === 1 ? '' : 's'}
               </p>
             )}
           </div>
 
           <div className="flex items-center justify-between gap-3">
-            <div className="text-xs text-gray-500">
+            <div className="text-xs text-[var(--ds-text-3)]">
               {poll.currentUserVote
                 ? `Updated ${formatDateTime(poll.currentUserVote.updatedAt)}`
                 : poll.allowVoteChange

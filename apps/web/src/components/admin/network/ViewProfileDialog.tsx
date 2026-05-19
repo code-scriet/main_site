@@ -25,7 +25,7 @@ import { Markdown } from '@/components/ui/markdown';
 import type { NetworkProfile, NetworkStatus } from '@/lib/api';
 
 const statusColors: Record<NetworkStatus, string> = {
-  PENDING: 'bg-amber-100 text-amber-700 border-amber-200',
+  PENDING: 'bg-[var(--warning-bg)] text-[var(--warning)] border-[var(--warning-border)]',
   VERIFIED: 'bg-green-100 text-green-700 border-green-200',
   REJECTED: 'bg-red-100 text-red-700 border-red-200',
 };
@@ -92,26 +92,26 @@ export function ViewProfileDialog({
             <div className="space-y-4 py-4">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
                 <div>
-                  <p className="text-gray-500">Email</p>
+                  <p className="text-[var(--ds-text-3)]">Email</p>
                   <p className="font-medium">{profile.user?.email}</p>
                 </div>
                 <div>
-                  <p className="text-gray-500">Industry</p>
+                  <p className="text-[var(--ds-text-3)]">Industry</p>
                   <p className="font-medium">{profile.industry}</p>
                 </div>
                 <div>
-                  <p className="text-gray-500">Connection Type</p>
+                  <p className="text-[var(--ds-text-3)]">Connection Type</p>
                   <p className="font-medium">
                     {connectionTypeLabels[profile.connectionType]}
                   </p>
                 </div>
                 <div>
-                  <p className="text-gray-500">Connected Since</p>
+                  <p className="text-[var(--ds-text-3)]">Connected Since</p>
                   <p className="font-medium">{profile.connectedSince || 'Not specified'}</p>
                 </div>
                 {profile.phone && (
                   <div>
-                    <p className="text-gray-500">Phone</p>
+                    <p className="text-[var(--ds-text-3)]">Phone</p>
                     <p className="font-medium flex items-center gap-1">
                       <Phone className="h-3 w-3" />
                       {profile.phone}
@@ -122,15 +122,15 @@ export function ViewProfileDialog({
 
               {profile.bio && (
                 <div>
-                  <p className="text-gray-500 text-sm mb-1">Bio</p>
-                  <p className="text-sm bg-gray-50 p-3 rounded-md">{profile.bio}</p>
+                  <p className="text-[var(--ds-text-3)] text-sm mb-1">Bio</p>
+                  <p className="text-sm bg-[var(--surface-soft)] p-3 rounded-md">{profile.bio}</p>
                 </div>
               )}
 
               {profile.connectionNote && (
                 <div>
-                  <p className="text-gray-500 text-sm mb-1">Connection Details</p>
-                  <p className="text-sm bg-amber-50 p-3 rounded-md border border-amber-100">
+                  <p className="text-[var(--ds-text-3)] text-sm mb-1">Connection Details</p>
+                  <p className="text-sm bg-[var(--warning-bg)] p-3 rounded-md border border-[var(--warning-border)]">
                     {profile.connectionNote}
                   </p>
                 </div>
@@ -138,17 +138,17 @@ export function ViewProfileDialog({
 
               {profile.adminNotes && (
                 <div>
-                  <p className="text-gray-500 text-sm mb-1 flex items-center gap-1">
+                  <p className="text-[var(--ds-text-3)] text-sm mb-1 flex items-center gap-1">
                     <FileText className="h-3 w-3" /> Admin Notes (Highlights)
                   </p>
-                  <div className="text-sm bg-gray-50 p-3 rounded-md border prose prose-sm max-w-none">
+                  <div className="text-sm bg-[var(--surface-soft)] p-3 rounded-md border prose prose-sm max-w-none">
                     <Markdown>{profile.adminNotes}</Markdown>
                   </div>
                 </div>
               )}
 
               <div>
-                <p className="text-gray-500 text-sm mb-2">Social Links</p>
+                <p className="text-[var(--ds-text-3)] text-sm mb-2">Social Links</p>
                 <div className="flex gap-3">
                   {profile.linkedinUsername && (
                     <a
@@ -177,7 +177,7 @@ export function ViewProfileDialog({
                       href={`https://github.com/${profile.githubUsername}`}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="flex items-center gap-1 text-gray-800 hover:underline text-sm"
+                      className="flex items-center gap-1 text-[var(--ds-text-1)] hover:underline text-sm"
                     >
                       <Github className="h-4 w-4" /> GitHub
                       <ExternalLink className="h-3 w-3" />
@@ -198,7 +198,7 @@ export function ViewProfileDialog({
                     !profile.twitterUsername &&
                     !profile.githubUsername &&
                     !profile.personalWebsite && (
-                      <span className="text-gray-400 text-sm">No social links provided</span>
+                      <span className="text-[var(--ds-text-3)] text-sm">No social links provided</span>
                     )}
                 </div>
               </div>
