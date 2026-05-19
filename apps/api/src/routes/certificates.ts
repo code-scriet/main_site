@@ -1559,13 +1559,14 @@ certificatesRouter.get('/mine', authMiddleware, async (req: Request, res: Respon
       where.type = type.toUpperCase();
     }
 
-    const [certificates, total] = await Promise.all([
+    const [rawCertificates, total] = await Promise.all([
       prisma.certificate.findMany({
         where,
         orderBy: { issuedAt: sort },
         skip: (page - 1) * limit,
         take: limit,
         select: {
+          id: true,
           certId: true,
           recipientName: true,
           eventName: true,
@@ -1575,10 +1576,44 @@ certificatesRouter.get('/mine', authMiddleware, async (req: Request, res: Respon
           template: true,
           issuedAt: true,
           pdfUrl: true,
+          event: {
+            select: {
+              title: true,
+              imageUrl: true,
+            },
+          },
         },
       }),
       prisma.certificate.count({ where }),
     ]);
+
+    const fallbackEventNames = [
+      ...new Set(
+        rawCertificates
+          .filter((certificate) => !certificate.event?.imageUrl)
+          .map((certificate) => certificate.eventName?.trim())
+          .filter((name): name is string => Boolean(name)),
+      ),
+    ];
+
+    const fallbackEvents = fallbackEventNames.length > 0
+      ? await prisma.event.findMany({
+          where: { title: { in: fallbackEventNames } },
+          select: { title: true, imageUrl: true },
+          orderBy: { startDate: 'desc' },
+        })
+      : [];
+    const fallbackImageByTitle = new Map<string, string>();
+    for (const event of fallbackEvents) {
+      if (event.imageUrl && !fallbackImageByTitle.has(event.title)) {
+        fallbackImageByTitle.set(event.title, event.imageUrl);
+      }
+    }
+
+    const certificates = rawCertificates.map(({ event, ...certificate }) => ({
+      ...certificate,
+      eventImageUrl: event?.imageUrl ?? fallbackImageByTitle.get(certificate.eventName) ?? null,
+    }));
 
     return ApiResponse.success(res, { certificates, total, page, totalPages: Math.ceil(total / limit) });
   } catch (error) {
