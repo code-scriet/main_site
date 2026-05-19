@@ -31,6 +31,7 @@ import { extractApiErrorMessage } from '@/lib/error';
 import { getRoleBadge, relativeTime } from '@/lib/userBadges';
 import { useUserAdminActions, useUserAudit, useUserBlocks, useUserFull } from '@/hooks/useUserDetail';
 import { useAdminPermissions } from '@/hooks/useAdminPermissions';
+import { RoleChangeDialog } from '@/components/admin/users/UserConfirmDialogs';
 
 interface Props {
   userId: string;
@@ -142,8 +143,30 @@ function OverviewTab({ userId }: { userId: string }) {
   const user = detail.data?.user;
   const counts = detail.data?.counts;
   const perms = useAdminPermissions(user ? { id: user.id, email: user.email, role: user.role } : null);
+  const [roleDraft, setRoleDraft] = useState(user?.role ?? 'USER');
+  const [roleTarget, setRoleTarget] = useState<{ userId: string; userName: string; currentRole: string; newRole: string } | null>(null);
+
+  useEffect(() => {
+    if (user) {
+      setRoleDraft(user.role);
+    }
+  }, [user?.id, user?.role]);
 
   if (!user || !counts) return null;
+
+  const roleOptions = perms.isSuperAdmin
+    ? ['USER', 'MEMBER', 'CORE_MEMBER', 'ADMIN', 'PRESIDENT']
+    : ['USER', 'MEMBER', 'CORE_MEMBER'];
+
+  const openRoleConfirm = () => {
+    if (!perms.canChangeRole || roleDraft === user.role) return;
+    setRoleTarget({
+      userId: user.id,
+      userName: user.name,
+      currentRole: user.role,
+      newRole: roleDraft,
+    });
+  };
 
   return (
     <div className="space-y-4">
@@ -155,6 +178,38 @@ function OverviewTab({ userId }: { userId: string }) {
         <StatCard icon={<Code className="h-4 w-4 text-sky-500" />} label="Playground runs" value={counts.executions} />
         <StatCard icon={<Zap className="h-4 w-4 text-pink-500" />} label="Quiz games" value={counts.quizParticipants} />
       </div>
+
+      {perms.canChangeRole && (
+        <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-raised)] p-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div>
+              <div className="text-xs font-medium text-zinc-500 dark:text-[var(--ds-text-3)]">Role / position</div>
+              <div className="mt-0.5 text-sm text-[var(--ds-text-2)]">
+                {perms.isSuperAdmin
+                  ? 'Super admin can reassign any role, including ADMIN and PRESIDENT.'
+                  : 'You can reassign this user up to CORE_MEMBER.'}
+              </div>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <select
+                value={roleDraft}
+                onChange={(e) => setRoleDraft(e.target.value)}
+                className="h-9 rounded-md border border-[var(--border-subtle)] bg-[var(--bg-raised)] px-3 text-sm"
+                aria-label="Change user role"
+              >
+                {roleOptions.map((role) => (
+                  <option key={role} value={role}>
+                    {role.replace(/_/g, ' ')}
+                  </option>
+                ))}
+              </select>
+              <Button variant="outline" size="sm" onClick={openRoleConfirm} disabled={roleDraft === user.role}>
+                Change role
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {perms.canMutate && (
         <div className="flex flex-wrap items-center gap-2 rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-soft)] px-3 py-2">
@@ -187,6 +242,20 @@ function OverviewTab({ userId }: { userId: string }) {
           </Button>
         </div>
       )}
+
+      <RoleChangeDialog
+        target={roleTarget}
+        onCancel={() => setRoleTarget(null)}
+        onConfirm={async (_userId, newRole) => {
+          try {
+            await actions.changeRole.mutateAsync(newRole);
+            toast.success('Role updated');
+            setRoleTarget(null);
+          } catch (e) {
+            toast.error(extractApiErrorMessage(e, 'Failed to update role'));
+          }
+        }}
+      />
     </div>
   );
 }

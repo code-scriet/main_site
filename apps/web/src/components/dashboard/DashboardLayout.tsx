@@ -219,7 +219,10 @@ function getNav(opts: {
       { section: 'CREATE', items: create },
       { section: 'ADMIN', items: admin },
       ...(isSuperAdminOrPresident
-        ? [{ section: 'GOVERN', items: [{ route: 'admin-settings', href: '/admin/settings', label: 'Settings', icon: SettingsIcon }] }]
+        ? [{ section: 'GOVERNANCE', items: [
+            { route: 'admin-audit', href: '/admin/audit-log', label: 'Audit Log', icon: Shield },
+            { route: 'admin-settings', href: '/admin/settings', label: 'Settings', icon: SettingsIcon },
+          ] }]
         : []),
     ];
   }

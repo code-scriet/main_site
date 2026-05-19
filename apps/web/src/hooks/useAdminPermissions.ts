@@ -18,9 +18,11 @@ export interface AdminPermissions {
   canView: boolean;
   /** Can perform read-only operations against this target. */
   canActOnTarget: boolean;
-  /** Can change role, block, force-logout, password-reset, soft-delete. */
+  /** Can change role on this target. */
+  canChangeRole: boolean;
+  /** Can block, force-logout, password-reset, or soft-delete. */
   canMutate: boolean;
-  /** Can change role to ADMIN/PRESIDENT or modify an existing one. */
+  /** Can change role on ADMIN/PRESIDENT accounts. */
   canChangePrivilegedRole: boolean;
   /** Can hard delete. */
   canHardDelete: boolean;
@@ -39,14 +41,14 @@ export function useAdminPermissions(target?: AdminTargetUser | null): AdminPermi
     const isPresident = a?.role === 'PRESIDENT';
     const isAdmin = a?.role === 'ADMIN' || isPresident;
     const isPresidentOrSuperAdmin = isPresident || isSuperAdmin;
-    const targetIsSuper = !!target && a?.isSuperAdmin === true ? false : false; // approximated; server enforces
     const targetIsPrivileged = target?.role === 'ADMIN' || target?.role === 'PRESIDENT';
 
-    const canView = !!a && (isAdmin || isSuperAdmin) && !isActor && !targetIsSuper;
+    const canView = !!a && (isAdmin || isSuperAdmin) && !isActor;
     const canActOnTarget = canView;
+    const canChangeRole = canView && (!targetIsPrivileged || isSuperAdmin);
     const canMutateBase = canView && isPresidentOrSuperAdmin;
     const canMutate = canMutateBase && (!targetIsPrivileged || isSuperAdmin);
-    const canChangePrivilegedRole = canMutate && isSuperAdmin;
+    const canChangePrivilegedRole = canChangeRole && isSuperAdmin && targetIsPrivileged;
     const canHardDelete = canMutate && isSuperAdmin;
     const canSoftDelete = canMutate;
     const canRestore = canView && isSuperAdmin;
@@ -57,6 +59,7 @@ export function useAdminPermissions(target?: AdminTargetUser | null): AdminPermi
       isSuperAdmin,
       canView,
       canActOnTarget,
+      canChangeRole,
       canMutate,
       canChangePrivilegedRole,
       canHardDelete,

@@ -46,6 +46,7 @@ export function useUserAdminActions(userId: string | null) {
 
   const resetStreak = useMutation({ mutationFn: () => api.resetCurrentStreak(userId!, token!), onSuccess: invalidate });
   const restoreStreak = useMutation({ mutationFn: () => api.restoreLongestStreak(userId!, token!), onSuccess: invalidate });
+  const changeRole = useMutation({ mutationFn: (role: string) => api.updateUserRole(userId!, role, token!), onSuccess: invalidate });
 
   const block = useMutation({
     mutationFn: (data: { feature: UserBlockFeature; reason?: string | null; expiresAt?: string | null }) =>
@@ -63,5 +64,5 @@ export function useUserAdminActions(userId: string | null) {
   const hardDelete = useMutation({ mutationFn: () => api.hardDeleteUser(userId!, token!), onSuccess: invalidate });
   const restore = useMutation({ mutationFn: () => api.restoreUser(userId!, token!), onSuccess: invalidate });
 
-  return { resetStreak, restoreStreak, block, unblock, forceLogout, sendReset, softDelete, hardDelete, restore };
+  return { resetStreak, restoreStreak, changeRole, block, unblock, forceLogout, sendReset, softDelete, hardDelete, restore };
 }
