@@ -137,7 +137,7 @@ searchRouter.get('/global', authMiddleware, async (req: Request, res: Response) 
 
     const qLower = q.toLowerCase();
     const pageHits: SearchHit[] = STATIC_PAGES
-      .filter(p => p.minTier <= tier || isCore)
+      .filter((p) => p.minTier <= tier)
       .filter(p => p.label.toLowerCase().includes(qLower) || p.tags.some(t => t.includes(qLower)))
       .slice(0, limit)
       .map(p => ({ kind: 'page', label: p.label, icon: p.icon, route: p.route }));
