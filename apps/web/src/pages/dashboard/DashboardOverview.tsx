@@ -18,6 +18,7 @@ import {
 } from '@/components/dash';
 import { Button } from '@/components/ui/button';
 import { AdminPendingRequestsCardV2 } from '@/components/dashboard/AdminPendingRequestsCardV2';
+import { CertificateCard, getCertificateCover, type CertificateCardData } from '@/components/dashboard/CertificateCard';
 import { relativeTime } from '@/lib/dateUtils';
 import { getPlaygroundLaunchUrl } from '@/lib/playgroundUrl';
 import { cn } from '@/lib/utils';
@@ -104,7 +105,7 @@ export default function DashboardOverview() {
     queryKey: ['my-certificates'],
     queryFn: async () => {
       const res = await api.getMyCertificates(token!);
-      return (res.certificates as Array<{ id: string; certId: string; type: string; eventName: string; issuedAt: string }>) ?? [];
+      return (res.certificates as CertificateCardData[]) ?? [];
     },
     enabled: Boolean(token) && settings?.certificatesEnabled !== false,
   });
@@ -933,7 +934,7 @@ function EarnedSection({
   loading, certs, onAll,
 }: {
   loading: boolean;
-  certs: Array<{ id: string; certId: string; type: string; eventName: string; issuedAt: string }>;
+  certs: CertificateCardData[];
   onAll: () => void;
 }) {
   if (loading || certs.length === 0) return null;
@@ -959,25 +960,7 @@ function EarnedSection({
       <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
         {recent.map((c, i) => (
           <Link key={c.id} to="/dashboard/certificates" className="text-left group">
-            <div
-              className={cn(
-                'aspect-[1.55/1] rounded-[10px] bg-gradient-to-br relative overflow-hidden group-hover:shadow-[var(--shadow-md)] transition-shadow',
-                CERT_GRADIENTS[i % CERT_GRADIENTS.length],
-              )}
-            >
-              <div className="absolute inset-0 p-3 flex flex-col justify-between text-white">
-                <div className="flex justify-between items-start">
-                  <Award size={14} className="opacity-90" />
-                  <span className="inline-flex items-center h-[18px] px-1.5 text-[10.5px] font-medium rounded-[5px] bg-white/20 text-white">
-                    {c.type}
-                  </span>
-                </div>
-                <div>
-                  <div className="text-[11.5px] font-medium leading-tight line-clamp-1">{c.eventName}</div>
-                  <div className="text-[10px] opacity-80 font-mono tabular-nums mt-0.5">{c.certId}</div>
-                </div>
-              </div>
-            </div>
+            <CertificateCard cert={c} cover={getCertificateCover(i)} showActions={false} />
           </Link>
         ))}
       </div>
@@ -1126,7 +1109,7 @@ function NetworkOverview() {
     queryKey: ['my-certificates'],
     queryFn: async () => {
       const res = await api.getMyCertificates(token!);
-      return (res.certificates as Array<{ id: string; certId: string; type: string; eventName: string; issuedAt: string }>) ?? [];
+      return (res.certificates as Array<{ id: string; certId: string; type: string; eventName: string; eventImageUrl?: string | null; issuedAt: string }>) ?? [];
     },
     enabled: Boolean(token),
   });

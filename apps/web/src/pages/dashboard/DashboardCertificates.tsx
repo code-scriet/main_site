@@ -4,7 +4,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Award, ExternalLink, Download, Copy, Check, Share2, ArrowDownAZ, ArrowUpAZ, ChevronLeft, ChevronRight } from 'lucide-react';
+import { ExternalLink, Copy, Check, ArrowDownAZ, ArrowUpAZ, ChevronLeft, ChevronRight } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { api } from '@/lib/api';
 import { DSCard, EmptyState, MonoChip, Pill, SegmentedTabs } from '@/components/dash';
@@ -12,30 +12,9 @@ import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
+import { CertificateCard, getCertificateCover, type CertificateCardData } from '@/components/dashboard/CertificateCard';
 
 const PAGE_SIZE = 12;
-
-interface MyCert {
-  id: string;
-  certId: string;
-  type: string;
-  eventName: string;
-  eventImageUrl?: string | null;
-  issuedAt: string;
-  pdfUrl?: string | null;
-  isRevoked?: boolean;
-  revokedReason?: string | null;
-  recipientName?: string;
-}
-
-const COVERS = [
-  'from-rose-500 to-orange-600',
-  'from-amber-500 to-yellow-600',
-  'from-emerald-500 to-teal-600',
-  'from-sky-500 to-indigo-600',
-  'from-violet-500 to-fuchsia-600',
-  'from-pink-500 to-rose-600',
-];
 
 const TYPE_TONE: Record<string, 'neutral' | 'success' | 'warning' | 'info'> = {
   PARTICIPATION: 'neutral',
@@ -48,7 +27,7 @@ type TypeFilter = 'all' | 'PARTICIPATION' | 'COMPLETION' | 'WINNER' | 'SPEAKER';
 
 export default function DashboardCertificates() {
   const { token } = useAuth();
-  const [picked, setPicked] = useState<MyCert | null>(null);
+  const [picked, setPicked] = useState<CertificateCardData | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [typeFilter, setTypeFilter] = useState<TypeFilter>('all');
   const [sortOrder, setSortOrder] = useState<'desc' | 'asc'>('desc');
@@ -59,7 +38,7 @@ export default function DashboardCertificates() {
     queryFn: async () => {
       const r = await api.getMyCertificates(token!);
       const list = Array.isArray(r) ? r : (r as { certificates: unknown[] }).certificates;
-      return (list ?? []) as MyCert[];
+      return (list ?? []) as CertificateCardData[];
     },
     enabled: Boolean(token),
   });
@@ -163,7 +142,9 @@ export default function DashboardCertificates() {
         <>
           <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
             {sorted.map((c, i) => (
-              <CertCard key={c.id} cert={c} cover={COVERS[i % COVERS.length]} onOpen={() => setPicked(c)} onCopy={() => copyLink(c.certId)} copied={copiedId === c.certId} />
+              <div key={c.id} onClick={() => setPicked(c)}>
+                <CertificateCard cert={c} cover={getCertificateCover(i)} onCopy={() => copyLink(c.certId)} copied={copiedId === c.certId} />
+              </div>
             ))}
           </div>
           {totalPages > 1 && (
@@ -196,7 +177,7 @@ export default function DashboardCertificates() {
               <div
                 className={cn(
                   'aspect-[1.55/1] bg-gradient-to-br relative text-white overflow-hidden',
-                  !picked.eventImageUrl && COVERS[sorted.findIndex((c) => c.id === picked.id) % COVERS.length],
+                  !picked.eventImageUrl && getCertificateCover(sorted.findIndex((c) => c.id === picked.id)),
                 )}
                 style={picked.eventImageUrl ? { backgroundImage: `url(${picked.eventImageUrl})`, backgroundSize: 'cover', backgroundPosition: 'center' } : undefined}
               >
@@ -257,76 +238,5 @@ export default function DashboardCertificates() {
         </DialogContent>
       </Dialog>
     </div>
-  );
-}
-
-function CertCard({
-  cert, cover, onOpen, onCopy, copied,
-}: {
-  cert: MyCert;
-  cover: string;
-  onOpen: () => void;
-  onCopy: () => void;
-  copied: boolean;
-}) {
-  const hasEventImage = Boolean(cert.eventImageUrl);
-
-  return (
-    <DSCard padded={false} hover className="overflow-hidden cursor-pointer" onClick={onOpen}>
-      <div
-        className={cn(
-          'aspect-[1.4/1] bg-gradient-to-br p-4 text-white flex flex-col justify-between relative overflow-hidden',
-          !hasEventImage && cover,
-        )}
-        style={hasEventImage ? { backgroundImage: `url(${cert.eventImageUrl})`, backgroundSize: 'cover', backgroundPosition: 'center' } : undefined}
-      >
-        {hasEventImage && (
-          <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(0,0,0,0.25),rgba(0,0,0,0.78))]" />
-        )}
-        {cert.isRevoked && (
-          <div className="absolute inset-0 z-20 bg-black/60 flex items-center justify-center">
-            <Pill tone="danger" size="md">Revoked</Pill>
-          </div>
-        )}
-        <div className="relative z-10 flex items-start justify-between">
-          <Award size={18} className="opacity-90" />
-          <span className="inline-flex items-center h-[18px] px-1.5 text-[10.5px] font-medium rounded-[5px] bg-white/20 text-white">
-            {cert.type}
-          </span>
-        </div>
-        <div className="relative z-10">
-          <div className="text-[12px] opacity-80 font-mono tabular-nums">{cert.certId}</div>
-          <div className="text-[16px] font-semibold leading-tight mt-1 line-clamp-2">{cert.eventName}</div>
-        </div>
-      </div>
-      <div className="p-3 flex items-center justify-between">
-        <div className="text-[11.5px] text-[var(--ds-text-3)] font-mono tabular-nums">
-          Issued {new Date(cert.issuedAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}
-        </div>
-        <div className="flex items-center gap-1">
-          <button
-            type="button"
-            title="Copy verify link"
-            onClick={(ev) => { ev.stopPropagation(); onCopy(); }}
-            className="size-7 rounded-[6px] hover:bg-[var(--surface-soft)] text-[var(--ds-text-3)] hover:text-[var(--ds-text-1)] flex items-center justify-center"
-          >
-            {copied ? <Check size={12} /> : <Share2 size={12} />}
-          </button>
-          {cert.pdfUrl && (
-            <a
-              href={cert.pdfUrl}
-              target="_blank"
-              rel="noreferrer"
-              download
-              onClick={(ev) => ev.stopPropagation()}
-              title="Download PDF"
-              className="size-7 rounded-[6px] hover:bg-[var(--surface-soft)] text-[var(--ds-text-3)] hover:text-[var(--ds-text-1)] flex items-center justify-center"
-            >
-              <Download size={12} />
-            </a>
-          )}
-        </div>
-      </div>
-    </DSCard>
   );
 }
