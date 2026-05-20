@@ -14,23 +14,16 @@ import { emailService } from '../utils/email.js';
 import { getRegistrationStatus } from '../utils/registrationStatus.js';
 import { generateAttendanceToken } from '../utils/attendanceToken.js';
 import { participantsOnly } from '../utils/registrationFilters.js';
+import { executeSerializableTransaction, isSerializationConflict } from '../utils/transactionRetry.js';
 import { sanitizeEventRegistrationFields, validateRegistrationFieldSubmissions } from '../utils/eventRegistrationFields.js';
 
 export const teamsRouter = Router();
 
-const TEAM_TRANSACTION_RETRIES = 3;
 const MAX_CUSTOM_FIELD_COUNT = 50;
 
 // Generate an 8-character uppercase hex invite code
 function generateInviteCode(): string {
   return crypto.randomBytes(4).toString('hex').toUpperCase();
-}
-
-// Jittered exponential backoff delay
-async function backoffDelay(attempt: number): Promise<void> {
-  const baseMs = 50 * Math.pow(2, attempt);
-  const jitter = Math.random() * baseMs;
-  await new Promise(resolve => setTimeout(resolve, baseMs + jitter));
 }
 
 // Validation schemas
@@ -281,163 +274,152 @@ teamsRouter.post('/create', authMiddleware, async (req: Request, res: Response) 
       };
     } | null = null;
 
-    for (let attempt = 0; attempt < TEAM_TRANSACTION_RETRIES; attempt += 1) {
-      try {
-        result = await prisma.$transaction(async (tx) => {
-          // Capacity check: only count PARTICIPANT registrations. GUEST invitations do not consume capacity.
-          const event = await tx.event.findUnique({
-            where: { id: eventId },
-            include: {
-              _count: {
-                select: {
-                  registrations: { where: participantsOnly },
-                },
+    try {
+      result = await executeSerializableTransaction(async (tx) => {
+        // Capacity check: only count PARTICIPANT registrations. GUEST invitations do not consume capacity.
+        const event = await tx.event.findUnique({
+          where: { id: eventId },
+          include: {
+            _count: {
+              select: {
+                registrations: { where: participantsOnly },
               },
             },
-          });
-
-          if (!event) {
-            throw { status: 404, message: 'Event not found' };
-          }
-
-          const now = new Date();
-          const validation = validateEventForRegistration(event, event._count.registrations, now);
-          if (!validation.valid) {
-            throw { status: validation.status, message: validation.message };
-          }
-
-          // Check user not already registered
-          const existing = await tx.eventRegistration.findUnique({
-            where: { userId_eventId: { userId: user.id, eventId } },
-            select: { id: true },
-          });
-
-          if (existing) {
-            throw { status: 409, message: 'You are already registered for this event' };
-          }
-
-          let validatedCustomFieldResponses: Prisma.InputJsonValue | undefined;
-          try {
-            validatedCustomFieldResponses = validateTeamRegistrationFields(event.registrationFields, customFieldResponses);
-          } catch (validationError) {
-            if (validationError && typeof validationError === 'object' && 'status' in validationError && 'message' in validationError) {
-              throw validationError;
-            }
-            throw {
-              status: 400,
-              message: validationError instanceof Error ? validationError.message : 'Invalid registration fields',
-            };
-          }
-
-          // Generate unique invite code. Single batched lookup vs. 5 sequential
-          // findUnique calls — same guarantee (the @unique constraint is the
-          // real correctness floor) but holds the serializable tx open less.
-          const candidates = Array.from({ length: 5 }, () => generateInviteCode());
-          const taken = await tx.eventTeam.findMany({
-            where: { inviteCode: { in: candidates } },
-            select: { inviteCode: true },
-          });
-          const takenSet = new Set(taken.map((row) => row.inviteCode));
-          const inviteCode = candidates.find((code) => !takenSet.has(code));
-          if (!inviteCode) {
-            throw { status: 500, message: 'Failed to generate unique invite code. Please try again.' };
-          }
-
-          // Create registration
-          const registration = await tx.eventRegistration.create({
-            data: {
-              userId: user.id,
-              eventId,
-              customFieldResponses: validatedCustomFieldResponses,
-            },
-          });
-
-          // Create team
-          const team = await tx.eventTeam.create({
-            data: {
-              eventId,
-              teamName,
-              inviteCode,
-              leaderId: user.id,
-            },
-          });
-
-          // Create team member (leader)
-          await tx.eventTeamMember.create({
-            data: {
-              teamId: team.id,
-              userId: user.id,
-              registrationId: registration.id,
-              role: 'LEADER',
-            },
-          });
-
-          // Fetch complete team data
-          const completeTeam = await tx.eventTeam.findUniqueOrThrow({
-            where: { id: team.id },
-            include: {
-              members: {
-                include: {
-                  user: { select: { id: true, name: true, email: true, avatar: true } },
-                },
-              },
-            },
-          });
-
-          return {
-            team: completeTeam,
-            registrationId: registration.id,
-            event: {
-              teamMinSize: event.teamMinSize,
-              teamMaxSize: event.teamMaxSize,
-              title: event.title,
-              startDate: event.startDate,
-              slug: event.slug,
-              location: event.location,
-              imageUrl: event.imageUrl,
-            },
-          };
-        }, {
-          isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+          },
         });
 
-        break; // Success, exit retry loop
-      } catch (error) {
-        // Handle known errors
-        if (error && typeof error === 'object' && 'status' in error && 'message' in error) {
-          const e = error as { status: number; message: string; details?: unknown };
-          return ApiResponse.error(res, {
-            code: e.status === 404 ? ErrorCodes.NOT_FOUND : ErrorCodes.VALIDATION_ERROR,
-            message: e.message,
-            status: e.status,
-            details: e.details,
-          });
+        if (!event) {
+          throw { status: 404, message: 'Event not found' };
         }
 
-        // P2002: Unique constraint violation
-        if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
-          const target = error.meta?.target;
-          if (Array.isArray(target) && target.includes('team_name') && target.includes('event_id')) {
-            return ApiResponse.error(res, { code: ErrorCodes.CONFLICT, message: 'Team name already taken for this event', status: 409 });
+        const now = new Date();
+        const validation = validateEventForRegistration(event, event._count.registrations, now);
+        if (!validation.valid) {
+          throw { status: validation.status, message: validation.message };
+        }
+
+        // Check user not already registered
+        const existing = await tx.eventRegistration.findUnique({
+          where: { userId_eventId: { userId: user.id, eventId } },
+          select: { id: true },
+        });
+
+        if (existing) {
+          throw { status: 409, message: 'You are already registered for this event' };
+        }
+
+        let validatedCustomFieldResponses: Prisma.InputJsonValue | undefined;
+        try {
+          validatedCustomFieldResponses = validateTeamRegistrationFields(event.registrationFields, customFieldResponses);
+        } catch (validationError) {
+          if (validationError && typeof validationError === 'object' && 'status' in validationError && 'message' in validationError) {
+            throw validationError;
           }
-          if (Array.isArray(target) && target.includes('user_id') && target.includes('event_id')) {
-            return ApiResponse.error(res, { code: ErrorCodes.CONFLICT, message: 'You are already registered for this event', status: 409 });
-          }
-          return ApiResponse.error(res, { code: ErrorCodes.CONFLICT, message: 'Registration conflict. Please try again.', status: 409 });
+          throw {
+            status: 400,
+            message: validationError instanceof Error ? validationError.message : 'Invalid registration fields',
+          };
         }
 
-        // P2034: Serialization failure - retry
-        if (
-          error instanceof Prisma.PrismaClientKnownRequestError &&
-          error.code === 'P2034' &&
-          attempt < TEAM_TRANSACTION_RETRIES - 1
-        ) {
-          await backoffDelay(attempt);
-          continue;
+        // Generate unique invite code. Single batched lookup vs. 5 sequential
+        // findUnique calls — same guarantee (the @unique constraint is the
+        // real correctness floor) but holds the serializable tx open less.
+        const candidates = Array.from({ length: 5 }, () => generateInviteCode());
+        const taken = await tx.eventTeam.findMany({
+          where: { inviteCode: { in: candidates } },
+          select: { inviteCode: true },
+        });
+        const takenSet = new Set(taken.map((row) => row.inviteCode));
+        const inviteCode = candidates.find((code) => !takenSet.has(code));
+        if (!inviteCode) {
+          throw { status: 500, message: 'Failed to generate unique invite code. Please try again.' };
         }
 
-        throw error;
+        // Create registration
+        const registration = await tx.eventRegistration.create({
+          data: {
+            userId: user.id,
+            eventId,
+            customFieldResponses: validatedCustomFieldResponses,
+          },
+        });
+
+        // Create team
+        const team = await tx.eventTeam.create({
+          data: {
+            eventId,
+            teamName,
+            inviteCode,
+            leaderId: user.id,
+          },
+        });
+
+        // Create team member (leader)
+        await tx.eventTeamMember.create({
+          data: {
+            teamId: team.id,
+            userId: user.id,
+            registrationId: registration.id,
+            role: 'LEADER',
+          },
+        });
+
+        // Fetch complete team data
+        const completeTeam = await tx.eventTeam.findUniqueOrThrow({
+          where: { id: team.id },
+          include: {
+            members: {
+              include: {
+                user: { select: { id: true, name: true, email: true, avatar: true } },
+              },
+            },
+          },
+        });
+
+        return {
+          team: completeTeam,
+          registrationId: registration.id,
+          event: {
+            teamMinSize: event.teamMinSize,
+            teamMaxSize: event.teamMaxSize,
+            title: event.title,
+            startDate: event.startDate,
+            slug: event.slug,
+            location: event.location,
+            imageUrl: event.imageUrl,
+          },
+        };
+      });
+    } catch (error) {
+      // Handle known errors
+      if (error && typeof error === 'object' && 'status' in error && 'message' in error) {
+        const e = error as { status: number; message: string; details?: unknown };
+        return ApiResponse.error(res, {
+          code: e.status === 404 ? ErrorCodes.NOT_FOUND : ErrorCodes.VALIDATION_ERROR,
+          message: e.message,
+          status: e.status,
+          details: e.details,
+        });
       }
+
+      // P2002: Unique constraint violation
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+        const target = error.meta?.target;
+        if (Array.isArray(target) && target.includes('team_name') && target.includes('event_id')) {
+          return ApiResponse.error(res, { code: ErrorCodes.CONFLICT, message: 'Team name already taken for this event', status: 409 });
+        }
+        if (Array.isArray(target) && target.includes('user_id') && target.includes('event_id')) {
+          return ApiResponse.error(res, { code: ErrorCodes.CONFLICT, message: 'You are already registered for this event', status: 409 });
+        }
+        return ApiResponse.error(res, { code: ErrorCodes.CONFLICT, message: 'Registration conflict. Please try again.', status: 409 });
+      }
+
+      // P2034: Serialization conflict after all retries exhausted
+      if (isSerializationConflict(error)) {
+        return ApiResponse.error(res, { code: ErrorCodes.CONFLICT, message: 'Please try again. The event registration just changed.', status: 409 });
+      }
+
+      throw error;
     }
 
     if (!result) {
@@ -544,151 +526,140 @@ teamsRouter.post('/join', authMiddleware, joinRateLimiter, async (req: Request, 
       };
     } | null = null;
 
-    for (let attempt = 0; attempt < TEAM_TRANSACTION_RETRIES; attempt += 1) {
-      try {
-        result = await prisma.$transaction(async (tx) => {
-          const team = await tx.eventTeam.findUnique({
-            where: { inviteCode },
-            include: {
-              event: {
-                // Capacity check: only count PARTICIPANT registrations. GUEST invitations do not consume capacity.
-                include: {
-                  _count: {
-                    select: {
-                      registrations: { where: participantsOnly },
-                    },
+    try {
+      result = await executeSerializableTransaction(async (tx) => {
+        const team = await tx.eventTeam.findUnique({
+          where: { inviteCode },
+          include: {
+            event: {
+              // Capacity check: only count PARTICIPANT registrations. GUEST invitations do not consume capacity.
+              include: {
+                _count: {
+                  select: {
+                    registrations: { where: participantsOnly },
                   },
                 },
               },
-              members: true,
-              leader: { select: { id: true, name: true } },
             },
-          });
-
-          if (!team) {
-            throw { status: 404, message: 'Invalid invite code' };
-          }
-
-          if (team.isLocked) {
-            throw { status: 403, message: 'This team is locked and not accepting new members' };
-          }
-
-          if (team.members.length >= team.event.teamMaxSize) {
-            throw { status: 409, message: 'Team is full' };
-          }
-
-          const now = new Date();
-          const validation = validateEventForRegistration(team.event, team.event._count.registrations, now);
-          if (!validation.valid) {
-            throw { status: validation.status, message: validation.message };
-          }
-
-          // Check user not already registered
-          const existing = await tx.eventRegistration.findUnique({
-            where: { userId_eventId: { userId: user.id, eventId: team.eventId } },
-            select: { id: true },
-          });
-
-          if (existing) {
-            throw { status: 409, message: 'You are already registered for this event' };
-          }
-
-          let validatedCustomFieldResponses: Prisma.InputJsonValue | undefined;
-          try {
-            validatedCustomFieldResponses = validateTeamRegistrationFields(team.event.registrationFields, customFieldResponses);
-          } catch (validationError) {
-            if (validationError && typeof validationError === 'object' && 'status' in validationError && 'message' in validationError) {
-              throw validationError;
-            }
-            throw {
-              status: 400,
-              message: validationError instanceof Error ? validationError.message : 'Invalid registration fields',
-            };
-          }
-
-          // Create registration
-          const registration = await tx.eventRegistration.create({
-            data: {
-              userId: user.id,
-              eventId: team.eventId,
-              customFieldResponses: validatedCustomFieldResponses,
-            },
-          });
-
-          // Create team member
-          await tx.eventTeamMember.create({
-            data: {
-              teamId: team.id,
-              userId: user.id,
-              registrationId: registration.id,
-              role: 'MEMBER',
-            },
-          });
-
-          // Fetch complete team data
-          const completeTeam = await tx.eventTeam.findUniqueOrThrow({
-            where: { id: team.id },
-            include: {
-              members: {
-                include: {
-                  user: { select: { id: true, name: true, email: true, avatar: true } },
-                },
-              },
-            },
-          });
-
-          return {
-            team: completeTeam,
-            registrationId: registration.id,
-            eventId: team.eventId,
-            event: {
-              teamMinSize: team.event.teamMinSize,
-              teamMaxSize: team.event.teamMaxSize,
-              title: team.event.title,
-              startDate: team.event.startDate,
-              slug: team.event.slug,
-              location: team.event.location,
-              imageUrl: team.event.imageUrl,
-            },
-          };
-        }, {
-          isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+            members: true,
+            leader: { select: { id: true, name: true } },
+          },
         });
 
-        break;
-      } catch (error) {
-        if (error && typeof error === 'object' && 'status' in error && 'message' in error) {
-          const e = error as { status: number; message: string; details?: unknown };
-          return ApiResponse.error(res, {
-            code: e.status === 404 ? ErrorCodes.NOT_FOUND : ErrorCodes.VALIDATION_ERROR,
-            message: e.message,
-            status: e.status,
-            details: e.details,
-          });
+        if (!team) {
+          throw { status: 404, message: 'Invalid invite code' };
         }
 
-        if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
-          const target = error.meta?.target;
-          if (Array.isArray(target) && target.includes('team_id') && target.includes('user_id')) {
-            return ApiResponse.error(res, { code: ErrorCodes.CONFLICT, message: 'You are already in this team', status: 409 });
+        if (team.isLocked) {
+          throw { status: 403, message: 'This team is locked and not accepting new members' };
+        }
+
+        if (team.members.length >= team.event.teamMaxSize) {
+          throw { status: 409, message: 'Team is full' };
+        }
+
+        const now = new Date();
+        const validation = validateEventForRegistration(team.event, team.event._count.registrations, now);
+        if (!validation.valid) {
+          throw { status: validation.status, message: validation.message };
+        }
+
+        // Check user not already registered
+        const existing = await tx.eventRegistration.findUnique({
+          where: { userId_eventId: { userId: user.id, eventId: team.eventId } },
+          select: { id: true },
+        });
+
+        if (existing) {
+          throw { status: 409, message: 'You are already registered for this event' };
+        }
+
+        let validatedCustomFieldResponses: Prisma.InputJsonValue | undefined;
+        try {
+          validatedCustomFieldResponses = validateTeamRegistrationFields(team.event.registrationFields, customFieldResponses);
+        } catch (validationError) {
+          if (validationError && typeof validationError === 'object' && 'status' in validationError && 'message' in validationError) {
+            throw validationError;
           }
-          if (Array.isArray(target) && target.includes('user_id') && target.includes('event_id')) {
-            return ApiResponse.error(res, { code: ErrorCodes.CONFLICT, message: 'You are already registered for this event', status: 409 });
-          }
-          return ApiResponse.error(res, { code: ErrorCodes.CONFLICT, message: 'Registration conflict. Please try again.', status: 409 });
+          throw {
+            status: 400,
+            message: validationError instanceof Error ? validationError.message : 'Invalid registration fields',
+          };
         }
 
-        if (
-          error instanceof Prisma.PrismaClientKnownRequestError &&
-          error.code === 'P2034' &&
-          attempt < TEAM_TRANSACTION_RETRIES - 1
-        ) {
-          await backoffDelay(attempt);
-          continue;
-        }
+        // Create registration
+        const registration = await tx.eventRegistration.create({
+          data: {
+            userId: user.id,
+            eventId: team.eventId,
+            customFieldResponses: validatedCustomFieldResponses,
+          },
+        });
 
-        throw error;
+        // Create team member
+        await tx.eventTeamMember.create({
+          data: {
+            teamId: team.id,
+            userId: user.id,
+            registrationId: registration.id,
+            role: 'MEMBER',
+          },
+        });
+
+        // Fetch complete team data
+        const completeTeam = await tx.eventTeam.findUniqueOrThrow({
+          where: { id: team.id },
+          include: {
+            members: {
+              include: {
+                user: { select: { id: true, name: true, email: true, avatar: true } },
+              },
+            },
+          },
+        });
+
+        return {
+          team: completeTeam,
+          registrationId: registration.id,
+          eventId: team.eventId,
+          event: {
+            teamMinSize: team.event.teamMinSize,
+            teamMaxSize: team.event.teamMaxSize,
+            title: team.event.title,
+            startDate: team.event.startDate,
+            slug: team.event.slug,
+            location: team.event.location,
+            imageUrl: team.event.imageUrl,
+          },
+        };
+      });
+    } catch (error) {
+      if (error && typeof error === 'object' && 'status' in error && 'message' in error) {
+        const e = error as { status: number; message: string; details?: unknown };
+        return ApiResponse.error(res, {
+          code: e.status === 404 ? ErrorCodes.NOT_FOUND : ErrorCodes.VALIDATION_ERROR,
+          message: e.message,
+          status: e.status,
+          details: e.details,
+        });
       }
+
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+        const target = error.meta?.target;
+        if (Array.isArray(target) && target.includes('team_id') && target.includes('user_id')) {
+          return ApiResponse.error(res, { code: ErrorCodes.CONFLICT, message: 'You are already in this team', status: 409 });
+        }
+        if (Array.isArray(target) && target.includes('user_id') && target.includes('event_id')) {
+          return ApiResponse.error(res, { code: ErrorCodes.CONFLICT, message: 'You are already registered for this event', status: 409 });
+        }
+        return ApiResponse.error(res, { code: ErrorCodes.CONFLICT, message: 'Registration conflict. Please try again.', status: 409 });
+      }
+
+      if (isSerializationConflict(error)) {
+        return ApiResponse.error(res, { code: ErrorCodes.CONFLICT, message: 'Please try again. The team membership just changed.', status: 409 });
+      }
+
+      throw error;
     }
 
     if (!result) {

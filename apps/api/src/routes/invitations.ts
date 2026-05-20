@@ -16,10 +16,10 @@ import { sanitizeText } from '../utils/sanitize.js';
 import { deriveInvitationStatus, getEffectiveEventEnd } from '../utils/invitationStatus.js';
 import { guestsOnly, isGuest, isParticipant, participantsOnly } from '../utils/registrationFilters.js';
 import { socketEvents } from '../utils/socket.js';
+import { executeSerializableTransaction, isSerializationConflict } from '../utils/transactionRetry.js';
 
 export const invitationsRouter = Router();
 
-const INVITATION_TRANSACTION_RETRIES = 3;
 const RESEND_COOLDOWN_MS = 5 * 60 * 1000;
 const CERT_TYPES = ['PARTICIPATION', 'COMPLETION', 'WINNER', 'SPEAKER'] as const;
 const EMAIL_ADDRESS_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -176,12 +176,6 @@ function normalizeOptionalMessage(message?: string | null): string | null | unde
 
   const normalized = sanitizeText(message).trim();
   return normalized ? normalized : null;
-}
-
-function backoffDelay(attempt: number): Promise<void> {
-  const baseMs = 50 * Math.pow(2, attempt);
-  const jitter = Math.random() * baseMs;
-  return new Promise((resolve) => setTimeout(resolve, baseMs + jitter));
 }
 
 function getResendCooldownRemainingMs(lastEmailResentAt: Date | null, now: Date): number {
@@ -1056,54 +1050,43 @@ invitationsRouter.delete('/:id', authMiddleware, requireRole('ADMIN'), async (re
     const authUser = getAuthUser(req)!;
     let revokedInvitation: InvitationRecord | null = null;
 
-    for (let attempt = 0; attempt < INVITATION_TRANSACTION_RETRIES; attempt += 1) {
-      try {
-        revokedInvitation = await prisma.$transaction(async (tx) => {
-          const existingInvitation = await tx.eventInvitation.findUnique({
-            where: { id: req.params.id },
-            include: invitationDetailInclude,
-          });
-
-          if (!existingInvitation) {
-            throw new InvitationHttpError(404, 'Invitation not found');
-          }
-
-          if (existingInvitation.status === 'REVOKED') {
-            throw new InvitationHttpError(409, 'Invitation is already revoked');
-          }
-
-          await cleanupGuestRegistrationForInvitation(tx, existingInvitation);
-
-          return tx.eventInvitation.update({
-            where: { id: existingInvitation.id },
-            data: {
-              status: 'REVOKED',
-              revokedAt: new Date(),
-              registrationId: null,
-            },
-            include: invitationDetailInclude,
-          });
-        }, {
-          isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+    try {
+      revokedInvitation = await executeSerializableTransaction(async (tx) => {
+        const existingInvitation = await tx.eventInvitation.findUnique({
+          where: { id: req.params.id },
+          include: invitationDetailInclude,
         });
 
-        break;
-      } catch (error) {
-        if (error instanceof InvitationHttpError) {
-          return sendInvitationHttpError(res, error);
+        if (!existingInvitation) {
+          throw new InvitationHttpError(404, 'Invitation not found');
         }
 
-        if (
-          error instanceof Prisma.PrismaClientKnownRequestError &&
-          error.code === 'P2034' &&
-          attempt < INVITATION_TRANSACTION_RETRIES - 1
-        ) {
-          await backoffDelay(attempt);
-          continue;
+        if (existingInvitation.status === 'REVOKED') {
+          throw new InvitationHttpError(409, 'Invitation is already revoked');
         }
 
-        throw error;
+        await cleanupGuestRegistrationForInvitation(tx, existingInvitation);
+
+        return tx.eventInvitation.update({
+          where: { id: existingInvitation.id },
+          data: {
+            status: 'REVOKED',
+            revokedAt: new Date(),
+            registrationId: null,
+          },
+          include: invitationDetailInclude,
+        });
+      });
+    } catch (error) {
+      if (error instanceof InvitationHttpError) {
+        return sendInvitationHttpError(res, error);
       }
+
+      if (isSerializationConflict(error)) {
+        return ApiResponse.conflict(res, 'Please try again. The invitation was updated by another request.');
+      }
+
+      throw error;
     }
 
     if (!revokedInvitation) {
@@ -1212,13 +1195,11 @@ invitationsRouter.post('/:id/accept', authMiddleware, async (req: Request, res: 
         }
       | null = null;
 
-    for (let attempt = 0; attempt < INVITATION_TRANSACTION_RETRIES; attempt += 1) {
-      const registrationId = randomUUID();
-      const respondedAt = new Date();
-
-      try {
-        result = await prisma.$transaction(async (tx) => {
-          const invitation = await tx.eventInvitation.findUnique({
+    try {
+      result = await executeSerializableTransaction(async (tx) => {
+        const registrationId = randomUUID();
+        const respondedAt = new Date();
+        const invitation = await tx.eventInvitation.findUnique({
             where: { id: req.params.id },
             include: invitationDetailInclude,
           });
@@ -1351,34 +1332,24 @@ invitationsRouter.post('/:id/accept', authMiddleware, async (req: Request, res: 
               eventId: createdRegistration.eventId,
             },
           };
-        }, {
-          isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
-        });
-
-        break;
-      } catch (error) {
-        if (error instanceof InvitationHttpError) {
-          return sendInvitationHttpError(res, error);
-        }
-
-        if (
-          error instanceof Prisma.PrismaClientKnownRequestError &&
-          error.code === 'P2034' &&
-          attempt < INVITATION_TRANSACTION_RETRIES - 1
-        ) {
-          await backoffDelay(attempt);
-          continue;
-        }
-
-        if (
-          error instanceof Prisma.PrismaClientKnownRequestError &&
-          error.code === 'P2002'
-        ) {
-          return ApiResponse.conflict(res, 'You are already registered for this event');
-        }
-
-        throw error;
+      });
+    } catch (error) {
+      if (error instanceof InvitationHttpError) {
+        return sendInvitationHttpError(res, error);
       }
+
+      if (isSerializationConflict(error)) {
+        return ApiResponse.conflict(res, 'Please try again. The invitation was updated by another request.');
+      }
+
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === 'P2002'
+      ) {
+        return ApiResponse.conflict(res, 'You are already registered for this event');
+      }
+
+      throw error;
     }
 
     if (!result) {
@@ -1409,63 +1380,52 @@ invitationsRouter.post('/:id/decline', authMiddleware, async (req: Request, res:
     const authUser = getAuthUser(req)!;
     let invitation: InvitationRecord | null = null;
 
-    for (let attempt = 0; attempt < INVITATION_TRANSACTION_RETRIES; attempt += 1) {
-      try {
-        invitation = await prisma.$transaction(async (tx) => {
-          const existingInvitation = await tx.eventInvitation.findUnique({
-            where: { id: req.params.id },
-            include: invitationDetailInclude,
-          });
-
-          if (!existingInvitation) {
-            throw new InvitationHttpError(404, 'Invitation not found');
-          }
-
-          if (!matchesInvitationInvitee(existingInvitation, authUser)) {
-            throw new InvitationHttpError(403, 'You are not allowed to decline this invitation');
-          }
-
-          if (existingInvitation.status === 'REVOKED') {
-            throw new InvitationHttpError(409, 'This invitation has been revoked');
-          }
-
-          if (deriveInvitationStatus(existingInvitation) === 'EXPIRED') {
-            throw new InvitationHttpError(410, 'This invitation has expired');
-          }
-
-          await cleanupGuestRegistrationForInvitation(tx, existingInvitation, authUser.id);
-
-          return tx.eventInvitation.update({
-            where: { id: existingInvitation.id },
-            data: {
-              status: 'DECLINED',
-              respondedAt: new Date(),
-              inviteeUserId: authUser.id,
-              registrationId: null,
-            },
-            include: invitationDetailInclude,
-          });
-        }, {
-          isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+    try {
+      invitation = await executeSerializableTransaction(async (tx) => {
+        const existingInvitation = await tx.eventInvitation.findUnique({
+          where: { id: req.params.id },
+          include: invitationDetailInclude,
         });
 
-        break;
-      } catch (error) {
-        if (error instanceof InvitationHttpError) {
-          return sendInvitationHttpError(res, error);
+        if (!existingInvitation) {
+          throw new InvitationHttpError(404, 'Invitation not found');
         }
 
-        if (
-          error instanceof Prisma.PrismaClientKnownRequestError &&
-          error.code === 'P2034' &&
-          attempt < INVITATION_TRANSACTION_RETRIES - 1
-        ) {
-          await backoffDelay(attempt);
-          continue;
+        if (!matchesInvitationInvitee(existingInvitation, authUser)) {
+          throw new InvitationHttpError(403, 'You are not allowed to decline this invitation');
         }
 
-        throw error;
+        if (existingInvitation.status === 'REVOKED') {
+          throw new InvitationHttpError(409, 'This invitation has been revoked');
+        }
+
+        if (deriveInvitationStatus(existingInvitation) === 'EXPIRED') {
+          throw new InvitationHttpError(410, 'This invitation has expired');
+        }
+
+        await cleanupGuestRegistrationForInvitation(tx, existingInvitation, authUser.id);
+
+        return tx.eventInvitation.update({
+          where: { id: existingInvitation.id },
+          data: {
+            status: 'DECLINED',
+            respondedAt: new Date(),
+            inviteeUserId: authUser.id,
+            registrationId: null,
+          },
+          include: invitationDetailInclude,
+        });
+      });
+    } catch (error) {
+      if (error instanceof InvitationHttpError) {
+        return sendInvitationHttpError(res, error);
       }
+
+      if (isSerializationConflict(error)) {
+        return ApiResponse.conflict(res, 'Please try again. The invitation was updated by another request.');
+      }
+
+      throw error;
     }
 
     if (!invitation) {
