@@ -10,7 +10,9 @@ function getIndexNowKey(): string {
 }
 
 function getIndexNowKeyLocation(key: string): string {
-  return `https://${HOST}/${key}.txt`;
+  // Key file is a static asset in apps/web/public/, served at the frontend domain.
+  const frontendBase = process.env.FRONTEND_URL?.replace(/\/$/, '') ?? 'https://codescriet.dev';
+  return `${frontendBase}/${key}.txt`;
 }
 
 function isIndexNowConfigured(): boolean {

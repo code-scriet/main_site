@@ -4,7 +4,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Plus, BookOpen, GripVertical, Loader2, Trash2, ChevronUp, ChevronDown, Save } from 'lucide-react';
+import { Plus, BookOpen, GripVertical, Loader2, Trash2, ChevronUp, ChevronDown, Save, Users } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { api, type Credit } from '@/lib/api';
 import { DSCard, EmptyState, Field, Pill, Section } from '@/components/dash';
@@ -34,10 +34,13 @@ export default function AdminCredits() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [edit, setEdit] = useState<EditState>(EMPTY);
   const [deleting, setDeleting] = useState<Credit | null>(null);
-  // Filter the team-member assignee picker by name or role (HEAD parity, E15).
+  // Filter the team-member assignee picker by name or role.
   const [memberFilter, setMemberFilter] = useState('');
   // Toggle a free-text category mode for entries outside the preset list.
   const [customCategoryMode, setCustomCategoryMode] = useState(false);
+  // Multi-member bulk-add mode: creates one credit per selected member.
+  const [multiMode, setMultiMode] = useState(false);
+  const [selectedMemberIds, setSelectedMemberIds] = useState<string[]>([]);
 
   const q = useQuery({
     queryKey: ['admin-credits'],
@@ -52,8 +55,15 @@ export default function AdminCredits() {
     const all = teamQ.data ?? [];
     const q = memberFilter.trim().toLowerCase();
     if (!q) return all;
-    return all.filter((m) => m.name.toLowerCase().includes(q) || m.role.toLowerCase().includes(q));
-  }, [teamQ.data, memberFilter]);
+    // Always keep the currently-selected member in the list so the dropdown
+    // does not lose its selected value when the filter narrows the options.
+    return all.filter(
+      (m) =>
+        m.name.toLowerCase().includes(q) ||
+        m.role.toLowerCase().includes(q) ||
+        m.id === edit.teamMemberId,
+    );
+  }, [teamQ.data, memberFilter, edit.teamMemberId]);
 
   const all = q.data ?? [];
 
@@ -113,6 +123,33 @@ export default function AdminCredits() {
     onError: () => toast.error('Reorder failed'),
   });
 
+  const bulkCreateMut = useMutation({
+    mutationFn: async () => {
+      await Promise.all(
+        selectedMemberIds.map((memberId) =>
+          api.createCredit(
+            {
+              title: edit.title.trim(),
+              description: edit.description.trim() || undefined,
+              category: edit.category,
+              teamMemberId: memberId,
+              order: edit.order,
+            } as Partial<Credit>,
+            token!,
+          ),
+        ),
+      );
+    },
+    onSuccess: () => {
+      toast.success(`${selectedMemberIds.length} credit${selectedMemberIds.length > 1 ? 's' : ''} added`);
+      setMultiMode(false);
+      setSelectedMemberIds([]);
+      setEdit({ ...EMPTY, order: all.length });
+      qc.invalidateQueries({ queryKey: ['admin-credits'] });
+    },
+    onError: () => toast.error('Bulk add failed'),
+  });
+
   const sel = useMemo(() => all.find((c) => c.id === selectedId) ?? null, [all, selectedId]);
 
   const editDirty = useMemo(() => {
@@ -139,10 +176,17 @@ export default function AdminCredits() {
       teamMemberId: c.teamMemberId || '',
       order: c.order ?? 0,
     });
+    // Reset filter so the currently-linked member is always visible in the dropdown.
+    setMemberFilter('');
+    setMultiMode(false);
+    setSelectedMemberIds([]);
   };
   const createNew = () => {
     setSelectedId(null);
     setEdit({ ...EMPTY, order: all.length });
+    setMemberFilter('');
+    setMultiMode(false);
+    setSelectedMemberIds([]);
   };
 
   const saveMut = useMutation({
@@ -175,7 +219,12 @@ export default function AdminCredits() {
     onError: () => toast.error('Delete failed'),
   });
 
-  useUnsavedChangesWarning((editDirty || orderDirty) && !saveMut.isPending && !saveOrderMut.isPending);
+  useUnsavedChangesWarning(
+    (editDirty || orderDirty) &&
+      !saveMut.isPending &&
+      !saveOrderMut.isPending &&
+      !bulkCreateMut.isPending,
+  );
 
   return (
     <div className="flex flex-col gap-6">
@@ -306,24 +355,124 @@ export default function AdminCredits() {
                 </div>
               )}
             </Field>
-            <Field label="Linked team member" hint="Optional — type to filter by name or role">
+            <Field
+              label="Linked team member"
+              hint={
+                multiMode
+                  ? `${selectedMemberIds.length} selected — will create one credit per member`
+                  : 'Optional — type to filter by name or role'
+              }
+            >
+              {/* Mode toggle */}
+              {!sel && (
+                <div className="flex items-center gap-2 mb-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMultiMode(!multiMode);
+                      setSelectedMemberIds([]);
+                      setMemberFilter('');
+                    }}
+                    className={cn(
+                      'flex items-center gap-1.5 px-2.5 py-1 rounded-[6px] text-[11.5px] font-medium border transition-colors',
+                      multiMode
+                        ? 'bg-[var(--accent-subtle)] border-[var(--accent)] text-[var(--accent)]'
+                        : 'border-[var(--border-default)] text-[var(--ds-text-2)] hover:bg-[var(--surface-soft)]',
+                    )}
+                  >
+                    <Users size={11} />
+                    {multiMode ? 'Multi-member ON' : 'Add for multiple members'}
+                  </button>
+                </div>
+              )}
+
+              {/* Filter input */}
               <Input
                 value={memberFilter}
                 onChange={(e) => setMemberFilter(e.target.value)}
-                placeholder="Filter members…"
+                placeholder="Filter by name or role…"
                 className="mb-2"
               />
-              <select
-                value={edit.teamMemberId}
-                onChange={(e) => setEdit({ ...edit, teamMemberId: e.target.value })}
-                className="h-9 w-full px-3 text-[13.5px] bg-[var(--bg-raised)] border border-[var(--border-default)] rounded-[8px] outline-none focus:border-[var(--accent)]"
-                size={filteredMembers.length > 6 ? 6 : undefined}
-              >
-                <option value="">— none —</option>
-                {filteredMembers.map((m) => <option key={m.id} value={m.id}>{m.name} · {m.role}</option>)}
-              </select>
-              {filteredMembers.length === 0 && memberFilter.trim() && (
-                <span className="text-[11px] text-[var(--ds-text-3)] mt-1">No team members match.</span>
+
+              {/* Single-member dropdown (default) */}
+              {!multiMode && (
+                <>
+                  <select
+                    value={edit.teamMemberId}
+                    onChange={(e) => setEdit({ ...edit, teamMemberId: e.target.value })}
+                    className="h-9 w-full px-3 text-[13.5px] bg-[var(--bg-raised)] border border-[var(--border-default)] rounded-[8px] outline-none focus:border-[var(--accent)]"
+                  >
+                    <option value="">— none —</option>
+                    {filteredMembers.map((m) => (
+                      <option key={m.id} value={m.id}>
+                        {m.name} · {m.role}
+                      </option>
+                    ))}
+                  </select>
+                  {filteredMembers.length === 0 && memberFilter.trim() && (
+                    <span className="text-[11px] text-[var(--ds-text-3)] mt-1 block">No team members match.</span>
+                  )}
+                </>
+              )}
+
+              {/* Multi-member checklist */}
+              {multiMode && (
+                <div className="border border-[var(--border-default)] rounded-[8px] overflow-hidden">
+                  {/* Select-all / select-team row */}
+                  <div className="px-3 py-2 flex items-center gap-3 border-b border-[var(--border-subtle)] bg-[var(--surface-soft)]">
+                    <button
+                      type="button"
+                      onClick={() => setSelectedMemberIds(filteredMembers.map((m) => m.id))}
+                      className="text-[11px] text-[var(--accent)] hover:underline font-medium"
+                    >
+                      Select all{memberFilter.trim() ? ' matches' : ' (whole team)'}
+                    </button>
+                    <span className="text-[var(--ds-text-3)] text-[11px]">·</span>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedMemberIds([])}
+                      className="text-[11px] text-[var(--ds-text-3)] hover:underline"
+                    >
+                      Clear
+                    </button>
+                    {selectedMemberIds.length > 0 && (
+                      <span className="ml-auto text-[11px] font-mono text-[var(--ds-text-2)]">
+                        {selectedMemberIds.length} selected
+                      </span>
+                    )}
+                  </div>
+                  <div className="max-h-[200px] overflow-y-auto">
+                    {filteredMembers.length === 0 && memberFilter.trim() ? (
+                      <p className="px-3 py-3 text-[12px] text-[var(--ds-text-3)]">No team members match.</p>
+                    ) : (
+                      filteredMembers.map((m) => {
+                        const checked = selectedMemberIds.includes(m.id);
+                        return (
+                          <label
+                            key={m.id}
+                            className={cn(
+                              'flex items-center gap-2.5 px-3 py-2 cursor-pointer border-b border-[var(--border-subtle)] last:border-0 transition-colors',
+                              checked ? 'bg-[var(--accent-subtle)]/30' : 'hover:bg-[var(--surface-soft)]',
+                            )}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              onChange={() =>
+                                setSelectedMemberIds((prev) =>
+                                  checked ? prev.filter((id) => id !== m.id) : [...prev, m.id],
+                                )
+                              }
+                              className="rounded accent-[var(--accent)]"
+                            />
+                            <span className="text-[13px] font-medium">{m.name}</span>
+                            <span className="text-[11.5px] text-[var(--ds-text-3)]">{m.role}</span>
+                          </label>
+                        );
+                      })
+                    )}
+                  </div>
+                </div>
               )}
             </Field>
             <Field label="Description">
@@ -344,14 +493,25 @@ export default function AdminCredits() {
               ) : <span />}
               <div className="flex items-center gap-2">
                 <Button size="sm" variant="ghost" onClick={createNew}>Reset</Button>
-                <Button
-                  size="sm"
-                  onClick={() => saveMut.mutate()}
-                  disabled={saveMut.isPending || !edit.title.trim()}
-                >
-                  {saveMut.isPending && <Loader2 size={13} className="mr-1.5 animate-spin" />}
-                  {edit.id ? 'Save' : 'Add'}
-                </Button>
+                {multiMode ? (
+                  <Button
+                    size="sm"
+                    onClick={() => bulkCreateMut.mutate()}
+                    disabled={bulkCreateMut.isPending || !edit.title.trim() || selectedMemberIds.length === 0}
+                  >
+                    {bulkCreateMut.isPending && <Loader2 size={13} className="mr-1.5 animate-spin" />}
+                    Add {selectedMemberIds.length > 0 ? `for ${selectedMemberIds.length}` : 'members'}
+                  </Button>
+                ) : (
+                  <Button
+                    size="sm"
+                    onClick={() => saveMut.mutate()}
+                    disabled={saveMut.isPending || !edit.title.trim()}
+                  >
+                    {saveMut.isPending && <Loader2 size={13} className="mr-1.5 animate-spin" />}
+                    {edit.id ? 'Save' : 'Add'}
+                  </Button>
+                )}
               </div>
             </div>
           </div>
