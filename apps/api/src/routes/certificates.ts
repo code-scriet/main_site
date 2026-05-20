@@ -716,6 +716,123 @@ async function updateCertificateWithSchemaFallback(
 }
 
 // ──────────────────────────────────────────────────────────────────
+// Issuance orchestrator — single source of truth for certificate
+// generation. Used by both POST /generate and POST /bulk so the
+// "generateCertId → PDF render → Cloudinary upload → DB write with
+// schema fallback → certId collision retry" sequence lives in one
+// place. Caller is responsible for: signatory resolution (passed in,
+// done once for bulk), pre-checks (duplicates / event existence /
+// recipient validation), and post-write side effects (email send,
+// audit log, socket notification).
+// ──────────────────────────────────────────────────────────────────
+
+interface IssueCertificateParams {
+  recipientName: string;            // pre-sanitized
+  recipientEmail: string;
+  recipientId: string | null;
+  eventId: string | null;
+  eventName: string;                // pre-sanitized
+  type: CertType;
+  position: string | null | undefined;
+  domain: string | null | undefined;
+  teamName: string | null | undefined;
+  description: string | null | undefined;
+  template: string;
+  primarySig: ResolvedSignatory;
+  facultySig: ResolvedSignatory | null;
+  issuedBy: string;
+}
+
+interface IssueCertificateResult {
+  certId: string;
+  pdfUrl: string;
+}
+
+class CertificateIssuanceError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'CertificateIssuanceError';
+  }
+}
+
+async function issueOneCertificate(params: IssueCertificateParams): Promise<IssueCertificateResult> {
+  const MAX_CERT_ID_CREATE_RETRIES = 3;
+
+  for (let attempt = 1; attempt <= MAX_CERT_ID_CREATE_RETRIES; attempt++) {
+    const certId = generateCertId();
+
+    const pdfBuffer = await generateCertificatePDF({
+      recipientName: params.recipientName,
+      eventName: params.eventName,
+      type: params.type,
+      position: params.position ?? undefined,
+      domain: params.domain ?? undefined,
+      teamName: params.teamName ?? undefined,
+      description: params.description ?? undefined,
+      certId,
+      issuedAt: new Date(),
+      signatoryName: params.primarySig.name,
+      signatoryTitle: params.primarySig.title,
+      signatoryImageUrl: params.primarySig.processedImageUrl,
+      facultyName: params.facultySig?.name || undefined,
+      facultyTitle: params.facultySig?.title || undefined,
+      facultySignatoryImageUrl: params.facultySig?.processedImageUrl,
+      codescrietLogoUrl: CODESCRIET_LOGO,
+      ccsuLogoUrl: CCSU_LOGO,
+    });
+
+    const pdfUrl = await uploadCertificate(certId, pdfBuffer);
+
+    const legacyCertificateData: Prisma.CertificateUncheckedCreateInput = {
+      certId,
+      recipientName: params.recipientName,
+      recipientEmail: params.recipientEmail,
+      recipientId: params.recipientId,
+      eventId: params.eventId,
+      eventName: params.eventName,
+      type: params.type,
+      position: params.position ?? null,
+      domain: params.domain ?? null,
+      template: params.template,
+      pdfUrl,
+      issuedBy: params.issuedBy,
+    };
+
+    try {
+      await createCertificateWithSchemaFallback(
+        certId,
+        {
+          ...legacyCertificateData,
+          description: params.description ?? null,
+          signatoryId: params.primarySig.id,
+          signatoryName: params.primarySig.name,
+          signatoryTitle: params.primarySig.title,
+          signatoryImageUrl: params.primarySig.rawImageUrl,
+          facultySignatoryId: params.facultySig?.id || null,
+          facultyName: params.facultySig?.name || null,
+          facultyTitle: params.facultySig?.title || null,
+          facultySignatoryImageUrl: params.facultySig?.rawImageUrl || null,
+        },
+        legacyCertificateData,
+      );
+      return { certId, pdfUrl };
+    } catch (createError) {
+      if (isCertificateIdCollisionError(createError) && attempt < MAX_CERT_ID_CREATE_RETRIES) {
+        logger.warn('Certificate ID collision detected during create; retrying', {
+          certId,
+          attempt,
+          recipientEmail: params.recipientEmail,
+        });
+        continue;
+      }
+      throw createError;
+    }
+  }
+
+  throw new CertificateIssuanceError('Failed to generate unique certificate ID');
+}
+
+// ──────────────────────────────────────────────────────────────────
 // PUBLIC: Legacy certificate file endpoint retained for backward compatibility.
 // Internally resolves to a Cloudinary URL and redirects.
 // GET /api/certificates/files/:filename
@@ -965,89 +1082,36 @@ certificatesRouter.post('/generate', authMiddleware, requireRole('ADMIN'), async
       );
     }
 
-    const MAX_CERT_ID_CREATE_RETRIES = 3;
     let certId = '';
     let pdfUrl = '';
-    let certificateCreated = false;
-
-    for (let attempt = 1; attempt <= MAX_CERT_ID_CREATE_RETRIES; attempt++) {
-      certId = generateCertId();
-
-      // Generate PDF — signature images are passed when available, PDF renderer
-      // automatically falls back to GreatVibes cursive text when images are absent
-      const pdfBuffer = await generateCertificatePDF({
-        recipientName: safeRecipientName,
-        eventName: safeEventName,
-        type,
-        position: safePosition,
-        domain: safeDomain,
-        teamName: safeTeamName,
-        description: safeDescription,
-        certId,
-        issuedAt: new Date(),
-        signatoryName: primarySig.name,
-        signatoryTitle: primarySig.title,
-        signatoryImageUrl: primarySig.processedImageUrl,
-        facultyName: facultySig?.name || undefined,
-        facultyTitle: facultySig?.title || undefined,
-        facultySignatoryImageUrl: facultySig?.processedImageUrl,
-        codescrietLogoUrl: CODESCRIET_LOGO,
-        ccsuLogoUrl: CCSU_LOGO,
-      });
-
-      // Upload to storage
-      pdfUrl = await uploadCertificate(certId, pdfBuffer);
-
-      // Persist to database with signatory snapshot
-      const legacyCertificateData: Prisma.CertificateUncheckedCreateInput = {
-        certId,
+    try {
+      const issued = await issueOneCertificate({
         recipientName: safeRecipientName,
         recipientEmail,
         recipientId: resolvedRecipientId,
         eventId: eventId || null,
         eventName: safeEventName,
         type: normalizedCertType,
-        position: safePosition || null,
-        domain: safeDomain || null,
+        position: safePosition,
+        domain: safeDomain,
+        teamName: safeTeamName,
+        description: safeDescription,
         template,
-        pdfUrl,
+        primarySig,
+        facultySig,
         issuedBy: authUser.id,
-      };
-
-      try {
-        await createCertificateWithSchemaFallback(
-          certId,
-          {
-            ...legacyCertificateData,
-            description: safeDescription || null,
-            signatoryId: primarySig.id,
-            signatoryName: primarySig.name,
-            signatoryTitle: primarySig.title,
-            signatoryImageUrl: primarySig.rawImageUrl,
-            facultySignatoryId: facultySig?.id || null,
-            facultyName: facultySig?.name || null,
-            facultyTitle: facultySig?.title || null,
-            facultySignatoryImageUrl: facultySig?.rawImageUrl || null,
-          },
-          legacyCertificateData,
-        );
-        certificateCreated = true;
-        break;
-      } catch (createError) {
-        if (isCertificateIdCollisionError(createError) && attempt < MAX_CERT_ID_CREATE_RETRIES) {
-          logger.warn('Certificate ID collision detected during create; retrying', { certId, attempt });
-          continue;
-        }
-        throw createError;
-      }
-    }
-
-    if (!certificateCreated) {
-      return ApiResponse.error(res, {
-        code: ErrorCodes.INTERNAL_ERROR,
-        message: 'Failed to generate unique certificate ID. Please try again.',
-        status: 500,
       });
+      certId = issued.certId;
+      pdfUrl = issued.pdfUrl;
+    } catch (issueError) {
+      if (issueError instanceof CertificateIssuanceError) {
+        return ApiResponse.error(res, {
+          code: ErrorCodes.INTERNAL_ERROR,
+          message: 'Failed to generate unique certificate ID. Please try again.',
+          status: 500,
+        });
+      }
+      throw issueError;
     }
 
     const downloadUrl = buildPublicCertificateDownloadUrl(certId);
@@ -1293,38 +1357,10 @@ certificatesRouter.post('/bulk', authMiddleware, requireRole('ADMIN'), async (re
       batch.map(async (r) => {
         try {
           const resolvedRecipientId = r.userId || recipientIdByEmail.get(r.normalizedEmail) || null;
-          const MAX_CERT_ID_CREATE_RETRIES = 3;
           let certId = '';
           let pdfUrl = '';
-          let certificateCreated = false;
-
-          for (let attempt = 1; attempt <= MAX_CERT_ID_CREATE_RETRIES; attempt++) {
-            certId = generateCertId();
-
-            const pdfBuffer = await generateCertificatePDF({
-              recipientName: r.name,
-              eventName: safeEventName,
-              type: r.type,
-              position: r.position || undefined,
-              domain: r.domain || undefined,
-              teamName: r.teamName || undefined,
-              description: r.resolvedDescription || undefined,
-              certId,
-              issuedAt: new Date(),
-              signatoryName: primarySig.name,
-              signatoryTitle: primarySig.title,
-              signatoryImageUrl: primarySig.processedImageUrl,
-              facultyName: facultySig?.name || undefined,
-              facultyTitle: facultySig?.title || undefined,
-              facultySignatoryImageUrl: facultySig?.processedImageUrl,
-              codescrietLogoUrl: CODESCRIET_LOGO,
-              ccsuLogoUrl: CCSU_LOGO,
-            });
-
-            const uploadedPdfUrl = await uploadCertificate(certId, pdfBuffer);
-
-            const legacyCertificateData: Prisma.CertificateUncheckedCreateInput = {
-              certId,
+          try {
+            const issued = await issueOneCertificate({
               recipientName: r.name,
               recipientEmail: r.email,
               recipientId: resolvedRecipientId,
@@ -1333,47 +1369,21 @@ certificatesRouter.post('/bulk', authMiddleware, requireRole('ADMIN'), async (re
               type: r.type,
               position: r.position,
               domain: r.domain,
+              teamName: r.teamName,
+              description: r.resolvedDescription,
               template: r.template,
-              pdfUrl: uploadedPdfUrl,
+              primarySig,
+              facultySig,
               issuedBy: authUser.id,
-            };
-
-            try {
-              await createCertificateWithSchemaFallback(
-                certId,
-                {
-                  ...legacyCertificateData,
-                  description: r.resolvedDescription,
-                  signatoryId: primarySig.id,
-                  signatoryName: primarySig.name,
-                  signatoryTitle: primarySig.title,
-                  signatoryImageUrl: primarySig.rawImageUrl,
-                  facultySignatoryId: facultySig?.id || null,
-                  facultyName: facultySig?.name || null,
-                  facultyTitle: facultySig?.title || null,
-                  facultySignatoryImageUrl: facultySig?.rawImageUrl || null,
-                },
-                legacyCertificateData,
-              );
-              pdfUrl = uploadedPdfUrl;
-              certificateCreated = true;
-              break;
-            } catch (createError) {
-              if (isCertificateIdCollisionError(createError) && attempt < MAX_CERT_ID_CREATE_RETRIES) {
-                logger.warn('Certificate ID collision detected during bulk create; retrying', {
-                  certId,
-                  attempt,
-                  recipientEmail: r.email,
-                });
-                continue;
-              }
-              throw createError;
+            });
+            certId = issued.certId;
+            pdfUrl = issued.pdfUrl;
+          } catch (issueError) {
+            if (issueError instanceof CertificateIssuanceError) {
+              failures.push({ name: r.name, email: r.email, reason: 'Could not generate unique certificate ID' });
+              return;
             }
-          }
-
-          if (!certificateCreated) {
-            failures.push({ name: r.name, email: r.email, reason: 'Could not generate unique certificate ID' });
-            return;
+            throw issueError;
           }
 
           const downloadUrl = buildPublicCertificateDownloadUrl(certId);
