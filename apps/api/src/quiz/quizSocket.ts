@@ -11,6 +11,11 @@ import { prisma } from '../lib/prisma.js';
 import { QuizCapacityError, quizStore } from './quizStore.js';
 import type { QuizQuestionData } from './quizStore.js';
 import type { QuizRoom } from './quizStore.js';
+import {
+  LEADERBOARD_BROADCAST_LIMIT,
+  planQuestionResults,
+  sanitizeQuestionForClient as sanitizeQuestionForClientPure,
+} from './quizEmissionPlanner.js';
 import { authenticateSocketConnection } from '../utils/socketAuth.js';
 import { isUserBlocked } from '../middleware/blocks.js';
 
@@ -59,21 +64,9 @@ interface QuizAccessTokenPayload {
   accessRole: 'participant' | 'host';
 }
 
-// ─── Helper to strip correctAnswer from question data sent to players ─────
-function sanitizeQuestionForClient(q: QuizQuestionData, questionIndex: number, totalQuestions: number) {
-  return {
-    questionIndex,
-    totalQuestions,
-    questionText: q.questionText,
-    questionType: q.questionType,
-    options: q.options,
-    timeLimitSeconds: q.timeLimitSeconds,
-    points: q.points,
-    mediaUrl: q.mediaUrl,
-    questionId: q.id,
-    // NEVER include correctAnswer
-  };
-}
+// Use the pure planner so the "never include correctAnswer" rule lives in
+// one testable place.
+const sanitizeQuestionForClient = sanitizeQuestionForClientPure;
 
 function verifyQuizAccessToken(
   token: string,
@@ -170,53 +163,23 @@ export function initQuizSocket(io: SocketIOServer) {
   };
 
   const emitQuestionResults = (quizId: string, room: QuizRoom): void => {
-    const currentQ = room.questions[room.currentQuestionIndex];
-    if (!currentQ || room.currentQuestionIndex < 0) return;
+    const plan = planQuestionResults(quizId, room);
+    if (!plan) return;
 
     clearAnswerCountThrottle(quizId);
 
-    const fullLeaderboard = quizStore.getLeaderboard(quizId);
-    const answerDistribution = quizStore.getAnswerDistribution(quizId);
+    // Hard Constraint #7: leaderboard sliced to top-10 inside planQuestionResults.
+    quizNamespace.to(quizId).emit('question_results', plan.broadcast);
 
-    // Broadcast top-10 leaderboard to all (slim payload)
-    quizNamespace.to(quizId).emit('question_results', {
-      correctAnswer: currentQ.correctAnswer,
-      leaderboard: fullLeaderboard.slice(0, 10),
-      answerDistribution,
-      questionIndex: room.currentQuestionIndex,
-    });
-
-    const isUnscoredType =
-      currentQ.questionType === 'POLL' ||
-      currentQ.questionType === 'RATING' ||
-      currentQ.questionType === 'OPEN_ENDED';
-
-    // Reveal per-player correctness/points only after question time is over.
-    for (const [userId, answerRecord] of room.currentAnswers.entries()) {
-      const player = room.players.get(userId);
-      if (!player?.socketId || !player.connected) continue;
-
-      quizNamespace.to(player.socketId).emit('answer_result', {
-        isCorrect: answerRecord.isCorrect,
-        isPoll: isUnscoredType,
-        pointsAwarded: answerRecord.pointsAwarded,
-        timeMs: answerRecord.timeMs,
-        newScore: player.score,
-        newStreak: player.streak,
-      });
+    // Per-player correctness/points reveal (unicast).
+    for (const result of plan.perPlayerResults) {
+      quizNamespace.to(result.socketId).emit('answer_result', result.payload);
     }
 
-    // Send each player their personal rank (targeted, not broadcast)
-    for (let i = 0; i < fullLeaderboard.length; i++) {
-      const entry = fullLeaderboard[i];
-      const player = room.players.get(entry.userId);
-      if (player?.socketId && player.connected) {
-        quizNamespace.to(player.socketId).emit('my_rank_update', {
-          rank: i + 1,
-          totalPlayers: fullLeaderboard.length,
-          score: entry.score,
-        });
-      }
+    // Hard Constraint #9: my_rank_update is unicast per ranked player,
+    // never broadcast.
+    for (const update of plan.myRankUpdates) {
+      quizNamespace.to(update.socketId).emit('my_rank_update', update.payload);
     }
   };
 
@@ -392,9 +355,10 @@ export function initQuizSocket(io: SocketIOServer) {
               confirmPayload.yourRank = myEntryIndex + 1;
               confirmPayload.yourScore = fullLeaderboard[myEntryIndex].score;
             }
+            // Hard Constraint #7: same top-N cap as planQuestionResults.
             confirmPayload.questionReveal = {
               correctAnswer: currentQ.correctAnswer,
-              leaderboard: fullLeaderboard.slice(0, 10),
+              leaderboard: fullLeaderboard.slice(0, LEADERBOARD_BROADCAST_LIMIT),
               answerDistribution: quizStore.getAnswerDistribution(quizId),
               questionIndex: room.currentQuestionIndex,
             };
