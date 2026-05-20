@@ -14,6 +14,7 @@ import { verifyInvitationClaimToken } from '../utils/jwt.js';
 import { logger } from '../utils/logger.js';
 import { sanitizeText } from '../utils/sanitize.js';
 import { deriveInvitationStatus, getEffectiveEventEnd } from '../utils/invitationStatus.js';
+import { guestsOnly, isGuest, isParticipant, participantsOnly } from '../utils/registrationFilters.js';
 import { socketEvents } from '../utils/socket.js';
 
 export const invitationsRouter = Router();
@@ -360,7 +361,7 @@ async function cleanupGuestRegistrationForInvitation(
       tx.eventRegistration.deleteMany({
         where: {
           id: invitation.registrationId,
-          registrationType: RegistrationType.GUEST,
+          ...guestsOnly,
         },
       }),
     );
@@ -372,7 +373,7 @@ async function cleanupGuestRegistrationForInvitation(
         where: {
           userId: effectiveInviteeUserId,
           eventId: invitation.eventId,
-          registrationType: RegistrationType.GUEST,
+          ...guestsOnly,
         },
       }),
     );
@@ -412,11 +413,11 @@ async function upsertUserInvitation(args: {
     },
   });
 
-  if (existingRegistration?.registrationType === RegistrationType.PARTICIPANT) {
+  if (existingRegistration && isParticipant(existingRegistration)) {
     return { skipped: true, reason: 'already_registered_as_participant' };
   }
 
-  if (existingRegistration?.registrationType === RegistrationType.GUEST) {
+  if (existingRegistration && isGuest(existingRegistration)) {
     return { skipped: true, reason: 'already_registered_for_event' };
   }
 
@@ -595,7 +596,7 @@ invitationsRouter.get('/search-invitees', authMiddleware, requireRole('ADMIN'), 
         // Participant discovery: exclude people already occupying the participant lane for this event.
         where: {
           eventId: parsed.data.eventId,
-          registrationType: RegistrationType.PARTICIPANT,
+          ...participantsOnly,
         },
         select: { userId: true },
       }),
@@ -1262,11 +1263,11 @@ invitationsRouter.post('/:id/accept', authMiddleware, async (req: Request, res: 
             },
           });
 
-          if (existingRegistration?.registrationType === RegistrationType.PARTICIPANT) {
+          if (existingRegistration && isParticipant(existingRegistration)) {
             throw new InvitationHttpError(409, 'You are already registered as a participant for this event');
           }
 
-          if (existingRegistration?.registrationType === RegistrationType.GUEST) {
+          if (existingRegistration && isGuest(existingRegistration)) {
             const syncedRegistration = existingRegistration.attendanceToken
               ? existingRegistration
               : await tx.eventRegistration.update({

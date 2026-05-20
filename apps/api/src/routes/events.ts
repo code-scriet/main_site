@@ -15,6 +15,7 @@ import { getRegistrationStatus } from '../utils/registrationStatus.js';
 import { sanitizeHtml } from '../utils/sanitize.js';
 import { normalizeTrustedVideoEmbedUrl } from '../utils/videoEmbed.js';
 import { deriveInvitationStatus } from '../utils/invitationStatus.js';
+import { isGuest, isParticipant, participantsOnly } from '../utils/registrationFilters.js';
 
 export const eventsRouter = Router();
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -247,9 +248,7 @@ eventsRouter.get('/', optionalAuthMiddleware, async (req: Request, res: Response
       teamMaxSize: true,
       _count: {
         select: {
-          registrations: {
-            where: { registrationType: RegistrationType.PARTICIPANT },
-          },
+          registrations: { where: participantsOnly },
         },
       },
     } satisfies Prisma.EventSelect;
@@ -310,9 +309,7 @@ eventsRouter.get('/upcoming', async (_req: Request, res: Response) => {
       include: {
         _count: {
           select: {
-            registrations: {
-              where: { registrationType: RegistrationType.PARTICIPANT },
-            },
+            registrations: { where: participantsOnly },
           },
         },
       },
@@ -331,9 +328,7 @@ eventsRouter.get('/:id', optionalAuthMiddleware, async (req: Request, res: Respo
     const includeOptions = {
       _count: {
         select: {
-          registrations: {
-            where: { registrationType: RegistrationType.PARTICIPANT },
-          },
+          registrations: { where: participantsOnly },
         },
       },
     } as const;
@@ -690,7 +685,7 @@ eventsRouter.put('/:id', authMiddleware, requireRole('CORE_MEMBER'), async (req:
         const regCount = await prisma.eventRegistration.count({
           where: {
             eventId: req.params.id,
-            registrationType: RegistrationType.PARTICIPANT,
+            ...participantsOnly,
           },
         });
         if (regCount > 0) {
@@ -1216,12 +1211,8 @@ eventsRouter.get('/:id/registrations/export', authMiddleware, requireRole('CORE_
     workbook.creator = 'code.scriet';
     workbook.created = new Date();
 
-    const participantRegistrations = filteredRegistrations.filter(
-      (registration) => registration.registrationType === RegistrationType.PARTICIPANT,
-    );
-    const guestRegistrations = filteredRegistrations.filter(
-      (registration) => registration.registrationType === RegistrationType.GUEST,
-    );
+    const participantRegistrations = filteredRegistrations.filter(isParticipant);
+    const guestRegistrations = filteredRegistrations.filter(isGuest);
 
     const buildWorksheet = (
       sheetName: string,

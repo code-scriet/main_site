@@ -1,6 +1,5 @@
 import { Router, Request, Response } from 'express';
 import express from 'express';
-import { RegistrationType } from '@prisma/client';
 import rateLimit from 'express-rate-limit';
 import ExcelJS from 'exceljs';
 import { z } from 'zod';
@@ -15,6 +14,7 @@ import { emailService } from '../utils/email.js';
 import { verifyToken } from '../utils/jwt.js';
 import { withRetry } from '../lib/prisma.js';
 import { generateAttendanceToken, verifyAttendanceToken } from '../utils/attendanceToken.js';
+import { isGuest, isParticipant, participantsOnly } from '../utils/registrationFilters.js';
 import { sanitizeHtml } from '../utils/sanitize.js';
 
 const router = Router();
@@ -1648,24 +1648,27 @@ router.get('/live/:eventId', authMiddleware, requireRole('CORE_MEMBER'), async (
         where: { id: eventId },
         select: { eventDays: true, dayLabels: true },
       }),
+      // Hard Constraint #11: live attendance reflects participant lane only.
       prisma.eventRegistration.count({
-        where: { eventId },
+        where: { eventId, ...participantsOnly },
       }),
       prisma.eventRegistration.count({
-        where: { eventId, attended: true },
+        where: { eventId, ...participantsOnly, attended: true },
       }),
       prisma.dayAttendance.groupBy({
         by: ['dayNumber'],
         where: {
           attended: true,
-          registration: { eventId },
+          // Hard Constraint #11: keep day stats consistent with the participant-only total/attended counts above.
+          registration: { eventId, ...participantsOnly },
         },
         _count: { id: true },
         orderBy: { dayNumber: 'asc' },
       }),
       prisma.dayAttendance.findMany({
         where: {
-          registration: { eventId },
+          // Hard Constraint #11: recent-scans surface only participant lane to match dashboard totals.
+          registration: { eventId, ...participantsOnly },
           attended: true,
         },
         include: {
@@ -1934,14 +1937,8 @@ router.get('/event/:eventId/export', authMiddleware, requireRole('CORE_MEMBER'),
       }
     };
 
-    buildWorksheet(
-      'Participants',
-      registrations.filter((registration) => registration.registrationType === RegistrationType.PARTICIPANT),
-    );
-    buildWorksheet(
-      'Guests',
-      registrations.filter((registration) => registration.registrationType === RegistrationType.GUEST),
-    );
+    buildWorksheet('Participants', registrations.filter(isParticipant));
+    buildWorksheet('Guests', registrations.filter(isGuest));
 
     const safeTitle = event.title.replace(/[^a-zA-Z0-9_-]/g, '_').substring(0, 50);
     const daySuffix = requestedDayNumber ? `_day_${requestedDayNumber}` : '';
@@ -2009,7 +2006,7 @@ router.post('/email-absentees/:eventId', authMiddleware, requireRole('ADMIN'), a
       // Absentee outreach defaults to participant registrations so invited guests are not emailed like students.
       where: {
         eventId,
-        registrationType: RegistrationType.PARTICIPANT,
+        ...participantsOnly,
         ...(effectiveDayNumber
           ? {
               dayAttendances: {
@@ -2144,7 +2141,7 @@ router.get('/event/:eventId/certificate-recipients', authMiddleware, requireRole
         // Certificate participants remain the participant lane; guests are returned in a dedicated payload below.
         where: {
           eventId,
-          registrationType: RegistrationType.PARTICIPANT,
+          ...participantsOnly,
         },
         include: {
           user: {
@@ -2384,11 +2381,12 @@ router.get('/event/:eventId/summary', authMiddleware, requireRole('CORE_MEMBER')
     const dayLabels = parseDayLabels(event.dayLabels, eventDays);
 
     const [total, attended, daySummary] = await Promise.all([
+      // Hard Constraint #11: summary KPIs reflect the participant lane only.
       prisma.eventRegistration.count({
-        where: { eventId },
+        where: { eventId, ...participantsOnly },
       }),
       prisma.eventRegistration.count({
-        where: { eventId, attended: true },
+        where: { eventId, ...participantsOnly, attended: true },
       }),
       Promise.all(
         Array.from({ length: eventDays }, (_, index) => index + 1).map(async (dayNumber) => ({
@@ -2397,9 +2395,7 @@ router.get('/event/:eventId/summary', authMiddleware, requireRole('CORE_MEMBER')
             where: {
               dayNumber,
               attended: true,
-              registration: {
-                eventId,
-              },
+              registration: { eventId, ...participantsOnly },
             },
           }),
         })),

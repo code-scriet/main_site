@@ -1,9 +1,10 @@
 import { Router, Request, Response } from 'express';
-import { Prisma, RegistrationType } from '@prisma/client';
+import { Prisma } from '@prisma/client';
 import { prisma } from '../lib/prisma.js';
 import { authMiddleware, getAuthUser } from '../middleware/auth.js';
 import { requireRole } from '../middleware/role.js';
 import { calculateConsecutiveDailyStreak } from '../utils/dateStreak.js';
+import { participantsOnly } from '../utils/registrationFilters.js';
 
 export const statsRouter = Router();
 
@@ -160,9 +161,7 @@ const getHomePayload = async (): Promise<HomePayload> => {
           // Public event counts: only participant registrations belong in homepage registration totals.
           _count: {
             select: {
-              registrations: {
-                where: { registrationType: RegistrationType.PARTICIPANT },
-              },
+              registrations: { where: participantsOnly },
             },
           },
         },
@@ -375,22 +374,23 @@ statsRouter.get('/dashboard', authMiddleware, requireRole('ADMIN'), async (_req:
       prisma.event.count(),
       prisma.event.count({ where: { status: 'UPCOMING' } }),
       prisma.event.count({ where: { status: 'ONGOING' } }),
-      prisma.eventRegistration.count({ where: { registrationType: RegistrationType.PARTICIPANT } }),
+      prisma.eventRegistration.count({ where: { ...participantsOnly } }),
       prisma.eventRegistration.count({
-        where: { registrationType: RegistrationType.PARTICIPANT, timestamp: { gte: sevenDaysAgo } },
+        where: { ...participantsOnly, timestamp: { gte: sevenDaysAgo } },
       }),
       prisma.announcement.count(),
       prisma.qOTD.count(),
       prisma.qOTDSubmission.count({ where: { timestamp: { gte: sevenDaysAgo } } }),
       prisma.eventInvitation.count({ where: { status: 'PENDING' } }),
       prisma.certificate.count({ where: { issuedAt: { gte: startOfMonth }, isRevoked: false } }),
-      prisma.eventRegistration.count({ where: { scannedAt: { gte: oneHourAgo } } }),
+      // Hard Constraint #11: scans-last-hour reflects participant attendance only; guests do not count.
+      prisma.eventRegistration.count({ where: { ...participantsOnly, scannedAt: { gte: oneHourAgo } } }),
       prisma.quiz.count({ where: { updatedAt: { gte: sevenDaysAgo }, status: { in: ['ACTIVE', 'FINISHED'] } } }),
       prisma.eventRegistration.count({
-        where: { registrationType: RegistrationType.PARTICIPANT, timestamp: { gte: sevenDaysAgo } },
+        where: { ...participantsOnly, timestamp: { gte: sevenDaysAgo } },
       }),
       prisma.eventRegistration.count({
-        where: { registrationType: RegistrationType.PARTICIPANT, attended: true, scannedAt: { gte: sevenDaysAgo } },
+        where: { ...participantsOnly, attended: true, scannedAt: { gte: sevenDaysAgo } },
       }),
       prisma.user.aggregate({
         _avg: { currentStreak: true },
@@ -488,9 +488,7 @@ statsRouter.get('/dashboard', authMiddleware, requireRole('ADMIN'), async (_req:
     // Public-facing popularity should rank by participant registrations, not guest invitations.
     const popularEventCounts = await prisma.eventRegistration.groupBy({
       by: ['eventId'],
-      where: {
-        registrationType: RegistrationType.PARTICIPANT,
-      },
+      where: { ...participantsOnly },
       _count: {
         eventId: true,
       },

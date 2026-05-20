@@ -1,5 +1,5 @@
 import { Router, Request, Response } from 'express';
-import { Prisma, RegistrationType } from '@prisma/client';
+import { Prisma } from '@prisma/client';
 import { randomUUID } from 'crypto';
 import { prisma } from '../lib/prisma.js';
 import { authMiddleware, getAuthUser } from '../middleware/auth.js';
@@ -9,6 +9,7 @@ import { generateAttendanceToken } from '../utils/attendanceToken.js';
 import { emailService } from '../utils/email.js';
 import { logger } from '../utils/logger.js';
 import { sanitizeEventRegistrationFields, validateRegistrationFieldSubmissions } from '../utils/eventRegistrationFields.js';
+import { participantsOnly } from '../utils/registrationFilters.js';
 import { getRegistrationStatus } from '../utils/registrationStatus.js';
 
 export const registrationsRouter = Router();
@@ -86,9 +87,7 @@ registrationsRouter.post('/events/:eventId', authMiddleware, requireNotBlocked('
             include: {
               _count: {
                 select: {
-                  registrations: {
-                    where: { registrationType: RegistrationType.PARTICIPANT },
-                  },
+                  registrations: { where: participantsOnly },
                 },
               },
             },
@@ -401,9 +400,7 @@ registrationsRouter.get('/my', authMiddleware, async (req: Request, res: Respons
             // Public event counts: only participant registrations belong in "X registered" totals.
             _count: {
               select: {
-                registrations: {
-                  where: { registrationType: RegistrationType.PARTICIPANT },
-                },
+                registrations: { where: participantsOnly },
               },
             },
           },

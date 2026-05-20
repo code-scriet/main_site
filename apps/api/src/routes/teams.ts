@@ -1,7 +1,7 @@
 import { Router, Request, Response } from 'express';
 import crypto from 'crypto';
 import { z } from 'zod';
-import { Prisma, RegistrationType } from '@prisma/client';
+import { Prisma } from '@prisma/client';
 import rateLimit from 'express-rate-limit';
 import { prisma } from '../lib/prisma.js';
 import { authMiddleware, getAuthUser } from '../middleware/auth.js';
@@ -13,6 +13,7 @@ import { logger } from '../utils/logger.js';
 import { emailService } from '../utils/email.js';
 import { getRegistrationStatus } from '../utils/registrationStatus.js';
 import { generateAttendanceToken } from '../utils/attendanceToken.js';
+import { participantsOnly } from '../utils/registrationFilters.js';
 import { sanitizeEventRegistrationFields, validateRegistrationFieldSubmissions } from '../utils/eventRegistrationFields.js';
 
 export const teamsRouter = Router();
@@ -289,9 +290,7 @@ teamsRouter.post('/create', authMiddleware, async (req: Request, res: Response) 
             include: {
               _count: {
                 select: {
-                  registrations: {
-                    where: { registrationType: RegistrationType.PARTICIPANT },
-                  },
+                  registrations: { where: participantsOnly },
                 },
               },
             },
@@ -556,9 +555,7 @@ teamsRouter.post('/join', authMiddleware, joinRateLimiter, async (req: Request, 
                 include: {
                   _count: {
                     select: {
-                      registrations: {
-                        where: { registrationType: RegistrationType.PARTICIPANT },
-                      },
+                      registrations: { where: participantsOnly },
                     },
                   },
                 },
