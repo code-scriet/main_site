@@ -2,12 +2,17 @@ import { createContext, useContext, useState, useEffect, useCallback, useMemo, u
 import { api } from '@/lib/api';
 import type { Settings } from '@/lib/api';
 
-interface SettingsContextType {
+interface SettingsState {
   settings: Settings | null;
   loading: boolean;
   error: string | null;
+}
+
+interface SettingsActions {
   refreshSettings: () => Promise<void>;
 }
+
+type SettingsContextType = SettingsState & SettingsActions;
 
 const defaultSettings: Settings = {
   id: 'default',
@@ -51,10 +56,16 @@ const defaultSettings: Settings = {
   updatedAt: new Date().toISOString(),
 };
 
-const SettingsContext = createContext<SettingsContextType>({
+// Two contexts so consumers that only need `refreshSettings()` don't re-render
+// on every settings/loading/error change. `useSettings()` keeps the combined
+// shape for backward compatibility.
+const SettingsStateContext = createContext<SettingsState>({
   settings: defaultSettings,
   loading: true,
   error: null,
+});
+
+const SettingsActionsContext = createContext<SettingsActions>({
   refreshSettings: async () => {},
 });
 
@@ -101,22 +112,38 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     return () => window.removeEventListener('focus', onFocus);
   }, [refreshSettings]);
 
-  const value = useMemo(
-    () => ({ settings, loading, error, refreshSettings }),
-    [settings, loading, error, refreshSettings]
+  const state = useMemo<SettingsState>(
+    () => ({ settings, loading, error }),
+    [settings, loading, error],
+  );
+
+  const actions = useMemo<SettingsActions>(
+    () => ({ refreshSettings }),
+    [refreshSettings],
   );
 
   return (
-    <SettingsContext.Provider value={value}>
-      {children}
-    </SettingsContext.Provider>
+    <SettingsActionsContext.Provider value={actions}>
+      <SettingsStateContext.Provider value={state}>
+        {children}
+      </SettingsStateContext.Provider>
+    </SettingsActionsContext.Provider>
   );
 }
 
-export function useSettings() {
-  const context = useContext(SettingsContext);
-  if (!context) {
-    throw new Error('useSettings must be used within a SettingsProvider');
-  }
-  return context;
+export function useSettingsState(): SettingsState {
+  return useContext(SettingsStateContext);
+}
+
+export function useSettingsActions(): SettingsActions {
+  return useContext(SettingsActionsContext);
+}
+
+// Backward-compatible combined hook. Subscribes to both contexts so it
+// re-renders on any state change (same as before). New code that only needs
+// `refreshSettings` should use useSettingsActions() to skip the re-renders.
+export function useSettings(): SettingsContextType {
+  const state = useSettingsState();
+  const actions = useSettingsActions();
+  return useMemo(() => ({ ...state, ...actions }), [state, actions]);
 }

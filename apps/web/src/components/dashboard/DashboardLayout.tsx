@@ -289,6 +289,20 @@ export default function DashboardLayout() {
     window.localStorage.setItem(STORAGE_COLLAPSED, String(collapsed));
   }, [collapsed]);
 
+  // Inject Geist + Geist Mono lazily — only when the dashboard mounts, so
+  // public pages don't ship those font files. Skip if already injected
+  // (cheap re-mount cycles, e.g. SignIn → Dashboard).
+  useEffect(() => {
+    const id = 'dashboard-fonts';
+    if (document.getElementById(id)) return;
+    const link = document.createElement('link');
+    link.id = id;
+    link.rel = 'stylesheet';
+    link.href =
+      'https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500&display=swap';
+    document.head.appendChild(link);
+  }, []);
+
   const isNetwork = user?.role === 'NETWORK';
   const isStaff = user?.role === 'CORE_MEMBER' || user?.role === 'ADMIN' || user?.role === 'PRESIDENT';
   const isSuperAdminOrPresident = Boolean(user?.isSuperAdmin) || user?.role === 'PRESIDENT';

@@ -72,11 +72,13 @@ export default function DashboardOverview() {
     queryKey: ['my-registrations'],
     queryFn: () => api.getMyRegistrations(token!),
     enabled: Boolean(token),
+    refetchOnWindowFocus: true,
   });
   const qotdStatsQ = useQuery({
     queryKey: ['qotd-stats'],
     queryFn: () => api.getQOTDStats(token!),
     enabled: Boolean(token) && settings?.showQOTD !== false,
+    refetchOnWindowFocus: true,
   });
   const todayQOTDQ = useQuery({
     queryKey: ['qotd-today'],
@@ -86,6 +88,7 @@ export default function DashboardOverview() {
   const announcementsQ = useQuery({
     queryKey: ['announcements'],
     queryFn: () => api.getAnnouncements(),
+    refetchOnWindowFocus: true,
   });
   const pollsQ = useQuery({
     queryKey: ['polls', 'public'],
@@ -95,6 +98,7 @@ export default function DashboardOverview() {
     queryKey: ['my-recent-submissions'],
     queryFn: () => api.getMyRecentSubmissions(token!, 5),
     enabled: Boolean(token),
+    refetchOnWindowFocus: true,
   });
   const aroundMeQ = useQuery({
     queryKey: ['leaderboard-around-me'],
@@ -108,6 +112,7 @@ export default function DashboardOverview() {
       return (res.certificates as CertificateCardData[]) ?? [];
     },
     enabled: Boolean(token) && settings?.certificatesEnabled !== false,
+    refetchOnWindowFocus: true,
   });
   const hiringQ = useQuery({
     queryKey: ['my-hiring'],

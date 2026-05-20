@@ -5,6 +5,16 @@ import { generateSlug, generateUniqueSlug } from './slug.js';
 
 const prisma = new PrismaClient();
 
+// Run an async worker over an array in fixed-size chunks. Each chunk runs
+// sequentially so we don't blow past the Neon connection pool, but every
+// item inside a chunk can run in parallel. Used by populateProfileSlugs to
+// batch transactional writes instead of issuing one round-trip per row.
+async function runInChunks<T>(items: T[], size: number, worker: (chunk: T[]) => Promise<unknown>): Promise<void> {
+  for (let i = 0; i < items.length; i += size) {
+    await worker(items.slice(i, i + size));
+  }
+}
+
 export async function initializeDatabase() {
   try {
     logger.info('🔧 Initializing database...');
@@ -172,7 +182,7 @@ export async function populateProfileSlugs() {
     });
 
     const usedTeamSlugs = new Set<string>();
-    let updatedTeamCount = 0;
+    const teamUpdates: Array<{ id: string; slug: string; legacySlugs: string[] }> = [];
 
     for (const member of teamMembers) {
       const baseSlug = generateSlug(member.name) || 'team-member';
@@ -184,12 +194,22 @@ export async function populateProfileSlugs() {
       const hasCanonicalChanged = member.slug !== canonicalSlug;
 
       if (hasCanonicalChanged || hasLegacyChanged) {
-        await prisma.teamMember.update({
-          where: { id: member.id },
-          data: { slug: canonicalSlug, legacySlugs },
-        });
-        updatedTeamCount += 1;
+        teamUpdates.push({ id: member.id, slug: canonicalSlug, legacySlugs });
       }
+    }
+
+    // Batched updates so cold-starts don't serialize one round-trip per row.
+    // Most boots have 0 updates after the initial migration settled.
+    let updatedTeamCount = 0;
+    if (teamUpdates.length > 0) {
+      await runInChunks(teamUpdates, 50, (chunk) =>
+        prisma.$transaction(
+          chunk.map((u) =>
+            prisma.teamMember.update({ where: { id: u.id }, data: { slug: u.slug, legacySlugs: u.legacySlugs } }),
+          ),
+        ),
+      );
+      updatedTeamCount = teamUpdates.length;
     }
 
     const missingTeamSlugsAfter = await prisma.teamMember.count({
@@ -208,7 +228,7 @@ export async function populateProfileSlugs() {
     });
 
     const usedNetworkSlugs = new Set<string>();
-    let updatedNetworkCount = 0;
+    const networkUpdates: Array<{ id: string; slug: string; legacySlugs: string[] }> = [];
 
     for (const profile of networkProfiles) {
       const baseSlug = generateSlug(profile.fullName) || 'network-profile';
@@ -220,12 +240,20 @@ export async function populateProfileSlugs() {
       const hasCanonicalChanged = profile.slug !== canonicalSlug;
 
       if (hasCanonicalChanged || hasLegacyChanged) {
-        await prisma.networkProfile.update({
-          where: { id: profile.id },
-          data: { slug: canonicalSlug, legacySlugs },
-        });
-        updatedNetworkCount += 1;
+        networkUpdates.push({ id: profile.id, slug: canonicalSlug, legacySlugs });
       }
+    }
+
+    let updatedNetworkCount = 0;
+    if (networkUpdates.length > 0) {
+      await runInChunks(networkUpdates, 50, (chunk) =>
+        prisma.$transaction(
+          chunk.map((u) =>
+            prisma.networkProfile.update({ where: { id: u.id }, data: { slug: u.slug, legacySlugs: u.legacySlugs } }),
+          ),
+        ),
+      );
+      updatedNetworkCount = networkUpdates.length;
     }
 
     if (updatedTeamCount > 0 || updatedNetworkCount > 0) {

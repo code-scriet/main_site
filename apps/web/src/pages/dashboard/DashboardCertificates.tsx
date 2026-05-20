@@ -41,6 +41,7 @@ export default function DashboardCertificates() {
       return (list ?? []) as CertificateCardData[];
     },
     enabled: Boolean(token),
+    refetchOnWindowFocus: true,
   });
 
   const allSorted = useMemo(() => {

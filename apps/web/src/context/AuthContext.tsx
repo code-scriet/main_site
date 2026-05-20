@@ -14,11 +14,14 @@ interface ExtendedUser extends User {
   isPresident?: boolean;
 }
 
-interface AuthContextType {
+interface AuthState {
   user: ExtendedUser | null;
   token: string | null;
   isLoading: boolean;
   error: string | null;
+}
+
+interface AuthActions {
   login: (token: string) => Promise<ExtendedUser>;
   loginWithEmail: (email: string, password: string) => Promise<void>;
   register: (name: string, email: string, password: string) => Promise<void>;
@@ -28,7 +31,13 @@ interface AuthContextType {
   refreshUser: () => Promise<void>;
 }
 
-const AuthContext = createContext<AuthContextType | undefined>(undefined);
+type AuthContextType = AuthState & AuthActions;
+
+// Two contexts so action-only consumers (e.g. a logout button) don't re-render
+// every time user/token/isLoading/error changes. `useAuth()` still returns the
+// combined shape for backward compatibility.
+const AuthStateContext = createContext<AuthState | undefined>(undefined);
+const AuthActionsContext = createContext<AuthActions | undefined>(undefined);
 
 interface DecodedAccessTokenPayload {
   userId?: string;
@@ -116,7 +125,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
   useEffect(() => {
     isMountedRef.current = true;
-    
+
     const initAuth = async () => {
       try {
         const storedToken = getStoredAuthToken();
@@ -137,9 +146,9 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         setIsLoading(false);
       }
     };
-    
+
     initAuth();
-    
+
     // Cleanup on unmount
     return () => {
       isMountedRef.current = false;
@@ -255,34 +264,45 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
   const clearError = useCallback(() => setError(null), []);
 
-  const value = useMemo(
-    () => ({
-      user,
-      token,
-      isLoading,
-      error,
-      login,
-      loginWithEmail,
-      register,
-      devLogin,
-      logout,
-      clearError,
-      refreshUser,
-    }),
-    [user, token, isLoading, error, login, loginWithEmail, register, devLogin, logout, clearError, refreshUser]
+  // Actions object is stable identity after first mount (every callback is
+  // memoized via useCallback with stable deps). Splitting into its own context
+  // means action-only consumers never re-render when state changes.
+  const actions = useMemo<AuthActions>(
+    () => ({ login, loginWithEmail, register, devLogin, logout, clearError, refreshUser }),
+    [login, loginWithEmail, register, devLogin, logout, clearError, refreshUser],
+  );
+
+  const state = useMemo<AuthState>(
+    () => ({ user, token, isLoading, error }),
+    [user, token, isLoading, error],
   );
 
   return (
-    <AuthContext.Provider value={value}>
-      {children}
-    </AuthContext.Provider>
+    <AuthActionsContext.Provider value={actions}>
+      <AuthStateContext.Provider value={state}>
+        {children}
+      </AuthStateContext.Provider>
+    </AuthActionsContext.Provider>
   );
 };
 
-export const useAuth = () => {
-  const context = useContext(AuthContext);
-  if (!context) {
-    throw new Error('useAuth must be used within AuthProvider');
-  }
-  return context;
-};
+export function useAuthState(): AuthState {
+  const ctx = useContext(AuthStateContext);
+  if (!ctx) throw new Error('useAuthState must be used within AuthProvider');
+  return ctx;
+}
+
+export function useAuthActions(): AuthActions {
+  const ctx = useContext(AuthActionsContext);
+  if (!ctx) throw new Error('useAuthActions must be used within AuthProvider');
+  return ctx;
+}
+
+// Backward-compatible combined hook. Subscribes to both contexts, so it
+// re-renders on any state change (same as before the split). New code that
+// only needs the actions should use useAuthActions() to avoid the re-render.
+export function useAuth(): AuthContextType {
+  const state = useAuthState();
+  const actions = useAuthActions();
+  return useMemo(() => ({ ...state, ...actions }), [state, actions]);
+}

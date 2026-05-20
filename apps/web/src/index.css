@@ -676,6 +676,10 @@ html.dark [class~="via-orange-500"] {
     animation-duration: 1.8s;
   }
 
+  /* Disable backdrop blur entirely on <640px coarse-pointer devices —
+     blur(8px) is still a GPU-heavy paint pass on cheap Android. The
+     "frosted" effect is purely decorative; falling back to the underlying
+     surface tint (no blur) is acceptable. */
   .backdrop-blur,
   .backdrop-blur-sm,
   .backdrop-blur-md,
@@ -683,7 +687,9 @@ html.dark [class~="via-orange-500"] {
   .backdrop-blur-xl,
   .backdrop-blur-2xl,
   .backdrop-blur-3xl {
-    --tw-backdrop-blur: blur(8px) !important;
+    --tw-backdrop-blur: none !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
   }
 
   /* Cap heavy box-shadow blurs on mobile to reduce GPU paint cost */
