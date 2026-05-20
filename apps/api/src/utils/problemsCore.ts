@@ -15,6 +15,9 @@ import { auditLog } from './audit.js';
 import { sanitizeHtml, sanitizeText } from './sanitize.js';
 import { recomputeUserStreakSafe } from './qotdStreak.js';
 import { isUserBlocked } from '../middleware/blocks.js';
+// Lazy import (function reference only, called at request time) avoids a
+// module-load cycle with routes/qotd.ts which also imports from this file.
+import { invalidateQotdLeaderboardCaches } from '../routes/qotd.js';
 
 export class ProblemHttpError extends Error {
   constructor(
@@ -609,6 +612,13 @@ export async function submitProblemForUser(params: SubmitProblemParams): Promise
   // Fire-and-forget; never blocks the response.
   if (params.contextType === 'QOTD' && judge.verdict === 'ACCEPTED') {
     recomputeUserStreakSafe(params.user.id);
+  }
+
+  // Invalidate the QOTD leaderboard caches for any QOTD submission (regardless
+  // of verdict) so the next leaderboard read reflects the new attempt counts.
+  // Callers no longer need to do this — the pipeline owns the side effect.
+  if (params.contextType === 'QOTD') {
+    invalidateQotdLeaderboardCaches(params.contextKey);
   }
 
   return {

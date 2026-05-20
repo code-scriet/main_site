@@ -581,7 +581,6 @@ problemsRouter.post('/:id/submit', authMiddleware, async (req: Request, res: Res
     if (!parsed.success) return ApiResponse.badRequest(res, parsed.error.errors[0]?.message || 'Invalid submit payload');
     const problemId = await resolveProblemId(req.params.id);
     const result = await submitProblemForUser({ user, problemId, ...parsed.data });
-    if (parsed.data.contextType === 'QOTD') invalidateQotdLeaderboardCaches(parsed.data.contextKey);
     return ApiResponse.success(res, result);
   } catch (error) {
     return handleProblemError(res, error, 'Failed to submit problem');
