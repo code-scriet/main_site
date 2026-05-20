@@ -8,120 +8,26 @@ import { prisma } from '../lib/prisma.js';
 import QRCode from 'qrcode';
 import { escapeHtml, sanitizeHtml, sanitizeText, sanitizeUrl } from './sanitize.js';
 import { signInvitationClaimToken } from './jwt.js';
+import {
+  applyTestingMode,
+  applyTestingModeBulk,
+  getNotificationSettings,
+  invalidateNotificationSettingsCache as invalidateNotificationSettingsCacheImpl,
+  shouldNotify,
+  type EmailCategory,
+} from './emailPolicy.js';
+import {
+  deliverBatch,
+  deliverSingle,
+  isTransportConfigured,
+  normalizeEmailList,
+  type BrevoRecipient,
+  type EmailAttachment,
+} from './emailTransport.js';
 
-// ============================================
-// Email Category & Notification Settings
-// ============================================
-
-export type EmailCategory =
-  | 'welcome'
-  | 'event_creation'
-  | 'registration'
-  | 'announcement'
-  | 'certificate'
-  | 'reminder'
-  | 'invitation'
-  | 'admin_mail'
-  | 'password_reset'
-  | 'other';
-
-interface NotificationSettings {
-  emailWelcomeEnabled: boolean;
-  emailEventCreationEnabled: boolean;
-  emailRegistrationEnabled: boolean;
-  emailAnnouncementEnabled: boolean;
-  emailCertificateEnabled: boolean;
-  emailReminderEnabled: boolean;
-  emailInvitationEnabled: boolean;
-  emailPasswordResetEnabled: boolean;
-  mailingEnabled: boolean;
-  emailTestingMode: boolean;
-  emailTestRecipients: string | null;
-}
-
-const CATEGORY_TOGGLE_MAP: Record<EmailCategory, keyof NotificationSettings | null> = {
-  welcome: 'emailWelcomeEnabled',
-  event_creation: 'emailEventCreationEnabled',
-  registration: 'emailRegistrationEnabled',
-  announcement: 'emailAnnouncementEnabled',
-  certificate: 'emailCertificateEnabled',
-  reminder: 'emailReminderEnabled',
-  invitation: 'emailInvitationEnabled',
-  admin_mail: 'mailingEnabled',
-  password_reset: 'emailPasswordResetEnabled',
-  other: null,
-};
-
-let notificationSettingsCache: NotificationSettings | null = null;
-let lastNotificationFetch = 0;
-const NOTIFICATION_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
-
-export function invalidateNotificationSettingsCache(): void {
-  notificationSettingsCache = null;
-  lastNotificationFetch = 0;
-}
-
-const ALL_ENABLED_DEFAULTS: NotificationSettings = {
-  emailWelcomeEnabled: true,
-  emailEventCreationEnabled: true,
-  emailRegistrationEnabled: true,
-  emailAnnouncementEnabled: true,
-  emailCertificateEnabled: true,
-  emailReminderEnabled: true,
-  emailInvitationEnabled: true,
-  emailPasswordResetEnabled: true,
-  mailingEnabled: true,
-  emailTestingMode: false,
-  emailTestRecipients: null,
-};
-
-async function getNotificationSettings(): Promise<NotificationSettings> {
-  const now = Date.now();
-  if (notificationSettingsCache && (now - lastNotificationFetch) < NOTIFICATION_CACHE_TTL) {
-    return notificationSettingsCache;
-  }
-
-  try {
-    const settings = await prisma.settings.findUnique({
-      where: { id: 'default' },
-      select: {
-        emailWelcomeEnabled: true,
-        emailEventCreationEnabled: true,
-        emailRegistrationEnabled: true,
-        emailAnnouncementEnabled: true,
-        emailCertificateEnabled: true,
-        emailReminderEnabled: true,
-        emailInvitationEnabled: true,
-        emailPasswordResetEnabled: true,
-        mailingEnabled: true,
-        emailTestingMode: true,
-        emailTestRecipients: true,
-      },
-    });
-
-    notificationSettingsCache = {
-      emailWelcomeEnabled: settings?.emailWelcomeEnabled ?? true,
-      emailEventCreationEnabled: settings?.emailEventCreationEnabled ?? true,
-      emailRegistrationEnabled: settings?.emailRegistrationEnabled ?? true,
-      emailAnnouncementEnabled: settings?.emailAnnouncementEnabled ?? true,
-      emailCertificateEnabled: settings?.emailCertificateEnabled ?? true,
-      emailReminderEnabled: settings?.emailReminderEnabled ?? true,
-      emailInvitationEnabled: settings?.emailInvitationEnabled ?? true,
-      emailPasswordResetEnabled: settings?.emailPasswordResetEnabled ?? true,
-      mailingEnabled: settings?.mailingEnabled ?? true,
-      emailTestingMode: settings?.emailTestingMode ?? false,
-      emailTestRecipients: settings?.emailTestRecipients ?? null,
-    };
-    lastNotificationFetch = now;
-    return notificationSettingsCache;
-  } catch (error) {
-    logger.error('Failed to fetch notification settings', {
-      error: error instanceof Error ? error.message : String(error),
-    });
-    if (notificationSettingsCache) return notificationSettingsCache;
-    return ALL_ENABLED_DEFAULTS;
-  }
-}
+// Re-export so existing callers (routes/settings.ts, etc.) keep working.
+export { invalidateNotificationSettingsCacheImpl as invalidateNotificationSettingsCache };
+export type { EmailCategory };
 
 // ============================================
 // Email template config cache
@@ -211,26 +117,18 @@ async function getEmailTemplateConfig(): Promise<EmailTemplateConfig> {
   }
 }
 
-// Brevo API configuration
-const BREVO_API_URL = 'https://api.brevo.com/v3/smtp/email';
-const BREVO_API_KEY = process.env.BREVO_API_KEY || '';
-const EMAIL_FROM = process.env.EMAIL_FROM || 'code.scriet@codescriet.dev';
-const EMAIL_FROM_NAME = process.env.EMAIL_FROM_NAME || 'code.scriet';
-const EMAIL_REPLY_TO = process.env.EMAIL_REPLY_TO || 'tech_admin@codescriet.dev';
-
 // Production URL for all email links
 const SITE_URL = (process.env.FRONTEND_URL || 'https://codescriet.dev').replace(/\/+$/, '');
+
+// Reply-to address surfaced inside HTML templates (transport handles the
+// header itself via process.env in emailTransport.ts).
+const EMAIL_REPLY_TO = process.env.EMAIL_REPLY_TO || 'tech_admin@codescriet.dev';
 
 // Configure marked for email-safe HTML
 marked.setOptions({
   breaks: true,
   gfm: true,
 });
-
-interface EmailAttachment {
-  content: string; // raw base64 (no data URI prefix)
-  name: string;
-}
 
 interface EmailOptions {
   to: string | string[];
@@ -255,11 +153,6 @@ interface EmailTemplate {
 interface EventRegistrationContext {
   teamName?: string;
   teamRole?: 'LEADER' | 'MEMBER' | string;
-}
-
-interface BrevoRecipient {
-  email: string;
-  name?: string;
 }
 
 // ============================================
@@ -300,40 +193,6 @@ function htmlToPlainText(html: string): string {
     .replace(/&gt;/g, '>')
     .replace(/\n\s*\n/g, '\n\n')
     .trim();
-}
-
-const EMAIL_ADDRESS_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-
-function normalizeEmailAddress(value: string): string | null {
-  const normalized = value.trim().toLowerCase();
-  if (!normalized || !EMAIL_ADDRESS_REGEX.test(normalized)) {
-    return null;
-  }
-  return normalized;
-}
-
-function normalizeEmailList(input?: string | string[]): { valid: boolean; values: string[] } {
-  if (input === undefined) {
-    return { valid: true, values: [] };
-  }
-
-  const values = Array.isArray(input) ? input : [input];
-  const normalized: string[] = [];
-
-  for (const value of values) {
-    if (typeof value !== 'string') {
-      return { valid: false, values: [] };
-    }
-
-    const parsed = normalizeEmailAddress(value);
-    if (!parsed) {
-      return { valid: false, values: [] };
-    }
-
-    normalized.push(parsed);
-  }
-
-  return { valid: true, values: Array.from(new Set(normalized)) };
 }
 
 function stripHtmlToText(value: string): string {
@@ -1517,19 +1376,10 @@ export const EmailTemplates = {
 // ============================================
 
 class EmailService {
-  private configured: boolean = false;
-  private apiKey: string;
-  private fromEmail: string;
-  private fromName: string;
-  private replyToEmail: string;
+  private configured: boolean;
 
   constructor() {
-    this.apiKey = BREVO_API_KEY;
-    this.fromEmail = EMAIL_FROM;
-    this.fromName = EMAIL_FROM_NAME;
-    this.replyToEmail = EMAIL_REPLY_TO;
-    this.configured = !!this.apiKey;
-
+    this.configured = isTransportConfigured();
     if (this.configured) {
       logger.info('📧 Brevo email service configured successfully');
     } else {
@@ -1547,13 +1397,12 @@ class EmailService {
       return false;
     }
 
-    // ── Notification guard: category toggle + testing mode ──
+    // ── Notification guard: category toggle + testing-mode redirect ──
     const category = options.category || 'other';
     const ns = await getNotificationSettings();
 
-    const toggleKey = CATEGORY_TOGGLE_MAP[category];
-    if (toggleKey && !ns[toggleKey]) {
-      logger.info(`📧 Email suppressed by ${toggleKey} toggle`, {
+    if (!shouldNotify(category, ns)) {
+      logger.info('📧 Email suppressed by notification toggle', {
         category,
         to: Array.isArray(options.to) ? `${(options.to as string[]).length} recipients` : options.to,
         subject: options.subject,
@@ -1561,39 +1410,28 @@ class EmailService {
       return false;
     }
 
-    if (ns.emailTestingMode && category !== 'other') {
-      const testEmails = (ns.emailTestRecipients || '')
-        .split(',')
-        .map(e => e.trim())
-        .filter(e => e.length > 0);
-
-      if (testEmails.length === 0) {
+    const testing = applyTestingMode(options.to, category, ns);
+    if (testing.redirect) {
+      if (!testing.result.ok) {
         logger.warn('📧 Email testing mode active but no test recipients configured — suppressing', {
           category,
-          originalTo: Array.isArray(options.to) ? options.to : [options.to],
+          originalTo: testing.result.originalRecipients,
           subject: options.subject,
         });
         return false;
       }
-
-      const originalRecipients = Array.isArray(options.to) ? options.to : [options.to];
       logger.info('📧 Email testing mode: redirecting email', {
         category,
-        originalRecipients: originalRecipients.slice(0, 20),
-        originalCount: originalRecipients.length,
-        redirectedTo: testEmails,
+        originalRecipients: testing.result.originalRecipients.slice(0, 20),
+        originalCount: testing.result.originalRecipients.length,
+        redirectedTo: testing.result.testRecipients,
         subject: options.subject,
       });
-
       options.subject = `[TEST] ${options.subject}`;
-      options.to = testEmails;
+      options.to = testing.result.testRecipients;
       options.cc = undefined;
       options.bcc = undefined;
-
-      const recipientPreview = originalRecipients.slice(0, 10).join(', ');
-      const moreCount = originalRecipients.length > 10 ? ` + ${originalRecipients.length - 10} more` : '';
-      const debugHeader = `<div style="background:#fef08a;color:#854d0e;padding:12px 16px;border-radius:8px;margin-bottom:16px;font-size:13px;font-family:sans-serif;"><strong>🧪 TEST MODE</strong> — Original recipients (${originalRecipients.length}): ${recipientPreview}${moreCount}</div>`;
-      options.html = debugHeader + options.html;
+      options.html = testing.result.debugBanner + options.html;
     }
 
     const normalizedTo = normalizeEmailList(options.to);
@@ -1609,66 +1447,20 @@ class EmailService {
       return false;
     }
 
-    try {
-      const recipients: BrevoRecipient[] = normalizedTo.values.map(email => ({ email }));
-      const ccRecipients: BrevoRecipient[] = normalizedCc.values.map(email => ({ email }));
-      const bccRecipients: BrevoRecipient[] = normalizedBcc.values.map(email => ({ email }));
+    const recipients: BrevoRecipient[] = normalizedTo.values.map(email => ({ email }));
+    const ccRecipients: BrevoRecipient[] = normalizedCc.values.map(email => ({ email }));
+    const bccRecipients: BrevoRecipient[] = normalizedBcc.values.map(email => ({ email }));
 
-      const payload = {
-        sender: { name: this.fromName, email: this.fromEmail },
-        replyTo: { email: this.replyToEmail, name: 'code.scriet Support' },
-        to: recipients,
-        ...(ccRecipients.length > 0 ? { cc: ccRecipients } : {}),
-        ...(bccRecipients.length > 0 ? { bcc: bccRecipients } : {}),
-        subject: options.subject,
-        htmlContent: options.html,
-        textContent: options.text || htmlToPlainText(options.html),
-        ...(options.attachments?.length ? { attachment: options.attachments } : {}),
-        ...(options.inlineImages && Object.keys(options.inlineImages).length > 0 ? { inlineImage: options.inlineImages } : {}),
-      };
-
-      logger.info('📧 Brevo payload prepared', {
-        to: recipients.length,
-        cc: ccRecipients.length,
-        bcc: bccRecipients.length,
-        hasAttachments: Boolean(options.attachments?.length),
-        attachmentCount: options.attachments?.length || 0,
-        hasInlineImages: Boolean(options.inlineImages && Object.keys(options.inlineImages).length > 0),
-        inlineImageCount: options.inlineImages ? Object.keys(options.inlineImages).length : 0,
-        subject: options.subject,
-      });
-
-      const response = await fetch(BREVO_API_URL, {
-        method: 'POST',
-        headers: {
-          'Accept': 'application/json',
-          'Content-Type': 'application/json',
-          'api-key': this.apiKey,
-        },
-        body: JSON.stringify(payload),
-      });
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        logger.error('❌ Brevo API error:', { status: response.status, body: errorText });
-        throw new Error(`Brevo API error: ${response.status}`);
-      }
-
-      const result = await response.json();
-      logger.info('📧 Email sent via Brevo', {
-        messageId: result.messageId,
-        recipients: recipients.length,
-        ccRecipients: ccRecipients.length,
-        bccRecipients: bccRecipients.length,
-        subject: options.subject,
-      });
-      return true;
-    } catch (error) {
-      logger.error('❌ Failed to send email', {
-        error: error instanceof Error ? error.message : 'Unknown error',
-      });
-      return false;
-    }
+    return deliverSingle({
+      to: recipients,
+      cc: ccRecipients.length > 0 ? ccRecipients : undefined,
+      bcc: bccRecipients.length > 0 ? bccRecipients : undefined,
+      subject: options.subject,
+      htmlContent: options.html,
+      textContent: options.text || htmlToPlainText(options.html),
+      attachments: options.attachments,
+      inlineImages: options.inlineImages,
+    });
   }
 
   async sendBulk(emails: string[], subject: string, html: string, text?: string, category: EmailCategory = 'other'): Promise<boolean> {
@@ -1682,12 +1474,11 @@ class EmailService {
       return false;
     }
 
-    // ── Notification guard: category toggle + testing mode ──
+    // ── Notification guard: category toggle + testing-mode redirect ──
     const ns = await getNotificationSettings();
 
-    const toggleKey = CATEGORY_TOGGLE_MAP[category];
-    if (toggleKey && !ns[toggleKey]) {
-      logger.info(`📧 Bulk email suppressed by ${toggleKey} toggle`, {
+    if (!shouldNotify(category, ns)) {
+      logger.info('📧 Bulk email suppressed by notification toggle', {
         category,
         recipientCount: normalizedEmails.values.length,
         subject,
@@ -1695,13 +1486,9 @@ class EmailService {
       return false;
     }
 
-    if (ns.emailTestingMode && category !== 'other') {
-      const testEmails = (ns.emailTestRecipients || '')
-        .split(',')
-        .map(e => e.trim())
-        .filter(e => e.length > 0);
-
-      if (testEmails.length === 0) {
+    const testing = applyTestingModeBulk(normalizedEmails.values.length, category, ns);
+    if (testing.redirect) {
+      if (!testing.result.ok) {
         logger.warn('📧 Bulk email testing mode active but no test recipients — suppressing', {
           category,
           originalCount: normalizedEmails.values.length,
@@ -1709,19 +1496,16 @@ class EmailService {
         });
         return false;
       }
-
       logger.info('📧 Bulk email testing mode: redirecting', {
         category,
         originalCount: normalizedEmails.values.length,
-        redirectedTo: testEmails,
+        redirectedTo: testing.result.testRecipients,
         subject,
       });
-
-      const debugHeader = `<div style="background:#fef08a;color:#854d0e;padding:12px 16px;border-radius:8px;margin-bottom:16px;font-size:13px;font-family:sans-serif;"><strong>🧪 TEST MODE</strong> — Would have sent to ${normalizedEmails.values.length} recipients</div>`;
       return this.send({
-        to: testEmails,
+        to: testing.result.testRecipients,
         subject: `[TEST] ${subject}`,
-        html: debugHeader + html,
+        html: testing.result.debugBanner + html,
         text: `[TEST MODE - Would send to ${normalizedEmails.values.length} recipients] ${text || ''}`,
       });
     }
@@ -1736,66 +1520,17 @@ class EmailService {
 
     let allSuccessful = true;
     for (const batch of batches) {
-      const success = await this.sendBatchMessageVersions(batch, subject, html, text);
+      const success = await deliverBatch({
+        emails: batch,
+        subject,
+        htmlContent: html,
+        textContent: text || htmlToPlainText(html),
+      });
       if (!success) allSuccessful = false;
       await new Promise(resolve => setTimeout(resolve, 100));
     }
 
     return allSuccessful;
-  }
-
-  private async sendBatchMessageVersions(
-    emails: string[],
-    subject: string,
-    html: string,
-    text?: string
-  ): Promise<boolean> {
-    if (!this.configured || emails.length === 0) return false;
-
-    try {
-      const messageVersions = emails.map(email => ({
-        to: [{ email }],
-      }));
-
-      const payload = {
-        sender: { name: this.fromName, email: this.fromEmail },
-        replyTo: { email: this.replyToEmail, name: 'code.scriet Support' },
-        subject,
-        htmlContent: html,
-        textContent: text || htmlToPlainText(html),
-        messageVersions,
-      };
-
-      const response = await fetch(BREVO_API_URL, {
-        method: 'POST',
-        headers: {
-          'Accept': 'application/json',
-          'Content-Type': 'application/json',
-          'api-key': this.apiKey,
-        },
-        body: JSON.stringify(payload),
-      });
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        logger.error('❌ Brevo batch API error:', { status: response.status, body: errorText });
-        throw new Error(`Brevo batch API error: ${response.status}`);
-      }
-
-      const result = await response.json();
-      const messageCount = Array.isArray(result.messageIds) ? result.messageIds.length : 0;
-      logger.info('📧 Batch email sent via Brevo', {
-        recipients: emails.length,
-        messageIds: messageCount,
-        subject,
-      });
-      return true;
-    } catch (error) {
-      logger.error('❌ Failed to send batch email', {
-        error: error instanceof Error ? error.message : 'Unknown error',
-      });
-      return false;
-    }
   }
 
   // Convenience methods
