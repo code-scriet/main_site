@@ -351,9 +351,13 @@ export function Hero() {
             >
               <div className="absolute -inset-4 bg-gradient-to-r from-amber-500/30 via-orange-500/30 to-amber-500/30 rounded-3xl blur-2xl" />
               <div className="relative h-28 w-28 md:h-32 md:w-32 rounded-2xl bg-white/10 backdrop-blur-md border border-white/20 flex items-center justify-center shadow-2xl overflow-hidden">
-                <img 
-                  src="/logo.jpeg" 
-                  alt="code.scriet" 
+                <img
+                  src="/logo.jpeg"
+                  alt="code.scriet"
+                  width={96}
+                  height={96}
+                  fetchPriority="high"
+                  decoding="async"
                   className="h-20 w-20 md:h-24 md:w-24 object-cover rounded-xl"
                 />
               </div>

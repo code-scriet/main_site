@@ -10,6 +10,7 @@ import { sanitizeText } from '../utils/sanitize.js';
 import { auditLog } from '../utils/audit.js';
 import { logger } from '../utils/logger.js';
 import { ProblemHttpError, submitProblemForUser } from '../utils/problemsCore.js';
+import { getCachedSettings } from '../utils/settingsCache.js';
 
 const competitionRouter = Router();
 const activeTimers = new Map<string, NodeJS.Timeout>();
@@ -23,10 +24,7 @@ competitionRouter.use(async (req, res, next) => {
   try {
     const user = getAuthUser(req);
     if (user && hasPermission(user.role, 'ADMIN')) return next();
-    const settings = await prisma.settings.findUnique({
-      where: { id: 'default' },
-      select: { competitionEnabled: true },
-    });
+    const settings = await getCachedSettings();
     if (settings?.competitionEnabled !== true) {
       return ApiResponse.notFound(res, 'Competition is not available');
     }

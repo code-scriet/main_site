@@ -43,13 +43,17 @@ export function NotifMenu({ open, onClose, anchorRef }: Props) {
   }, [tab]);
 
   // Always fetch so the bell badge updates even when the menu is closed.
-  // Faster polling when menu is open (30s) vs background (60s).
+  // The /notifications socket namespace pushes new invitations / certs / quiz
+  // events in real time — polling is the fallback, not the primary signal —
+  // so 90 s is fine. Window focus re-fetches keep the bell fresh after a tab
+  // switch without extra background chatter.
   const q = useQuery({
     queryKey: ['notifications'],
     queryFn: () => api.getNotifications(token!),
     enabled: Boolean(token),
-    refetchInterval: open ? 30_000 : 60_000,
+    refetchInterval: 90_000,
     refetchIntervalInBackground: false,
+    refetchOnWindowFocus: true,
   });
 
   const data = q.data;

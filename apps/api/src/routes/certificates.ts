@@ -19,6 +19,7 @@ import { auditLog } from '../utils/audit.js';
 import { buildPublicCertificateDownloadUrl } from '../utils/publicUrl.js';
 import { socketEvents } from '../utils/socket.js';
 import { cloudinary, isCloudinaryConfigured } from '../config/cloudinary.js';
+import { getCachedSettings } from '../utils/settingsCache.js';
 
 const FRONTEND_URL = (process.env.FRONTEND_URL || 'https://codescriet.dev').replace(/\/+$/, '');
 const RESEND_COOLDOWN_MS = 10 * 60 * 1000; // 10 minutes
@@ -989,7 +990,7 @@ certificatesRouter.post('/generate', authMiddleware, requireRole('ADMIN'), async
   const authUser = getAuthUser(req)!;
 
   // Check feature toggle
-  const featureSettings = await prisma.settings.findUnique({ where: { id: 'default' }, select: { certificatesEnabled: true } });
+  const featureSettings = await getCachedSettings();
   if (featureSettings && featureSettings.certificatesEnabled === false) {
     return ApiResponse.error(res, { code: ErrorCodes.FORBIDDEN, message: 'Certificate generation is currently disabled', status: 403 });
   }
@@ -1177,7 +1178,7 @@ certificatesRouter.post('/bulk', authMiddleware, requireRole('ADMIN'), async (re
   const authUser = getAuthUser(req)!;
 
   // Check feature toggle
-  const featureSettings = await prisma.settings.findUnique({ where: { id: 'default' }, select: { certificatesEnabled: true } });
+  const featureSettings = await getCachedSettings();
   if (featureSettings && featureSettings.certificatesEnabled === false) {
     return ApiResponse.error(res, { code: ErrorCodes.FORBIDDEN, message: 'Certificate generation is currently disabled', status: 403 });
   }

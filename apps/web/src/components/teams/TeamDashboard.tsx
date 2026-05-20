@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@/context/AuthContext';
 import { api, type EventTeam, type Event } from '@/lib/api';
+import { processImageUrl } from '@/lib/imageUtils';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import {
@@ -232,7 +233,15 @@ export function TeamDashboard({ team, event, onTeamChange }: TeamDashboardProps)
                   <div className="flex items-center gap-3">
                     <div className="h-10 w-10 rounded-full bg-primary/10 flex items-center justify-center overflow-hidden">
                       {member.user.avatar ? (
-                        <img src={member.user.avatar} alt={member.user.name} className="h-full w-full object-cover" />
+                        <img
+                          src={processImageUrl(member.user.avatar, 'team-avatar')}
+                          alt={member.user.name}
+                          width={40}
+                          height={40}
+                          loading="lazy"
+                          decoding="async"
+                          className="h-full w-full object-cover"
+                        />
                       ) : (
                         <span className="text-sm font-semibold text-primary">
                           {member.user.name.charAt(0).toUpperCase()}

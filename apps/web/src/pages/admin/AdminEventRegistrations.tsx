@@ -265,23 +265,15 @@ function EventRow({ event: e, onAttendance, onOpenDetail, onEdit, onDelete, isDe
   const [exportDialogOpen, setExportDialogOpen] = useState(false);
   const [exportFilters, setExportFilters] = useState<ExportFilterState>(DEFAULT_EXPORT_FILTERS);
 
-  const regsQ = useQuery({
-    queryKey: ['admin-event-regs', e.id],
-    queryFn: () => api.getEventRegistrations(e.id, token!),
+  const statsQ = useQuery({
+    queryKey: ['admin-event-reg-stats', e.id],
+    queryFn: () => api.getEventRegistrationStats(e.id, token!),
     enabled: Boolean(token),
     staleTime: 60_000,
   });
-  const regs = regsQ.data ?? [];
-  const participants = regs.filter((r) => (r as { registrationType?: string }).registrationType !== 'GUEST');
-  const registered = participants.length;
-  // EventAdminRegistration doesn't carry an `attended` flag directly — derive from day-level scans
-  // by checking the registration's dayAttendances/dayAttendance count (fallback: 0).
-  const attended = participants.filter((r) => {
-    const rr = r as unknown as { attended?: boolean; dayAttendances?: Array<{ attended: boolean }> };
-    if (rr.attended) return true;
-    if (rr.dayAttendances && rr.dayAttendances.some((d) => d.attended)) return true;
-    return false;
-  }).length;
+  const stats = statsQ.data;
+  const registered = stats?.participants ?? 0;
+  const attended = stats?.attended ?? 0;
   const teamCount = team ? Math.ceil(registered / Math.max(1, e.teamMinSize ?? 2)) : 0;
   const activeFilterCount = countActiveExportFilters(exportFilters);
 

@@ -33,7 +33,15 @@ export default function ChiefGuestsStrip({ guests }: ChiefGuestsStripProps) {
             <Card className="h-full overflow-hidden border-amber-200 bg-gradient-to-br from-white via-amber-50/70 to-amber-100/70 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md dark:border-zinc-800 dark:from-[#10131a] dark:via-[#0d1118] dark:to-[#0a0e14] dark:shadow-black/40 dark:hover:border-zinc-700 dark:hover:shadow-red-950/35">
               <CardContent className="flex items-center gap-4 p-5">
                 {image ? (
-                  <img src={image} alt={guest.name} className="h-16 w-16 rounded-2xl object-cover shadow-sm" />
+                  <img
+                    src={image}
+                    alt={guest.name}
+                    width={64}
+                    height={64}
+                    loading="lazy"
+                    decoding="async"
+                    className="h-16 w-16 rounded-2xl object-cover shadow-sm"
+                  />
                 ) : (
                   <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-amber-100 text-amber-700 dark:bg-zinc-800 dark:text-zinc-200">
                     <User className="h-7 w-7" />

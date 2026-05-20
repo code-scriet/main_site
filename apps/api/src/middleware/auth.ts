@@ -2,6 +2,7 @@ import { Request, Response, NextFunction, RequestHandler } from 'express';
 import jwt from 'jsonwebtoken';
 import { prisma } from '../lib/prisma.js';
 import { AccessTokenPayload, getJwtSecret } from '../utils/jwt.js';
+import { getCachedAuthUser, setCachedAuthUser, type CachedAuthUser } from '../utils/userAuthCache.js';
 
 // Custom user type for authenticated requests
 export interface AuthUser {
@@ -82,27 +83,44 @@ const authMiddlewareImpl = async (
       return res.status(401).json({ error: 'Attendance tokens cannot be used for authentication' });
     }
 
-    const user = await prisma.user.findUnique({
-      where: { id: userId },
-      select: {
-        id: true,
-        name: true,
-        email: true,
-        role: true,
-        avatar: true,
-        phone: true,
-        course: true,
-        branch: true,
-        year: true,
-        profileCompleted: true,
-        // admin-deep-control: tokenVersion + soft-delete enforcement
-        tokenVersion: true,
-        isDeleted: true,
-      },
-    });
-
+    let user: CachedAuthUser | null = getCachedAuthUser(userId);
     if (!user) {
-      return res.status(401).json({ error: 'User not found' });
+      const row = await prisma.user.findUnique({
+        where: { id: userId },
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          role: true,
+          avatar: true,
+          phone: true,
+          course: true,
+          branch: true,
+          year: true,
+          profileCompleted: true,
+          // admin-deep-control: tokenVersion + soft-delete enforcement
+          tokenVersion: true,
+          isDeleted: true,
+        },
+      });
+      if (!row) {
+        return res.status(401).json({ error: 'User not found' });
+      }
+      user = {
+        id: row.id,
+        name: row.name,
+        email: row.email,
+        role: row.role,
+        avatar: row.avatar,
+        phone: row.phone,
+        course: row.course,
+        branch: row.branch,
+        year: row.year,
+        profileCompleted: row.profileCompleted,
+        tokenVersion: typeof row.tokenVersion === 'number' ? row.tokenVersion : 0,
+        isDeleted: row.isDeleted === true,
+      };
+      setCachedAuthUser(user);
     }
 
     // Soft-delete + force-logout enforcement (admin-deep-control).
@@ -115,8 +133,7 @@ const authMiddlewareImpl = async (
     const claimVersion = typeof (decoded as Record<string, unknown>).tokenVersion === 'number'
       ? (decoded as Record<string, unknown>).tokenVersion as number
       : 0;
-    const dbVersion = typeof user.tokenVersion === 'number' ? user.tokenVersion : 0;
-    if (dbVersion > claimVersion) {
+    if (user.tokenVersion > claimVersion) {
       return res.status(401).json({ error: 'Session expired. Please sign in again.' });
     }
 
@@ -160,30 +177,49 @@ const optionalAuthMiddlewareImpl = async (
       return next();
     }
 
-    const user = await prisma.user.findUnique({
-      where: { id: userId },
-      select: {
-        id: true,
-        name: true,
-        email: true,
-        role: true,
-        avatar: true,
-        phone: true,
-        course: true,
-        branch: true,
-        year: true,
-        profileCompleted: true,
-        tokenVersion: true,
-        isDeleted: true,
-      },
-    });
+    let user: CachedAuthUser | null = getCachedAuthUser(userId);
+    if (!user) {
+      const row = await prisma.user.findUnique({
+        where: { id: userId },
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          role: true,
+          avatar: true,
+          phone: true,
+          course: true,
+          branch: true,
+          year: true,
+          profileCompleted: true,
+          tokenVersion: true,
+          isDeleted: true,
+        },
+      });
+      if (row) {
+        user = {
+          id: row.id,
+          name: row.name,
+          email: row.email,
+          role: row.role,
+          avatar: row.avatar,
+          phone: row.phone,
+          course: row.course,
+          branch: row.branch,
+          year: row.year,
+          profileCompleted: row.profileCompleted,
+          tokenVersion: typeof row.tokenVersion === 'number' ? row.tokenVersion : 0,
+          isDeleted: row.isDeleted === true,
+        };
+        setCachedAuthUser(user);
+      }
+    }
 
     if (user && !user.isDeleted) {
       const claimVersion = typeof (decoded as Record<string, unknown>).tokenVersion === 'number'
         ? (decoded as Record<string, unknown>).tokenVersion as number
         : 0;
-      const dbVersion = typeof user.tokenVersion === 'number' ? user.tokenVersion : 0;
-      if (dbVersion <= claimVersion) {
+      if (user.tokenVersion <= claimVersion) {
         const { isDeleted: _isd, ...authUser } = user;
         (req as AuthRequest).authUser = authUser as AuthUser;
       }

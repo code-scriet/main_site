@@ -94,6 +94,10 @@ export function AchievementsShowcase() {
                         <img
                           src={processImageUrl(achievement.imageUrl, 'thumbnail')}
                           alt={achievement.title}
+                          width={400}
+                          height={300}
+                          loading="lazy"
+                          decoding="async"
                           className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700 ease-out"
                         />
                         {/* Premium gradient overlay */}

@@ -14,6 +14,7 @@ import { isSuperAdmin, isPresidentOrSuperAdmin } from '../utils/superAdmin.js';
 import { emailService } from '../utils/email.js';
 import { ApiResponse } from '../utils/response.js';
 import { hashPasswordResetToken } from '../utils/passwordReset.js';
+import { invalidateCachedAuthUser } from '../utils/userAuthCache.js';
 
 const USER_BLOCK_FEATURES = ['EVENT', 'PLAYGROUND', 'QOTD', 'QUIZ', 'NETWORK'] as const;
 type UserBlockFeatureKey = (typeof USER_BLOCK_FEATURES)[number];
@@ -185,6 +186,7 @@ usersRouter.put('/me', authMiddleware, async (req: Request, res: Response) => {
       },
     });
 
+    invalidateCachedAuthUser(authUser.id);
     await auditLog(authUser.id, 'UPDATE', 'user', authUser.id, { fields: Object.keys(req.body) });
     res.json({ success: true, data: user, message: 'Profile updated successfully' });
   } catch (error) {
@@ -855,11 +857,12 @@ usersRouter.put('/:id', authMiddleware, requireRole('ADMIN'), async (req: Reques
       },
     });
 
+    invalidateCachedAuthUser(user.id);
     await auditLog(authUser.id, 'UPDATE', 'user', user.id, { updatedBy: 'admin' });
-    
+
     // Emit socket event for real-time updates
     socketEvents.userUpdated(user.id);
-    
+
     res.json({ success: true, data: user, message: 'User profile updated successfully' });
   } catch (error) {
     res.status(500).json({ success: false, error: { message: 'Failed to update user profile' } });
@@ -927,6 +930,7 @@ usersRouter.put('/:id/role', authMiddleware, requireRole('ADMIN'), async (req: R
       select: { id: true, name: true, email: true, role: true },
     });
 
+    invalidateCachedAuthUser(user.id);
     await auditLog(authUser.id, 'UPDATE_ROLE', 'user', user.id, { before, after: newRole });
     socketEvents.userUpdated(user.id);
     return ApiResponse.success(res, user, 'User role updated successfully');
@@ -1025,6 +1029,7 @@ usersRouter.delete('/:id', authMiddleware, requireRole('ADMIN'), async (req: Req
         prisma.user.delete({ where: { id: targetUser.id } }),
       ]);
 
+      invalidateCachedAuthUser(targetUser.id);
       void disconnectUserSockets(targetUser.id);
       socketEvents.userDeleted(targetUser.id);
       return ApiResponse.success(res, { id: targetUser.id }, 'User hard-deleted');
@@ -1090,6 +1095,7 @@ usersRouter.delete('/:id', authMiddleware, requireRole('ADMIN'), async (req: Req
       }
     });
 
+    invalidateCachedAuthUser(targetUser.id);
     await auditLog(authUser.id, 'SOFT_DELETE', 'user', targetUser.id, {
       email: targetUser.email,
       role: targetUser.role,
@@ -1531,6 +1537,7 @@ usersRouter.post('/:id/force-logout', authMiddleware, requireRole('ADMIN'), asyn
       data: { tokenVersion: { increment: 1 } },
       select: { id: true, tokenVersion: true },
     });
+    invalidateCachedAuthUser(target.id);
     await auditLog(authUser.id, 'FORCE_LOGOUT', 'user', target.id, { newTokenVersion: updated.tokenVersion });
     // Sweep already-open socket sessions. Without this, the bumped tokenVersion
     // only blocks NEW handshakes — existing connections stay alive until the
@@ -1610,6 +1617,7 @@ usersRouter.post('/:id/restore', authMiddleware, requireRole('ADMIN'), async (re
       });
     });
 
+    invalidateCachedAuthUser(target.id);
     await auditLog(authUser.id, 'RESTORE_USER', 'user', target.id);
     socketEvents.userUpdated(target.id);
     return ApiResponse.success(res, { id: target.id, isDeleted: false }, 'User restored');

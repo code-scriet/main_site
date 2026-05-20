@@ -7,6 +7,7 @@ import { requireRole } from '../middleware/role.js';
 import { auditLog } from '../utils/audit.js';
 import { logger } from '../utils/logger.js';
 import { invalidateEmailTemplateConfigCache, invalidateNotificationSettingsCache } from '../utils/email.js';
+import { invalidateSettingsCache, getCachedSettings } from '../utils/settingsCache.js';
 import { updateEventStatuses } from '../utils/eventStatus.js';
 import { hasRuntimeAttendanceJwtSecret, setRuntimeAttendanceJwtSecret } from '../utils/attendanceToken.js';
 
@@ -178,40 +179,40 @@ function applyRuntimeSecurityEnvValues(options: {
 // Get public settings (for frontend)
 settingsRouter.get('/public', async (req: Request, res: Response) => {
   try {
-    const settings = await prisma.settings.findFirst({
-      where: { id: 'default' },
-      select: {
-        clubName: true,
-        clubEmail: true,
-        clubDescription: true,
-        registrationOpen: true,
-        showLeaderboard: true,
-        showQOTD: true,
-        showAchievements: true,
-        show_tech_blogs: true,
-        hiringEnabled: true,
-        hiringTechnical: true,
-        hiringDsaChamps: true,
-        hiringDesigning: true,
-        hiringSocialMedia: true,
-        hiringManagement: true,
-        showNetwork: true,
-        mailingEnabled: true,
-        certificatesEnabled: true,
-        playgroundEnabled: true,
-        playgroundDailyLimit: true,
-        announcementsEnabled: true,
-        competitionEnabled: true,
-        problemsEnabled: true,
-        githubUrl: true,
-        linkedinUrl: true,
-        twitterUrl: true,
-        instagramUrl: true,
-        discordUrl: true,
-        whatsappUrl: true,
-        accentColor: true,
-      },
-    });
+    const full = await getCachedSettings();
+    // Project to the public-safe shape. Read once from cache, then pick fields —
+    // every dashboard page load hits this endpoint, so the cache hit is hot.
+    const settings = full && {
+      clubName: full.clubName,
+      clubEmail: full.clubEmail,
+      clubDescription: full.clubDescription,
+      registrationOpen: full.registrationOpen,
+      showLeaderboard: full.showLeaderboard,
+      showQOTD: full.showQOTD,
+      showAchievements: full.showAchievements,
+      show_tech_blogs: full.show_tech_blogs,
+      hiringEnabled: full.hiringEnabled,
+      hiringTechnical: full.hiringTechnical,
+      hiringDsaChamps: full.hiringDsaChamps,
+      hiringDesigning: full.hiringDesigning,
+      hiringSocialMedia: full.hiringSocialMedia,
+      hiringManagement: full.hiringManagement,
+      showNetwork: full.showNetwork,
+      mailingEnabled: full.mailingEnabled,
+      certificatesEnabled: full.certificatesEnabled,
+      playgroundEnabled: full.playgroundEnabled,
+      playgroundDailyLimit: full.playgroundDailyLimit,
+      announcementsEnabled: full.announcementsEnabled,
+      competitionEnabled: full.competitionEnabled,
+      problemsEnabled: full.problemsEnabled,
+      githubUrl: full.githubUrl,
+      linkedinUrl: full.linkedinUrl,
+      twitterUrl: full.twitterUrl,
+      instagramUrl: full.instagramUrl,
+      discordUrl: full.discordUrl,
+      whatsappUrl: full.whatsappUrl,
+      accentColor: full.accentColor,
+    };
 
     if (!settings) {
       // Return default settings if none exist
@@ -391,6 +392,7 @@ settingsRouter.put('/', authMiddleware, requireRole('PRESIDENT'), async (req: Re
     });
 
     invalidateNotificationSettingsCache();
+    invalidateSettingsCache();
     await auditLog(authUser.id, 'UPDATE', 'settings', 'default', parsed.data);
     res.json({ success: true, data: sanitizeSettingsForResponse(settings), message: 'Settings updated successfully' });
   } catch (error) {
@@ -436,6 +438,7 @@ settingsRouter.patch('/email-templates', authMiddleware, requireRole('ADMIN'), a
     });
 
     invalidateEmailTemplateConfigCache();
+    invalidateSettingsCache();
 
     await auditLog(authUser.id, 'UPDATE', 'email-templates', 'config', {
       updated: { emailWelcomeBody, emailAnnouncementBody, emailEventBody, emailFooterText },
@@ -574,6 +577,7 @@ settingsRouter.patch('/security-env', authMiddleware, requireRole('ADMIN'), asyn
       },
     });
 
+    invalidateSettingsCache();
     await auditLog(authUser.id, 'UPDATE', 'settings', 'security-env', {
       updatedFields,
     });
@@ -783,6 +787,7 @@ settingsRouter.patch('/:key', authMiddleware, requireRole('ADMIN'), async (req: 
     });
 
     invalidateNotificationSettingsCache();
+    invalidateSettingsCache();
     await auditLog(authUser.id, 'UPDATE', 'settings', 'default', { [key]: normalizedValue });
     res.json({ success: true, data: sanitizeSettingsForResponse(settings), message: `Setting ${key} updated successfully` });
   } catch (error) {
@@ -805,11 +810,12 @@ settingsRouter.post('/reset', authMiddleware, requireRole('ADMIN'), async (req: 
       data: { id: 'default' },
     });
 
-    // Reset blows away every cached setting field — invalidate both the
-    // notification toggles cache and the email-template config cache so the
-    // next email send doesn't keep using the pre-reset values for 5 minutes.
+    // Reset blows away every cached setting field — invalidate every settings
+    // cache so the next reader (email, feature gates) doesn't keep serving the
+    // pre-reset values for 5 minutes.
     invalidateNotificationSettingsCache();
     invalidateEmailTemplateConfigCache();
+    invalidateSettingsCache();
 
     await auditLog(authUser.id, 'UPDATE', 'settings', 'default', { action: 'reset' });
     res.json({ success: true, data: sanitizeSettingsForResponse(settings), message: 'Settings reset to defaults' });

@@ -943,6 +943,37 @@ eventsRouter.delete('/:id', authMiddleware, requireRole('CORE_MEMBER'), async (r
   }
 });
 
+// Lightweight count endpoint. Used by the events list page to render per-event
+// stats (registered / attended) without pulling every registration row + joined
+// user. Four counts in parallel.
+eventsRouter.get('/:id/registrations/stats', authMiddleware, requireRole('CORE_MEMBER'), async (req: Request, res: Response) => {
+  try {
+    const eventId = req.params.id;
+    const [total, participants, guests, attended] = await Promise.all([
+      prisma.eventRegistration.count({ where: { eventId } }),
+      prisma.eventRegistration.count({ where: { eventId, registrationType: RegistrationType.PARTICIPANT } }),
+      prisma.eventRegistration.count({ where: { eventId, registrationType: RegistrationType.GUEST } }),
+      prisma.eventRegistration.count({
+        where: {
+          eventId,
+          registrationType: RegistrationType.PARTICIPANT,
+          OR: [
+            { attended: true },
+            { dayAttendances: { some: { attended: true } } },
+          ],
+        },
+      }),
+    ]);
+    res.json({ success: true, data: { total, participants, guests, attended } });
+  } catch (error) {
+    res.status(500).json({ success: false, error: { message: 'Failed to fetch registration stats' } });
+  }
+});
+
+// Hard cap on rows returned to prevent OOM on the 512 MB free-tier instance.
+// Callers needing more than this should use the export endpoint or paginate.
+const REGISTRATIONS_LIST_CAP = 5000;
+
 eventsRouter.get('/:id/registrations', authMiddleware, requireRole('CORE_MEMBER'), async (req: Request, res: Response) => {
   try {
     const registrations = await prisma.eventRegistration.findMany({
@@ -976,6 +1007,7 @@ eventsRouter.get('/:id/registrations', authMiddleware, requireRole('CORE_MEMBER'
         }
       },
       orderBy: { timestamp: 'asc' },
+      take: REGISTRATIONS_LIST_CAP,
     });
     res.json({ success: true, data: registrations });
   } catch (error) {

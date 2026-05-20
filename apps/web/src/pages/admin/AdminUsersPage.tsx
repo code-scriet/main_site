@@ -17,6 +17,7 @@ import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Tooltip } from '@/components/ui/tooltip';
 import { getRoleBadge, relativeTime } from '@/lib/userBadges';
+import { processImageUrl } from '@/lib/imageUtils';
 import { UserDetailSheet } from '@/components/admin/users/UserDetailSheet';
 
 const ROLE_OPTIONS = ['USER', 'MEMBER', 'CORE_MEMBER', 'ADMIN', 'PRESIDENT'] as const;
@@ -288,7 +289,15 @@ function UserRow({ user, onOpen }: { user: User; onOpen: () => void }) {
       >
         <div className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full bg-[var(--surface-soft)] text-sm font-medium text-[var(--ds-text-2)] dark:bg-zinc-800 dark:text-zinc-200">
           {user.avatar ? (
-            <img src={user.avatar} alt="" className="h-full w-full object-cover" />
+            <img
+              src={processImageUrl(user.avatar, 'team-avatar')}
+              alt=""
+              width={36}
+              height={36}
+              loading="lazy"
+              decoding="async"
+              className="h-full w-full object-cover"
+            />
           ) : (
             (user.name || '?').slice(0, 1).toUpperCase()
           )}

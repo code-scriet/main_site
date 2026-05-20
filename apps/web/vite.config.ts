@@ -29,6 +29,11 @@ export default defineConfig({
           'vendor-react': ['react', 'react-dom', 'react-router-dom'],
           'vendor-ui': ['framer-motion', '@tanstack/react-query'],
           'markdown': ['react-markdown', 'remark-gfm', 'rehype-highlight'],
+          // Heavy, route-specific deps — keep them out of the route chunks so
+          // they're only fetched when the screens that need them mount.
+          'vendor-charts': ['recharts'],
+          'vendor-qr': ['html5-qrcode', 'jsqr', 'qrcode.react'],
+          'vendor-monaco': ['@monaco-editor/react', 'monaco-editor'],
         },
       },
     },

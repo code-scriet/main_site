@@ -14,6 +14,7 @@ import { emailService } from '../utils/email.js';
 import { verifyToken } from '../utils/jwt.js';
 import { withRetry } from '../lib/prisma.js';
 import { generateAttendanceToken, verifyAttendanceToken } from '../utils/attendanceToken.js';
+import { getCachedSettings } from '../utils/settingsCache.js';
 import {
   AttendanceBulkUpdateConflictError,
   CLIENT_SCAN_FUTURE_TOLERANCE_MS,
@@ -1862,10 +1863,7 @@ router.post('/email-absentees/:eventId', authMiddleware, requireRole('ADMIN'), a
       return ApiResponse.badRequest(res, `dayNumber must be between 1 and ${eventDays}`);
     }
 
-    const settings = await prisma.settings.findUnique({
-      where: { id: 'default' },
-      select: { mailingEnabled: true },
-    });
+    const settings = await getCachedSettings();
     if (settings && settings.mailingEnabled === false) {
       return ApiResponse.forbidden(res, 'Mailing is currently disabled');
     }

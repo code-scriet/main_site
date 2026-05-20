@@ -15,6 +15,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Separator } from '@/components/ui/separator';
+import { processImageUrl } from '@/lib/imageUtils';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -71,7 +72,15 @@ export function UserDetailContent({ userId }: Props) {
       <header className="flex items-start gap-3">
         <div className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-full bg-[var(--surface-soft)] text-lg font-medium text-[var(--ds-text-2)]">
           {user.avatar ? (
-            <img src={user.avatar} alt="" className="h-full w-full object-cover" />
+            <img
+              src={processImageUrl(user.avatar, 'team-avatar')}
+              alt=""
+              width={56}
+              height={56}
+              loading="lazy"
+              decoding="async"
+              className="h-full w-full object-cover"
+            />
           ) : (
             (user.name || '?').slice(0, 1).toUpperCase()
           )}

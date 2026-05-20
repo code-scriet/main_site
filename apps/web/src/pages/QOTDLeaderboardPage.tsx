@@ -4,6 +4,7 @@ import { Link } from 'react-router-dom';
 import { ArrowLeft, Loader2, Trophy } from 'lucide-react';
 import { api, type ProblemLeaderboardEntry } from '@/lib/api';
 import { SEO } from '@/components/SEO';
+import { processImageUrl } from '@/lib/imageUtils';
 
 function formatDurationMs(ms: number | undefined): string {
   if (ms === undefined || !Number.isFinite(ms) || ms < 0) return '—';
@@ -56,7 +57,15 @@ function LeaderboardTable({ entries, mode }: { entries: ProblemLeaderboardEntry[
                 <td className="px-4 py-3">
                   <div className="flex items-center gap-3">
                     {entry.avatar ? (
-                      <img src={entry.avatar} alt="" className="h-8 w-8 rounded-full object-cover" />
+                      <img
+                        src={processImageUrl(entry.avatar, 'team-avatar')}
+                        alt=""
+                        width={32}
+                        height={32}
+                        loading="lazy"
+                        decoding="async"
+                        className="h-8 w-8 rounded-full object-cover"
+                      />
                     ) : (
                       <div className="grid h-8 w-8 place-items-center rounded-full bg-blue-100 text-xs font-bold text-blue-700">
                         {entry.name.slice(0, 1)}

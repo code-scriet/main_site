@@ -25,13 +25,15 @@ export function AdminPendingRequestsCardV2() {
     queryKey: ['admin-pending-playground-reset'],
     queryFn: () => api.adminGetPendingPlaygroundResetRequests(token!),
     enabled: Boolean(token),
-    refetchInterval: 15_000,
+    refetchInterval: 60_000,
+    refetchOnWindowFocus: true,
   });
   const capQ = useQuery({
     queryKey: ['admin-pending-cap-requests'],
     queryFn: () => api.adminGetPendingCapRequests(undefined, token!),
     enabled: Boolean(token),
-    refetchInterval: 15_000,
+    refetchInterval: 60_000,
+    refetchOnWindowFocus: true,
   });
 
   const grantPlayground = useMutation({

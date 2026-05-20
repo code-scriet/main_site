@@ -11,6 +11,7 @@ import {
   type CompetitionResultsSummaryResponse,
 } from '@/lib/api';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { processImageUrl } from '@/lib/imageUtils';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -1123,7 +1124,15 @@ export default function EventCertificateWizard({
                         <td className="p-3">
                           <div className="flex items-center gap-2.5">
                             {recipient.userAvatar ? (
-                              <img src={recipient.userAvatar} alt="" className="h-8 w-8 shrink-0 rounded-full object-cover" />
+                              <img
+                                src={processImageUrl(recipient.userAvatar, 'team-avatar')}
+                                alt=""
+                                width={32}
+                                height={32}
+                                loading="lazy"
+                                decoding="async"
+                                className="h-8 w-8 shrink-0 rounded-full object-cover"
+                              />
                             ) : (
                               <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gray-200 text-xs font-medium dark:bg-gray-700">
                                 {recipient.userName.charAt(0).toUpperCase()}

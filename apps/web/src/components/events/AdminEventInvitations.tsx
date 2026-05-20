@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { api, type CertType, type EventInvitation } from '@/lib/api';
+import { processImageUrl } from '@/lib/imageUtils';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -416,7 +417,15 @@ export default function AdminEventInvitations({
                       onClick={() => addUserInvitee(result)}
                     >
                       {result.photo ? (
-                        <img src={result.photo} alt={result.name} className="h-10 w-10 rounded-full object-cover" />
+                        <img
+                          src={processImageUrl(result.photo, 'team-avatar')}
+                          alt={result.name}
+                          width={40}
+                          height={40}
+                          loading="lazy"
+                          decoding="async"
+                          className="h-10 w-10 rounded-full object-cover"
+                        />
                       ) : (
                         <div className="flex h-10 w-10 items-center justify-center rounded-full bg-amber-100 font-semibold text-amber-800">
                           {result.name.charAt(0).toUpperCase()}

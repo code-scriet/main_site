@@ -93,6 +93,11 @@ export const eventsApi = {
     request(`/events/${id}`, { method: 'DELETE', token }),
   getEventRegistrations: (eventId: string, token: string) =>
     request<EventAdminRegistration[]>(`/events/${eventId}/registrations`, { token }),
+  getEventRegistrationStats: (eventId: string, token: string) =>
+    request<{ total: number; participants: number; guests: number; attended: number }>(
+      `/events/${eventId}/registrations/stats`,
+      { token },
+    ),
   deleteEventRegistration: (eventId: string, registrationId: string, token: string) =>
     request(`/events/${eventId}/registrations/${registrationId}`, { method: 'DELETE', token }),
   exportEventRegistrations: async (

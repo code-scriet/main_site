@@ -22,6 +22,7 @@ import {
 } from '../utils/problemsCore.js';
 import { enqueueRejudgeJob, getRejudgeJob } from '../utils/rejudgeJobs.js';
 import { invalidateQotdLeaderboardCaches } from './qotd.js';
+import { getCachedSettings } from '../utils/settingsCache.js';
 
 export const problemsRouter = Router();
 
@@ -117,10 +118,7 @@ problemsRouter.use(async (req, res, next) => {
   try {
     const user = getAuthUser(req);
     if (isAdminUser(user)) return next();
-    const settings = await prisma.settings.findUnique({
-      where: { id: 'default' },
-      select: { problemsEnabled: true },
-    });
+    const settings = await getCachedSettings();
     if (settings?.problemsEnabled !== true) {
       return ApiResponse.notFound(res, 'Problems are not available');
     }
