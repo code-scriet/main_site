@@ -60,11 +60,11 @@ export function AboutPreview() {
         backgroundImage: `url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M30 0L60 30L30 60L0 30z' fill='%23000' fill-opacity='1'/%3E%3C/svg%3E")`,
         backgroundSize: '30px 30px',
       }} />
-      
+
       {/* Ambient glow */}
       <div className="absolute top-1/4 -left-32 h-64 w-64 rounded-full bg-amber-200/40 blur-[100px] dark:bg-red-500/10" />
       <div className="absolute bottom-1/4 -right-32 h-80 w-80 rounded-full bg-orange-200/30 blur-[120px] dark:bg-rose-500/10" />
-      
+
       <div className="container mx-auto px-4 relative">
         {/* Section Header */}
         <motion.div
@@ -80,7 +80,7 @@ export function AboutPreview() {
               <span className="bg-gradient-to-r from-amber-500 via-orange-500 to-amber-600 bg-clip-text text-transparent dark:from-rose-400 dark:via-red-400 dark:to-orange-400">
                 Technical Edge
               </span>
-              <motion.span 
+              <motion.span
                 className="absolute -bottom-2 left-0 h-1 rounded-full bg-gradient-to-r from-amber-400 to-orange-400 dark:from-rose-400 dark:to-orange-400"
                 initial={{ width: 0 }}
                 whileInView={{ width: '100%' }}
@@ -89,7 +89,7 @@ export function AboutPreview() {
               />
             </span>
           </h2>
-          
+
           <p className="mx-auto max-w-3xl px-2 text-base leading-relaxed text-gray-600 sm:text-lg md:text-xl dark:text-zinc-400">
             {clubDescription}
           </p>
@@ -109,25 +109,25 @@ export function AboutPreview() {
             >
               <div className="relative h-full overflow-hidden rounded-2xl border border-gray-100/80 bg-white p-6 shadow-sm transition-all duration-400 hover:border-gray-200/80 hover:shadow-xl dark:border-zinc-800 dark:bg-[#0f0f14] dark:hover:border-zinc-700 dark:hover:shadow-black/30 sm:p-7">
                 {/* Accent line at top */}
-                <div 
+                <div
                   className="absolute top-0 left-0 right-0 h-[3px] opacity-0 group-hover:opacity-100 transition-opacity duration-300"
                   style={{ background: `linear-gradient(90deg, transparent, ${feature.accent}, transparent)` }}
                 />
-                
+
                 {/* Hover background glow */}
-                <div 
+                <div
                   className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-400"
                   style={{ background: `radial-gradient(ellipse at top, ${feature.accentLight}, transparent 70%)` }}
                 />
-                
+
                 {/* Icon */}
-                <div 
+                <div
                   className="relative mb-5 inline-flex h-12 w-12 items-center justify-center rounded-xl transition-transform duration-300 group-hover:scale-110"
                   style={{ background: feature.accentLight }}
                 >
                   <feature.icon className="h-6 w-6" style={{ color: feature.accent }} />
                 </div>
-                
+
                 {/* Content */}
                 <h3 className="relative mb-2.5 text-lg font-bold text-gray-900 group-hover:text-gray-900 dark:text-zinc-100 dark:group-hover:text-zinc-100 sm:text-xl">
                   {feature.title}
@@ -153,7 +153,7 @@ export function AboutPreview() {
           <div className="absolute inset-0 opacity-10" style={{
             backgroundImage: `url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E")`,
           }} />
-          
+
           <div className="relative p-8 sm:p-10 md:p-12">
             <div className="grid grid-cols-2 gap-6 sm:gap-8 text-center">
               {[
@@ -189,9 +189,9 @@ export function AboutPreview() {
           className="text-center"
         >
           <Link to="/about">
-            <Button 
-              size="lg" 
-              className="h-12 border-0 bg-gray-900 px-7 text-base text-white shadow-lg shadow-gray-900/10 group hover:bg-gray-800 dark:bg-zinc-100 dark:text-zinc-950 dark:hover:bg-zinc-200 sm:h-13"
+            <Button
+              size="lg"
+              className="h-12 border-0 bg-gray-900 px-7 text-base text-white shadow-lg shadow-gray-900/10 group hover:bg-gray-800 transition-all duration-200 dark:!bg-amber-500 dark:!text-white dark:!hover:bg-amber-400 dark:!shadow-amber-500/20 dark:hover:!shadow-lg sm:h-13"
             >
               Learn More About Us
               <ArrowRight className="ml-2 h-4 w-4 group-hover:translate-x-1 transition-transform duration-200" />
