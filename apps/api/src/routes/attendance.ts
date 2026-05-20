@@ -14,6 +14,21 @@ import { emailService } from '../utils/email.js';
 import { verifyToken } from '../utils/jwt.js';
 import { withRetry } from '../lib/prisma.js';
 import { generateAttendanceToken, verifyAttendanceToken } from '../utils/attendanceToken.js';
+import {
+  AttendanceBulkUpdateConflictError,
+  CLIENT_SCAN_FUTURE_TOLERANCE_MS,
+  CLIENT_SCAN_MAX_AGE_MS,
+  isRegistrationBoundToPayload,
+  normalizeEventDays,
+  parseDayLabels,
+  parseRequestedDayNumber,
+  resolveAttendancePayloadFromToken,
+  resolveClientScannedAt,
+  resolveEffectiveDayNumber,
+  resolveStoredAttendanceTokenPayloads,
+  syncRegistrationAttendance,
+  type AttendanceTokenPayload,
+} from '../utils/attendanceDomain.js';
 import { isGuest, isParticipant, participantsOnly } from '../utils/registrationFilters.js';
 import { sanitizeHtml } from '../utils/sanitize.js';
 
@@ -28,31 +43,10 @@ const beaconLimiter = rateLimit({
 
 const uuidSchema = z.string().uuid();
 const jwtLikePattern = /^[A-Za-z0-9-_]+\.[A-Za-z0-9-_]+\.[A-Za-z0-9-_]+$/;
-const CLIENT_SCAN_FUTURE_TOLERANCE_MS = 5 * 60 * 1000;
-const CLIENT_SCAN_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 const ATTENDANCE_FULL_LIST_LIMIT = 5000;
 const ATTENDANCE_EXPORT_LIMIT = 10000;
 const ATTENDANCE_BACKFILL_BATCH_SIZE = 1000;
 const ATTENDANCE_REGENERATE_BATCH_SIZE = 200;
-
-type AttendanceTokenPayload = {
-  userId: string;
-  eventId: string;
-  registrationId: string;
-};
-
-class AttendanceBulkUpdateConflictError extends Error {}
-
-function isRegistrationBoundToPayload(
-  registration: { id: string; userId: string; eventId: string },
-  payload: AttendanceTokenPayload,
-): boolean {
-  return (
-    registration.id === payload.registrationId &&
-    registration.userId === payload.userId &&
-    registration.eventId === payload.eventId
-  );
-}
 
 function requireUuid(res: Response, value: unknown, label: string): value is string {
   if (typeof value !== 'string' || !uuidSchema.safeParse(value).success) {
@@ -79,132 +73,6 @@ function getCookie(req: Request, name: string): string | undefined {
   }
 
   return decodeURIComponent(match.split('=').slice(1).join('='));
-}
-
-function resolveClientScannedAt(scannedAtLocal?: string): Date {
-  const now = new Date();
-  if (!scannedAtLocal?.trim()) {
-    return now;
-  }
-
-  const parsed = new Date(scannedAtLocal);
-  if (Number.isNaN(parsed.getTime())) {
-    return now;
-  }
-
-  const nowMs = now.getTime();
-  const parsedMs = parsed.getTime();
-  if (
-    parsedMs > nowMs + CLIENT_SCAN_FUTURE_TOLERANCE_MS ||
-    parsedMs < nowMs - CLIENT_SCAN_MAX_AGE_MS
-  ) {
-    return now;
-  }
-
-  return parsed;
-}
-
-function normalizeEventDays(eventDays: number | null | undefined): number {
-  if (!Number.isInteger(eventDays) || !eventDays || eventDays < 1) return 1;
-  return Math.min(eventDays, 10);
-}
-
-function parseDayLabels(value: unknown, eventDays: number): string[] {
-  if (!Array.isArray(value)) return [];
-  return value
-    .slice(0, eventDays)
-    .map((label) => (typeof label === 'string' ? label.trim() : ''))
-    .map((label, index) => label || `Day ${index + 1}`);
-}
-
-function parseRequestedDayNumber(dayNumber: unknown): number | null {
-  if (dayNumber === undefined || dayNumber === null || dayNumber === '') return null;
-  if (typeof dayNumber === 'number' && Number.isInteger(dayNumber)) return dayNumber;
-  if (typeof dayNumber === 'string') {
-    const parsed = Number.parseInt(dayNumber, 10);
-    if (Number.isInteger(parsed)) return parsed;
-  }
-  return Number.NaN;
-}
-
-function resolveEffectiveDayNumber(dayNumber: unknown, eventDays: number, defaultToOne = true): number | null {
-  const parsed = parseRequestedDayNumber(dayNumber);
-  if (parsed === null) return defaultToOne ? 1 : null;
-  if (!Number.isInteger(parsed) || parsed < 1 || parsed > eventDays) return Number.NaN;
-  return parsed;
-}
-
-async function syncRegistrationAttendance(registrationId: string): Promise<void> {
-  const latestAttendedDay = await prisma.dayAttendance.findFirst({
-    where: { registrationId, attended: true },
-    orderBy: [
-      { scannedAt: 'desc' },
-      { dayNumber: 'desc' },
-    ],
-  });
-
-  await prisma.eventRegistration.update({
-    where: { id: registrationId },
-    data: {
-      attended: !!latestAttendedDay,
-      scannedAt: latestAttendedDay?.scannedAt ?? null,
-      manualOverride: latestAttendedDay?.manualOverride ?? false,
-    },
-  });
-}
-
-async function resolveStoredAttendanceTokenPayloads(tokens: string[]): Promise<Map<string, AttendanceTokenPayload>> {
-  const normalizedTokens = Array.from(new Set(
-    tokens
-      .map((token) => token.trim())
-      .filter((token) => token.length > 0),
-  ));
-
-  if (normalizedTokens.length === 0) {
-    return new Map();
-  }
-
-  const registrations = await prisma.eventRegistration.findMany({
-    where: {
-      attendanceToken: { in: normalizedTokens },
-    },
-    select: {
-      attendanceToken: true,
-      id: true,
-      userId: true,
-      eventId: true,
-    },
-  });
-
-  const payloadMap = new Map<string, AttendanceTokenPayload>();
-  for (const registration of registrations) {
-    const storedToken = registration.attendanceToken?.trim();
-    if (!storedToken) {
-      continue;
-    }
-
-    payloadMap.set(storedToken, {
-      userId: registration.userId,
-      eventId: registration.eventId,
-      registrationId: registration.id,
-    });
-  }
-
-  return payloadMap;
-}
-
-async function resolveAttendancePayloadFromToken(token: string): Promise<AttendanceTokenPayload | null> {
-  const normalizedToken = token.trim();
-  if (!normalizedToken) {
-    return null;
-  }
-
-  try {
-    return verifyAttendanceToken(normalizedToken);
-  } catch {
-    const fallbackMap = await resolveStoredAttendanceTokenPayloads([normalizedToken]);
-    return fallbackMap.get(normalizedToken) || null;
-  }
 }
 
 // ────────────────────────────────────────────────────────────
