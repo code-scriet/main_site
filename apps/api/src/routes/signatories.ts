@@ -169,7 +169,7 @@ signatoriesRouter.patch('/:id', authMiddleware, requireRole('ADMIN'), async (req
       return ApiResponse.error(res, { code: ErrorCodes.NOT_FOUND, message: 'Signatory not found', status: 404 });
     }
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+     
     const updateData: any = {};
     if (name !== undefined) updateData.name = sanitizeText(name);
     if (title !== undefined) updateData.title = sanitizeText(title);

@@ -1150,7 +1150,7 @@ eventsRouter.get('/:id/registrations/export', authMiddleware, requireRole('CORE_
     const registrationFields = sanitizeEventRegistrationFields(event.registrationFields);
 
     // Build team member lookup for team events
-    let teamMemberMap = new Map<string, { teamName: string; role: string }>();
+    const teamMemberMap = new Map<string, { teamName: string; role: string }>();
     if (event.teamRegistration) {
       const teamMembers = await prisma.eventTeamMember.findMany({
         where: { team: { eventId: event.id } },

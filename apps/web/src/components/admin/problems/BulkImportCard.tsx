@@ -211,7 +211,7 @@ export function BulkImportCard({ token, onImported }: { token: string; onImporte
         failed += 1;
         // Only log to console in dev; in prod we surface the count via the summary toast.
         if (import.meta.env.DEV) {
-          // eslint-disable-next-line no-console
+           
           console.warn('[bulk-import] failed row', row.input.slug, err);
         }
       }

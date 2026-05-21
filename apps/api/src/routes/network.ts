@@ -167,7 +167,7 @@ networkRouter.post('/join', authMiddleware, requireNotBlocked('NETWORK'), async 
     if (user.role === 'USER' || user.role === 'PUBLIC') {
       await prisma.user.update({
         where: { id: user.id },
-        data: { role: 'NETWORK' } as any, // eslint-disable-line @typescript-eslint/no-explicit-any
+        data: { role: 'NETWORK' } as any,  
       });
       
       logger.info(`User ${user.email} joined network`);
@@ -872,7 +872,7 @@ networkRouter.get('/admin/export', authMiddleware, requireRole('ADMIN'), async (
     workbook.creator = 'code.scriet';
     workbook.created = new Date();
 
-    const applySheetStyling = (worksheet: any) => { // eslint-disable-line @typescript-eslint/no-explicit-any
+    const applySheetStyling = (worksheet: any) => {  
       worksheet.getRow(1).font = { bold: true, color: { argb: 'FFFFFFFF' } };
       worksheet.getRow(1).fill = {
         type: 'pattern',
@@ -881,7 +881,7 @@ networkRouter.get('/admin/export', authMiddleware, requireRole('ADMIN'), async (
       };
       worksheet.getRow(1).alignment = { horizontal: 'center', vertical: 'middle' };
 
-      worksheet.eachRow((row: any, rowNumber: number) => { // eslint-disable-line @typescript-eslint/no-explicit-any
+      worksheet.eachRow((row: any, rowNumber: number) => {  
         if (rowNumber > 1) {
           row.fill = {
             type: 'pattern',
