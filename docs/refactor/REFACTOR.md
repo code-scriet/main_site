@@ -430,3 +430,68 @@ After any of these phases lands, run the quiz smoke (host draft → open → 5+ 
 ## Implementation Sequence
 
 Phases execute in order: 0 → 1 → 2 → 3 → 4 → 5 → 6 (7 skipped). Each phase = one commit. No pause between phases. Build + lint runs after each. Frozen-file hashes diff-checked against this document's baseline at every phase boundary.
+
+---
+
+## Final Outcome
+
+| Phase | Status | Commit |
+|---|---|---|
+| 0 — ESM guardrail | Landed (`scripts/check-esm-imports.sh` + audit doc) | `398a7f2` |
+| 1 — Stability + Security | Landed (3 real fixes; 4 issues rejected on re-read) | `750a9bd` |
+| 2 — Backend perf/memory | Verified clean — all scheduler indexes already present | doc-only |
+| 3 — Frontend perf | Verified clean — global QueryClient sets correct defaults | doc-only |
+| 4 — Bundle | Landed (1 image lazy) | `727fb31` |
+| 5 — Backend refactor | Landed (4 console→logger). 82-site res.json sweep deferred. | `75b5089` |
+| 6 — Frontend refactor | Verified — `api/` split already exists; remaining items deferred | `c719373` (doc-only) |
+| 7 — Dead code | Skipped — no findings |
+
+### Concrete changes landed
+- `scripts/check-esm-imports.sh` — guardrail
+- `apps/api/src/quiz/quizSocket.ts` — try/catch on `next_question` (489–587) and `skip_question` (750–813)
+- `apps/api/src/routes/network.ts` — `P2002 → 409` mapping on `networkProfile.create`
+- `apps/web/src/pages/admin/AdminCertificates.tsx` — `loading="lazy"` on signature thumbnail
+- 4 production `console.*` → `logger.*` migrations
+  - `middleware/role.ts`, `config/cloudinary.ts`, `utils/jwt.ts`, `lib/prisma.ts`
+
+### High-caution file hashes — final state
+| File | Pre-baseline | Final | Intentional? |
+|---|---|---|---|
+| `quizSocket.ts` | `d33b9f96…` | `72f6a044…` | Yes — Phase 1 (try/catch only, HC #6–10 preserved) |
+| `quizRouter.ts` | `31aad0ac…` | `31aad0ac…` | Unchanged |
+| `quizStore.ts` | `dfce809a…` | `dfce809a…` | Unchanged |
+| `prisma.ts` | `f3d06ce8…` | `3c8e45cb…` | Yes — Phase 5 (single `console.warn` → `logger.warn`, HC #3 pool config untouched) |
+| `socket.ts` | `bfa6b379…` | `bfa6b379…` | Unchanged |
+
+### Machine-checked invariants
+- `npm run build --workspace=apps/api` — 0 errors
+- `npm run build --workspace=apps/web` — 0 errors
+- `npm run lint --workspace=apps/api` — 0 errors (53 pre-existing warnings)
+- `npm run lint --workspace=apps/web` — 0 errors (37 pre-existing warnings)
+- `bash scripts/check-esm-imports.sh` — 0 violations
+- `auditLog(` count — 126 (preserved, Rule 9)
+- `withRetry(` count — 32 (preserved, Rule 10)
+- Production `console.*` — 0 (only `logger.ts` internals + judge-protocol marker remain, both intentional)
+
+### What this pass deliberately did NOT do
+Per user direction ("just more focus on optimization") these items stay catalogued but unimplemented:
+- ~82-site `res.json` → `ApiResponse` mechanical conversion (no perf/feature value)
+- Inline email template extraction from 1985-line `email.ts` (no runtime benefit)
+- 28-site `any` cleanup (no runtime impact)
+- God-component splits — `EventCertificateWizard` (2586), `AdminScanner` (993), `AttendanceManager` (933) — risky state-machine work for zero perf gain
+- HeatmapGrid extraction, date formatter consolidation, `extractApiErrorMessage` re-adoption — all pure refactor
+
+A dedicated "consistency pass" PR can pick these up later if/when desired. The audit document above contains the catalog needed to execute them.
+
+### Manual smoke required before deploying to prod
+The Phase 1 changes to `quizSocket.ts` are additive try/catch wrappers with no behavior change beyond error capture. They were not exercised in CI. Before deploy:
+
+1. Host a draft quiz, open it, have 5+ players join.
+2. Trigger `next_question` during the `active` phase (reveal); confirm reveal happens.
+3. Trigger `next_question` during the `revealing` phase; confirm advance to next question / finish.
+4. Trigger `skip_question` during `active`; confirm jump to next.
+5. Trigger `skip_question` during `revealing`; confirm advance.
+6. Confirm `quiz_finishing` + `final_leaderboard` + results page render.
+
+Also exercise `POST /network/profile` after already having a profile to confirm the new `409` shape comes through cleanly.
+
