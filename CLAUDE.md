@@ -1,1421 +1,477 @@
 # CLAUDE.md — code.scriet Club Platform
 
-> **For AI Agents:** This file is the single source of truth. Read it fully before making any changes. Do NOT explore the codebase speculatively — everything needed is documented here.
+> **AI agents:** Single source of truth. Read fully before any change. No speculative exploration — everything you need is here. For exhaustive prose / historical context, see [docs/detailed_claude.md](docs/detailed_claude.md) **only when needed**.
 
 ---
 
-## Project Overview
+## Project
 
-**code.scriet** is a full-stack monorepo web platform for CCSU's (Chaudhary Charan Singh University) coding club. It handles events (solo + team registration + guest invitations), announcements, public polls, team management, achievements, hiring applications, a professional/alumni network, live quizzes, timed coding competition rounds, a full judged coding system (QOTD + practice + DSA contest rounds), a code playground, certificate generation, QR attendance tracking, and a credits/acknowledgements system.
+Full-stack monorepo for CCSU's coding club. Events (solo + team + guest invites), announcements, polls, achievements, hiring, alumni network, live quizzes, timed coding rounds, judged problems (QOTD + practice + DSA contest), playground, certificates, QR attendance, credits.
 
-**Production URLs:**
-- Frontend: `https://codescriet.dev`
-- API: `https://api.codescriet.dev`
-- Playground: `https://code.codescriet.dev`
-- Code Executor Worker: Cloudflare Worker (proxies to Wandbox API)
+**Prod:** web=`codescriet.dev` · api=`api.codescriet.dev` · playground=`code.codescriet.dev` · CF Worker (Wandbox proxy).
 
 ---
 
-## Hard Constraints
+## Hard Constraints (non-negotiable)
 
-These rules are non-negotiable. Never propose a solution that violates them without an explicit override instruction from the user.
-
-1. **Free-tier only (512 MB RAM):** The Render API service runs on the free tier with a 512 MB RAM ceiling. Do not introduce in-memory data structures that grow proportionally with user/player count (e.g., per-session chat buffers, unbounded caches). The safe working ceiling is ~900 concurrent quiz players.
-2. **WebSocket-only for real-time:** All real-time quiz and attendance communication goes through Socket.io WebSocket transport. Never introduce HTTP long-polling or SSE for real-time quiz events.
-3. **Prisma connection pool is frozen:** The pool config is deliberately tuned for Neon serverless concurrent connection limits. Do not alter the `datasource` block, add pool middleware, or change connection limits without explicit approval.
-4. **Node memory cap in production:** `--max-old-space-size=400` must be present in the production start script to leave headroom beneath the 512 MB limit.
-5. **`prisma migrate dev --create-only` is mandatory:** Always generate migration files with `--create-only` and review the SQL before applying. Never run bare `prisma migrate dev` against a shared or production database — it can OOM on constrained machines.
-6. **Optimization code is frozen during UI work:** Do not touch quiz scoring logic, leaderboard calculation, or socket throttle configs when working on UI-only tasks. These live in `apps/api/src/quiz/quizSocket.ts`. Strict separation.
-7. **Leaderboard broadcasts top 10 only:** The `leaderboard_update` socket event sends only the top 10 players. This is a deliberate payload cap — do not expand the count.
-8. **`answer_count_update` throttle is fixed at 1000 ms:** The server throttles this broadcast to one emission per second. Do not lower the interval.
-9. **`my_rank_update` is a unicast:** This event is sent only to the individual player's socket. It must never become a broadcast.
-10. **Phase transitions are server-authoritative:** Quiz phase changes (`start`, `next_question`, `end`, `pause`, `resume`) are always triggered server-side via timers or explicit host action. Client-clock / schedule-based transitions are forbidden — they break pause/resume and extend-time controls.
-11. **Capacity counts must filter participants:** Any query that aggregates registrations for capacity enforcement, waitlist logic, or public "X registered" counts MUST filter `EventRegistration.registrationType = PARTICIPANT`. `GUEST` registrations do not consume participant capacity and must never be mixed into participant-only counts.
+1. **Free-tier (512 MB RAM)** on Render `codescriet-api`/`codescriet-playground-api`. No data structures that grow with user/player count. Safe ceiling ~900 concurrent quiz players.
+2. **WebSocket-only** for real-time (Socket.io). No HTTP long-polling/SSE.
+3. **Prisma pool is frozen.** Don't touch `datasource` block, add pool middleware, or change connection limits without approval.
+4. **`--max-old-space-size=400`** must stay in prod start script.
+5. **`prisma migrate dev --create-only` is mandatory.** Review SQL, then `db:migrate:deploy`. Never bare `prisma migrate dev` on shared/prod.
+6. **Optimization code frozen during UI work.** Don't touch quiz scoring, leaderboard calc, or socket throttles when doing UI (`apps/api/src/quiz/quizSocket.ts`).
+7. **Leaderboard broadcasts top 10 only.**
+8. **`answer_count_update` throttle fixed at 1000 ms.**
+9. **`my_rank_update` is unicast** — never broadcast.
+10. **Phase transitions are server-authoritative.** No client-clock/schedule-based transitions — breaks pause/resume + extend-time.
+11. **Capacity counts filter `registrationType = PARTICIPANT`.** `GUEST` invitations never consume participant seats.
 
 ---
 
 ## Response Standards
 
-When generating code or architectural proposals for this codebase:
-
-- **Be stack-specific:** Reference exact file paths, Prisma model names, and existing utility functions. "Use a cache" is not acceptable — "add a bounded Map in `quizStore.ts`" is.
-- **Flag O(n²) patterns immediately:** If a proposed solution nests iteration over players inside a questions loop (or any unbounded × unbounded pattern), call it out with the complexity class and the break-even value of n before anything else.
-- **Socket event documentation format:** When adding a new Socket.io event, always document: `event_name` → direction (server→client or client→server) → payload TypeScript interface → trigger condition → unicast or broadcast.
-- **Prisma N+1 annotation:** Any query inside a loop that cannot be batched must be annotated `// N+1: consider batching` and explain why it is acceptable at current scale or state the batching path.
-- **Free-tier impact statement:** For any non-trivial new feature, estimate the peak memory delta (bytes × expected concurrent users) and confirm it fits within the 512 MB constraint.
-- **No new infrastructure:** Never suggest Redis, message queues, separate worker processes, or any paid external service. We are on free tier.
-
----
-
-## Runtime Lifecycle (API)
-
-Startup sequence in `apps/api/src/index.ts`:
-
-1. Load env (`../../.env` then local `.env`) and fail-fast on insecure/missing JWT secret.
-2. Initialize HTTP + Socket.io server (`/quiz` + `/attendance` namespaces).
-3. Configure middleware pipeline (helmet → compression → CORS allow-list → JSON parser → CSRF guard for cookie-auth writes → optional request logger → rate limits).
-4. Mount root health/SEO endpoints and API routers.
-5. Initialize DB bootstrap chain: `initializeDatabase()` → hydrate runtime security env from settings → slug backfills.
-6. Conditionally start background schedulers (`ENABLE_BACKGROUND_SCHEDULERS=true`): event status, reminder emails, QOTD auto-publish.
-7. Start HTTP listener with port-retry handling for `EADDRINUSE`.
-8. Recover active competition timers (`recoverActiveRounds()`).
-
-Shutdown behavior:
-
-- On `SIGTERM` / `SIGINT`: stop schedulers, close Socket.io, persist active quiz sessions as `ABANDONED`, close HTTP server, disconnect Prisma, hard-timeout at 28s to beat Render's 30s SIGKILL window.
-
----
-
-## Monorepo Structure
-
-```
-club_site/
-├── apps/
-│   ├── api/                    # Express.js backend (TypeScript, ESM)
-│   │   ├── src/
-│   │   │   ├── index.ts        # App entry point — mounts all routers
-│   │   │   ├── config/
-│   │   │   │   └── passport.ts       # Passport.js Google + GitHub OAuth strategies
-│   │   │   ├── middleware/
-│   │   │   │   ├── auth.ts           # authMiddleware + getAuthUser()
-│   │   │   │   └── role.ts           # requireRole()
-│   │   │   ├── routes/
-│   │   │   │   ├── auth.ts           # /api/auth/*
-│   │   │   │   ├── events.ts         # /api/events/*
-│   │   │   │   ├── registrations.ts  # /api/registrations/*
-│   │   │   │   ├── announcements.ts  # /api/announcements/*
-│   │   │   │   ├── team.ts           # /api/team/*
-│   │   │   │   ├── achievements.ts   # /api/achievements/*
-│   │   │   │   ├── qotd.ts           # /api/qotd/*
-│   │   │   │   ├── users.ts          # /api/users/*
-│   │   │   │   ├── stats.ts          # /api/stats/*
-│   │   │   │   ├── settings.ts       # /api/settings/*
-│   │   │   │   ├── hiring.ts         # /api/hiring/*
-│   │   │   │   ├── certificates.ts   # /api/certificates/*
-│   │   │   │   ├── signatories.ts    # /api/signatories/*
-│   │   │   │   ├── upload.ts         # /api/upload/*
-│   │   │   │   ├── network.ts        # /api/network/*
-│   │   │   │   ├── audit.ts          # /api/audit-logs/*
-│   │   │   │   ├── mail.ts           # /api/mail/*
-│   │   │   │   ├── playground.ts     # /api/playground/*
-│   │   │   │   ├── credits.ts        # /api/credits/*
-│   │   │   │   ├── attendance.ts     # /api/attendance/*
-│   │   │   │   ├── teams.ts          # /api/teams/*   (event team registration)
-│   │   │   │   ├── invitations.ts    # /api/invitations/*
-│   │   │   │   ├── polls.ts          # /api/polls/*   (public polls + admin)
-│   │   │   │   ├── problems.ts       # /api/problems/* (judge-backed coding problems)
-│   │   │   │   ├── competition.ts    # /api/competition/*  (timed code rounds)
-│   │   │   │   └── sitemap.ts        # /sitemap.xml, /robots.txt, IndexNow
-│   │   │   ├── attendance/
-│   │   │   │   └── attendanceSocket.ts  # Socket.io /attendance namespace
-│   │   │   ├── quiz/
-│   │   │   │   ├── quizRouter.ts     # /api/quiz/* REST routes
-│   │   │   │   ├── quizSocket.ts     # Socket.io /quiz namespace
-│   │   │   │   └── quizStore.ts      # In-memory quiz state (Map<quizId, QuizRoom>)
-│   │   │   ├── lib/
-│   │   │   │   └── prisma.ts         # Prisma client + withRetry()
-│   │   │   └── utils/
-│   │   │       ├── attendanceToken.ts # JWT sign/verify for attendance tokens
-│   │   │       ├── audit.ts          # auditLog() helper
-│   │   │       ├── email.ts          # emailService (Brevo/Sendinblue)
-│   │   │       ├── eventStatus.ts    # updateEventStatuses()
-│   │   │       ├── generateCertificatePDF.ts  # @react-pdf/renderer PDF generation
-│   │   │       ├── processSignatureImage.ts  # sharp-based signature image cleanup
-│   │   │       ├── init.ts           # initializeDatabase(), slug population
-│   │   │       ├── jwt.ts            # getJwtSecret(), signToken(), verifyToken()
-│   │   │       ├── logger.ts         # winston logger + requestLogger middleware
-│   │   │       ├── codeJudge.ts      # worker-based multi-language judge
-│   │   │       ├── problemsCore.ts   # Problem validation, scoring, context gating
-│   │   │       ├── rejudgeJobs.ts    # in-memory queued rejudge jobs
-│   │   │       ├── dailyLimit.ts     # IST-based per-user run/submit quota
-│   │   │       ├── response.ts       # ApiResponse.success() / ApiResponse.error()
-│   │   │       ├── sanitize.ts       # sanitizeHtml() / sanitizeText()
-│   │   │       ├── scheduler.ts      # startReminderScheduler() / stopReminderScheduler()
-│   │   │       └── socket.ts         # initializeSocket() — Socket.io setup
-│   │   └── public/
-│   │       └── logos/               # Certificate fonts + logos (base64 or TTF/WOFF)
-│   │           ├── GreatVibes.ttf
-│   │           ├── Cinzel-Regular.woff / Cinzel-Bold.woff
-│   │           ├── CormorantGaramond.ttf / CormorantGaramond-Italic.ttf
-│   │           └── PlayfairDisplay-Bold.woff
-│   │
-│   ├── web/                    # React frontend (Vite + TypeScript)
-│   │   └── src/
-│   │       ├── App.tsx               # Router, lazy routes, QueryClient
-│   │       ├── context/
-│   │       │   ├── AuthContext.tsx   # useAuth() — token, user, login, logout
-│   │       │   ├── SettingsContext.tsx # useSettings() — settings from /api/settings/public
-│   │       │   └── ThemeContext.tsx  # useTheme() — light/dark toggle (localStorage `codescriet-theme`)
-│   │       ├── lib/
-│   │       │   ├── api.ts            # All API calls + TypeScript interfaces
-│   │       │   ├── error.ts          # extractApiErrorMessage()
-│   │       │   └── utils.ts          # cn() (clsx + tailwind-merge)
-│   │       ├── components/
-│   │       │   ├── auth/
-│   │       │   │   ├── ProtectedRoute.tsx              # minRole prop guard
-│   │       │   │   └── SuperAdminOrPresidentRoute.tsx  # wraps /admin/settings
-│   │       │   ├── dashboard/
-│   │       │   │   ├── DashboardLayout.tsx       # Sidebar nav (user + core + admin sections)
-│   │       │   │   ├── PlaygroundCard.tsx
-│   │       │   │   ├── PlaygroundSnippetsCard.tsx
-│   │       │   │   ├── QOTDWidget.tsx
-│   │       │   │   └── QuizDashboardWidget.tsx
-│   │       │   ├── attendance/        # see Attendance System section
-│   │       │   ├── events/            # AdminEventInvitations, ChiefGuestsStrip, …
-│   │       │   ├── home/              # homepage feature strips
-│   │       │   ├── media/             # image/gallery helpers
-│   │       │   ├── polls/             # poll voting + admin widgets
-│   │       │   ├── teams/             # TeamCreateModal, TeamJoinModal, TeamDashboard
-│   │       │   ├── theme/             # theme toggle button
-│   │       │   ├── layout/
-│   │       │   │   ├── Layout.tsx    # Public page wrapper (Navbar + Footer)
-│   │       │   │   ├── Navbar.tsx
-│   │       │   │   └── Footer.tsx
-│   │       │   ├── ErrorBoundary.tsx
-│   │       │   ├── SEO.tsx           # <Helmet> SEO tags
-│   │       │   └── ui/               # shadcn/ui components (button, card, input, etc.)
-│   │       └── pages/
-│   │           ├── HomePage.tsx
-│   │           ├── AboutPage.tsx
-│   │           ├── EventsPage.tsx / EventDetailPage.tsx
-│   │           ├── TeamPage.tsx / TeamMemberProfilePage.tsx
-│   │           ├── AchievementsPage.tsx / AchievementDetailPage.tsx
-│   │           ├── AnnouncementsPage.tsx / AnnouncementDetailPage.tsx
-│   │           ├── PollDetailPage.tsx           # public /polls/:slug
-│   │           ├── QOTDSolvePage.tsx            # /qotd/today + /qotd/:date
-│   │           ├── QOTDLeaderboardPage.tsx      # /qotd/leaderboard
-│   │           ├── CompetitionResults.tsx       # public /competition/:roundId/results
-│   │           ├── CompetitionSolvePage.tsx     # /competition/:roundId/solve/:problemId
-│   │           ├── SignInPage.tsx
-│   │           ├── JoinUsPage.tsx
-│   │           ├── AuthCallbackPage.tsx
-│   │           ├── NetworkPage.tsx
-│   │           ├── JoinOurNetworkPage.tsx
-│   │           ├── PrivacyPolicyPage.tsx
-│   │           ├── ContactPage.tsx
-│   │           ├── CreditsPage.tsx
-│   │           ├── VerifyCertificatePage.tsx
-│   │           ├── network/
-│   │           │   ├── NetworkOnboarding.tsx
-│   │           │   ├── NetworkStatusPage.tsx
-│   │           │   └── NetworkProfilePage.tsx
-│   │           ├── dashboard/
-│   │           │   ├── DashboardOverview.tsx
-│   │           │   ├── DashboardEvents.tsx
-│   │           │   ├── DashboardAnnouncements.tsx
-│   │           │   ├── DashboardLeaderboard.tsx
-│   │           │   ├── DashboardCoding.tsx
-│   │           │   ├── DashboardCertificates.tsx
-│   │           │   ├── DashboardInvitations.tsx
-│   │           │   ├── AttendancePage.tsx        # /dashboard/attendance (core-member shortcut)
-│   │           │   ├── CreateEvent.tsx
-│   │           │   ├── CreateAnnouncement.tsx
-│   │           │   ├── CreateQOTD.tsx
-│   │           │   ├── ProfilePage.tsx
-│   │           │   ├── ImageUploadTool.tsx
-│   │           │   ├── EditTeamProfile.tsx
-│   │           │   ├── EditNetworkProfile.tsx
-│   │           │   └── QuizManager.tsx
-│   │           ├── admin/
-│   │           │   ├── AdminUsersPage.tsx        # routed component for /admin/users (admin-deep-control consolidated rewrite)
-│   │           │   ├── UserDetailPage.tsx        # routed component for /admin/users/:id (full-page detail surface)
-│   │           │   ├── AdminTeam.tsx
-│   │           │   ├── AdminAchievements.tsx
-│   │           │   ├── AdminProblems.tsx        # /admin/problems (gated by problemsEnabled)
-│   │           │   ├── AdminSettings.tsx
-│   │           │   ├── AdminEventRegistrations.tsx
-│   │           │   ├── EditEvent.tsx
-│   │           │   ├── AdminHiring.tsx
-│   │           │   ├── AdminCertificates.tsx
-│   │           │   ├── AdminNetwork.tsx
-│   │           │   ├── AdminCredits.tsx
-│   │           │   ├── AdminCompetition.tsx      # /admin/competition (gated by competitionEnabled)
-│   │           │   ├── CompetitionJudge.tsx      # /admin/competition/:roundId/judge
-│   │           │   ├── AdminPublicView.tsx       # /admin/public-view (poll responses dashboard)
-│   │           │   ├── AdminAuditLog.tsx
-│   │           │   └── AdminMail.tsx
-│   │           └── quiz/
-│   │               ├── ActiveQuizList.tsx
-│   │               ├── QuizPage.tsx
-│   │               ├── QuizResultsPage.tsx
-│   │               ├── AdminQuizCreator.tsx
-│   │               └── QuizJoinPage.tsx
-│   │
-│   └── playground/             # Code playground (separate Vite app + execute-server)
-│       ├── execute-server.js   # Express.js (plain JS) execute server
-│       └── src/                # React frontend for code editor
-│
-├── packages/                   # Shared packages (currently unused)
-├── prisma/
-│   ├── schema.prisma           # Full DB schema (see section below)
-│   └── seed.ts                 # Seeds super admin + default Settings row
-├── workers/
-│   └── executor.js             # Cloudflare Worker (code execution proxy)
-├── scripts/                    # Shell scripts (migrate, free ports)
-├── render.yaml                 # Render deployment blueprint (4 services)
-└── .github/workflows/ci.yml
-```
+- **Stack-specific.** Cite exact file paths, Prisma model names, existing utilities. "Add a bounded Map in `quizStore.ts`" not "use a cache."
+- **Flag O(n²) immediately.** Nested iteration over players × questions (or any unbounded × unbounded) → state complexity class + break-even n before anything else.
+- **Socket event docs:** `event_name` → direction → payload TS interface → trigger → unicast/broadcast.
+- **Prisma N+1:** Annotate `// N+1: consider batching` with justification, or batch via `findMany({ where: { id: { in: ids } } })`.
+- **Free-tier impact:** For non-trivial features, estimate peak memory delta (bytes × concurrent users) and confirm fit under 512 MB.
+- **No new infra.** No Redis, queues, separate workers, paid services.
+- **Architecture proposals** must include: explicit tradeoffs, capacity math, ≥2 alternatives compared, O(n²) flag if applicable, free-tier impact check.
 
 ---
 
 ## Tech Stack
 
-| Layer | Technology |
-|-------|-----------|
-| Backend | Express.js, TypeScript, Node.js 20, ESM (`"type": "module"`) |
-| Frontend | React 19, Vite, TypeScript, TailwindCSS, shadcn/ui, Zustand (quiz UI state), Recharts (analytics charts), Sonner (toasts), React Query (`@tanstack/react-query`), React Router v7, Monaco Editor, cmdk, react-markdown + remark-gfm |
-| Database | PostgreSQL (Neon serverless) via Prisma ORM |
-| Auth | Passport.js (Google, GitHub OAuth), JWT (7-day), bcryptjs |
-| Real-time | Socket.io (`/quiz` + `/attendance` namespaces) |
-| Email | Brevo REST API (direct HTTP fetch to `https://api.brevo.com/v3/smtp/email`, auth via `BREVO_API_KEY`) |
-| File Storage | Cloudinary (images, certificate PDFs) |
-| PDF | `@react-pdf/renderer` (server-side certificate generation) |
-| Image Processing | `sharp` (signature image cleanup — background removal, contrast, threshold) |
-| Data Export | ExcelJS (event registrations, user lists) |
-| QR Code | `qrcode.react ^4.2.0` (frontend rendering); `html5-qrcode` (scanning — used in attendance scanner) |
-| Animations | Framer Motion (frontend) |
-| Deployment | Render (4 services, **free tier — 512 MB RAM**), Cloudflare Workers |
-| Package Manager | npm with workspaces |
+| Layer | Tech |
+|---|---|
+| Backend | Express + TS (ESM, Node 20) |
+| Frontend | React 19 + Vite + TS + Tailwind + shadcn/ui + Zustand (quiz UI only) + Recharts + Sonner + React Query (staleTime 5m, gcTime 30m) + React Router v7 + Monaco + cmdk + react-markdown |
+| DB | PostgreSQL (Neon serverless) via Prisma. `DATABASE_URL`=pooler, `DIRECT_URL`=non-pooler (for migrations) |
+| Auth | Passport (Google + GitHub OAuth) + JWT (7-day) + bcryptjs |
+| Real-time | Socket.io: `/quiz`, `/attendance`, `/notifications` namespaces |
+| Email | Brevo REST API (`BREVO_API_KEY`) |
+| Storage | Cloudinary (images + cert PDFs) |
+| PDF | `@react-pdf/renderer` server-side |
+| Img processing | `sharp` (signature cleanup) |
+| Export | ExcelJS |
+| QR | `qrcode.react` (render) + `html5-qrcode` (scan) |
+| Animation | Framer Motion |
+| Deploy | Render free tier + Cloudflare Workers |
+| Package mgr | npm workspaces |
 
 ---
 
-## Key Commands
+## Layout
+
+```
+apps/
+  api/                Express backend (TS, ESM) — entry src/index.ts
+    src/
+      config/passport.ts            Google + GitHub OAuth
+      middleware/{auth,role,blocks}.ts
+      routes/<resource>.ts          All resource routers (see route table below)
+      attendance/attendanceSocket.ts
+      quiz/{quizRouter,quizSocket,quizStore}.ts
+      lib/prisma.ts                 client + withRetry()
+      utils/                        attendanceToken, audit, email, eventStatus,
+                                    generateCertificatePDF, processSignatureImage,
+                                    init, jwt, logger, codeJudge, problemsCore,
+                                    rejudgeJobs, dailyLimit, response, sanitize,
+                                    scheduler, socket, superAdmin, qotdStreak
+    public/logos/                   Cert fonts (GreatVibes/Cinzel/Cormorant/Playfair)
+  web/                React frontend (Vite)
+    src/
+      App.tsx                       Router, lazy routes, QueryClient
+      context/{Auth,Settings,Theme}Context.tsx
+      lib/{api.ts,error.ts,utils.ts}
+      components/{auth,dashboard,attendance,events,home,media,polls,teams,theme,layout,ui,dash}/
+      pages/                        Public + dashboard/* + admin/* + quiz/*
+  playground/         execute-server.js (plain JS) + Vite app
+prisma/               schema.prisma + migrations + seed.ts
+workers/executor.js   CF Worker → Wandbox
+scripts/              migrate/sitemap/prerender/streak-backfill
+render.yaml           4 services
+```
+
+---
+
+## Commands
 
 ```bash
-# Development
-npm run dev                    # API + Web + Playground
-npm run api                    # API only
-npm run web                    # Web only
-npm run playground             # Playground backend + frontend
-npm run dev:all                # API + Web + Playground (alternate script)
-
-# Build
-npm run build                  # Web + API
-npm run build:all              # Web + API + Playground
-npm run build:web:seo          # build web + sitemap + prerender
-
-# Database
-npm run db:migrate             # Dev migrations (avoid on shared/prod DB)
-npm run db:migrate:deploy      # Production migrations
+npm run dev                                  # API + Web + Playground
+npm run {api,web,playground}                 # individual
+npm run build / build:web:seo                # web + sitemap + prerender
+npm run db:migrate:deploy                    # prod migrations
 npm run db:migrate:day-attendance
 npm run db:audit:competition-autosaves
-npm run db:seed                # Seed super admin + default Settings
-npm run db:studio              # Open Prisma Studio
-npm run db:reset               # Reset local DB
-
-# IMPORTANT — always use --create-only to generate migrations without auto-applying:
-# npx prisma migrate dev --create-only --name <migration_name>
-# Review the generated SQL in prisma/migrations/ then apply with db:migrate:deploy
-
-# Testing
-npm run test:e2e
-npm run test:stability
-
-# Linting (workspace)
-npm run lint --workspace=apps/api
-npm run lint --workspace=apps/web
+npm run db:seed / db:studio / db:reset
+npx prisma migrate dev --create-only --name <name>   # ALWAYS use --create-only
+npm run test:e2e / test:stability
+npm run lint --workspace=apps/{api,web}
 ```
 
 ---
 
-## All API Routes (Mounted in `apps/api/src/index.ts`)
+## Runtime Lifecycle (API)
 
-| Path | Router | Auth Required |
-|------|--------|---------------|
-| `/api/auth/*` | authRouter | No (rate-limited: 50/15min) |
-| `/api/events/*` | eventsRouter | Some routes |
-| `/api/registrations/*` | registrationsRouter | Yes |
-| `/api/announcements/*` | announcementsRouter | Some |
-| `/api/polls/*` | pollsRouter | GET list/detail = optional auth, vote/feedback = User, admin views/CRUD = Admin |
-| `/api/team/*` | teamRouter | Some |
-| `/api/teams/*` | teamsRouter | User (create/join), Admin (list/admin actions) |
-| `/api/invitations/*` | invitationsRouter | Mixed |
-| `/api/achievements/*` | achievementsRouter | Some |
-| `/api/qotd/*` | qotdRouter | Some |
-| `/api/users/*` | usersRouter | Yes (admin-deep-control endpoints below) |
-| `/api/users/:id/full` | usersRouter | Admin |
-| `/api/users/:id/activity` | usersRouter | Admin |
-| `/api/users/:id/audit` | usersRouter | Admin |
-| `/api/users/:id/streak/reset-current` | usersRouter | PRESIDENT/superAdmin |
-| `/api/users/:id/streak/restore-longest` | usersRouter | PRESIDENT/superAdmin |
-| `/api/users/:id/blocks` (GET/POST) | usersRouter | Admin (GET) / PRESIDENT+superAdmin (POST) |
-| `/api/users/:id/blocks/:feature` (DELETE) | usersRouter | PRESIDENT/superAdmin |
-| `/api/users/:id/force-logout` | usersRouter | PRESIDENT/superAdmin |
-| `/api/users/:id/password-reset` | usersRouter | PRESIDENT/superAdmin |
-| `/api/users/:id/restore` | usersRouter | superAdmin only |
-| `/api/users/:id` (DELETE, `?hard=true`) | usersRouter | PRESIDENT (soft) / superAdmin (hard) |
-| `/api/auth/reset-password` | authRouter | Public (token-based, rate-limited 20/15min) |
-| `/api/stats/*` | statsRouter | No (public) |
-| `/api/settings/*` | settingsRouter | Some (`/settings`, `/settings/email-templates`, `/settings/security-env` are superAdmin/PRESIDENT only) |
-| `/api/hiring/*` | hiringRouter | Some |
-| `/api/certificates/*` | certificatesRouter | Some |
-| `/api/signatories/*` | signatoriesRouter | Admin |
-| `/api/upload/*` | uploadRouter | Yes |
-| `/api/network/*` | networkRouter | Some |
-| `/api/audit-logs/*` | auditRouter | Admin |
-| `/api/mail/*` | mailRouter | Admin |
-| `/api/quiz/*` | quizRouter | Some |
-| `/api/playground/*` | playgroundRouter | Some (snippets/stats/history = User; `request-reset`/`my-reset-request` = User; `admin/reset-limit/:userId`, `admin/pending-reset-requests`, `admin/reset-requests/:id/grant\|deny` = Admin) |
-| `/api/problems/*` | problemsRouter | Mixed (`GET /` public if `problemsEnabled`; run/submit/request-cap = User; `POST /` create = CORE_MEMBER+ (non-admins forced to `isPublished: false`); update/delete/rejudge/override/cap-admin = Admin) |
-| `/api/credits/*` | creditsRouter | GET=public, POST/PUT/DELETE=Admin |
-| `/api/attendance/*` | attendanceRouter | Some (user QR + history = auth, admin endpoints = Admin, summary = CORE_MEMBER+) |
-| `/api/competition/*` | competitionRouter | Mixed (feature-gated by `competitionEnabled`; results GET is public; save/submit/my-submission = auth; create/start/lock/judging/finish/score/edit/delete/publish-as-practice/raise-cap = Admin) |
-| `/api/indexnow` | indexNowRouter | Admin |
-| `/sitemap.xml` | sitemapRouter | Public |
-| `/robots.txt` | robotsRouter | Public |
-| `/health` | inline | Public (no DB) |
-| `/health/db` | inline | Public (DB ping, 2s timeout) |
-| `/ping` | inline | Public (plain text "pong") |
-| `/api/test-email` | inline | Admin |
-| `/api/notifications` (GET) | notificationsRouter | User (Dashboard v2) |
-| `/api/notifications/mark-read` (POST) | notificationsRouter | User (Dashboard v2) |
-| `/api/search/global` (GET) | searchRouter | User (Dashboard v2, role-aware visibility) |
-| `/api/problems/me/recent` (GET) | problemsRouter | User (Dashboard v2 — cross-context recent submissions) |
-| `/api/problems/admin/cap-requests/:counterId/grant` (POST) | problemsRouter | Admin (Dashboard v2) |
-| `/api/problems/admin/cap-requests/:counterId/deny` (POST) | problemsRouter | Admin (Dashboard v2) |
-| `/api/qotd/leaderboard/around-me` (GET) | qotdRouter | User (Dashboard v2 — rank ± window slice) |
-| `/api/teams/my-all` (GET) | teamsRouter | User (Dashboard v2 — all teams across events) |
-| `/api/upload/history` (GET) | uploadRouter | User (Dashboard v2 — image library) |
+Startup in `apps/api/src/index.ts`:
+1. Load env (`../../.env` then local), fail-fast on insecure/missing JWT secret.
+2. HTTP + Socket.io (`/quiz` + `/attendance` + `/notifications`).
+3. Middleware: helmet → compression → CORS allow-list → JSON → CSRF (cookie-auth writes) → optional req logger → rate limits.
+4. Mount routers + health/SEO.
+5. `initializeDatabase()` → hydrate security env → slug backfills.
+6. If `ENABLE_BACKGROUND_SCHEDULERS=true`: event status + reminders + QOTD auto-publish.
+7. HTTP listen with port-retry on `EADDRINUSE`.
+8. `recoverActiveRounds()` re-arms competition timers.
 
-**Rate Limiting:** General API = 500 req/15min per IP; Auth = 50 req/15min (successful requests not counted).
-
-**CSRF guard for cookie auth:** Mutating `/api/*` requests authenticated via the `scriet_session` cookie must come from an `Origin`/`Referer` that passes `isAllowedBrowserOrigin()` (explicit allow-list + the configured `FRONTEND_URL`, plus localhost/LAN in dev). Bearer-token requests bypass this guard. The middleware is wired in `apps/api/src/index.ts` immediately after `cors()`.
+Shutdown (SIGTERM/SIGINT): stop schedulers → close Socket.io → persist active quizzes as `ABANDONED` → close HTTP → disconnect Prisma → hard-timeout 28s (beats Render's 30s SIGKILL).
 
 ---
 
-## Credits System
-
-### DB Model (`prisma/schema.prisma`)
-```prisma
-model Credit {
-  id            String      @id @default(uuid())
-  title         String
-  description   String?     @db.Text
-  category      String
-  teamMemberId  String?     @map("team_member_id")
-  teamMember    TeamMember? @relation(fields: [teamMemberId], references: [id], onDelete: SetNull)
-  order         Int         @default(0)
-  createdAt     DateTime    @default(now()) @map("created_at")
-  updatedAt     DateTime    @updatedAt @map("updated_at")
-
-  @@index([category, order])
-  @@map("credits")
-}
-```
-`TeamMember` also has a `credits Credit[]` relation.
-
-### API Endpoints (`apps/api/src/routes/credits.ts`)
-- `GET /api/credits` — list all, optional `?teamMemberId=<uuid>` filter. Public.
-- `GET /api/credits/:id` — single credit. Public.
-- `POST /api/credits` — create. **Admin only.**
-- `PUT /api/credits/:id` — update. **Admin only.**
-- `DELETE /api/credits/:id` — delete. **Admin only.**
-- `PATCH /api/credits/reorder` — bulk reorder `{ credits: [{id, order}] }`. **Admin only.**
-
-Response format: `{ success: true, data: Credit }`.
-
-### Frontend
-- **Public page:** `apps/web/src/pages/CreditsPage.tsx` → route `/credits`
-  - Fetches via `api.getCredits()`
-  - Groups by category, shows styled cards with team member avatar (links to `/team/:slug`)
-  - Categories with built-in styles: `Founding`, `Platform`, `Design`, `Events`, `Content`, `Infrastructure`, `Special Thanks`
-- **Admin page:** `apps/web/src/pages/admin/AdminCredits.tsx` → route `/admin/credits`
-  - CRUD UI with category presets + custom category input
-  - Team member search/filter dropdown
-  - Order field for display ordering
-
-### API Client (`apps/web/src/lib/api.ts`)
-```typescript
-export interface Credit {
-  id: string;
-  title: string;
-  description?: string;
-  category: string;
-  teamMemberId?: string;
-  teamMember?: { id: string; name: string; slug?: string; imageUrl: string; role: string; team: string };
-  order: number;
-  createdAt: string;
-}
-
-api.getCredits(teamMemberId?)
-api.getCredit(id)
-api.createCredit(data, token)
-api.updateCredit(id, data, token)
-api.deleteCredit(id, token)
-api.reorderCredits(credits, token)  // PATCH /api/credits/reorder
-```
-
----
-
-## Team Registration System
-
-> **Status: IMPLEMENTED.** Full team-based event registration with invite codes.
-
-### Architecture
-
-- **Event-level toggle:** `Event.teamRegistration` boolean + `teamMinSize`/`teamMaxSize` (1-10)
-- **Team creation:** User creates team → becomes leader → auto-registered → gets 8-char invite code
-- **Team join:** Other users enter invite code → join team → auto-registered
-- **Invite code:** 8-character uppercase hex (e.g., `A1B2C3D4`), unique globally
-- **Team lifecycle:** Leader can lock (prevent new joins), transfer leadership, kick members, or dissolve team
-- **Registration gate:** Solo registration blocked for team events; must create/join team
-
-### DB Models (`prisma/schema.prisma`)
-
-```prisma
-model EventTeam {
-  id         String   @id @default(uuid())
-  eventId    String   @map("event_id")
-  event      Event    @relation(fields: [eventId], references: [id], onDelete: Cascade)
-  teamName   String   @map("team_name") @db.VarChar(100)
-  inviteCode String   @unique @map("invite_code") @db.VarChar(8)
-  leaderId   String   @map("leader_id")
-  leader     User     @relation("TeamLeader", fields: [leaderId], references: [id], onDelete: Restrict)
-  isLocked   Boolean  @default(false) @map("is_locked")
-  createdAt  DateTime @default(now()) @map("created_at")
-  members    EventTeamMember[]
-
-  @@unique([eventId, teamName])
-  @@index([eventId])
-  @@map("event_teams")
-}
-
-model EventTeamMember {
-  id             String            @id @default(uuid())
-  teamId         String            @map("team_id")
-  team           EventTeam         @relation(fields: [teamId], references: [id], onDelete: Cascade)
-  userId         String            @map("user_id")
-  user           User              @relation(fields: [userId], references: [id], onDelete: Cascade)
-  registrationId String            @unique @map("registration_id")
-  registration   EventRegistration @relation(fields: [registrationId], references: [id], onDelete: Cascade)
-  role           String            @default("MEMBER") @db.VarChar(20)  // "LEADER" | "MEMBER"
-  joinedAt       DateTime          @default(now()) @map("joined_at")
-
-  @@unique([teamId, userId])
-  @@index([userId])
-  @@map("event_team_members")
-}
-```
-
-Event model additions:
-```prisma
-teamRegistration  Boolean  @default(false) @map("team_registration")
-teamMinSize       Int      @default(1) @map("team_min_size")
-teamMaxSize       Int      @default(4) @map("team_max_size")
-teams             EventTeam[]
-```
-
-### API Endpoints (`apps/api/src/routes/teams.ts`)
-
-| Route | Method | Auth | Description |
-|-------|--------|------|-------------|
-| `/api/teams/create` | POST | User | Create team + self-register as leader |
-| `/api/teams/join` | POST | User | Join team via invite code (rate-limited: 15/15min) |
-| `/api/teams/my-team/:eventId` | GET | User | Get user's team for event (null if not in team) |
-| `/api/teams/:teamId/lock` | PATCH | Leader | Toggle team lock |
-| `/api/teams/:teamId/members/:userId` | DELETE | Leader | Remove member from team |
-| `/api/teams/:teamId/leave` | POST | Member | Leave team (not leader) |
-| `/api/teams/:teamId/transfer-leadership` | POST | Leader | Transfer leader role to another member |
-| `/api/teams/:teamId/dissolve` | DELETE | Leader | Dissolve team, cancel all registrations |
-| `/api/teams/event/:eventId` | GET | Admin | List all teams for event |
-| `/api/teams/:teamId/admin-lock` | PATCH | Admin | Admin force lock/unlock |
-| `/api/teams/:teamId/admin-dissolve` | DELETE | Admin | Admin force dissolve |
-
-### Frontend Components (`apps/web/src/components/teams/`)
-
-- **TeamCreateModal** — Create team form with team name + custom fields
-- **TeamJoinModal** — Join team with 8-char invite code input
-- **TeamDashboard** — Team management card (members, invite code, lock, leave/dissolve)
-
-### Frontend Integration
-
-- **EventDetailPage** — Conditional rendering: team events show Create/Join buttons instead of Register
-- **CreateEvent / EditEvent** — Team registration toggle + min/max size config
-- **AdminEventRegistrations** — Team badge + "Teams" button linking to attendance hub
-
-### API Client (`apps/web/src/lib/api.ts`)
-
-```typescript
-export interface EventTeam {
-  id: string;
-  eventId: string;
-  teamName: string;
-  inviteCode?: string;  // Only visible to leader
-  leaderId: string;
-  isLocked: boolean;
-  createdAt: string;
-  members: EventTeamMemberInfo[];
-  isLeader?: boolean;
-  isComplete?: boolean;
-  isFull?: boolean;
-}
-
-api.createTeam(data, token)
-api.joinTeam(data, token)
-api.getMyTeam(eventId, token)  // Returns null if not in team
-api.toggleTeamLock(teamId, token)
-api.removeTeamMember(teamId, userId, token)
-api.leaveTeam(teamId, token)
-api.transferLeadership(teamId, newLeaderId, token)
-api.dissolveTeam(teamId, token)
-api.getEventTeams(eventId, token)  // Admin
-api.adminToggleTeamLock(teamId, token)
-api.adminDissolveTeam(teamId, token)
-```
-
-### Key Patterns
-
-- **Serializable transactions:** Team create/join use `Prisma.TransactionIsolationLevel.Serializable` with 3 retry attempts and jittered exponential backoff for P2034 conflicts
-- **Atomic capacity check:** Registration count checked inside transaction to prevent race conditions
-- **Leader deletion guard:** `onDelete: Restrict` on `EventTeam.leaderId` prevents deleting users who lead teams
-- **Registration cascade:** Team dissolution deletes team members and their registrations in one transaction
-- **Toggle guard:** Cannot change `teamRegistration` mode once event has registrations
-
----
-
-## Invitation System
-
-> **Status: IMPLEMENTED.** Guests, speakers, judges, alumni, and other invitees use a dedicated invitation flow that lands in the same registration, attendance, and certificate pipeline as participants.
-
-### Architecture
-
-- **Separate door, same pipeline:** Admins invite verified `NetworkProfile` users or raw email addresses. Accepting an invitation creates an `EventRegistration` with `registrationType = GUEST`, then the existing `attendanceToken`, `QRTicket`, quiz auth, attendance scan, and certificate flows take over.
-- **Capacity-safe by design:** Participant capacity checks and public registration counts filter `registrationType = PARTICIPANT` so guest invitations never consume participant seats.
-- **Expiry is derived:** Stored status is `PENDING | ACCEPTED | DECLINED | REVOKED`; `EXPIRED` is computed at read time when a pending invitation belongs to an event that has already ended.
-- **Email-only claim flow:** Non-user invitees receive a signed invitation-claim JWT that deep-links to `/join-our-network?invitation=<token>`. After signup/onboarding, the invitation is claimed and attached to the authenticated user account.
-- **Revoke is transactional:** Revoking an accepted invitation deletes the linked guest registration inside the same transaction so the invitee immediately loses QR/attendance access.
-
-### DB Models (`prisma/schema.prisma`)
-
-- **`EventInvitation`** stores the invited event, inviter, invitee user or email, snapshot fields, role, certificate settings, email delivery metadata, and an optional link to the guest registration created on accept.
-- **`EventRegistration.registrationType`** defaults to `PARTICIPANT`; accepted invitations create `GUEST` registrations instead of participant registrations.
-- **`Settings.emailInvitationEnabled`** gates invitation and revocation emails through the existing `EmailService.send()` category guard.
-
-### API Endpoints (`apps/api/src/routes/invitations.ts`)
-
-| Route | Method | Auth | Description |
-|-------|--------|------|-------------|
-| `/api/invitations/search-invitees` | GET | Admin | Search verified NetworkProfile users who are not already invited for the event |
-| `/api/invitations` | POST | Admin | Bulk-create invitations for users or raw email addresses |
-| `/api/invitations/event/:eventId` | GET | Admin | List all invitations for one event |
-| `/api/invitations/my` | GET | User | List the authenticated user's invitations with derived `EXPIRED` state |
-| `/api/invitations/claim` | POST | User | Claim an email-only invitation after signup/onboarding |
-| `/api/invitations/:id` | PATCH | Admin | Update role, custom message, certificate toggle, or certificate type |
-| `/api/invitations/:id` | DELETE | Admin | Revoke invitation and delete linked guest registration if accepted |
-| `/api/invitations/:id/resend` | POST | Admin | Resend invitation email and update resend metadata |
-| `/api/invitations/:id/accept` | POST | User | Serializable accept flow: create `GUEST` registration + attendance token |
-| `/api/invitations/:id/decline` | POST | User | Decline invitation and remove prior guest registration if one exists |
-
-### Frontend Components
-
-- **Dashboard inbox:** `apps/web/src/pages/dashboard/DashboardInvitations.tsx` renders pending, accepted, and historical invitations, with deep-link support for `/dashboard/invitations/:invitationId`.
-- **Admin management:** `apps/web/src/components/events/AdminEventInvitations.tsx` handles search, staging, bulk sends, edits, resends, and revokes for an event.
-- **Public event guests:** `apps/web/src/components/events/ChiefGuestsStrip.tsx` renders accepted, public network invitees on the event page.
-- **Event detail integration:** `apps/web/src/pages/EventDetailPage.tsx` shows accepted guest QR tickets via the existing `QRTicket` component and a dashboard CTA for pending invitations.
-- **Certificates:** `apps/web/src/components/attendance/EventCertificateWizard.tsx` adds a Guests tab sourced from accepted invitation registrations.
-
-### API Client (`apps/web/src/lib/api.ts`)
-
-```typescript
-api.getMyInvitations(token)
-api.acceptInvitation(id, token)
-api.declineInvitation(id, token)
-api.claimInvitation(invitationToken, token)
-api.searchInvitees(query, eventId, token)
-api.createInvitations(data, token)
-api.getEventInvitations(eventId, token)
-api.updateInvitation(id, data, token)
-api.revokeInvitation(id, token)
-api.resendInvitationEmail(id, token)
-```
-
-### Key Patterns
-
-- **Serializable accept transaction:** `POST /api/invitations/:id/accept` retries serializable conflicts three times with the same jittered exponential backoff pattern used in event/team registration.
-- **Claim-first email invites:** Raw-email invitations are stored with `inviteeEmail`, then bound to `inviteeUserId` after the recipient signs up and claims the token.
-- **Read-time expiry derivation:** Expiration is never persisted; all invitation list/read responses compute `EXPIRED` when `status === PENDING && event.endDate < now`.
-- **Capacity exemption:** Every participant-capacity/public-count query filters `registrationType = PARTICIPANT`; guests live in the same registration table but never consume participant seats.
-
----
-
-## Polls System
-
-> **Status: IMPLEMENTED.** Single- and multi-select polls with optional deadlines, anonymous voting, and per-user feedback.
-
-### DB Models (`prisma/schema.prisma`)
-
-- **`Poll`** — `question`, `description?`, unique `slug`, `allowMultipleChoices`, `allowVoteChange`, `isAnonymous`, optional `deadline`, `isPublished` (gates public visibility), `createdBy → User`.
-- **`PollOption`** — text option + `sortOrder`; `@@unique([pollId, sortOrder])`.
-- **`PollVote`** — one row per `(pollId, userId)`; `@@unique([pollId, userId])`.
-- **`PollVoteSelection`** — join row linking a `PollVote` to one or more `PollOption`s. Composite PK `(voteId, optionId)`.
-- **`PollFeedback`** — open-text feedback, one per `(pollId, userId)`.
-
-### API Endpoints (`apps/api/src/routes/polls.ts`)
-
-| Route | Method | Auth | Description |
-|-------|--------|------|-------------|
-| `/api/polls` | GET | Optional | Public list (published only for non-admins); admins see drafts |
-| `/api/polls/:idOrSlug` | GET | Optional | Public detail with aggregated `PollOptionResult` counts and the caller's current vote/feedback when authenticated |
-| `/api/polls/:idOrSlug/vote` | POST | User | Cast or change a vote — respects `allowMultipleChoices` and `allowVoteChange` |
-| `/api/polls/:idOrSlug/feedback` | POST | User | Submit/replace one feedback message per poll |
-| `/api/polls/admin/public-view` | GET | Admin | Admin dashboard list with response counts |
-| `/api/polls/admin/public-view/:id` | GET | Admin | Full responses + feedback for one poll |
-| `/api/polls` | POST | Admin | Create poll + options |
-| `/api/polls/:id` | PUT | Admin | Update poll (including options) |
-| `/api/polls/:id` | DELETE | Admin | Delete poll (cascades to options/votes/feedback) |
-| `/api/polls/:id/admin/export.xlsx` | GET | Admin | ExcelJS responses + feedback export |
-
-### Frontend Surface
-
-- **Public detail page:** `apps/web/src/pages/PollDetailPage.tsx` at `/polls/:slug` — voting UI + feedback form.
-- **Admin dashboard:** `apps/web/src/pages/admin/AdminPublicView.tsx` at `/admin/public-view` — list of polls with response analytics + downloadable export.
-- **Components:** `apps/web/src/components/polls/` (poll cards, vote controls).
-- **API client (`apps/web/src/lib/api.ts`):** `getPolls`, `getPoll`, `createPoll`, `updatePoll`, `deletePoll`, `voteOnPoll`, `submitPollFeedback`, `getAdminPolls`, `getAdminPollDetail`, `downloadPollExport`.
-
-### Key Patterns
-
-- **Anonymous polls:** When `isAnonymous` is true, public list/detail strips user identifiers from response payloads; admin exports still resolve identities for moderation.
-- **Vote replacement:** With `allowVoteChange = true`, the vote handler deletes prior `PollVoteSelection` rows in the same transaction as the new selection writes — keeps tallies consistent without double counting.
-- **One feedback per user:** `PollFeedback` is keyed `@@unique([pollId, userId])`; resubmission overwrites the previous message.
-
----
-
-## Problems + QOTD Coding System
-
-> **Status: IMPLEMENTED.** This is the judge-backed coding subsystem that powers standalone practice, QOTD solving, and DSA-type competition rounds.
-
-### Architecture
-
-- **Single canonical problem model:** `Problem` in Prisma is reused across three contexts:
-  - `PRACTICE` (daily practice from coding dashboard)
-  - `QOTD` (day-scoped problem solving tied to a `QOTD` row)
-  - `CONTEST` (DSA competition rounds)
-- **Context-safe submissions:** Every judged submission is keyed by `(userId, problemId, contextType, contextKey)` in `ProblemSubmission`.
-- **Per-context cap control:** `ProblemSubmissionCounter` enforces submit caps, supports admin cap overrides, and tracks pending cap-raise requests.
-- **Judge execution pipeline:** `problemsCore.ts` → `codeJudge.ts` → Cloudflare Worker (`workers/executor.js`) → Wandbox.
-- **Quota sharing:** `dailyLimit.ts` enforces IST-date daily run/submit quota shared with playground usage.
-
-### Problems API (`apps/api/src/routes/problems.ts`)
-
-| Route | Method | Auth | Description |
-|-------|--------|------|-------------|
-| `/api/problems` | GET | Optional | List problems with filters (`published`, `difficulty`, `tag`, `search`, `limit`) |
-| `/api/problems/admin/all` | GET | Admin | List all problems (including unpublished) |
-| `/api/problems/admin/reset-cap` | POST | Admin | Reset/raise cap for one user + context |
-| `/api/problems/admin/pending-cap-requests` | GET | Admin | List pending cap requests |
-| `/api/problems` | POST | Admin | Create problem |
-| `/api/problems/:id` | PUT | Admin | Update problem |
-| `/api/problems/:id` | DELETE | Admin | Delete problem (blocked if linked to contest) |
-| `/api/problems/:id/publish` | PATCH | Admin | Toggle `isPublished` for the practice catalog |
-| `/api/problems/:id/run` | POST | User | Run sample tests only (no grading persistence) |
-| `/api/problems/:id/submit` | POST | User | Judge + persist graded submission |
-| `/api/problems/:id/my-submission` | GET | User | My submission + cap usage for context |
-| `/api/problems/:id/leaderboard` | GET | Public | Context leaderboard |
-| `/api/problems/:id/all-submissions` | GET | Admin | Admin raw submissions feed |
-| `/api/problems/:id/override/:submissionId` | PATCH | Admin | Manual verdict/score override |
-| `/api/problems/:id/rejudge` | POST | Admin | Queue rejudge job |
-| `/api/problems/:id/rejudge-status/:jobId` | GET | Admin | Poll in-memory rejudge job state |
-| `/api/problems/:id/request-cap` | POST | User | Request extra submit cap |
-| `/api/problems/:idOrSlug` | GET | Optional | Problem detail with context-based access checks |
-
-### QOTD API (`apps/api/src/routes/qotd.ts`)
-
-| Route | Method | Auth | Description |
-|-------|--------|------|-------------|
-| `/api/qotd/today` | GET | Optional | Today’s QOTD (supports `includeUnpublished=true` for staff) |
-| `/api/qotd/history` | GET | Optional | Paginated history (`limit`, `offset`) |
-| `/api/qotd/leaderboard/total` | GET | Public | Aggregate total-score leaderboard |
-| `/api/qotd/stats/leaderboard` | GET | Public | Unique-day solve leaderboard |
-| `/api/qotd/:qotdId/leaderboard` | GET | Public | Daily top performers for one QOTD |
-| `/api/qotd/:id` | GET | Optional | One QOTD by ID |
-| `/api/qotd` | POST | CORE_MEMBER+ | Create QOTD (existing problem, new problem, or legacy text) |
-| `/api/qotd/:id/publish` | POST | Admin | Publish QOTD |
-| `/api/qotd/:id/hold` | POST | Admin | Hold/unpublish QOTD with reason |
-| `/api/qotd/:id/publish-practice` | POST | Admin | Publish linked QOTD problem to practice after QOTD day |
-| `/api/qotd/:id/unpublish-practice` | POST | Admin | Remove linked problem from practice |
-| `/api/qotd/:id/submit` | POST | User | Legacy text-only QOTD submission |
-| `/api/qotd/:id` | PUT | CORE_MEMBER+ | Update QOTD (owner-or-admin guard) |
-| `/api/qotd/:id` | DELETE | Admin | Delete QOTD |
-
-### Scheduler Integration
-
-- `startQotdAutoPublishScheduler()` in `apps/api/src/utils/scheduler.ts` runs every 5 minutes.
-- It auto-publishes rows where `isPublished=false`, `publishAt <= now`, and no hold is active (`heldBy IS NULL`).
-- Runs only when `ENABLE_BACKGROUND_SCHEDULERS=true`.
-
-### Key Enforcement Patterns
-
-- **Feature gate:** `problemsRouter` returns 404 for non-admins when `Settings.problemsEnabled !== true`.
-- **Context validation:** `validateProblemContext()` checks event registration, team scope, leader-only rules, and QOTD-date validity.
-- **Cap reservation pattern:** submit flow reserves cap first, rolls back reservation on judge/system failure.
-- **Rejudge queue:** `rejudgeJobs.ts` keeps bounded in-memory job metadata and executes serially via a promise chain.
-
----
-
-## Competition Rounds System
-
-> **Status: IMPLEMENTED.** Supports two round types: `IMAGE_TARGET` (code buffer + autosave) and `DSA` (problem-linked judged rounds built on the Problems system).
-
-### DB Models (`prisma/schema.prisma`)
-
-- **`CompetitionRound`** — `eventId`, `title`, `description?`, `duration` (seconds), `status` (`DRAFT | ACTIVE | LOCKED | JUDGING | FINISHED`), `roundType` (`IMAGE_TARGET | DSA`), `participantScope` (`ALL | SELECTED_TEAMS`), `leadersOnly`, `allowedTeamIds (String[])`, optional `targetImageUrl`, `startedAt?`, `lockedAt?`.
-- **`CompetitionRoundProblem`** — for DSA rounds, links ordered problems + points (`displayOrder`, `points`) to a round.
-- **`CompetitionSubmission`** — `roundId`, optional `teamId`, `userId`, `code`, `isAutoSubmit`, `score?`, `rank?`, `adminNotes?`. Unique on `[roundId, teamId]` and `[roundId, userId]` (NULL teamId means individual submissions stay distinct under Postgres).
-- **`CompetitionAutoSave`** — last-known editor buffer per `(roundId, userId)`; rebuilt on every save tick.
-- **`Settings.competitionEnabled`** gates the feature in the admin nav and the public event detail page.
-
-### API Endpoints (`apps/api/src/routes/competition.ts`)
-
-| Route | Method | Auth | Description |
-|-------|--------|------|-------------|
-| `/api/competition` | POST | Admin | Create new round on an event |
-| `/api/competition/event/:eventId` | GET | Optional | List rounds for an event (admin sees all; public sees safe metadata) |
-| `/api/competition/event/:eventId/results-summary` | GET | Admin | Aggregated results + attendance overlay for certificate workflows |
-| `/api/competition/:roundId` | GET | User | Round detail + caller's autosave/submission state |
-| `/api/competition/:roundId/start` | PATCH | Admin | Move `DRAFT → ACTIVE`, set `startedAt`, arm in-memory countdown timer |
-| `/api/competition/:roundId/lock` | PATCH | Admin | Hard lock (`ACTIVE → LOCKED`), clears timer |
-| `/api/competition/:roundId/judging` | PATCH | Admin | `LOCKED → JUDGING` |
-| `/api/competition/:roundId/finish` | PATCH | Admin | `JUDGING → FINISHED`, publishes results |
-| `/api/competition/:roundId/save` | POST | User (rate-limited) | Autosave buffer (1 row per user) |
-| `/api/competition/:roundId/submit` | POST | User (rate-limited) | Final submission; idempotent within `[roundId, userId]` |
-| `/api/competition/:roundId/my-submission` | GET | User | Caller's submission state |
-| `/api/competition/:roundId/submissions` | GET | Admin | All submissions for judging |
-| `/api/competition/:roundId/score/:submissionId` | PATCH | Admin | Set `score`/`rank`/`adminNotes` |
-| `/api/competition/:roundId/results/export` | GET | Admin | ExcelJS export |
-| `/api/competition/:roundId/results` | GET | Public | Public results once `FINISHED` |
-| `/api/competition/:roundId/publish-as-practice` | POST | Admin | Publish DSA round problems into practice catalog |
-| `/api/competition/:roundId/raise-cap` | POST | Admin | Raise DSA submit caps for one/all users and one/all problems |
-| `/api/competition/:roundId` | PUT | Admin | Edit round metadata |
-| `/api/competition/:roundId` | DELETE | Admin | Delete round (cascades) |
-
-### In-Memory Timer + Recovery
-
-- An in-process `activeTimers` `Map<roundId, NodeJS.Timeout>` auto-locks rounds when `duration` elapses past `startedAt`. Lifecycle: armed on `start`, cleared on `lock`/`finish`/`delete`.
-- **`recoverActiveRounds()`** runs once on boot (called from `apps/api/src/index.ts` after the HTTP server starts). It re-arms timers for any `ACTIVE` rounds and immediately locks rounds whose deadline already passed during downtime. Free-tier sleeps are therefore safe.
-- **`participantScope`:** `ALL` accepts every registered team/user; `SELECTED_TEAMS` restricts saves and submissions to `allowedTeamIds`. `leadersOnly = true` further restricts submissions to the team leader account.
-- **Feature gate:** non-admin users receive 404 when `Settings.competitionEnabled !== true` (admins bypass for setup/debug).
-
-### Frontend Surface
-
-- **Admin dashboard:** `apps/web/src/pages/admin/AdminCompetition.tsx` at `/admin/competition` — round CRUD, status transitions, allowed-teams selector.
-- **Judging UI:** `apps/web/src/pages/admin/CompetitionJudge.tsx` at `/admin/competition/:roundId/judge` — scoring + admin notes.
-- **Solve UI:** `apps/web/src/pages/CompetitionSolvePage.tsx` at `/competition/:roundId/solve/:problemId` for DSA rounds.
-- **Public results:** `apps/web/src/pages/CompetitionResults.tsx` at `/competition/:roundId/results`.
-- **Certificate integration:** `EventCertificateWizard` consumes `getCompetitionResultsSummary()` to bulk-issue WINNER certificates from round results (`competitionCertificateUtils.ts`).
-- **API client:** `getCompetitionRounds`, `getCompetitionRoundsAdmin`, `getCompetitionRound`, `createCompetitionRound`, status transitions, save/submit, judge/export/results, `publishContestAsPractice`, and `raiseContestCap`.
-
-### Key Patterns
-
-- **IMAGE_TARGET rounds:** autosave writes `CompetitionAutoSave`; final submissions use `CompetitionSubmission`.
-- **DSA rounds:** submissions are stored in `ProblemSubmission` (`contextType='CONTEST'`, `contextKey=round.id`) and scored by judge.
-- **Auto-lock behavior:** timer lock on ACTIVE rounds can convert latest autosaves to auto-submissions (`isAutoSubmit=true`) where eligible.
-- **Finish semantics:** IMAGE_TARGET rounds require scored submissions in judging; DSA rounds can finish directly from `LOCKED`/`JUDGING`.
-- **Rate limiting:** save (`12/min`) and submit (`5/min`) are user-keyed via express-rate-limit.
-
----
-
-## Full Database Schema (Key Models)
-
-All models use PostgreSQL via Prisma. `DATABASE_URL` = pooler, `DIRECT_URL` = non-pooler (required for migrations to avoid P1002 advisory lock errors).
-
-### User
-```
-id, name, email (unique), password?, oauthProvider, oauthId,
-role (Role enum), avatar, bio, githubUrl, linkedinUrl, twitterUrl,
-websiteUrl, branch, course, phone, profileCompleted, year,
-createdAt, updatedAt,
-// admin-deep-control additions:
-lastLoginAt, lastLoginIp, tokenVersion (default 0),
-currentStreak, longestStreak, longestStreakAt,
-isDeleted (default false), deletedAt, deletedBy,
-passwordResetToken (unique), passwordResetExpiresAt
-Relations: announcements, registrations, hiringApplications,
-           qotdSubmissions, networkProfile, teamMember,
-           invitationsReceived, invitationsSent,
-           createdQuizzes, quizParticipants, quizAnswers, certificates,
-           ledTeams, teamMemberships,
-           competitionSubmissions, competitionAutoSaves,
-           createdPolls, pollVotes, pollFeedback,
-           eventsCreated, qotdsCreated, auditLogs,
-           executions, snippets, playgroundPrefs,
-           playgroundDailyUsage, playgroundLimitResets,
-           blocks (UserBlock[])
-```
-
-### UserBlock (admin-deep-control)
-```
-id, userId, feature (UserBlockFeature),
-blockedAt, blockedBy, reason?, expiresAt?
-Unique: [userId, feature]
-Index: [userId], [feature, expiresAt]
-```
-Enum `UserBlockFeature`: `EVENT | PLAYGROUND | QOTD | QUIZ | NETWORK`.
-
-Lazy expiry: `requireNotBlocked(feature)` middleware checks `expiresAt > now() OR expiresAt IS NULL`. No background job sweeps stale rows.
-
-### Settings (singleton, id='default')
-```
-clubName, clubEmail, clubDescription, registrationOpen, maxEventsPerUser,
-announcementsEnabled, showAchievements, showLeaderboard, showQOTD,
-discordUrl, githubUrl, instagramUrl, linkedinUrl, twitterUrl,
-hiringEnabled, hiringTechnical, hiringDsaChamps, hiringDesigning,
-hiringSocialMedia, hiringManagement,
-emailAnnouncementBody, emailEventBody, emailFooterText,
-emailWelcomeBody, emailNetworkVerifiedBody, emailNetworkRejectedBody,
-show_tech_blogs, showNetwork, mailingEnabled,
-certificatesEnabled, playgroundEnabled, playgroundDailyLimit,
-competitionEnabled, problemsEnabled,
-emailWelcomeEnabled, emailEventCreationEnabled, emailRegistrationEnabled,
-emailAnnouncementEnabled, emailCertificateEnabled, emailReminderEnabled,
-emailInvitationEnabled,
-emailPasswordResetEnabled, emailPasswordResetBody?,
-emailTestingMode, emailTestRecipients?,
-attendanceJwtSecret?, indexNowKey?
-```
-
-### Event
-```
-id, title, slug (unique), description, status (EventStatus),
-startDate, endDate?, registrationStartDate?, registrationEndDate?,
-location?, venue?, capacity?, imageUrl, createdBy,
-eventDays (default 1), dayLabels (JSON string[])?,
-eventType?, prerequisites?, registrationFields (JSON)?,
-agenda?, faqs (JSON)?, featured, highlights?, imageGallery (JSON)?,
-learningOutcomes?, resources (JSON)?, shortDescription (varchar 300)?,
-speakers (JSON)?, tags (String[]), targetAudience?, videoUrl?, slug,
-allowLateRegistration,
-teamRegistration (default false), teamMinSize (default 1), teamMaxSize (default 4)
-Relations: registrations, invitations, certificates, teams, competitionRounds
-```
-
-### EventRegistration
-```
-id, userId, eventId, timestamp, customFieldResponses (JSON)?,
-reminderSentAt?, attendanceToken? (unique), attended (default false),
-scannedAt?, manualOverride (default false),
-registrationType (RegistrationType, default PARTICIPANT), invitation?
-Unique: [userId, eventId]
-Index: [eventId, attended], [eventId, registrationType, attended]
-```
-
-### EventInvitation
-```
-id, eventId, inviteeUserId?, inviteeEmail?,
-inviteeNameSnapshot?, inviteeDesignationSnapshot?, inviteeCompanySnapshot?,
-role (default "Guest"), customMessage?, status (InvitationStatus),
-certificateEnabled (default true), certificateType (default SPEAKER),
-invitedById, invitedAt, respondedAt?, revokedAt?,
-emailSent, emailSentAt?, lastEmailResentAt?,
-registrationId? (unique), createdAt, updatedAt
-Relations: event, inviteeUser, invitedBy, registration
-Unique: [eventId, inviteeUserId]
-Indexes: [inviteeUserId, status], [inviteeEmail, status], [eventId, status]
-```
-
-### DayAttendance
-```
-id, registrationId, dayNumber, attended (default false),
-scannedAt?, scannedBy?, manualOverride (default false), createdAt, updatedAt
-Unique: [registrationId, dayNumber]
-Index: [dayNumber, attended]
-```
-
-### CompetitionRound / CompetitionSubmission / CompetitionAutoSave
-```
-CompetitionRound:
-id, eventId, title, description?, duration, status (CompetitionStatus),
-roundType (CompetitionRoundType; default IMAGE_TARGET),
-participantScope (CompetitionParticipantScope; default ALL),
-leadersOnly (default false),
-allowedTeamIds (String[]; default []), targetImageUrl?, startedAt?, lockedAt?,
-createdAt, updatedAt
-Relations: event, submissions, autoSaves, problems
-Indexes: [eventId], [status, startedAt]
-
-CompetitionRoundProblem:
-id, roundId, problemId, displayOrder, points
-Unique: [roundId, problemId], [roundId, displayOrder]
-
-CompetitionSubmission:
-id, roundId, teamId?, userId, code, submittedAt, isAutoSubmit,
-score?, rank?, adminNotes?, createdAt, updatedAt
-Unique: [roundId, teamId], [roundId, userId]
-
-CompetitionAutoSave:
-id, roundId, teamId?, userId, code, savedAt
-Unique: [roundId, userId]
-```
-
-### Announcement
-```
-id, title, body, slug (unique), priority (AnnouncementPriority),
-createdBy, featured, pinned, shortDescription?, imageUrl?, imageGallery?,
-attachments (JSON)?, links (JSON)?, tags (String[]), expiresAt?,
-createdAt, updatedAt
-```
-
-### Poll / PollOption / PollVote / PollVoteSelection / PollFeedback
-```
-Poll:
-id, question (varchar 500), description?, slug (unique),
-allowMultipleChoices (default false), allowVoteChange (default true),
-isAnonymous (default false), deadline?, isPublished (default true),
-createdBy, createdAt, updatedAt
-Relations: creator (User), options, votes, feedbackEntries
-
-PollOption: id, pollId, text (varchar 240), sortOrder, createdAt
-Unique: [pollId, sortOrder]
-
-PollVote: id, pollId, userId, createdAt, updatedAt
-Unique: [pollId, userId]
-
-PollVoteSelection: voteId, optionId (composite PK)
-
-PollFeedback: id, pollId, userId, message (Text), createdAt, updatedAt
-Unique: [pollId, userId]
-```
-
-### TeamMember
-```
-id, name, role, team, imageUrl, github?, linkedin?, twitter?,
-instagram?, order, userId? (unique FK to User), slug? (unique),
-legacySlugs (String[]), bio?, vision?, story?, expertise?,
-achievements?, website?, createdAt
-Relations: user, credits
-```
-
-### Achievement
-```
-id, title, slug (unique), description, content?, shortDescription?,
-eventName?, achievedBy, imageUrl?, imageGallery (JSON)?, date,
-tags (String[]), featured, createdAt, updatedAt
-```
-
-### QOTD + QOTDSubmission
-```
-QOTD: id, date (unique), question, problemLink, difficulty, problemId?,
-createdById?, isPublished, publishAt?, publishedAt?, heldBy?, holdReason?, createdAt
-QOTDSubmission: id, userId, qotdId, timestamp. Unique: [userId, qotdId]
-```
-
-### Problems + Judge Models
-```
-Problem:
-id, slug (unique), title, body, difficulty, tags (String[]),
-allowedLanguages (ProblemLanguage[]), timeLimitMs, defaultSubmitCap,
-sampleTests (JSON), hiddenTests (JSON),
-referenceSolution?, referenceLanguage?, isPublished, createdBy,
-testCasesUpdatedAt, createdAt, updatedAt
-Relations: submissions, counters, qotds, competitionRounds
-
-ProblemSubmission:
-id, userId, problemId, contextType (ProblemContextType), contextKey,
-language (ProblemLanguage), code, verdict (SubmissionVerdict),
-score, passedCount, totalCount, perTestVerdicts (JSON), runtimeMs?,
-compilerOutput?, manualOverride, overrideNotes?, submittedAt, updatedAt
-Unique: [userId, problemId, contextType, contextKey]
-
-ProblemSubmissionCounter:
-id, userId, problemId, contextType, contextKey,
-count, capOverride?, lastResetAt?, pendingRequest,
-requestedAt?, requestNote?, lastGrantedBy?, lastGrantedAt?, updatedAt
-Unique: [userId, problemId, contextType, contextKey]
-```
-
-### AuditLog
-```
-id, userId, action, entity, entityId?, metadata (JSON)?, timestamp
-```
-
-### HiringApplication
-```
-id, name, email (unique), phone?, department, year, skills?,
-applyingRole (ApplyingRole), status (ApplicationStatus), userId?,
-createdAt, updatedAt
-```
-
-### NetworkProfile (1:1 with User)
-```
-id, userId (unique), slug? (unique), legacySlugs (String[]),
-fullName, designation, company, industry, bio?, profilePhoto?,
-phone?, linkedinUsername?, twitterUsername?, githubUsername?,
-personalWebsite?, connectionType (NetworkConnectionType),
-connectionNote?, connectedSince?,
-passoutYear?, degree?, branch?, rollNumber?, achievements?,
-currentLocation?, vision?, story?, expertise?, adminNotes?,
-events (JSON, array), isFeatured, status (NetworkStatus),
-verifiedAt?, verifiedBy?, rejectionReason?,
-isPublic, displayOrder, createdAt, updatedAt
-```
-
-### Certificate
-```
-id, certId (unique — public human-readable e.g. "ABCD-EFGH-IJKL"),
-recipientId? (FK User), recipientName, recipientEmail,
-eventId? (FK Event), eventName, type (CertType),
-position?, domain?, description?, template (default:"gold"),
-pdfUrl?,
-signatoryId? (FK Signatory), signatoryName, signatoryTitle, signatoryImageUrl,
-facultySignatoryId? (FK Signatory), facultyName, facultyTitle, facultySignatoryImageUrl,
-issuedBy, issuedAt,
-emailSent, emailSentAt?, lastEmailResentAt?,
-isRevoked, revokedAt?, revokedBy?, revokedReason?,
-viewCount, createdAt, updatedAt
-Unique: [recipientEmail, eventId, type]
-```
-
-### Signatory
-```
-id, name, title (default:"Club President"), signatureUrl?,
-isActive, createdAt, updatedAt
-Relations: certificatesAsPrimary, certificatesAsFaculty
-```
-
-### Credit
-*(see Credits System section above)*
-
-### Quiz / QuizQuestion / QuizParticipant / QuizAnswer
-*(see Quiz System Architecture section below)*
-
-### Playground Models
-```
-Execution: id, userId, language, code?, outputText?, executedAt, durationMs?, status (ExecutionStatus)
-UserPlaygroundPrefs: userId (PK), theme, fontSize, keybinding, lastLanguage
-Snippet: id, userId, title, language, code, isPublic, shareToken? (unique), createdAt, updatedAt
-PlaygroundDailyUsage: [userId, usageDate] (composite PK), count, updatedAt
-PlaygroundLimitReset: id, userId, resetBy, resetAt, note?
-PlaygroundLimitResetRequest: id, userId, note?, status, decidedBy?, decidedAt?, createdAt
-```
-
-### Enums
-```
-Role: PUBLIC | USER | CORE_MEMBER | ADMIN | PRESIDENT | MEMBER | NETWORK
-EventStatus: UPCOMING | ONGOING | PAST
-AnnouncementPriority: LOW | MEDIUM | HIGH | URGENT
-ApplyingRole: TECHNICAL | DSA_CHAMPS | DESIGNING | SOCIAL_MEDIA | MANAGEMENT
-ApplicationStatus: PENDING | INTERVIEW_SCHEDULED | SELECTED | REJECTED
-CertType: PARTICIPATION | COMPLETION | WINNER | SPEAKER
-RegistrationType: PARTICIPANT | GUEST
-InvitationStatus: PENDING | ACCEPTED | DECLINED | REVOKED
-QuizStatus: DRAFT | WAITING | ACTIVE | FINISHED | ABANDONED
-QuizQuestionType: MCQ | TRUE_FALSE | SHORT_ANSWER | POLL | RATING | MULTI_SELECT | OPEN_ENDED
-NetworkConnectionType: GUEST_SPEAKER | GMEET_SESSION | EVENT_JUDGE | MENTOR | INDUSTRY_PARTNER | ALUMNI | OTHER
-NetworkStatus: PENDING | VERIFIED | REJECTED
-ExecutionStatus: SUCCESS | ERROR | TIMEOUT
-CompetitionStatus: DRAFT | ACTIVE | LOCKED | JUDGING | FINISHED
-CompetitionRoundType: IMAGE_TARGET | DSA
-CompetitionParticipantScope: ALL | SELECTED_TEAMS
-ProblemContextType: QOTD | CONTEST | PRACTICE
-ProblemLanguage: PYTHON | JAVASCRIPT | CPP | JAVA
-PlaygroundResetRequestStatus: PENDING | GRANTED | DENIED
-SubmissionVerdict: PENDING | ACCEPTED | WRONG_ANSWER | TIME_LIMIT_EXCEEDED | RUNTIME_ERROR | COMPILATION_ERROR | JUDGE_ERROR
-```
-
-`EXPIRED` is intentionally **not** stored in Prisma for invitations; it is derived at read time.
+## Auth Flow
+
+- **Email/password:** JWT in response + `scriet_session` cookie.
+- **OAuth:** redirect → Passport → `/auth/callback#token=<jwt>&intent=...` → frontend extracts to `localStorage`. Cross-subdomain cookie on `.codescriet.dev` for playground.
+- **JWT:** 7-day expiry, `{ userId, email, name, role, tokenVersion }`. Force logout = increment DB `tokenVersion`; middleware rejects when DB > claim.
+- **Middleware:** `authMiddleware` reads `Authorization: Bearer` or `scriet_session` cookie; does DB lookup per request.
+- **Dev:** `POST /api/auth/dev-login` only when `ENABLE_DEV_AUTH=true`. Returns 404 when disabled.
+- **CSRF guard:** Cookie-authed mutating `/api/*` writes must come from `Origin/Referer` in `isAllowedBrowserOrigin()` allow-list. Bearer bypasses.
+- **CORS:** Explicit allowlist `ALLOWED_CODESCRIET_ORIGINS` (no subdomain wildcard). Dev: localhost/127.0.0.1/LAN IPs.
+- **Rate limits:** General 500/15min/IP, Auth 50/15min, password reset 20/15min.
 
 ---
 
 ## Role Hierarchy
 
 ```
-PUBLIC    = 0  (unauthenticated)
-USER      = 1  (registered)
-NETWORK   = 1  (professional/alumni network members)
-MEMBER    = 2  (club members)
-CORE_MEMBER = 3
-ADMIN     = 4
-PRESIDENT = 4  (same level as ADMIN)
+PUBLIC=0 · USER=1 · NETWORK=1 · MEMBER=2 · CORE_MEMBER=3 · ADMIN=4 · PRESIDENT=4
 ```
 
-Super admin is determined by `process.env.SUPER_ADMIN_EMAIL`. Only super admin and PRESIDENT can modify settings.
-
-Use `requireRole('ADMIN')` for admin-only routes. PRESIDENT is treated as ADMIN by the role middleware.
-
-`requireRole('ADMIN')` admits PRESIDENT (same numeric tier). There is no literal `requireRole('PRESIDENT')` — to gate to PRESIDENT or superAdmin specifically, combine `requireRole('ADMIN')` with an inline check: `isSuperAdmin(authUser) || authUser.role === 'PRESIDENT'`. The shared helper lives at [apps/api/src/utils/superAdmin.ts](apps/api/src/utils/superAdmin.ts) and exports `isSuperAdmin`, `isPresident`, `isPresidentOrSuperAdmin`.
-
-**Admin-deep-control rule:** only superAdmin can act on a PRESIDENT account. PRESIDENT can act on ADMIN-and-below but cannot promote anyone to ADMIN/PRESIDENT and cannot edit existing ADMIN/PRESIDENT accounts. No actor can edit themselves through `/api/users/*` — they must use `/dashboard/profile`. The `PUT /api/users/:id/role` floor is tightened from CORE_MEMBER to PRESIDENT/superAdmin only.
+- Super admin = `SUPER_ADMIN_EMAIL`. Settings writable by superAdmin + PRESIDENT only.
+- `requireRole('ADMIN')` admits PRESIDENT. No literal `requireRole('PRESIDENT')` — use `requireRole('ADMIN')` + inline `isSuperAdmin(u) || u.role === 'PRESIDENT'`. Helpers in [apps/api/src/utils/superAdmin.ts](apps/api/src/utils/superAdmin.ts): `isSuperAdmin`, `isPresident`, `isPresidentOrSuperAdmin`.
+- **Admin-deep-control:** Only superAdmin acts on PRESIDENT. PRESIDENT acts on ADMIN-and-below but cannot promote to ADMIN/PRESIDENT, cannot edit existing ADMIN/PRESIDENT. No actor edits self via `/api/users/*` (use `/dashboard/profile`). `PUT /api/users/:id/role` floor = PRESIDENT/superAdmin only.
 
 ---
 
-## Auth Flow
+## API Routes (mounted in `apps/api/src/index.ts`)
 
-1. **Email/Password:** Register/login → JWT in response body + `scriet_session` cookie set.
-2. **OAuth (Google/GitHub):**
-   - Redirect to provider → callback → Passport creates/finds user
-   - Network intent stored in short-lived cookies (`oauth_intent`, `network_type`)
-   - Redirect to `/auth/callback#token=<jwt>&intent=...`
-   - Frontend extracts token from hash, stores in `localStorage`
-   - Cross-subdomain cookie `scriet_session` set on `.codescriet.dev` for playground access
-3. **Token:** JWT, 7-day expiry, contains `{ userId, email, name, role }`
-4. **Middleware:** `authMiddleware` (`apps/api/src/middleware/auth.ts`) — reads token from `Authorization: Bearer <token>` header OR `scriet_session` cookie. Does DB lookup per request.
-5. **Dev login:** `POST /api/auth/dev-login` (only when `ENABLE_DEV_AUTH=true`)
+| Path | Auth | Notes |
+|---|---|---|
+| `/api/auth/*` | No (50/15min) | Includes `/dev-login` (gated), `/reset-password` (20/15min) |
+| `/api/events/*` | Mixed | |
+| `/api/registrations/*` | User | |
+| `/api/announcements/*` | Mixed | |
+| `/api/polls/*` | GET=optional, vote/feedback=User, admin=Admin | |
+| `/api/team/*` | Mixed | Team member directory |
+| `/api/teams/*` | User (create/join), Admin (mgmt) | Event teams |
+| `/api/invitations/*` | Mixed | |
+| `/api/achievements/*` | Mixed | |
+| `/api/qotd/*` | Mixed | |
+| `/api/users/*` | Yes | Admin-deep-control endpoints below |
+| `/api/stats/*` | No | Public + admin `/dashboard` with 12-tile insights |
+| `/api/settings/*` | Some (superAdmin/PRESIDENT for `/settings`, `/settings/email-templates`, `/settings/security-env`) | |
+| `/api/hiring/*` | Mixed | |
+| `/api/certificates/*` | Mixed | |
+| `/api/signatories/*` | Admin | |
+| `/api/upload/*` | Yes | `+/history` |
+| `/api/network/*` | Mixed | |
+| `/api/audit-logs/*` | Admin (PRESIDENT/superAdmin gate on the audit log page) | |
+| `/api/mail/*` | Admin | |
+| `/api/quiz/*` | Mixed | `POST /import` (CSV/XLSX), `POST /:quizId/open` (DRAFT→WAITING) |
+| `/api/playground/*` | Mixed | `/snippets|stats|history`=User; `/request-reset|my-reset-request`=User; `/admin/*`=Admin |
+| `/api/problems/*` | Mixed | List=public (if `problemsEnabled`); run/submit/request-cap=User; create=CORE_MEMBER+ (non-admin forced `isPublished:false`); update/delete/rejudge/override/cap-admin=Admin |
+| `/api/credits/*` | GET=public, write=Admin | |
+| `/api/attendance/*` | Mixed | QR + history=User; admin endpoints=Admin; `/summary`=CORE_MEMBER+ |
+| `/api/competition/*` | Mixed (gated by `competitionEnabled`) | Results GET=public; save/submit/my-submission=User; create/start/lock/judging/finish/score/edit/delete/publish-practice/raise-cap=Admin |
+| `/api/notifications` GET + `/mark-read` | User | Dashboard v2 |
+| `/api/search/global` | User | Dashboard v2, role-aware, 5/category |
+| `/api/indexnow` | Admin | |
+| `/sitemap.xml`, `/robots.txt` | Public | |
+| `/health`, `/health/db`, `/ping` | Public | `/ping`=plain "pong" (UptimeRobot keep-warm; do NOT remove) |
+| `/api/test-email` | Admin | |
 
----
+**Admin-deep-control endpoints (`/api/users`):** `:id/full`, `:id/activity`, `:id/audit`, `:id/streak/{reset-current,restore-longest}` (PRES/SA), `:id/blocks` (GET=Admin, POST=PRES/SA), `:id/blocks/:feature` DELETE (PRES/SA), `:id/force-logout` (PRES/SA), `:id/password-reset` (PRES/SA), `:id/restore` (SA only), `:id` DELETE `?hard=true` (soft=PRES, hard=SA).
 
-## Certificate System
-
-- PDF generated server-side via `@react-pdf/renderer` in `apps/api/src/utils/generateCertificatePDF.ts`
-- **Fonts** (loaded from `apps/api/public/logos/`):
-  - `GreatVibes` (.ttf) — cursive signature (fallback when no signature image)
-  - `Cinzel` (.woff, 400 + 700) — headings
-  - `CormorantGaramond` (.ttf, regular + italic) — serif body
-  - `PlayfairDisplay` (.woff, 700) — recipient name
-- **Initialization:** `initFonts()` must be called before `generateCertificatePDF()` (called automatically)
-- **`CertData` interface:**
-  ```typescript
-  { recipientName, eventName, type, position?, domain?, description?,
-    certId, issuedAt,
-    signatoryName, signatoryTitle?, signatoryImageUrl?,
-    facultyName?, facultyTitle?, facultySignatoryImageUrl?,
-    codescrietLogoUrl?, ccsuLogoUrl? }
-  ```
-- **Position formatting:** `formatPosition()` converts "1"/"1st" → "First Place", etc.
-- **Layout:** A4 Landscape (841.89 × 595.28 pt), maroon/gold palette
-- Logos are base64 data URIs passed in `CertData`
-- QR code embedded (links to `FRONTEND_URL/verify/:certId`)
-- Uploaded to Cloudinary, URL stored in `Certificate.pdfUrl`
-- Bulk generation supported
-- Public verification: `GET /api/certificates/verify/:code` (increments `viewCount`)
-- Emailed to recipients via Brevo
-
-### Dual Signature Mechanism
-
-Certificates support two signature rendering methods per signatory slot (primary + faculty):
-
-1. **Signature Image (preferred):** When a `Signatory` record has a `signatureUrl`, the image is processed through `processSignatureImage()` in `apps/api/src/utils/processSignatureImage.ts`:
-   - Fetches the image (URL or base64 data URI)
-   - Auto-corrects EXIF orientation (`.rotate()` — fixes rotated phone camera photos)
-   - Converts to grayscale, normalises contrast
-   - Median filter (3px) removes noise/specks, then sharpen (σ=1.2) enhances ink edges
-   - Detects dark backgrounds via mean luminance analysis — auto-inverts if light ink on dark paper
-   - Adaptive threshold (`mean * 0.65`, clamped [100, 200]) instead of hardcoded value
-   - Per-pixel alpha: ink → opaque black, background → fully transparent
-   - Trims transparent edges, resizes to fit (max 200×70 px)
-   - Returns base64 PNG data URI for embedding in the PDF
-   - If processing fails, returns `undefined` → triggers text fallback
-
-2. **Typed Name (fallback):** When no signature image is available (or processing fails), the signatory name is rendered in the `GreatVibes` handwritten-style font at 28pt, matching the original behavior.
-
-**Detection logic in generate routes:**
-- `POST /api/certificates/generate` and `POST /api/certificates/bulk` accept optional `signatoryId` and `facultySignatoryId` fields
-- `resolveSignatory()` helper in `certificates.ts` fetches the `Signatory` record by ID, processes the image via `sharp`, and returns both the processed image URL (for PDF) and the raw URL (for DB storage)
-- If no ID is provided, falls back to the `signatoryName`/`signatoryTitle` text fields
-- For custom signatories (no ID), `signatoryCustomImageUrl` / `facultyCustomImageUrl` can pass a Cloudinary URL directly — also processed through `processSignatureImage()`
-- Signature images are processed once per generate/bulk request (not per recipient)
-
-**Layout rules:**
-- Signature area: 190pt wide, positioned at bottom (58pt from bottom edge)
-- Image signatures: 150×50pt, `object-fit: contain`, centered
-- Text signatures: GreatVibes 28pt, centered
-- Below the signature (always shown): horizontal rule, name in Cinzel 11pt caps, title in CormorantGaramond 12pt italic
-- Primary signatory: left-aligned (78pt from left). Faculty signatory: right-aligned (78pt from right)
+**Frontend route map:** see `apps/web/src/App.tsx`. All pages lazy-loaded with `React.lazy()` + `<Suspense>`. Notable: `/admin/users` + `/admin/users/:id`, `/admin/{team,achievements,problems,credits,event-registrations,hiring,network,certificates,competition,public-view,audit-log,mail,settings}`, `/admin/competition/:roundId/judge`, `/admin/events/:eventId/attendance`, `/dashboard/{events,announcements,leaderboard,coding,invitations,certificates,profile,attendance,quiz,upload,problems/new}`, `/dashboard/events/:eventId/attendance` (CORE_MEMBER+), `/qotd/{today,:date}`, `/competition/:roundId/solve/:problemId`, `/competition/:roundId/results`, `/polls/:slug`, `/verify/:certId`.
 
 ---
 
-## Quiz System Architecture
+## DB Schema (Prisma)
 
-> The quiz platform is mature and optimized. All core performance work is done. Do not propose performance refactors unless a specific regression is identified. **Never touch socket event handlers or Prisma pool config during UI work** (Hard Constraint #6).
+### User
+`id, name, email(unique), password?, oauthProvider/Id, role(Role), avatar, bio, github/linkedin/twitter/websiteUrl, branch/course/phone/year, profileCompleted, lastLoginAt/Ip, tokenVersion(default 0), currentStreak/longestStreak/longestStreakAt, isDeleted/deletedAt/deletedBy, passwordResetToken(unique)/ExpiresAt, notificationsReadAt?, createdAt/updatedAt`
 
-### Server-Side Core
+Relations: announcements, registrations, hiringApplications, qotdSubmissions, networkProfile, teamMember, invitationsReceived/Sent, createdQuizzes, quizParticipants/Answers, certificates, ledTeams, teamMemberships, competitionSubmissions/AutoSaves, createdPolls, pollVotes/Feedback, eventsCreated, qotdsCreated, auditLogs, executions, snippets, playgroundPrefs, playgroundDailyUsage, playgroundLimitResets, blocks (UserBlock[]).
+
+### UserBlock (admin-deep-control)
+`id, userId, feature(UserBlockFeature), blockedAt, blockedBy, reason?, expiresAt?` · unique `[userId,feature]` · index `[userId]`, `[feature,expiresAt]`. Lazy expiry via `requireNotBlocked(feature)`.
+
+### Settings (singleton id='default')
+clubName/Email/Description · registrationOpen · maxEventsPerUser · announcementsEnabled · showAchievements/Leaderboard/QOTD · social URLs · hiringEnabled + 5 categories · email* template bodies · show_tech_blogs · showNetwork · mailingEnabled · certificatesEnabled · playgroundEnabled · playgroundDailyLimit · competitionEnabled · problemsEnabled · email\*Enabled (welcome/eventCreation/registration/announcement/certificate/reminder/invitation/passwordReset) · emailTestingMode/TestRecipients · attendanceJwtSecret? · indexNowKey? · **accentColor** (default `"rust"`).
+
+### Event
+`id, title, slug(unique), description, status(EventStatus), startDate, endDate?, registrationStartDate?, registrationEndDate?, location?, venue?, capacity?, imageUrl, createdBy, eventDays(default 1), dayLabels(JSON String[])?, eventType?, prerequisites?, registrationFields(JSON)?, agenda?, faqs(JSON)?, featured, highlights?, imageGallery(JSON)?, learningOutcomes?, resources(JSON)?, shortDescription?, speakers(JSON)?, tags(String[]), targetAudience?, videoUrl?, allowLateRegistration, teamRegistration(default false), teamMinSize(1), teamMaxSize(4)` · relations: registrations, invitations, certificates, teams, competitionRounds.
+
+### EventRegistration
+`id, userId, eventId, timestamp, customFieldResponses(JSON)?, reminderSentAt?, attendanceToken?(unique), attended(default false), scannedAt?, manualOverride(default false), registrationType(RegistrationType, default PARTICIPANT), invitation?` · unique `[userId,eventId]` · index `[eventId,attended]`, `[eventId,registrationType,attended]`.
+
+### EventInvitation
+`id, eventId, inviteeUserId?, inviteeEmail?, inviteeNameSnapshot?/Designation?/Company?, role(default "Guest"), customMessage?, status(InvitationStatus), certificateEnabled(default true), certificateType(default SPEAKER), invitedById, invitedAt, respondedAt?, revokedAt?, emailSent, emailSentAt?, lastEmailResentAt?, registrationId?(unique), createdAt/updatedAt` · unique `[eventId,inviteeUserId]` · `EXPIRED` derived at read time.
+
+### DayAttendance
+`id, registrationId, dayNumber, attended(default false), scannedAt?, scannedBy?, manualOverride(default false), createdAt/updatedAt` · unique `[registrationId,dayNumber]` · index `[dayNumber,attended]`.
+
+### EventTeam / EventTeamMember
+`EventTeam: id, eventId, teamName, inviteCode(unique, 8-char hex), leaderId, isLocked, createdAt` · unique `[eventId,teamName]`. `EventTeamMember: id, teamId, userId, registrationId(unique), role("LEADER"|"MEMBER"), joinedAt` · unique `[teamId,userId]`. Leader has `onDelete: Restrict`. Serializable txn + 3 retries.
+
+### CompetitionRound / CompetitionRoundProblem / CompetitionSubmission / CompetitionAutoSave
+Round: `id, eventId, title, description?, duration(sec), status(CompetitionStatus), roundType(IMAGE_TARGET|DSA), participantScope(ALL|SELECTED_TEAMS), leadersOnly, allowedTeamIds(String[]), targetImageUrl?, startedAt?, lockedAt?`. RoundProblem: `id, roundId, problemId, displayOrder, points` unique `[roundId,problemId]`, `[roundId,displayOrder]`. Submission: `id, roundId, teamId?, userId, code, isAutoSubmit, score?, rank?, adminNotes?` unique `[roundId,teamId]`, `[roundId,userId]`. AutoSave: `id, roundId, teamId?, userId, code, savedAt` unique `[roundId,userId]`.
+
+### Announcement
+`id, title, body, slug(unique), priority, createdBy, featured, pinned, shortDescription?, imageUrl?, imageGallery?, attachments?, links?, tags(String[]), expiresAt?, createdAt/updatedAt`.
+
+### Poll / PollOption / PollVote / PollVoteSelection / PollFeedback
+Poll: `id, question, description?, slug(unique), allowMultipleChoices, allowVoteChange, isAnonymous, deadline?, isPublished, createdBy`. Option: `id, pollId, text, sortOrder` unique `[pollId,sortOrder]`. Vote: unique `[pollId,userId]`. Selection: composite PK `(voteId,optionId)`. Feedback: unique `[pollId,userId]`.
+
+### TeamMember
+`id, name, role, team, imageUrl, github?/linkedin?/twitter?/instagram?, order, userId?(unique FK), slug?(unique), legacySlugs(String[]), bio?, vision?, story?, expertise?, achievements?, website?, createdAt` · relations: user, credits.
+
+### Achievement
+`id, title, slug(unique), description, content?, shortDescription?, eventName?, achievedBy, imageUrl?, imageGallery(JSON)?, date, tags(String[]), featured, createdAt/updatedAt`.
+
+### QOTD + QOTDSubmission
+QOTD: `id, date(unique), question, problemLink, difficulty, problemId?, createdById?, isPublished, publishAt?, publishedAt?, heldBy?, holdReason?, createdAt`. Submission: unique `[userId,qotdId]`.
+
+### Problem / ProblemSubmission / ProblemSubmissionCounter
+Problem: `id, slug(unique), title, body, difficulty, tags(String[]), allowedLanguages(ProblemLanguage[]), timeLimitMs, defaultSubmitCap, sampleTests/hiddenTests(JSON), referenceSolution?, referenceLanguage?, isPublished, createdBy, testCasesUpdatedAt`. Submission: unique `[userId,problemId,contextType,contextKey]`, fields `language, code, verdict, score, passedCount, totalCount, perTestVerdicts(JSON), runtimeMs?, compilerOutput?, manualOverride, overrideNotes?`. Counter: unique on same key + `count, capOverride?, lastResetAt?, pendingRequest, requestedAt?, requestNote?, lastGrantedBy?, lastGrantedAt?`.
+
+### NetworkProfile (1:1 with User)
+`id, userId(unique), slug?(unique), legacySlugs(String[]), fullName, designation, company, industry, bio?, profilePhoto?, phone?, linkedinUsername?/twitter?/github?/personalWebsite?, connectionType(NetworkConnectionType), connectionNote?, connectedSince?, passoutYear?, degree?, branch?, rollNumber?, achievements?, currentLocation?, vision?, story?, expertise?, adminNotes?, events(JSON array), isFeatured, status(NetworkStatus), verifiedAt?/By?, rejectionReason?, isPublic, displayOrder`.
+
+### Certificate
+`id, certId(unique, "ABCD-EFGH-IJKL"), recipientId?(FK), recipientName/Email, eventId?(FK), eventName, type(CertType), position?, domain?, description?, template(default "gold"), pdfUrl?, signatoryId?(FK Signatory), signatoryName/Title/ImageUrl, facultySignatoryId?(FK), facultyName/Title/ImageUrl, issuedBy/At, emailSent/At?, lastEmailResentAt?, isRevoked, revokedAt?/By?/Reason?, viewCount` · unique `[recipientEmail,eventId,type]`.
+
+### Signatory
+`id, name, title(default "Club President"), signatureUrl?, isActive`.
+
+### HiringApplication
+`id, name, email(unique), phone?, department, year, skills?, applyingRole(ApplyingRole), status(ApplicationStatus), userId?`.
+
+### AuditLog
+`id, userId, action, entity, entityId?, metadata(JSON)?, timestamp`.
+
+### Credit
+`id, title, description?, category, teamMemberId?(FK SetNull), order, createdAt/updatedAt` · index `[category,order]`.
+
+### Quiz models
+Quiz, QuizQuestion, QuizParticipant, QuizAnswer (persisted post-quiz).
+
+### Playground models
+Execution (`userId, language, code?, outputText?, executedAt, durationMs?, status`); UserPlaygroundPrefs PK `userId` (`theme, fontSize, keybinding, lastLanguage`); Snippet (`userId, title, language, code, isPublic, shareToken?(unique)`); PlaygroundDailyUsage composite PK `[userId,usageDate]` (`count`); PlaygroundLimitReset (`userId, resetBy, resetAt, note?`); PlaygroundLimitResetRequest (`userId, note?, status, decidedBy?/At?`).
+
+### UploadedImage (Dashboard v2)
+`id, userId, url, publicId(unique), filename, bytes, width, height, format, createdAt` · cascade with User.
+
+### Enums
+```
+Role: PUBLIC|USER|CORE_MEMBER|ADMIN|PRESIDENT|MEMBER|NETWORK
+EventStatus: UPCOMING|ONGOING|PAST
+AnnouncementPriority: LOW|MEDIUM|HIGH|URGENT
+ApplyingRole: TECHNICAL|DSA_CHAMPS|DESIGNING|SOCIAL_MEDIA|MANAGEMENT
+ApplicationStatus: PENDING|INTERVIEW_SCHEDULED|SELECTED|REJECTED
+CertType: PARTICIPATION|COMPLETION|WINNER|SPEAKER
+RegistrationType: PARTICIPANT|GUEST
+InvitationStatus: PENDING|ACCEPTED|DECLINED|REVOKED   (EXPIRED derived, not stored)
+QuizStatus: DRAFT|WAITING|ACTIVE|FINISHED|ABANDONED
+QuizQuestionType: MCQ|TRUE_FALSE|SHORT_ANSWER|POLL|RATING|MULTI_SELECT|OPEN_ENDED
+NetworkConnectionType: GUEST_SPEAKER|GMEET_SESSION|EVENT_JUDGE|MENTOR|INDUSTRY_PARTNER|ALUMNI|OTHER
+NetworkStatus: PENDING|VERIFIED|REJECTED
+ExecutionStatus: SUCCESS|ERROR|TIMEOUT
+CompetitionStatus: DRAFT|ACTIVE|LOCKED|JUDGING|FINISHED
+CompetitionRoundType: IMAGE_TARGET|DSA
+CompetitionParticipantScope: ALL|SELECTED_TEAMS
+ProblemContextType: QOTD|CONTEST|PRACTICE
+ProblemLanguage: PYTHON|JAVASCRIPT|CPP|JAVA
+PlaygroundResetRequestStatus: PENDING|GRANTED|DENIED
+SubmissionVerdict: PENDING|ACCEPTED|WRONG_ANSWER|TIME_LIMIT_EXCEEDED|RUNTIME_ERROR|COMPILATION_ERROR|JUDGE_ERROR
+UserBlockFeature: EVENT|PLAYGROUND|QOTD|QUIZ|NETWORK
+```
+
+---
+
+## Quiz System
+
+Mature + optimized. **Don't propose perf refactors** unless a regression is named.
 
 - **In-memory during active quiz** — `quizStore.ts` uses `Map<string, QuizRoom>`. No DB writes until quiz ends.
-- **Socket.io namespace:** `/quiz` with JWT auth middleware.
-- **Draft-first persistence:** Quizzes are stored in PostgreSQL first (`status: DRAFT`) and only become joinable when `POST /api/quiz/:quizId/open` transitions them to `WAITING`.
-- **File import support:** `POST /api/quiz/import` parses `.csv`/`.xlsx` files into normalized question payloads (validation + row-level errors) for draft creation flows.
-- **Phase transitions are server-authoritative.** See Hard Constraint #10 — never client-clock based.
-- **Scoring:** Base points (1000) + time bonus (faster = more) + streak bonus (consecutive correct). Logic in `apps/api/src/quiz/quizSocket.ts`.
-- **Auto-advance:** Server-side timers advance questions. Pausing clears timers.
-- **Rate limiting:** 500ms per user per answer submission.
-- **Persistence:** On quiz end → `QuizParticipant` + `QuizAnswer` tables. Graceful shutdown persists active sessions as `ABANDONED`.
-- **Capacity ceiling:** ~900 concurrent players is the safe limit on the free-tier Render instance.
+- **Draft-first persistence** — quizzes saved as `DRAFT`; `POST /api/quiz/:quizId/open` → `WAITING`. CSV/XLSX import via `POST /api/quiz/import`.
+- **Server-authoritative timers.** Pause clears timers; resume re-arms.
+- **Scoring:** base 1000 + time bonus (faster=more) + streak bonus. Logic in `quizSocket.ts`.
+- **Rate limit:** 500ms per user per `submit_answer`.
+- **Persistence on end** → `QuizParticipant` + `QuizAnswer`. Shutdown persists active as `ABANDONED`.
+- **Capacity ceiling ~900 concurrent.**
 
-### Socket Events Reference
+### Socket Events (`/quiz` namespace, JWT auth)
+| Event | Dir | Audience | Notes |
+|---|---|---|---|
+| `join`, `start`, `next_question`, `submit_answer`, `end`, `pause`, `resume`, `extend_time`, `skip`, `kick` | c→s | — | submit_answer rate-limited 500ms |
+| `question_start` | s→c | broadcast | |
+| `answer_result` | s→c | unicast | per-player correct/points/streak |
+| `leaderboard_update` | s→c | broadcast | **Top 10 only** (HC #7) |
+| `answer_count_update` | s→c | broadcast | **Throttled 1000ms** (HC #8) |
+| `my_rank_update` | s→c | **unicast** | per-socket (HC #9) |
+| `player_status_update` | s→c | **unicast to host** | 7 emit sites |
+| `poll_results` | s→c | broadcast | |
+| `quiz_end` | s→c | broadcast | triggers 2s finale splash |
+| `podium` | s→c | broadcast | final top-3 data |
 
-| Event | Direction | Audience | Notes |
-|-------|-----------|----------|-------|
-| `join` | client→server | — | Player/host joins room |
-| `start` | client→server | — | Host starts quiz |
-| `next_question` | client→server | — | Host advances question |
-| `submit_answer` | client→server | — | Player submits; 500ms rate-limit per user |
-| `end` | client→server | — | Host ends quiz early |
-| `pause` / `resume` | client→server | — | Clears/restores server timers |
-| `extend_time` | client→server | — | Host adds seconds to current question |
-| `skip` | client→server | — | Host skips to results |
-| `kick` | client→server | — | Host kicks a player |
-| `question_start` | server→client | broadcast | New question begins |
-| `answer_result` | server→client | unicast | Per-player correct/points/streak |
-| `leaderboard_update` | server→client | broadcast | **Top 10 only** — Hard Constraint #7 |
-| `answer_count_update` | server→client | broadcast | **Throttled 1000ms** — Hard Constraint #8 |
-| `my_rank_update` | server→client | **unicast** | Per-player socket only — Hard Constraint #9 |
-| `player_status_update` | server→client | **unicast to host** | Emitted at 7 locations in `quizSocket.ts` |
-| `poll_results` | server→client | broadcast | Live poll distribution |
-| `quiz_end` | server→client | broadcast | Triggers 2s finale splash in `QuizPage.tsx` |
-| `podium` | server→client | broadcast | Final top-3 data for podium animation |
+### Frontend (apps/web/src/pages/quiz/)
+- `QuizPage.tsx` — state machine `idle|joining|lobby|question|revealing|paused|finished`; 2s finale splash via `finaleShown` flag.
+- `QuizHostView.tsx` — host dashboard, sorted player list, live count, kick/skip.
+- `QuizAdminPanel.tsx` — pause/resume/extend/end overlay.
+- `QuizLeaderboard.tsx` — mid: compact top-5; final: 3-tier podium (rank 3@500ms, 2@800ms, 1@1100ms) with CSS confetti.
+- `QuizFinaleIntro.tsx` — 2s splash on `quiz_end`.
+- `QuizResultsPage.tsx` — analytics (creator/admin), HeatmapGrid + difficulty curve + drop-off + perf scatter (Recharts).
+- `AdminQuizCreator.tsx` — wizard: manual + CSV/XLSX, `Save Draft` vs `Save & Open Now`.
+- `QuizQuestion / QuizResultReveal / QuizAnswerDistribution / PollResultsView / QuizLobby`.
 
-### Frontend UI Components
+### Frontend store ([apps/web/src/lib/quizStore.ts](apps/web/src/lib/quizStore.ts))
+`QuizPlayer { userId, displayName, answered?, connected? }`. Per-player session stats (`myScore/myStreak/myRank/leaderboard/answeredCount/players`) on QuizState, not QuizPlayer.
 
-All files in `apps/web/src/pages/quiz/`:
-
-- **`QuizPage.tsx`** — Root quiz view. State machine: `idle | joining | lobby | question | revealing | paused | finished`. Contains 2s finale splash (`finaleShown` flag) before showing leaderboard.
-- **`QuizHostView.tsx`** — Host dashboard: sorted player list, live answer count, `player_status_update` grid, kick/skip controls.
-- **`QuizAdminPanel.tsx`** — Admin controls overlay (pause, resume, extend, end).
-- **`QuizLeaderboard.tsx`** — Mid-quiz: compact top-5. Final: animated 3-tier podium (rank 3 @ 500ms, rank 2 @ 800ms, rank 1 @ 1100ms) with pure CSS confetti keyframes (no external library).
-- **`QuizFinaleIntro.tsx`** — Full-screen 2s splash overlay triggered on `quiz_end`.
-- **`QuizResultsPage.tsx`** — Post-quiz analytics (creator/admin only): `HeatmapGrid` inline component (player × question accuracy), difficulty curve (`LineChart`), drop-off analysis, performance scatter (`ScatterChart`). Uses Recharts.
-- **`AdminQuizCreator.tsx`** — Quiz authoring wizard supporting manual questions, CSV/XLSX import parsing, and explicit submit modes (`Save Draft` vs `Save & Open Now`).
-- **`QuizQuestion.tsx`** — Active question with countdown timer.
-- **`QuizResultReveal.tsx`** — Per-question result reveal with answer distribution.
-- **`QuizAnswerDistribution.tsx`** — Answer choice bar visualization.
-- **`PollResultsView.tsx`** — Live poll results.
-- **`QuizLobby.tsx`** — Waiting room before quiz starts.
-
-Supporting files:
-- `apps/web/src/lib/quizScoring.ts` — Scoring formula utilities
-- `apps/web/src/hooks/useQuizSocket.ts` — Socket.io connection hook
-- `apps/web/src/hooks/useQuizTimer.ts` — Client-side countdown display (display only — does NOT drive phase transitions)
-
-### Zustand Store (`apps/web/src/lib/quizStore.ts`)
-
-```typescript
-// QuizPlayer — presence and answer status only
-interface QuizPlayer {
-  userId: string;
-  displayName: string;
-  answered?: boolean;
-  connected?: boolean;
-}
-
-// Key QuizState fields (per-player session stats live on QuizState, not QuizPlayer)
-myScore: number;
-myStreak: number;
-myRank: number | null;
-leaderboard: LeaderboardEntry[];  // top 10 from server
-answeredCount: number;
-players: Record<string, QuizPlayer>;
-```
-
-### Previously Evaluated & Rejected
-
-| Proposal | Reason Rejected |
-|----------|----------------|
-| Client-clock phase transitions | Breaks pause/resume and admin extend-time controls |
-| Removing `my_rank_update` unicast | UX regression — players need immediate personal rank without waiting for next broadcast |
-| HTTP polling fallback on Socket.io | Overhead incompatible with free-tier constraints at 100+ concurrent |
+### Rejected proposals
+- Client-clock phase transitions (breaks pause/resume + extend).
+- Removing `my_rank_update` unicast (UX regression).
+- HTTP polling fallback (free-tier incompatible).
 
 ---
 
 ## Attendance System
 
-> **Status: IMPLEMENTED.** Full QR check-in + offline-first scanner + attendance certificates system.
+- **QR payload:** long-lived JWT (30d), `{userId, eventId, registrationId, purpose:'attendance'}`. Generated on registration inside the serializable txn. Util: `apps/api/src/utils/attendanceToken.ts`.
+- **Multi-day truth:** `DayAttendance` rows per `dayNumber` (1..10). Legacy `EventRegistration.attended/scannedAt/manualOverride` stays synced.
+- **Scanning:** CORE_MEMBER+ scans via `POST /api/attendance/scan` (verifies JWT, marks for `dayNumber`). Offline batch via `/scan-batch`.
+- **Offline scanner:** `useOfflineScanner` stores in `localStorage`. 5 sync triggers: immediate, 3s interval, mount sync, visibilitychange, `sendBeacon` on unload.
+- **QR scanner lib:** `html5-qrcode` `{fps:10, qrbox:280}`, rear camera.
+- **QR display:** visible from 30 min before start to endDate (or startDate+4h fallback).
+- **Atomic mark:** `updateMany({ where: { id, attended: false } })`. `count === 0` = duplicate. Never check-then-update.
 
-### Architecture
+### Endpoints (`/api/attendance/*`)
+`/my-qr/:eventId` GET (User) · `/scan` POST (CORE+, supports `bypassWindow`) · `/scan-batch` POST (CORE+) · `/scan-beacon` POST (token-in-body CORE+) · `/manual-checkin` POST (CORE+, +`dayNumber`) · `/unmark` PATCH (CORE+, +`dayNumber`) · `/bulk-update` PATCH (CORE+, +`dayNumber`) · `/edit/:registrationId` PATCH (CORE+, +`dayNumber`) · `/regenerate-token/:registrationId` POST (Admin) · `/search` GET (CORE+) · `/live/:eventId` GET (CORE+) · `/event/:eventId/full` GET (CORE+) · `/event/:eventId/export` GET (CORE+, +`dayNumber`) · `/email-absentees/:eventId` POST (Admin, +`dayNumber`) · `/event/:eventId/certificate-recipients` GET (Admin, +`minDays`) · `/my-history` GET (User) · `/event/:eventId/summary` GET (CORE+) · `/backfill-tokens` POST (Admin). PAST events block scanning.
 
-- **QR payload:** Long-lived JWT (30-day expiry), containing `{ userId, eventId, registrationId, purpose: 'attendance' }`. Generated once per registration, stored in `EventRegistration.attendanceToken`.
-- **Token generation:** Automatic on event registration (in `registrations.ts`, after the serializable transaction). Utility: `apps/api/src/utils/attendanceToken.ts`.
-- **Multi-day source of truth:** Day-level attendance is stored in `DayAttendance` (`dayNumber` 1..10). Legacy `EventRegistration.attended/scannedAt/manualOverride` remains synced for compatibility.
-- **Scanning:** Core members (CORE_MEMBER+) can scan. `POST /api/attendance/scan` verifies the JWT, marks attendance for a target `dayNumber`. Offline scans batch-synced via `POST /api/attendance/scan-batch`.
-- **Offline support:** `useOfflineScanner` hook stores scans in localStorage (`attendance_scans:${eventId}`), syncs via 5 triggers: immediate, 3s interval batch, mount sync, visibilitychange, and `sendBeacon` on unload.
-- **QR scanner:** `html5-qrcode` (installed) with `{ fps: 10, qrbox: 280 }`, rear camera preference.
-- **QR display:** `qrcode.react` renders the attendee QR ticket. Visible from 30 min before event start to endDate (or startDate + 4h fallback).
-- **Uniqueness:** `[userId, eventId]` composite unique on EventRegistration prevents double-marking.
+### Socket (`/attendance` namespace)
+`join:event`/`leave:event` c→s · `attendance:marked`/`unmarked`/`bulk` s→c (broadcast to `event:${eventId}`).
 
-### DB Fields (on EventRegistration)
+### Components (apps/web/src/components/attendance/)
+`QRTicket` (countdown→QR→attended badge + day breakdown) · `AdminScanner` (offline-first, day selector, audio, manual checkin) · `AttendanceManager` (CRUD table, day selector, bulk, export, absentees email) · `EventCertificateWizard` (attendance/competition wizard with optional `minDays` filter + per-batch event-name override) · `EventAdminHub` (tabs: Details/Scanner/Manage + Certificates for Admin; routes `/admin/events/:eventId/attendance` or `/dashboard/events/:eventId/attendance`) · `AttendanceHistory`.
 
-```prisma
-attendanceToken  String?   @unique @map("attendance_token")
-attended         Boolean   @default(false)
-scannedAt        DateTime? @map("scanned_at")
-manualOverride   Boolean   @default(false) @map("manual_override")
-@@index([eventId, attended])
-```
+---
 
-### DB Fields (on Event + DayAttendance)
+## Problems + QOTD Coding System
 
-```prisma
-Event.eventDays   Int      @default(1)
-Event.dayLabels   Json?
+Single canonical `Problem` reused across 3 contexts: `PRACTICE`, `QOTD`, `CONTEST`. Each submission keyed by `(userId, problemId, contextType, contextKey)`.
 
-model DayAttendance {
-  registrationId  String
-  dayNumber       Int
-  attended        Boolean  @default(false)
-  scannedAt       DateTime?
-  scannedBy       String?
-  manualOverride  Boolean  @default(false)
-  @@unique([registrationId, dayNumber])
-  @@index([dayNumber, attended])
-}
-```
+- **Per-context cap** via `ProblemSubmissionCounter` (cap override + pending request).
+- **Judge pipeline:** `problemsCore.ts` → `codeJudge.ts` → CF Worker (`workers/executor.js`) → Wandbox.
+- **Daily quota** (`dailyLimit.ts`) IST-based, shared with playground.
+- **Feature gate:** non-admins get 404 when `Settings.problemsEnabled !== true`.
+- **Context validation:** `validateProblemContext()` checks event registration, team scope, leader-only, QOTD-date.
+- **Cap reservation:** submit flow reserves cap first, rolls back on judge/system failure.
+- **Rejudge queue:** `rejudgeJobs.ts` bounded in-memory, serial execution via promise chain.
+- **Materialized QOTD streaks:** `User.currentStreak/longestStreak` count consecutive *published-and-not-held* QOTD days the user submitted. Updated transactionally via `recomputeUserStreakSafe()` ([apps/api/src/utils/qotdStreak.ts](apps/api/src/utils/qotdStreak.ts)) from `POST /api/qotd/:id/submit` and `submitProblemForUser()` (contextType=QOTD, verdict=ACCEPTED). 60s in-process cache of published-date set; invalidated on publish/hold.
+- **QOTD scheduler:** `startQotdAutoPublishScheduler()` every 5 min auto-publishes rows where `publishAt<=now` AND `heldBy IS NULL`. Runs only when `ENABLE_BACKGROUND_SCHEDULERS=true`.
 
-### API Endpoints (`/api/attendance/*`)
+### Problems endpoints
+List/admin-all/admin-reset-cap/admin-pending-cap-requests · create/update/delete/publish · run/submit/my-submission/leaderboard/all-submissions · override/:submissionId · rejudge + rejudge-status/:jobId · request-cap.
 
-| Route | Method | Auth | Purpose |
-|-------|--------|------|---------|
-| `/my-qr/:eventId` | GET | User | Attendee QR token + event info |
-| `/scan` | POST | CORE_MEMBER+ | Single QR scan (with `bypassWindow` option) |
-| `/scan-batch` | POST | CORE_MEMBER+ | Batch sync from offline scanner |
-| `/scan-beacon` | POST | Token-in-body (CORE_MEMBER+) | Beacon API fire-and-forget |
-| `/manual-checkin` | POST | CORE_MEMBER+ | Manual mark present by registrationId (+ optional `dayNumber`) |
-| `/unmark` | PATCH | CORE_MEMBER+ | Undo check-in (+ optional `dayNumber`) |
-| `/bulk-update` | PATCH | CORE_MEMBER+ | Bulk mark/unmark selected (+ optional `dayNumber`) |
-| `/edit/:registrationId` | PATCH | CORE_MEMBER+ | Edit scannedAt timestamp (+ optional `dayNumber`) |
-| `/regenerate-token/:registrationId` | POST | Admin | Generate new QR token |
-| `/search` | GET | CORE_MEMBER+ | Search attendees by name/email |
-| `/live/:eventId` | GET | CORE_MEMBER+ | Live stats + recent scans |
-| `/event/:eventId/full` | GET | CORE_MEMBER+ | Full attendance table data |
-| `/event/:eventId/export` | GET | CORE_MEMBER+ | Excel download (ExcelJS, optional `dayNumber`) |
-| `/email-absentees/:eventId` | POST | Admin | Email non-attendees via Brevo (optional `dayNumber`) |
-| `/event/:eventId/certificate-recipients` | GET | Admin | Attendees + cert status (optional `minDays`) |
-| `/my-history` | GET | User | Attendee attendance history |
-| `/event/:eventId/summary` | GET | CORE_MEMBER+ | Attendance count + per-day summary (staff-only — avoids disclosing attendee counts to public) |
-| `/backfill-tokens` | POST | Admin | Backfill tokens for existing registrations |
+### QOTD endpoints
+`/today` · `/history` · `/leaderboard/total` · `/stats/leaderboard` · `/:qotdId/leaderboard` · `/:id` GET/PUT/DELETE · POST create (CORE+) · `/publish`, `/hold`, `/publish-practice`, `/unpublish-practice` (Admin) · `/submit` (legacy text) · `/leaderboard/around-me` (User, Dashboard v2; `RANK() OVER ()` CTE → `{slice, myRank, totalRanked, nextUpDelta, nextUp}`).
 
-### Socket.io `/attendance` Namespace
+---
 
-| Event | Direction | Auth | Notes |
-|-------|-----------|------|-------|
-| `join:event` | client→server | CORE_MEMBER+ | Join room `event:${eventId}` |
-| `leave:event` | client→server | Any | Leave attendance room |
-| `attendance:marked` | server→client | broadcast to room | Emitted by scan/manual-checkin routes |
-| `attendance:unmarked` | server→client | broadcast to room | Emitted by unmark route |
-| `attendance:bulk` | server→client | broadcast to room | Emitted by bulk-update route |
+## Competition Rounds System
 
-### Frontend Components
+Two types: `IMAGE_TARGET` (code buffer + autosave) and `DSA` (problem-linked).
 
-| Component | Path | Purpose |
-|-----------|------|---------|
-| QRTicket | `apps/web/src/components/attendance/QRTicket.tsx` | Attendee QR display (countdown → QR → attended badge + day breakdown when available) |
-| AdminScanner | `apps/web/src/components/attendance/AdminScanner.tsx` | Offline-first camera scanner with day selector, audio feedback, manual check-in, live dashboard |
-| AttendanceManager | `apps/web/src/components/attendance/AttendanceManager.tsx` | Full CRUD data table with day selector (mark/unmark, bulk, export, absentees email by day) |
-| EventCertificateWizard | `apps/web/src/components/attendance/EventCertificateWizard.tsx` | Attendance/competition certificate wizard with optional minimum attendance-days filter and per-batch event-name override (blank → real event name, custom → overrides the event title printed on the certificate) |
-| EventAdminHub | `apps/web/src/components/attendance/EventAdminHub.tsx` | Tab page: Details, Scanner, Manage (all roles), + Certificates (admin only). Accessible via `/admin/events/:eventId/attendance` (Admin) or `/dashboard/events/:eventId/attendance` (CORE_MEMBER+) |
-| AttendanceHistory | `apps/web/src/components/attendance/AttendanceHistory.tsx` | Attendee attendance history with day-count/day-label breakdown for multi-day events |
-| useOfflineScanner | `apps/web/src/hooks/useOfflineScanner.ts` | localStorage offline sync hook (5 sync triggers) |
+- **In-memory timer:** `activeTimers Map<roundId, NodeJS.Timeout>` auto-locks at `duration` elapsed past `startedAt`. Armed on `start`, cleared on `lock`/`finish`/`delete`.
+- **Boot recovery:** `recoverActiveRounds()` re-arms ACTIVE timers; immediately locks rounds whose deadline already passed during downtime → free-tier sleeps are safe.
+- **Participant scope:** `ALL` accepts every registered team/user; `SELECTED_TEAMS` restricts to `allowedTeamIds`. `leadersOnly=true` further restricts submissions to team leader.
+- **Feature gate:** non-admins 404 when `Settings.competitionEnabled !== true`.
+- **Rate limits:** save 12/min, submit 5/min, user-keyed.
+- **DSA submissions** go to `ProblemSubmission` (contextType=`CONTEST`, contextKey=round.id). Judged by judge.
+- **IMAGE_TARGET autosave** writes `CompetitionAutoSave`; final submissions in `CompetitionSubmission`. Auto-lock can convert latest autosaves to `isAutoSubmit=true` submissions.
+- **Finish:** IMAGE_TARGET requires scored submissions in judging; DSA can finish directly from LOCKED/JUDGING.
+
+### Endpoints (`/api/competition/*`)
+POST (Admin create) · GET `/event/:eventId` (optional auth — admin sees all, public sees metadata) · GET `/event/:eventId/results-summary` (Admin, cert flow) · GET `/:roundId` (User) · PATCH `/start|lock|judging|finish` (Admin) · POST `/save` (User, rate-limited) · POST `/submit` (User, rate-limited; idempotent per `[roundId,userId]`) · GET `/my-submission` (User) · GET `/submissions` (Admin) · PATCH `/score/:submissionId` (Admin) · GET `/results/export` (Admin, ExcelJS) · GET `/results` (public when FINISHED) · POST `/publish-as-practice` · POST `/raise-cap` · PUT/DELETE round (Admin, cascades).
+
+### Frontend
+`AdminCompetition` (`/admin/competition`) · `CompetitionJudge` (`/admin/competition/:roundId/judge`) · `CompetitionSolvePage` (`/competition/:roundId/solve/:problemId`, DSA) · `CompetitionResults` (`/competition/:roundId/results`) · `EventCertificateWizard` consumes `getCompetitionResultsSummary()` to bulk-issue WINNER certs via `competitionCertificateUtils.ts`.
+
+---
+
+## Polls System
+
+Single/multi-select polls with deadlines, anonymous voting, per-user feedback.
+
+- Anonymous polls strip identifiers from public payloads; admin exports still resolve identities.
+- `allowVoteChange=true` → vote handler deletes prior `PollVoteSelection` rows in same txn as new selection writes.
+- `PollFeedback` unique `[pollId,userId]` — resubmit overwrites.
+
+Endpoints: `GET /api/polls` (optional auth) · `GET /:idOrSlug` · `POST /:idOrSlug/vote` · `POST /:idOrSlug/feedback` · `GET /admin/public-view` · `GET /admin/public-view/:id` · POST/PUT/DELETE (Admin) · `GET /:id/admin/export.xlsx`.
+
+Frontend: `PollDetailPage` (`/polls/:slug`) · `AdminPublicView` (`/admin/public-view`).
+
+---
+
+## Team Registration System
+
+Event-level toggle (`teamRegistration` + `teamMinSize/teamMaxSize` 1-10). Leader creates → auto-registered → gets 8-char hex invite code. Members join via code → auto-registered. Solo registration blocked for team events.
+
+- **Serializable txn + 3 retries** with jittered exponential backoff (50ms × 2^attempt + jitter) for P2034.
+- **Atomic capacity check** inside txn (filters `registrationType=PARTICIPANT`).
+- **Leader deletion guard:** `onDelete: Restrict` on `EventTeam.leaderId`.
+- **Cannot change `teamRegistration` mode** once event has registrations.
+- **Dissolve** cascades: deletes members + their registrations in one txn.
+
+Endpoints (`/api/teams/*`): `/create` POST (User) · `/join` POST (User, 15/15min) · `/my-team/:eventId` GET · `/:teamId/lock` PATCH (leader) · `/:teamId/members/:userId` DELETE (leader) · `/:teamId/leave` POST · `/:teamId/transfer-leadership` POST · `/:teamId/dissolve` DELETE · `/event/:eventId` GET (Admin) · `/:teamId/admin-lock` PATCH (Admin) · `/:teamId/admin-dissolve` DELETE (Admin) · `/my-all` GET (Dashboard v2).
+
+Components: `TeamCreateModal`, `TeamJoinModal`, `TeamDashboard` (`apps/web/src/components/teams/`).
+
+---
+
+## Invitation System
+
+Guests/speakers/judges/alumni invited via verified NetworkProfile users or raw email → accept creates `EventRegistration` with `registrationType=GUEST` → existing attendance/QR/quiz/cert pipelines take over.
+
+- **Capacity-safe:** participant counts filter `PARTICIPANT`; guests never consume seats.
+- **Expiry derived at read time:** `status==PENDING && event.endDate<now` → `EXPIRED`. Not persisted.
+- **Email-only claim flow:** raw-email invitees get signed JWT → `/join-our-network?invitation=<token>`. After signup, claim attaches invitation to user.
+- **Revoke transactional:** revoking ACCEPTED deletes linked guest registration in same txn.
+- **Accept:** serializable txn, 3 retries (same backoff as registration).
+- **Email guard:** `Settings.emailInvitationEnabled` via `EmailService.send()` category guard.
+
+Endpoints (`/api/invitations/*`): `/search-invitees` GET (Admin) · POST (Admin bulk) · `/event/:eventId` GET (Admin) · `/my` GET (User, derived EXPIRED) · `/claim` POST (User) · PATCH (Admin edit) · DELETE (Admin revoke) · `/:id/resend` POST (Admin) · `/:id/accept` POST (User, serializable) · `/:id/decline` POST (User).
+
+Components: `DashboardInvitations` (`/dashboard/invitations` + `/:invitationId` deep-link) · `AdminEventInvitations` (events admin) · `ChiefGuestsStrip` (public event page) · `EventDetailPage` shows accepted guest QR ticket + dashboard CTA for pending · `EventCertificateWizard` Guests tab.
+
+---
+
+## Credits System
+
+Categories: Founding, Platform, Design, Events, Content, Infrastructure, Special Thanks (+ custom).
+
+Endpoints: `GET /api/credits` (public, `?teamMemberId=`) · `GET /:id` · POST/PUT/DELETE (Admin) · `PATCH /reorder` (Admin, bulk). Response `{ success, data }`.
+
+Frontend: `CreditsPage` (`/credits`) · `AdminCredits` (`/admin/credits`).
 
 ---
 
 ## Email Notification Control System
 
-> **Status: IMPLEMENTED.** Centralized per-category email toggles + testing mode.
+All guards inside `EmailService.send()`/`sendBulk()`. Order: settings (5-min cache, stale fallback, default all-enabled) → category toggle → testing mode → Brevo send.
 
-### Architecture
-
-All email guards are enforced inside `EmailService.send()` and `EmailService.sendBulk()` — no route can bypass them. Each email is tagged with an `EmailCategory`:
-
-```typescript
-type EmailCategory = 'welcome' | 'event_creation' | 'registration' | 'announcement' | 'certificate' | 'reminder' | 'invitation' | 'admin_mail' | 'other';
-```
-
-**Guard evaluation order** (inside `send()`/`sendBulk()`):
-1. Fetch notification settings (5-min cached, stale fallback on DB error, defaults to all-enabled)
-2. Category toggle check → if disabled, suppress + log
-3. Testing mode check → if on, redirect to test emails with `[TEST]` subject prefix + debug banner
-4. Normal send via Brevo API
-
-### Category → Toggle Mapping
-
-| Category | Settings Field | Methods | Callers |
-|----------|---------------|---------|---------|
+| Category | Setting | Methods | Callers |
+|---|---|---|---|
 | `welcome` | `emailWelcomeEnabled` | `sendWelcome` | auth.ts, passport.ts |
 | `event_creation` | `emailEventCreationEnabled` | `sendNewEventToAll` | events.ts |
 | `registration` | `emailRegistrationEnabled` | `sendEventRegistration` | registrations.ts |
@@ -1423,569 +479,251 @@ type EmailCategory = 'welcome' | 'event_creation' | 'registration' | 'announceme
 | `certificate` | `emailCertificateEnabled` | `sendCertificateIssued` | certificates.ts |
 | `reminder` | `emailReminderEnabled` | `sendEventReminder` | scheduler.ts |
 | `invitation` | `emailInvitationEnabled` | `sendEventInvitation`, `sendEventInvitationWithdrawn` | invitations.ts |
-| `password_reset` | `emailPasswordResetEnabled` | `sendPasswordReset` | users.ts (admin-deep-control) |
-| `admin_mail` | `mailingEnabled` (existing) | `sendBulk` via mail route | mail.ts |
-| `other` | *(no toggle — always allowed)* | raw `send()` | attendance.ts, hiring.ts, network.ts |
+| `password_reset` | `emailPasswordResetEnabled` | `sendPasswordReset` | users.ts |
+| `admin_mail` | `mailingEnabled` | `sendBulk` | mail.ts |
+| `other` | none (always on) | raw `send()` | attendance/hiring/network |
 
-### DB Fields (on Settings)
+**Testing mode:** when on, redirects to `emailTestRecipients` (comma-list) with `[TEST]` subject prefix + yellow debug banner. No recipients → all suppressed + logged. Cache: `getNotificationSettings()` 5-min TTL, `invalidateNotificationSettingsCache()` on settings PUT/PATCH.
 
-```prisma
-emailWelcomeEnabled         Boolean  @default(true)
-emailEventCreationEnabled   Boolean  @default(true)
-emailRegistrationEnabled    Boolean  @default(true)
-emailAnnouncementEnabled    Boolean  @default(true)
-emailCertificateEnabled     Boolean  @default(true)
-emailReminderEnabled        Boolean  @default(true)
-emailInvitationEnabled      Boolean  @default(true)
-emailTestingMode            Boolean  @default(false)
-emailTestRecipients         String?
-```
+---
 
-### Testing Mode
+## Certificate System
 
-When `emailTestingMode` is `true`:
-- All emails redirect to comma-separated `emailTestRecipients`
-- Subject prefixed with `[TEST]`
-- Yellow debug banner injected into HTML showing original recipient(s)
-- If no test recipients configured → all emails suppressed + logged
+PDF via `@react-pdf/renderer` in [apps/api/src/utils/generateCertificatePDF.ts](apps/api/src/utils/generateCertificatePDF.ts). A4 Landscape (841.89×595.28 pt), maroon/gold.
 
-### Admin UI
+**Fonts** (`apps/api/public/logos/`): `GreatVibes.ttf` (cursive fallback) · `Cinzel` 400+700 (headings) · `CormorantGaramond` regular+italic (body) · `PlayfairDisplay-Bold` (recipient name). `initFonts()` runs automatically.
 
-"Email & Notifications" card in AdminSettings.tsx (between Registration & Events and Feature Toggles):
-- Testing Mode toggle + test recipients input (appears when active)
-- Warning banner when testing mode is active
-- 8 individual email category toggles (auto-save via PATCH)
-- `mailingEnabled` moved from Feature Toggles into this card as "Admin Bulk Mail"
+**`CertData`:** `recipientName, eventName, type, position?, domain?, description?, certId, issuedAt, signatoryName, signatoryTitle?, signatoryImageUrl?, facultyName?, facultyTitle?, facultySignatoryImageUrl?, codescrietLogoUrl?, ccsuLogoUrl?`. `formatPosition()` "1"/"1st" → "First Place". QR links `FRONTEND_URL/verify/:certId`. Uploaded to Cloudinary → `Certificate.pdfUrl`. Public verify: `GET /api/certificates/verify/:code` (increments `viewCount`, **does not expose `pdfUrl`**).
 
-### Cache
+### Dual signature (per slot: primary + faculty)
+1. **Signature image (preferred):** `processSignatureImage()` ([apps/api/src/utils/processSignatureImage.ts](apps/api/src/utils/processSignatureImage.ts)) — fetch (URL or data URI) → EXIF rotate → grayscale + normalise → median filter 3px → sharpen σ=1.2 → dark-bg detection (auto-invert) → adaptive threshold (`mean*0.65` clamped [100,200]) → per-pixel alpha (ink opaque, bg transparent) → trim + resize ≤200×70px → base64 PNG. 3MB base64 size limit. Failure → undefined → text fallback.
+2. **Typed name fallback:** GreatVibes 28pt.
 
-- `getNotificationSettings()` — 5-min TTL, same pattern as email template config cache
-- `invalidateNotificationSettingsCache()` — called from settings.ts PUT and PATCH handlers
-- Stale cache fallback on DB error; defaults to all-enabled if no cache at all
+`resolveSignatory()` in `certificates.ts` fetches Signatory by ID, processes once per generate/bulk request (not per recipient). Custom signatories use `signatoryCustomImageUrl`/`facultyCustomImageUrl`.
+
+**Layout:** signature 190pt wide, 58pt from bottom; image 150×50pt centered; text GreatVibes 28pt centered; below: HR + name in Cinzel 11pt caps + title in CormorantGaramond 12pt italic. Primary left (78pt from left), faculty right (78pt from right).
 
 ---
 
 ## Dashboard v2 (May 2026)
 
-A complete re-skin + IA overhaul of the signed-in dashboard. Scoped to `[data-dashboard]` so the public site is unaffected. Source spec: `tmp/design_bundle/code-scriet-innerdashboard/`.
+Spec: `tmp/design_bundle/code-scriet-innerdashboard/`. Scoped to `[data-dashboard]` — public site unaffected.
 
-### Scope of change
+- **Tokens:** rust-accent CSS vars (`--bg-canvas/sunken/raised`, `--ds-text-1/2/3`, `--accent`, semantic + role pills, shadows, motion) in `apps/web/src/index.css` under `[data-dashboard]`. Public site keeps `--background/--foreground`. Shadcn HSL bridge (`--primary`, `--ring`, …) overridden in scope.
+- **Fonts:** Geist + Geist Mono in `apps/web/index.html`, applied inside `[data-dashboard]` only. Public stays on Outfit/Sora.
+- **Accent picker:** `Settings.accentColor` (default `rust`, values `rust|teal|indigo|violet|mint|mono`). Admin picks in `BrandAccentCard` → `PATCH /api/settings/accentColor` → sets `data-accent` on every `[data-dashboard]`.
+- **Density/motion:** `data-density="compact"` and `data-motion="reduced"` attrs supported, currently `regular`/`normal`.
+- **Solve flow is playground-only.** Never add Monaco to the main web app. `QOTDSolvePage`/`CompetitionSolvePage` redirect to playground with `?qotd=<date>` or `?contest=<roundId>&problem=<id>` + one-time auth handoff in URL hash.
 
-- **Tokens (CSS):** New rust-accent token system (`--bg-canvas/sunken/raised`, `--ds-text-1/2/3`, `--accent`, semantic + role pill colors, shadows, motion vars) lives in `apps/web/src/index.css` under `[data-dashboard]` selectors. Public-site tokens (`--background`, `--foreground`, existing dark overrides) are untouched. The shadcn HSL bridge (`--primary`, `--ring`, etc.) is overridden inside the dashboard scope so shadcn primitives pick up the new accent.
-- **Fonts:** Geist + Geist Mono loaded in `apps/web/index.html`; applied only inside `[data-dashboard]` (public site keeps Outfit/Sora).
-- **Accent picker:** `Settings.accentColor` (new column, default `rust`, values `rust|teal|indigo|violet|mint|mono`). Admin picks in [BrandAccentCard](apps/web/src/components/admin/settings/BrandAccentCard.tsx) — saves via `PATCH /api/settings/accentColor` and live-applies by setting `data-accent` on every `[data-dashboard]` element.
-- **Density + motion:** `data-density="compact"` and `data-motion="reduced"` attributes both supported. Currently always `regular`/`normal`; switching is reserved for a future user-facing toggle.
+### New DB
+`User.notificationsReadAt` (single read cutoff for bell — items older than cutoff are 'read', avoids per-notification join) · `Settings.accentColor` · `UploadedImage` (written best-effort fire-and-forget by `POST /api/upload/image`, cascade with User).
 
-### New DB additions
+Migration: `prisma/migrations/20260517210000_dashboard_v2/migration.sql` (additive).
 
-- `User.notificationsReadAt: DateTime?` — single read cutoff for the bell menu. Items older than the cutoff are 'read'. Avoids an unbounded per-notification join.
-- `Settings.accentColor: String @default("rust")` — club-wide accent token.
-- `UploadedImage` model — new table written on every `POST /api/upload/image`, powers the image-library gallery on `/dashboard/upload`. Fields: `userId`, `url`, `publicId` (unique), `filename`, `bytes`, `width`, `height`, `format`, `createdAt`. Cascade-delete with User.
+### New endpoints
+`apps/api/src/routes/notifications.ts` → `GET /api/notifications` (aggregates invitations + certs + quiz + audit, grouped) + `POST /mark-read` (updates `User.notificationsReadAt`). `apps/api/src/routes/search.ts` → `GET /api/search/global?q=...` (5 hits each across pages/events/problems/polls/people/announcements; role-aware; capped). `/api/problems/me/recent` · `/api/problems/admin/cap-requests/:counterId/{grant,deny}`. `/api/qotd/leaderboard/around-me` (rank ± window via `RANK() OVER ()` CTE). `/api/teams/my-all`. `/api/upload/history?limit=24`. `/api/stats/dashboard` (admin) → 12-tile `insights`: total users + Δ, active/upcoming events, pending invitations, certs this month, live scans · 1h, quiz sessions · 7d, registration funnel, avg + max streak, AC rate · 7d, top contributor, network-pending, playground daily-quota pressure.
 
-Migration: `prisma/migrations/20260517210000_dashboard_v2/migration.sql` (additive, no destructive ops).
-
-### New backend routers / endpoints
-
-- **`apps/api/src/routes/notifications.ts`** — `/api/notifications` aggregate (invitations + certificates + quiz + system audit events grouped) and `/api/notifications/mark-read`. Updates `User.notificationsReadAt` to mark read.
-- **`apps/api/src/routes/search.ts`** — `/api/search/global?q=...` returns 5 hits each from pages / events / problems / polls / people / announcements. Role-aware (admins see unpublished + users). All `findMany` capped with `take: 5`.
-- **`apps/api/src/routes/problems.ts`** — adds `me/recent`, `admin/cap-requests/:counterId/grant`, `admin/cap-requests/:counterId/deny`.
-- **`apps/api/src/routes/qotd.ts`** — adds `leaderboard/around-me` using a `RANK() OVER ()` CTE to slice ± window around the caller. Returns `{ slice, myRank, totalRanked, nextUpDelta, nextUp }`.
-- **`apps/api/src/routes/teams.ts`** — adds `my-all` returning every `EventTeam` the caller is a member of (with event + member avatars).
-- **`apps/api/src/routes/upload.ts`** — adds `history?limit=24`; the existing `POST /image` now persists into `UploadedImage` (best-effort fire-and-forget).
-- **`apps/api/src/routes/stats.ts`** — expanded `/dashboard` (admin) now includes a 12-tile `insights` payload: total users + Δ, active/upcoming events, pending invitations, certs this month, live scans · 1h, quiz sessions · 7d, registration funnel (created vs attended), average + max streak, AC rate · 7d, top contributor this month, network-pending, playground daily-quota pressure.
-
-### New socket events
-
-A new `/notifications` Socket.io namespace open to all authenticated users. Each client joins room `user:<id>` on connect. Server→client events:
-
-| Event | Direction | Audience | Emitted from |
-|---|---|---|---|
-| `invitation:received` | server→client (room) | recipient | `invitations.ts` `sendInvitationEmail` flow |
-| `certificate:issued` | server→client (room) | recipient | `certificates.ts` generate + bulk |
-| `quiz:starting` | server→client (broadcast) | all `/notifications` clients | `quizRouter.ts` `POST /:quizId/open` |
-
-Free-tier safe — no per-event buffer, fan-out is room-scoped or single broadcast.
+### New socket namespace
+`/notifications`, auth required. Clients join `user:<id>` on connect.
+| Event | Audience | Emit site |
+|---|---|---|
+| `invitation:received` | room (recipient) | invitations.ts send flow |
+| `certificate:issued` | room (recipient) | certificates.ts generate + bulk |
+| `quiz:starting` | broadcast | quizRouter.ts `POST /:quizId/open` |
 
 ### Frontend shell
+- [DashboardLayout.tsx](apps/web/src/components/dashboard/DashboardLayout.tsx) — sidebar 244px exp / 60px collapsed (localStorage), brand dot, search shortcut, role-aware sections, "Coding" with sub-items (Practice/QOTD/Competitions/Leaderboard/Playground), user card + sign-out. Topbar 56px frosted: breadcrumb + Cmd+K + theme + bell + avatar. Mobile drawer + bottom-tab. Desktop collapse toggle next to breadcrumb.
+- [CommandPalette.tsx](apps/web/src/components/dashboard/CommandPalette.tsx) — Cmd/Ctrl+K, debounced `/api/search/global`. Sections: Pages/Events/Problems/Polls/Announcements/People/Actions.
+- [NotifMenu.tsx](apps/web/src/components/dashboard/NotifMenu.tsx) — bell popover, All/Unread tabs, refetch every 30s when open, "Mark all as read".
 
-- **[apps/web/src/components/dashboard/DashboardLayout.tsx](apps/web/src/components/dashboard/DashboardLayout.tsx)** — full rewrite. Sidebar 244 px expanded / 60 px collapsed (collapse state in `localStorage`), brand "code.scriet" with the accent dot, search shortcut button, role-aware sections, "Coding" parent with expanded sub-items (Practice/QOTD/Competitions/Leaderboard/Playground), user card pinned bottom with sign-out. Topbar 56 px frosted: breadcrumb / Cmd+K button / theme toggle / bell (with unread dot) / avatar menu. Mobile drawer + bottom-tab (Home/Events/Coding/Profile). Topbar exposes a desktop collapse toggle button next to the breadcrumb.
-- **[apps/web/src/components/dashboard/CommandPalette.tsx](apps/web/src/components/dashboard/CommandPalette.tsx)** — global Cmd/Ctrl+K. Debounced search hits `/api/search/global`. Sections: Pages / Events / Problems / Polls / Announcements / People / Actions (Toggle theme, Open profile, etc.). Keyboard nav ↑↓ + Enter + Esc.
-- **[apps/web/src/components/dashboard/NotifMenu.tsx](apps/web/src/components/dashboard/NotifMenu.tsx)** — bell popover. Tabs All / Unread. Hits `/api/notifications` (refetch every 30s when open). "Mark all as read" calls `/mark-read`.
-
-### Frontend design-system primitives — `apps/web/src/components/dash/`
-
-| Primitive | File | Notes |
-|---|---|---|
-| `Pill` | `Pill.tsx` | Tones: neutral/accent/success/warning/danger/info + 6 role tones. Sizes xs/sm/md. `roleTone()` helper. |
-| `KBD` | `KBD.tsx` | Keyboard hint chip. |
-| `MonoChip` | `MonoChip.tsx` | IDs, scores. |
-| `Difficulty` | `Difficulty.tsx` | EASY/MEDIUM/HARD locked colors. |
-| `CountdownPill` | `CountdownPill.tsx` | Live timer with `.live-dot` pulse. |
-| `StatTile` | `StatTile.tsx` | Label + value + delta + sparkline slot. |
-| `Banner` | `Banner.tsx` | Tones + action + dismiss. |
-| `EmptyState` | `EmptyState.tsx` | Icon + title + body + action. |
-| `ProgressBar` | `ProgressBar.tsx` | Optional label. |
-| `SegmentedTabs` | `SegmentedTabs.tsx` | Pill-style. |
-| `UnderlineTabs` | `UnderlineTabs.tsx` | Underlined (for Coding hub etc.). |
-| `Avatar` | `Avatar.tsx` | Deterministic-hue initials + status dot. |
-| `Field` | `Field.tsx` | `<label>` wrapper with label/hint/required marker. |
-| `IconButton` | `IconButton.tsx` | Ghost/soft/border variants. |
-| `DSCard` | `DSCard.tsx` | Padded/hover variants, polymorphic `as`. |
-| `Section`, `SectionHead`, `Divider` | `Section.tsx` | Page-level section wrapper with eyebrow + title + action. |
-
-shadcn primitives (`Button`, `Card`, `Input`, `Switch`, `Dialog`, `Tabs`, etc.) are kept and re-skinned via the HSL bridge inside `[data-dashboard]`.
-
-### New frontend API methods (in `apps/web/src/lib/api/dashboard.ts`)
-
-`getNotifications`, `markNotificationsRead`, `globalSearch`, `getMyRecentSubmissions`, `getQOTDLeaderboardAroundMe`, `getMyAllTeams`, `getUploadHistory`, `getAdminDashboardStats`, `adminGrantCapRequest`, `adminDenyCapRequest`. Re-exported types: `NotifItem`, `NotificationsPayload`, `GlobalSearchPayload`, `RecentSubmission`, `AroundMeLeaderboard`, `MyTeamCard`, `UploadHistoryItem`, `AdminInsights`, `AdminDashboardStats`.
+### Design primitives (apps/web/src/components/dash/)
+`Pill` (tones neutral/accent/success/warning/danger/info + 6 role tones; `roleTone()` helper) · `KBD` · `MonoChip` · `Difficulty` (EASY/MEDIUM/HARD locked colors) · `CountdownPill` (`.live-dot` pulse) · `StatTile` (label+value+delta+sparkline slot) · `Banner` · `EmptyState` · `ProgressBar` · `SegmentedTabs` (pill) · `UnderlineTabs` · `Avatar` (deterministic-hue initials + status dot) · `Field` · `IconButton` (ghost/soft/border) · `DSCard` (padded/hover, polymorphic `as`) · `Section`/`SectionHead`/`Divider`. Shadcn primitives re-skinned via HSL bridge.
 
 ### Pages rewritten
+`DashboardOverview` — flat typography-led, dynamic IST greeting, USER/NETWORK/ADMIN variants (admin prepends `AdminStatStrip` + `AdminPendingRequestsCard`). Sections: QOTDHero (streak ring), StatsRow, MyEvents, ReadUp, Standing (rank±2), MyCode, Earned, HiringStatus. `DashboardCoding` — 5 tabs: Practice/QOTD/Competitions/Leaderboard/Playground (every Solve opens playground in new tab). `AdminSettings` adds `BrandAccentCard`.
 
-- **[DashboardOverview.tsx](apps/web/src/pages/dashboard/DashboardOverview.tsx)** — flat typography-led layout. Dynamic greeting (`Good morning/afternoon/evening, <first name>.` from IST hour). USER/NETWORK/ADMIN variants. Admin variant prepends a 12-tile `AdminStatStrip` + the existing `AdminPendingRequestsCard` restyled. Sections: QOTDHero with streak ring, StatsRow, MyEvents, ReadUp (announcements + active poll), Standing (rank ± 2), MyCode, Earned (certs), HiringStatus (if applied).
-- **[DashboardCoding.tsx](apps/web/src/pages/dashboard/DashboardCoding.tsx)** — five tabs: Practice (problems table) / QOTD (today + history + streak) / Competitions (rounds per registered event) / Leaderboard (all-time + days) / Playground (iframe embed). Every "Solve" CTA opens the playground in a new tab — no in-app Monaco editor.
-- **[QOTDSolvePage.tsx](apps/web/src/pages/QOTDSolvePage.tsx) / [CompetitionSolvePage.tsx](apps/web/src/pages/CompetitionSolvePage.tsx)** — both now redirect to the playground with `?qotd=<date>` or `?contest=<roundId>&problem=<id>` and a one-time auth handoff in the URL hash. No Monaco in the main app.
-- **[AdminSettings.tsx](apps/web/src/pages/admin/AdminSettings.tsx)** — added `BrandAccentCard` (between General and Registration Events).
-
-### Hard rules carried forward
-
-- The dashboard layout wraps everything in `<div data-dashboard data-accent={settings.accentColor || 'rust'} data-density data-motion>`. Anything that needs the new tokens MUST render inside this scope.
-- Public pages stay on Outfit/Sora + the existing amber palette. Do not move any public-page styles into the dashboard scope or vice versa.
-- The solve flow is playground-only — never add a Monaco editor to the main web app. If you need in-app editing, redirect to `code.codescriet.dev`.
+### Hard rules (Dashboard v2)
+- Layout wraps in `<div data-dashboard data-accent={settings.accentColor || 'rust'} data-density data-motion>`. Anything needing new tokens MUST render inside this scope.
+- Public pages stay on Outfit/Sora + amber. **Don't move styles across scopes either direction.**
+- Solve flow is playground-only — never add Monaco to the main web app.
 
 ---
 
 ## Playground Architecture
 
-- **Frontend:** React app at `code.codescriet.dev` (separate Vite build)
-- **Execute Server:** `apps/playground/execute-server.js` (plain JS, port 5002)
-  - Proxies to Cloudflare Worker → Wandbox API
-  - Fallback: Piston API
-  - Python: Pyodide (browser-only, no server call)
-  - Daily execution limits (configurable, default 100/day per `playgroundDailyLimit` in Settings)
-  - Uses Prisma models: `PlaygroundDailyUsage`, `PlaygroundLimitReset`, `PlaygroundLimitResetRequest`
-  - Users can request a same-day daily-limit reset; admins grant/deny from the dashboard, and grants call `resetDailyQuotaAndPracticeCounters()`
-- **Auth:** Shares JWT secret with main API, reads `scriet_session` cookie
+- Frontend: React app at `code.codescriet.dev` (separate Vite).
+- Execute server: `apps/playground/execute-server.js` (plain JS, port 5002). Proxies CF Worker → Wandbox. Fallback Piston. Python: Pyodide (browser, no server call). Daily limits via `Settings.playgroundDailyLimit` (default 100/day). Tables: `PlaygroundDailyUsage`, `PlaygroundLimitReset`, `PlaygroundLimitResetRequest`.
+- Users request same-day reset → admin grant/deny in dashboard `AdminPendingRequestsCard` → grant calls `resetDailyQuotaAndPracticeCounters()`.
+- Pre-flight `isUserBlocked(userId, 'QUIZ')` (and feature-equivalent) in `POST /api/execute`, fail-opens on pre-migration `42P01`.
+- Shares JWT secret with main API, reads `scriet_session` cookie.
 
 ---
 
-## Important Patterns
+## Critical Patterns (always relevant)
 
-- **Neon cold-start retry:** `withRetry()` in `apps/api/src/lib/prisma.ts` — retries on Prisma errors P1002/P2024 (connection issues)
-- **Serializable transaction retry:** Event registration uses serializable isolation with 3 retry attempts for P2034 conflicts. Retries use jittered exponential backoff (50 ms × 2^attempt + random jitter) to prevent thundering-herd re-contention.
-- **Atomic attendance scan:** All attendance mark operations use `updateMany({ where: { id, attended: false } })`. Result `count === 0` signals a duplicate. Never use check-then-update for attendance — it creates a TOCTOU race condition.
-- **Reservation-based email dedup:** Scheduler marks `reminderSentAt` before sending; rolls back on send failure
-- **DB keep-alive:** Opt-in `SELECT 1` interval (set `ENABLE_DB_KEEPALIVE=true`, default 4 min). Off by default to reduce Neon compute burn.
-- **Background schedulers:** `ENABLE_BACKGROUND_SCHEDULERS=true` enables event status + reminder schedulers. Off by default.
-- **Email template caching:** 5-minute TTL cache for email template config from DB. On DB error, returns stale cache (if available) instead of empty defaults — prevents blank emails during Neon cold-start timeouts.
-- **ESM imports:** All API imports must use `.js` extension (even for `.ts` source files), e.g., `import { foo } from './bar.js'`
-- **Response format:** `{ success: true, data: T }` via `ApiResponse.success()` or raw `res.json()` depending on route. Frontend `api.ts` unwraps `.data` automatically.
-- **Prisma migrate --create-only:** Never apply schema changes with bare `prisma migrate dev`. Always generate first with `--create-only`, review the SQL in `prisma/migrations/`, then deploy with `db:migrate:deploy`. (Hard Constraint #5)
-- **Prisma N+1 guard:** Any query executed inside a loop must be annotated `// N+1: consider batching` with justification, or replaced with `findMany({ where: { id: { in: ids } } })` batching.
-- **Force logout via tokenVersion (admin-deep-control):** Every JWT carries a `tokenVersion` claim (default 0 for legacy tokens). `authMiddleware` rejects when DB `user.tokenVersion` exceeds the claim. Admin "Force logout" increments the DB column. Legacy tokens issued before this rollout default to claim 0 and stay valid until explicitly revoked.
-- **User feature blocks (admin-deep-control):** `prisma.userBlock` rows + `requireNotBlocked(feature)` middleware (`apps/api/src/middleware/blocks.ts`) gate event registration, QOTD submit, and network apply. A single line in `/quiz` socket auth checks `isUserBlocked(userId, 'QUIZ')`. The playground service (`apps/playground/execute-server.js`) has an equivalent pre-flight in `POST /api/execute` that fail-opens on pre-migration `42P01` (table missing). Lazy expiry on read — no background job.
-- **Materialized QOTD streaks (publish-day semantics):** `User.currentStreak`/`longestStreak` count consecutive *published-and-not-held* QOTD days the user submitted on. Days without a published QOTD are transparent. Updated transactionally from both `POST /api/qotd/:id/submit` and `submitProblemForUser()` (contextType=QOTD, verdict=ACCEPTED) via `recomputeUserStreakSafe()` in `apps/api/src/utils/qotdStreak.ts`. A 60-second in-process cache holds the published-date set; `invalidatePublishedQotdCache()` is called on publish/hold.
-- **Soft delete + restore (admin-deep-control):** `DELETE /api/users/:id` sets `isDeleted=true`, increments `tokenVersion`, and upserts a `UserBlock` row per feature (reason: `Auto-block on soft-delete`). `authMiddleware` rejects soft-deleted users on every request. `POST /api/users/:id/restore` (superAdmin only) reverses the flags and deletes only the auto-blocks. `?hard=true` (superAdmin only) refuses with 409 + blocker counts when any `Restrict` FK relation exists; otherwise writes audit FIRST then deletes inside the same `$transaction` (entityId snapshot survives the row).
-- **Admin login telemetry:** `User.lastLoginAt` and `lastLoginIp` are written from every successful login path (email/password, OAuth, dev-login, OAuth exchange-code) as fire-and-forget updates. IP is truncated to 64 chars and `::ffff:` IPv4-mapped prefix is stripped. The IP is only exposed to superAdmin viewers on `/api/users/:id/full`.
-
----
-
-## Frontend Routing (Full Route Map)
-
-All pages are lazy-loaded with `React.lazy()` + `<Suspense>`.
-
-### Public Routes
-| Path | Component |
-|------|-----------|
-| `/` | HomePage |
-| `/about` | AboutPage |
-| `/events` | EventsPage |
-| `/events/:id` | EventDetailPage |
-| `/announcements` | AnnouncementsPage |
-| `/announcements/:id` | AnnouncementDetailPage |
-| `/polls/:slug` | PollDetailPage |
-| `/team` | TeamPage |
-| `/team/:slug` | TeamMemberProfilePage |
-| `/achievements` | AchievementsPage |
-| `/achievements/:id` | AchievementDetailPage |
-| `/signin` | SignInPage |
-| `/signup` | SignInPage (same) |
-| `/join-us` | JoinUsPage |
-| `/auth/callback` | AuthCallbackPage |
-| `/network` | NetworkPage |
-| `/network/onboarding` | NetworkOnboarding |
-| `/network/status` | NetworkStatusPage |
-| `/network/:slug` | NetworkProfilePage |
-| `/join-our-network` | JoinOurNetworkPage |
-| `/privacy-policy` | PrivacyPolicyPage |
-| `/credits` | CreditsPage |
-| `/qotd/leaderboard` | QOTDLeaderboardPage |
-| `/competition/:roundId/results` | CompetitionResults |
-| `/contact` | ContactPage |
-| `/verify` | VerifyCertificatePage |
-| `/verify/:certId` | VerifyCertificatePage |
-| `/quiz` | ActiveQuizList |
-| `/quiz/join` | QuizJoinPage |
-
-### Protected User Routes (`minRole="USER"`)
-| Path | Component |
-|------|-----------|
-| `/quiz/:quizId` | QuizPage |
-| `/quiz/:quizId/results` | QuizResultsPage |
-| `/quiz/create` | AdminQuizCreator |
-| `/qotd/today` | QOTDSolvePage |
-| `/qotd/:date` | QOTDSolvePage |
-| `/competition/:roundId/solve/:problemId` | CompetitionSolvePage |
-| `/dashboard` | DashboardLayout > DashboardOverview |
-| `/dashboard/events` | DashboardEvents |
-| `/dashboard/announcements` | DashboardAnnouncements |
-| `/dashboard/leaderboard` | DashboardLeaderboard |
-| `/dashboard/coding` | DashboardCoding |
-| `/dashboard/events/new` | CreateEvent |
-| `/dashboard/announcements/new` | CreateAnnouncement |
-| `/dashboard/qotd` | CreateQOTD |
-| `/dashboard/quiz` | QuizManager |
-| `/dashboard/upload` | ImageUploadTool |
-| `/dashboard/profile` | ProfilePage |
-| `/dashboard/team/:id/edit` | EditTeamProfile |
-| `/network/edit/:id?` | EditNetworkProfile (root-level under USER guard) |
-| `/dashboard/certificates` | DashboardCertificates |
-| `/dashboard/invitations` | DashboardInvitations |
-| `/dashboard/invitations/:invitationId` | DashboardInvitations (deep link alias) |
-
-### Protected CORE_MEMBER Routes (`minRole="CORE_MEMBER"`, inside dashboard)
-| Path | Component |
-|------|-----------|
-| `/dashboard/attendance` | AttendancePage (event picker / shortcut for core members) |
-| `/dashboard/events/:eventId/attendance` | EventAdminHub (3 tabs: Details, Scanner, Manage) |
-
-### Protected Admin Routes (`minRole="ADMIN"`)
-| Path | Component |
-|------|-----------|
-| `/admin/users` | AdminUsersPage (admin-deep-control: list + filters + slide-over detail) |
-| `/admin/users/:id` | UserDetailPage (admin-deep-control: full-page detail with tabs) |
-| `/admin/team` | AdminTeam |
-| `/admin/achievements` | AdminAchievements |
-| `/admin/problems` | AdminProblems (effective only when `problemsEnabled`; includes a CSV/JSON `BulkImportCard` for batch problem creation — see [AdminProblems.tsx](apps/web/src/pages/admin/AdminProblems.tsx) `BulkImportCard`) |
-| `/admin/credits` | AdminCredits |
-| `/admin/event-registrations` | AdminEventRegistrations |
-| `/admin/events/:id/edit` | EditEvent |
-| `/admin/events/:eventId/attendance` | EventAdminHub |
-| `/admin/hiring` | AdminHiring |
-| `/admin/network` | AdminNetwork |
-| `/admin/certificates` | AdminCertificates |
-| `/admin/competition` | AdminCompetition (effective only when `competitionEnabled`) |
-| `/admin/competition/:roundId/judge` | CompetitionJudge |
-| `/admin/public-view` | AdminPublicView (poll responses dashboard) |
-| `/admin/audit-log` | AdminAuditLog (PRESIDENT/superAdmin only) |
-| `/admin/mail` | AdminMail |
-| `/admin/settings` | AdminSettings (wrapped in `SuperAdminOrPresidentRoute`) |
+- **ESM imports:** All API TS files use `.js` extension on relative imports.
+- **Auth in routes:** `authMiddleware` → `requireRole('X')` → `getAuthUser(req)`.
+- **Neon cold-start retry:** `withRetry()` in [apps/api/src/lib/prisma.ts](apps/api/src/lib/prisma.ts) — retries P1002/P2024 with exponential backoff + jitter.
+- **Serializable txns:** Event registration / invitation accept / team create+join use serializable + 3 retries with jittered exp backoff (50ms × 2^attempt + jitter) on P2034.
+- **Atomic attendance:** `updateMany({ where: { id, attended: false } })`. `count === 0` = duplicate. Never check-then-update (TOCTOU race).
+- **Reservation-based email dedup:** Scheduler marks `reminderSentAt` before sending; rolls back on send failure.
+- **DB keep-alive:** Opt-in (`ENABLE_DB_KEEPALIVE=true`, interval `DB_KEEPALIVE_INTERVAL_MS` default 240000). Off by default.
+- **Schedulers:** Opt-in via `ENABLE_BACKGROUND_SCHEDULERS=true`. `EVENT_STATUS_INTERVAL_MS` default 1800000 (30m).
+- **Email template cache:** 5-min TTL; stale fallback on DB error (prevents blank emails).
+- **Sanitize HTML input:** `sanitizeHtml()`/`sanitizeText()` from [apps/api/src/utils/sanitize.ts](apps/api/src/utils/sanitize.ts).
+- **Audit log:** `auditLog(userId, action, entity, entityId, metadata)` on all admin mutations.
+- **Response shape:** `ApiResponse.success()`/`error()`. Frontend `api.ts` unwraps `.data`.
+- **Logger:** `logger` from [apps/api/src/utils/logger.ts](apps/api/src/utils/logger.ts). Never `console.log`.
+- **State mgmt:** React Query for server state. Zustand only for quiz UI cross-component sync. **Don't add new Zustand stores.**
+- **Force logout via tokenVersion:** Every JWT carries `tokenVersion`; `authMiddleware` rejects when DB > claim. Legacy tokens default claim 0.
+- **User feature blocks:** `prisma.userBlock` + `requireNotBlocked(feature)` ([apps/api/src/middleware/blocks.ts](apps/api/src/middleware/blocks.ts)) gates EVENT/PLAYGROUND/QOTD/QUIZ/NETWORK. Lazy expiry — no sweep job. Playground has equivalent pre-flight fail-opening on `42P01`.
+- **Soft delete + restore:** `DELETE /api/users/:id` sets `isDeleted=true`, increments `tokenVersion`, upserts auto-blocks. Auth rejects soft-deleted users every request. `POST /:id/restore` (SA only) reverses + deletes auto-blocks. `?hard=true` (SA only) refuses with 409 + blocker counts on `Restrict` FK conflicts; otherwise writes audit FIRST then deletes in same txn.
+- **Admin login telemetry:** `lastLoginAt`/`lastLoginIp` written fire-and-forget on every login path. IP truncated 64 chars, `::ffff:` IPv4-mapped prefix stripped. IP visible only to superAdmin on `/api/users/:id/full`.
+- **`/ping` is sacred** — UptimeRobot pings every 5 min to prevent free-tier spin-down. Plain text "pong", no DB. Don't rename or remove.
 
 ---
 
-## Dashboard Sidebar Navigation
+## Frontend Conventions
 
-`DashboardLayout.tsx` builds nav dynamically:
-
-**User nav** (always): Overview, My Events, Announcements, **Coding** (`/dashboard/coding`), Live Quiz, Leaderboard (if `showLeaderboard`), My Profile, My Certificates (if `certificatesEnabled`), My Invitations (pending badge)
-
-**Overview admin block:** When the signed-in user is ADMIN / PRESIDENT / superAdmin, `DashboardOverview` mounts `AdminPendingRequestsCard` at the top of the grid (`apps/web/src/components/dashboard/AdminPendingRequestsCard.tsx`). It surfaces two queues with 15s refetch: playground daily-limit reset requests (new `/api/playground/admin/pending-reset-requests`) and extra submit-attempt requests (existing `/api/problems/admin/pending-cap-requests`). Grant/deny is wired inline; non-admins do not see the card.
-
-> **NETWORK role override:** Network users see a stripped-down nav: My Events, My Certificates (if enabled), My Invitations. No Overview / Announcements / Quiz / Leaderboard / Profile.
-
-**Core Member nav** (CORE_MEMBER+): Take Attendance (`/dashboard/attendance`), Create Event, Create Announcement, Create Problem (`/dashboard/problems/new`), Manage QOTD, Quiz Manager, Upload Image. The Create Problem flow is a stepper-style page (`apps/web/src/pages/dashboard/CreateProblem.tsx`) — non-admin authors create unpublished drafts that an admin reviews from the Problems admin page.
-
-**Admin nav** (ADMIN/PRESIDENT) — built by `getAdminNavItems()`:
-1. User Management
-2. Team Management
-3. Achievements
-4. Problems (if `problemsEnabled`)
-5. Credits (always shown)
-6. Public View (`/admin/public-view`, always shown)
-7. Hiring Applications (if `hiringEnabled`)
-8. Network Management (if `showNetwork`)
-9. Audit Log (PRESIDENT or superAdmin only)
-10. Event Registrations
-11. Competition (if `competitionEnabled`)
-12. Certificates (if `certificatesEnabled`)
-13. Send Mail
-14. Settings (superAdmin/PRESIDENT only)
-
----
-
-## Frontend API Client (`apps/web/src/lib/api.ts`)
-
-Base URL: `import.meta.env.VITE_API_URL || 'http://localhost:5001/api'`
-
-All requests use `fetch` with `credentials: 'include'` for cross-origin cookie support.
-
-**Key types exported:** `AuthProviders`, `User`, `Settings`, `Event`, `Registration`, `EventInvitation`, `EventTeam`, `Announcement`, `TeamMember`, `Achievement`, `Credit`, `Poll`, `PollInput`, `Problem`, `ProblemInput`, `ProblemSubmission`, `SubmissionResult`, `QOTDDetail`, `QOTDStats`, `CompetitionRound`, `CompetitionRoundPreview`, `CompetitionResult`, `CompetitionResultsSummaryResponse`, `NetworkProfile`, `NetworkProfileInput`, `AuditLogEntry`, `HomePageData`
-
-**`api` object methods (full list):**
-- Auth: `getProviders`, `getMe`, `getMeWithToken`, `devLogin`, `register`, `login`, `exchangeAuthCode`, `logout`
-- Events/registrations: `getEvents`, `getEvent`, `createEvent`, `updateEvent`, `deleteEvent`, `registerForEvent`, `cancelRegistration`, `getMyRegistrations`, `getEventRegistrations`, `deleteEventRegistration`, `exportEventRegistrations`
-- Invitations/teams: `getMyInvitations`, `acceptInvitation`, `declineInvitation`, `claimInvitation`, `searchInvitees`, `createInvitations`, `getEventInvitations`, `updateInvitation`, `revokeInvitation`, `resendInvitationEmail`, `createTeam`, `joinTeam`, `getMyTeam`, `toggleTeamLock`, `removeTeamMember`, `leaveTeam`, `transferLeadership`, `dissolveTeam`, `getEventTeams`, `adminToggleTeamLock`, `adminDissolveTeam`
-- Announcements/polls/team/achievements/credits: `getAnnouncements`, `getAnnouncement`, `createAnnouncement`, `updateAnnouncement`, `deleteAnnouncement`, `getPolls`, `getPoll`, `createPoll`, `updatePoll`, `deletePoll`, `voteOnPoll`, `submitPollFeedback`, `getAdminPolls`, `getAdminPollDetail`, `downloadPollExport`, `getTeam`, `getTeamMember`, `getTeamMemberBySlug`, `createTeamMember`, `updateTeamMember`, `updateTeamMemberProfile`, `linkTeamMemberToUser`, `getMyTeamProfile`, `searchUsers`, `deleteTeamMember`, `getAchievements`, `getFeaturedAchievements`, `getAchievement`, `createAchievement`, `updateAchievement`, `deleteAchievement`, `getCredits`, `getCredit`, `createCredit`, `updateCredit`, `deleteCredit`, `reorderCredits`
-- Problems/QOTD coding: `getProblems`, `adminGetProblems`, `getProblem`, `createProblem`, `updateProblem`, `deleteProblem`, `runProblem`, `submitProblem`, `getMyProblemSubmission`, `getProblemLeaderboard`, `adminGetProblemSubmissions`, `adminOverrideSubmission`, `adminRejudgeProblem`, `adminRejudgeStatus`, `adminResetSubmitCap`, `requestSubmitCap`, `adminGetPendingCapRequests`, `getTodayQOTD`, `getQOTDHistory`, `getQOTDLeaderboard`, `getQOTDDailyLeaderboard`, `getQOTDTotalLeaderboard`, `createQOTD`, `publishQOTD`, `holdQOTD`, `publishQOTDToPractice`, `unpublishQOTDFromPractice`, `submitQOTD`, `getQOTDStats`
-- Competition: `getCompetitionRounds`, `getCompetitionRoundsAdmin`, `getCompetitionRound`, `createCompetitionRound`, `startCompetitionRound`, `lockCompetitionRound`, `beginJudging`, `finishCompetition`, `saveCompetitionCode`, `submitCompetitionCode`, `getMyCompetitionSubmission`, `getCompetitionSubmissions`, `scoreCompetitionSubmission`, `getCompetitionResults`, `getCompetitionResultsSummary`, `updateCompetitionRound`, `deleteCompetitionRound`, `publishContestAsPractice`, `raiseContestCap`, `exportCompetitionResults`
-- Users/settings/profile/hiring/network/audit/quiz/certificates: `getUsers`, `getUser`, `updateUser`, `updateUserRole`, `deleteUser`, `getSettings`, `updateSettings`, `patchSetting`, `getSecurityEnvStatus`, `updateSecurityEnvSettings`, `getProfile`, `updateProfile`, `changePassword`, `addPassword`, `getMyHiringApplication`, `submitHiringApplication`, `getNetworkProfiles`, `getNetworkProfile`, `joinNetwork`, `getMyNetworkProfile`, `createNetworkProfile`, `updateNetworkProfile`, `getNetworkPending`, `getNetworkAll`, `getNetworkPendingUsers`, `revertPendingNetworkUser`, `deletePendingNetworkUser`, `verifyNetworkProfile`, `rejectNetworkProfile`, `updateNetworkProfileAdmin`, `deleteNetworkProfile`, `getNetworkStats`, `getAuditLogs`, `getMyQuizDashboard`, `getQuizAdminList`, `importQuizFile`, `createQuiz`, `updateQuiz`, `getQuiz`, `joinQuizByPin`, `openQuiz`, `checkQuizHost`, `getQuizResults`, `deleteQuiz`, `getCertificates`, `generateCertificate`, `bulkGenerateCertificates`, `downloadCertificate`, `getMyCertificates`, `revokeCertificate`, `deleteCertificate`, `resendCertificateEmail`
-- Auxiliary surfaces: `getPlaygroundSnippets`, `getPlaygroundStats`, `getPlaygroundHistory`, `requestPlaygroundReset`, `getMyPlaygroundResetRequest`, `adminGetPendingPlaygroundResetRequests`, `adminGrantPlaygroundResetRequest`, `adminDenyPlaygroundResetRequest`, `getActiveSignatories`, `getSignatories`, `createSignatory`, `updateSignatory`, `deleteSignatory`, `uploadImage`, all attendance helpers (`getMyQR`, `scanAttendance`, `scanAttendanceBatch`, `manualCheckin`, `unmarkAttendance`, `bulkUpdateAttendance`, `editAttendance`, `regenerateAttendanceToken`, `regenerateAttendanceTokensForEvent`, `searchAttendance`, `getAttendanceLive`, `getAttendanceFull`, `exportAttendanceExcel`, `emailAbsentees`, `getAttendanceCertRecipients`, `getMyAttendanceHistory`, `getAttendanceSummary`, `backfillAttendanceTokens`)
-
----
-
-## Coding Conventions
-
-- **API routes:** Express Router, Zod validation, `ApiResponse.success()`/`ApiResponse.error()` preferred. Some older routes use raw `res.json()`.
-- **Auth in routes:** Always `authMiddleware` then `requireRole('ROLENAME')`. Get current user with `getAuthUser(req)`.
-- **Database:** Prisma client from `apps/api/src/lib/prisma.ts`. Wrap risky queries in `withRetry()`.
-- **Logging:** `logger` from `apps/api/src/utils/logger.ts`. Never use `console.log`.
-- **HTML sanitization:** `sanitizeHtml()`/`sanitizeText()` from `apps/api/src/utils/sanitize.ts` for all HTML input.
-- **Audit logging:** Call `auditLog(userId, action, entity, entityId, metadata)` from `apps/api/src/utils/audit.ts` on all admin mutations.
-- **Frontend routing:** `React.lazy()` + `<Suspense fallback={<PageLoader />}>` for all pages.
-- **State management:** React Query (`@tanstack/react-query`) for server state (staleTime: 5min, gcTime: 30min). React context for auth/settings.
-- **Styling:** TailwindCSS utility classes. `cn()` from `apps/web/src/lib/utils.ts` for conditional classes.
-- **ESM imports:** Use `.js` extensions in all API TypeScript imports.
-- **Zustand (quiz UI only):** Use Zustand exclusively for quiz player/host UI state requiring cross-component sync without prop drilling (`apps/web/src/lib/quizStore.ts`). Do not use for server-fetched data (use React Query instead). Do not create additional Zustand stores without discussion.
+- React Router v7. Pages lazy-loaded.
+- React Query: staleTime 5m, gcTime 30m.
+- Tailwind utility classes. `cn()` from `apps/web/src/lib/utils.ts`.
+- Auth/Settings/Theme via React Context (split for perf).
+- Theme localStorage key: `codescriet-theme`.
+- `ProtectedRoute` with `minRole` prop. `SuperAdminOrPresidentRoute` wraps `/admin/settings`.
+- Frontend `api.ts` types (key): `User`, `Settings`, `Event`, `Registration`, `EventInvitation`, `EventTeam`, `Announcement`, `TeamMember`, `Achievement`, `Credit`, `Poll`, `Problem`, `ProblemSubmission`, `SubmissionResult`, `QOTDDetail`, `CompetitionRound`, `NetworkProfile`, `AuditLogEntry`, `HomePageData` + Dashboard v2 types (`NotifItem`, `NotificationsPayload`, `GlobalSearchPayload`, `RecentSubmission`, `AroundMeLeaderboard`, `MyTeamCard`, `UploadHistoryItem`, `AdminInsights`, `AdminDashboardStats`).
+- Frontend 401 → throw `UnauthorizedError` → auto-logout in `api.ts`.
 
 ---
 
 ## Environment Variables
 
-| Variable | Required | Description |
-|----------|----------|-------------|
-| `DATABASE_URL` | Yes | PostgreSQL pooler connection string (Neon) |
-| `DIRECT_URL` | Yes | PostgreSQL non-pooler connection (for migrations) |
-| `JWT_SECRET` | Yes | JWT signing secret (fail-fast check on startup) |
-| `SUPER_ADMIN_EMAIL` | Yes | Email for super admin |
-| `SUPER_ADMIN_PASSWORD` | Yes | Password for super admin (seed only) |
-| `FRONTEND_URL` | Yes | Frontend origin for CORS + redirects |
-| `BACKEND_URL` | No | Backend URL (defaults to localhost:5001) |
-| `GOOGLE_CLIENT_ID/SECRET` | No | Google OAuth credentials |
-| `GITHUB_CLIENT_ID/SECRET` | No | GitHub OAuth credentials |
-| `CLOUDINARY_CLOUD_NAME` | No | Cloudinary cloud name |
-| `CLOUDINARY_API_KEY` | No | Cloudinary API key |
-| `CLOUDINARY_API_SECRET` | No | Cloudinary API secret |
-| `BREVO_API_KEY` | No | Brevo (Sendinblue) email API key |
-| `ENABLE_DEV_AUTH` | No | Enable `/api/auth/dev-login` (dev only) |
-| `ENABLE_REQUEST_LOGGING` | No | Enable request logging in production |
-| `ENABLE_DB_KEEPALIVE` | No | Enable 4-min `SELECT 1` keep-alive (default: off) |
-| `DB_KEEPALIVE_INTERVAL_MS` | No | Keep-alive interval (default: 240000) |
-| `ENABLE_BACKGROUND_SCHEDULERS` | No | Enable event status + reminder schedulers (default: off) |
-| `EVENT_STATUS_INTERVAL_MS` | No | Event status check interval (default: 1800000 = 30min) |
-| `PORT` | No | API port (default: 5001) |
-
----
-
-## Known Issues
-
-1. JWT in URL hash fragment after OAuth — security concern
-2. Automated coverage is partial (stability tests + utility tests + Playwright), not full regression coverage
-3. Some routes use raw `res.json()` instead of `ApiResponse` utility
-4. `AdminEventRegistrations` makes N+1 fetch calls (one per event for registrations) — acceptable at current scale, annotated in code
-5. Certificate email fire-and-forget pattern means `emailSent` flag update could fail silently — try-catch added but pattern is inherently lossy during restarts
-
----
-
-## Security Audit (March 2026)
-
-A comprehensive security audit was performed covering CORS, XSS, auth guards, race conditions, input validation, and error handling. Key fixes applied:
-
-### Critical Fixes Applied
-- **CORS subdomain wildcard** — Changed from `endsWith('.codescriet.dev')` to explicit domain allowlist (prevents `attacker.codescriet.dev` spoofing)
-- **URL sanitization XSS** — Fixed regex bypass allowing `jAvAsCrIpT:` URLs; now uses strict protocol whitelist
-- **IndexNow/Playground auth** — Added missing `authMiddleware` to admin endpoints
-- **Certificate pdfUrl exposure** — Removed direct Cloudinary URL from public verify endpoint
-- **Events ownership** — CORE_MEMBER can only modify their own events (not any event)
-- **Attendance event status** — Blocked scanning for PAST events
-- **Registration token race** — Moved attendance token generation inside serializable transaction
-- **Teams leader race** — Added atomic `WHERE leaderId = user.id` checks for lock/transfer/dissolve
-
-### High Priority Fixes
-- **Signature image size** — Added 3MB base64 limit validation
-- **Network rejectionReason** — Applied `sanitizeHtml()` before storage
-- **Mail external emails** — Specific-audience admin mail supports any valid email address (registered or external)
-- **Upload MIME validation** — Server-side magic bytes check (not client mimetype)
-- **Stack trace filtering** — Strips stack traces from error responses in production
-- **dev-login discoverability** — Returns 404 (not 403) when disabled
-
-### Medium Priority Fixes
-- **Unbounded findMany** — Added `take: 100000` limits to mail routes
-- **Playground reset atomicity** — Wrapped in `prisma.$transaction()`
-
-### Additional Fixes (Batch 2)
-- **Frontend 401 auto-logout** — Added `UnauthorizedError` class, caught in API requests
-- **isSuperAdmin population** — Added field to User interface, already returned by /auth/me
-- **withRetry exponential backoff** — Changed from linear to exponential backoff with jitter
-- **Role hierarchy logging** — Unknown roles now warn to console instead of silent fallback
-- **AuthContext cleanup** — Added mount check ref to prevent state updates after unmount
-- **Export blob error handling** — Added try-catch for blob() parsing in attendance export
-
-### Remaining Known Issues (Low Priority)
-- UUID validation missing on some path params
-- Some Zod schemas use `z.unknown()` for JSON fields
-- Attendance token has no expiration (relies on attended flag)
+| Var | Req | Notes |
+|---|---|---|
+| `DATABASE_URL` | yes | Neon pooler |
+| `DIRECT_URL` | yes | Neon non-pooler (migrations) |
+| `JWT_SECRET` | yes | Fail-fast on startup |
+| `SUPER_ADMIN_EMAIL` | yes | Determines superAdmin |
+| `SUPER_ADMIN_PASSWORD` | yes | Seed only |
+| `FRONTEND_URL` | yes | CORS + redirects |
+| `BACKEND_URL` | no | default localhost:5001 |
+| `GOOGLE_CLIENT_ID/SECRET` | no | |
+| `GITHUB_CLIENT_ID/SECRET` | no | |
+| `CLOUDINARY_CLOUD_NAME/API_KEY/API_SECRET` | no | |
+| `BREVO_API_KEY` | no | |
+| `ENABLE_DEV_AUTH` | no | dev only |
+| `ENABLE_REQUEST_LOGGING` | no | |
+| `ENABLE_DB_KEEPALIVE` | no | default off |
+| `DB_KEEPALIVE_INTERVAL_MS` | no | default 240000 |
+| `ENABLE_BACKGROUND_SCHEDULERS` | no | default off |
+| `EVENT_STATUS_INTERVAL_MS` | no | default 1800000 |
+| `PORT` | no | default 5001 |
 
 ---
 
 ## Deployment (Render)
 
-Four services in `render.yaml`:
-1. **codescriet-api** — Node web service. Build: `npm install --include=dev && npx prisma generate --schema=./prisma/schema.prisma && npm run build --workspace=apps/api`. Start: migration resolve/deploy + `npm run start --workspace=apps/api`.
-2. **codescriet-web** — Static frontend. Build: `npm install && node scripts/generate-sitemap.js && npm run build --workspace=apps/web && node scripts/prerender.js`.
-3. **codescriet-playground-api** — Node web service in `apps/playground` (`node execute-server.js`).
-4. **codescriet-playground-web** — Static playground frontend in `apps/playground/dist`.
+4 services in `render.yaml`:
+1. **codescriet-api** — Node web. Build: `npm install --include=dev && npx prisma generate --schema=./prisma/schema.prisma && npm run build --workspace=apps/api`. Start: migration resolve/deploy + `npm run start --workspace=apps/api`.
+2. **codescriet-web** — static. Build: `npm install && node scripts/generate-sitemap.js && npm run build --workspace=apps/web && node scripts/prerender.js` (prerenders route-specific HTML for crawlers/social cards).
+3. **codescriet-playground-api** — Node (`node execute-server.js`).
+4. **codescriet-playground-web** — static (`apps/playground/dist`).
 
-Build note: the prerender step writes route-specific HTML (`dist/<route>/<slug>/index.html`) so crawlers and social cards get populated metadata/content instead of a blank SPA shell.
+Free-tier limits: 512 MB RAM, shared CPU, auto spin-down. `UptimeRobot` pings `/ping` every 5 min.
 
-**Free-tier limits:** `codescriet-api` and `codescriet-playground-api` run on Render free web services (512 MB RAM, shared CPU, auto spin-down after inactivity). This is a hard architectural constraint — see Hard Constraints section.
-
-**UptimeRobot:** An external UptimeRobot monitor pings `GET /ping` every 5 minutes to prevent free-tier spin-down. The `/ping` endpoint returns plain text `"pong"` with no DB call. Do not remove or rename this endpoint.
-
-CORS: Uses explicit domain allowlist (`ALLOWED_CODESCRIET_ORIGINS` in `apps/api/src/index.ts`): `codescriet.dev`, `www.codescriet.dev`, `api.codescriet.dev`, `code.codescriet.dev`, `app.codescriet.dev`, plus `FRONTEND_URL` env var. In dev: any `localhost`/`127.0.0.1`/LAN IP (10/8, 172.16-31/12, 192.168/16). The same allowlist also gates the CSRF middleware (see All API Routes section).
+CORS: explicit allowlist `ALLOWED_CODESCRIET_ORIGINS` = codescriet.dev, www, api, code, app + `FRONTEND_URL`. Dev: localhost/127.0.0.1/LAN. Same allowlist gates CSRF middleware.
 
 ---
 
-## Architecture Debate Standards
+## Known Issues
 
-When proposing any non-trivial architectural change — new system, new DB model, new real-time event, background job, or external dependency — the proposal must include:
+1. JWT in URL hash fragment after OAuth — security concern.
+2. Automated coverage partial (stability + utility + Playwright), not full regression.
+3. Some routes use raw `res.json()` instead of `ApiResponse`.
+4. `AdminEventRegistrations` makes N+1 fetches (annotated, acceptable at current scale).
+5. Certificate email fire-and-forget — `emailSent` update could fail silently during restarts.
+6. UUID validation missing on some path params.
+7. Some Zod schemas use `z.unknown()` for JSON fields.
+8. Attendance token has no expiration (relies on `attended` flag).
 
-1. **Explicit tradeoffs:** List pros and cons. State what is gained and what is lost. Never propose only one side.
-2. **Capacity math:** Estimate memory delta (bytes × expected concurrent users at peak), DB query count per request, and socket event frequency at 900 players.
-3. **Two alternatives compared:** Example: "Option A: in-memory Map (fast, lost on restart, fits free tier) vs Option B: Redis (persistent, survives restart, requires paid service)."
-4. **O(n²) flag:** If the proposal involves nested iteration over any collection that scales with users or questions, state the complexity class and the value of n at which it becomes problematic.
-5. **Free-tier impact check:** Confirm the proposal fits within 512 MB RAM. If it requires a paid external service, explicitly flag it and justify the cost.
+---
+
+## Security Audit (March 2026) — fixes applied
+
+CORS subdomain wildcard removed (explicit allowlist) · URL sanitization XSS (strict protocol whitelist) · IndexNow/Playground admin endpoints now `authMiddleware` · Certificate `pdfUrl` removed from public verify · CORE_MEMBER can only edit own events · Attendance blocked for PAST events · Registration token generation moved inside serializable txn · Teams leader race fixed (atomic `WHERE leaderId=user.id`) · Signature image 3MB base64 limit · Network `rejectionReason` sanitized · Mail external emails allowed · Upload server-side magic-bytes MIME check (not client mimetype) · Stack traces stripped in prod · `dev-login` returns 404 when disabled · Mail findMany capped `take:100000` · Playground reset atomicity in `$transaction()` · Frontend 401 auto-logout · `withRetry` exponential backoff with jitter · Unknown role hierarchy warns to console.
 
 ---
 
 ## File Quick Reference
 
-| What | Where |
-|------|-------|
-| API entry point | `apps/api/src/index.ts` |
-| Auth routes | `apps/api/src/routes/auth.ts` |
-| Users routes (incl. admin-deep-control) | `apps/api/src/routes/users.ts` |
-| User block enforcement middleware | `apps/api/src/middleware/blocks.ts` |
-| Super admin helpers | `apps/api/src/utils/superAdmin.ts` |
-| Admin users page (list + detail sheet) | `apps/web/src/pages/admin/AdminUsersPage.tsx` |
-| Admin user detail (full page) | `apps/web/src/pages/admin/UserDetailPage.tsx` |
-| Admin user detail body (shared) | `apps/web/src/components/admin/users/UserDetailContent.tsx` |
-| Admin user permission hook | `apps/web/src/hooks/useAdminPermissions.ts` |
-| Admin user React Query hooks | `apps/web/src/hooks/useUserDetail.ts` |
-| Streak materialization helper | `apps/api/src/utils/qotdStreak.ts` (`recomputeUserStreak`, `recomputeUserStreakSafe`) |
-| Streak backfill script | `scripts/backfill-user-streaks.ts` |
-| Problems routes | `apps/api/src/routes/problems.ts` |
-| QOTD routes | `apps/api/src/routes/qotd.ts` |
-| Credits routes | `apps/api/src/routes/credits.ts` |
-| Teams routes | `apps/api/src/routes/teams.ts` |
-| Invitation routes | `apps/api/src/routes/invitations.ts` |
-| Polls routes | `apps/api/src/routes/polls.ts` |
-| Competition routes | `apps/api/src/routes/competition.ts` |
-| Sitemap / robots / IndexNow | `apps/api/src/routes/sitemap.ts` |
-| Build-time SEO sitemap | `scripts/generate-sitemap.js` |
-| Build-time detail-page prerender | `scripts/prerender.js` |
-| Auth middleware | `apps/api/src/middleware/auth.ts` |
-| Role middleware | `apps/api/src/middleware/role.ts` |
-| JWT utilities | `apps/api/src/utils/jwt.ts` |
-| Prisma client | `apps/api/src/lib/prisma.ts` |
-| HTML sanitizer | `apps/api/src/utils/sanitize.ts` |
-| Audit logger | `apps/api/src/utils/audit.ts` |
-| Email service | `apps/api/src/utils/email.ts` |
-| Event scheduler | `apps/api/src/utils/scheduler.ts` |
-| Code judge runtime | `apps/api/src/utils/codeJudge.ts` |
-| Problems core logic | `apps/api/src/utils/problemsCore.ts` |
-| Rejudge queue | `apps/api/src/utils/rejudgeJobs.ts` |
-| Daily usage/cap utils | `apps/api/src/utils/dailyLimit.ts` |
-| API response helpers | `apps/api/src/utils/response.ts` |
-| Quiz socket | `apps/api/src/quiz/quizSocket.ts` |
-| Quiz state | `apps/api/src/quiz/quizStore.ts` |
-| Certificate PDF | `apps/api/src/utils/generateCertificatePDF.ts` |
-| Signature image processing | `apps/api/src/utils/processSignatureImage.ts` |
-| Frontend auth context | `apps/web/src/context/AuthContext.tsx` |
-| Frontend settings context | `apps/web/src/context/SettingsContext.tsx` |
-| Frontend theme context | `apps/web/src/context/ThemeContext.tsx` |
-| Frontend API client | `apps/web/src/lib/api.ts` |
-| Frontend routes | `apps/web/src/App.tsx` |
-| Dashboard layout | `apps/web/src/components/dashboard/DashboardLayout.tsx` |
-| Dashboard coding hub | `apps/web/src/pages/dashboard/DashboardCoding.tsx` |
-| Dashboard invitations page | `apps/web/src/pages/dashboard/DashboardInvitations.tsx` |
-| Credits public page | `apps/web/src/pages/CreditsPage.tsx` |
-| Credits admin page | `apps/web/src/pages/admin/AdminCredits.tsx` |
-| Event invitation admin UI | `apps/web/src/components/events/AdminEventInvitations.tsx` |
-| Event guest strip | `apps/web/src/components/events/ChiefGuestsStrip.tsx` |
-| Team components | `apps/web/src/components/teams/` |
-| Team create modal | `apps/web/src/components/teams/TeamCreateModal.tsx` |
-| Team join modal | `apps/web/src/components/teams/TeamJoinModal.tsx` |
-| Team dashboard | `apps/web/src/components/teams/TeamDashboard.tsx` |
-| Layout wrapper | `apps/web/src/components/layout/Layout.tsx` |
-| DB Schema | `prisma/schema.prisma` |
-| Playground executor | `apps/playground/execute-server.js` |
-| CF Worker | `workers/executor.js` |
-| Quiz host view | `apps/web/src/pages/quiz/QuizHostView.tsx` |
-| Quiz leaderboard (podium + confetti) | `apps/web/src/pages/quiz/QuizLeaderboard.tsx` |
-| Quiz finale splash | `apps/web/src/pages/quiz/QuizFinaleIntro.tsx` |
-| Quiz results + HeatmapGrid | `apps/web/src/pages/quiz/QuizResultsPage.tsx` |
-| Quiz admin controls | `apps/web/src/pages/quiz/QuizAdminPanel.tsx` |
-| Quiz Zustand store (frontend) | `apps/web/src/lib/quizStore.ts` |
-| Quiz scoring utilities | `apps/web/src/lib/quizScoring.ts` |
-| Quiz socket hook | `apps/web/src/hooks/useQuizSocket.ts` |
-| Quiz timer hook | `apps/web/src/hooks/useQuizTimer.ts` |
-| Attendance routes | `apps/api/src/routes/attendance.ts` |
-| Attendance token util | `apps/api/src/utils/attendanceToken.ts` |
-| Attendance socket | `apps/api/src/attendance/attendanceSocket.ts` |
-| Attendance admin hub | `apps/web/src/components/attendance/EventAdminHub.tsx` |
-| Attendance QR scanner | `apps/web/src/components/attendance/AdminScanner.tsx` |
-| Attendance manager | `apps/web/src/components/attendance/AttendanceManager.tsx` |
-| Attendance QR ticket | `apps/web/src/components/attendance/QRTicket.tsx` |
-| Attendance cert wizard | `apps/web/src/components/attendance/EventCertificateWizard.tsx` |
-| Attendance history | `apps/web/src/components/attendance/AttendanceHistory.tsx` |
-| Offline scanner hook | `apps/web/src/hooks/useOfflineScanner.ts` |
-| Registration status utility | `apps/web/src/lib/registrationStatus.ts` |
-| Poll public page | `apps/web/src/pages/PollDetailPage.tsx` |
-| Poll admin dashboard | `apps/web/src/pages/admin/AdminPublicView.tsx` |
-| Poll components | `apps/web/src/components/polls/` |
-| QOTD solve page | `apps/web/src/pages/QOTDSolvePage.tsx` |
-| QOTD leaderboard page | `apps/web/src/pages/QOTDLeaderboardPage.tsx` |
-| Admin problems page | `apps/web/src/pages/admin/AdminProblems.tsx` |
-| Competition admin | `apps/web/src/pages/admin/AdminCompetition.tsx` |
-| Competition judging | `apps/web/src/pages/admin/CompetitionJudge.tsx` |
-| Competition solve page | `apps/web/src/pages/CompetitionSolvePage.tsx` |
-| Competition public results | `apps/web/src/pages/CompetitionResults.tsx` |
-| Competition certificate utils | `apps/web/src/components/attendance/competitionCertificateUtils.ts` |
-| Core-member attendance shortcut page | `apps/web/src/pages/dashboard/AttendancePage.tsx` |
+| What | Path |
+|---|---|
+| API entry | [apps/api/src/index.ts](apps/api/src/index.ts) |
+| Auth/Role/Block middleware | [apps/api/src/middleware/{auth,role,blocks}.ts](apps/api/src/middleware/auth.ts) |
+| Super admin helpers | [apps/api/src/utils/superAdmin.ts](apps/api/src/utils/superAdmin.ts) |
+| Prisma client + withRetry | [apps/api/src/lib/prisma.ts](apps/api/src/lib/prisma.ts) |
+| JWT utils | [apps/api/src/utils/jwt.ts](apps/api/src/utils/jwt.ts) |
+| Sanitize | [apps/api/src/utils/sanitize.ts](apps/api/src/utils/sanitize.ts) |
+| Audit | [apps/api/src/utils/audit.ts](apps/api/src/utils/audit.ts) |
+| Email service | [apps/api/src/utils/email.ts](apps/api/src/utils/email.ts) |
+| Scheduler | [apps/api/src/utils/scheduler.ts](apps/api/src/utils/scheduler.ts) |
+| Code judge | [apps/api/src/utils/codeJudge.ts](apps/api/src/utils/codeJudge.ts) |
+| Problems core | [apps/api/src/utils/problemsCore.ts](apps/api/src/utils/problemsCore.ts) |
+| Rejudge queue | [apps/api/src/utils/rejudgeJobs.ts](apps/api/src/utils/rejudgeJobs.ts) |
+| Daily limit | [apps/api/src/utils/dailyLimit.ts](apps/api/src/utils/dailyLimit.ts) |
+| QOTD streak | [apps/api/src/utils/qotdStreak.ts](apps/api/src/utils/qotdStreak.ts) |
+| Streak backfill script | [scripts/backfill-user-streaks.ts](scripts/backfill-user-streaks.ts) |
+| Certificate PDF | [apps/api/src/utils/generateCertificatePDF.ts](apps/api/src/utils/generateCertificatePDF.ts) |
+| Signature processing | [apps/api/src/utils/processSignatureImage.ts](apps/api/src/utils/processSignatureImage.ts) |
+| Attendance token | [apps/api/src/utils/attendanceToken.ts](apps/api/src/utils/attendanceToken.ts) |
+| Quiz socket / store | [apps/api/src/quiz/quizSocket.ts](apps/api/src/quiz/quizSocket.ts) · [quizStore.ts](apps/api/src/quiz/quizStore.ts) |
+| Attendance socket | [apps/api/src/attendance/attendanceSocket.ts](apps/api/src/attendance/attendanceSocket.ts) |
+| Resource routers | [apps/api/src/routes/](apps/api/src/routes/) |
+| DB schema | [prisma/schema.prisma](prisma/schema.prisma) |
+| Playground executor | [apps/playground/execute-server.js](apps/playground/execute-server.js) |
+| CF Worker | [workers/executor.js](workers/executor.js) |
+| Frontend API client | [apps/web/src/lib/api.ts](apps/web/src/lib/api.ts) |
+| Frontend routes | [apps/web/src/App.tsx](apps/web/src/App.tsx) |
+| Auth/Settings/Theme ctx | [apps/web/src/context/](apps/web/src/context/AuthContext.tsx) |
+| Dashboard layout | [apps/web/src/components/dashboard/DashboardLayout.tsx](apps/web/src/components/dashboard/DashboardLayout.tsx) |
+| Dash primitives | [apps/web/src/components/dash/](apps/web/src/components/dash/) |
+| Command palette | [apps/web/src/components/dashboard/CommandPalette.tsx](apps/web/src/components/dashboard/CommandPalette.tsx) |
+| Notif menu | [apps/web/src/components/dashboard/NotifMenu.tsx](apps/web/src/components/dashboard/NotifMenu.tsx) |
+| Admin pending requests | [apps/web/src/components/dashboard/AdminPendingRequestsCard.tsx](apps/web/src/components/dashboard/AdminPendingRequestsCard.tsx) |
+| Attendance components | [apps/web/src/components/attendance/](apps/web/src/components/attendance/) |
+| Team components | [apps/web/src/components/teams/](apps/web/src/components/teams/) |
+| Polls components | [apps/web/src/components/polls/](apps/web/src/components/polls/) |
+| Event invitation admin | [apps/web/src/components/events/AdminEventInvitations.tsx](apps/web/src/components/events/AdminEventInvitations.tsx) |
+| Admin users (list + sheet) | [apps/web/src/pages/admin/AdminUsersPage.tsx](apps/web/src/pages/admin/AdminUsersPage.tsx) |
+| Admin user detail | [apps/web/src/pages/admin/UserDetailPage.tsx](apps/web/src/pages/admin/UserDetailPage.tsx) |
+| User detail body | [apps/web/src/components/admin/users/UserDetailContent.tsx](apps/web/src/components/admin/users/UserDetailContent.tsx) |
+| Admin perms hook | [apps/web/src/hooks/useAdminPermissions.ts](apps/web/src/hooks/useAdminPermissions.ts) |
+| User detail RQ hooks | [apps/web/src/hooks/useUserDetail.ts](apps/web/src/hooks/useUserDetail.ts) |
+| Quiz frontend | [apps/web/src/pages/quiz/](apps/web/src/pages/quiz/) |
+| Quiz Zustand store | [apps/web/src/lib/quizStore.ts](apps/web/src/lib/quizStore.ts) |
+| Quiz scoring utils | [apps/web/src/lib/quizScoring.ts](apps/web/src/lib/quizScoring.ts) |
+| Quiz socket hook | [apps/web/src/hooks/useQuizSocket.ts](apps/web/src/hooks/useQuizSocket.ts) |
+| Quiz timer hook | [apps/web/src/hooks/useQuizTimer.ts](apps/web/src/hooks/useQuizTimer.ts) |
+| Offline scanner hook | [apps/web/src/hooks/useOfflineScanner.ts](apps/web/src/hooks/useOfflineScanner.ts) |
 
 ---
 
 ## Living Document Protocol
 
-This file is the **single source of truth** for AI agents working on this codebase. It must stay in sync with the actual implementation. Update the relevant section **in the same commit** as the code change when any of the following occur:
+Single source of truth. Update **in the same commit** as the code change. Triggers:
 
-| Trigger | Section to update |
-|---------|------------------|
-| New route mounted in `apps/api/src/index.ts` | All API Routes |
-| New Prisma model or enum in `schema.prisma` | Full Database Schema, Enums |
-| New frontend page/route in `apps/web/src/App.tsx` | Frontend Routing |
-| New Socket.io event in `quizSocket.ts` | Quiz System Architecture → Socket Events Reference |
-| New environment variable | Environment Variables |
-| New Hard Constraint identified | Hard Constraints |
-| Architectural proposal evaluated and rejected | Relevant system's "Previously Evaluated & Rejected" subsection |
-| New npm dependency installed | Tech Stack |
-| New quiz UI component created | Quiz System Architecture → Frontend UI Components + File Quick Reference |
-| Attendance system feature implemented | Attendance System (move from "planned" to actual description) |
-| New attendance socket event | Attendance System → Socket.io Namespace |
-| New problems/judge endpoint or cap behavior | Problems + QOTD Coding System |
-| New poll behavior / poll endpoint | Polls System |
-| New competition status, scope, or endpoint | Competition Rounds System + DB schema CompetitionRound block |
-| New QOTD publish/hold/practice behavior | Problems + QOTD Coding System |
-| New email category toggle | Email Notification Control System table |
-| New team-registration constraint or transaction rule | Team Registration System → Key Patterns |
+| Trigger | Section |
+|---|---|
+| New route mounted | API Routes |
+| New Prisma model/enum | DB Schema / Enums |
+| New frontend route | Frontend route map (App.tsx ref) |
+| New Socket.io event | matching system's Socket section |
+| New env var | Environment Variables |
+| New Hard Constraint | Hard Constraints |
+| Architecture rejected | system's "Rejected proposals" |
+| New npm dep | Tech Stack |
+| New quiz UI / attendance feature / problems behavior / competition status / poll behavior / team rule / email category | matching system section + File Quick Reference |
 
-### Staleness Rule
+**Staleness:** Annotate `> WARNING: STALE — last verified YYYY-MM-DD.` beneath the section heading.
 
-If a section is known to be out of date but not yet corrected, add this annotation directly below the section heading:
-
-```
-> WARNING: STALE — last verified YYYY-MM-DD. Do not rely on this section until updated.
-```
-
-### Sync Rule
-
-**Do not let this file become aspirational documentation.** If the code does not yet do something (e.g., attendance system routes), clearly mark it "planned" or "NOT IMPLEMENTED" — never state planned work as present fact. If this file and the actual codebase ever contradict each other, **the codebase wins** — update this file to reflect reality.
+**Sync rule:** If docs and code contradict, **the code wins** — update the doc. Never leave aspirational claims as present fact.
