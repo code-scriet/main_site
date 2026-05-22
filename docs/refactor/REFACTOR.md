@@ -103,27 +103,13 @@ Phases skip when their issue count is 0. Phase 7 will be skipped at execution ti
 - **Blocked by frozen file?** **High-caution.** Quiz smoke required.
 - **Implementation phase:** 1
 
-#### [ISSUE-004]: Raw `error.message` in 500 response (top-level handler)
+#### [ISSUE-004]: ~~Raw `error.message` in 500 response~~ — **REJECTED on second read**
 - **File:** `apps/api/src/index.ts` (line 587)
-- **Category:** Error handling consistency
-- **Severity:** High
-- **Impact:** Security
-- **Issue:** Catch block writes `message: error.message` directly to the response body, leaking internals.
-- **Fix:** Log via `logger.error('...', err)`, return `ApiResponse.error('Internal server error', 500)` or equivalent generic message.
-- **Regression risk:** None — generic message is safe.
-- **Blocked by frozen file?** No.
-- **Implementation phase:** 1
+- **Verdict:** This is a `logger.error(...)` call writing to structured server-side logs, not to an HTTP response body. The `message: error.message` is a log field, not a leaked response. No fix needed.
 
-#### [ISSUE-005]: Quiz CSV import leaks raw error.message per row
+#### [ISSUE-005]: ~~Quiz CSV import leaks raw error.message per row~~ — **REJECTED on second read**
 - **File:** `apps/api/src/quiz/quizRouter.ts` (line ~683)
-- **Category:** Error handling
-- **Severity:** Medium
-- **Impact:** Security (info leakage)
-- **Issue:** Response includes `Row ${rowNumber}: ${error.message}` — depending on the upstream error this can expose Prisma schema details, file paths, or library internals.
-- **Fix:** Replace with a curated message: log raw `err` server-side, return `Row ${rowNumber}: invalid data` (or similar). Preserve row number for usability.
-- **Regression risk:** Low — user-facing message becomes less specific, but row number stays.
-- **Blocked by frozen file?** **High-caution.** Quiz smoke required.
-- **Implementation phase:** 1
+- **Verdict:** The `error.message` here is from Zod's `ZodError.errors[].message` — Zod's per-field validation messages are intentionally user-facing ("Required", "Expected string, got number"). They tell admins what's wrong with each row of their CSV. Not a system leak. No fix needed.
 
 #### [ISSUE-006]: `networkProfile.create` missing P2002 → 409 mapping
 - **File:** `apps/api/src/routes/network.ts` (lines 445–455, catch at 492)
@@ -136,16 +122,9 @@ Phases skip when their issue count is 0. Phase 7 will be skipped at execution ti
 - **Blocked by frozen file?** No.
 - **Implementation phase:** 1
 
-#### [ISSUE-007]: Socket-emit `error.message` in quiz handlers
+#### [ISSUE-007]: ~~Socket-emit `error.message` in quiz handlers~~ — **REJECTED on second read**
 - **File:** `apps/api/src/quiz/quizSocket.ts` (line ~388)
-- **Category:** Error handling
-- **Severity:** Low
-- **Impact:** Security (low — socket scope, auth-gated)
-- **Issue:** Emits raw `error.message` to the client socket. Lower severity than HTTP leakage because the socket is JWT-auth gated.
-- **Fix:** Sanitize to a generic `Failed to join quiz` (or similar) before emit; keep `logger.error(...)` for internal visibility.
-- **Regression risk:** Low.
-- **Blocked by frozen file?** **High-caution.** Quiz smoke required.
-- **Implementation phase:** 1
+- **Verdict:** The `error.message` here is from a custom `QuizCapacityError` class — its message is developer-controlled at construction time (e.g., "Quiz at capacity"), not a leaked system message. This is a curated, intentional user-facing message. No fix needed.
 
 ---
 

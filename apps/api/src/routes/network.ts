@@ -490,6 +490,12 @@ networkRouter.post('/profile', authMiddleware, requireNotBlocked('NETWORK'), asy
       message: 'Profile submitted for review',
     });
   } catch (error) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+      return res.status(409).json({
+        success: false,
+        error: { message: 'You already have a network profile' },
+      });
+    }
     logger.error('Failed to create network profile', { error });
     res.status(500).json({ success: false, error: { message: 'Failed to create profile' } });
   }

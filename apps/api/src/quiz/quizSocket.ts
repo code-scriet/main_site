@@ -489,61 +489,66 @@ export function initQuizSocket(io: SocketIOServer) {
     socket.on('next_question', async ({ quizId }: { quizId: string }) => {
       if (!socket.userId || !quizId) return;
 
-      const room = quizStore.getRoom(quizId);
-      if (!room) {
-        socket.emit('quiz_error', { code: 'QUIZ_NOT_FOUND', message: 'Quiz not found' });
-        return;
-      }
-
-      if (!canControlQuiz(room, socket)) {
-        emitBlockedControlAction('FORBIDDEN', 'Only quiz hosts can advance questions');
-        return;
-      }
-
-      // Stage 1: active question -> reveal
-      if (room.status === 'active') {
-        if (room.autoAdvanceTimer) {
-          clearTimeout(room.autoAdvanceTimer);
-          room.autoAdvanceTimer = null;
+      try {
+        const room = quizStore.getRoom(quizId);
+        if (!room) {
+          socket.emit('quiz_error', { code: 'QUIZ_NOT_FOUND', message: 'Quiz not found' });
+          return;
         }
 
-        room.status = 'revealing';
-        emitQuestionResults(quizId, room);
-        return;
-      }
+        if (!canControlQuiz(room, socket)) {
+          emitBlockedControlAction('FORBIDDEN', 'Only quiz hosts can advance questions');
+          return;
+        }
 
-      // Stage 2: revealing -> advance to next question / finish quiz
-      if (room.status !== 'revealing') {
-        return;
-      }
+        // Stage 1: active question -> reveal
+        if (room.status === 'active') {
+          if (room.autoAdvanceTimer) {
+            clearTimeout(room.autoAdvanceTimer);
+            room.autoAdvanceTimer = null;
+          }
 
-      const advancement = quizStore.advanceQuestion(quizId);
+          room.status = 'revealing';
+          emitQuestionResults(quizId, room);
+          return;
+        }
 
-      if (advancement.done) {
-        room.status = 'finished';
-        const leaderboard = quizStore.getLeaderboard(quizId);
-        const totalQuestions = room.meta.totalQuestions;
+        // Stage 2: revealing -> advance to next question / finish quiz
+        if (room.status !== 'revealing') {
+          return;
+        }
 
-        quizNamespace.to(quizId).emit('quiz_finishing', {});
-        quizNamespace.to(quizId).emit('final_leaderboard', {
-          leaderboard,
-          totalQuestions,
-        });
-        await quizStore.persistResultsAndCleanup(quizId, 'FINISHED');
-      } else if (advancement.question) {
-        const q = advancement.question;
-        room.currentQuestionStartTime = Date.now();
+        const advancement = quizStore.advanceQuestion(quizId);
 
-        quizNamespace.to(quizId).emit('show_question', sanitizeQuestionForClient(
-          q, advancement.questionIndex!, room.meta.totalQuestions,
-        ));
+        if (advancement.done) {
+          room.status = 'finished';
+          const leaderboard = quizStore.getLeaderboard(quizId);
+          const totalQuestions = room.meta.totalQuestions;
 
-        // Host-only: reset status
-        emitHostPlayerStatusSnapshot(room);
+          quizNamespace.to(quizId).emit('quiz_finishing', {});
+          quizNamespace.to(quizId).emit('final_leaderboard', {
+            leaderboard,
+            totalQuestions,
+          });
+          await quizStore.persistResultsAndCleanup(quizId, 'FINISHED');
+        } else if (advancement.question) {
+          const q = advancement.question;
+          room.currentQuestionStartTime = Date.now();
 
-        room.autoAdvanceTimer = setTimeout(() => {
-          handleAutoAdvance(quizId);
-        }, (q.timeLimitSeconds + 3) * 1000);
+          quizNamespace.to(quizId).emit('show_question', sanitizeQuestionForClient(
+            q, advancement.questionIndex!, room.meta.totalQuestions,
+          ));
+
+          // Host-only: reset status
+          emitHostPlayerStatusSnapshot(room);
+
+          room.autoAdvanceTimer = setTimeout(() => {
+            handleAutoAdvance(quizId);
+          }, (q.timeLimitSeconds + 3) * 1000);
+        }
+      } catch (error) {
+        logger.error('next_question error', { error: error instanceof Error ? error.message : String(error) });
+        socket.emit('quiz_error', { code: 'SERVER_ERROR', message: 'Failed to advance question' });
       }
     });
 
@@ -750,64 +755,69 @@ export function initQuizSocket(io: SocketIOServer) {
     socket.on('skip_question', async ({ quizId }: { quizId: string }) => {
       if (!socket.userId || !quizId) return;
 
-      const room = quizStore.getRoom(quizId);
-      if (!room || !canControlQuiz(room, socket)) {
-        emitBlockedControlAction('FORBIDDEN', 'Only admin can skip questions');
-        return;
-      }
-
-      if (room.status === 'active') {
-        if (room.autoAdvanceTimer) {
-          clearTimeout(room.autoAdvanceTimer);
-          room.autoAdvanceTimer = null;
+      try {
+        const room = quizStore.getRoom(quizId);
+        if (!room || !canControlQuiz(room, socket)) {
+          emitBlockedControlAction('FORBIDDEN', 'Only admin can skip questions');
+          return;
         }
 
-        // Active-stage skip: jump directly to next question / finish (bypasses reveal).
-        const advancement = quizStore.advanceQuestion(quizId);
-        if (advancement.done) {
-          room.status = 'finished';
-          const leaderboard = quizStore.getLeaderboard(quizId);
-          quizNamespace.to(quizId).emit('quiz_finishing', {});
-          quizNamespace.to(quizId).emit('final_leaderboard', { leaderboard, totalQuestions: room.meta.totalQuestions });
-          await quizStore.persistResultsAndCleanup(quizId, 'FINISHED');
-        } else if (advancement.question) {
-          const q = advancement.question;
-          room.currentQuestionStartTime = Date.now();
-          room.status = 'active';
-          quizNamespace.to(quizId).emit('show_question', sanitizeQuestionForClient(
-            q, advancement.questionIndex!, room.meta.totalQuestions,
-          ));
+        if (room.status === 'active') {
+          if (room.autoAdvanceTimer) {
+            clearTimeout(room.autoAdvanceTimer);
+            room.autoAdvanceTimer = null;
+          }
 
-          emitHostPlayerStatusSnapshot(room);
-          room.autoAdvanceTimer = setTimeout(() => {
-            handleAutoAdvance(quizId);
-          }, (q.timeLimitSeconds + 3) * 1000);
+          // Active-stage skip: jump directly to next question / finish (bypasses reveal).
+          const advancement = quizStore.advanceQuestion(quizId);
+          if (advancement.done) {
+            room.status = 'finished';
+            const leaderboard = quizStore.getLeaderboard(quizId);
+            quizNamespace.to(quizId).emit('quiz_finishing', {});
+            quizNamespace.to(quizId).emit('final_leaderboard', { leaderboard, totalQuestions: room.meta.totalQuestions });
+            await quizStore.persistResultsAndCleanup(quizId, 'FINISHED');
+          } else if (advancement.question) {
+            const q = advancement.question;
+            room.currentQuestionStartTime = Date.now();
+            room.status = 'active';
+            quizNamespace.to(quizId).emit('show_question', sanitizeQuestionForClient(
+              q, advancement.questionIndex!, room.meta.totalQuestions,
+            ));
+
+            emitHostPlayerStatusSnapshot(room);
+            room.autoAdvanceTimer = setTimeout(() => {
+              handleAutoAdvance(quizId);
+            }, (q.timeLimitSeconds + 3) * 1000);
+          }
+          return;
         }
-        return;
-      }
 
-      // Reveal-stage skip behaves like "Next".
-      if (room.status === 'revealing') {
-        const advancement = quizStore.advanceQuestion(quizId);
-        if (advancement.done) {
-          room.status = 'finished';
-          const leaderboard = quizStore.getLeaderboard(quizId);
-          quizNamespace.to(quizId).emit('quiz_finishing', {});
-          quizNamespace.to(quizId).emit('final_leaderboard', { leaderboard, totalQuestions: room.meta.totalQuestions });
-          await quizStore.persistResultsAndCleanup(quizId, 'FINISHED');
-        } else if (advancement.question) {
-          const q = advancement.question;
-          room.currentQuestionStartTime = Date.now();
-          room.status = 'active';
-          quizNamespace.to(quizId).emit('show_question', sanitizeQuestionForClient(
-            q, advancement.questionIndex!, room.meta.totalQuestions,
-          ));
+        // Reveal-stage skip behaves like "Next".
+        if (room.status === 'revealing') {
+          const advancement = quizStore.advanceQuestion(quizId);
+          if (advancement.done) {
+            room.status = 'finished';
+            const leaderboard = quizStore.getLeaderboard(quizId);
+            quizNamespace.to(quizId).emit('quiz_finishing', {});
+            quizNamespace.to(quizId).emit('final_leaderboard', { leaderboard, totalQuestions: room.meta.totalQuestions });
+            await quizStore.persistResultsAndCleanup(quizId, 'FINISHED');
+          } else if (advancement.question) {
+            const q = advancement.question;
+            room.currentQuestionStartTime = Date.now();
+            room.status = 'active';
+            quizNamespace.to(quizId).emit('show_question', sanitizeQuestionForClient(
+              q, advancement.questionIndex!, room.meta.totalQuestions,
+            ));
 
-          emitHostPlayerStatusSnapshot(room);
-          room.autoAdvanceTimer = setTimeout(() => {
-            handleAutoAdvance(quizId);
-          }, (q.timeLimitSeconds + 3) * 1000);
+            emitHostPlayerStatusSnapshot(room);
+            room.autoAdvanceTimer = setTimeout(() => {
+              handleAutoAdvance(quizId);
+            }, (q.timeLimitSeconds + 3) * 1000);
+          }
         }
+      } catch (error) {
+        logger.error('skip_question error', { error: error instanceof Error ? error.message : String(error) });
+        socket.emit('quiz_error', { code: 'SERVER_ERROR', message: 'Failed to skip question' });
       }
     });
 
