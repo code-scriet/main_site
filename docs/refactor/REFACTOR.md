@@ -130,75 +130,31 @@ Phases skip when their issue count is 0. Phase 7 will be skipped at execution ti
 
 ### Phase 2 — Backend Perf/Memory
 
-#### [ISSUE-008]: Scheduler queries — verify reminder-eligible index coverage
+#### [ISSUE-008]: ~~Scheduler queries — verify reminder-eligible index coverage~~ — **VERIFIED CLEAN**
 - **File:** `apps/api/src/utils/scheduler.ts` (lines 25–37, 80–112)
-- **Category:** Prisma query patterns / Performance
-- **Severity:** Medium
-- **Impact:** Perf
-- **Issue:** `sendEventReminders` filters on `reminderSentAt IS NULL` joined with `event.startDate` window and `event.status`. Schema needs verification — if no compound index covers `(reminderSentAt, status, startDate)` it's a sequential scan every 30 minutes.
-- **Fix:** Read `prisma/schema.prisma`, confirm whether existing indexes cover the filter. If not, add `@@index([reminderSentAt])` on `EventRegistration` (or compound including event-relation fields where supported) via `prisma migrate dev --create-only`. Review SQL before applying.
-- **Regression risk:** Low — additive index. Constraint #5 followed.
-- **Blocked by frozen file?** No.
-- **Implementation phase:** 2
+- **Verdict:** Indexes already exist. `EventRegistration.@@index([reminderSentAt])` at schema line 272 covers the `reminderSentAt: null` predicate; `Event.@@index([status, startDate])` at schema line 238 covers the join on `status='UPCOMING'` + `startDate BETWEEN`. No migration needed.
 
-#### [ISSUE-009]: QOTD auto-publish query — verify index on (publishAt, isPublished, heldBy)
+#### [ISSUE-009]: ~~QOTD auto-publish query — verify index on (publishAt, isPublished, heldBy)~~ — **VERIFIED CLEAN**
 - **File:** `apps/api/src/utils/scheduler.ts` (lines 209–219)
-- **Category:** Prisma query patterns
-- **Severity:** Low
-- **Impact:** Perf
-- **Issue:** `qOTD.updateMany` filter on `isPublished=false, publishAt<=now, heldBy=null` runs every 5 min. Verify the QOTD table has an index covering these columns (the table is small enough today that a seq scan is cheap, but the cost grows with history).
-- **Fix:** If missing, add `@@index([publishAt, isPublished])` via `prisma migrate dev --create-only`.
-- **Regression risk:** Low.
-- **Blocked by frozen file?** No.
-- **Implementation phase:** 2
+- **Verdict:** `QOTD.@@index([isPublished, date])` exists; while not a perfect cover for `(isPublished, publishAt)`, the QOTD table grows ~365 rows/year — a sequential scan over <2000 rows is trivial and the auto-publish runs only every 5 minutes. Adding an index is overkill at this scale.
+
+**Phase 2 — no in-scope work. Skipped (per plan: empty phases are skipped).**
 
 ---
 
 ### Phase 3 — Frontend Perf
 
-#### [ISSUE-010]: 45+ `useQuery` calls missing explicit `staleTime`
-- **Files:** Multiple — concrete spots include:
-  - `apps/web/src/components/problems/ProblemSolverShell.tsx` (lines 128–132)
-  - `apps/web/src/components/problems/PendingCapRequestsTray.tsx` (lines 45–50)
-  - `apps/web/src/components/dashboard/QOTDLeaderboardSurface.tsx` (lines 89–93)
-  - `apps/web/src/components/dashboard/NotifMenu.tsx` (lines 50–56)
-  - `apps/web/src/components/dashboard/AdminPendingRequestsCardV2.tsx` (lines 24–35)
-  - `apps/web/src/pages/admin/AdminCertificates.tsx` (lines 170–175)
-  - `apps/web/src/pages/admin/AdminAuditLog.tsx` (lines 90–95)
-  - + ~38 more
-- **Category:** Component architecture
-- **Severity:** Medium
-- **Impact:** Perf
-- **Issue:** CLAUDE.md mandates `staleTime: 5*60*1000, gcTime: 30*60*1000`. Missing `staleTime` causes refetches on every focus/mount — wasted DB hits, wasted bytes, and visible spinner flashes.
-- **Quantified benefit:** Removes ~45 unnecessary refetch cycles per session focus event; reduces API load especially on dashboard, notifications, and leaderboard pages.
-- **Fix:** Add `staleTime: 5 * 60 * 1000, gcTime: 30 * 60 * 1000` to every offender. For queries that DO want fast staleness (NotifMenu @ 90s refetch, AdminPendingRequestsCardV2 @ 60s refetch), set `staleTime` to match the `refetchInterval` (or slightly less) rather than the default — preserving freshness while removing redundant fetches.
-- **Regression risk:** None for normal queries; for polling queries (NotifMenu, AdminPendingRequestsCardV2, QOTDLeaderboardSurface daily) verify behavior before/after.
-- **Blocked by frozen file?** No.
-- **Implementation phase:** 3
+#### [ISSUE-010]: ~~45+ `useQuery` calls missing explicit `staleTime`~~ — **VERIFIED CLEAN**
+- **Verdict:** The global `QueryClient` at `apps/web/src/App.tsx:125-134` already sets `staleTime: 1000 * 60 * 5` (5 min), `gcTime: 1000 * 60 * 30` (30 min), `retry: 1`, and `refetchOnWindowFocus: false`. Every `useQuery` lacking an explicit `staleTime` inherits the correct value. No focus-driven refetches occur. The original audit assumed react-query's library default (0 staleTime, true refetchOnWindowFocus); both are already overridden globally.
 
-#### [ISSUE-011]: Static array hoisting in EventDetailPage
+#### [ISSUE-011]: ~~Static array hoisting in EventDetailPage~~ — **REJECTED on second read**
 - **File:** `apps/web/src/pages/EventDetailPage.tsx` (line 368)
-- **Category:** Component architecture
-- **Severity:** Low
-- **Impact:** Perf (re-render allocation)
-- **Issue:** `const list: Array<{ value: string; label: string }> = [{ value: 'overview', label: 'overview' }];` declared inside the component body. Recreated on every render.
-- **Fix:** Hoist to module scope (above the component).
-- **Regression risk:** None.
-- **Blocked by frozen file?** No.
-- **Implementation phase:** 3
+- **Verdict:** The `list` array sits inside a `useMemo` block with deps `[event, isRegistered, acceptedInvitationForNav]`, and it's dynamically populated based on `event.agenda`, `event.speakers`, `event.guests`, etc. — not a static array. Memoization is already correct.
 
-#### [ISSUE-012]: Make `gcTime` explicit on QOTD leaderboard queries
-- **Files:**
-  - `apps/web/src/components/dashboard/QOTDLeaderboardSurface.tsx` (lines 73–88)
-  - `apps/web/src/pages/QOTDLeaderboardPage.tsx` (lines 106–112)
-- **Category:** Component architecture
-- **Severity:** Low
-- **Impact:** Maintainability + Perf (cache hygiene)
-- **Issue:** Several queries set `staleTime: 60_000` but no `gcTime`; depending on global default this can flush before re-mount.
-- **Fix:** Add `gcTime: 5 * 60 * 1000` alongside the existing `staleTime`.
-- **Regression risk:** None.
-- **Blocked by frozen file?** No.
-- **Implementation phase:** 3
+#### [ISSUE-012]: ~~Make `gcTime` explicit on QOTD leaderboard queries~~ — **VERIFIED CLEAN**
+- **Verdict:** Same as ISSUE-010 — the global QueryClient sets `gcTime: 30 min`. The QOTD queries override `staleTime` to a tighter 60s for freshness but inherit the correct `gcTime`. No cache hygiene issue.
+
+**Phase 3 — no in-scope work. Skipped (per plan: empty phases are skipped).**
 
 ---
 

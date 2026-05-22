@@ -627,7 +627,7 @@ export default function AdminCertificates() {
               <DSCard key={s.id} padded>
                 <div className="h-[40px] flex items-center justify-center mb-3">
                   {s.signatureUrl ? (
-                    <img src={s.signatureUrl} alt={s.name} className="h-full max-w-full object-contain opacity-90" />
+                    <img src={s.signatureUrl} alt={s.name} className="h-full max-w-full object-contain opacity-90" loading="lazy" />
                   ) : (
                     <svg viewBox="0 0 120 40" className="h-full opacity-70 text-[var(--ds-text-2)]">
                       <path d="M5 30 Q 20 5, 35 25 T 65 22 Q 80 30, 95 15 T 115 25" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
