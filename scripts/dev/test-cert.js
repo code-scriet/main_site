@@ -1,4 +1,4 @@
-import { generateCertificatePDF } from './apps/api/dist/utils/generateCertificatePDF.js';
+import { generateCertificatePDF } from '../../apps/api/dist/utils/generateCertificatePDF.js';
 import fs from 'fs';
 
 async function main() {
