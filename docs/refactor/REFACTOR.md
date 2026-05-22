@@ -235,18 +235,12 @@ Phases skip when their issue count is 0. Phase 7 will be skipped at execution ti
 - **Blocked by frozen file?** `prisma.ts` is high-caution. If `console.*` there is a startup fallback for missing env, leave with a `// boot-time, logger not yet available` comment.
 - **Implementation phase:** 5
 
-#### [ISSUE-019]: Email template extraction from `email.ts`
-- **File:** `apps/api/src/utils/email.ts` (1985 lines, 13 inline templates: lines 1537, 1611, 1640, 1655, 1671, 1676, 1681, 1689, 1751, 1787, 1823, 1897, 1939)
-- **Category:** Utility helper audit
-- **Severity:** Medium
-- **Impact:** Maintainability (file size reduction)
-- **Fix:** Move each template literal to `apps/api/src/utils/emailTemplates/{welcome,eventInvitation,eventInvitationWithdrawn,eventReminder,hiringApplication,hiringSelected,hiringRejected,networkWelcome,networkVerified,networkRejected,alumniWelcome,certificateIssued,passwordReset}.ts` exporting a pure function `(data) => string`. `email.ts` calls them. Each migration preserves:
-  - The 5-min settings cache pattern (caches the settings fetch, not the template — unaffected)
-  - The `EmailCategory` argument on `EmailService.send()`
-  - Every `escapeHtml`/`sanitizeHtml` call inside the template
-- **Regression risk:** Medium — must verify each migrated template renders byte-identical HTML before/after (use snapshot tests if available, otherwise manual diff of one rendered output).
-- **Blocked by frozen file?** No.
-- **Implementation phase:** 5
+#### [ISSUE-019]: Email template extraction from `email.ts` — **LANDED in Tier C follow-up**
+- **File:** `apps/api/src/utils/email.ts` (1985 → 1360 lines)
+- **New file:** `apps/api/src/utils/emailTemplates.ts` (649 lines)
+- **What changed:** The 11-template `EmailTemplates` const (welcome, eventRegistration, newAnnouncement, newPoll, newEvent, passwordReset, eventReminder, registrationOpens, hiringApplication, hiringSelected, hiringRejected, adminMail) extracted byte-for-byte to a new file. email.ts now imports + re-exports `EmailTemplates`, so historic `import { EmailTemplates } from './email.js'` keeps working unchanged. Helpers used by the templates (`SITE_URL`, `markdownToEmailHtml`, `htmlToPlainText`, `generateEmailTemplate`, `EmailTemplate`/`EventRegistrationContext` types) are exported from email.ts and imported back by emailTemplates.ts. Circular module references resolve safely because all usages are at function-call time.
+- **Side effect:** removed unused `QRCode` top-level import from email.ts (it now only lives in emailTemplates.ts where the QR generation actually happens).
+- **Verification:** `npm run build --workspace=apps/api` 0 errors. `npm run lint --workspace=apps/api` returns to 53 warnings (baseline; the temporary QRCode warning was cleaned up before commit).
 
 ---
 
