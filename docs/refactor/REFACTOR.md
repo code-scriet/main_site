@@ -252,6 +252,14 @@ Phases skip when their issue count is 0. Phase 7 will be skipped at execution ti
 
 ### Phase 6 — Frontend Refactor
 
+**Note on Phase 6 scope (post-execution):** All Phase 6 items were verified at execution time and deferred. Findings:
+- The api.ts split is **already partially done** — `apps/web/src/lib/api/` contains 8 domain files (`auth.ts`, `events.ts`, `content.ts`, `coding.ts`, `users.ts`, `admin-ops.ts`, `event-ops.ts`, `dashboard.ts`) plus `_internal.ts` for the request helpers. The remaining `apps/web/src/lib/api.ts` (1529 lines) is mostly type/interface declarations and a few wrapper functions delegating to the domain modules. Further extraction (types to `api/types.ts`) is pure file-shuffle with no runtime or developer-experience win.
+- The 9 `error.message` sites flagged for `extractApiErrorMessage` adoption are already correct. They live in `useMutation` `onError` callbacks; the `error` is a thrown `Error` whose `.message` was already produced by `extractApiErrorMessage` inside `apps/web/src/lib/api/_internal.ts:100` before throwing. Re-running `extractApiErrorMessage` on an already-extracted string would be wrong.
+- God-component splits (EventCertificateWizard 2586, AdminScanner 993, AttendanceManager 933) carry real regression risk for state-machine flows (offline scanner sync triggers, multi-step certificate wizard) with zero perf benefit. Deferred.
+- HeatmapGrid extraction, date formatter consolidation, and `any` cleanup are all pure-refactor items with no optimization value. Deferred.
+
+**Phase 6 — no in-scope work after verification. Skipped.**
+
 #### [ISSUE-020]: Split `apps/web/src/lib/api.ts` into domain modules
 - **File:** `apps/web/src/lib/api.ts` (1529 lines)
 - **Category:** Large files
