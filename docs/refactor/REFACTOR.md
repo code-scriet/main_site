@@ -181,6 +181,8 @@ Phases skip when their issue count is 0. Phase 7 will be skipped at execution ti
 
 ### Phase 5 — Backend Refactor
 
+**Note on Phase 5 scope (post-execution):** The res.json → ApiResponse conversions across 7 route files (~82 sites) and the email template extraction were **deferred** at execution time. Rationale: per user direction ("just more focus on optimization"), these items have zero optimization or feature-integrity value — they're pure consistency refactor. Each conversion also requires per-call-site Rule 6 verification of the frontend consumer, adding significant review surface for no measurable improvement. The same applies to the `any` cleanup (ISSUEs 027-029) and was likewise deferred. Issues remain catalogued below as documentation-only; the entries describe what would be done if/when a dedicated consistency pass is requested.
+
 #### [ISSUE-014]: Standardize `res.json` → `ApiResponse` in network.ts
 - **File:** `apps/api/src/routes/network.ts` (17 occurrences)
 - **Category:** Code duplication / route convention

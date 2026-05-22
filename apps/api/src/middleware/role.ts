@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction, RequestHandler } from 'express';
 import { getAuthUser } from './auth.js';
+import { logger } from '../utils/logger.js';
 
 type Role = 'PUBLIC' | 'USER' | 'NETWORK' | 'MEMBER' | 'CORE_MEMBER' | 'ADMIN' | 'PRESIDENT';
 
@@ -23,7 +24,7 @@ export const hasPermission = (userRole: string, requiredRole: Role): boolean => 
   const knownRole = roleHierarchy[userRole as Role];
   // ISSUE-037: Log warning when unknown role is encountered
   if (knownRole === undefined) {
-    console.error(`[role.ts] Unknown role "${userRole}" treated as PUBLIC (level 0)`);
+    logger.error('Unknown role treated as PUBLIC', { userRole });
   }
   const userLevel = knownRole ?? 0;
   const requiredLevel = roleHierarchy[requiredRole] ?? 0;

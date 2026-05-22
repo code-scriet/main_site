@@ -1,5 +1,6 @@
 import { v2 as cloudinary } from 'cloudinary';
 import dotenv from 'dotenv';
+import { logger } from '../utils/logger.js';
 
 dotenv.config();
 
@@ -18,8 +19,7 @@ const isConfigured = Boolean(
 );
 
 if (!isConfigured) {
-  console.warn('⚠️  Cloudinary is not configured. Image uploads will not work.');
-  console.warn('   Add CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, and CLOUDINARY_API_SECRET to your .env file');
+  logger.warn('Cloudinary is not configured. Image uploads will not work. Add CLOUDINARY_CLOUD_NAME, CLOUDINARY_API_KEY, and CLOUDINARY_API_SECRET to your .env file.');
 }
 
 export { cloudinary, isConfigured as isCloudinaryConfigured };

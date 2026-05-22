@@ -1,4 +1,5 @@
 import jwt from 'jsonwebtoken';
+import { logger } from './logger.js';
 
 export interface AccessTokenPayload {
   userId: string;
@@ -75,8 +76,8 @@ export const getJwtSecret = (): string => {
 
   if (!hasWarnedAboutDevSecret) {
     hasWarnedAboutDevSecret = true;
-    console.warn(
-      `⚠️ Using development JWT fallback secret. Set one of ${JWT_SECRET_ENV_CANDIDATES.join(', ')} in your environment.`
+    logger.warn(
+      `Using development JWT fallback secret. Set one of ${JWT_SECRET_ENV_CANDIDATES.join(', ')} in your environment.`
     );
   }
 

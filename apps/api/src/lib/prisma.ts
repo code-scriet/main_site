@@ -1,4 +1,5 @@
 import { PrismaClient } from '@prisma/client';
+import { logger } from '../utils/logger.js';
 
 declare global {
   var prisma: PrismaClient | undefined;
@@ -41,7 +42,7 @@ export async function withRetry<T>(
         const exponentialDelay = baseDelayMs * Math.pow(2, attempt - 1);
         const jitter = Math.random() * baseDelayMs;
         const delay = exponentialDelay + jitter;
-        console.warn(`Database connection attempt ${attempt}/${maxRetries} failed, retrying in ${Math.round(delay)}ms...`);
+        logger.warn('Database connection retry', { attempt, maxRetries, delayMs: Math.round(delay) });
         await new Promise(resolve => setTimeout(resolve, delay));
         continue;
       }
