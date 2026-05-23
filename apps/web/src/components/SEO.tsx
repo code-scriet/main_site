@@ -108,23 +108,10 @@ export function SEO({
     updateMetaTag('meta[name="twitter:image"]', 'content', image);
     updateMetaTag('meta[name="twitter:image:alt"]', 'content', fullImageAlt);
 
-    // Cleanup function to reset to defaults when component unmounts
-    return () => {
-      document.title = DEFAULT_TITLE;
-      updateMetaTag('meta[name="title"]', 'content', DEFAULT_TITLE);
-      updateMetaTag('meta[name="description"]', 'content', DEFAULT_DESCRIPTION);
-      updateMetaTag('meta[name="robots"]', 'content', 'index, follow');
-      updateLinkTag('canonical', BASE_URL);
-      updateMetaTag('meta[property="og:title"]', 'content', DEFAULT_TITLE);
-      updateMetaTag('meta[property="og:description"]', 'content', DEFAULT_DESCRIPTION);
-      updateMetaTag('meta[property="og:url"]', 'content', BASE_URL);
-      updateMetaTag('meta[property="og:image"]', 'content', DEFAULT_IMAGE);
-      updateMetaTag('meta[property="og:type"]', 'content', 'website');
-      updateMetaTag('meta[name="twitter:title"]', 'content', DEFAULT_TITLE);
-      updateMetaTag('meta[name="twitter:description"]', 'content', DEFAULT_DESCRIPTION);
-      updateMetaTag('meta[name="twitter:url"]', 'content', BASE_URL);
-      updateMetaTag('meta[name="twitter:image"]', 'content', DEFAULT_IMAGE);
-    };
+    // No unmount cleanup: the next route's <SEO> useEffect will overwrite
+    // every tag we set here. A cleanup that resets to defaults would race
+    // with the next mount and create a "default flash" that Googlebot's
+    // JS-rendering pass could capture as the page meta.
   }, [fullTitle, description, image, fullImageAlt, fullUrl, type, noIndex]);
 
   return null;

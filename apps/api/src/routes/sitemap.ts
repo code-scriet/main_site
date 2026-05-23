@@ -73,20 +73,23 @@ sitemapRouter.get('/', async (_req: Request, res: Response) => {
       }),
     ]);
 
-    // Build static pages with priority
+    // Build static pages with priority.
+    // Trailing slashes match what Render's static service actually serves
+    // (dist/<route>/index.html). The slug detail URLs below use the same
+    // convention so canonicals, sitemap, and served URL all agree.
     const staticPages = [
       { path: '/', priority: '1.0', changefreq: 'weekly' },
-      { path: '/events', priority: '0.9', changefreq: 'daily' },
-      { path: '/achievements', priority: '0.9', changefreq: 'daily' },
-      { path: '/announcements', priority: '0.8', changefreq: 'daily' },
-      { path: '/network', priority: '0.8', changefreq: 'daily' },
-      { path: '/team', priority: '0.7', changefreq: 'monthly' },
-      { path: '/about', priority: '0.7', changefreq: 'monthly' },
-      { path: '/join-us', priority: '0.8', changefreq: 'weekly' },
-      { path: '/join-our-network', priority: '0.7', changefreq: 'weekly' },
-      { path: '/credits', priority: '0.6', changefreq: 'monthly' },
-      { path: '/contact', priority: '0.5', changefreq: 'yearly' },
-      { path: '/privacy-policy', priority: '0.3', changefreq: 'yearly' },
+      { path: '/events/', priority: '0.9', changefreq: 'daily' },
+      { path: '/achievements/', priority: '0.9', changefreq: 'daily' },
+      { path: '/announcements/', priority: '0.8', changefreq: 'daily' },
+      { path: '/network/', priority: '0.8', changefreq: 'daily' },
+      { path: '/team/', priority: '0.7', changefreq: 'monthly' },
+      { path: '/about/', priority: '0.7', changefreq: 'monthly' },
+      { path: '/join-us/', priority: '0.8', changefreq: 'weekly' },
+      { path: '/join-our-network/', priority: '0.7', changefreq: 'weekly' },
+      { path: '/credits/', priority: '0.6', changefreq: 'monthly' },
+      { path: '/contact/', priority: '0.5', changefreq: 'yearly' },
+      { path: '/privacy-policy/', priority: '0.3', changefreq: 'yearly' },
     ];
 
     const today = new Date().toISOString().split('T')[0];
@@ -111,7 +114,7 @@ sitemapRouter.get('/', async (_req: Request, res: Response) => {
       const priority = event.featured ? '0.85' : '0.7';
       const lastmod = event.updatedAt.toISOString().split('T')[0];
       xml += '  <url>\n';
-      xml += `    <loc>${baseUrl}/events/${event.slug}</loc>\n`;
+      xml += `    <loc>${baseUrl}/events/${event.slug}/</loc>\n`;
       xml += `    <lastmod>${lastmod}</lastmod>\n`;
       xml += `    <changefreq>weekly</changefreq>\n`;
       xml += `    <priority>${priority}</priority>\n`;
@@ -124,7 +127,7 @@ sitemapRouter.get('/', async (_req: Request, res: Response) => {
       const priority = achievement.featured ? '0.85' : '0.7';
       const lastmod = achievement.updatedAt.toISOString().split('T')[0];
       xml += '  <url>\n';
-      xml += `    <loc>${baseUrl}/achievements/${achievement.slug}</loc>\n`;
+      xml += `    <loc>${baseUrl}/achievements/${achievement.slug}/</loc>\n`;
       xml += `    <lastmod>${lastmod}</lastmod>\n`;
       xml += `    <changefreq>monthly</changefreq>\n`;
       xml += `    <priority>${priority}</priority>\n`;
@@ -137,7 +140,7 @@ sitemapRouter.get('/', async (_req: Request, res: Response) => {
       const priority = announcement.priority === 'HIGH' ? '0.8' : '0.65';
       const lastmod = announcement.updatedAt.toISOString().split('T')[0];
       xml += '  <url>\n';
-      xml += `    <loc>${baseUrl}/announcements/${announcement.slug}</loc>\n`;
+      xml += `    <loc>${baseUrl}/announcements/${announcement.slug}/</loc>\n`;
       xml += `    <lastmod>${lastmod}</lastmod>\n`;
       xml += `    <changefreq>weekly</changefreq>\n`;
       xml += `    <priority>${priority}</priority>\n`;
@@ -148,7 +151,7 @@ sitemapRouter.get('/', async (_req: Request, res: Response) => {
       if (!member.slug) continue;
       const lastmod = member.createdAt.toISOString().split('T')[0];
       xml += '  <url>\n';
-      xml += `    <loc>${baseUrl}/team/${member.slug}</loc>\n`;
+      xml += `    <loc>${baseUrl}/team/${member.slug}/</loc>\n`;
       xml += `    <lastmod>${lastmod}</lastmod>\n`;
       xml += '    <changefreq>monthly</changefreq>\n';
       xml += '    <priority>0.65</priority>\n';
@@ -160,7 +163,7 @@ sitemapRouter.get('/', async (_req: Request, res: Response) => {
       const lastmod = profile.updatedAt.toISOString().split('T')[0];
       const priority = profile.isFeatured ? '0.75' : '0.6';
       xml += '  <url>\n';
-      xml += `    <loc>${baseUrl}/network/${profile.slug}</loc>\n`;
+      xml += `    <loc>${baseUrl}/network/${profile.slug}/</loc>\n`;
       xml += `    <lastmod>${lastmod}</lastmod>\n`;
       xml += '    <changefreq>monthly</changefreq>\n';
       xml += `    <priority>${priority}</priority>\n`;
@@ -180,8 +183,10 @@ sitemapRouter.get('/', async (_req: Request, res: Response) => {
     });
     res.status(500);
     res.setHeader('Content-Type', 'application/xml; charset=utf-8');
-    // Return fallback sitemap with static pages only
-    const fallback = '<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n<url><loc>https://codescriet.dev</loc><priority>1.0</priority></url>\n<url><loc>https://codescriet.dev/events</loc><priority>0.9</priority></url>\n<url><loc>https://codescriet.dev/achievements</loc><priority>0.9</priority></url>\n<url><loc>https://codescriet.dev/announcements</loc><priority>0.8</priority></url>\n<url><loc>https://codescriet.dev/team</loc><priority>0.7</priority></url>\n<url><loc>https://codescriet.dev/network</loc><priority>0.8</priority></url>\n</urlset>';
+    // Fallback sitemap with static pages only (trailing slashes match what
+    // Render's static service actually serves; aligned with the build-time
+    // generator at scripts/generate-sitemap.js).
+    const fallback = '<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n<url><loc>https://codescriet.dev/</loc><priority>1.0</priority></url>\n<url><loc>https://codescriet.dev/events/</loc><priority>0.9</priority></url>\n<url><loc>https://codescriet.dev/achievements/</loc><priority>0.9</priority></url>\n<url><loc>https://codescriet.dev/announcements/</loc><priority>0.8</priority></url>\n<url><loc>https://codescriet.dev/network/</loc><priority>0.8</priority></url>\n<url><loc>https://codescriet.dev/team/</loc><priority>0.7</priority></url>\n<url><loc>https://codescriet.dev/about/</loc><priority>0.7</priority></url>\n<url><loc>https://codescriet.dev/join-us/</loc><priority>0.8</priority></url>\n<url><loc>https://codescriet.dev/join-our-network/</loc><priority>0.7</priority></url>\n<url><loc>https://codescriet.dev/credits/</loc><priority>0.6</priority></url>\n<url><loc>https://codescriet.dev/contact/</loc><priority>0.5</priority></url>\n<url><loc>https://codescriet.dev/privacy-policy/</loc><priority>0.3</priority></url>\n</urlset>';
     res.send(fallback);
   }
 });
@@ -221,6 +226,21 @@ robotsRouter.get('/', (_req: Request, res: Response) => {
   robots += 'Disallow: /profile\n';
   robots += 'Disallow: /signin\n';
   robots += 'Disallow: /signup\n';
+  robots += 'Disallow: /network/status\n';
+  robots += 'Disallow: /network/onboarding\n';
+  robots += 'Disallow: /network/edit\n';
+  robots += '\n';
+  robots += '# Live quiz pages — auth-gated, dynamic, no SEO value\n';
+  robots += 'Disallow: /quiz\n';
+  robots += 'Disallow: /quiz/\n';
+  robots += '\n';
+  robots += '# QOTD solve pages — auth-gated, change daily. Leaderboard stays indexable.\n';
+  robots += 'Disallow: /qotd/today\n';
+  robots += 'Disallow: /qotd/20\n';
+  robots += 'Disallow: /qotd/19\n';
+  robots += '\n';
+  robots += '# Competition solve pages — auth-gated. Public results pages stay indexable.\n';
+  robots += 'Disallow: /competition/*/solve\n';
   robots += '\n';
   robots += '# Sitemap\n';
   robots += `Sitemap: ${frontendUrl}/sitemap.xml\n`;

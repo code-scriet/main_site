@@ -553,9 +553,10 @@ export default function VerifyCertificatePage() {
   return (
     <Layout>
       <SEO
-        title="Verify Certificate"
+        title={paramCertId ? `Certificate ${paramCertId}` : 'Verify Certificate'}
         description="Verify the authenticity of any code.scriet certificate by ID or QR code."
-        url="/verify"
+        url={paramCertId ? `/verify/${paramCertId}` : '/verify'}
+        noIndex={!!paramCertId}
       />
       <div className="bg-gradient-to-br from-amber-50 via-white to-orange-50">
       <main className="py-12 px-4">

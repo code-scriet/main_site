@@ -55,7 +55,7 @@
     <meta property="og:type" content="website" />
     <meta property="og:url" content="https://codescriet.dev/" />
     <meta property="og:title" content="codescriet - Official Coding Club of SCRIET" />
-    <meta property="og:description" content="codescriet (code.scriet, code scriet) - The Official Coding Club of SCRIET, CCS University Meerut. Join codescriet for DSA, competitive programming, hackathons, and tech events." />
+    <meta property="og:description" content="codescriet — the Official Coding Club of SCRIET, CCS University Meerut. Join us for DSA, competitive programming, hackathons, and tech events." />
     <meta property="og:image" content="https://codescriet.dev/og-image.jpg" />
     <meta property="og:image:width" content="1200" />
     <meta property="og:image:height" content="630" />
@@ -67,7 +67,7 @@
     <meta name="twitter:card" content="summary_large_image" />
     <meta name="twitter:url" content="https://codescriet.dev/" />
     <meta name="twitter:title" content="codescriet - Official Coding Club of SCRIET" />
-    <meta name="twitter:description" content="codescriet (code.scriet, code scriet) - The Official Coding Club of SCRIET. Join codescriet for DSA, hackathons, and tech events." />
+    <meta name="twitter:description" content="codescriet — the Official Coding Club of SCRIET. Join us for DSA, hackathons, and tech events." />
     <meta name="twitter:image" content="https://codescriet.dev/og-image.jpg" />
     <meta name="twitter:image:alt" content="codescriet - Official Coding Club" />
     <meta name="twitter:site" content="@codescriet" />
@@ -135,19 +135,12 @@
     }
     </script>
 
-    <!-- Structured Data - AboutPage -->
-    <script type="application/ld+json">
-    {
-      "@context": "https://schema.org",
-      "@type": "AboutPage",
-      "@id": "https://codescriet.dev/about#webpage",
-      "name": "About codescriet — Official Coding Club of SCRIET",
-      "description": "codescriet is the official coding club of SCRIET (sir chhotu ram institute of engineering and technology), CCS University Meerut. The name codescriet combines 'code' and 'SCRIET'.",
-      "url": "https://codescriet.dev/about",
-      "isPartOf": { "@id": "https://codescriet.dev/#website" },
-      "about": { "@id": "https://codescriet.dev/#organization" }
-    }
-    </script>
+    <!--
+      AboutPage JSON-LD lives in the prerendered /about/index.html only
+      (built by scripts/prerender.js). Keeping it in this site-wide template
+      caused every page to claim to be the AboutPage — and produced two
+      competing AboutPage blocks on /about/ itself.
+    -->
   </head>
   <body>
     <!--

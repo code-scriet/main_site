@@ -211,7 +211,11 @@ const splitKeywords = (s) => stripHtml(s)
 
 function teamMemberPage(m) {
   const slug = m.slug || m.id;
-  const url = `${SITE_URL}/team/${slug}`;
+  // Trailing slash matches what Render's static service actually serves
+  // (dist/team/<slug>/index.html via directory-index resolution). Without
+  // the slash, requests fall through to the SPA catch-all and Google sees
+  // the home-page shell at a /team/<slug> URL — a canonical/content mismatch.
+  const url = `${SITE_URL}/team/${slug}/`;
   const title = `${m.name} — ${m.role}, ${ORG_NAME} | ${m.team || 'Team'}`;
   const bioText = stripHtml(m.bio || m.story || '');
   const description = trimChars(
@@ -245,7 +249,7 @@ function teamMemberPage(m) {
 
   const bc = breadcrumb([
     { name: 'Home', url: SITE_URL },
-    { name: 'Team', url: `${SITE_URL}/team` },
+    { name: 'Team', url: `${SITE_URL}/team/` },
     { name: m.name, url },
   ]);
 
@@ -260,6 +264,10 @@ function teamMemberPage(m) {
 
   return {
     outPath: path.join(DIST_DIR, 'team', slug, 'index.html'),
+    // Also write at dist/team/<slug>.html so file-extension resolution
+    // serves the prerendered HTML for /team/<slug> (no trailing slash)
+    // if/when Render's static service honors extensionless lookups.
+    extraOutPaths: [path.join(DIST_DIR, 'team', `${slug}.html`)],
     title,
     description,
     canonical: url,
@@ -274,7 +282,7 @@ function teamMemberPage(m) {
 function networkProfilePage(n) {
   const slug = n.slug;
   if (!slug) return null;
-  const url = `${SITE_URL}/network/${slug}`;
+  const url = `${SITE_URL}/network/${slug}/`;
   const isAlumni = n.connectionType === 'ALUMNI' || !!n.passoutYear;
   const title = `${n.fullName} — ${n.designation}${n.company ? ` at ${n.company}` : ''} | ${ORG_NAME} Network`;
   const bioText = stripHtml(n.bio || n.story || '');
@@ -310,7 +318,7 @@ function networkProfilePage(n) {
 
   const bc = breadcrumb([
     { name: 'Home', url: SITE_URL },
-    { name: 'Network', url: `${SITE_URL}/network` },
+    { name: 'Network', url: `${SITE_URL}/network/` },
     { name: n.fullName, url },
   ]);
 
@@ -326,6 +334,7 @@ function networkProfilePage(n) {
 
   return {
     outPath: path.join(DIST_DIR, 'network', slug, 'index.html'),
+    extraOutPaths: [path.join(DIST_DIR, 'network', `${slug}.html`)],
     title,
     description,
     canonical: url,
@@ -340,7 +349,7 @@ function networkProfilePage(n) {
 function eventPage(e) {
   const slug = e.slug;
   if (!slug) return null;
-  const url = `${SITE_URL}/events/${slug}`;
+  const url = `${SITE_URL}/events/${slug}/`;
   const dateLabel = e.startDate
     ? new Date(e.startDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })
     : '';
@@ -375,7 +384,7 @@ function eventPage(e) {
 
   const bc = breadcrumb([
     { name: 'Home', url: SITE_URL },
-    { name: 'Events', url: `${SITE_URL}/events` },
+    { name: 'Events', url: `${SITE_URL}/events/` },
     { name: e.title, url },
   ]);
 
@@ -389,6 +398,7 @@ function eventPage(e) {
 
   return {
     outPath: path.join(DIST_DIR, 'events', slug, 'index.html'),
+    extraOutPaths: [path.join(DIST_DIR, 'events', `${slug}.html`)],
     title,
     description,
     canonical: url,
@@ -403,7 +413,7 @@ function eventPage(e) {
 function achievementPage(a) {
   const slug = a.slug;
   if (!slug) return null;
-  const url = `${SITE_URL}/achievements/${slug}`;
+  const url = `${SITE_URL}/achievements/${slug}/`;
   const who = a.achievedBy ? ` — ${a.achievedBy}` : '';
   const title = `${a.title}${who} | ${ORG_NAME}`;
   const descText = stripHtml(a.shortDescription || a.description || '');
@@ -421,13 +431,13 @@ function achievementPage(a) {
     datePublished: datePub,
     dateModified: dateMod,
     author: orgRef,
-    publisher: { '@type': 'Organization', name: ORG_NAME, logo: { '@type': 'ImageObject', url: `${SITE_URL}/logo.png` } },
+    publisher: { '@type': 'Organization', name: ORG_NAME, logo: { '@type': 'ImageObject', url: `${SITE_URL}/logo.jpeg` } },
     mainEntityOfPage: { '@type': 'WebPage', '@id': url },
   };
 
   const bc = breadcrumb([
     { name: 'Home', url: SITE_URL },
-    { name: 'Achievements', url: `${SITE_URL}/achievements` },
+    { name: 'Achievements', url: `${SITE_URL}/achievements/` },
     { name: a.title, url },
   ]);
 
@@ -441,6 +451,7 @@ function achievementPage(a) {
 
   return {
     outPath: path.join(DIST_DIR, 'achievements', slug, 'index.html'),
+    extraOutPaths: [path.join(DIST_DIR, 'achievements', `${slug}.html`)],
     title,
     description,
     canonical: url,
@@ -455,7 +466,7 @@ function achievementPage(a) {
 function announcementPage(an) {
   const slug = an.slug;
   if (!slug) return null;
-  const url = `${SITE_URL}/announcements/${slug}`;
+  const url = `${SITE_URL}/announcements/${slug}/`;
   const title = `${an.title} | ${ORG_NAME} Announcements`;
   const descText = stripHtml(an.shortDescription || an.body || '');
   const description = trimChars(descText || an.title, 300);
@@ -472,13 +483,13 @@ function announcementPage(an) {
     datePublished: datePub,
     dateModified: dateMod,
     author: orgRef,
-    publisher: { '@type': 'Organization', name: ORG_NAME, logo: { '@type': 'ImageObject', url: `${SITE_URL}/logo.png` } },
+    publisher: { '@type': 'Organization', name: ORG_NAME, logo: { '@type': 'ImageObject', url: `${SITE_URL}/logo.jpeg` } },
     mainEntityOfPage: { '@type': 'WebPage', '@id': url },
   };
 
   const bc = breadcrumb([
     { name: 'Home', url: SITE_URL },
-    { name: 'Announcements', url: `${SITE_URL}/announcements` },
+    { name: 'Announcements', url: `${SITE_URL}/announcements/` },
     { name: an.title, url },
   ]);
 
@@ -491,6 +502,7 @@ function announcementPage(an) {
 
   return {
     outPath: path.join(DIST_DIR, 'announcements', slug, 'index.html'),
+    extraOutPaths: [path.join(DIST_DIR, 'announcements', `${slug}.html`)],
     title,
     description,
     canonical: url,
@@ -553,7 +565,7 @@ function listingTask({ route, title, description, intro, jsonLdType, listHtml })
       acc += `/${seg}`;
       bcTrail.push({
         name: seg.replace(/-/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()),
-        url: `${SITE_URL}${acc}`,
+        url: `${SITE_URL}${acc}/`,
       });
     });
   }

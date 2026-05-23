@@ -33,6 +33,19 @@ Disallow: /signin
 Disallow: /signup
 Disallow: /network/status
 Disallow: /network/onboarding
+Disallow: /network/edit
+
+# Live quiz pages — auth-gated, dynamic, no SEO value
+Disallow: /quiz
+Disallow: /quiz/
+
+# QOTD solve pages — auth-gated, change daily. Leaderboard stays indexable.
+Disallow: /qotd/today
+Disallow: /qotd/20
+Disallow: /qotd/19
+
+# Competition solve pages — auth-gated. Public results pages stay indexable.
+Disallow: /competition/*/solve
 
 # Specific rules for Google
 User-agent: Googlebot

@@ -387,12 +387,15 @@ export function Hero() {
           {/* Main Heading */}
           <motion.div variants={itemVariants} className="space-y-4 md:space-y-6">
             <h1 className="text-4xl sm:text-5xl md:text-7xl lg:text-8xl font-bold tracking-tight font-display">
-              <span className="text-transparent bg-clip-text bg-gradient-to-r from-amber-200 via-amber-400 to-orange-400">
-                code
-              </span>
-              <span className="text-white/40">.</span>
-              <span className="text-transparent bg-clip-text bg-gradient-to-r from-orange-400 via-orange-300 to-amber-300">
-                scriet
+              <span className="sr-only">codescriet — Official Coding Club of SCRIET, CCSU Meerut</span>
+              <span aria-hidden="true">
+                <span className="text-transparent bg-clip-text bg-gradient-to-r from-amber-200 via-amber-400 to-orange-400">
+                  code
+                </span>
+                <span className="text-white/40">.</span>
+                <span className="text-transparent bg-clip-text bg-gradient-to-r from-orange-400 via-orange-300 to-amber-300">
+                  scriet
+                </span>
               </span>
             </h1>
             

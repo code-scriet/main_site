@@ -54,30 +54,44 @@ async function main() {
 
   const apiUrl = process.env.VITE_API_URL || process.env.BACKEND_URL || 'https://api.codescriet.dev';
 
-  // Try to fetch the full dynamic sitemap from the API
-  try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 15000);
+  // Retry the dynamic sitemap fetch a few times: Render's API service can
+  // be cold-started by the build container, and a single 30s spin-up window
+  // is enough to drop every detail-page URL from the production sitemap.
+  // Static fallback ships only when all attempts fail.
+  const attempts = 4;
+  for (let i = 1; i <= attempts; i++) {
+    try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 20000);
+      const res = await fetch(`${apiUrl}/sitemap.xml`, { signal: controller.signal });
+      clearTimeout(timeout);
 
-    const res = await fetch(`${apiUrl}/sitemap.xml`, { signal: controller.signal });
-    clearTimeout(timeout);
-
-    if (res.ok) {
-      const xml = await res.text();
-      if (xml.includes('<urlset')) {
-        fs.writeFileSync(SITEMAP_PATH, xml);
-        console.log(`✅ Sitemap generated from API — dynamic URLs included`);
-        return;
+      if (res.ok) {
+        const xml = await res.text();
+        if (xml.includes('<urlset') && xml.includes('<loc>')) {
+          fs.writeFileSync(SITEMAP_PATH, xml);
+          const urlCount = (xml.match(/<url>/g) || []).length;
+          console.log(`✅ Sitemap generated from API (${urlCount} URLs) on attempt ${i}`);
+          return;
+        }
+        console.log(`⚠️  Attempt ${i}: API returned ${res.status} but body looked empty`);
+      } else {
+        console.log(`⚠️  Attempt ${i}: API returned status ${res.status}`);
       }
+    } catch (e) {
+      console.log(`⚠️  Attempt ${i}: ${e.name} — ${e.message}`);
     }
-    console.log(`⚠️  API returned status ${res.status}, using static fallback`);
-  } catch (e) {
-    console.log(`⚠️  Could not reach API (${e.name}), using static fallback`);
+
+    if (i < attempts) {
+      const backoffMs = 2000 * 2 ** (i - 1); // 2s, 4s, 8s
+      console.log(`   retrying in ${backoffMs}ms…`);
+      await new Promise((r) => setTimeout(r, backoffMs));
+    }
   }
 
-  // Fallback: write a sitemap with static pages only
+  // Last resort: write a static-only sitemap (no detail pages)
   fs.writeFileSync(SITEMAP_PATH, buildStaticSitemap());
-  console.log('✅ Static-only sitemap generated');
+  console.log('⚠️  All API attempts failed — shipping static-only sitemap (NO detail pages)');
 }
 
 main();
