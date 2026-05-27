@@ -40,6 +40,7 @@ function sanitizeEmailHtml(html: string): string {
     allowedAttributes: ALLOWED_ATTRIBUTES,
     allowedSchemes: ALLOWED_SCHEMES,
     allowedSchemesByTag: {
+      a: ['https', 'http', 'mailto'],
       img: ['https', 'data'],
     },
     // Enforce rel="noopener noreferrer" on all links automatically
