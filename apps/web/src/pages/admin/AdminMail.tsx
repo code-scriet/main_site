@@ -65,7 +65,10 @@ export default function AdminMail() {
       });
       if (!res.ok) throw new Error('search failed');
       const data = await res.json();
-      if (!ctrl.signal.aborted) setResults(data.data?.recipients ?? []);
+      if (!ctrl.signal.aborted) {
+        const recipients = Array.isArray(data.data) ? data.data : (data.data?.recipients ?? []);
+        setResults(recipients);
+      }
     } catch (e) {
       if ((e as Error).name !== 'AbortError') setResults([]);
     } finally {

@@ -32,7 +32,7 @@ const ALLOWED_ATTRIBUTES: sanitizeHtml.IOptions['allowedAttributes'] = {
   '*': ['class', 'style'],
 };
 
-const ALLOWED_SCHEMES = ['https', 'http', 'mailto'];
+const ALLOWED_SCHEMES = ['https', 'http', 'mailto', 'tel'];
 
 function sanitizeEmailHtml(html: string): string {
   return sanitizeHtml(html, {
@@ -40,7 +40,7 @@ function sanitizeEmailHtml(html: string): string {
     allowedAttributes: ALLOWED_ATTRIBUTES,
     allowedSchemes: ALLOWED_SCHEMES,
     allowedSchemesByTag: {
-      img: ['https', 'data'],
+      img: ['https', 'http', 'data', 'cid'],
     },
     // Enforce rel="noopener noreferrer" on all links automatically
     transformTags: {
