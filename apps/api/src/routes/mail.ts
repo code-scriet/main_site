@@ -40,7 +40,7 @@ function sanitizeEmailHtml(html: string): string {
     allowedAttributes: ALLOWED_ATTRIBUTES,
     allowedSchemes: ALLOWED_SCHEMES,
     allowedSchemesByTag: {
-      img: ['https', 'http', 'data', 'cid'],
+      img: ['https', 'data', 'cid'],
     },
     // Enforce rel="noopener noreferrer" on all links automatically
     transformTags: {
