@@ -107,17 +107,37 @@ export default function AdminMail() {
     setBccInput('');
   };
 
-  const recipientCount = audience === 'specific' ? selected.length : '~all';
+  // Pulls any pending manual email out of the input box so admins who
+  // forget to click "+ Add" don't get a silent "no recipients" failure.
+  // Returns the merged selected list (does not mutate state synchronously).
+  const flushPendingManualEmail = (): Recipient[] => {
+    const pending = manualEmail.trim().toLowerCase();
+    if (!pending) return selected;
+    if (!isValidEmail(pending)) return selected;
+    if (selected.some((r) => r.email.toLowerCase() === pending)) return selected;
+    const added: Recipient = { id: `manual-${pending}`, name: pending, email: pending };
+    const merged = [...selected, added];
+    setSelected(merged);
+    setManualEmail('');
+    return merged;
+  };
+
+  const pendingValid = audience === 'specific' && manualEmail.trim() !== '' && isValidEmail(manualEmail.trim().toLowerCase());
+  const hasRecipients = audience !== 'specific' || selected.length > 0 || pendingValid;
+  const recipientCount = audience === 'specific' ? selected.length + (pendingValid && !selected.some((s) => s.email.toLowerCase() === manualEmail.trim().toLowerCase()) ? 1 : 0) : '~all';
 
   const send = async () => {
     if (!token) return;
     if (!subject.trim() || !body.trim()) { setError('Subject and body are required'); return; }
-    if (audience === 'specific' && selected.length === 0) { setError('Add at least one recipient'); return; }
+    const effectiveSelected = audience === 'specific' ? flushPendingManualEmail() : selected;
+    if (audience === 'specific' && effectiveSelected.length === 0) { setError('Add at least one recipient'); return; }
     setSending(true); setError(null); setSuccess(null);
+    const ctrl = new AbortController();
+    const timeoutId = setTimeout(() => ctrl.abort(), 60_000);
     try {
       const payload = {
         audience,
-        emails: audience === 'specific' ? selected.map((r) => r.email) : undefined,
+        emails: audience === 'specific' ? effectiveSelected.map((r) => r.email) : undefined,
         cc: cc.length > 0 ? cc : undefined,
         bcc: bcc.length > 0 ? bcc : undefined,
         subject: subject.trim(),
@@ -128,17 +148,23 @@ export default function AdminMail() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify(payload),
+        signal: ctrl.signal,
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error?.message || 'Send failed');
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error?.message || `Send failed (HTTP ${res.status})`);
       setSuccess(data.message || `Sent to ${data.data?.recipientCount ?? 0} recipient(s)`);
       setConfirm(false);
-      setSubject(''); setBody(''); setSelected([]); setCc([]); setBcc([]);
+      setSubject(''); setBody(''); setSelected([]); setCc([]); setBcc([]); setManualEmail('');
       setCooldown(30);
       toast.success('Mail sent');
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Send failed');
+      const msg = (e as Error)?.name === 'AbortError'
+        ? 'Send timed out after 60s. Check Brevo status / server logs.'
+        : (e instanceof Error ? e.message : 'Send failed');
+      setError(msg);
+      toast.error(msg);
     } finally {
+      clearTimeout(timeoutId);
       setSending(false);
     }
   };
@@ -147,18 +173,26 @@ export default function AdminMail() {
     if (!token) return;
     if (!subject.trim() || !body.trim()) { setError('Subject and body are required'); return; }
     setSending(true); setError(null);
+    const ctrl = new AbortController();
+    const timeoutId = setTimeout(() => ctrl.abort(), 60_000);
     try {
       const res = await fetch(`${API_URL}/mail/send`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({ audience: 'specific', testToSelf: true, subject: subject.trim(), body: body.trim(), bodyType }),
+        signal: ctrl.signal,
       });
-      if (!res.ok) throw new Error('Test send failed');
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.error?.message || `Test send failed (HTTP ${res.status})`);
       toast.success('Test sent to you');
-    } catch {
-      // fallback: just say to use 'specific'
-      toast.info('Switch to Specific audience and add your email for a test send.');
+    } catch (e) {
+      const msg = (e as Error)?.name === 'AbortError'
+        ? 'Test send timed out after 60s.'
+        : (e instanceof Error ? e.message : 'Test send failed');
+      setError(msg);
+      toast.error(msg);
     } finally {
+      clearTimeout(timeoutId);
       setSending(false);
     }
   };
@@ -395,8 +429,14 @@ export default function AdminMail() {
         <Button
           size="sm"
           onClick={() => setConfirm(true)}
-          disabled={sending || cooldown > 0 || !subject.trim() || !body.trim()}
-          title={cooldown > 0 ? `Wait ${cooldown}s before sending another batch` : undefined}
+          disabled={sending || cooldown > 0 || !subject.trim() || !body.trim() || !hasRecipients}
+          title={
+            cooldown > 0
+              ? `Wait ${cooldown}s before sending another batch`
+              : !hasRecipients
+                ? 'Add at least one recipient (use + Add for external emails)'
+                : undefined
+          }
         >
           {sending && <Loader2 size={13} className="mr-1.5 animate-spin" />}
           <Send size={13} className="mr-1.5" />

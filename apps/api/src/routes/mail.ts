@@ -58,6 +58,11 @@ const sendMailSchema = z.object({
   subject: z.string().trim().min(1).max(200),
   body: z.string().trim().min(1).max(50000),
   bodyType: z.enum(['markdown', 'html']).default('markdown'),
+  // When true with audience='specific', the route resolves the recipient
+  // to the authenticated admin's email — used by the "Send test to me"
+  // button so admins can preview a real delivery without hand-typing
+  // their address.
+  testToSelf: z.boolean().optional(),
 });
 
 const MAIL_AUDIENCE_BATCH_SIZE = 500;
@@ -136,7 +141,7 @@ mailRouter.post('/send', authMiddleware, requireRole('ADMIN'), async (req: Reque
       });
     }
 
-    const { audience, emails, cc, bcc, subject, body, bodyType } = parsed.data;
+    const { audience, emails, cc, bcc, subject, body, bodyType, testToSelf } = parsed.data;
 
     // Sanitize HTML bodies to prevent XSS or injected scripts in email clients
     let safeBody = body;
@@ -238,7 +243,8 @@ mailRouter.post('/send', authMiddleware, requireRole('ADMIN'), async (req: Reque
         }
       }
     } else if (audience === 'specific') {
-      if (!emails || emails.length === 0) {
+      const effectiveEmails = testToSelf ? [authUser.email] : emails;
+      if (!effectiveEmails || effectiveEmails.length === 0) {
         return res.status(400).json({
           success: false,
           error: { message: 'No recipients specified' },
@@ -247,7 +253,7 @@ mailRouter.post('/send', authMiddleware, requireRole('ADMIN'), async (req: Reque
       // Accept external recipients for admin mail while preventing duplicate sends.
       const seen = new Set<string>();
       recipientEmails = [];
-      for (const email of emails) {
+      for (const email of effectiveEmails) {
         const normalized = email.trim();
         const key = normalized.toLowerCase();
         if (seen.has(key)) continue;
