@@ -1,18 +1,22 @@
 import { Layout } from '@/components/layout/Layout';
 import { SEO } from '@/components/SEO';
 import { useSettings } from '@/context/SettingsContext';
-import { Mail, MapPin, Github, Linkedin, Instagram, Twitter, MessageCircle } from 'lucide-react';
+import { Mail, MapPin, Github, Linkedin, Instagram } from 'lucide-react';
+import { DiscordIcon, WhatsAppIcon, XIcon } from '@/components/icons/SocialIcons';
 
 export default function ContactPage() {
   const { settings } = useSettings();
 
+  // Every entry is gated on a real URL in Settings — no dead `#` placeholders.
+  // X (Twitter) and Discord both pull from `settings.twitterUrl` / `settings.discordUrl`
+  // and disappear from the Follow Us strip when those are blank.
   const socialLinks = [
     settings?.githubUrl && { name: 'GitHub', icon: Github, href: settings.githubUrl },
     settings?.linkedinUrl && { name: 'LinkedIn', icon: Linkedin, href: settings.linkedinUrl },
-    { name: 'Twitter / X', icon: Twitter, href: settings?.twitterUrl || '#' },
+    settings?.discordUrl && { name: 'Discord', icon: DiscordIcon, href: settings.discordUrl },
     settings?.instagramUrl && { name: 'Instagram', icon: Instagram, href: settings.instagramUrl },
-    // TODO: Replace with the real Discord invite URL once it is finalized.
-    { name: 'Discord', icon: MessageCircle, href: settings?.discordUrl || '#' },
+    settings?.twitterUrl && { name: 'X', icon: XIcon, href: settings.twitterUrl },
+    settings?.whatsappUrl && { name: 'WhatsApp', icon: WhatsAppIcon, href: settings.whatsappUrl },
   ].filter(Boolean) as { name: string; icon: React.ComponentType<{ className?: string }>; href: string }[];
 
   return (

@@ -240,7 +240,10 @@ export function Hero() {
     disableParallax || isMobile ? [0, 0] : [0, 100]
   );
 
-  const stats = homeData?.stats ?? { members: 500, events: 3, achievements: 5 };
+  // Stats are live DB counts. Until the API resolves we render 0 instead of fake
+  // placeholder numbers — see `statsLoaded` below for the loading-state guard.
+  const statsLoaded = Boolean(homeData?.stats);
+  const stats = homeData?.stats ?? { members: 0, events: 0, achievements: 0 };
   const resolvedDescription =
     homeData?.settings?.clubDescription ||
     settings?.clubDescription ||
@@ -494,8 +497,8 @@ export function Hero() {
                       <div className={`inline-flex p-2.5 sm:p-4 rounded-xl sm:rounded-2xl bg-gradient-to-br ${stat.color} mb-3 sm:mb-6 shadow-2xl`}>
                         <stat.icon className="h-5 w-5 sm:h-8 sm:w-8 text-white" />
                       </div>
-                      <p className="text-3xl sm:text-5xl md:text-6xl font-bold text-white mb-1 sm:mb-2">
-                        <AnimatedCounter value={stats[stat.valueKey]} suffix="+" />
+                      <p className="text-3xl sm:text-5xl md:text-6xl font-bold text-white mb-1 sm:mb-2 min-h-[1em]">
+                        {statsLoaded ? <AnimatedCounter value={stats[stat.valueKey]} suffix="+" /> : <span aria-hidden="true">—</span>}
                       </p>
                       <p className="text-white/60 text-xs sm:text-base">{stat.label}</p>
                     </div>
@@ -507,8 +510,8 @@ export function Hero() {
                       <div className={`inline-flex p-2.5 sm:p-4 rounded-xl sm:rounded-2xl bg-gradient-to-br ${stat.color} mb-3 sm:mb-6 shadow-2xl`}>
                         <stat.icon className="h-5 w-5 sm:h-8 sm:w-8 text-white" />
                       </div>
-                      <p className="text-3xl sm:text-5xl md:text-6xl font-bold text-white mb-1 sm:mb-2">
-                        <AnimatedCounter value={stats[stat.valueKey]} suffix="+" />
+                      <p className="text-3xl sm:text-5xl md:text-6xl font-bold text-white mb-1 sm:mb-2 min-h-[1em]">
+                        {statsLoaded ? <AnimatedCounter value={stats[stat.valueKey]} suffix="+" /> : <span aria-hidden="true">—</span>}
                       </p>
                       <p className="text-white/60 text-xs sm:text-base">{stat.label}</p>
                     </div>

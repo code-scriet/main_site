@@ -1320,26 +1320,26 @@ model Credit {
 // fan out per-user (free-tier safe). The bell menu unions these into its feed
 // alongside the auto-derived items (invitations / certs / quiz / audit).
 model NotificationFeed {
-  id          String                @id @default(uuid())
-  source      NotificationSource    @default(ADMIN)
-  audience    NotificationAudience  @default(ALL)
+  id              String               @id @default(uuid())
+  source          NotificationSource   @default(ADMIN)
+  audience        NotificationAudience @default(ALL)
   // Roles to target when audience = CUSTOM. JSON: ["USER","NETWORK", ...]
-  audienceRoles Json?               @map("audience_roles")
+  audienceRoles   Json?                @map("audience_roles")
   // Specific user IDs to target when audience = CUSTOM. JSON string[].
-  audienceUserIds Json?             @map("audience_user_ids")
-  category    String                @default("system")
-  icon        String                @default("bell")
-  title       String                @db.VarChar(200)
-  body        String?               @db.Text
-  link        String?               @db.VarChar(500)
+  audienceUserIds Json?                @map("audience_user_ids")
+  category        String               @default("system")
+  icon            String               @default("bell")
+  title           String               @db.VarChar(200)
+  body            String?              @db.Text
+  link            String?              @db.VarChar(500)
   // Optional reference back to the entity that triggered the notification
   // (e.g. for auto-generated event/problem/announcement broadcasts).
-  refEntity   String?               @map("ref_entity")
-  refEntityId String?               @map("ref_entity_id")
-  createdById String?               @map("created_by_id")
-  createdBy   User?                 @relation("NotificationAuthor", fields: [createdById], references: [id], onDelete: SetNull)
-  createdAt   DateTime              @default(now()) @map("created_at")
-  expiresAt   DateTime?             @map("expires_at")
+  refEntity       String?              @map("ref_entity")
+  refEntityId     String?              @map("ref_entity_id")
+  createdById     String?              @map("created_by_id")
+  createdBy       User?                @relation("NotificationAuthor", fields: [createdById], references: [id], onDelete: SetNull)
+  createdAt       DateTime             @default(now()) @map("created_at")
+  expiresAt       DateTime?            @map("expires_at")
 
   @@index([createdAt(sort: Desc)])
   @@index([audience, createdAt(sort: Desc)])

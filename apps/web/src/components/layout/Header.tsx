@@ -8,6 +8,7 @@ import { useAuth } from '@/context/AuthContext';
 import { useSettings } from '@/context/SettingsContext';
 import { cn } from '@/lib/utils';
 import { getPlaygroundLaunchUrl } from '@/lib/playgroundUrl';
+import { Wordmark } from './Wordmark';
 
 const FOCUSABLE_SELECTOR = 'a[href], button:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
@@ -121,7 +122,7 @@ export function Header() {
             <div className="h-12 w-12 rounded-lg overflow-hidden shadow-md group-hover:shadow-lg transition-shadow">
               <img src="/logo.jpeg" alt="code.scriet" className="h-full w-full object-cover" />
             </div>
-            <span className="text-xl font-bold text-amber-900 group-hover:text-amber-700 transition-colors dark:text-amber-100 dark:group-hover:text-amber-300">code.scriet</span>
+            <Wordmark size="md" className="text-amber-900 group-hover:text-amber-700 transition-colors dark:text-amber-100 dark:group-hover:text-amber-300" />
           </Link>
 
           <div className="hidden xl:flex items-center space-x-4 2xl:space-x-6">

@@ -25,7 +25,7 @@ import type {
 
 export const usersApi = {
   // Stats
-  getPublicStats: () => request<{ members: number; events: number; achievements: number }>('/stats/public'),
+  getPublicStats: () => request<{ users?: number; members: number; events: number; upcomingEvents?: number; teamMembers?: number; achievements: number }>('/stats/public'),
   getHomePageData: () => request<HomePageData>('/stats/home'),
   getDashboardStats: (token: string) => request('/stats/dashboard', { token }),
 
