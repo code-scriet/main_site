@@ -198,7 +198,9 @@ export default function AdminMail() {
   };
 
   return (
-    <div className="flex flex-col gap-6 pb-24">
+    // Extra bottom padding on mobile (tab nav 56px + action bar ~78px + buffer)
+    // so the last form field is never hidden under the now-stacked bars.
+    <div className="flex flex-col gap-6 pb-[148px] lg:pb-24">
       <div className="flex items-end justify-between gap-3 flex-wrap">
         <div>
           <div className="text-[10.5px] uppercase tracking-[0.06em] font-semibold text-[var(--ds-text-3)]">Admin</div>
@@ -417,8 +419,10 @@ export default function AdminMail() {
         </DSCard>
       </div>
 
-      {/* Sticky action bar */}
-      <div className="fixed bottom-0 left-0 lg:left-[244px] right-0 z-30 frost border-t border-[var(--border-subtle)] px-4 py-3 flex items-center gap-3">
+      {/* Sticky action bar. On mobile, lift it above the 56px bottom-tab nav
+          (plus iOS safe-area inset) so the Send button isn't hidden behind
+          the Profile tab. Desktop docks to viewport bottom as before. */}
+      <div className="fixed bottom-[calc(56px+env(safe-area-inset-bottom,0px))] lg:bottom-0 left-0 lg:left-[244px] right-0 z-30 frost border-t border-[var(--border-subtle)] px-4 py-3 flex items-center gap-3">
         <Button size="sm" variant="ghost" onClick={() => { setSubject(''); setBody(''); setSelected([]); setCc([]); setBcc([]); }}>
           Clear
         </Button>
