@@ -287,13 +287,21 @@ const getHomePayload = async (): Promise<HomePayload> => {
 
 const sendPublicStats = async (res: Response) => {
   try {
-    const [userCount, eventCount, upcomingEventCount, teamMemberCount, achievementCount] = await Promise.all([
+    const [userCount, eventCount, upcomingEventCount, teamMemberCount, achievementCount, teamGroups] = await Promise.all([
       prisma.user.count(),
       prisma.event.count(),
       prisma.event.count({ where: { status: 'UPCOMING' } }),
       prisma.teamMember.count(),
       prisma.achievement.count(),
+      // Per-team head count for the /about Teams section. Keyed by TeamMember.team
+      // (free-form string column, e.g. "Core", "Technical", "DSA Champs").
+      prisma.teamMember.groupBy({ by: ['team'], _count: { _all: true } }),
     ]);
+
+    const teamCounts: Record<string, number> = {};
+    for (const g of teamGroups) {
+      if (g.team) teamCounts[g.team] = g._count._all;
+    }
 
     res.json({
       success: true,
@@ -304,6 +312,7 @@ const sendPublicStats = async (res: Response) => {
         upcomingEvents: upcomingEventCount,
         teamMembers: teamMemberCount,
         achievements: achievementCount,
+        teamCounts,
       },
     });
   } catch (error) {

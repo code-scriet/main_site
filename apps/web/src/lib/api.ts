@@ -479,6 +479,8 @@ export interface Settings {
   emailTestRecipients?: string | null;
   // Dashboard v2 — admin-controlled accent token. rust | teal | indigo | violet | mint | mono.
   accentColor?: string;
+  // ISO date of the club's founding — drives the "months since inception" stat on /about.
+  siteLaunchDate?: string | null;
   updatedAt: string;
 }
 

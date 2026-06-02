@@ -212,6 +212,8 @@ settingsRouter.get('/public', async (req: Request, res: Response) => {
       discordUrl: full.discordUrl,
       whatsappUrl: full.whatsappUrl,
       accentColor: full.accentColor,
+      // Used by /about to compute the "months since inception" stat.
+      siteLaunchDate: full.siteLaunchDate?.toISOString() ?? null,
     };
 
     if (!settings) {
@@ -248,6 +250,7 @@ settingsRouter.get('/public', async (req: Request, res: Response) => {
           discordUrl: null,
           whatsappUrl: null,
           accentColor: 'rust',
+          siteLaunchDate: '2026-01-01T00:00:00.000Z',
         },
       });
     }
