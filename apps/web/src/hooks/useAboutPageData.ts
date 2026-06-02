@@ -5,6 +5,7 @@ import { useSettings } from '@/context/SettingsContext';
 import {
   DEFAULT_ABOUT_CONTENT,
   LAUNCH_DATE,
+  TEAM_NAMES,
   monthsSinceLaunch,
   type AboutPageContent,
 } from '@/lib/aboutContent';
@@ -67,21 +68,29 @@ export function useAboutPageData(): AboutPageData {
     monthsSinceInception: monthsSinceLaunch(launchDate),
   };
 
-  // Merge live per-team counts into the static team list. Team-name lookup is
-  // case-insensitive and trims whitespace so admin-side typos don't silently
-  // drop a count. Items without a matching DB row stay at null (renders "—").
+  // Merge live per-team counts into the canonical team list. Team names are
+  // hardcoded in TEAM_NAMES (apps/web/src/lib/aboutContent.ts) — the lookup
+  // does a case-insensitive trim match so a stray "core" vs "Core" in the DB
+  // still resolves. A team with no matching DB rows shows 0 (truthful — we
+  // queried, found none) rather than "—" (unknown).
   const content = useMemo<AboutPageContent>(() => {
     const lookup: Record<string, number> = {};
     for (const [name, n] of Object.entries(teamCounts)) {
       lookup[name.trim().toLowerCase()] = n;
     }
+    const haveCounts = Object.keys(lookup).length > 0;
     return {
       ...DEFAULT_ABOUT_CONTENT,
       teams: {
         ...DEFAULT_ABOUT_CONTENT.teams,
         items: DEFAULT_ABOUT_CONTENT.teams.items.map((t) => {
+          // Defensive: t.name is restricted to TEAM_NAMES at compile time, but
+          // guard at runtime too in case content.ts ever drifts.
+          const isCanonical = (TEAM_NAMES as readonly string[]).includes(t.name);
           const live = lookup[t.name.trim().toLowerCase()];
-          return { ...t, count: typeof live === 'number' ? live : t.count };
+          if (typeof live === 'number') return { ...t, count: live };
+          if (haveCounts && isCanonical) return { ...t, count: 0 };
+          return t;
         }),
       },
     };

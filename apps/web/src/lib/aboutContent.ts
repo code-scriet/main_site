@@ -55,11 +55,35 @@ export interface AboutStory {
   paragraphs: AboutStoryParagraph[];
 }
 
+/**
+ * Canonical list of the club's six teams — single source of truth.
+ *
+ * Hardcoded so:
+ *   - The About page can never display a team name that doesn't exist.
+ *   - The `TeamMember.team` DB column has a fixed set of expected values
+ *     to match against when computing per-team counts.
+ *   - TypeScript catches any typo when wiring counts into UI.
+ *
+ * If the org structure ever genuinely changes, edit this tuple — every
+ * dependent site (About cards, per-team count lookup) updates from one place.
+ */
+export const TEAM_NAMES = [
+  'Core',
+  'Technical',
+  'DSA Champs',
+  'Designing',
+  'Social Media',
+  'Management',
+] as const;
+
+export type TeamName = (typeof TEAM_NAMES)[number];
+
 export interface AboutTeamItem {
   num: string;
-  name: string;
+  /** Restricted to one of TEAM_NAMES so the display name is always canonical. */
+  name: TeamName;
   desc: string;
-  /** Manual count. Set to null to omit. */
+  /** Live head count from /stats/public; null = not yet loaded / unknown. */
   count: number | null;
 }
 
