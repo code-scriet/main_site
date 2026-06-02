@@ -184,6 +184,15 @@ model Settings {
   // Allowed values: rust | teal | indigo | violet | mint | mono. Default rust.
   accentColor String @default("rust") @map("accent_color")
 
+  // Site launch date — drives the "months since inception" stat on /about.
+  siteLaunchDate DateTime @default("2026-01-01T00:00:00Z") @map("site_launch_date")
+
+  // About-page content (JSON-encoded; null = use defaults from apps/web/src/lib/aboutContent.ts).
+  // Shape: { hero, thesis, manifesto:{headline,lede,tenets:[]}, story:{aside,paragraphs:[]},
+  //          timeline:{headline,items:[]}, teams:{headline,lede,items:[]}, closing }
+  // Validated against an explicit Zod schema in apps/api/src/routes/settings.ts on PATCH.
+  aboutPageContent String? @map("about_page_content")
+
   @@map("settings")
 }
 

@@ -1,445 +1,309 @@
+import { Fragment, type ElementType } from 'react';
+import { Link } from 'react-router-dom';
+import { motion } from 'framer-motion';
+import { ArrowRight } from 'lucide-react';
 import { Layout } from '@/components/layout/Layout';
 import { SEO } from '@/components/SEO';
-import { motion } from 'framer-motion';
-import { Card, CardContent } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
-import { 
-  Target, Eye, Rocket, Code, Users, Trophy, 
-  Heart, BookOpen, Globe, Handshake, Check, GraduationCap
-} from 'lucide-react';
+import { useAboutPageData } from '@/hooks/useAboutPageData';
 import { useMotionConfig } from '@/hooks/useMotionConfig';
+import type { AboutPageStats } from '@/hooks/useAboutPageData';
+import { monthsWord, type AboutStoryParagraph, type AboutTeamItem } from '@/lib/aboutContent';
+
+// Render admin-authored text that may contain a small set of inline HTML tags
+// (<strong>, <em>, <br>, <span class="ab-em">) — the same tags the admin's
+// RichTextarea toolbar inserts. Settings is super-admin/PRESIDENT-only, so the
+// trust model accepts dangerouslySetInnerHTML here. Plain strings render too.
+function InlineHtml({
+  html,
+  as,
+  className,
+}: {
+  html: string;
+  as?: ElementType;
+  className?: string;
+}) {
+  const Tag = (as ?? 'span') as ElementType;
+  return <Tag className={className} dangerouslySetInnerHTML={{ __html: html }} />;
+}
+
+/**
+ * Render a paragraph from the story section. Strong/em tags from the JSON
+ * content are intentionally preserved (sanitised by the admin's structured
+ * editor, not by the public render path).
+ */
+function StoryParagraph({ paragraph }: { paragraph: AboutStoryParagraph }) {
+  if (paragraph.isPull) {
+    return (
+      <p className="ab-pull">
+        <span dangerouslySetInnerHTML={{ __html: paragraph.html }} />
+        {paragraph.cite ? <cite>{paragraph.cite}</cite> : null}
+      </p>
+    );
+  }
+  return <p dangerouslySetInnerHTML={{ __html: paragraph.html }} />;
+}
+
+/**
+ * Format a numeric stat with thousands separators. Stats are always integers.
+ */
+function statValue(n: number): string {
+  return n.toLocaleString('en-IN');
+}
+
+/**
+ * Display the team's count from content if set, else fall back to the live
+ * team-members total when there is exactly one team item without a count.
+ * Keeps admin-overridden numbers respected.
+ */
+function teamCountLabel(item: AboutTeamItem, fallbackTeamMembers: number, isOnlyUnset: boolean): string {
+  if (typeof item.count === 'number') return `${item.count} ${item.count === 1 ? 'member' : 'members'}`;
+  if (isOnlyUnset && fallbackTeamMembers > 0) return `${fallbackTeamMembers} members`;
+  return '—';
+}
+
+function HeroStats({ stats }: { stats: AboutPageStats }) {
+  const cells: Array<{ k: string; v: React.ReactNode }> = [
+    { k: 'Members', v: statValue(stats.members) },
+    { k: 'Events', v: statValue(stats.events) },
+    {
+      k: 'Age',
+      v: (
+        <Fragment>
+          {stats.monthsSinceInception}
+          <small> {stats.monthsSinceInception === 1 ? 'month' : 'months'}</small>
+        </Fragment>
+      ),
+    },
+  ];
+  return (
+    <>
+      {cells.map((c) => (
+        <div className="ab-hero-meta-cell" key={c.k}>
+          <div className="ab-k">{c.k}</div>
+          <div className="ab-v">{c.v}</div>
+        </div>
+      ))}
+    </>
+  );
+}
 
 export default function AboutPage() {
-  const { isMobile, shouldReduceMotion } = useMotionConfig();
+  const { stats, content } = useAboutPageData();
+  const { shouldReduceMotion } = useMotionConfig();
+  const { hero, thesis, manifesto, story, teams, closing } = content;
+
+  // Story paragraphs fade-up + stagger as they scroll into view. The aside itself
+  // stays as a plain <aside> so position: sticky (left-column heading that hangs
+  // while the right column scrolls past) works without interference.
+  const paragraphMotion = (i: number) =>
+    shouldReduceMotion
+      ? { initial: { opacity: 0 }, whileInView: { opacity: 1 }, transition: { duration: 0.25, delay: i * 0.04 } }
+      : {
+          initial: { opacity: 0, y: 24 },
+          whileInView: { opacity: 1, y: 0 },
+          transition: { duration: 0.6, delay: Math.min(i * 0.08, 0.5), ease: [0.22, 0.61, 0.36, 1] as const },
+        };
+  const viewportOnce = { once: true, amount: 0.2 } as const;
+
+  // Render the thesis body with the (admin-defined) emphasis substring as
+  // ember italic. Falls back to plain text if the substring isn't present.
+  const thesisRendered = (() => {
+    const body = thesis.body;
+    const emphasis = thesis.emphasis;
+    if (!emphasis || !body.includes(emphasis)) {
+      return <>{body}</>;
+    }
+    const [before, ...rest] = body.split(emphasis);
+    const after = rest.join(emphasis);
+    return (
+      <>
+        {before}
+        <span className="ab-em">{emphasis}</span>
+        {after}
+      </>
+    );
+  })();
+
+  const unsetTeamCounts = teams.items.filter((t) => t.count === null);
+  const singleUnsetCount = unsetTeamCounts.length === 1;
 
   return (
     <Layout>
-      <SEO 
-        title="About codescriet — SCRIET's Official Coding Club, CCS University Meerut"
-        description="codescriet is the official coding club of SCRIET, CCS University Meerut. Known as code.scriet or code scriet, we run events in DSA, competitive programming, and web development."
+      <SEO
+        title="About code.scriet — SCRIET's Official Coding Club, CCS University Meerut"
+        description="code.scriet is the official coding club of SCRIET, CCS University Meerut. A practice-first, ship-first coding community founded January 1, 2026."
         url="/about"
       />
-      
-      {/* Hero Section */}
-      <section className="py-14 sm:py-24 bg-gradient-to-br from-amber-400 via-orange-500 to-amber-600 text-white relative overflow-hidden">
-        <div className="absolute inset-0 opacity-10">
-          <div
-            aria-hidden="true"
-            className={`absolute top-10 left-10 rounded-full bg-white animate-pulse ${
-              isMobile ? 'h-40 w-40 blur-2xl' : 'h-72 w-72 blur-3xl'
-            }`}
-          />
-          <div
-            aria-hidden="true"
-            className={`absolute bottom-10 right-10 rounded-full bg-white animate-pulse ${
-              isMobile ? 'h-56 w-56 blur-2xl' : 'h-96 w-96 blur-3xl'
-            }`}
-            style={{ animationDelay: '1s' }}
-          />
-        </div>
-        
-        <div className="container mx-auto px-4 relative">
-          <motion.div
-            initial={{ opacity: 0, y: 30 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: shouldReduceMotion ? 0.35 : 0.7 }}
-            className="text-center max-w-4xl mx-auto"
-          >
-            <motion.div 
-              initial={{ scale: 0 }}
-              animate={{ scale: 1 }}
-              transition={{ duration: 0.5, delay: 0.2 }}
-              className="inline-flex h-20 w-20 items-center justify-center rounded-full bg-white/20 backdrop-blur-sm mb-6 shadow-2xl"
-            >
-              <Heart className="h-10 w-10 text-white" />
-            </motion.div>
-            
-            <h1 className="text-4xl sm:text-5xl md:text-6xl font-bold mb-4 tracking-tight">
-              About code.scriet
-            </h1>
-            
-            <p className="text-base sm:text-2xl text-amber-50 font-medium mb-6">
-              Building tomorrow's problem solvers through community, collaboration, and continuous learning
-            </p>
-          </motion.div>
-        </div>
-      </section>
 
-      {/* Our Story - Philosophy Section */}
-      <section className="py-16 sm:py-20 bg-white">
-        <div className="container mx-auto px-4">
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.6 }}
-            viewport={{ once: true }}
-            className="max-w-5xl mx-auto"
-          >
-            {/* Section Header */}
-            <div className="text-center mb-12">
-              <Badge className="bg-amber-100 text-amber-700 border-amber-200 mb-4">
-                <Heart className="h-3 w-3 mr-1" />
-                Our Journey
-              </Badge>
-              <h2 className="text-3xl sm:text-4xl font-bold text-gray-900 mb-4">
-                Achievements & Momentum
-              </h2>
-              <p className="text-lg sm:text-xl text-amber-700 font-semibold mb-3">
-                Code.Scriet — Built Different.
-              </p>
-              <div className="max-w-3xl mx-auto space-y-4">
-                <p className="text-gray-700 text-lg">
-                  Code.Scriet was founded with one belief:
-                </p>
-                <p className="text-gray-600 text-base">
-                  Our club name, codescriet, combines "code" WITH "SCRIET", code for 
-                  COMMUNITY OF DEVELOPERS AND ENGINEERS.
-                  You may also find us as code.scriet or code scriet across social media.
-                  We are the official coding club of SCRIET, CCS University Meerut.
-                </p>
-                <blockquote className="text-xl sm:text-2xl text-gray-900 font-medium italic border-l-4 border-amber-500 pl-6 py-2">
-                  "Students don't need more clubs. They need ecosystems."
-                </blockquote>
-                <p className="text-gray-600 text-base">
-                  In just three months, we've moved fast—building skills, confidence, leadership, 
-                  and a culture that puts students first. Aggressively first.
-                </p>
-              </div>
-            </div>
-
-            {/* Early Impact Stats */}
-            <div className="mb-12">
-              <h3 className="text-2xl font-bold text-center text-gray-900 mb-3">
-                Early Impact, Real Momentum
-              </h3>
-              <p className="text-center text-gray-600 mb-8">We're young. But we're not idle.</p>
-              
-              <div className="grid sm:grid-cols-2 lg:grid-cols-5 gap-4 mb-6">
-                {[
-                  { label: '3 months', sublabel: 'since inception', desc: 'Continuous on-ground activity' },
-                  { label: '300+', sublabel: 'students empowered', desc: 'Through hands-on learning & mentorship' },
-                  { label: '3', sublabel: 'high-engagement events', desc: 'Focused on practical growth' },
-                  { label: '1', sublabel: 'foundational workshop', desc: 'Git & GitHub mastery' },
-                  { label: '1', sublabel: 'media mention', desc: 'Public recognition secured' },
-                ].map((stat, idx) => (
-                  <motion.div
-                    key={idx}
-                    initial={{ opacity: 0, y: 20 }}
-                    whileInView={{ opacity: 1, y: 0 }}
-                    transition={{ duration: 0.5, delay: idx * 0.1 }}
-                    viewport={{ once: true }}
-                  >
-                    <Card className="text-center border-amber-200 hover:shadow-md transition-shadow h-full">
-                      <CardContent className="p-4">
-                        <div className="text-3xl font-bold text-amber-600 mb-1">{stat.label}</div>
-                        <div className="text-sm font-semibold text-gray-900 mb-2">{stat.sublabel}</div>
-                        <div className="text-xs text-gray-600">{stat.desc}</div>
-                      </CardContent>
-                    </Card>
-                  </motion.div>
-                ))}
-              </div>
-              
-              <p className="text-center text-xl font-semibold text-amber-900">
-                Not experiments. Execution.
-              </p>
-            </div>
-
-            {/* What We've Built */}
-            <div className="mb-12 bg-amber-50 -mx-4 px-4 py-8 rounded-xl">
-              <h3 className="text-2xl font-bold text-center text-gray-900 mb-3">
-                What We've Actually Built on Campus
-              </h3>
-              <p className="text-center text-lg text-gray-700 mb-2">
-                Code.Scriet isn't "just tech."
-              </p>
-              <p className="text-center text-xl font-bold text-amber-700 mb-6">
-                It's a student-development engine.
-              </p>
-              
-              <div className="grid md:grid-cols-2 gap-4 max-w-4xl mx-auto">
-                {[
-                  'Introduced practical, real-world skills early in students\' academic journeys',
-                  'Created a culture of learning by doing, not passive listening',
-                  'Helped students move from curiosity to confidence—especially those with zero prior exposure',
-                  'Built a growing internal network of learners, leaders, and collaborators'
-                ].map((point, idx) => (
-                  <motion.div
-                    key={idx}
-                    initial={{ opacity: 0, x: -20 }}
-                    whileInView={{ opacity: 1, x: 0 }}
-                    transition={{ duration: 0.5, delay: idx * 0.1 }}
-                    viewport={{ once: true }}
-                    className="flex items-start gap-3 bg-white p-4 rounded-lg border border-amber-200"
-                  >
-                    <div className="flex-shrink-0 w-6 h-6 rounded-full bg-amber-500 text-white flex items-center justify-center text-sm font-bold mt-0.5">
-                      <Check className="h-4 w-4" />
-                    </div>
-                    <p className="text-gray-700">{point}</p>
-                  </motion.div>
-                ))}
-              </div>
-              
-              <p className="text-center text-gray-600 italic mt-6">
-                This is groundwork. The kind that lasts.
-              </p>
-            </div>
-
-            {/* Why Different */}
-            <div className="mb-12">
-              <h3 className="text-2xl font-bold text-center text-gray-900 mb-4">
-                Why Code.Scriet Is Different
-              </h3>
-              <blockquote className="text-center text-xl text-gray-800 mb-6 max-w-2xl mx-auto">
-                <p className="mb-2">Most clubs organize events.</p>
-                <p className="text-amber-700 font-bold text-2xl">We design trajectories.</p>
-              </blockquote>
-              
-              <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4 max-w-5xl mx-auto">
-                {[
-                  { title: 'Tech as a Tool', desc: 'Not the end goal—empowering people is' },
-                  { title: 'Holistic Focus', desc: 'Skills, mindset, leadership, and collaboration' },
-                  { title: 'Systems Over Shortcuts', desc: 'Building depth before chasing scale' },
-                  { title: 'Campus to Global', desc: 'Built to grow from local to international' }
-                ].map((item, idx) => (
-                  <motion.div
-                    key={idx}
-                    initial={{ opacity: 0, y: 20 }}
-                    whileInView={{ opacity: 1, y: 0 }}
-                    transition={{ duration: 0.5, delay: idx * 0.1 }}
-                    viewport={{ once: true }}
-                    className="bg-gradient-to-br from-amber-50 to-orange-50 p-4 rounded-lg border border-amber-200"
-                  >
-                    <h4 className="font-semibold text-gray-900 mb-2">{item.title}</h4>
-                    <p className="text-sm text-gray-600">{item.desc}</p>
-                  </motion.div>
-                ))}
-              </div>
-            </div>
-
-            {/* Mission Statement */}
-            <motion.div
-              initial={{ opacity: 0, scale: 0.95 }}
-              whileInView={{ opacity: 1, scale: 1 }}
-              transition={{ duration: 0.6 }}
-              viewport={{ once: true }}
-              className="text-center"
-            >
-              <Card className="bg-gradient-to-br from-amber-50 to-orange-50 border-amber-300 shadow-lg">
-                <CardContent className="p-8">
-                  <p className="text-gray-700 mb-3">Our mission is simple, borderline audacious:</p>
-                  <blockquote className="text-2xl sm:text-3xl text-gray-900 font-bold mb-3">
-                    "Building an environment where curiosity becomes capability."
-                  </blockquote>
-                  <p className="text-amber-700 font-semibold">And we're serious about earning that title.</p>
-                </CardContent>
-              </Card>
-            </motion.div>
-
-            {/* Momentum Over Milestones */}
-            <div className="mt-12 text-center">
-              <h3 className="text-2xl font-bold text-gray-900 mb-4">
-                Momentum Over Milestones
-              </h3>
-              <p className="text-lg text-gray-700 mb-3 max-w-2xl mx-auto">
-                We don't believe achievements are endpoints. They're signals.
-              </p>
-              <Card className="inline-block bg-amber-100 border-amber-300 max-w-2xl">
-                <CardContent className="p-6">
-                  <p className="text-gray-700 mb-2">In our first phase, we've proven one thing clearly:</p>
-                  <p className="text-xl font-bold text-amber-900">
-                    When given the right environment, students rise fast.
-                  </p>
-                </CardContent>
-              </Card>
-            </div>
-          </motion.div>
-        </div>
-      </section>
-
-      {/* Vision & Mission Cards */}
-      <section className="py-20 bg-amber-50">
-        <div className="container mx-auto px-4">
-          <div className="grid md:grid-cols-2 gap-8 max-w-5xl mx-auto">
-            <motion.div
-              initial={{ opacity: 0, x: -20 }}
-              whileInView={{ opacity: 1, x: 0 }}
-              transition={{ duration: 0.6 }}
-              viewport={{ once: true }}
-            >
-              <Card className="h-full bg-gradient-to-br from-amber-100 to-orange-50 border-amber-200">
-                <CardContent className="p-8">
-                  <div className="inline-flex h-16 w-16 items-center justify-center rounded-full bg-gradient-to-br from-amber-400 to-orange-500 mb-6">
-                    <Eye className="h-8 w-8 text-white" />
-                  </div>
-                  <h2 className="text-2xl font-bold text-amber-900 mb-4">Our Vision</h2>
-                  <p className="text-gray-700 text-lg">
-                    To create a thriving community of problem solvers who are equipped with the skills and mindset to tackle any technical challenge and make a positive impact in the tech industry.
-                  </p>
-                </CardContent>
-              </Card>
-            </motion.div>
-            <motion.div
-              initial={{ opacity: 0, x: 20 }}
-              whileInView={{ opacity: 1, x: 0 }}
-              transition={{ duration: 0.6 }}
-              viewport={{ once: true }}
-            >
-              <Card className="h-full bg-gradient-to-br from-amber-100 to-orange-50 border-amber-200">
-                <CardContent className="p-8">
-                  <div className="inline-flex h-16 w-16 items-center justify-center rounded-full bg-gradient-to-br from-amber-400 to-orange-500 mb-6">
-                    <Target className="h-8 w-8 text-white" />
-                  </div>
-                  <h2 className="text-2xl font-bold text-amber-900 mb-4">Our Mission</h2>
-                  <p className="text-gray-700 text-lg">
-                    To provide a supportive platform for students to learn, practice, and excel in programming through hands-on workshops, collaborative projects, and mentorship opportunities.
-                  </p>
-                </CardContent>
-              </Card>
-            </motion.div>
+      {/* HERO */}
+      <section className="ab-hero">
+        <div className="pub-container">
+          <div className="ab-hero-eyebrow-row">
+            {hero.eyebrow.left ? <span className="ab-ember">{hero.eyebrow.left}</span> : null}
+            <span className="ab-sep" aria-hidden="true" />
+            {hero.eyebrow.middle ? <span>{hero.eyebrow.middle}</span> : null}
+            <span className="ab-sep" aria-hidden="true" />
+            {hero.eyebrow.right ? <span>{hero.eyebrow.right}</span> : null}
           </div>
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.6, delay: 0.1 }}
-            viewport={{ once: true }}
-            className="max-w-5xl mx-auto mt-8"
-          >
-            <Card className="bg-white border-amber-200 shadow-sm">
-              <CardContent className="p-6 sm:p-8 text-center">
-                <div className="inline-flex h-14 w-14 items-center justify-center rounded-full bg-amber-100 mb-4">
-                  <GraduationCap className="h-7 w-7 text-amber-700" />
-                </div>
-                <p className="text-sm font-semibold tracking-wide text-amber-700 uppercase mb-2">
-                  Teacher Incharge
-                </p>
-                <h3 className="text-2xl font-bold text-gray-900">Er. Pravin Panwar Sir</h3>
-              </CardContent>
-            </Card>
-          </motion.div>
+
+          <h1>
+            {hero.titlePre}
+            <br />
+            <span className="ab-em">{hero.titleEmphasis}</span>
+            {hero.titlePost}
+          </h1>
+
+          <div className="ab-hero-meta">
+            <p className="ab-hero-meta-lede">{hero.lede}</p>
+            <HeroStats stats={stats} />
+          </div>
+
+          {/* "This thing is alive" strip. Mono badges, ember live-dot — three
+              facts that are always true and never need touching. Renders below
+              the stats inside the hero container. */}
+          <div className="ab-status-strip" aria-label="Club status">
+            <span className="ab-status-pulse" aria-hidden="true">
+              <span className="ab-status-pulse-dot" />
+            </span>
+            <span className="ab-status-label">ACTIVE</span>
+            <span className="ab-status-sep" aria-hidden="true">·</span>
+            <span>CCSU Meerut</span>
+            <span className="ab-status-sep" aria-hidden="true">·</span>
+            <span>since 01.01.2026</span>
+            <span className="ab-status-sep" aria-hidden="true">·</span>
+            <span>QOTD daily at 09:00 IST</span>
+            <span className="ab-status-sep" aria-hidden="true">·</span>
+            <span className="ab-status-ember">curiosity required</span>
+          </div>
         </div>
       </section>
 
-      {/* What We Do */}
-      <section className="py-20 bg-white">
-        <div className="container mx-auto px-4">
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.6 }}
-            viewport={{ once: true }}
-            className="text-center mb-12"
-          >
-            <h2 className="text-4xl font-bold text-amber-900 mb-4">What We Do</h2>
-            <p className="text-gray-600 max-w-2xl mx-auto">
-              Our focus areas are designed to help members grow as developers and problem solvers
-            </p>
-          </motion.div>
+      {/* THESIS */}
+      <section className="ab-thesis">
+        <div className="pub-container">
+          {thesis.prelude ? <div className="ab-thesis-prelude">{thesis.prelude}</div> : null}
+          <p className="ab-thesis-body">
+            {thesisRendered}
+            {thesis.small ? <span className="ab-small">{thesis.small}</span> : null}
+          </p>
+        </div>
+      </section>
 
-          <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6">
-            {[
-              { icon: Code, title: 'Data Structures & Algorithms', description: 'Master the fundamentals through practice and peer learning' },
-              { icon: Users, title: 'Collaborative Projects', description: 'Build real-world applications together as a team' },
-              { icon: Trophy, title: 'Competitive Programming', description: 'Participate in contests and sharpen your skills' },
-              { icon: Rocket, title: 'Career Development', description: 'Prepare for technical interviews and career growth' },
-            ].map((area, index) => (
-              <motion.div
-                key={area.title}
-                initial={{ opacity: 0, y: 20 }}
-                whileInView={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.6, delay: index * 0.1 }}
-                viewport={{ once: true }}
-              >
-                <Card className="h-full hover:shadow-lg transition-all duration-300">
-                  <CardContent className="p-6 text-center">
-                    <div className="inline-flex h-14 w-14 items-center justify-center rounded-full bg-amber-100 mb-4">
-                      <area.icon className="h-7 w-7 text-amber-600" />
-                    </div>
-                    <h3 className="text-lg font-semibold text-amber-900 mb-2">{area.title}</h3>
-                    <p className="text-gray-600 text-sm">{area.description}</p>
-                  </CardContent>
-                </Card>
-              </motion.div>
+      {/* MANIFESTO */}
+      <section className="ab-manifesto">
+        <div className="pub-container">
+          <div className="ab-section-head">
+            <div className="pub-eyebrow">
+              <span className="pub-eyebrow-num">01</span>
+              <span className="pub-eyebrow-dot" />
+              {manifesto.eyebrowLabel}
+            </div>
+            <h2>{manifesto.headline}</h2>
+            {manifesto.lede ? <p className="ab-lede">{manifesto.lede}</p> : null}
+          </div>
+          <div className="ab-tenets">
+            {manifesto.tenets.map((t) => (
+              <div className="ab-tenet" key={`${t.num}-${t.title}`}>
+                <div className="ab-tenet-num" aria-hidden="true">{t.num}</div>
+                <div className="ab-tenet-body">
+                  <h3>{t.title}</h3>
+                  <InlineHtml as="p" html={t.body} />
+                  {t.commentary ? <p className="ab-tenet-commentary">{t.commentary}</p> : null}
+                </div>
+              </div>
             ))}
           </div>
         </div>
       </section>
 
-      {/* What's Next Section */}
-      <section className="py-16 bg-gradient-to-br from-amber-900 via-amber-800 to-orange-900 text-white relative overflow-hidden">
-        <div className="container mx-auto px-4 relative">
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.6 }}
-            viewport={{ once: true }}
-            className="max-w-4xl mx-auto text-center"
-          >
-            <div className="inline-flex h-16 w-16 items-center justify-center rounded-full bg-amber-400/20 backdrop-blur-sm mb-6 shadow-lg">
-              <Rocket className="h-8 w-8 text-amber-300" />
-            </div>
-            
-            <h2 className="text-3xl sm:text-4xl font-bold mb-4 text-white">
-              What's Next
-            </h2>
-            
-            <p className="text-xl text-amber-100 mb-8 leading-relaxed">
-              The next chapter is already in motion.
-            </p>
-            
-            <div className="grid sm:grid-cols-2 gap-6 mb-8">
-              {[
-                { 
-                  icon: BookOpen, 
-                  title: 'Structured Learning Tracks', 
-                  description: 'Moving beyond single workshops to comprehensive pathways'
-                },
-                { 
-                  icon: Users, 
-                  title: 'Cross-Campus Collaborations', 
-                  description: 'Partnering with other clubs and institutions'
-                },
-                { 
-                  icon: Globe, 
-                  title: 'National-Level Initiatives', 
-                  description: 'Expanding our reach and impact'
-                },
-                { 
-                  icon: Handshake, 
-                  title: 'Strategic Partnerships', 
-                  description: 'Accelerating scale and creating opportunities'
-                },
-              ].map((item, index) => (
-                <motion.div
-                  key={item.title}
-                  initial={{ opacity: 0, y: 20 }}
-                  whileInView={{ opacity: 1, y: 0 }}
-                  transition={{ duration: 0.5, delay: index * 0.1 }}
-                  viewport={{ once: true }}
-                  className="p-6 bg-white/10 rounded-xl backdrop-blur-sm border border-white/20 hover:bg-white/15 hover:border-amber-400/50 transition-all duration-300 shadow-lg"
-                >
-                  <item.icon className="h-10 w-10 text-amber-300 mx-auto mb-4" />
-                  <h3 className="text-lg font-semibold mb-2 text-white">{item.title}</h3>
-                  <p className="text-amber-100 text-sm">{item.description}</p>
+      {/* STORY — aside is intentionally NOT wrapped in motion.aside; framer-motion
+          leaves inline transforms that fight position: sticky in some browsers, and
+          the sticky-scroll IS the animation here. */}
+      <section className="ab-story">
+        <div className="pub-container">
+          <div className="ab-story-grid">
+            <aside className="ab-story-aside">
+              {story.asideEyebrow ? <div className="ab-story-aside-eyebrow">{story.asideEyebrow}</div> : null}
+              <h2 className="ab-story-aside-title">
+                {story.asideTitle.replace('{{months}}', monthsWord(stats.monthsSinceInception))}
+              </h2>
+            </aside>
+            <div className="ab-story-body">
+              {story.paragraphs.map((p, i) => (
+                <motion.div key={i} viewport={viewportOnce} {...paragraphMotion(i)}>
+                  <StoryParagraph paragraph={p} />
                 </motion.div>
               ))}
             </div>
+          </div>
+        </div>
+      </section>
 
-            <motion.div
-              initial={{ opacity: 0 }}
-              whileInView={{ opacity: 1 }}
-              transition={{ duration: 0.6, delay: 0.4 }}
-              viewport={{ once: true }}
-              className="space-y-3"
-            >
-              <p className="text-lg text-amber-100">
-                We're not asking for belief.
-              </p>
-              <p className="text-xl font-semibold text-white">
-                We're offering alignment.
-              </p>
-            </motion.div>
-          </motion.div>
+      {/* TEAMS — section 03 is gone (the old Timeline). Anything time-bound
+          lives on /events + /achievements; About stays evergreen. */}
+      <section className="ab-teams">
+        <div className="pub-container">
+          <div className="ab-section-head">
+            <div className="pub-eyebrow">
+              <span className="pub-eyebrow-num">03</span>
+              <span className="pub-eyebrow-dot" />
+              {teams.eyebrowLabel}
+            </div>
+            <h2>{teams.headline}</h2>
+            {teams.lede ? <p className="ab-lede">{teams.lede}</p> : null}
+          </div>
+          <div className="ab-team-list">
+            {teams.items.map((t) => (
+              <Link to="/team" className="ab-team-row" key={`${t.num}-${t.name}`}>
+                <span className="ab-team-num">{t.num}</span>
+                <div>
+                  <h3>{t.name}</h3>
+                  <p>{t.desc}</p>
+                </div>
+                <span className="ab-team-count">
+                  {teamCountLabel(t, stats.teamMembers, singleUnsetCount)}
+                </span>
+              </Link>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* CLOSING — role-aware CTA stack. Visitor self-selects (student /
+          event-goer / external) instead of us guessing via auth state. */}
+      <section className="ab-close">
+        <div className="pub-container">
+          {closing.eyebrow ? <div className="ab-close-eyebrow">{closing.eyebrow}</div> : null}
+          <h2>
+            {closing.titlePre}
+            <span className="ab-em">{closing.titleEmphasis}</span>
+            {closing.titlePost}
+          </h2>
+          {closing.body ? <p>{closing.body}</p> : null}
+          <div className="ab-close-ctas">
+            {closing.ctas.map((cta, i) => {
+              const isPrimary = cta.primary === true;
+              return (
+                <Link
+                  key={`${cta.href}-${i}`}
+                  to={cta.href}
+                  className={isPrimary ? 'ab-close-cta-card ab-close-cta-card--primary' : 'ab-close-cta-card'}
+                >
+                  {cta.audience ? (
+                    <span className="ab-close-cta-card-tag">
+                      <span className="ab-close-cta-card-tag-dot" aria-hidden="true" />
+                      {cta.audience}
+                    </span>
+                  ) : null}
+                  <span className="ab-close-cta-card-label">{cta.text}</span>
+                  {cta.hint ? <span className="ab-close-cta-card-hint">{cta.hint}</span> : null}
+                  <span className="ab-close-cta-card-arrow" aria-hidden="true">
+                    <ArrowRight size={18} />
+                  </span>
+                </Link>
+              );
+            })}
+          </div>
         </div>
       </section>
     </Layout>
