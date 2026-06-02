@@ -68,11 +68,11 @@ export interface AboutStory {
  * dependent site (About cards, per-team count lookup) updates from one place.
  */
 export const TEAM_NAMES = [
-  'Core',
+  'Admin',
   'Technical',
-  'DSA Champs',
-  'Designing',
-  'Social Media',
+  'DSA',
+  'Design',
+  'Content',
   'Management',
 ] as const;
 
@@ -235,42 +235,44 @@ export const DEFAULT_ABOUT_CONTENT: AboutPageContent = {
     items: [
       {
         num: '01',
-        name: 'Core',
+        name: 'Admin',
         desc:
-          'The leadership team — president, vice-president, and the small group that carries the institutional memory. Sets direction, doesn\'t micromanage.',
+          "The leadership group — president, vice-president, and the small core that carries the institutional memory. Sets direction, doesn't micromanage.",
         count: null,
       },
       {
         num: '02',
         name: 'Technical',
         desc:
-          'Engineers who build the platform — the QOTD pipeline, the dashboard, the certificate system, the playground. Real production code on a real stack.',
+          'Engineers who build the platform — QOTD, the dashboard, certificates, the playground. Real production code on a real stack.',
         count: null,
       },
       {
         num: '03',
-        name: 'DSA Champs',
+        name: 'DSA',
         desc:
           'The competitive programmers. Mock contests, contest prep, and the bench for inter-college rounds. Practice loud, win quiet.',
         count: null,
       },
       {
         num: '04',
-        name: 'Designing',
-        desc: "Brand, posters, web. Anything the club has shipped — this team made it look right. Visual quality is non-negotiable.",
+        name: 'Design',
+        desc:
+          "Brand, posters, web. Anything the club has shipped — this team made it look right. Visual quality is non-negotiable.",
         count: null,
       },
       {
         num: '05',
-        name: 'Social Media',
+        name: 'Content',
         desc:
-          'Instagram, LinkedIn, the campus group chats. The voice of the club outside our four walls. We sound like ourselves, not like a brand.',
+          'Captions, newsletters, write-ups of what we built. The voice of the club outside our four walls — we sound like ourselves, not a brand.',
         count: null,
       },
       {
         num: '06',
         name: 'Management',
-        desc: 'The reason events happen on time. Coordination, vendors, logistics, follow-through. Invisible when it works — which is most of the time.',
+        desc:
+          'The reason events happen on time. Coordination, vendors, logistics, follow-through. Invisible when it works — which is most of the time.',
         count: null,
       },
     ],
