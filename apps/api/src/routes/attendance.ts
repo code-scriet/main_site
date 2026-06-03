@@ -20,6 +20,7 @@ import {
   CLIENT_SCAN_FUTURE_TOLERANCE_MS,
   CLIENT_SCAN_MAX_AGE_MS,
   isRegistrationBoundToPayload,
+  markDayAttendanceAtomic,
   normalizeEventDays,
   parseDayLabels,
   parseRequestedDayNumber,
@@ -28,6 +29,7 @@ import {
   resolveEffectiveDayNumber,
   resolveStoredAttendanceTokenPayloads,
   syncRegistrationAttendance,
+  unmarkDayAttendanceAtomic,
   type AttendanceTokenPayload,
 } from '../utils/attendanceDomain.js';
 import { isGuest, isParticipant, participantsOnly } from '../utils/registrationFilters.js';
@@ -226,42 +228,15 @@ router.post('/scan', authMiddleware, requireRole('CORE_MEMBER'), async (req: Req
     }
 
     const scannedAt = new Date();
-    const marked = await withRetry(() => prisma.dayAttendance.updateMany({
-      where: {
-        registrationId: registration.id,
-        dayNumber: effectiveDayNumber,
-        attended: false,
-      },
-      data: {
-        attended: true,
-        scannedAt,
-        scannedBy: admin.id,
-      },
+    const outcome = await withRetry(() => markDayAttendanceAtomic(prisma, {
+      registrationId: registration.id,
+      dayNumber: effectiveDayNumber,
+      scannedAt,
+      scannedBy: admin.id,
     }));
 
-    if (marked.count === 0) {
-      const existingDay = await prisma.dayAttendance.findUnique({
-        where: {
-          registrationId_dayNumber: {
-            registrationId: registration.id,
-            dayNumber: effectiveDayNumber,
-          },
-        },
-      });
-
-      if (existingDay?.attended) {
-        return ApiResponse.conflict(res, `${registration.user.name} is already marked present for day ${effectiveDayNumber}`);
-      }
-
-      await prisma.dayAttendance.create({
-        data: {
-          registrationId: registration.id,
-          dayNumber: effectiveDayNumber,
-          attended: true,
-          scannedAt,
-          scannedBy: admin.id,
-        },
-      });
+    if (outcome === 'duplicate') {
+      return ApiResponse.conflict(res, `${registration.user.name} is already marked present for day ${effectiveDayNumber}`);
     }
 
     await syncRegistrationAttendance(registration.id);
@@ -474,44 +449,17 @@ router.post('/scan-batch', authMiddleware, requireRole('CORE_MEMBER'), async (re
         continue;
       }
 
-      const updated = await withRetry(() => prisma.dayAttendance.updateMany({
-        where: {
-          registrationId: registration.id,
-          dayNumber: effectiveDayNumber,
-          attended: false,
-        },
-        data: {
-          attended: true,
-          scannedAt,
-          scannedBy: admin.id,
-        },
+      const outcome = await withRetry(() => markDayAttendanceAtomic(prisma, {
+        registrationId: registration.id,
+        dayNumber: effectiveDayNumber,
+        scannedAt,
+        scannedBy: admin.id,
       }));
 
-      if (updated.count === 0) {
-        const existingDay = await prisma.dayAttendance.findUnique({
-          where: {
-            registrationId_dayNumber: {
-              registrationId: registration.id,
-              dayNumber: effectiveDayNumber,
-            },
-          },
-        });
-
-        if (existingDay?.attended) {
-          results.push({ localId: item.localId, status: 'duplicate', name: registration.user.name, message: `Already present for day ${effectiveDayNumber}` });
-          dupCount++;
-          continue;
-        }
-
-        await prisma.dayAttendance.create({
-          data: {
-            registrationId: registration.id,
-            dayNumber: effectiveDayNumber,
-            attended: true,
-            scannedAt,
-            scannedBy: admin.id,
-          },
-        });
+      if (outcome === 'duplicate') {
+        results.push({ localId: item.localId, status: 'duplicate', name: registration.user.name, message: `Already present for day ${effectiveDayNumber}` });
+        dupCount++;
+        continue;
       }
 
       await syncRegistrationAttendance(registration.id);
@@ -696,42 +644,16 @@ router.post('/scan-beacon', beaconLimiter, express.text({ type: '*/*' }), async 
             continue;
           }
 
-          const atomicResult = await withRetry(() => prisma.dayAttendance.updateMany({
-            where: {
-              registrationId: registration.id,
-              dayNumber: effectiveDayNumber,
-              attended: false,
-            },
-            data: {
-              attended: true,
-              scannedAt,
-              scannedBy: adminId,
-            },
+          const outcome = await withRetry(() => markDayAttendanceAtomic(prisma, {
+            registrationId: registration.id,
+            dayNumber: effectiveDayNumber,
+            scannedAt,
+            scannedBy: adminId,
           }));
 
-          if (atomicResult.count === 0) {
-            const existingDay = await prisma.dayAttendance.findUnique({
-              where: {
-                registrationId_dayNumber: {
-                  registrationId: registration.id,
-                  dayNumber: effectiveDayNumber,
-                },
-              },
-            });
-            if (existingDay?.attended) {
-              skippedCount++;
-              continue;
-            }
-
-            await prisma.dayAttendance.create({
-              data: {
-                registrationId: registration.id,
-                dayNumber: effectiveDayNumber,
-                attended: true,
-                scannedAt,
-                scannedBy: adminId,
-              },
-            });
+          if (outcome === 'duplicate') {
+            skippedCount++;
+            continue;
           }
 
           await syncRegistrationAttendance(registration.id);
@@ -809,43 +731,16 @@ router.post('/manual-checkin', authMiddleware, requireRole('CORE_MEMBER'), async
     }
 
     const scannedAt = new Date();
-    const updated = await withRetry(() => prisma.dayAttendance.updateMany({
-      where: {
-        registrationId,
-        dayNumber: effectiveDayNumber,
-        attended: false,
-      },
-      data: {
-        attended: true,
-        scannedAt,
-        scannedBy: admin.id,
-        manualOverride: true,
-      },
+    const outcome = await withRetry(() => markDayAttendanceAtomic(prisma, {
+      registrationId,
+      dayNumber: effectiveDayNumber,
+      scannedAt,
+      scannedBy: admin.id,
+      manualOverride: true,
     }));
-    if (updated.count === 0) {
-      const existingDay = await prisma.dayAttendance.findUnique({
-        where: {
-          registrationId_dayNumber: {
-            registrationId,
-            dayNumber: effectiveDayNumber,
-          },
-        },
-      });
 
-      if (existingDay?.attended) {
-        return ApiResponse.conflict(res, `${registration.user.name} is already checked in for day ${effectiveDayNumber}`);
-      }
-
-      await prisma.dayAttendance.create({
-        data: {
-          registrationId,
-          dayNumber: effectiveDayNumber,
-          attended: true,
-          scannedAt,
-          scannedBy: admin.id,
-          manualOverride: true,
-        },
-      });
+    if (outcome === 'duplicate') {
+      return ApiResponse.conflict(res, `${registration.user.name} is already checked in for day ${effectiveDayNumber}`);
     }
 
     await syncRegistrationAttendance(registrationId);
@@ -913,20 +808,11 @@ router.patch('/unmark', authMiddleware, requireRole('CORE_MEMBER'), async (req: 
       return ApiResponse.badRequest(res, `dayNumber must be between 1 and ${eventDays}`);
     }
 
-    const updated = await withRetry(() => prisma.dayAttendance.updateMany({
-      where: {
-        registrationId,
-        dayNumber: effectiveDayNumber,
-        attended: true,
-      },
-      data: {
-        scannedAt: null,
-        scannedBy: null,
-        manualOverride: false,
-        attended: false,
-      },
+    const outcome = await withRetry(() => unmarkDayAttendanceAtomic(prisma, {
+      registrationId,
+      dayNumber: effectiveDayNumber,
     }));
-    if (updated.count === 0) {
+    if (outcome === 'not-marked') {
       return ApiResponse.badRequest(res, `${registration.user.name} is not marked as attended for day ${effectiveDayNumber}`);
     }
 
@@ -1046,60 +932,22 @@ router.patch('/bulk-update', authMiddleware, requireRole('CORE_MEMBER'), async (
           }
 
           if (action === 'mark' && markScannedAt) {
-            const result = await tx.dayAttendance.updateMany({
-              where: {
-                registrationId: registration.id,
-                dayNumber: effectiveDayNumber,
-                attended: false,
-              },
-              data: {
-                attended: true,
-                scannedAt: markScannedAt,
-                scannedBy: admin.id,
-                manualOverride: true,
-              },
+            const outcome = await markDayAttendanceAtomic(tx, {
+              registrationId: registration.id,
+              dayNumber: effectiveDayNumber,
+              scannedAt: markScannedAt,
+              scannedBy: admin.id,
+              manualOverride: true,
             });
-
-            if (result.count === 0) {
-              const existingDay = await tx.dayAttendance.findUnique({
-                where: {
-                  registrationId_dayNumber: {
-                    registrationId: registration.id,
-                    dayNumber: effectiveDayNumber,
-                  },
-                },
-              });
-
-              if (existingDay?.attended) {
-                throw new AttendanceBulkUpdateConflictError('Attendance state changed during bulk update');
-              }
-
-              await tx.dayAttendance.create({
-                data: {
-                  registrationId: registration.id,
-                  dayNumber: effectiveDayNumber,
-                  attended: true,
-                  scannedAt: markScannedAt,
-                  scannedBy: admin.id,
-                  manualOverride: true,
-                },
-              });
+            if (outcome === 'duplicate') {
+              throw new AttendanceBulkUpdateConflictError('Attendance state changed during bulk update');
             }
           } else {
-            const result = await tx.dayAttendance.updateMany({
-              where: {
-                registrationId: registration.id,
-                dayNumber: effectiveDayNumber,
-                attended: true,
-              },
-              data: {
-                attended: false,
-                scannedAt: null,
-                scannedBy: null,
-                manualOverride: false,
-              },
+            const outcome = await unmarkDayAttendanceAtomic(tx, {
+              registrationId: registration.id,
+              dayNumber: effectiveDayNumber,
             });
-            if (result.count === 0) {
+            if (outcome === 'not-marked') {
               throw new AttendanceBulkUpdateConflictError('Attendance state changed during bulk update');
             }
           }

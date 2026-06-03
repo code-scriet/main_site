@@ -1,11 +1,10 @@
 import { Router, Request, Response } from 'express';
 import { Prisma } from '@prisma/client';
-import { randomUUID } from 'crypto';
 import { prisma } from '../lib/prisma.js';
 import { authMiddleware, getAuthUser } from '../middleware/auth.js';
 import { requireNotBlocked } from '../middleware/blocks.js';
 import { auditLog } from '../utils/audit.js';
-import { generateAttendanceToken } from '../utils/attendanceToken.js';
+import { createEventRegistrationInTx } from '../utils/registrationIntake.js';
 import { emailService } from '../utils/email.js';
 import { logger } from '../utils/logger.js';
 import { sanitizeEventRegistrationFields, validateRegistrationFieldSubmissions } from '../utils/eventRegistrationFields.js';
@@ -77,9 +76,6 @@ registrationsRouter.post('/events/:eventId', authMiddleware, requireNotBlocked('
 
     try {
       const result = await executeSerializableTransaction(async (tx) => {
-        const registrationId = randomUUID();
-        const attendanceToken = generateAttendanceToken(authUser.id, eventId, registrationId);
-
         // Capacity check: only count PARTICIPANT registrations. GUEST invitations do not consume capacity.
         const event = await tx.event.findUnique({
           where: { id: eventId },
@@ -169,27 +165,28 @@ registrationsRouter.post('/events/:eventId', authMiddleware, requireNotBlocked('
           });
         }
 
-        const createdRegistration = await tx.eventRegistration.create({
-          data: { id: registrationId, userId: authUser.id, eventId, customFieldResponses, attendanceToken },
-          select: {
-            id: true,
-            userId: true,
-            eventId: true,
-            timestamp: true,
-            customFieldResponses: true,
-            event: { select: { id: true, title: true, startDate: true, slug: true, location: true, imageUrl: true } },
-          },
+        const { registration: created, attendanceToken } = await createEventRegistrationInTx(tx, {
+          userId: authUser.id,
+          eventId,
+          eventDays: event.eventDays,
+          customFieldResponses,
         });
 
-        const normalizedEventDays = Number.isInteger(event.eventDays) && event.eventDays > 0
-          ? Math.min(event.eventDays, 10)
-          : 1;
-        const dayRows = Array.from({ length: normalizedEventDays }, (_, index) => ({
-          registrationId: createdRegistration.id,
-          dayNumber: index + 1,
-          attended: false,
-        }));
-        await tx.dayAttendance.createMany({ data: dayRows });
+        const createdRegistration = {
+          id: created.id,
+          userId: created.userId,
+          eventId: created.eventId,
+          timestamp: created.timestamp,
+          customFieldResponses: created.customFieldResponses,
+          event: {
+            id: event.id,
+            title: event.title,
+            startDate: event.startDate,
+            slug: event.slug,
+            location: event.location,
+            imageUrl: event.imageUrl,
+          },
+        };
 
         return { createdRegistration, eventTitle: event.title, attendanceToken };
       });

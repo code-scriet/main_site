@@ -13,6 +13,7 @@
 // Route handlers still own HTTP shape, auth checks, audit logging, and
 // socket emits. They call into this module for the domain work.
 
+import { Prisma } from '@prisma/client';
 import { prisma } from '../lib/prisma.js';
 import { verifyAttendanceToken } from './attendanceToken.js';
 
@@ -193,4 +194,124 @@ export async function resolveAttendancePayloadFromToken(
     const fallbackMap = await resolveStoredAttendanceTokenPayloads([normalizedToken]);
     return fallbackMap.get(normalizedToken) || null;
   }
+}
+
+// A Prisma client capable of the DayAttendance reads/writes these helpers
+// perform. Both the global `prisma` client and an interactive transaction
+// client satisfy it, so a single helper serves standalone scans and the
+// in-transaction bulk path alike.
+export type AttendanceDbClient = Prisma.TransactionClient;
+
+export type DayAttendanceMarkOutcome = 'marked' | 'created' | 'duplicate';
+
+export interface MarkDayAttendanceParams {
+  registrationId: string;
+  dayNumber: number;
+  scannedAt: Date;
+  scannedBy: string;
+  // When provided, written to both the update and create paths. Omit to
+  // leave manualOverride untouched on update and at its default on create —
+  // this is what the QR-scan path wants (it must not clear an override).
+  manualOverride?: boolean;
+}
+
+// Atomically mark a single (registration, day) present.
+//
+// This is the one place the "never check-then-update" attendance invariant
+// lives (a stated Hard Constraint). The protocol:
+//   1. updateMany flips attended false→true. A positive count means we won
+//      the row — 'marked'.
+//   2. count===0 means either the row is already attended (a real duplicate
+//      scan) or it doesn't exist yet. A single findUnique disambiguates:
+//      attended → 'duplicate'; missing → create it and return 'created'.
+// Callers map the three outcomes to their own response shape (HTTP conflict,
+// results-array entry, skip counter, or a thrown bulk-conflict sentinel).
+//
+// Pass the global `prisma` client (wrap the call in withRetry for Neon
+// cold-start resilience) for standalone scans, or a transaction client when
+// marking inside a serializable/interactive transaction.
+export async function markDayAttendanceAtomic(
+  client: AttendanceDbClient,
+  params: MarkDayAttendanceParams,
+): Promise<DayAttendanceMarkOutcome> {
+  const { registrationId, dayNumber, scannedAt, scannedBy, manualOverride } = params;
+
+  const updateData: Prisma.DayAttendanceUpdateManyMutationInput = {
+    attended: true,
+    scannedAt,
+    scannedBy,
+  };
+  if (manualOverride !== undefined) {
+    updateData.manualOverride = manualOverride;
+  }
+
+  const marked = await client.dayAttendance.updateMany({
+    where: { registrationId, dayNumber, attended: false },
+    data: updateData,
+  });
+  if (marked.count > 0) {
+    return 'marked';
+  }
+
+  const existingDay = await client.dayAttendance.findUnique({
+    where: { registrationId_dayNumber: { registrationId, dayNumber } },
+  });
+  if (existingDay?.attended) {
+    return 'duplicate';
+  }
+
+  // The row was missing a moment ago, so create it — but do so with
+  // skipDuplicates (ON CONFLICT DO NOTHING). Two requests can both reach this
+  // point for the same (registrationId, dayNumber) and race to insert; a bare
+  // create() would let the loser throw P2002 against the @@unique constraint
+  // (→ 500), and inside a transaction a thrown P2002 also poisons the txn so a
+  // catch-and-retry can't recover. createMany skipDuplicates never raises and
+  // never aborts the transaction.
+  const inserted = await client.dayAttendance.createMany({
+    data: [{
+      registrationId,
+      dayNumber,
+      attended: true,
+      scannedAt,
+      scannedBy,
+      ...(manualOverride !== undefined ? { manualOverride } : {}),
+    }],
+    skipDuplicates: true,
+  });
+  if (inserted.count > 0) {
+    return 'created';
+  }
+
+  // count === 0 means a concurrent request created the row between our
+  // findUnique and this insert. Re-run the atomic mark to settle: if the racer
+  // left it unattended we still flip it ('marked'); if it's already attended
+  // this is a genuine duplicate.
+  const settled = await client.dayAttendance.updateMany({
+    where: { registrationId, dayNumber, attended: false },
+    data: updateData,
+  });
+  return settled.count > 0 ? 'marked' : 'duplicate';
+}
+
+export type DayAttendanceUnmarkOutcome = 'unmarked' | 'not-marked';
+
+// Atomically unmark a single (registration, day): reset it to the fully
+// unattended state (attended false, scannedAt/scannedBy null, manualOverride
+// false). Returns 'not-marked' when no attended row matched, so callers can
+// translate to a 400 (single unmark) or a bulk-conflict sentinel.
+export async function unmarkDayAttendanceAtomic(
+  client: AttendanceDbClient,
+  params: { registrationId: string; dayNumber: number },
+): Promise<DayAttendanceUnmarkOutcome> {
+  const { registrationId, dayNumber } = params;
+  const updated = await client.dayAttendance.updateMany({
+    where: { registrationId, dayNumber, attended: true },
+    data: {
+      attended: false,
+      scannedAt: null,
+      scannedBy: null,
+      manualOverride: false,
+    },
+  });
+  return updated.count > 0 ? 'unmarked' : 'not-marked';
 }
