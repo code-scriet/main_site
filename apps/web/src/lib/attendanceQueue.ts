@@ -62,11 +62,14 @@ export function scanDedupeKey(token: string, dayNumber: number): string {
 }
 
 /**
- * Validates if a string looks like a valid attendance JWT token.
+ * Validates if a value looks like a valid attendance JWT token.
  * Attendance tokens are JWTs with 3 base64url segments separated by dots.
  * This is a lightweight frontend check — full validation happens on the backend.
+ *
+ * Accepts `unknown` on purpose: scanned QR payloads arrive untyped, so the
+ * runtime guard against non-string input is part of the intended API.
  */
-export function isValidAttendanceToken(token: string): boolean {
+export function isValidAttendanceToken(token: unknown): token is string {
   if (!token || typeof token !== 'string') return false;
 
   // JWT format: header.payload.signature (3 parts separated by dots)

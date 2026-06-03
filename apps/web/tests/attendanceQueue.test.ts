@@ -25,8 +25,10 @@ test('isValidAttendanceToken rejects wrong segment counts, short and non-string 
   assert.equal(isValidAttendanceToken('a.b.c'), false); // too short
   assert.equal(isValidAttendanceToken('has spaces.in.it-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'), false);
   assert.equal(isValidAttendanceToken(''), false);
-  // @ts-expect-error — guard must tolerate non-string input at runtime
+  // Non-string input is part of the API (scanned payloads are untyped).
   assert.equal(isValidAttendanceToken(null), false);
+  assert.equal(isValidAttendanceToken(undefined), false);
+  assert.equal(isValidAttendanceToken(12345), false);
 });
 
 test('normalizeScannedAttendanceToken returns a raw valid token unchanged', () => {

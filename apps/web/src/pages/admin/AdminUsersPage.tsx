@@ -108,7 +108,10 @@ function AdminUsersPageInner() {
   // cascading re-renders; each fetchNextPage resolves before the next fires.
   const [loadingAll, setLoadingAll] = useState(false);
   const loadAll = async () => {
-    if (loadingAll) return;
+    // Don't start while one is running, or while a "Load more" fetch is already
+    // in flight — overlapping fetchNextPage() calls cause redundant requests
+    // and make paging order timing-dependent.
+    if (loadingAll || isFetchingNextPage) return;
     setLoadingAll(true);
     try {
       let result = await fetchNextPage();
@@ -312,7 +315,7 @@ function AdminUsersPageInner() {
             variant="ghost"
             size="sm"
             onClick={() => void loadAll()}
-            disabled={!hasNextPage || loadingAll}
+            disabled={!hasNextPage || loadingAll || isFetchingNextPage}
             className="text-[var(--ds-text-3)]"
           >
             {loadingAll ? (
