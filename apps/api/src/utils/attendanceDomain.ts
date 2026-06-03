@@ -260,17 +260,37 @@ export async function markDayAttendanceAtomic(
     return 'duplicate';
   }
 
-  await client.dayAttendance.create({
-    data: {
+  // The row was missing a moment ago, so create it — but do so with
+  // skipDuplicates (ON CONFLICT DO NOTHING). Two requests can both reach this
+  // point for the same (registrationId, dayNumber) and race to insert; a bare
+  // create() would let the loser throw P2002 against the @@unique constraint
+  // (→ 500), and inside a transaction a thrown P2002 also poisons the txn so a
+  // catch-and-retry can't recover. createMany skipDuplicates never raises and
+  // never aborts the transaction.
+  const inserted = await client.dayAttendance.createMany({
+    data: [{
       registrationId,
       dayNumber,
       attended: true,
       scannedAt,
       scannedBy,
       ...(manualOverride !== undefined ? { manualOverride } : {}),
-    },
+    }],
+    skipDuplicates: true,
   });
-  return 'created';
+  if (inserted.count > 0) {
+    return 'created';
+  }
+
+  // count === 0 means a concurrent request created the row between our
+  // findUnique and this insert. Re-run the atomic mark to settle: if the racer
+  // left it unattended we still flip it ('marked'); if it's already attended
+  // this is a genuine duplicate.
+  const settled = await client.dayAttendance.updateMany({
+    where: { registrationId, dayNumber, attended: false },
+    data: updateData,
+  });
+  return settled.count > 0 ? 'marked' : 'duplicate';
 }
 
 export type DayAttendanceUnmarkOutcome = 'unmarked' | 'not-marked';

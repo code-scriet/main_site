@@ -51,17 +51,30 @@ function makeFakeClient(initialRows: Row[] = []) {
       const { registrationId, dayNumber } = args.where.registrationId_dayNumber;
       return rows.get(keyOf(registrationId, dayNumber)) ?? null;
     },
-    async create(args: { data: Partial<Row> & { registrationId: string; dayNumber: number } }): Promise<Row> {
-      calls.push('create');
-      const row: Row = {
-        attended: false,
-        scannedAt: null,
-        scannedBy: null,
-        manualOverride: false,
-        ...args.data,
-      };
-      rows.set(keyOf(row.registrationId, row.dayNumber), row);
-      return row;
+    async createMany(args: {
+      data: Array<Partial<Row> & { registrationId: string; dayNumber: number }>;
+      skipDuplicates?: boolean;
+    }): Promise<{ count: number }> {
+      calls.push('createMany');
+      let count = 0;
+      for (const entry of args.data) {
+        const key = keyOf(entry.registrationId, entry.dayNumber);
+        if (rows.has(key)) {
+          if (!args.skipDuplicates) {
+            throw new Error('fake unique violation');
+          }
+          continue; // ON CONFLICT DO NOTHING
+        }
+        rows.set(key, {
+          attended: false,
+          scannedAt: null,
+          scannedBy: null,
+          manualOverride: false,
+          ...entry,
+        });
+        count++;
+      }
+      return { count };
     },
   };
 
@@ -99,7 +112,7 @@ test('markDayAttendanceAtomic on an already-attended row → duplicate, no creat
   });
 
   assert.equal(outcome, 'duplicate');
-  assert.ok(!calls.includes('create'), 'must not create a row for a duplicate');
+  assert.ok(!calls.includes('createMany'), 'must not insert a row for a duplicate');
 });
 
 test('markDayAttendanceAtomic creates a missing row → created (manualOverride honoured)', async () => {
@@ -131,6 +144,67 @@ test('markDayAttendanceAtomic leaves manualOverride at default when not supplied
   // A QR scan must never assert manualOverride — the created row keeps the
   // schema default (false).
   assert.equal(rows.get('r1:1')?.manualOverride, false);
+});
+
+// Concurrency: two requests both find the row missing and both try to insert.
+// The loser's createMany is skipped (count 0); the helper re-runs the atomic
+// mark to settle instead of surfacing a P2002. Simulated with an inline fake
+// where the row is invisible at findUnique time but already present at insert.
+test('markDayAttendanceAtomic settles a lost create race as duplicate (racer marked it)', async () => {
+  let updateManyCalls = 0;
+  const client = {
+    dayAttendance: {
+      async updateMany(): Promise<{ count: number }> {
+        updateManyCalls += 1;
+        return { count: 0 }; // initial: row missing; retry: racer left it attended
+      },
+      async findUnique(): Promise<null> {
+        return null; // racer's row not visible to us yet
+      },
+      async createMany(): Promise<{ count: number }> {
+        return { count: 0 }; // skipped — racer already inserted
+      },
+    },
+  } as unknown as AttendanceDbClient;
+
+  const outcome = await markDayAttendanceAtomic(client, {
+    registrationId: 'r1',
+    dayNumber: 1,
+    scannedAt: new Date(),
+    scannedBy: 'admin-1',
+  });
+
+  assert.equal(outcome, 'duplicate');
+  assert.equal(updateManyCalls, 2, 'initial mark + settle retry');
+});
+
+test('markDayAttendanceAtomic settles a lost create race as marked (racer left it unattended)', async () => {
+  let updateManyCalls = 0;
+  const client = {
+    dayAttendance: {
+      async updateMany(): Promise<{ count: number }> {
+        updateManyCalls += 1;
+        // initial: row missing → 0; settle retry: racer's row is unattended → flip → 1
+        return { count: updateManyCalls === 1 ? 0 : 1 };
+      },
+      async findUnique(): Promise<null> {
+        return null;
+      },
+      async createMany(): Promise<{ count: number }> {
+        return { count: 0 }; // skipped — racer already inserted (as unattended)
+      },
+    },
+  } as unknown as AttendanceDbClient;
+
+  const outcome = await markDayAttendanceAtomic(client, {
+    registrationId: 'r1',
+    dayNumber: 1,
+    scannedAt: new Date(),
+    scannedBy: 'admin-1',
+  });
+
+  assert.equal(outcome, 'marked');
+  assert.equal(updateManyCalls, 2, 'initial mark + settle retry');
 });
 
 test('unmarkDayAttendanceAtomic resets an attended row → unmarked', async () => {
