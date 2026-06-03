@@ -5,10 +5,17 @@ import { Mail, MapPin, Phone, MessageCircle, Clock, Github, Linkedin, Instagram,
 import { DiscordIcon, WhatsAppIcon, XIcon } from '@/components/icons/SocialIcons';
 import type { ContactEmail } from '@/lib/api';
 
-// Strip everything but digits for tel:/wa.me links while keeping the
-// human-friendly formatting for display.
-function phoneDigits(raw: string): string {
-  return raw.replace(/[^\d+]/g, '').replace(/^\+/, '');
+// tel: value keeps a single leading "+" so international numbers (e.g. +91…)
+// dial correctly — stripping it can misdial on some devices/dialers.
+function toTelValue(raw: string): string {
+  const cleaned = raw.replace(/[^\d+]/g, '');
+  const digits = cleaned.replace(/\+/g, '');
+  return cleaned.startsWith('+') ? `+${digits}` : digits;
+}
+
+// wa.me expects country code + number with no "+" or separators.
+function toWhatsAppNumber(raw: string): string {
+  return raw.replace(/\D/g, '');
 }
 
 export default function ContactPage() {
@@ -26,7 +33,8 @@ export default function ContactPage() {
   ];
 
   const phone = settings?.contactPhone?.trim() || '';
-  const phoneTel = phone ? phoneDigits(phone) : '';
+  const phoneTel = phone ? toTelValue(phone) : '';
+  const phoneWa = phone ? toWhatsAppNumber(phone) : '';
 
   // Every entry is gated on a real URL in Settings — no dead `#` placeholders.
   const socialLinks = [
@@ -119,7 +127,7 @@ export default function ContactPage() {
                       Call now
                     </a>
                     <a
-                      href={`https://wa.me/${phoneTel}`}
+                      href={`https://wa.me/${phoneWa}`}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-emerald-50 text-emerald-700 text-sm font-medium hover:bg-emerald-100 transition-colors border border-emerald-200"
