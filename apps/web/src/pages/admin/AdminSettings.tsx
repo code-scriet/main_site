@@ -14,6 +14,7 @@ import { ToggleRow as SharedToggleRow } from '@/components/admin/settings/Toggle
 import { GeneralSettingsCard } from '@/components/admin/settings/GeneralSettingsCard';
 import { RegistrationEventsCard } from '@/components/admin/settings/RegistrationEventsCard';
 import { SocialLinksCard } from '@/components/admin/settings/SocialLinksCard';
+import { ContactChannelsCard } from '@/components/admin/settings/ContactChannelsCard';
 import { BrandAccentCard } from '@/components/admin/settings/BrandAccentCard';
 import { SettingsCard } from '@/components/admin/settings/SettingsCard';
 
@@ -191,9 +192,18 @@ export default function AdminSettings() {
         emailFooterText,
         ...updateData
       } = settings;
-      
+
+      // Drop blank/half-filled contact-email rows so one incomplete row can't
+      // fail Zod validation and block the entire settings save.
+      const cleanedContactEmails = (updateData.contactEmails ?? [])
+        .map((e) => ({ label: e.label.trim(), email: e.email.trim() }))
+        .filter((e) => e.label && e.email);
+
       // Update regular settings
-      const updated = await api.updateSettings(updateData, token);
+      const updated = await api.updateSettings(
+        { ...updateData, contactEmails: cleanedContactEmails },
+        token,
+      );
       
       // Update email templates to config file
       const emailResponse = await fetch(`${import.meta.env.VITE_API_URL}/settings/email-templates`, {
@@ -524,6 +534,9 @@ export default function AdminSettings() {
       </SettingsCard>
 
       <SocialLinksCard settings={settings} onChange={setSettings} lastSavedAt={lastSavedAt} />
+
+      {/* Contact channels — phone + admin-managed extra emails for the public /contact page. */}
+      <ContactChannelsCard settings={settings} onChange={setSettings} lastSavedAt={lastSavedAt} />
 
       {/* Email templates — wide because the markdown editor needs horizontal room. */}
       <SettingsCard

@@ -132,6 +132,11 @@ model Settings {
   linkedinUrl              String?  @map("linkedin_url")
   twitterUrl               String?  @map("twitter_url")
   whatsappUrl              String?  @map("whatsapp_url")
+  // Public contact page channels. contactPhone drives the "Call us" / WhatsApp
+  // card; contactEmails is an admin-managed list of { label, email } shown
+  // alongside the primary clubEmail so multiple departments can be reached.
+  contactPhone             String?  @map("contact_phone")
+  contactEmails            Json?    @map("contact_emails")
   hiringEnabled            Boolean  @default(true) @map("hiring_enabled")
   emailAnnouncementBody    String?  @map("email_announcement_body")
   emailEventBody           String?  @map("email_event_body")
