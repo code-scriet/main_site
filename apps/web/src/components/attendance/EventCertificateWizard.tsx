@@ -62,6 +62,11 @@ import {
   type CompetitionCertificateTierConfigMap,
   type CompetitionCertificateTierKey,
 } from './competitionCertificateUtils';
+import {
+  filterAttendanceRecipients,
+  filterGuestRecipients,
+  type RecipientFilter,
+} from './attendanceCertRecipients';
 
 interface EventCertificateWizardProps {
   eventId: string;
@@ -104,7 +109,6 @@ interface GenerationSummary {
 
 type CertificateMode = 'attendance' | 'competition';
 type WizardStep = 'mode' | 'select' | 'config' | 'signatories' | 'review' | 'manage';
-type RecipientFilter = 'all' | 'attended' | 'no_cert';
 type AttendanceAudience = 'participants' | 'guests';
 
 const CERT_TYPE_OPTIONS: Array<{ value: CertType; label: string }> = [
@@ -268,37 +272,22 @@ export default function EventCertificateWizard({
     [competitionCandidates, competitionIncludedUserIds, competitionTierConfigs, eventName],
   );
 
-  const filteredRecipients = useMemo(() => {
-    let list = recipients;
-    if (recipientFilter === 'attended') list = list.filter((recipient) => recipient.attended);
-    if (recipientFilter === 'no_cert') list = list.filter((recipient) => !recipient.hasCertificate);
-    if (deferredRecipientSearch.trim()) {
-      const query = deferredRecipientSearch.toLowerCase();
-      list = list.filter((recipient) =>
-        recipient.userName.toLowerCase().includes(query)
-        || recipient.userEmail.toLowerCase().includes(query),
-      );
-    }
-    return list;
-  }, [deferredRecipientSearch, recipientFilter, recipients]);
+  const filteredRecipients = useMemo(
+    () => filterAttendanceRecipients(recipients, {
+      filter: recipientFilter,
+      search: deferredRecipientSearch,
+    }),
+    [deferredRecipientSearch, recipientFilter, recipients],
+  );
 
-  const filteredGuestRecipients = useMemo(() => {
-    let list = guestRecipients;
-    if (!includeGuestNonAttendees) {
-      list = list.filter((recipient) => recipient.attended);
-    }
-    if (recipientFilter === 'attended') list = list.filter((recipient) => recipient.attended);
-    if (recipientFilter === 'no_cert') list = list.filter((recipient) => !recipient.existingCertificateId);
-    if (deferredRecipientSearch.trim()) {
-      const query = deferredRecipientSearch.toLowerCase();
-      list = list.filter((recipient) =>
-        recipient.name.toLowerCase().includes(query)
-        || recipient.email.toLowerCase().includes(query)
-        || recipient.role.toLowerCase().includes(query),
-      );
-    }
-    return list;
-  }, [deferredRecipientSearch, guestRecipients, includeGuestNonAttendees, recipientFilter]);
+  const filteredGuestRecipients = useMemo(
+    () => filterGuestRecipients(guestRecipients, {
+      filter: recipientFilter,
+      search: deferredRecipientSearch,
+      includeNonAttendees: includeGuestNonAttendees,
+    }),
+    [deferredRecipientSearch, guestRecipients, includeGuestNonAttendees, recipientFilter],
+  );
 
   const filteredCerts = useMemo(() => {
     if (!deferredManagementSearch.trim()) return generatedCerts;

@@ -17,6 +17,7 @@ import { deriveInvitationStatus, getEffectiveEventEnd } from '../utils/invitatio
 import { guestsOnly, isGuest, isParticipant, participantsOnly } from '../utils/registrationFilters.js';
 import { socketEvents } from '../utils/socket.js';
 import { executeSerializableTransaction, isSerializationConflict } from '../utils/transactionRetry.js';
+import { createEventRegistrationInTx } from '../utils/registrationIntake.js';
 
 export const invitationsRouter = Router();
 
@@ -1286,31 +1287,13 @@ invitationsRouter.post('/:id/accept', authMiddleware, async (req: Request, res: 
             };
           }
 
-          const attendanceToken = generateAttendanceToken(authUser.id, invitation.eventId, registrationId);
-          const createdRegistration = await tx.eventRegistration.create({
-            data: {
-              id: registrationId,
-              userId: authUser.id,
-              eventId: invitation.eventId,
-              registrationType: RegistrationType.GUEST,
-              attendanceToken,
-            },
-            select: {
-              id: true,
-              eventId: true,
-              attendanceToken: true,
-            },
+          const { registration: created, attendanceToken } = await createEventRegistrationInTx(tx, {
+            userId: authUser.id,
+            eventId: invitation.eventId,
+            eventDays: invitation.event.eventDays,
+            registrationType: RegistrationType.GUEST,
+            registrationId,
           });
-
-          const normalizedEventDays = Number.isInteger(invitation.event.eventDays) && invitation.event.eventDays > 0
-            ? Math.min(invitation.event.eventDays, 10)
-            : 1;
-          const dayRows = Array.from({ length: normalizedEventDays }, (_, index) => ({
-            registrationId: createdRegistration.id,
-            dayNumber: index + 1,
-            attended: false,
-          }));
-          await tx.dayAttendance.createMany({ data: dayRows });
 
           const updatedInvitation = await tx.eventInvitation.update({
             where: { id: invitation.id },
@@ -1319,7 +1302,7 @@ invitationsRouter.post('/:id/accept', authMiddleware, async (req: Request, res: 
               respondedAt,
               inviteeUserId: authUser.id,
               ...buildInviteeSnapshots(user),
-              registrationId: createdRegistration.id,
+              registrationId: created.id,
             },
             include: invitationDetailInclude,
           });
@@ -1327,9 +1310,9 @@ invitationsRouter.post('/:id/accept', authMiddleware, async (req: Request, res: 
           return {
             invitation: updatedInvitation,
             registration: {
-              id: createdRegistration.id,
-              attendanceToken: createdRegistration.attendanceToken!,
-              eventId: createdRegistration.eventId,
+              id: created.id,
+              attendanceToken,
+              eventId: created.eventId,
             },
           };
       });

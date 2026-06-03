@@ -12,7 +12,7 @@ import { auditLog } from '../utils/audit.js';
 import { logger } from '../utils/logger.js';
 import { emailService } from '../utils/email.js';
 import { getRegistrationStatus } from '../utils/registrationStatus.js';
-import { generateAttendanceToken } from '../utils/attendanceToken.js';
+import { createEventRegistrationInTx } from '../utils/registrationIntake.js';
 import { participantsOnly } from '../utils/registrationFilters.js';
 import { executeSerializableTransaction, isSerializationConflict } from '../utils/transactionRetry.js';
 import { sanitizeEventRegistrationFields, validateRegistrationFieldSubmissions } from '../utils/eventRegistrationFields.js';
@@ -263,6 +263,7 @@ teamsRouter.post('/create', authMiddleware, async (req: Request, res: Response) 
         }>;
       };
       registrationId: string;
+      attendanceToken: string;
       event: {
         teamMinSize: number;
         teamMaxSize: number;
@@ -335,13 +336,12 @@ teamsRouter.post('/create', authMiddleware, async (req: Request, res: Response) 
           throw { status: 500, message: 'Failed to generate unique invite code. Please try again.' };
         }
 
-        // Create registration
-        const registration = await tx.eventRegistration.create({
-          data: {
-            userId: user.id,
-            eventId,
-            customFieldResponses: validatedCustomFieldResponses,
-          },
+        // Create registration (+ attendance token + DayAttendance rows)
+        const { registration, attendanceToken } = await createEventRegistrationInTx(tx, {
+          userId: user.id,
+          eventId,
+          eventDays: event.eventDays,
+          customFieldResponses: validatedCustomFieldResponses,
         });
 
         // Create team
@@ -379,6 +379,7 @@ teamsRouter.post('/create', authMiddleware, async (req: Request, res: Response) 
         return {
           team: completeTeam,
           registrationId: registration.id,
+          attendanceToken,
           event: {
             teamMinSize: event.teamMinSize,
             teamMaxSize: event.teamMaxSize,
@@ -426,17 +427,8 @@ teamsRouter.post('/create', authMiddleware, async (req: Request, res: Response) 
       return ApiResponse.error(res, { code: ErrorCodes.CONFLICT, message: 'Please try again. The event registration just changed.', status: 409 });
     }
 
-    let attendanceTokenValue: string | undefined;
-    // Generate attendance QR token (outside transaction, non-blocking)
-    try {
-      attendanceTokenValue = generateAttendanceToken(user.id, eventId, result.registrationId);
-      await prisma.eventRegistration.update({
-        where: { id: result.registrationId },
-        data: { attendanceToken: attendanceTokenValue },
-      });
-    } catch (tokenErr) {
-      logger.warn('Failed to generate attendance token for team create', { registrationId: result.registrationId, error: tokenErr });
-    }
+    // Attendance token is now minted inside the registration transaction.
+    const attendanceTokenValue = result.attendanceToken;
 
     if (user.email) {
       void sendTeamRegistrationConfirmationEmail({
@@ -514,6 +506,7 @@ teamsRouter.post('/join', authMiddleware, joinRateLimiter, async (req: Request, 
         }>;
       };
       registrationId: string;
+      attendanceToken: string;
       eventId: string;
       event: {
         teamMinSize: number;
@@ -587,13 +580,12 @@ teamsRouter.post('/join', authMiddleware, joinRateLimiter, async (req: Request, 
           };
         }
 
-        // Create registration
-        const registration = await tx.eventRegistration.create({
-          data: {
-            userId: user.id,
-            eventId: team.eventId,
-            customFieldResponses: validatedCustomFieldResponses,
-          },
+        // Create registration (+ attendance token + DayAttendance rows)
+        const { registration, attendanceToken } = await createEventRegistrationInTx(tx, {
+          userId: user.id,
+          eventId: team.eventId,
+          eventDays: team.event.eventDays,
+          customFieldResponses: validatedCustomFieldResponses,
         });
 
         // Create team member
@@ -621,6 +613,7 @@ teamsRouter.post('/join', authMiddleware, joinRateLimiter, async (req: Request, 
         return {
           team: completeTeam,
           registrationId: registration.id,
+          attendanceToken,
           eventId: team.eventId,
           event: {
             teamMinSize: team.event.teamMinSize,
@@ -666,17 +659,8 @@ teamsRouter.post('/join', authMiddleware, joinRateLimiter, async (req: Request, 
       return ApiResponse.error(res, { code: ErrorCodes.CONFLICT, message: 'Please try again. The team membership just changed.', status: 409 });
     }
 
-    let attendanceTokenValue: string | undefined;
-    // Generate attendance QR token (outside transaction, non-blocking)
-    try {
-      attendanceTokenValue = generateAttendanceToken(user.id, result.eventId, result.registrationId);
-      await prisma.eventRegistration.update({
-        where: { id: result.registrationId },
-        data: { attendanceToken: attendanceTokenValue },
-      });
-    } catch (tokenErr) {
-      logger.warn('Failed to generate attendance token for team join', { registrationId: result.registrationId, error: tokenErr });
-    }
+    // Attendance token is now minted inside the registration transaction.
+    const attendanceTokenValue = result.attendanceToken;
 
     if (user.email) {
       void sendTeamRegistrationConfirmationEmail({
