@@ -5,8 +5,8 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { ExternalLink, Eye, Loader2, RefreshCcw, Search, Users2, X, ShieldOff } from 'lucide-react';
+import { useInfiniteQuery, useQueryClient } from '@tanstack/react-query';
+import { ChevronDown, ExternalLink, Eye, ListPlus, Loader2, RefreshCcw, Search, Users2, X, ShieldOff } from 'lucide-react';
 import { SocketProvider, useSocketEvent } from '@/context/SocketContext';
 import { useAuth } from '@/context/AuthContext';
 import { api, type User, type UserBlockFeature, type UserListAdvancedQuery } from '@/lib/api';
@@ -27,6 +27,10 @@ const SORT_OPTIONS = [
   { value: 'last_seen', label: 'Last seen' },
   { value: 'name', label: 'Name (A–Z)' },
 ] as const;
+
+// Per-request page size. The backend caps `take` at 100; 50 keeps each
+// "Load more" snappy while "Load all" pages through the rest.
+const PAGE_SIZE = 50;
 
 function useDebounced<T>(value: T, ms: number): T {
   const [v, setV] = useState(value);
@@ -69,17 +73,20 @@ function AdminUsersPageInner() {
       hasNetwork: filters.hasNetwork || undefined,
       includeDeleted: filters.includeDeleted || undefined,
       sort: filters.sort,
-      take: 50,
+      take: PAGE_SIZE,
       searchAll: true,
     }),
     [debouncedQ, filters.roles, filters.blockedFrom, filters.hasNetwork, filters.includeDeleted, filters.sort],
   );
 
-  const listQuery = useQuery({
+  const listQuery = useInfiniteQuery({
     queryKey: ['admin-users-list', query],
-    queryFn: () => api.getUsersAdvanced(token!, query),
+    queryFn: ({ pageParam }) => api.getUsersAdvanced(token!, { ...query, cursor: pageParam }),
     enabled: !!token,
     staleTime: 1000 * 15,
+    initialPageParam: null as string | null,
+    getNextPageParam: (lastPage) =>
+      lastPage.meta.hasMore ? lastPage.meta.nextCursor ?? undefined : undefined,
   });
 
   // Live invalidation via existing root-namespace socket events.
@@ -88,8 +95,32 @@ function AdminUsersPageInner() {
   useSocketEvent('user:updated', invalidate);
   useSocketEvent('user:deleted', invalidate);
 
-  const users = listQuery.data?.users ?? [];
-  const meta = listQuery.data?.meta;
+  const users = useMemo(
+    () => listQuery.data?.pages.flatMap((page) => page.users) ?? [],
+    [listQuery.data],
+  );
+  const loadedPages = listQuery.data?.pages;
+  const totalUsers = loadedPages?.[loadedPages.length - 1]?.meta.totalUsers;
+  const { hasNextPage, isFetchingNextPage, fetchNextPage } = listQuery;
+
+  // "Load all" — page through every remaining cursor in one go. Driven by a
+  // promise loop in an event handler (not an effect) so it can never trigger
+  // cascading re-renders; each fetchNextPage resolves before the next fires.
+  const [loadingAll, setLoadingAll] = useState(false);
+  const loadAll = async () => {
+    if (loadingAll) return;
+    setLoadingAll(true);
+    try {
+      let result = await fetchNextPage();
+      while (result.hasNextPage && !result.isError) {
+        result = await fetchNextPage();
+      }
+    } catch {
+      // fetchNextPage surfaces failures on the query itself; nothing to do here.
+    } finally {
+      setLoadingAll(false);
+    }
+  };
 
   const toggleRole = (role: string) => {
     setFilters((f) => ({
@@ -128,9 +159,9 @@ function AdminUsersPageInner() {
             <h1 className="text-xl font-semibold">User Management</h1>
           </div>
           <p className="mt-1 text-sm text-[var(--ds-text-3)] dark:text-[var(--ds-text-3)]">
-            {meta ? `${meta.totalUsers ?? '—'} total` : 'Loading…'}
-            {meta?.returned ? ` · ${meta.returned} on this page` : ''}
-            {meta?.hasMore ? ' · more available' : ''}
+            {totalUsers != null ? `${totalUsers} total` : 'Loading…'}
+            {users.length ? ` · ${users.length} loaded` : ''}
+            {hasNextPage ? ' · more available' : ''}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -260,6 +291,41 @@ function AdminUsersPageInner() {
           </ul>
         )}
       </div>
+
+      {/* Pagination controls — incremental "Load more" + a "Load all" option */}
+      {users.length > 0 && (hasNextPage || loadingAll) && (
+        <div className="flex flex-col items-center justify-center gap-2 sm:flex-row">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => fetchNextPage()}
+            disabled={!hasNextPage || isFetchingNextPage || loadingAll}
+          >
+            {isFetchingNextPage && !loadingAll ? (
+              <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <ChevronDown className="mr-2 h-3.5 w-3.5" />
+            )}
+            Load more
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => void loadAll()}
+            disabled={!hasNextPage || loadingAll}
+            className="text-[var(--ds-text-3)]"
+          >
+            {loadingAll ? (
+              <Loader2 className="mr-2 h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <ListPlus className="mr-2 h-3.5 w-3.5" />
+            )}
+            {loadingAll
+              ? `Loading all… (${users.length}${totalUsers != null ? `/${totalUsers}` : ''})`
+              : 'Load all users'}
+          </Button>
+        </div>
+      )}
 
       <UserDetailSheet
         userId={openUserId}
