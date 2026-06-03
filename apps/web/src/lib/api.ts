@@ -430,6 +430,11 @@ export interface UserAuditEntry {
   timestamp: string;
 }
 
+export interface ContactEmail {
+  label: string;
+  email: string;
+}
+
 export interface Settings {
   id: string;
   clubName: string;
@@ -462,6 +467,9 @@ export interface Settings {
   instagramUrl?: string;
   discordUrl?: string;
   whatsappUrl?: string;
+  // Public contact-page channels
+  contactPhone?: string | null;
+  contactEmails?: ContactEmail[];
   // Email Template Customization
   emailWelcomeBody?: string;
   emailAnnouncementBody?: string;

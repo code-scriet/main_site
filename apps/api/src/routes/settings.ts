@@ -15,6 +15,13 @@ export const settingsRouter = Router();
 
 const optionalUrl = z.union([z.string().url('Must be a valid URL'), z.literal(''), z.null()]).optional();
 
+// Admin-managed extra contact emails shown on the public /contact page.
+// Bounded at 20 so a misconfigured admin can never bloat the singleton row.
+const contactEmailSchema = z.object({
+  label: z.string().trim().min(1, 'Label is required').max(60),
+  email: z.string().trim().email('Must be a valid email').max(160),
+});
+
 const updateSettingsSchema = z.object({
   clubName: z.string().trim().min(1).max(120).optional(),
   clubEmail: z.string().trim().email().optional(),
@@ -55,6 +62,8 @@ const updateSettingsSchema = z.object({
   instagramUrl: optionalUrl,
   discordUrl: optionalUrl,
   whatsappUrl: optionalUrl,
+  contactPhone: z.union([z.string().trim().max(40), z.literal(''), z.null()]).optional(),
+  contactEmails: z.array(contactEmailSchema).max(20, 'At most 20 contact emails').optional(),
 });
 
 const updateEmailTemplatesSchema = z.object({
@@ -211,6 +220,9 @@ settingsRouter.get('/public', async (req: Request, res: Response) => {
       instagramUrl: full.instagramUrl,
       discordUrl: full.discordUrl,
       whatsappUrl: full.whatsappUrl,
+      contactPhone: full.contactPhone,
+      // Stored as JSONB; coerce to a clean { label, email }[] for the contact page.
+      contactEmails: Array.isArray(full.contactEmails) ? full.contactEmails : [],
       accentColor: full.accentColor,
       // Used by /about to compute the "months since inception" stat.
       siteLaunchDate: full.siteLaunchDate?.toISOString() ?? null,
@@ -249,6 +261,8 @@ settingsRouter.get('/public', async (req: Request, res: Response) => {
           instagramUrl: null,
           discordUrl: null,
           whatsappUrl: null,
+          contactPhone: null,
+          contactEmails: [],
           accentColor: 'rust',
           siteLaunchDate: '2026-01-01T00:00:00.000Z',
         },
@@ -342,6 +356,8 @@ settingsRouter.put('/', authMiddleware, requireRole('PRESIDENT'), async (req: Re
       instagramUrl,
       discordUrl,
       whatsappUrl,
+      contactPhone,
+      contactEmails,
     } = parsed.data;
 
     const settingsData = {
@@ -383,6 +399,8 @@ settingsRouter.put('/', authMiddleware, requireRole('PRESIDENT'), async (req: Re
       ...(instagramUrl !== undefined && { instagramUrl: instagramUrl || null }),
       ...(discordUrl !== undefined && { discordUrl: discordUrl || null }),
       ...(whatsappUrl !== undefined && { whatsappUrl: whatsappUrl || null }),
+      ...(contactPhone !== undefined && { contactPhone: contactPhone || null }),
+      ...(contactEmails !== undefined && { contactEmails }),
     };
 
     const settings = await prisma.settings.upsert({

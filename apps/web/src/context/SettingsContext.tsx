@@ -53,6 +53,9 @@ const defaultSettings: Settings = {
   twitterUrl: '',
   instagramUrl: '',
   discordUrl: '',
+  whatsappUrl: '',
+  contactPhone: null,
+  contactEmails: [],
   updatedAt: new Date().toISOString(),
 };
 
