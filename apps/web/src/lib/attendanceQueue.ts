@@ -177,9 +177,14 @@ export function reconcileBatchResults(
   scans: LocalScanEntry[],
   results: ScanBatchResult[],
 ): LocalScanEntry[] {
+  // Keep the first result for each localId and ignore later duplicates, so a
+  // backend that ever returns conflicting entries for the same localId settles
+  // deterministically (first-wins) rather than depending on iteration order.
   const resultMap = new Map<string, ScanBatchResult>();
   for (const r of results) {
-    resultMap.set(r.localId, r);
+    if (!resultMap.has(r.localId)) {
+      resultMap.set(r.localId, r);
+    }
   }
 
   return scans.map((scan) => {

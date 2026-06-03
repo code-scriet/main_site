@@ -95,7 +95,9 @@ test('reconcileBatchResults settles matched scans and leaves the rest, without m
   ];
   const merged = reconcileBatchResults(scans, [
     { localId: 'a', status: 'ok', name: 'Asha' },
-    { localId: 'a', status: 'ok', name: 'Asha' }, // ignored second copy
+    // Conflicting duplicate for the same localId — must be ignored (first wins),
+    // not allowed to overwrite the earlier 'ok' result.
+    { localId: 'a', status: 'error', message: 'should be ignored' },
     // 'b' has no result — must remain pending
     { localId: 'ghost', status: 'error', message: 'no such scan' },
   ]);
@@ -103,8 +105,9 @@ test('reconcileBatchResults settles matched scans and leaves the rest, without m
   const a = merged.find((s) => s.localId === 'a');
   const b = merged.find((s) => s.localId === 'b');
   assert.equal(a?.synced, true);
-  assert.equal(a?.result, 'ok');
+  assert.equal(a?.result, 'ok', 'first result for a localId wins over later duplicates');
   assert.equal(a?.userName, 'Asha');
+  assert.equal(a?.errorMessage, undefined, 'must not pick up the ignored duplicate message');
   assert.equal(b?.synced, false);
 
   // input untouched (pure)
