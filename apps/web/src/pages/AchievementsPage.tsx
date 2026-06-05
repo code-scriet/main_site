@@ -8,10 +8,10 @@ import { CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { InlineMarkdown } from '@/components/ui/inline-markdown';
-import { 
-  Trophy, Calendar, Loader2, 
+import {
+  Trophy, Calendar, Loader2,
   Award, ChevronRight, Image as ImageIcon, Sparkles, Star,
-  Zap, Target, Users
+  Zap, Target, Users, ArrowRight
 } from 'lucide-react';
 import { api, type Achievement } from '@/lib/api';
 import { formatDate } from '@/lib/dateUtils';
@@ -253,6 +253,7 @@ export default function AchievementsPage() {
   const [error, setError] = useState<string | null>(null);
   const { settings } = useSettings();
   const { isMobile, shouldReduceMotion } = useMotionConfig();
+  const partnerEmail = settings?.clubEmail || 'contact@codescriet.com';
   // TODO: Replace with a dynamic member impact count from the API or settings when available.
   const memberImpactCount = '300+';
 
@@ -674,40 +675,58 @@ export default function AchievementsPage() {
               </p>
             </div>
             
-            <div className="grid md:grid-cols-2 gap-6 mb-10">
-              <motion.div 
-                whileHover={isMobile ? undefined : { y: -4, scale: 1.02 }}
-                transition={{ duration: 0.3 }}
-                className="bg-amber-950/30 backdrop-blur-sm rounded-2xl p-5 border border-amber-700/30 hover:border-amber-600/50 transition-all duration-300"
+            {/* Door-style CTA cards — same pattern as the About page closing
+                section: audience tag, serif label, hint, and a sliding arrow
+                chip; the ember edge-bar "opens" on hover. */}
+            <div className="ab-close-ctas">
+              <a
+                href={`mailto:${partnerEmail}`}
+                className="ab-close-cta-card ab-close-cta-card--primary"
               >
-                <h3 className="text-lg font-bold text-white mb-2">For Sponsors</h3>
-                <p className="text-amber-200 text-sm leading-relaxed">
-                  Support student development through workshop sponsorships, event partnerships, or resource contributions.
-                </p>
-              </motion.div>
-              <motion.div 
-                whileHover={isMobile ? undefined : { y: -4, scale: 1.02 }}
-                transition={{ duration: 0.3 }}
-                className="bg-amber-950/30 backdrop-blur-sm rounded-2xl p-5 border border-amber-700/30 hover:border-amber-600/50 transition-all duration-300"
+                <span className="ab-close-cta-card-tag">
+                  <span className="ab-close-cta-card-tag-dot" aria-hidden="true" />
+                  Partnerships
+                </span>
+                <span className="ab-close-cta-card-label">Get in Touch</span>
+                <span className="ab-close-cta-card-hint">
+                  The fastest way to start a conversation — tell us what you have in mind.
+                </span>
+                <span className="ab-close-cta-card-arrow" aria-hidden="true">
+                  <ArrowRight size={18} />
+                </span>
+              </a>
+              <a
+                href={`mailto:${partnerEmail}?subject=${encodeURIComponent('Sponsorship inquiry — code.scriet')}`}
+                className="ab-close-cta-card"
               >
-                <h3 className="text-lg font-bold text-white mb-2">For Organizations</h3>
-                <p className="text-amber-200 text-sm leading-relaxed">
-                  Collaborate on projects, host technical sessions, or provide mentorship opportunities for our members.
-                </p>
-              </motion.div>
-            </div>
-            
-            <div className="text-center">
-              <Button 
-                size="lg" 
-                className="bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 text-white text-base px-10 py-6 h-auto rounded-xl font-bold shadow-lg shadow-amber-500/20"
-                asChild
+                <span className="ab-close-cta-card-tag">
+                  <span className="ab-close-cta-card-tag-dot" aria-hidden="true" />
+                  For sponsors
+                </span>
+                <span className="ab-close-cta-card-label">Sponsor an event</span>
+                <span className="ab-close-cta-card-hint">
+                  Back student development through workshop sponsorships, event partnerships, or resource contributions.
+                </span>
+                <span className="ab-close-cta-card-arrow" aria-hidden="true">
+                  <ArrowRight size={18} />
+                </span>
+              </a>
+              <a
+                href={`mailto:${partnerEmail}?subject=${encodeURIComponent('Collaboration inquiry — code.scriet')}`}
+                className="ab-close-cta-card"
               >
-                <a href={`mailto:${settings?.clubEmail || 'contact@codescriet.com'}`}>
-                  Get in Touch
-                  <ChevronRight className="h-5 w-5 ml-2" />
-                </a>
-              </Button>
+                <span className="ab-close-cta-card-tag">
+                  <span className="ab-close-cta-card-tag-dot" aria-hidden="true" />
+                  For organizations
+                </span>
+                <span className="ab-close-cta-card-label">Collaborate with us</span>
+                <span className="ab-close-cta-card-hint">
+                  Co-host projects, run technical sessions, or mentor our members.
+                </span>
+                <span className="ab-close-cta-card-arrow" aria-hidden="true">
+                  <ArrowRight size={18} />
+                </span>
+              </a>
             </div>
           </motion.div>
         </div>

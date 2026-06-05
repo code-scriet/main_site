@@ -3,10 +3,15 @@ import { Button } from '@/components/ui/button';
 import { Link } from 'react-router-dom';
 import { ArrowRight, Code, Rocket, Users, Trophy, Lightbulb } from 'lucide-react';
 import { useMotionConfig } from '@/hooks/useMotionConfig';
+import { useHomePageData } from '@/hooks/useHomePageData';
 
 export function CTASection() {
   const { shouldReduceMotion } = useMotionConfig();
-  
+  // Live member count from the single shared home-page query (React Query
+  // dedupes by key, so this reuses the cache filled by Hero — no extra call).
+  const { data: homeData } = useHomePageData();
+  const memberCount = homeData?.stats?.members;
+
   // Animation configs based on device
   const animationDuration = shouldReduceMotion ? 0.3 : 0.6;
   const animationY = shouldReduceMotion ? 15 : 30;
@@ -155,7 +160,14 @@ export function CTASection() {
           >
             <div className="flex items-center gap-2">
               <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
-              <span>500+ Active Members</span>
+              {memberCount != null ? (
+                <span>{memberCount.toLocaleString()}+ Active Members</span>
+              ) : (
+                <span className="inline-flex items-center gap-2">
+                  <span className="inline-block h-3 w-8 rounded bg-white/20 animate-pulse" aria-hidden="true" />
+                  Active Members
+                </span>
+              )}
             </div>
             <div className="hidden sm:block w-px h-4 bg-white/20" />
             <div className="flex items-center gap-2">
