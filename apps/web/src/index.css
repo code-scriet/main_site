@@ -2115,6 +2115,110 @@ html.dark [data-public] .pub-site-header { background: rgba(10, 9, 8, 0.85); }
   [data-public] .door, [data-public] .door::before, [data-public] .door-arrow { transition-duration: 0.001ms; }
 }
 
+/* ============================================================
+   Home join-CTA — warm two-tone "invitation" on the public ember
+   palette, so it complements the footer + About page instead of
+   fighting them. Cream paper carries the message; a deep warm ember
+   panel anchors it (fixes the washed-out light-on-light problem) and
+   holds the live stats. Buttons keep the door's sliding-reveal feel
+   in their own treatment. Theme-aware via the --pub-* tokens.
+   ============================================================ */
+[data-public] .hcta {
+  display: grid; grid-template-columns: 1fr; overflow: hidden;
+  border-radius: 28px; border: 1px solid var(--pub-line-2);
+  background: var(--pub-paper);
+  box-shadow: 0 34px 90px -54px rgba(196, 50, 26, 0.45), 0 2px 8px -3px rgba(14, 13, 12, 0.07);
+}
+@media (min-width: 980px) { [data-public] .hcta { grid-template-columns: 1.35fr 1fr; } }
+
+[data-public] .hcta-main { display: flex; flex-direction: column; padding: clamp(34px, 4.4vw, 76px); }
+[data-public] .hcta-eyebrow {
+  display: inline-flex; align-items: center; gap: 9px;
+  font-family: var(--pub-f-mono); font-size: 11px; letter-spacing: 0.18em;
+  text-transform: uppercase; color: var(--pub-ember); font-weight: 500; margin-bottom: 22px;
+}
+[data-public] .hcta-eyebrow-dot { width: 6px; height: 6px; border-radius: 999px; background: currentColor; box-shadow: 0 0 0 4px var(--pub-ember-soft); }
+[data-public] .hcta-title {
+  font-family: var(--pub-f-display); font-weight: 500;
+  font-size: clamp(33px, 4vw, 60px); line-height: 1.02; letter-spacing: -0.022em;
+  color: var(--pub-ink); margin: 0 0 18px; max-width: 15ch; text-wrap: balance;
+}
+[data-public] .hcta-title em { font-style: italic; color: var(--pub-ember); }
+[data-public] .hcta-lede {
+  font-family: var(--pub-f-body); font-size: clamp(15px, 0.5vw + 13px, 18px);
+  line-height: 1.62; color: var(--pub-ink-3); margin: 0 0 36px; max-width: 52ch;
+}
+
+/* buttons */
+[data-public] .hcta-actions { display: flex; flex-wrap: wrap; gap: 14px; margin-top: auto; }
+[data-public] .hcta-btn {
+  position: relative; isolation: isolate; overflow: hidden;
+  display: inline-flex; align-items: center; height: 56px; border-radius: 999px;
+  font-family: var(--pub-f-body); font-weight: 600; font-size: 15.5px; text-decoration: none; cursor: pointer;
+  transition: transform var(--pub-t-fast) var(--pub-ease), box-shadow var(--pub-t-base) var(--pub-ease), color var(--pub-t-base) var(--pub-ease), border-color var(--pub-t-base) var(--pub-ease), background var(--pub-t-base) var(--pub-ease);
+}
+[data-public] .hcta-btn svg { width: 18px; height: 18px; }
+
+/* primary — confident ember pill with a cream arrow disc + shine sweep */
+[data-public] .hcta-btn--primary {
+  gap: 16px; padding: 0 8px 0 30px; background: var(--pub-ember); color: #FFFCF6;
+  box-shadow: 0 16px 34px -14px rgba(196, 50, 26, 0.6);
+}
+[data-public] .hcta-btn--primary:hover { background: var(--pub-ember-hover); transform: translateY(-2px); box-shadow: 0 24px 46px -16px rgba(196, 50, 26, 0.74); }
+[data-public] .hcta-btn-disc {
+  width: 40px; height: 40px; flex-shrink: 0; border-radius: 999px;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: #FFFCF6; color: var(--pub-ember);
+  transition: transform var(--pub-t-base) var(--pub-ease);
+}
+[data-public] .hcta-btn--primary:hover .hcta-btn-disc { transform: translateX(3px); }
+[data-public] .hcta-btn--primary::after {
+  content: ''; position: absolute; inset: 0; z-index: 2; pointer-events: none;
+  background: linear-gradient(108deg, transparent 32%, rgba(255, 255, 255, 0.26) 50%, transparent 68%);
+  transform: translateX(-130%); transition: transform 0.85s var(--pub-ease);
+}
+[data-public] .hcta-btn--primary:hover::after { transform: translateX(130%); }
+
+/* secondary — outline; ink rises to fill (the door reveal, reworked) */
+[data-public] .hcta-btn--ghost { gap: 9px; padding: 0 28px; background: transparent; color: var(--pub-ink); border: 1px solid var(--pub-line-3); }
+[data-public] .hcta-btn--ghost svg { transition: transform var(--pub-t-base) var(--pub-ease); }
+[data-public] .hcta-btn--ghost::before { content: ''; position: absolute; inset: 0; z-index: -1; background: var(--pub-ink); transform: translateY(101%); transition: transform 0.5s var(--pub-ease); }
+[data-public] .hcta-btn--ghost:hover { color: var(--pub-canvas); border-color: var(--pub-ink); transform: translateY(-2px); }
+[data-public] .hcta-btn--ghost:hover::before { transform: translateY(0); }
+[data-public] .hcta-btn--ghost:hover svg { transform: translate(2px, -2px); }
+
+/* right panel — deep warm ember anchor with the live stats */
+[data-public] .hcta-aside {
+  position: relative; overflow: hidden;
+  display: flex; flex-direction: column; justify-content: center;
+  padding: clamp(30px, 3.4vw, 56px);
+  background:
+    radial-gradient(120% 110% at 100% 0%, rgba(255, 178, 122, 0.22), transparent 58%),
+    linear-gradient(158deg, #B0381C 0%, #6B2412 52%, #311409 100%);
+  border-top: 1px solid var(--pub-line-2);
+}
+@media (min-width: 980px) { [data-public] .hcta-aside { border-top: 0; border-left: 1px solid rgba(0, 0, 0, 0.16); } }
+[data-public] .hcta-aside-cap {
+  font-family: var(--pub-f-mono); font-size: 10.5px; letter-spacing: 0.2em; text-transform: uppercase;
+  color: rgba(255, 250, 244, 0.6); margin-bottom: 4px;
+}
+[data-public] .hcta-stat { display: flex; align-items: center; gap: 16px; padding: 18px 0; }
+[data-public] .hcta-stat + .hcta-stat { border-top: 1px solid rgba(255, 250, 244, 0.14); }
+[data-public] .hcta-stat-ico {
+  width: 44px; height: 44px; flex-shrink: 0; border-radius: 13px;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: rgba(255, 250, 244, 0.12); color: #FFE9DC; border: 1px solid rgba(255, 250, 244, 0.2);
+}
+[data-public] .hcta-stat-ico svg { width: 20px; height: 20px; }
+[data-public] .hcta-stat-num { font-family: var(--pub-f-display); font-weight: 500; font-size: clamp(26px, 2.6vw, 37px); line-height: 1; color: #FFFCF6; letter-spacing: -0.01em; }
+[data-public] .hcta-stat-label { display: inline-flex; align-items: center; gap: 7px; margin-top: 7px; font-family: var(--pub-f-mono); font-size: 10.5px; letter-spacing: 0.12em; text-transform: uppercase; color: rgba(255, 250, 244, 0.66); }
+[data-public] .hcta-live { width: 7px; height: 7px; border-radius: 999px; background: #4ADE80; box-shadow: 0 0 0 4px rgba(74, 222, 128, 0.22); }
+
+@media (prefers-reduced-motion: reduce) {
+  [data-public] .hcta-btn, [data-public] .hcta-btn::before, [data-public] .hcta-btn::after,
+  [data-public] .hcta-btn svg, [data-public] .hcta-btn-disc { transition-duration: 0.001ms; }
+}
+
 /* Subtle dotted-grid texture on the cream canvas — adds depth without noise.
    Only on .ab-hero and .ab-thesis so it doesn't compete with the manifesto's
    strong typographic rhythm. */
