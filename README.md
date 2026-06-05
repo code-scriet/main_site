@@ -2,9 +2,9 @@
 
 <img src="https://codescriet.dev/og-image.jpg" alt="codescriet Banner" width="100%"/>
 
-# codescriet — code.scriet
+# Community Of Developer & Engineer
 
-### Official Coding & Developer Community of SCRIET, CCSU Meerut
+### Official Tech Community of SCRIET, CCSU Meerut
 
 [![Website](https://img.shields.io/badge/Website-codescriet.dev-f97316?style=for-the-badge&logo=firefox&logoColor=white)](https://codescriet.dev/)
 [![Twitter](https://img.shields.io/badge/Twitter-@codescriet-1DA1F2?style=for-the-badge&logo=twitter&logoColor=white)](https://twitter.com/codescriet)
@@ -16,7 +16,7 @@
 
 ## 🧠 About
 
-**codescriet**  is the official coding club of [Sir Chhotu Ram Institute of Engineering and Technology (SCRIET)](https://scriet.ac.in/), a constituent college of **Chaudhary Charan Singh University (CCSU), Meerut, Uttar Pradesh, India**.
+**code.scriet**  is the official coding club of [Sir Chhotu Ram Institute of Engineering and Technology (SCRIET)](https://scriet.ac.in/), a constituent college of **Chaudhary Charan Singh University (CCSU), Meerut, Uttar Pradesh, India**.
 
 Founded by undergraduate students, the club provides a structured space to learn Data Structures & Algorithms, build real-world projects, prepare for placements, and connect with alumni in the software industry.
 
@@ -24,14 +24,38 @@ Founded by undergraduate students, the club provides a structured space to learn
 
 ---
 
-## 🏛️ Four Pillars
+## 🏛️ Five Pillars
 
 | Pillar | What We Do |
 |--------|------------|
 | 📊 **DSA & Competitive Programming** | Weekly practice sessions, monthly contests on the codescriet judge, ICPC regional travel teams |
 | 🌐 **Web & Product** | Build internal tools — this site, a live quiz platform, certificate generator, and public coding playground at [code.codescriet.dev](https://code.codescriet.dev) |
+| 🤖 **CodexARC — AI/ML & Robotics Club** | Turning crazy ideas into intelligent machines! Workshops from basics to advanced, guided projects (chatbots, recommendation systems, image recognition), hackathons, career roadmaps for AI/ML internships & research, and peer learning — beginner-friendly yet industry-oriented |
 | 🤝 **Community** | Verified alumni network, industry mentors, guest sessions, referrals & interview prep |
 | 🏆 **Recognition** | Digital certificates, public achievements registry, contributor credits |
+
+---
+
+## 🤖 Spotlight: CodexARC — AI/ML & Robotics Club
+
+> *"Where we turn crazy ideas into intelligent machines!"* ✨
+
+**CodexARC** is codescriet's dedicated AI/ML and Robotics community. Whether you're a complete beginner or already speak fluent Python, CodexARC helps you **learn, build, and enjoy AI** — without making it feel like rocket science.
+
+### What we explore
+- 🧠 Artificial Intelligence & Machine Learning
+- 📊 Data Science & Analytics
+- ⚙️ Automation & Robotics
+
+### What we run
+
+| Activity | Description |
+|----------|-------------|
+| 🛠️ **AI/ML Workshops** | Hands-on sessions from basics to advanced |
+| 🚀 **Guided Projects** | Chatbots, recommendation systems, image recognition & more |
+| ⚡ **Hackathons & Mini-Challenges** | Fun competitions to spark creativity |
+| 🗺️ **Career Guidance** | Roadmaps for AI/ML internships & research opportunities |
+| 🤝 **Doubts + Peer Learning** | Solve problems together *(without overfitting your brain)* |
 
 ---
 
