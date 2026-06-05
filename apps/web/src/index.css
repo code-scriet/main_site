@@ -1999,145 +1999,121 @@ html.dark [data-public] .pub-site-header { background: rgba(10, 9, 8, 0.85); }
   color: var(--pub-ember);
 }
 
-/* ── Partner / collaboration panel (Achievements closing CTA) ───────────────
-   One editorial panel instead of a row of plain cards: an ember-washed
-   surface with the pitch + a prominent CTA on the left, and three clickable
-   "ways to work together" on the right. Fully theme-aware via --pub tokens,
-   so it adapts to light/dark and matches the footer + rest of the page. */
-[data-public] .partner {
-  position: relative;
-  overflow: hidden;
-  border: 1px solid var(--pub-line-2);
-  border-radius: clamp(18px, 2vw, 28px);
-  background:
-    radial-gradient(130% 120% at 0% 0%, var(--pub-ember-soft), transparent 55%),
-    var(--pub-paper);
-  padding: clamp(28px, 4vw, 56px);
-}
-[data-public] .partner::before {
-  content: '';
-  position: absolute;
-  inset: 0 0 auto 0;
-  height: 3px;
-  background: linear-gradient(90deg, var(--pub-ember), transparent 72%);
-}
-[data-public] .partner-grid {
-  display: grid;
-  grid-template-columns: 1fr;
-  gap: clamp(28px, 4vw, 48px);
-  align-items: center;
-}
-@media (min-width: 860px) {
-  [data-public] .partner-grid { grid-template-columns: 1.05fr 0.95fr; }
-}
-
-[data-public] .partner-eyebrow {
+/* ── Partner / collaboration band (Achievements closing CTA) ────────────────
+   Full-width editorial band: a left-aligned intro, then a row of large "door"
+   cards that open on hover — each with a different reveal (slide-from-left,
+   rise-from-bottom, iris-from-corner, and an inverted ember primary) so the
+   row reads as a set of distinct, tactile buttons that fill the width rather
+   than one boxed card. Theme-aware via --pub tokens. */
+[data-public] .partner2-head { max-width: 62ch; margin-bottom: clamp(26px, 3.5vw, 44px); }
+[data-public] .partner2-eyebrow {
   display: inline-flex; align-items: center; gap: 8px;
-  font-family: var(--pub-f-mono);
-  font-size: 11px; letter-spacing: 0.16em; text-transform: uppercase;
-  color: var(--pub-ember); font-weight: 500;
-  margin-bottom: 18px;
+  font-family: var(--pub-f-mono); font-size: 11px; letter-spacing: 0.16em;
+  text-transform: uppercase; color: var(--pub-ember); font-weight: 500; margin-bottom: 16px;
 }
-[data-public] .partner-eyebrow-dot {
+[data-public] .partner2-eyebrow-dot {
   width: 6px; height: 6px; border-radius: 999px; background: currentColor;
   box-shadow: 0 0 0 4px var(--pub-ember-soft);
 }
-[data-public] .partner-title {
-  font-family: var(--pub-f-display);
-  font-size: clamp(28px, 3vw + 14px, 46px);
-  line-height: 1.05; letter-spacing: -0.02em; font-weight: 500;
-  color: var(--pub-ink); margin: 0 0 16px; text-align: left;
+[data-public] .partner2-title {
+  font-family: var(--pub-f-display); font-weight: 500;
+  font-size: clamp(30px, 4vw, 54px); line-height: 1.03; letter-spacing: -0.02em;
+  color: var(--pub-ink); margin: 0 0 14px;
 }
-[data-public] .partner-title em { font-style: italic; color: var(--pub-ember); }
-[data-public] .partner-lede {
-  font-family: var(--pub-f-body);
-  font-size: clamp(15px, 0.5vw + 13px, 17px);
-  line-height: 1.6; color: var(--pub-ink-3);
-  margin: 0 0 28px; max-width: 46ch;
+[data-public] .partner2-title em { font-style: italic; color: var(--pub-ember); }
+[data-public] .partner2-lede {
+  font-family: var(--pub-f-body); font-size: clamp(15px, 0.5vw + 13px, 17px);
+  line-height: 1.6; color: var(--pub-ink-3); margin: 0 0 14px; max-width: 54ch;
 }
-[data-public] .partner-actions {
-  display: flex; flex-wrap: wrap; align-items: center; gap: 14px 18px;
-}
-[data-public] .partner-cta {
-  position: relative; overflow: hidden;
-  display: inline-flex; align-items: center; gap: 10px;
-  height: 52px; padding: 0 26px;
-  border-radius: 999px;
-  background: var(--pub-ember); color: #FFFCF6;
-  font-family: var(--pub-f-body); font-size: 15px; font-weight: 600;
-  text-decoration: none; white-space: nowrap;
-  box-shadow: 0 10px 28px -12px rgba(196, 50, 26, 0.6);
-  transition:
-    transform var(--pub-t-fast) var(--pub-ease),
-    background var(--pub-t-fast) var(--pub-ease),
-    box-shadow var(--pub-t-fast) var(--pub-ease);
-}
-[data-public] .partner-cta::after {
-  content: ''; position: absolute; inset: 0;
-  background: linear-gradient(120deg, transparent 30%, rgba(255, 255, 255, 0.28) 50%, transparent 70%);
-  transform: translateX(-120%);
-  transition: transform 0.6s var(--pub-ease);
-}
-[data-public] .partner-cta:hover {
-  background: var(--pub-ember-hover);
-  transform: translateY(-2px);
-  box-shadow: 0 16px 38px -12px rgba(196, 50, 26, 0.72);
-}
-[data-public] .partner-cta:hover::after { transform: translateX(120%); }
-[data-public] .partner-cta svg { transition: transform var(--pub-t-fast) var(--pub-ease); }
-[data-public] .partner-cta:hover svg { transform: translateX(4px); }
-
-[data-public] .partner-email {
-  font-family: var(--pub-f-mono); font-size: 13px;
-  color: var(--pub-ink-3); text-decoration: none;
-  border-bottom: 1px solid var(--pub-line-2); padding-bottom: 2px;
+[data-public] .partner2-email {
+  font-family: var(--pub-f-mono); font-size: 13px; color: var(--pub-ink-3);
+  text-decoration: none; border-bottom: 1px solid var(--pub-line-2); padding-bottom: 2px;
   transition: color var(--pub-t-fast) var(--pub-ease), border-color var(--pub-t-fast) var(--pub-ease);
 }
-[data-public] .partner-email:hover { color: var(--pub-ember); border-color: var(--pub-ember); }
+[data-public] .partner2-email:hover { color: var(--pub-ember); border-color: var(--pub-ember); }
 
-/* Right column — clickable "ways to work together". */
-[data-public] .partner-paths { display: flex; flex-direction: column; gap: 12px; }
-[data-public] .partner-path {
-  display: flex; align-items: center; gap: 16px;
-  padding: 15px 18px;
-  border: 1px solid var(--pub-line-2);
-  border-radius: var(--pub-r-md);
-  background: var(--pub-canvas);
-  color: var(--pub-ink); text-decoration: none;
+[data-public] .partner2-grid { display: grid; gap: 14px; grid-template-columns: 1fr; }
+@media (min-width: 700px)  { [data-public] .partner2-grid { grid-template-columns: repeat(2, 1fr); } }
+@media (min-width: 1040px) { [data-public] .partner2-grid { grid-template-columns: repeat(4, 1fr); } }
+
+/* base door — a tall clickable card with a sliding ember "door" panel behind. */
+[data-public] .door {
+  position: relative; overflow: hidden; isolation: isolate;
+  display: flex; flex-direction: column; gap: 10px;
+  min-height: 190px; padding: 22px 22px 20px;
+  border: 1px solid var(--pub-line-2); border-radius: var(--pub-r-md);
+  background: var(--pub-paper); color: var(--pub-ink); text-decoration: none;
   transition:
-    border-color var(--pub-t-fast) var(--pub-ease),
-    background var(--pub-t-fast) var(--pub-ease),
     transform var(--pub-t-fast) var(--pub-ease),
+    border-color var(--pub-t-fast) var(--pub-ease),
     box-shadow var(--pub-t-fast) var(--pub-ease);
 }
-[data-public] .partner-path:hover {
-  border-color: var(--pub-ember-line);
-  background: var(--pub-ember-soft);
-  transform: translateX(3px);
-  box-shadow: 0 8px 22px -16px rgba(14, 13, 12, 0.4);
+[data-public] .door:hover { transform: translateY(-3px); box-shadow: 0 18px 40px -20px rgba(14, 13, 12, 0.32); }
+[data-public] .door::before {
+  content: ''; position: absolute; inset: 0; z-index: -1;
+  background: var(--pub-ember);
+  transition: transform 0.45s var(--pub-ease), border-radius 0.45s var(--pub-ease);
 }
-[data-public] .partner-path-icon {
-  flex: none; width: 42px; height: 42px;
-  display: inline-flex; align-items: center; justify-content: center;
-  border-radius: 12px;
-  background: var(--pub-ember-soft); color: var(--pub-ember);
-  border: 1px solid var(--pub-ember-line);
-  transition: transform var(--pub-t-fast) var(--pub-ease);
+[data-public] .door-tag {
+  display: inline-flex; align-items: center; gap: 7px;
+  font-family: var(--pub-f-mono); font-size: 10px; letter-spacing: 0.14em;
+  text-transform: uppercase; color: var(--pub-ember); font-weight: 500;
+  transition: color var(--pub-t-base) var(--pub-ease);
 }
-[data-public] .partner-path:hover .partner-path-icon { transform: scale(1.06); }
-[data-public] .partner-path-text { display: flex; flex-direction: column; flex: 1; min-width: 0; }
-[data-public] .partner-path-title {
-  font-family: var(--pub-f-body); font-size: 14.5px; font-weight: 600;
-  color: var(--pub-ink);
+[data-public] .door-tag svg { width: 13px; height: 13px; }
+[data-public] .door-label {
+  font-family: var(--pub-f-display); font-size: clamp(19px, 1vw + 14px, 25px);
+  font-weight: 500; line-height: 1.12; letter-spacing: -0.01em; color: inherit; margin-top: 2px;
 }
-[data-public] .partner-path-desc {
-  font-size: 12.5px; color: var(--pub-ink-3); margin-top: 2px; line-height: 1.45;
+[data-public] .door-desc {
+  font-family: var(--pub-f-body); font-size: 13px; line-height: 1.5;
+  color: var(--pub-ink-3); margin-top: auto; max-width: 32ch;
+  transition: color var(--pub-t-base) var(--pub-ease);
 }
-[data-public] .partner-path-arrow {
-  flex: none; color: var(--pub-ink-4);
-  transition: transform var(--pub-t-fast) var(--pub-ease), color var(--pub-t-fast) var(--pub-ease);
+[data-public] .door-arrow {
+  position: absolute; top: 18px; right: 18px;
+  width: 34px; height: 34px; display: inline-flex; align-items: center; justify-content: center;
+  border-radius: 999px; border: 1px solid var(--pub-line-2); color: var(--pub-ink);
+  transition:
+    transform var(--pub-t-fast) var(--pub-ease),
+    background var(--pub-t-base) var(--pub-ease),
+    border-color var(--pub-t-base) var(--pub-ease),
+    color var(--pub-t-base) var(--pub-ease);
 }
-[data-public] .partner-path:hover .partner-path-arrow { color: var(--pub-ember); transform: translateX(3px); }
+[data-public] .door:hover .door-arrow { transform: translate(3px, -3px); }
+
+/* fill doors — content inverts to cream once the ember panel is over it. */
+[data-public] .door--fill:hover { border-color: var(--pub-ember); }
+[data-public] .door--fill:hover .door-tag,
+[data-public] .door--fill:hover .door-label,
+[data-public] .door--fill:hover .door-desc { color: #FFFCF6; }
+[data-public] .door--fill:hover .door-arrow { background: #FFFCF6; border-color: #FFFCF6; color: var(--pub-ember); }
+
+/* reveal variants */
+[data-public] .door--sweep::before { transform: translateX(-101%); }
+[data-public] .door--sweep:hover::before { transform: translateX(0); }
+[data-public] .door--rise::before { transform: translateY(101%); }
+[data-public] .door--rise:hover::before { transform: translateY(0); }
+[data-public] .door--iris::before { border-radius: 50%; transform: scale(0); transform-origin: 84% 16%; }
+[data-public] .door--iris:hover::before { transform: scale(2.6); border-radius: 0; }
+
+/* primary door — ember at rest (the headline action); a cream panel rises and
+   the content inverts to ember on hover. */
+[data-public] .door--primary { background: var(--pub-ember); color: #FFFCF6; border-color: var(--pub-ember); }
+[data-public] .door--primary .door-tag { color: rgba(255, 252, 246, 0.72); }
+[data-public] .door--primary .door-desc { color: rgba(255, 252, 246, 0.86); }
+[data-public] .door--primary .door-arrow { border-color: rgba(255, 252, 246, 0.4); color: #FFFCF6; }
+[data-public] .door--primary::before { background: #FFFCF6; transform: translateY(101%); }
+[data-public] .door--primary:hover { box-shadow: 0 22px 46px -18px rgba(196, 50, 26, 0.62); }
+[data-public] .door--primary:hover::before { transform: translateY(0); }
+[data-public] .door--primary:hover .door-tag,
+[data-public] .door--primary:hover .door-label,
+[data-public] .door--primary:hover .door-desc { color: var(--pub-ember); }
+[data-public] .door--primary:hover .door-arrow { background: var(--pub-ember); border-color: var(--pub-ember); color: #FFFCF6; }
+
+@media (prefers-reduced-motion: reduce) {
+  [data-public] .door, [data-public] .door::before, [data-public] .door-arrow { transition-duration: 0.001ms; }
+}
 
 /* Subtle dotted-grid texture on the cream canvas — adds depth without noise.
    Only on .ab-hero and .ab-thesis so it doesn't compete with the manifesto's

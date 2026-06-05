@@ -11,7 +11,7 @@ import { InlineMarkdown } from '@/components/ui/inline-markdown';
 import {
   Trophy, Calendar, Loader2,
   Award, ChevronRight, Image as ImageIcon, Sparkles, Star,
-  Zap, Target, Users, ArrowRight
+  Zap, Target, Users, ArrowRight, Mail
 } from 'lucide-react';
 import { api, type Achievement } from '@/lib/api';
 import { formatDate } from '@/lib/dateUtils';
@@ -254,7 +254,7 @@ export default function AchievementsPage() {
   const [error, setError] = useState<string | null>(null);
   const { settings } = useSettings();
   const { isMobile, shouldReduceMotion } = useMotionConfig();
-  const partnerEmail = settings?.clubEmail || 'contact@codescriet.com';
+  const partnerEmail = settings?.clubEmail || 'outreach@codescriet.com';
   // Live member count from the shared public-stats query. Reused from cache if
   // another surface (e.g. the About page) already fetched it this session.
   const { data: publicStats } = usePublicStats();
@@ -636,84 +636,70 @@ export default function AchievementsPage() {
         </div>
       </section>
 
-      {/* CTA — Collaboration & Partnership. Public canvas tokens so the section
-          adapts to light/dark and sits cohesively above the footer instead of a
-          fixed dark amber slab. */}
-      <section className="relative overflow-hidden border-t border-[var(--pub-line)] bg-[var(--pub-canvas-2)] py-20 sm:py-24">
-        <div className="container relative z-10 mx-auto max-w-5xl px-4">
-          <motion.div
-            initial={{ opacity: 0, y: 28 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.7 }}
-            viewport={{ once: true, margin: '-60px' }}
-            className="partner"
-          >
-            <div className="partner-grid">
-              {/* Left — the pitch + the primary "connect" CTA */}
-              <div>
-                <span className="partner-eyebrow">
-                  <span className="partner-eyebrow-dot" aria-hidden="true" />
-                  Partner with us
-                </span>
-                <h2 className="partner-title">
-                  Let&rsquo;s build something <em>meaningful</em> together.
-                </h2>
-                <p className="partner-lede">
-                  We team up with companies, communities, and people who want to help students
-                  learn, build, and grow — through sponsorships, collaborations, and mentorship.
-                  If that sounds like you, we&rsquo;d love to talk.
-                </p>
-                <div className="partner-actions">
-                  <a
-                    className="partner-cta"
-                    href={`mailto:${partnerEmail}?subject=${encodeURIComponent('Partnership with code.scriet')}`}
-                  >
-                    Connect with us
-                    <ArrowRight size={18} />
-                  </a>
-                  <a className="partner-email" href={`mailto:${partnerEmail}`}>{partnerEmail}</a>
-                </div>
-              </div>
+      {/* CTA — Partner with us. Full-width band of "door" cards on the public
+          canvas tokens; theme-aware and cohesive with the footer. */}
+      <section className="border-t border-[var(--pub-line)] bg-[var(--pub-canvas)] py-20 sm:py-24">
+        <motion.div
+          initial={{ opacity: 0, y: 24 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.6 }}
+          viewport={{ once: true, margin: '-60px' }}
+          className="container mx-auto max-w-6xl px-4"
+        >
+          <div className="partner2-head">
+            <span className="partner2-eyebrow">
+              <span className="partner2-eyebrow-dot" aria-hidden="true" />
+              Partner with us
+            </span>
+            <h2 className="partner2-title">
+              Let&rsquo;s build something <em>meaningful</em> together.
+            </h2>
+            <p className="partner2-lede">
+              We team up with companies, communities, and people who want to help students
+              learn, build, and grow. Pick a way in — or just say hello.
+            </p>
+            <a className="partner2-email" href={`mailto:${partnerEmail}`}>{partnerEmail}</a>
+          </div>
 
-              {/* Right — clickable ways to work together */}
-              <div className="partner-paths">
-                <a
-                  className="partner-path"
-                  href={`mailto:${partnerEmail}?subject=${encodeURIComponent('Sponsorship inquiry — code.scriet')}`}
-                >
-                  <span className="partner-path-icon"><Sparkles size={18} /></span>
-                  <span className="partner-path-text">
-                    <span className="partner-path-title">Sponsor an event</span>
-                    <span className="partner-path-desc">Back workshops, hackathons, and student resources.</span>
-                  </span>
-                  <ArrowRight size={16} className="partner-path-arrow" />
-                </a>
-                <a
-                  className="partner-path"
-                  href={`mailto:${partnerEmail}?subject=${encodeURIComponent('Collaboration inquiry — code.scriet')}`}
-                >
-                  <span className="partner-path-icon"><Zap size={18} /></span>
-                  <span className="partner-path-text">
-                    <span className="partner-path-title">Collaborate on projects</span>
-                    <span className="partner-path-desc">Co-host sessions or build something with our members.</span>
-                  </span>
-                  <ArrowRight size={16} className="partner-path-arrow" />
-                </a>
-                <a
-                  className="partner-path"
-                  href={`mailto:${partnerEmail}?subject=${encodeURIComponent('Mentorship — code.scriet')}`}
-                >
-                  <span className="partner-path-icon"><Users size={18} /></span>
-                  <span className="partner-path-text">
-                    <span className="partner-path-title">Mentor our students</span>
-                    <span className="partner-path-desc">Share your experience through talks and guidance.</span>
-                  </span>
-                  <ArrowRight size={16} className="partner-path-arrow" />
-                </a>
-              </div>
-            </div>
-          </motion.div>
-        </div>
+          <div className="partner2-grid">
+            <a
+              className="door door--fill door--sweep"
+              href={`mailto:${partnerEmail}?subject=${encodeURIComponent('Sponsorship inquiry — code.scriet')}`}
+            >
+              <span className="door-arrow"><ArrowRight size={16} /></span>
+              <span className="door-tag"><Sparkles aria-hidden="true" /> For sponsors</span>
+              <span className="door-label">Sponsor an event</span>
+              <span className="door-desc">Back workshops, hackathons, and student resources.</span>
+            </a>
+            <a
+              className="door door--fill door--rise"
+              href={`mailto:${partnerEmail}?subject=${encodeURIComponent('Collaboration inquiry — code.scriet')}`}
+            >
+              <span className="door-arrow"><ArrowRight size={16} /></span>
+              <span className="door-tag"><Zap aria-hidden="true" /> For partners</span>
+              <span className="door-label">Collaborate on projects</span>
+              <span className="door-desc">Co-host sessions or build something with our members.</span>
+            </a>
+            <a
+              className="door door--fill door--iris"
+              href={`mailto:${partnerEmail}?subject=${encodeURIComponent('Mentorship — code.scriet')}`}
+            >
+              <span className="door-arrow"><ArrowRight size={16} /></span>
+              <span className="door-tag"><Users aria-hidden="true" /> For mentors</span>
+              <span className="door-label">Mentor our students</span>
+              <span className="door-desc">Share your experience through talks and guidance.</span>
+            </a>
+            <a
+              className="door door--primary"
+              href={`mailto:${partnerEmail}?subject=${encodeURIComponent('Partnership with code.scriet')}`}
+            >
+              <span className="door-arrow"><ArrowRight size={16} /></span>
+              <span className="door-tag"><Mail aria-hidden="true" /> Get in touch</span>
+              <span className="door-label">Connect with us</span>
+              <span className="door-desc">Tell us what you have in mind — we usually reply within a day.</span>
+            </a>
+          </div>
+        </motion.div>
       </section>
     </Layout>
   );
