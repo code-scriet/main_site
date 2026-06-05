@@ -236,6 +236,12 @@ function AuditRow({ log, expanded, onToggle }: { log: AuditLogEntry; expanded: b
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap mb-1">
             <span className="text-[13px] font-medium">{log.user?.name ?? 'System'}</span>
+            {log.user?.isDeleted && (
+              <Pill tone="danger" size="xs" title="This account was deleted — find it via the “Include deleted” toggle in User Management.">Deleted</Pill>
+            )}
+            {!log.user?.isDeleted && log.user?.role === 'NETWORK' && (
+              <Pill tone="info" size="xs" title="Network profile — managed in Network Management, not User Management.">Network</Pill>
+            )}
             <Pill tone={actionTone(log.action)} size="xs" title={log.action}>{actionLabel(log.action)}</Pill>
             <span className="text-[11px] text-[var(--ds-text-3)]">on</span>
             <MonoChip>{entityLabel(log.entity)}</MonoChip>

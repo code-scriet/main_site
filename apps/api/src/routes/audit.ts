@@ -73,12 +73,17 @@ auditRouter.get('/', authMiddleware, requireRole('ADMIN'), async (req: Request, 
       prisma.auditLog.count({ where }),
     ]);
 
-    // Fetch user details for all unique userIds
+    // Fetch user details for all unique userIds.
+    // NOTE: intentionally no isDeleted / role filter — audit logs are an
+    // immutable historical record, so we must resolve actors that are now
+    // soft-deleted or have a NETWORK role (both are hidden from User
+    // Management). We surface that status to the UI so admins understand why
+    // such an actor can't be found in the user directory.
     const userIds = [...new Set(logs.map((log) => log.userId).filter((id): id is string => Boolean(id)))];
     const users = await prisma.user.findMany({
       where: { id: { in: userIds } },
       take: 100,
-      select: { id: true, name: true, email: true, avatar: true },
+      select: { id: true, name: true, email: true, avatar: true, role: true, isDeleted: true },
     });
     const userMap = new Map(users.map(u => [u.id, u]));
 
@@ -86,8 +91,8 @@ auditRouter.get('/', authMiddleware, requireRole('ADMIN'), async (req: Request, 
     const logsWithUser = logs.map(log => ({
       ...log,
       user: log.userId
-        ? (userMap.get(log.userId) || { id: log.userId, name: 'Unknown', email: '', avatar: null })
-        : { id: 'deleted-user', name: 'Deleted User', email: '', avatar: null },
+        ? (userMap.get(log.userId) || { id: log.userId, name: 'Unknown', email: '', avatar: null, role: null, isDeleted: false })
+        : { id: 'deleted-user', name: 'Deleted User', email: '', avatar: null, role: null, isDeleted: true },
     }));
 
     // Get distinct entities and actions for filter dropdowns (scoped to last 90 days for performance)

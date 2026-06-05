@@ -1402,7 +1402,7 @@ export interface AuditLogEntry {
   entityId?: string | null;
   metadata?: Record<string, unknown> | null;
   timestamp: string;
-  user: { id: string; name: string; email: string; avatar?: string | null };
+  user: { id: string; name: string; email: string; avatar?: string | null; role?: string | null; isDeleted?: boolean };
 }
 
 export interface HomeEventPreview {
