@@ -642,85 +642,75 @@ export default function AchievementsPage() {
       <section className="relative overflow-hidden border-t border-[var(--pub-line)] bg-[var(--pub-canvas-2)] py-20 sm:py-24">
         <div className="container relative z-10 mx-auto max-w-5xl px-4">
           <motion.div
-            initial={{ opacity: 0, y: 30 }}
+            initial={{ opacity: 0, y: 28 }}
             whileInView={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.8 }}
-            viewport={{ once: true }}
-            className="max-w-5xl mx-auto"
+            transition={{ duration: 0.7 }}
+            viewport={{ once: true, margin: '-60px' }}
+            className="partner"
           >
-            <div className="text-center mb-12">
-              <motion.div
-                initial={{ scale: 0 }}
-                whileInView={{ scale: 1 }}
-                transition={{ type: "spring", duration: 0.6 }}
-                viewport={{ once: true }}
-                className="mb-6 inline-flex h-16 w-16 items-center justify-center rounded-2xl border border-[var(--pub-ember-line)] bg-[var(--pub-ember-soft)]"
-              >
-                <Users className="h-8 w-8 text-[var(--pub-ember)]" />
-              </motion.div>
-              
-              <h2 className="mb-6 text-balance text-[clamp(2rem,4.4vw,3.2rem)] font-black leading-tight text-[var(--pub-ink)]">
-                Partner With Us
-              </h2>
-              
-              <p className="mx-auto mb-10 max-w-3xl text-base leading-relaxed text-[var(--pub-ink-3)] sm:text-lg">
-                Looking to sponsor events, collaborate on projects, or support our community? 
-                We're always open to partnerships that help students learn and grow. Let's build something meaningful together.
-              </p>
-            </div>
-            
-            {/* Door-style CTA cards — same pattern as the About page closing
-                section: audience tag, serif label, hint, and a sliding arrow
-                chip; the ember edge-bar "opens" on hover. */}
-            <div className="ab-close-ctas">
-              <a
-                href={`mailto:${partnerEmail}`}
-                className="ab-close-cta-card ab-close-cta-card--primary"
-              >
-                <span className="ab-close-cta-card-tag">
-                  <span className="ab-close-cta-card-tag-dot" aria-hidden="true" />
-                  Partnerships
+            <div className="partner-grid">
+              {/* Left — the pitch + the primary "connect" CTA */}
+              <div>
+                <span className="partner-eyebrow">
+                  <span className="partner-eyebrow-dot" aria-hidden="true" />
+                  Partner with us
                 </span>
-                <span className="ab-close-cta-card-label">Get in Touch</span>
-                <span className="ab-close-cta-card-hint">
-                  The fastest way to start a conversation — tell us what you have in mind.
-                </span>
-                <span className="ab-close-cta-card-arrow" aria-hidden="true">
-                  <ArrowRight size={18} />
-                </span>
-              </a>
-              <a
-                href={`mailto:${partnerEmail}?subject=${encodeURIComponent('Sponsorship inquiry — code.scriet')}`}
-                className="ab-close-cta-card"
-              >
-                <span className="ab-close-cta-card-tag">
-                  <span className="ab-close-cta-card-tag-dot" aria-hidden="true" />
-                  For sponsors
-                </span>
-                <span className="ab-close-cta-card-label">Sponsor an event</span>
-                <span className="ab-close-cta-card-hint">
-                  Back student development through workshop sponsorships, event partnerships, or resource contributions.
-                </span>
-                <span className="ab-close-cta-card-arrow" aria-hidden="true">
-                  <ArrowRight size={18} />
-                </span>
-              </a>
-              <a
-                href={`mailto:${partnerEmail}?subject=${encodeURIComponent('Collaboration inquiry — code.scriet')}`}
-                className="ab-close-cta-card"
-              >
-                <span className="ab-close-cta-card-tag">
-                  <span className="ab-close-cta-card-tag-dot" aria-hidden="true" />
-                  For organizations
-                </span>
-                <span className="ab-close-cta-card-label">Collaborate with us</span>
-                <span className="ab-close-cta-card-hint">
-                  Co-host projects, run technical sessions, or mentor our members.
-                </span>
-                <span className="ab-close-cta-card-arrow" aria-hidden="true">
-                  <ArrowRight size={18} />
-                </span>
-              </a>
+                <h2 className="partner-title">
+                  Let&rsquo;s build something <em>meaningful</em> together.
+                </h2>
+                <p className="partner-lede">
+                  We team up with companies, communities, and people who want to help students
+                  learn, build, and grow — through sponsorships, collaborations, and mentorship.
+                  If that sounds like you, we&rsquo;d love to talk.
+                </p>
+                <div className="partner-actions">
+                  <a
+                    className="partner-cta"
+                    href={`mailto:${partnerEmail}?subject=${encodeURIComponent('Partnership with code.scriet')}`}
+                  >
+                    Connect with us
+                    <ArrowRight size={18} />
+                  </a>
+                  <a className="partner-email" href={`mailto:${partnerEmail}`}>{partnerEmail}</a>
+                </div>
+              </div>
+
+              {/* Right — clickable ways to work together */}
+              <div className="partner-paths">
+                <a
+                  className="partner-path"
+                  href={`mailto:${partnerEmail}?subject=${encodeURIComponent('Sponsorship inquiry — code.scriet')}`}
+                >
+                  <span className="partner-path-icon"><Sparkles size={18} /></span>
+                  <span className="partner-path-text">
+                    <span className="partner-path-title">Sponsor an event</span>
+                    <span className="partner-path-desc">Back workshops, hackathons, and student resources.</span>
+                  </span>
+                  <ArrowRight size={16} className="partner-path-arrow" />
+                </a>
+                <a
+                  className="partner-path"
+                  href={`mailto:${partnerEmail}?subject=${encodeURIComponent('Collaboration inquiry — code.scriet')}`}
+                >
+                  <span className="partner-path-icon"><Zap size={18} /></span>
+                  <span className="partner-path-text">
+                    <span className="partner-path-title">Collaborate on projects</span>
+                    <span className="partner-path-desc">Co-host sessions or build something with our members.</span>
+                  </span>
+                  <ArrowRight size={16} className="partner-path-arrow" />
+                </a>
+                <a
+                  className="partner-path"
+                  href={`mailto:${partnerEmail}?subject=${encodeURIComponent('Mentorship — code.scriet')}`}
+                >
+                  <span className="partner-path-icon"><Users size={18} /></span>
+                  <span className="partner-path-text">
+                    <span className="partner-path-title">Mentor our students</span>
+                    <span className="partner-path-desc">Share your experience through talks and guidance.</span>
+                  </span>
+                  <ArrowRight size={16} className="partner-path-arrow" />
+                </a>
+              </div>
             </div>
           </motion.div>
         </div>
