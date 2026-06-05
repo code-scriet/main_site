@@ -18,6 +18,7 @@ import { formatDate } from '@/lib/dateUtils';
 import { processImageUrl } from '@/lib/imageUtils';
 import { useSettings } from '@/context/SettingsContext';
 import { useMotionConfig } from '@/hooks/useMotionConfig';
+import { usePublicStats } from '@/hooks/usePublicStats';
 
 // ============================================
 // PREMIUM ACHIEVEMENT CARD
@@ -254,8 +255,10 @@ export default function AchievementsPage() {
   const { settings } = useSettings();
   const { isMobile, shouldReduceMotion } = useMotionConfig();
   const partnerEmail = settings?.clubEmail || 'contact@codescriet.com';
-  // TODO: Replace with a dynamic member impact count from the API or settings when available.
-  const memberImpactCount = '300+';
+  // Live member count from the shared public-stats query. Reused from cache if
+  // another surface (e.g. the About page) already fetched it this session.
+  const { data: publicStats } = usePublicStats();
+  const memberImpactCount = publicStats?.members != null ? `${publicStats.members.toLocaleString()}+` : '—';
 
   useEffect(() => {
     const fetchAchievements = async () => {
@@ -633,20 +636,11 @@ export default function AchievementsPage() {
         </div>
       </section>
 
-      {/* CTA SECTION - Collaboration & Partnership */}
-      <section className="py-20 sm:py-24 bg-gradient-to-br from-amber-900 via-amber-800 to-orange-900 relative overflow-hidden">
-        {/* Subtle texture */}
-        <div className="absolute inset-0 opacity-10">
-          <div 
-            className="absolute inset-0"
-            style={{
-              backgroundImage: `linear-gradient(rgba(251,191,36,0.1) 1px, transparent 1px), linear-gradient(90deg, rgba(251,191,36,0.1) 1px, transparent 1px)`,
-              backgroundSize: '40px 40px',
-            }}
-          />
-        </div>
-        
-        <div className="container relative z-10 mx-auto max-w-7xl px-4">
+      {/* CTA — Collaboration & Partnership. Public canvas tokens so the section
+          adapts to light/dark and sits cohesively above the footer instead of a
+          fixed dark amber slab. */}
+      <section className="relative overflow-hidden border-t border-[var(--pub-line)] bg-[var(--pub-canvas-2)] py-20 sm:py-24">
+        <div className="container relative z-10 mx-auto max-w-5xl px-4">
           <motion.div
             initial={{ opacity: 0, y: 30 }}
             whileInView={{ opacity: 1, y: 0 }}
@@ -660,16 +654,16 @@ export default function AchievementsPage() {
                 whileInView={{ scale: 1 }}
                 transition={{ type: "spring", duration: 0.6 }}
                 viewport={{ once: true }}
-                className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-amber-400/20 border border-amber-400/30 mb-6"
+                className="mb-6 inline-flex h-16 w-16 items-center justify-center rounded-2xl border border-[var(--pub-ember-line)] bg-[var(--pub-ember-soft)]"
               >
-                <Users className="h-8 w-8 text-amber-300" />
+                <Users className="h-8 w-8 text-[var(--pub-ember)]" />
               </motion.div>
               
-              <h2 className="mb-6 text-balance text-[clamp(2rem,4.4vw,3.2rem)] font-black leading-tight text-white">
+              <h2 className="mb-6 text-balance text-[clamp(2rem,4.4vw,3.2rem)] font-black leading-tight text-[var(--pub-ink)]">
                 Partner With Us
               </h2>
               
-              <p className="mx-auto mb-10 max-w-3xl text-base leading-relaxed text-gray-300 sm:text-lg">
+              <p className="mx-auto mb-10 max-w-3xl text-base leading-relaxed text-[var(--pub-ink-3)] sm:text-lg">
                 Looking to sponsor events, collaborate on projects, or support our community? 
                 We're always open to partnerships that help students learn and grow. Let's build something meaningful together.
               </p>

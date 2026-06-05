@@ -1,7 +1,6 @@
 import { useMemo } from 'react';
-import { useQuery } from '@tanstack/react-query';
-import { api } from '@/lib/api';
 import { useSettings } from '@/context/SettingsContext';
+import { usePublicStats } from '@/hooks/usePublicStats';
 import {
   DEFAULT_ABOUT_CONTENT,
   LAUNCH_DATE,
@@ -9,8 +8,6 @@ import {
   monthsSinceLaunch,
   type AboutPageContent,
 } from '@/lib/aboutContent';
-
-const ABOUT_STATS_KEY = ['about-page-stats'] as const;
 
 export interface AboutPageStats {
   members: number;
@@ -45,14 +42,9 @@ const FALLBACK_STATS: Omit<AboutPageStats, 'monthsSinceInception'> = {
 export function useAboutPageData(): AboutPageData {
   const { settings } = useSettings();
 
-  const statsQuery = useQuery({
-    queryKey: ABOUT_STATS_KEY,
-    queryFn: () => api.getPublicStats(),
-    staleTime: 60 * 1000,
-    gcTime: 10 * 60 * 1000,
-    retry: 1,
-    refetchOnWindowFocus: false,
-  });
+  // Shared public-stats query — reused (not refetched) if any other surface
+  // already loaded it this session. See usePublicStats for the dedup rationale.
+  const statsQuery = usePublicStats();
 
   const raw = statsQuery.data;
   const teamCounts = raw?.teamCounts ?? {};
