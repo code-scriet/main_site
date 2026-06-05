@@ -163,8 +163,10 @@ git push origin feat/your-feature-name
 | Lakshya Pandey | Team Lead |
 | Khushi Yadav | Platform Lead |
 | Prince Chaurasiya | Resource Manager |
-| Pranjali Jaiswal | Head |
-| Ramsha Baig | Sub Head |
+| Pranjali Jaiswal | Media Head |
+| Mohit | Design Head |
+| Utsav Dubey | Management Head |
+
 
 > Meet the full team → [codescriet.dev/team](https://codescriet.dev/team/)
 
