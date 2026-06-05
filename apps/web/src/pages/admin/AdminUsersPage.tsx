@@ -154,7 +154,7 @@ function AdminUsersPageInner() {
   const isPresidentOrSuper = currentUser?.isSuperAdmin || currentUser?.role === 'PRESIDENT';
 
   return (
-    <div className="space-y-5 px-4 py-6 md:px-6">
+    <div className="space-y-5">
       <header className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <div className="flex items-center gap-2 text-[var(--ds-text-1)] dark:text-zinc-50">
@@ -350,11 +350,11 @@ function UserRow({ user, onOpen }: { user: User; onOpen: () => void }) {
   const deletedClass = user.isDeleted ? 'opacity-60' : '';
 
   return (
-    <li className={`group flex items-center gap-3 px-4 py-3 ${deletedClass}`}>
+    <li className={`group flex items-center gap-2 px-3 py-3 sm:gap-3 sm:px-4 ${deletedClass}`}>
       <button
         type="button"
         onClick={onOpen}
-        className="flex flex-1 items-center gap-3 text-left transition hover:bg-[var(--surface-soft)] -mx-2 px-2 rounded-md dark:hover:bg-zinc-900/50"
+        className="flex min-w-0 flex-1 items-center gap-3 text-left transition hover:bg-[var(--surface-soft)] -mx-2 px-2 rounded-md dark:hover:bg-zinc-900/50"
       >
         <div className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full bg-[var(--surface-soft)] text-sm font-medium text-[var(--ds-text-2)] dark:bg-zinc-800 dark:text-zinc-200">
           {user.avatar ? (
@@ -372,21 +372,21 @@ function UserRow({ user, onOpen }: { user: User; onOpen: () => void }) {
           )}
         </div>
         <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2">
-            <span className={`truncate text-sm font-medium ${user.isDeleted ? 'line-through' : 'text-[var(--ds-text-1)] dark:text-zinc-100'}`}>
+          <div className="flex min-w-0 items-center gap-1.5 sm:gap-2">
+            <span className={`min-w-0 flex-1 truncate text-sm font-medium ${user.isDeleted ? 'line-through' : 'text-[var(--ds-text-1)] dark:text-zinc-100'}`}>
               {user.name}
             </span>
-            <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium ${badge.className}`}>
+            <span className={`inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium ${badge.className}`}>
               <RoleIcon className="h-3 w-3" /> {badge.label}
             </span>
             {user.isDeleted && (
-              <Badge variant="destructive" className="text-[10px]">
+              <Badge variant="destructive" className="shrink-0 text-[10px]">
                 Deleted
               </Badge>
             )}
             {activeBlocks.length > 0 && (
               <Tooltip content={`Blocked from: ${activeBlocks.map((b) => b.feature.toLowerCase()).join(', ')}`}>
-                <span className="inline-flex items-center gap-1 rounded-full bg-red-50 px-1.5 py-0.5 text-[10px] font-medium text-red-700 ring-1 ring-red-200 dark:bg-red-950/60 dark:text-red-300 dark:ring-red-900">
+                <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-red-50 px-1.5 py-0.5 text-[10px] font-medium text-red-700 ring-1 ring-red-200 dark:bg-red-950/60 dark:text-red-300 dark:ring-red-900">
                   <ShieldOff className="h-3 w-3" /> {activeBlocks.length}
                 </span>
               </Tooltip>
@@ -404,9 +404,10 @@ function UserRow({ user, onOpen }: { user: User; onOpen: () => void }) {
           </span>
         </div>
       </button>
-      <div className="flex items-center gap-1">
-        <Button variant="outline" size="sm" onClick={onOpen}>
-          <Eye className="mr-1 h-3.5 w-3.5" /> View
+      <div className="flex shrink-0 items-center gap-1">
+        <Button variant="outline" size="sm" onClick={onOpen} className="px-2 sm:px-3">
+          <Eye className="h-3.5 w-3.5 sm:mr-1" />
+          <span className="hidden sm:inline">View</span>
         </Button>
         <Tooltip content="Open full page">
           <Link

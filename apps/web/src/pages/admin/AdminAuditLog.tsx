@@ -12,6 +12,7 @@ import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { relativeTime } from '@/lib/dateUtils';
+import { UserDetailSheet } from '@/components/admin/users/UserDetailSheet';
 
 function actionTone(action: string): 'success' | 'danger' | 'warning' | 'info' | 'neutral' {
   const a = action.toUpperCase();
@@ -86,6 +87,7 @@ export default function AdminAuditLog() {
   const [page, setPage] = useState(1);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [showFilters, setShowFilters] = useState(false);
+  const [openUserId, setOpenUserId] = useState<string | null>(null);
 
   const q = useQuery({
     queryKey: ['audit-logs', { page, entityFilter, actionFilter, search }],
@@ -202,6 +204,7 @@ export default function AdminAuditLog() {
                 log={log}
                 expanded={expanded.has(log.id)}
                 onToggle={() => toggle(log.id)}
+                onOpenUser={setOpenUserId}
               />
             ))}
           </div>
@@ -223,19 +226,52 @@ export default function AdminAuditLog() {
           </div>
         </div>
       )}
+
+      {/* Same slide-over used by User Management — full detail for the clicked actor. */}
+      <UserDetailSheet
+        userId={openUserId}
+        open={!!openUserId}
+        onOpenChange={(open) => { if (!open) setOpenUserId(null); }}
+      />
     </div>
   );
 }
 
-function AuditRow({ log, expanded, onToggle }: { log: AuditLogEntry; expanded: boolean; onToggle: () => void }) {
+function AuditRow({ log, expanded, onToggle, onOpenUser }: { log: AuditLogEntry; expanded: boolean; onToggle: () => void; onOpenUser: (userId: string) => void }) {
   const meta = log.metadata && Object.keys(log.metadata).length > 0 ? log.metadata : null;
+  // Open the full detail sheet only for actors that resolve to a real, viewable
+  // user. Resolved actors carry a non-null `role`; System entries and
+  // unresolved/hard-deleted fallbacks have role null. NETWORK lives in Network
+  // Management, so /api/users/:id can't load it — keep it non-clickable.
+  const actorId = log.user?.id;
+  const canOpen = Boolean(
+    log.userId && actorId && log.user?.role && log.user.role !== 'NETWORK',
+  );
+  const openActor = () => { if (canOpen && actorId) onOpenUser(actorId); };
   return (
     <div className="px-4 py-3">
       <div className="flex items-start gap-3 flex-wrap">
-        <Avatar name={log.user?.name ?? 'system'} src={log.user?.avatar} size={28} />
+        {canOpen ? (
+          <button type="button" onClick={openActor} className="shrink-0 rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]" aria-label={`Open ${log.user?.name ?? 'user'} detail`}>
+            <Avatar name={log.user?.name ?? 'system'} src={log.user?.avatar} size={28} />
+          </button>
+        ) : (
+          <Avatar name={log.user?.name ?? 'system'} src={log.user?.avatar} size={28} />
+        )}
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap mb-1">
-            <span className="text-[13px] font-medium">{log.user?.name ?? 'System'}</span>
+            {canOpen ? (
+              <button
+                type="button"
+                onClick={openActor}
+                className="text-[13px] font-medium hover:text-[var(--accent)] hover:underline underline-offset-2 transition-colors"
+                title="View full user detail"
+              >
+                {log.user?.name ?? 'System'}
+              </button>
+            ) : (
+              <span className="text-[13px] font-medium">{log.user?.name ?? 'System'}</span>
+            )}
             {log.user?.isDeleted && (
               <Pill tone="danger" size="xs" title="This account was deleted — find it via the “Include deleted” toggle in User Management.">Deleted</Pill>
             )}
