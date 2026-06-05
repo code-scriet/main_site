@@ -2422,6 +2422,8 @@ html.dark [data-public] .pub-site-header { background: rgba(10, 9, 8, 0.85); }
   [data-public] .hcta-btn::after,
   [data-public] .hcta-btn svg,
   [data-public] .hcta-btn-disc { transition-duration: 0.001ms; }
+
+  [data-public] .hcta-live { animation: none !important; }
 }
 
 /* Subtle dotted-grid texture on the cream canvas — adds depth without noise.
