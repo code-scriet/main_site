@@ -16,7 +16,7 @@
 
 ## 🧠 About
 
-**code.scriet**  is the official coding club of [Sir Chhotu Ram Institute of Engineering and Technology (SCRIET)](https://scriet.ac.in/), a constituent college of **Chaudhary Charan Singh University (CCSU), Meerut, Uttar Pradesh, India**.
+**code.scriet**  is the official coding club of [Sir Chhotu Ram Institute of Engineering and Technology (SCRIET)](https://scriet.ccsuniversity.ac.in/), a constituent college of **Chaudhary Charan Singh University (CCSU), Meerut, Uttar Pradesh, India**.
 
 Founded by undergraduate students, the club provides a structured space to learn Data Structures & Algorithms, build real-world projects, prepare for placements, and connect with alumni in the software industry.
 
