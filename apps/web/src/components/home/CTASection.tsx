@@ -19,7 +19,7 @@ export function CTASection() {
   const fmt = (n?: number) => (n != null ? n.toLocaleString() : '—');
 
   const stats = [
-    { icon: Users, value: `${fmt(s?.members)}+`, label: 'Active members', live: true },
+    { icon: Users, value: s?.members != null ? `${fmt(s.members)}+` : '—', label: 'Active members', live: true },
     { icon: CalendarDays, value: fmt(s?.events), label: 'Events hosted', live: false },
     { icon: Trophy, value: fmt(s?.achievements), label: 'Milestones won', live: false },
   ];
