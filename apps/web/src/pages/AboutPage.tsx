@@ -9,10 +9,12 @@ import { useMotionConfig } from '@/hooks/useMotionConfig';
 import type { AboutPageStats } from '@/hooks/useAboutPageData';
 import { monthsWord, type AboutStoryParagraph, type AboutTeamItem } from '@/lib/aboutContent';
 
-// Render admin-authored text that may contain a small set of inline HTML tags
-// (<strong>, <em>, <br>, <span class="ab-em">) — the same tags the admin's
-// RichTextarea toolbar inserts. Settings is super-admin/PRESIDENT-only, so the
-// trust model accepts dangerouslySetInnerHTML here. Plain strings render too.
+// Render editorial copy that may contain a small set of inline HTML tags
+// (<strong>, <em>, <br>, <span class="ab-em">). This content is NOT user- or
+// admin-supplied at runtime — it is a build-time constant (DEFAULT_ABOUT_CONTENT
+// in src/lib/aboutContent.ts), so dangerouslySetInnerHTML carries no untrusted
+// input. Only the live stats/launch-date merged into the page are dynamic, and
+// those are plain text/numbers, never HTML. Plain strings render too.
 function InlineHtml({
   html,
   as,
@@ -27,9 +29,9 @@ function InlineHtml({
 }
 
 /**
- * Render a paragraph from the story section. Strong/em tags from the JSON
- * content are intentionally preserved (sanitised by the admin's structured
- * editor, not by the public render path).
+ * Render a paragraph from the story section. Strong/em tags come from the
+ * build-time DEFAULT_ABOUT_CONTENT constant (not runtime input), so they are
+ * preserved as-is — there is no untrusted HTML on this path.
  */
 function StoryParagraph({ paragraph }: { paragraph: AboutStoryParagraph }) {
   if (paragraph.isPull) {

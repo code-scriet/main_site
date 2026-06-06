@@ -2,6 +2,7 @@
   "name": "code-scriet-platform",
   "version": "1.0.0",
   "private": true,
+  "license": "Apache-2.0",
   "workspaces": [
     "apps/*",
     "packages/*"

@@ -1,0 +1,23 @@
+version: 2
+updates:
+  # Application dependencies (root lockfile covers all npm workspaces).
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    groups:
+      # Batch low-risk dev tooling bumps into a single PR to cut review noise.
+      dev-dependencies:
+        dependency-type: "development"
+    labels:
+      - "dependencies"
+
+  # Keep GitHub Actions (checkout, setup-node, codeql) patched.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    labels:
+      - "dependencies"
+      - "ci"

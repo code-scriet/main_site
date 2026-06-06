@@ -5,6 +5,10 @@ import { Request } from 'express';
 import { prisma } from '../lib/prisma.js';
 import { emailService } from '../utils/email.js';
 import { logger } from '../utils/logger.js';
+import { auditLog } from '../utils/audit.js';
+import { invalidateCachedAuthUser } from '../utils/userAuthCache.js';
+import { isSuperAdmin } from '../utils/superAdmin.js';
+import { selectVerifiedGithubEmail, isGoogleEmailVerified, oauthLinkRequiresPasswordReset } from '../utils/oauthEmail.js';
 
 const getCookie = (req: Request, name: string): string | undefined => {
   const cookies = req.headers.cookie;
@@ -15,6 +19,41 @@ const getCookie = (req: Request, name: string): string | undefined => {
 
 const isNetworkIntentRequest = (req: Request): boolean => getCookie(req, 'oauth_intent') === 'network';
 const backendUrl = process.env.BACKEND_URL || 'http://localhost:5001';
+
+/**
+ * SECURITY (R1 — pre-account-hijacking defense). Registration does not verify
+ * email ownership, so an attacker could pre-register `victim@email` with a known
+ * password. When the real owner later signs in via OAuth (which DOES prove email
+ * ownership), they must not inherit an account whose password the attacker still
+ * controls. A verified OAuth login is therefore treated as authoritative: if it
+ * resolves to a PRE-EXISTING account that still carries a password, we clear that
+ * unverified credential and bump `tokenVersion` to evict any attacker sessions.
+ * The legitimate owner keeps full access via OAuth (their freshly issued session
+ * carries the bumped version) and can re-establish a password via reset.
+ *
+ * Exemptions (handled in oauthLinkRequiresPasswordReset): freshly created
+ * accounts, pure-OAuth accounts, and the super admin (env-managed password).
+ * OAuth sign-in itself is unaffected — this only runs as a side effect on link.
+ */
+async function securePreExistingAccountOnOAuthLink(
+  user: { id: string; email?: string | null; role?: string | null; password?: string | null },
+  isNewUser: boolean,
+  provider: 'google' | 'github',
+): Promise<void> {
+  if (!oauthLinkRequiresPasswordReset(user, isNewUser, isSuperAdmin(user))) {
+    return;
+  }
+  await prisma.user.update({
+    where: { id: user.id },
+    data: { password: null, tokenVersion: { increment: 1 } },
+  });
+  invalidateCachedAuthUser(user.id);
+  await auditLog(user.id, 'OAUTH_LINK_PASSWORD_CLEARED', 'auth', user.id, { provider });
+  logger.warn('Cleared unverified password on OAuth link (R1 pre-hijack defense)', {
+    userId: user.id,
+    provider,
+  });
+}
 
 export function setupPassport(passport: PassportStatic) {
   // Google OAuth Strategy
@@ -29,9 +68,14 @@ export function setupPassport(passport: PassportStatic) {
         },
         async (req: Request, accessToken, refreshToken, profile, done) => {
           try {
-            const email = profile.emails?.[0]?.value?.trim().toLowerCase();
+            // SECURITY (H1): only authenticate on a provider-verified email.
+            const primaryEmail = profile.emails?.[0];
+            const email = primaryEmail?.value?.trim().toLowerCase();
             if (!email) {
               return done(new Error('No email found'), undefined);
+            }
+            if (!isGoogleEmailVerified(primaryEmail)) {
+              return done(new Error('A verified Google email is required to sign in.'), undefined);
             }
 
             // Check if this is a network signup intent from cookies
@@ -56,6 +100,9 @@ export function setupPassport(passport: PassportStatic) {
                 },
               });
             }
+
+            // SECURITY (R1): neutralize an attacker-set password on a pre-existing account.
+            await securePreExistingAccountOnOAuthLink(user, isNewUser, 'google');
 
             // Send welcome email only to new regular users (not NETWORK signups)
             if (isNewUser && email && !isNetworkIntent) {
@@ -82,27 +129,23 @@ export function setupPassport(passport: PassportStatic) {
           clientSecret: process.env.GITHUB_CLIENT_SECRET,
           callbackURL: `${backendUrl}/api/auth/github/callback`,
           scope: ['user:email'],
+          // SECURITY (H1): request the full /user/emails list so every address
+          // carries its real `verified`/`primary` flags. Without this,
+          // passport-github2 returns only the primary email and drops the
+          // verified flag, making any verification check silently dead code.
+          allRawEmails: true,
           passReqToCallback: true,
         },
         async (req: Request, accessToken: string, refreshToken: string, profile: any, done: any) => {
           try {
-            const emailCandidates = Array.isArray(profile.emails)
-              ? profile.emails
-                  .map((entry: { value?: string; verified?: boolean | null }) => ({
-                    value: entry.value?.trim().toLowerCase(),
-                    verified: Boolean(entry.verified),
-                  }))
-                  .filter((entry: { value?: string }) => Boolean(entry.value))
-              : [];
-
-            const verifiedEmail = emailCandidates.find(
-              (entry: { value?: string; verified: boolean }) => entry.verified
-            );
-            const fallbackEmail = emailCandidates[0];
-            const email = (verifiedEmail?.value || fallbackEmail?.value || '').trim();
+            // SECURITY (H1): authenticate ONLY on a GitHub-verified email — never
+            // fall back to an unverified one (account-takeover guard). Selection
+            // logic + rationale live in selectVerifiedGithubEmail (unit-tested).
+            // `allRawEmails: true` (strategy option) is what populates the flags.
+            const email = selectVerifiedGithubEmail(profile.emails);
 
             if (!email) {
-              return done(new Error('GitHub account email is required. Please make a public or verified email available on GitHub and try again.'), undefined);
+              return done(new Error('A verified GitHub email is required to sign in. Verify your email on GitHub and try again.'), undefined);
             }
 
             // Check if this is a network signup intent from cookies
@@ -127,6 +170,9 @@ export function setupPassport(passport: PassportStatic) {
                 },
               });
             }
+
+            // SECURITY (R1): neutralize an attacker-set password on a pre-existing account.
+            await securePreExistingAccountOnOAuthLink(user, isNewUser, 'github');
 
             // Send welcome email only to new regular users (not NETWORK signups)
             if (isNewUser && email && !isNetworkIntent) {

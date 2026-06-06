@@ -16,6 +16,10 @@
 //   3. Deploy
 //   4. Set EXECUTOR_URL=https://codescriet-executor.developer-aary.workers.dev/execute
 //      in the execute-server environment
+//   5. SECURITY (M1): generate a random EXECUTOR_SECRET and set the SAME value
+//      as a Worker environment variable (Settings → Variables) AND in the
+//      execute-server environment. Once set, the Worker rejects any request
+//      without the matching X-Executor-Secret header — closing the open relay.
 // ---------------------------------------------------------------------------
 
 const UPSTREAM_URL = 'https://wandbox.org/api/compile.json';
@@ -64,6 +68,23 @@ function sanitizeError(message) {
     .replace(/prog\.\w+/g, 'source file');
 }
 
+// M1: constant-time string compare so the shared secret can't be recovered by
+// timing the response.
+function safeEqual(a, b) {
+  if (typeof a !== 'string' || typeof b !== 'string' || a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return diff === 0;
+}
+
+// NOTE: there is intentionally no per-IP rate limiter here. This worker is only
+// ever called server-to-server by our execute-server, so CF-Connecting-IP is
+// always that one egress IP — a per-IP cap would throttle the ENTIRE platform's
+// code execution (e.g. during a contest) rather than any individual user.
+// Abuse is controlled by (1) the shared secret below, which makes execute-server
+// the only legitimate caller, and (2) execute-server's per-user save/submit and
+// daily quotas, which is the only layer that knows the user identity.
+
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
@@ -105,6 +126,20 @@ export default {
         status: 403,
         headers: { 'Content-Type': 'application/json' },
       });
+    }
+
+    // M1: require the shared secret when configured. Until EXECUTOR_SECRET is
+    // set in the Worker environment, fall back to the legacy Origin-only check
+    // so a staged rollout (deploy worker → set secret in both services) never
+    // breaks execution. Origin alone is spoofable and was the only gate before.
+    if (env && env.EXECUTOR_SECRET) {
+      const provided = request.headers.get('X-Executor-Secret') || '';
+      if (!safeEqual(provided, env.EXECUTOR_SECRET)) {
+        return new Response(JSON.stringify({ error: 'Forbidden' }), {
+          status: 403,
+          headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
+        });
+      }
     }
 
     try {
