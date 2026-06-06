@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 🔒 Report a security vulnerability
+    url: https://github.com/code-scriet/main_site/security/advisories/new
+    about: Please report security issues privately — do NOT open a public issue. See SECURITY.md.
+  - name: 💬 Questions & discussion
+    url: https://codescriet.dev/contact
+    about: For general questions, reach out via the club contact page.
