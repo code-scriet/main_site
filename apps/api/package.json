@@ -14,7 +14,7 @@
   },
   "dependencies": {
     "@prisma/client": "^5.8.0",
-    "@react-pdf/renderer": "^4.3.2",
+    "@react-pdf/renderer": "^4.5.1",
     "bcryptjs": "^3.0.3",
     "bufferutil": "^4.1.0",
     "cloudinary": "^2.9.0",
