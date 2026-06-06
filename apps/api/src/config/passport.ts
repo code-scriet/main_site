@@ -5,7 +5,10 @@ import { Request } from 'express';
 import { prisma } from '../lib/prisma.js';
 import { emailService } from '../utils/email.js';
 import { logger } from '../utils/logger.js';
-import { selectVerifiedGithubEmail, isGoogleEmailVerified } from '../utils/oauthEmail.js';
+import { auditLog } from '../utils/audit.js';
+import { invalidateCachedAuthUser } from '../utils/userAuthCache.js';
+import { isSuperAdmin } from '../utils/superAdmin.js';
+import { selectVerifiedGithubEmail, isGoogleEmailVerified, oauthLinkRequiresPasswordReset } from '../utils/oauthEmail.js';
 
 const getCookie = (req: Request, name: string): string | undefined => {
   const cookies = req.headers.cookie;
@@ -16,6 +19,41 @@ const getCookie = (req: Request, name: string): string | undefined => {
 
 const isNetworkIntentRequest = (req: Request): boolean => getCookie(req, 'oauth_intent') === 'network';
 const backendUrl = process.env.BACKEND_URL || 'http://localhost:5001';
+
+/**
+ * SECURITY (R1 — pre-account-hijacking defense). Registration does not verify
+ * email ownership, so an attacker could pre-register `victim@email` with a known
+ * password. When the real owner later signs in via OAuth (which DOES prove email
+ * ownership), they must not inherit an account whose password the attacker still
+ * controls. A verified OAuth login is therefore treated as authoritative: if it
+ * resolves to a PRE-EXISTING account that still carries a password, we clear that
+ * unverified credential and bump `tokenVersion` to evict any attacker sessions.
+ * The legitimate owner keeps full access via OAuth (their freshly issued session
+ * carries the bumped version) and can re-establish a password via reset.
+ *
+ * Exemptions (handled in oauthLinkRequiresPasswordReset): freshly created
+ * accounts, pure-OAuth accounts, and the super admin (env-managed password).
+ * OAuth sign-in itself is unaffected — this only runs as a side effect on link.
+ */
+async function securePreExistingAccountOnOAuthLink(
+  user: { id: string; email?: string | null; role?: string | null; password?: string | null },
+  isNewUser: boolean,
+  provider: 'google' | 'github',
+): Promise<void> {
+  if (!oauthLinkRequiresPasswordReset(user, isNewUser, isSuperAdmin(user))) {
+    return;
+  }
+  await prisma.user.update({
+    where: { id: user.id },
+    data: { password: null, tokenVersion: { increment: 1 } },
+  });
+  invalidateCachedAuthUser(user.id);
+  await auditLog(user.id, 'OAUTH_LINK_PASSWORD_CLEARED', 'auth', user.id, { provider });
+  logger.warn('Cleared unverified password on OAuth link (R1 pre-hijack defense)', {
+    userId: user.id,
+    provider,
+  });
+}
 
 export function setupPassport(passport: PassportStatic) {
   // Google OAuth Strategy
@@ -62,6 +100,9 @@ export function setupPassport(passport: PassportStatic) {
                 },
               });
             }
+
+            // SECURITY (R1): neutralize an attacker-set password on a pre-existing account.
+            await securePreExistingAccountOnOAuthLink(user, isNewUser, 'google');
 
             // Send welcome email only to new regular users (not NETWORK signups)
             if (isNewUser && email && !isNetworkIntent) {
@@ -129,6 +170,9 @@ export function setupPassport(passport: PassportStatic) {
                 },
               });
             }
+
+            // SECURITY (R1): neutralize an attacker-set password on a pre-existing account.
+            await securePreExistingAccountOnOAuthLink(user, isNewUser, 'github');
 
             // Send welcome email only to new regular users (not NETWORK signups)
             if (isNewUser && email && !isNetworkIntent) {

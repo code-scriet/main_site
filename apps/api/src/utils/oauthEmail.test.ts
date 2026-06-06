@@ -1,6 +1,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { selectVerifiedGithubEmail, isGoogleEmailVerified, oauthStateMatches } from './oauthEmail.js';
+import {
+  selectVerifiedGithubEmail,
+  isGoogleEmailVerified,
+  oauthStateMatches,
+  oauthLinkRequiresPasswordReset,
+} from './oauthEmail.js';
 
 // ── selectVerifiedGithubEmail (H1 account-takeover guard) ──
 
@@ -66,4 +71,24 @@ test('oauthStateMatches requires both present and strictly equal', () => {
   assert.equal(oauthStateMatches(undefined, 'abc123'), false); // no cookie → reject
   assert.equal(oauthStateMatches('abc123', undefined), false); // no query param → reject
   assert.equal(oauthStateMatches('abc123', ''), false);
+});
+
+// ── oauthLinkRequiresPasswordReset (R1 pre-account-hijacking defense) ──
+
+test('oauthLinkRequiresPasswordReset clears a pre-existing account password (the attack case)', () => {
+  assert.equal(oauthLinkRequiresPasswordReset({ password: 'hash' }, false, false), true);
+});
+
+test('oauthLinkRequiresPasswordReset leaves pure-OAuth accounts (no password) untouched', () => {
+  assert.equal(oauthLinkRequiresPasswordReset({ password: null }, false, false), false);
+  assert.equal(oauthLinkRequiresPasswordReset({}, false, false), false);
+  assert.equal(oauthLinkRequiresPasswordReset(null, false, false), false);
+});
+
+test('oauthLinkRequiresPasswordReset does nothing for freshly created accounts', () => {
+  assert.equal(oauthLinkRequiresPasswordReset({ password: 'hash' }, true, false), false);
+});
+
+test('oauthLinkRequiresPasswordReset NEVER touches the super admin (env-managed password)', () => {
+  assert.equal(oauthLinkRequiresPasswordReset({ password: 'hash' }, false, true), false);
 });

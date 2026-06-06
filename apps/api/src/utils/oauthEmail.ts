@@ -64,3 +64,31 @@ export function oauthStateMatches(
 ): boolean {
   return Boolean(expected) && Boolean(actual) && expected === actual;
 }
+
+/**
+ * Decide whether an OAuth login that resolved to an EXISTING account must
+ * invalidate that account's password (R1, pre-account-hijacking defense).
+ *
+ * Registration does not verify email ownership, so an attacker can pre-register
+ * `victim@email` with a password they know. When the real owner later signs in
+ * via OAuth (which proves email ownership), they would otherwise inherit the
+ * attacker's pre-seeded account while the attacker keeps password access. The
+ * verified OAuth login is authoritative, so any pre-existing (unverified)
+ * password on that account must be cleared and its sessions evicted.
+ *
+ * Returns true only for a pre-existing account that still carries a password —
+ * pure-OAuth accounts (no password) and freshly created accounts need nothing.
+ *
+ * The super admin is ALWAYS exempt: its password is managed from the
+ * SUPER_ADMIN_PASSWORD env var (seeded once, never re-seeded), and its email is
+ * created at first boot so it can't be pre-registered/hijacked. Clearing it
+ * would permanently break env-based admin login.
+ */
+export function oauthLinkRequiresPasswordReset(
+  existing: { password?: string | null } | null | undefined,
+  isNewUser: boolean,
+  isSuperAdmin: boolean,
+): boolean {
+  if (isSuperAdmin) return false;
+  return !isNewUser && Boolean(existing?.password);
+}
