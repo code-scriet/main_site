@@ -52,8 +52,8 @@ export default function ContactPage() {
   return (
     <Layout>
       <SEO
-        title="Contact"
-        description="Get in touch with codescriet, the official coding club of SCRIET, CCS University Meerut. Reach us by email, phone, WhatsApp or social media."
+        title="Contact codescriet — SCRIET Coding Club"
+        description="Contact codescriet — reach the official coding club of SCRIET, CCS University Meerut by email, WhatsApp, or social channels for events and collaborations."
         url="/contact"
       />
       <section className="bg-amber-50 min-h-screen">

@@ -97,8 +97,8 @@ export default function AnnouncementsPage() {
   return (
     <Layout>
       <SEO 
-        title="Announcements"
-        description="Latest news and updates from codescriet, the official coding club of SCRIET."
+        title="Announcements & Club Updates"
+        description="Latest announcements from codescriet — news, event updates, recruitment notices, and deadlines from the official SCRIET coding club, CCS University Meerut."
         url="/announcements"
       />
       <BreadcrumbSchema

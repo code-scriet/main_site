@@ -294,8 +294,8 @@ export default function AchievementsPage() {
   return (
     <Layout>
       <SEO 
-        title="Achievements"
-        description="Achievements and milestones of codescriet, the official coding club of SCRIET, CCS University Meerut."
+        title="Achievements & Hackathon Wins"
+        description="Achievements at codescriet — projects, hackathon wins, contest results, and milestones from members of the official SCRIET coding club, CCS University Meerut."
         url="/achievements"
       />
       <BreadcrumbSchema

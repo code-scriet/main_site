@@ -151,7 +151,7 @@ export default function CreditsPage() {
     <Layout>
       <SEO
         title="Credits & Acknowledgements"
-        description="Recognizing the people, efforts, and contributions that make code.scriet possible."
+        description="Credits and acknowledgements for codescriet — the founders, builders, designers, and contributors who created and maintain the SCRIET coding club platform."
         url="/credits"
       />
 
