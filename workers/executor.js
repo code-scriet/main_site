@@ -77,27 +77,13 @@ function safeEqual(a, b) {
   return diff === 0;
 }
 
-// M1: best-effort per-isolate IP throttle. Cloudflare runs many isolates, so
-// this is NOT a global limit — the real control is the shared secret, which
-// makes our execute-server the only legitimate caller (and that server already
-// enforces per-user save/submit quotas). This just blunts a burst that lands on
-// a single isolate. The map is bounded so a flood of unique IPs can't grow it.
-const RATE_WINDOW_MS = 60_000;
-const RATE_MAX = 60;
-const ipHits = new Map();
-
-function rateLimited(ip) {
-  if (!ip) return false;
-  const now = Date.now();
-  const entry = ipHits.get(ip);
-  if (!entry || now > entry.resetAt) {
-    if (ipHits.size > 5000) ipHits.clear();
-    ipHits.set(ip, { count: 1, resetAt: now + RATE_WINDOW_MS });
-    return false;
-  }
-  entry.count += 1;
-  return entry.count > RATE_MAX;
-}
+// NOTE: there is intentionally no per-IP rate limiter here. This worker is only
+// ever called server-to-server by our execute-server, so CF-Connecting-IP is
+// always that one egress IP — a per-IP cap would throttle the ENTIRE platform's
+// code execution (e.g. during a contest) rather than any individual user.
+// Abuse is controlled by (1) the shared secret below, which makes execute-server
+// the only legitimate caller, and (2) execute-server's per-user save/submit and
+// daily quotas, which is the only layer that knows the user identity.
 
 export default {
   async fetch(request, env, ctx) {
@@ -154,14 +140,6 @@ export default {
           headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
         });
       }
-    }
-
-    // M1: best-effort burst protection keyed on the real client IP.
-    if (rateLimited(request.headers.get('CF-Connecting-IP') || '')) {
-      return new Response(JSON.stringify({ error: 'Rate limit exceeded. Please slow down.' }), {
-        status: 429,
-        headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
-      });
     }
 
     try {

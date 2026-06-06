@@ -136,15 +136,21 @@ services:
         value: interest-cohort=()
       # CSP (H2): hardened from the previous wide-open `*` policy. Removes
       # `script-src *` and `'unsafe-eval'` so injected/XSS payloads can no longer
-      # load external scripts or eval. `'unsafe-inline'` stays on script-src only
-      # because Render static hosting can't inject per-request nonces; the next
-      # hardening step is nonce/hash-based inline scripts → then drop it. After a
-      # deploy, watch the browser console for violations, then narrow connect-src
-      # /img-src to explicit hosts (api/cdn) instead of the `https:` scheme.
+      # load external scripts or eval. The host allowlist was validated against
+      # the app's actual external resources (index.html + src):
+      #   - script-src: static.cloudflareinsights.com (CF Web Analytics beacon)
+      #   - style-src + font-src: Google Fonts (fonts.googleapis.com/gstatic.com)
+      #   - frame-src https: covers YouTube + Google Maps embeds
+      # `'unsafe-inline'` stays on script-src/style-src because index.html ships
+      # inline bootstrap scripts/JSON-LD/styles and Render static hosting can't
+      # inject per-request nonces; the next hardening step is nonce/hash-based
+      # inline scripts → then drop it. connect-src is intentionally broad for now
+      # (script-src is the real XSS control); narrowing it to explicit hosts is a
+      # follow-up. Recommend a Report-Only canary deploy before/with enforcing.
       # NOTE: keep this byte-for-byte in sync with apps/web/public/static.json.
       - path: /*
         name: Content-Security-Policy
-        value: "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self' data: https:; media-src 'self' blob: https:; connect-src 'self' https: wss: blob: data:; worker-src 'self' blob:; frame-src 'self' https:; manifest-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'; upgrade-insecure-requests"
+        value: "default-src 'self'; script-src 'self' 'unsafe-inline' https://static.cloudflareinsights.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data: blob: https:; font-src 'self' data: https://fonts.gstatic.com; media-src 'self' blob: https:; connect-src 'self' https: wss: blob: data:; worker-src 'self' blob:; frame-src 'self' https:; manifest-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'; upgrade-insecure-requests"
       - path: /index.html
         name: Cache-Control
         value: no-cache, no-store, must-revalidate

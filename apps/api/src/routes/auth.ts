@@ -12,6 +12,7 @@ import { logger } from '../utils/logger.js';
 import { signAccessToken, signOAuthExchangeCode, verifyOAuthExchangeCode } from '../utils/jwt.js';
 import { auditLog } from '../utils/audit.js';
 import { hashPasswordResetToken } from '../utils/passwordReset.js';
+import { oauthStateMatches } from '../utils/oauthEmail.js';
 
 export const authRouter = Router();
 
@@ -132,7 +133,7 @@ const verifyOAuthState = (provider: 'google' | 'github') =>
       secure: process.env.NODE_ENV === 'production',
       path: '/',
     });
-    if (!expected || !actual || expected !== actual) {
+    if (!oauthStateMatches(expected, actual)) {
       logger.warn('OAuth state mismatch — rejecting possible login CSRF', { provider });
       return res.redirect(`${getFrontendUrl()}/signin?error=${provider}_auth_failed`);
     }
