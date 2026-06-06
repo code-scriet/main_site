@@ -100,7 +100,10 @@ npx prisma migrate dev
 npm run dev
 ```
 
-The app will be running at `http://localhost:3000`
+This starts all three apps concurrently:
+- Web (public site + dashboard) → `http://localhost:5173`
+- API (Express backend) → `http://localhost:5001`
+- Playground (frontend `http://localhost:5174`, execute-server `http://localhost:5002`)
 
 ---
 
@@ -187,7 +190,10 @@ git push origin feat/your-feature-name
 
 ## 📜 License
 
-This project is maintained by the codescriet team. Please refer to the [LICENSE](./LICENSE) file for usage terms.
+Licensed under the **[Apache License 2.0](./LICENSE)**. You are free to use, modify,
+and distribute this project under its terms, which include an explicit patent grant.
+Contributions are accepted under the same license (Apache-2.0 §5). See [NOTICE](./NOTICE)
+for attribution and [SECURITY.md](./SECURITY.md) to report vulnerabilities.
 
 ---
 
