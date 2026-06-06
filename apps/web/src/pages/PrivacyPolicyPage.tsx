@@ -5,7 +5,7 @@ export default function PrivacyPolicyPage() {
   return (
     <Layout>
       <SEO
-        title="Privacy Policy"
+        title="Privacy Policy — codescriet Coding Club"
         description="Privacy policy for codescriet.dev — how we collect, use, and protect your data."
         url="/privacy-policy"
       />

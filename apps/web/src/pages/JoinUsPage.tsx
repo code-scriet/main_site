@@ -264,8 +264,8 @@ export default function JoinUsPage() {
   return (
     <Layout>
       <SEO 
-        title="Join Us"
-        description="Join codescriet — apply to become a member of SCRIET's official coding club."
+        title="Join codescriet — Recruitment & Onboarding"
+        description="Join codescriet — we recruit members across technical, DSA, design, social media, and management teams. See open roles and apply at SCRIET, CCSU Meerut."
         url="/join-us"
       />
       <section className="min-h-screen py-8 sm:py-12 bg-gradient-to-br from-amber-50 via-orange-50 to-amber-100">

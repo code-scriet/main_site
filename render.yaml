@@ -115,9 +115,18 @@ services:
       - type: rewrite
         source: /*
         destination: /index.html
-    # Headers also defined in apps/web/public/static.json (Heroku-style),
-    # which Render honors with clean_urls and per-path headers. Mirrored
-    # here so config-as-code stays accurate.
+    # SECURITY HEADERS — SOURCE OF TRUTH, BUT NOT AUTO-APPLIED.
+    # The live codescriet-web service is configured through the Render
+    # dashboard, which overrides this blueprint — so editing this `headers:`
+    # block (or apps/web/public/static.json, which Render does NOT honor at
+    # all) does NOT change what the browser receives. Verified 2026-06-07
+    # via `curl -I https://codescriet.dev` on a cache MISS: only
+    # x-content-type-options reaches the client; CSP/HSTS/X-Frame-Options/
+    # Referrer-Policy/Permissions-Policy are all absent.
+    # TO ACTUALLY SHIP THESE: paste the values below into the Render
+    # dashboard (codescriet-web → Settings → Headers) or a Cloudflare
+    # Transform Rule (Response Header Modification). Keep render.yaml and
+    # apps/web/public/static.json byte-for-byte in sync as the canonical copy.
     headers:
       - path: /*
         name: Strict-Transport-Security
