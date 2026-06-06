@@ -121,9 +121,21 @@ Screenshot*
 
 
 
-# Documentation and temporary files
-*.md
+# Temporary files
+# NOTE: do NOT use a blanket `*.md` here — it silently untracks governance docs
+# (SECURITY.md, CONTRIBUTING.md, CODE_OF_CONDUCT.md, ADRs). Ignore only the
+# known-local scratch files below. Markdown under tmp/ is already covered by the
+# `tmp/` rule above.
 html.html
 
 # Local design briefs (handed to Claude Design — never committed)
 prompt.md
+
+# Local scratch & design references (previously hidden by the blanket *.md rule).
+# These are per-developer working files, not part of the published project.
+docs/notes/
+apps/web/design-ref/
+
+# Personal/per-machine Claude Code config (keep local; never commit)
+.claude/settings.local.json
+.claude/skills/

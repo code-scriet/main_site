@@ -16,6 +16,10 @@
 //   3. Deploy
 //   4. Set EXECUTOR_URL=https://codescriet-executor.developer-aary.workers.dev/execute
 //      in the execute-server environment
+//   5. SECURITY (M1): generate a random EXECUTOR_SECRET and set the SAME value
+//      as a Worker environment variable (Settings → Variables) AND in the
+//      execute-server environment. Once set, the Worker rejects any request
+//      without the matching X-Executor-Secret header — closing the open relay.
 // ---------------------------------------------------------------------------
 
 const UPSTREAM_URL = 'https://wandbox.org/api/compile.json';
@@ -64,6 +68,37 @@ function sanitizeError(message) {
     .replace(/prog\.\w+/g, 'source file');
 }
 
+// M1: constant-time string compare so the shared secret can't be recovered by
+// timing the response.
+function safeEqual(a, b) {
+  if (typeof a !== 'string' || typeof b !== 'string' || a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return diff === 0;
+}
+
+// M1: best-effort per-isolate IP throttle. Cloudflare runs many isolates, so
+// this is NOT a global limit — the real control is the shared secret, which
+// makes our execute-server the only legitimate caller (and that server already
+// enforces per-user save/submit quotas). This just blunts a burst that lands on
+// a single isolate. The map is bounded so a flood of unique IPs can't grow it.
+const RATE_WINDOW_MS = 60_000;
+const RATE_MAX = 60;
+const ipHits = new Map();
+
+function rateLimited(ip) {
+  if (!ip) return false;
+  const now = Date.now();
+  const entry = ipHits.get(ip);
+  if (!entry || now > entry.resetAt) {
+    if (ipHits.size > 5000) ipHits.clear();
+    ipHits.set(ip, { count: 1, resetAt: now + RATE_WINDOW_MS });
+    return false;
+  }
+  entry.count += 1;
+  return entry.count > RATE_MAX;
+}
+
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
@@ -104,6 +139,28 @@ export default {
       return new Response(JSON.stringify({ error: 'Origin not allowed' }), {
         status: 403,
         headers: { 'Content-Type': 'application/json' },
+      });
+    }
+
+    // M1: require the shared secret when configured. Until EXECUTOR_SECRET is
+    // set in the Worker environment, fall back to the legacy Origin-only check
+    // so a staged rollout (deploy worker → set secret in both services) never
+    // breaks execution. Origin alone is spoofable and was the only gate before.
+    if (env && env.EXECUTOR_SECRET) {
+      const provided = request.headers.get('X-Executor-Secret') || '';
+      if (!safeEqual(provided, env.EXECUTOR_SECRET)) {
+        return new Response(JSON.stringify({ error: 'Forbidden' }), {
+          status: 403,
+          headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
+        });
+      }
+    }
+
+    // M1: best-effort burst protection keyed on the real client IP.
+    if (rateLimited(request.headers.get('CF-Connecting-IP') || '')) {
+      return new Response(JSON.stringify({ error: 'Rate limit exceeded. Please slow down.' }), {
+        status: 429,
+        headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
       });
     }
 

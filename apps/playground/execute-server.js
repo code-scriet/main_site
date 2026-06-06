@@ -573,6 +573,11 @@ function checkSecurityPatterns(code) {
 const EXECUTOR_URL = process.env.EXECUTOR_URL || 'https://codescriet-executor.developer-aary.workers.dev/execute';
 const EXECUTOR_ORIGIN_HEADER = process.env.EXECUTOR_ORIGIN_HEADER
   || (NODE_ENV === 'development' ? 'http://localhost:5002' : 'https://code.codescriet.dev');
+// M1: shared secret proving this request came from our execute-server rather
+// than an arbitrary client spoofing the Origin header. Sent to the CF Worker,
+// which rejects mismatches once its own EXECUTOR_SECRET is configured. Empty =
+// not yet provisioned (worker stays in Origin-only mode for a safe migration).
+const EXECUTOR_SECRET = process.env.EXECUTOR_SECRET || '';
 const EXECUTION_TIMEOUT = 15_000; // 15 seconds
 const MAX_OUTPUT_SIZE = 50_000; // 50 KB
 const MAX_STDIN_SIZE = 10 * 1024; // 10 KB
@@ -693,6 +698,7 @@ async function executeCode(language, code, stdin) {
       headers: {
         'Content-Type': 'application/json',
         'Origin': EXECUTOR_ORIGIN_HEADER,
+        ...(EXECUTOR_SECRET ? { 'X-Executor-Secret': EXECUTOR_SECRET } : {}),
       },
       body: JSON.stringify(body),
       signal: controller.signal,

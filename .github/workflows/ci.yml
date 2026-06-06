@@ -37,3 +37,12 @@ jobs:
 
       - name: Build Web
         run: npm run build --workspace=apps/web
+
+      # Fast, DB-free unit/stability tests (quiz scoring, auth/jwt, utils, web stores).
+      - name: Stability tests
+        run: npm run test:stability
+
+      # Gate on HIGH+ advisories in production dependencies. Moderate findings are
+      # reported but do not fail the build (avoids blocking on transitive noise).
+      - name: Security audit (production deps)
+        run: npm audit --omit=dev --audit-level=high

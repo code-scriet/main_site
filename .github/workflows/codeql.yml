@@ -1,0 +1,36 @@
+name: CodeQL
+
+# Static security analysis for JS/TS. Results appear under the repo's
+# Security → Code scanning alerts tab. CodeQL extracts JS/TS from source with no
+# build step, so this stays fast and self-contained (no DB/secrets required).
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: '32 4 * * 1' # weekly, Monday 04:32 UTC
+
+jobs:
+  analyze:
+    name: Analyze (javascript-typescript)
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: javascript-typescript
+          queries: security-extended
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: "/language:javascript-typescript"

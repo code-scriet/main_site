@@ -45,7 +45,8 @@ function extractToken(req: Request): string | null {
   if (authHeader?.startsWith('Bearer ')) {
     return authHeader.substring(7);
   }
-  // Fallback: read scriet_session cookie (set by API on login, httpOnly:false)
+  // Fallback: read scriet_session cookie (httpOnly, set by API on login).
+  // Cross-subdomain cookie on .codescriet.dev lets the playground reuse the session.
   const cookies = req.headers.cookie;
   if (cookies) {
     const match = cookies.split(';').find(c => c.trim().startsWith('scriet_session='));

@@ -48,6 +48,7 @@ import { initializeSocket } from './utils/socket.js';
 import { authMiddleware, getAuthUser } from './middleware/auth.js';
 import { requireRole } from './middleware/role.js';
 import { emailService } from './utils/email.js';
+import { auditLog } from './utils/audit.js';
 import { prisma } from './lib/prisma.js';
 import { startReminderScheduler, stopReminderScheduler, startQotdAutoPublishScheduler, stopQotdAutoPublishScheduler } from './utils/scheduler.js';
 import { getJwtSecret } from './utils/jwt.js';
@@ -432,15 +433,27 @@ app.use('/api/notifications', notificationsRouter);
 app.use('/api/search', searchRouter);
 app.use('/api/indexnow', authMiddleware, requireRole('ADMIN'), indexNowRouter);
 
-// Test email endpoint for debugging
-app.post('/api/test-email', authMiddleware, requireRole('ADMIN'), async (req: express.Request, res: express.Response) => {
+// Test email endpoint for debugging.
+// L7: the recipient is forced to the authenticated admin's own address — this is
+// a delivery self-test, not a send-to-anyone tool — and the action is rate
+// limited + audited so it can't be used to relay mail through the club sender.
+const testEmailLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000, // 1 hour
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: 'Too many test emails, please try again later.' },
+});
+app.post('/api/test-email', authMiddleware, requireRole('ADMIN'), testEmailLimiter, async (req: express.Request, res: express.Response) => {
   try {
-    const { email } = req.body;
+    const user = getAuthUser(req);
+    // Ignore any client-supplied address: a delivery test always goes to the
+    // requesting admin's own inbox.
+    const email = user?.email;
     if (!email) {
-      return ApiResponse.error(res, { code: ErrorCodes.VALIDATION_ERROR, message: 'Email address required' });
+      return ApiResponse.error(res, { code: ErrorCodes.VALIDATION_ERROR, message: 'Authenticated admin has no email on file' });
     }
 
-    const user = getAuthUser(req);
     const settings = await prisma.settings.findFirst({
       select: { clubName: true },
     });
@@ -451,8 +464,9 @@ app.post('/api/test-email', authMiddleware, requireRole('ADMIN'), async (req: ex
     );
 
     if (success) {
-      return ApiResponse.success(res, { 
-        message: 'Test email sent successfully', 
+      void auditLog(user!.id, 'TEST_EMAIL_SENT', 'email', undefined, { recipient: email });
+      return ApiResponse.success(res, {
+        message: 'Test email sent successfully',
         recipient: email,
         tip: 'Check your inbox (and spam folder!)'
       });

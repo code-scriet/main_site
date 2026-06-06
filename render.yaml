@@ -134,9 +134,17 @@ services:
       - path: /*
         name: Permissions-Policy
         value: interest-cohort=()
+      # CSP (H2): hardened from the previous wide-open `*` policy. Removes
+      # `script-src *` and `'unsafe-eval'` so injected/XSS payloads can no longer
+      # load external scripts or eval. `'unsafe-inline'` stays on script-src only
+      # because Render static hosting can't inject per-request nonces; the next
+      # hardening step is nonce/hash-based inline scripts → then drop it. After a
+      # deploy, watch the browser console for violations, then narrow connect-src
+      # /img-src to explicit hosts (api/cdn) instead of the `https:` scheme.
+      # NOTE: keep this byte-for-byte in sync with apps/web/public/static.json.
       - path: /*
         name: Content-Security-Policy
-        value: "default-src * data: blob: 'unsafe-inline' 'unsafe-eval'; script-src * 'unsafe-inline' 'unsafe-eval' data: blob:; style-src * 'unsafe-inline' data:; img-src * data: blob:; media-src * data: blob:; font-src * data:; connect-src * data: blob: wss: ws:; frame-src *; child-src *; worker-src * blob: data:; manifest-src *; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'; upgrade-insecure-requests"
+        value: "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self' data: https:; media-src 'self' blob: https:; connect-src 'self' https: wss: blob: data:; worker-src 'self' blob:; frame-src 'self' https:; manifest-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'; upgrade-insecure-requests"
       - path: /index.html
         name: Cache-Control
         value: no-cache, no-store, must-revalidate
@@ -175,6 +183,10 @@ services:
         sync: false            # Must match main API's JWT_SECRET for shared auth
       - key: EXECUTOR_URL
         value: https://codescriet-executor.developer-aary.workers.dev/execute
+      - key: EXECUTOR_SECRET
+        sync: false            # M1: shared secret with the CF Worker. Set the SAME value
+                               # here and in the Worker's env (Cloudflare dashboard) to
+                               # stop the worker being used as an open code-exec relay.
 
   # Playground Frontend (Static Site)
   - type: web

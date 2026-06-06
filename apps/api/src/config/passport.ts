@@ -29,9 +29,17 @@ export function setupPassport(passport: PassportStatic) {
         },
         async (req: Request, accessToken, refreshToken, profile, done) => {
           try {
-            const email = profile.emails?.[0]?.value?.trim().toLowerCase();
+            // SECURITY (H1): only authenticate on a provider-verified email.
+            // Google's OpenID profile carries `email_verified`; reject when it
+            // is explicitly false so a Workspace account with an unverified
+            // address can't be used to claim someone else's account.
+            const primaryEmail = profile.emails?.[0];
+            const email = primaryEmail?.value?.trim().toLowerCase();
             if (!email) {
               return done(new Error('No email found'), undefined);
+            }
+            if (primaryEmail?.verified === false) {
+              return done(new Error('A verified Google email is required to sign in.'), undefined);
             }
 
             // Check if this is a network signup intent from cookies
@@ -82,27 +90,39 @@ export function setupPassport(passport: PassportStatic) {
           clientSecret: process.env.GITHUB_CLIENT_SECRET,
           callbackURL: `${backendUrl}/api/auth/github/callback`,
           scope: ['user:email'],
+          // SECURITY (H1): request the full /user/emails list so every address
+          // carries its real `verified`/`primary` flags. Without this,
+          // passport-github2 returns only the primary email and drops the
+          // verified flag, making any verification check silently dead code.
+          allRawEmails: true,
           passReqToCallback: true,
         },
         async (req: Request, accessToken: string, refreshToken: string, profile: any, done: any) => {
           try {
             const emailCandidates = Array.isArray(profile.emails)
               ? profile.emails
-                  .map((entry: { value?: string; verified?: boolean | null }) => ({
+                  .map((entry: { value?: string; verified?: boolean | null; primary?: boolean | null }) => ({
                     value: entry.value?.trim().toLowerCase(),
                     verified: Boolean(entry.verified),
+                    primary: Boolean(entry.primary),
                   }))
                   .filter((entry: { value?: string }) => Boolean(entry.value))
               : [];
 
-            const verifiedEmail = emailCandidates.find(
-              (entry: { value?: string; verified: boolean }) => entry.verified
-            );
-            const fallbackEmail = emailCandidates[0];
-            const email = (verifiedEmail?.value || fallbackEmail?.value || '').trim();
+            // SECURITY (H1): authenticate ONLY on a GitHub-verified email.
+            // Falling back to an unverified address would let an attacker who
+            // added a victim's email to their own GitHub account sign in as the
+            // victim (account takeover). `allRawEmails: true` (strategy option)
+            // is what makes these flags populated. Prefer the primary verified
+            // email, else any verified email; never an unverified one.
+            type GhEmail = { value?: string; verified: boolean; primary: boolean };
+            const email =
+              emailCandidates.find((entry: GhEmail) => entry.verified && entry.primary)?.value ||
+              emailCandidates.find((entry: GhEmail) => entry.verified)?.value ||
+              '';
 
             if (!email) {
-              return done(new Error('GitHub account email is required. Please make a public or verified email available on GitHub and try again.'), undefined);
+              return done(new Error('A verified GitHub email is required to sign in. Verify your email on GitHub and try again.'), undefined);
             }
 
             // Check if this is a network signup intent from cookies

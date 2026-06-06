@@ -8,6 +8,24 @@ interface SchemaMarkupProps {
 }
 
 /**
+ * Serialize an object for safe embedding inside a `<script>` tag.
+ *
+ * SECURITY: `JSON.stringify` escapes quotes/backslashes but NOT `<`, `>` or `&`.
+ * Several schemas below embed DB-sourced, partly user-submitted text (event /
+ * announcement / achievement titles + descriptions, network/team profile names
+ * + bios). Without escaping, a value containing `</script>` would terminate the
+ * JSON-LD block in the HTML parser and allow markup/script injection (stored
+ * XSS). Encoding these three characters as JSON unicode escapes keeps the output
+ * valid JSON while making script-context breakout impossible.
+ */
+function serializeJsonLd(schema: object): string {
+  return JSON.stringify(schema)
+    .replace(/</g, '\\u003c')
+    .replace(/>/g, '\\u003e')
+    .replace(/&/g, '\\u0026');
+}
+
+/**
  * Generic Schema component that injects JSON-LD script tag
  * Used internally by specific schema components
  */
@@ -16,7 +34,7 @@ export function SchemaMarkup({ schema }: SchemaMarkupProps) {
     <script
       type="application/ld+json"
       dangerouslySetInnerHTML={{
-        __html: JSON.stringify(schema),
+        __html: serializeJsonLd(schema),
       }}
     />
   );

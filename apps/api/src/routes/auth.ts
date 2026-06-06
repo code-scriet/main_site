@@ -1,4 +1,4 @@
-import { Router, Request, Response } from 'express';
+import { Router, Request, Response, NextFunction } from 'express';
 import passport from 'passport';
 import bcrypt from 'bcryptjs';
 import { randomUUID } from 'crypto';
@@ -51,8 +51,11 @@ const generateToken = (
 
 /** Extract requester's IP for login telemetry. Truncated to v4 prefix or v6 first-block to limit retained PII. */
 const getRequestIp = (req: Request): string | null => {
+  // L2: prefer Express's req.ip. With `trust proxy` set, Express resolves the
+  // real client IP from the proxy chain; the raw X-Forwarded-For header is
+  // fully client-controlled and only a dev/non-proxied fallback here.
   const fwd = req.headers['x-forwarded-for'];
-  const raw = (Array.isArray(fwd) ? fwd[0] : fwd?.split(',')[0]?.trim()) || req.ip || req.socket?.remoteAddress || null;
+  const raw = req.ip || (Array.isArray(fwd) ? fwd[0] : fwd?.split(',')[0]?.trim()) || req.socket?.remoteAddress || null;
   if (!raw) return null;
   // Strip IPv6 zone identifier and ::ffff: prefix
   const cleaned = String(raw).replace(/^::ffff:/, '').split('%')[0];
@@ -97,6 +100,45 @@ const clearSessionCookie = (res: Response) => {
   });
 };
 
+// ─── OAuth login-CSRF protection (M6) ───
+// A random `state` nonce is stored in a short-lived host-only cookie when the
+// OAuth flow starts, passed through to the provider, and verified on the
+// callback. This binds the round-trip to the browser that initiated it, so a
+// third party can't silently complete a sign-in in the victim's session.
+// sameSite:'lax' is required so the cookie survives the top-level GET redirect
+// back from the provider. The strategy uses passport-oauth2's NullStore, which
+// ignores `state`, so verification here is authoritative and conflict-free.
+const OAUTH_STATE_COOKIE = 'oauth_state';
+
+const issueOAuthState = (res: Response): string => {
+  const state = randomUUID();
+  res.cookie(OAUTH_STATE_COOKIE, state, {
+    httpOnly: true,
+    sameSite: 'lax',
+    secure: process.env.NODE_ENV === 'production',
+    maxAge: 5 * 60 * 1000,
+    path: '/',
+  });
+  return state;
+};
+
+const verifyOAuthState = (provider: 'google' | 'github') =>
+  (req: Request, res: Response, next: NextFunction) => {
+    const expected = getCookie(req, OAUTH_STATE_COOKIE);
+    const actual = typeof req.query.state === 'string' ? req.query.state : '';
+    // One-time use: always clear, regardless of outcome.
+    res.clearCookie(OAUTH_STATE_COOKIE, {
+      sameSite: 'lax',
+      secure: process.env.NODE_ENV === 'production',
+      path: '/',
+    });
+    if (!expected || !actual || expected !== actual) {
+      logger.warn('OAuth state mismatch — rejecting possible login CSRF', { provider });
+      return res.redirect(`${getFrontendUrl()}/signin?error=${provider}_auth_failed`);
+    }
+    next();
+  };
+
 const normalizeNetworkType = (value: string | undefined): 'professional' | 'alumni' | undefined => (
   value === 'professional' || value === 'alumni' ? value : undefined
 );
@@ -132,7 +174,9 @@ const demoteOrphanNetworkUser = async <T extends { id: string; role: string }>(u
 const registerSchema = z.object({
   name: z.string().min(2),
   email: z.string().email().transform((value) => value.trim().toLowerCase()),
-  password: z.string().min(6),
+  // M5: min 8 (was 6) to match the reset flow; max 72 because bcrypt silently
+  // truncates input beyond 72 bytes — rejecting is clearer than hashing a prefix.
+  password: z.string().min(8).max(72),
 });
 
 const loginSchema = z.object({
@@ -298,7 +342,8 @@ authRouter.get('/google', (req: Request, res: Response, next) => {
     res.clearCookie('network_type');
   }
 
-  passport.authenticate('google', { scope: ['profile', 'email'] })(req, res, next);
+  const state = issueOAuthState(res);
+  passport.authenticate('google', { scope: ['profile', 'email'], state })(req, res, next);
 });
 
 /** Shared OAuth callback handler — used by both Google and GitHub */
@@ -370,6 +415,7 @@ const handleOAuthCallback = (provider: 'google' | 'github') =>
   };
 
 authRouter.get('/google/callback',
+  verifyOAuthState('google'),
   passport.authenticate('google', { session: false, failureRedirect: `${getFrontendUrl()}/signin?error=google_auth_failed` }),
   handleOAuthCallback('google'),
 );
@@ -402,10 +448,12 @@ authRouter.get('/github', (req: Request, res: Response, next) => {
     res.clearCookie('network_type');
   }
 
-  passport.authenticate('github', { scope: ['user:email'] })(req, res, next);
+  const state = issueOAuthState(res);
+  passport.authenticate('github', { scope: ['user:email'], state })(req, res, next);
 });
 
 authRouter.get('/github/callback',
+  verifyOAuthState('github'),
   passport.authenticate('github', { session: false, failureRedirect: `${getFrontendUrl()}/signin?error=github_auth_failed` }),
   handleOAuthCallback('github'),
 );
@@ -539,7 +587,8 @@ authRouter.post('/logout', (_req: Request, res: Response) => {
 const resetPasswordSchema = z.object({
   email: z.string().email().transform((value) => value.trim().toLowerCase()),
   token: z.string().min(32).max(256),
-  newPassword: z.string().min(8).max(128),
+  // M5: cap at 72 (bcrypt's effective limit) to avoid silently hashing a prefix.
+  newPassword: z.string().min(8).max(72),
 });
 
 const resetPasswordLimiter = rateLimit({
