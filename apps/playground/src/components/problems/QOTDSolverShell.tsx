@@ -7,6 +7,7 @@ import {
   Copy,
   FileCode2,
   Hourglass,
+  Info,
   Lock,
   MailQuestion,
   Maximize2,
@@ -49,11 +50,69 @@ export interface QOTDSolverShellProps {
   onExit?: () => void;
 }
 
-const LANGUAGE_META: Record<ProblemLanguage, { label: string; filename: string; monaco: string }> = {
-  PYTHON: { label: 'Python', filename: 'Main.py', monaco: 'python' },
-  JAVASCRIPT: { label: 'JavaScript', filename: 'index.js', monaco: 'javascript' },
-  CPP: { label: 'C++', filename: 'main.cpp', monaco: 'cpp' },
-  JAVA: { label: 'Java', filename: 'Main.java', monaco: 'java' },
+// Each language ships an `ioHint` (one-line stdin/stdout contract shown above the
+// editor) and a `starter` skeleton seeded on a fresh start. These problems are
+// competitive-programming style — read from standard input, print to standard
+// output — so people coming from LeetCode (who expect to fill in a function) get
+// a working entry point and a clear pointer instead of a confusing harness error.
+const LANGUAGE_META: Record<ProblemLanguage, { label: string; filename: string; monaco: string; ioHint: string; starter: string }> = {
+  PYTHON: {
+    label: 'Python',
+    filename: 'Main.py',
+    monaco: 'python',
+    ioHint: 'Read from standard input (input() / sys.stdin) and print the answer with print(). No main() needed.',
+    starter: `import sys
+
+def solve():
+    data = sys.stdin.buffer.read().split()
+    # TODO: parse the input above and print your answer
+    # example: n = int(data[0]); print(n)
+
+solve()
+`,
+  },
+  JAVASCRIPT: {
+    label: 'JavaScript',
+    filename: 'index.js',
+    monaco: 'javascript',
+    ioHint: 'Read all of standard input (fs.readFileSync(0)) and print the answer with console.log().',
+    starter: `const data = require('fs').readFileSync(0, 'utf8').trim().split(/\\s+/);
+// TODO: parse the input above and print your answer
+// example: const n = Number(data[0]); console.log(n);
+`,
+  },
+  CPP: {
+    label: 'C++',
+    filename: 'main.cpp',
+    monaco: 'cpp',
+    ioHint: 'Define int main(). Read input with cin / scanf and print the answer with cout / printf.',
+    starter: `#include <bits/stdc++.h>
+using namespace std;
+
+int main() {
+    // TODO: read input with cin and print your answer with cout
+    // example: int n; cin >> n; cout << n << "\\n";
+    return 0;
+}
+`,
+  },
+  JAVA: {
+    label: 'Java',
+    filename: 'Main.java',
+    monaco: 'java',
+    ioHint: 'Put your code in public class Main with a public static void main(String[] args). Read with Scanner, print with System.out.',
+    starter: `import java.util.*;
+import java.io.*;
+
+public class Main {
+    public static void main(String[] args) {
+        Scanner sc = new Scanner(System.in);
+        // TODO: read input with sc and print your answer with System.out
+        // example: int n = sc.nextInt(); System.out.println(n);
+    }
+}
+`,
+  },
 };
 
 function draftKey(problemId: string, language: ProblemLanguage) {
@@ -289,9 +348,11 @@ export function QOTDSolverShell({ problem, context, onExit }: QOTDSolverShellPro
     // No local draft (e.g. a different device — phone vs laptop): wait for the
     // server submission to load, then seed the editor with the code that was
     // actually submitted so it's visible on any device, not just where it was typed.
+    // With no prior submission either, seed the language's starter template so the
+    // solver starts from a working stdin/stdout entry point.
     if (submissionQuery.isLoading) return;
     const submittedCode = latestSubmission?.language === language ? latestSubmission.code : '';
-    setCode(submittedCode ?? '');
+    setCode(submittedCode || LANGUAGE_META[language].starter);
     loadedKeyRef.current = currentDraftKey;
   }, [currentDraftKey, language, latestSubmission, submissionQuery.isLoading]);
 
@@ -667,6 +728,16 @@ export function QOTDSolverShell({ problem, context, onExit }: QOTDSolverShellPro
                 Submit
               </button>
             </div>
+          </div>
+          {/* Always-visible I/O contract for the selected language. These problems
+              are stdin/stdout style; this keeps LeetCode-style "just fill in a
+              function" submissions from failing with a confusing harness error. */}
+          <div className="flex items-start gap-2 border-b border-zinc-200 bg-amber-50/70 px-4 py-2 text-[12px] leading-snug text-zinc-600 dark:border-zinc-800 dark:bg-amber-400/10 dark:text-zinc-300">
+            <Info className="mt-[1px] h-3.5 w-3.5 shrink-0 text-amber-500" />
+            <span>
+              <span className="font-semibold text-zinc-700 dark:text-zinc-200">{meta.label} input/output:</span>{' '}
+              {meta.ioHint}
+            </span>
           </div>
           <div className="min-h-0 flex-1">
             <Editor
