@@ -266,6 +266,27 @@ function ResultBar({ label, passed, total, hidden, onClick }: { label: string; p
   );
 }
 
+// Surfaces the judge's compiler / runtime output to the solver. Without this the
+// student only saw a "Compilation Error" verdict and no reason — and the friendly
+// entry-point hint produced server-side never reached them. Renders nothing when
+// there's no output (e.g. a clean Accepted run).
+function CompilerOutputPanel({ verdict, output }: { verdict?: string | null; output?: string | null }) {
+  if (!output || !output.trim()) return null;
+  const isError = verdict === 'COMPILATION_ERROR' || verdict === 'RUNTIME_ERROR' || verdict === 'JUDGE_ERROR' || verdict === 'TIME_LIMIT_EXCEEDED';
+  const heading = verdict === 'COMPILATION_ERROR' ? 'Compiler output'
+    : verdict === 'RUNTIME_ERROR' ? 'Runtime error'
+    : verdict === 'TIME_LIMIT_EXCEEDED' ? 'Time limit exceeded'
+    : 'Output';
+  return (
+    <div className={`overflow-hidden rounded border ${isError ? 'border-red-300 dark:border-red-700/50' : 'border-zinc-200 dark:border-zinc-800'}`}>
+      <div className={`border-b px-3 py-2 text-xs font-semibold ${isError ? 'border-red-200 bg-red-50 text-red-700 dark:border-red-800/50 dark:bg-red-500/10 dark:text-red-300' : 'border-zinc-200 bg-zinc-50 text-zinc-600 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300'}`}>
+        {heading}
+      </div>
+      <pre className="max-h-64 overflow-auto whitespace-pre-wrap px-3 py-2 font-mono text-[12px] leading-relaxed text-zinc-700 dark:bg-zinc-950 dark:text-zinc-200">{output}</pre>
+    </div>
+  );
+}
+
 function CodeBlock({ title, value }: { title: string; value: string }) {
   const [full, setFull] = useState(false);
   return (
@@ -391,6 +412,7 @@ export function QOTDSolverShell({ problem, context, onExit }: QOTDSolverShellPro
     }),
     onSuccess: async (result) => {
       toast.success(`Submitted. Verdict: ${verdictLabel(result.verdict)}`);
+      setLastRun(null); // drop any prior test-run state so results reflect this submission
       setRemainingCap(result.remainingSubmits);
       setRemainingDaily(result.remainingDailyQuota);
       await queryClient.invalidateQueries({ queryKey: ['qotd-shell-submission', problem.id, context.type, context.key] });
@@ -585,6 +607,7 @@ export function QOTDSolverShell({ problem, context, onExit }: QOTDSolverShellPro
                     )}
                   </div>
                 </div>
+                <CompilerOutputPanel verdict={latestSubmission?.verdict} output={latestSubmission?.compilerOutput} />
                 <ResultBar label="Public Tests" passed={publicPassed} total={publicTotal} onClick={() => { setTab('tests'); setTestPanel('public'); }} />
                 <ResultBar label="Private Tests" passed={privatePassed} total={privateTotal} hidden onClick={() => { setTab('tests'); setTestPanel('private'); }} />
               </div>
@@ -615,6 +638,10 @@ export function QOTDSolverShell({ problem, context, onExit }: QOTDSolverShellPro
 
                 {testPanel === 'public' && (
                   <div className="space-y-4">
+                    <CompilerOutputPanel
+                      verdict={lastRun ? (lastRun.compilerOutput ? 'COMPILATION_ERROR' : null) : latestSubmission?.verdict}
+                      output={lastRun ? lastRun.compilerOutput : latestSubmission?.compilerOutput}
+                    />
                     <div className="flex flex-wrap gap-2">
                       {sampleTests.map((test, index) => {
                         const verdict = publicRunById.get(test.id) ?? publicSubmissionById.get(test.id);
