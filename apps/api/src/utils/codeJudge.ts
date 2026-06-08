@@ -157,6 +157,50 @@ function cleanWorkerText(value: unknown): string {
   return typeof value === 'string' ? value : '';
 }
 
+// The compiled-language harnesses wrap the user's code and call its entry point
+// (C++ renames `main` → `__user_main`; Java reflectively loads `class Main`).
+// When a student submits a function-only / wrongly-named solution, the failure
+// surfaces deep in harness internals (`__user_main was not declared`, a
+// `ClassNotFoundException`, etc.) — meaningless to them. Translate those known
+// signatures into a clear, actionable message; leave genuine user errors as-is.
+function humanizeCompilerError(language: ProblemLanguage, raw: string | undefined): string | undefined {
+  if (!raw) return raw;
+  if (language === 'CPP' && /__user_main\b/.test(raw)) {
+    return [
+      'Your C++ solution must define an entry point — these problems read input from',
+      'standard input and write the answer to standard output (not a bare function):',
+      '',
+      '    int main() {',
+      '        // read input with cin / scanf',
+      '        // print your answer with cout / printf',
+      '    }',
+      '',
+      'A function-only solution (e.g. just `string reverseWords(...)` with no main) cannot',
+      'run here. Put your logic in main(), or call your function from main().',
+    ].join('\n');
+  }
+  // `__UserMain` is the harness's renamed copy of the student's `class Main`; it
+  // only appears in errors when there's no `Main` class or its main() signature is
+  // wrong (ClassNotFoundException: __UserMain / NoSuchMethodException: __UserMain.main).
+  // Keying on it alone avoids misfiring on a student's own reflection errors.
+  if (language === 'JAVA' && /__UserMain\b/.test(raw)) {
+    return [
+      'Your Java solution must be a `public class Main` with a standard entry point —',
+      'these problems read from standard input and write to standard output:',
+      '',
+      '    public class Main {',
+      '        public static void main(String[] args) {',
+      '            // read input with Scanner / BufferedReader',
+      '            // print your answer with System.out',
+      '        }',
+      '    }',
+      '',
+      'Name the class exactly `Main`. A function-only solution cannot run here.',
+    ].join('\n');
+  }
+  return raw;
+}
+
 export async function runJudge(req: JudgeRequest): Promise<JudgeResult> {
   const release = await (req.mode === 'submit' ? submitSemaphore : testRunSemaphore).acquire();
   const totalStartedAt = Date.now();
@@ -246,7 +290,7 @@ export async function runJudge(req: JudgeRequest): Promise<JudgeResult> {
         verdict: 'COMPILATION_ERROR',
         perTestVerdicts: [],
         totalRuntimeMs: Date.now() - totalStartedAt,
-        compilerOutput: combinedCompilerOutput,
+        compilerOutput: humanizeCompilerError(req.language, combinedCompilerOutput),
       };
     }
 
@@ -269,7 +313,7 @@ export async function runJudge(req: JudgeRequest): Promise<JudgeResult> {
         verdict: status !== 0 ? 'RUNTIME_ERROR' : 'JUDGE_ERROR',
         perTestVerdicts: [],
         totalRuntimeMs: Date.now() - totalStartedAt,
-        compilerOutput: truncate([combinedCompilerOutput, stdout].filter(Boolean).join('\n'), COMPILER_OUTPUT_LIMIT),
+        compilerOutput: humanizeCompilerError(req.language, truncate([combinedCompilerOutput, stdout].filter(Boolean).join('\n'), COMPILER_OUTPUT_LIMIT)),
       };
     }
 
