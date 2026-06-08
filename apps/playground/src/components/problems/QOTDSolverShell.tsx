@@ -277,11 +277,23 @@ export function QOTDSolverShell({ problem, context, onExit }: QOTDSolverShellPro
 
   useEffect(() => {
     if (loadedKeyRef.current === currentDraftKey) return;
+    // A non-empty local draft is unsaved in-progress work → it wins. (An empty
+    // value is ignored: the 500ms auto-save can persist "" during the loading
+    // window, and treating that as a draft would mask the server submission.)
     const saved = safeLocalGet(currentDraftKey);
+    if (saved && saved.length > 0) {
+      setCode(saved);
+      loadedKeyRef.current = currentDraftKey;
+      return;
+    }
+    // No local draft (e.g. a different device — phone vs laptop): wait for the
+    // server submission to load, then seed the editor with the code that was
+    // actually submitted so it's visible on any device, not just where it was typed.
+    if (submissionQuery.isLoading) return;
     const submittedCode = latestSubmission?.language === language ? latestSubmission.code : '';
-    setCode(saved ?? submittedCode ?? '');
+    setCode(submittedCode ?? '');
     loadedKeyRef.current = currentDraftKey;
-  }, [currentDraftKey, language, latestSubmission]);
+  }, [currentDraftKey, language, latestSubmission, submissionQuery.isLoading]);
 
   useEffect(() => {
     const handle = window.setTimeout(() => {
