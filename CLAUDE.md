@@ -120,7 +120,7 @@ Startup in `apps/api/src/index.ts`:
 3. Middleware: helmet → compression → CORS allow-list → JSON → CSRF (cookie-auth writes) → optional req logger → rate limits.
 4. Mount routers + health/SEO.
 5. `initializeDatabase()` → hydrate security env → slug backfills.
-6. Background schedulers (event status + reminders + QOTD auto-publish): **ON by default in production**, off in development. `ENABLE_BACKGROUND_SCHEDULERS=true/false` forces it either way (`NODE_ENV` is normalized so anything ≠ `development` ⇒ production).
+6. Background schedulers (event status + reminders + QOTD auto-publish): **ON by default in production**, off in development. `ENABLE_BACKGROUND_SCHEDULERS=true/false` forces it either way (`NODE_ENV` is normalized so anything ≠ `development` ⇒ production). Event-status + QOTD use event-driven in-memory timers (no polling); reminders poll every 6h.
 7. HTTP listen with port-retry on `EADDRINUSE`.
 8. `recoverActiveRounds()` re-arms competition timers.
 
@@ -379,7 +379,7 @@ Single canonical `Problem` reused across 3 contexts: `PRACTICE`, `QOTD`, `CONTES
 - **Rejudge queue:** `rejudgeJobs.ts` bounded in-memory, serial execution via promise chain.
 - **Materialized QOTD streaks:** `User.currentStreak/longestStreak` count consecutive *published-and-not-held* QOTD days the user submitted. Updated transactionally via `recomputeUserStreakSafe()` ([apps/api/src/utils/qotdStreak.ts](apps/api/src/utils/qotdStreak.ts)) from `POST /api/qotd/:id/submit` and `submitProblemForUser()` (contextType=QOTD, verdict=ACCEPTED). 60s in-process cache of published-date set; invalidated on publish/hold.
 - **QOTD scheduling + publish notification:** On create, `publishAt` = chosen IST wall-clock time (`publishTime` HH:mm, default 00:00 IST) on the QOTD's IST date; if that instant is already past it publishes immediately, else stays scheduled. **Every** go-live path — create-and-publish-now, manual `POST /:id/publish`, and the auto-publish scheduler — fires the `broadcastQotdLive()` bell notification (`utils/notifications.ts`, source `AUTO_QOTD`, audience ALL). Auto-publish also recomputes submitter streaks + invalidates the published-day cache per flipped row.
-- **QOTD scheduler:** `startQotdAutoPublishScheduler()` every 5 min auto-publishes rows where `publishAt<=now` AND `heldBy IS NULL` (fetch-then-flip per row so each gets a bell notification). Runs only when `ENABLE_BACKGROUND_SCHEDULERS=true` (set in `render.yaml` for `codescriet-api`).
+- **QOTD scheduler (event-driven, no polling):** `startQotdAutoPublishScheduler()` arms a precise in-memory `setTimeout` per scheduled QOTD instead of polling. Timers are armed at create time (`armQotdPublishTimer` from `POST /api/qotd`), re-hydrated once on boot from the DB, and cancelled on hold/publish/delete (`cancelQotdPublishTimer`). When a timer fires it flips that one row + sends the bell. Net DB contact: one hydration query on boot + one targeted write per publish — between publishes the DB sleeps. Bounded (only pending scheduled QOTDs). Far-future schedules chain past Node's ~24.8-day `setTimeout` ceiling. Active only when `ENABLE_BACKGROUND_SCHEDULERS` is on.
 
 ### Problems endpoints
 List/admin-all/admin-reset-cap/admin-pending-cap-requests · create/update/delete/publish · run/submit/my-submission/leaderboard/all-submissions · override/:submissionId · rejudge + rejudge-status/:jobId · request-cap.
@@ -569,7 +569,7 @@ Migration: `prisma/migrations/20260517210000_dashboard_v2/migration.sql` (additi
 - **Atomic attendance:** `updateMany({ where: { id, attended: false } })`. `count === 0` = duplicate. Never check-then-update (TOCTOU race).
 - **Reservation-based email dedup:** Scheduler marks `reminderSentAt` before sending; rolls back on send failure.
 - **DB keep-alive:** Opt-in (`ENABLE_DB_KEEPALIVE=true`, interval `DB_KEEPALIVE_INTERVAL_MS` default 240000). Off by default.
-- **Schedulers:** Default ON in production, OFF in development; `ENABLE_BACKGROUND_SCHEDULERS=true/false` overrides. `EVENT_STATUS_INTERVAL_MS` default 1800000 (30m).
+- **Schedulers:** Default ON in production, OFF in development; `ENABLE_BACKGROUND_SCHEDULERS=true/false` overrides. **Event-status + QOTD auto-publish are event-driven** (in-memory timers that sleep until the next exact boundary; re-tuned on writes, re-hydrated on boot) — no fixed-interval polling, so the DB stays asleep between actual transitions. Event reminders still poll every 6h. `EVENT_STATUS_INTERVAL_MS` is no longer used (event-status sleeps until the next event boundary instead).
 - **Email template cache:** 5-min TTL; stale fallback on DB error (prevents blank emails).
 - **Sanitize HTML input:** `sanitizeHtml()`/`sanitizeText()` from [apps/api/src/utils/sanitize.ts](apps/api/src/utils/sanitize.ts).
 - **Audit log:** `auditLog(userId, action, entity, entityId, metadata)` on all admin mutations.
@@ -617,7 +617,7 @@ Migration: `prisma/migrations/20260517210000_dashboard_v2/migration.sql` (additi
 | `ENABLE_DB_KEEPALIVE` | no | default off |
 | `DB_KEEPALIVE_INTERVAL_MS` | no | default 240000 |
 | `ENABLE_BACKGROUND_SCHEDULERS` | no | default ON in prod, OFF in dev; `true`/`false` overrides |
-| `EVENT_STATUS_INTERVAL_MS` | no | default 1800000 |
+| `EVENT_STATUS_INTERVAL_MS` | no | deprecated — event-status is now event-driven (timer until next boundary), no longer polled |
 | `PORT` | no | default 5001 |
 
 ---

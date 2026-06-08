@@ -6,6 +6,7 @@ import { emailService } from './email.js';
 import { logger } from './logger.js';
 import { broadcastQotdLive } from './notifications.js';
 import { invalidatePublishedQotdCache, recomputeStreaksForQOTDSafe } from './qotdStreak.js';
+import { updateEventStatuses } from './eventStatus.js';
 
 let reminderColumnAvailable = true;
 
@@ -223,75 +224,237 @@ async function sendEventReminders(): Promise<void> {
 
 let reminderInterval: NodeJS.Timeout | null = null;
 let reminderStartupTimeout: NodeJS.Timeout | null = null;
-let qotdAutoPublishInterval: NodeJS.Timeout | null = null;
 
-async function autoPublishScheduledQOTDs(): Promise<void> {
+const MAX_TIMER_DELAY_MS = 2_147_483_647; // Node setTimeout ceiling (~24.8 days)
+
+// ── QOTD auto-publish: event-driven precise in-memory timers (no polling) ──
+// To keep the (Neon free-tier) DB asleep we never poll on a tight loop. Instead:
+//   • the create endpoint arms a precise setTimeout the instant a QOTD is
+//     scheduled, so it fires exactly at its publishAt — sub-hour or days out;
+//   • on boot we hydrate once from the DB to re-arm timers (and publish anything
+//     already past-due, e.g. scheduled while the process was down);
+//   • hold/publish/delete cancel the armed timer.
+// Net DB contact: one hydration query at startup + one targeted write at each
+// publish moment. Between publishes the DB sleeps. Timers are bounded (only
+// pending scheduled QOTDs, a handful) so this is free-tier safe. The instance is
+// kept warm by UptimeRobot, so timers persist; a restart re-hydrates from the DB.
+const qotdPublishTimers = new Map<string, NodeJS.Timeout>();
+let qotdSchedulerActive = false;
+let qotdHydrateStartupTimeout: NodeJS.Timeout | null = null;
+
+// Flip a single scheduled QOTD to published and fire the bell notification.
+// Idempotent + race-safe: re-reads state and only flips if still unpublished/unheld.
+async function publishDueQotd(id: string): Promise<void> {
+  qotdPublishTimers.delete(id);
   try {
-    const now = new Date();
-    // Fetch the rows that are due first (instead of a blind updateMany) so we can
-    // fire a bell notification per QOTD as it goes live and refresh streak caches.
-    const due = await prisma.qOTD.findMany({
-      where: {
-        isPublished: false,
-        publishAt: { lte: now },
-        heldBy: null,
-      },
+    const qotd = await prisma.qOTD.findUnique({
+      where: { id },
       select: {
         id: true,
         question: true,
         createdById: true,
+        isPublished: true,
+        heldBy: true,
         problem: { select: { title: true } },
       },
-      take: 50,
     });
+    if (!qotd || qotd.isPublished || qotd.heldBy) return;
 
-    if (due.length === 0) return;
+    const flipped = await prisma.qOTD.updateMany({
+      where: { id, isPublished: false, heldBy: null },
+      data: { isPublished: true, publishedAt: new Date() },
+    });
+    if (flipped.count === 0) return;
 
-    for (const qotd of due) {
-      // Flip only if still unpublished/unheld — guards against a manual publish or
-      // hold landing between the read above and this write.
-      const flipped = await prisma.qOTD.updateMany({
-        where: { id: qotd.id, isPublished: false, heldBy: null },
-        data: { isPublished: true, publishedAt: now },
-      });
-      if (flipped.count === 0) continue;
-
-      invalidatePublishedQotdCache(); // published-day set changed → streak inputs shift
-      recomputeStreaksForQOTDSafe(qotd.id); // credit anyone who already solved while it was scheduled
-      broadcastQotdLive(qotd, qotd.createdById).catch(() => undefined);
-      logger.info(`📅 Auto-published scheduled QOTD "${qotd.question}"`, { qotdId: qotd.id });
-    }
+    invalidatePublishedQotdCache(); // published-day set changed → streak inputs shift
+    recomputeStreaksForQOTDSafe(id); // credit anyone who solved while it was scheduled
+    broadcastQotdLive(qotd, qotd.createdById).catch(() => undefined);
+    logger.info(`📅 Auto-published scheduled QOTD "${qotd.question}"`, { qotdId: id });
   } catch (error) {
-    logger.error('❌ QOTD auto-publish tick failed', {
+    logger.error('❌ QOTD auto-publish failed', {
+      qotdId: id,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
+// Arm (or re-arm) the timer for one QOTD, chaining past Node's ~24.8-day ceiling
+// for far-future schedules. Internal — callers go through armQotdPublishTimer.
+function scheduleQotdTimer(id: string, publishAt: Date): void {
+  const remaining = publishAt.getTime() - Date.now();
+  if (remaining <= 0) { void publishDueQotd(id); return; }
+  const delay = Math.min(remaining, MAX_TIMER_DELAY_MS);
+  const handle = setTimeout(() => {
+    qotdPublishTimers.delete(id);
+    // Capped early fire for a very long schedule → re-arm for the remainder.
+    if (publishAt.getTime() - Date.now() > 1000) scheduleQotdTimer(id, publishAt);
+    else void publishDueQotd(id);
+  }, delay);
+  if (typeof handle.unref === 'function') handle.unref();
+  qotdPublishTimers.set(id, handle);
+}
+
+/**
+ * Arm a precise publish timer for one scheduled QOTD. Called from the create
+ * endpoint and from startup hydration. No-op when the scheduler isn't active
+ * (dev default) or when the QOTD is already published/held/non-scheduled.
+ * Past-due rows publish immediately.
+ */
+export function armQotdPublishTimer(
+  qotd: { id: string; publishAt: Date | null; isPublished: boolean; heldBy: string | null },
+): void {
+  if (!qotdSchedulerActive) return;
+  if (qotd.isPublished || qotd.heldBy || !qotd.publishAt) return;
+  if (qotdPublishTimers.has(qotd.id)) return; // already armed
+  scheduleQotdTimer(qotd.id, qotd.publishAt);
+}
+
+/** Drop an armed timer (on manual publish / hold / delete). */
+export function cancelQotdPublishTimer(qotdId: string): void {
+  const handle = qotdPublishTimers.get(qotdId);
+  if (handle) {
+    clearTimeout(handle);
+    qotdPublishTimers.delete(qotdId);
+  }
+}
+
+// Startup-only: re-arm timers for every pending scheduled QOTD and publish any
+// already past-due. Runs once shortly after boot; not on an interval.
+async function hydrateScheduledQotds(): Promise<void> {
+  try {
+    const pending = await prisma.qOTD.findMany({
+      where: { isPublished: false, heldBy: null, publishAt: { not: null } },
+      select: { id: true, publishAt: true, isPublished: true, heldBy: true },
+      orderBy: { publishAt: 'asc' },
+      take: 366, // at most ~a year of pre-scheduled QOTDs
+    });
+    for (const qotd of pending) armQotdPublishTimer(qotd);
+    if (pending.length > 0) logger.info(`📅 Re-armed ${pending.length} scheduled QOTD timer(s) on boot`);
+  } catch (error) {
+    logger.error('❌ QOTD hydration failed', {
       error: error instanceof Error ? error.message : String(error),
     });
   }
 }
 
 /**
- * Start the QOTD auto-publish ticker. Runs every 5 minutes; flips any
- * scheduled QOTD to isPublished=true when its publishAt has elapsed and
- * no admin hold is in place.
+ * Start the QOTD auto-publish scheduler. Event-driven: hydrates timers once
+ * after boot, then relies on per-QOTD timers (armed at create time). No polling.
  */
 export function startQotdAutoPublishScheduler(): void {
-  if (qotdAutoPublishInterval) return;
-  // First tick after a short delay so DB is ready
-  setTimeout(() => { void autoPublishScheduledQOTDs(); }, 15_000);
-  qotdAutoPublishInterval = setInterval(() => { void autoPublishScheduledQOTDs(); }, 5 * 60 * 1000);
-  logger.info('📅 QOTD auto-publish scheduler started (checks every 5 minutes)');
+  if (qotdSchedulerActive) return;
+  qotdSchedulerActive = true;
+  qotdHydrateStartupTimeout = setTimeout(() => {
+    qotdHydrateStartupTimeout = null;
+    void hydrateScheduledQotds();
+  }, 15_000); // hydrate once the DB is warm
+  logger.info('📅 QOTD auto-publish scheduler started (event-driven timers, no polling)');
 }
 
 export function stopQotdAutoPublishScheduler(): void {
-  if (qotdAutoPublishInterval) {
-    clearInterval(qotdAutoPublishInterval);
-    qotdAutoPublishInterval = null;
+  qotdSchedulerActive = false;
+  if (qotdHydrateStartupTimeout) {
+    clearTimeout(qotdHydrateStartupTimeout);
+    qotdHydrateStartupTimeout = null;
   }
+  for (const handle of qotdPublishTimers.values()) clearTimeout(handle);
+  qotdPublishTimers.clear();
   logger.info('📅 QOTD auto-publish scheduler stopped');
 }
 
-/** Manually trigger one auto-publish tick (admin/testing). */
+/** Manually publish all currently-due QOTDs + re-arm timers (admin/testing). */
 export async function triggerQotdAutoPublish(): Promise<void> {
-  await autoPublishScheduledQOTDs();
+  const now = new Date();
+  const overdue = await prisma.qOTD.findMany({
+    where: { isPublished: false, heldBy: null, publishAt: { lte: now } },
+    select: { id: true },
+    take: 100,
+  });
+  for (const qotd of overdue) await publishDueQotd(qotd.id);
+  await hydrateScheduledQotds();
+}
+
+// ── Event-status transitions: sleep until the next boundary (no polling) ──
+// Same idea as QOTD: instead of a 30-min poll we arm a single timer pointing at
+// the nearest future transition moment (the soonest UPCOMING.startDate or
+// UPCOMING/ONGOING.endDate). On fire we run updateEventStatuses() and re-plan.
+// Re-tuned on every event create/update/delete (reconcileEventStatusesSoon) and
+// re-hydrated on boot. With no upcoming events the timer isn't set and the DB
+// sleeps indefinitely.
+let eventStatusTimer: NodeJS.Timeout | null = null;
+let eventStatusStartupTimeout: NodeJS.Timeout | null = null;
+let eventStatusActive = false;
+let eventStatusReconciling = false;
+let eventStatusDirty = false;
+
+async function planNextEventStatusWake(): Promise<void> {
+  if (eventStatusTimer) { clearTimeout(eventStatusTimer); eventStatusTimer = null; }
+  if (!eventStatusActive) return;
+  const now = new Date();
+  const [nextStart, nextEnd] = await Promise.all([
+    prisma.event.findFirst({
+      where: { status: 'UPCOMING', startDate: { gt: now } },
+      orderBy: { startDate: 'asc' },
+      select: { startDate: true },
+    }),
+    prisma.event.findFirst({
+      where: { status: { in: ['UPCOMING', 'ONGOING'] }, endDate: { gt: now } },
+      orderBy: { endDate: 'asc' },
+      select: { endDate: true },
+    }),
+  ]);
+  const moments: number[] = [];
+  if (nextStart?.startDate) moments.push(nextStart.startDate.getTime());
+  if (nextEnd?.endDate) moments.push(nextEnd.endDate.getTime());
+  if (moments.length === 0) return; // nothing scheduled → DB sleeps
+  const next = Math.min(...moments);
+  const delay = Math.min(MAX_TIMER_DELAY_MS, Math.max(1000, next - Date.now()));
+  eventStatusTimer = setTimeout(() => { void reconcileEventStatuses(); }, delay);
+  if (typeof eventStatusTimer.unref === 'function') eventStatusTimer.unref();
+}
+
+// Apply all due transitions, then sleep until the next one. Coalesces concurrent
+// re-tune requests via the dirty flag so a burst of event edits runs once.
+async function reconcileEventStatuses(): Promise<void> {
+  if (!eventStatusActive) return;
+  if (eventStatusReconciling) { eventStatusDirty = true; return; }
+  eventStatusReconciling = true;
+  try {
+    do {
+      eventStatusDirty = false;
+      await updateEventStatuses();
+      await planNextEventStatusWake();
+    } while (eventStatusDirty && eventStatusActive);
+  } catch (error) {
+    logger.error('Event status reconcile failed', {
+      error: error instanceof Error ? error.message : String(error),
+    });
+  } finally {
+    eventStatusReconciling = false;
+  }
+}
+
+export function startEventStatusScheduler(): void {
+  if (eventStatusActive) return;
+  eventStatusActive = true;
+  eventStatusStartupTimeout = setTimeout(() => {
+    eventStatusStartupTimeout = null;
+    void reconcileEventStatuses();
+  }, 5_000);
+  logger.info('🗓️ Event-status scheduler started (sleeps until the next transition)');
+}
+
+export function stopEventStatusScheduler(): void {
+  eventStatusActive = false;
+  if (eventStatusStartupTimeout) { clearTimeout(eventStatusStartupTimeout); eventStatusStartupTimeout = null; }
+  if (eventStatusTimer) { clearTimeout(eventStatusTimer); eventStatusTimer = null; }
+  logger.info('🗓️ Event-status scheduler stopped');
+}
+
+/** Re-tune after an event create/update/delete so a new/changed boundary is honored. */
+export async function reconcileEventStatusesSoon(): Promise<void> {
+  if (!eventStatusActive) return;
+  await reconcileEventStatuses();
 }
 
 /**

@@ -12,6 +12,7 @@ import { createProblemFromInput, serializeProblemDetail, toIstDateKey, type Prob
 import { formatUsageDate } from '../utils/dailyLimit.js';
 import { recomputeUserStreakSafe, invalidatePublishedQotdCache, recomputeStreaksForQOTDSafe } from '../utils/qotdStreak.js';
 import { broadcastQotdLive } from '../utils/notifications.js';
+import { armQotdPublishTimer, cancelQotdPublishTimer } from '../utils/scheduler.js';
 
 export const qotdRouter = Router();
 
@@ -562,6 +563,10 @@ qotdRouter.post('/', authMiddleware, requireRole('CORE_MEMBER'), async (req: Req
       // Fire the bell notification when a QOTD goes live on creation. Scheduled
       // QOTDs get theirs later from the auto-publish scheduler instead.
       broadcastQotdLive(qotd, authUser.id).catch(() => undefined);
+    } else {
+      // Arm a precise in-memory publish timer now so a sub-hour schedule fires
+      // exactly on time without waiting for the next hourly hydration tick.
+      armQotdPublishTimer(qotd);
     }
     await auditLog(authUser.id, 'CREATE', 'qotd', qotd.id, { question: qotd.question, problemId: qotd.problemId, isPublished: qotd.isPublished });
     return ApiResponse.created(res, qotd, 'QOTD created successfully');
@@ -580,6 +585,7 @@ qotdRouter.post('/:id/publish', authMiddleware, requireRole('ADMIN'), async (req
       data: { isPublished: true, publishedAt: qotd.publishedAt ?? new Date(), heldBy: null, holdReason: null },
       include: { problem: true },
     });
+    cancelQotdPublishTimer(qotd.id); // manual publish supersedes any armed auto-publish timer
     invalidateQotdLeaderboardCaches(qotd.id);
     invalidatePublishedQotdCache(); // streak depends on published-day set; new day shifts streaks
     // Materialized streaks for every submitter on this day must reflect the flip.
@@ -605,6 +611,7 @@ qotdRouter.post('/:id/hold', authMiddleware, requireRole('ADMIN'), async (req: R
       data: { isPublished: false, heldBy: authUser.id, holdReason: parsed.data.reason ?? null },
       include: { problem: true },
     });
+    cancelQotdPublishTimer(qotd.id); // a held QOTD must not auto-publish
     invalidateQotdLeaderboardCaches(qotd.id);
     invalidatePublishedQotdCache(); // streak depends on published-day set; held days shift streaks
     // Held QOTD becomes "transparent" — every submitter's materialized streak
@@ -683,6 +690,7 @@ qotdRouter.delete('/:id', authMiddleware, requireRole('ADMIN'), async (req: Requ
   try {
     const authUser = getAuthUser(req)!;
     await prisma.qOTD.delete({ where: { id: req.params.id } });
+    cancelQotdPublishTimer(req.params.id); // drop any armed auto-publish timer
     await auditLog(authUser.id, 'DELETE', 'qotd', req.params.id);
     return ApiResponse.success(res, { success: true }, 'QOTD deleted successfully');
   } catch {

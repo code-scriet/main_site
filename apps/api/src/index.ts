@@ -50,10 +50,9 @@ import { requireRole } from './middleware/role.js';
 import { emailService } from './utils/email.js';
 import { auditLog } from './utils/audit.js';
 import { prisma } from './lib/prisma.js';
-import { startReminderScheduler, stopReminderScheduler, startQotdAutoPublishScheduler, stopQotdAutoPublishScheduler } from './utils/scheduler.js';
+import { startReminderScheduler, stopReminderScheduler, startQotdAutoPublishScheduler, stopQotdAutoPublishScheduler, startEventStatusScheduler, stopEventStatusScheduler } from './utils/scheduler.js';
 import { getJwtSecret } from './utils/jwt.js';
 import { setRuntimeAttendanceJwtSecret } from './utils/attendanceToken.js';
-import { updateEventStatuses } from './utils/eventStatus.js';
 
 // Load monorepo root .env first, then local .env (local overrides root).
 // In production (Render) neither file exists — env vars come from the dashboard.
@@ -181,10 +180,8 @@ const hydrateRuntimeSecurityEnvFromSettings = async () => {
   }
 };
 
-let eventStatusInterval: NodeJS.Timeout | null = null;
 const MAX_LISTEN_RETRIES = 5;
 const LISTEN_RETRY_DELAY_MS = 1500;
-const EVENT_STATUS_INTERVAL_MS = Number(process.env.EVENT_STATUS_INTERVAL_MS || 30 * 60 * 1000);
 // Background schedulers (event-status sync, event reminders, QOTD auto-publish)
 // default ON in production and OFF in development, so a fresh Render deploy runs
 // them without any dashboard/env configuration. Explicit values still win:
@@ -197,38 +194,9 @@ const ENABLE_BACKGROUND_SCHEDULERS =
   process.env.ENABLE_BACKGROUND_SCHEDULERS === 'true' ||
   (process.env.ENABLE_BACKGROUND_SCHEDULERS !== 'false' && NODE_ENV === 'production');
 
-let eventStatusRunning = false;
-const runEventStatusTick = async () => {
-  // Skip if a previous tick is still running. On a slow DB (Neon cold-start
-  // beyond the 30-min interval) we'd otherwise double-fire and race writes to
-  // the same Event.status rows.
-  if (eventStatusRunning) return;
-  eventStatusRunning = true;
-  try {
-    await updateEventStatuses();
-  } catch (err) {
-    logger.error('Event status tick failed', {
-      error: err instanceof Error ? err.message : String(err),
-    });
-  } finally {
-    eventStatusRunning = false;
-  }
-};
-
-const startEventStatusScheduler = () => {
-  // Run once on startup and then periodically.
-  void runEventStatusTick();
-  eventStatusInterval = setInterval(() => {
-    void runEventStatusTick();
-  }, EVENT_STATUS_INTERVAL_MS);
-};
-
-const stopEventStatusScheduler = () => {
-  if (eventStatusInterval) {
-    clearInterval(eventStatusInterval);
-    eventStatusInterval = null;
-  }
-};
+// Event-status transitions are now event-driven (no fixed-interval polling):
+// startEventStatusScheduler/stopEventStatusScheduler live in utils/scheduler.ts
+// and sleep until the next UPCOMING→ONGOING / →PAST boundary. See that file.
 
 // Initialize Socket.io
 const io = initializeSocket(httpServer);
