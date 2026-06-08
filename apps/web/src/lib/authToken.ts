@@ -1,5 +1,9 @@
 const TOKEN_STORAGE_KEY = 'token';
 
+// Exposed so the auth provider can recognise cross-tab `storage` events for the
+// shared (localStorage) auth token and sync login/logout across tabs.
+export const AUTH_TOKEN_STORAGE_KEY = TOKEN_STORAGE_KEY;
+
 function safeGet(storage: Storage): string | null {
   try {
     return storage.getItem(TOKEN_STORAGE_KEY);

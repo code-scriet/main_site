@@ -2,7 +2,7 @@ import { createContext, useContext, useState, useEffect, useCallback, useMemo, u
 import type { ReactNode } from 'react';
 import { api, UnauthorizedError } from '@/lib/api';
 import type { User } from '@/lib/api';
-import { clearStoredAuthToken, getStoredAuthToken, storeAuthToken } from '@/lib/authToken';
+import { AUTH_TOKEN_STORAGE_KEY, clearStoredAuthToken, getStoredAuthToken, storeAuthToken } from '@/lib/authToken';
 
 interface ExtendedUser extends User {
   profileCompleted?: boolean;
@@ -154,6 +154,30 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       isMountedRef.current = false;
     };
   }, [fetchUser]);
+
+  // Cross-tab logout sync. `storage` events fire in OTHER same-origin tabs when
+  // localStorage changes. When another tab clears the auth token (logout), drop
+  // this tab's session too — including this tab's own per-tab sessionStorage copy,
+  // which the logging-out tab cannot reach. We deliberately do NOT call
+  // api.logout() here: the other tab already invalidated the session server-side
+  // (tokenVersion bump), so we only clear local state and avoid a redundant
+  // cross-tab logout storm.
+  useEffect(() => {
+    const onStorage = (event: StorageEvent) => {
+      if (event.storageArea && event.storageArea !== window.localStorage) return;
+      // key === null means localStorage.clear(); otherwise only react to the token key.
+      if (event.key !== null && event.key !== AUTH_TOKEN_STORAGE_KEY) return;
+      const stillSignedIn = window.localStorage.getItem(AUTH_TOKEN_STORAGE_KEY);
+      if (!stillSignedIn) {
+        clearStoredAuthToken();
+        setToken(null);
+        setUser(null);
+        setError(null);
+      }
+    };
+    window.addEventListener('storage', onStorage);
+    return () => window.removeEventListener('storage', onStorage);
+  }, []);
 
   const refreshUser = useCallback(async () => {
     const currentToken = getStoredAuthToken();
