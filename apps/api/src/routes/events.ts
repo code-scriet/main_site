@@ -16,6 +16,7 @@ import { sanitizeHtml } from '../utils/sanitize.js';
 import { normalizeTrustedVideoEmbedUrl } from '../utils/videoEmbed.js';
 import { deriveInvitationStatus } from '../utils/invitationStatus.js';
 import { isGuest, isParticipant, participantsOnly } from '../utils/registrationFilters.js';
+import { reconcileEventStatusesSoon } from '../utils/scheduler.js';
 
 export const eventsRouter = Router();
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -109,6 +110,7 @@ const eventSchemaBase = z.object({
   tags: z.array(z.string().trim().min(1).max(40)).max(40).optional(),
   featured: z.boolean().optional(),
   allowLateRegistration: z.boolean().optional(),
+  remindersEnabled: z.boolean().optional(),
   eventDays: z.coerce.number().int().min(1).max(10).optional(),
   dayLabels: z.array(z.string().trim().min(1).max(100)).max(10).optional().nullable(),
   // Admin-defined per-event registration form fields. Capped at 50 to prevent
@@ -564,6 +566,7 @@ eventsRouter.post('/', authMiddleware, requireRole('CORE_MEMBER'), async (req: R
         tags: data.tags || [],
         featured: data.featured || false,
         allowLateRegistration: data.allowLateRegistration || false,
+        remindersEnabled: data.remindersEnabled ?? true,
         eventDays,
         ...(data.dayLabels !== undefined && {
           dayLabels: data.dayLabels === null
@@ -601,6 +604,9 @@ eventsRouter.post('/', authMiddleware, requireRole('CORE_MEMBER'), async (req: R
       refEntityId: event.id,
       createdById: authUser.id,
     }).catch((err) => logger.error('broadcastNotification(event) failed', { id: event.id, error: err instanceof Error ? err.message : String(err) }));
+
+    // Re-tune the event-status scheduler in case this event is the next boundary.
+    void reconcileEventStatusesSoon();
 
     res.status(201).json({ success: true, data: event, message: 'Event created successfully' });
   } catch (error) {
@@ -883,6 +889,7 @@ eventsRouter.put('/:id', authMiddleware, requireRole('CORE_MEMBER'), async (req:
           ...(data.tags !== undefined && { tags: data.tags }),
           ...(data.featured !== undefined && { featured: data.featured }),
           ...(data.allowLateRegistration !== undefined && { allowLateRegistration: data.allowLateRegistration }),
+          ...(data.remindersEnabled !== undefined && { remindersEnabled: data.remindersEnabled }),
           ...(data.eventDays !== undefined && { eventDays: data.eventDays }),
           ...(data.dayLabels !== undefined && {
             dayLabels: data.dayLabels === null
@@ -902,6 +909,9 @@ eventsRouter.put('/:id', authMiddleware, requireRole('CORE_MEMBER'), async (req:
 
     // Notify search engines about the updated event page
     if (event.slug) submitUrl(`/events/${event.slug}`);
+
+    // Dates/status may have changed → re-tune the event-status scheduler.
+    void reconcileEventStatusesSoon();
 
     res.json({ success: true, data: event, message: 'Event updated successfully' });
   } catch (error) {
@@ -937,6 +947,8 @@ eventsRouter.delete('/:id', authMiddleware, requireRole('CORE_MEMBER'), async (r
     
     await prisma.event.delete({ where: { id: req.params.id } });
     await auditLog(authUser.id, 'DELETE', 'event', req.params.id);
+    // The deleted event may have been the next scheduled boundary → re-tune.
+    void reconcileEventStatusesSoon();
     res.json({ success: true, message: 'Event deleted successfully' });
   } catch (error) {
     res.status(500).json({ success: false, error: { message: 'Failed to delete event' } });

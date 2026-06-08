@@ -24,6 +24,13 @@ services:
         sync: false
       - key: PRISMA_CLIENT_ENGINE_TYPE
         value: binary
+      # Run the in-process schedulers: event-status sync, event reminders, and
+      # QOTD auto-publish. The API already defaults these ON in production (see
+      # apps/api/src/index.ts), so this is an explicit belt-and-suspenders pin in
+      # case env vars are managed outside this blueprint. Set to "false" to
+      # force-disable. Safe on free tier — UptimeRobot keeps the instance warm.
+      - key: ENABLE_BACKGROUND_SCHEDULERS
+        value: "true"
       - key: JWT_SECRET
         sync: false
       - key: ATTENDANCE_JWT_SECRET

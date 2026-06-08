@@ -9,6 +9,7 @@ import { logger } from '../utils/logger.js';
 import { invalidateEmailTemplateConfigCache, invalidateNotificationSettingsCache } from '../utils/email.js';
 import { invalidateSettingsCache, getCachedSettings } from '../utils/settingsCache.js';
 import { updateEventStatuses } from '../utils/eventStatus.js';
+import { triggerReminderCheck } from '../utils/scheduler.js';
 import { hasRuntimeAttendanceJwtSecret, setRuntimeAttendanceJwtSecret } from '../utils/attendanceToken.js';
 
 export const settingsRouter = Router();
@@ -898,5 +899,47 @@ settingsRouter.post('/event-status/sync-now', authMiddleware, requireRole('ADMIN
   } catch (error) {
     logger.error('Failed to sync event statuses:', { error: error instanceof Error ? error.message : String(error) });
     return res.status(500).json({ success: false, error: { message: 'Failed to sync event statuses' } });
+  }
+});
+
+// Manually run the event-reminder pass (admin "send reminders now"). Honours the
+// same global toggle, testing mode, per-event opt-out and dedup as the scheduler,
+// so clicking this while reminders are disabled is a safe no-op.
+settingsRouter.post('/reminders/trigger', authMiddleware, requireRole('ADMIN'), async (req: Request, res: Response) => {
+  try {
+    const authUser = getAuthUser(req)!;
+
+    // Surface the global "stop" switch explicitly so the UI can say *why* nothing
+    // sent, instead of the ambiguous "no events were due".
+    const settings = await prisma.settings.findUnique({
+      where: { id: 'default' },
+      select: { emailReminderEnabled: true },
+    });
+    if (settings && settings.emailReminderEnabled === false) {
+      return res.json({
+        success: true,
+        data: { sent: 0, events: [], disabled: true },
+        message: 'Event reminders are turned off in settings',
+      });
+    }
+
+    const result = await triggerReminderCheck();
+
+    await auditLog(authUser.id, 'UPDATE', 'events', 'reminder-trigger', {
+      action: 'manual-reminder-trigger',
+      sent: result.sent,
+      events: result.events,
+    });
+
+    return res.json({
+      success: true,
+      data: result,
+      message: result.sent > 0
+        ? `Sent ${result.sent} reminder${result.sent === 1 ? '' : 's'}`
+        : 'No reminders were due',
+    });
+  } catch (error) {
+    logger.error('Failed to trigger reminders:', { error: error instanceof Error ? error.message : String(error) });
+    return res.status(500).json({ success: false, error: { message: 'Failed to trigger reminders' } });
   }
 });

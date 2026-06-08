@@ -76,7 +76,17 @@ export function NotifMenu({ open, onClose, anchorRef }: Props) {
   };
 
   const handleClick = (it: NotifItem) => {
-    if (it.link) navigate(it.link);
+    if (it.link) {
+      // Absolute URLs (e.g. a cross-subdomain playground link an admin pasted into
+      // a broadcast) must NOT go through the router — navigate() would resolve them
+      // against the current route and mangle them into
+      // `https://codescriet.dev/admin/https:/code.codescriet.dev/...`. Open them as-is.
+      if (/^https?:\/\//i.test(it.link) || it.link.startsWith('//')) {
+        window.open(it.link, '_blank', 'noopener,noreferrer');
+      } else {
+        navigate(it.link);
+      }
+    }
     onClose();
   };
 

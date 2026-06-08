@@ -120,7 +120,7 @@ Startup in `apps/api/src/index.ts`:
 3. Middleware: helmet → compression → CORS allow-list → JSON → CSRF (cookie-auth writes) → optional req logger → rate limits.
 4. Mount routers + health/SEO.
 5. `initializeDatabase()` → hydrate security env → slug backfills.
-6. If `ENABLE_BACKGROUND_SCHEDULERS=true`: event status + reminders + QOTD auto-publish.
+6. Background schedulers (event status + reminders + QOTD auto-publish): **ON by default in production**, off in development. `ENABLE_BACKGROUND_SCHEDULERS=true/false` forces it either way (`NODE_ENV` is normalized so anything ≠ `development` ⇒ production). Event-status + QOTD use event-driven in-memory timers (no polling); reminders poll every 6h.
 7. HTTP listen with port-retry on `EADDRINUSE`.
 8. `recoverActiveRounds()` re-arms competition timers.
 
@@ -169,7 +169,7 @@ PUBLIC=0 · USER=1 · NETWORK=1 · MEMBER=2 · CORE_MEMBER=3 · ADMIN=4 · PRESI
 | `/api/qotd/*` | Mixed | |
 | `/api/users/*` | Yes | Admin-deep-control endpoints below |
 | `/api/stats/*` | No | Public + admin `/dashboard` with 12-tile insights |
-| `/api/settings/*` | Some (superAdmin/PRESIDENT for `/settings`, `/settings/email-templates`, `/settings/security-env`) | |
+| `/api/settings/*` | Some (superAdmin/PRESIDENT for `/settings`, `/settings/email-templates`, `/settings/security-env`) | Admin manual triggers: `POST /event-status/sync-now`, `POST /reminders/trigger` (runs one reminder pass; respects global toggle + per-event opt-out + dedup) |
 | `/api/hiring/*` | Mixed | |
 | `/api/certificates/*` | Mixed | |
 | `/api/signatories/*` | Admin | |
@@ -210,7 +210,7 @@ Relations: announcements, registrations, hiringApplications, qotdSubmissions, ne
 clubName/Email/Description · registrationOpen · maxEventsPerUser · announcementsEnabled · showAchievements/Leaderboard/QOTD · social URLs · contactPhone? · contactEmails(JSON `{label,email}[]`, admin-managed, shown on public `/contact`) · hiringEnabled + 5 categories · email* template bodies · show_tech_blogs · showNetwork · mailingEnabled · certificatesEnabled · playgroundEnabled · playgroundDailyLimit · competitionEnabled · problemsEnabled · email\*Enabled (welcome/eventCreation/registration/announcement/certificate/reminder/invitation/passwordReset) · emailTestingMode/TestRecipients · attendanceJwtSecret? · indexNowKey? · **accentColor** (default `"rust"`).
 
 ### Event
-`id, title, slug(unique), description, status(EventStatus), startDate, endDate?, registrationStartDate?, registrationEndDate?, location?, venue?, capacity?, imageUrl, createdBy, eventDays(default 1), dayLabels(JSON String[])?, eventType?, prerequisites?, registrationFields(JSON)?, agenda?, faqs(JSON)?, featured, highlights?, imageGallery(JSON)?, learningOutcomes?, resources(JSON)?, shortDescription?, speakers(JSON)?, tags(String[]), targetAudience?, videoUrl?, allowLateRegistration, teamRegistration(default false), teamMinSize(1), teamMaxSize(4)` · relations: registrations, invitations, certificates, teams, competitionRounds.
+`id, title, slug(unique), description, status(EventStatus), startDate, endDate?, registrationStartDate?, registrationEndDate?, location?, venue?, capacity?, imageUrl, createdBy, eventDays(default 1), dayLabels(JSON String[])?, eventType?, prerequisites?, registrationFields(JSON)?, agenda?, faqs(JSON)?, featured, highlights?, imageGallery(JSON)?, learningOutcomes?, resources(JSON)?, shortDescription?, speakers(JSON)?, tags(String[]), targetAudience?, videoUrl?, allowLateRegistration, remindersEnabled(default true), teamRegistration(default false), teamMinSize(1), teamMaxSize(4)` · relations: registrations, invitations, certificates, teams, competitionRounds. `remindersEnabled=false` makes the reminder scheduler skip this event's registrations (per-event admin opt-out, set in the event editor's Registration timeline card).
 
 ### EventRegistration
 `id, userId, eventId, timestamp, customFieldResponses(JSON)?, reminderSentAt?, attendanceToken?(unique), attended(default false), scannedAt?, manualOverride(default false), registrationType(RegistrationType, default PARTICIPANT), invitation?` · unique `[userId,eventId]` · index `[eventId,attended]`, `[eventId,registrationType,attended]`.
@@ -378,7 +378,8 @@ Single canonical `Problem` reused across 3 contexts: `PRACTICE`, `QOTD`, `CONTES
 - **Cap reservation:** submit flow reserves cap first, rolls back on judge/system failure.
 - **Rejudge queue:** `rejudgeJobs.ts` bounded in-memory, serial execution via promise chain.
 - **Materialized QOTD streaks:** `User.currentStreak/longestStreak` count consecutive *published-and-not-held* QOTD days the user submitted. Updated transactionally via `recomputeUserStreakSafe()` ([apps/api/src/utils/qotdStreak.ts](apps/api/src/utils/qotdStreak.ts)) from `POST /api/qotd/:id/submit` and `submitProblemForUser()` (contextType=QOTD, verdict=ACCEPTED). 60s in-process cache of published-date set; invalidated on publish/hold.
-- **QOTD scheduler:** `startQotdAutoPublishScheduler()` every 5 min auto-publishes rows where `publishAt<=now` AND `heldBy IS NULL`. Runs only when `ENABLE_BACKGROUND_SCHEDULERS=true`.
+- **QOTD scheduling + publish notification:** On create, `publishAt` = chosen IST wall-clock time (`publishTime` HH:mm, default 00:00 IST) on the QOTD's IST date; if that instant is already past it publishes immediately, else stays scheduled. **Every** go-live path — create-and-publish-now, manual `POST /:id/publish`, and the auto-publish scheduler — fires the `broadcastQotdLive()` bell notification (`utils/notifications.ts`, source `AUTO_QOTD`, audience ALL). Auto-publish also recomputes submitter streaks + invalidates the published-day cache per flipped row.
+- **QOTD scheduler (event-driven, no polling):** `startQotdAutoPublishScheduler()` arms a precise in-memory `setTimeout` per scheduled QOTD instead of polling. Timers are armed at create time (`armQotdPublishTimer` from `POST /api/qotd`), re-hydrated once on boot from the DB, and cancelled on hold/publish/delete (`cancelQotdPublishTimer`). When a timer fires it flips that one row + sends the bell. Net DB contact: one hydration query on boot + one targeted write per publish — between publishes the DB sleeps. Bounded (only pending scheduled QOTDs). Far-future schedules chain past Node's ~24.8-day `setTimeout` ceiling. Active only when `ENABLE_BACKGROUND_SCHEDULERS` is on.
 
 ### Problems endpoints
 List/admin-all/admin-reset-cap/admin-pending-cap-requests · create/update/delete/publish · run/submit/my-submission/leaderboard/all-submissions · override/:submissionId · rejudge + rejudge-status/:jobId · request-cap.
@@ -568,7 +569,7 @@ Migration: `prisma/migrations/20260517210000_dashboard_v2/migration.sql` (additi
 - **Atomic attendance:** `updateMany({ where: { id, attended: false } })`. `count === 0` = duplicate. Never check-then-update (TOCTOU race).
 - **Reservation-based email dedup:** Scheduler marks `reminderSentAt` before sending; rolls back on send failure.
 - **DB keep-alive:** Opt-in (`ENABLE_DB_KEEPALIVE=true`, interval `DB_KEEPALIVE_INTERVAL_MS` default 240000). Off by default.
-- **Schedulers:** Opt-in via `ENABLE_BACKGROUND_SCHEDULERS=true`. `EVENT_STATUS_INTERVAL_MS` default 1800000 (30m).
+- **Schedulers:** Default ON in production, OFF in development; `ENABLE_BACKGROUND_SCHEDULERS=true/false` overrides. **Event-status + QOTD auto-publish are event-driven** (in-memory timers that sleep until the next exact boundary; re-tuned on writes, re-hydrated on boot) — no fixed-interval polling, so the DB stays asleep between actual transitions. Event reminders still poll every 6h. `EVENT_STATUS_INTERVAL_MS` is no longer used (event-status sleeps until the next event boundary instead).
 - **Email template cache:** 5-min TTL; stale fallback on DB error (prevents blank emails).
 - **Sanitize HTML input:** `sanitizeHtml()`/`sanitizeText()` from [apps/api/src/utils/sanitize.ts](apps/api/src/utils/sanitize.ts).
 - **Audit log:** `auditLog(userId, action, entity, entityId, metadata)` on all admin mutations.
@@ -615,8 +616,8 @@ Migration: `prisma/migrations/20260517210000_dashboard_v2/migration.sql` (additi
 | `ENABLE_REQUEST_LOGGING` | no | |
 | `ENABLE_DB_KEEPALIVE` | no | default off |
 | `DB_KEEPALIVE_INTERVAL_MS` | no | default 240000 |
-| `ENABLE_BACKGROUND_SCHEDULERS` | no | default off |
-| `EVENT_STATUS_INTERVAL_MS` | no | default 1800000 |
+| `ENABLE_BACKGROUND_SCHEDULERS` | no | default ON in prod, OFF in dev; `true`/`false` overrides |
+| `EVENT_STATUS_INTERVAL_MS` | no | deprecated — event-status is now event-driven (timer until next boundary), no longer polled |
 | `PORT` | no | default 5001 |
 
 ---
@@ -624,7 +625,7 @@ Migration: `prisma/migrations/20260517210000_dashboard_v2/migration.sql` (additi
 ## Deployment (Render)
 
 4 services in `render.yaml`:
-1. **codescriet-api** — Node web. Build: `npm install --include=dev && npx prisma generate --schema=./prisma/schema.prisma && npm run build --workspace=apps/api`. Start: migration resolve/deploy + `npm run start --workspace=apps/api`.
+1. **codescriet-api** — Node web. Build: `npm install --include=dev && npx prisma generate --schema=./prisma/schema.prisma && npm run build --workspace=apps/api`. Start: migration resolve/deploy + `npm run start --workspace=apps/api`. Sets `ENABLE_BACKGROUND_SCHEDULERS=true` (event-status sync + event reminders + QOTD auto-publish; safe because UptimeRobot keeps the instance warm).
 2. **codescriet-web** — static. Build: `npm install && node scripts/generate-sitemap.js && npm run build --workspace=apps/web && node scripts/prerender.js` (prerenders route-specific HTML for crawlers/social cards).
 3. **codescriet-playground-api** — Node (`node execute-server.js`).
 4. **codescriet-playground-web** — static (`apps/playground/dist`).

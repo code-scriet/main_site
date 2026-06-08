@@ -12,6 +12,7 @@ import { authMiddleware, getAuthUser } from '../middleware/auth.js';
 import { requireRole } from '../middleware/role.js';
 import { ApiResponse } from '../utils/response.js';
 import { logger } from '../utils/logger.js';
+import { sanitizeUrl } from '../utils/sanitize.js';
 import { auditLog } from '../utils/audit.js';
 import { broadcastNotification } from '../utils/notifications.js';
 
@@ -302,6 +303,16 @@ notificationsRouter.post('/compose', authMiddleware, requireRole('ADMIN'), async
     return ApiResponse.validationError(res, parsed.error.errors.map(e => ({ field: e.path.join('.'), message: e.message })));
   }
   const p = parsed.data;
+  // Defence-in-depth: only allow http(s)/mailto/tel/relative links into the feed.
+  // The bell opens absolute links in a new tab, so reject javascript:/data:/`//host`
+  // at the source rather than relying on the renderer.
+  let safeLink: string | undefined;
+  if (p.link) {
+    safeLink = sanitizeUrl(p.link);
+    if (!safeLink) {
+      return ApiResponse.validationError(res, [{ field: 'link', message: 'link must be a valid http(s), mailto, tel, or site-relative URL' }]);
+    }
+  }
   try {
     const created = await broadcastNotification({
       source: 'ADMIN',
@@ -312,7 +323,7 @@ notificationsRouter.post('/compose', authMiddleware, requireRole('ADMIN'), async
       icon: p.icon,
       title: p.title,
       body: p.body,
-      link: p.link,
+      link: safeLink,
       expiresAt: p.expiresAt ? new Date(p.expiresAt) : undefined,
       createdById: auth.id,
     });
