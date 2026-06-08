@@ -165,8 +165,10 @@ function cleanWorkerText(value: unknown): string {
 // signatures into a clear, actionable message; leave genuine user errors as-is.
 function humanizeCompilerError(language: ProblemLanguage, raw: string | undefined): string | undefined {
   if (!raw) return raw;
+
+  let hint = '';
   if (language === 'CPP' && /__user_main\b/.test(raw)) {
-    return [
+    hint = [
       'Your C++ solution must define an entry point — these problems read input from',
       'standard input and write the answer to standard output (not a bare function):',
       '',
@@ -178,13 +180,12 @@ function humanizeCompilerError(language: ProblemLanguage, raw: string | undefine
       'A function-only solution (e.g. just `string reverseWords(...)` with no main) cannot',
       'run here. Put your logic in main(), or call your function from main().',
     ].join('\n');
-  }
-  // `__UserMain` is the harness's renamed copy of the student's `class Main`; it
-  // only appears in errors when there's no `Main` class or its main() signature is
-  // wrong (ClassNotFoundException: __UserMain / NoSuchMethodException: __UserMain.main).
-  // Keying on it alone avoids misfiring on a student's own reflection errors.
-  if (language === 'JAVA' && /__UserMain\b/.test(raw)) {
-    return [
+  } else if (language === 'JAVA' && /__UserMain\b/.test(raw)) {
+    // `__UserMain` is the harness's renamed copy of the student's `class Main`; it
+    // only appears in errors when there's no `Main` class or its main() signature is
+    // wrong (ClassNotFoundException: __UserMain / NoSuchMethodException: __UserMain.main).
+    // Keying on it alone avoids misfiring on a student's own reflection errors.
+    hint = [
       'Your Java solution must be a `public class Main` with a standard entry point —',
       'these problems read from standard input and write to standard output:',
       '',
@@ -198,7 +199,25 @@ function humanizeCompilerError(language: ProblemLanguage, raw: string | undefine
       'Name the class exactly `Main`. A function-only solution cannot run here.',
     ].join('\n');
   }
-  return raw;
+
+  if (!hint) return raw;
+
+  // Keep the student's REAL compiler errors below the hint — a typo'd `int main`
+  // (e.g. `i main()` / `whil`) produces genuine errors they need to see, which the
+  // hint must not hide. Drop only the harness-internal frames that reference our
+  // wrapper symbols (pure noise to them). If nothing but harness noise remains
+  // (a true no-entry-point submission), show just the hint.
+  const HARNESS_SYMBOLS = /\b(?:__user_main|__UserMain|__invoke_user_main|__run_one_test|__JudgeTest)\b/;
+  const realErrors = raw
+    .split('\n')
+    .filter((line) => !HARNESS_SYMBOLS.test(line))
+    .join('\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+
+  return realErrors
+    ? `${hint}\n\n──────────────────────────\nCompiler output:\n${realErrors}`
+    : hint;
 }
 
 export async function runJudge(req: JudgeRequest): Promise<JudgeResult> {
