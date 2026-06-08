@@ -61,6 +61,7 @@ export default function EditEvent() {
     videoUrl: '',
     featured: false,
     allowLateRegistration: false,
+    remindersEnabled: true,
     // Team registration
     teamRegistration: false,
     teamMinSize: 2,
@@ -113,6 +114,7 @@ export default function EditEvent() {
         videoUrl: event.videoUrl || '',
         featured: event.featured || false,
         allowLateRegistration: event.allowLateRegistration ?? false,
+        remindersEnabled: event.remindersEnabled ?? true,
         // Team registration
         teamRegistration: event.teamRegistration ?? false,
         teamMinSize: event.teamMinSize ?? 2,
@@ -220,6 +222,7 @@ export default function EditEvent() {
         videoUrl: form.videoUrl.trim() || undefined,
         featured: form.featured,
         allowLateRegistration: form.allowLateRegistration,
+        remindersEnabled: form.remindersEnabled,
         // Team registration
         teamRegistration: form.teamRegistration,
         teamMinSize: form.teamRegistration ? form.teamMinSize : undefined,

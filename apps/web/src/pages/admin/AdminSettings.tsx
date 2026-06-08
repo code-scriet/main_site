@@ -87,6 +87,10 @@ export default function AdminSettings() {
   const [eventSyncResult, setEventSyncResult] = useState<
     { toOngoing: number; toPastFromOngoing: number; toPastFromUpcoming: number; error?: string } | null
   >(null);
+  const [reminderSubmitting, setReminderSubmitting] = useState(false);
+  const [reminderResult, setReminderResult] = useState<
+    { sent: number; events: string[]; disabled?: boolean; error?: string } | null
+  >(null);
   const [securityEnvValues, setSecurityEnvValues] = useState({ attendanceJwtSecret: '', indexNowKey: '' });
   const [securityEnvStatus, setSecurityEnvStatus] = useState<SecurityEnvStatus | null>(null);
   const [securityEnvSaving, setSecurityEnvSaving] = useState(false);
@@ -739,6 +743,79 @@ export default function AdminSettings() {
             <span className="mx-1.5 text-[var(--border-default)]">·</span>
             <span className="tabular-nums">{eventSyncResult.toPastFromUpcoming}</span> → PAST (skipped)
           </p>
+        )}
+      </SettingsCard>
+
+      {/* Event reminders — half-width admin tool. The on/off switch is the
+          "Event reminders" toggle under Email categories above; this card runs
+          a reminder pass on demand and respects that switch + per-event opt-out. */}
+      <SettingsCard
+        title="Event reminders"
+        description="Reminders auto-send ~24h before each event. Toggle the global switch under Email → Categories, or run a pass now."
+        icon={Clock}
+        lastSavedAt={lastSavedAt}
+      >
+        <div className="flex items-center gap-2 flex-wrap">
+          <Button
+            variant="outline"
+            size="sm"
+            className="gap-1.5"
+            disabled={reminderSubmitting}
+            onClick={async () => {
+              if (!token) return;
+              setReminderSubmitting(true);
+              setReminderResult(null);
+              try {
+                const res = await fetch(`${import.meta.env.VITE_API_URL}/settings/reminders/trigger`, {
+                  method: 'POST',
+                  headers: { Authorization: `Bearer ${token}` },
+                  credentials: 'include',
+                });
+                const data = await res.json();
+                if (data.success && data.data) {
+                  setReminderResult(data.data);
+                } else {
+                  setReminderResult({ sent: 0, events: [], error: data.error?.message || 'Trigger failed' });
+                }
+              } catch {
+                setReminderResult({ sent: 0, events: [], error: 'Network error' });
+              } finally {
+                setReminderSubmitting(false);
+              }
+            }}
+          >
+            {reminderSubmitting ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Mail className="h-3.5 w-3.5" />}
+            Send reminders now
+          </Button>
+          {reminderResult && !reminderResult.error && !reminderResult.disabled && (
+            <span className="inline-flex items-center gap-1 text-[12px] text-[var(--success)]">
+              <CheckCircle className="h-3.5 w-3.5" />
+              <span className="font-mono tabular-nums">{reminderResult.sent}</span> sent
+            </span>
+          )}
+          {reminderResult?.disabled && (
+            <span className="inline-flex items-center gap-1 text-[12px] text-[var(--warning)]">
+              <AlertTriangle className="h-3.5 w-3.5" />
+              Reminders are turned off
+            </span>
+          )}
+          {reminderResult?.error && (
+            <span className="inline-flex items-center gap-1 text-[12px] text-[var(--danger)]">
+              <AlertCircle className="h-3.5 w-3.5" />
+              {reminderResult.error}
+            </span>
+          )}
+        </div>
+        {reminderResult && !reminderResult.error && !reminderResult.disabled && reminderResult.events.length > 0 && (
+          <p className="text-[11px] text-[var(--ds-text-3)]">
+            {reminderResult.events.join(' · ')}
+          </p>
+        )}
+        {reminderResult && !reminderResult.error && !reminderResult.disabled && reminderResult.sent === 0 && (
+          <p className="text-[11px] text-[var(--ds-text-3)]">No events were inside the reminder window.</p>
+        )}
+        {reminderResult?.disabled && (
+          <p className="text-[11px] text-[var(--ds-text-3)]">Enable “Event reminders” under Email → Categories above, then try again.</p>
         )}
       </SettingsCard>
 

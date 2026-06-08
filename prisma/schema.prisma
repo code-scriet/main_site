@@ -228,6 +228,7 @@ model Event {
   videoUrl              String?     @map("video_url")
   slug                  String      @unique @default("")
   allowLateRegistration Boolean     @default(false) @map("allow_late_registration")
+  remindersEnabled      Boolean     @default(true) @map("reminders_enabled")
   eventDays             Int         @default(1) @map("event_days")
   dayLabels             Json?       @map("day_labels")
 

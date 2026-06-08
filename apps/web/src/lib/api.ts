@@ -615,6 +615,7 @@ export interface Event {
   tags?: string[];
   featured?: boolean;
   allowLateRegistration?: boolean;
+  remindersEnabled?: boolean;
   eventDays?: number;
   dayLabels?: string[];
   registrationFields?: EventRegistrationField[];

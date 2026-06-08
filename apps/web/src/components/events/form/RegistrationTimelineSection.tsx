@@ -12,6 +12,7 @@ export interface RegistrationTimelineValues {
   registrationStartDate: string;
   registrationEndDate: string;
   allowLateRegistration: boolean;
+  remindersEnabled: boolean;
   // Team fields stay on the parent form shape for back-compat; this card just
   // ignores them. TeamRegistrationSection handles those controls.
   teamRegistration: boolean;
@@ -36,6 +37,7 @@ export function RegistrationTimelineSection({
   description,
 }: RegistrationTimelineSectionProps) {
   const lateId = `${idPrefix}-allowLateRegistration`;
+  const remindersId = `${idPrefix}-remindersEnabled`;
   return (
     <DSCard padded>
       <div className="flex items-center gap-2 mb-1">
@@ -86,6 +88,33 @@ export function RegistrationTimelineSection({
             name="allowLateRegistration"
             id={lateId}
             checked={form.allowLateRegistration}
+            onChange={onChange}
+            className="peer sr-only"
+          />
+          <span className="block h-6 w-11 rounded-full bg-[var(--border)] peer-checked:bg-[var(--accent)] peer-focus-visible:ring-2 peer-focus-visible:ring-[var(--accent)]/30 transition-colors" />
+          <span className="absolute top-[2px] left-[2px] h-5 w-5 rounded-full bg-[var(--bg-raised)] shadow-sm transition-transform peer-checked:translate-x-5" />
+        </span>
+      </label>
+
+      {/* Full-row clickable toggle for per-event reminder emails */}
+      <label
+        htmlFor={remindersId}
+        className={cn(
+          'flex items-start gap-4 rounded-[10px] border border-[var(--border-subtle)] bg-[var(--surface-soft)]/40 p-4 cursor-pointer transition-colors hover:border-[var(--accent-ring)] mt-3',
+        )}
+      >
+        <div className="flex-1 min-w-0">
+          <div className="text-[13.5px] font-medium text-[var(--ds-text-1)]">Send event reminders</div>
+          <p className="text-[12px] text-[var(--ds-text-3)] mt-0.5">
+            Email registered users a reminder ~24h before this event starts. Turn off to silence reminders for this event only.
+          </p>
+        </div>
+        <span className="relative inline-flex shrink-0 select-none mt-0.5">
+          <input
+            type="checkbox"
+            name="remindersEnabled"
+            id={remindersId}
+            checked={form.remindersEnabled}
             onChange={onChange}
             className="peer sr-only"
           />

@@ -134,12 +134,16 @@ export default function CreateQOTD() {
   const scheduleMut = useMutation({
     mutationFn: async () => {
       if (!token) throw new Error('Not authenticated');
+      // Send the IST publish time so the backend can compute the exact go-live
+      // instant. Omitting publishNow lets the server decide: a time already past
+      // publishes (and notifies) immediately, a future time stays scheduled and
+      // the auto-publish scheduler flips + notifies it at that moment.
       const body: Parameters<typeof api.createQOTD>[0] = mode === 'pick'
-        ? { date, problemId: problemId!, publishNow: false }
+        ? { date, problemId: problemId!, publishTime: publishTime || undefined }
         : mode === 'legacy'
         ? { date, question: legacyQuestion.trim(), problemLink: legacyLink.trim() || undefined }
         : { date };
-      void publishTime; void publishToPractice;
+      void publishToPractice;
       await api.createQOTD(body, token);
     },
     onSuccess: () => {

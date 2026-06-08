@@ -169,7 +169,7 @@ PUBLIC=0 · USER=1 · NETWORK=1 · MEMBER=2 · CORE_MEMBER=3 · ADMIN=4 · PRESI
 | `/api/qotd/*` | Mixed | |
 | `/api/users/*` | Yes | Admin-deep-control endpoints below |
 | `/api/stats/*` | No | Public + admin `/dashboard` with 12-tile insights |
-| `/api/settings/*` | Some (superAdmin/PRESIDENT for `/settings`, `/settings/email-templates`, `/settings/security-env`) | |
+| `/api/settings/*` | Some (superAdmin/PRESIDENT for `/settings`, `/settings/email-templates`, `/settings/security-env`) | Admin manual triggers: `POST /event-status/sync-now`, `POST /reminders/trigger` (runs one reminder pass; respects global toggle + per-event opt-out + dedup) |
 | `/api/hiring/*` | Mixed | |
 | `/api/certificates/*` | Mixed | |
 | `/api/signatories/*` | Admin | |
@@ -210,7 +210,7 @@ Relations: announcements, registrations, hiringApplications, qotdSubmissions, ne
 clubName/Email/Description · registrationOpen · maxEventsPerUser · announcementsEnabled · showAchievements/Leaderboard/QOTD · social URLs · contactPhone? · contactEmails(JSON `{label,email}[]`, admin-managed, shown on public `/contact`) · hiringEnabled + 5 categories · email* template bodies · show_tech_blogs · showNetwork · mailingEnabled · certificatesEnabled · playgroundEnabled · playgroundDailyLimit · competitionEnabled · problemsEnabled · email\*Enabled (welcome/eventCreation/registration/announcement/certificate/reminder/invitation/passwordReset) · emailTestingMode/TestRecipients · attendanceJwtSecret? · indexNowKey? · **accentColor** (default `"rust"`).
 
 ### Event
-`id, title, slug(unique), description, status(EventStatus), startDate, endDate?, registrationStartDate?, registrationEndDate?, location?, venue?, capacity?, imageUrl, createdBy, eventDays(default 1), dayLabels(JSON String[])?, eventType?, prerequisites?, registrationFields(JSON)?, agenda?, faqs(JSON)?, featured, highlights?, imageGallery(JSON)?, learningOutcomes?, resources(JSON)?, shortDescription?, speakers(JSON)?, tags(String[]), targetAudience?, videoUrl?, allowLateRegistration, teamRegistration(default false), teamMinSize(1), teamMaxSize(4)` · relations: registrations, invitations, certificates, teams, competitionRounds.
+`id, title, slug(unique), description, status(EventStatus), startDate, endDate?, registrationStartDate?, registrationEndDate?, location?, venue?, capacity?, imageUrl, createdBy, eventDays(default 1), dayLabels(JSON String[])?, eventType?, prerequisites?, registrationFields(JSON)?, agenda?, faqs(JSON)?, featured, highlights?, imageGallery(JSON)?, learningOutcomes?, resources(JSON)?, shortDescription?, speakers(JSON)?, tags(String[]), targetAudience?, videoUrl?, allowLateRegistration, remindersEnabled(default true), teamRegistration(default false), teamMinSize(1), teamMaxSize(4)` · relations: registrations, invitations, certificates, teams, competitionRounds. `remindersEnabled=false` makes the reminder scheduler skip this event's registrations (per-event admin opt-out, set in the event editor's Registration timeline card).
 
 ### EventRegistration
 `id, userId, eventId, timestamp, customFieldResponses(JSON)?, reminderSentAt?, attendanceToken?(unique), attended(default false), scannedAt?, manualOverride(default false), registrationType(RegistrationType, default PARTICIPANT), invitation?` · unique `[userId,eventId]` · index `[eventId,attended]`, `[eventId,registrationType,attended]`.
@@ -378,7 +378,8 @@ Single canonical `Problem` reused across 3 contexts: `PRACTICE`, `QOTD`, `CONTES
 - **Cap reservation:** submit flow reserves cap first, rolls back on judge/system failure.
 - **Rejudge queue:** `rejudgeJobs.ts` bounded in-memory, serial execution via promise chain.
 - **Materialized QOTD streaks:** `User.currentStreak/longestStreak` count consecutive *published-and-not-held* QOTD days the user submitted. Updated transactionally via `recomputeUserStreakSafe()` ([apps/api/src/utils/qotdStreak.ts](apps/api/src/utils/qotdStreak.ts)) from `POST /api/qotd/:id/submit` and `submitProblemForUser()` (contextType=QOTD, verdict=ACCEPTED). 60s in-process cache of published-date set; invalidated on publish/hold.
-- **QOTD scheduler:** `startQotdAutoPublishScheduler()` every 5 min auto-publishes rows where `publishAt<=now` AND `heldBy IS NULL`. Runs only when `ENABLE_BACKGROUND_SCHEDULERS=true`.
+- **QOTD scheduling + publish notification:** On create, `publishAt` = chosen IST wall-clock time (`publishTime` HH:mm, default 00:00 IST) on the QOTD's IST date; if that instant is already past it publishes immediately, else stays scheduled. **Every** go-live path — create-and-publish-now, manual `POST /:id/publish`, and the auto-publish scheduler — fires the `broadcastQotdLive()` bell notification (`utils/notifications.ts`, source `AUTO_QOTD`, audience ALL). Auto-publish also recomputes submitter streaks + invalidates the published-day cache per flipped row.
+- **QOTD scheduler:** `startQotdAutoPublishScheduler()` every 5 min auto-publishes rows where `publishAt<=now` AND `heldBy IS NULL` (fetch-then-flip per row so each gets a bell notification). Runs only when `ENABLE_BACKGROUND_SCHEDULERS=true` (set in `render.yaml` for `codescriet-api`).
 
 ### Problems endpoints
 List/admin-all/admin-reset-cap/admin-pending-cap-requests · create/update/delete/publish · run/submit/my-submission/leaderboard/all-submissions · override/:submissionId · rejudge + rejudge-status/:jobId · request-cap.
@@ -624,7 +625,7 @@ Migration: `prisma/migrations/20260517210000_dashboard_v2/migration.sql` (additi
 ## Deployment (Render)
 
 4 services in `render.yaml`:
-1. **codescriet-api** — Node web. Build: `npm install --include=dev && npx prisma generate --schema=./prisma/schema.prisma && npm run build --workspace=apps/api`. Start: migration resolve/deploy + `npm run start --workspace=apps/api`.
+1. **codescriet-api** — Node web. Build: `npm install --include=dev && npx prisma generate --schema=./prisma/schema.prisma && npm run build --workspace=apps/api`. Start: migration resolve/deploy + `npm run start --workspace=apps/api`. Sets `ENABLE_BACKGROUND_SCHEDULERS=true` (event-status sync + event reminders + QOTD auto-publish; safe because UptimeRobot keeps the instance warm).
 2. **codescriet-web** — static. Build: `npm install && node scripts/generate-sitemap.js && npm run build --workspace=apps/web && node scripts/prerender.js` (prerenders route-specific HTML for crawlers/social cards).
 3. **codescriet-playground-api** — Node (`node execute-server.js`).
 4. **codescriet-playground-web** — static (`apps/playground/dist`).

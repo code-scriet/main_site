@@ -24,6 +24,12 @@ services:
         sync: false
       - key: PRISMA_CLIENT_ENGINE_TYPE
         value: binary
+      # Run the in-process schedulers: event-status sync, event reminders, and
+      # QOTD auto-publish. Required for scheduled QOTDs to ever go live and for
+      # reminder emails to send. Safe on free tier — UptimeRobot already pings
+      # /ping every 5 min, so the instance is kept warm regardless.
+      - key: ENABLE_BACKGROUND_SCHEDULERS
+        value: "true"
       - key: JWT_SECRET
         sync: false
       - key: ATTENDANCE_JWT_SECRET

@@ -11,7 +11,7 @@ import { ApiResponse } from '../utils/response.js';
 import { createProblemFromInput, serializeProblemDetail, toIstDateKey, type ProblemInput } from '../utils/problemsCore.js';
 import { formatUsageDate } from '../utils/dailyLimit.js';
 import { recomputeUserStreakSafe, invalidatePublishedQotdCache, recomputeStreaksForQOTDSafe } from '../utils/qotdStreak.js';
-import { broadcastNotification } from '../utils/notifications.js';
+import { broadcastQotdLive } from '../utils/notifications.js';
 
 export const qotdRouter = Router();
 
@@ -61,6 +61,9 @@ const createQotdSchema = z.object({
   difficulty: z.string().trim().min(1).max(40).optional(),
   problemLink: z.string().url('problemLink must be a valid URL').optional(),
   publishNow: z.boolean().optional(),
+  // IST wall-clock time of day to go live (HH:mm). Combined with `date` to build
+  // the publishAt instant. Defaults to 00:00 IST (midnight) when omitted.
+  publishTime: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'publishTime must be HH:mm (24h)').optional(),
 }).refine((value) => Boolean(value.problemId || value.newProblem || (value.question && value.difficulty && value.problemLink)), {
   message: 'Provide problemId, newProblem, or legacy question/difficulty/problemLink',
 });
@@ -526,11 +529,18 @@ qotdRouter.post('/', authMiddleware, requireRole('CORE_MEMBER'), async (req: Req
     }
 
     const now = new Date();
-    const istToday = formatUsageDate(now);
     const dateKey = formatUsageDate(parsed.data.date);
-    const isPastOrToday = dateKey <= istToday;
-    const publishNow = parsed.data.publishNow === true || (parsed.data.publishNow !== false && isPastOrToday);
-    const publishAt = midnightIstUtcFor(parsed.data.date);
+    // publishAt = the chosen IST wall-clock time on the QOTD's IST date.
+    // Building from the IST date key + "+05:30" offset yields the correct UTC
+    // instant regardless of the server's timezone. Falls back to IST midnight
+    // if, somehow, the constructed date is invalid.
+    const publishTime = parsed.data.publishTime ?? '00:00';
+    let publishAt = new Date(`${dateKey}T${publishTime}:00+05:30`);
+    if (Number.isNaN(publishAt.getTime())) publishAt = midnightIstUtcFor(parsed.data.date);
+    // Auto-publish immediately when the scheduled instant has already passed,
+    // unless the caller explicitly forces publishNow on/off.
+    const publishNow = parsed.data.publishNow === true
+      || (parsed.data.publishNow !== false && publishAt.getTime() <= now.getTime());
 
     const qotd = await prisma.qOTD.create({
       data: {
@@ -547,7 +557,12 @@ qotdRouter.post('/', authMiddleware, requireRole('CORE_MEMBER'), async (req: Req
       include: { problem: true },
     });
 
-    if (qotd.isPublished) invalidatePublishedQotdCache();
+    if (qotd.isPublished) {
+      invalidatePublishedQotdCache();
+      // Fire the bell notification when a QOTD goes live on creation. Scheduled
+      // QOTDs get theirs later from the auto-publish scheduler instead.
+      broadcastQotdLive(qotd, authUser.id).catch(() => undefined);
+    }
     await auditLog(authUser.id, 'CREATE', 'qotd', qotd.id, { question: qotd.question, problemId: qotd.problemId, isPublished: qotd.isPublished });
     return ApiResponse.created(res, qotd, 'QOTD created successfully');
   } catch {
@@ -570,18 +585,7 @@ qotdRouter.post('/:id/publish', authMiddleware, requireRole('ADMIN'), async (req
     // Materialized streaks for every submitter on this day must reflect the flip.
     recomputeStreaksForQOTDSafe(qotd.id);
     await auditLog(authUser.id, 'QOTD_PUBLISHED', 'qotd', qotd.id);
-    broadcastNotification({
-      source: 'AUTO_QOTD',
-      audience: 'ALL',
-      category: 'qotd',
-      icon: 'zap',
-      title: `QOTD is live · ${updated.problem?.title ?? updated.question}`,
-      body: 'Solve before midnight IST to keep your streak going.',
-      link: '/qotd/today',
-      refEntity: 'qotd',
-      refEntityId: qotd.id,
-      createdById: authUser.id,
-    }).catch(() => undefined);
+    broadcastQotdLive(updated, authUser.id).catch(() => undefined);
     return ApiResponse.success(res, updated, 'QOTD published');
   } catch {
     return ApiResponse.internal(res, 'Failed to publish QOTD');

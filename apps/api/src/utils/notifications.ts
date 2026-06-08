@@ -53,3 +53,26 @@ export async function broadcastNotification(input: BroadcastInput) {
 
   return created;
 }
+
+/**
+ * Fire the "QOTD is live" bell notification. Shared by every publish path —
+ * create-and-publish-now, manual publish, and the auto-publish scheduler — so
+ * the bell behaves identically however a QOTD goes live.
+ */
+export async function broadcastQotdLive(
+  qotd: { id: string; question: string; problem?: { title: string | null } | null },
+  createdById?: string | null,
+) {
+  return broadcastNotification({
+    source: 'AUTO_QOTD',
+    audience: 'ALL',
+    category: 'qotd',
+    icon: 'zap',
+    title: `QOTD is live · ${qotd.problem?.title ?? qotd.question}`,
+    body: 'Solve before midnight IST to keep your streak going.',
+    link: '/qotd/today',
+    refEntity: 'qotd',
+    refEntityId: qotd.id,
+    createdById: createdById ?? null,
+  });
+}

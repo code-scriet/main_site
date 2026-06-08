@@ -4,6 +4,8 @@
 import { prisma } from '../lib/prisma.js';
 import { emailService } from './email.js';
 import { logger } from './logger.js';
+import { broadcastQotdLive } from './notifications.js';
+import { invalidatePublishedQotdCache, recomputeStreaksForQOTDSafe } from './qotdStreak.js';
 
 let reminderColumnAvailable = true;
 
@@ -43,15 +45,25 @@ async function rollbackReminderReservation(registrationId: string, reservationTi
   }
 }
 
-async function isEmailTestingModeActive(): Promise<boolean> {
+type ReminderGate = { remindersEnabled: boolean; testingMode: boolean };
+
+// Single read of the two settings that govern a reminder run: the global
+// on/off switch (admin "start/stop") and testing mode. Fails open on
+// remindersEnabled (default true) so a transient DB error doesn't silently
+// stop reminders, but fails closed on testing mode for the same reason the
+// old code did — avoid marking real registrations as sent.
+async function getReminderGate(): Promise<ReminderGate> {
   try {
     const settings = await prisma.settings.findUnique({
       where: { id: 'default' },
-      select: { emailTestingMode: true },
+      select: { emailReminderEnabled: true, emailTestingMode: true },
     });
-    return settings?.emailTestingMode ?? false;
+    return {
+      remindersEnabled: settings?.emailReminderEnabled ?? true,
+      testingMode: settings?.emailTestingMode ?? false,
+    };
   } catch {
-    return false;
+    return { remindersEnabled: true, testingMode: false };
   }
 }
 
@@ -59,10 +71,19 @@ async function processReminders(window: ReminderWindow, options: ProcessReminder
   const events: string[] = [];
   let sent = 0;
 
+  const gate = await getReminderGate();
+
+  // Global admin "stop" switch. When event reminders are disabled we skip the
+  // whole run rather than reserving + rolling back each registration every tick.
+  if (!gate.remindersEnabled) {
+    logger.info('⏭️ Event reminders are disabled in settings — skipping reminder processing');
+    return { sent: 0, events };
+  }
+
   // Skip processing entirely when testing mode is active to avoid permanently
   // marking reminderSentAt on real registrations (the email would go to test
   // recipients, but the marker would prevent real delivery after testing ends).
-  if (await isEmailTestingModeActive()) {
+  if (gate.testingMode) {
     logger.info('⏭️ Email testing mode active — skipping reminder processing to avoid marking real registrations as sent');
     return { sent: 0, events };
   }
@@ -86,6 +107,7 @@ async function processReminders(window: ReminderWindow, options: ProcessReminder
           lte: maxTime,
         },
         status: 'UPCOMING',
+        remindersEnabled: true, // per-event admin opt-out
       },
       user: {
         role: { not: 'NETWORK' },
@@ -206,19 +228,38 @@ let qotdAutoPublishInterval: NodeJS.Timeout | null = null;
 async function autoPublishScheduledQOTDs(): Promise<void> {
   try {
     const now = new Date();
-    const result = await prisma.qOTD.updateMany({
+    // Fetch the rows that are due first (instead of a blind updateMany) so we can
+    // fire a bell notification per QOTD as it goes live and refresh streak caches.
+    const due = await prisma.qOTD.findMany({
       where: {
         isPublished: false,
         publishAt: { lte: now },
         heldBy: null,
       },
-      data: {
-        isPublished: true,
-        publishedAt: now,
+      select: {
+        id: true,
+        question: true,
+        createdById: true,
+        problem: { select: { title: true } },
       },
+      take: 50,
     });
-    if (result.count > 0) {
-      logger.info(`📅 Auto-published ${result.count} scheduled QOTD(s)`);
+
+    if (due.length === 0) return;
+
+    for (const qotd of due) {
+      // Flip only if still unpublished/unheld — guards against a manual publish or
+      // hold landing between the read above and this write.
+      const flipped = await prisma.qOTD.updateMany({
+        where: { id: qotd.id, isPublished: false, heldBy: null },
+        data: { isPublished: true, publishedAt: now },
+      });
+      if (flipped.count === 0) continue;
+
+      invalidatePublishedQotdCache(); // published-day set changed → streak inputs shift
+      recomputeStreaksForQOTDSafe(qotd.id); // credit anyone who already solved while it was scheduled
+      broadcastQotdLive(qotd, qotd.createdById).catch(() => undefined);
+      logger.info(`📅 Auto-published scheduled QOTD "${qotd.question}"`, { qotdId: qotd.id });
     }
   } catch (error) {
     logger.error('❌ QOTD auto-publish tick failed', {

@@ -109,6 +109,7 @@ const eventSchemaBase = z.object({
   tags: z.array(z.string().trim().min(1).max(40)).max(40).optional(),
   featured: z.boolean().optional(),
   allowLateRegistration: z.boolean().optional(),
+  remindersEnabled: z.boolean().optional(),
   eventDays: z.coerce.number().int().min(1).max(10).optional(),
   dayLabels: z.array(z.string().trim().min(1).max(100)).max(10).optional().nullable(),
   // Admin-defined per-event registration form fields. Capped at 50 to prevent
@@ -564,6 +565,7 @@ eventsRouter.post('/', authMiddleware, requireRole('CORE_MEMBER'), async (req: R
         tags: data.tags || [],
         featured: data.featured || false,
         allowLateRegistration: data.allowLateRegistration || false,
+        remindersEnabled: data.remindersEnabled ?? true,
         eventDays,
         ...(data.dayLabels !== undefined && {
           dayLabels: data.dayLabels === null
@@ -883,6 +885,7 @@ eventsRouter.put('/:id', authMiddleware, requireRole('CORE_MEMBER'), async (req:
           ...(data.tags !== undefined && { tags: data.tags }),
           ...(data.featured !== undefined && { featured: data.featured }),
           ...(data.allowLateRegistration !== undefined && { allowLateRegistration: data.allowLateRegistration }),
+          ...(data.remindersEnabled !== undefined && { remindersEnabled: data.remindersEnabled }),
           ...(data.eventDays !== undefined && { eventDays: data.eventDays }),
           ...(data.dayLabels !== undefined && {
             dayLabels: data.dayLabels === null

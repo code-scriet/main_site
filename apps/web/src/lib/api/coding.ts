@@ -100,7 +100,7 @@ export const codingApi = {
     request<QOTDDailyLeaderboard>(`/qotd/${qotdId}/leaderboard`),
   getQOTDTotalLeaderboard: () =>
     request<QOTDTotalLeaderboard>('/qotd/leaderboard/total'),
-  createQOTD: (data: { date: string; question?: string; problemLink?: string; difficulty?: string; problemId?: string; newProblem?: ProblemInput; publishNow?: boolean }, token: string) =>
+  createQOTD: (data: { date: string; question?: string; problemLink?: string; difficulty?: string; problemId?: string; newProblem?: ProblemInput; publishNow?: boolean; publishTime?: string }, token: string) =>
     request('/qotd', { method: 'POST', body: JSON.stringify(data), token }),
   publishQOTD: (id: string, token: string) =>
     request(`/qotd/${id}/publish`, { method: 'POST', token }),
