@@ -185,7 +185,17 @@ let eventStatusInterval: NodeJS.Timeout | null = null;
 const MAX_LISTEN_RETRIES = 5;
 const LISTEN_RETRY_DELAY_MS = 1500;
 const EVENT_STATUS_INTERVAL_MS = Number(process.env.EVENT_STATUS_INTERVAL_MS || 30 * 60 * 1000);
-const ENABLE_BACKGROUND_SCHEDULERS = process.env.ENABLE_BACKGROUND_SCHEDULERS === 'true';
+// Background schedulers (event-status sync, event reminders, QOTD auto-publish)
+// default ON in production and OFF in development, so a fresh Render deploy runs
+// them without any dashboard/env configuration. Explicit values still win:
+//   ENABLE_BACKGROUND_SCHEDULERS=true  → force on (any env)
+//   ENABLE_BACKGROUND_SCHEDULERS=false → force off (prod escape hatch)
+// `NODE_ENV` here is the normalized constant above (anything not 'development'
+// resolves to 'production'), so this is true on Render even if the raw env var
+// is unset.
+const ENABLE_BACKGROUND_SCHEDULERS =
+  process.env.ENABLE_BACKGROUND_SCHEDULERS === 'true' ||
+  (process.env.ENABLE_BACKGROUND_SCHEDULERS !== 'false' && NODE_ENV === 'production');
 
 let eventStatusRunning = false;
 const runEventStatusTick = async () => {
@@ -617,13 +627,14 @@ initializeDatabase()
   .then(() => populateAnnouncementSlugs())
   .then(() => populateProfileSlugs())
   .then(() => {
-    // Keep DB asleep when idle by default. Enable only if explicitly configured.
+    // On by default in production (see ENABLE_BACKGROUND_SCHEDULERS above) so
+    // scheduled QOTDs publish and event reminders send without manual setup.
     if (ENABLE_BACKGROUND_SCHEDULERS) {
       startEventStatusScheduler();
       startReminderScheduler();
       startQotdAutoPublishScheduler();
     } else {
-      logger.info('Background schedulers disabled (set ENABLE_BACKGROUND_SCHEDULERS=true to enable).');
+      logger.info('Background schedulers disabled (development default; set ENABLE_BACKGROUND_SCHEDULERS=true to enable).');
     }
 
     startHttpServerWithRetry();
