@@ -564,8 +564,8 @@ qotdRouter.post('/', authMiddleware, requireRole('CORE_MEMBER'), async (req: Req
       // QOTDs get theirs later from the auto-publish scheduler instead.
       broadcastQotdLive(qotd, authUser.id).catch(() => undefined);
     } else {
-      // Arm a precise in-memory publish timer now so a sub-hour schedule fires
-      // exactly on time without waiting for the next hourly hydration tick.
+      // Arm the in-memory publish timer now so the QOTD goes live exactly at its
+      // publishAt (the scheduler is event-driven; no polling catches it otherwise).
       armQotdPublishTimer(qotd);
     }
     await auditLog(authUser.id, 'CREATE', 'qotd', qotd.id, { question: qotd.question, problemId: qotd.problemId, isPublished: qotd.isPublished });

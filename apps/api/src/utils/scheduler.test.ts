@@ -5,6 +5,8 @@ import {
   stopReminderScheduler,
   startQotdAutoPublishScheduler,
   stopQotdAutoPublishScheduler,
+  startEventStatusScheduler,
+  stopEventStatusScheduler,
   armQotdPublishTimer,
   cancelQotdPublishTimer,
 } from './scheduler.js';
@@ -103,4 +105,24 @@ test('armQotdPublishTimer arms a precise future timer when active, cancel clears
   setIntervalMock.mock.restore();
   clearTimeoutMock.mock.restore();
   clearIntervalMock.mock.restore();
+});
+
+test('startEventStatusScheduler is idempotent and stop clears the startup timer', () => {
+  stopEventStatusScheduler();
+
+  const startupHandle = { kind: 'evt-startup' } as unknown as NodeJS.Timeout;
+  const setTimeoutMock = mock.method(global, 'setTimeout', (() => startupHandle) as unknown as typeof setTimeout);
+  const clearTimeoutMock = mock.method(global, 'clearTimeout', (() => undefined) as unknown as typeof clearTimeout);
+
+  // Two starts must arm only one startup timer (active-flag guard).
+  startEventStatusScheduler();
+  startEventStatusScheduler();
+  assert.equal(setTimeoutMock.mock.calls.length, 1);
+
+  // Stop clears the pending startup timer.
+  stopEventStatusScheduler();
+  assert.ok(clearTimeoutMock.mock.calls.some((c) => c.arguments[0] === startupHandle));
+
+  setTimeoutMock.mock.restore();
+  clearTimeoutMock.mock.restore();
 });

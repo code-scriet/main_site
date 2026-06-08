@@ -362,18 +362,6 @@ export function stopQotdAutoPublishScheduler(): void {
   logger.info('📅 QOTD auto-publish scheduler stopped');
 }
 
-/** Manually publish all currently-due QOTDs + re-arm timers (admin/testing). */
-export async function triggerQotdAutoPublish(): Promise<void> {
-  const now = new Date();
-  const overdue = await prisma.qOTD.findMany({
-    where: { isPublished: false, heldBy: null, publishAt: { lte: now } },
-    select: { id: true },
-    take: 100,
-  });
-  for (const qotd of overdue) await publishDueQotd(qotd.id);
-  await hydrateScheduledQotds();
-}
-
 // ── Event-status transitions: sleep until the next boundary (no polling) ──
 // Same idea as QOTD: instead of a 30-min poll we arm a single timer pointing at
 // the nearest future transition moment (the soonest UPCOMING.startDate or
