@@ -5,7 +5,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { Plus, Search, Trash2, Pencil, Loader2, MoreHorizontal, ExternalLink, FileUp, ListChecks, CalendarPlus, Trophy, Copy, RefreshCw } from 'lucide-react';
+import { Plus, Search, Trash2, Pencil, Loader2, MoreHorizontal, ExternalLink, FileUp, ListChecks, CalendarPlus, Trophy, Copy, RefreshCw, Code2, Check } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '@/context/AuthContext';
 import {
@@ -549,6 +549,8 @@ export default function AdminProblems() {
 function SubmissionsTable({ problemId, token }: { problemId: string; token: string }) {
   const qc = useQueryClient();
   const [scoreTarget, setScoreTarget] = useState<ProblemSubmission | null>(null);
+  const [codeTarget, setCodeTarget] = useState<ProblemSubmission | null>(null);
+  const [copied, setCopied] = useState(false);
   const q = useQuery({
     queryKey: ['admin-problem-submissions', problemId],
     queryFn: () => api.adminGetProblemSubmissions(problemId, { limit: 200 }, token),
@@ -600,6 +602,14 @@ function SubmissionsTable({ problemId, token }: { problemId: string; token: stri
               </td>
               <td className="px-3 py-2.5">
                 <div className="flex flex-wrap items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => { setCopied(false); setCodeTarget(s); }}
+                    className="h-7 px-2 inline-flex items-center gap-1 text-[11.5px] font-semibold bg-[var(--bg-raised)] border border-[var(--border-default)] rounded-[6px] hover:bg-[var(--surface-soft)]"
+                    title="View submitted code"
+                  >
+                    <Code2 size={12} /> Code
+                  </button>
                   <select
                     defaultValue=""
                     onChange={(e) => {
@@ -640,6 +650,51 @@ function SubmissionsTable({ problemId, token }: { problemId: string; token: stri
           overrideMut.mutate({ submission: scoreTarget, score: Math.max(0, Math.min(100, Math.round(value))) });
         }}
       />
+
+      <Dialog open={Boolean(codeTarget)} onOpenChange={(o) => !o && setCodeTarget(null)}>
+        <DialogContent data-dashboard="true" className="max-w-3xl bg-[var(--bg-raised)] border-[var(--border-subtle)]">
+          <DialogHeader>
+            <DialogTitle>Submission code · {codeTarget?.user?.name ?? codeTarget?.userId.slice(0, 8)}</DialogTitle>
+          </DialogHeader>
+          {codeTarget && (
+            <div className="flex flex-col gap-3 min-h-0">
+              <div className="flex flex-wrap items-center gap-2 text-[12px]">
+                <Pill tone="neutral" size="xs">{codeTarget.language}</Pill>
+                <Pill tone={verdictTone(codeTarget.verdict)} size="xs">{codeTarget.verdict}</Pill>
+                <span className="text-[var(--ds-text-3)] font-mono tabular-nums">
+                  {codeTarget.passedCount}/{codeTarget.totalCount} tests · score {codeTarget.score}
+                </span>
+                <button
+                  type="button"
+                  onClick={async () => {
+                    try { await navigator.clipboard.writeText(codeTarget.code); setCopied(true); setTimeout(() => setCopied(false), 1500); } catch { /* clipboard blocked */ }
+                  }}
+                  className="ml-auto h-7 px-2 inline-flex items-center gap-1 text-[11.5px] font-semibold bg-[var(--bg-raised)] border border-[var(--border-default)] rounded-[6px] hover:bg-[var(--surface-soft)]"
+                >
+                  {copied ? <Check size={12} /> : <Copy size={12} />} {copied ? 'Copied' : 'Copy'}
+                </button>
+              </div>
+              <pre className="overflow-auto max-h-[55vh] rounded-[8px] border border-[var(--border-subtle)] bg-[var(--bg-sunken)] p-3 text-[12.5px] leading-relaxed font-mono whitespace-pre">
+                {codeTarget.code || '(empty submission)'}
+              </pre>
+              {codeTarget.compilerOutput && (
+                <div>
+                  <div className="text-[11px] uppercase tracking-[0.06em] font-semibold text-[var(--ds-text-3)] mb-1">Compiler / runtime output</div>
+                  <pre className="overflow-auto max-h-32 rounded-[8px] border border-[var(--danger-border)] bg-[var(--danger-bg)] p-2.5 text-[11.5px] font-mono whitespace-pre-wrap text-[var(--danger)]">
+                    {codeTarget.compilerOutput}
+                  </pre>
+                </div>
+              )}
+              {codeTarget.overrideNotes && (
+                <p className="text-[11.5px] text-[var(--ds-text-3)]">Override note: {codeTarget.overrideNotes}</p>
+              )}
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" size="sm" onClick={() => setCodeTarget(null)}>Close</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
