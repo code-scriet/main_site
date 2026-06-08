@@ -4,7 +4,8 @@ import bcrypt from 'bcryptjs';
 import { randomUUID } from 'crypto';
 import { z } from 'zod';
 import rateLimit from 'express-rate-limit';
-import { authMiddleware, getAuthUser } from '../middleware/auth.js';
+import { authMiddleware, optionalAuthMiddleware, getAuthUser } from '../middleware/auth.js';
+import { invalidateCachedAuthUser } from '../utils/userAuthCache.js';
 import { prisma } from '../lib/prisma.js';
 import { socketEvents } from '../utils/socket.js';
 import { emailService } from '../utils/email.js';
@@ -93,12 +94,17 @@ const setSessionCookie = (res: Response, token: string) => {
 
 const clearSessionCookie = (res: Response) => {
   const isProd = process.env.NODE_ENV === 'production';
-  res.clearCookie('scriet_session', {
-    secure: isProd,
-    sameSite: 'lax',
-    ...(isProd ? { domain: '.codescriet.dev' } : {}),
-    path: '/',
-  });
+  // Match every attribute used in setSessionCookie (incl. httpOnly) so the browser
+  // recognises this as the same cookie. In prod, also emit a host-only clear (no
+  // domain) as belt-and-suspenders: if the request reaches a host where the
+  // `.codescriet.dev` domain attribute is rejected, or a stale host-only variant
+  // exists, the host-only clear still drops it. (Server-side tokenVersion bump on
+  // logout is the real invalidation; this is just cookie hygiene.)
+  const base = { httpOnly: true, secure: isProd, sameSite: 'lax' as const, path: '/' };
+  if (isProd) {
+    res.clearCookie('scriet_session', { ...base, domain: '.codescriet.dev' });
+  }
+  res.clearCookie('scriet_session', base);
 };
 
 // ─── OAuth login-CSRF protection (M6) ───
@@ -576,7 +582,31 @@ authRouter.post('/exchange-code', async (req: Request, res: Response) => {
   }
 });
 
-authRouter.post('/logout', (_req: Request, res: Response) => {
+// Logout invalidates the session server-side by bumping the user's tokenVersion
+// (same mechanism as admin force-logout). This is host-independent and reliable
+// even when the browser blocks the cookie-clear Set-Cookie: every existing JWT —
+// the lingering `scriet_session` cookie and any other tab/device — carries the
+// old tokenVersion and is rejected by authMiddleware on its next request. Clearing
+// the cookie is best-effort cookie hygiene on top. `optionalAuthMiddleware` resolves
+// the user from the bearer token OR the cookie; a logout without a valid session is
+// still a 200 (just clears the cookie).
+authRouter.post('/logout', optionalAuthMiddleware, async (req: Request, res: Response) => {
+  const authUser = getAuthUser(req);
+  if (authUser) {
+    try {
+      await prisma.user.update({
+        where: { id: authUser.id },
+        data: { tokenVersion: { increment: 1 } },
+      });
+      invalidateCachedAuthUser(authUser.id);
+    } catch (error) {
+      // Never let invalidation failure block logout — still clear the cookie + 200.
+      logger.error('Logout tokenVersion bump failed', {
+        userId: authUser.id,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
   clearSessionCookie(res);
   res.json({ message: 'Logged out successfully' });
 });
