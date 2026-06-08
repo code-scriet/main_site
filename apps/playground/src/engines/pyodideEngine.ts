@@ -174,19 +174,21 @@ builtins.input = __patched_input
           exitCode: stderr ? 1 : 0,
         });
       } catch (err) {
-        const parts = [];
-        if (err && typeof err.toString === 'function') {
-          parts.push(String(err.toString()));
-        }
-        if (err && err.message) {
-          parts.push(String(err.message));
-        }
-        if (err && err.stack) {
-          parts.push(String(err.stack));
-        }
-
-        let errorMsg = parts
-          .filter(Boolean)
+        // Pyodide raises a PythonError whose .message is the formatted Python
+        // traceback (exact error type, message and the user's main.py line numbers).
+        // Use it directly: the old code also appended err.toString() (a duplicate of
+        // the message) and err.stack (WASM/JS internal frames), which buried the real
+        // error in noise. Strip our synthetic exec()/compile() harness frames so the
+        // user sees only their own code.
+        const raw = (err && typeof err.message === 'string' && err.message.trim())
+          ? err.message
+          : (err ? String(err) : '');
+        let errorMsg = raw
+          .split('\\n')
+          .filter((line) =>
+            !line.includes('File "<exec>"') &&
+            !line.includes('File "<string>"') &&
+            !line.includes('File "<unknown>"'))
           .join('\\n')
           .replace(/\\n{3,}/g, '\\n\\n')
           .trim();
