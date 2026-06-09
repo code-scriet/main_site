@@ -1146,6 +1146,37 @@ export interface CertificateBulkGenerateInput {
 
 export type CertificateEmailTemplate = 'default' | 'faculty_distribution';
 
+export interface CertificateUpdateInput {
+  recipientName?: string;
+  recipientEmail?: string;
+  eventName?: string | null;
+  position?: string | null;
+  domain?: string | null;
+  description?: string | null;
+  type?: CertType;
+  emailTemplate?: CertificateEmailTemplate;
+  emailSignerName?: string | null;
+}
+
+export interface CertificateDetail {
+  id: string;
+  certId: string;
+  recipientId: string | null;
+  recipientName: string;
+  recipientEmail: string;
+  eventId: string | null;
+  eventName: string;
+  type: CertType;
+  position: string | null;
+  domain: string | null;
+  description: string | null;
+  template: string;
+  pdfUrl: string | null;
+  isRevoked: boolean;
+  emailTemplate?: CertificateEmailTemplate;
+  emailSignerName?: string | null;
+}
+
 export interface CertificateBulkGenerateResponse {
   generated: number;
   failed: number;

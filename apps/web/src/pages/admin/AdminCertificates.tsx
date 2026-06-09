@@ -7,7 +7,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Award, Plus, Search, Download, Mail, Trash2, Ban, Loader2, ExternalLink, Pencil, FileUp, Users } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
-import { api, type CertType, type CertificateEmailTemplate } from '@/lib/api';
+import { api, type CertType, type CertificateEmailTemplate, type CertificateDetail, type CertificateUpdateInput } from '@/lib/api';
 import { Avatar, DSCard, EmptyState, Pill, SegmentedTabs, Section } from '@/components/dash';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -23,6 +23,7 @@ import {
   type GenerateFormData,
 } from '@/components/admin/certificates/GenerateCertificateDialog';
 import { BulkGenerateDialog } from '@/components/admin/certificates/BulkGenerateDialog';
+import { EditCertificateDialog } from '@/components/admin/certificates/EditCertificateDialog';
 import {
   DEFAULT_SIGNATORY_DEFAULTS,
   loadSignatoryDefaults,
@@ -112,6 +113,10 @@ export default function AdminCertificates() {
   const [revokeReason, setRevokeReason] = useState('');
   const [deleteTarget, setDeleteTarget] = useState<CertRow | null>(null);
   const [resendingId, setResendingId] = useState<string | null>(null);
+  const [editLoadingId, setEditLoadingId] = useState<string | null>(null);
+  const [editCert, setEditCert] = useState<CertificateDetail | null>(null);
+  const [editOpen, setEditOpen] = useState(false);
+  const [editSaving, setEditSaving] = useState(false);
 
   // Signatory inline modal (compact card-style — sub-section list uses this)
   const [sigOpen, setSigOpen] = useState(false);
@@ -232,6 +237,36 @@ export default function AdminCertificates() {
       toast.error('Resend failed');
     } finally {
       setResendingId(null);
+    }
+  };
+
+  const openEdit = async (certId: string) => {
+    if (!token) return;
+    setEditLoadingId(certId);
+    try {
+      const detail = await api.getCertificate(certId, token);
+      setEditCert(detail);
+      setEditOpen(true);
+    } catch {
+      toast.error('Failed to load certificate');
+    } finally {
+      setEditLoadingId(null);
+    }
+  };
+
+  const saveEdit = async (data: CertificateUpdateInput) => {
+    if (!token || !editCert) return;
+    setEditSaving(true);
+    try {
+      const res = await api.updateCertificate(editCert.certId, data, token);
+      toast.success(res.regenerated ? 'Certificate updated · PDF regenerated' : 'Certificate updated');
+      setEditOpen(false);
+      setEditCert(null);
+      qc.invalidateQueries({ queryKey: ['admin-certificates'] });
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to update certificate');
+    } finally {
+      setEditSaving(false);
     }
   };
 
@@ -607,6 +642,11 @@ export default function AdminCertificates() {
                           <ExternalLink size={11} />
                         </a>
                         {!c.isRevoked && (
+                          <button onClick={() => openEdit(c.certId)} disabled={editLoadingId === c.certId} title="Edit certificate" className="size-7 rounded-[6px] hover:bg-[var(--surface-soft)] text-[var(--ds-text-3)] hover:text-[var(--ds-text-1)] flex items-center justify-center">
+                            {editLoadingId === c.certId ? <Loader2 size={11} className="animate-spin" /> : <Pencil size={11} />}
+                          </button>
+                        )}
+                        {!c.isRevoked && (
                           <button onClick={() => resend(c.certId)} disabled={resendingId === c.certId} title="Resend email" className="size-7 rounded-[6px] hover:bg-[var(--surface-soft)] text-[var(--ds-text-3)] hover:text-[var(--ds-text-1)] flex items-center justify-center">
                             {resendingId === c.certId ? <Loader2 size={11} className="animate-spin" /> : <Mail size={11} />}
                           </button>
@@ -700,6 +740,15 @@ export default function AdminCertificates() {
       )}
 
       {/* ─── Bulk generate (restored from HEAD) */}
+      <EditCertificateDialog
+        key={editCert?.certId ?? 'none'}
+        open={editOpen}
+        onOpenChange={(o) => { setEditOpen(o); if (!o) setEditCert(null); }}
+        cert={editCert}
+        saving={editSaving}
+        onSave={saveEdit}
+      />
+
       {token && (
         <BulkGenerateDialog
           open={showBulk}

@@ -11,15 +11,25 @@ function isCloudinaryPlaceholder(): boolean {
 /**
  * Uploads a PDF buffer to Cloudinary as a raw file.
  * Returns the secure Cloudinary URL of the uploaded file.
+ *
+ * `opts.overwrite` (default false) replaces the existing asset at the same
+ * deterministic public_id and invalidates the CDN copy — used by the edit flow
+ * to swap in a regenerated PDF while keeping the same certId and URL. Every
+ * other caller (generate / bulk / recover) leaves it false, preserving the
+ * original behaviour of never clobbering an existing certificate file.
  */
-export async function uploadCertificate(certId: string, pdfBuffer: Buffer): Promise<string> {
+export async function uploadCertificate(
+  certId: string,
+  pdfBuffer: Buffer,
+  opts: { overwrite?: boolean } = {},
+): Promise<string> {
   if (!isCloudinaryConfigured || isCloudinaryPlaceholder()) {
     throw new Error('Cloudinary is not configured correctly for certificate uploads');
   }
 
   try {
-    const url = await uploadToCloudinary(certId, pdfBuffer);
-    logger.info('Certificate uploaded to Cloudinary', { certId });
+    const url = await uploadToCloudinary(certId, pdfBuffer, opts.overwrite ?? false);
+    logger.info('Certificate uploaded to Cloudinary', { certId, overwrite: opts.overwrite ?? false });
     return url;
   } catch (err: unknown) {
     logger.error('Cloudinary upload failed for certificate', {
@@ -30,7 +40,7 @@ export async function uploadCertificate(certId: string, pdfBuffer: Buffer): Prom
   }
 }
 
-function uploadToCloudinary(certId: string, pdfBuffer: Buffer): Promise<string> {
+function uploadToCloudinary(certId: string, pdfBuffer: Buffer, overwrite: boolean): Promise<string> {
   return new Promise((resolve, reject) => {
     const uploadStream = cloudinary.uploader.upload_stream(
       {
@@ -38,7 +48,8 @@ function uploadToCloudinary(certId: string, pdfBuffer: Buffer): Promise<string> 
         resource_type: 'raw',
         format: 'pdf',
         tags: ['certificate'],
-        overwrite: false,
+        overwrite,
+        invalidate: overwrite,
       },
       (error, result) => {
         if (error) {
