@@ -124,6 +124,8 @@ const bulkSchema = z.object({
   generationStrategy: z.enum(competitionGenerationStrategies).optional().nullable(),
   selectedRoundIds: z.array(z.string()).max(50).optional(),
   sendEmail: z.boolean().default(false),
+  emailTemplate: z.enum(['default', 'faculty_distribution']).default('default'),
+  emailSignerName: z.string().max(100).optional().nullable(),
 }).superRefine((value, ctx) => {
   if (!value.type && value.recipients.some((recipient) => !recipient.type)) {
     ctx.addIssue({
@@ -742,6 +744,8 @@ interface IssueCertificateParams {
   primarySig: ResolvedSignatory;
   facultySig: ResolvedSignatory | null;
   issuedBy: string;
+  emailTemplate?: string;
+  emailSignerName?: string | null;
 }
 
 interface IssueCertificateResult {
@@ -813,6 +817,8 @@ async function issueOneCertificate(params: IssueCertificateParams): Promise<Issu
           facultyName: params.facultySig?.name || null,
           facultyTitle: params.facultySig?.title || null,
           facultySignatoryImageUrl: params.facultySig?.rawImageUrl || null,
+          emailTemplate: params.emailTemplate ?? 'default',
+          emailSignerName: params.emailSignerName ?? null,
         },
         legacyCertificateData,
       );
@@ -1197,6 +1203,7 @@ certificatesRouter.post('/bulk', authMiddleware, requireRole('ADMIN'), async (re
     signatoryId, signatoryName, signatoryTitle, signatoryCustomImageUrl,
     facultySignatoryId, facultyName, facultyTitle, facultyCustomImageUrl,
     description, domain, sendEmail, source, generationStrategy, selectedRoundIds,
+    emailTemplate, emailSignerName,
   } = validation.data;
 
   // Validate eventId if provided
@@ -1376,6 +1383,8 @@ certificatesRouter.post('/bulk', authMiddleware, requireRole('ADMIN'), async (re
               primarySig,
               facultySig,
               issuedBy: authUser.id,
+              emailTemplate,
+              emailSignerName: emailTemplate === 'faculty_distribution' ? emailSignerName : null,
             });
             certId = issued.certId;
             pdfUrl = issued.pdfUrl;
@@ -1400,7 +1409,18 @@ certificatesRouter.post('/bulk', authMiddleware, requireRole('ADMIN'), async (re
 
           if (sendEmail) {
             try {
-              const sent = await emailService.sendCertificateIssued(r.email, r.name, safeEventName, certId, downloadUrl);
+              const sent = emailTemplate === 'faculty_distribution'
+                ? await emailService.sendCertificateAppreciation({
+                    email: r.email,
+                    name: r.name,
+                    eventName: safeEventName,
+                    certId,
+                    downloadUrl,
+                    description: r.description ?? description,
+                    signerName: emailSignerName,
+                    certType: r.type,
+                  })
+                : await emailService.sendCertificateIssued(r.email, r.name, safeEventName, certId, downloadUrl);
               if (sent) {
                 emailsSent++;
                 await updateCertificateWithSchemaFallback(
@@ -1724,6 +1744,10 @@ certificatesRouter.post('/:certId/resend', authMiddleware, requireRole('ADMIN'),
           recipientEmail: string;
           recipientName: string;
           eventName: string;
+          type: CertType;
+          description: string | null;
+          emailTemplate: string;
+          emailSignerName: string | null;
           pdfUrl: string | null;
           isRevoked: boolean;
           lastEmailResentAt: Date | null;
@@ -1738,6 +1762,10 @@ certificatesRouter.post('/:certId/resend', authMiddleware, requireRole('ADMIN'),
           recipientEmail: true,
           recipientName: true,
           eventName: true,
+          type: true,
+          description: true,
+          emailTemplate: true,
+          emailSignerName: true,
           pdfUrl: true,
           isRevoked: true,
           lastEmailResentAt: true,
@@ -1756,11 +1784,15 @@ certificatesRouter.post('/:certId/resend', authMiddleware, requireRole('ADMIN'),
           recipientEmail: true,
           recipientName: true,
           eventName: true,
+          type: true,
+          description: true,
           pdfUrl: true,
           isRevoked: true,
         },
       });
-      cert = legacyCert ? { ...legacyCert, lastEmailResentAt: null } : null;
+      cert = legacyCert
+        ? { ...legacyCert, emailTemplate: 'default', emailSignerName: null, lastEmailResentAt: null }
+        : null;
     }
 
     if (!cert) {
@@ -1776,13 +1808,25 @@ certificatesRouter.post('/:certId/resend', authMiddleware, requireRole('ADMIN'),
       return ApiResponse.badRequest(res, `Please wait ${waitMinutes} minute(s) before resending this certificate email`);
     }
 
-    const sent = await emailService.sendCertificateIssued(
-      cert.recipientEmail,
-      cert.recipientName,
-      cert.eventName,
-      cert.certId,
-      buildPublicCertificateDownloadUrl(cert.certId),
-    );
+    const downloadUrl = buildPublicCertificateDownloadUrl(cert.certId);
+    const sent = cert.emailTemplate === 'faculty_distribution'
+      ? await emailService.sendCertificateAppreciation({
+          email: cert.recipientEmail,
+          name: cert.recipientName,
+          eventName: cert.eventName,
+          certId: cert.certId,
+          downloadUrl,
+          description: cert.description,
+          signerName: cert.emailSignerName,
+          certType: cert.type,
+        })
+      : await emailService.sendCertificateIssued(
+          cert.recipientEmail,
+          cert.recipientName,
+          cert.eventName,
+          cert.certId,
+          downloadUrl,
+        );
 
     if (sent) {
       await updateCertificateWithSchemaFallback(

@@ -13,6 +13,7 @@ import { InlineMarkdown } from '@/components/ui/inline-markdown';
 import { CERT_TYPES, type CertType } from '@/components/admin/certificates/CertTypeBadge';
 import { SignatoryPicker, type ActiveSignatory } from '@/components/admin/certificates/SignatoryPicker';
 import type { BulkEntry } from '@/lib/certificatesCsv';
+import type { CertificateEmailTemplate } from '@/lib/api';
 
 interface BulkGenerateDialogProps {
   open: boolean;
@@ -49,6 +50,10 @@ interface BulkGenerateDialogProps {
   parseErrors: string[];
   sendEmail: boolean;
   onSendEmailChange: (value: boolean) => void;
+  emailTemplate: CertificateEmailTemplate;
+  onEmailTemplateChange: (value: CertificateEmailTemplate) => void;
+  emailSignerName: string;
+  onEmailSignerNameChange: (value: string) => void;
   generating: boolean;
   onPreview: () => void;
   onGenerate: () => void;
@@ -86,6 +91,10 @@ export function BulkGenerateDialog({
   parseErrors,
   sendEmail,
   onSendEmailChange,
+  emailTemplate,
+  onEmailTemplateChange,
+  emailSignerName,
+  onEmailSignerNameChange,
   generating,
   onPreview,
   onGenerate,
@@ -242,6 +251,40 @@ export function BulkGenerateDialog({
               Send certificate emails to all recipients
             </label>
           </div>
+          {sendEmail && (
+            <div className="space-y-3 rounded-md border border-[var(--border-subtle)] p-3">
+              <div>
+                <label htmlFor="bulkEmailTemplate" className="text-xs font-medium text-[var(--ds-text-2)] mb-1.5 block">
+                  Email template
+                </label>
+                <select
+                  id="bulkEmailTemplate"
+                  value={emailTemplate}
+                  onChange={(e) => onEmailTemplateChange(e.target.value as CertificateEmailTemplate)}
+                  className="w-full h-9 rounded-md border border-[var(--border-subtle)] bg-[var(--bg-raised)] px-2.5 text-sm text-[var(--ds-text-1)]"
+                >
+                  <option value="default">Default (code.scriet)</option>
+                  <option value="faculty_distribution">Faculty Certificate Distribution</option>
+                </select>
+              </div>
+              {emailTemplate === 'faculty_distribution' && (
+                <div>
+                  <label htmlFor="bulkEmailSignerName" className="text-xs font-medium text-[var(--ds-text-2)] mb-1.5 block">
+                    Email signer name
+                  </label>
+                  <Input
+                    id="bulkEmailSignerName"
+                    value={emailSignerName}
+                    onChange={(e) => onEmailSignerNameChange(e.target.value)}
+                    placeholder="PRINCE GUPTA"
+                  />
+                  <p className="mt-1 text-[11px] text-[var(--ds-text-3)]">
+                    Signs the appreciation email as “President, Code.SCRIET”. Independent of the certificate signatory.
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
         </div>
         <DialogFooter className="shrink-0 border-t border-[var(--border-subtle)] pt-2">
           <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>

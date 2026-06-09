@@ -7,7 +7,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Award, Plus, Search, Download, Mail, Trash2, Ban, Loader2, ExternalLink, Pencil, FileUp, Users } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
-import { api, type CertType } from '@/lib/api';
+import { api, type CertType, type CertificateEmailTemplate } from '@/lib/api';
 import { Avatar, DSCard, EmptyState, Pill, SegmentedTabs, Section } from '@/components/dash';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -136,6 +136,8 @@ export default function AdminCertificates() {
   const [bulkSignatoryImageUrl, setBulkSignatoryImageUrl] = useState('');
   const [bulkFacultyImageUrl, setBulkFacultyImageUrl] = useState('');
   const [bulkSendEmail, setBulkSendEmail] = useState(false);
+  const [bulkEmailTemplate, setBulkEmailTemplate] = useState<CertificateEmailTemplate>('default');
+  const [bulkEmailSignerName, setBulkEmailSignerName] = useState('PRINCE GUPTA');
   const [bulkDescription, setBulkDescription] = useState('');
   const [bulkDomain, setBulkDomain] = useState('');
   const [bulkCsv, setBulkCsv] = useState('');
@@ -429,6 +431,8 @@ export default function AdminCertificates() {
         domain: bulkDomain || undefined,
         description: bulkDescription || undefined,
         sendEmail: bulkSendEmail,
+        emailTemplate: bulkEmailTemplate,
+        emailSignerName: bulkEmailTemplate === 'faculty_distribution' ? (bulkEmailSignerName.trim() || undefined) : undefined,
       }, token);
       const nextDefaults: SignatoryDefaults = {
         signatoryId: bulkSignatoryId,
@@ -459,7 +463,8 @@ export default function AdminCertificates() {
   }, [
     token, bulkCsv, bulkSignatoryId, bulkSignatory, bulkSignatoryTitle, bulkSignatoryImageUrl,
     bulkFacultySignatoryId, bulkFacultyName, bulkFacultyTitle, bulkFacultyImageUrl,
-    bulkEventName, bulkType, bulkDomain, bulkDescription, bulkSendEmail, parseBulkCsv, qc,
+    bulkEventName, bulkType, bulkDomain, bulkDescription, bulkSendEmail,
+    bulkEmailTemplate, bulkEmailSignerName, parseBulkCsv, qc,
   ]);
 
   // Primary/faculty signatory picker callbacks for the bulk dialog
@@ -710,6 +715,10 @@ export default function AdminCertificates() {
           parseErrors={bulkParseErrors}
           sendEmail={bulkSendEmail}
           onSendEmailChange={setBulkSendEmail}
+          emailTemplate={bulkEmailTemplate}
+          onEmailTemplateChange={setBulkEmailTemplate}
+          emailSignerName={bulkEmailSignerName}
+          onEmailSignerNameChange={setBulkEmailSignerName}
           generating={bulkGenerating}
           onPreview={handleBulkPreview}
           onGenerate={() => void handleBulkGenerate()}
