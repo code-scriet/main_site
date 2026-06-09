@@ -142,6 +142,23 @@ const revokeSchema = z.object({
   reason: z.string().max(500).optional(),
 });
 
+// Edit an already-issued certificate. All fields optional — only provided keys change.
+// Printed fields (name/event/position/domain/description/type) trigger a PDF regenerate;
+// email/template/signer are metadata-only and never regenerate.
+const editCertificateSchema = z.object({
+  recipientName: z.string().min(2).max(100).optional(),
+  recipientEmail: z.string().email().transform(v => v.trim().toLowerCase()).optional(),
+  eventName: z.string().max(200).optional().nullable(),
+  position: z.string().max(100).optional().nullable(),
+  domain: z.string().max(100).optional().nullable(),
+  description: z.string().max(400).optional().nullable(),
+  type: z.enum(certTypes).optional(),
+  emailTemplate: z.enum(['default', 'faculty_distribution']).optional(),
+  emailSignerName: z.string().max(100).optional().nullable(),
+}).refine((value) => Object.keys(value).length > 0, {
+  message: 'No fields provided to update',
+});
+
 const isSchemaDriftError = (error: unknown): error is Prisma.PrismaClientKnownRequestError => (
   error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2022'
 );
@@ -1719,6 +1736,193 @@ certificatesRouter.patch('/:certId/revoke', authMiddleware, requireRole('ADMIN')
 });
 
 // ──────────────────────────────────────────────────────────────────
+// PRIVATE: Admin edit an issued certificate — keeps the same certId.
+// Only re-renders + replaces the PDF (in place) when a PRINTED field changes;
+// email / template / signer edits are metadata-only. On email change the resend
+// cooldown is cleared and the cert is re-linked to the matching user account.
+// PATCH /api/certificates/:certId
+// ──────────────────────────────────────────────────────────────────
+certificatesRouter.patch('/:certId', authMiddleware, requireRole('ADMIN'), async (req: Request, res: Response) => {
+  const authUser = getAuthUser(req)!;
+  const upperCertId = req.params.certId.toUpperCase();
+
+  const validation = editCertificateSchema.safeParse(req.body);
+  if (!validation.success) {
+    return ApiResponse.badRequest(res, validation.error.errors[0].message);
+  }
+  const input = validation.data;
+  const has = (key: keyof typeof input) => Object.prototype.hasOwnProperty.call(input, key);
+  const sanitizeNullable = (value?: string | null): string | null => {
+    if (value === undefined) return null;
+    const cleaned = sanitizeText(value ?? '').trim();
+    return cleaned || null;
+  };
+
+  try {
+    const cert = await prisma.certificate.findUnique({
+      where: { certId: upperCertId },
+      select: {
+        certId: true, recipientId: true, recipientName: true, recipientEmail: true,
+        eventId: true, eventName: true, type: true, position: true, domain: true,
+        description: true, issuedAt: true, isRevoked: true,
+        signatoryName: true, signatoryTitle: true, signatoryImageUrl: true,
+        facultyName: true, facultyTitle: true, facultySignatoryImageUrl: true,
+        emailTemplate: true, emailSignerName: true,
+      },
+    });
+
+    if (!cert) {
+      return ApiResponse.error(res, { code: ErrorCodes.NOT_FOUND, message: 'Certificate not found', status: 404 });
+    }
+    if (cert.isRevoked) {
+      return ApiResponse.badRequest(res, 'Cannot edit a revoked certificate');
+    }
+
+    const data: Prisma.CertificateUncheckedUpdateInput = {};
+    const changed: string[] = [];
+    let regenerate = false;
+    let emailChanged = false;
+
+    // ── Printed fields → diff, and any change forces a PDF regenerate.
+    if (has('recipientName')) {
+      const value = sanitizeText(input.recipientName ?? '').trim();
+      if (!value) return ApiResponse.badRequest(res, 'Recipient name cannot be empty');
+      if (value !== cert.recipientName) { data.recipientName = value; changed.push('recipientName'); regenerate = true; }
+    }
+    if (has('eventName')) {
+      const value = sanitizeText(input.eventName ?? '').trim();
+      if (value !== cert.eventName) { data.eventName = value; changed.push('eventName'); regenerate = true; }
+    }
+    if (has('position')) {
+      const value = sanitizeNullable(input.position);
+      if (value !== cert.position) { data.position = value; changed.push('position'); regenerate = true; }
+    }
+    if (has('domain')) {
+      const value = sanitizeNullable(input.domain);
+      if (value !== cert.domain) { data.domain = value; changed.push('domain'); regenerate = true; }
+    }
+    if (has('description')) {
+      const value = sanitizeNullable(input.description);
+      if (value !== cert.description) { data.description = value; changed.push('description'); regenerate = true; }
+    }
+    if (has('type') && input.type && input.type !== cert.type) {
+      data.type = input.type; changed.push('type'); regenerate = true;
+    }
+
+    // ── Email (metadata-only, no regenerate).
+    if (has('recipientEmail') && input.recipientEmail && input.recipientEmail !== cert.recipientEmail) {
+      data.recipientEmail = input.recipientEmail;
+      changed.push('recipientEmail');
+      emailChanged = true;
+    }
+
+    // ── Email-template / signer (metadata-only, written via schema-drift-safe path).
+    //    Diff against the stored values so an unchanged save is a true no-op.
+    if (has('emailTemplate') && input.emailTemplate && input.emailTemplate !== cert.emailTemplate) {
+      data.emailTemplate = input.emailTemplate;
+      changed.push('emailTemplate');
+    }
+    if (has('emailSignerName')) {
+      const value = sanitizeNullable(input.emailSignerName);
+      if (value !== cert.emailSignerName) {
+        data.emailSignerName = value;
+        changed.push('emailSignerName');
+      }
+    }
+
+    if (changed.length === 0) {
+      return ApiResponse.success(res, { certId: cert.certId, regenerated: false }, 'No changes to apply');
+    }
+
+    // ── Duplicate guard before any write/regen: a new email/type/event must not
+    //    collide with a different certificate for the same recipient+event+type.
+    if (emailChanged || data.type !== undefined || data.eventName !== undefined) {
+      const dupEmail = (data.recipientEmail as string | undefined) ?? cert.recipientEmail;
+      const dupType = (data.type as CertType | undefined) ?? cert.type;
+      const dupEventName = data.eventName !== undefined ? (data.eventName as string) : cert.eventName;
+      const existing = await prisma.certificate.findFirst({
+        where: {
+          certId: { not: cert.certId },
+          recipientEmail: { equals: dupEmail, mode: 'insensitive' },
+          type: dupType,
+          ...buildCertificateEventScope(dupEventName, cert.eventId),
+        },
+        select: { certId: true },
+      });
+      if (existing) {
+        return ApiResponse.badRequest(res, `Another certificate already exists for that recipient, event, and type (ID: ${existing.certId})`);
+      }
+    }
+
+    // ── On email change: clear the resend cooldown + re-link to the new account.
+    if (emailChanged) {
+      data.lastEmailResentAt = null;
+      data.recipientId = await findRecipientIdByEmail(input.recipientEmail as string);
+    }
+
+    // ── Regenerate the PDF from the merged values FIRST, then write the DB once,
+    //    so a render/upload failure leaves the record completely unchanged.
+    if (regenerate) {
+      if (!isCloudinaryConfigured) {
+        return ApiResponse.error(res, { code: ErrorCodes.INTERNAL_ERROR, message: 'Cloudinary is not configured — cannot regenerate certificate', status: 500 });
+      }
+      const merged = {
+        recipientName: (data.recipientName as string | undefined) ?? cert.recipientName,
+        eventName: (data.eventName as string | undefined) ?? cert.eventName,
+        type: (data.type as CertType | undefined) ?? cert.type,
+        position: data.position !== undefined ? (data.position as string | null) : cert.position,
+        domain: data.domain !== undefined ? (data.domain as string | null) : cert.domain,
+        description: data.description !== undefined ? (data.description as string | null) : cert.description,
+      };
+      const pdfBuffer = await generateCertificatePDF({
+        recipientName: sanitizeText(merged.recipientName),
+        eventName: sanitizeText(merged.eventName),
+        type: merged.type,
+        position: merged.position ? sanitizeText(merged.position) : undefined,
+        domain: merged.domain ? sanitizeText(merged.domain) : undefined,
+        description: merged.description ? sanitizeText(merged.description) : undefined,
+        certId: cert.certId,
+        issuedAt: cert.issuedAt,
+        signatoryName: sanitizeText(cert.signatoryName),
+        signatoryTitle: sanitizeText(cert.signatoryTitle),
+        signatoryImageUrl: cert.signatoryImageUrl || undefined,
+        facultyName: cert.facultyName ? sanitizeText(cert.facultyName) : undefined,
+        facultyTitle: cert.facultyTitle ? sanitizeText(cert.facultyTitle) : undefined,
+        facultySignatoryImageUrl: cert.facultySignatoryImageUrl || undefined,
+        codescrietLogoUrl: CODESCRIET_LOGO,
+        ccsuLogoUrl: CCSU_LOGO,
+      });
+      // overwrite:true replaces the same public_id (certificates/<certId>) + invalidates CDN.
+      data.pdfUrl = await uploadCertificate(cert.certId, pdfBuffer, { overwrite: true });
+    }
+
+    // Single write. Legacy fallback omits the email-template columns if the DB predates them.
+    const legacyData: Prisma.CertificateUncheckedUpdateInput = { ...data };
+    delete legacyData.emailTemplate;
+    delete legacyData.emailSignerName;
+    try {
+      await updateCertificateWithSchemaFallback(upperCertId, data, legacyData);
+    } catch (err) {
+      if ((err as { code?: string } | null)?.code === 'P2002') {
+        return ApiResponse.badRequest(res, 'Another certificate already exists for that recipient, event, and type');
+      }
+      throw err;
+    }
+
+    // Note: we deliberately do NOT emit `certificate:issued` here — an edit is not a
+    // new issuance, and re-emitting would push a misleading "new certificate" bell to
+    // the recipient. The corrected data surfaces on their next dashboard load.
+
+    logger.info('Certificate edited', { certId: cert.certId, changed, regenerated: regenerate, editedBy: authUser.id });
+    await auditLog(authUser.id, 'CERTIFICATE_EDIT', 'certificate', cert.certId, { changed, regenerated: regenerate });
+    return ApiResponse.success(res, { certId: cert.certId, regenerated: regenerate }, regenerate ? 'Certificate updated and PDF regenerated' : 'Certificate updated');
+  } catch (error) {
+    logger.error('Failed to edit certificate', { certId: upperCertId, error: error instanceof Error ? error.message : String(error) });
+    return ApiResponse.error(res, { code: ErrorCodes.INTERNAL_ERROR, message: 'Failed to edit certificate', status: 500 });
+  }
+});
+
+// ──────────────────────────────────────────────────────────────────
 // PRIVATE: Admin delete a certificate
 // DELETE /api/certificates/:certId
 // ──────────────────────────────────────────────────────────────────
@@ -1906,6 +2110,8 @@ certificatesRouter.get('/:certId', authMiddleware, requireRole('ADMIN'), async (
           facultyName: true,
           facultyTitle: true,
           facultySignatoryImageUrl: true,
+          emailTemplate: true,
+          emailSignerName: true,
         },
       });
     } catch (error) {

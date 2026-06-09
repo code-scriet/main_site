@@ -14,6 +14,8 @@ import type {
   CertType,
   CertificateBulkGenerateInput,
   CertificateBulkGenerateResponse,
+  CertificateDetail,
+  CertificateUpdateInput,
   CompetitionMissingTeam,
   CompetitionResult,
   CompetitionResultsSummaryResponse,
@@ -60,6 +62,10 @@ export const eventOpsApi = {
     request<{ certId: string }>(`/certificates/${certId}`, { method: 'DELETE', token }),
   resendCertificateEmail: (certId: string, token: string) =>
     request<{ sent: boolean }>(`/certificates/${certId}/resend`, { method: 'POST', token }),
+  getCertificate: (certId: string, token: string) =>
+    request<CertificateDetail>(`/certificates/${certId}`, { token }),
+  updateCertificate: (certId: string, data: CertificateUpdateInput, token: string) =>
+    request<{ certId: string; regenerated: boolean }>(`/certificates/${certId}`, { method: 'PATCH', body: JSON.stringify(data), token }),
 
   // Attendance
   getMyQR: (eventId: string, token: string) =>
