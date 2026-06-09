@@ -91,6 +91,8 @@ function createDefaultForm(defaults: SignatoryDefaults = DEFAULT_SIGNATORY_DEFAU
     facultyTitle: defaults.facultyTitle,
     facultyImageUrl: '',
     sendEmail: false,
+    emailTemplate: 'default',
+    emailSignerName: 'PRINCE GUPTA',
   };
 }
 
@@ -282,6 +284,10 @@ export default function AdminCertificates() {
       setGenerateError("Enter the signatory's name in the Signatory section below");
       return;
     }
+    if (form.emailTemplate === 'faculty_distribution' && !form.eventName.trim()) {
+      setGenerateError('Event name is required for the Faculty Certificate Distribution email');
+      return;
+    }
     setGenerateError('');
     setGenerating(true);
     try {
@@ -303,6 +309,8 @@ export default function AdminCertificates() {
         facultyTitle: form.facultySignatoryId ? undefined : (form.facultyTitle || undefined),
         facultyCustomImageUrl: !form.facultySignatoryId && form.facultyImageUrl ? form.facultyImageUrl : undefined,
         sendEmail: form.sendEmail,
+        emailTemplate: form.emailTemplate,
+        emailSignerName: form.emailTemplate === 'faculty_distribution' ? (form.emailSignerName.trim() || undefined) : undefined,
       }, token);
       const nextDefaults: SignatoryDefaults = {
         signatoryId: form.signatoryId,
@@ -410,6 +418,10 @@ export default function AdminCertificates() {
       toast.error("Enter the signatory's name in the Signatory section");
       return;
     }
+    if (bulkEmailTemplate === 'faculty_distribution' && !bulkEventName.trim()) {
+      toast.error('Event name is required for the Faculty Certificate Distribution email');
+      return;
+    }
     const { recipients, errors } = parseBulkCsv();
     if (errors.length) { toast.error(`CSV errors: ${errors.join('; ')}`); return; }
     if (recipients.length === 0) { toast.error('No valid recipients found'); return; }
@@ -445,6 +457,9 @@ export default function AdminCertificates() {
       saveSignatoryDefaults(nextDefaults);
       toast.success(`Generated ${data.generated} certificates`);
       if (data.failed > 0) toast.warning(`${data.failed} failed`);
+      if (bulkSendEmail && data.emailsFailed) {
+        toast.warning(`${data.emailsFailed} email(s) failed to send — certificates were still generated`);
+      }
       setShowBulk(false);
       setBulkCsv('');
       setBulkEventName('');
@@ -454,6 +469,8 @@ export default function AdminCertificates() {
       setBulkParseErrors([]);
       setBulkSignatoryImageUrl('');
       setBulkFacultyImageUrl('');
+      setBulkEmailTemplate('default');
+      setBulkEmailSignerName('PRINCE GUPTA');
       qc.invalidateQueries({ queryKey: ['admin-certificates'] });
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Bulk generation failed');

@@ -254,14 +254,14 @@ export function BulkGenerateDialog({
           {sendEmail && (
             <div className="space-y-3 rounded-md border border-[var(--border-subtle)] p-3">
               <div>
-                <label htmlFor="bulkEmailTemplate" className="text-xs font-medium text-[var(--ds-text-2)] mb-1.5 block">
+                <label htmlFor="bulkEmailTemplate" className="text-sm font-medium text-[var(--ds-text-2)]">
                   Email template
                 </label>
                 <select
                   id="bulkEmailTemplate"
                   value={emailTemplate}
                   onChange={(e) => onEmailTemplateChange(e.target.value as CertificateEmailTemplate)}
-                  className="w-full h-9 rounded-md border border-[var(--border-subtle)] bg-[var(--bg-raised)] px-2.5 text-sm text-[var(--ds-text-1)]"
+                  className="mt-1 w-full border border-[var(--border-subtle)] rounded-md px-3 py-2 text-sm bg-[var(--bg-raised)] text-[var(--ds-text-1)] focus:outline-none focus:ring-2 focus:ring-amber-400"
                 >
                   <option value="default">Default (code.scriet)</option>
                   <option value="faculty_distribution">Faculty Certificate Distribution</option>
@@ -269,11 +269,12 @@ export function BulkGenerateDialog({
               </div>
               {emailTemplate === 'faculty_distribution' && (
                 <div>
-                  <label htmlFor="bulkEmailSignerName" className="text-xs font-medium text-[var(--ds-text-2)] mb-1.5 block">
+                  <label htmlFor="bulkEmailSignerName" className="text-sm font-medium text-[var(--ds-text-2)]">
                     Email signer name
                   </label>
                   <Input
                     id="bulkEmailSignerName"
+                    className="mt-1"
                     value={emailSignerName}
                     onChange={(e) => onEmailSignerNameChange(e.target.value)}
                     placeholder="PRINCE GUPTA"

@@ -865,7 +865,7 @@ function buildFacultyAppreciationEmailHtml(params: FacultyAppreciationEmailParam
             </p>
 
             <p style="margin:0 0 18px 0;">
-              On behalf of Code.SCRIET, we wish to extend our sincere gratitude for gracing <em>&ldquo;${safeEventName}&rdquo;</em>.
+              On behalf of Code.SCRIET, we wish to extend our sincere gratitude ${safeEventName ? `for gracing <em>&ldquo;${safeEventName}&rdquo;</em>` : 'for your gracious presence and support'}.
             </p>
 ${descriptionHtml ? `\n            ${descriptionHtml}\n` : ''}
             <p style="margin:0 0 18px 0;">

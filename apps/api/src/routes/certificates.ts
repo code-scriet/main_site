@@ -90,6 +90,8 @@ const generateSchema = z.object({
   facultyTitle: z.string().max(100).optional().nullable(),
   facultyCustomImageUrl: z.string().url().optional().nullable(),   // Cloudinary URL for custom faculty
   sendEmail: z.boolean().default(false),
+  emailTemplate: z.enum(['default', 'faculty_distribution']).default('default'),
+  emailSignerName: z.string().max(100).optional().nullable(),
 });
 
 const bulkRecipientSchema = z.object({
@@ -1015,7 +1017,7 @@ certificatesRouter.post('/generate', authMiddleware, requireRole('ADMIN'), async
     eventId, eventName, type, position, domain, teamName, template,
     signatoryId, signatoryName, signatoryTitle, signatoryCustomImageUrl,
     facultySignatoryId, facultyName, facultyTitle, facultyCustomImageUrl,
-    description, sendEmail,
+    description, sendEmail, emailTemplate, emailSignerName,
   } = validation.data;
 
   try {
@@ -1107,6 +1109,8 @@ certificatesRouter.post('/generate', authMiddleware, requireRole('ADMIN'), async
         primarySig,
         facultySig,
         issuedBy: authUser.id,
+        emailTemplate,
+        emailSignerName: emailTemplate === 'faculty_distribution' ? emailSignerName : null,
       });
       certId = issued.certId;
       pdfUrl = issued.pdfUrl;
@@ -1125,7 +1129,19 @@ certificatesRouter.post('/generate', authMiddleware, requireRole('ADMIN'), async
 
     // Optionally send email
     if (sendEmail) {
-      emailService.sendCertificateIssued(recipientEmail, recipientName, safeEventName, certId, downloadUrl)
+      const emailPromise = emailTemplate === 'faculty_distribution'
+        ? emailService.sendCertificateAppreciation({
+            email: recipientEmail,
+            name: recipientName,
+            eventName: safeEventName,
+            certId,
+            downloadUrl,
+            description: safeDescription,
+            signerName: emailSignerName,
+            certType: normalizedCertType,
+          })
+        : emailService.sendCertificateIssued(recipientEmail, recipientName, safeEventName, certId, downloadUrl);
+      emailPromise
         .then(async (sent) => {
           if (sent) {
             try {
@@ -1383,6 +1399,8 @@ certificatesRouter.post('/bulk', authMiddleware, requireRole('ADMIN'), async (re
               primarySig,
               facultySig,
               issuedBy: authUser.id,
+              // Persisted on the cert so the admin "resend" action replays this
+              // template later — even when no email is sent at creation time.
               emailTemplate,
               emailSignerName: emailTemplate === 'faculty_distribution' ? emailSignerName : null,
             });
@@ -1416,7 +1434,7 @@ certificatesRouter.post('/bulk', authMiddleware, requireRole('ADMIN'), async (re
                     eventName: safeEventName,
                     certId,
                     downloadUrl,
-                    description: r.description ?? description,
+                    description: r.resolvedDescription,
                     signerName: emailSignerName,
                     certType: r.type,
                   })
