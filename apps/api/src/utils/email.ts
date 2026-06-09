@@ -747,6 +747,211 @@ import { EmailTemplates } from './emailTemplates.js';
 export { EmailTemplates };
 
 // ============================================
+// Faculty "Note of Appreciation" certificate email
+// ============================================
+
+// Light maroon/gold appreciation layout used when the bulk certificate
+// generator's email template is set to "Faculty Certificate Distribution".
+// All interpolated values are pre-sanitized by the builder below.
+
+const CERTIFICATE_TYPE_LABEL: Record<string, string> = {
+  PARTICIPATION: 'Certificate of Participation',
+  COMPLETION: 'Certificate of Completion',
+  WINNER: 'Certificate of Achievement',
+  SPEAKER: 'Certificate of Appreciation',
+};
+
+function certificateTypeLabel(certType?: string | null): string {
+  const key = (certType || '').toUpperCase();
+  return CERTIFICATE_TYPE_LABEL[key] || 'Certificate of Participation';
+}
+
+// Render a plain-text description (sanitized) into one or more <p> blocks,
+// splitting on blank lines and converting single newlines to <br>.
+function renderAppreciationParagraphs(description?: string | null): string {
+  const safe = sanitizeText(description || '').trim();
+  if (!safe) return '';
+  return safe
+    .split(/\n\s*\n/)
+    .map((block) => block.trim())
+    .filter(Boolean)
+    .map(
+      (block) =>
+        `<p style="margin:0 0 18px 0;">${block.replace(/\n/g, '<br>')}</p>`,
+    )
+    .join('\n');
+}
+
+interface FacultyAppreciationEmailParams {
+  name: string;
+  eventName: string;
+  downloadUrl: string;
+  verifyUrl: string;
+  description?: string | null;
+  signerName?: string | null;
+  certType?: string | null;
+}
+
+function buildFacultyAppreciationEmailHtml(params: FacultyAppreciationEmailParams): string {
+  const safeName = sanitizeText(params.name);
+  const safeEventName = sanitizeText(params.eventName);
+  const signerName = sanitizeText(params.signerName?.trim() || 'PRINCE GUPTA');
+  const certLabel = sanitizeText(certificateTypeLabel(params.certType));
+  const downloadUrl = sanitizeUrl(params.downloadUrl);
+  const verifyUrl = sanitizeUrl(params.verifyUrl);
+  const descriptionHtml = renderAppreciationParagraphs(params.description);
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>A Note of Appreciation from Code.SCRIET</title>
+</head>
+<body style="margin:0; padding:0; background-color:#1a1410; font-family: Georgia, 'Times New Roman', serif;">
+
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#1a1410; padding:40px 16px;">
+  <tr>
+    <td align="center">
+
+      <table role="presentation" width="600" cellpadding="0" cellspacing="0" border="0" style="max-width:600px; width:100%; background-color:#faf6ee; border:1px solid #c4a86a; border-radius:2px;">
+
+        <!-- Logo header -->
+        <tr>
+          <td style="padding:36px 32px 20px 32px; text-align:center; background-color:#faf6ee;">
+            <img src="https://res.cloudinary.com/da5r9juak/image/upload/v1779877672/club-events/uemt8sgxcrbuybqs0cxi.png"
+                 alt="Code.SCRIET"
+                 width="80"
+                 height="80"
+                 style="display:inline-block; border:0; outline:none; text-decoration:none; max-width:80px; height:auto;">
+          </td>
+        </tr>
+
+        <!-- Maroon band -->
+        <tr>
+          <td style="background-color:#7a1f1f; padding:14px 32px; text-align:center;">
+            <p style="margin:0; font-family: Georgia, serif; font-size:11px; letter-spacing:3px; color:#f5e6c4; text-transform:uppercase;">
+              Code.SCRIET &nbsp;&middot;&nbsp; SCRIET, CCSU Meerut
+            </p>
+          </td>
+        </tr>
+
+        <!-- Header -->
+        <tr>
+          <td style="padding:36px 48px 8px 48px; text-align:center;">
+            <p style="margin:0 0 6px 0; font-family: Georgia, serif; font-size:11px; letter-spacing:4px; color:#7a1f1f; text-transform:uppercase;">
+              With Gratitude
+            </p>
+            <h1 style="margin:0; font-family: Georgia, 'Times New Roman', serif; font-size:30px; font-weight:normal; color:#1a1410; line-height:1.2;">
+              A Note of Appreciation
+            </h1>
+
+            <table role="presentation" cellpadding="0" cellspacing="0" border="0" align="center" style="margin:20px auto;">
+              <tr>
+                <td style="border-bottom:1px solid #c4a86a; width:80px; height:1px; font-size:0; line-height:0;">&nbsp;</td>
+                <td style="padding:0 10px; color:#c4a86a; font-size:14px;">&#9670;</td>
+                <td style="border-bottom:1px solid #c4a86a; width:80px; height:1px; font-size:0; line-height:0;">&nbsp;</td>
+              </tr>
+            </table>
+          </td>
+        </tr>
+
+        <!-- Body -->
+        <tr>
+          <td style="padding:8px 56px 32px 56px; font-family: Georgia, serif; color:#2b2218; font-size:16px; line-height:1.7;">
+
+            <p style="margin:0 0 18px 0;">
+              Respected <strong>${safeName}</strong>,
+            </p>
+
+            <p style="margin:0 0 18px 0;">
+              On behalf of Code.SCRIET, we wish to extend our sincere gratitude ${safeEventName ? `for gracing <em>&ldquo;${safeEventName}&rdquo;</em>` : 'for your gracious presence and support'}.
+            </p>
+${descriptionHtml ? `\n            ${descriptionHtml}\n` : ''}
+            <p style="margin:0 0 18px 0;">
+              The presence of esteemed faculty members such as yourself lends weight and credibility to student initiatives, and we are genuinely thankful for the encouragement it offers our community.
+            </p>
+
+            <p style="margin:0 0 8px 0;">
+              As a small token of our appreciation, please find your <strong>${certLabel}</strong> below.
+            </p>
+
+          </td>
+        </tr>
+
+        <!-- Action buttons -->
+        <tr>
+          <td style="padding:8px 56px 32px 56px;" align="center">
+            <table role="presentation" cellpadding="0" cellspacing="0" border="0" align="center">
+              <tr>
+                <td style="padding:6px;">
+                  <table role="presentation" cellpadding="0" cellspacing="0" border="0">
+                    <tr>
+                      <td style="background-color:#7a1f1f; border-radius:2px;" align="center">
+                        <a href="${downloadUrl}"
+                           target="_blank"
+                           style="display:inline-block; padding:14px 28px; font-family: Georgia, serif; font-size:13px; font-weight:bold; letter-spacing:2px; color:#faf6ee; text-decoration:none; text-transform:uppercase; border:1px solid #7a1f1f;">
+                          Download Certificate
+                        </a>
+                      </td>
+                    </tr>
+                  </table>
+                </td>
+
+                <td style="padding:6px;">
+                  <table role="presentation" cellpadding="0" cellspacing="0" border="0">
+                    <tr>
+                      <td style="background-color:#faf6ee; border-radius:2px;" align="center">
+                        <a href="${verifyUrl}"
+                           target="_blank"
+                           style="display:inline-block; padding:13px 27px; font-family: Georgia, serif; font-size:13px; font-weight:bold; letter-spacing:2px; color:#7a1f1f; text-decoration:none; text-transform:uppercase; border:1px solid #7a1f1f;">
+                          Verify Certificate
+                        </a>
+                      </td>
+                    </tr>
+                  </table>
+                </td>
+              </tr>
+            </table>
+          </td>
+        </tr>
+
+        <!-- Signature -->
+        <tr>
+          <td style="padding:0 56px 40px 56px;">
+            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+              <tr>
+                <td style="border-top:1px solid #d8c89a; padding-top:20px; font-family: Georgia, serif; color:#2b2218; font-size:15px; line-height:1.6;">
+                  <p style="margin:0 0 4px 0;">With warm regards,</p>
+                  <p style="margin:14px 0 2px 0; font-weight:bold; color:#7a1f1f; letter-spacing:1px;">${signerName}</p>
+                  <p style="margin:0; font-style:italic; font-size:13px; color:#6b5a3f;">President, Code.SCRIET</p>
+                  <p style="margin:2px 0 0 0; font-style:italic; font-size:13px; color:#6b5a3f;">SCRIET, Chaudhary Charan Singh University, Meerut</p>
+                </td>
+              </tr>
+            </table>
+          </td>
+        </tr>
+
+        <!-- Footer -->
+        <tr>
+          <td style="background-color:#f0e8d4; padding:16px 32px; text-align:center; border-top:1px solid #c4a86a;">
+            <p style="margin:0; font-family: Georgia, serif; font-size:11px; color:#6b5a3f; letter-spacing:2px;">
+              codescriet.dev &nbsp;&middot;&nbsp; Code.SCRIET Coding Community
+            </p>
+          </td>
+        </tr>
+
+      </table>
+
+    </td>
+  </tr>
+</table>
+
+</body>
+</html>`;
+}
+
+// ============================================
 // Brevo Email Service Implementation
 // ============================================
 
@@ -1309,6 +1514,39 @@ class EmailService {
       text: `Hi ${safeName}, your certificate for ${safeEventName} is ready! Certificate ID: ${safeCertId}. Download PDF: ${downloadUrl}. Verify at: ${verifyUrl}`,
     };
     return this.send({ to: email, ...template, category: 'certificate' });
+  }
+
+  // Faculty "Note of Appreciation" variant of the certificate email — selected via
+  // the bulk generator's "Faculty Certificate Distribution" email template.
+  async sendCertificateAppreciation(params: {
+    email: string;
+    name: string;
+    eventName: string;
+    certId: string;
+    downloadUrl: string;
+    description?: string | null;
+    signerName?: string | null;
+    certType?: string | null;
+  }): Promise<boolean> {
+    const safeName = sanitizeText(params.name);
+    const safeEventName = sanitizeText(params.eventName);
+    const verifyUrl = `${SITE_URL}/verify/${params.certId}`;
+    const html = buildFacultyAppreciationEmailHtml({
+      name: params.name,
+      eventName: params.eventName,
+      downloadUrl: params.downloadUrl,
+      verifyUrl,
+      description: params.description,
+      signerName: params.signerName,
+      certType: params.certType,
+    });
+    return this.send({
+      to: params.email,
+      subject: `A Note of Appreciation${safeEventName ? ` — ${safeEventName}` : ''}`,
+      html,
+      text: `Respected ${safeName}, on behalf of Code.SCRIET, thank you for gracing ${safeEventName}. Please find your certificate — Download: ${params.downloadUrl} · Verify: ${verifyUrl}`,
+      category: 'certificate',
+    });
   }
 
   async sendPasswordReset(

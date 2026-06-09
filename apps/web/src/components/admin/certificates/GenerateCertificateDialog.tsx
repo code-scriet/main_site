@@ -12,6 +12,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { InlineMarkdown } from '@/components/ui/inline-markdown';
 import { CERT_TYPES, type CertType } from '@/components/admin/certificates/CertTypeBadge';
 import { SignatoryPicker, type ActiveSignatory } from '@/components/admin/certificates/SignatoryPicker';
+import type { CertificateEmailTemplate } from '@/lib/api';
 
 export interface GenerateFormData {
   recipientName: string;
@@ -31,6 +32,8 @@ export interface GenerateFormData {
   facultyTitle: string;
   facultyImageUrl: string;
   sendEmail: boolean;
+  emailTemplate: CertificateEmailTemplate;
+  emailSignerName: string;
 }
 
 interface GenerateCertificateDialogProps {
@@ -234,6 +237,41 @@ export function GenerateCertificateDialog({
               />
               <label htmlFor="sendEmail" className="text-sm text-[var(--ds-text-2)]">Send certificate via email</label>
             </div>
+            {form.sendEmail && (
+              <div className="col-span-full space-y-3 rounded-md border border-[var(--border-subtle)] p-3">
+                <div>
+                  <label htmlFor="admin-certificates-email-template" className="text-sm font-medium text-[var(--ds-text-2)]">
+                    Email template
+                  </label>
+                  <select
+                    id="admin-certificates-email-template"
+                    className="mt-1 w-full border border-[var(--border-subtle)] rounded-md px-3 py-2 text-sm bg-[var(--bg-raised)] text-[var(--ds-text-1)] focus:outline-none focus:ring-2 focus:ring-amber-400"
+                    value={form.emailTemplate}
+                    onChange={e => onFormChange(f => ({ ...f, emailTemplate: e.target.value as CertificateEmailTemplate }))}
+                  >
+                    <option value="default">Default (code.scriet)</option>
+                    <option value="faculty_distribution">Faculty Certificate Distribution</option>
+                  </select>
+                </div>
+                {form.emailTemplate === 'faculty_distribution' && (
+                  <div>
+                    <label htmlFor="admin-certificates-email-signer" className="text-sm font-medium text-[var(--ds-text-2)]">
+                      Email signer name
+                    </label>
+                    <Input
+                      id="admin-certificates-email-signer"
+                      className="mt-1"
+                      value={form.emailSignerName}
+                      onChange={e => onFormChange(f => ({ ...f, emailSignerName: e.target.value }))}
+                      placeholder="PRINCE GUPTA"
+                    />
+                    <p className="mt-1 text-[11px] text-[var(--ds-text-3)]">
+                      Signs the appreciation email as “President, Code.SCRIET”. Independent of the certificate signatory.
+                    </p>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </div>
         <DialogFooter className="shrink-0 border-t border-[var(--border-subtle)] pt-2">

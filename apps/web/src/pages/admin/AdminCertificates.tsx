@@ -7,7 +7,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Award, Plus, Search, Download, Mail, Trash2, Ban, Loader2, ExternalLink, Pencil, FileUp, Users } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
-import { api, type CertType } from '@/lib/api';
+import { api, type CertType, type CertificateEmailTemplate } from '@/lib/api';
 import { Avatar, DSCard, EmptyState, Pill, SegmentedTabs, Section } from '@/components/dash';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -91,6 +91,8 @@ function createDefaultForm(defaults: SignatoryDefaults = DEFAULT_SIGNATORY_DEFAU
     facultyTitle: defaults.facultyTitle,
     facultyImageUrl: '',
     sendEmail: false,
+    emailTemplate: 'default',
+    emailSignerName: 'PRINCE GUPTA',
   };
 }
 
@@ -136,6 +138,8 @@ export default function AdminCertificates() {
   const [bulkSignatoryImageUrl, setBulkSignatoryImageUrl] = useState('');
   const [bulkFacultyImageUrl, setBulkFacultyImageUrl] = useState('');
   const [bulkSendEmail, setBulkSendEmail] = useState(false);
+  const [bulkEmailTemplate, setBulkEmailTemplate] = useState<CertificateEmailTemplate>('default');
+  const [bulkEmailSignerName, setBulkEmailSignerName] = useState('PRINCE GUPTA');
   const [bulkDescription, setBulkDescription] = useState('');
   const [bulkDomain, setBulkDomain] = useState('');
   const [bulkCsv, setBulkCsv] = useState('');
@@ -280,6 +284,10 @@ export default function AdminCertificates() {
       setGenerateError("Enter the signatory's name in the Signatory section below");
       return;
     }
+    if (form.emailTemplate === 'faculty_distribution' && !form.eventName.trim()) {
+      setGenerateError('Event name is required for the Faculty Certificate Distribution email');
+      return;
+    }
     setGenerateError('');
     setGenerating(true);
     try {
@@ -301,6 +309,8 @@ export default function AdminCertificates() {
         facultyTitle: form.facultySignatoryId ? undefined : (form.facultyTitle || undefined),
         facultyCustomImageUrl: !form.facultySignatoryId && form.facultyImageUrl ? form.facultyImageUrl : undefined,
         sendEmail: form.sendEmail,
+        emailTemplate: form.emailTemplate,
+        emailSignerName: form.emailTemplate === 'faculty_distribution' ? (form.emailSignerName.trim() || undefined) : undefined,
       }, token);
       const nextDefaults: SignatoryDefaults = {
         signatoryId: form.signatoryId,
@@ -408,6 +418,10 @@ export default function AdminCertificates() {
       toast.error("Enter the signatory's name in the Signatory section");
       return;
     }
+    if (bulkEmailTemplate === 'faculty_distribution' && !bulkEventName.trim()) {
+      toast.error('Event name is required for the Faculty Certificate Distribution email');
+      return;
+    }
     const { recipients, errors } = parseBulkCsv();
     if (errors.length) { toast.error(`CSV errors: ${errors.join('; ')}`); return; }
     if (recipients.length === 0) { toast.error('No valid recipients found'); return; }
@@ -429,6 +443,8 @@ export default function AdminCertificates() {
         domain: bulkDomain || undefined,
         description: bulkDescription || undefined,
         sendEmail: bulkSendEmail,
+        emailTemplate: bulkEmailTemplate,
+        emailSignerName: bulkEmailTemplate === 'faculty_distribution' ? (bulkEmailSignerName.trim() || undefined) : undefined,
       }, token);
       const nextDefaults: SignatoryDefaults = {
         signatoryId: bulkSignatoryId,
@@ -441,6 +457,9 @@ export default function AdminCertificates() {
       saveSignatoryDefaults(nextDefaults);
       toast.success(`Generated ${data.generated} certificates`);
       if (data.failed > 0) toast.warning(`${data.failed} failed`);
+      if (bulkSendEmail && data.emailsFailed) {
+        toast.warning(`${data.emailsFailed} email(s) failed to send — certificates were still generated`);
+      }
       setShowBulk(false);
       setBulkCsv('');
       setBulkEventName('');
@@ -450,6 +469,8 @@ export default function AdminCertificates() {
       setBulkParseErrors([]);
       setBulkSignatoryImageUrl('');
       setBulkFacultyImageUrl('');
+      setBulkEmailTemplate('default');
+      setBulkEmailSignerName('PRINCE GUPTA');
       qc.invalidateQueries({ queryKey: ['admin-certificates'] });
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Bulk generation failed');
@@ -459,7 +480,8 @@ export default function AdminCertificates() {
   }, [
     token, bulkCsv, bulkSignatoryId, bulkSignatory, bulkSignatoryTitle, bulkSignatoryImageUrl,
     bulkFacultySignatoryId, bulkFacultyName, bulkFacultyTitle, bulkFacultyImageUrl,
-    bulkEventName, bulkType, bulkDomain, bulkDescription, bulkSendEmail, parseBulkCsv, qc,
+    bulkEventName, bulkType, bulkDomain, bulkDescription, bulkSendEmail,
+    bulkEmailTemplate, bulkEmailSignerName, parseBulkCsv, qc,
   ]);
 
   // Primary/faculty signatory picker callbacks for the bulk dialog
@@ -710,6 +732,10 @@ export default function AdminCertificates() {
           parseErrors={bulkParseErrors}
           sendEmail={bulkSendEmail}
           onSendEmailChange={setBulkSendEmail}
+          emailTemplate={bulkEmailTemplate}
+          onEmailTemplateChange={setBulkEmailTemplate}
+          emailSignerName={bulkEmailSignerName}
+          onEmailSignerNameChange={setBulkEmailSignerName}
           generating={bulkGenerating}
           onPreview={handleBulkPreview}
           onGenerate={() => void handleBulkGenerate()}

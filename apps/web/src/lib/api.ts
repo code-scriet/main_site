@@ -1140,7 +1140,11 @@ export interface CertificateBulkGenerateInput {
   generationStrategy?: CompetitionGenerationStrategy | null;
   selectedRoundIds?: string[];
   sendEmail?: boolean;
+  emailTemplate?: CertificateEmailTemplate;
+  emailSignerName?: string | null;
 }
+
+export type CertificateEmailTemplate = 'default' | 'faculty_distribution';
 
 export interface CertificateBulkGenerateResponse {
   generated: number;
