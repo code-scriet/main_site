@@ -145,7 +145,9 @@ export function Toolbar({ problemMode = false, onExitProblem, onOpenPractice }: 
   useKeyboardShortcuts({
     onRun: () => { if (!isRunning) void handleRunCode(); },
     onSave: handleSaveSnippet,
-    onReset: handleReset,
+    // In problem/solver mode the free-playground editor is unmounted and the
+    // QOTD solver owns Ctrl/Cmd+Shift+R — don't let this fire a stray reset too.
+    onReset: problemMode ? undefined : handleReset,
     onCopy: handleCopyCode,
     onToggleTheme: toggleTheme,
   });

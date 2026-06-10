@@ -19,8 +19,6 @@ interface EditorHistoryControlsProps {
    * either way — only the chrome differs so each surface stays consistent.
    */
   variant?: 'ghost' | 'bordered';
-  /** Hide the text labels (used in the icon-only QOTD header). */
-  iconOnly?: boolean;
 }
 
 /**
@@ -36,7 +34,6 @@ export function EditorHistoryControls({
   onRedo,
   onReset,
   variant = 'ghost',
-  iconOnly = false,
 }: EditorHistoryControlsProps) {
   const items = [
     {
@@ -102,7 +99,7 @@ export function EditorHistoryControls({
           )}
         >
           <item.icon className="h-3.5 w-3.5" />
-          {!iconOnly && <span className="hidden lg:ml-1.5 lg:inline">{item.label}</span>}
+          <span className="hidden lg:ml-1.5 lg:inline">{item.label}</span>
         </Button>
       ))}
     </>

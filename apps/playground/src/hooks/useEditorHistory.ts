@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useRef, useState } from 'react';
+import { createContext, useCallback, useContext, useMemo, useRef, useState } from 'react';
 import type { editor } from 'monaco-editor';
 
 /**
@@ -90,7 +90,13 @@ export function useEditorHistory(): EditorHistory {
     [refresh],
   );
 
-  return { handleMount, canUndo, canRedo, undo, redo, reset };
+  // Stable identity (the callbacks are already memoized) so context consumers
+  // don't re-render — and dependents like QOTD's reset shortcut don't re-subscribe
+  // — on every parent render. Only the canUndo/canRedo state flips the reference.
+  return useMemo(
+    () => ({ handleMount, canUndo, canRedo, undo, redo, reset }),
+    [handleMount, canUndo, canRedo, undo, redo, reset],
+  );
 }
 
 /**

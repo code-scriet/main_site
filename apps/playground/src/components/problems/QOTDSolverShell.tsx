@@ -421,10 +421,14 @@ export function QOTDSolverShell({ problem, context, onExit }: QOTDSolverShellPro
 
   useEffect(() => {
     const handle = window.setTimeout(() => {
+      // Don't persist an untouched starter as a "draft": a non-empty starter in
+      // localStorage would later be treated as in-progress work and mask the
+      // user's server submission on another device. Only real edits are saved.
+      if (code === LANGUAGE_META[language].starter) return;
       safeLocalSet(currentDraftKey, code.slice(0, 100_000));
     }, 500);
     return () => window.clearTimeout(handle);
-  }, [code, currentDraftKey]);
+  }, [code, currentDraftKey, language]);
 
   const runMutation = useMutation({
     mutationFn: () => mainApi.runProblem(problem.id, {
@@ -760,7 +764,9 @@ export function QOTDSolverShell({ problem, context, onExit }: QOTDSolverShellPro
               <select
                 value={language}
                 onChange={(event) => {
-                  safeLocalSet(currentDraftKey, code.slice(0, 100_000));
+                  // Persist the outgoing draft, but not an untouched starter (see
+                  // the auto-save effect) so it can't mask a server submission.
+                  if (code !== meta.starter) safeLocalSet(currentDraftKey, code.slice(0, 100_000));
                   loadedKeyRef.current = '';
                   setLanguage(event.target.value as ProblemLanguage);
                 }}
