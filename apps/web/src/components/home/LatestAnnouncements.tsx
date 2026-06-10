@@ -9,25 +9,25 @@ import { useHomePageData } from '@/hooks/useHomePageData';
 
 const priorityConfig = {
   LOW: { 
-    bg: 'bg-gray-50 border-gray-200 dark:bg-[#181614] dark:border-[rgba(244,241,234,0.08)]', 
-    badge: 'bg-gray-100 text-gray-700 dark:bg-[rgba(244,241,234,0.08)] dark:text-zinc-300',
+    bg: 'bg-gray-50 border-gray-200 dark:bg-[var(--pub-paper)] dark:border-[var(--pub-line)]', 
+    badge: 'bg-gray-100 text-gray-700 dark:bg-[var(--pub-line)] dark:text-zinc-300',
     icon: Info,
     iconColor: 'text-gray-500'
   },
   MEDIUM: { 
-    bg: 'bg-blue-50 border-blue-200 dark:bg-[#181614] dark:border-[rgba(244,241,234,0.08)]', 
+    bg: 'bg-blue-50 border-blue-200 dark:bg-[var(--pub-paper)] dark:border-[var(--pub-line)]', 
     badge: 'bg-blue-100 text-blue-700 dark:bg-blue-500/15 dark:text-blue-300',
     icon: CheckCircle,
     iconColor: 'text-blue-500'
   },
   HIGH: { 
-    bg: 'bg-orange-50 border-orange-200 dark:bg-[#181614] dark:border-[rgba(232,74,46,0.2)]', 
+    bg: 'bg-orange-50 border-orange-200 dark:bg-[var(--pub-paper)] dark:border-[rgba(232,74,46,0.2)]', 
     badge: 'bg-orange-100 text-orange-700 dark:bg-[rgba(232,74,46,0.12)] dark:text-orange-300',
     icon: Bell,
     iconColor: 'text-orange-500'
   },
   URGENT: { 
-    bg: 'bg-red-50 border-red-200 dark:bg-[#181614] dark:border-[rgba(232,74,46,0.3)]', 
+    bg: 'bg-red-50 border-red-200 dark:bg-[var(--pub-paper)] dark:border-[rgba(232,74,46,0.3)]', 
     badge: 'bg-red-100 text-red-700 dark:bg-[rgba(232,74,46,0.15)] dark:text-red-300',
     icon: AlertTriangle,
     iconColor: 'text-red-500'
@@ -58,7 +58,7 @@ export function LatestAnnouncements() {
   return (
     <section className="py-16 sm:py-24 bg-white dark:bg-[#111110] relative overflow-hidden">
       {/* Background Decoration */}
-      <div className="absolute top-0 right-0 w-96 h-96 bg-amber-50 rounded-full blur-3xl translate-x-1/2 -translate-y-1/2 opacity-50" />
+      <div className="absolute top-0 right-0 w-96 h-96 bg-amber-50 dark:bg-amber-500/10 rounded-full blur-3xl translate-x-1/2 -translate-y-1/2 opacity-50" />
       
       <div className="container mx-auto px-4 relative">
         {/* Section Header */}
@@ -118,12 +118,12 @@ export function LatestAnnouncements() {
                   
                     {/* Footer */}
                     <div className="flex items-center justify-between pt-4 border-t border-gray-200/50 dark:border-[rgba(244,241,234,0.07)]">
-                      <div className="flex items-center gap-1 text-xs text-gray-500 dark:text-zinc-500">
+                      <div className="flex items-center gap-1 text-xs text-gray-500 dark:text-zinc-400">
                         <Calendar className="h-3 w-3" />
                         {formatDate(announcement.createdAt)}
                       </div>
                       {announcement.creator && (
-                        <p className="text-xs text-gray-500 dark:text-zinc-500">
+                        <p className="text-xs text-gray-500 dark:text-zinc-400">
                           by <span className="font-medium text-gray-700 dark:text-zinc-300">{announcement.creator.name}</span>
                         </p>
                       )}

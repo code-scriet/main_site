@@ -54,7 +54,7 @@ export function AboutPreview() {
   const staggerDelay = shouldReduceMotion ? 0.05 : 0.1;
 
   return (
-    <section className="relative overflow-hidden bg-gradient-to-b from-white via-amber-50/30 to-white py-20 sm:py-28 dark:from-[#0A0908] dark:via-[#111110] dark:to-[#0A0908]">
+    <section className="relative overflow-hidden bg-gradient-to-b from-white via-amber-50/30 to-white py-20 sm:py-28 dark:from-[var(--pub-canvas)] dark:via-[#111110] dark:to-[var(--pub-canvas)]">
       {/* Adaptive dot grid — uses pub-line-2 token: dark dots on light, light dots on dark */}
       <div
         className="absolute inset-0 pointer-events-none"
@@ -112,7 +112,7 @@ export function AboutPreview() {
               whileHover={!isMobile ? { y: -6, transition: { duration: 0.25 } } : undefined}
               className="group relative"
             >
-              <div className="relative h-full overflow-hidden rounded-2xl border border-gray-100/80 bg-white p-6 shadow-sm transition-all duration-400 hover:border-gray-200/80 hover:shadow-xl dark:border-[rgba(244,241,234,0.08)] dark:bg-[#181614] dark:hover:border-[rgba(244,241,234,0.14)] dark:hover:shadow-black/30 sm:p-7">
+              <div className="relative h-full overflow-hidden rounded-2xl border border-gray-100/80 bg-white p-6 shadow-sm transition-all duration-400 hover:border-gray-200/80 hover:shadow-xl dark:border-[var(--pub-line)] dark:bg-[var(--pub-paper)] dark:hover:border-[var(--pub-line-2)] dark:hover:shadow-black/30 sm:p-7">
                 {/* Accent line at top */}
                 <div
                   className="absolute top-0 left-0 right-0 h-[3px] opacity-0 group-hover:opacity-100 transition-opacity duration-300"

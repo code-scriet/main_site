@@ -19,9 +19,9 @@ export function AchievementsShowcase() {
   const staggerDelay = shouldReduceMotion ? 0.05 : 0.1;
 
   return (
-    <section className="py-16 sm:py-24 relative overflow-hidden dark:bg-[#0A0908]">
+    <section className="py-16 sm:py-24 relative overflow-hidden dark:bg-[var(--pub-canvas)]">
       {/* Background */}
-      <div className="absolute inset-0 bg-gradient-to-br from-amber-50 via-orange-50 to-amber-100 dark:from-[#0A0908] dark:via-[#111110] dark:to-[#0A0908]" />
+      <div className="absolute inset-0 bg-gradient-to-br from-amber-50 via-orange-50 to-amber-100 dark:from-[var(--pub-canvas)] dark:via-[#111110] dark:to-[var(--pub-canvas)]" />
       
       {/* Decorative Elements */}
       <div className="absolute top-20 left-10 w-64 h-64 bg-amber-200/50 rounded-full blur-3xl dark:bg-[#C4321A]/6" />
@@ -86,7 +86,7 @@ export function AchievementsShowcase() {
                 className="group h-full"
               >
                 <Link to={`/achievements/${achievement.slug || achievement.id}`} className="block h-full">
-                <div className="h-full bg-white dark:bg-[#181614] rounded-3xl shadow-lg overflow-hidden border border-amber-100/50 dark:border-[rgba(244,241,234,0.07)] hover:shadow-2xl hover:border-amber-200 dark:hover:border-[rgba(244,241,234,0.14)] transition-all duration-500">
+                <div className="h-full bg-white dark:bg-[var(--pub-paper)] rounded-3xl shadow-lg overflow-hidden border border-amber-100/50 dark:border-[rgba(244,241,234,0.07)] hover:shadow-2xl hover:border-amber-200 dark:hover:border-[var(--pub-line-2)] transition-all duration-500">
                   {/* Image with premium overlay */}
                   <div className="relative h-48 overflow-hidden">
                     {achievement.imageUrl ? (
@@ -181,7 +181,7 @@ export function AchievementsShowcase() {
                           <p className="text-sm font-semibold text-gray-900 dark:text-zinc-100 line-clamp-1">
                             {achievement.achievedBy}
                           </p>
-                          <div className="flex items-center gap-1 text-gray-500 dark:text-zinc-500">
+                          <div className="flex items-center gap-1 text-gray-500 dark:text-zinc-400">
                             <Calendar className="h-3 w-3" />
                             <span className="text-xs">{formatDate(achievement.date)}</span>
                           </div>
@@ -192,9 +192,9 @@ export function AchievementsShowcase() {
                     
                     {/* Premium CTA */}
                     <div className="flex items-center justify-between pt-4 border-t border-amber-100/50 dark:border-[rgba(244,241,234,0.07)]">
-                      <span className="text-sm font-semibold text-amber-600 dark:text-[#E84A2E] group-hover:text-amber-700 dark:group-hover:text-[#F26C50]">View Details</span>
-                      <div className="flex items-center justify-center w-7 h-7 rounded-full bg-amber-100 dark:bg-[rgba(232,74,46,0.1)] group-hover:bg-amber-500 dark:group-hover:bg-[#E84A2E] transition-all duration-300">
-                        <ChevronRight className="h-4 w-4 text-amber-600 dark:text-[#E84A2E] group-hover:text-white group-hover:translate-x-0.5 transition-all" />
+                      <span className="text-sm font-semibold text-amber-600 dark:text-[var(--pub-ember)] group-hover:text-amber-700 dark:group-hover:text-[var(--pub-ember-hover)]">View Details</span>
+                      <div className="flex items-center justify-center w-7 h-7 rounded-full bg-amber-100 dark:bg-[var(--pub-ember-soft)] group-hover:bg-amber-500 dark:group-hover:bg-[var(--pub-ember)] transition-all duration-300">
+                        <ChevronRight className="h-4 w-4 text-amber-600 dark:text-[var(--pub-ember)] group-hover:text-white group-hover:translate-x-0.5 transition-all" />
                       </div>
                     </div>
                   </div>

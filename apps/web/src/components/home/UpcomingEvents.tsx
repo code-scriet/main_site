@@ -80,7 +80,7 @@ export function UpcomingEvents() {
   const staggerDelay = shouldReduceMotion ? 0.05 : 0.15;
 
   return (
-    <section className="relative overflow-hidden bg-gradient-to-b from-amber-50/50 to-white py-24 dark:from-[#0A0908] dark:to-[#111110]">
+    <section className="relative overflow-hidden bg-gradient-to-b from-amber-50/50 to-white py-24 dark:from-[var(--pub-canvas)] dark:to-[#111110]">
       {/* Background Decoration */}
       <div className="absolute top-1/2 left-0 h-64 w-64 -translate-x-1/2 -translate-y-1/2 rounded-full bg-amber-100 opacity-50 blur-3xl dark:bg-rose-500/12" />
       
