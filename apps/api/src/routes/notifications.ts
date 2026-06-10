@@ -14,6 +14,7 @@ import { ApiResponse } from '../utils/response.js';
 import { logger } from '../utils/logger.js';
 import { sanitizeUrl } from '../utils/sanitize.js';
 import { auditLog } from '../utils/audit.js';
+import { requireUuid } from '../utils/idParams.js';
 import { broadcastNotification } from '../utils/notifications.js';
 
 export const notificationsRouter = Router();
@@ -373,6 +374,9 @@ notificationsRouter.get('/admin/broadcasts', authMiddleware, requireRole('ADMIN'
 notificationsRouter.delete('/admin/broadcasts/:id', authMiddleware, requireRole('ADMIN'), async (req: Request, res: Response) => {
   const auth = getAuthUser(req)!;
   try {
+    if (!requireUuid(res, req.params.id, 'notification ID')) {
+      return;
+    }
     await prisma.notificationFeed.delete({ where: { id: req.params.id } });
     await auditLog(auth.id, 'NOTIFICATION_DELETE', 'notification', req.params.id);
     return ApiResponse.success(res, { id: req.params.id });

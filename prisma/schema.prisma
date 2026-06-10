@@ -671,6 +671,9 @@ model AuditLog {
   @@index([userId, timestamp])
   @@index([entity, timestamp(sort: Desc)], map: "audit_logs_entity_timestamp_desc_idx")
   @@index([action, timestamp(sort: Desc)], map: "audit_logs_action_timestamp_desc_idx")
+  // Serves the default unfiltered admin browse (ORDER BY timestamp DESC LIMIT n)
+  // and future retention pruning — the composite indexes above can't.
+  @@index([timestamp(sort: Desc)], map: "audit_logs_timestamp_desc_idx")
   @@map("audit_logs")
 }
 

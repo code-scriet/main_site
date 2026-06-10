@@ -301,7 +301,7 @@ const limiter = rateLimit({
 });
 app.use('/api', limiter);
 
-// More lenient rate limiting for auth endpoints
+// Stricter rate limiting for auth endpoints (50 vs the general 500 per window)
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
   max: 50, // 50 auth attempts per 15 minutes

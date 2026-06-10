@@ -7,6 +7,7 @@ import { auditLog } from '../utils/audit.js';
 import { createEventRegistrationInTx } from '../utils/registrationIntake.js';
 import { emailService } from '../utils/email.js';
 import { logger } from '../utils/logger.js';
+import { requireUuid } from '../utils/idParams.js';
 import { sanitizeEventRegistrationFields, validateRegistrationFieldSubmissions } from '../utils/eventRegistrationFields.js';
 import { participantsOnly } from '../utils/registrationFilters.js';
 import { getRegistrationStatus } from '../utils/registrationStatus.js';
@@ -37,6 +38,9 @@ registrationsRouter.post('/events/:eventId', authMiddleware, requireNotBlocked('
   try {
     const authUser = getAuthUser(req)!;
     const { eventId } = req.params;
+    if (!requireUuid(res, eventId, 'event ID')) {
+      return;
+    }
     const { additionalFields } = req.body ?? {};
 
     // --- TEAM REGISTRATION GATE ---
@@ -284,6 +288,9 @@ registrationsRouter.delete('/events/:eventId', authMiddleware, async (req: Reque
   try {
     const authUser = getAuthUser(req)!;
     const { eventId } = req.params;
+    if (!requireUuid(res, eventId, 'event ID')) {
+      return;
+    }
 
     const eventTitle = await prisma.$transaction(async (tx) => {
       const registration = await tx.eventRegistration.findUnique({
@@ -410,6 +417,9 @@ registrationsRouter.get('/events/:eventId/status', authMiddleware, async (req: R
   try {
     const authUser = getAuthUser(req)!;
     const { eventId } = req.params;
+    if (!requireUuid(res, eventId, 'event ID')) {
+      return;
+    }
 
     const registration = await prisma.eventRegistration.findUnique({
       where: { userId_eventId: { userId: authUser.id, eventId } },

@@ -7,6 +7,7 @@ import { ApiResponse, ErrorCodes } from '../utils/response.js';
 import { logger } from '../utils/logger.js';
 import { sanitizeText } from '../utils/sanitize.js';
 import { cloudinary, isCloudinaryConfigured } from '../config/cloudinary.js';
+import { requireCuid } from '../utils/idParams.js';
 
 export const signatoriesRouter = Router();
 
@@ -150,6 +151,9 @@ signatoriesRouter.post('/', authMiddleware, requireRole('ADMIN'), async (req: Re
 // ── PATCH /api/signatories/:id — update ──────────────────────────────────────
 signatoriesRouter.patch('/:id', authMiddleware, requireRole('ADMIN'), async (req: Request, res: Response) => {
   const { id } = req.params;
+  if (!requireCuid(res, id, 'signatory ID')) {
+    return;
+  }
 
   const validation = updateSchema.safeParse(req.body);
   if (!validation.success) {
@@ -209,6 +213,9 @@ signatoriesRouter.patch('/:id', authMiddleware, requireRole('ADMIN'), async (req
 // ── DELETE /api/signatories/:id — delete ─────────────────────────────────────
 signatoriesRouter.delete('/:id', authMiddleware, requireRole('ADMIN'), async (req: Request, res: Response) => {
   const { id } = req.params;
+  if (!requireCuid(res, id, 'signatory ID')) {
+    return;
+  }
 
   try {
     const existing = await prisma.signatory.findUnique({

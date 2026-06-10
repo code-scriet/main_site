@@ -10,6 +10,7 @@ import { logger } from '../utils/logger.js';
 import { parsePaginationNumber } from '../utils/pagination.js';
 import { ApiResponse } from '../utils/response.js';
 import { generateSlug, generateUniqueSlug } from '../utils/slug.js';
+import { requireUuid } from '../utils/idParams.js';
 import { sanitizeText } from '../utils/sanitize.js';
 
 export const pollsRouter = Router();
@@ -542,6 +543,9 @@ pollsRouter.get('/admin/public-view', authMiddleware, requireRole('ADMIN'), asyn
 
 pollsRouter.get('/admin/public-view/:id', authMiddleware, requireRole('ADMIN'), async (req: Request, res: Response) => {
   try {
+    if (!requireUuid(res, req.params.id, 'poll ID')) {
+      return;
+    }
     const poll = await withRetry(() =>
       prisma.poll.findUnique({
         where: { id: req.params.id },
@@ -630,6 +634,9 @@ pollsRouter.post('/', authMiddleware, requireRole('ADMIN'), async (req: Request,
 
 pollsRouter.put('/:id', authMiddleware, requireRole('ADMIN'), async (req: Request, res: Response) => {
   try {
+    if (!requireUuid(res, req.params.id, 'poll ID')) {
+      return;
+    }
     const authUser = getAuthUser(req)!;
     const parsed = updatePollSchema.safeParse(req.body);
 
@@ -737,6 +744,9 @@ pollsRouter.put('/:id', authMiddleware, requireRole('ADMIN'), async (req: Reques
 
 pollsRouter.delete('/:id', authMiddleware, requireRole('ADMIN'), async (req: Request, res: Response) => {
   try {
+    if (!requireUuid(res, req.params.id, 'poll ID')) {
+      return;
+    }
     const authUser = getAuthUser(req)!;
     const existing = await withRetry(() =>
       prisma.poll.findUnique({
@@ -764,6 +774,9 @@ pollsRouter.delete('/:id', authMiddleware, requireRole('ADMIN'), async (req: Req
 
 pollsRouter.get('/:id/admin/export.xlsx', authMiddleware, requireRole('ADMIN'), async (req: Request, res: Response) => {
   try {
+    if (!requireUuid(res, req.params.id, 'poll ID')) {
+      return;
+    }
     const poll = await withRetry(() =>
       prisma.poll.findUnique({
         where: { id: req.params.id },

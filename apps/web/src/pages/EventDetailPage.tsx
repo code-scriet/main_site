@@ -269,6 +269,10 @@ function SpeakerCard({ speaker }: { speaker: Speaker }) {
         <img
           src={processImageUrl(speaker.image, 'square')}
           alt={speaker.name}
+          width={48}
+          height={48}
+          loading="lazy"
+          decoding="async"
           className="w-12 h-12 rounded-full object-cover shrink-0"
         />
       ) : (

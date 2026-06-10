@@ -24,6 +24,17 @@ import { getCachedSettings } from '../utils/settingsCache.js';
 const FRONTEND_URL = (process.env.FRONTEND_URL || 'https://codescriet.dev').replace(/\/+$/, '');
 const RESEND_COOLDOWN_MS = 10 * 60 * 1000; // 10 minutes
 
+// Matches generateCertId output (XXXX-XXXX-XXXX) while tolerating legacy IDs —
+// same loose pattern as the public PDF-download route. Early-rejects garbage
+// before it reaches Prisma lookups or audit-log metadata.
+const CERT_ID_PARAM_PATTERN = /^[A-Z0-9-]{10,20}$/i;
+
+const requireValidCertIdParam = (res: Response, certId: string): boolean => {
+  if (CERT_ID_PARAM_PATTERN.test(certId)) return true;
+  ApiResponse.badRequest(res, 'Invalid certificate ID format');
+  return false;
+};
+
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const LOGOS_DIR = path.join(__dirname, '..', '..', 'public', 'logos');
 
@@ -1695,6 +1706,9 @@ certificatesRouter.get('/mine', authMiddleware, async (req: Request, res: Respon
 certificatesRouter.patch('/:certId/revoke', authMiddleware, requireRole('ADMIN'), async (req: Request, res: Response) => {
   const authUser = getAuthUser(req)!;
   const upperCertId = req.params.certId.toUpperCase();
+  if (!requireValidCertIdParam(res, upperCertId)) {
+    return;
+  }
 
   const validation = revokeSchema.safeParse(req.body);
   if (!validation.success) {
@@ -1745,6 +1759,9 @@ certificatesRouter.patch('/:certId/revoke', authMiddleware, requireRole('ADMIN')
 certificatesRouter.patch('/:certId', authMiddleware, requireRole('ADMIN'), async (req: Request, res: Response) => {
   const authUser = getAuthUser(req)!;
   const upperCertId = req.params.certId.toUpperCase();
+  if (!requireValidCertIdParam(res, upperCertId)) {
+    return;
+  }
 
   const validation = editCertificateSchema.safeParse(req.body);
   if (!validation.success) {
@@ -1759,17 +1776,33 @@ certificatesRouter.patch('/:certId', authMiddleware, requireRole('ADMIN'), async
   };
 
   try {
-    const cert = await prisma.certificate.findUnique({
-      where: { certId: upperCertId },
-      select: {
-        certId: true, recipientId: true, recipientName: true, recipientEmail: true,
-        eventId: true, eventName: true, type: true, position: true, domain: true,
-        description: true, issuedAt: true, isRevoked: true,
-        signatoryName: true, signatoryTitle: true, signatoryImageUrl: true,
-        facultyName: true, facultyTitle: true, facultySignatoryImageUrl: true,
-        emailTemplate: true, emailSignerName: true,
-      },
-    });
+    const baseEditSelect = {
+      certId: true, recipientId: true, recipientName: true, recipientEmail: true,
+      eventId: true, eventName: true, type: true, position: true, domain: true,
+      description: true, issuedAt: true, isRevoked: true,
+      signatoryName: true, signatoryTitle: true, signatoryImageUrl: true,
+      facultyName: true, facultyTitle: true, facultySignatoryImageUrl: true,
+    } as const;
+    let cert;
+    try {
+      cert = await prisma.certificate.findUnique({
+        where: { certId: upperCertId },
+        select: { ...baseEditSelect, emailTemplate: true, emailSignerName: true },
+      });
+    } catch (error) {
+      if (!isSchemaDriftError(error)) {
+        throw error;
+      }
+      // Same drift tolerance as GET /:certId — a DB predating the email-template
+      // columns must still be able to edit printed fields (the write below
+      // already strips those columns via updateCertificateWithSchemaFallback).
+      logger.warn('Certificate schema drift detected during edit lookup; retrying with legacy columns only', { certId: upperCertId });
+      const legacy = await prisma.certificate.findUnique({
+        where: { certId: upperCertId },
+        select: baseEditSelect,
+      });
+      cert = legacy ? { ...legacy, emailTemplate: null as string | null, emailSignerName: null as string | null } : null;
+    }
 
     if (!cert) {
       return ApiResponse.error(res, { code: ErrorCodes.NOT_FOUND, message: 'Certificate not found', status: 404 });
@@ -1861,7 +1894,10 @@ certificatesRouter.patch('/:certId', authMiddleware, requireRole('ADMIN'), async
     }
 
     // ── Regenerate the PDF from the merged values FIRST, then write the DB once,
-    //    so a render/upload failure leaves the record completely unchanged.
+    //    so a render/upload failure leaves the record completely unchanged. (If the
+    //    upload succeeds but the DB write then fails, the stored PDF is ahead of the
+    //    record until the admin retries the edit — acceptable: same certId, and a
+    //    retry converges both.)
     if (regenerate) {
       if (!isCloudinaryConfigured) {
         return ApiResponse.error(res, { code: ErrorCodes.INTERNAL_ERROR, message: 'Cloudinary is not configured — cannot regenerate certificate', status: 500 });
@@ -1929,6 +1965,9 @@ certificatesRouter.patch('/:certId', authMiddleware, requireRole('ADMIN'), async
 certificatesRouter.delete('/:certId', authMiddleware, requireRole('ADMIN'), async (req: Request, res: Response) => {
   const authUser = getAuthUser(req)!;
   const upperCertId = req.params.certId.toUpperCase();
+  if (!requireValidCertIdParam(res, upperCertId)) {
+    return;
+  }
 
   try {
     const cert = await prisma.certificate.findUnique({
@@ -1958,6 +1997,9 @@ certificatesRouter.delete('/:certId', authMiddleware, requireRole('ADMIN'), asyn
 // ──────────────────────────────────────────────────────────────────
 certificatesRouter.post('/:certId/resend', authMiddleware, requireRole('ADMIN'), async (req: Request, res: Response) => {
   const upperCertId = req.params.certId.toUpperCase();
+  if (!requireValidCertIdParam(res, upperCertId)) {
+    return;
+  }
 
   try {
     let cert:
@@ -2072,6 +2114,9 @@ certificatesRouter.post('/:certId/resend', authMiddleware, requireRole('ADMIN'),
 // ──────────────────────────────────────────────────────────────────
 certificatesRouter.get('/:certId', authMiddleware, requireRole('ADMIN'), async (req: Request, res: Response) => {
   const { certId } = req.params;
+  if (!requireValidCertIdParam(res, certId)) {
+    return;
+  }
 
   try {
     let cert;

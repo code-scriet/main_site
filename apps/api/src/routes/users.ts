@@ -15,6 +15,7 @@ import { emailService } from '../utils/email.js';
 import { ApiResponse } from '../utils/response.js';
 import { hashPasswordResetToken } from '../utils/passwordReset.js';
 import { invalidateCachedAuthUser } from '../utils/userAuthCache.js';
+import { uuidParamGuard } from '../utils/idParams.js';
 
 const USER_BLOCK_FEATURES = ['EVENT', 'PLAYGROUND', 'QOTD', 'QUIZ', 'NETWORK'] as const;
 type UserBlockFeatureKey = (typeof USER_BLOCK_FEATURES)[number];
@@ -25,6 +26,11 @@ type UserBlockFeatureKey = (typeof USER_BLOCK_FEATURES)[number];
 const SOFT_DELETE_AUTO_REASON = 'Auto-block on soft-delete';
 
 export const usersRouter = Router();
+
+// Reject malformed :id path params before they reach Prisma (User PK is a uuid).
+// Fires only for routes that match an `:id` segment; literal routes like
+// `/me`, `/search`, `/export`, `/` are unaffected. Valid ids fall straight through.
+usersRouter.param('id', uuidParamGuard('user ID'));
 
 const optionalUrl = z.union([z.string().url('Must be a valid URL'), z.literal('')]).optional();
 

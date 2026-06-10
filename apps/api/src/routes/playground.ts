@@ -15,6 +15,7 @@ import { requireRole } from '../middleware/role.js';
 import { logger } from '../utils/logger.js';
 import { getUsageDate, resetDailyQuotaAndPracticeCounters } from '../utils/dailyLimit.js';
 import { auditLog } from '../utils/audit.js';
+import { requireUuid } from '../utils/idParams.js';
 
 const router = Router();
 const SETTINGS_CACHE_TTL_MS = 15 * 1000;
@@ -192,6 +193,9 @@ router.post('/admin/reset-requests/:id/grant', requireRole('ADMIN'), async (req:
   try {
     const admin = getAuthUser(req);
     if (!admin) return res.status(401).json({ error: 'Not authenticated' });
+    if (!requireUuid(res, req.params.id, 'reset request ID')) {
+      return;
+    }
 
     const request = await prisma.playgroundLimitResetRequest.findUnique({
       where: { id: req.params.id },
@@ -241,6 +245,9 @@ router.post('/admin/reset-requests/:id/deny', requireRole('ADMIN'), async (req: 
   try {
     const admin = getAuthUser(req);
     if (!admin) return res.status(401).json({ error: 'Not authenticated' });
+    if (!requireUuid(res, req.params.id, 'reset request ID')) {
+      return;
+    }
 
     const request = await prisma.playgroundLimitResetRequest.findUnique({
       where: { id: req.params.id },
@@ -306,6 +313,9 @@ router.get('/snippets/:id', async (req: Request, res: Response) => {
   try {
     const user = getAuthUser(req);
     if (!user) return res.status(401).json({ error: 'Not authenticated' });
+    if (!requireUuid(res, req.params.id, 'snippet ID')) {
+      return;
+    }
 
     const snippet = await prisma.snippet.findUnique({ where: { id: req.params.id } });
     if (!snippet) return res.status(404).json({ success: false, error: 'Snippet not found' });
@@ -426,6 +436,9 @@ router.post('/admin/reset-limit/:userId', authMiddleware, requireRole('ADMIN'), 
     if (!admin) return res.status(401).json({ error: 'Not authenticated' });
 
     const { userId } = req.params;
+    if (!requireUuid(res, userId, 'user ID')) {
+      return;
+    }
     const note = typeof req.body?.note === 'string' ? req.body.note.slice(0, 200) : '';
 
     // Verify target user exists
