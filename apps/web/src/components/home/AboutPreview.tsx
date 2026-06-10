@@ -54,16 +54,21 @@ export function AboutPreview() {
   const staggerDelay = shouldReduceMotion ? 0.05 : 0.1;
 
   return (
-    <section className="relative overflow-hidden bg-gradient-to-b from-white via-amber-50/30 to-white py-20 sm:py-28 dark:from-[#07070a] dark:via-[#101016] dark:to-[#07070a]">
-      {/* Subtle geometric pattern */}
-      <div className="absolute inset-0 opacity-[0.015]" style={{
-        backgroundImage: `url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M30 0L60 30L30 60L0 30z' fill='%23000' fill-opacity='1'/%3E%3C/svg%3E")`,
-        backgroundSize: '30px 30px',
-      }} />
+    <section className="relative overflow-hidden bg-gradient-to-b from-white via-amber-50/30 to-white py-20 sm:py-28 dark:from-[var(--pub-canvas)] dark:via-[#111110] dark:to-[var(--pub-canvas)]">
+      {/* Adaptive dot grid — uses pub-line-2 token: dark dots on light, light dots on dark */}
+      <div
+        className="absolute inset-0 pointer-events-none"
+        style={{
+          backgroundImage: `radial-gradient(circle, var(--pub-line-2) 1px, transparent 1px)`,
+          backgroundSize: '28px 28px',
+          backgroundPosition: '-1px -1px',
+          opacity: 0.7,
+        }}
+      />
 
       {/* Ambient glow */}
-      <div className="absolute top-1/4 -left-32 h-64 w-64 rounded-full bg-amber-200/40 blur-[100px] dark:bg-red-500/10" />
-      <div className="absolute bottom-1/4 -right-32 h-80 w-80 rounded-full bg-orange-200/30 blur-[120px] dark:bg-rose-500/10" />
+      <div className="absolute top-1/4 -left-32 h-64 w-64 rounded-full bg-amber-200/40 blur-[100px] dark:bg-[#C4321A]/8" />
+      <div className="absolute bottom-1/4 -right-32 h-80 w-80 rounded-full bg-orange-200/30 blur-[120px] dark:bg-[#E84A2E]/6" />
 
       <div className="container mx-auto px-4 relative">
         {/* Section Header */}
@@ -107,7 +112,7 @@ export function AboutPreview() {
               whileHover={!isMobile ? { y: -6, transition: { duration: 0.25 } } : undefined}
               className="group relative"
             >
-              <div className="relative h-full overflow-hidden rounded-2xl border border-gray-100/80 bg-white p-6 shadow-sm transition-all duration-400 hover:border-gray-200/80 hover:shadow-xl dark:border-zinc-800 dark:bg-[#0f0f14] dark:hover:border-zinc-700 dark:hover:shadow-black/30 sm:p-7">
+              <div className="relative h-full overflow-hidden rounded-2xl border border-gray-100/80 bg-white p-6 shadow-sm transition-all duration-400 hover:border-gray-200/80 hover:shadow-xl dark:border-[var(--pub-line)] dark:bg-[var(--pub-paper)] dark:hover:border-[var(--pub-line-2)] dark:hover:shadow-black/30 sm:p-7">
                 {/* Accent line at top */}
                 <div
                   className="absolute top-0 left-0 right-0 h-[3px] opacity-0 group-hover:opacity-100 transition-opacity duration-300"

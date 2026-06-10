@@ -17,7 +17,7 @@ export function TeamHighlight() {
   const staggerDelay = shouldReduceMotion ? 0.05 : 0.1;
 
   return (
-    <section className="relative overflow-hidden bg-gradient-to-b from-white to-gray-50 py-16 dark:from-[#05060a] dark:via-[#090b11] dark:to-[#07080d] sm:py-24">
+    <section className="relative overflow-hidden bg-gradient-to-b from-white to-gray-50 py-16 dark:from-[var(--pub-canvas)] dark:via-[#111110] dark:to-[var(--pub-canvas)] sm:py-24">
       {/* Background Decoration */}
       <div className="absolute top-1/2 left-1/2 h-[400px] w-[400px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-gradient-radial from-amber-100/30 to-transparent dark:from-red-950/20 sm:h-[600px] sm:w-[600px] md:h-[800px] md:w-[800px]" />{/* responsive: scale decorative blob */}
 
@@ -61,7 +61,7 @@ export function TeamHighlight() {
         ) : (
           <div className="relative mb-8 sm:mb-12">
             {/* Subtle bottom shade-out — visible on all screens, slightly stronger on mobile */}
-            <div className="pointer-events-none absolute bottom-0 left-0 right-0 z-10 h-16 bg-gradient-to-t from-gray-50 via-gray-50/40 to-transparent dark:from-[#07080d] dark:via-[#07080d]/40 sm:h-12" />
+            <div className="pointer-events-none absolute bottom-0 left-0 right-0 z-10 h-16 bg-gradient-to-t from-gray-50 via-gray-50/40 to-transparent dark:from-[var(--pub-canvas)] dark:via-[#0A0908]/40 sm:h-12" />
             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 sm:gap-6 md:gap-8">
               {teamMembers.map((member, index) => {
                 const profileSlugOrId = member.slug || member.id;
