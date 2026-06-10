@@ -1,5 +1,5 @@
-import { createContext, useCallback, useContext, useMemo, useRef, useState } from 'react';
-import type { editor } from 'monaco-editor';
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import type { editor, IDisposable } from 'monaco-editor';
 
 /**
  * Monaco models expose `canUndo()` / `canRedo()` at runtime, but they are not
@@ -36,6 +36,7 @@ export interface EditorHistory {
  */
 export function useEditorHistory(): EditorHistory {
   const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null);
+  const disposablesRef = useRef<IDisposable[]>([]);
   const [canUndo, setCanUndo] = useState(false);
   const [canRedo, setCanRedo] = useState(false);
 
@@ -45,17 +46,32 @@ export function useEditorHistory(): EditorHistory {
     setCanRedo(Boolean(model?.canRedo?.()));
   }, []);
 
+  const disposeListeners = useCallback(() => {
+    for (const disposable of disposablesRef.current) disposable.dispose();
+    disposablesRef.current = [];
+  }, []);
+
   const handleMount = useCallback(
     (instance: editor.IStandaloneCodeEditor) => {
+      // A remount hands us a fresh instance — tear down the listeners wired to the
+      // previous one first, otherwise they leak and `refresh` fires once per stale
+      // listener on every edit.
+      disposeListeners();
       editorRef.current = instance;
       refresh();
       // Content edits and model swaps (language/question switches via the `path`
-      // prop) both change what undo/redo can do — re-read after each.
-      instance.onDidChangeModelContent(refresh);
-      instance.onDidChangeModel(refresh);
+      // prop) both change what undo/redo can do — re-read after each. Track the
+      // disposables so they can be torn down on remount/unmount.
+      disposablesRef.current.push(
+        instance.onDidChangeModelContent(refresh),
+        instance.onDidChangeModel(refresh),
+      );
     },
-    [refresh],
+    [disposeListeners, refresh],
   );
+
+  // Dispose listeners when the hook unmounts so they never outlive the editor.
+  useEffect(() => disposeListeners, [disposeListeners]);
 
   const undo = useCallback(() => {
     const instance = editorRef.current;

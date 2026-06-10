@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import Editor from '@monaco-editor/react';
 import {
@@ -358,6 +358,10 @@ export function QOTDSolverShell({ problem, context, onExit }: QOTDSolverShellPro
   const meta = LANGUAGE_META[language];
   const currentDraftKey = useMemo(() => draftKey(problem.id, language), [problem.id, language]);
   const editorHistory = useEditorHistory();
+  // `editorHistory` gets a fresh identity whenever canUndo/canRedo flip (i.e. on
+  // edits), but `reset` itself is a stable callback — depend on it directly so
+  // `handleReset` (and the keydown effect below) don't churn on every keystroke.
+  const { reset: resetEditor } = editorHistory;
 
   // The starter for the *currently selected language* of *this question* — the
   // same skeleton the editor was seeded with, not a generic playground template.
@@ -372,9 +376,9 @@ export function QOTDSolverShell({ problem, context, onExit }: QOTDSolverShellPro
     // Undoable replacement via Monaco's edit stack (never setValue). The change
     // flows through onChange → setCode → the draft auto-save, so the persisted
     // draft stays in sync.
-    editorHistory.reset(starterCode);
+    resetEditor(starterCode);
     toast.success('Reset to starter code');
-  }, [atStarter, editorHistory, starterCode]);
+  }, [atStarter, resetEditor, starterCode]);
 
   // Ctrl/Cmd+Shift+R → reset (matches the main Playground shortcut). Undo/redo
   // (Ctrl/Cmd+Z, Ctrl/Cmd+Shift+Z, Ctrl/Cmd+Y) are handled natively by Monaco.
@@ -395,29 +399,33 @@ export function QOTDSolverShell({ problem, context, onExit }: QOTDSolverShellPro
     }
   }, [allowedLanguages, language]);
 
-  // Seed during render (not in an effect) when the (problem, language) context
-  // changes, so the Monaco model created for the new `path` already holds the
-  // correct content. This keeps each context's undo history clean and prevents
-  // it from bleeding across questions/languages on switch.
-  if (loadedKeyRef.current !== currentDraftKey) {
+  // Seed in a layout effect (never during render — setState-in-render is
+  // unsupported and breaks under StrictMode/concurrent rendering) when the
+  // (problem, language) context changes. A layout effect runs *before* the
+  // Monaco wrapper's passive model-creation effect, so the model for the new
+  // `path` is still born with the correct content — keeping each context's undo
+  // history clean and preventing it from bleeding across questions/languages.
+  useLayoutEffect(() => {
+    if (loadedKeyRef.current === currentDraftKey) return;
     // A non-empty local draft is unsaved in-progress work → it wins. (An empty
     // value is ignored: the 500ms auto-save can persist "" during the loading
     // window, and treating that as a draft would mask the server submission.)
     const saved = safeLocalGet(currentDraftKey);
     if (saved && saved.length > 0) {
       loadedKeyRef.current = currentDraftKey;
-      if (code !== saved) setCode(saved);
-    } else if (!submissionQuery.isLoading) {
-      // No local draft (e.g. a different device — phone vs laptop): seed with the
-      // code that was actually submitted so it's visible on any device. With no
-      // prior submission either, seed the language's starter template so the
-      // solver starts from a working stdin/stdout entry point.
-      const submittedCode = latestSubmission?.language === language ? latestSubmission.code : '';
-      const seed = submittedCode || LANGUAGE_META[language].starter;
-      loadedKeyRef.current = currentDraftKey;
-      if (code !== seed) setCode(seed);
+      setCode(saved);
+      return;
     }
-  }
+    // No local draft (e.g. a different device — phone vs laptop): wait for the
+    // server submission to load, then seed with the code that was actually
+    // submitted so it's visible on any device. With no prior submission either,
+    // seed the language's starter template so the solver starts from a working
+    // stdin/stdout entry point.
+    if (submissionQuery.isLoading) return;
+    const submittedCode = latestSubmission?.language === language ? latestSubmission.code : '';
+    loadedKeyRef.current = currentDraftKey;
+    setCode(submittedCode || LANGUAGE_META[language].starter);
+  }, [currentDraftKey, language, latestSubmission, submissionQuery.isLoading]);
 
   useEffect(() => {
     const handle = window.setTimeout(() => {
