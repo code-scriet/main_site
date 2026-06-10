@@ -55,7 +55,7 @@ export function NetworkHighlight() {
   const professionalsCount = profiles.length - alumniCount;
 
   return (
-    <section className="relative overflow-hidden border-t border-gray-100/50 bg-gradient-to-b from-gray-50/30 via-gray-100/40 to-gray-50/60 py-16 sm:py-24 lg:py-28 dark:border-[var(--pub-line)] dark:from-[#111110] dark:via-[var(--pub-canvas)] dark:to-[#111110]">
+    <section className="relative overflow-hidden border-t border-gray-100/50 bg-gradient-to-b from-gray-50/30 via-gray-100/40 to-gray-50/60 py-16 sm:py-24 lg:py-28 dark:border-zinc-800 dark:from-[#06070a] dark:via-[#0b0c11] dark:to-[#090a0e]">
       {/* Background Effects */}
       <div className="pointer-events-none absolute inset-0">
         <div className="absolute -right-24 -top-24 h-[280px] w-[280px] rounded-full bg-amber-100/25 blur-[64px] dark:bg-red-900/20 sm:-right-40 sm:-top-40 sm:h-[500px] sm:w-[500px] sm:blur-[100px]" />
