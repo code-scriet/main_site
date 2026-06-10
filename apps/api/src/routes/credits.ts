@@ -6,9 +6,9 @@ import { requireRole } from '../middleware/role.js';
 import { auditLog } from '../utils/audit.js';
 import { sanitizeHtml } from '../utils/sanitize.js';
 import { logger } from '../utils/logger.js';
+import { isUuid as isValidUuid } from '../utils/idParams.js';
 
 export const creditsRouter = Router();
-const uuidSchema = z.string().uuid();
 
 const teamMemberSelect = {
   id: true,
@@ -41,10 +41,6 @@ const reorderSchema = z.object({
     })
   ).max(500),
 });
-
-function isValidUuid(value: unknown): value is string {
-  return typeof value === 'string' && uuidSchema.safeParse(value).success;
-}
 
 // GET /api/credits — list all credits (public)
 creditsRouter.get('/', async (req: Request, res: Response) => {

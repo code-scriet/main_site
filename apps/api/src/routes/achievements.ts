@@ -9,6 +9,7 @@ import { generateSlug, generateUniqueSlug } from '../utils/slug.js';
 import { parsePaginationNumber } from '../utils/pagination.js';
 import { logger } from '../utils/logger.js';
 import { submitUrl } from '../utils/indexnow.js';
+import { requireUuid } from '../utils/idParams.js';
 import { sanitizeHtml } from '../utils/sanitize.js';
 
 export const achievementsRouter = Router();
@@ -272,6 +273,9 @@ achievementsRouter.post('/', authMiddleware, requireRole('CORE_MEMBER'), async (
 // Update achievement
 achievementsRouter.put('/:id', authMiddleware, requireRole('CORE_MEMBER'), async (req: Request, res: Response) => {
   try {
+    if (!requireUuid(res, req.params.id, 'achievement ID')) {
+      return;
+    }
     const authUser = getAuthUser(req)!;
     const parsed = updateAchievementSchema.safeParse(req.body);
     if (!parsed.success) {
@@ -335,6 +339,9 @@ achievementsRouter.put('/:id', authMiddleware, requireRole('CORE_MEMBER'), async
 // Delete achievement
 achievementsRouter.delete('/:id', authMiddleware, requireRole('ADMIN'), async (req: Request, res: Response) => {
   try {
+    if (!requireUuid(res, req.params.id, 'achievement ID')) {
+      return;
+    }
     const authUser = getAuthUser(req)!;
     await prisma.achievement.delete({ where: { id: req.params.id } });
     await auditLog(authUser.id, 'DELETE', 'achievement', req.params.id);

@@ -1564,9 +1564,12 @@ class EmailService {
       select: { emailPasswordResetBody: true },
     });
     const customBody = settings?.emailPasswordResetBody ?? null;
-    const bodyText = customBody
-      ? sanitizeText(customBody)
-      : `An administrator has initiated a password reset for your account. Use the button below to set a new password. The link expires in ${expiresInMinutes} minute(s). If you didn't request this and don't recognise the activity, ignore this email — no change has been made.`;
+    // Default copy depends on who initiated: the admin flow passes initiatedBy,
+    // the self-service "forgot password" flow does not.
+    const defaultBody = initiatedBy
+      ? `An administrator has initiated a password reset for your account. Use the button below to set a new password. The link expires in ${expiresInMinutes} minute(s). If you didn't request this and don't recognise the activity, ignore this email — no change has been made.`
+      : `We received a request to reset the password for your account. Use the button below to set a new password. The link expires in ${expiresInMinutes} minute(s). If you didn't request this, ignore this email — no change has been made.`;
+    const bodyText = customBody ? sanitizeText(customBody) : defaultBody;
 
     const html = generateEmailTemplate({
       preheader: `Reset your ${config.clubName} password (expires in ${expiresInMinutes} min)`,

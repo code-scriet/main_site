@@ -445,6 +445,71 @@ export async function reconcileEventStatusesSoon(): Promise<void> {
   await reconcileEventStatuses();
 }
 
+// ── Retention pruning: keep the free-tier DB from growing forever ──
+// Execution rows carry code + output TEXT per playground run (up to 100/user/day)
+// and PlaygroundDailyUsage adds a row per user per day — neither is ever read
+// again after a few weeks. Piggybacks on the reminder interval (no extra timer)
+// and self-gates to one pass per 24h. AuditLog is deliberately NOT pruned here:
+// it is the compliance trail and needs an explicit retention decision.
+const EXECUTION_RETENTION_DAYS = 90;
+const PLAYGROUND_USAGE_RETENTION_DAYS = 60;
+const PRUNE_MIN_INTERVAL_MS = 24 * 60 * 60 * 1000;
+let lastPruneAt = 0;
+
+const PRUNE_BATCH_SIZE = 5000;
+
+// Execution rows are TEXT-heavy (code + output), so the first run after months
+// of accumulation could be a very large delete. Batch it so no single statement
+// holds the pooled Neon connection for long while the API serves traffic.
+async function deleteExecutionsInBatches(cutoff: Date): Promise<number> {
+  let total = 0;
+  for (;;) {
+    const rows = await prisma.execution.findMany({
+      where: { executedAt: { lt: cutoff } },
+      select: { id: true },
+      take: PRUNE_BATCH_SIZE,
+    });
+    if (rows.length === 0) break;
+    const { count } = await prisma.execution.deleteMany({
+      where: { id: { in: rows.map((row) => row.id) } },
+    });
+    total += count;
+    if (rows.length < PRUNE_BATCH_SIZE) break;
+  }
+  return total;
+}
+
+export async function pruneOldRecords(): Promise<{ executions: number; dailyUsage: number }> {
+  const now = Date.now();
+  const executionCutoff = new Date(now - EXECUTION_RETENTION_DAYS * 24 * 60 * 60 * 1000);
+  const usageCutoff = new Date(now - PLAYGROUND_USAGE_RETENTION_DAYS * 24 * 60 * 60 * 1000);
+
+  const [executions, dailyUsage] = await Promise.all([
+    deleteExecutionsInBatches(executionCutoff),
+    prisma.playgroundDailyUsage.deleteMany({ where: { usageDate: { lt: usageCutoff } } }),
+  ]);
+
+  if (executions > 0 || dailyUsage.count > 0) {
+    logger.info('🧹 Pruned old records', {
+      executions,
+      playgroundDailyUsage: dailyUsage.count,
+    });
+  }
+  return { executions, dailyUsage: dailyUsage.count };
+}
+
+async function pruneOldRecordsIfDue(): Promise<void> {
+  if (Date.now() - lastPruneAt < PRUNE_MIN_INTERVAL_MS) return;
+  lastPruneAt = Date.now();
+  try {
+    await pruneOldRecords();
+  } catch (error) {
+    logger.error('❌ Retention pruning failed', {
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
 /**
  * Start the reminder scheduler
  * Checks every 6 hours for events needing reminders
@@ -458,13 +523,15 @@ export function startReminderScheduler(): void {
   reminderStartupTimeout = setTimeout(() => {
     reminderStartupTimeout = null;
     sendEventReminders();
+    void pruneOldRecordsIfDue();
   }, 10000); // Wait 10 seconds after startup
-  
+
   // Then run every 6 hours (4 times a day is efficient)
   reminderInterval = setInterval(() => {
     sendEventReminders();
+    void pruneOldRecordsIfDue();
   }, 6 * 60 * 60 * 1000); // Every 6 hours
-  
+
   logger.info('🔔 Event reminder scheduler started (checks every 6 hours)');
 }
 

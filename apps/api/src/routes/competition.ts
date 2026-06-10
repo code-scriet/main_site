@@ -11,9 +11,16 @@ import { auditLog } from '../utils/audit.js';
 import { logger } from '../utils/logger.js';
 import { ProblemHttpError, submitProblemForUser } from '../utils/problemsCore.js';
 import { getCachedSettings } from '../utils/settingsCache.js';
+import { uuidParamGuard } from '../utils/idParams.js';
 
 const competitionRouter = Router();
 const activeTimers = new Map<string, NodeJS.Timeout>();
+
+// Reject malformed ids before they hit Prisma — every competition path param
+// is a uuid PK. Mirrors the router.param guards in users.ts / quizRouter.ts.
+competitionRouter.param('roundId', uuidParamGuard('round ID'));
+competitionRouter.param('eventId', uuidParamGuard('event ID'));
+competitionRouter.param('submissionId', uuidParamGuard('submission ID'));
 
 // Feature gate: the `competitionEnabled` setting hides the UI but, prior to
 // this gate, the API still served reads, saves, submits and admin actions.

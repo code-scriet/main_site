@@ -3,6 +3,9 @@
   "version": "1.0.0",
   "private": true,
   "license": "Apache-2.0",
+  "engines": {
+    "node": "20.x"
+  },
   "workspaces": [
     "apps/*",
     "packages/*"
@@ -28,6 +31,7 @@
     "db:migrate:deploy": "prisma migrate deploy",
     "db:migrate:day-attendance": "npx tsx scripts/migrate-day-attendance.ts",
     "db:audit:competition-autosaves": "tsx scripts/audit-competition-autosaves.ts",
+    "db:prune": "tsx scripts/prune-old-records.ts",
     "db:seed": "prisma db seed",
     "db:studio": "prisma studio",
     "db:reset": "prisma migrate reset --force",

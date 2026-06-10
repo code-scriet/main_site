@@ -33,6 +33,7 @@ import {
   type AttendanceTokenPayload,
 } from '../utils/attendanceDomain.js';
 import { isGuest, isParticipant, participantsOnly } from '../utils/registrationFilters.js';
+import { isUuid, requireUuid } from '../utils/idParams.js';
 import { sanitizeHtml } from '../utils/sanitize.js';
 
 const router = Router();
@@ -44,21 +45,11 @@ const beaconLimiter = rateLimit({
   legacyHeaders: false,
 });
 
-const uuidSchema = z.string().uuid();
 const jwtLikePattern = /^[A-Za-z0-9-_]+\.[A-Za-z0-9-_]+\.[A-Za-z0-9-_]+$/;
 const ATTENDANCE_FULL_LIST_LIMIT = 5000;
 const ATTENDANCE_EXPORT_LIMIT = 10000;
 const ATTENDANCE_BACKFILL_BATCH_SIZE = 1000;
 const ATTENDANCE_REGENERATE_BATCH_SIZE = 200;
-
-function requireUuid(res: Response, value: unknown, label: string): value is string {
-  if (typeof value !== 'string' || !uuidSchema.safeParse(value).success) {
-    ApiResponse.badRequest(res, `Invalid ${label} format`);
-    return false;
-  }
-
-  return true;
-}
 
 function getCookie(req: Request, name: string): string | undefined {
   const raw = req.headers.cookie;
@@ -517,7 +508,7 @@ router.post('/scan-beacon', beaconLimiter, express.text({ type: '*/*' }), async 
     ) {
       return res.status(400).send();
     }
-    if (!uuidSchema.safeParse(eventId).success) {
+    if (!isUuid(eventId)) {
       return res.status(400).send();
     }
 
@@ -869,7 +860,7 @@ router.patch('/bulk-update', authMiddleware, requireRole('CORE_MEMBER'), async (
     }
     const defaultDayNumber = requestedDayNumber ?? 1;
 
-    const invalidRegistrationId = registrationIds.find((registrationId) => !uuidSchema.safeParse(registrationId).success);
+    const invalidRegistrationId = registrationIds.find((registrationId) => !isUuid(registrationId));
     if (invalidRegistrationId) {
       return ApiResponse.badRequest(res, `Invalid registration ID format: ${invalidRegistrationId}`);
     }
@@ -1164,6 +1155,9 @@ router.post('/regenerate-token/:registrationId', authMiddleware, requireRole('AD
     }
 
     const { registrationId } = req.params;
+    if (!requireUuid(res, registrationId, 'registration ID')) {
+      return;
+    }
 
     const registration = await prisma.eventRegistration.findUnique({
       where: { id: registrationId },

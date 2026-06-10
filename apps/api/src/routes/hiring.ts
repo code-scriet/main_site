@@ -9,6 +9,7 @@ import { ApiResponse } from '../utils/response.js';
 import { emailService } from '../utils/email.js';
 import { logger } from '../utils/logger.js';
 import { parsePaginationNumber } from '../utils/pagination.js';
+import { requireUuid } from '../utils/idParams.js';
 
 export const hiringRouter = Router();
 
@@ -218,7 +219,10 @@ hiringRouter.get('/applications', authMiddleware, requireRole('ADMIN'), async (r
 hiringRouter.get('/applications/:id', authMiddleware, requireRole('ADMIN'), async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
-    
+    if (!requireUuid(res, id, 'application ID')) {
+      return;
+    }
+
     const application = await prisma.hiringApplication.findUnique({
       where: { id },
       include: {
@@ -243,8 +247,11 @@ hiringRouter.get('/applications/:id', authMiddleware, requireRole('ADMIN'), asyn
 hiringRouter.patch('/applications/:id/status', authMiddleware, requireRole('ADMIN'), async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
+    if (!requireUuid(res, id, 'application ID')) {
+      return;
+    }
     const authUser = getAuthUser(req);
-    
+
     const validation = updateStatusSchema.safeParse(req.body);
     if (!validation.success) {
       return ApiResponse.badRequest(res, validation.error.errors[0].message);
@@ -305,6 +312,9 @@ hiringRouter.patch('/applications/:id/status', authMiddleware, requireRole('ADMI
 hiringRouter.delete('/applications/:id', authMiddleware, requireRole('ADMIN'), async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
+    if (!requireUuid(res, id, 'application ID')) {
+      return;
+    }
     const authUser = getAuthUser(req);
 
     await prisma.hiringApplication.delete({

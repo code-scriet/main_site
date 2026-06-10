@@ -480,15 +480,15 @@ export default function DashboardLayout() {
               <Menu size={18} />
             </button>
 
-            <div className="hidden sm:flex items-center gap-1.5 text-[13px] text-[var(--ds-text-3)] whitespace-nowrap min-w-0">
+            <nav aria-label="Breadcrumb" className="hidden sm:flex items-center gap-1.5 text-[13px] text-[var(--ds-text-3)] whitespace-nowrap min-w-0">
               <Link to="/dashboard" className="hover:text-[var(--ds-text-1)] transition-colors font-medium">Dashboard</Link>
               {location.pathname !== '/dashboard' && (
                 <>
-                  <ChevronRight size={12} className="opacity-50 shrink-0" />
-                  <span className="text-[var(--ds-text-1)] font-medium truncate">{breadcrumb}</span>
+                  <ChevronRight size={12} className="opacity-50 shrink-0" aria-hidden />
+                  <span aria-current="page" className="text-[var(--ds-text-1)] font-medium truncate">{breadcrumb}</span>
                 </>
               )}
-            </div>
+            </nav>
 
             <div className="flex-1" />
 

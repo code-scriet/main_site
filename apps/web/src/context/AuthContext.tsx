@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import type { ReactNode } from 'react';
+import { toast } from 'sonner';
 import { api, UnauthorizedError } from '@/lib/api';
 import type { User } from '@/lib/api';
 import { AUTH_TOKEN_STORAGE_KEY, clearStoredAuthToken, getStoredAuthToken, storeAuthToken } from '@/lib/authToken';
@@ -107,6 +108,11 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       return response.user as ExtendedUser | null;
     } catch (err) {
       if (err instanceof UnauthorizedError) {
+        // Only announce expiry when a session actually existed — first-time
+        // anonymous visitors should not see a toast on boot.
+        if (authToken) {
+          toast.error('Your session has expired. Please sign in again.', { id: 'session-expired' });
+        }
         clearStoredAuthToken();
         return null;
       }

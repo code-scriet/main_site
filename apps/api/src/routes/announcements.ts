@@ -11,6 +11,7 @@ import { broadcastNotification } from '../utils/notifications.js';
 import { logger } from '../utils/logger.js';
 import { submitUrl } from '../utils/indexnow.js';
 import { parsePaginationNumber } from '../utils/pagination.js';
+import { requireUuid } from '../utils/idParams.js';
 import { sanitizeHtml } from '../utils/sanitize.js';
 
 export const announcementsRouter = Router();
@@ -326,6 +327,9 @@ async function sendAnnouncementEmailsAsync(announcement: {
 // Update announcement
 announcementsRouter.put('/:id', authMiddleware, requireRole('CORE_MEMBER'), async (req: Request, res: Response) => {
   try {
+    if (!requireUuid(res, req.params.id, 'announcement ID')) {
+      return;
+    }
     const authUser = getAuthUser(req)!;
     const parsed = updateAnnouncementSchema.safeParse(req.body);
     if (!parsed.success) {
@@ -384,6 +388,9 @@ announcementsRouter.put('/:id', authMiddleware, requireRole('CORE_MEMBER'), asyn
 // Delete announcement
 announcementsRouter.delete('/:id', authMiddleware, requireRole('ADMIN'), async (req: Request, res: Response) => {
   try {
+    if (!requireUuid(res, req.params.id, 'announcement ID')) {
+      return;
+    }
     const authUser = getAuthUser(req)!;
     await prisma.announcement.delete({ where: { id: req.params.id } });
     await auditLog(authUser.id, 'DELETE', 'announcement', req.params.id);

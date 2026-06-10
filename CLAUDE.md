@@ -104,6 +104,7 @@ npm run build / build:web:seo                # web + sitemap + prerender
 npm run db:migrate:deploy                    # prod migrations
 npm run db:migrate:day-attendance
 npm run db:audit:competition-autosaves
+npm run db:prune                             # manual retention pruning (-- --dry-run to preview)
 npm run db:seed / db:studio / db:reset
 npx prisma migrate dev --create-only --name <name>   # ALWAYS use --create-only
 npm run test:e2e / test:stability
@@ -120,7 +121,7 @@ Startup in `apps/api/src/index.ts`:
 3. Middleware: helmet → compression → CORS allow-list → JSON → CSRF (cookie-auth writes) → optional req logger → rate limits.
 4. Mount routers + health/SEO.
 5. `initializeDatabase()` → hydrate security env → slug backfills.
-6. Background schedulers (event status + reminders + QOTD auto-publish): **ON by default in production**, off in development. `ENABLE_BACKGROUND_SCHEDULERS=true/false` forces it either way (`NODE_ENV` is normalized so anything ≠ `development` ⇒ production). Event-status + QOTD use event-driven in-memory timers (no polling); reminders poll every 6h.
+6. Background schedulers (event status + reminders + QOTD auto-publish): **ON by default in production**, off in development. `ENABLE_BACKGROUND_SCHEDULERS=true/false` forces it either way (`NODE_ENV` is normalized so anything ≠ `development` ⇒ production). Event-status + QOTD use event-driven in-memory timers (no polling); reminders poll every 6h. The reminder tick also runs retention pruning at most once per 24h (`pruneOldRecords()` in `utils/scheduler.ts`: Execution > 90d, PlaygroundDailyUsage > 60d; AuditLog deliberately untouched — manual run: `npm run db:prune [-- --dry-run]`).
 7. HTTP listen with port-retry on `EADDRINUSE`.
 8. `recoverActiveRounds()` re-arms competition timers.
 
@@ -131,9 +132,10 @@ Shutdown (SIGTERM/SIGINT): stop schedulers → close Socket.io → persist activ
 ## Auth Flow
 
 - **Email/password:** JWT in response + `scriet_session` cookie.
-- **OAuth:** redirect → Passport → `/auth/callback#token=<jwt>&intent=...` → frontend extracts to `localStorage`. Cross-subdomain cookie on `.codescriet.dev` for playground.
-- **JWT:** 7-day expiry, `{ userId, email, name, role, tokenVersion }`. Force logout = increment DB `tokenVersion`; middleware rejects when DB > claim.
-- **Middleware:** `authMiddleware` reads `Authorization: Bearer` or `scriet_session` cookie; does DB lookup per request.
+- **OAuth:** redirect → Passport (state-cookie CSRF check) → `/auth/callback?code=<30s exchange JWT>` → frontend `POST /api/auth/exchange-code` → real token to `localStorage`. No long-lived JWT ever appears in a URL. Cross-subdomain cookie on `.codescriet.dev` for playground.
+- **JWT:** 7-day expiry, `{ userId, email, name, role, tokenVersion }`. Force logout = increment DB `tokenVersion`; middleware rejects when DB > claim. `GET /auth/me` echoes the presented token while it is in the front half of its life and only mints a replacement in the back half (caps sliding-session renewal).
+- **Middleware:** `authMiddleware` reads `Authorization: Bearer` or `scriet_session` cookie; user row served from a 30s bounded LRU (`utils/userAuthCache.ts`, 500 entries). Every user-row mutation that affects auth (role/tokenVersion/isDeleted) MUST call `invalidateCachedAuthUser(userId)`.
+- **Password reset:** self-service `POST /api/auth/request-password-reset` (neutral response, 5/15min/IP + 3/15min/email) and admin-initiated `POST /api/users/:id/password-reset` both store a sha-256-hashed 30-min token; consumed by `POST /api/auth/reset-password` (atomic claim, bumps tokenVersion). Frontend: `/forgot-password` + `/reset-password` (one lazy page, two modes).
 - **Dev:** `POST /api/auth/dev-login` only when `ENABLE_DEV_AUTH=true`. Returns 404 when disabled.
 - **CSRF guard:** Cookie-authed mutating `/api/*` writes must come from `Origin/Referer` in `isAllowedBrowserOrigin()` allow-list. Bearer bypasses.
 - **CORS:** Explicit allowlist `ALLOWED_CODESCRIET_ORIGINS` (no subdomain wildcard). Dev: localhost/127.0.0.1/LAN IPs.
@@ -157,7 +159,7 @@ PUBLIC=0 · USER=1 · NETWORK=1 · MEMBER=2 · CORE_MEMBER=3 · ADMIN=4 · PRESI
 
 | Path | Auth | Notes |
 |---|---|---|
-| `/api/auth/*` | No (50/15min) | Includes `/dev-login` (gated), `/reset-password` (20/15min) |
+| `/api/auth/*` | No (50/15min) | Includes `/dev-login` (gated), `/reset-password` (20/15min), `/request-password-reset` (5/15min/IP + 3/15min/email, neutral response) |
 | `/api/events/*` | Mixed | |
 | `/api/registrations/*` | User | |
 | `/api/announcements/*` | Mixed | |
@@ -192,7 +194,7 @@ PUBLIC=0 · USER=1 · NETWORK=1 · MEMBER=2 · CORE_MEMBER=3 · ADMIN=4 · PRESI
 
 **Admin-deep-control endpoints (`/api/users`):** `:id/full`, `:id/activity`, `:id/audit`, `:id/streak/{reset-current,restore-longest}` (PRES/SA), `:id/blocks` (GET=Admin, POST=PRES/SA), `:id/blocks/:feature` DELETE (PRES/SA), `:id/force-logout` (PRES/SA), `:id/password-reset` (PRES/SA), `:id/restore` (SA only), `:id` DELETE `?hard=true` (soft=PRES, hard=SA).
 
-**Frontend route map:** see `apps/web/src/App.tsx`. All pages lazy-loaded with `React.lazy()` + `<Suspense>`. Notable: `/admin/users` + `/admin/users/:id`, `/admin/{team,achievements,problems,credits,event-registrations,hiring,network,certificates,competition,public-view,audit-log,mail,settings}`, `/admin/competition/:roundId/judge`, `/admin/events/:eventId/attendance`, `/dashboard/{events,announcements,leaderboard,coding,invitations,certificates,profile,attendance,quiz,upload,problems/new}`, `/dashboard/events/:eventId/attendance` (CORE_MEMBER+), `/qotd/{today,:date}`, `/competition/:roundId/solve/:problemId`, `/competition/:roundId/results`, `/polls/:slug`, `/verify/:certId`.
+**Frontend route map:** see `apps/web/src/App.tsx`. All pages lazy-loaded with `React.lazy()` + `<Suspense>`. Notable: `/admin/users` + `/admin/users/:id`, `/admin/{team,achievements,problems,credits,event-registrations,hiring,network,certificates,competition,public-view,audit-log,mail,settings}`, `/admin/competition/:roundId/judge`, `/admin/events/:eventId/attendance`, `/dashboard/{events,announcements,leaderboard,coding,invitations,certificates,profile,attendance,quiz,upload,problems/new}`, `/dashboard/events/:eventId/attendance` (CORE_MEMBER+), `/qotd/{today,:date}`, `/competition/:roundId/solve/:problemId`, `/competition/:roundId/results`, `/polls/:slug`, `/verify/:certId`, `/forgot-password` + `/reset-password` (one `ResetPasswordPage`, mode from URL token).
 
 ---
 
@@ -347,7 +349,7 @@ Mature + optimized. **Don't propose perf refactors** unless a regression is name
 
 ## Attendance System
 
-- **QR payload:** long-lived JWT (30d), `{userId, eventId, registrationId, purpose:'attendance'}`. Generated on registration inside the serializable txn. Util: `apps/api/src/utils/attendanceToken.ts`.
+- **QR payload:** long-lived JWT (default `90d`, override via `ATTENDANCE_TOKEN_EXPIRES_IN`), `{userId, eventId, registrationId, purpose:'attendance'}`. Generated on registration inside the serializable txn. Util: [apps/api/src/utils/attendanceToken.ts](apps/api/src/utils/attendanceToken.ts).
 - **Multi-day truth:** `DayAttendance` rows per `dayNumber` (1..10). Legacy `EventRegistration.attended/scannedAt/manualOverride` stays synced.
 - **Scanning:** CORE_MEMBER+ scans via `POST /api/attendance/scan` (verifies JWT, marks for `dayNumber`). Offline batch via `/scan-batch`.
 - **Offline scanner:** `useOfflineScanner` stores in `localStorage`. 5 sync triggers: immediate, 3s interval, mount sync, visibilitychange, `sendBeacon` on unload.
@@ -613,6 +615,7 @@ Migration: `prisma/migrations/20260517210000_dashboard_v2/migration.sql` (additi
 | `CLOUDINARY_CLOUD_NAME/API_KEY/API_SECRET` | no | |
 | `BREVO_API_KEY` | no | |
 | `ENABLE_DEV_AUTH` | no | dev only |
+| `ATTENDANCE_TOKEN_EXPIRES_IN` | no | attendance QR JWT lifetime, default `90d` |
 | `ENABLE_REQUEST_LOGGING` | no | |
 | `ENABLE_DB_KEEPALIVE` | no | default off |
 | `DB_KEEPALIVE_INTERVAL_MS` | no | default 240000 |
@@ -638,14 +641,13 @@ CORS: explicit allowlist `ALLOWED_CODESCRIET_ORIGINS` = codescriet.dev, www, api
 
 ## Known Issues
 
-1. JWT in URL hash fragment after OAuth — security concern.
-2. Automated coverage partial (stability + utility + Playwright), not full regression.
-3. Some routes use raw `res.json()` instead of `ApiResponse`.
-4. `AdminEventRegistrations` makes N+1 fetches (annotated, acceptable at current scale).
-5. Certificate email fire-and-forget — `emailSent` update could fail silently during restarts.
-6. UUID validation missing on some path params.
-7. Some Zod schemas use `z.unknown()` for JSON fields.
-8. Attendance token has no expiration (relies on `attended` flag).
+1. Automated coverage partial (stability + utility + Playwright), not full regression.
+2. Some routes use raw `res.json()` instead of `ApiResponse`.
+3. `AdminEventRegistrations` makes N+1 fetches (annotated, acceptable at current scale).
+4. Certificate email fire-and-forget — `emailSent` update could fail silently during restarts.
+5. Some Zod schemas use `z.unknown()` for JSON fields.
+
+Resolved (June 2026): OAuth JWT-in-URL-hash replaced by a 30s exchange code; attendance tokens carry a 90d expiry (`ATTENDANCE_TOKEN_EXPIRES_IN`). ID path-param validation swept across all routers — shared guards `requireUuid`/`requireCuid`/`isUuid`/`isCuid` in [apps/api/src/utils/idParams.ts](apps/api/src/utils/idParams.ts) reject malformed ids with a 400 before they reach Prisma (uuid PKs: most models; cuid PKs: NetworkProfile/Signatory/Certificate). `users.ts`/`quizRouter.ts`/`competition.ts`/`qotd.ts` use `router.param()` guards (shared `uuidParamGuard` factory); `attendance.ts`/`credits.ts` refactored onto the shared helper. Note: id columns are Postgres `TEXT` (no `@db.Uuid`), so malformed ids previously fell through to 404, not 500 — the guards harden input validation + response consistency and future-proof a native-uuid migration.
 
 ---
 

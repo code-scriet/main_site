@@ -16,6 +16,7 @@ import { createEventRegistrationInTx } from '../utils/registrationIntake.js';
 import { participantsOnly } from '../utils/registrationFilters.js';
 import { executeSerializableTransaction, isSerializationConflict } from '../utils/transactionRetry.js';
 import { sanitizeEventRegistrationFields, validateRegistrationFieldSubmissions } from '../utils/eventRegistrationFields.js';
+import { requireUuid } from '../utils/idParams.js';
 
 export const teamsRouter = Router();
 
@@ -762,6 +763,9 @@ teamsRouter.get('/my-team/:eventId', authMiddleware, async (req: Request, res: R
   try {
     const user = getAuthUser(req)!;
     const { eventId } = req.params;
+    if (!requireUuid(res, eventId, 'event ID')) {
+      return;
+    }
 
     const membership = await prisma.eventTeamMember.findFirst({
       where: {
@@ -824,6 +828,9 @@ teamsRouter.patch('/:teamId/lock', authMiddleware, async (req: Request, res: Res
   try {
     const user = getAuthUser(req)!;
     const { teamId } = req.params;
+    if (!requireUuid(res, teamId, 'team ID')) {
+      return;
+    }
 
     const team = await prisma.eventTeam.findUnique({
       where: { id: teamId },
@@ -869,6 +876,9 @@ teamsRouter.delete('/:teamId/members/:userId', authMiddleware, async (req: Reque
   try {
     const user = getAuthUser(req)!;
     const { teamId, userId: targetUserId } = req.params;
+    if (!requireUuid(res, teamId, 'team ID') || !requireUuid(res, targetUserId, 'user ID')) {
+      return;
+    }
 
     const team = await prisma.eventTeam.findUnique({
       where: { id: teamId },
@@ -917,6 +927,9 @@ teamsRouter.post('/:teamId/leave', authMiddleware, async (req: Request, res: Res
   try {
     const user = getAuthUser(req)!;
     const { teamId } = req.params;
+    if (!requireUuid(res, teamId, 'team ID')) {
+      return;
+    }
 
     const team = await prisma.eventTeam.findUnique({
       where: { id: teamId },
@@ -957,6 +970,9 @@ teamsRouter.post('/:teamId/transfer-leadership', authMiddleware, async (req: Req
   try {
     const user = getAuthUser(req)!;
     const { teamId } = req.params;
+    if (!requireUuid(res, teamId, 'team ID')) {
+      return;
+    }
 
     const parseResult = transferLeadershipSchema.safeParse(req.body);
     if (!parseResult.success) {
@@ -1038,6 +1054,9 @@ teamsRouter.delete('/:teamId/dissolve', authMiddleware, async (req: Request, res
   try {
     const user = getAuthUser(req)!;
     const { teamId } = req.params;
+    if (!requireUuid(res, teamId, 'team ID')) {
+      return;
+    }
 
     const team = await prisma.eventTeam.findUnique({
       where: { id: teamId },
@@ -1098,6 +1117,9 @@ teamsRouter.delete('/:teamId/dissolve', authMiddleware, async (req: Request, res
 teamsRouter.get('/event/:eventId', authMiddleware, requireRole('ADMIN'), async (req: Request, res: Response) => {
   try {
     const { eventId } = req.params;
+    if (!requireUuid(res, eventId, 'event ID')) {
+      return;
+    }
 
     const event = await prisma.event.findUnique({
       where: { id: eventId },
@@ -1147,6 +1169,9 @@ teamsRouter.patch('/:teamId/admin-lock', authMiddleware, requireRole('ADMIN'), a
   try {
     const user = getAuthUser(req)!;
     const { teamId } = req.params;
+    if (!requireUuid(res, teamId, 'team ID')) {
+      return;
+    }
 
     const team = await prisma.eventTeam.findUnique({
       where: { id: teamId },
@@ -1182,6 +1207,9 @@ teamsRouter.delete('/:teamId/admin-dissolve', authMiddleware, requireRole('ADMIN
   try {
     const user = getAuthUser(req)!;
     const { teamId } = req.params;
+    if (!requireUuid(res, teamId, 'team ID')) {
+      return;
+    }
 
     const team = await prisma.eventTeam.findUnique({
       where: { id: teamId },

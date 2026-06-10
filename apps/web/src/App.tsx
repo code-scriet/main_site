@@ -2,6 +2,7 @@ import { lazy, Suspense, useEffect, type ReactNode } from 'react';
 import { BrowserRouter as Router, Routes, Route, useLocation } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Loader2 } from 'lucide-react';
+import { MotionConfig } from 'framer-motion';
 import { Toaster } from 'sonner';
 import { AuthProvider } from '@/context/AuthContext';
 import { SettingsProvider } from '@/context/SettingsContext';
@@ -53,6 +54,7 @@ const AnnouncementsPage = lazy(() => import('@/pages/AnnouncementsPage'));
 const AnnouncementDetailPage = lazy(() => import('@/pages/AnnouncementDetailPage'));
 const PollDetailPage = lazy(() => import('@/pages/PollDetailPage'));
 const SignInPage = lazy(() => import('@/pages/SignInPage'));
+const ResetPasswordPage = lazy(() => import('@/pages/ResetPasswordPage'));
 const JoinUsPage = lazy(() => import('@/pages/JoinUsPage'));
 const AuthCallbackPage = lazy(() => import('@/pages/AuthCallbackPage'));
 const NetworkPage = lazy(() => import('@/pages/NetworkPage'));
@@ -140,6 +142,10 @@ function App() {
         <AuthProvider>
           <SettingsProvider>
             <ErrorBoundary>
+              {/* reducedMotion="user" makes every framer-motion animation respect the
+                  OS prefers-reduced-motion setting (transforms disabled, opacity kept).
+                  No visual change for everyone else. */}
+              <MotionConfig reducedMotion="user">
               <Router>
                 <ScrollToTopOnNavigation />
                 <Toaster position="top-right" richColors />
@@ -158,6 +164,8 @@ function App() {
                   <Route path="/achievements/:id" element={withRouteBoundary(<AchievementDetailPage />)} />
                   <Route path="/signin" element={withRouteBoundary(<SignInPage />)} />
                   <Route path="/signup" element={withRouteBoundary(<SignInPage />)} />
+                  <Route path="/forgot-password" element={withRouteBoundary(<ResetPasswordPage />)} />
+                  <Route path="/reset-password" element={withRouteBoundary(<ResetPasswordPage />)} />
                   <Route path="/join-us" element={withRouteBoundary(<JoinUsPage />)} />
                   <Route path="/auth/callback" element={withRouteBoundary(<AuthCallbackPage />)} />
                   <Route path="/network" element={withRouteBoundary(<NetworkPage />)} />
@@ -250,6 +258,7 @@ function App() {
                   <Route path="*" element={<NotFound />} />
                 </Routes>
               </Router>
+              </MotionConfig>
             </ErrorBoundary>
           </SettingsProvider>
         </AuthProvider>

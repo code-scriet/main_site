@@ -23,6 +23,7 @@ import {
 import { enqueueRejudgeJob, getRejudgeJob } from '../utils/rejudgeJobs.js';
 import { invalidateQotdLeaderboardCaches } from './qotd.js';
 import { getCachedSettings } from '../utils/settingsCache.js';
+import { requireUuid } from '../utils/idParams.js';
 
 export const problemsRouter = Router();
 
@@ -353,6 +354,9 @@ problemsRouter.get('/admin/pending-cap-requests', authMiddleware, requireRole('A
 // Dashboard v2: one-click grant for cap requests from the admin pending-requests card.
 problemsRouter.post('/admin/cap-requests/:counterId/grant', authMiddleware, requireRole('ADMIN'), async (req, res) => {
   try {
+    if (!requireUuid(res, req.params.counterId, 'cap request ID')) {
+      return;
+    }
     const admin = getAuthUser(req)!;
     const schema = z.object({
       deltaSubmits: z.coerce.number().int().min(1).max(50).optional(),
@@ -392,6 +396,9 @@ problemsRouter.post('/admin/cap-requests/:counterId/grant', authMiddleware, requ
 
 problemsRouter.post('/admin/cap-requests/:counterId/deny', authMiddleware, requireRole('ADMIN'), async (req, res) => {
   try {
+    if (!requireUuid(res, req.params.counterId, 'cap request ID')) {
+      return;
+    }
     const admin = getAuthUser(req)!;
     const counter = await prisma.problemSubmissionCounter.findUnique({
       where: { id: req.params.counterId },
@@ -497,6 +504,9 @@ problemsRouter.post('/', authMiddleware, requireRole('CORE_MEMBER'), async (req,
 
 problemsRouter.put('/:id', authMiddleware, requireRole('ADMIN'), async (req, res) => {
   try {
+    if (!requireUuid(res, req.params.id, 'problem ID')) {
+      return;
+    }
     const admin = getAuthUser(req);
     if (!admin) return ApiResponse.unauthorized(res);
     const parsed = problemInputSchema.safeParse(req.body);
@@ -511,6 +521,9 @@ problemsRouter.put('/:id', authMiddleware, requireRole('ADMIN'), async (req, res
 
 problemsRouter.delete('/:id', authMiddleware, requireRole('ADMIN'), async (req, res) => {
   try {
+    if (!requireUuid(res, req.params.id, 'problem ID')) {
+      return;
+    }
     const admin = getAuthUser(req);
     if (!admin) return ApiResponse.unauthorized(res);
     await prisma.problem.delete({ where: { id: req.params.id } });
@@ -526,6 +539,9 @@ problemsRouter.delete('/:id', authMiddleware, requireRole('ADMIN'), async (req, 
 
 problemsRouter.patch('/:id/publish', authMiddleware, requireRole('ADMIN'), async (req, res) => {
   try {
+    if (!requireUuid(res, req.params.id, 'problem ID')) {
+      return;
+    }
     const admin = getAuthUser(req);
     if (!admin) return ApiResponse.unauthorized(res);
     const parsed = z.object({ isPublished: z.boolean() }).safeParse(req.body);
@@ -679,6 +695,9 @@ problemsRouter.get('/:id/all-submissions', authMiddleware, requireRole('ADMIN'),
 
 problemsRouter.patch('/:id/override/:submissionId', authMiddleware, requireRole('ADMIN'), async (req, res) => {
   try {
+    if (!requireUuid(res, req.params.submissionId, 'submission ID')) {
+      return;
+    }
     const admin = getAuthUser(req);
     if (!admin) return ApiResponse.unauthorized(res);
     const schema = z.object({

@@ -9,6 +9,7 @@ import { logger } from '../utils/logger.js';
 import { submitUrl } from '../utils/indexnow.js';
 import { syncUserToTeamMember } from '../utils/profileSync.js';
 import { generateSlug, generateUniqueSlug } from '../utils/slug.js';
+import { requireUuid } from '../utils/idParams.js';
 
 export const teamRouter = Router();
 
@@ -412,6 +413,9 @@ teamRouter.post('/', authMiddleware, requireRole('ADMIN'), async (req: Request, 
 // Update team member (admin only)
 teamRouter.put('/:id', authMiddleware, requireRole('ADMIN'), async (req: Request, res: Response) => {
   try {
+    if (!requireUuid(res, req.params.id, 'team member ID')) {
+      return;
+    }
     const authUser = getAuthUser(req)!;
     const parsed = updateTeamMemberSchema.safeParse(req.body);
     if (!parsed.success) {
@@ -511,6 +515,9 @@ teamRouter.put('/:id/profile', authMiddleware, async (req: Request, res: Respons
   try {
     const authUser = getAuthUser(req)!;
     const { id } = req.params;
+    if (!requireUuid(res, id, 'team member ID')) {
+      return;
+    }
 
     // Check if user is authorized (admin or linked user)
     const existing = await prisma.teamMember.findUnique({ where: { id } });
@@ -577,6 +584,9 @@ teamRouter.patch('/:id/link-user', authMiddleware, requireRole('ADMIN'), async (
   try {
     const authUser = getAuthUser(req)!;
     const { id } = req.params;
+    if (!requireUuid(res, id, 'team member ID')) {
+      return;
+    }
     const { userId } = req.body;
 
     if (userId !== null && typeof userId !== 'string') {
@@ -659,6 +669,9 @@ teamRouter.patch('/reorder', authMiddleware, requireRole('ADMIN'), async (req: R
 // Delete team member
 teamRouter.delete('/:id', authMiddleware, requireRole('ADMIN'), async (req: Request, res: Response) => {
   try {
+    if (!requireUuid(res, req.params.id, 'team member ID')) {
+      return;
+    }
     const authUser = getAuthUser(req)!;
     await prisma.teamMember.delete({ where: { id: req.params.id } });
     await auditLog(authUser.id, 'DELETE', 'team_member', req.params.id);

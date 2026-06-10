@@ -17,6 +17,7 @@ import { normalizeTrustedVideoEmbedUrl } from '../utils/videoEmbed.js';
 import { deriveInvitationStatus } from '../utils/invitationStatus.js';
 import { isGuest, isParticipant, participantsOnly } from '../utils/registrationFilters.js';
 import { reconcileEventStatusesSoon } from '../utils/scheduler.js';
+import { requireUuid } from '../utils/idParams.js';
 
 export const eventsRouter = Router();
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -628,6 +629,9 @@ eventsRouter.post('/', authMiddleware, requireRole('CORE_MEMBER'), async (req: R
 
 eventsRouter.put('/:id', authMiddleware, requireRole('CORE_MEMBER'), async (req: Request, res: Response) => {
   try {
+    if (!requireUuid(res, req.params.id, 'event ID')) {
+      return;
+    }
     const authUser = getAuthUser(req)!;
     const parsed = updateEventSchema.safeParse(req.body);
     if (!parsed.success) {
@@ -925,6 +929,9 @@ eventsRouter.put('/:id', authMiddleware, requireRole('CORE_MEMBER'), async (req:
 
 eventsRouter.delete('/:id', authMiddleware, requireRole('CORE_MEMBER'), async (req: Request, res: Response) => {
   try {
+    if (!requireUuid(res, req.params.id, 'event ID')) {
+      return;
+    }
     const authUser = getAuthUser(req)!;
     
     // Check event exists and get creator
@@ -961,6 +968,9 @@ eventsRouter.delete('/:id', authMiddleware, requireRole('CORE_MEMBER'), async (r
 eventsRouter.get('/:id/registrations/stats', authMiddleware, requireRole('CORE_MEMBER'), async (req: Request, res: Response) => {
   try {
     const eventId = req.params.id;
+    if (!requireUuid(res, eventId, 'event ID')) {
+      return;
+    }
     const [total, participants, guests, attended] = await Promise.all([
       prisma.eventRegistration.count({ where: { eventId } }),
       prisma.eventRegistration.count({ where: { eventId, registrationType: RegistrationType.PARTICIPANT } }),
@@ -988,6 +998,9 @@ const REGISTRATIONS_LIST_CAP = 5000;
 
 eventsRouter.get('/:id/registrations', authMiddleware, requireRole('CORE_MEMBER'), async (req: Request, res: Response) => {
   try {
+    if (!requireUuid(res, req.params.id, 'event ID')) {
+      return;
+    }
     const registrations = await prisma.eventRegistration.findMany({
       where: { eventId: req.params.id },
       select: {
@@ -1031,6 +1044,9 @@ eventsRouter.get('/:id/registrations', authMiddleware, requireRole('CORE_MEMBER'
 eventsRouter.delete('/:eventId/registrations/:registrationId', authMiddleware, requireRole('CORE_MEMBER'), async (req: Request, res: Response) => {
   try {
     const { eventId, registrationId } = req.params;
+    if (!requireUuid(res, eventId, 'event ID') || !requireUuid(res, registrationId, 'registration ID')) {
+      return;
+    }
     
     const registration = await prisma.eventRegistration.findFirst({
       where: { id: registrationId, eventId },
@@ -1050,6 +1066,9 @@ eventsRouter.delete('/:eventId/registrations/:registrationId', authMiddleware, r
 
 eventsRouter.get('/:id/registrations/export', authMiddleware, requireRole('CORE_MEMBER'), async (req: Request, res: Response) => {
   try {
+    if (!requireUuid(res, req.params.id, 'event ID')) {
+      return;
+    }
     const formatQuery = typeof req.query.format === 'string' ? req.query.format.trim().toLowerCase() : 'xlsx';
     if (formatQuery !== 'xlsx' && formatQuery !== 'csv') {
       return res.status(400).json({ success: false, error: { message: 'format must be xlsx or csv' } });

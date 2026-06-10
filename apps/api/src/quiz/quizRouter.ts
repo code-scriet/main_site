@@ -10,6 +10,7 @@ import { Prisma } from '@prisma/client';
 import jwt from 'jsonwebtoken';
 import multer from 'multer';
 import { Readable } from 'node:stream';
+import { randomInt } from 'node:crypto';
 import { authMiddleware, getAuthUser } from '../middleware/auth.js';
 import { requireRole } from '../middleware/role.js';
 import { ApiResponse, ErrorCodes } from '../utils/response.js';
@@ -18,8 +19,13 @@ import { getJwtSecret } from '../utils/jwt.js';
 import { QuizCapacityError, quizStore } from './quizStore.js';
 import rateLimit from 'express-rate-limit';
 import { socketEvents } from '../utils/socket.js';
+import { uuidParamGuard } from '../utils/idParams.js';
 
 export const quizRouter = Router();
+
+// Reject malformed :quizId path params before they hit Prisma (Quiz PK is a uuid).
+// Fires only for routes matching a `:quizId` segment; the `:code` join route is unaffected.
+quizRouter.param('quizId', uuidParamGuard('quiz ID'));
 
 // Rate limit quiz creation: max 10 per hour per IP
 const quizCreateLimiter = rateLimit({
@@ -2006,7 +2012,7 @@ async function generateUniqueJoinCode(): Promise<string> {
   for (let attempt = 0; attempt < 10; attempt++) {
     let code = '';
     for (let i = 0; i < 4; i++) {
-      code += chars.charAt(Math.floor(Math.random() * chars.length));
+      code += chars.charAt(randomInt(chars.length));
     }
     const existing = await prisma.quiz.findUnique({ where: { joinCode: code } });
     if (!existing) return code;
@@ -2019,7 +2025,7 @@ async function generateUniqueJoinCode(): Promise<string> {
 async function generateUniquePin(): Promise<string> {
   for (let attempt = 0; attempt < 20; attempt++) {
     // Generate 6-digit number between 100000-999999
-    const pin = String(Math.floor(100000 + Math.random() * 900000));
+    const pin = String(randomInt(100000, 1000000));
     const existing = await prisma.quiz.findFirst({ where: { pin, pinActive: true } });
     if (!existing) return pin;
   }

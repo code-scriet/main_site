@@ -13,8 +13,14 @@ import { formatUsageDate } from '../utils/dailyLimit.js';
 import { recomputeUserStreakSafe, invalidatePublishedQotdCache, recomputeStreaksForQOTDSafe } from '../utils/qotdStreak.js';
 import { broadcastQotdLive } from '../utils/notifications.js';
 import { armQotdPublishTimer, cancelQotdPublishTimer } from '../utils/scheduler.js';
+import { uuidParamGuard } from '../utils/idParams.js';
 
 export const qotdRouter = Router();
+
+// Reject malformed ids before they hit Prisma — QOTD PKs are uuids. Literal
+// routes (/today, /history, /leaderboard/*, /stats/*) don't match these params.
+qotdRouter.param('id', uuidParamGuard('QOTD ID'));
+qotdRouter.param('qotdId', uuidParamGuard('QOTD ID'));
 
 const testCaseSchema = z.object({
   id: z.string().trim().regex(/^[A-Za-z0-9_-]{1,64}$/),
