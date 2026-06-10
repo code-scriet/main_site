@@ -14,6 +14,7 @@ import { Navbar } from '@/components/playground/Navbar';
 import { QOTDSolverShell, buildQOTDLeaderboardHref, type QOTDSolverContext } from '@/components/problems/QOTDSolverShell';
 import { PracticeProblemsBrowser } from '@/components/problems/PracticeProblemsBrowser';
 import { usePlayground } from '@/context/PlaygroundContext';
+import { useEditorHistory, EditorHistoryProvider } from '@/hooks/useEditorHistory';
 import { mainApi, type ProblemDetail } from '@/lib/mainApi';
 import { cn } from '@/lib/utils';
 
@@ -32,6 +33,8 @@ function istTodayKey(): string {
 
 export default function PlaygroundPage() {
   const { showProblemPanel } = usePlayground();
+  // Shared between the sibling Toolbar (buttons) and CodeEditor (editor instance).
+  const editorHistory = useEditorHistory();
   const [searchParams, setSearchParams] = useSearchParams();
 
   const qotdParam = searchParams.get('qotd');
@@ -184,6 +187,7 @@ export default function PlaygroundPage() {
     mode.kind === 'practice-browser';
 
   return (
+    <EditorHistoryProvider value={editorHistory}>
     <div className="h-screen flex flex-col overflow-hidden bg-background">
       <Navbar />
       <Toolbar
@@ -282,5 +286,6 @@ export default function PlaygroundPage() {
         </div>
       )}
     </div>
+    </EditorHistoryProvider>
   );
 }

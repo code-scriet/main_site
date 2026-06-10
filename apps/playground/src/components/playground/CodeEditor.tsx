@@ -2,6 +2,7 @@ import Editor from '@monaco-editor/react';
 import { useEffect, useState } from 'react';
 import { usePlayground } from '@/context/PlaygroundContext';
 import { useTheme } from '@/context/ThemeContext';
+import { useEditorHistoryContext } from '@/hooks/useEditorHistory';
 import { BASE_MONACO_EDITOR_OPTIONS, registerMonacoEmmet } from '@/lib/monacoEditor';
 import { Loader2 } from 'lucide-react';
 
@@ -10,6 +11,7 @@ const COACH_STORAGE_KEY = 'playground:coached';
 export function CodeEditor() {
   const { code, setCode, language, fontSize } = usePlayground();
   const { editorTheme } = useTheme();
+  const { handleMount } = useEditorHistoryContext();
   const [showCoach, setShowCoach] = useState(() => localStorage.getItem(COACH_STORAGE_KEY) !== '1');
 
   const dismissCoach = () => {
@@ -45,9 +47,13 @@ export function CodeEditor() {
       )}
       <Editor
         height="100%"
+        // Per-language path → each language gets its own Monaco model and
+        // therefore its own isolated undo/redo stack (no cross-language leak).
+        path={`playground/main${language.fileExtension}`}
         language={language.monacoId}
         value={code}
         onChange={handleEditorChange}
+        onMount={handleMount}
         beforeMount={registerMonacoEmmet}
         theme={editorTheme}
         options={{ ...BASE_MONACO_EDITOR_OPTIONS, fontSize }}

@@ -11,7 +11,6 @@ import {
   Moon,
   Play,
   Plus,
-  RotateCcw,
   Save,
   Square,
   Sun,
@@ -24,9 +23,11 @@ import { useAuth } from '@/context/AuthContext';
 import { useCodeExecution } from '@/hooks/useCodeExecution';
 import { useKeyboardShortcuts, getShortcutKey } from '@/hooks/useKeyboardShortcuts';
 import { useDailyQuota } from '@/hooks/useDailyQuota';
+import { useEditorHistoryContext } from '@/hooks/useEditorHistory';
 import { getAllLanguages } from '@/utils/languageConfig';
 import { createSnippet } from '@/utils/snippetsApi';
 import { Button } from '@/components/ui/button';
+import { EditorHistoryControls } from '@/components/playground/EditorHistoryControls';
 import { cn, copyToClipboard } from '@/lib/utils';
 
 interface ToolbarProps {
@@ -41,7 +42,7 @@ export function Toolbar({ problemMode = false, onExitProblem, onOpenPractice }: 
     language,
     setLanguage,
     isRunning,
-    resetCode,
+    clearOutput,
     increaseFontSize,
     decreaseFontSize,
     toggleProblemPanel,
@@ -56,6 +57,7 @@ export function Toolbar({ problemMode = false, onExitProblem, onOpenPractice }: 
   const { isAuthenticated } = useAuth();
   const { runCode, stopExecution } = useCodeExecution();
   const { quotaExhausted, pendingResetRequest } = useDailyQuota();
+  const { canUndo, canRedo, undo, redo, reset } = useEditorHistoryContext();
 
   const languages = getAllLanguages();
   const runDisabled = quotaExhausted || isRunning;
@@ -126,15 +128,26 @@ export function Toolbar({ problemMode = false, onExitProblem, onOpenPractice }: 
     document.exitFullscreen().catch(() => toast.error('Failed to exit fullscreen'));
   };
 
+  const atStarter = code === language.boilerplate;
+
   const handleReset = () => {
-    resetCode();
+    // Disabled state already guards the buttons; the keyboard shortcut can still
+    // fire, so guard here too.
+    if (atStarter) return;
+    if (!confirm('Reset your code to the starter template? You can undo this with Ctrl/Cmd+Z.')) return;
+    // Undoable reset via Monaco's edit stack (not setValue), so Ctrl/Cmd+Z
+    // restores the user's code immediately afterwards.
+    reset(language.boilerplate);
+    clearOutput();
     toast.success('Code reset');
   };
 
   useKeyboardShortcuts({
     onRun: () => { if (!isRunning) void handleRunCode(); },
     onSave: handleSaveSnippet,
-    onReset: handleReset,
+    // In problem/solver mode the free-playground editor is unmounted and the
+    // QOTD solver owns Ctrl/Cmd+Shift+R — don't let this fire a stray reset too.
+    onReset: problemMode ? undefined : handleReset,
     onCopy: handleCopyCode,
     onToggleTheme: toggleTheme,
   });
@@ -227,8 +240,19 @@ export function Toolbar({ problemMode = false, onExitProblem, onOpenPractice }: 
       </div>
 
       <div className="flex items-center gap-1.5">
+        <EditorHistoryControls
+          variant="ghost"
+          canUndo={canUndo}
+          canRedo={canRedo}
+          canReset={!atStarter}
+          onUndo={undo}
+          onRedo={redo}
+          onReset={handleReset}
+        />
+
+        <div className="mx-1 hidden h-6 w-px bg-zinc-200 sm:block dark:bg-zinc-800" />
+
         {[
-          { label: 'Reset', icon: RotateCcw, onClick: handleReset },
           { label: 'Copy', icon: Copy, onClick: handleCopyCode },
           { label: 'Save', icon: Save, onClick: handleSaveSnippet },
           { label: 'Download', icon: Download, onClick: handleDownloadCode },
