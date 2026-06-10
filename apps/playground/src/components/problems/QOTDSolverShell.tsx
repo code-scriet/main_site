@@ -29,6 +29,8 @@ import {
 import { BASE_MONACO_EDITOR_OPTIONS, registerMonacoEmmet } from '@/lib/monacoEditor';
 import { getMainSiteOrigin } from '@/lib/utils';
 import { MarkdownView } from '@/components/playground/MarkdownView';
+import { EditorHistoryControls } from '@/components/playground/EditorHistoryControls';
+import { useEditorHistory } from '@/hooks/useEditorHistory';
 import { useTheme } from '@/context/ThemeContext';
 
 type SolverTab = 'overview' | 'question' | 'tests' | 'solution';
@@ -319,7 +321,14 @@ export function QOTDSolverShell({ problem, context, onExit }: QOTDSolverShellPro
   const [testPanel, setTestPanel] = useState<TestPanel>('public');
   const [language, setLanguage] = useState<ProblemLanguage>(allowedLanguages[0]);
   const [fontSize, setFontSize] = useState(14);
-  const [code, setCode] = useState('');
+  // Seed synchronously (local draft → else starter) so the Monaco model for the
+  // first (problem, language) path is created with the right content and its
+  // undo history starts clean. The render-phase seed below handles later switches.
+  const [code, setCode] = useState(() => {
+    const lang = allowedLanguages[0];
+    const saved = safeLocalGet(draftKey(problem.id, lang));
+    return saved && saved.length > 0 ? saved : LANGUAGE_META[lang].starter;
+  });
   const [lastRun, setLastRun] = useState<TestRunResult | null>(null);
   const [selectedPublicId, setSelectedPublicId] = useState<string | null>(null);
   const [remainingCap, setRemainingCap] = useState<number | null>(null);
@@ -348,6 +357,37 @@ export function QOTDSolverShell({ problem, context, onExit }: QOTDSolverShellPro
   const privateTotal = latestSubmission ? privateVerdicts.length : 0;
   const meta = LANGUAGE_META[language];
   const currentDraftKey = useMemo(() => draftKey(problem.id, language), [problem.id, language]);
+  const editorHistory = useEditorHistory();
+
+  // The starter for the *currently selected language* of *this question* — the
+  // same skeleton the editor was seeded with, not a generic playground template.
+  const starterCode = meta.starter;
+  const atStarter = code === starterCode;
+
+  const handleReset = useCallback(() => {
+    if (atStarter) return;
+    if (!window.confirm('Reset to the starter code for this question? Your editor draft will be replaced — you can undo with Ctrl/Cmd+Z. Any submitted solution is untouched.')) {
+      return;
+    }
+    // Undoable replacement via Monaco's edit stack (never setValue). The change
+    // flows through onChange → setCode → the draft auto-save, so the persisted
+    // draft stays in sync.
+    editorHistory.reset(starterCode);
+    toast.success('Reset to starter code');
+  }, [atStarter, editorHistory, starterCode]);
+
+  // Ctrl/Cmd+Shift+R → reset (matches the main Playground shortcut). Undo/redo
+  // (Ctrl/Cmd+Z, Ctrl/Cmd+Shift+Z, Ctrl/Cmd+Y) are handled natively by Monaco.
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.shiftKey && (event.key === 'r' || event.key === 'R')) {
+        event.preventDefault();
+        handleReset();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [handleReset]);
 
   useEffect(() => {
     if (!allowedLanguages.includes(language)) {
@@ -355,27 +395,29 @@ export function QOTDSolverShell({ problem, context, onExit }: QOTDSolverShellPro
     }
   }, [allowedLanguages, language]);
 
-  useEffect(() => {
-    if (loadedKeyRef.current === currentDraftKey) return;
+  // Seed during render (not in an effect) when the (problem, language) context
+  // changes, so the Monaco model created for the new `path` already holds the
+  // correct content. This keeps each context's undo history clean and prevents
+  // it from bleeding across questions/languages on switch.
+  if (loadedKeyRef.current !== currentDraftKey) {
     // A non-empty local draft is unsaved in-progress work → it wins. (An empty
     // value is ignored: the 500ms auto-save can persist "" during the loading
     // window, and treating that as a draft would mask the server submission.)
     const saved = safeLocalGet(currentDraftKey);
     if (saved && saved.length > 0) {
-      setCode(saved);
       loadedKeyRef.current = currentDraftKey;
-      return;
+      if (code !== saved) setCode(saved);
+    } else if (!submissionQuery.isLoading) {
+      // No local draft (e.g. a different device — phone vs laptop): seed with the
+      // code that was actually submitted so it's visible on any device. With no
+      // prior submission either, seed the language's starter template so the
+      // solver starts from a working stdin/stdout entry point.
+      const submittedCode = latestSubmission?.language === language ? latestSubmission.code : '';
+      const seed = submittedCode || LANGUAGE_META[language].starter;
+      loadedKeyRef.current = currentDraftKey;
+      if (code !== seed) setCode(seed);
     }
-    // No local draft (e.g. a different device — phone vs laptop): wait for the
-    // server submission to load, then seed the editor with the code that was
-    // actually submitted so it's visible on any device, not just where it was typed.
-    // With no prior submission either, seed the language's starter template so the
-    // solver starts from a working stdin/stdout entry point.
-    if (submissionQuery.isLoading) return;
-    const submittedCode = latestSubmission?.language === language ? latestSubmission.code : '';
-    setCode(submittedCode || LANGUAGE_META[language].starter);
-    loadedKeyRef.current = currentDraftKey;
-  }, [currentDraftKey, language, latestSubmission, submissionQuery.isLoading]);
+  }
 
   useEffect(() => {
     const handle = window.setTimeout(() => {
@@ -735,6 +777,15 @@ export function QOTDSolverShell({ problem, context, onExit }: QOTDSolverShellPro
               <button type="button" title="Increase font size" onClick={() => setFontSize((value) => Math.min(22, value + 1))} className="rounded border border-zinc-200 bg-white px-2 py-1 text-sm font-semibold text-zinc-600 hover:bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800">+</button>
               <button type="button" title="Copy code" onClick={() => navigator.clipboard.writeText(code)} className="rounded border border-zinc-200 bg-white p-2 text-zinc-600 hover:bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"><Copy className="h-4 w-4" /></button>
               <button type="button" title="Paste code" onClick={async () => setCode(await navigator.clipboard.readText())} className="rounded border border-zinc-200 bg-white p-2 text-zinc-600 hover:bg-zinc-50 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-300 dark:hover:bg-zinc-800"><Clipboard className="h-4 w-4" /></button>
+              <EditorHistoryControls
+                variant="bordered"
+                canUndo={editorHistory.canUndo}
+                canRedo={editorHistory.canRedo}
+                canReset={!atStarter}
+                onUndo={editorHistory.undo}
+                onRedo={editorHistory.redo}
+                onReset={handleReset}
+              />
               <button
                 type="button"
                 disabled={runMutation.isPending}
@@ -769,10 +820,14 @@ export function QOTDSolverShell({ problem, context, onExit }: QOTDSolverShellPro
           <div className="min-h-0 flex-1">
             <Editor
               height="100%"
+              // Per (problem, language) path → an isolated Monaco model + undo
+              // stack for each question and language, so history never leaks.
+              path={`problems/${problem.id}/${meta.filename}`}
               language={meta.monaco}
               theme={editorTheme}
               value={code}
               beforeMount={registerMonacoEmmet}
+              onMount={editorHistory.handleMount}
               options={{ ...BASE_MONACO_EDITOR_OPTIONS, fontSize }}
               onChange={(value) => setCode(value ?? '')}
             />
