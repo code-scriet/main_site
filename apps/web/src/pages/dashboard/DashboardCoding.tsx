@@ -209,8 +209,8 @@ function QOTDTab() {
     queryFn: () => api.getTodayQOTD(),
   });
   const historyQ = useQuery({
-    queryKey: ['qotd-history'],
-    queryFn: () => api.getQOTDHistory(30, 0),
+    queryKey: ['qotd-history', token],
+    queryFn: () => api.getQOTDHistory(30, 0, { token: token ?? undefined }),
   });
   const statsQ = useQuery({
     queryKey: ['qotd-stats'],
