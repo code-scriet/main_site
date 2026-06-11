@@ -354,13 +354,16 @@ export default function DashboardLayout() {
     [invitationsQuery.data],
   );
 
-  // Notification unread count for the bell dot
+  // Notification unread count for the bell dot. useNotificationsSocket()
+  // below already invalidates this query on every server-pushed event, so the
+  // interval is only a fallback for missed pushes — 5 min instead of 60s cuts
+  // the steadiest idle-tab DB load on the API (8 queries per poll per tab).
   const notifPreview = useQuery({
     queryKey: ['notifications', 'preview'],
     queryFn: () => api.getNotifications(token!),
     enabled: Boolean(token),
     staleTime: 30_000,
-    refetchInterval: 60_000,
+    refetchInterval: 300_000,
   });
   const unreadNotifs = notifPreview.data?.unreadCount ?? 0;
 

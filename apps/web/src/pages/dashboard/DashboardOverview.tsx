@@ -123,10 +123,11 @@ export default function DashboardOverview() {
     queryKey: ['admin-dashboard-stats'],
     queryFn: () => api.getAdminDashboardStats(token!),
     enabled: Boolean(token) && isAdmin,
-    // Free-tier-friendly cadence: refresh every 60s while the tab is in focus
+    // Free-tier-friendly cadence: refresh every 120s while the tab is in focus
     // so admins see live attendance counts, scan rate, etc. without the page
-    // hammering the API endpoint on the 512 MB Render instance.
-    refetchInterval: 60_000,
+    // hammering the API endpoint on the 512 MB Render instance (~25 queries
+    // per refresh — an idle admin tab at 60s was ~2,000 queries/hour).
+    refetchInterval: 120_000,
     refetchIntervalInBackground: false,
     refetchOnWindowFocus: false,
     staleTime: 30_000,

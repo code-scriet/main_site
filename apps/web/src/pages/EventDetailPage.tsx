@@ -460,12 +460,18 @@ export default function EventDetailPage() {
     }
   }, [event?.id, token]);
 
+  // Poll only while a non-FINISHED round exists (status transitions matter
+  // live: ACTIVE→LOCKED→JUDGING→FINISHED). Most events have no competition
+  // rounds at all — for those visitors this fetches once and never polls,
+  // instead of hitting /api/competition/event/:id every 30s for everyone.
+  const hasUnfinishedRound = competitionRounds.some((round) => round.status !== 'FINISHED');
   useEffect(() => {
     void loadCompetitionRounds();
     if (!event?.id) return;
+    if (!hasUnfinishedRound) return;
     const interval = window.setInterval(() => void loadCompetitionRounds(), 30_000);
     return () => window.clearInterval(interval);
-  }, [event?.id, loadCompetitionRounds]);
+  }, [event?.id, loadCompetitionRounds, hasUnfinishedRound]);
 
   useEffect(() => {
     const hasActiveCountdown = competitionRounds.some(

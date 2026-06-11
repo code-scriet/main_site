@@ -92,7 +92,7 @@ export function QOTDStreakWidget({ token }: QOTDStreakWidgetProps) {
               </motion.div>
               <div className="min-w-0">
                 <div className="flex items-baseline gap-2">
-                  <span className="text-3xl sm:text-4xl font-extrabold text-[var(--ds-text-1)] tabular-nums">{stats.currentStreak}</span>
+                  <span className="text-3xl sm:text-4xl font-black text-[var(--ds-text-1)] tabular-nums">{stats.currentStreak}</span>
                   <span className="text-sm font-semibold text-[var(--warning)]">day{stats.currentStreak === 1 ? '' : 's'}</span>
                 </div>
                 <p className="text-sm font-semibold text-[var(--ds-text-1)]">{streakHeadline(stats.currentStreak, todaySolved)}</p>
