@@ -310,7 +310,8 @@ Mature + optimized. **Don't propose perf refactors** unless a regression is name
 - **Server-authoritative timers.** Pause clears timers; resume re-arms.
 - **Scoring:** base 1000 + time bonus (faster=more) + streak bonus. Logic in `quizSocket.ts`.
 - **Rate limit:** 500ms per user per `submit_answer`.
-- **Persistence on end** → `QuizParticipant` + `QuizAnswer`. Shutdown persists active as `ABANDONED`.
+- **Persistence on end** → `QuizParticipant` + `QuizAnswer`. Set-based: participant scores/ranks + per-question analytics each persist via one `UPDATE … FROM (VALUES …)` (no per-row statement loops). Shutdown persists active as `ABANDONED`.
+- **O(1) room counters** — `QuizRoom.connectedCount/answeredCount/answeredConnectedCount` maintained on every join/answer/disconnect/kick/advance transition; all-answered and answer-count checks never scan the players map. Gate: `quizEngineLoad.test.ts` (150-player churn + throttle parity).
 - **Capacity ceiling ~900 concurrent.**
 
 ### Socket Events (`/quiz` namespace, JWT auth)
@@ -323,7 +324,7 @@ Mature + optimized. **Don't propose perf refactors** unless a regression is name
 | `answer_count_update` | s→c | broadcast | **Throttled 1000ms** (HC #8) |
 | `my_rank_update` | s→c | **unicast** | per-socket (HC #9) |
 | `player_status_update` | s→c | **unicast to host** | 7 emit sites |
-| `poll_results` | s→c | broadcast | |
+| `poll_results_update` | s→c | broadcast | **Throttled 1000ms** (batched like `answer_count_update`; reveal cancels pending tick) |
 | `quiz_end` | s→c | broadcast | triggers 2s finale splash |
 | `podium` | s→c | broadcast | final top-3 data |
 
