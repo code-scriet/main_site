@@ -10,10 +10,10 @@ import { parsePaginationNumber } from '../utils/pagination.js';
 import { logger } from '../utils/logger.js';
 import { submitUrl } from '../utils/indexnow.js';
 import { requireUuid } from '../utils/idParams.js';
+import { setPublicCache } from '../utils/response.js';
 import { sanitizeHtml } from '../utils/sanitize.js';
 
 export const achievementsRouter = Router();
-const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 const optionalUrl = z.union([z.string().url('Must be a valid URL'), z.literal(''), z.null()]).optional();
 
@@ -112,6 +112,8 @@ achievementsRouter.get('/', async (req: Request, res: Response) => {
     const shouldCount = !(offset === 0 && achievements.length < limit);
     const total = shouldCount ? await prisma.achievement.count({ where }) : achievements.length;
 
+    // Public list — no per-user fields, identical for every visitor.
+    setPublicCache(res, 60);
     res.json({
       success: true,
       data: achievements,
@@ -152,6 +154,7 @@ achievementsRouter.get('/latest', async (req: Request, res: Response) => {
       },
     });
 
+    setPublicCache(res, 60);
     res.json({ success: true, data: achievements });
   } catch (error) {
     res.status(500).json({ success: false, error: { message: 'Failed to fetch achievements' } });
@@ -189,6 +192,7 @@ achievementsRouter.get('/featured', async (req: Request, res: Response) => {
       },
     });
 
+    setPublicCache(res, 60);
     res.json({ success: true, data: achievements });
   } catch (error) {
     res.status(500).json({ success: false, error: { message: 'Failed to fetch featured achievements' } });
@@ -200,11 +204,11 @@ achievementsRouter.get('/:idOrSlug', async (req: Request, res: Response) => {
   try {
     const { idOrSlug } = req.params;
 
-    const achievement = UUID_REGEX.test(idOrSlug)
-      ? (await prisma.achievement.findUnique({ where: { id: idOrSlug } })) ??
-        (await prisma.achievement.findUnique({ where: { slug: idOrSlug } }))
-      : (await prisma.achievement.findUnique({ where: { slug: idOrSlug } })) ??
-        (await prisma.achievement.findUnique({ where: { id: idOrSlug } }));
+    // Single round-trip (was 2 sequential findUnique). id and slug are both
+    // unique and slugs can never collide with a UUID. Mirrors resolveProblem().
+    const achievement = await prisma.achievement.findFirst({
+      where: { OR: [{ id: idOrSlug }, { slug: idOrSlug }] },
+    });
 
     if (!achievement) {
       return res.status(404).json({ success: false, error: { message: 'Achievement not found' } });

@@ -388,41 +388,30 @@ export async function validateProblemContext(
 }
 
 async function reserveSubmitCap(problem: Problem, userId: string, contextType: ProblemContextType, contextKey: string) {
-  const counter = await prisma.problemSubmissionCounter.upsert({
-    where: {
-      userId_problemId_contextType_contextKey: {
-        userId,
-        problemId: problem.id,
-        contextType,
-        contextKey,
-      },
-    },
-    create: {
-      userId,
-      problemId: problem.id,
-      contextType,
-      contextKey,
-      count: 0,
-    },
-    update: {},
-    select: { id: true, capOverride: true, count: true },
-  });
-  const cap = counter.capOverride ?? problem.defaultSubmitCap;
-  const updated = await prisma.problemSubmissionCounter.updateMany({
-    where: { id: counter.id, count: { lt: cap } },
-    data: { count: { increment: 1 } },
-  });
-  if (updated.count === 0) {
+  // Single atomic INSERT … ON CONFLICT replaces the old upsert + guarded
+  // updateMany + findUnique re-read (3 round-trips → 1). A fresh row inserts
+  // directly at count=1 — equivalent to the old create(0)+increment because
+  // defaultSubmitCap is zod-enforced ≥ 1. On conflict the UPDATE only fires
+  // while count < COALESCE(cap_override, defaultSubmitCap); no row returned ⇒
+  // cap reached. id (client-side uuid in Prisma) and updated_at (@updatedAt)
+  // have no DB defaults, so raw SQL supplies both.
+  const rows = await prisma.$queryRaw<Array<{ id: string; count: number; cap_override: number | null }>>`
+    INSERT INTO problem_submission_counters (id, user_id, problem_id, context_type, context_key, count, updated_at)
+    VALUES (gen_random_uuid()::text, ${userId}, ${problem.id}, ${contextType}::"ProblemContextType", ${contextKey}, 1, now())
+    ON CONFLICT (user_id, problem_id, context_type, context_key)
+    DO UPDATE SET count = problem_submission_counters.count + 1, updated_at = now()
+    WHERE problem_submission_counters.count < COALESCE(problem_submission_counters.cap_override, ${problem.defaultSubmitCap})
+    RETURNING id, count, cap_override;
+  `;
+  if (rows.length === 0) {
     throw new ProblemHttpError(429, 'Submit cap reached for this problem', 'RATE_LIMITED');
   }
-  const latest = await prisma.problemSubmissionCounter.findUnique({
-    where: { id: counter.id },
-    select: { count: true, capOverride: true },
-  });
+  const row = rows[0];
+  const cap = row.cap_override ?? problem.defaultSubmitCap;
   return {
-    counterId: counter.id,
+    counterId: row.id,
     cap,
-    remaining: Math.max(0, cap - (latest?.count ?? counter.count + 1)),
+    remaining: Math.max(0, cap - Number(row.count)),
   };
 }
 

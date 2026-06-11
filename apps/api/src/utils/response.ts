@@ -3,6 +3,32 @@ import { Response } from 'express';
 
 const isProduction = process.env.NODE_ENV === 'production';
 
+/**
+ * CDN/browser cache header for anonymous, identical-for-everyone GET responses.
+ * Mirrors the header already used by GET /api/stats/home. Apply ONLY after
+ * confirming the request is unauthenticated (`!getAuthUser(req)`) — many list
+ * endpoints embed per-user fields (isRegistered, myVote) that must never be
+ * cached at a shared edge. With Cloudflare in front of api.codescriet.dev the
+ * `public` + s-maxage semantics also shed repeat hits before they reach Render.
+ *
+ * Vary: Authorization, Cookie is mandatory, not optional: on mixed-audience
+ * endpoints (optionalAuth, e.g. GET /api/events) only the anonymous variant is
+ * cacheable, and RFC 9111 §3.5 allows caches to reuse a `public` response even
+ * for requests carrying an Authorization header. Without Vary, a user who
+ * fetched anonymously and then logged in would be served the cached anonymous
+ * payload (isRegistered always false) for up to max-age. Anonymous visitors
+ * (no auth header, no cookies) keep full cache hits.
+ */
+export function setPublicCache(res: Response, maxAgeSeconds = 60, staleWhileRevalidateSeconds = maxAgeSeconds * 2) {
+  res.setHeader(
+    'Cache-Control',
+    `public, max-age=${maxAgeSeconds}, stale-while-revalidate=${staleWhileRevalidateSeconds}`,
+  );
+  // res.vary() appends — it won't clobber the Vary: Origin set by cors().
+  res.vary('Authorization');
+  res.vary('Cookie');
+}
+
 // Filter potentially sensitive information from error details in production
 function sanitizeErrorDetails(details: unknown, seen?: WeakSet<object>): unknown {
   if (!isProduction || details === undefined) {

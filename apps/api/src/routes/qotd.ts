@@ -7,7 +7,7 @@ import { requireRole } from '../middleware/role.js';
 import { requireNotBlocked } from '../middleware/blocks.js';
 import { auditLog } from '../utils/audit.js';
 import { parsePaginationNumber } from '../utils/pagination.js';
-import { ApiResponse } from '../utils/response.js';
+import { ApiResponse, setPublicCache } from '../utils/response.js';
 import { createProblemFromInput, serializeProblemDetail, toIstDateKey, type ProblemInput } from '../utils/problemsCore.js';
 import { formatUsageDate } from '../utils/dailyLimit.js';
 import { recomputeUserStreakSafe, invalidatePublishedQotdCache, recomputeStreaksForQOTDSafe } from '../utils/qotdStreak.js';
@@ -167,13 +167,53 @@ async function addSubmissionStatus<T extends { id: string; problemId: string | n
   return { ...qotd, hasSubmitted: Boolean(submission) };
 }
 
-async function serializeQotd(qotd: QotdWithProblem, userId?: string) {
-  const withStatus = await addSubmissionStatus(qotd, userId);
+async function serializeQotd(qotd: QotdWithProblem, userId?: string, precomputedHasSubmitted?: boolean) {
+  const withStatus = precomputedHasSubmitted !== undefined
+    ? { ...qotd, hasSubmitted: precomputedHasSubmitted }
+    : await addSubmissionStatus(qotd, userId);
   if (!qotd.problem) return withStatus;
   return {
     ...withStatus,
     problem: await serializeProblemDetail(qotd.problem, undefined),
   };
+}
+
+// Batch form of addSubmissionStatus for list endpoints: two grouped queries
+// replace one point read per row (up to 100 on /history). Semantics are
+// byte-identical to the per-row unique-key lookup — including the problemId
+// match, so a submission left behind after an admin re-points qotd.problemId
+// still does NOT count as submitted.
+async function getSubmittedQotdIds(
+  qotds: Array<{ id: string; problemId: string | null }>,
+  userId?: string,
+): Promise<Set<string>> {
+  const submitted = new Set<string>();
+  if (!userId || qotds.length === 0) return submitted;
+
+  const withProblem = qotds.filter((q) => q.problemId);
+  const legacyOnly = qotds.filter((q) => !q.problemId);
+
+  const [problemSubs, legacySubs] = await Promise.all([
+    withProblem.length
+      ? prisma.problemSubmission.findMany({
+          where: { userId, contextType: 'QOTD', contextKey: { in: withProblem.map((q) => q.id) } },
+          select: { contextKey: true, problemId: true },
+        })
+      : Promise.resolve([]),
+    legacyOnly.length
+      ? prisma.qOTDSubmission.findMany({
+          where: { userId, qotdId: { in: legacyOnly.map((q) => q.id) } },
+          select: { qotdId: true },
+        })
+      : Promise.resolve([]),
+  ]);
+
+  const problemIdByQotdId = new Map(withProblem.map((q) => [q.id, q.problemId] as const));
+  for (const sub of problemSubs) {
+    if (problemIdByQotdId.get(sub.contextKey) === sub.problemId) submitted.add(sub.contextKey);
+  }
+  for (const sub of legacySubs) submitted.add(sub.qotdId);
+  return submitted;
 }
 
 qotdRouter.get('/today', optionalAuthMiddleware, async (req: Request, res: Response) => {
@@ -223,7 +263,8 @@ qotdRouter.get('/history', optionalAuthMiddleware, async (req: Request, res: Res
       }),
       prisma.qOTD.count({ where: baseWhere }),
     ]);
-    const data = await Promise.all(qotds.map((qotd) => serializeQotd(qotd, authUser?.id)));
+    const submittedIds = await getSubmittedQotdIds(qotds, authUser?.id);
+    const data = await Promise.all(qotds.map((qotd) => serializeQotd(qotd, authUser?.id, submittedIds.has(qotd.id))));
     return res.json({ success: true, data, pagination: { total, limit, offset } });
   } catch {
     return ApiResponse.internal(res, 'Failed to fetch QOTD history');
@@ -234,6 +275,7 @@ qotdRouter.get('/leaderboard/total', async (req: Request, res: Response) => {
   try {
     const limit = Math.min(10, Math.max(1, Number(req.query.limit) || 10));
     if (totalLeaderboardCache && Date.now() < totalLeaderboardCache.expiresAt) {
+      setPublicCache(res, 60);
       return ApiResponse.success(res, totalLeaderboardCache.data);
     }
 
@@ -280,6 +322,7 @@ qotdRouter.get('/leaderboard/total', async (req: Request, res: Response) => {
       }),
     };
     totalLeaderboardCache = { data, expiresAt: Date.now() + 60_000 };
+    setPublicCache(res, 60);
     return ApiResponse.success(res, data);
   } catch {
     return ApiResponse.internal(res, 'Failed to fetch QOTD total leaderboard');
@@ -357,45 +400,37 @@ qotdRouter.get('/stats/leaderboard', async (req: Request, res: Response) => {
 
     if (statsLeaderboardCache && Date.now() < statsLeaderboardCache.expiresAt) {
       const cached = statsLeaderboardCache.data as Array<{ user: { id: string; name: string; avatar: string | null }; submissions: number }>;
+      setPublicCache(res, 60);
       return ApiResponse.success(res, cached.slice(0, limit));
     }
 
     // Count unique IST-date solves per user, combining the legacy QOTDSubmission
-    // self-report table and the problem judge's ACCEPTED submissions.
-    const [legacy, problemRows] = await Promise.all([
-      prisma.qOTDSubmission.findMany({
-        select: { userId: true, qotd: { select: { date: true } } },
-        take: 50_000,
-      }),
-      prisma.problemSubmission.findMany({
-        where: { contextType: 'QOTD', verdict: 'ACCEPTED' },
-        select: { userId: true, contextKey: true },
-        take: 50_000,
-      }),
-    ]);
+    // self-report table and the problem judge's ACCEPTED submissions. Done in SQL
+    // (not by hydrating up to 100k rows into Node) to keep the free-tier heap flat
+    // on cache misses. Distinct day = the QOTD's IST calendar date, mirroring the
+    // `formatUsageDate(q.date)` semantics of the old JS path and the IST-conversion
+    // pattern already used by `/leaderboard/total` above. Verdict filter
+    // (ACCEPTED) is preserved on the problem-judge branch.
+    const rows = await prisma.$queryRaw<Array<{ user_id: string; days: bigint | number }>>`
+      SELECT u.user_id, COUNT(DISTINCT u.solve_day)::int AS days
+      FROM (
+        SELECT qs.user_id,
+               DATE(q.date AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Kolkata') AS solve_day
+        FROM qotd_submissions qs
+        JOIN qotd q ON q.id = qs.qotd_id
+        UNION ALL
+        SELECT ps.user_id,
+               DATE(q.date AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Kolkata') AS solve_day
+        FROM problem_submissions ps
+        JOIN qotd q ON q.id = ps.context_key
+        WHERE ps.context_type = 'QOTD' AND ps.verdict = 'ACCEPTED'
+      ) u
+      GROUP BY u.user_id
+      ORDER BY days DESC, u.user_id ASC
+      LIMIT 100;
+    `;
 
-    const qotdIds = Array.from(new Set(problemRows.map((row) => row.contextKey)));
-    const qotds = qotdIds.length
-      ? await prisma.qOTD.findMany({ where: { id: { in: qotdIds } }, select: { id: true, date: true } })
-      : [];
-    const dateByQotdId = new Map(qotds.map((q) => [q.id, q.date]));
-
-    const userToDates = new Map<string, Set<string>>();
-    const remember = (userId: string, dateKey: string) => {
-      const existing = userToDates.get(userId);
-      if (existing) existing.add(dateKey);
-      else userToDates.set(userId, new Set([dateKey]));
-    };
-    for (const row of legacy) remember(row.userId, formatUsageDate(row.qotd.date));
-    for (const row of problemRows) {
-      const date = dateByQotdId.get(row.contextKey);
-      if (date) remember(row.userId, formatUsageDate(date));
-    }
-
-    const ranked = Array.from(userToDates.entries())
-      .map(([userId, days]) => ({ userId, submissions: days.size }))
-      .sort((a, b) => b.submissions - a.submissions)
-      .slice(0, 100);
+    const ranked = rows.map((row) => ({ userId: row.user_id, submissions: Number(row.days) }));
 
     const users = ranked.length
       ? await prisma.user.findMany({
@@ -410,6 +445,7 @@ qotdRouter.get('/stats/leaderboard', async (req: Request, res: Response) => {
     }));
 
     statsLeaderboardCache = { data: leaderboard, expiresAt: Date.now() + 60_000 };
+    setPublicCache(res, 60);
     return ApiResponse.success(res, leaderboard.slice(0, limit));
   } catch {
     return ApiResponse.internal(res, 'Failed to fetch leaderboard');

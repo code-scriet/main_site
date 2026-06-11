@@ -18,9 +18,9 @@ import { deriveInvitationStatus } from '../utils/invitationStatus.js';
 import { isGuest, isParticipant, participantsOnly } from '../utils/registrationFilters.js';
 import { reconcileEventStatusesSoon } from '../utils/scheduler.js';
 import { requireUuid } from '../utils/idParams.js';
+import { setPublicCache } from '../utils/response.js';
 
 export const eventsRouter = Router();
-const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const GUEST_ROLE_PRIORITY: Record<string, number> = {
   'Chief Guest': 0,
   Speaker: 1,
@@ -223,12 +223,17 @@ eventsRouter.get('/', optionalAuthMiddleware, async (req: Request, res: Response
       });
     }
 
+    // `?view=card` drops the two heaviest list fields — `description` (unbounded
+    // text) and `registrationFields` (JSON) — for card grids (EventsPage/home)
+    // that never render them. Default (no/other view) keeps the full select, so
+    // no existing consumer can break.
+    const cardView = req.query.view === 'card';
+
     // Public event counts: only participant registrations belong in "X registered" totals.
     const eventListSelect = {
       id: true,
       title: true,
       slug: true,
-      description: true,
       status: true,
       startDate: true,
       endDate: true,
@@ -245,10 +250,10 @@ eventsRouter.get('/', optionalAuthMiddleware, async (req: Request, res: Response
       allowLateRegistration: true,
       eventDays: true,
       dayLabels: true,
-      registrationFields: true,
       teamRegistration: true,
       teamMinSize: true,
       teamMaxSize: true,
+      ...(cardView ? {} : { description: true, registrationFields: true }),
       _count: {
         select: {
           registrations: { where: participantsOnly },
@@ -292,6 +297,9 @@ eventsRouter.get('/', optionalAuthMiddleware, async (req: Request, res: Response
       isRegistered: authUser ? registeredEventIds.has(event.id) : false,
     }));
 
+    // Anonymous responses are identical for everyone (isRegistered is always
+    // false); authed responses embed per-user state and must never be edge-cached.
+    if (!authUser) setPublicCache(res, 60);
     res.json({
       success: true,
       data: eventsWithRegistration,
@@ -317,6 +325,8 @@ eventsRouter.get('/upcoming', async (_req: Request, res: Response) => {
         },
       },
     });
+    // No per-user fields on this endpoint — always edge-cacheable.
+    setPublicCache(res, 60);
     res.json({ success: true, data: events });
   } catch (error) {
     res.status(500).json({ success: false, error: { message: 'Failed to fetch upcoming events' } });
@@ -335,11 +345,14 @@ eventsRouter.get('/:id', optionalAuthMiddleware, async (req: Request, res: Respo
         },
       },
     } as const;
-    const event = UUID_REGEX.test(idOrSlug)
-      ? (await prisma.event.findUnique({ where: { id: idOrSlug }, include: includeOptions })) ??
-        (await prisma.event.findUnique({ where: { slug: idOrSlug }, include: includeOptions }))
-      : (await prisma.event.findUnique({ where: { slug: idOrSlug }, include: includeOptions })) ??
-        (await prisma.event.findUnique({ where: { id: idOrSlug }, include: includeOptions }));
+    // Single round-trip for the id-or-slug lookup (was up to 2 sequential
+    // findUnique calls). Both `id` and `slug` are unique and event slugs are
+    // generated word-strings that can never collide with a UUID, so the OR has
+    // exactly one match. Mirrors resolveProblem() in problems.ts.
+    const event = await prisma.event.findFirst({
+      where: { OR: [{ id: idOrSlug }, { slug: idOrSlug }] },
+      include: includeOptions,
+    });
 
     if (!event) {
       return res.status(404).json({ success: false, error: { message: 'Event not found' } });
@@ -1096,10 +1109,17 @@ eventsRouter.get('/:id/registrations/export', authMiddleware, requireRole('CORE_
       ? (registrationTypeFilterRaw as RegistrationType)
       : null;
     
+    // Bound the fetch like the list endpoint (5,000 cap — the export was the
+    // only unbounded registrations read) and push the registrationType filter
+    // into the WHERE (exact enum equality, validated above — safe to push).
+    // The fuzzy filters (year/branch/course/role/search) stay in JS: their
+    // trim+lowercase+joined-field semantics aren't expressible in SQL with
+    // byte-identical results, and they run over ≤5,000 rows.
     const event = await prisma.event.findUnique({
       where: { id: req.params.id },
       include: {
         registrations: {
+          where: registrationTypeFilter ? { registrationType: registrationTypeFilter } : undefined,
           select: {
             id: true,
             userId: true,
@@ -1130,6 +1150,7 @@ eventsRouter.get('/:id/registrations/export', authMiddleware, requireRole('CORE_
             },
           },
           orderBy: { timestamp: 'asc' },
+          take: 5000,
         },
       },
     });

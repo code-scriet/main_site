@@ -791,9 +791,11 @@ quizRouter.get('/active', authMiddleware, async (_req: Request, res: Response) =
   }
 });
 
-// ─── GET /api/quiz/history/me — User's quiz history ─────────────────────
+// ─── GET /api/quiz/history/me + /api/quiz/my-history — User's quiz history ──
+// Two routes, one handler: /my-history is a frontend-compat alias and was a
+// byte-identical copy-paste of /history/me.
 
-quizRouter.get('/history/me', authMiddleware, async (req: Request, res: Response) => {
+async function handleMyQuizHistory(req: Request, res: Response) {
   try {
     const user = getAuthUser(req);
     if (!user) return ApiResponse.unauthorized(res);
@@ -827,51 +829,13 @@ quizRouter.get('/history/me', authMiddleware, async (req: Request, res: Response
       joinedMidQuiz: p.joinedMidQuiz ?? false,
     })));
   } catch (error) {
-    logger.error('GET /api/quiz/history/me error', { error: error instanceof Error ? error.message : String(error) });
+    logger.error('GET quiz history error', { error: error instanceof Error ? error.message : String(error) });
     return ApiResponse.internal(res);
   }
-});
+}
 
-// ─── GET /api/quiz/my-history — Alias for /history/me (frontend compat) ──
-
-quizRouter.get('/my-history', authMiddleware, async (req: Request, res: Response) => {
-  try {
-    const user = getAuthUser(req);
-    if (!user) return ApiResponse.unauthorized(res);
-
-    const participations = await prisma.quizParticipant.findMany({
-      where: { userId: user.id, quiz: { status: 'FINISHED' } },
-      include: {
-        quiz: {
-          select: {
-            id: true,
-            title: true,
-            endedAt: true,
-            questionCount: true,
-            _count: { select: { participants: true } },
-          },
-        },
-      },
-      orderBy: { quiz: { endedAt: 'desc' } },
-      take: 20,
-    });
-
-    return ApiResponse.success(res, participations.map((p) => ({
-      quizId: p.quiz.id,
-      title: p.quiz.title,
-      endedAt: p.quiz.endedAt,
-      questionCount: p.quiz.questionCount,
-      finalScore: p.finalScore,
-      finalRank: p.finalRank,
-      correctCount: p.correctCount,
-      totalParticipants: p.quiz._count.participants,
-      joinedMidQuiz: p.joinedMidQuiz ?? false,
-    })));
-  } catch (error) {
-    logger.error('GET /api/quiz/my-history error', { error: error instanceof Error ? error.message : String(error) });
-    return ApiResponse.internal(res);
-  }
-});
+quizRouter.get('/history/me', authMiddleware, handleMyQuizHistory);
+quizRouter.get('/my-history', authMiddleware, handleMyQuizHistory);
 
 // ─── GET /api/quiz/lookup/:code — Find quiz by join code (alphanumeric) ──
 
@@ -1146,22 +1110,14 @@ quizRouter.get('/:quizId', authMiddleware, async (req: Request, res: Response) =
   try {
     const { quizId } = req.params;
 
+    // Fetch full question rows once and redact in JS for non-entitled viewers
+    // — the old shape refetched every question (second query) whenever the
+    // quiz was FINISHED or the viewer was the creator.
     const quiz = await prisma.quiz.findUnique({
       where: { id: quizId },
       include: {
         questions: {
           orderBy: { position: 'asc' },
-          select: {
-            id: true,
-            position: true,
-            questionText: true,
-            questionType: true,
-            options: true,
-            timeLimitSeconds: true,
-            points: true,
-            mediaUrl: true,
-            // NO correctAnswer for non-finished quizzes
-          },
         },
         creator: { select: { id: true, name: true } },
         _count: { select: { participants: true } },
@@ -1174,16 +1130,19 @@ quizRouter.get('/:quizId', authMiddleware, async (req: Request, res: Response) =
     const isCreator = user?.id === quiz.createdBy;
 
     // Include correct answers only if quiz is finished or user is the creator
-    let questions;
-    if (quiz.status === 'FINISHED' || isCreator) {
-      const fullQuestions = await prisma.quizQuestion.findMany({
-        where: { quizId },
-        orderBy: { position: 'asc' },
-      });
-      questions = fullQuestions;
-    } else {
-      questions = quiz.questions;
-    }
+    const questions = (quiz.status === 'FINISHED' || isCreator)
+      ? quiz.questions
+      : quiz.questions.map((q) => ({
+          id: q.id,
+          position: q.position,
+          questionText: q.questionText,
+          questionType: q.questionType,
+          options: q.options,
+          timeLimitSeconds: q.timeLimitSeconds,
+          points: q.points,
+          mediaUrl: q.mediaUrl,
+          // NO correctAnswer for non-finished quizzes
+        }));
 
     return ApiResponse.success(res, {
       id: quiz.id,

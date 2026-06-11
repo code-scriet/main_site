@@ -3,8 +3,8 @@ import { Prisma } from '@prisma/client';
 import { prisma } from '../lib/prisma.js';
 import { authMiddleware, getAuthUser } from '../middleware/auth.js';
 import { requireRole } from '../middleware/role.js';
-import { calculateConsecutiveDailyStreak } from '../utils/dateStreak.js';
 import { participantsOnly } from '../utils/registrationFilters.js';
+import { setPublicCache } from '../utils/response.js';
 
 export const statsRouter = Router();
 
@@ -285,8 +285,33 @@ const getHomePayload = async (): Promise<HomePayload> => {
   return homeCacheInFlight;
 };
 
-const sendPublicStats = async (res: Response) => {
-  try {
+// Public stats (/ and /public, used by /about). Same 60s in-flight-deduped cache
+// pattern as getHomePayload — these 6 counts are identical for every anonymous
+// visitor, so we compute them at most ~once/min instead of per request.
+type PublicStatsPayload = {
+  users: number;
+  members: number;
+  events: number;
+  upcomingEvents: number;
+  teamMembers: number;
+  achievements: number;
+  teamCounts: Record<string, number>;
+};
+
+const PUBLIC_STATS_CACHE_TTL_MS = 60 * 1000;
+let publicStatsCache: { expiresAt: number; data: PublicStatsPayload } | null = null;
+let publicStatsInFlight: Promise<PublicStatsPayload> | null = null;
+
+const getPublicStatsPayload = async (): Promise<PublicStatsPayload> => {
+  const now = Date.now();
+  if (publicStatsCache && publicStatsCache.expiresAt > now) {
+    return publicStatsCache.data;
+  }
+  if (publicStatsInFlight) {
+    return publicStatsInFlight;
+  }
+
+  publicStatsInFlight = (async () => {
     const [userCount, eventCount, upcomingEventCount, teamMemberCount, achievementCount, teamGroups] = await Promise.all([
       prisma.user.count(),
       prisma.event.count(),
@@ -303,18 +328,29 @@ const sendPublicStats = async (res: Response) => {
       if (g.team) teamCounts[g.team] = g._count._all;
     }
 
-    res.json({
-      success: true,
-      data: {
-        users: userCount,
-        members: userCount,
-        events: eventCount,
-        upcomingEvents: upcomingEventCount,
-        teamMembers: teamMemberCount,
-        achievements: achievementCount,
-        teamCounts,
-      },
-    });
+    const payload: PublicStatsPayload = {
+      users: userCount,
+      members: userCount,
+      events: eventCount,
+      upcomingEvents: upcomingEventCount,
+      teamMembers: teamMemberCount,
+      achievements: achievementCount,
+      teamCounts,
+    };
+    publicStatsCache = { data: payload, expiresAt: Date.now() + PUBLIC_STATS_CACHE_TTL_MS };
+    return payload;
+  })().finally(() => {
+    publicStatsInFlight = null;
+  });
+
+  return publicStatsInFlight;
+};
+
+const sendPublicStats = async (res: Response) => {
+  try {
+    const data = await getPublicStatsPayload();
+    setPublicCache(res, 60);
+    res.json({ success: true, data });
   } catch (error) {
     res.status(500).json({ success: false, error: { message: 'Failed to fetch stats' } });
   }
@@ -567,7 +603,12 @@ statsRouter.get('/me', authMiddleware, async (req: Request, res: Response) => {
   try {
     const authUser = getAuthUser(req)!;
 
-    const [registrationCount, qotdSubmissionCount, registrations, submissions] = await Promise.all([
+    // qotdStreak reads the materialized `User.currentStreak` (consecutive
+    // published-and-not-held QOTD days, maintained transactionally in
+    // utils/qotdStreak.ts) — the same canonical value the dashboard streak ring
+    // and admin tools show. Avoids hydrating the user's entire (unbounded) QOTD
+    // submission history just to recompute a streak in JS on every profile view.
+    const [registrationCount, qotdSubmissionCount, registrations, me] = await Promise.all([
       prisma.eventRegistration.count({ where: { userId: authUser.id } }),
       prisma.qOTDSubmission.count({ where: { userId: authUser.id } }),
       prisma.eventRegistration.findMany({
@@ -580,16 +621,13 @@ statsRouter.get('/me', authMiddleware, async (req: Request, res: Response) => {
           event: { select: { title: true, startDate: true } },
         },
       }),
-      prisma.qOTDSubmission.findMany({
-        where: { userId: authUser.id },
-        select: { qotd: { select: { date: true } } },
+      prisma.user.findUnique({
+        where: { id: authUser.id },
+        select: { currentStreak: true },
       }),
     ]);
 
-    const streak = calculateConsecutiveDailyStreak(
-      submissions.map((submission) => submission.qotd.date),
-      new Date()
-    );
+    const streak = me?.currentStreak ?? 0;
 
     res.json({
       success: true,

@@ -175,6 +175,37 @@ export function invalidatePublishedQotdCache(): void {
 
 export interface StreakResult { currentStreak: number; longestStreak: number; longestStreakAt: Date | null }
 
+// Publish-day-aware streak walk shared by the single-user and batch recomputes
+// so both paths stay semantically identical: current = consecutive published
+// days solved walking back from today (future schedules skipped), longest =
+// longest consecutive solved run across all published days.
+function computePublishAwareStreaks(
+  publishedDates: string[],
+  solvedDays: Set<string>,
+  todayKey: string,
+): { currentStreak: number; longestStreak: number } {
+  let currentStreak = 0;
+  for (let i = publishedDates.length - 1; i >= 0; i--) {
+    const d = publishedDates[i];
+    if (d > todayKey) continue;
+    if (solvedDays.has(d)) currentStreak += 1;
+    else break;
+  }
+
+  let longestStreak = 0;
+  let run = 0;
+  for (const d of publishedDates) {
+    if (solvedDays.has(d)) {
+      run += 1;
+      if (run > longestStreak) longestStreak = run;
+    } else {
+      run = 0;
+    }
+  }
+
+  return { currentStreak, longestStreak };
+}
+
 export async function recomputeUserStreak(userId: string): Promise<StreakResult> {
   const publishedDates = await loadPublishedQotdDates();
   if (publishedDates.length === 0) {
@@ -204,24 +235,7 @@ export async function recomputeUserStreak(userId: string): Promise<StreakResult>
   }
 
   const todayKey = formatUsageDate();
-  let currentStreak = 0;
-  for (let i = publishedDates.length - 1; i >= 0; i--) {
-    const d = publishedDates[i];
-    if (d > todayKey) continue;
-    if (solvedDays.has(d)) currentStreak += 1;
-    else break;
-  }
-
-  let longestStreak = 0;
-  let run = 0;
-  for (const d of publishedDates) {
-    if (solvedDays.has(d)) {
-      run += 1;
-      if (run > longestStreak) longestStreak = run;
-    } else {
-      run = 0;
-    }
-  }
+  const { currentStreak, longestStreak } = computePublishAwareStreaks(publishedDates, solvedDays, todayKey);
 
   const existing = await prisma.user.findUnique({
     where: { id: userId },
@@ -373,17 +387,81 @@ export function recomputeStreaksForQOTDSafe(qotdId: string): void {
       const userIds = new Set<string>();
       for (const r of legacyRows) userIds.add(r.userId);
       for (const r of problemRows) userIds.add(r.userId);
-      for (const id of userIds) {
-        await recomputeUserStreak(id).catch((err) => {
-          logger.warn('recomputeUserStreak (batch) failed', {
-            userId: id,
-            qotdId,
-            err: err instanceof Error ? err.message : String(err),
-          });
-        });
-      }
+      await recomputeStreaksForUserSet(Array.from(userIds), qotdId);
     } catch (err) {
       logger.warn('recomputeStreaksForQOTD failed', { qotdId, err: err instanceof Error ? err.message : String(err) });
     }
   })();
+}
+
+/**
+ * Batch streak recompute for a set of users. Replaces the old serial
+ * per-user loop (~5 queries × N submitters at every publish/hold flip) with
+ * grouped reads: 2 findMany({ userId: { in } }) + one qotd-id resolution +
+ * one grouped user read, then per-user math in JS against the shared
+ * published-day set. Only rows whose streak values actually changed are
+ * written. Bounded by the unique submitters on a single QOTD day.
+ */
+async function recomputeStreaksForUserSet(userIds: string[], qotdId: string): Promise<void> {
+  if (userIds.length === 0) return;
+  const publishedDates = await loadPublishedQotdDates();
+  const todayKey = formatUsageDate();
+
+  const [legacyRows, problemRows, users] = await Promise.all([
+    prisma.qOTDSubmission.findMany({
+      where: { userId: { in: userIds } },
+      select: { userId: true, qotd: { select: { date: true } } },
+    }),
+    prisma.problemSubmission.findMany({
+      where: { userId: { in: userIds }, contextType: 'QOTD', verdict: 'ACCEPTED' },
+      select: { userId: true, contextKey: true },
+    }),
+    prisma.user.findMany({
+      where: { id: { in: userIds } },
+      select: { id: true, currentStreak: true, longestStreak: true },
+    }),
+  ]);
+
+  const qotdIds = Array.from(new Set(problemRows.map((r) => r.contextKey)));
+  const qotdLookup = qotdIds.length
+    ? await prisma.qOTD.findMany({ where: { id: { in: qotdIds } }, select: { id: true, date: true } })
+    : [];
+  const qotdById = new Map(qotdLookup.map((q) => [q.id, q.date] as const));
+
+  const solvedByUser = new Map<string, Set<string>>();
+  const remember = (uid: string, key: string) => {
+    const existing = solvedByUser.get(uid);
+    if (existing) existing.add(key);
+    else solvedByUser.set(uid, new Set([key]));
+  };
+  for (const r of legacyRows) remember(r.userId, formatUsageDate(r.qotd.date));
+  for (const r of problemRows) {
+    const d = qotdById.get(r.contextKey);
+    if (d) remember(r.userId, formatUsageDate(d));
+  }
+
+  for (const u of users) {
+    // Mirror recomputeUserStreak exactly: with no published days, only
+    // currentStreak resets — longestStreak is deliberately left untouched.
+    const { currentStreak, longestStreak } = publishedDates.length === 0
+      ? { currentStreak: 0, longestStreak: u.longestStreak }
+      : computePublishAwareStreaks(publishedDates, solvedByUser.get(u.id) ?? new Set<string>(), todayKey);
+
+    if (u.currentStreak === currentStreak && u.longestStreak === longestStreak) continue;
+    const longestImproved = longestStreak > u.longestStreak;
+    await prisma.user.update({
+      where: { id: u.id },
+      data: {
+        currentStreak,
+        longestStreak,
+        ...(longestImproved ? { longestStreakAt: new Date() } : {}),
+      },
+    }).catch((err) => {
+      logger.warn('recomputeUserStreak (batch write) failed', {
+        userId: u.id,
+        qotdId,
+        err: err instanceof Error ? err.message : String(err),
+      });
+    });
+  }
 }
