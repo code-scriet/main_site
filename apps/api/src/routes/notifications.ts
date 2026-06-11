@@ -36,10 +36,19 @@ notificationsRouter.get('/', authMiddleware, async (req: Request, res: Response)
   const auth = getAuthUser(req)!;
 
   try {
-    const me = await prisma.user.findUnique({
-      where: { id: auth.id },
-      select: { notificationsReadAt: true },
-    });
+    // `me` (read cutoff) and `myNetwork` (audience derivation) are independent —
+    // fetch both in one round-trip before building the audience filter. Shaves a
+    // sequential hop off an endpoint NotifMenu polls every 30s while open.
+    const [me, myNetwork] = await Promise.all([
+      prisma.user.findUnique({
+        where: { id: auth.id },
+        select: { notificationsReadAt: true },
+      }),
+      prisma.networkProfile.findUnique({
+        where: { userId: auth.id },
+        select: { connectionType: true, status: true },
+      }),
+    ]);
     const readCutoff = me?.notificationsReadAt ?? new Date(0);
     const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000); // last 30 days
 
@@ -53,10 +62,6 @@ notificationsRouter.get('/', authMiddleware, async (req: Request, res: Response)
     if (auth.role === 'ADMIN' || auth.role === 'PRESIDENT') audienceClauses.push({ audience: 'ADMIN' });
     if (['CORE_MEMBER', 'ADMIN', 'PRESIDENT'].includes(auth.role)) audienceClauses.push({ audience: 'CORE_MEMBER' });
     // ALUMNI + NETWORK_AND_ALUMNI: derive from network profile presence
-    const myNetwork = await prisma.networkProfile.findUnique({
-      where: { userId: auth.id },
-      select: { connectionType: true, status: true },
-    });
     if (myNetwork?.status === 'VERIFIED') {
       audienceClauses.push({ audience: 'NETWORK_AND_ALUMNI' });
       if (myNetwork.connectionType === 'ALUMNI') {

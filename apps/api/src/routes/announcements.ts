@@ -10,6 +10,7 @@ import { emailService } from '../utils/email.js';
 import { broadcastNotification } from '../utils/notifications.js';
 import { logger } from '../utils/logger.js';
 import { submitUrl } from '../utils/indexnow.js';
+import { setPublicCache } from '../utils/response.js';
 import { parsePaginationNumber } from '../utils/pagination.js';
 import { requireUuid } from '../utils/idParams.js';
 import { sanitizeHtml } from '../utils/sanitize.js';
@@ -131,6 +132,8 @@ announcementsRouter.get('/', async (req: Request, res: Response) => {
     const shouldCount = !(offset === 0 && announcements.length < limit);
     const total = shouldCount ? await prisma.announcement.count({ where }) : announcements.length;
 
+    // Public list — no per-user fields, identical for every visitor.
+    setPublicCache(res, 60);
     res.json({
       success: true,
       data: announcements,
@@ -180,6 +183,7 @@ announcementsRouter.get('/latest', async (req: Request, res: Response) => {
       },
     });
 
+    setPublicCache(res, 60);
     res.json({ success: true, data: announcements });
   } catch (error) {
     res.status(500).json({ success: false, error: { message: 'Failed to fetch announcements' } });

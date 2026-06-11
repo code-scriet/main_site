@@ -10,6 +10,7 @@ import { submitUrl } from '../utils/indexnow.js';
 import { syncUserToTeamMember } from '../utils/profileSync.js';
 import { generateSlug, generateUniqueSlug } from '../utils/slug.js';
 import { requireUuid } from '../utils/idParams.js';
+import { setPublicCache } from '../utils/response.js';
 
 export const teamRouter = Router();
 
@@ -67,8 +68,6 @@ const normalizeExplicitOverride = (value?: string): string => {
   return value?.trim() ?? '';
 };
 
-const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-
 const teamMemberUserSelect = {
   id: true,
   name: true,
@@ -80,6 +79,26 @@ const teamMemberUserSelect = {
   twitterUrl: true,
   websiteUrl: true,
 } as const;
+
+// Single canonical lookup for the public team-member profile, by current slug,
+// id, or a retired slug. Current identity (unique slug / id, which can never
+// collide — slugs are word-strings, ids are UUIDs) resolves in ONE query; the
+// legacySlugs array-contains fallback runs only on a miss, so a slug that was
+// reassigned still resolves to its *current* owner, never the previous one.
+// Replaces the two near-identical 3-sequential-findUnique chains that the /:id
+// and /slug/:slug handlers used to carry.
+async function findTeamMemberByIdOrSlug(idOrSlug: string) {
+  return (
+    (await prisma.teamMember.findFirst({
+      where: { OR: [{ slug: idOrSlug }, { id: idOrSlug }] },
+      include: { user: { select: teamMemberUserSelect } },
+    })) ??
+    (await prisma.teamMember.findFirst({
+      where: { legacySlugs: { has: idOrSlug } },
+      include: { user: { select: teamMemberUserSelect } },
+    }))
+  );
+}
 
 const toCleanSlugBase = (raw: string): string => generateSlug(raw) || 'team-member';
 
@@ -217,6 +236,8 @@ teamRouter.get('/', async (req: Request, res: Response) => {
           orderBy: [{ order: 'asc' }, { createdAt: 'asc' }],
         });
 
+    // Public team directory — no per-user fields, identical for everyone.
+    setPublicCache(res, 60);
     res.json({ success: true, data: teamMembers.map((member) => mergeWithUserData(member, !isCompact)) });
   } catch (error) {
     res.status(500).json({ success: false, error: { message: 'Failed to fetch team members' } });
@@ -265,6 +286,7 @@ teamRouter.get('/meta/teams', async (_req: Request, res: Response) => {
       _count: { id: true },
     });
 
+    setPublicCache(res, 60);
     res.json({
       success: true,
       data: teams.map((t) => ({ team: t.team, count: t._count.id })),
@@ -277,32 +299,7 @@ teamRouter.get('/meta/teams', async (_req: Request, res: Response) => {
 // Get team member by ID
 teamRouter.get('/:id', async (req: Request, res: Response) => {
   try {
-    const idOrSlug = req.params.id;
-    const teamMember = UUID_REGEX.test(idOrSlug)
-      ? (await prisma.teamMember.findUnique({
-          where: { id: idOrSlug },
-          include: { user: { select: teamMemberUserSelect } },
-        })) ??
-        (await prisma.teamMember.findUnique({
-          where: { slug: idOrSlug },
-          include: { user: { select: teamMemberUserSelect } },
-        })) ??
-        (await prisma.teamMember.findFirst({
-          where: { legacySlugs: { has: idOrSlug } },
-          include: { user: { select: teamMemberUserSelect } },
-        }))
-      : (await prisma.teamMember.findUnique({
-          where: { slug: idOrSlug },
-          include: { user: { select: teamMemberUserSelect } },
-        })) ??
-        (await prisma.teamMember.findFirst({
-          where: { legacySlugs: { has: idOrSlug } },
-          include: { user: { select: teamMemberUserSelect } },
-        })) ??
-        (await prisma.teamMember.findUnique({
-          where: { id: idOrSlug },
-          include: { user: { select: teamMemberUserSelect } },
-        }));
+    const teamMember = await findTeamMemberByIdOrSlug(req.params.id);
 
     if (!teamMember) {
       return res.status(404).json({ success: false, error: { message: 'Team member not found' } });
@@ -317,32 +314,7 @@ teamRouter.get('/:id', async (req: Request, res: Response) => {
 // Get team member by slug (public profile page)
 teamRouter.get('/slug/:slug', async (req: Request, res: Response) => {
   try {
-    const slugOrId = req.params.slug;
-    const teamMember = UUID_REGEX.test(slugOrId)
-      ? (await prisma.teamMember.findUnique({
-          where: { id: slugOrId },
-          include: { user: { select: teamMemberUserSelect } },
-        })) ??
-        (await prisma.teamMember.findUnique({
-          where: { slug: slugOrId },
-          include: { user: { select: teamMemberUserSelect } },
-        })) ??
-        (await prisma.teamMember.findFirst({
-          where: { legacySlugs: { has: slugOrId } },
-          include: { user: { select: teamMemberUserSelect } },
-        }))
-      : (await prisma.teamMember.findUnique({
-          where: { slug: slugOrId },
-          include: { user: { select: teamMemberUserSelect } },
-        })) ??
-        (await prisma.teamMember.findFirst({
-          where: { legacySlugs: { has: slugOrId } },
-          include: { user: { select: teamMemberUserSelect } },
-        })) ??
-        (await prisma.teamMember.findUnique({
-          where: { id: slugOrId },
-          include: { user: { select: teamMemberUserSelect } },
-        }));
+    const teamMember = await findTeamMemberByIdOrSlug(req.params.slug);
 
     if (!teamMember) {
       return res.status(404).json({ success: false, error: { message: 'Team member not found' } });

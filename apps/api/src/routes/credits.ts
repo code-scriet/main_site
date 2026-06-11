@@ -7,6 +7,7 @@ import { auditLog } from '../utils/audit.js';
 import { sanitizeHtml } from '../utils/sanitize.js';
 import { logger } from '../utils/logger.js';
 import { isUuid as isValidUuid } from '../utils/idParams.js';
+import { setPublicCache } from '../utils/response.js';
 
 export const creditsRouter = Router();
 
@@ -61,6 +62,8 @@ creditsRouter.get('/', async (req: Request, res: Response) => {
       orderBy: [{ order: 'asc' }, { createdAt: 'asc' }],
     });
 
+    // Public list — no per-user fields.
+    setPublicCache(res, 60);
     res.json({ success: true, data: credits });
   } catch (error) {
     logger.error('Failed to fetch credits', { error });

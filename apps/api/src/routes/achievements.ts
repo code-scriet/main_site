@@ -10,6 +10,7 @@ import { parsePaginationNumber } from '../utils/pagination.js';
 import { logger } from '../utils/logger.js';
 import { submitUrl } from '../utils/indexnow.js';
 import { requireUuid } from '../utils/idParams.js';
+import { setPublicCache } from '../utils/response.js';
 import { sanitizeHtml } from '../utils/sanitize.js';
 
 export const achievementsRouter = Router();
@@ -112,6 +113,8 @@ achievementsRouter.get('/', async (req: Request, res: Response) => {
     const shouldCount = !(offset === 0 && achievements.length < limit);
     const total = shouldCount ? await prisma.achievement.count({ where }) : achievements.length;
 
+    // Public list — no per-user fields, identical for every visitor.
+    setPublicCache(res, 60);
     res.json({
       success: true,
       data: achievements,
@@ -152,6 +155,7 @@ achievementsRouter.get('/latest', async (req: Request, res: Response) => {
       },
     });
 
+    setPublicCache(res, 60);
     res.json({ success: true, data: achievements });
   } catch (error) {
     res.status(500).json({ success: false, error: { message: 'Failed to fetch achievements' } });
@@ -189,6 +193,7 @@ achievementsRouter.get('/featured', async (req: Request, res: Response) => {
       },
     });
 
+    setPublicCache(res, 60);
     res.json({ success: true, data: achievements });
   } catch (error) {
     res.status(500).json({ success: false, error: { message: 'Failed to fetch featured achievements' } });
