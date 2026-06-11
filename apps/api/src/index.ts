@@ -592,8 +592,6 @@ const startHttpServerWithRetry = (attempt = 1) => {
 // Initialize database (create admin and settings if needed)
 initializeDatabase()
   .then(() => hydrateRuntimeSecurityEnvFromSettings())
-  .then(() => populateAnnouncementSlugs())
-  .then(() => populateProfileSlugs())
   .then(() => {
     // On by default in production (see ENABLE_BACKGROUND_SCHEDULERS above) so
     // scheduled QOTDs publish and event reminders send without manual setup.
@@ -606,6 +604,12 @@ initializeDatabase()
     }
 
     startHttpServerWithRetry();
+
+    // Slug backfills are repair passes over legacy rows (both no-op once the
+    // data settled) — they don't gate request handling, so they run after
+    // listen instead of adding serial table scans to every deploy's
+    // unavailability window. Errors are caught inside each function.
+    void populateAnnouncementSlugs().then(() => populateProfileSlugs());
   })
   .catch((error) => {
     logger.error('Failed to start server:', error);

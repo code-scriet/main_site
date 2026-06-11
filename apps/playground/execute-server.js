@@ -368,11 +368,18 @@ async function flushUserSession(userId, reason = 'manual') {
   if (!session || !pool) return;
   if (!session.dirtyUsage && !session.dirtyHistory) return;
 
+  // Every statement of the transaction MUST run on one checked-out client:
+  // with pg, each pool.query() may use a *different* connection, so BEGIN
+  // could land on connection A, the writes on B (running outside any
+  // transaction), COMMIT on C — and A is left idle-in-transaction, holding
+  // locks and Neon compute. Harmless only under zero concurrency; the 60s
+  // periodic flush, limit-reached flushes, and shutdown flush can overlap.
+  const client = await pool.connect();
   try {
-    await pool.query('BEGIN');
+    await client.query('BEGIN');
 
     if (session.dirtyUsage) {
-      await pool.query(
+      await client.query(
         `INSERT INTO playground_daily_usage (user_id, usage_date, count, updated_at)
          VALUES ($1, CURRENT_DATE, $2, NOW())
          ON CONFLICT (user_id, usage_date)
@@ -382,13 +389,18 @@ async function flushUserSession(userId, reason = 'manual') {
     }
 
     if (session.dirtyHistory) {
-      await pool.query(`DELETE FROM executions WHERE user_id = $1 AND code IS NOT NULL`, [userId]);
+      await client.query(`DELETE FROM executions WHERE user_id = $1 AND code IS NOT NULL`, [userId]);
 
-      for (const item of session.history.slice(0, MAX_HISTORY_PER_USER)) {
-        await pool.query(
-          `INSERT INTO executions (id, user_id, language, code, output_text, duration_ms, status, executed_at)
-           VALUES ($1, $2, $3, $4, $5, $6, $7::"ExecutionStatus", $8)`,
-          [
+      // One multi-VALUES INSERT instead of up to MAX_HISTORY_PER_USER (15)
+      // single-row statements.
+      const items = session.history.slice(0, MAX_HISTORY_PER_USER);
+      if (items.length > 0) {
+        const placeholders = [];
+        const params = [];
+        let p = 1;
+        for (const item of items) {
+          placeholders.push(`($${p++}, $${p++}, $${p++}, $${p++}, $${p++}, $${p++}, $${p++}::"ExecutionStatus", $${p++})`);
+          params.push(
             item.id || crypto.randomUUID(),
             userId,
             item.language,
@@ -397,18 +409,25 @@ async function flushUserSession(userId, reason = 'manual') {
             item.durationMs || 0,
             item.status || 'SUCCESS',
             item.executedAt || new Date().toISOString(),
-          ]
+          );
+        }
+        await client.query(
+          `INSERT INTO executions (id, user_id, language, code, output_text, duration_ms, status, executed_at)
+           VALUES ${placeholders.join(', ')}`,
+          params
         );
       }
     }
 
-    await pool.query('COMMIT');
+    await client.query('COMMIT');
     session.dirtyUsage = false;
     session.dirtyHistory = false;
     console.log(`[SessionFlush] user=${userId} reason=${reason} usage=${session.todayCount} history=${session.history.length}`);
   } catch (err) {
-    await pool.query('ROLLBACK').catch(() => {});
+    await client.query('ROLLBACK').catch(() => {});
     console.error('[SessionFlush] Failed:', err.message);
+  } finally {
+    client.release();
   }
 }
 
@@ -422,10 +441,36 @@ async function flushAllDirtySessions(reason = 'periodic') {
   }
 }
 
+// Day-rollover sweep for the in-memory fallback maps. These kept one entry
+// per unique user/IP ever seen (entries were only overwritten on that same
+// key's next access) — bytes each, but the process is kept warm 24/7 by
+// UptimeRobot, so growth was unbounded. Prefs is a DB-fallback cache, so a
+// size cap with oldest-first eviction is safe (defaults apply on a miss).
+const PREFS_MEMORY_MAX_ENTRIES = 500;
+function sweepFallbackMaps() {
+  const today = new Date().toISOString().slice(0, 10);
+  for (const [key, entry] of userExecCounts.entries()) {
+    if (entry.date !== today) userExecCounts.delete(key);
+  }
+  for (const [key, entry] of ipExecCounts.entries()) {
+    if (entry.date !== today) ipExecCounts.delete(key);
+  }
+  while (userPrefsMemory.size > PREFS_MEMORY_MAX_ENTRIES) {
+    const oldest = userPrefsMemory.keys().next().value;
+    if (oldest === undefined) break;
+    userPrefsMemory.delete(oldest);
+  }
+}
+
 setInterval(() => {
   flushAllDirtySessions('periodic').catch((err) => {
     console.error('[SessionFlush] Periodic flush error:', err.message);
   });
+  try {
+    sweepFallbackMaps();
+  } catch (err) {
+    console.error('[Sweep] Fallback map sweep error:', err.message);
+  }
 }, 60_000);
 
 async function gracefulFlushAndExit(signal) {

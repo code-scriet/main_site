@@ -1,6 +1,7 @@
 import type { Socket } from 'socket.io';
 import { prisma } from '../lib/prisma.js';
 import { verifyToken } from './jwt.js';
+import { getCachedAuthUser, setCachedAuthUser, type CachedAuthUser } from './userAuthCache.js';
 
 export interface SocketAuthUser {
   id: string;
@@ -53,23 +54,53 @@ export async function authenticateSocketConnection(
     throw new Error('AUTH_INVALID');
   }
 
-  const authUser = await prisma.user.findUnique({
-    where: { id: claimUserId },
-    select: {
-      id: true,
-      name: true,
-      email: true,
-      role: true,
-      // admin-deep-control: enforce force-logout (tokenVersion) + soft-delete (isDeleted)
-      // on every socket handshake. HTTP authMiddleware already enforces these — the
-      // socket layer must mirror them or revocation is bypassable via Socket.io.
-      tokenVersion: true,
-      isDeleted: true,
-    },
-  });
-
+  // Shared 30s bounded LRU with HTTP authMiddleware (utils/userAuthCache.ts):
+  // a 900-player quiz join burst was 900 point reads even though most players
+  // hit an API route moments earlier. Revocation semantics are identical to
+  // HTTP — same TTL, same invalidateCachedAuthUser() on every user-row
+  // mutation — and the isDeleted/tokenVersion checks below run on cached
+  // entries too, so force-logout and soft-delete still propagate within 30s
+  // worst-case (instantly when the mutation invalidates the entry).
+  let authUser: CachedAuthUser | null = getCachedAuthUser(claimUserId);
   if (!authUser) {
-    throw new Error('AUTH_INVALID');
+    const row = await prisma.user.findUnique({
+      where: { id: claimUserId },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        role: true,
+        avatar: true,
+        phone: true,
+        course: true,
+        branch: true,
+        year: true,
+        profileCompleted: true,
+        // admin-deep-control: enforce force-logout (tokenVersion) + soft-delete (isDeleted)
+        // on every socket handshake. HTTP authMiddleware already enforces these — the
+        // socket layer must mirror them or revocation is bypassable via Socket.io.
+        tokenVersion: true,
+        isDeleted: true,
+      },
+    });
+    if (!row) {
+      throw new Error('AUTH_INVALID');
+    }
+    authUser = {
+      id: row.id,
+      name: row.name,
+      email: row.email,
+      role: row.role,
+      avatar: row.avatar,
+      phone: row.phone,
+      course: row.course,
+      branch: row.branch,
+      year: row.year,
+      profileCompleted: row.profileCompleted,
+      tokenVersion: typeof row.tokenVersion === 'number' ? row.tokenVersion : 0,
+      isDeleted: row.isDeleted,
+    };
+    setCachedAuthUser(authUser);
   }
 
   if (authUser.isDeleted) {

@@ -15,6 +15,7 @@ import { emailService } from '../utils/email.js';
 import { ApiResponse } from '../utils/response.js';
 import { hashPasswordResetToken } from '../utils/passwordReset.js';
 import { invalidateCachedAuthUser } from '../utils/userAuthCache.js';
+import { invalidateUserBlockCache } from '../middleware/blocks.js';
 import { uuidParamGuard } from '../utils/idParams.js';
 
 const USER_BLOCK_FEATURES = ['EVENT', 'PLAYGROUND', 'QOTD', 'QUIZ', 'NETWORK'] as const;
@@ -1102,6 +1103,7 @@ usersRouter.delete('/:id', authMiddleware, requireRole('ADMIN'), async (req: Req
     });
 
     invalidateCachedAuthUser(targetUser.id);
+    invalidateUserBlockCache(targetUser.id);
     await auditLog(authUser.id, 'SOFT_DELETE', 'user', targetUser.id, {
       email: targetUser.email,
       role: targetUser.role,
@@ -1490,6 +1492,7 @@ usersRouter.post('/:id/blocks', authMiddleware, requireRole('ADMIN'), async (req
         expiresAt: parsed.data.expiresAt ? new Date(parsed.data.expiresAt) : null,
       },
     });
+    invalidateUserBlockCache(target.id);
     await auditLog(authUser.id, 'BLOCK_USER', 'user_block', block.id, {
       userId: target.id, feature: parsed.data.feature, reason: parsed.data.reason ?? null, expiresAt: parsed.data.expiresAt ?? null,
     });
@@ -1517,6 +1520,7 @@ usersRouter.delete('/:id/blocks/:feature', authMiddleware, requireRole('ADMIN'),
     const result = await prisma.userBlock.deleteMany({
       where: { userId: target.id, feature: feature as UserBlockFeature },
     });
+    invalidateUserBlockCache(target.id);
     await auditLog(authUser.id, 'UNBLOCK_USER', 'user_block', target.id, { feature, removed: result.count });
     socketEvents.userUpdated(target.id);
     return ApiResponse.success(res, { removed: result.count }, 'Block removed');
@@ -1624,6 +1628,7 @@ usersRouter.post('/:id/restore', authMiddleware, requireRole('ADMIN'), async (re
     });
 
     invalidateCachedAuthUser(target.id);
+    invalidateUserBlockCache(target.id);
     await auditLog(authUser.id, 'RESTORE_USER', 'user', target.id);
     socketEvents.userUpdated(target.id);
     return ApiResponse.success(res, { id: target.id, isDeleted: false }, 'User restored');
