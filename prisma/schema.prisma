@@ -272,7 +272,6 @@ model EventRegistration {
   dayAttendances DayAttendance[]
 
   @@unique([userId, eventId])
-  @@index([eventId])
   @@index([eventId, attended])
   @@index([eventId, registrationType, attended])
   @@index([eventId, timestamp(sort: Desc)], map: "event_registrations_event_id_timestamp_desc_idx")
@@ -336,7 +335,6 @@ model DayAttendance {
   createdAt      DateTime          @default(now()) @map("created_at")
 
   @@unique([registrationId, dayNumber])
-  @@index([registrationId])
   @@map("day_attendances")
 }
 
@@ -357,8 +355,6 @@ model EventTeam {
   competitionAutoSaves   CompetitionAutoSave[]
 
   @@unique([eventId, teamName])
-  @@index([inviteCode])
-  @@index([eventId])
   @@map("event_teams")
 }
 
@@ -426,7 +422,6 @@ model CompetitionSubmission {
   // PostgreSQL treats NULL as distinct in unique constraints, so this only applies to team submissions.
   @@unique([roundId, teamId])
   @@unique([roundId, userId])
-  @@index([roundId])
   @@index([teamId])
   @@index([rank, score])
   @@map("competition_submissions")
@@ -445,7 +440,6 @@ model CompetitionAutoSave {
   user  User             @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([roundId, userId])
-  @@index([roundId])
   @@index([teamId])
   @@map("competition_auto_saves")
 }
@@ -472,8 +466,6 @@ model Announcement {
 
   @@index([createdAt])
   @@index([featured])
-  @@index([pinned])
-  @@index([expiresAt])
   @@index([pinned(sort: Desc), createdAt(sort: Desc)], map: "announcements_pinned_created_at_desc_idx")
   @@index([expiresAt, pinned(sort: Desc), createdAt(sort: Desc)], map: "announcements_expires_pinned_created_idx")
   @@map("announcements")
@@ -513,7 +505,6 @@ model PollOption {
   selections PollVoteSelection[]
 
   @@unique([pollId, sortOrder])
-  @@index([pollId])
   @@map("poll_options")
 }
 
@@ -528,7 +519,6 @@ model PollVote {
   selections PollVoteSelection[]
 
   @@unique([pollId, userId])
-  @@index([pollId])
   @@index([userId])
   @@map("poll_votes")
 }
@@ -614,7 +604,6 @@ model Achievement {
   updatedAt        DateTime @default(now()) @updatedAt @map("updated_at")
 
   @@index([date])
-  @@index([featured])
   @@index([featured, date(sort: Desc)], map: "achievements_featured_date_desc_idx")
   @@map("achievements")
 }
@@ -691,7 +680,6 @@ model UserBlock {
   user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([userId, feature])
-  @@index([userId])
   @@index([feature, expiresAt])
   @@map("user_blocks")
 }
@@ -890,7 +878,6 @@ model Quiz {
 
   @@index([status], map: "idx_quizzes_status")
   @@index([createdBy], map: "idx_quizzes_created_by")
-  @@index([pin], map: "idx_quizzes_pin")
   @@map("quizzes")
 }
 
@@ -934,7 +921,6 @@ model QuizParticipant {
 
   @@unique([quizId, userId])
   @@index([userId], map: "idx_quiz_participants_user_id")
-  @@index([quizId], map: "idx_quiz_participants_quiz_id")
   @@map("quiz_participants")
 }
 
@@ -955,7 +941,6 @@ model QuizAnswer {
   @@unique([questionId, userId])
   @@index([questionId], map: "idx_quiz_answers_question_id")
   @@index([userId], map: "idx_quiz_answers_user_id")
-  @@index([quizId], map: "idx_quiz_answers_quiz_id")
   // Per-quiz, per-user lookups (leaderboard / "my answers in this quiz") are
   // hot paths after every question advance — the composite avoids a full scan.
   @@index([quizId, userId], map: "idx_quiz_answers_quiz_user")
@@ -1039,7 +1024,6 @@ model Snippet {
 
   @@index([userId, createdAt])
   @@index([userId, updatedAt])
-  @@index([shareToken])
   @@map("snippets")
 }
 
@@ -1308,8 +1292,6 @@ model Certificate {
 
   @@unique([recipientEmail, eventId, type], name: "unique_cert_per_event")
   @@index([recipientId])
-  @@index([eventId])
-  @@index([certId])
   @@index([recipientEmail])
   @@index([eventId, issuedAt])
   @@map("certificates")
