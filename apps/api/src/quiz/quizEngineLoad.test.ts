@@ -216,6 +216,30 @@ function makeQuestions(): QuizQuestionData[] {
       points: 0,
       mediaUrl: null,
     },
+    // q3 + q4 exist so an ACTIVE-stage skip mid-POLL lands on a next question
+    // instead of finishing the quiz (which would hit the DB persistence path).
+    {
+      id: 'load-q3',
+      position: 3,
+      questionText: 'Second favourite colour?',
+      questionType: 'POLL',
+      options: POLL_OPTIONS,
+      correctAnswer: null,
+      timeLimitSeconds: 30,
+      points: 0,
+      mediaUrl: null,
+    },
+    {
+      id: 'load-q4',
+      position: 4,
+      questionText: '3 + 3 = ?',
+      questionType: 'MCQ',
+      options: ['6', '7'],
+      correctAnswer: '6',
+      timeLimitSeconds: 30,
+      points: 100,
+      mediaUrl: null,
+    },
   ];
 }
 
@@ -403,6 +427,29 @@ test('150-player MCQ + POLL flow: batched poll broadcasts, exact distribution, H
       playerSockets.map((s) => s.countReceived('poll_results_update')),
       countsAfterReveal,
       'no poll_results_update may fire after the reveal',
+    );
+
+    // ── ACTIVE-stage skip mid-POLL cancels pending throttle ticks ──
+    // (skip bypasses the reveal, so emitQuestionResults never runs — the skip
+    // handler must clear the throttles itself or a tick from the skipped
+    // question fires into the next one.)
+    await adminSocket.trigger('next_question', { quizId });
+    assert.equal(room.status, 'active');
+    assert.equal(room.currentQuestionIndex, 2, 'expected to be on the second POLL question');
+
+    for (let i = 0; i < 10; i++) {
+      await playerSockets[i].trigger('submit_answer', { quizId, answer: POLL_OPTIONS[0] });
+    }
+    await adminSocket.trigger('skip_question', { quizId });
+    assert.equal(room.status, 'active');
+    assert.equal(room.currentQuestionIndex, 3, 'skip must land on the MCQ filler question');
+
+    const countsAfterSkip = playerSockets.map((s) => s.countReceived('poll_results_update'));
+    await wait(1100);
+    assert.deepEqual(
+      playerSockets.map((s) => s.countReceived('poll_results_update')),
+      countsAfterSkip,
+      'a pending poll tick from a skipped question must not fire into the next question',
     );
   } finally {
     quizStore.cleanupQuiz(quizId);

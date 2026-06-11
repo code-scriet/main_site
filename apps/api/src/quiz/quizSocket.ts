@@ -802,6 +802,13 @@ export function initQuizSocket(io: SocketIOServer) {
             room.autoAdvanceTimer = null;
           }
 
+          // Active-stage skip bypasses the reveal, so emitQuestionResults
+          // won't clear the throttles — cancel pending ticks here so a
+          // count/poll update from the skipped question can't fire into the
+          // next one.
+          clearAnswerCountThrottle(quizId);
+          clearPollResultsThrottle(quizId);
+
           // Active-stage skip: jump directly to next question / finish (bypasses reveal).
           const advancement = quizStore.advanceQuestion(quizId);
           if (advancement.done) {
