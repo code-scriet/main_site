@@ -33,7 +33,6 @@ export default defineConfig({
           // they're only fetched when the screens that need them mount.
           'vendor-charts': ['recharts'],
           'vendor-qr': ['html5-qrcode', 'jsqr', 'qrcode.react'],
-          'vendor-monaco': ['@monaco-editor/react', 'monaco-editor'],
         },
       },
     },

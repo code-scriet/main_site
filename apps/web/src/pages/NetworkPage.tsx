@@ -305,7 +305,7 @@ export default function NetworkPage() {
                   code.scriet Network
                 </motion.div>
 
-                <h1 className="max-w-xl text-4xl font-extrabold leading-[1.1] tracking-tight text-gray-900 dark:text-zinc-100 sm:text-5xl lg:text-6xl">
+                <h1 className="max-w-xl text-4xl font-black leading-[1.1] tracking-tight text-gray-900 dark:text-zinc-100 sm:text-5xl lg:text-6xl">
                   Connect with{' '}
                   <span className="bg-gradient-to-r from-amber-500 to-orange-500 bg-clip-text text-transparent dark:from-rose-500 dark:to-red-400">
                     Alumni &amp; Professionals
