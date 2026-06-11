@@ -9,14 +9,14 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     
     <!-- Google Fonts - Distinctive Typography (preload + async-swap to avoid render-blocking).
-         Only the public-page fonts (Outfit + Sora + Fira Code 400) load here. Geist + Geist
+         Only the public-page fonts (Outfit + Sora) load here. Geist + Geist
          Mono are injected from DashboardLayout on mount so the public home/events/etc. pages
          don't pay for fonts they never use. -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link rel="preload" as="style" href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800;900&family=Sora:wght@400;500;600;700;800&family=Fira+Code:wght@400&display=swap">
-    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800;900&family=Sora:wght@400;500;600;700;800&family=Fira+Code:wght@400&display=swap" media="print" onload="this.media='all'">
-    <noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800;900&family=Sora:wght@400;500;600;700;800&family=Fira+Code:wght@400&display=swap"></noscript>
+    <link rel="preload" as="style" href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800;900&family=Sora:wght@400;500;600;700;800&display=swap">
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800;900&family=Sora:wght@400;500;600;700;800&display=swap" media="print" onload="this.media='all'">
+    <noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800;900&family=Sora:wght@400;500;600;700;800&display=swap"></noscript>
     <!-- Public-site v2 type stack: Newsreader (display serif) + Inter Tight (body) + JetBrains Mono.
          Applies inside [data-public] only; dashboard ([data-dashboard]) keeps Geist via DashboardLayout. -->
     <link rel="preload" as="style" href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;0,6..72,700;1,6..72,400;1,6..72,500&family=Inter+Tight:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap">
