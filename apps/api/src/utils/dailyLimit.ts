@@ -64,11 +64,14 @@ export async function consumeDailyQuota(
   // Fresh row inserts directly at `amount` (amount ≤ limit is guaranteed by the
   // guard above, matching the old create(0)+increment). On conflict the guarded
   // UPDATE only fires while count ≤ limit − amount; no row returned ⇒ over cap.
-  // updated_at is set explicitly to preserve @updatedAt semantics in raw SQL.
+  // updated_at is set explicitly on BOTH branches: the column is @updatedAt
+  // (NOT NULL, no DB default — migration 20260320122827 dropped it), so a bare
+  // INSERT without it fails with a not-null violation on the first run of
+  // every user-day.
   const dateKey = getIstDateKey();
   const rows = await prisma.$queryRaw<Array<{ count: number }>>`
-    INSERT INTO playground_daily_usage (user_id, usage_date, count)
-    VALUES (${userId}, ${dateKey}::date, ${amount})
+    INSERT INTO playground_daily_usage (user_id, usage_date, count, updated_at)
+    VALUES (${userId}, ${dateKey}::date, ${amount}, now())
     ON CONFLICT (user_id, usage_date)
     DO UPDATE SET count = playground_daily_usage.count + ${amount}, updated_at = now()
     WHERE playground_daily_usage.count <= ${limit - amount}
