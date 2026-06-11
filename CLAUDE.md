@@ -206,7 +206,7 @@ PUBLIC=0 · USER=1 · NETWORK=1 · MEMBER=2 · CORE_MEMBER=3 · ADMIN=4 · PRESI
 Relations: announcements, registrations, hiringApplications, qotdSubmissions, networkProfile, teamMember, invitationsReceived/Sent, createdQuizzes, quizParticipants/Answers, certificates, ledTeams, teamMemberships, competitionSubmissions/AutoSaves, createdPolls, pollVotes/Feedback, eventsCreated, qotdsCreated, auditLogs, executions, snippets, playgroundPrefs, playgroundDailyUsage, playgroundLimitResets, blocks (UserBlock[]).
 
 ### UserBlock (admin-deep-control)
-`id, userId, feature(UserBlockFeature), blockedAt, blockedBy, reason?, expiresAt?` · unique `[userId,feature]` · index `[userId]`, `[feature,expiresAt]`. Lazy expiry via `requireNotBlocked(feature)`.
+`id, userId, feature(UserBlockFeature), blockedAt, blockedBy, reason?, expiresAt?` · unique `[userId,feature]` · index `[feature,expiresAt]`. Lazy expiry via `requireNotBlocked(feature)`.
 
 ### Settings (singleton id='default')
 clubName/Email/Description · registrationOpen · maxEventsPerUser · announcementsEnabled · showAchievements/Leaderboard/QOTD · social URLs · contactPhone? · contactEmails(JSON `{label,email}[]`, admin-managed, shown on public `/contact`) · hiringEnabled + 5 categories · email* template bodies · show_tech_blogs · showNetwork · mailingEnabled · certificatesEnabled · playgroundEnabled · playgroundDailyLimit · competitionEnabled · problemsEnabled · email\*Enabled (welcome/eventCreation/registration/announcement/certificate/reminder/invitation/passwordReset) · emailTestingMode/TestRecipients · attendanceJwtSecret? · indexNowKey? · **accentColor** (default `"rust"`).
@@ -221,7 +221,7 @@ clubName/Email/Description · registrationOpen · maxEventsPerUser · announceme
 `id, eventId, inviteeUserId?, inviteeEmail?, inviteeNameSnapshot?/Designation?/Company?, role(default "Guest"), customMessage?, status(InvitationStatus), certificateEnabled(default true), certificateType(default SPEAKER), invitedById, invitedAt, respondedAt?, revokedAt?, emailSent, emailSentAt?, lastEmailResentAt?, registrationId?(unique), createdAt/updatedAt` · unique `[eventId,inviteeUserId]` · `EXPIRED` derived at read time.
 
 ### DayAttendance
-`id, registrationId, dayNumber, attended(default false), scannedAt?, scannedBy?, manualOverride(default false), createdAt/updatedAt` · unique `[registrationId,dayNumber]` · index `[dayNumber,attended]`.
+`id, registrationId, dayNumber, attended(default false), scannedAt?, scannedBy?, manualOverride(default false), createdAt/updatedAt` · unique `[registrationId,dayNumber]`.
 
 ### EventTeam / EventTeamMember
 `EventTeam: id, eventId, teamName, inviteCode(unique, 8-char hex), leaderId, isLocked, createdAt` · unique `[eventId,teamName]`. `EventTeamMember: id, teamId, userId, registrationId(unique), role("LEADER"|"MEMBER"), joinedAt` · unique `[teamId,userId]`. Leader has `onDelete: Restrict`. Serializable txn + 3 retries.
