@@ -2088,7 +2088,7 @@ router.get('/event/:eventId/summary', authMiddleware, requireRole('CORE_MEMBER')
     const eventDays = normalizeEventDays(event.eventDays);
     const dayLabels = parseDayLabels(event.dayLabels, eventDays);
 
-    const [total, attended, daySummary] = await Promise.all([
+    const [total, attended, dayGroups] = await Promise.all([
       // Hard Constraint #11: summary KPIs reflect the participant lane only.
       prisma.eventRegistration.count({
         where: { eventId, ...participantsOnly },
@@ -2096,19 +2096,23 @@ router.get('/event/:eventId/summary', authMiddleware, requireRole('CORE_MEMBER')
       prisma.eventRegistration.count({
         where: { eventId, ...participantsOnly, attended: true },
       }),
-      Promise.all(
-        Array.from({ length: eventDays }, (_, index) => index + 1).map(async (dayNumber) => ({
-          dayNumber,
-          attended: await prisma.dayAttendance.count({
-            where: {
-              dayNumber,
-              attended: true,
-              registration: { eventId, ...participantsOnly },
-            },
-          }),
-        })),
-      ),
+      // One groupBy replaces a count query per event day (≤10) — same pattern
+      // as /live/:eventId above.
+      prisma.dayAttendance.groupBy({
+        by: ['dayNumber'],
+        where: {
+          attended: true,
+          registration: { eventId, ...participantsOnly },
+        },
+        _count: { id: true },
+      }),
     ]);
+
+    const attendedByDay = new Map(dayGroups.map((g) => [g.dayNumber, g._count.id]));
+    const daySummary = Array.from({ length: eventDays }, (_, index) => index + 1).map((dayNumber) => ({
+      dayNumber,
+      attended: attendedByDay.get(dayNumber) ?? 0,
+    }));
 
     return ApiResponse.success(res, { total, attended, eventDays, dayLabels, daySummary });
   } catch (error) {

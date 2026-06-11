@@ -59,23 +59,28 @@ export async function consumeDailyQuota(
     return { allowed: false, remaining: Math.max(0, limit - used), limit, used };
   }
 
-  await prisma.playgroundDailyUsage.upsert({
-    where: { userId_usageDate: { userId, usageDate } },
-    create: { userId, usageDate, count: 0 },
-    update: {},
-  });
+  // Single atomic INSERT … ON CONFLICT replaces the old upsert + guarded
+  // updateMany + findUnique re-read (3 round-trips → 1 on the success path).
+  // Fresh row inserts directly at `amount` (amount ≤ limit is guaranteed by the
+  // guard above, matching the old create(0)+increment). On conflict the guarded
+  // UPDATE only fires while count ≤ limit − amount; no row returned ⇒ over cap.
+  // updated_at is set explicitly to preserve @updatedAt semantics in raw SQL.
+  const dateKey = getIstDateKey();
+  const rows = await prisma.$queryRaw<Array<{ count: number }>>`
+    INSERT INTO playground_daily_usage (user_id, usage_date, count)
+    VALUES (${userId}, ${dateKey}::date, ${amount})
+    ON CONFLICT (user_id, usage_date)
+    DO UPDATE SET count = playground_daily_usage.count + ${amount}, updated_at = now()
+    WHERE playground_daily_usage.count <= ${limit - amount}
+    RETURNING count;
+  `;
 
-  const updated = await prisma.playgroundDailyUsage.updateMany({
-    where: {
-      userId,
-      usageDate,
-      count: { lte: limit - amount },
-    },
-    data: {
-      count: { increment: amount },
-    },
-  });
+  if (rows.length > 0) {
+    const used = Number(rows[0].count);
+    return { allowed: true, remaining: Math.max(0, limit - used), limit, used };
+  }
 
+  // Over cap — one fallback read so `used` in the response stays accurate.
   const current = await prisma.playgroundDailyUsage.findUnique({
     where: { userId_usageDate: { userId, usageDate } },
     select: { count: true },
@@ -83,7 +88,7 @@ export async function consumeDailyQuota(
   const used = current?.count ?? 0;
 
   return {
-    allowed: updated.count === 1,
+    allowed: false,
     remaining: Math.max(0, limit - used),
     limit,
     used,

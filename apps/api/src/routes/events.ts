@@ -1109,10 +1109,17 @@ eventsRouter.get('/:id/registrations/export', authMiddleware, requireRole('CORE_
       ? (registrationTypeFilterRaw as RegistrationType)
       : null;
     
+    // Bound the fetch like the list endpoint (5,000 cap — the export was the
+    // only unbounded registrations read) and push the registrationType filter
+    // into the WHERE (exact enum equality, validated above — safe to push).
+    // The fuzzy filters (year/branch/course/role/search) stay in JS: their
+    // trim+lowercase+joined-field semantics aren't expressible in SQL with
+    // byte-identical results, and they run over ≤5,000 rows.
     const event = await prisma.event.findUnique({
       where: { id: req.params.id },
       include: {
         registrations: {
+          where: registrationTypeFilter ? { registrationType: registrationTypeFilter } : undefined,
           select: {
             id: true,
             userId: true,
@@ -1143,6 +1150,7 @@ eventsRouter.get('/:id/registrations/export', authMiddleware, requireRole('CORE_
             },
           },
           orderBy: { timestamp: 'asc' },
+          take: 5000,
         },
       },
     });

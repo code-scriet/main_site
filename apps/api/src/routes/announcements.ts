@@ -16,7 +16,6 @@ import { requireUuid } from '../utils/idParams.js';
 import { sanitizeHtml } from '../utils/sanitize.js';
 
 export const announcementsRouter = Router();
-const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 const optionalUrl = z.union([z.string().url('Must be a valid URL'), z.literal(''), z.null()]).optional();
 
@@ -195,11 +194,13 @@ announcementsRouter.get('/:id', async (req: Request, res: Response) => {
   try {
     const idOrSlug = req.params.id;
     const includeOptions = { creator: { select: { id: true, name: true, avatar: true } } } as const;
-    const announcement = UUID_REGEX.test(idOrSlug)
-      ? (await prisma.announcement.findUnique({ where: { id: idOrSlug }, include: includeOptions })) ??
-        (await prisma.announcement.findUnique({ where: { slug: idOrSlug }, include: includeOptions }))
-      : (await prisma.announcement.findUnique({ where: { slug: idOrSlug }, include: includeOptions })) ??
-        (await prisma.announcement.findUnique({ where: { id: idOrSlug }, include: includeOptions }));
+    // Single round-trip (was 2 sequential findUnique). id and slug are both
+    // unique and slugs are generated word-strings that can never collide with
+    // a UUID, so the OR has exactly one match. Mirrors resolveProblem().
+    const announcement = await prisma.announcement.findFirst({
+      where: { OR: [{ id: idOrSlug }, { slug: idOrSlug }] },
+      include: includeOptions,
+    });
 
     if (!announcement) {
       return res.status(404).json({ success: false, error: { message: 'Announcement not found' } });

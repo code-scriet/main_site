@@ -826,37 +826,41 @@ competitionRouter.get('/:roundId', authMiddleware, async (req: Request, res: Res
     if (participationError) {
       return ApiResponse.forbidden(res, participationError);
     }
-    const hasSubmittedByUser = await prisma.competitionSubmission.findUnique({
-      where: {
-        roundId_userId: { roundId, userId: user.id },
-      },
-      select: { id: true },
-    });
-    const hasSubmittedByTeam = myTeam
-      ? await prisma.competitionSubmission.findUnique({
-          where: {
-            roundId_teamId: { roundId, teamId: myTeam.id },
-          },
-          select: { id: true },
-        })
-      : null;
-    const myProblemSubmissions = round.roundType === 'DSA'
-      ? await prisma.problemSubmission.findMany({
-          where: {
-            userId: user.id,
-            contextType: 'CONTEST',
-            contextKey: round.id,
-          },
-          select: { problemId: true, score: true, verdict: true, updatedAt: true },
-        })
-      : [];
-
+    // These four lookups are mutually independent once myTeam is resolved —
+    // one parallel stage instead of four sequential round-trips on a page the
+    // solve UI polls while a round is live.
     const isAdmin = hasPermission(user.role, 'ADMIN');
-    const pendingCapRequests = isAdmin && round.roundType === 'DSA'
-      ? await prisma.problemSubmissionCounter.count({
-          where: { contextType: 'CONTEST', contextKey: round.id, pendingRequest: true },
-        })
-      : 0;
+    const [hasSubmittedByUser, hasSubmittedByTeam, myProblemSubmissions, pendingCapRequests] = await Promise.all([
+      prisma.competitionSubmission.findUnique({
+        where: {
+          roundId_userId: { roundId, userId: user.id },
+        },
+        select: { id: true },
+      }),
+      myTeam
+        ? prisma.competitionSubmission.findUnique({
+            where: {
+              roundId_teamId: { roundId, teamId: myTeam.id },
+            },
+            select: { id: true },
+          })
+        : Promise.resolve(null),
+      round.roundType === 'DSA'
+        ? prisma.problemSubmission.findMany({
+            where: {
+              userId: user.id,
+              contextType: 'CONTEST',
+              contextKey: round.id,
+            },
+            select: { problemId: true, score: true, verdict: true, updatedAt: true },
+          })
+        : Promise.resolve([]),
+      isAdmin && round.roundType === 'DSA'
+        ? prisma.problemSubmissionCounter.count({
+            where: { contextType: 'CONTEST', contextKey: round.id, pendingRequest: true },
+          })
+        : Promise.resolve(0),
+    ]);
 
     return ApiResponse.success(res, {
       id: round.id,
@@ -2178,29 +2182,21 @@ competitionRouter.post('/:roundId/raise-cap', authMiddleware, requireRole('ADMIN
       ? [parsed.data.userId]
       : Array.from(new Set(round.event.registrations.map((registration) => registration.userId)));
 
-    await prisma.$transaction(
-      userIds.flatMap((userId) => problemIds.map((problemId) =>
-        prisma.problemSubmissionCounter.upsert({
-          where: {
-            userId_problemId_contextType_contextKey: {
-              userId,
-              problemId,
-              contextType: 'CONTEST',
-              contextKey: round.id,
-            },
-          },
-          create: {
-            userId,
-            problemId,
-            contextType: 'CONTEST',
-            contextKey: round.id,
-            count: 0,
-            capOverride: parsed.data.newCap,
-          },
-          update: { capOverride: parsed.data.newCap },
-        }),
-      )),
-    );
+    // One set-based statement replaces users×problems individual upserts in a
+    // single transaction (event-wide raise on a 200-user, 4-problem round was
+    // 800 statements on one pooled connection). CROSS JOIN of the two unnested
+    // arrays generates every (user, problem) pair; existing counters only get
+    // cap_override updated (count untouched), new ones insert at count 0 —
+    // identical to the old upsert. id (client-side uuid) and updated_at
+    // (@updatedAt) have no DB defaults, so raw SQL supplies both.
+    await prisma.$executeRaw`
+      INSERT INTO problem_submission_counters (id, user_id, problem_id, context_type, context_key, count, cap_override, updated_at)
+      SELECT gen_random_uuid()::text, u.user_id, p.problem_id, 'CONTEST'::"ProblemContextType", ${round.id}, 0, ${parsed.data.newCap}, now()
+      FROM unnest(${userIds}::text[]) AS u(user_id)
+      CROSS JOIN unnest(${problemIds}::text[]) AS p(problem_id)
+      ON CONFLICT (user_id, problem_id, context_type, context_key)
+      DO UPDATE SET cap_override = EXCLUDED.cap_override, updated_at = now();
+    `;
     await auditLog(admin.id, 'COMPETITION_DSA_CAP_RAISED', 'CompetitionRound', round.id, parsed.data);
     return ApiResponse.success(res, { success: true, affectedUsers: userIds.length, affectedProblems: problemIds.length });
   } catch (error) {

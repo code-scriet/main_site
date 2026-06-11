@@ -167,13 +167,53 @@ async function addSubmissionStatus<T extends { id: string; problemId: string | n
   return { ...qotd, hasSubmitted: Boolean(submission) };
 }
 
-async function serializeQotd(qotd: QotdWithProblem, userId?: string) {
-  const withStatus = await addSubmissionStatus(qotd, userId);
+async function serializeQotd(qotd: QotdWithProblem, userId?: string, precomputedHasSubmitted?: boolean) {
+  const withStatus = precomputedHasSubmitted !== undefined
+    ? { ...qotd, hasSubmitted: precomputedHasSubmitted }
+    : await addSubmissionStatus(qotd, userId);
   if (!qotd.problem) return withStatus;
   return {
     ...withStatus,
     problem: await serializeProblemDetail(qotd.problem, undefined),
   };
+}
+
+// Batch form of addSubmissionStatus for list endpoints: two grouped queries
+// replace one point read per row (up to 100 on /history). Semantics are
+// byte-identical to the per-row unique-key lookup — including the problemId
+// match, so a submission left behind after an admin re-points qotd.problemId
+// still does NOT count as submitted.
+async function getSubmittedQotdIds(
+  qotds: Array<{ id: string; problemId: string | null }>,
+  userId?: string,
+): Promise<Set<string>> {
+  const submitted = new Set<string>();
+  if (!userId || qotds.length === 0) return submitted;
+
+  const withProblem = qotds.filter((q) => q.problemId);
+  const legacyOnly = qotds.filter((q) => !q.problemId);
+
+  const [problemSubs, legacySubs] = await Promise.all([
+    withProblem.length
+      ? prisma.problemSubmission.findMany({
+          where: { userId, contextType: 'QOTD', contextKey: { in: withProblem.map((q) => q.id) } },
+          select: { contextKey: true, problemId: true },
+        })
+      : Promise.resolve([]),
+    legacyOnly.length
+      ? prisma.qOTDSubmission.findMany({
+          where: { userId, qotdId: { in: legacyOnly.map((q) => q.id) } },
+          select: { qotdId: true },
+        })
+      : Promise.resolve([]),
+  ]);
+
+  const problemIdByQotdId = new Map(withProblem.map((q) => [q.id, q.problemId] as const));
+  for (const sub of problemSubs) {
+    if (problemIdByQotdId.get(sub.contextKey) === sub.problemId) submitted.add(sub.contextKey);
+  }
+  for (const sub of legacySubs) submitted.add(sub.qotdId);
+  return submitted;
 }
 
 qotdRouter.get('/today', optionalAuthMiddleware, async (req: Request, res: Response) => {
@@ -223,7 +263,8 @@ qotdRouter.get('/history', optionalAuthMiddleware, async (req: Request, res: Res
       }),
       prisma.qOTD.count({ where: baseWhere }),
     ]);
-    const data = await Promise.all(qotds.map((qotd) => serializeQotd(qotd, authUser?.id)));
+    const submittedIds = await getSubmittedQotdIds(qotds, authUser?.id);
+    const data = await Promise.all(qotds.map((qotd) => serializeQotd(qotd, authUser?.id, submittedIds.has(qotd.id))));
     return res.json({ success: true, data, pagination: { total, limit, offset } });
   } catch {
     return ApiResponse.internal(res, 'Failed to fetch QOTD history');
