@@ -30,9 +30,10 @@ function scheduleAnswerCountBroadcast(quizId: string, ns: { to: (room: string) =
     const room = quizStore.getRoom(quizId);
     if (!room || room.status !== 'active') return;
 
-    const players = Array.from(room.players.values());
-    const answered = players.filter(p => p.answeredCurrentQuestion).length;
-    const total = players.filter(p => p.connected).length;
+    // O(1) room counters (maintained in quizStore on every player transition)
+    // replace the former full players-map scan per throttle tick.
+    const answered = room.answeredCount;
+    const total = room.connectedCount;
 
     ns.to(quizId).emit('answer_count_update', { answered, total });
 
@@ -47,6 +48,38 @@ function clearAnswerCountThrottle(quizId: string): void {
   if (timer) {
     clearTimeout(timer);
     answerCountThrottles.delete(quizId);
+  }
+}
+
+// ─── Throttle map for poll_results_update broadcasts ─────────────────────────
+// Same 1000ms batch pattern as answer_count_update (Hard Constraint #8 exists
+// precisely for this class). Unthrottled, every POLL/RATING answer broadcast
+// the full distribution to the whole room — O(n²) messages per poll question,
+// ≈810k emits in one question window at the 900-player ceiling. The reveal
+// path (question_results) still carries the authoritative final distribution;
+// these live updates are cosmetic, so a ≤1s-trailing batched emit is safe.
+const pollResultsThrottles = new Map<string, NodeJS.Timeout>();
+
+function schedulePollResultsBroadcast(quizId: string, ns: { to: (room: string) => { emit: (ev: string, data: any) => void } }): void {
+  if (pollResultsThrottles.has(quizId)) return;
+
+  pollResultsThrottles.set(quizId, setTimeout(() => {
+    pollResultsThrottles.delete(quizId);
+    const room = quizStore.getRoom(quizId);
+    if (!room || room.status !== 'active') return;
+
+    ns.to(quizId).emit('poll_results_update', {
+      distribution: quizStore.getAnswerDistribution(quizId),
+      totalResponses: room.currentAnswers.size,
+    });
+  }, 1000));
+}
+
+function clearPollResultsThrottle(quizId: string): void {
+  const timer = pollResultsThrottles.get(quizId);
+  if (timer) {
+    clearTimeout(timer);
+    pollResultsThrottles.delete(quizId);
   }
 }
 
@@ -167,6 +200,9 @@ export function initQuizSocket(io: SocketIOServer) {
     if (!plan) return;
 
     clearAnswerCountThrottle(quizId);
+    // The reveal payload below carries the final distribution — cancel any
+    // pending live-update tick so a stale post-reveal emit can't fire.
+    clearPollResultsThrottle(quizId);
 
     // Hard Constraint #7: leaderboard sliced to top-10 inside planQuestionResults.
     quizNamespace.to(quizId).emit('question_results', plan.broadcast);
@@ -585,12 +621,10 @@ export function initQuizSocket(io: SocketIOServer) {
         // Throttled: batches updates to max ~1.3×/sec
         scheduleAnswerCountBroadcast(quizId, quizNamespace);
 
-        // For POLL/RATING: broadcast live results to everyone as votes come in
+        // For POLL/RATING: live results to everyone, batched to 1 emit/sec —
+        // unthrottled this was n submits × n recipients per poll question.
         if (isPollOrRating) {
-          quizNamespace.to(quizId).emit('poll_results_update', {
-            distribution: quizStore.getAnswerDistribution(quizId),
-            totalResponses: room.currentAnswers.size,
-          });
+          schedulePollResultsBroadcast(quizId, quizNamespace);
         }
       }
     });
@@ -767,6 +801,13 @@ export function initQuizSocket(io: SocketIOServer) {
             clearTimeout(room.autoAdvanceTimer);
             room.autoAdvanceTimer = null;
           }
+
+          // Active-stage skip bypasses the reveal, so emitQuestionResults
+          // won't clear the throttles — cancel pending ticks here so a
+          // count/poll update from the skipped question can't fire into the
+          // next one.
+          clearAnswerCountThrottle(quizId);
+          clearPollResultsThrottle(quizId);
 
           // Active-stage skip: jump directly to next question / finish (bypasses reveal).
           const advancement = quizStore.advanceQuestion(quizId);
