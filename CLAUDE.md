@@ -127,6 +127,8 @@ Startup in `apps/api/src/index.ts`:
 
 Shutdown (SIGTERM/SIGINT): stop schedulers → close Socket.io → persist active quizzes as `ABANDONED` → close HTTP → disconnect Prisma → hard-timeout 28s (beats Render's 30s SIGKILL).
 
+Crash handlers (G1): `unhandledRejection` is logged with stack, process keeps running; `uncaughtException` logs then drains through the same `shutdown()` path (live quizzes persist as `ABANDONED`) and exits 1 (`Drained after crash`).
+
 ---
 
 ## Auth Flow
@@ -629,7 +631,7 @@ Migration: `prisma/migrations/20260517210000_dashboard_v2/migration.sql` (additi
 ## Deployment (Render)
 
 4 services in `render.yaml`:
-1. **codescriet-api** — Node web. Build: `npm install --include=dev && npx prisma generate --schema=./prisma/schema.prisma && npm run build --workspace=apps/api`. Start: migration resolve/deploy + `npm run start --workspace=apps/api`. Sets `ENABLE_BACKGROUND_SCHEDULERS=true` (event-status sync + event reminders + QOTD auto-publish; safe because UptimeRobot keeps the instance warm).
+1. **codescriet-api** — Node web. Build: `npm install --include=dev && npx prisma generate --schema=./prisma/schema.prisma && npm run build --workspace=apps/api`. Start: migration resolve/deploy + `npm run start --workspace=apps/api`. Sets `ENABLE_BACKGROUND_SCHEDULERS=true` (event-status sync + event reminders + QOTD auto-publish; safe because UptimeRobot keeps the instance warm). `buildFilter` scopes deploys to `apps/api/**, prisma/**, package.json, package-lock.json` (G2 — web-only commits no longer restart the API and kill live quizzes).
 2. **codescriet-web** — static. Build: `npm install && node scripts/generate-sitemap.js && npm run build --workspace=apps/web && node scripts/prerender.js` (prerenders route-specific HTML for crawlers/social cards).
 3. **codescriet-playground-api** — Node (`node execute-server.js`).
 4. **codescriet-playground-web** — static (`apps/playground/dist`).

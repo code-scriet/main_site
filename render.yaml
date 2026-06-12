@@ -11,6 +11,15 @@ services:
     # past 20260220003000_harden_email_and_network_query_indexes.
     startCommand: npx prisma migrate resolve --rolled-back 20260220003000_harden_email_and_network_query_indexes --schema=./prisma/schema.prisma || true && npx prisma migrate deploy --schema=./prisma/schema.prisma && npm run start --workspace=apps/api
     healthCheckPath: /ping
+    # G2: without a buildFilter, ANY commit (homepage copy tweaks included)
+    # triggers an API deploy — and an API restart persists live quizzes as
+    # ABANDONED. Scope API deploys to paths that can change API behavior.
+    buildFilter:
+      paths:
+        - apps/api/**
+        - prisma/**
+        - package.json
+        - package-lock.json
     envVars:
       - key: NODE_ENV
         value: production
