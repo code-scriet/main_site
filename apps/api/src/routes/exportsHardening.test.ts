@@ -102,10 +102,13 @@ test('users export cursor-batches the whole table (1234 users, 3 batches)', asyn
     oauthProvider: null,
     githubUrl: null,
     linkedinUrl: null,
-    createdAt: new Date(Date.UTC(2026, 0, 1) + i * 60_000),
+    // Groups of 100 share a createdAt (bulk-import shape) so pagination must
+    // lean on the id tiebreaker — ties straddle batch boundaries at 500/1000.
+    createdAt: new Date(Date.UTC(2026, 0, 1) + Math.floor(i / 100) * 60_000),
   }));
-  // Newest-first like the handler's orderBy
-  const sorted = [...allUsers].sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+  // Newest-first like the handler's orderBy: [createdAt desc, id desc]
+  const sorted = [...allUsers].sort((a, b) =>
+    b.createdAt.getTime() - a.createdAt.getTime() || b.id.localeCompare(a.id));
 
   let findManyCalls = 0;
   const userDelegate = prisma.user as unknown as Record<string, unknown>;
@@ -134,6 +137,12 @@ test('users export cursor-batches the whole table (1234 users, 3 batches)', asyn
     assert.ok(usersSheet, 'Users sheet exists');
     assert.equal(usersSheet.rowCount - 1, TOTAL_USERS, 'every user row exported (header excluded)');
     assert.ok(findManyCalls >= 3, `expected >= 3 cursor batches, saw ${findManyCalls}`);
+    // No row skipped or duplicated across batch boundaries despite createdAt ties
+    const exportedEmails = new Set<string>();
+    usersSheet.eachRow((row, n) => {
+      if (n > 1) exportedEmails.add(String(row.getCell(3).value));
+    });
+    assert.equal(exportedEmails.size, TOTAL_USERS, 'all emails distinct — no duplicates from cursor ties');
 
     const summary = workbook.getWorksheet('Summary');
     assert.ok(summary, 'Summary sheet exists');
@@ -225,6 +234,11 @@ test('quiz export streams a valid 5-sheet workbook equivalent to the buffered on
     assert.equal(lb.getRow(2).getCell(1).value, 1, 'rank 1 first');
     assert.equal(lb.getRow(2).getCell(2).value, 'Alpha');
     assert.equal(lb.getRow(2).getCell(3).value, 230);
+    // Styling survives the streaming writer (catches a useStyles drop):
+    const headerFill = lb.getRow(1).getCell(1).fill as { fgColor?: { argb?: string } };
+    assert.equal(headerFill?.fgColor?.argb, 'FFD97706', 'amber header fill present');
+    const rowFill = lb.getRow(2).getCell(1).fill as { fgColor?: { argb?: string } };
+    assert.equal(rowFill?.fgColor?.argb, 'FFFEF3C7', 'alternating row tint present');
 
     const qa = workbook.getWorksheet('Question Analytics')!;
     assert.equal(qa.rowCount - 1, questions.length);

@@ -1533,10 +1533,12 @@ quizRouter.get('/:quizId/export', authMiddleware, requireRole('CORE_MEMBER'), as
     // the detail sheets are participants × questions × 4 cells and ExcelJS
     // commonly needs ~0.5–1 KB per in-memory cell, i.e. hundreds of MB at the
     // 900-player ceiling against a 400 MB heap. The streaming WorkbookWriter
-    // writes each committed row straight to `res`, so peak memory is one row +
-    // zip buffers regardless of quiz size. Headers must be set before the
-    // writer is constructed (it starts writing immediately); from here on,
-    // failures can only truncate the download, not return a JSON 500.
+    // writes each committed row straight to `res`, so peak memory is bounded by
+    // the raw DB rows already loaded above (allAnswers + maps ≈ 15–20 MB at the
+    // 900-player ceiling) plus one row + zip buffers — not the ExcelJS cell
+    // graph. Headers must be set before the writer is constructed (it starts
+    // writing immediately); from here on, failures can only truncate the
+    // download, not return a JSON 500.
     const filename = `${quiz.title.replace(/[^a-z0-9]/gi, '_')}_results.xlsx`;
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
