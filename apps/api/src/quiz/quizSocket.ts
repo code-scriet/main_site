@@ -305,6 +305,13 @@ export function initQuizSocket(io: SocketIOServer) {
           return;
         }
 
+        // B3: kick is final for this room — the kicked player's 20-min access
+        // token stays valid, so without this check they could rejoin instantly.
+        if (room.kickedUserIds.has(socket.userId) && socket.userId !== room.adminUserId) {
+          socket.emit('quiz_error', { code: 'KICKED', message: 'You were removed from this quiz by the host' });
+          return;
+        }
+
         // Join socket room
         socket.join(quizId);
         socket.currentQuizId = quizId;
@@ -468,13 +475,32 @@ export function initQuizSocket(io: SocketIOServer) {
             mediaUrl: q.mediaUrl,
           }));
 
-          room = quizStore.initQuiz(quizId, questions, socket.userId, socket.id, quiz.title);
+          // Only an open quiz may be (re)started: hydrating FINISHED/ABANDONED/
+          // DRAFT here would resurrect it as ACTIVE, bypassing the open flow.
+          // ACTIVE is allowed through for crash recovery (server restarted
+          // mid-quiz, room lost — host restarts from Q0).
+          if (quiz.status !== 'WAITING' && quiz.status !== 'ACTIVE') {
+            emitBlockedControlAction('QUIZ_NOT_OPEN', 'This quiz is not open to start');
+            return;
+          }
+
+          // B2: pass joinCode/pin through like the join_quiz hydration does,
+          // or the host panel shows no PIN after a restart mid-lobby.
+          room = quizStore.initQuiz(quizId, questions, socket.userId, socket.id, quiz.title, quiz.joinCode, quiz.pin);
         } else {
           // Verify admin
           if (!canControlQuiz(room, socket)) {
             emitBlockedControlAction('FORBIDDEN', 'Only quiz hosts can start it');
             return;
           }
+        }
+
+        // B1: status guard — a host double-click / client retry emitted
+        // start_quiz twice; the second call advanced past Q0 before anyone
+        // answered and re-ran the DB UPDATE. Only a waiting room can start.
+        if (room.status !== 'waiting') {
+          emitBlockedControlAction('ALREADY_STARTED', 'Quiz has already started');
+          return;
         }
 
         // Update DB status
