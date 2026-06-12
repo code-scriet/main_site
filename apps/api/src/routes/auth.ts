@@ -11,7 +11,7 @@ import { prisma } from '../lib/prisma.js';
 import { socketEvents } from '../utils/socket.js';
 import { emailService } from '../utils/email.js';
 import { logger } from '../utils/logger.js';
-import { signAccessToken, signOAuthExchangeCode, verifyOAuthExchangeCode } from '../utils/jwt.js';
+import { consumeOAuthExchangeJti, signAccessToken, signOAuthExchangeCode, verifyOAuthExchangeCode } from '../utils/jwt.js';
 import { auditLog } from '../utils/audit.js';
 import { hashPasswordResetToken } from '../utils/passwordReset.js';
 import { oauthStateMatches } from '../utils/oauthEmail.js';
@@ -564,6 +564,12 @@ authRouter.post('/exchange-code', async (req: Request, res: Response) => {
     payload = verifyOAuthExchangeCode(parsed.data.code);
   } catch {
     return res.status(400).json({ error: 'Authorization code expired or invalid' });
+  }
+
+  // Single-use (audit S1/S4): the code travels in a URL, so a leaked copy
+  // (history, referrer) must be worthless once the legitimate exchange ran.
+  if (!consumeOAuthExchangeJti(payload.jti)) {
+    return res.status(400).json({ error: 'Authorization code already used' });
   }
 
   try {
