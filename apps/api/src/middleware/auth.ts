@@ -79,10 +79,10 @@ const authMiddlewareImpl = async (
       return res.status(401).json({ error: 'Invalid token payload' });
     }
 
-    // Purpose allowlist (audit S1): access tokens never carry a `purpose` claim.
-    // Every special-purpose token signed with the shared secret does (attendance
-    // QR, oauth_exchange, invitation_claim, quiz_access) — reject them all
-    // instead of blocklisting individual values.
+    // Purpose allowlist (audit S1): access tokens never carry a `purpose` claim;
+    // special-purpose tokens do (oauth_exchange, invitation_claim, quiz_access
+    // share this secret; attendance QR uses its own runtime secret — rejecting
+    // its purpose here is defense-in-depth). Allowlist, not blocklist.
     if (typeof (decoded as Record<string, unknown>).purpose === 'string') {
       return res.status(401).json({ error: 'Special-purpose tokens cannot be used for authentication' });
     }

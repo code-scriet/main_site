@@ -189,10 +189,12 @@ export const verifyInvitationClaimToken = (token: string): InvitationClaimTokenP
 export const verifyToken = (token: string): AccessTokenPayload => {
   const decoded = jwt.verify(token, getJwtSecret(), { algorithms: ['HS256'] }) as Partial<AccessTokenPayload> & { purpose?: string };
 
-  // Purpose allowlist (audit S1): access tokens never carry a `purpose` claim.
-  // Every special-purpose token signed with the shared secret does (attendance
-  // QR, oauth_exchange, invitation_claim, quiz_access) — reject them all here
-  // instead of blocklisting individual values.
+  // Purpose allowlist (audit S1): access tokens never carry a `purpose` claim;
+  // special-purpose tokens do. oauth_exchange / invitation_claim / quiz_access
+  // share this signing secret — rejecting on purpose (instead of blocklisting
+  // individual values) partitions them all out of session auth. Attendance QR
+  // tokens use their own runtime secret (attendanceToken.ts), so rejecting
+  // their purpose here is defense-in-depth, not the primary barrier.
   if (typeof decoded.purpose === 'string') {
     throw new Error('Special-purpose tokens cannot be used for authentication');
   }
