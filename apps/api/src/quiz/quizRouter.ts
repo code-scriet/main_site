@@ -1528,7 +1528,24 @@ quizRouter.get('/:quizId/export', authMiddleware, requireRole('CORE_MEMBER'), as
     const participantMap = new Map(quiz.participants.map((participant) => [participant.userId, participant]));
 
     const ExcelJS = await import('exceljs');
-    const workbook = new ExcelJS.default.Workbook();
+
+    // B6: the buffered Workbook was the platform's most plausible OOM trigger —
+    // the detail sheets are participants × questions × 4 cells and ExcelJS
+    // commonly needs ~0.5–1 KB per in-memory cell, i.e. hundreds of MB at the
+    // 900-player ceiling against a 400 MB heap. The streaming WorkbookWriter
+    // writes each committed row straight to `res`, so peak memory is one row +
+    // zip buffers regardless of quiz size. Headers must be set before the
+    // writer is constructed (it starts writing immediately); from here on,
+    // failures can only truncate the download, not return a JSON 500.
+    const filename = `${quiz.title.replace(/[^a-z0-9]/gi, '_')}_results.xlsx`;
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+
+    const workbook = new ExcelJS.default.stream.xlsx.WorkbookWriter({
+      stream: res,
+      useStyles: true,
+      useSharedStrings: false,
+    });
     workbook.creator = 'code.scriet';
     workbook.created = new Date();
 
@@ -1537,6 +1554,20 @@ quizRouter.get('/:quizId/export', authMiddleware, requireRole('CORE_MEMBER'), as
       font: { bold: true, color: { argb: 'FFFFFFFF' }, size: 11 },
       fill: { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFD97706' } },
       alignment: { horizontal: 'center', vertical: 'middle' },
+    };
+    const thinBorder = {
+      top: { style: 'thin' as const, color: { argb: 'FFE5E7EB' } },
+      bottom: { style: 'thin' as const, color: { argb: 'FFE5E7EB' } },
+      left: { style: 'thin' as const, color: { argb: 'FFE5E7EB' } },
+      right: { style: 'thin' as const, color: { argb: 'FFE5E7EB' } },
+    };
+    // Streaming mode: committed rows are gone, so styles must be applied at
+    // add time (the old post-hoc `eachRow` passes don't exist here).
+    const styleAndCommitHeader = (sheet: import('exceljs').Worksheet) => {
+      const headerRow = sheet.getRow(1);
+      headerRow.eachCell((cell) => { Object.assign(cell, { style: headerStyle }); });
+      headerRow.height = 25;
+      headerRow.commit();
     };
 
     // ── Sheet 1: Leaderboard ──
@@ -1552,14 +1583,13 @@ quizRouter.get('/:quizId/export', authMiddleware, requireRole('CORE_MEMBER'), as
       { header: 'Avg Time (s)', key: 'avgTime', width: 14 },
       { header: 'Joined Mid-Quiz', key: 'midJoin', width: 16 },
     ];
-    lbSheet.getRow(1).eachCell((cell) => { Object.assign(cell, { style: headerStyle }); });
-    lbSheet.getRow(1).height = 25;
+    styleAndCommitHeader(lbSheet);
 
     for (const p of quiz.participants) {
       const accuracy = p.questionsAnswered > 0
         ? Math.round((p.correctCount / p.questionsAnswered) * 100)
         : 0;
-      lbSheet.addRow({
+      const row = lbSheet.addRow({
         rank: p.finalRank ?? '-',
         name: p.displayName,
         score: p.finalScore,
@@ -1572,19 +1602,11 @@ quizRouter.get('/:quizId/export', authMiddleware, requireRole('CORE_MEMBER'), as
           : '-',
         midJoin: p.joinedMidQuiz ? 'Yes' : 'No',
       });
+      row.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: row.number % 2 === 0 ? 'FFFEF3C7' : 'FFFFFFFF' } };
+      row.border = thinBorder;
+      row.commit();
     }
-    // Alternate row colors
-    lbSheet.eachRow((row, n) => {
-      if (n > 1) {
-        row.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: n % 2 === 0 ? 'FFFEF3C7' : 'FFFFFFFF' } };
-      }
-      row.border = {
-        top: { style: 'thin', color: { argb: 'FFE5E7EB' } },
-        bottom: { style: 'thin', color: { argb: 'FFE5E7EB' } },
-        left: { style: 'thin', color: { argb: 'FFE5E7EB' } },
-        right: { style: 'thin', color: { argb: 'FFE5E7EB' } },
-      };
-    });
+    lbSheet.commit();
 
     // ── Sheet 2: Question Analytics ──
     const qaSheet = workbook.addWorksheet('Question Analytics');
@@ -1602,8 +1624,7 @@ quizRouter.get('/:quizId/export', authMiddleware, requireRole('CORE_MEMBER'), as
       { header: 'Unanswered', key: 'unanswered', width: 12 },
       { header: 'Most Common Wrong Answer', key: 'commonWrong', width: 28 },
     ];
-    qaSheet.getRow(1).eachCell((cell) => { Object.assign(cell, { style: headerStyle }); });
-    qaSheet.getRow(1).height = 25;
+    styleAndCommitHeader(qaSheet);
 
     for (const q of quiz.questions) {
       const isUnscoredType = UNSCORED_QUESTION_TYPES.has(q.questionType as SupportedQuestionType);
@@ -1631,7 +1652,7 @@ quizRouter.get('/:quizId/export', authMiddleware, requireRole('CORE_MEMBER'), as
         correctAns = `Avg: ${(total / q.totalAnswers).toFixed(1)} ★`;
       }
 
-      qaSheet.addRow({
+      const row = qaSheet.addRow({
         num: q.position + 1,
         question: q.questionText,
         type: q.questionType,
@@ -1645,25 +1666,19 @@ quizRouter.get('/:quizId/export', authMiddleware, requireRole('CORE_MEMBER'), as
         unanswered: Math.max(0, quiz.participants.length - q.totalAnswers),
         commonWrong: isUnscoredType ? 'N/A' : commonWrong,
       });
-    }
-    // Color: low accuracy = red tint, high = green tint
-    qaSheet.eachRow((row, n) => {
-      if (n > 1) {
+      // Color: low accuracy = red tint, high = green tint (scored questions only)
+      if (!isUnscoredType) {
         const accuracyCell = row.getCell('accuracy');
-        const val = typeof accuracyCell.value === 'number' ? accuracyCell.value : -1;
-        if (val >= 0 && val < 40) {
+        if (accuracy < 40) {
           accuracyCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFECACA' } };
-        } else if (val >= 80) {
+        } else if (accuracy >= 80) {
           accuracyCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFBBF7D0' } };
         }
-        row.border = {
-          top: { style: 'thin', color: { argb: 'FFE5E7EB' } },
-          bottom: { style: 'thin', color: { argb: 'FFE5E7EB' } },
-          left: { style: 'thin', color: { argb: 'FFE5E7EB' } },
-          right: { style: 'thin', color: { argb: 'FFE5E7EB' } },
-        };
       }
-    });
+      row.border = thinBorder;
+      row.commit();
+    }
+    qaSheet.commit();
 
     // ── Sheet 3: Per-Participant Answers (detailed breakdown) ──
     const detailSheet = workbook.addWorksheet('Detailed Answers');
@@ -1694,8 +1709,7 @@ quizRouter.get('/:quizId/export', authMiddleware, requireRole('CORE_MEMBER'), as
       });
     }
     detailSheet.columns = detailCols;
-    detailSheet.getRow(1).eachCell((cell) => { Object.assign(cell, { style: headerStyle }); });
-    detailSheet.getRow(1).height = 25;
+    styleAndCommitHeader(detailSheet);
 
     for (const p of quiz.participants) {
       const rowData: Record<string, unknown> = {
@@ -1712,22 +1726,18 @@ quizRouter.get('/:quizId/export', authMiddleware, requireRole('CORE_MEMBER'), as
         rowData[`q${q.position}_pts`] = ans?.pointsAwarded ?? 0;
         rowData[`q${q.position}_time`] = ans ? (ans.answerTimeMs / 1000).toFixed(2) : '-';
       }
-      detailSheet.addRow(rowData);
+      const row = detailSheet.addRow(rowData);
+      row.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: row.number % 2 === 0 ? 'FFFEF3C7' : 'FFFFFFFF' } };
+      row.border = thinBorder;
+      row.commit();
     }
-    detailSheet.eachRow((row, n) => {
-      if (n > 1) {
-        row.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: n % 2 === 0 ? 'FFFEF3C7' : 'FFFFFFFF' } };
-      }
-      row.border = {
-        top: { style: 'thin', color: { argb: 'FFE5E7EB' } },
-        bottom: { style: 'thin', color: { argb: 'FFE5E7EB' } },
-        left: { style: 'thin', color: { argb: 'FFE5E7EB' } },
-        right: { style: 'thin', color: { argb: 'FFE5E7EB' } },
-      };
-    });
+    detailSheet.commit();
 
     // ── Sheet 4: All Responses (one row per submitted answer) ──
     const responsesSheet = workbook.addWorksheet('All Responses');
+    // Streaming mode: column-level alignment must ride the column defs (the
+    // old post-hoc getColumn().alignment assignments don't reach committed rows).
+    const wrapTop = { style: { alignment: { vertical: 'top' as const, wrapText: true } } };
     responsesSheet.columns = [
       { header: 'Participant', key: 'participant', width: 28 },
       { header: 'Rank', key: 'rank', width: 8 },
@@ -1736,24 +1746,17 @@ quizRouter.get('/:quizId/export', authMiddleware, requireRole('CORE_MEMBER'), as
       { header: 'Question #', key: 'questionNumber', width: 10 },
       { header: 'Question ID', key: 'questionId', width: 30 },
       { header: 'Question Type', key: 'questionType', width: 16 },
-      { header: 'Question', key: 'questionText', width: 48 },
-      { header: 'Available Options', key: 'availableOptions', width: 36 },
-      { header: 'Submitted Answer', key: 'submittedAnswer', width: 38 },
-      { header: 'Submitted Answer (Raw)', key: 'submittedAnswerRaw', width: 38 },
-      { header: 'Correct Answer', key: 'correctAnswer', width: 28 },
-      { header: 'Correct Answer (Raw)', key: 'correctAnswerRaw', width: 28 },
+      { header: 'Question', key: 'questionText', width: 48, ...wrapTop },
+      { header: 'Available Options', key: 'availableOptions', width: 36, ...wrapTop },
+      { header: 'Submitted Answer', key: 'submittedAnswer', width: 38, ...wrapTop },
+      { header: 'Submitted Answer (Raw)', key: 'submittedAnswerRaw', width: 38, ...wrapTop },
+      { header: 'Correct Answer', key: 'correctAnswer', width: 28, ...wrapTop },
+      { header: 'Correct Answer (Raw)', key: 'correctAnswerRaw', width: 28, ...wrapTop },
       { header: 'Result', key: 'result', width: 14 },
       { header: 'Points Awarded', key: 'pointsAwarded', width: 14 },
       { header: 'Answer Time (s)', key: 'answerTimeSeconds', width: 16 },
     ];
-    responsesSheet.getRow(1).eachCell((cell) => { Object.assign(cell, { style: headerStyle }); });
-    responsesSheet.getRow(1).height = 25;
-    responsesSheet.getColumn('questionText').alignment = { vertical: 'top', wrapText: true };
-    responsesSheet.getColumn('availableOptions').alignment = { vertical: 'top', wrapText: true };
-    responsesSheet.getColumn('submittedAnswer').alignment = { vertical: 'top', wrapText: true };
-    responsesSheet.getColumn('submittedAnswerRaw').alignment = { vertical: 'top', wrapText: true };
-    responsesSheet.getColumn('correctAnswer').alignment = { vertical: 'top', wrapText: true };
-    responsesSheet.getColumn('correctAnswerRaw').alignment = { vertical: 'top', wrapText: true };
+    styleAndCommitHeader(responsesSheet);
 
     const sortedAnswers = [...allAnswers].sort((left, right) => {
       const leftQuestion = questionMap.get(left.questionId);
@@ -1772,7 +1775,7 @@ quizRouter.get('/:quizId/export', authMiddleware, requireRole('CORE_MEMBER'), as
       if (!question || !participant) continue;
 
       const isUnscoredType = UNSCORED_QUESTION_TYPES.has(question.questionType as SupportedQuestionType);
-      responsesSheet.addRow({
+      const row = responsesSheet.addRow({
         participant: participant.displayName,
         rank: participant.finalRank ?? '-',
         userId: answer.userId,
@@ -1798,22 +1801,17 @@ quizRouter.get('/:quizId/export', authMiddleware, requireRole('CORE_MEMBER'), as
         pointsAwarded: answer.pointsAwarded,
         answerTimeSeconds: (answer.answerTimeMs / 1000).toFixed(2),
       });
+      row.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: row.number % 2 === 0 ? 'FFF8FAFC' : 'FFFFFFFF' } };
+      row.border = thinBorder;
+      row.commit();
     }
-
-    responsesSheet.eachRow((row, index) => {
-      if (index > 1) {
-        row.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: index % 2 === 0 ? 'FFF8FAFC' : 'FFFFFFFF' } };
-      }
-      row.border = {
-        top: { style: 'thin', color: { argb: 'FFE5E7EB' } },
-        bottom: { style: 'thin', color: { argb: 'FFE5E7EB' } },
-        left: { style: 'thin', color: { argb: 'FFE5E7EB' } },
-        right: { style: 'thin', color: { argb: 'FFE5E7EB' } },
-      };
-    });
+    responsesSheet.commit();
 
     // ── Sheet 5: Quiz Summary ──
     const summarySheet = workbook.addWorksheet('Quiz Summary');
+    // No header row on this sheet — set widths directly (before any commit).
+    summarySheet.getColumn(1).width = 22;
+    summarySheet.getColumn(2).width = 45;
     const totalScored = quiz.questions.filter(
       (q) => !UNSCORED_QUESTION_TYPES.has(q.questionType as SupportedQuestionType),
     );
@@ -1842,20 +1840,23 @@ quizRouter.get('/:quizId/export', authMiddleware, requireRole('CORE_MEMBER'), as
       ['Export Date', new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })],
     ];
     for (const [label, value] of summaryData) {
-      summarySheet.addRow([label, value]);
+      const row = summarySheet.addRow([label, value]);
+      row.getCell(1).font = { bold: true };
+      row.commit();
     }
-    summarySheet.getColumn(1).width = 22;
-    summarySheet.getColumn(1).font = { bold: true };
-    summarySheet.getColumn(2).width = 45;
+    summarySheet.commit();
 
-    // Send
-    const filename = `${quiz.title.replace(/[^a-z0-9]/gi, '_')}_results.xlsx`;
-    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
-    await workbook.xlsx.write(res);
-    res.end();
+    // Finalize: commit() flushes the zip central directory and ends `res`.
+    await workbook.commit();
   } catch (error) {
     logger.error('GET /api/quiz/:quizId/export error', { error: error instanceof Error ? error.message : String(error) });
+    if (res.headersSent) {
+      // The XLSX stream already started — the only honest signal left is to
+      // kill the connection so the client sees a failed/truncated download
+      // instead of a "successful" corrupt file.
+      res.destroy(error instanceof Error ? error : new Error(String(error)));
+      return;
+    }
     return ApiResponse.internal(res);
   }
 });
