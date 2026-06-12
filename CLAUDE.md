@@ -307,6 +307,7 @@ Mature + optimized. **Don't propose perf refactors** unless a regression is name
 
 - **In-memory during active quiz** — `quizStore.ts` uses `Map<string, QuizRoom>`. No DB writes until quiz ends.
 - **Draft-first persistence** — quizzes saved as `DRAFT`; `POST /api/quiz/:quizId/open` → `WAITING`. CSV/XLSX import via `POST /api/quiz/import`.
+- **Question privacy (B4):** `GET /api/quiz/:quizId` returns `questions: []` to non-hosts while the quiz is DRAFT/WAITING/ACTIVE — players receive questions only via the socket `show_question` event. Creator/admin always sees the full list; FINISHED reveals answers to everyone (review mode); ABANDONED shows questions with answers redacted.
 - **Server-authoritative timers.** Pause clears timers; resume re-arms.
 - **Scoring:** base 1000 + time bonus (faster=more) + streak bonus. Logic in `quizSocket.ts`.
 - **Rate limit:** 500ms per user per `submit_answer`.
