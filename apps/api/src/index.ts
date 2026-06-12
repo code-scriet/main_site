@@ -53,6 +53,7 @@ import { prisma } from './lib/prisma.js';
 import { startReminderScheduler, stopReminderScheduler, startQotdAutoPublishScheduler, stopQotdAutoPublishScheduler, startEventStatusScheduler, stopEventStatusScheduler } from './utils/scheduler.js';
 import { getJwtSecret } from './utils/jwt.js';
 import { setRuntimeAttendanceJwtSecret } from './utils/attendanceToken.js';
+import { getClientIp } from './utils/clientIp.js';
 
 // Load monorepo root .env first, then local .env (local overrides root).
 // In production (Render) neither file exists — env vars come from the dashboard.
@@ -291,13 +292,34 @@ if (NODE_ENV === 'development' || process.env.ENABLE_REQUEST_LOGGING === 'true')
   app.use(requestLogger);
 }
 
+// S2: temporary prod diagnostics for the IP-resolution readback (see
+// docs/deep-audit/ops-checklist.md). One line per request comparing the three
+// candidate identities; enable via LOG_IP_DIAGNOSTICS=true for ~24h, record
+// the verdict, then unset.
+if (process.env.LOG_IP_DIAGNOSTICS === 'true') {
+  app.use((req, _res, next) => {
+    logger.info('ip-diagnostics', {
+      path: req.path,
+      expressIp: req.ip ?? null,
+      cfConnectingIp: req.headers['cf-connecting-ip'] ?? null,
+      xForwardedFor: req.headers['x-forwarded-for'] ?? null,
+      resolved: getClientIp(req),
+    });
+    next();
+  });
+}
+
 // Rate limiting - General API
+// S2: all IP-keyed limiters share getClientIp() (CF-Connecting-IP when the
+// peer is a Cloudflare range, else Express's trust-proxy resolution) so the
+// HTTP and socket layers agree about what "the client IP" is.
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
   max: 500, // limit each IP to 500 requests per windowMs
   message: { error: 'Too many requests, please try again later.' },
   standardHeaders: true,
   legacyHeaders: false,
+  keyGenerator: (req) => getClientIp(req),
 });
 app.use('/api', limiter);
 
@@ -309,6 +331,7 @@ const authLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   skipSuccessfulRequests: true, // Don't count successful requests
+  keyGenerator: (req) => getClientIp(req),
 });
 
 // Passport setup
@@ -421,6 +444,7 @@ const testEmailLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: 'Too many test emails, please try again later.' },
+  keyGenerator: (req) => getClientIp(req),
 });
 app.post('/api/test-email', authMiddleware, requireRole('ADMIN'), testEmailLimiter, async (req: express.Request, res: express.Response) => {
   try {

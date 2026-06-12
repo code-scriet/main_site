@@ -52,7 +52,9 @@ function sanitizeEmailHtml(html: string): string {
 
 const sendMailSchema = z.object({
   audience: z.enum(['all_users', 'all_network', 'specific']),
-  emails: z.array(z.string().email()).optional(),
+  // S10: hard cap — an unbounded custom list could relay arbitrary volume
+  // through the club sender in one request.
+  emails: z.array(z.string().email()).max(500).optional(),
   cc: z.array(z.string().email()).max(50).optional(),
   bcc: z.array(z.string().email()).max(50).optional(),
   subject: z.string().trim().min(1).max(200),

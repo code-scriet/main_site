@@ -386,6 +386,11 @@ notificationsRouter.delete('/admin/broadcasts/:id', authMiddleware, requireRole(
     await auditLog(auth.id, 'NOTIFICATION_DELETE', 'notification', req.params.id);
     return ApiResponse.success(res, { id: req.params.id });
   } catch (error) {
+    // P2025 = row already gone (double-click / another admin won the race) —
+    // that's a 404, not a server error.
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2025') {
+      return ApiResponse.notFound(res, 'Broadcast not found');
+    }
     logger.error('Failed to delete broadcast', { error: error instanceof Error ? error.message : String(error) });
     return ApiResponse.internal(res, 'Failed to delete');
   }
