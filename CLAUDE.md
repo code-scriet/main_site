@@ -150,7 +150,7 @@ PUBLIC=0 · USER=1 · NETWORK=1 · MEMBER=2 · CORE_MEMBER=3 · ADMIN=4 · PRESI
 ```
 
 - Super admin = `SUPER_ADMIN_EMAIL`. Settings writable by superAdmin + PRESIDENT only.
-- `requireRole('ADMIN')` admits PRESIDENT. No literal `requireRole('PRESIDENT')` — use `requireRole('ADMIN')` + inline `isSuperAdmin(u) || u.role === 'PRESIDENT'`. Helpers in [apps/api/src/utils/superAdmin.ts](apps/api/src/utils/superAdmin.ts): `isSuperAdmin`, `isPresident`, `isPresidentOrSuperAdmin`.
+- `requireRole('ADMIN')` admits PRESIDENT. No literal `requireRole('PRESIDENT')` — use `requireRole('ADMIN')` + inline `isSuperAdmin(u) || u.role === 'PRESIDENT'`. Helpers in [apps/api/src/utils/superAdmin.ts](apps/api/src/utils/superAdmin.ts): `isSuperAdmin`, `isPresident`, `isPresidentOrSuperAdmin`. Known exception: `settings.ts` `PUT /api/settings` uses literal `requireRole('PRESIDENT')` (functionally identical to `'ADMIN'` — both level 4; the real gate is the inline `enforceSuperAdminOrPresident`); rename scheduled in the hygiene PR (audit D1).
 - **Admin-deep-control:** Only superAdmin acts on PRESIDENT. PRESIDENT acts on ADMIN-and-below but cannot promote to ADMIN/PRESIDENT, cannot edit existing ADMIN/PRESIDENT. No actor edits self via `/api/users/*` (use `/dashboard/profile`). `PUT /api/users/:id/role` floor = PRESIDENT/superAdmin only.
 
 ---
@@ -177,7 +177,7 @@ PUBLIC=0 · USER=1 · NETWORK=1 · MEMBER=2 · CORE_MEMBER=3 · ADMIN=4 · PRESI
 | `/api/signatories/*` | Admin | |
 | `/api/upload/*` | Yes | `+/history` |
 | `/api/network/*` | Mixed | |
-| `/api/audit-logs/*` | Admin (PRESIDENT/superAdmin gate on the audit log page) | |
+| `/api/audit-logs/*` | Admin (PRESIDENT/superAdmin gate on the audit log page) | `DELETE /retention?days=N` (N min 30, default 90) deletes AuditLog rows older than N days — PRES/superAdmin only (403 inside the ADMIN gate). Retention *policy* decision still open (June 2026 audit); mechanism exists, nothing automatic. |
 | `/api/mail/*` | Admin | |
 | `/api/quiz/*` | Mixed | `POST /import` (CSV/XLSX), `POST /:quizId/open` (DRAFT→WAITING) |
 | `/api/playground/*` | Mixed | `/snippets|stats|history`=User; `/request-reset|my-reset-request`=User; `/admin/*`=Admin |
@@ -194,11 +194,13 @@ PUBLIC=0 · USER=1 · NETWORK=1 · MEMBER=2 · CORE_MEMBER=3 · ADMIN=4 · PRESI
 
 **Admin-deep-control endpoints (`/api/users`):** `:id/full`, `:id/activity`, `:id/audit`, `:id/streak/{reset-current,restore-longest}` (PRES/SA), `:id/blocks` (GET=Admin, POST=PRES/SA), `:id/blocks/:feature` DELETE (PRES/SA), `:id/force-logout` (PRES/SA), `:id/password-reset` (PRES/SA), `:id/restore` (SA only), `:id` DELETE `?hard=true` (soft=PRES, hard=SA).
 
-**Frontend route map:** see `apps/web/src/App.tsx`. All pages lazy-loaded with `React.lazy()` + `<Suspense>`. Notable: `/admin/users` + `/admin/users/:id`, `/admin/{team,achievements,problems,credits,event-registrations,hiring,network,certificates,competition,public-view,audit-log,mail,settings}`, `/admin/competition/:roundId/judge`, `/admin/events/:eventId/attendance`, `/dashboard/{events,announcements,leaderboard,coding,invitations,certificates,profile,attendance,quiz,upload,problems/new}`, `/dashboard/events/:eventId/attendance` (CORE_MEMBER+), `/qotd/{today,:date}`, `/competition/:roundId/solve/:problemId`, `/competition/:roundId/results`, `/polls/:slug`, `/verify/:certId`, `/forgot-password` + `/reset-password` (one `ResetPasswordPage`, mode from URL token).
+**Frontend route map:** see `apps/web/src/App.tsx`. All pages lazy-loaded with `React.lazy()` + `<Suspense>`. Notable: `/admin/users` + `/admin/users/:id`, `/admin/{team,achievements,problems,credits,event-registrations,hiring,network,certificates,competition,public-view,audit-log,mail,notifications,settings}`, `/admin/competition/:roundId/judge`, `/admin/events/:eventId/attendance`, `/dashboard/{events,announcements,leaderboard,coding,invitations,certificates,profile,attendance,quiz,upload,problems/new}`, `/dashboard/events/:eventId/attendance` (CORE_MEMBER+), `/qotd/{today,:date}`, `/competition/:roundId/solve/:problemId`, `/competition/:roundId/results`, `/polls/:slug`, `/verify/:certId`, `/forgot-password` + `/reset-password` (one `ResetPasswordPage`, mode from URL token).
 
 ---
 
 ## DB Schema (Prisma)
+
+**Actor-column rule (audit A3):** `DayAttendance.scannedBy`, `UserBlock.blockedBy`, `Certificate.issuedBy/revokedBy`, `QOTD.heldBy`, `User.deletedBy` are **deliberate plain-string snapshots, not FKs** — they record who acted at that moment and must survive actor deletion. `Event.createdBy` / `Announcement.createdBy` are real FKs. Don't "fix" the snapshot columns into relations ad hoc; they become uuid + `onDelete: SetNull` FKs only as part of the scheduled uuid-migration pass (audit A9).
 
 ### User
 `id, name, email(unique), password?, oauthProvider/Id, role(Role), avatar, bio, github/linkedin/twitter/websiteUrl, branch/course/phone/year, profileCompleted, lastLoginAt/Ip, tokenVersion(default 0), currentStreak/longestStreak/longestStreakAt, isDeleted/deletedAt/deletedBy, passwordResetToken(unique)/ExpiresAt, notificationsReadAt?, createdAt/updatedAt`
@@ -514,7 +516,7 @@ PDF via `@react-pdf/renderer` in [apps/api/src/utils/generateCertificatePDF.ts](
 Spec: `tmp/design_bundle/code-scriet-innerdashboard/`. Scoped to `[data-dashboard]` — public site unaffected.
 
 - **Tokens:** rust-accent CSS vars (`--bg-canvas/sunken/raised`, `--ds-text-1/2/3`, `--accent`, semantic + role pills, shadows, motion) in `apps/web/src/index.css` under `[data-dashboard]`. Public site keeps `--background/--foreground`. Shadcn HSL bridge (`--primary`, `--ring`, …) overridden in scope.
-- **Fonts:** Geist + Geist Mono in `apps/web/index.html`, applied inside `[data-dashboard]` only. Public stays on Outfit/Sora.
+- **Fonts:** Geist + Geist Mono in `apps/web/index.html`, applied inside `[data-dashboard]` only. Public pages still *render* on Outfit/Sora, but `index.html` currently loads **both** public stacks (Outfit/Sora *and* Newsreader/Inter Tight/JetBrains Mono) — see the W3 note in Hard rules below.
 - **Accent picker:** `Settings.accentColor` (default `rust`, values `rust|teal|indigo|violet|mint|mono`). Admin picks in `BrandAccentCard` → `PATCH /api/settings/accentColor` → sets `data-accent` on every `[data-dashboard]`.
 - **Density/motion:** `data-density="compact"` and `data-motion="reduced"` attrs supported, currently `regular`/`normal`.
 - **Solve flow is playground-only.** Never add Monaco to the main web app. `QOTDSolvePage`/`CompetitionSolvePage` redirect to playground with `?qotd=<date>` or `?contest=<roundId>&problem=<id>` + one-time auth handoff in URL hash.
@@ -548,7 +550,7 @@ Migration: `prisma/migrations/20260517210000_dashboard_v2/migration.sql` (additi
 
 ### Hard rules (Dashboard v2)
 - Layout wraps in `<div data-dashboard data-accent={settings.accentColor || 'rust'} data-density data-motion>`. Anything needing new tokens MUST render inside this scope.
-- Public pages stay on Outfit/Sora + amber. **Don't move styles across scopes either direction.**
+- Public pages render on Outfit/Sora + amber, **but the public site is frozen mid-design-migration (audit W3):** `Layout.tsx` wraps every public page in `[data-public]`, `index.css` carries a full parallel cream/ink/ember + Newsreader token system (`--pub-*`), and only `AchievementsPage` consumes it. Finishing or excising that migration is **owner-deferred** — do not extend either public system to more pages, delete the `[data-public]` block, or change the font loads without an explicit owner decision. **Don't move styles across scopes either direction.**
 - Solve flow is playground-only — never add Monaco to the main web app.
 
 ---
