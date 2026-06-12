@@ -308,9 +308,11 @@ Mature + optimized. **Don't propose perf refactors** unless a regression is name
 - **In-memory during active quiz** — `quizStore.ts` uses `Map<string, QuizRoom>`. No DB writes until quiz ends.
 - **Draft-first persistence** — quizzes saved as `DRAFT`; `POST /api/quiz/:quizId/open` → `WAITING`. CSV/XLSX import via `POST /api/quiz/import`.
 - **Server-authoritative timers.** Pause clears timers; resume re-arms.
+- **start_quiz guards:** only a `waiting` room starts (double-emit → `control_action_blocked ALREADY_STARTED`, index stays 0); the no-room DB-hydration path refuses non-WAITING/ACTIVE quizzes (`QUIZ_NOT_OPEN` — ACTIVE allowed for crash recovery) and passes `joinCode`/`pin` into `initQuiz` so the host panel keeps its PIN after a restart.
+- **Kick is final:** per-room `kickedUserIds: Set` (bytes per kick, freed with the room); `join_quiz` rejects listed users with `quiz_error KICKED` even though their 20-min access token is still valid.
 - **Scoring:** base 1000 + time bonus (faster=more) + streak bonus. Logic in `quizSocket.ts`.
 - **Rate limit:** 500ms per user per `submit_answer`.
-- **Persistence on end** → `QuizParticipant` + `QuizAnswer`. Set-based: participant scores/ranks + per-question analytics each persist via one `UPDATE … FROM (VALUES …)` (no per-row statement loops). Shutdown persists active as `ABANDONED`.
+- **Persistence on end** → `QuizParticipant` + `QuizAnswer`. Set-based: participant scores/ranks + per-question analytics each persist via one `UPDATE … FROM (VALUES …)` (no per-row statement loops). Shutdown persists active as `ABANDONED`. Persist also nulls `pin`/`joinCode` (both globally `@unique` — retired codes returned to the pool, no P2002 collisions with history) alongside `pinActive: false`.
 - **O(1) room counters** — `QuizRoom.connectedCount/answeredCount/answeredConnectedCount` maintained on every join/answer/disconnect/kick/advance transition; all-answered and answer-count checks never scan the players map. Gate: `quizEngineLoad.test.ts` (150-player churn + throttle parity).
 - **Capacity ceiling ~900 concurrent.**
 

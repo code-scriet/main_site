@@ -57,6 +57,10 @@ export interface QuizRoom {
   pausedTimeRemaining: number | null; // ms remaining when paused
   questions: QuizQuestionData[];
   players: Map<string, PlayerState>;
+  // B3: kick is final for this room. A kicked player's 20-min quiz access
+  // token stays valid, so join_quiz checks this set to stop instant rejoins.
+  // Bytes per kick; freed with the room.
+  kickedUserIds: Set<string>;
   // O(1) counters maintained at every connect/disconnect/answer/kick/advance
   // transition — they replace per-submit scans over the players map (the
   // all-answered check was O(n) per submit ⇒ O(n²) per question at scale).
@@ -257,6 +261,7 @@ export const quizStore = {
       pausedTimeRemaining: null,
       questions,
       players: new Map(),
+      kickedUserIds: new Set(),
       connectedCount: 0,
       answeredCount: 0,
       answeredConnectedCount: 0,
@@ -656,6 +661,12 @@ export const quizStore = {
               currentQuestionIndex: room.currentQuestionIndex,
               totalParticipants: room.players.size,
               pinActive: false, // Deactivate PIN after quiz ends
+              // B5: pin/joinCode are globally @unique and meaningless once the
+              // quiz ends, but retired rows kept them forever — every new open
+              // then collided with history at ~N/900000 per attempt (P2002 →
+              // 500). Null them so the codes return to the pool.
+              pin: null,
+              joinCode: null,
             },
           });
 
@@ -902,6 +913,7 @@ export const quizStore = {
     const socketId = player.socketId;
     const displayName = player.displayName;
     room.players.delete(userId);
+    room.kickedUserIds.add(userId);
     // Removal takes the player out of every counter a rescan would produce
     // (their answer records in currentAnswers/allAnswers stay, matching the
     // pre-counter behavior where kicked players vanished from scans only).
