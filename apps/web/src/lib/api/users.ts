@@ -172,13 +172,15 @@ export const usersApi = {
   }, token: string) =>
     request('/users/me', { method: 'PUT', body: JSON.stringify(data), token }),
   changePassword: (currentPassword: string, newPassword: string, token: string) =>
-    request('/users/me/change-password', {
+    // S6: the API bumps tokenVersion (killing every other session) and returns
+    // a fresh token the caller must adopt so the current session survives.
+    request<{ success: boolean; message?: string; token?: string }>('/users/me/change-password', {
       method: 'POST',
       body: JSON.stringify({ currentPassword, newPassword }),
       token,
     }),
   addPassword: (newPassword: string, token: string) =>
-    request('/users/me/add-password', {
+    request<{ success: boolean; message?: string; token?: string }>('/users/me/add-password', {
       method: 'POST',
       body: JSON.stringify({ newPassword }),
       token,

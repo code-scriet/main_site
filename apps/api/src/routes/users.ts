@@ -14,6 +14,7 @@ import { isSuperAdmin, isPresidentOrSuperAdmin } from '../utils/superAdmin.js';
 import { emailService } from '../utils/email.js';
 import { ApiResponse } from '../utils/response.js';
 import { hashPasswordResetToken } from '../utils/passwordReset.js';
+import { signAccessToken } from '../utils/jwt.js';
 import { invalidateCachedAuthUser } from '../utils/userAuthCache.js';
 import { invalidateUserBlockCache } from '../middleware/blocks.js';
 import { uuidParamGuard } from '../utils/idParams.js';
@@ -25,6 +26,54 @@ type UserBlockFeatureKey = (typeof USER_BLOCK_FEATURES)[number];
  * by the soft-delete handler. Restore uses this string to remove the
  * auto-issued blocks while leaving anything an admin later writes alone. */
 const SOFT_DELETE_AUTO_REASON = 'Auto-block on soft-delete';
+
+/**
+ * Mirrors auth.ts setSessionCookie attribute-for-attribute (httpOnly, secure,
+ * sameSite, maxAge, domain, path) so the cookie written here replaces the same
+ * session cookie the login paths set. Keep the two in sync until the session
+ * helpers move to a shared util.
+ */
+const setSessionCookie = (res: Response, token: string) => {
+  const isProd = process.env.NODE_ENV === 'production';
+  res.cookie('scriet_session', token, {
+    httpOnly: true,
+    secure: isProd,
+    sameSite: 'lax',
+    maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+    ...(isProd ? { domain: '.codescriet.dev' } : {}),
+    path: '/',
+  });
+};
+
+/**
+ * S6: rotate the caller's session after a credential change. Bumps tokenVersion
+ * (kills every outstanding JWT, incl. a possible attacker's), invalidates the
+ * auth LRU so the bump applies now (not after the 30s TTL), and returns a fresh
+ * token signed with the new watermark so the CURRENT session survives.
+ */
+async function rotateSessionAfterCredentialChange(
+  res: Response,
+  user: { id: string },
+  data: Record<string, unknown>,
+): Promise<string> {
+  const updated = await prisma.user.update({
+    where: { id: user.id },
+    data: { ...data, tokenVersion: { increment: 1 } },
+    select: { id: true, name: true, email: true, role: true, tokenVersion: true },
+  });
+  invalidateCachedAuthUser(user.id);
+
+  const freshToken = signAccessToken({
+    userId: updated.id,
+    id: updated.id,
+    name: updated.name || undefined,
+    email: updated.email,
+    role: updated.role,
+    tokenVersion: updated.tokenVersion,
+  });
+  setSessionCookie(res, freshToken);
+  return freshToken;
+}
 
 export const usersRouter = Router();
 
@@ -225,13 +274,10 @@ usersRouter.post('/me/add-password', authMiddleware, async (req: Request, res: R
     }
 
     const hashedPassword = await bcrypt.hash(newPassword, 12);
-    await prisma.user.update({
-      where: { id: authUser.id },
-      data: { password: hashedPassword },
-    });
+    const freshToken = await rotateSessionAfterCredentialChange(res, authUser, { password: hashedPassword });
 
     await auditLog(authUser.id, 'CREATE', 'user', authUser.id, { action: 'password_added' });
-    res.json({ success: true, message: 'Password added successfully! You can now sign in with email and password.' });
+    res.json({ success: true, message: 'Password added successfully! You can now sign in with email and password.', token: freshToken });
   } catch (error) {
     res.status(500).json({ success: false, error: { message: 'Failed to add password' } });
   }
@@ -266,13 +312,10 @@ usersRouter.post('/me/change-password', authMiddleware, async (req: Request, res
     }
 
     const hashedPassword = await bcrypt.hash(newPassword, 12);
-    await prisma.user.update({
-      where: { id: authUser.id },
-      data: { password: hashedPassword },
-    });
+    const freshToken = await rotateSessionAfterCredentialChange(res, authUser, { password: hashedPassword });
 
     await auditLog(authUser.id, 'UPDATE', 'user', authUser.id, { action: 'password_change' });
-    res.json({ success: true, message: 'Password changed successfully' });
+    res.json({ success: true, message: 'Password changed successfully', token: freshToken });
   } catch (error) {
     res.status(500).json({ success: false, error: { message: 'Failed to change password' } });
   }
