@@ -3,6 +3,7 @@ import jwt from 'jsonwebtoken';
 import { prisma } from '../lib/prisma.js';
 import { AccessTokenPayload, getJwtSecret } from '../utils/jwt.js';
 import { getCachedAuthUser, setCachedAuthUser, type CachedAuthUser } from '../utils/userAuthCache.js';
+import { logger } from '../utils/logger.js';
 
 // Custom user type for authenticated requests
 export interface AuthUser {
@@ -228,6 +229,19 @@ const optionalAuthMiddlewareImpl = async (
 
     next();
   } catch (error) {
+    // Invalid/expired tokens are routine on optional-auth routes (anonymous
+    // visitors with stale cookies) — stay silent for those. A DB failure,
+    // though, silently downgrades signed-in users to anonymous; log it so the
+    // degradation is observable instead of swallowed.
+    const isExpectedJwtError =
+      error instanceof Error &&
+      ['JsonWebTokenError', 'TokenExpiredError', 'NotBeforeError'].includes(error.name);
+    if (!isExpectedJwtError) {
+      logger.warn('optionalAuth degraded to anonymous (non-JWT error)', {
+        path: req.path,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
     next();
   }
 };

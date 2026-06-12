@@ -843,7 +843,12 @@ usersRouter.put('/:id', authMiddleware, requireRole('ADMIN'), async (req: Reques
         ...(branch !== undefined && { branch: nextBranch }),
         ...(year !== undefined && { year: nextYear }),
         profileCompleted: isProfileCompletion,
-        ...(hashedPassword && { password: hashedPassword }),
+        // S6 follow-up (PR-3 review): an admin-set password must evict the
+        // target's existing sessions, exactly like the self-service change
+        // flow — otherwise a compromised account keeps its stolen JWTs for up
+        // to 7 days after an admin resets the password. The target signs in
+        // fresh with the new password; no token is returned here.
+        ...(hashedPassword && { password: hashedPassword, tokenVersion: { increment: 1 } }),
       },
       select: {
         id: true,

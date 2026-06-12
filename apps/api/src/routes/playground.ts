@@ -16,6 +16,7 @@ import { logger } from '../utils/logger.js';
 import { getUsageDate, resetDailyQuotaAndPracticeCounters } from '../utils/dailyLimit.js';
 import { auditLog } from '../utils/audit.js';
 import { requireUuid } from '../utils/idParams.js';
+import { getClientIp } from '../utils/clientIp.js';
 
 const router = Router();
 const SETTINGS_CACHE_TTL_MS = 15 * 1000;
@@ -27,6 +28,7 @@ const executionCountsLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   message: { success: false, error: 'Too many requests. Try again in a minute.' },
+  keyGenerator: (req) => getClientIp(req),
 });
 
 const playgroundSettingsCache: {
