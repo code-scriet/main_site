@@ -132,6 +132,7 @@ Shutdown (SIGTERM/SIGINT): stop schedulers → close Socket.io → persist activ
 ## Auth Flow
 
 - **Email/password:** JWT in response + `scriet_session` cookie.
+- **registrationOpen (L1):** when `Settings.registrationOpen === false`, `POST /auth/register` 403s and OAuth first sign-ins are refused (no implicit account creation in passport.ts); existing accounts keep signing in. 5-min cached settings read, fail-open on read error.
 - **OAuth:** redirect → Passport (state-cookie CSRF check) → `/auth/callback?code=<30s exchange JWT>` → frontend `POST /api/auth/exchange-code` → real token to `localStorage`. No long-lived JWT ever appears in a URL. Cross-subdomain cookie on `.codescriet.dev` for playground.
 - **JWT:** 7-day expiry, `{ userId, email, name, role, tokenVersion }`. Force logout = increment DB `tokenVersion`; middleware rejects when DB > claim. `GET /auth/me` echoes the presented token while it is in the front half of its life and only mints a replacement in the back half (caps sliding-session renewal).
 - **Middleware:** `authMiddleware` reads `Authorization: Bearer` or `scriet_session` cookie; user row served from a 30s bounded LRU (`utils/userAuthCache.ts`, 500 entries). Every user-row mutation that affects auth (role/tokenVersion/isDeleted) MUST call `invalidateCachedAuthUser(userId)`.
@@ -433,6 +434,7 @@ Event-level toggle (`teamRegistration` + `teamMinSize/teamMaxSize` 1-10). Leader
 
 - **Serializable txn + 3 retries** with jittered exponential backoff (50ms × 2^attempt + jitter) for P2034.
 - **Atomic capacity check** inside txn (filters `registrationType=PARTICIPANT`).
+- **maxEventsPerUser (L2):** every PARTICIPANT intake (solo register, team create, team join) calls `assertWithinActiveEventLimitInTx` ([apps/api/src/utils/registrationIntake.ts](apps/api/src/utils/registrationIntake.ts)) inside its serializable txn — counts the caller's PARTICIPANT registrations on UPCOMING/ONGOING events (guests exempt, PAST events free their slots; limit <1 disables the check). Guest-invitation accept deliberately exempt.
 - **Leader deletion guard:** `onDelete: Restrict` on `EventTeam.leaderId`.
 - **Cannot change `teamRegistration` mode** once event has registrations.
 - **Dissolve** cascades: deletes members + their registrations in one txn.

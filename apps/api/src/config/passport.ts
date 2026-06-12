@@ -9,6 +9,23 @@ import { auditLog } from '../utils/audit.js';
 import { invalidateCachedAuthUser } from '../utils/userAuthCache.js';
 import { isSuperAdmin } from '../utils/superAdmin.js';
 import { selectVerifiedGithubEmail, isGoogleEmailVerified, oauthLinkRequiresPasswordReset } from '../utils/oauthEmail.js';
+import { getCachedSettings } from '../utils/settingsCache.js';
+
+/**
+ * L1: the admin's registrationOpen toggle gates ALL new-account creation —
+ * the email/password endpoint enforces it directly, and OAuth first sign-ins
+ * (which create accounts implicitly) must respect it too. Existing accounts
+ * keep signing in. Fails open on a settings read error: an outage must not
+ * lock out OAuth logins.
+ */
+const isRegistrationClosed = async (): Promise<boolean> => {
+  try {
+    const settings = await getCachedSettings();
+    return settings?.registrationOpen === false;
+  } catch {
+    return false;
+  }
+};
 
 const getCookie = (req: Request, name: string): string | undefined => {
   const cookies = req.headers.cookie;
@@ -87,6 +104,10 @@ export function setupPassport(passport: PassportStatic) {
             let isNewUser = false;
 
             if (!user) {
+              // L1: no implicit account creation while registration is closed.
+              if (await isRegistrationClosed()) {
+                return done(new Error('Registration is currently closed. New account creation is disabled right now.'), undefined);
+              }
               isNewUser = true;
               user = await prisma.user.create({
                 data: {
@@ -157,6 +178,10 @@ export function setupPassport(passport: PassportStatic) {
             let isNewUser = false;
 
             if (!user) {
+              // L1: no implicit account creation while registration is closed.
+              if (await isRegistrationClosed()) {
+                return done(new Error('Registration is currently closed. New account creation is disabled right now.'), undefined);
+              }
               isNewUser = true;
               user = await prisma.user.create({
                 data: {
