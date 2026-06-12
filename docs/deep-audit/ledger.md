@@ -85,7 +85,7 @@
 |---|---|---|
 | src/App.tsx | 284 | [OK — all-lazy, route boundary per page; doc-drift: /admin/notifications missing from CLAUDE.md route map] |
 | vite.config.ts | ~70 | [F-W1 vendor-qr groups render+2 decoders into one 482KB chunk; stale 'markdown' manualChunk lists unused rehype-highlight; vendor-monaco entry pending PR-3] |
-| index.html | ~80 | [F-W3 two complete public font stacks load (Outfit/Sora/Fira + Newsreader/InterTight/JetBrains); Fira Code 0-refs = known PR-3] |
+| index.html | ~80 | [F-W3 two complete public font stacks load (Outfit/Sora + Newsreader/InterTight/JetBrains); Fira Code already removed by PR #47 before these docs were committed] |
 | src/index.css | ~1300 | [F-W3 live [data-public] cream/ink/ember system (post-#42-revert remnant), only 1 page migrated] |
 | src/components/layout/Layout.tsx | 30 | [F-W3 applies data-public + --pub canvas globally while ~20 pages still amber] |
 | src/components/ui/markdown.tsx + inline-markdown.tsx | ~700 | [OK — DOMPurify second layer, URL protocol allowlists; allowHtml callers verified sanitized server-side] |

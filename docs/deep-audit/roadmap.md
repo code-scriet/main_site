@@ -34,7 +34,7 @@ Effort: M total. Impact: closes every blocker/high/medium logic+security finding
 | PR | Contents | Effort | Impact | Gate |
 |---|---|---|---|---|
 | **2a. Chunk surgery** | Split vendor-qr (render vs scan); drop jsqr (use html5-qrcode.scanFile); delete rehype-highlight + stale manualChunk; run visualizer on the 95 KB index chunk and act on the report | S | User-facing: −148 KB gz on quiz join + tickets | build-output sizes; QuizLobby network tab |
-| **2b. Public design resolution (W3)** | Owner decision first: **finish** cream/ink/Newsreader (recommended — distinctive, matches taste) or **excise** it. If finish: Home → Events → EventDetail → Team-adjacent pages, then delete amber tokens + Outfit/Sora/Fira from index.html | L (finish) / S (excise) | User-facing: brand coherence + ~100–150 KB fonts | Lighthouse before/after on `/`, `/events`; screenshot review per page |
+| **2b. Public design resolution (W3)** | Owner decision first: **finish** cream/ink/Newsreader (recommended — distinctive, matches taste) or **excise** it. If finish: Home → Events → EventDetail → Team-adjacent pages, then delete amber tokens + Outfit/Sora from index.html (Fira Code already removed by PR #47) | L (finish) / S (excise) | User-facing: brand coherence + ~100–150 KB fonts | Lighthouse before/after on `/`, `/events`; screenshot review per page |
 | **2c. UX fixes #1–#4** | QR-encodes-join-link, ?next= return-after-signin, host-disconnect countdown, leaderboard states | M | User-facing (top of the ranked list) | manual flows + 1 Playwright spec each |
 
 ## Wave 3 — `db/constraints-and-retention`

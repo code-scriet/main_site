@@ -51,14 +51,14 @@ Full target schema + ordered migration path in [schema-redesign.md](schema-redes
 `EventTeamMember.role` ("LEADER"/"MEMBER", varchar(10)), `Problem.difficulty` + `QOTD.difficulty` (frontend locks EASY/MEDIUM/HARD), `Certificate.template` (gold|dark|white|emerald), `Certificate.emailTemplate`, `Credit.category`. Each is one `--create-only` migration; Postgres then rejects the typo'd writes JS currently must police. Batch them into one migration with the A5/A10 constraints.
 
 ### [A5] [medium] [FREE] `quiz_questions` has no uniqueness on `(quizId, position)`
-- **Where:** `schema.prisma:916` — plain index, not unique. `PATCH /api/quiz/:quizId` delete-and-recreates questions, so a concurrent double-PATCH can persist duplicate positions; the quiz UI orders by position and would show a duplicated/skipped question.
+- **Where:** `schema.prisma:903` — plain index, not unique. `PATCH /api/quiz/:quizId` delete-and-recreates questions, so a concurrent double-PATCH can persist duplicate positions; the quiz UI orders by position and would show a duplicated/skipped question.
 - **Proposal:** `@@unique([quizId, position])`. Verification: `npx prisma migrate dev --create-only`, confirm `CREATE UNIQUE INDEX`; existing data check first: `SELECT quiz_id, position, COUNT(*) FROM quiz_questions GROUP BY 1,2 HAVING COUNT(*)>1;`
 
 ### [A6] [low] [FREE] `CompetitionRound.allowedTeamIds String[]`
 No FK integrity — dissolving a team leaves a dangling id silently shrinking the allowed set. Fine at club scale; convert to a `CompetitionRoundTeam` join table only if SELECTED_TEAMS rounds become common. **Considered and deferred with reason.**
 
 ### [A7] [medium] [FREE] Unbounded-growth tables without a pruning story
-- **Where:** `utils/scheduler.ts:454` prunes only `Execution` (90 d) + `PlaygroundDailyUsage` (60 d).
+- **Where:** `utils/scheduler.ts:482` prunes only `Execution` (90 d) + `PlaygroundDailyUsage` (60 d).
 - **Unpruned:** `QuizAnswer` (≈ players × questions per quiz — a weekly 200-player/20-q quiz ≈ 200 k rows/yr), `NotificationFeed` (has `expiresAt` but nothing deletes expired rows), `CompetitionAutoSave` (one TEXT code blob per participant per round, superseded the moment the round locks), `AuditLog` (manual `DELETE /api/audit-logs/retention` exists — the *policy decision* from the June audit is still open, the mechanism is not missing).
 - **Proposal:** extend `pruneOldRecords()`: NotificationFeed `expiresAt < now OR createdAt < now-90d`; CompetitionAutoSave where round is FINISHED > 30 d; QuizAnswer optionally `> 365 d` (keep QuizParticipant aggregates forever — they're the leaderboard history).
 - **Practical benefit:** keeps Neon free-tier storage flat; the bell-feed CUSTOM query (`take: 50` over all CUSTOM rows) stays fast forever.
@@ -90,13 +90,13 @@ See [schema-redesign.md §3](schema-redesign.md) for the full expand-migrate-con
 ## C. Backend architecture
 
 ### [C1] [medium] [FREE] `GET /api/users/export` silently exports only 100 users
-- **Where:** [users.ts:358](apps/api/src/routes/users.ts) — `take: 100`, newest-first, while the UI labels it "Export all users".
+- **Where:** [users.ts:358](../../apps/api/src/routes/users.ts) — `take: 100`, newest-first, while the UI labels it "Export all users".
 - **Why:** an admin pulling the member list for an event gets the 100 newest accounts and no warning — silent data loss in the artifact admins trust most.
 - **Proposal:** cursor-batch the read (the in-file mail.ts pattern) into the worksheet, or at minimum raise to the list cap (2000) and add a "truncated" banner row.
 - **Verification:** seed 150 users locally, export, count rows.
 
 ### [G1] [medium] [FREE] No process-level crash handlers
-- **Where:** [index.ts](apps/api/src/index.ts) — `SIGTERM/SIGINT` handled; `unhandledRejection`/`uncaughtException` not.
+- **Where:** [index.ts](../../apps/api/src/index.ts) — `SIGTERM/SIGINT` handled; `unhandledRejection`/`uncaughtException` not.
 - **Why:** Node 20 default kills the process on unhandled rejection. The codebase `void`s many promises (audit writes, socket sweeps, email sends) — all individually `.catch`ed today, but one future miss inside a socket handler takes down every live quiz with no diagnostic.
 - **Proposal:** `process.on('unhandledRejection', log)` + `process.on('uncaughtException', err => { log; shutdown(); })` reusing the existing graceful `shutdown()` (which already persists active quizzes as ABANDONED — that's the payoff: a crash becomes a *clean* quiz persist instead of data loss).
 - **Verification:** dev-only route throwing in a `setTimeout`; confirm log + graceful drain.
@@ -117,14 +117,14 @@ See [schema-redesign.md §3](schema-redesign.md) for the full expand-migrate-con
 ## Security findings (cross-cutting)
 
 ### [S7] [HIGH] [CONFIG] Production is serving without CSP/HSTS/X-Frame-Options
-- **Where:** [render.yaml](render.yaml) `headers:` block — the in-file comment documents that the dashboard config overrides the blueprint and that a 2026-06-07 `curl -I` showed only `x-content-type-options` reaching clients.
+- **Where:** [render.yaml](../../render.yaml) `headers:` block — the in-file comment documents that the dashboard config overrides the blueprint and that a 2026-06-07 `curl -I` showed only `x-content-type-options` reaching clients.
 - **Why:** the carefully-hardened CSP (no `script-src *`, no `unsafe-eval`) is written, reviewed… and not shipped. Without X-Frame-Options/frame-ancestors the site is clickjackable; without CSP, any future XSS has unlimited script-src.
 - **Proposal:** paste the block into Render dashboard headers **or** (better, survives Render config drift) a Cloudflare Transform Rule, with CSP first deployed as `Content-Security-Policy-Report-Only` for a week.
 - **Practical benefit:** the single highest security-control-per-minute action available; also closes the open June-audit "Cloudflare proxy-hop" item's sibling.
 - **Verification:** `curl -sI https://codescriet.dev | grep -iE 'content-security|strict-transport|frame'` on a cache MISS.
 
 ### [S1] [high] [FREE] Token-type confusion: blocklist → allowlist
-- **Where:** [auth.ts middleware:83](apps/api/src/middleware/auth.ts), [jwt.ts:148-152](apps/api/src/utils/jwt.ts) — one HS256 secret signs access tokens, `oauth_exchange` (30 s), `invitation_claim` (30 d), attendance QR (90 d), quiz access (20 m). Auth middleware rejects only `purpose === 'attendance'`.
+- **Where:** [auth.ts middleware:83](../../apps/api/src/middleware/auth.ts), [jwt.ts:148-152](../../apps/api/src/utils/jwt.ts) — one HS256 secret signs access tokens, `oauth_exchange` (30 s), `invitation_claim` (30 d), attendance QR (90 d), quiz access (20 m). Auth middleware rejects only `purpose === 'attendance'`.
 - **What slips through:** an `oauth_exchange` code carries `userId` and no rejected purpose → it authenticates as a full session for its 30 s life, *and* `POST /api/auth/exchange-code` does not single-use it (replayable within TTL). The code travels in a URL (`/auth/callback?code=…`) — exactly the channel (history, referrer) the exchange-code design exists to protect.
 - **Proposal:** (1) in both auth middlewares and `socketAuth`, reject any token where `typeof decoded.purpose === 'string'` (access tokens never carry one); (2) single-use the exchange code via an in-memory `Set<jti>` with 60 s TTL (add `jti: randomUUID()` to the sign).
 - **Free-tier impact:** ≤ a few KB.
@@ -132,13 +132,13 @@ See [schema-redesign.md §3](schema-redesign.md) for the full expand-migrate-con
 - **Break-even:** matters the day an exchange URL leaks via referrer/history — low probability, near-zero fix cost.
 
 ### [S6] [medium] [FREE] Password change keeps old sessions alive
-- **Where:** [users.ts:240-278](apps/api/src/routes/users.ts) (`/me/change-password`, `/me/add-password`) — no `tokenVersion` bump, no cache invalidation; the reset flow (auth.ts:788-807) does both.
+- **Where:** [users.ts:240-278](../../apps/api/src/routes/users.ts) (`/me/change-password`, `/me/add-password`) — no `tokenVersion` bump, no cache invalidation; the reset flow (auth.ts:788-807) does both.
 - **Why:** the #1 reason users change passwords is suspicion of compromise; today the attacker's JWT keeps working up to 7 days.
 - **Proposal:** bump `tokenVersion` + `invalidateCachedAuthUser` in change-password, then issue a fresh token in the response so the *current* session survives (mirror `generateToken` from auth.ts).
 - **Verification:** change password in tab A, assert tab B's next request 401s.
 
 ### [S2] [medium] [FREE] Socket rate-limit keys on client-spoofable IP
-- **Where:** [socket.ts:14-21](apps/api/src/utils/socket.ts) — takes the **first** entry of raw `X-Forwarded-For`; HTTP rate limiting (express-rate-limit + `trust proxy 1`) takes the right-most-untrusted. A direct-to-origin client defeats the 30-conn/min cap by rotating XFF; behind Cloudflare the two layers disagree about what "the client IP" is.
+- **Where:** [socket.ts:14-21](../../apps/api/src/utils/socket.ts) — takes the **first** entry of raw `X-Forwarded-For`; HTTP rate limiting (express-rate-limit + `trust proxy 1`) takes the right-most-untrusted. A direct-to-origin client defeats the 30-conn/min cap by rotating XFF; behind Cloudflare the two layers disagree about what "the client IP" is.
 - **Proposal:** one shared `getClientIp()` that prefers `CF-Connecting-IP` when the peer is a CF range, else Express's resolution; use it in both layers and login telemetry.
 - **Joint verification (closes the open June item [S8/G2]):** temporary prod log line printing `req.ip`, `cf-connecting-ip`, and `x-forwarded-for` for 24 h — this single experiment settles the trust-proxy hop count, the rate-limit bucket question, and the socket IP question at once. **[UNVERIFIED until run].**
 
@@ -156,13 +156,13 @@ Public `POST /api/hiring/apply` and `POST /api/polls/:id/vote`/`feedback` ride o
 ## Quiz-engine logic findings
 
 ### [B1] [medium] [FREE] `start_quiz` lacks a status guard
-- **Where:** [quizSocket.ts:433-522](apps/api/src/quiz/quizSocket.ts) — no `room.status === 'waiting'` check before setting active + `advanceQuestion()`.
+- **Where:** [quizSocket.ts:433-522](../../apps/api/src/quiz/quizSocket.ts) — no `room.status === 'waiting'` check before setting active + `advanceQuestion()`.
 - **Why:** a host double-click / client retry emits `start_quiz` twice → second call advances from Q0 to Q1 before anyone answers; the quiz silently loses its first question. Same handler also re-runs the DB `UPDATE`.
 - **Proposal:** `if (room.status !== 'waiting') return emitBlockedControlAction('ALREADY_STARTED', …)`.
 - **Verification:** add a double-emit case to `quizSocket.test.ts` asserting `currentQuestionIndex === 0` after the second emit.
 
 ### [B4] [medium] [FREE] Participants can read upcoming questions mid-quiz
-- **Where:** [quizRouter.ts:1145-1205](apps/api/src/quiz/quizRouter.ts) — `GET /api/quiz/:quizId` returns *all* question texts + options (sans correctAnswer) to any authed user while the quiz is WAITING/ACTIVE.
+- **Where:** [quizRouter.ts:1145-1205](../../apps/api/src/quiz/quizRouter.ts) — `GET /api/quiz/:quizId` returns *all* question texts + options (sans correctAnswer) to any authed user while the quiz is WAITING/ACTIVE.
 - **Why:** a player who fetches the endpoint after joining sees every future question — enough to search answers during the countdowns. Game integrity, not data security.
 - **Proposal:** when status is WAITING/ACTIVE and caller ≠ creator/admin, return quiz metadata with `questions: []`.
 - **Verification:** as participant, fetch during ACTIVE → expect empty questions; as creator → full list.
@@ -185,14 +185,14 @@ Public `POST /api/hiring/apply` and `POST /api/polls/:id/vote`/`feedback` ride o
 Build: 238 JS assets, 4.8 MB total. Key chunks (gzip): `vendor-qr` **152.5 KB**, `vendor-charts` 116 KB, `index` 95.4 KB, markdown 63.7 + 47.7 KB (two chunks), `vendor-ui` 52.7 KB, html2canvas 47.3 KB (dynamic), `vendor-react` 17.5 KB.
 
 ### [W1] [high] [FREE] Split QR rendering from QR scanning
-- **Where:** [vite.config.ts](apps/web/vite.config.ts) `manualChunks['vendor-qr'] = ['html5-qrcode', 'jsqr', 'qrcode.react']`; importers of *render-only* `qrcode.react`: `QRTicket` (every attendee's ticket), `QuizLobby`/`QuizHostView` (every quiz), `Step4Success`.
+- **Where:** [vite.config.ts](../../apps/web/vite.config.ts) `manualChunks['vendor-qr'] = ['html5-qrcode', 'jsqr', 'qrcode.react']`; importers of *render-only* `qrcode.react`: `QRTicket` (every attendee's ticket), `QuizLobby`/`QuizHostView` (every quiz), `Step4Success`.
 - **Why:** rendering one QR costs the full 152 KB gz chunk containing two complete barcode-*decoding* engines used only by AdminScanner and VerifyCertificatePage.
 - **Proposal:** `'vendor-qr-render': ['qrcode.react']` (~4 KB gz) and `'vendor-qr-scan': ['html5-qrcode', 'jsqr']`.
 - **Practical benefit:** ~148 KB gz removed from the quiz-join and ticket paths. On event-day hall Wi-Fi with 300 players joining inside a minute, that's ≈ 45 MB less concurrent transfer and a join screen that paints seconds earlier on 4G; QR tickets at the door load faster exactly when the queue is longest.
 - **Verification:** rebuild; confirm `QuizLobby` route no longer pulls the scan chunk (network tab), sizes in build output.
 
 ### [W3] [high] [FREE] Resolve the half-migrated public design system
-- **Where:** [Layout.tsx](apps/web/src/components/layout/Layout.tsx) applies `[data-public]` + `--pub-canvas/ink` to **every** public page; [index.css:1027+] defines the full cream/ink/ember + Newsreader/Inter Tight/JetBrains system; **only `AchievementsPage` uses `--pub-*` tokens** — ~20 public pages still amber/Outfit. [index.html] loads both font stacks (6 Newsreader variants + Inter Tight + JetBrains Mono *and* Outfit ×6 + Sora ×5 + the zero-reference Fira Code).
+- **Where:** [Layout.tsx](../../apps/web/src/components/layout/Layout.tsx) applies `[data-public]` + `--pub-canvas/ink` to **every** public page; [index.css:1027+] defines the full cream/ink/ember + Newsreader/Inter Tight/JetBrains system; **only `AchievementsPage` uses `--pub-*` tokens** — ~20 public pages still amber/Outfit. [index.html] loads both font stacks (6 Newsreader variants + Inter Tight + JetBrains Mono *and* Outfit ×6 + Sora ×5). *(Stale as committed: this line originally also flagged a zero-reference Fira Code load — removed by PR #47, which merged before these docs landed.)*
 - **Why:** users see two different brands navigating Home → Achievements; every first visit pays ~100–150 KB of fonts for whichever system the page doesn't use. This is the residue of reverted PR #42.
 - **Proposal (calibrated to the owner's taste — warm, confident, people-first):** the cream + ink + ember + Newsreader direction *is* the more distinctive system; finish the migration page-by-page (Home → Events → Team first, the high-traffic three) and then delete the amber tokens + Outfit/Sora from index.html. If instead the revert was the decision, delete the `[data-public]` block + second font stylesheet — a one-day excision.
 - **Practical benefit:** visual coherence across the public site + ~40–60 % less font transfer on first paint (font CSS+woff2 measured at ~190 KB total today, [UNVERIFIED split per family]); Lighthouse FCP on / should improve measurably.
