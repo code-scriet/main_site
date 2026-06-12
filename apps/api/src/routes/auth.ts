@@ -211,6 +211,7 @@ const registerLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   skipSuccessfulRequests: true,
+  keyGenerator: (req) => getClientIp(req),
   message: { error: 'Too many registration attempts, please try again later.' },
 });
 
@@ -220,6 +221,7 @@ const loginLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   skipSuccessfulRequests: true,
+  keyGenerator: (req) => getClientIp(req),
   message: { error: 'Too many login attempts, please try again later.' },
 });
 
@@ -656,6 +658,7 @@ const resetPasswordLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   skipSuccessfulRequests: true,
+  keyGenerator: (req) => getClientIp(req),
   message: { error: 'Too many reset attempts, please try again later.' },
 });
 
@@ -669,7 +672,7 @@ const resetPasswordEmailLimiter = rateLimit({
   skipSuccessfulRequests: true,
   keyGenerator: (req) => {
     const email = typeof req.body?.email === 'string' ? req.body.email.trim().toLowerCase() : '';
-    return email || req.ip || 'unknown';
+    return email || getClientIp(req);
   },
   message: { error: 'Too many reset attempts, please try again later.' },
 });
@@ -690,6 +693,7 @@ const requestResetIpLimiter = rateLimit({
   max: 5,
   standardHeaders: true,
   legacyHeaders: false,
+  keyGenerator: (req) => getClientIp(req),
   message: { error: 'Too many reset requests, please try again later.' },
 });
 
@@ -701,7 +705,7 @@ const requestResetEmailLimiter = rateLimit({
   legacyHeaders: false,
   keyGenerator: (req) => {
     const email = typeof req.body?.email === 'string' ? req.body.email.trim().toLowerCase() : '';
-    return email || req.ip || 'unknown';
+    return email || getClientIp(req);
   },
   message: { error: 'Too many reset requests, please try again later.' },
 });

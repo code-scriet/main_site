@@ -17,6 +17,7 @@ import { participantsOnly } from '../utils/registrationFilters.js';
 import { executeSerializableTransaction, isSerializationConflict } from '../utils/transactionRetry.js';
 import { sanitizeEventRegistrationFields, validateRegistrationFieldSubmissions } from '../utils/eventRegistrationFields.js';
 import { requireUuid } from '../utils/idParams.js';
+import { getClientIp } from '../utils/clientIp.js';
 
 export const teamsRouter = Router();
 
@@ -50,6 +51,7 @@ const joinRateLimiter = rateLimit({
   message: { success: false, error: { message: 'Too many join attempts. Please try again later.' } },
   standardHeaders: true,
   legacyHeaders: false,
+  keyGenerator: (req) => getClientIp(req),
 });
 
 // Helper to validate event is open for registration

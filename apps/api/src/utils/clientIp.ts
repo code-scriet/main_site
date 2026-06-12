@@ -21,7 +21,7 @@ import type { Socket } from 'socket.io';
  * old socket connection limiter keyed on it, letting a direct-to-origin
  * client rotate XFF to defeat the 30-conn/min cap.
  *
- * The 24h LOG_IP_DIAGNOSTICS readback (docs/deep-audit/ops-checklist.md)
+ * The 24h LOG_IP_DIAGNOSTICS readback (docs/deep-audit/ops-checklist.md, lands with PR #51)
  * validates this resolution against prod traffic.
  */
 

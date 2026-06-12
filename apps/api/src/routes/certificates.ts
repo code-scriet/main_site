@@ -20,6 +20,7 @@ import { buildPublicCertificateDownloadUrl } from '../utils/publicUrl.js';
 import { socketEvents } from '../utils/socket.js';
 import { cloudinary, isCloudinaryConfigured } from '../config/cloudinary.js';
 import { getCachedSettings } from '../utils/settingsCache.js';
+import { getClientIp } from '../utils/clientIp.js';
 
 const FRONTEND_URL = (process.env.FRONTEND_URL || 'https://codescriet.dev').replace(/\/+$/, '');
 const RESEND_COOLDOWN_MS = 10 * 60 * 1000; // 10 minutes
@@ -64,6 +65,7 @@ const certificateVerifyLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   message: { valid: false, reason: 'rate_limited' },
+  keyGenerator: (req) => getClientIp(req),
 });
 
 const certificateDownloadLimiter = rateLimit({
@@ -72,6 +74,7 @@ const certificateDownloadLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: 'Too many download attempts, please try again later.' },
+  keyGenerator: (req) => getClientIp(req),
 });
 
 const certTypes = ['PARTICIPATION', 'COMPLETION', 'WINNER', 'SPEAKER'] as const;

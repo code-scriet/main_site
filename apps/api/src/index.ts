@@ -293,11 +293,11 @@ if (NODE_ENV === 'development' || process.env.ENABLE_REQUEST_LOGGING === 'true')
 }
 
 // S2: temporary prod diagnostics for the IP-resolution readback (see
-// docs/deep-audit/ops-checklist.md). One line per request comparing the three
+// docs/deep-audit/ops-checklist.md, lands with PR #51). One line per request comparing the three
 // candidate identities; enable via LOG_IP_DIAGNOSTICS=true for ~24h, record
 // the verdict, then unset.
 if (process.env.LOG_IP_DIAGNOSTICS === 'true') {
-  app.use((req, _res, next) => {
+  app.use('/api', (req, _res, next) => {
     logger.info('ip-diagnostics', {
       path: req.path,
       expressIp: req.ip ?? null,
