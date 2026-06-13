@@ -153,6 +153,9 @@ model Settings {
   hiringDesigning   Boolean @default(true) @map("hiring_designing")
   hiringSocialMedia Boolean @default(true) @map("hiring_social_media")
   hiringManagement  Boolean @default(true) @map("hiring_management")
+  // A11: current hiring season label stamped onto new applications. Admins bump
+  // it to re-open hiring (e.g. "2026-autumn"); previous applicants can apply again.
+  hiringCycle       String  @default("2026") @map("hiring_cycle")
 
   // Mailing system toggle
   mailingEnabled Boolean @default(true) @map("mailing_enabled")
@@ -687,20 +690,25 @@ model UserBlock {
 model HiringApplication {
   id           String            @id @default(uuid())
   name         String
-  email        String            @unique
+  email        String
   phone        String?
   department   String
   year         String
   skills       String?
   applyingRole ApplyingRole      @map("applying_role")
   status       ApplicationStatus @default(PENDING)
+  // A11: hiring season. One application per email PER cycle (was one ever).
+  // Stamped from Settings.hiringCycle at apply time; existing rows backfill to '2026'.
+  cycle        String            @default("2026")
   userId       String?           @map("user_id")
   createdAt    DateTime          @default(now()) @map("created_at")
   updatedAt    DateTime          @updatedAt @map("updated_at")
   user         User?             @relation(fields: [userId], references: [id], onDelete: SetNull)
 
+  @@unique([email, cycle])
   @@index([status, createdAt])
   @@index([applyingRole, createdAt])
+  @@index([cycle, createdAt])
   @@map("hiring_applications")
 }
 
