@@ -44,14 +44,14 @@
   "devDependencies": {
     "@fontsource/cinzel": "^5.2.8",
     "@fontsource/playfair-display": "^5.2.8",
-    "@playwright/test": "^1.59.1",
-    "@types/node": "^20.19.27",
-    "concurrently": "^9.2.1",
+    "@playwright/test": "^1.60.0",
+    "@types/node": "^25.9.3",
+    "concurrently": "^10.0.3",
     "dotenv": "^17.2.3",
-    "prisma": "^5.8.0",
+    "prisma": "^7.8.0",
     "ts-node": "^10.9.2",
-    "tsx": "^4.21.0",
-    "typescript": "^5.3.3"
+    "tsx": "^4.22.4",
+    "typescript": "^6.0.3"
   },
   "dependencies": {
     "@prisma/client": "^5.8.0"
