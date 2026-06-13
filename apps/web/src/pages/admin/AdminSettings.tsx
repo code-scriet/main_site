@@ -50,6 +50,7 @@ export default function AdminSettings() {
     hiringDesigning: true,
     hiringSocialMedia: true,
     hiringManagement: true,
+    hiringCycle: '2026',
     competitionEnabled: false,
     problemsEnabled: false,
     showNetwork: true,
@@ -509,6 +510,21 @@ export default function AdminSettings() {
                   compact
                 />
               ))}
+            </div>
+            <div className="mt-2 flex items-center gap-2">
+              <label htmlFor="hiring-cycle" className="text-[12.5px] text-[var(--ds-text-2)] shrink-0">
+                Hiring cycle
+              </label>
+              <Input
+                id="hiring-cycle"
+                value={settings.hiringCycle ?? '2026'}
+                onChange={(e) => setSettings({ ...settings, hiringCycle: e.target.value })}
+                placeholder="2026"
+                className="h-8 max-w-[180px] text-[12.5px]"
+              />
+              <span className="text-[11px] text-[var(--ds-text-3)]">
+                Bump to re-open hiring — past applicants can apply again. Save to apply.
+              </span>
             </div>
           </div>
         )}

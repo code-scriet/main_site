@@ -40,6 +40,7 @@ const updateSettingsSchema = z.object({
   hiringDesigning: z.boolean().optional(),
   hiringSocialMedia: z.boolean().optional(),
   hiringManagement: z.boolean().optional(),
+  hiringCycle: z.string().trim().min(1).max(40).optional(),
   showNetwork: z.boolean().optional(),
   mailingEnabled: z.boolean().optional(),
   certificatesEnabled: z.boolean().optional(),

@@ -453,6 +453,7 @@ export interface Settings {
   hiringDesigning?: boolean;
   hiringSocialMedia?: boolean;
   hiringManagement?: boolean;
+  hiringCycle?: string;
   competitionEnabled?: boolean;
   problemsEnabled?: boolean;
   showNetwork?: boolean;
