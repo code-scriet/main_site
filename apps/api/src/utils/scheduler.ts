@@ -492,7 +492,7 @@ export function computePruneCutoffs(now: number = Date.now()) {
 // TEXT-heavy tables (code + output) can produce very large first-run deletes,
 // so batch by id so no single statement holds the pooled Neon connection for
 // long while the API serves traffic. Generic over the delegate's where shape.
-async function deleteInBatches<W>(
+async function deleteInBatches(
   findIds: (take: number) => Promise<Array<{ id: string }>>,
   deleteByIds: (ids: string[]) => Promise<{ count: number }>,
 ): Promise<number> {
