@@ -3,7 +3,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '@/context/AuthContext';
 import { useSettings } from '@/context/SettingsContext';
 import { api } from '@/lib/api';
-import { getSafeNextUrl } from '@/lib/safeNext';
+import { getSafeNextUrl, getSafeRelativePath } from '@/lib/safeNext';
 import { Loader2 } from 'lucide-react';
 
 interface HiringIntent {
@@ -234,11 +234,17 @@ export default function AuthCallbackPage() {
         const safeNext = getSafeNextUrl(storedNext);
         if (safeNext) {
           const target = new URL(safeNext);
-          if (target.origin === window.location.origin) {
+          // OAuth callback only follows same-origin in-app paths (no
+          // cross-subdomain token handoff on this path). getSafeRelativePath
+          // is the final navigate guard.
+          const relative = target.origin === window.location.origin
+            ? getSafeRelativePath(`${target.pathname}${target.search}${target.hash}`)
+            : null;
+          if (relative) {
             localStorage.removeItem('pendingEventRegistration');
             localStorage.removeItem('pendingEventRegistrationType');
             setStatus('Redirecting…');
-            navigate(`${target.pathname}${target.search}${target.hash}`);
+            navigate(relative);
             return;
           }
         }
