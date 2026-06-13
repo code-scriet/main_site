@@ -124,9 +124,16 @@ searchRouter.get('/global', authMiddleware, async (req: Request, res: Response) 
         : Promise.resolve([]),
       prisma.announcement.findMany({
         where: {
-          OR: [
-            { title: { contains: q, mode: 'insensitive' } },
-            { slug: { contains: q, mode: 'insensitive' } },
+          AND: [
+            {
+              OR: [
+                { title: { contains: q, mode: 'insensitive' } },
+                { slug: { contains: q, mode: 'insensitive' } },
+              ],
+            },
+            // Don't surface announcements that have already expired — they're
+            // hidden everywhere else, so they shouldn't appear in search.
+            { OR: [{ expiresAt: null }, { expiresAt: { gte: new Date() } }] },
           ],
         },
         select: { id: true, slug: true, title: true },

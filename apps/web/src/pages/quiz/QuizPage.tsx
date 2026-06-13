@@ -286,10 +286,17 @@ export default function QuizPage() {
     return (
       <Layout>
         <div data-dashboard="true" data-accent="rust" className="min-h-[70vh] flex items-center justify-center bg-[var(--bg-canvas)] text-[var(--ds-text-1)]">
-          <div className="text-center space-y-4 p-8">
+          <div className="text-center space-y-4 p-8 max-w-sm">
             <WifiOff className="h-12 w-12 mx-auto text-gray-400" />
-            <h2 className="text-xl font-bold text-gray-700">Disconnected</h2>
-            <p className="text-sm text-gray-500">Attempting to reconnect...</p>
+            <h2 className="text-xl font-bold text-gray-700">Reconnecting…</h2>
+            {/* UX#4: a dropped connection (yours OR the host's) is not a dead
+                end — the quiz state is server-held and the socket auto-retries,
+                so reassure rather than strand the player. */}
+            <p className="text-sm text-gray-500">
+              Trying to restore your connection. Your progress is saved — if the host
+              briefly dropped, the quiz resumes automatically once everyone's back.
+              Keep this tab open.
+            </p>
           </div>
         </div>
       </Layout>

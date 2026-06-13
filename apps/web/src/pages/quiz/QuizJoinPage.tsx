@@ -31,11 +31,16 @@ export default function QuizJoinPage() {
   const inputRefs = useRef<(HTMLInputElement | null)[]>([]);
 
   const fullPin = pin.join('');
+  // UX#1: when a player arrives from the host-lobby QR (which encodes
+  // /quiz/join?pin=XXXXXX), pre-fill AND auto-submit so scanning is a
+  // one-step join — no manual tap. One-shot via the ref.
+  const autoJoinFromUrlRef = useRef(false);
 
   useEffect(() => {
     const presetPin = (searchParams.get('pin') || '').replace(/\D/g, '').slice(0, 6);
     if (presetPin.length === 6) {
       setPin(presetPin.split(''));
+      autoJoinFromUrlRef.current = true;
     } else {
       // CAT 19 — autofocus the first PIN digit on mount so admins can start typing immediately.
       inputRefs.current[0]?.focus();
@@ -87,6 +92,14 @@ export default function QuizJoinPage() {
       setLoading(false);
     }
   }, [fullPin, navigate]);
+
+  // Fire the one-shot auto-join once the URL-prefilled PIN is complete.
+  useEffect(() => {
+    if (autoJoinFromUrlRef.current && fullPin.length === 6 && !loading) {
+      autoJoinFromUrlRef.current = false;
+      void handleJoin();
+    }
+  }, [fullPin, loading, handleJoin]);
 
   const handleKeyDown = useCallback((index: number, e: React.KeyboardEvent) => {
     if (e.key === 'Backspace') {
