@@ -69,8 +69,9 @@ CREATE UNIQUE INDEX "idx_quiz_questions_quiz_position" ON "quiz_questions" ("qui
 -- ─── A8: case-insensitive email uniqueness (expression index) ────────────────
 -- Future-proofing: all write paths already lowercase emails, so this guards a
 -- future import/manual insert. NOTE: Prisma cannot represent an expression
--- index in schema.prisma, so a future `migrate diff` will report it as drift —
--- keep it (the --create-only review catches the spurious drop).
+-- index in schema.prisma and (as of 5.x) does not introspect one either, so it
+-- lives entirely outside Prisma's model — `migrate diff` neither manages nor
+-- tries to drop it. Re-verify this holds if Prisma is ever upgraded.
 CREATE UNIQUE INDEX "users_email_lower_ux" ON "users" (lower("email"));
 
 -- ─── A10: business-rule CHECK constraints ────────────────────────────────────
