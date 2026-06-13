@@ -10,6 +10,7 @@ import { Chrome, Github, Mail, AlertCircle, Loader2, Eye, EyeOff, Lock, User, Ar
 import { api } from '@/lib/api';
 import type { AuthProviders } from '@/lib/api';
 import { addPlaygroundAuthHandoff, isPlaygroundOrigin } from '@/lib/playgroundUrl';
+import { getSafeNextUrl } from '@/lib/safeNext';
 import { getStoredAuthToken } from '@/lib/authToken';
 import { useAuth } from '@/context/AuthContext';
 import { useSettings } from '@/context/SettingsContext';
@@ -30,25 +31,6 @@ const getPendingEventRedirectPath = (eventId: string, pendingType: 'solo' | 'tea
     ? `/events/${eventId}`
     : `/events/${eventId}?register=1`
 );
-
-const getSafeNextUrl = (rawNext: string | null): string | null => {
-  if (!rawNext) return null;
-  try {
-    const parsed = new URL(rawNext, window.location.origin);
-    const allowedOrigins = new Set([
-      window.location.origin,
-      'https://codescriet.dev',
-      'https://www.codescriet.dev',
-      'https://code.codescriet.dev',
-      ...(import.meta.env.DEV
-        ? ['http://localhost:5173', 'http://localhost:5174', 'http://127.0.0.1:5173', 'http://127.0.0.1:5174']
-        : []),
-    ]);
-    return allowedOrigins.has(parsed.origin) ? parsed.toString() : null;
-  } catch {
-    return null;
-  }
-};
 
 const redirectToNext = (navigate: ReturnType<typeof useNavigate>, targetUrl: string) => {
   const parsed = new URL(targetUrl);

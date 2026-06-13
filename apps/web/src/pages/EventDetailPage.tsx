@@ -526,11 +526,10 @@ export default function EventDetailPage() {
   const handleAcceptInvitation = useCallback(async () => {
     if (!event?.userInvitation || event.userInvitation.status !== 'PENDING') return;
     if (!token) {
-      navigate('/signin', {
-        state: {
-          from: `/events/${event.slug || event.id}`,
-          message: 'Please sign in to accept this invitation.',
-        },
+      // UX#2: carry the return path so sign-in (email or OAuth) lands back here.
+      const next = encodeURIComponent(`/events/${event.slug || event.id}`);
+      navigate(`/signin?next=${next}`, {
+        state: { message: 'Please sign in to accept this invitation.' },
       });
       return;
     }
@@ -600,9 +599,13 @@ export default function EventDetailPage() {
     const regStatus = getRegistrationStatus(event);
     if (!regStatus.canRegister) { toast.error(regStatus.message); return; }
     if (!user || !token) {
+      // pendingEventRegistration drives the profile-completion path; ?next=
+      // (UX#2) is the explicit return that lands back on the event with the
+      // register sheet open. AuthCallback consumes one and clears the other.
       localStorage.setItem('pendingEventRegistration', event.id);
       localStorage.setItem('pendingEventRegistrationType', event.teamRegistration ? 'team' : 'solo');
-      navigate('/signin', { state: { from: `/events/${event.slug}`, message: 'Please sign in to register for events' } });
+      const next = encodeURIComponent(`/events/${event.slug}?register=1`);
+      navigate(`/signin?next=${next}`, { state: { message: 'Please sign in to register for events' } });
       return;
     }
     if (!user.phone || !user.course || !user.branch || !user.year) {

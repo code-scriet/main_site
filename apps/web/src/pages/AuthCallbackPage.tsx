@@ -3,6 +3,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuth } from '@/context/AuthContext';
 import { useSettings } from '@/context/SettingsContext';
 import { api } from '@/lib/api';
+import { getSafeNextUrl } from '@/lib/safeNext';
 import { Loader2 } from 'lucide-react';
 
 interface HiringIntent {
@@ -223,6 +224,25 @@ export default function AuthCallbackPage() {
           return;
         }
         
+        // UX#2: honor an explicit post-login `next` stashed before the OAuth
+        // round-trip (set by SignInPage from a validated ?next=). Validated
+        // again here against the open-redirect guard; same-origin only — the
+        // realistic case is returning to /events/:slug after "Sign in to
+        // register". Wins over the older pendingEventRegistration hint.
+        const storedNext = sessionStorage.getItem('post_login_next');
+        sessionStorage.removeItem('post_login_next');
+        const safeNext = getSafeNextUrl(storedNext);
+        if (safeNext) {
+          const target = new URL(safeNext);
+          if (target.origin === window.location.origin) {
+            localStorage.removeItem('pendingEventRegistration');
+            localStorage.removeItem('pendingEventRegistrationType');
+            setStatus('Redirecting…');
+            navigate(`${target.pathname}${target.search}${target.hash}`);
+            return;
+          }
+        }
+
         // Check for pending event registration
         const pendingEventId = localStorage.getItem('pendingEventRegistration');
         const pendingEventType = localStorage.getItem('pendingEventRegistrationType');
@@ -233,7 +253,7 @@ export default function AuthCallbackPage() {
           navigate(getPendingEventRedirectPath(pendingEventId, pendingEventType === 'team' ? 'team' : 'solo'));
           return;
         }
-        
+
         setStatus('Redirecting to dashboard...');
         navigate('/dashboard');
       } catch (err) {
