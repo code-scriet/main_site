@@ -219,6 +219,10 @@ function QRScanner({ onDetect }: { onDetect: (certId: string) => void }) {
   const scannerRef = useRef<import('html5-qrcode').Html5Qrcode | null>(null);
   // Guards against the decode callback firing again between match and stop().
   const detectedRef = useRef(false);
+  // Tracks live mount state so a start() that resolves *after* unmount (the
+  // dynamic-import / camera-init window) still releases the camera — otherwise
+  // cleanup runs while scannerRef is null and the stream leaks on.
+  const mountedRef = useRef(true);
   const [scanning, setScanning] = useState(false);
   const [cameraReady, setCameraReady] = useState(false);
   const [error, setError] = useState('');
@@ -259,6 +263,8 @@ function QRScanner({ onDetect }: { onDetect: (certId: string) => void }) {
       // visiting /verify must not pull the scan chunk (preserves the old
       // dynamic-import behavior; the engine is now html5-qrcode, not jsqr).
       const { Html5Qrcode } = await import('html5-qrcode');
+      // Unmounted during the import await — abort before touching the camera.
+      if (!mountedRef.current) return;
       const scanner = new Html5Qrcode(QR_READER_ID);
       scannerRef.current = scanner;
       await scanner.start(
@@ -276,6 +282,12 @@ function QRScanner({ onDetect }: { onDetect: (certId: string) => void }) {
           // Per-frame "no QR detected" — expected, no-op.
         },
       );
+      // Unmounted while start() was initializing the camera — release it now;
+      // the cleanup effect already ran (with scannerRef possibly still null).
+      if (!mountedRef.current) {
+        void stopCamera();
+        return;
+      }
       setCameraReady(true);
     } catch (err) {
       await stopCamera();
@@ -292,7 +304,13 @@ function QRScanner({ onDetect }: { onDetect: (certId: string) => void }) {
     }
   }, [onDetect, stopCamera]);
 
-  useEffect(() => () => { void stopCamera(); }, [stopCamera]);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      void stopCamera();
+    };
+  }, [stopCamera]);
 
   return (
     <div className="space-y-3">
