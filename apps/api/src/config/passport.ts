@@ -9,6 +9,39 @@ import { auditLog } from '../utils/audit.js';
 import { invalidateCachedAuthUser } from '../utils/userAuthCache.js';
 import { isSuperAdmin } from '../utils/superAdmin.js';
 import { selectVerifiedGithubEmail, isGoogleEmailVerified, oauthLinkRequiresPasswordReset } from '../utils/oauthEmail.js';
+import { getCachedSettings } from '../utils/settingsCache.js';
+
+/**
+ * L1: the admin's registrationOpen toggle gates ALL new-account creation —
+ * the email/password endpoint enforces it directly, and OAuth first sign-ins
+ * (which create accounts implicitly) must respect it too. Existing accounts
+ * keep signing in. Fails open on a settings read error: an outage must not
+ * lock out OAuth logins.
+ */
+const isRegistrationClosed = async (): Promise<boolean> => {
+  try {
+    const settings = await getCachedSettings();
+    return settings?.registrationOpen === false;
+  } catch {
+    return false;
+  }
+};
+
+/**
+ * L1 gate for OAuth first sign-ins. Network-intent signups are EXEMPT:
+ * invited guests/speakers/alumni arrive via /join-our-network (invitation
+ * claim + the public alumni funnel, both governed by Settings.showNetwork,
+ * not registrationOpen) and must be able to create the account their
+ * invitation needs even while member registration is closed. The
+ * oauth_intent cookie is client-settable, so this exemption makes the
+ * toggle a soft control against routine signups, not a security boundary —
+ * a deliberate bypasser ends up as a profile-less account that
+ * demoteOrphanNetworkUser normalizes to USER.
+ */
+export const shouldBlockImplicitOAuthSignup = async (isNetworkIntent: boolean): Promise<boolean> => {
+  if (isNetworkIntent) return false;
+  return isRegistrationClosed();
+};
 
 const getCookie = (req: Request, name: string): string | undefined => {
   const cookies = req.headers.cookie;
@@ -87,6 +120,11 @@ export function setupPassport(passport: PassportStatic) {
             let isNewUser = false;
 
             if (!user) {
+              // L1: no implicit account creation while registration is closed
+              // (network-intent invited-guest/alumni signups exempt — see helper).
+              if (await shouldBlockImplicitOAuthSignup(isNetworkIntent)) {
+                return done(new Error('Registration is currently closed. New account creation is disabled right now.'), undefined);
+              }
               isNewUser = true;
               user = await prisma.user.create({
                 data: {
@@ -157,6 +195,11 @@ export function setupPassport(passport: PassportStatic) {
             let isNewUser = false;
 
             if (!user) {
+              // L1: no implicit account creation while registration is closed
+              // (network-intent invited-guest/alumni signups exempt — see helper).
+              if (await shouldBlockImplicitOAuthSignup(isNetworkIntent)) {
+                return done(new Error('Registration is currently closed. New account creation is disabled right now.'), undefined);
+              }
               isNewUser = true;
               user = await prisma.user.create({
                 data: {
