@@ -224,7 +224,7 @@ clubName/Email/Description · registrationOpen · maxEventsPerUser · announceme
 `id, registrationId, dayNumber, attended(default false), scannedAt?, scannedBy?, manualOverride(default false), createdAt/updatedAt` · unique `[registrationId,dayNumber]`.
 
 ### EventTeam / EventTeamMember
-`EventTeam: id, eventId, teamName, inviteCode(unique, 8-char hex), leaderId, isLocked, createdAt` · unique `[eventId,teamName]`. `EventTeamMember: id, teamId, userId, registrationId(unique), role("LEADER"|"MEMBER"), joinedAt` · unique `[teamId,userId]`. Leader has `onDelete: Restrict`. Serializable txn + 3 retries.
+`EventTeam: id, eventId, teamName, inviteCode(unique, 8-char hex), leaderId, isLocked, createdAt` · unique `[eventId,teamName]`. `EventTeamMember: id, teamId, userId, registrationId(unique), role(EventTeamMemberRole LEADER|MEMBER), joinedAt` · unique `[teamId,userId]`. Leader has `onDelete: Restrict`. Serializable txn + 3 retries.
 
 ### CompetitionRound / CompetitionRoundProblem / CompetitionSubmission / CompetitionAutoSave
 Round: `id, eventId, title, description?, duration(sec), status(CompetitionStatus), roundType(IMAGE_TARGET|DSA), participantScope(ALL|SELECTED_TEAMS), leadersOnly, allowedTeamIds(String[]), targetImageUrl?, startedAt?, lockedAt?`. RoundProblem: `id, roundId, problemId, displayOrder, points` unique `[roundId,problemId]`, `[roundId,displayOrder]`. Submission: `id, roundId, teamId?, userId, code, isAutoSubmit, score?, rank?, adminNotes?` unique `[roundId,teamId]`, `[roundId,userId]`. AutoSave: `id, roundId, teamId?, userId, code, savedAt` unique `[roundId,userId]`.
@@ -251,7 +251,7 @@ Problem: `id, slug(unique), title, body, difficulty, tags(String[]), allowedLang
 `id, userId(unique), slug?(unique), legacySlugs(String[]), fullName, designation, company, industry, bio?, profilePhoto?, phone?, linkedinUsername?/twitter?/github?/personalWebsite?, connectionType(NetworkConnectionType), connectionNote?, connectedSince?, passoutYear?, degree?, branch?, rollNumber?, achievements?, currentLocation?, vision?, story?, expertise?, adminNotes?, events(JSON array), isFeatured, status(NetworkStatus), verifiedAt?/By?, rejectionReason?, isPublic, displayOrder`.
 
 ### Certificate
-`id, certId(unique, "ABCD-EFGH-IJKL"), recipientId?(FK), recipientName/Email, eventId?(FK), eventName, type(CertType), position?, domain?, description?, template(default "gold"), pdfUrl?, signatoryId?(FK Signatory), signatoryName/Title/ImageUrl, facultySignatoryId?(FK), facultyName/Title/ImageUrl, issuedBy/At, emailSent/At?, lastEmailResentAt?, isRevoked, revokedAt?/By?/Reason?, viewCount` · unique `[recipientEmail,eventId,type]`.
+`id, certId(unique, "ABCD-EFGH-IJKL"), recipientId?(FK), recipientName/Email, eventId?(FK), eventName, type(CertType), position?, domain?, description?, template(CertTemplate, default gold), emailTemplate(CertEmailTemplate, default default), pdfUrl?, signatoryId?(FK Signatory), signatoryName/Title/ImageUrl, facultySignatoryId?(FK), facultyName/Title/ImageUrl, issuedBy/At, emailSent/At?, lastEmailResentAt?, isRevoked, revokedAt?/By?/Reason?, viewCount` · unique `[recipientEmail,eventId,type]`.
 
 ### Signatory
 `id, name, title(default "Club President"), signatureUrl?, isActive`.
@@ -263,10 +263,13 @@ Problem: `id, slug(unique), title, body, difficulty, tags(String[]), allowedLang
 `id, userId, action, entity, entityId?, metadata(JSON)?, timestamp`.
 
 ### Credit
-`id, title, description?, category, teamMemberId?(FK SetNull), order, createdAt/updatedAt` · index `[category,order]`.
+`id, title, description?, category, teamMemberId?(FK SetNull), order, createdAt/updatedAt` · index `[category,order]`. `category` stays a **plain string** (admins invent categories at will — an enum would fight the feature; deliberately not converted in the A4 enum pass).
 
 ### Quiz models
-Quiz, QuizQuestion, QuizParticipant, QuizAnswer (persisted post-quiz).
+Quiz, QuizQuestion, QuizParticipant, QuizAnswer (persisted post-quiz). `QuizQuestion` has **`@@unique([quizId, position])`** (A5) — the delete-and-recreate PATCH can't persist duplicate positions.
+
+### DB-enforced constraints (migration `20260613120000_constraints_and_enums`)
+CHECKs Postgres now holds (formerly JS-only): `events_team_size_ck` (team_min ≤ team_max), `events_days_ck` (event_days 1–10), `events_capacity_ck` (capacity NULL or ≥ 0), `quiz_q_timelimit_ck` (time_limit_seconds 5–120). Plus `users_email_lower_ux` unique expression index on `lower(email)` (A8) — **not representable in schema.prisma, so a future `migrate diff` reports it as drift; keep it.** Enum conversions used data-preserving `USING` casts (never Prisma's default DROP+ADD COLUMN).
 
 ### Playground models
 Execution (`userId, language, code?, outputText?, executedAt, durationMs?, status`); UserPlaygroundPrefs PK `userId` (`theme, fontSize, keybinding, lastLanguage`); Snippet (`userId, title, language, code, isPublic, shareToken?(unique)`); PlaygroundDailyUsage composite PK `[userId,usageDate]` (`count`); PlaygroundLimitReset (`userId, resetBy, resetAt, note?`); PlaygroundLimitResetRequest (`userId, note?, status, decidedBy?/At?`).
@@ -282,6 +285,10 @@ AnnouncementPriority: LOW|MEDIUM|HIGH|URGENT
 ApplyingRole: TECHNICAL|DSA_CHAMPS|DESIGNING|SOCIAL_MEDIA|MANAGEMENT
 ApplicationStatus: PENDING|INTERVIEW_SCHEDULED|SELECTED|REJECTED
 CertType: PARTICIPATION|COMPLETION|WINNER|SPEAKER
+CertTemplate: gold|dark|white|emerald   (lowercase members — match stored strings)
+CertEmailTemplate: default|faculty_distribution
+EventTeamMemberRole: LEADER|MEMBER
+Difficulty: EASY|MEDIUM|HARD   (Problem.difficulty + QOTD.difficulty)
 RegistrationType: PARTICIPANT|GUEST
 InvitationStatus: PENDING|ACCEPTED|DECLINED|REVOKED   (EXPIRED derived, not stored)
 QuizStatus: DRAFT|WAITING|ACTIVE|FINISHED|ABANDONED
