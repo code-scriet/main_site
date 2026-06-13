@@ -15,6 +15,7 @@ import {
   assertWithinActiveEventLimitInTx,
   EventLimitExceededError,
 } from '../utils/registrationIntake.js';
+import { shouldBlockImplicitOAuthSignup } from '../config/passport.js';
 
 process.env.NODE_ENV = 'test';
 process.env.JWT_SECRET = 'registration-settings-tests-secret';
@@ -88,6 +89,33 @@ test('POST /api/auth/register returns 403 when registrationOpen=false', async (t
     const json = await response.json();
     assert.match(String(json.error), /Registration is currently closed/);
   });
+});
+
+test('OAuth signup gate blocks routine signups but exempts network-intent invites when closed', async (t) => {
+  const settingsDelegate = prisma.settings as unknown as Record<string, unknown>;
+  const restore = setMethods([
+    [settingsDelegate, 'findUnique', async () => ({ id: 'default', registrationOpen: false })],
+  ]);
+  t.after(restore);
+  invalidateSettingsCache();
+
+  // Routine (non-network) OAuth first sign-in is blocked while closed.
+  assert.equal(await shouldBlockImplicitOAuthSignup(false), true, 'routine signup blocked when closed');
+  // Invited guest/speaker/alumni (network intent) may still create the account
+  // their invitation needs — registrationOpen governs member signups only.
+  assert.equal(await shouldBlockImplicitOAuthSignup(true), false, 'network-intent signup exempt');
+});
+
+test('OAuth signup gate allows everyone when registration is open', async (t) => {
+  const settingsDelegate = prisma.settings as unknown as Record<string, unknown>;
+  const restore = setMethods([
+    [settingsDelegate, 'findUnique', async () => ({ id: 'default', registrationOpen: true })],
+  ]);
+  t.after(restore);
+  invalidateSettingsCache();
+
+  assert.equal(await shouldBlockImplicitOAuthSignup(false), false, 'routine signup allowed when open');
+  assert.equal(await shouldBlockImplicitOAuthSignup(true), false, 'network-intent allowed when open');
 });
 
 test('POST /api/auth/register succeeds when registrationOpen=true', async (t) => {

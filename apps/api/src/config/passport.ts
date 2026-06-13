@@ -27,6 +27,22 @@ const isRegistrationClosed = async (): Promise<boolean> => {
   }
 };
 
+/**
+ * L1 gate for OAuth first sign-ins. Network-intent signups are EXEMPT:
+ * invited guests/speakers/alumni arrive via /join-our-network (invitation
+ * claim + the public alumni funnel, both governed by Settings.showNetwork,
+ * not registrationOpen) and must be able to create the account their
+ * invitation needs even while member registration is closed. The
+ * oauth_intent cookie is client-settable, so this exemption makes the
+ * toggle a soft control against routine signups, not a security boundary —
+ * a deliberate bypasser ends up as a profile-less account that
+ * demoteOrphanNetworkUser normalizes to USER.
+ */
+export const shouldBlockImplicitOAuthSignup = async (isNetworkIntent: boolean): Promise<boolean> => {
+  if (isNetworkIntent) return false;
+  return isRegistrationClosed();
+};
+
 const getCookie = (req: Request, name: string): string | undefined => {
   const cookies = req.headers.cookie;
   if (!cookies) return undefined;
@@ -104,8 +120,9 @@ export function setupPassport(passport: PassportStatic) {
             let isNewUser = false;
 
             if (!user) {
-              // L1: no implicit account creation while registration is closed.
-              if (await isRegistrationClosed()) {
+              // L1: no implicit account creation while registration is closed
+              // (network-intent invited-guest/alumni signups exempt — see helper).
+              if (await shouldBlockImplicitOAuthSignup(isNetworkIntent)) {
                 return done(new Error('Registration is currently closed. New account creation is disabled right now.'), undefined);
               }
               isNewUser = true;
@@ -178,8 +195,9 @@ export function setupPassport(passport: PassportStatic) {
             let isNewUser = false;
 
             if (!user) {
-              // L1: no implicit account creation while registration is closed.
-              if (await isRegistrationClosed()) {
+              // L1: no implicit account creation while registration is closed
+              // (network-intent invited-guest/alumni signups exempt — see helper).
+              if (await shouldBlockImplicitOAuthSignup(isNetworkIntent)) {
                 return done(new Error('Registration is currently closed. New account creation is disabled right now.'), undefined);
               }
               isNewUser = true;
