@@ -2,62 +2,81 @@
  * Manual retention pruning for unbounded-growth tables on the free-tier DB.
  * The API runs the same sweep automatically once per 24h (see
  * apps/api/src/utils/scheduler.ts pruneOldRecords); this script exists for
- * one-off manual runs and for inspecting what would be deleted.
+ * one-off manual runs and for inspecting what would be deleted (--dry-run).
  *
- * Deletes:
- *   - Execution rows older than 90 days (playground run history: code + output)
- *   - PlaygroundDailyUsage rows older than 60 days (per-day quota counters)
+ * Deletes (A7):
+ *   - Execution            > 90d  (playground run history: code + output TEXT)
+ *   - PlaygroundDailyUsage > 60d  (per-day quota counters)
+ *   - NotificationFeed     expired OR > 90d  (bell broadcasts)
+ *   - CompetitionAutoSave  round FINISHED > 30d  (superseded code blobs;
+ *                          final answers live in CompetitionSubmission)
+ *   - QuizAnswer           > 365d  — ONLY when PRUNE_QUIZ_ANSWERS=true
+ *                          (QuizParticipant leaderboard aggregates are kept)
  *
- * AuditLog is deliberately NOT pruned — it is the compliance trail and needs an
- * explicit retention decision before any deletion.
+ * AuditLog is deliberately NOT pruned — it is the compliance trail and keeps
+ * its explicit retention via DELETE /api/audit-logs/retention.
  *
  * Usage:
  *   npx tsx scripts/prune-old-records.ts            # delete
  *   npx tsx scripts/prune-old-records.ts --dry-run  # count only, no writes
+ *   PRUNE_QUIZ_ANSWERS=true npx tsx scripts/prune-old-records.ts [--dry-run]
  */
 import { prisma } from '../apps/api/src/lib/prisma.js';
-
-const EXECUTION_RETENTION_DAYS = 90;
-const PLAYGROUND_USAGE_RETENTION_DAYS = 60;
+import {
+  computePruneCutoffs,
+  isQuizAnswerPruningEnabled,
+  pruneOldRecords,
+  EXECUTION_RETENTION_DAYS,
+  PLAYGROUND_USAGE_RETENTION_DAYS,
+  NOTIFICATION_FEED_RETENTION_DAYS,
+  COMPETITION_AUTOSAVE_RETENTION_DAYS,
+  QUIZ_ANSWER_RETENTION_DAYS,
+} from '../apps/api/src/utils/scheduler.js';
 
 const DRY_RUN = process.argv.includes('--dry-run');
 
 async function main(): Promise<void> {
-  const now = Date.now();
-  const executionCutoff = new Date(now - EXECUTION_RETENTION_DAYS * 24 * 60 * 60 * 1000);
-  const usageCutoff = new Date(now - PLAYGROUND_USAGE_RETENTION_DAYS * 24 * 60 * 60 * 1000);
+  const cutoffs = computePruneCutoffs();
+  const quizEnabled = isQuizAnswerPruningEnabled();
 
-  console.log(`Execution cutoff:            ${executionCutoff.toISOString()} (${EXECUTION_RETENTION_DAYS}d)`);
-  console.log(`PlaygroundDailyUsage cutoff: ${usageCutoff.toISOString()} (${PLAYGROUND_USAGE_RETENTION_DAYS}d)`);
+  console.log(`Execution            cutoff: ${cutoffs.execution.toISOString()} (${EXECUTION_RETENTION_DAYS}d)`);
+  console.log(`PlaygroundDailyUsage cutoff: ${cutoffs.playgroundUsage.toISOString()} (${PLAYGROUND_USAGE_RETENTION_DAYS}d)`);
+  console.log(`NotificationFeed     cutoff: ${cutoffs.notificationFeed.toISOString()} (${NOTIFICATION_FEED_RETENTION_DAYS}d, or expired)`);
+  console.log(`CompetitionAutoSave  cutoff: ${cutoffs.competitionAutoSave.toISOString()} (round FINISHED >${COMPETITION_AUTOSAVE_RETENTION_DAYS}d)`);
+  console.log(`QuizAnswer           cutoff: ${cutoffs.quizAnswer.toISOString()} (${QUIZ_ANSWER_RETENTION_DAYS}d) — ${quizEnabled ? 'ENABLED' : 'disabled (set PRUNE_QUIZ_ANSWERS=true)'}`);
+  console.log('AuditLog: NOT pruned (manual /api/audit-logs/retention only).');
 
   if (DRY_RUN) {
-    const [executions, dailyUsage] = await Promise.all([
-      prisma.execution.count({ where: { executedAt: { lt: executionCutoff } } }),
-      prisma.playgroundDailyUsage.count({ where: { usageDate: { lt: usageCutoff } } }),
+    const [executions, dailyUsage, notificationFeed, competitionAutoSaves, quizAnswers] = await Promise.all([
+      prisma.execution.count({ where: { executedAt: { lt: cutoffs.execution } } }),
+      prisma.playgroundDailyUsage.count({ where: { usageDate: { lt: cutoffs.playgroundUsage } } }),
+      prisma.notificationFeed.count({
+        where: {
+          OR: [
+            { expiresAt: { not: null, lt: new Date() } },
+            { createdAt: { lt: cutoffs.notificationFeed } },
+          ],
+        },
+      }),
+      prisma.competitionAutoSave.count({
+        where: { round: { status: 'FINISHED', updatedAt: { lt: cutoffs.competitionAutoSave } } },
+      }),
+      quizEnabled
+        ? prisma.quizAnswer.count({ where: { submittedAt: { lt: cutoffs.quizAnswer } } })
+        : Promise.resolve(0),
     ]);
-    console.log(`[dry-run] would delete ${executions} execution(s), ${dailyUsage} daily-usage row(s)`);
+    console.log(
+      `[dry-run] would delete: ${executions} execution(s), ${dailyUsage} daily-usage, ` +
+      `${notificationFeed} notification(s), ${competitionAutoSaves} autosave(s), ${quizAnswers} quiz-answer(s)`,
+    );
     return;
   }
 
-  // Batch the TEXT-heavy execution deletes (same as the in-API sweep) so a
-  // months-deep backlog never becomes one giant DELETE statement.
-  const BATCH = 5000;
-  let executions = 0;
-  for (;;) {
-    const rows = await prisma.execution.findMany({
-      where: { executedAt: { lt: executionCutoff } },
-      select: { id: true },
-      take: BATCH,
-    });
-    if (rows.length === 0) break;
-    const { count } = await prisma.execution.deleteMany({
-      where: { id: { in: rows.map((row) => row.id) } },
-    });
-    executions += count;
-    if (rows.length < BATCH) break;
-  }
-  const dailyUsage = await prisma.playgroundDailyUsage.deleteMany({ where: { usageDate: { lt: usageCutoff } } });
-  console.log(`Deleted ${executions} execution(s), ${dailyUsage.count} daily-usage row(s)`);
+  const result = await pruneOldRecords();
+  console.log(
+    `Deleted: ${result.executions} execution(s), ${result.dailyUsage} daily-usage, ` +
+    `${result.notificationFeed} notification(s), ${result.competitionAutoSaves} autosave(s), ${result.quizAnswers} quiz-answer(s)`,
+  );
 }
 
 main()
