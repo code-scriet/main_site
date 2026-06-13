@@ -25,7 +25,7 @@
     "cors": "^2.8.6",
     "dotenv": "^17.3.1",
     "emmet-monaco-es": "^5.7.0",
-    "express": "^4.22.1",
+    "express": "^5.2.1",
     "framer-motion": "^12.23.26",
     "jsonwebtoken": "^9.0.3",
     "lucide-react": "^0.562.0",
