@@ -1,0 +1,154 @@
+import { memo, useEffect, useRef, useState } from 'react';
+import { useMotionConfig } from '@/hooks/useMotionConfig';
+
+// ---------------------------------------------------------------------------
+// Edit the script here — stats/commands live in one config array so they can be
+// updated without touching the animation logic below.
+// ---------------------------------------------------------------------------
+type Line =
+  | { type: 'command'; text: string }
+  | { type: 'output'; text: string; tone?: 'success' | 'body' };
+
+const SCRIPT: Line[] = [
+  { type: 'command', text: 'whoami' },
+  { type: 'output', text: 'codescriet — official coding club of SCRIET, CCSU', tone: 'body' },
+  { type: 'command', text: 'codescriet --stats' },
+  { type: 'output', text: '480+ developers · 25+ events · 12 contests hosted', tone: 'body' },
+  { type: 'command', text: 'git log --oneline' },
+  { type: 'output', text: 'a3f9c21 shipped quiz platform', tone: 'success' },
+  { type: 'output', text: '7b2e4d8 won TechSprint finale', tone: 'success' },
+  { type: 'output', text: 'e1c0f55 hosted WebSnap 2026', tone: 'success' },
+  { type: 'command', text: 'join codescriet' },
+  { type: 'output', text: "Welcome aboard. Let's build. ⚡", tone: 'success' },
+];
+
+type RenderedLine = { kind: 'command' | 'output'; text: string; tone?: 'success' | 'body'; typedLen: number };
+
+const toneColor = (line: RenderedLine) => {
+  if (line.kind === 'command') return undefined; // prompt + body colored inline
+  if (line.tone === 'success') return '#6ee7a8';
+  return 'rgba(255,255,255,0.7)';
+};
+
+export const AnimatedTerminal = memo(function AnimatedTerminal() {
+  const { prefersReducedMotion } = useMotionConfig();
+  const [lines, setLines] = useState<RenderedLine[]>([]);
+  const [cursorLine, setCursorLine] = useState(0);
+  const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
+
+  useEffect(() => {
+    // Reduced motion: render the fully-typed final state, no animation loop.
+    if (prefersReducedMotion) {
+      setLines(
+        SCRIPT.map((l) => ({
+          kind: l.type,
+          text: l.text,
+          tone: l.type === 'output' ? l.tone : undefined,
+          typedLen: l.text.length,
+        })),
+      );
+      setCursorLine(-1);
+      return;
+    }
+
+    let cancelled = false;
+    const schedule = (fn: () => void, ms: number) => {
+      const id = setTimeout(() => !cancelled && fn(), ms);
+      timers.current.push(id);
+    };
+
+    const run = () => {
+      setLines([]);
+      let index = 0;
+
+      const next = () => {
+        if (cancelled) return;
+        if (index >= SCRIPT.length) {
+          // Loop: pause 3s, fade handled by CSS opacity on restart.
+          schedule(run, 3000);
+          return;
+        }
+        const line = SCRIPT[index];
+        setCursorLine(index);
+
+        if (line.type === 'output') {
+          // Output prints instantly.
+          setLines((prev) => [...prev, { kind: 'output', text: line.text, tone: line.tone, typedLen: line.text.length }]);
+          index += 1;
+          schedule(next, 360);
+          return;
+        }
+
+        // Command: type character-by-character at slightly variable speed.
+        setLines((prev) => [...prev, { kind: 'command', text: line.text, typedLen: 0 }]);
+        let ci = 0;
+        const typeChar = () => {
+          if (cancelled) return;
+          ci += 1;
+          setLines((prev) => {
+            const copy = prev.slice();
+            const last = copy[copy.length - 1];
+            if (last) copy[copy.length - 1] = { ...last, typedLen: ci };
+            return copy;
+          });
+          if (ci < line.text.length) {
+            schedule(typeChar, 45 + Math.random() * 60);
+          } else {
+            index += 1;
+            schedule(next, 420);
+          }
+        };
+        schedule(typeChar, 260);
+      };
+
+      next();
+    };
+
+    run();
+
+    return () => {
+      cancelled = true;
+      timers.current.forEach(clearTimeout);
+      timers.current = [];
+    };
+  }, [prefersReducedMotion]);
+
+  return (
+    <div className="hx-underglow home-float">
+      <div className="hx-terminal">
+        {/* Title bar */}
+        <div className="flex items-center gap-3 border-b border-white/8 px-4 py-3">
+          <div className="flex items-center gap-2">
+            <span className="h-3 w-3 rounded-full bg-[#ff5f57]/90" />
+            <span className="h-3 w-3 rounded-full bg-[#febc2e]/90" />
+            <span className="h-3 w-3 rounded-full bg-[#28c840]/90" />
+          </div>
+          <span className="flex-1 text-center font-mono text-[12px] text-white/45">codescriet@scriet:~</span>
+          <span className="w-12" aria-hidden="true" />
+        </div>
+
+        {/* Body */}
+        <div className="relative min-h-[270px] px-5 py-4 font-mono text-[13px] leading-relaxed sm:text-sm">
+          {lines.map((line, i) => {
+            const showCursor = i === cursorLine;
+            if (line.kind === 'command') {
+              return (
+                <div key={i} className="whitespace-pre-wrap break-words">
+                  <span className="text-[#f97316]">$ </span>
+                  <span className="text-white/90">{line.text.slice(0, line.typedLen)}</span>
+                  {showCursor && <span className="hx-cursor" />}
+                </div>
+              );
+            }
+            return (
+              <div key={i} className="whitespace-pre-wrap break-words" style={{ color: toneColor(line) }}>
+                <span className="text-white/35">{'> '}</span>
+                {line.text}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+});
