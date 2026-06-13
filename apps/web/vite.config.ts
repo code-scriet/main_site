@@ -28,11 +28,17 @@ export default defineConfig({
         manualChunks: {
           'vendor-react': ['react', 'react-dom', 'react-router-dom'],
           'vendor-ui': ['framer-motion', '@tanstack/react-query'],
-          'markdown': ['react-markdown', 'remark-gfm', 'rehype-highlight'],
+          'markdown': ['react-markdown', 'remark-gfm'],
           // Heavy, route-specific deps — keep them out of the route chunks so
           // they're only fetched when the screens that need them mount.
           'vendor-charts': ['recharts'],
-          'vendor-qr': ['html5-qrcode', 'jsqr', 'qrcode.react'],
+          // W1: QR *rendering* (qrcode.react, ~4 KB gz) is split from QR
+          // *scanning* (html5-qrcode, ~148 KB gz). Every quiz player + ticket
+          // viewer renders a QR but never scans one — they used to download
+          // both decode engines. Now only AdminScanner + VerifyCertificatePage
+          // pull the scan chunk, and only when they mount.
+          'vendor-qr-render': ['qrcode.react'],
+          'vendor-qr-scan': ['html5-qrcode'],
         },
       },
     },

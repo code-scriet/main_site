@@ -194,266 +194,123 @@ function InvalidResult({ result }: { result: VerifyResult }) {
   );
 }
 
-// QR scanner component using jsqr + getUserMedia
+// Extract a cert id from a scanned QR payload (a /verify/<certId> URL or a raw
+// "ABCD-EFGH-IJKL" code). Returns null when the payload isn't a cert reference.
+function extractCertIdFromQr(data: string): string | null {
+  try {
+    const url = new URL(data);
+    const parts = url.pathname.split('/');
+    const certId = parts[parts.length - 1];
+    if (certId) return certId;
+  } catch {
+    const raw = data.trim().toUpperCase();
+    if (/^[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}$/.test(raw)) return raw;
+  }
+  return null;
+}
+
+const QR_READER_ID = 'cert-verify-qr-reader';
+
+// QR scanner component. Live camera scanning via html5-qrcode (W4: replaces the
+// hand-rolled getUserMedia + jsqr loop so the page no longer pulls jsqr — the
+// scan chunk now ships one decode engine instead of two). html5-qrcode owns
+// camera selection + per-frame decoding internally and renders into #QR_READER_ID.
 function QRScanner({ onDetect }: { onDetect: (certId: string) => void }) {
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const canvasRef = useRef<HTMLCanvasElement>(null);
-  const streamRef = useRef<MediaStream | null>(null);
-  const rafRef = useRef<number>(0);
-  const jsQrRef = useRef<(typeof import('jsqr').default) | null>(null);
-  const jsQrPromiseRef = useRef<Promise<(typeof import('jsqr').default)> | null>(null);
+  const scannerRef = useRef<import('html5-qrcode').Html5Qrcode | null>(null);
+  // Guards against the decode callback firing again between match and stop().
+  const detectedRef = useRef(false);
+  // Tracks live mount state so a start() that resolves *after* unmount (the
+  // dynamic-import / camera-init window) still releases the camera — otherwise
+  // cleanup runs while scannerRef is null and the stream leaks on.
+  const mountedRef = useRef(true);
   const [scanning, setScanning] = useState(false);
   const [cameraReady, setCameraReady] = useState(false);
   const [error, setError] = useState('');
 
-  const stopCamera = useCallback(() => {
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach(t => t.stop());
-      streamRef.current = null;
-    }
-    cancelAnimationFrame(rafRef.current);
-    if (videoRef.current) {
-      videoRef.current.pause();
-      videoRef.current.srcObject = null;
+  const stopCamera = useCallback(async () => {
+    const scanner = scannerRef.current;
+    scannerRef.current = null;
+    if (scanner) {
+      try {
+        if (scanner.isScanning) {
+          await scanner.stop();
+        }
+        scanner.clear();
+      } catch {
+        // Camera may already be stopped — nothing to clean up.
+      }
     }
     setCameraReady(false);
     setScanning(false);
   }, []);
 
-  const loadJsQr = useCallback(async () => {
-    if (jsQrRef.current) return jsQrRef.current;
-    if (!jsQrPromiseRef.current) {
-      jsQrPromiseRef.current = import('jsqr').then(module => module.default);
-    }
-    const jsQr = await jsQrPromiseRef.current;
-    jsQrRef.current = jsQr;
-    return jsQr;
-  }, []);
-
-  const waitForVideoFrame = useCallback(async (video: HTMLVideoElement) => {
-    const playVideo = async () => {
-      try {
-        await video.play();
-      } catch (error) {
-        if (error instanceof DOMException && error.name === 'AbortError') {
-          await new Promise(resolve => window.setTimeout(resolve, 150));
-          await video.play();
-          return;
-        }
-        throw error;
-      }
-    };
-
-    await playVideo();
-
-    await new Promise<void>((resolve, reject) => {
-      const timeoutAt = Date.now() + 4000;
-      let frameId = 0;
-
-      const checkFrame = () => {
-        if (
-          video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA &&
-          video.videoWidth > 0 &&
-          video.videoHeight > 0
-        ) {
-          cancelAnimationFrame(frameId);
-          resolve();
-          return;
-        }
-
-        if (Date.now() >= timeoutAt) {
-          cancelAnimationFrame(frameId);
-          reject(new Error('Camera preview did not initialize.'));
-          return;
-        }
-
-        frameId = requestAnimationFrame(checkFrame);
-      };
-
-      frameId = requestAnimationFrame(checkFrame);
-    });
-  }, []);
-
-  const attachStreamToVideo = useCallback(async (stream: MediaStream) => {
-    const video = videoRef.current;
-    if (!video) {
-      throw new Error('Camera preview element is not ready.');
-    }
-
-    video.pause();
-    video.srcObject = null;
-    video.muted = true;
-    video.autoplay = true;
-    video.playsInline = true;
-    video.disablePictureInPicture = true;
-    video.setAttribute('autoplay', 'true');
-    video.setAttribute('muted', 'true');
-    video.setAttribute('playsinline', 'true');
-    video.srcObject = stream;
-
-    await waitForVideoFrame(video);
-  }, [waitForVideoFrame]);
-
-  const getCameraAttempts = useCallback(async () => {
-    const attempts: MediaStreamConstraints[] = [
-      {
-        audio: false,
-        video: {
-          facingMode: { ideal: 'environment' },
-          width: { ideal: 1280 },
-          height: { ideal: 720 },
-        },
-      },
-      {
-        audio: false,
-        video: {
-          facingMode: 'environment',
-          width: { ideal: 1280 },
-          height: { ideal: 720 },
-        },
-      },
-    ];
-
-    if (navigator.mediaDevices.enumerateDevices) {
-      const devices = await navigator.mediaDevices.enumerateDevices();
-      const videoInputs = devices.filter(device => device.kind === 'videoinput');
-      const preferredIds = new Set<string>();
-      const preferredDevices = [
-        videoInputs.find(device => /(back|rear|environment)/i.test(device.label)),
-        videoInputs[videoInputs.length - 1],
-      ].filter((device): device is MediaDeviceInfo => Boolean(device));
-
-      for (const device of preferredDevices) {
-        if (preferredIds.has(device.deviceId)) continue;
-        preferredIds.add(device.deviceId);
-        attempts.push({
-          audio: false,
-          video: {
-            deviceId: { exact: device.deviceId },
-            width: { ideal: 1280 },
-            height: { ideal: 720 },
-          },
-        });
-      }
-    }
-
-    attempts.push({
-      audio: false,
-      video: {
-        width: { ideal: 1280 },
-        height: { ideal: 720 },
-      },
-    });
-
-    return attempts;
-  }, []);
-
-  const tick = useCallback(() => {
-    const video = videoRef.current;
-    const canvas = canvasRef.current;
-    const jsQr = jsQrRef.current;
-
-    if (
-      !streamRef.current ||
-      !video ||
-      !canvas ||
-      !jsQr ||
-      video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA ||
-      video.videoWidth === 0 ||
-      video.videoHeight === 0
-    ) {
-      rafRef.current = requestAnimationFrame(tick);
-      return;
-    }
-
-    const ctx = canvas.getContext('2d', { willReadFrequently: true });
-    if (!ctx) return;
-
-    canvas.width = video.videoWidth;
-    canvas.height = video.videoHeight;
-    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-
-    const code = jsQr(imageData.data, imageData.width, imageData.height);
-    if (code?.data) {
-      // Extract certId from URL or use raw data
-      try {
-        const url = new URL(code.data);
-        const parts = url.pathname.split('/');
-        const certId = parts[parts.length - 1];
-        if (certId) {
-          stopCamera();
-          onDetect(certId);
-          return;
-        }
-      } catch {
-        // Not a URL — use raw value if it looks like a cert ID
-        const raw = code.data.trim().toUpperCase();
-        if (/^[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}$/.test(raw)) {
-          stopCamera();
-          onDetect(raw);
-          return;
-        }
-      }
-    }
-
-    rafRef.current = requestAnimationFrame(tick);
-  }, [onDetect, stopCamera]);
-
-  async function startCamera() {
+  const startCamera = useCallback(async () => {
     setError('');
     if (!navigator.mediaDevices?.getUserMedia) {
       setError('Camera API not available. Please use a modern browser with HTTPS.');
       return;
     }
 
-    stopCamera();
+    detectedRef.current = false;
+    // flushSync so the #reader div is in the DOM before html5-qrcode mounts into it.
     flushSync(() => {
       setScanning(true);
       setCameraReady(false);
     });
 
     try {
-      await loadJsQr();
-      const attempts = await getCameraAttempts();
-      let lastError: unknown = new Error('Could not access camera.');
-
-      for (const constraints of attempts) {
-        let stream: MediaStream | null = null;
-        try {
-          stream = await navigator.mediaDevices.getUserMedia(constraints);
-          await attachStreamToVideo(stream);
-          streamRef.current = stream;
-          setCameraReady(true);
-          rafRef.current = requestAnimationFrame(tick);
-          return;
-        } catch (attemptError) {
-          lastError = attemptError;
-          if (stream) {
-            stream.getTracks().forEach(track => track.stop());
+      // Lazy-load the decode engine only when the camera is actually opened —
+      // visiting /verify must not pull the scan chunk (preserves the old
+      // dynamic-import behavior; the engine is now html5-qrcode, not jsqr).
+      const { Html5Qrcode } = await import('html5-qrcode');
+      // Unmounted during the import await — abort before touching the camera.
+      if (!mountedRef.current) return;
+      const scanner = new Html5Qrcode(QR_READER_ID);
+      scannerRef.current = scanner;
+      await scanner.start(
+        { facingMode: 'environment' },
+        { fps: 10, qrbox: { width: 220, height: 220 } },
+        (decodedText) => {
+          if (detectedRef.current) return;
+          const certId = extractCertIdFromQr(decodedText);
+          if (certId) {
+            detectedRef.current = true;
+            void stopCamera().then(() => onDetect(certId));
           }
-        }
+        },
+        () => {
+          // Per-frame "no QR detected" — expected, no-op.
+        },
+      );
+      // Unmounted while start() was initializing the camera — release it now;
+      // the cleanup effect already ran (with scannerRef possibly still null).
+      if (!mountedRef.current) {
+        void stopCamera();
+        return;
       }
-
-      throw lastError;
+      setCameraReady(true);
     } catch (err) {
-      stopCamera();
-      const name = err instanceof DOMException ? err.name : '';
-      if (name === 'NotAllowedError') {
+      await stopCamera();
+      const message = err instanceof Error ? err.message : String(err);
+      if (/NotAllowedError|Permission/i.test(message)) {
         setError('Camera access denied. Please allow camera permission in your browser settings and try again.');
-      } else if (name === 'NotFoundError') {
+      } else if (/NotFoundError|no.*camera/i.test(message)) {
         setError('No camera found on this device.');
-      } else if (name === 'NotReadableError' || name === 'AbortError') {
+      } else if (/NotReadableError|in use|AbortError/i.test(message)) {
         setError('Camera is in use by another app. Close it and try again.');
-      } else if (err instanceof Error && err.message === 'Camera preview did not initialize.') {
-        setError('The camera opened, but no video frames were received. Try again, switch browsers, or enter the certificate ID manually.');
       } else {
         setError('Could not access camera. Please try again or enter the certificate ID manually.');
       }
     }
-  }
+  }, [onDetect, stopCamera]);
 
-  useEffect(() => () => { stopCamera(); }, [stopCamera]);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      void stopCamera();
+    };
+  }, [stopCamera]);
 
   return (
     <div className="space-y-3">
@@ -464,36 +321,27 @@ function QRScanner({ onDetect }: { onDetect: (certId: string) => void }) {
         </Button>
       ) : (
         <div className="relative aspect-[4/3] min-h-[18rem] rounded-xl overflow-hidden bg-black">
-          <video
-            ref={videoRef}
-            className={`h-full w-full object-cover transition-opacity duration-200 ${cameraReady ? 'opacity-100' : 'opacity-0'}`}
-            playsInline
-            muted
-            autoPlay
-          />
-          {/* Scan overlay */}
-          <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-            {!cameraReady ? (
+          {/* html5-qrcode injects its <video> into this container. */}
+          <div id={QR_READER_ID} className="h-full w-full [&_video]:h-full [&_video]:w-full [&_video]:object-cover" />
+          {!cameraReady && (
+            <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
               <div className="flex items-center gap-2 rounded-full bg-black/70 px-4 py-2 text-sm text-white">
                 <Loader2 className="h-4 w-4 animate-spin" />
                 Starting camera…
               </div>
-            ) : (
-              <div className="w-48 h-48 border-2 border-amber-400 rounded-lg opacity-70" />
-            )}
-          </div>
+            </div>
+          )}
           <Button
-            onClick={stopCamera}
+            onClick={() => { void stopCamera(); }}
             size="sm"
             variant="outline"
-            className="absolute top-2 right-2 gap-1 bg-white/90 text-xs"
+            className="absolute top-2 right-2 z-10 gap-1 bg-white/90 text-xs"
           >
             <CameraOff className="w-3.5 h-3.5" />
             Stop
           </Button>
         </div>
       )}
-      <canvas ref={canvasRef} className="hidden" />
       {error && (
         <p className="text-red-500 text-xs flex items-center gap-1.5">
           <AlertCircle className="w-3.5 h-3.5" /> {error}
