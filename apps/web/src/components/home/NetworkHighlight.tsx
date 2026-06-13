@@ -30,13 +30,13 @@ const connectionTypeLabels: Record<NetworkConnectionType, string> = {
 };
 
 const connectionTypeColors: Record<NetworkConnectionType, { bg: string; text: string; border: string }> = {
-  GUEST_SPEAKER: { bg: 'bg-fuchsia-500/15', text: 'text-fuchsia-300', border: 'border-fuchsia-500/30' },
-  GMEET_SESSION: { bg: 'bg-sky-500/15', text: 'text-sky-300', border: 'border-sky-500/30' },
-  EVENT_JUDGE: { bg: 'bg-amber-500/15', text: 'text-amber-300', border: 'border-amber-500/30' },
-  MENTOR: { bg: 'bg-emerald-500/15', text: 'text-emerald-300', border: 'border-emerald-500/30' },
-  INDUSTRY_PARTNER: { bg: 'bg-indigo-500/15', text: 'text-indigo-300', border: 'border-indigo-500/30' },
-  ALUMNI: { bg: 'bg-orange-500/15', text: 'text-orange-300', border: 'border-orange-500/30' },
-  OTHER: { bg: 'bg-gray-500/15', text: 'text-gray-300', border: 'border-gray-500/30' },
+  GUEST_SPEAKER: { bg: 'bg-fuchsia-500/15', text: 'text-fuchsia-600 dark:text-fuchsia-300', border: 'border-fuchsia-500/30' },
+  GMEET_SESSION: { bg: 'bg-sky-500/15', text: 'text-sky-600 dark:text-sky-300', border: 'border-sky-500/30' },
+  EVENT_JUDGE: { bg: 'bg-amber-500/15', text: 'text-amber-600 dark:text-amber-300', border: 'border-amber-500/30' },
+  MENTOR: { bg: 'bg-emerald-500/15', text: 'text-emerald-600 dark:text-emerald-300', border: 'border-emerald-500/30' },
+  INDUSTRY_PARTNER: { bg: 'bg-indigo-500/15', text: 'text-indigo-600 dark:text-indigo-300', border: 'border-indigo-500/30' },
+  ALUMNI: { bg: 'bg-orange-500/15', text: 'text-orange-600 dark:text-orange-300', border: 'border-orange-500/30' },
+  OTHER: { bg: 'bg-gray-500/15', text: 'text-gray-600 dark:text-gray-300', border: 'border-gray-500/30' },
 };
 
 export function NetworkHighlight() {

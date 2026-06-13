@@ -2651,10 +2651,10 @@ html.dark .home-v2 {
   animation: home-particle-rise linear infinite;
 }
 @keyframes home-particle-rise {
-  0% { transform: translateY(0); opacity: 0; }
+  0% { transform: translate(0, 0); opacity: 0; }
   10% { opacity: 0.6; }
   90% { opacity: 0.4; }
-  100% { transform: translateY(-104vh); opacity: 0; }
+  100% { transform: translate(var(--drift, 0px), -104vh); opacity: 0; }
 }
 
 /* ---- Glass primitives ---- */

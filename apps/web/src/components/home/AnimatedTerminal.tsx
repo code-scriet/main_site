@@ -34,7 +34,9 @@ export const AnimatedTerminal = memo(function AnimatedTerminal() {
   const { prefersReducedMotion } = useMotionConfig();
   const [lines, setLines] = useState<RenderedLine[]>([]);
   const [cursorLine, setCursorLine] = useState(0);
-  const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
+  // The script is strictly sequential — only one timeout is ever pending — so a
+  // single handle is enough (and avoids growing an array across loop restarts).
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     // Reduced motion: render the fully-typed final state, no animation loop.
@@ -53,8 +55,7 @@ export const AnimatedTerminal = memo(function AnimatedTerminal() {
 
     let cancelled = false;
     const schedule = (fn: () => void, ms: number) => {
-      const id = setTimeout(() => !cancelled && fn(), ms);
-      timers.current.push(id);
+      timer.current = setTimeout(() => !cancelled && fn(), ms);
     };
 
     const run = () => {
@@ -108,8 +109,7 @@ export const AnimatedTerminal = memo(function AnimatedTerminal() {
 
     return () => {
       cancelled = true;
-      timers.current.forEach(clearTimeout);
-      timers.current = [];
+      if (timer.current) clearTimeout(timer.current);
     };
   }, [prefersReducedMotion]);
 

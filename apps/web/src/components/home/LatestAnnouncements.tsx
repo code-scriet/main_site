@@ -8,10 +8,10 @@ import { useHomePageData } from '@/hooks/useHomePageData';
 // Priority drives the icon, its tint, and the card's left-border accent. All
 // values read against the charcoal glass surface.
 const priorityConfig = {
-  LOW: { icon: Info, color: '#9ca3af', label: 'text-zinc-300' },
-  MEDIUM: { icon: CheckCircle, color: '#60a5fa', label: 'text-blue-300' },
-  HIGH: { icon: Bell, color: '#fb923c', label: 'text-orange-300' },
-  URGENT: { icon: AlertTriangle, color: '#f87171', label: 'text-red-300' },
+  LOW: { icon: Info, color: '#9ca3af', label: 'text-zinc-500 dark:text-zinc-300' },
+  MEDIUM: { icon: CheckCircle, color: '#60a5fa', label: 'text-blue-600 dark:text-blue-300' },
+  HIGH: { icon: Bell, color: '#fb923c', label: 'text-orange-600 dark:text-orange-300' },
+  URGENT: { icon: AlertTriangle, color: '#f87171', label: 'text-red-600 dark:text-red-300' },
 };
 
 function getAnnouncementPreview(shortDescription?: string | null, body?: string | null): string {
