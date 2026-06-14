@@ -88,7 +88,7 @@ export function AchievementsShowcase() {
                         </>
                       ) : (
                         <div className="w-full h-full bg-gradient-to-br from-amber-500 via-orange-500 to-orange-600 flex items-center justify-center relative overflow-hidden">
-                          <Trophy className="h-16 w-16 hx-t3" />
+                          <Trophy className="h-16 w-16 text-white/30" />
                           <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent" />
                         </div>
                       )}
