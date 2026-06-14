@@ -363,7 +363,7 @@ model EventTeamMember {
   teamId         String   @map("team_id")
   userId         String   @map("user_id")
   registrationId String   @unique @map("registration_id")
-  role           String   @default("MEMBER") @db.VarChar(10)
+  role           EventTeamMemberRole @default(MEMBER)
   joinedAt       DateTime @default(now()) @map("joined_at")
 
   team         EventTeam         @relation(fields: [teamId], references: [id], onDelete: Cascade)
@@ -613,7 +613,7 @@ model QOTD {
   date        DateTime         @unique
   question    String
   problemLink String           @map("problem_link")
-  difficulty  String
+  difficulty  Difficulty
   problemId   String?          @map("problem_id")
   createdById String?          @map("created_by_id")
   createdAt   DateTime         @default(now()) @map("created_at")
@@ -731,6 +731,20 @@ enum EventStatus {
 enum RegistrationType {
   PARTICIPANT
   GUEST
+}
+
+// A4: was a varchar(10) "LEADER"/"MEMBER" the app policed in JS.
+enum EventTeamMemberRole {
+  LEADER
+  MEMBER
+}
+
+// A4: shared by Problem.difficulty + QOTD.difficulty (the frontend already
+// locks EASY/MEDIUM/HARD via z.enum on every write path).
+enum Difficulty {
+  EASY
+  MEDIUM
+  HARD
 }
 
 enum InvitationStatus {
@@ -900,7 +914,10 @@ model QuizQuestion {
   createdAt          DateTime         @default(now()) @map("created_at")
   answers            QuizAnswer[]
 
-  @@index([quizId, position], map: "idx_quiz_questions_quiz_position")
+  // A5: unique, not just indexed — PATCH /api/quiz/:quizId delete-and-recreates
+  // questions, so a concurrent double-PATCH could otherwise persist duplicate
+  // positions and the position-ordered UI would show a skipped/duplicated question.
+  @@unique([quizId, position], map: "idx_quiz_questions_quiz_position")
   @@map("quiz_questions")
 }
 
@@ -1071,7 +1088,7 @@ model Problem {
   slug               String            @unique
   title              String            @db.VarChar(200)
   body               String            @db.Text
-  difficulty         String            @db.VarChar(10)
+  difficulty         Difficulty
   tags               String[]
   allowedLanguages   ProblemLanguage[] @map("allowed_languages")
   timeLimitMs        Int               @default(2000) @map("time_limit_ms")
@@ -1231,6 +1248,21 @@ enum CertType {
   SPEAKER
 }
 
+// A4: certificate render template + email delivery template. Lowercase members
+// preserve the exact strings already stored (gold/dark/white/emerald and
+// default/faculty_distribution) so the USING cast is a no-op rename.
+enum CertTemplate {
+  gold
+  dark
+  white
+  emerald
+}
+
+enum CertEmailTemplate {
+  default
+  faculty_distribution
+}
+
 model Certificate {
   id     String @id @default(cuid())
   certId String @unique @map("cert_id") // Public human-readable ID e.g. "ABCD-EFGH-IJKL"
@@ -1250,7 +1282,7 @@ model Certificate {
   domain      String? // e.g. "Web Development"
   description String? // Optional description rendered on the certificate
 
-  template String @default("gold") // gold | dark | white | emerald
+  template CertTemplate @default(gold)
 
   pdfUrl String? @map("pdf_url")
 
@@ -1277,7 +1309,7 @@ model Certificate {
   lastEmailResentAt DateTime? @map("last_email_resent_at")
 
   // Email delivery template chosen at generation time, so resend replays the same one.
-  emailTemplate   String  @default("default") @map("email_template") // default | faculty_distribution
+  emailTemplate   CertEmailTemplate @default(default) @map("email_template")
   emailSignerName String? @map("email_signer_name") // signer name for the faculty_distribution email
 
   isRevoked     Boolean   @default(false) @map("is_revoked")

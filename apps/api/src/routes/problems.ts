@@ -1,5 +1,5 @@
 import { Router, Request, Response } from 'express';
-import { Prisma, ProblemContextType, ProblemLanguage, SubmissionVerdict } from '@prisma/client';
+import { Prisma, ProblemContextType, ProblemLanguage, SubmissionVerdict, Difficulty } from '@prisma/client';
 import { z } from 'zod';
 import { prisma, withRetry } from '../lib/prisma.js';
 import { authMiddleware, optionalAuthMiddleware, getAuthUser } from '../middleware/auth.js';
@@ -134,7 +134,12 @@ problemsRouter.get('/', async (req, res) => {
     const user = getAuthUser(req);
     const admin = isAdminUser(user);
     const published = req.query.published === 'true' ? true : req.query.published === 'false' ? false : undefined;
-    const difficulty = typeof req.query.difficulty === 'string' ? req.query.difficulty.toUpperCase() : undefined;
+    // Narrow the query-param to the Difficulty enum; an unrecognized value is
+    // ignored (no filter) rather than reaching Postgres as an invalid enum.
+    const difficultyRaw = typeof req.query.difficulty === 'string' ? req.query.difficulty.toUpperCase() : undefined;
+    const difficulty = difficultyRaw === 'EASY' || difficultyRaw === 'MEDIUM' || difficultyRaw === 'HARD'
+      ? (difficultyRaw as Difficulty)
+      : undefined;
     const tag = typeof req.query.tag === 'string' ? req.query.tag.toLowerCase() : undefined;
     const search = typeof req.query.search === 'string' ? req.query.search.trim() : undefined;
     const limit = Math.min(50, Math.max(1, Number(req.query.limit) || 20));
