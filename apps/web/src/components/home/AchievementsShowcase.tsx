@@ -36,10 +36,10 @@ export function AchievementsShowcase() {
           viewport={{ once: true }}
           className="text-center mb-8 sm:mb-12"
         >
-          <h2 className="text-2xl sm:text-4xl md:text-5xl font-bold text-white mb-3 sm:mb-4">
+          <h2 className="text-2xl sm:text-4xl md:text-5xl font-bold hx-t1 mb-3 sm:mb-4">
             Our <span className="hx-grad-text">Achievements</span>
           </h2>
-          <p className="text-base sm:text-lg text-white/55 max-w-2xl mx-auto px-2">
+          <p className="text-base sm:text-lg hx-t2 max-w-2xl mx-auto px-2">
             Celebrating the success and accomplishments of our talented community members
           </p>
         </motion.div>
@@ -54,8 +54,8 @@ export function AchievementsShowcase() {
             <div className="inline-flex items-center justify-center w-20 h-20 rounded-full bg-[#f97316]/15 border border-[#f97316]/25 mb-6">
               <Trophy className="h-10 w-10 text-amber-400" />
             </div>
-            <h3 className="text-xl font-semibold text-white mb-2">Achievements coming soon!</h3>
-            <p className="text-white/50">Stay tuned for our community's accomplishments</p>
+            <h3 className="text-xl font-semibold hx-t1 mb-2">Achievements coming soon!</h3>
+            <p className="hx-t3">Stay tuned for our community's accomplishments</p>
           </motion.div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-12">
@@ -88,7 +88,7 @@ export function AchievementsShowcase() {
                         </>
                       ) : (
                         <div className="w-full h-full bg-gradient-to-br from-amber-500 via-orange-500 to-orange-600 flex items-center justify-center relative overflow-hidden">
-                          <Trophy className="h-16 w-16 text-white/30" />
+                          <Trophy className="h-16 w-16 hx-t3" />
                           <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent" />
                         </div>
                       )}
@@ -138,7 +138,7 @@ export function AchievementsShowcase() {
                     <div className="p-5 relative">
                       <div className="absolute top-0 left-5 right-5 h-px bg-gradient-to-r from-transparent via-amber-400/40 to-transparent" />
 
-                      <div className="text-white/55 text-sm mb-4 line-clamp-2 leading-relaxed">
+                      <div className="hx-t2 text-sm mb-4 line-clamp-2 leading-relaxed">
                         <InlineMarkdown>{achievement.shortDescription || achievement.description}</InlineMarkdown>
                       </div>
 
@@ -155,7 +155,7 @@ export function AchievementsShowcase() {
                           </div>
                           <div>
                             <p className="hx-t1 text-sm font-semibold line-clamp-1">{achievement.achievedBy}</p>
-                            <div className="flex items-center gap-1 text-white/45">
+                            <div className="flex items-center gap-1 hx-t3">
                               <Calendar className="h-3 w-3" />
                               <span className="text-xs">{formatDate(achievement.date)}</span>
                             </div>
@@ -189,7 +189,7 @@ export function AchievementsShowcase() {
         >
           <Link
             to="/achievements"
-            className="group inline-flex h-14 items-center justify-center gap-2 rounded-full bg-gradient-to-r from-[#f97316] to-[#fb923c] px-8 text-lg font-semibold text-white shadow-[0_8px_30px_rgba(249,115,22,0.35)] transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_10px_40px_rgba(249,115,22,0.5)]"
+            className="group inline-flex h-14 items-center justify-center gap-2 rounded-full bg-gradient-to-r from-[#f97316] to-[#fb923c] px-8 text-lg font-semibold hx-t1 shadow-[0_8px_30px_rgba(249,115,22,0.35)] transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_10px_40px_rgba(249,115,22,0.5)]"
           >
             View All Achievements
             <ArrowRight className="h-5 w-5 transition-transform group-hover:translate-x-1" />

@@ -83,10 +83,10 @@ export function StatsBento() {
           viewport={{ once: true, margin: '-60px' }}
           className="mb-10 text-center"
         >
-          <h2 className="font-display text-3xl font-bold tracking-tight text-white sm:text-4xl">
+          <h2 className="font-display text-3xl font-bold tracking-tight hx-t1 sm:text-4xl">
             A community that <span className="hx-grad-text">compounds</span>
           </h2>
-          <p className="mx-auto mt-3 max-w-xl text-sm text-white/55 sm:text-base">
+          <p className="mx-auto mt-3 max-w-xl text-sm hx-t2 sm:text-base">
             Every event, every contest, every late-night debug session adds up.
           </p>
         </motion.div>
@@ -107,7 +107,7 @@ export function StatsBento() {
                     <Icon className={card.hero ? 'h-6 w-6' : 'h-5 w-5'} />
                   </span>
                   {card.to && (
-                    <ArrowUpRight className="h-4 w-4 text-white/30 transition-colors group-hover:text-[#fdba74]" />
+                    <ArrowUpRight className="h-4 w-4 hx-t3 transition-colors group-hover:text-[#fdba74]" />
                   )}
                 </div>
                 <div className="relative z-10 mt-6">
@@ -118,10 +118,10 @@ export function StatsBento() {
                   >
                     {card.feature ? card.title : <CountUp value={card.value ?? 0} suffix={card.suffix} run={inView} />}
                   </p>
-                  <p className={`mt-2 text-white/55 ${card.hero ? 'text-base' : 'text-sm'}`}>{card.label}</p>
+                  <p className={`mt-2 hx-t2 ${card.hero ? 'text-base' : 'text-sm'}`}>{card.label}</p>
                 </div>
                 {card.hero && (
-                  <div className="relative z-10 mt-6 flex items-center gap-2 text-xs text-white/40">
+                  <div className="relative z-10 mt-6 flex items-center gap-2 text-xs hx-t3">
                     <Terminal className="h-3.5 w-3.5 text-[#fbbf24]" />
                     DSA · Web · Hackathons · Open Source
                   </div>

@@ -26,10 +26,10 @@ export function TeamHighlight() {
           viewport={{ once: true, margin: '-50px' }}
           className="text-center mb-8 sm:mb-12 lg:mb-16"
         >
-          <h2 className="mb-3 text-2xl font-bold text-white sm:mb-4 sm:text-4xl md:text-5xl">
+          <h2 className="mb-3 text-2xl font-bold hx-t1 sm:mb-4 sm:text-4xl md:text-5xl">
             Meet Our <span className="hx-grad-text">Team</span>
           </h2>
-          <p className="mx-auto max-w-2xl px-2 text-base text-white/55 sm:text-lg">
+          <p className="mx-auto max-w-2xl px-2 text-base hx-t2 sm:text-lg">
             The passionate individuals driving code.scriet forward and building an amazing community
           </p>
         </motion.div>
@@ -48,8 +48,8 @@ export function TeamHighlight() {
             <div className="mb-6 inline-flex h-20 w-20 items-center justify-center rounded-full bg-[#f97316]/15 border border-[#f97316]/25">
               <Users className="h-10 w-10 text-amber-400" />
             </div>
-            <h3 className="mb-2 text-xl font-semibold text-white">Team info coming soon!</h3>
-            <p className="text-white/50">Stay tuned to meet our amazing team</p>
+            <h3 className="mb-2 text-xl font-semibold hx-t1">Team info coming soon!</h3>
+            <p className="hx-t3">Stay tuned to meet our amazing team</p>
           </motion.div>
         ) : (
           <div className="relative mb-8 sm:mb-12">

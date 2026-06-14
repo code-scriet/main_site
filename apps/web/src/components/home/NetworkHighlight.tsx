@@ -65,10 +65,10 @@ export function NetworkHighlight() {
           viewport={{ once: true, margin: '-50px' }}
           className="mb-12 text-center lg:mb-16"
         >
-          <h2 className="mb-4 text-3xl font-bold text-white sm:text-4xl md:text-5xl">
+          <h2 className="mb-4 text-3xl font-bold hx-t1 sm:text-4xl md:text-5xl">
             Connect with <span className="hx-grad-text">Industry Leaders</span>
           </h2>
-          <p className="mx-auto max-w-2xl text-base text-white/55 sm:text-lg">
+          <p className="mx-auto max-w-2xl text-base hx-t2 sm:text-lg">
             Alumni and industry professionals who guide, mentor, and collaborate with our technical club
           </p>
 
@@ -78,7 +78,7 @@ export function NetworkHighlight() {
               {professionalsCount > 0 && (
                 <div className="glass-pill px-4 py-2">
                   <Briefcase className="h-4 w-4 text-amber-300" />
-                  <span className="text-sm text-white/70">
+                  <span className="text-sm hx-t2">
                     <strong className="text-amber-300">{professionalsCount}</strong> Professionals
                   </span>
                 </div>
@@ -86,7 +86,7 @@ export function NetworkHighlight() {
               {alumniCount > 0 && (
                 <div className="glass-pill px-4 py-2">
                   <GraduationCap className="h-4 w-4 text-orange-300" />
-                  <span className="text-sm text-white/70">
+                  <span className="text-sm hx-t2">
                     <strong className="text-orange-300">{alumniCount}</strong> Alumni
                   </span>
                 </div>
@@ -180,7 +180,7 @@ export function NetworkHighlight() {
                           />
                         </div>
                         {isAlumni && profile.passoutYear && (
-                          <div className="absolute -bottom-1 -right-1 flex h-7 w-7 items-center justify-center rounded-full border-2 border-white bg-gradient-to-br from-amber-500 to-orange-500 text-[10px] font-bold text-white shadow-sm dark:border-[#0c0d12] dark:from-amber-500 dark:to-orange-500">{/* responsive: slightly larger for readability */}
+                          <div className="absolute -bottom-1 -right-1 flex h-7 w-7 items-center justify-center rounded-full border-2 border-white bg-gradient-to-br from-amber-500 to-orange-500 text-[10px] font-bold hx-t1 shadow-sm dark:border-[#0c0d12] dark:from-amber-500 dark:to-orange-500">{/* responsive: slightly larger for readability */}
                             '{String(profile.passoutYear).slice(-2)}
                           </div>
                         )}

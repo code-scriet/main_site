@@ -8,9 +8,9 @@ interface LayoutProps {
 }
 
 export function Layout({ children }: LayoutProps) {
-  // The homepage is an always-dark glass experience; `data-home` lets the
-  // shared public scope (footer + outer canvas + skip link) follow suit so the
-  // page reads as one charcoal surface regardless of the theme toggle.
+  // The homepage is a theme-aware glass experience; `data-home` lets the shared
+  // public scope (footer, outer canvas, skip link) pick up the home amber accent
+  // so it matches the page in both light and dark.
   const isHome = useLocation().pathname === '/';
 
   return (

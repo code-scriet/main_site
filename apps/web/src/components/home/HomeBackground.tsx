@@ -1,4 +1,4 @@
-import { memo, useMemo } from 'react';
+import { memo, useMemo, type CSSProperties } from 'react';
 import { useMotionConfig } from '@/hooks/useMotionConfig';
 
 // Deterministic pseudo-random so particle positions are stable across renders
@@ -57,11 +57,10 @@ export const HomeBackground = memo(function HomeBackground() {
             left: `${p.left}%`,
             width: p.size,
             height: p.size,
-            // @ts-expect-error CSS custom property
             '--drift': `${p.drift}px`,
             animationDuration: `${p.duration}s`,
             animationDelay: `${p.delay}s`,
-          }}
+          } as CSSProperties}
         />
       ))}
     </div>

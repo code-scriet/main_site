@@ -45,10 +45,10 @@ export function LatestAnnouncements() {
           viewport={{ once: true, margin: '-50px' }}
           className="text-center mb-8 sm:mb-12"
         >
-          <h2 className="text-2xl sm:text-4xl md:text-5xl font-bold text-white mb-3 sm:mb-4">
+          <h2 className="text-2xl sm:text-4xl md:text-5xl font-bold hx-t1 mb-3 sm:mb-4">
             Latest <span className="hx-grad-text">Announcements</span>
           </h2>
-          <p className="text-base sm:text-lg text-white/55 max-w-2xl mx-auto px-2">
+          <p className="text-base sm:text-lg hx-t2 max-w-2xl mx-auto px-2">
             Stay informed with our latest updates, news, and important notices
           </p>
         </motion.div>
@@ -92,22 +92,22 @@ export function LatestAnnouncements() {
                     </div>
 
                     {/* Content */}
-                    <h3 className="text-lg font-bold text-white mb-2 line-clamp-2 transition-colors group-hover:text-amber-300">
+                    <h3 className="text-lg font-bold hx-t1 mb-2 line-clamp-2 transition-colors group-hover:text-amber-300">
                       {announcement.title}
                     </h3>
-                    <p className="text-white/55 text-sm mb-4 line-clamp-3">
+                    <p className="hx-t2 text-sm mb-4 line-clamp-3">
                       {getAnnouncementPreview(announcement.shortDescription, announcement.body)}
                     </p>
 
                     {/* Footer */}
                     <div className="flex items-center justify-between pt-4 border-t border-white/8">
-                      <div className="flex items-center gap-1 text-xs text-white/40">
+                      <div className="flex items-center gap-1 text-xs hx-t3">
                         <Calendar className="h-3 w-3" />
                         {formatDate(announcement.createdAt)}
                       </div>
                       {announcement.creator && (
-                        <p className="text-xs text-white/40">
-                          by <span className="font-medium text-white/70">{announcement.creator.name}</span>
+                        <p className="text-xs hx-t3">
+                          by <span className="font-medium hx-t2">{announcement.creator.name}</span>
                         </p>
                       )}
                     </div>
