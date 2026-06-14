@@ -21,10 +21,20 @@ test('sanitizeHtml strips every dangerous construct', () => {
     '<a href="//evil.com">proto-rel</a>',       // proto-relative — old config leaked this
     '<object data="x.swf"></object>',
     '<form action="/x"><input></form>',
+    // scheme-obfuscation variants (case / tab / entity / leading space / vbscript)
+    '<a href="JaVaScRiPt:alert(1)">x</a>',
+    '<a href="java\tscript:alert(1)">x</a>',
+    '<a href="java&#115;cript:alert(1)">x</a>',
+    '<a href=" javascript:alert(1)">x</a>',
+    '<a href="vbscript:msgbox(1)">x</a>',
+    '<a href="data:text/html,<script>alert(1)</script>">x</a>',
+    '<scr<script>ipt>alert(1)</scr</script>ipt>',  // nested/split tag
   ];
   for (const c of cases) {
     const out = sanitizeHtml(c);
     assert.ok(!DANGER.test(out), `danger leaked for input ${c} → ${out}`);
+    // No live scheme survives in an href, regardless of obfuscation.
+    assert.ok(!/href="[^"]*(javascript|vbscript|data):/i.test(out), `dangerous href survived: ${out}`);
   }
 });
 
