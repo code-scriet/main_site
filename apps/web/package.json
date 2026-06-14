@@ -5,9 +5,9 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "prebuild": "node ../../scripts/generate-sitemap.js && node ../../scripts/generate-indexnow-key.js",
+    "prebuild": "node ../../scripts/generate-sitemap.mjs && node ../../scripts/generate-indexnow-key.cjs",
     "build": "tsc -b && vite build",
-    "postbuild": "node ../../scripts/prerender.js",
+    "postbuild": "node ../../scripts/prerender.mjs",
     "lint": "eslint .",
     "preview": "vite preview"
   },

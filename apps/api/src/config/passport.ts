@@ -190,16 +190,8 @@ export function setupPassport(passport: PassportStatic) {
     );
   }
 
-  passport.serializeUser((user: any, done) => {
-    done(null, user.id);
-  });
-
-  passport.deserializeUser(async (id: string, done) => {
-    try {
-      const user = await prisma.user.findUnique({ where: { id } });
-      done(null, user);
-    } catch (error) {
-      done(error, null);
-    }
-  });
+  // serializeUser/deserializeUser intentionally omitted: auth is JWT-only
+  // (index.ts mounts passport.initialize() but never passport.session()), so the
+  // session (de)serialization hooks were dead code — Passport only needs them
+  // when persisting a login into an express-session.
 }

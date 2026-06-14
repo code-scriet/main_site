@@ -302,7 +302,10 @@ settingsRouter.get('/', authMiddleware, requireRole('ADMIN'), async (req: Reques
 });
 
 // Update settings
-settingsRouter.put('/', authMiddleware, requireRole('PRESIDENT'), async (req: Request, res: Response) => {
+// D1: requireRole('ADMIN') admits PRESIDENT (same level 4); the real
+// President/superAdmin floor is the inline enforceSuperAdminOrPresident below.
+// CLAUDE.md forbids the literal requireRole('PRESIDENT') — use 'ADMIN' + the gate.
+settingsRouter.put('/', authMiddleware, requireRole('ADMIN'), async (req: Request, res: Response) => {
   try {
     const authUser = getAuthUser(req)!;
 

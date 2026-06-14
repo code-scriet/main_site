@@ -558,8 +558,6 @@ export async function triggerReminderCheck(): Promise<{ sent: number; events: st
     return { sent: 0, events: [] };
   }
 
-  const events: string[] = [];
-  
   try {
     const result = await processReminders(
       { minHours: 20, maxHours: 28 },
@@ -573,10 +571,10 @@ export async function triggerReminderCheck(): Promise<{ sent: number; events: st
       return { sent: 0, events: [] };
     }
 
-    logger.error('Error in manual reminder trigger:', { 
-      error: error instanceof Error ? error.message : String(error) 
+    logger.error('Error in manual reminder trigger:', {
+      error: error instanceof Error ? error.message : String(error)
     });
   }
-  
-  return { sent: 0, events };
+
+  return { sent: 0, events: [] };
 }
