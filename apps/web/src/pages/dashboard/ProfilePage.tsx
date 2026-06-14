@@ -490,7 +490,7 @@ export default function ProfilePage() {
 
       {/* Sticky save bar */}
       {dirty && (
-        <div className="fixed bottom-0 left-0 lg:left-[244px] right-0 z-30 frost border-t border-[var(--border-subtle)] px-4 py-3 flex items-center gap-3 lg:pl-6">
+        <div className="fixed bottom-[calc(56px_+_env(safe-area-inset-bottom,0px))] lg:bottom-0 left-0 lg:left-[244px] right-0 z-40 frost border-t border-[var(--border-subtle)] px-4 py-3 flex items-center gap-3 lg:pl-6">
           <Button size="sm" variant="ghost" onClick={discardChanges}>Discard</Button>
           <div className="flex-1 flex items-center gap-2">
             <Pill tone="warning" size="sm" dot>Unsaved changes</Pill>
