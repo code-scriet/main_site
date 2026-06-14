@@ -43,6 +43,15 @@ ALTER TABLE "event_team_members" ALTER COLUMN "role" SET DEFAULT 'MEMBER';
 -- problems.difficulty + qotd.difficulty are NOT NULL with no default — straight cast.
 ALTER TABLE "problems"
   ALTER COLUMN "difficulty" TYPE "Difficulty" USING ("difficulty"::text::"Difficulty");
+
+-- qotd.difficulty: the legacy create/update path validated only `z.string().trim()`
+-- (no upper-casing, unlike problemsCore), so historical rows can be 'Easy'/'medium'/etc.
+-- Normalize casing+whitespace in-place so the cast below is self-healing rather than
+-- failing the whole migration on a single mixed-case row. Any value that is still not
+-- EASY/MEDIUM/HARD after this is a genuine data error and will (intentionally) fail loud
+-- — the pre-flight `SELECT DISTINCT difficulty FROM qotd` above surfaces it pre-deploy.
+UPDATE "qotd" SET "difficulty" = upper(trim("difficulty"))
+  WHERE "difficulty" <> upper(trim("difficulty"));
 ALTER TABLE "qotd"
   ALTER COLUMN "difficulty" TYPE "Difficulty" USING ("difficulty"::text::"Difficulty");
 
