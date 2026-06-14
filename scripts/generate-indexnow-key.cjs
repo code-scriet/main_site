@@ -1,4 +1,4 @@
-// scripts/generate-indexnow-key.js
+// scripts/generate-indexnow-key.cjs
 // Writes <key>.txt into apps/web/public/ at build time so IndexNow can verify
 // ownership at https://codescriet.dev/<key>.txt.
 // Reads INDEXNOW_KEY from environment. Safe no-op if the var is unset.

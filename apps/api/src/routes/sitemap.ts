@@ -185,7 +185,7 @@ sitemapRouter.get('/', async (_req: Request, res: Response) => {
     res.setHeader('Content-Type', 'application/xml; charset=utf-8');
     // Fallback sitemap with static pages only (trailing slashes match what
     // Render's static service actually serves; aligned with the build-time
-    // generator at scripts/generate-sitemap.js).
+    // generator at scripts/generate-sitemap.mjs).
     const fallback = '<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n<url><loc>https://codescriet.dev/</loc><priority>1.0</priority></url>\n<url><loc>https://codescriet.dev/events/</loc><priority>0.9</priority></url>\n<url><loc>https://codescriet.dev/achievements/</loc><priority>0.9</priority></url>\n<url><loc>https://codescriet.dev/announcements/</loc><priority>0.8</priority></url>\n<url><loc>https://codescriet.dev/network/</loc><priority>0.8</priority></url>\n<url><loc>https://codescriet.dev/team/</loc><priority>0.7</priority></url>\n<url><loc>https://codescriet.dev/about/</loc><priority>0.7</priority></url>\n<url><loc>https://codescriet.dev/join-us/</loc><priority>0.8</priority></url>\n<url><loc>https://codescriet.dev/join-our-network/</loc><priority>0.7</priority></url>\n<url><loc>https://codescriet.dev/credits/</loc><priority>0.6</priority></url>\n<url><loc>https://codescriet.dev/contact/</loc><priority>0.5</priority></url>\n<url><loc>https://codescriet.dev/privacy-policy/</loc><priority>0.3</priority></url>\n</urlset>';
     res.send(fallback);
   }

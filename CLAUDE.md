@@ -630,7 +630,7 @@ Migration: `prisma/migrations/20260517210000_dashboard_v2/migration.sql` (additi
 
 4 services in `render.yaml`:
 1. **codescriet-api** — Node web. Build: `npm install --include=dev && npx prisma generate --schema=./prisma/schema.prisma && npm run build --workspace=apps/api`. Start: migration resolve/deploy + `npm run start --workspace=apps/api`. Sets `ENABLE_BACKGROUND_SCHEDULERS=true` (event-status sync + event reminders + QOTD auto-publish; safe because UptimeRobot keeps the instance warm).
-2. **codescriet-web** — static. Build: `npm install && node scripts/generate-sitemap.js && npm run build --workspace=apps/web && node scripts/prerender.js` (prerenders route-specific HTML for crawlers/social cards).
+2. **codescriet-web** — static. Build: `npm install && node scripts/generate-sitemap.mjs && npm run build --workspace=apps/web && node scripts/prerender.mjs` (prerenders route-specific HTML for crawlers/social cards).
 3. **codescriet-playground-api** — Node (`node execute-server.js`).
 4. **codescriet-playground-web** — static (`apps/playground/dist`).
 
