@@ -46,13 +46,13 @@
     "@types/node": "^20.19.27",
     "concurrently": "^9.2.1",
     "dotenv": "^17.2.3",
-    "prisma": "^5.8.0",
+    "prisma": "^7.8.0",
     "ts-node": "^10.9.2",
     "tsx": "^4.21.0",
     "typescript": "^5.3.3"
   },
   "dependencies": {
-    "@prisma/client": "^5.8.0"
+    "@prisma/client": "^7.8.0"
   },
   "overrides": {
     "qs": "6.15.0"
