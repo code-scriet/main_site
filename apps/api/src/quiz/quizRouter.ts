@@ -79,7 +79,11 @@ class QuizImportParseError extends Error {
 }
 
 function signQuizAccessToken(payload: QuizAccessTokenPayload): string {
-  return jwt.sign(payload, getJwtSecret(), { algorithm: 'HS256', expiresIn: '20m' });
+  // `purpose` partitions this token out of session auth (audit S1): the auth
+  // middlewares + verifyToken reject any purpose-carrying token, while
+  // quizSocket's verifyQuizAccessToken matches on quizId/userId/accessRole and
+  // ignores the extra claim — so quiz flows are unaffected.
+  return jwt.sign({ ...payload, purpose: 'quiz_access' }, getJwtSecret(), { algorithm: 'HS256', expiresIn: '20m' });
 }
 
 // ─── Validation schemas ──────────────────────────────────────────────────

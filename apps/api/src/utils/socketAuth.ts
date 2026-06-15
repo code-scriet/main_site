@@ -42,6 +42,10 @@ export async function authenticateSocketConnection(
 
   // Decode the JWT once so we can compare its tokenVersion claim against the DB
   // watermark below. Legacy tokens (no claim) are treated as 0.
+  // verifyToken also enforces the purpose allowlist (audit S1): special-purpose
+  // tokens (oauth_exchange, invitation_claim, quiz_access — and attendance QR
+  // as defense-in-depth) are rejected there, so they can never authenticate a
+  // socket either.
   let claimUserId: string;
   let claimTokenVersion = 0;
   try {
