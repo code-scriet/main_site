@@ -1,13 +1,34 @@
 import { PrismaClient } from '@prisma/client';
+import { PrismaPg } from '@prisma/adapter-pg';
 import { logger } from '../utils/logger.js';
 
 declare global {
   var prisma: PrismaClient | undefined;
 }
 
-// Configure Prisma with retry logic for Neon serverless cold starts
+// Preserve the frozen client connection cap (HC #1/#3). Prisma's native connector
+// read `connection_limit` from DATABASE_URL to size its pool; the node-postgres
+// driver adapter does NOT, so it would otherwise default to pg's `max: 10`.
+// Derive the cap from the URL (prod uses ?connection_limit=5), falling back to 5
+// to stay within the free-tier 512 MB box + Neon pooler limits.
+const resolvePoolMax = (): number => {
+  try {
+    const raw = new URL(process.env.DATABASE_URL ?? '').searchParams.get('connection_limit');
+    const n = Number(raw);
+    return Number.isInteger(n) && n > 0 ? n : 5;
+  } catch {
+    return 5;
+  }
+};
+
+// Configure Prisma with retry logic for Neon serverless cold starts.
+// Prisma 7 connects through a driver adapter; PrismaPg uses node-postgres against
+// the pooled DATABASE_URL (Neon pooler), matching the prior datasource `url`.
+// Migrate/introspect use DIRECT_URL via prisma.config.ts.
 const createPrismaClient = () => {
+  const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL, max: resolvePoolMax() });
   return new PrismaClient({
+    adapter,
     log: process.env.NODE_ENV === 'development' ? ['error', 'warn'] : ['error'],
   });
 };

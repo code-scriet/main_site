@@ -3,6 +3,8 @@ import { prisma } from '../lib/prisma.js';
 import { authMiddleware, getAuthUser } from '../middleware/auth.js';
 import { requireRole } from '../middleware/role.js';
 import { logger } from '../utils/logger.js';
+import { ApiResponse } from '../utils/response.js';
+import { getQueryString } from '../utils/pagination.js';
 
 export const auditRouter = Router();
 
@@ -17,27 +19,20 @@ auditRouter.get('/', authMiddleware, requireRole('ADMIN'), async (req: Request, 
     const isPresident = authUser.role === 'PRESIDENT';
 
     if (!isSuperAdmin && !isPresident) {
-      return res.status(403).json({
-        success: false,
-        error: { message: 'Only the super admin or president can view audit logs' },
-      });
+      return ApiResponse.forbidden(res, 'Only the super admin or president can view audit logs');
     }
 
     const page = Math.max(1, parseInt(req.query.page as string) || 1);
     const limit = Math.min(100, Math.max(1, parseInt(req.query.limit as string) || 50));
     const skip = (page - 1) * limit;
 
-    const entity = req.query.entity as string | undefined;
-    const action = req.query.action as string | undefined;
-    const userId = req.query.userId as string | undefined;
-    const rawSearch = req.query.search;
-    const search = typeof rawSearch === 'string' ? rawSearch.trim() : undefined;
+    const entity = getQueryString(req.query.entity);
+    const action = getQueryString(req.query.action);
+    const userId = getQueryString(req.query.userId);
+    const search = getQueryString(req.query.search)?.trim() || undefined;
 
     if (search && search.length > 500) {
-      return res.status(400).json({
-        success: false,
-        error: { message: 'search must be at most 500 characters' },
-      });
+      return ApiResponse.badRequest(res, 'search must be at most 500 characters');
     }
 
     // Build where clause
@@ -110,27 +105,21 @@ auditRouter.get('/', authMiddleware, requireRole('ADMIN'), async (req: Request, 
       logger.error('Failed to fetch audit log filters', { error: err instanceof Error ? err.message : String(err) });
     }
 
-    res.json({
-      success: true,
-      data: {
-        logs: logsWithUser,
-        pagination: {
-          page,
-          limit,
-          total,
-          totalPages: Math.ceil(total / limit),
-        },
-        filters: {
-          entities: filterEntities,
-          actions: filterActions,
-        },
+    ApiResponse.success(res, {
+      logs: logsWithUser,
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit),
+      },
+      filters: {
+        entities: filterEntities,
+        actions: filterActions,
       },
     });
   } catch (error) {
-    res.status(500).json({
-      success: false,
-      error: { message: 'Failed to fetch audit logs' },
-    });
+    ApiResponse.internal(res, 'Failed to fetch audit logs');
   }
 });
 
@@ -143,10 +132,7 @@ auditRouter.delete('/retention', authMiddleware, requireRole('ADMIN'), async (re
     const isPresident = authUser.role === 'PRESIDENT';
 
     if (!isSuperAdmin && !isPresident) {
-      return res.status(403).json({
-        success: false,
-        error: { message: 'Only the super admin or president can delete audit logs' },
-      });
+      return ApiResponse.forbidden(res, 'Only the super admin or president can delete audit logs');
     }
 
     const days = Math.max(30, parseInt(req.query.days as string) || 90);
@@ -157,14 +143,8 @@ auditRouter.delete('/retention', authMiddleware, requireRole('ADMIN'), async (re
       where: { timestamp: { lt: cutoff } },
     });
 
-    res.json({
-      success: true,
-      data: { deleted: deleted.count, olderThan: cutoff.toISOString() },
-    });
+    ApiResponse.success(res, { deleted: deleted.count, olderThan: cutoff.toISOString() });
   } catch (error) {
-    res.status(500).json({
-      success: false,
-      error: { message: 'Failed to delete old audit logs' },
-    });
+    ApiResponse.internal(res, 'Failed to delete old audit logs');
   }
 });

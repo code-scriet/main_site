@@ -35,6 +35,7 @@ import {
 import { isGuest, isParticipant, participantsOnly } from '../utils/registrationFilters.js';
 import { isUuid, requireUuid } from '../utils/idParams.js';
 import { sanitizeHtml } from '../utils/sanitize.js';
+import { getClientIp } from '../utils/clientIp.js';
 
 const router = Router();
 
@@ -43,6 +44,7 @@ const beaconLimiter = rateLimit({
   max: 10,
   standardHeaders: true,
   legacyHeaders: false,
+  keyGenerator: (req) => getClientIp(req),
 });
 
 const jwtLikePattern = /^[A-Za-z0-9-_]+\.[A-Za-z0-9-_]+\.[A-Za-z0-9-_]+$/;

@@ -11,10 +11,12 @@ import { prisma } from '../lib/prisma.js';
 import { socketEvents } from '../utils/socket.js';
 import { emailService } from '../utils/email.js';
 import { logger } from '../utils/logger.js';
-import { signAccessToken, signOAuthExchangeCode, verifyOAuthExchangeCode } from '../utils/jwt.js';
+import { consumeOAuthExchangeJti, signAccessToken, signOAuthExchangeCode, verifyOAuthExchangeCode } from '../utils/jwt.js';
 import { auditLog } from '../utils/audit.js';
 import { hashPasswordResetToken } from '../utils/passwordReset.js';
 import { oauthStateMatches } from '../utils/oauthEmail.js';
+import { getCachedSettings } from '../utils/settingsCache.js';
+import { getClientIp } from '../utils/clientIp.js';
 
 export const authRouter = Router();
 
@@ -57,17 +59,14 @@ const generateToken = (
     tokenVersion: typeof user.tokenVersion === 'number' ? user.tokenVersion : 0,
   });
 
-/** Extract requester's IP for login telemetry. Truncated to v4 prefix or v6 first-block to limit retained PII. */
+/** Extract requester's IP for login telemetry. Truncated to limit retained PII. */
 const getRequestIp = (req: Request): string | null => {
-  // L2: prefer Express's req.ip. With `trust proxy` set, Express resolves the
-  // real client IP from the proxy chain; the raw X-Forwarded-For header is
-  // fully client-controlled and only a dev/non-proxied fallback here.
-  const fwd = req.headers['x-forwarded-for'];
-  const raw = req.ip || (Array.isArray(fwd) ? fwd[0] : fwd?.split(',')[0]?.trim()) || req.socket?.remoteAddress || null;
-  if (!raw) return null;
-  // Strip IPv6 zone identifier and ::ffff: prefix
-  const cleaned = String(raw).replace(/^::ffff:/, '').split('%')[0];
-  return cleaned.slice(0, 64); // hard cap for safety
+  // S2: shared resolution with the rate limiters and socket layer —
+  // CF-Connecting-IP when the peer is a Cloudflare range, else Express's
+  // trust-proxy resolution (never the client-controlled first XFF entry).
+  const resolved = getClientIp(req);
+  if (!resolved || resolved === 'unknown') return null;
+  return resolved.slice(0, 64); // hard cap for safety
 };
 
 /** Fire-and-forget login telemetry write. Never blocks the response. */
@@ -213,6 +212,7 @@ const registerLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   skipSuccessfulRequests: true,
+  keyGenerator: (req) => getClientIp(req),
   message: { error: 'Too many registration attempts, please try again later.' },
 });
 
@@ -222,6 +222,7 @@ const loginLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   skipSuccessfulRequests: true,
+  keyGenerator: (req) => getClientIp(req),
   message: { error: 'Too many login attempts, please try again later.' },
 });
 
@@ -239,6 +240,15 @@ authRouter.post('/register', registerLimiter, async (req: Request, res: Response
     const validation = registerSchema.safeParse(req.body);
     if (!validation.success) {
       return res.status(400).json({ error: validation.error.errors[0].message });
+    }
+
+    // L1: the admin's registrationOpen toggle must hold server-side — until
+    // now only SignInPage hid the form while direct POSTs sailed through.
+    const settings = await getCachedSettings();
+    if (settings?.registrationOpen === false) {
+      return res.status(403).json({
+        error: 'Registration is currently closed. New account creation is disabled right now — use an existing account or check back later.',
+      });
     }
 
     const { name, email, password } = validation.data;
@@ -566,6 +576,12 @@ authRouter.post('/exchange-code', async (req: Request, res: Response) => {
     return res.status(400).json({ error: 'Authorization code expired or invalid' });
   }
 
+  // Single-use (audit S1/S4): the code travels in a URL, so a leaked copy
+  // (history, referrer) must be worthless once the legitimate exchange ran.
+  if (!consumeOAuthExchangeJti(payload.jti)) {
+    return res.status(400).json({ error: 'Authorization code already used' });
+  }
+
   try {
     const fetchedUser = await prisma.user.findUnique({
       where: { id: payload.userId },
@@ -658,6 +674,7 @@ const resetPasswordLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   skipSuccessfulRequests: true,
+  keyGenerator: (req) => getClientIp(req),
   message: { error: 'Too many reset attempts, please try again later.' },
 });
 
@@ -671,7 +688,7 @@ const resetPasswordEmailLimiter = rateLimit({
   skipSuccessfulRequests: true,
   keyGenerator: (req) => {
     const email = typeof req.body?.email === 'string' ? req.body.email.trim().toLowerCase() : '';
-    return email || req.ip || 'unknown';
+    return email || getClientIp(req);
   },
   message: { error: 'Too many reset attempts, please try again later.' },
 });
@@ -692,6 +709,7 @@ const requestResetIpLimiter = rateLimit({
   max: 5,
   standardHeaders: true,
   legacyHeaders: false,
+  keyGenerator: (req) => getClientIp(req),
   message: { error: 'Too many reset requests, please try again later.' },
 });
 
@@ -703,7 +721,7 @@ const requestResetEmailLimiter = rateLimit({
   legacyHeaders: false,
   keyGenerator: (req) => {
     const email = typeof req.body?.email === 'string' ? req.body.email.trim().toLowerCase() : '';
-    return email || req.ip || 'unknown';
+    return email || getClientIp(req);
   },
   message: { error: 'Too many reset requests, please try again later.' },
 });

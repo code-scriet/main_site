@@ -1,4 +1,5 @@
-import { Router, Request, Response } from 'express';
+import { Router, Response } from 'express';
+import type { Request } from '../lib/http.js';
 import { Prisma } from '@prisma/client';
 import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
@@ -40,6 +41,7 @@ const updateSettingsSchema = z.object({
   hiringDesigning: z.boolean().optional(),
   hiringSocialMedia: z.boolean().optional(),
   hiringManagement: z.boolean().optional(),
+  hiringCycle: z.string().trim().min(1).max(40).optional(),
   showNetwork: z.boolean().optional(),
   mailingEnabled: z.boolean().optional(),
   certificatesEnabled: z.boolean().optional(),
@@ -302,7 +304,10 @@ settingsRouter.get('/', authMiddleware, requireRole('ADMIN'), async (req: Reques
 });
 
 // Update settings
-settingsRouter.put('/', authMiddleware, requireRole('PRESIDENT'), async (req: Request, res: Response) => {
+// D1: requireRole('ADMIN') admits PRESIDENT (same level 4); the real
+// President/superAdmin floor is the inline enforceSuperAdminOrPresident below.
+// CLAUDE.md forbids the literal requireRole('PRESIDENT') — use 'ADMIN' + the gate.
+settingsRouter.put('/', authMiddleware, requireRole('ADMIN'), async (req: Request, res: Response) => {
   try {
     const authUser = getAuthUser(req)!;
 
@@ -335,6 +340,7 @@ settingsRouter.put('/', authMiddleware, requireRole('PRESIDENT'), async (req: Re
       hiringDesigning,
       hiringSocialMedia,
       hiringManagement,
+      hiringCycle,
       showNetwork,
       mailingEnabled,
       certificatesEnabled,
@@ -378,6 +384,7 @@ settingsRouter.put('/', authMiddleware, requireRole('PRESIDENT'), async (req: Re
       ...(hiringDesigning !== undefined && { hiringDesigning }),
       ...(hiringSocialMedia !== undefined && { hiringSocialMedia }),
       ...(hiringManagement !== undefined && { hiringManagement }),
+      ...(hiringCycle !== undefined && { hiringCycle }),
       ...(showNetwork !== undefined && { showNetwork }),
       ...(mailingEnabled !== undefined && { mailingEnabled }),
       ...(certificatesEnabled !== undefined && { certificatesEnabled }),
@@ -826,10 +833,23 @@ settingsRouter.post('/reset', authMiddleware, requireRole('ADMIN'), async (req: 
       return;
     }
 
+    // S9: reset must not wipe the runtime security env. attendanceJwtSecret
+    // signs every issued 90-day attendance QR — losing it invalidates them all
+    // after the next restart (the in-memory secret cache hides the loss until
+    // then). indexNowKey likewise has no recovery path. Carry both across.
+    const preserved = await prisma.settings.findUnique({
+      where: { id: 'default' },
+      select: { attendanceJwtSecret: true, indexNowKey: true },
+    });
+
     await prisma.settings.delete({ where: { id: 'default' } }).catch(() => {});
 
     const settings = await prisma.settings.create({
-      data: { id: 'default' },
+      data: {
+        id: 'default',
+        ...(preserved?.attendanceJwtSecret ? { attendanceJwtSecret: preserved.attendanceJwtSecret } : {}),
+        ...(preserved?.indexNowKey ? { indexNowKey: preserved.indexNowKey } : {}),
+      },
     });
 
     // Reset blows away every cached setting field — invalidate every settings

@@ -1,7 +1,8 @@
 import { randomUUID } from 'crypto';
 import { CertType, Prisma, RegistrationType } from '@prisma/client';
 import rateLimit from 'express-rate-limit';
-import { Router, Request, Response } from 'express';
+import { Router, Response } from 'express';
+import type { Request } from '../lib/http.js';
 import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
 import { authMiddleware, getAuthUser } from '../middleware/auth.js';
@@ -19,6 +20,7 @@ import { socketEvents } from '../utils/socket.js';
 import { executeSerializableTransaction, isSerializationConflict } from '../utils/transactionRetry.js';
 import { createEventRegistrationInTx } from '../utils/registrationIntake.js';
 import { requireUuid } from '../utils/idParams.js';
+import { getClientIp } from '../utils/clientIp.js';
 
 export const invitationsRouter = Router();
 
@@ -32,6 +34,7 @@ const claimRateLimiter = rateLimit({
   message: { success: false, error: { message: 'Too many invitation claim attempts. Please try again later.' } },
   standardHeaders: true,
   legacyHeaders: false,
+  keyGenerator: (req) => getClientIp(req),
 });
 
 const invitationDetailInclude = Prisma.validator<Prisma.EventInvitationInclude>()({

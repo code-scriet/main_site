@@ -1,4 +1,4 @@
-// scripts/generate-sitemap.js
+// scripts/generate-sitemap.mjs
 // Runs during frontend build to create a complete sitemap.xml
 // Tries to fetch the dynamic sitemap from the API (includes event/announcement slugs).
 // Falls back to a static-pages-only sitemap if the API is unavailable.

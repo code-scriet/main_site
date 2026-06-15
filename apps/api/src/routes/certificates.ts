@@ -1,10 +1,11 @@
-import { Router, Request, Response } from 'express';
+import { Router, Response } from 'express';
+import type { Request } from '../lib/http.js';
 import rateLimit from 'express-rate-limit';
 import { z } from 'zod';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { CertType, Prisma } from '@prisma/client';
+import { CertType, CertTemplate, CertEmailTemplate, Prisma } from '@prisma/client';
 import { prisma } from '../lib/prisma.js';
 import { authMiddleware, getAuthUser } from '../middleware/auth.js';
 import { requireRole } from '../middleware/role.js';
@@ -20,6 +21,7 @@ import { buildPublicCertificateDownloadUrl } from '../utils/publicUrl.js';
 import { socketEvents } from '../utils/socket.js';
 import { cloudinary, isCloudinaryConfigured } from '../config/cloudinary.js';
 import { getCachedSettings } from '../utils/settingsCache.js';
+import { getClientIp } from '../utils/clientIp.js';
 
 const FRONTEND_URL = (process.env.FRONTEND_URL || 'https://codescriet.dev').replace(/\/+$/, '');
 const RESEND_COOLDOWN_MS = 10 * 60 * 1000; // 10 minutes
@@ -64,6 +66,7 @@ const certificateVerifyLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   message: { valid: false, reason: 'rate_limited' },
+  keyGenerator: (req) => getClientIp(req),
 });
 
 const certificateDownloadLimiter = rateLimit({
@@ -72,6 +75,7 @@ const certificateDownloadLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: 'Too many download attempts, please try again later.' },
+  keyGenerator: (req) => getClientIp(req),
 });
 
 const certTypes = ['PARTICIPATION', 'COMPLETION', 'WINNER', 'SPEAKER'] as const;
@@ -770,11 +774,11 @@ interface IssueCertificateParams {
   domain: string | null | undefined;
   teamName: string | null | undefined;
   description: string | null | undefined;
-  template: string;
+  template: CertTemplate;
   primarySig: ResolvedSignatory;
   facultySig: ResolvedSignatory | null;
   issuedBy: string;
-  emailTemplate?: string;
+  emailTemplate?: CertEmailTemplate;
   emailSignerName?: string | null;
 }
 

@@ -1,4 +1,5 @@
-import { Router, Request, Response } from 'express';
+import { Router, Response } from 'express';
+import type { Request } from '../lib/http.js';
 import { z } from 'zod';
 import { Prisma, type UserBlockFeature } from '@prisma/client';
 import crypto from 'crypto';
@@ -13,7 +14,9 @@ import { computeQOTDStats } from '../utils/qotdStreak.js';
 import { isSuperAdmin, isPresidentOrSuperAdmin } from '../utils/superAdmin.js';
 import { emailService } from '../utils/email.js';
 import { ApiResponse } from '../utils/response.js';
+import { zodFieldErrors } from '../utils/zodErrors.js';
 import { hashPasswordResetToken } from '../utils/passwordReset.js';
+import { signAccessToken } from '../utils/jwt.js';
 import { invalidateCachedAuthUser } from '../utils/userAuthCache.js';
 import { invalidateUserBlockCache } from '../middleware/blocks.js';
 import { uuidParamGuard } from '../utils/idParams.js';
@@ -25,6 +28,54 @@ type UserBlockFeatureKey = (typeof USER_BLOCK_FEATURES)[number];
  * by the soft-delete handler. Restore uses this string to remove the
  * auto-issued blocks while leaving anything an admin later writes alone. */
 const SOFT_DELETE_AUTO_REASON = 'Auto-block on soft-delete';
+
+/**
+ * Mirrors auth.ts setSessionCookie attribute-for-attribute (httpOnly, secure,
+ * sameSite, maxAge, domain, path) so the cookie written here replaces the same
+ * session cookie the login paths set. Keep the two in sync until the session
+ * helpers move to a shared util.
+ */
+const setSessionCookie = (res: Response, token: string) => {
+  const isProd = process.env.NODE_ENV === 'production';
+  res.cookie('scriet_session', token, {
+    httpOnly: true,
+    secure: isProd,
+    sameSite: 'lax',
+    maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+    ...(isProd ? { domain: '.codescriet.dev' } : {}),
+    path: '/',
+  });
+};
+
+/**
+ * S6: rotate the caller's session after a credential change. Bumps tokenVersion
+ * (kills every outstanding JWT, incl. a possible attacker's), invalidates the
+ * auth LRU so the bump applies now (not after the 30s TTL), and returns a fresh
+ * token signed with the new watermark so the CURRENT session survives.
+ */
+async function rotateSessionAfterCredentialChange(
+  res: Response,
+  user: { id: string },
+  data: Record<string, unknown>,
+): Promise<string> {
+  const updated = await prisma.user.update({
+    where: { id: user.id },
+    data: { ...data, tokenVersion: { increment: 1 } },
+    select: { id: true, name: true, email: true, role: true, tokenVersion: true },
+  });
+  invalidateCachedAuthUser(user.id);
+
+  const freshToken = signAccessToken({
+    userId: updated.id,
+    id: updated.id,
+    name: updated.name || undefined,
+    email: updated.email,
+    role: updated.role,
+    tokenVersion: updated.tokenVersion,
+  });
+  setSessionCookie(res, freshToken);
+  return freshToken;
+}
 
 export const usersRouter = Router();
 
@@ -135,10 +186,7 @@ usersRouter.put('/me', authMiddleware, async (req: Request, res: Response) => {
     const authUser = getAuthUser(req)!;
     const parsed = profileUpdateSchema.safeParse(req.body);
     if (!parsed.success) {
-      return res.status(400).json({
-        success: false,
-        error: { message: parsed.error.errors[0]?.message || 'Invalid profile update payload' },
-      });
+      return ApiResponse.validationError(res, zodFieldErrors(parsed.error));
     }
 
     const { name, bio, avatarUrl, githubUrl, linkedinUrl, twitterUrl, websiteUrl, phone, course, branch, year } = parsed.data;
@@ -225,13 +273,10 @@ usersRouter.post('/me/add-password', authMiddleware, async (req: Request, res: R
     }
 
     const hashedPassword = await bcrypt.hash(newPassword, 12);
-    await prisma.user.update({
-      where: { id: authUser.id },
-      data: { password: hashedPassword },
-    });
+    const freshToken = await rotateSessionAfterCredentialChange(res, authUser, { password: hashedPassword });
 
     await auditLog(authUser.id, 'CREATE', 'user', authUser.id, { action: 'password_added' });
-    res.json({ success: true, message: 'Password added successfully! You can now sign in with email and password.' });
+    res.json({ success: true, message: 'Password added successfully! You can now sign in with email and password.', token: freshToken });
   } catch (error) {
     res.status(500).json({ success: false, error: { message: 'Failed to add password' } });
   }
@@ -266,13 +311,10 @@ usersRouter.post('/me/change-password', authMiddleware, async (req: Request, res
     }
 
     const hashedPassword = await bcrypt.hash(newPassword, 12);
-    await prisma.user.update({
-      where: { id: authUser.id },
-      data: { password: hashedPassword },
-    });
+    const freshToken = await rotateSessionAfterCredentialChange(res, authUser, { password: hashedPassword });
 
     await auditLog(authUser.id, 'UPDATE', 'user', authUser.id, { action: 'password_change' });
-    res.json({ success: true, message: 'Password changed successfully' });
+    res.json({ success: true, message: 'Password changed successfully', token: freshToken });
   } catch (error) {
     res.status(500).json({ success: false, error: { message: 'Failed to change password' } });
   }
@@ -354,31 +396,6 @@ usersRouter.get('/search', authMiddleware, requireRole('ADMIN'), async (req: Req
 // Export all users to Excel (admin)
 usersRouter.get('/export', authMiddleware, requireRole('ADMIN'), async (_req: Request, res: Response) => {
   try {
-    const users = await prisma.user.findMany({
-      where: { role: { not: 'NETWORK' } },
-      orderBy: { createdAt: 'desc' },
-      take: 100,
-      select: {
-        id: true,
-        name: true,
-        email: true,
-        role: true,
-        phone: true,
-        course: true,
-        branch: true,
-        year: true,
-        bio: true,
-        profileCompleted: true,
-        oauthProvider: true,
-        githubUrl: true,
-        linkedinUrl: true,
-        twitterUrl: true,
-        websiteUrl: true,
-        createdAt: true,
-        _count: { select: { registrations: true, qotdSubmissions: true } },
-      },
-    });
-
     const ExcelJS = await import('exceljs');
     const workbook = new ExcelJS.default.Workbook();
     workbook.creator = 'code.scriet';
@@ -415,26 +432,73 @@ usersRouter.get('/export', authMiddleware, requireRole('ADMIN'), async (_req: Re
     worksheet.getRow(1).alignment = { horizontal: 'center', vertical: 'middle' };
     worksheet.getRow(1).height = 25;
 
-    // Add data rows
-    users.forEach((user, index) => {
-      worksheet.addRow({
-        sno: index + 1,
-        name: user.name,
-        email: user.email,
-        role: user.role,
-        phone: user.phone || 'N/A',
-        course: user.course || 'N/A',
-        branch: user.branch || 'N/A',
-        year: user.year || 'N/A',
-        profileCompleted: user.profileCompleted ? 'Yes' : 'No',
-        authMethod: user.oauthProvider || 'Email/Password',
-        eventsRegistered: user._count.registrations,
-        qotdSubmissions: user._count.qotdSubmissions,
-        github: user.githubUrl || '',
-        linkedin: user.linkedinUrl || '',
-        joined: user.createdAt.toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }),
+    // C1: the old single query exported only the 100 newest accounts while the
+    // UI labels this "Export all users" — silent data loss in the artifact
+    // admins trust most. Cursor-batch the full table instead (mail.ts
+    // bulk-audience pattern); summary counts accumulate per batch.
+    const EXPORT_BATCH_SIZE = 500;
+    let cursor: string | undefined;
+    let serial = 0;
+    const roleCounts = { ADMIN: 0, CORE_MEMBER: 0, USER: 0 };
+    let profilesCompleted = 0;
+
+    while (true) {
+      const users = await prisma.user.findMany({
+        where: { role: { not: 'NETWORK' } },
+        // Cursor pagination needs a unique tiebreaker; id keeps the
+        // newest-first sheet order stable across batches.
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        take: EXPORT_BATCH_SIZE,
+        ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          role: true,
+          phone: true,
+          course: true,
+          branch: true,
+          year: true,
+          profileCompleted: true,
+          oauthProvider: true,
+          githubUrl: true,
+          linkedinUrl: true,
+          createdAt: true,
+          _count: { select: { registrations: true, qotdSubmissions: true } },
+        },
       });
-    });
+
+      if (users.length === 0) break;
+      cursor = users[users.length - 1].id;
+
+      for (const user of users) {
+        serial += 1;
+        if (user.role === 'ADMIN') roleCounts.ADMIN += 1;
+        else if (user.role === 'CORE_MEMBER') roleCounts.CORE_MEMBER += 1;
+        else if (user.role === 'USER') roleCounts.USER += 1;
+        if (user.profileCompleted) profilesCompleted += 1;
+
+        worksheet.addRow({
+          sno: serial,
+          name: user.name,
+          email: user.email,
+          role: user.role,
+          phone: user.phone || 'N/A',
+          course: user.course || 'N/A',
+          branch: user.branch || 'N/A',
+          year: user.year || 'N/A',
+          profileCompleted: user.profileCompleted ? 'Yes' : 'No',
+          authMethod: user.oauthProvider || 'Email/Password',
+          eventsRegistered: user._count.registrations,
+          qotdSubmissions: user._count.qotdSubmissions,
+          github: user.githubUrl || '',
+          linkedin: user.linkedinUrl || '',
+          joined: user.createdAt.toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }),
+        });
+      }
+
+      if (users.length < EXPORT_BATCH_SIZE) break;
+    }
 
     // Add alternating row colors
     worksheet.eachRow((row, rowNumber) => {
@@ -455,11 +519,11 @@ usersRouter.get('/export', authMiddleware, requireRole('ADMIN'), async (_req: Re
 
     // Add summary sheet
     const summarySheet = workbook.addWorksheet('Summary');
-    summarySheet.addRow(['Total Users', users.length]);
-    summarySheet.addRow(['Admins', users.filter(u => u.role === 'ADMIN').length]);
-    summarySheet.addRow(['Core Members', users.filter(u => u.role === 'CORE_MEMBER').length]);
-    summarySheet.addRow(['Members', users.filter(u => u.role === 'USER').length]);
-    summarySheet.addRow(['Profiles Completed', users.filter(u => u.profileCompleted).length]);
+    summarySheet.addRow(['Total Users', serial]);
+    summarySheet.addRow(['Admins', roleCounts.ADMIN]);
+    summarySheet.addRow(['Core Members', roleCounts.CORE_MEMBER]);
+    summarySheet.addRow(['Members', roleCounts.USER]);
+    summarySheet.addRow(['Profiles Completed', profilesCompleted]);
     summarySheet.addRow(['Export Date', new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })]);
 
     summarySheet.getColumn(1).width = 20;
@@ -843,7 +907,12 @@ usersRouter.put('/:id', authMiddleware, requireRole('ADMIN'), async (req: Reques
         ...(branch !== undefined && { branch: nextBranch }),
         ...(year !== undefined && { year: nextYear }),
         profileCompleted: isProfileCompletion,
-        ...(hashedPassword && { password: hashedPassword }),
+        // S6 follow-up (PR-3 review): an admin-set password must evict the
+        // target's existing sessions, exactly like the self-service change
+        // flow — otherwise a compromised account keeps its stolen JWTs for up
+        // to 7 days after an admin resets the password. The target signs in
+        // fresh with the new password; no token is returned here.
+        ...(hashedPassword && { password: hashedPassword, tokenVersion: { increment: 1 } }),
       },
       select: {
         id: true,

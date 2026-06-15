@@ -3,6 +3,7 @@ import jwt from 'jsonwebtoken';
 import { prisma } from '../lib/prisma.js';
 import { AccessTokenPayload, getJwtSecret } from '../utils/jwt.js';
 import { getCachedAuthUser, setCachedAuthUser, type CachedAuthUser } from '../utils/userAuthCache.js';
+import { logger } from '../utils/logger.js';
 
 // Custom user type for authenticated requests
 export interface AuthUser {
@@ -79,9 +80,12 @@ const authMiddlewareImpl = async (
       return res.status(401).json({ error: 'Invalid token payload' });
     }
 
-    // Reject attendance QR tokens — they share the signing key but must not grant auth
-    if ((decoded as Record<string, unknown>).purpose === 'attendance') {
-      return res.status(401).json({ error: 'Attendance tokens cannot be used for authentication' });
+    // Purpose allowlist (audit S1): access tokens never carry a `purpose` claim;
+    // special-purpose tokens do (oauth_exchange, invitation_claim, quiz_access
+    // share this secret; attendance QR uses its own runtime secret — rejecting
+    // its purpose here is defense-in-depth). Allowlist, not blocklist.
+    if (typeof (decoded as Record<string, unknown>).purpose === 'string') {
+      return res.status(401).json({ error: 'Special-purpose tokens cannot be used for authentication' });
     }
 
     let user: CachedAuthUser | null = getCachedAuthUser(userId);
@@ -173,8 +177,9 @@ const optionalAuthMiddlewareImpl = async (
       return next();
     }
 
-    // Skip attendance QR tokens — they share the signing key but must not grant auth
-    if ((decoded as Record<string, unknown>).purpose === 'attendance') {
+    // Purpose allowlist (audit S1) — same rule as authMiddleware: any token
+    // carrying a `purpose` claim is special-purpose, never a session.
+    if (typeof (decoded as Record<string, unknown>).purpose === 'string') {
       return next();
     }
 
@@ -228,6 +233,19 @@ const optionalAuthMiddlewareImpl = async (
 
     next();
   } catch (error) {
+    // Invalid/expired tokens are routine on optional-auth routes (anonymous
+    // visitors with stale cookies) — stay silent for those. A DB failure,
+    // though, silently downgrades signed-in users to anonymous; log it so the
+    // degradation is observable instead of swallowed.
+    const isExpectedJwtError =
+      error instanceof Error &&
+      ['JsonWebTokenError', 'TokenExpiredError', 'NotBeforeError'].includes(error.name);
+    if (!isExpectedJwtError) {
+      logger.warn('optionalAuth degraded to anonymous (non-JWT error)', {
+        path: req.path,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
     next();
   }
 };

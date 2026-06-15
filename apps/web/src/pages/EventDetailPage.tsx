@@ -72,6 +72,7 @@ import { useAuth } from '@/context/AuthContext';
 import { useSettings } from '@/context/SettingsContext';
 import {
   api,
+  ApiError,
   type AttendanceQR,
   type Event,
   type EventRegistrationField,
@@ -526,11 +527,10 @@ export default function EventDetailPage() {
   const handleAcceptInvitation = useCallback(async () => {
     if (!event?.userInvitation || event.userInvitation.status !== 'PENDING') return;
     if (!token) {
-      navigate('/signin', {
-        state: {
-          from: `/events/${event.slug || event.id}`,
-          message: 'Please sign in to accept this invitation.',
-        },
+      // UX#2: carry the return path so sign-in (email or OAuth) lands back here.
+      const next = encodeURIComponent(`/events/${event.slug || event.id}`);
+      navigate(`/signin?next=${next}`, {
+        state: { message: 'Please sign in to accept this invitation.' },
       });
       return;
     }
@@ -576,9 +576,17 @@ export default function EventDetailPage() {
         action: { label: 'View ticket', onClick: () => { void openQrTicket(); } },
       });
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Failed to register';
-      setRegistrationFormError(errorMessage);
-      toast.error(errorMessage);
+      // Server-side per-field validation errors (keyed by registration field id)
+      // are surfaced inline on the matching input; the popup stays open so the
+      // user can fix them. Falls back to a banner/toast for anything else.
+      if (err instanceof ApiError && Object.keys(err.fieldErrors).length > 0) {
+        setRegistrationFieldErrors((prev) => ({ ...prev, ...err.fieldErrors }));
+        setRegistrationFormError('Please fix the highlighted fields.');
+      } else {
+        const errorMessage = err instanceof Error ? err.message : 'Failed to register';
+        setRegistrationFormError(errorMessage);
+        toast.error(errorMessage);
+      }
     } finally {
       setRegistering(false);
     }
@@ -600,9 +608,13 @@ export default function EventDetailPage() {
     const regStatus = getRegistrationStatus(event);
     if (!regStatus.canRegister) { toast.error(regStatus.message); return; }
     if (!user || !token) {
+      // pendingEventRegistration drives the profile-completion path; ?next=
+      // (UX#2) is the explicit return that lands back on the event with the
+      // register sheet open. AuthCallback consumes one and clears the other.
       localStorage.setItem('pendingEventRegistration', event.id);
       localStorage.setItem('pendingEventRegistrationType', event.teamRegistration ? 'team' : 'solo');
-      navigate('/signin', { state: { from: `/events/${event.slug}`, message: 'Please sign in to register for events' } });
+      const next = encodeURIComponent(`/events/${event.slug}?register=1`);
+      navigate(`/signin?next=${next}`, { state: { message: 'Please sign in to register for events' } });
       return;
     }
     if (!user.phone || !user.course || !user.branch || !user.year) {

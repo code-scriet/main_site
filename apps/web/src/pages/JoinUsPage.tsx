@@ -23,7 +23,7 @@ import {
   MessageSquare,
   ChevronDown
 } from 'lucide-react';
-import { api } from '@/lib/api';
+import { api, ApiError } from '@/lib/api';
 import type { AuthProviders } from '@/lib/api';
 import { extractApiErrorMessage } from '@/lib/error';
 import { useAuth } from '@/context/AuthContext';
@@ -111,6 +111,15 @@ export default function JoinUsPage() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [profileIncomplete, setProfileIncomplete] = useState(false);
+  // Server-side per-field validation errors, keyed by the API field name.
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+  const clearFieldError = (key: string) =>
+    setFieldErrors((prev) => {
+      if (!prev[key]) return prev;
+      const next = { ...prev };
+      delete next[key];
+      return next;
+    });
   
   // Form fields
   const [selectedRole, setSelectedRole] = useState<string | null>(null);
@@ -201,6 +210,7 @@ export default function JoinUsPage() {
 
     setSubmitting(true);
     setError(null);
+    setFieldErrors({});
 
     try {
       await api.submitHiringApplication({
@@ -215,7 +225,14 @@ export default function JoinUsPage() {
 
       setFormStep('success');
     } catch (err) {
-      setError(extractApiErrorMessage(err, 'Failed to submit application'));
+      // Server-side per-field validation errors are surfaced inline on the
+      // matching input; fall back to the banner for anything else.
+      if (err instanceof ApiError && Object.keys(err.fieldErrors).length > 0) {
+        setFieldErrors(err.fieldErrors);
+        setError('Please fix the highlighted fields.');
+      } else {
+        setError(extractApiErrorMessage(err, 'Failed to submit application'));
+      }
     } finally {
       setSubmitting(false);
     }
@@ -443,11 +460,12 @@ export default function JoinUsPage() {
                               id="join-us-name"
                               type="text"
                               value={name}
-                              onChange={(e) => setName(e.target.value)}
+                              onChange={(e) => { setName(e.target.value); clearFieldError('name'); }}
                               placeholder="John Doe"
                               required
                               className="h-12"
                             />
+                            {fieldErrors.name && <p className="mt-1 text-sm text-red-600">{fieldErrors.name}</p>}
                           </div>
                           <div>
                             <label htmlFor="join-us-email" className="block text-sm font-medium text-gray-700 mb-2">
@@ -457,11 +475,12 @@ export default function JoinUsPage() {
                               id="join-us-email"
                               type="email"
                               value={email}
-                              onChange={(e) => setEmail(e.target.value)}
+                              onChange={(e) => { setEmail(e.target.value); clearFieldError('email'); }}
                               placeholder="john@example.com"
                               required
                               className="h-12"
                             />
+                            {fieldErrors.email && <p className="mt-1 text-sm text-red-600">{fieldErrors.email}</p>}
                           </div>
                         </div>
 
@@ -474,10 +493,11 @@ export default function JoinUsPage() {
                               id="join-us-phone"
                               type="tel"
                               value={phone}
-                              onChange={(e) => setPhone(e.target.value)}
+                              onChange={(e) => { setPhone(e.target.value); clearFieldError('phone'); }}
                               placeholder="9876543210"
                               className="h-12"
                             />
+                            {fieldErrors.phone && <p className="mt-1 text-sm text-red-600">{fieldErrors.phone}</p>}
                           </div>
                           <div>
                             <label htmlFor="join-us-department" className="block text-sm font-medium text-gray-700 mb-2">
@@ -487,11 +507,12 @@ export default function JoinUsPage() {
                               id="join-us-department"
                               type="text"
                               value={department}
-                              onChange={(e) => setDepartment(e.target.value)}
+                              onChange={(e) => { setDepartment(e.target.value); clearFieldError('department'); }}
                               placeholder="Computer Science"
                               required
                               className="h-12"
                             />
+                            {fieldErrors.department && <p className="mt-1 text-sm text-red-600">{fieldErrors.department}</p>}
                           </div>
                         </div>
 
@@ -504,7 +525,7 @@ export default function JoinUsPage() {
                               <select
                                 id="join-us-year"
                                 value={year}
-                                onChange={(e) => setYear(e.target.value)}
+                                onChange={(e) => { setYear(e.target.value); clearFieldError('year'); }}
                                 required
                                 className="w-full h-12 px-4 pr-10 rounded-md border border-gray-300 bg-white text-gray-900 focus:border-amber-500 focus:ring-amber-500 appearance-none"
                               >
@@ -516,6 +537,7 @@ export default function JoinUsPage() {
                               </select>
                               <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400 pointer-events-none" />
                             </div>
+                            {fieldErrors.year && <p className="mt-1 text-sm text-red-600">{fieldErrors.year}</p>}
                           </div>
                           <div>
                             <label htmlFor="join-us-skills" className="block text-sm font-medium text-gray-700 mb-2">
@@ -525,10 +547,11 @@ export default function JoinUsPage() {
                               id="join-us-skills"
                               type="text"
                               value={skills}
-                              onChange={(e) => setSkills(e.target.value)}
+                              onChange={(e) => { setSkills(e.target.value); clearFieldError('skills'); }}
                               placeholder="Python, JavaScript, React..."
                               className="h-12"
                             />
+                            {fieldErrors.skills && <p className="mt-1 text-sm text-red-600">{fieldErrors.skills}</p>}
                           </div>
                         </div>
 

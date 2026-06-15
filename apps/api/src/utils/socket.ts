@@ -1,7 +1,8 @@
-import { Server as SocketIOServer, Socket } from 'socket.io';
+import { Server as SocketIOServer } from 'socket.io';
 import { Server as HTTPServer } from 'http';
 import { logger } from './logger.js';
 import { authenticateSocketConnection } from './socketAuth.js';
+import { getSocketClientIp } from './clientIp.js';
 
 let io: SocketIOServer | null = null;
 
@@ -11,14 +12,9 @@ const socketConnectionRateMap = new Map<string, { count: number; windowStart: nu
 const SOCKET_PING_TIMEOUT_MS = Number(process.env.SOCKET_PING_TIMEOUT_MS || 30000);
 const SOCKET_PING_INTERVAL_MS = Number(process.env.SOCKET_PING_INTERVAL_MS || 10000);
 
-function getSocketClientIp(socket: Socket): string {
-  const forwardedFor = socket.handshake.headers['x-forwarded-for'];
-  if (typeof forwardedFor === 'string' && forwardedFor.trim()) {
-    return forwardedFor.split(',')[0].trim();
-  }
-
-  return socket.handshake.address || 'unknown';
-}
+// S2: IP resolution moved to utils/clientIp.ts. The old local version keyed
+// the limiter on the FIRST X-Forwarded-For entry — fully client-controlled,
+// so a direct-to-origin client could rotate XFF to defeat the 30-conn/min cap.
 
 function isConnectionAllowed(ip: string): boolean {
   const now = Date.now();

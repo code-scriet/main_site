@@ -13,19 +13,19 @@
     "lint": "eslint ."
   },
   "dependencies": {
-    "@prisma/client": "^5.8.0",
+    "@prisma/adapter-pg": "^7.8.0",
+    "@prisma/client": "^7.8.0",
     "@react-pdf/renderer": "^4.3.2",
     "bcryptjs": "^3.0.3",
     "bufferutil": "^4.1.0",
-    "cloudinary": "^2.9.0",
+    "cloudinary": "^2.10.0",
     "compression": "^1.8.1",
     "cors": "^2.8.5",
     "dotenv": "^16.3.1",
     "exceljs": "^4.4.0",
-    "express": "^4.18.2",
+    "express": "^5.2.1",
     "express-rate-limit": "^7.1.5",
     "helmet": "^7.1.0",
-    "isomorphic-dompurify": "^3.0.0",
     "jsonwebtoken": "^9.0.2",
     "marked": "^17.0.1",
     "multer": "^2.0.2",
@@ -35,7 +35,7 @@
     "passport-google-oauth20": "^2.0.0",
     "qrcode": "^1.5.4",
     "react": "^19.2.4",
-    "react-dom": "^19.2.4",
+    "react-dom": "^19.2.7",
     "sanitize-html": "^2.17.1",
     "sharp": "^0.34.5",
     "socket.io": "^4.8.3",
@@ -43,10 +43,10 @@
     "zod": "^3.22.4"
   },
   "devDependencies": {
-    "@types/bcryptjs": "^2.4.6",
+    "@eslint/js": "^10.0.0",
     "@types/compression": "^1.8.1",
     "@types/cors": "^2.8.17",
-    "@types/express": "^4.17.21",
+    "@types/express": "^5.0.6",
     "@types/jsonwebtoken": "^9.0.5",
     "@types/marked": "^5.0.2",
     "@types/multer": "^2.0.0",
@@ -59,8 +59,10 @@
     "@types/react-dom": "^19.2.3",
     "@types/sanitize-html": "^2.16.0",
     "@types/sharp": "^0.31.1",
-    "prisma": "^5.8.0",
+    "eslint": "^10.0.0",
+    "globals": "^17.0.0",
+    "prisma": "^7.8.0",
     "tsx": "^4.7.0",
-    "typescript": "^5.3.3"
+    "typescript": "^6.0.3"
   }
 }

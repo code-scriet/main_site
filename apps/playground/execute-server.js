@@ -128,6 +128,10 @@ function optionalAuth(req, _res, next) {
   for (const token of candidates) {
     try {
       const decoded = jwt.verify(token, getJwtSecret(), { algorithms: ['HS256'] });
+      // Purpose allowlist (audit S1, mirrors the main API's auth middleware):
+      // special-purpose tokens signed with this shared secret (oauth exchange
+      // codes, invitation claims, quiz access) must not grant playground auth.
+      if (decoded && typeof decoded.purpose === 'string') continue;
       req.user = { id: decoded.userId || decoded.id, email: decoded.email, role: decoded.role };
       break;
     } catch {

@@ -3,6 +3,7 @@ import {
   ProblemContextType,
   ProblemLanguage,
   SubmissionVerdict,
+  Difficulty,
   type Problem,
   type ProblemSubmission,
 } from '@prisma/client';
@@ -41,7 +42,7 @@ export interface ProblemInput {
   slug: string;
   title: string;
   body: string;
-  difficulty: string;
+  difficulty: Difficulty;
   tags: string[];
   allowedLanguages: ProblemLanguage[];
   timeLimitMs: number;
@@ -123,7 +124,7 @@ export function normalizeProblemInput(input: ProblemInput): ProblemInput {
     slug: sanitizeText(input.slug).toLowerCase(),
     title: sanitizeText(input.title),
     body: sanitizeHtml(input.body),
-    difficulty: sanitizeText(input.difficulty).toUpperCase(),
+    difficulty: sanitizeText(input.difficulty).toUpperCase() as Difficulty,
     tags: input.tags.map((tag) => sanitizeText(tag).toLowerCase()).filter(Boolean).slice(0, 20),
     referenceSolution: input.referenceSolution ?? null,
     referenceLanguage: input.referenceLanguage ?? null,

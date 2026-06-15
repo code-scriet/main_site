@@ -12,11 +12,12 @@ import { auditLog } from '../utils/audit.js';
 import { logger } from '../utils/logger.js';
 import { emailService } from '../utils/email.js';
 import { getRegistrationStatus } from '../utils/registrationStatus.js';
-import { createEventRegistrationInTx } from '../utils/registrationIntake.js';
+import { assertWithinActiveEventLimitInTx, createEventRegistrationInTx, EventLimitExceededError } from '../utils/registrationIntake.js';
 import { participantsOnly } from '../utils/registrationFilters.js';
 import { executeSerializableTransaction, isSerializationConflict } from '../utils/transactionRetry.js';
 import { sanitizeEventRegistrationFields, validateRegistrationFieldSubmissions } from '../utils/eventRegistrationFields.js';
 import { requireUuid } from '../utils/idParams.js';
+import { getClientIp } from '../utils/clientIp.js';
 
 export const teamsRouter = Router();
 
@@ -50,6 +51,7 @@ const joinRateLimiter = rateLimit({
   message: { success: false, error: { message: 'Too many join attempts. Please try again later.' } },
   standardHeaders: true,
   legacyHeaders: false,
+  keyGenerator: (req) => getClientIp(req),
 });
 
 // Helper to validate event is open for registration
@@ -152,7 +154,7 @@ function validateTeamRegistrationFields(eventRegistrationFields: unknown, submis
     throw {
       status: 400,
       message: 'Additional registration details required',
-      details: validation.errors,
+      details: validation.errors.map((e) => ({ field: e.fieldId, message: e.message })),
     };
   }
 
@@ -335,6 +337,19 @@ teamsRouter.post('/create', authMiddleware, async (req: Request, res: Response) 
         const inviteCode = candidates.find((code) => !takenSet.has(code));
         if (!inviteCode) {
           throw { status: 500, message: 'Failed to generate unique invite code. Please try again.' };
+        }
+
+        // L2: Settings.maxEventsPerUser is enforced here, not just in UI copy.
+        try {
+          await assertWithinActiveEventLimitInTx(tx, user.id);
+        } catch (limitError) {
+          if (limitError instanceof EventLimitExceededError) {
+            throw {
+              status: 400,
+              message: `You can be registered for at most ${limitError.limit} upcoming events at a time. Leave one or wait for an event to finish before creating a team.`,
+            };
+          }
+          throw limitError;
         }
 
         // Create registration (+ attendance token + DayAttendance rows)
@@ -579,6 +594,19 @@ teamsRouter.post('/join', authMiddleware, joinRateLimiter, async (req: Request, 
             status: 400,
             message: validationError instanceof Error ? validationError.message : 'Invalid registration fields',
           };
+        }
+
+        // L2: Settings.maxEventsPerUser is enforced here, not just in UI copy.
+        try {
+          await assertWithinActiveEventLimitInTx(tx, user.id);
+        } catch (limitError) {
+          if (limitError instanceof EventLimitExceededError) {
+            throw {
+              status: 400,
+              message: `You can be registered for at most ${limitError.limit} upcoming events at a time. Leave one or wait for an event to finish before joining a team.`,
+            };
+          }
+          throw limitError;
         }
 
         // Create registration (+ attendance token + DayAttendance rows)

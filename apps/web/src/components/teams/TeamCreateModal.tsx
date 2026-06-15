@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@/context/AuthContext';
-import { api, type Event, type EventTeam, type EventRegistrationField } from '@/lib/api';
+import { api, ApiError, type Event, type EventTeam, type EventRegistrationField } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -35,6 +35,8 @@ export function TeamCreateModal({ open, onOpenChange, event, onSuccess }: TeamCr
   const [createdTeam, setCreatedTeam] = useState<EventTeam | null>(null);
   const [copied, setCopied] = useState(false);
   const [validationError, setValidationError] = useState<string | null>(null);
+  // Server-side per-field validation errors, keyed by registration field id.
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
 
   const createMutation = useMutation({
     mutationFn: () => {
@@ -61,6 +63,13 @@ export function TeamCreateModal({ open, onOpenChange, event, onSuccess }: TeamCr
       queryClient.invalidateQueries({ queryKey: ['event', event.id] });
       queryClient.invalidateQueries({ queryKey: ['event', event.slug] });
     },
+    onError: (error) => {
+      // Surface server-side per-field errors (keyed by registration field id)
+      // inline on the matching custom-field input.
+      if (error instanceof ApiError && Object.keys(error.fieldErrors).length > 0) {
+        setFieldErrors(error.fieldErrors);
+      }
+    },
   });
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -80,6 +89,7 @@ export function TeamCreateModal({ open, onOpenChange, event, onSuccess }: TeamCr
     }
 
     setValidationError(null);
+    setFieldErrors({});
     createMutation.mutate();
   };
 
@@ -105,6 +115,7 @@ export function TeamCreateModal({ open, onOpenChange, event, onSuccess }: TeamCr
     setCustomFieldResponses({});
     setCreatedTeam(null);
     setValidationError(null);
+    setFieldErrors({});
     createMutation.reset();
     onOpenChange(false);
   };
@@ -113,6 +124,12 @@ export function TeamCreateModal({ open, onOpenChange, event, onSuccess }: TeamCr
     const value = customFieldResponses[field.id] || '';
     const onChange = (val: string) => {
       setCustomFieldResponses((prev) => ({ ...prev, [field.id]: val }));
+      setFieldErrors((prev) => {
+        if (!prev[field.id]) return prev;
+        const next = { ...prev };
+        delete next[field.id];
+        return next;
+      });
     };
 
     if (field.type === 'TEXTAREA') {
@@ -241,6 +258,9 @@ export function TeamCreateModal({ open, onOpenChange, event, onSuccess }: TeamCr
                 {field.label} {field.required && '*'}
               </Label>
               {renderCustomFieldInput(field)}
+              {fieldErrors[field.id] && (
+                <p className="text-xs text-destructive">{fieldErrors[field.id]}</p>
+              )}
             </div>
           ))}
 
@@ -252,7 +272,9 @@ export function TeamCreateModal({ open, onOpenChange, event, onSuccess }: TeamCr
 
           {createMutation.isError && (
             <div className="bg-destructive/10 text-destructive px-3 py-2 rounded-md text-sm">
-              {extractApiErrorMessage(createMutation.error, 'Failed to create team')}
+              {Object.keys(fieldErrors).length > 0
+                ? 'Please fix the highlighted fields.'
+                : extractApiErrorMessage(createMutation.error, 'Failed to create team')}
             </div>
           )}
 

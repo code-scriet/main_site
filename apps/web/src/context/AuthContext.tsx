@@ -30,6 +30,10 @@ interface AuthActions {
   logout: () => void;
   clearError: () => void;
   refreshUser: () => Promise<void>;
+  /** Replace the stored session token without the full login() loading cycle.
+   *  Used when the API rotates the session (e.g. password change bumps
+   *  tokenVersion and returns a fresh token). */
+  adoptToken: (token: string) => void;
 }
 
 type AuthContextType = AuthState & AuthActions;
@@ -298,8 +302,8 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   // memoized via useCallback with stable deps). Splitting into its own context
   // means action-only consumers never re-render when state changes.
   const actions = useMemo<AuthActions>(
-    () => ({ login, loginWithEmail, register, devLogin, logout, clearError, refreshUser }),
-    [login, loginWithEmail, register, devLogin, logout, clearError, refreshUser],
+    () => ({ login, loginWithEmail, register, devLogin, logout, clearError, refreshUser, adoptToken: persistToken }),
+    [login, loginWithEmail, register, devLogin, logout, clearError, refreshUser, persistToken],
   );
 
   const state = useMemo<AuthState>(

@@ -1,5 +1,4 @@
 import { motion } from 'framer-motion';
-import { Button } from '@/components/ui/button';
 import { Link, useNavigate } from 'react-router-dom';
 import { Github, Linkedin, Twitter, Instagram, ArrowRight, Users, Loader2 } from 'lucide-react';
 import { useMotionConfig } from '@/hooks/useMotionConfig';
@@ -17,10 +16,7 @@ export function TeamHighlight() {
   const staggerDelay = shouldReduceMotion ? 0.05 : 0.1;
 
   return (
-    <section className="relative overflow-hidden bg-gradient-to-b from-white to-gray-50 py-16 dark:from-[#05060a] dark:via-[#090b11] dark:to-[#07080d] sm:py-24">
-      {/* Background Decoration */}
-      <div className="absolute top-1/2 left-1/2 h-[400px] w-[400px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-gradient-radial from-amber-100/30 to-transparent dark:from-red-950/20 sm:h-[600px] sm:w-[600px] md:h-[800px] md:w-[800px]" />{/* responsive: scale decorative blob */}
-
+    <section className="relative overflow-hidden py-16 sm:py-24">
       <div className="container mx-auto px-4 relative">
         {/* Section Header */}
         <motion.div
@@ -30,13 +26,10 @@ export function TeamHighlight() {
           viewport={{ once: true, margin: '-50px' }}
           className="text-center mb-8 sm:mb-12 lg:mb-16"
         >
-          <h2 className="mb-3 text-2xl font-bold text-gray-900 dark:text-zinc-100 sm:mb-4 sm:text-4xl md:text-5xl">
-            Meet Our{' '}
-            <span className="text-transparent bg-clip-text bg-gradient-to-r from-blue-600 to-cyan-600">
-              Team
-            </span>
+          <h2 className="mb-3 text-2xl font-bold hx-t1 sm:mb-4 sm:text-4xl md:text-5xl">
+            Meet Our <span className="hx-grad-text">Team</span>
           </h2>
-          <p className="mx-auto max-w-2xl px-2 text-base text-gray-600 dark:text-zinc-400 sm:text-lg">
+          <p className="mx-auto max-w-2xl px-2 text-base hx-t2 sm:text-lg">
             The passionate individuals driving code.scriet forward and building an amazing community
           </p>
         </motion.div>
@@ -52,16 +45,14 @@ export function TeamHighlight() {
             animate={{ opacity: 1 }}
             className="text-center py-16"
           >
-            <div className="mb-6 inline-flex h-20 w-20 items-center justify-center rounded-full bg-blue-100 dark:bg-zinc-800/80">
-              <Users className="h-10 w-10 text-blue-500" />
+            <div className="mb-6 inline-flex h-20 w-20 items-center justify-center rounded-full bg-[#f97316]/15 border border-[#f97316]/25">
+              <Users className="h-10 w-10 text-amber-400" />
             </div>
-            <h3 className="mb-2 text-xl font-semibold text-gray-900 dark:text-zinc-100">Team info coming soon!</h3>
-            <p className="text-gray-500 dark:text-zinc-400">Stay tuned to meet our amazing team</p>
+            <h3 className="mb-2 text-xl font-semibold hx-t1">Team info coming soon!</h3>
+            <p className="hx-t3">Stay tuned to meet our amazing team</p>
           </motion.div>
         ) : (
           <div className="relative mb-8 sm:mb-12">
-            {/* Subtle bottom shade-out — visible on all screens, slightly stronger on mobile */}
-            <div className="pointer-events-none absolute bottom-0 left-0 right-0 z-10 h-16 bg-gradient-to-t from-gray-50 via-gray-50/40 to-transparent dark:from-[#07080d] dark:via-[#07080d]/40 sm:h-12" />
             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 sm:gap-6 md:gap-8">
               {teamMembers.map((member, index) => {
                 const profileSlugOrId = member.slug || member.id;
@@ -86,7 +77,7 @@ export function TeamHighlight() {
                       }
                     } : undefined}
                     aria-label={hasProfile ? `View ${member.name}'s profile` : member.name}
-                    className={`group h-full rounded-2xl border border-gray-200/70 bg-white/70 p-3 text-center shadow-sm transition-all duration-300 dark:border-zinc-800/90 dark:bg-[#0f1117]/95 dark:shadow-black/45 ${hasProfile ? 'cursor-pointer hover:border-amber-300 hover:shadow-md dark:hover:border-zinc-700 dark:hover:shadow-red-950/35' : 'cursor-default'}`}
+                    className={`glass-card group h-full !rounded-2xl p-3 text-center ${hasProfile ? 'glass-card--lift cursor-pointer' : 'cursor-default'}`}
                   >
                     {/* Avatar */}
                     <div className="relative mb-4 mx-auto">
@@ -117,7 +108,7 @@ export function TeamHighlight() {
                     </div>
 
                     {/* Info */}
-                    <h3 className="mb-1 flex min-h-[2.5rem] items-center justify-center line-clamp-2 font-semibold text-gray-900 transition-colors group-hover:text-amber-600 dark:text-zinc-100 dark:group-hover:text-rose-300">
+                    <h3 className="mb-1 flex min-h-[2.5rem] items-center justify-center line-clamp-2 font-semibold text-gray-900 transition-colors group-hover:text-amber-600 dark:text-zinc-100 dark:group-hover:text-amber-300">
                       {member.name}
                     </h3>
                     <p className="mb-3 min-h-[1.25rem] line-clamp-1 text-sm text-gray-500 dark:text-zinc-400">{member.role}</p>
@@ -148,7 +139,7 @@ export function TeamHighlight() {
                           target="_blank"
                           rel="noopener noreferrer"
                           onClick={(e) => e.stopPropagation()}
-                          className="rounded-lg bg-gray-100 p-2 text-gray-500 transition-all hover:bg-blue-600 hover:text-white dark:bg-zinc-900 dark:text-zinc-400 dark:hover:bg-blue-500/85"
+                          className="rounded-lg bg-gray-100 p-2 text-gray-500 transition-all hover:bg-blue-600 hover:text-white dark:bg-zinc-900 dark:text-zinc-400 dark:hover:bg-amber-500/85"
                           whileHover={!isMobile ? { scale: 1.1 } : undefined}
                           whileTap={{ scale: 0.95 }}
                         >
@@ -197,15 +188,12 @@ export function TeamHighlight() {
           viewport={{ once: true, margin: '-50px' }}
           className="text-center"
         >
-          <Link to="/team">
-            <Button
-              variant="outline"
-              size="lg"
-              className="group border-gray-300 hover:border-blue-500 hover:bg-blue-50 dark:border-zinc-700 dark:bg-zinc-950 dark:text-zinc-100 dark:hover:border-blue-500/40 dark:hover:bg-zinc-900"
-            >
-              Meet the Full Team
-              <ArrowRight className="ml-2 h-4 w-4 group-hover:translate-x-1 transition-transform" />
-            </Button>
+          <Link
+            to="/team"
+            className="group inline-flex h-12 items-center justify-center gap-2 rounded-full border border-white/15 bg-white/[0.04] px-6 text-sm font-medium text-white/90 backdrop-blur-md transition-all duration-200 hover:border-[#f97316]/50 hover:bg-white/[0.07]"
+          >
+            Meet the Full Team
+            <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-1" />
           </Link>
         </motion.div>
       </div>

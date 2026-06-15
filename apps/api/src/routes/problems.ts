@@ -1,5 +1,6 @@
-import { Router, Request, Response } from 'express';
-import { Prisma, ProblemContextType, ProblemLanguage, SubmissionVerdict } from '@prisma/client';
+import { Router, Response } from 'express';
+import type { Request } from '../lib/http.js';
+import { Prisma, ProblemContextType, ProblemLanguage, SubmissionVerdict, Difficulty } from '@prisma/client';
 import { z } from 'zod';
 import { prisma, withRetry } from '../lib/prisma.js';
 import { authMiddleware, optionalAuthMiddleware, getAuthUser } from '../middleware/auth.js';
@@ -129,12 +130,17 @@ problemsRouter.use(async (req, res, next) => {
   }
 });
 
-problemsRouter.get('/', async (req, res) => {
+problemsRouter.get('/', async (req: Request, res: Response) => {
   try {
     const user = getAuthUser(req);
     const admin = isAdminUser(user);
     const published = req.query.published === 'true' ? true : req.query.published === 'false' ? false : undefined;
-    const difficulty = typeof req.query.difficulty === 'string' ? req.query.difficulty.toUpperCase() : undefined;
+    // Narrow the query-param to the Difficulty enum; an unrecognized value is
+    // ignored (no filter) rather than reaching Postgres as an invalid enum.
+    const difficultyRaw = typeof req.query.difficulty === 'string' ? req.query.difficulty.toUpperCase() : undefined;
+    const difficulty = difficultyRaw === 'EASY' || difficultyRaw === 'MEDIUM' || difficultyRaw === 'HARD'
+      ? (difficultyRaw as Difficulty)
+      : undefined;
     const tag = typeof req.query.tag === 'string' ? req.query.tag.toLowerCase() : undefined;
     const search = typeof req.query.search === 'string' ? req.query.search.trim() : undefined;
     const limit = Math.min(50, Math.max(1, Number(req.query.limit) || 20));
@@ -176,7 +182,7 @@ problemsRouter.get('/admin/all', authMiddleware, requireRole('ADMIN'), async (_r
   }
 });
 
-problemsRouter.post('/admin/reset-cap', authMiddleware, requireRole('ADMIN'), async (req, res) => {
+problemsRouter.post('/admin/reset-cap', authMiddleware, requireRole('ADMIN'), async (req: Request, res: Response) => {
   try {
     const admin = getAuthUser(req);
     if (!admin) return ApiResponse.unauthorized(res);
@@ -242,7 +248,7 @@ function pruneCapRequestThrottle() {
   }
 }
 
-problemsRouter.post('/:id/request-cap', authMiddleware, async (req, res) => {
+problemsRouter.post('/:id/request-cap', authMiddleware, async (req: Request, res: Response) => {
   try {
     const user = getAuthUser(req);
     if (!user) return ApiResponse.unauthorized(res);
@@ -298,7 +304,7 @@ problemsRouter.post('/:id/request-cap', authMiddleware, async (req, res) => {
   }
 });
 
-problemsRouter.get('/admin/pending-cap-requests', authMiddleware, requireRole('ADMIN'), async (req, res) => {
+problemsRouter.get('/admin/pending-cap-requests', authMiddleware, requireRole('ADMIN'), async (req: Request, res: Response) => {
   try {
     const contextType = req.query.contextType as ProblemContextType | undefined;
     const contextKey = typeof req.query.contextKey === 'string' ? req.query.contextKey : undefined;
@@ -352,7 +358,7 @@ problemsRouter.get('/admin/pending-cap-requests', authMiddleware, requireRole('A
 });
 
 // Dashboard v2: one-click grant for cap requests from the admin pending-requests card.
-problemsRouter.post('/admin/cap-requests/:counterId/grant', authMiddleware, requireRole('ADMIN'), async (req, res) => {
+problemsRouter.post('/admin/cap-requests/:counterId/grant', authMiddleware, requireRole('ADMIN'), async (req: Request, res: Response) => {
   try {
     if (!requireUuid(res, req.params.counterId, 'cap request ID')) {
       return;
@@ -394,7 +400,7 @@ problemsRouter.post('/admin/cap-requests/:counterId/grant', authMiddleware, requ
   }
 });
 
-problemsRouter.post('/admin/cap-requests/:counterId/deny', authMiddleware, requireRole('ADMIN'), async (req, res) => {
+problemsRouter.post('/admin/cap-requests/:counterId/deny', authMiddleware, requireRole('ADMIN'), async (req: Request, res: Response) => {
   try {
     if (!requireUuid(res, req.params.counterId, 'cap request ID')) {
       return;
@@ -420,7 +426,7 @@ problemsRouter.post('/admin/cap-requests/:counterId/deny', authMiddleware, requi
 });
 
 // Dashboard v2: cross-problem recent submissions for the current user (overview widget).
-problemsRouter.get('/me/recent', authMiddleware, async (req, res) => {
+problemsRouter.get('/me/recent', authMiddleware, async (req: Request, res: Response) => {
   try {
     const user = getAuthUser(req)!;
     const limit = Math.min(20, Math.max(1, Number(req.query.limit) || 5));
@@ -464,7 +470,7 @@ problemsRouter.get('/me/recent', authMiddleware, async (req, res) => {
   }
 });
 
-problemsRouter.post('/', authMiddleware, requireRole('CORE_MEMBER'), async (req, res) => {
+problemsRouter.post('/', authMiddleware, requireRole('CORE_MEMBER'), async (req: Request, res: Response) => {
   try {
     const author = getAuthUser(req);
     if (!author) return ApiResponse.unauthorized(res);
@@ -502,7 +508,7 @@ problemsRouter.post('/', authMiddleware, requireRole('CORE_MEMBER'), async (req,
   }
 });
 
-problemsRouter.put('/:id', authMiddleware, requireRole('ADMIN'), async (req, res) => {
+problemsRouter.put('/:id', authMiddleware, requireRole('ADMIN'), async (req: Request, res: Response) => {
   try {
     if (!requireUuid(res, req.params.id, 'problem ID')) {
       return;
@@ -519,7 +525,7 @@ problemsRouter.put('/:id', authMiddleware, requireRole('ADMIN'), async (req, res
   }
 });
 
-problemsRouter.delete('/:id', authMiddleware, requireRole('ADMIN'), async (req, res) => {
+problemsRouter.delete('/:id', authMiddleware, requireRole('ADMIN'), async (req: Request, res: Response) => {
   try {
     if (!requireUuid(res, req.params.id, 'problem ID')) {
       return;
@@ -537,7 +543,7 @@ problemsRouter.delete('/:id', authMiddleware, requireRole('ADMIN'), async (req, 
   }
 });
 
-problemsRouter.patch('/:id/publish', authMiddleware, requireRole('ADMIN'), async (req, res) => {
+problemsRouter.patch('/:id/publish', authMiddleware, requireRole('ADMIN'), async (req: Request, res: Response) => {
   try {
     if (!requireUuid(res, req.params.id, 'problem ID')) {
       return;
@@ -601,7 +607,7 @@ problemsRouter.post('/:id/submit', authMiddleware, async (req: Request, res: Res
   }
 });
 
-problemsRouter.get('/:id/my-submission', authMiddleware, async (req, res) => {
+problemsRouter.get('/:id/my-submission', authMiddleware, async (req: Request, res: Response) => {
   try {
     const user = getAuthUser(req);
     if (!user) return ApiResponse.unauthorized(res);
@@ -640,7 +646,7 @@ problemsRouter.get('/:id/my-submission', authMiddleware, async (req, res) => {
   }
 });
 
-problemsRouter.get('/:id/leaderboard', async (req, res) => {
+problemsRouter.get('/:id/leaderboard', async (req: Request, res: Response) => {
   try {
     const contextType = req.query.contextType as ProblemContextType | undefined;
     const contextKey = typeof req.query.contextKey === 'string' ? req.query.contextKey : undefined;
@@ -670,7 +676,7 @@ problemsRouter.get('/:id/leaderboard', async (req, res) => {
   }
 });
 
-problemsRouter.get('/:id/all-submissions', authMiddleware, requireRole('ADMIN'), async (req, res) => {
+problemsRouter.get('/:id/all-submissions', authMiddleware, requireRole('ADMIN'), async (req: Request, res: Response) => {
   try {
     const contextType = req.query.contextType as ProblemContextType | undefined;
     const contextKey = typeof req.query.contextKey === 'string' ? req.query.contextKey : undefined;
@@ -693,7 +699,7 @@ problemsRouter.get('/:id/all-submissions', authMiddleware, requireRole('ADMIN'),
   }
 });
 
-problemsRouter.patch('/:id/override/:submissionId', authMiddleware, requireRole('ADMIN'), async (req, res) => {
+problemsRouter.patch('/:id/override/:submissionId', authMiddleware, requireRole('ADMIN'), async (req: Request, res: Response) => {
   try {
     if (!requireUuid(res, req.params.submissionId, 'submission ID')) {
       return;
@@ -736,7 +742,7 @@ problemsRouter.patch('/:id/override/:submissionId', authMiddleware, requireRole(
   }
 });
 
-problemsRouter.post('/:id/rejudge', authMiddleware, requireRole('ADMIN'), async (req, res) => {
+problemsRouter.post('/:id/rejudge', authMiddleware, requireRole('ADMIN'), async (req: Request, res: Response) => {
   try {
     const admin = getAuthUser(req);
     if (!admin) return ApiResponse.unauthorized(res);
@@ -755,7 +761,7 @@ problemsRouter.post('/:id/rejudge', authMiddleware, requireRole('ADMIN'), async 
   }
 });
 
-problemsRouter.get('/:id/rejudge-status/:jobId', authMiddleware, requireRole('ADMIN'), async (req, res) => {
+problemsRouter.get('/:id/rejudge-status/:jobId', authMiddleware, requireRole('ADMIN'), async (req: Request, res: Response) => {
   try {
     const problemId = await resolveProblemId(req.params.id);
     const job = getRejudgeJob(req.params.jobId);
@@ -766,7 +772,7 @@ problemsRouter.get('/:id/rejudge-status/:jobId', authMiddleware, requireRole('AD
   }
 });
 
-problemsRouter.get('/:idOrSlug', async (req, res) => {
+problemsRouter.get('/:idOrSlug', async (req: Request, res: Response) => {
   try {
     const user = getAuthUser(req);
     const problem = await resolveProblem(req.params.idOrSlug);

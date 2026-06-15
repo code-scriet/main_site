@@ -1,20 +1,50 @@
 import { Router, Request, Response } from 'express';
 import { Prisma } from '@prisma/client';
+import rateLimit from 'express-rate-limit';
 import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
 import { authMiddleware, getAuthUser, optionalAuthMiddleware } from '../middleware/auth.js';
 import { requireRole } from '../middleware/role.js';
 import { auditLog } from '../utils/audit.js';
 import { ApiResponse } from '../utils/response.js';
+import { zodFieldErrors } from '../utils/zodErrors.js';
 import { emailService } from '../utils/email.js';
 import { logger } from '../utils/logger.js';
-import { parsePaginationNumber } from '../utils/pagination.js';
+import { parsePaginationNumber, getQueryString } from '../utils/pagination.js';
 import { requireUuid } from '../utils/idParams.js';
+import { getClientIp } from '../utils/clientIp.js';
+import { getCachedSettings } from '../utils/settingsCache.js';
 
 export const hiringRouter = Router();
 
+// S10: /apply is public (optional auth) and previously rode only the general
+// 500/15min limiter — spam could exhaust the unique-email namespace. Teams-join
+// pattern: 15/15min per IP is generous for a form humans submit once.
+const applyRateLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 15,
+  message: { success: false, error: { message: 'Too many applications from this network. Please try again later.' } },
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => getClientIp(req),
+});
+
 const applyingRoles = ['TECHNICAL', 'DSA_CHAMPS', 'DESIGNING', 'SOCIAL_MEDIA', 'MANAGEMENT'] as const;
 const applicationStatuses = ['PENDING', 'INTERVIEW_SCHEDULED', 'SELECTED', 'REJECTED'] as const;
+
+const DEFAULT_HIRING_CYCLE = '2026';
+
+/** A11: the current hiring season label stamped onto new applications. Reads
+ * Settings.hiringCycle (5-min cached); falls back to the default on any miss. */
+async function getCurrentHiringCycle(): Promise<string> {
+  try {
+    const settings = await getCachedSettings();
+    const cycle = (settings as { hiringCycle?: string } | null)?.hiringCycle?.trim();
+    return cycle || DEFAULT_HIRING_CYCLE;
+  } catch {
+    return DEFAULT_HIRING_CYCLE;
+  }
+}
 
 const hiringApplicationSchema = z.object({
   name: z.string().min(2, 'Name must be at least 2 characters'),
@@ -54,24 +84,30 @@ const sendHiringStatusEmailAsync = (
 };
 
 // Submit a new hiring application (public or authenticated)
-hiringRouter.post('/apply', optionalAuthMiddleware, async (req: Request, res: Response) => {
+hiringRouter.post('/apply', applyRateLimiter, optionalAuthMiddleware, async (req: Request, res: Response) => {
   try {
     const validation = hiringApplicationSchema.safeParse(req.body);
     if (!validation.success) {
-      return ApiResponse.badRequest(res, validation.error.errors[0].message);
+      return ApiResponse.validationError(res, zodFieldErrors(validation.error));
     }
 
     const { name, email, phone, department, year, skills, applyingRole } = validation.data;
 
-    // Check if application already exists
+    // A11: applications are scoped to the current hiring cycle. Read it once
+    // from Settings (default '2026' when unset) — bumping it re-opens hiring
+    // so previous applicants can apply again.
+    const cycle = await getCurrentHiringCycle();
+
+    // Check if an application already exists FOR THIS CYCLE.
     const existingApplication = await prisma.hiringApplication.findFirst({
       where: {
         email: { equals: email, mode: 'insensitive' },
+        cycle,
       },
     });
 
     if (existingApplication) {
-      return ApiResponse.conflict(res, 'An application with this email already exists');
+      return ApiResponse.conflict(res, `You already applied in the ${cycle} hiring cycle.`);
     }
 
     // Get user ID if authenticated
@@ -93,6 +129,7 @@ hiringRouter.post('/apply', optionalAuthMiddleware, async (req: Request, res: Re
         year,
         skills,
         applyingRole,
+        cycle,
         userId,
       },
     });
@@ -126,7 +163,8 @@ hiringRouter.post('/apply', optionalAuthMiddleware, async (req: Request, res: Re
     logger.error('Hiring application error:', { error: error instanceof Error ? error.message : String(error) });
 
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
-      return ApiResponse.conflict(res, 'An application with this email already exists');
+      // Lost the race to a concurrent submit for the same (email, cycle).
+      return ApiResponse.conflict(res, 'You have already applied in the current hiring cycle.');
     }
 
     // Helpful error when backend enum is outdated (migration not applied)
@@ -149,9 +187,10 @@ hiringRouter.get('/applications', authMiddleware, requireRole('ADMIN'), async (r
   try {
     const page = parsePaginationNumber(req.query.page, 1, { min: 1, max: 1000000 });
     const limit = parsePaginationNumber(req.query.limit, 20, { min: 1, max: 100 });
-    const status = req.query.status as string;
-    const role = req.query.role as string;
-    const search = req.query.search as string;
+    const status = getQueryString(req.query.status);
+    const role = getQueryString(req.query.role);
+    const search = getQueryString(req.query.search);
+    const cycle = typeof req.query.cycle === 'string' ? req.query.cycle.trim() : '';
 
     if (page === null) {
       return ApiResponse.badRequest(res, 'page must be a positive integer');
@@ -177,6 +216,11 @@ hiringRouter.get('/applications', authMiddleware, requireRole('ADMIN'), async (r
     
     if (role && applyingRoles.includes(role as any)) {
       where.applyingRole = role;
+    }
+
+    // A11: optional cycle filter so admins can view a single season's applicants.
+    if (cycle) {
+      where.cycle = cycle;
     }
 
     if (search) {
@@ -212,6 +256,24 @@ hiringRouter.get('/applications', authMiddleware, requireRole('ADMIN'), async (r
   } catch (error) {
     logger.error('Get applications error:', { error: error instanceof Error ? error.message : String(error) });
     return ApiResponse.internal(res, 'Failed to fetch applications');
+  }
+});
+
+// Distinct hiring cycles + the current one (Admin only) — powers the cycle
+// filter dropdown on the applications board. Cheap: one grouped read.
+hiringRouter.get('/cycles', authMiddleware, requireRole('ADMIN'), async (_req: Request, res: Response) => {
+  try {
+    const [rows, current] = await Promise.all([
+      prisma.hiringApplication.groupBy({ by: ['cycle'], _count: { _all: true } }),
+      getCurrentHiringCycle(),
+    ]);
+    const cycles = rows
+      .map((row) => ({ cycle: row.cycle, count: row._count._all }))
+      .sort((a, b) => b.cycle.localeCompare(a.cycle));
+    return ApiResponse.success(res, { cycles, current });
+  } catch (error) {
+    logger.error('Get hiring cycles error:', { error: error instanceof Error ? error.message : String(error) });
+    return ApiResponse.internal(res, 'Failed to fetch hiring cycles');
   }
 });
 
@@ -254,7 +316,7 @@ hiringRouter.patch('/applications/:id/status', authMiddleware, requireRole('ADMI
 
     const validation = updateStatusSchema.safeParse(req.body);
     if (!validation.success) {
-      return ApiResponse.badRequest(res, validation.error.errors[0].message);
+      return ApiResponse.validationError(res, zodFieldErrors(validation.error));
     }
 
     const { status } = validation.data;

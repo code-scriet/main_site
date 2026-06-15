@@ -53,6 +53,7 @@ import { prisma } from './lib/prisma.js';
 import { startReminderScheduler, stopReminderScheduler, startQotdAutoPublishScheduler, stopQotdAutoPublishScheduler, startEventStatusScheduler, stopEventStatusScheduler } from './utils/scheduler.js';
 import { getJwtSecret } from './utils/jwt.js';
 import { setRuntimeAttendanceJwtSecret } from './utils/attendanceToken.js';
+import { getClientIp } from './utils/clientIp.js';
 
 // Load monorepo root .env first, then local .env (local overrides root).
 // In production (Render) neither file exists — env vars come from the dashboard.
@@ -291,13 +292,34 @@ if (NODE_ENV === 'development' || process.env.ENABLE_REQUEST_LOGGING === 'true')
   app.use(requestLogger);
 }
 
+// S2: temporary prod diagnostics for the IP-resolution readback (see
+// docs/deep-audit/ops-checklist.md, lands with PR #51). One line per request comparing the three
+// candidate identities; enable via LOG_IP_DIAGNOSTICS=true for ~24h, record
+// the verdict, then unset.
+if (process.env.LOG_IP_DIAGNOSTICS === 'true') {
+  app.use('/api', (req, _res, next) => {
+    logger.info('ip-diagnostics', {
+      path: req.path,
+      expressIp: req.ip ?? null,
+      cfConnectingIp: req.headers['cf-connecting-ip'] ?? null,
+      xForwardedFor: req.headers['x-forwarded-for'] ?? null,
+      resolved: getClientIp(req),
+    });
+    next();
+  });
+}
+
 // Rate limiting - General API
+// S2: all IP-keyed limiters share getClientIp() (CF-Connecting-IP when the
+// peer is a Cloudflare range, else Express's trust-proxy resolution) so the
+// HTTP and socket layers agree about what "the client IP" is.
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
   max: 500, // limit each IP to 500 requests per windowMs
   message: { error: 'Too many requests, please try again later.' },
   standardHeaders: true,
   legacyHeaders: false,
+  keyGenerator: (req) => getClientIp(req),
 });
 app.use('/api', limiter);
 
@@ -309,6 +331,7 @@ const authLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   skipSuccessfulRequests: true, // Don't count successful requests
+  keyGenerator: (req) => getClientIp(req),
 });
 
 // Passport setup
@@ -421,6 +444,7 @@ const testEmailLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: 'Too many test emails, please try again later.' },
+  keyGenerator: (req) => getClientIp(req),
 });
 app.post('/api/test-email', authMiddleware, requireRole('ADMIN'), testEmailLimiter, async (req: express.Request, res: express.Response) => {
   try {
@@ -509,6 +533,9 @@ app.use((err: Error, req: express.Request, res: express.Response, _next: express
 // Graceful shutdown
 let shuttingDown = false;
 let shutdownTimer: NodeJS.Timeout | null = null;
+// Set when shutdown was triggered by a crash (uncaughtException) so the
+// otherwise-clean drain still reports failure instead of exit 0.
+let fatalCrash = false;
 
 const shutdown = async () => {
   if (shuttingDown) {
@@ -544,11 +571,11 @@ const shutdown = async () => {
   httpServer.close(async () => {
     try {
       await prisma.$disconnect();
-      logger.info('Clean exit');
+      logger.info(fatalCrash ? 'Drained after crash' : 'Clean exit');
       if (shutdownTimer) {
         clearTimeout(shutdownTimer);
       }
-      process.exit(0);
+      process.exit(fatalCrash ? 1 : 0);
     } catch (error) {
       logger.error('Error during Prisma disconnect', {
         error: error instanceof Error ? error.message : String(error),
@@ -560,6 +587,31 @@ const shutdown = async () => {
 
 process.on('SIGTERM', shutdown);
 process.on('SIGINT', shutdown);
+
+// G1: crash forensics + graceful drain on a 24/7 single process.
+// Node 20's default kills the process on an unhandled rejection with no
+// context. Every `void`ed promise in the codebase (audit writes, socket
+// sweeps, email sends) is individually .catch'ed today, but one future miss
+// inside a socket handler would otherwise take down every live quiz with no
+// diagnostic. Log it; only an uncaught *exception* forces an exit.
+process.on('unhandledRejection', (reason) => {
+  logger.error('Unhandled promise rejection', {
+    reason: reason instanceof Error ? reason.stack || reason.message : String(reason),
+  });
+});
+
+// An uncaught exception leaves undefined state — exit, but through the same
+// graceful path SIGTERM takes: schedulers stop, sockets close, live quizzes
+// persist as ABANDONED. A crash becomes a clean quiz persist instead of data
+// loss. shutdown() is idempotent (shuttingDown flag) and its 28s hard-timeout
+// still guarantees the process dies even if the drain itself is wedged.
+process.on('uncaughtException', (error) => {
+  logger.error('Uncaught exception — draining and exiting', {
+    error: error.stack || error.message,
+  });
+  fatalCrash = true;
+  void shutdown();
+});
 
 const startHttpServerWithRetry = (attempt = 1) => {
   const onError = (error: NodeJS.ErrnoException) => {

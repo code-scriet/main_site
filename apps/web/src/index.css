@@ -1,6 +1,13 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+/* Tailwind v4: single import replaces the v3 @tailwind directives. The existing
+   v3 JS config (theme tokens, content globs, tailwindcss-animate plugin) is kept
+   verbatim via the @config bridge — lowest-risk migration, all design-system
+   token scopes ([data-dashboard]/[data-public]/.home-v2) below are untouched. */
+@import "tailwindcss";
+/* tailwindcss-animate is a v3 JS plugin that no-ops under v4's plugin API — the
+   shadcn dialog/sheet/dropdown enter/exit utilities (animate-in, fade-in-0,
+   zoom-in-95, slide-in-from-*) come from its v4-native drop-in replacement. */
+@import "tw-animate-css";
+@config "../tailwind.config.js";
 
 @layer base {
   :root {
@@ -2435,4 +2442,639 @@ html.dark [data-public] .pub-site-header { background: rgba(10, 9, 8, 0.85); }
     radial-gradient(circle, var(--pub-line-2) 1px, transparent 1px);
   background-size: 28px 28px;
   background-position: -1px -1px;
+}
+
+/* ───────────────────────────────────────────────────────────────
+   Home polish layer
+   Additive depth + finish for the landing-page sections. Scoped to
+   [data-public] and built ONLY from ::before/::after + a dedicated
+   icon-chip class, so it never fights the Tailwind utilities the home
+   components already use (bg/border/shadow stay component-owned).
+   Keeps the amber (light) / rust (dark) identity; works in both
+   themes and respects prefers-reduced-motion.
+
+   - .home-edge : a 1px top-edge inner highlight so a card reads as
+                  raised rather than flat. Use on cards that already
+                  carry their own hover bloom.
+   - .home-card : .home-edge + a soft, top-biased accent bloom on
+                  hover. Use on cards with no existing hover glow.
+   - .home-chip : unified 44×44 icon chip — accent tint + hairline +
+                  full-accent glyph. Drive the accent with `--chip`.
+   ─────────────────────────────────────────────────────────────── */
+[data-public] {
+  --home-edge: rgba(255, 255, 255, 0.5);   /* top-edge inner highlight */
+  --home-glow: rgba(196, 50, 26, 0.06);    /* ember-tinted hover bloom */
+  --home-ease: cubic-bezier(.22, .61, .36, 1);
+}
+html.dark [data-public] {
+  --home-edge: rgba(255, 255, 255, 0.06);
+  --home-glow: rgba(232, 74, 46, 0.10);
+}
+
+[data-public] .home-edge,
+[data-public] .home-card { position: relative; }
+
+/* 1px sheen along the top edge — the "layered, not flat" cue. Painted
+   above content but it's a single transparent line at the very top, so
+   it reads as a glass/material edge rather than covering anything. */
+[data-public] .home-edge::before,
+[data-public] .home-card::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  box-shadow: inset 0 1px 0 0 var(--home-edge);
+  pointer-events: none;
+  z-index: 2;
+}
+
+/* Top-biased accent bloom that fades in on hover. Concentrated near the
+   top edge and transparent by 65% height, so card content stays clean. */
+[data-public] .home-card::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: radial-gradient(100% 60% at 50% -20%, var(--home-glow), transparent 65%);
+  opacity: 0;
+  transition: opacity 240ms var(--home-ease);
+  pointer-events: none;
+  z-index: 0;
+}
+[data-public] .home-card:hover::after,
+[data-public] .group:hover .home-card::after { opacity: 1; }
+
+/* Unified icon chip. Accent comes from the `--chip` custom property set
+   inline by the component; falls back to the public ember. */
+[data-public] .home-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  color: var(--chip, var(--pub-ember));
+  background: color-mix(in srgb, var(--chip, var(--pub-ember)) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--chip, var(--pub-ember)) 22%, transparent);
+  transition:
+    transform 240ms var(--home-ease),
+    background 240ms var(--home-ease),
+    border-color 240ms var(--home-ease);
+}
+[data-public] .group:hover .home-chip {
+  transform: scale(1.08);
+  background: color-mix(in srgb, var(--chip, var(--pub-ember)) 18%, transparent);
+  border-color: color-mix(in srgb, var(--chip, var(--pub-ember)) 34%, transparent);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-public] .home-card::after,
+  [data-public] .home-chip { transition: none; }
+  [data-public] .group:hover .home-chip { transform: none; }
+}
+
+/* ============================================================================
+ * HOMEPAGE GLASS REDESIGN (home-v2)
+ * Self-contained dark-charcoal glassmorphism experience for the marketing
+ * homepage. Scoped under .home-v2 so it never leaks into dashboard/public
+ * pages. The wrapper also carries the `dark` class so Tailwind dark: variants
+ * inside resolve regardless of the global theme toggle.
+ * ========================================================================== */
+
+.home-v2 {
+  /* Light theme (default) */
+  --hx-amber: #f97316;
+  --hx-amber-2: #fbbf24;
+  --hx-edge: #f4f0e8;            /* page colour used for avatar ring gaps */
+  --hx-glass: rgba(255, 255, 255, 0.55);
+  --hx-glass-2: rgba(255, 255, 255, 0.7);
+  --hx-glass-border: rgba(27, 23, 20, 0.10);
+  --hx-glass-border-strong: rgba(27, 23, 20, 0.16);
+  --hx-ink: #1b1714;
+  --hx-ink-dim: rgba(27, 23, 20, 0.62);
+  --hx-ink-faint: rgba(27, 23, 20, 0.45);
+  --hx-dot: rgba(27, 23, 20, 0.07);
+  --hx-particle: rgba(249, 115, 22, 0.5);
+  --hx-glow: rgba(249, 115, 22, 0.15);
+  --hx-ease: cubic-bezier(0.22, 0.61, 0.36, 1);
+
+  position: relative;
+  isolation: isolate;
+  background:
+    radial-gradient(120% 80% at 50% -10%, #fdf9f2 0%, transparent 55%),
+    linear-gradient(180deg, #f7f3ec 0%, #f4f0e8 60%, #f2ede4 100%);
+  color: var(--hx-ink);
+  overflow: clip;
+}
+
+/* Dark theme — driven by the global theme toggle (html.dark) */
+html.dark .home-v2 {
+  --hx-edge: #161413;
+  --hx-glass: rgba(255, 255, 255, 0.04);
+  --hx-glass-2: rgba(255, 255, 255, 0.06);
+  --hx-glass-border: rgba(255, 255, 255, 0.08);
+  --hx-glass-border-strong: rgba(255, 255, 255, 0.14);
+  --hx-ink: rgba(255, 255, 255, 0.92);
+  --hx-ink-dim: rgba(255, 255, 255, 0.70);
+  --hx-ink-faint: rgba(255, 255, 255, 0.50);
+  --hx-dot: rgba(255, 255, 255, 0.05);
+  --hx-particle: rgba(251, 191, 36, 0.5);
+  background:
+    radial-gradient(120% 80% at 50% -10%, #1c1a18 0%, transparent 55%),
+    linear-gradient(180deg, #141312 0%, #121212 35%, #161413 100%);
+}
+
+/* Semantic text tiers — theme-aware. Used across the home components so a
+ * single token flip retints the whole page. */
+.home-v2 .hx-t1 { color: var(--hx-ink); }
+.home-v2 .hx-t2 { color: var(--hx-ink-dim); }
+.home-v2 .hx-t3 { color: var(--hx-ink-faint); }
+
+/* ---- Site-wide background depth layer ---- */
+.home-bg {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+/* Faint dot grid with a radial mask fading toward the edges */
+.home-bg-grid {
+  position: absolute;
+  inset: 0;
+  background-image: radial-gradient(var(--hx-dot) 1px, transparent 1px);
+  background-size: 28px 28px;
+  -webkit-mask-image: radial-gradient(ellipse 70% 60% at 50% 30%, #000 30%, transparent 80%);
+          mask-image: radial-gradient(ellipse 70% 60% at 50% 30%, #000 30%, transparent 80%);
+}
+
+/* Floating blur orbs */
+.home-orb {
+  position: absolute;
+  border-radius: 9999px;
+  filter: blur(120px);
+  will-change: transform;
+}
+.home-orb--1 {
+  width: 520px; height: 520px;
+  top: -120px; left: -80px;
+  background: radial-gradient(circle, rgba(249, 115, 22, 0.22), transparent 70%);
+  animation: home-orb-a 26s var(--hx-ease) infinite;
+}
+.home-orb--2 {
+  width: 460px; height: 460px;
+  top: 30%; right: -120px;
+  background: radial-gradient(circle, rgba(251, 191, 36, 0.16), transparent 70%);
+  animation: home-orb-b 32s var(--hx-ease) infinite;
+}
+.home-orb--3 {
+  width: 600px; height: 600px;
+  bottom: -160px; left: 20%;
+  background: radial-gradient(circle, rgba(234, 88, 12, 0.14), transparent 70%);
+  animation: home-orb-c 38s var(--hx-ease) infinite;
+}
+
+@keyframes home-orb-a {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  50% { transform: translate(60px, 40px) scale(1.12); }
+}
+@keyframes home-orb-b {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  50% { transform: translate(-50px, 60px) scale(1.08); }
+}
+@keyframes home-orb-c {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  50% { transform: translate(40px, -50px) scale(1.1); }
+}
+
+/* Rising amber particles */
+.home-particle {
+  position: absolute;
+  bottom: -10px;
+  border-radius: 9999px;
+  background: var(--hx-particle, rgba(251, 191, 36, 0.5));
+  will-change: transform, opacity;
+  animation: home-particle-rise linear infinite;
+}
+@keyframes home-particle-rise {
+  0% { transform: translate(0, 0); opacity: 0; }
+  10% { opacity: 0.6; }
+  90% { opacity: 0.4; }
+  100% { transform: translate(var(--drift, 0px), -104vh); opacity: 0; }
+}
+
+/* ---- Glass primitives ---- */
+.glass-card {
+  background: var(--hx-glass);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid var(--hx-glass-border);
+  border-radius: 20px;
+  transition:
+    transform 260ms var(--hx-ease),
+    border-color 260ms var(--hx-ease),
+    box-shadow 260ms var(--hx-ease),
+    background 260ms var(--hx-ease);
+}
+.glass-card:hover {
+  border-color: rgba(249, 115, 22, 0.35);
+  box-shadow: 0 0 40px rgba(249, 115, 22, 0.15);
+}
+.glass-card--lift:hover { transform: translateY(-4px); }
+
+.glass-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border-radius: 9999px;
+  background: var(--hx-glass);
+  border: 1px solid var(--hx-glass-border);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+/* Amber gradient text */
+.hx-grad-text {
+  background: linear-gradient(120deg, #fbbf24 0%, #f97316 55%, #fb923c 100%);
+  -webkit-background-clip: text;
+          background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
+}
+
+/* ---- Logo glow ring ---- */
+.home-logo-wrap {
+  position: relative;
+  display: inline-grid;
+  place-items: center;
+}
+.home-logo-halo {
+  position: absolute;
+  inset: -55%;
+  border-radius: 9999px;
+  background: radial-gradient(circle, rgba(249, 115, 22, 0.28), transparent 70%);
+  animation: home-breathe 5s ease-in-out infinite;
+  pointer-events: none;
+}
+.home-logo-ring {
+  position: absolute;
+  inset: -14%;
+  border-radius: 9999px;
+  background: conic-gradient(from 0deg, transparent 0%, rgba(251, 191, 36, 0.55) 25%, transparent 55%, rgba(249, 115, 22, 0.45) 80%, transparent 100%);
+  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 2px), #000 calc(100% - 2px));
+          mask: radial-gradient(farthest-side, transparent calc(100% - 2px), #000 calc(100% - 2px));
+  animation: home-spin 9s linear infinite;
+  pointer-events: none;
+}
+@keyframes home-breathe {
+  0%, 100% { opacity: 0.55; transform: scale(1); }
+  50% { opacity: 0.9; transform: scale(1.06); }
+}
+@keyframes home-spin {
+  to { transform: rotate(360deg); }
+}
+
+/* Gentle floating for the hero showcase panel */
+.home-float { animation: home-float 6s ease-in-out infinite; will-change: transform; }
+@keyframes home-float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-10px); }
+}
+
+/* Soft amber glow beneath an element */
+.hx-underglow { position: relative; }
+.hx-underglow::after {
+  content: "";
+  position: absolute;
+  left: 8%;
+  right: 8%;
+  bottom: -28px;
+  height: 60px;
+  background: radial-gradient(ellipse at center, rgba(249, 115, 22, 0.35), transparent 70%);
+  filter: blur(28px);
+  z-index: -1;
+  pointer-events: none;
+}
+
+/* ---- Bento grid ---- */
+.bento-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 16px;
+}
+.bento-card {
+  position: relative;
+  overflow: hidden;
+  padding: 24px;
+  border-radius: 22px;
+  background: var(--hx-glass);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid var(--hx-glass-border);
+  transition:
+    transform 260ms var(--hx-ease),
+    border-color 260ms var(--hx-ease),
+    box-shadow 260ms var(--hx-ease);
+}
+.bento-card::before {
+  content: "";
+  position: absolute;
+  top: -40%; right: -30%;
+  width: 70%; height: 80%;
+  background: radial-gradient(circle, rgba(249, 115, 22, 0.18), transparent 70%);
+  opacity: 0.6;
+  transition: opacity 260ms var(--hx-ease);
+  pointer-events: none;
+}
+.bento-card:hover {
+  transform: translateY(-4px);
+  border-color: rgba(249, 115, 22, 0.4);
+  box-shadow: 0 0 44px rgba(249, 115, 22, 0.18);
+}
+.bento-card:hover::before { opacity: 1; }
+.bento-card--hero { grid-column: span 2; grid-row: span 2; }
+@media (max-width: 900px) {
+  .bento-grid { grid-template-columns: repeat(2, 1fr); }
+  .bento-card--hero { grid-column: span 2; grid-row: span 1; }
+}
+@media (max-width: 520px) {
+  .bento-grid { grid-template-columns: 1fr; }
+  .bento-card--hero { grid-column: span 1; }
+}
+
+/* ============================================================================
+ * GLASS NAVBAR (homepage overlay variant) — rendered outside .home-v2 scope
+ * ========================================================================== */
+.navx-home {
+  background: rgba(247, 243, 236, 0.72) !important;
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border-bottom: 1px solid rgba(27, 23, 20, 0.08) !important;
+}
+html.dark .navx-home {
+  background: rgba(18, 18, 18, 0.7) !important;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06) !important;
+}
+.navx-link {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  padding: 8px 16px;
+  border-radius: 9999px;
+  font-size: 14px;
+  font-weight: 500;
+  color: rgba(27, 23, 20, 0.66);
+  transition: color 200ms var(--hx-ease, ease), background 200ms var(--hx-ease, ease);
+}
+.navx-link:hover { color: #1b1714; background: rgba(27, 23, 20, 0.05); }
+.navx-link[data-active="true"] { color: #b4520f; }
+html.dark .navx-link { color: rgba(255, 255, 255, 0.72); }
+html.dark .navx-link:hover { color: #fff; background: rgba(255, 255, 255, 0.05); }
+html.dark .navx-link[data-active="true"] { color: #fdba74; }
+.navx-pill {
+  position: absolute;
+  inset: 0;
+  border-radius: 9999px;
+  background: rgba(249, 115, 22, 0.12);
+  border: 1px solid rgba(249, 115, 22, 0.28);
+  box-shadow: inset 0 0 16px rgba(249, 115, 22, 0.18);
+  z-index: -1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .home-orb,
+  .home-particle,
+  .home-logo-halo,
+  .home-logo-ring,
+  .home-float { animation: none !important; }
+  .glass-card,
+  .bento-card { transition: none; }
+}
+
+/* On the homepage the footer follows the global theme (light/dark) like the
+ * rest of the page; we only retint its ember accent to the home amber. */
+[data-public][data-home] {
+  --pub-ember: #f97316;
+  --pub-ember-hover: #fb923c;
+  --pub-ember-soft: rgba(249, 115, 22, 0.10);
+  --pub-ember-line: rgba(249, 115, 22, 0.26);
+}
+[data-public][data-home] .pub-site-footer {
+  box-shadow: 0 -1px 50px rgba(249, 115, 22, 0.06);
+}
+
+/* Home headings use the bold sans display face (overrides the public-scope
+ * Newsreader serif applied to h1–h6). Appended last so it wins specificity ties. */
+.home-v2 :is(h1, h2, h3, h4, h5, h6) {
+  font-family: 'Sora', 'Outfit', system-ui, -apple-system, sans-serif;
+  font-weight: 800;
+  letter-spacing: -0.025em;
+  line-height: 1.05;
+  color: var(--hx-ink);
+}
+/* Card titles that sit on a dark image overlay must stay light in both themes. */
+.home-v2 .on-media :is(h1, h2, h3, h4, h5, h6) { color: #fff; }
+.home-v2 .hx-grad-text { color: transparent; }
+
+/* ============================================================================
+ * HOMEPAGE ADD-ONS: animated terminal, stack diagram, illustrated icons
+ * ========================================================================== */
+
+/* ---- Animated terminal ---- */
+.hx-terminal {
+  position: relative;
+  border-radius: 14px;
+  background: rgba(20, 20, 20, 0.7);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(249, 115, 22, 0.22);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.45);
+  overflow: hidden;
+}
+/* Subtle scanline shimmer */
+.hx-terminal::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: repeating-linear-gradient(
+    to bottom,
+    rgba(255, 255, 255, 0.025) 0px,
+    rgba(255, 255, 255, 0.025) 1px,
+    transparent 1px,
+    transparent 3px
+  );
+  mix-blend-mode: overlay;
+  opacity: 0.5;
+  pointer-events: none;
+  animation: hx-scan 8s linear infinite;
+}
+@keyframes hx-scan {
+  0% { background-position: 0 0; }
+  100% { background-position: 0 60px; }
+}
+.hx-cursor {
+  display: inline-block;
+  width: 9px;
+  height: 1.05em;
+  margin-left: 2px;
+  vertical-align: text-bottom;
+  background: #fbbf24;
+  animation: hx-blink 1s steps(1) infinite;
+}
+@keyframes hx-blink { 50% { opacity: 0; } }
+
+/* ---- Stack diagram ---- */
+/* Position wrapper keeps the centring transform separate from Framer's
+ * scale/opacity animation on the inner card. */
+.hx-node-pos {
+  position: absolute;
+  transform: translate(-50%, -50%);
+}
+.hx-node {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  border-radius: 16px;
+  background: var(--hx-glass);
+  border: 1px solid var(--hx-glass-border);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  white-space: nowrap;
+  transition: border-color 240ms var(--hx-ease), box-shadow 240ms var(--hx-ease);
+}
+.hx-node[data-active="true"] {
+  border-color: rgba(249, 115, 22, 0.65);
+  box-shadow: 0 0 28px rgba(249, 115, 22, 0.3);
+}
+.hx-node-ico {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  flex-shrink: 0;
+  border-radius: 10px;
+  background: rgba(249, 115, 22, 0.12);
+  border: 1px solid rgba(249, 115, 22, 0.25);
+  color: var(--hx-ink);
+}
+
+/* ---- Illustrated icons ---- */
+.home-illus {
+  transition: filter 240ms var(--hx-ease);
+}
+.home-illus:hover {
+  filter: drop-shadow(0 0 7px rgba(249, 115, 22, 0.55));
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hx-terminal::after { animation: none; }
+  .hx-cursor { animation: none; }
+}
+
+/* The legacy dark theme remaps Tailwind amber/orange utilities to its red/rose
+ * accents via these CSS variables (see the `html.dark :is([class~="text-amber-*"])`
+ * rules above). The homepage forces `.dark` but wants a true-amber palette, so we
+ * redefine the accent variables within `.home-v2` — every remapped utility then
+ * resolves to amber instead of red, regardless of the global theme toggle. */
+.home-v2 {
+  --accent-red: 249 115 22;     /* text-amber-500, ring-amber-500, from-amber-500 */
+  --accent-orange: 249 115 22;  /* text-amber-600, to-orange-500/600 */
+  --accent-amber: 251 191 36;   /* text-amber-400, from-amber-400 */
+  --warm-1: 253 186 116;        /* text-amber-300/200/100 */
+  --warm-2: 251 191 36;         /* hover:text-amber-600/700 */
+}
+
+/* ============================================================================
+ * LIGHT MODE for the homepage.
+ * The components hard-code white text / white-glass utilities for the dark
+ * design. In light mode (no html.dark) we remap those *dimmed* whites to dark
+ * ink and the low-opacity white glass to a dark tint — centralised here so the
+ * components stay untouched. Pure `text-white` is left alone (it only appears on
+ * amber buttons, coloured badges, dark image overlays and the terminal, where
+ * white is correct in both themes). The terminal is always dark, so its own
+ * whites are restored at the end.
+ * ========================================================================== */
+html:not(.dark) .home-v2 .text-white\/90 { color: rgba(27, 23, 20, 0.90); }
+html:not(.dark) .home-v2 .text-white\/80 { color: rgba(27, 23, 20, 0.80); }
+html:not(.dark) .home-v2 .text-white\/75 { color: rgba(27, 23, 20, 0.74); }
+html:not(.dark) .home-v2 .text-white\/70 { color: rgba(27, 23, 20, 0.70); }
+html:not(.dark) .home-v2 .text-white\/65 { color: rgba(27, 23, 20, 0.66); }
+html:not(.dark) .home-v2 .text-white\/60 { color: rgba(27, 23, 20, 0.62); }
+html:not(.dark) .home-v2 .text-white\/55 { color: rgba(27, 23, 20, 0.60); }
+html:not(.dark) .home-v2 .text-white\/50 { color: rgba(27, 23, 20, 0.55); }
+html:not(.dark) .home-v2 .text-white\/45 { color: rgba(27, 23, 20, 0.52); }
+html:not(.dark) .home-v2 .text-white\/40 { color: rgba(27, 23, 20, 0.48); }
+html:not(.dark) .home-v2 .text-white\/35 { color: rgba(27, 23, 20, 0.45); }
+html:not(.dark) .home-v2 .text-white\/30 { color: rgba(27, 23, 20, 0.42); }
+
+html:not(.dark) .home-v2 .bg-white\/5 { background-color: rgba(27, 23, 20, 0.05); }
+html:not(.dark) .home-v2 .bg-white\/10 { background-color: rgba(27, 23, 20, 0.06); }
+html:not(.dark) .home-v2 .bg-white\/15 { background-color: rgba(27, 23, 20, 0.08); }
+html:not(.dark) .home-v2 .bg-white\/\[0\.02\] { background-color: rgba(27, 23, 20, 0.03); }
+html:not(.dark) .home-v2 .bg-white\/\[0\.03\] { background-color: rgba(27, 23, 20, 0.04); }
+html:not(.dark) .home-v2 .bg-white\/\[0\.04\] { background-color: rgba(27, 23, 20, 0.05); }
+html:not(.dark) .home-v2 .bg-white\/\[0\.07\] { background-color: rgba(27, 23, 20, 0.06); }
+
+html:not(.dark) .home-v2 .border-white\/8 { border-color: rgba(27, 23, 20, 0.09); }
+html:not(.dark) .home-v2 .border-white\/10 { border-color: rgba(27, 23, 20, 0.10); }
+html:not(.dark) .home-v2 .border-white\/15 { border-color: rgba(27, 23, 20, 0.12); }
+html:not(.dark) .home-v2 .border-white\/20 { border-color: rgba(27, 23, 20, 0.14); }
+html:not(.dark) .home-v2 .border-white\/25 { border-color: rgba(27, 23, 20, 0.16); }
+
+/* Terminal is always dark — restore its own light text/borders in light mode. */
+html:not(.dark) .home-v2 .hx-terminal .text-white\/90 { color: rgba(255, 255, 255, 0.90); }
+html:not(.dark) .home-v2 .hx-terminal .text-white\/45 { color: rgba(255, 255, 255, 0.45); }
+html:not(.dark) .home-v2 .hx-terminal .text-white\/35 { color: rgba(255, 255, 255, 0.35); }
+html:not(.dark) .home-v2 .hx-terminal .border-white\/8 { border-color: rgba(255, 255, 255, 0.08); }
+
+/* Lighter, airier orbs on the cream canvas */
+html:not(.dark) .home-v2 .home-orb { opacity: 0.7; }
+
+/* ---- Subtle headline gradient (ink → faint amber, theme-aware) ---- */
+.home-v2 .hx-head-grad {
+  background: linear-gradient(
+    176deg,
+    var(--hx-ink) 0%,
+    var(--hx-ink) 48%,
+    color-mix(in srgb, var(--hx-ink) 62%, #f97316) 100%
+  );
+  -webkit-background-clip: text;
+          background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
+}
+
+/* ---- Hero scroll indicator ---- */
+.hx-scroll {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  color: var(--hx-ink-faint);
+}
+.hx-scroll-mouse {
+  width: 24px;
+  height: 38px;
+  border-radius: 12px;
+  border: 2px solid var(--hx-glass-border-strong);
+  display: flex;
+  justify-content: center;
+  padding-top: 7px;
+}
+.hx-scroll-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 9999px;
+  background: var(--hx-amber);
+  animation: hx-scroll-bounce 1.6s var(--hx-ease) infinite;
+}
+@keyframes hx-scroll-bounce {
+  0%, 100% { transform: translateY(0); opacity: 0.4; }
+  50% { transform: translateY(10px); opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hx-scroll-dot { animation: none; }
 }

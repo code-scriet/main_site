@@ -7,6 +7,7 @@ import { requireRole } from '../middleware/role.js';
 import { auditLog } from '../utils/audit.js';
 import { emailService, EmailTemplates } from '../utils/email.js';
 import { logger } from '../utils/logger.js';
+import { getQueryString } from '../utils/pagination.js';
 
 export const mailRouter = Router();
 
@@ -52,7 +53,9 @@ function sanitizeEmailHtml(html: string): string {
 
 const sendMailSchema = z.object({
   audience: z.enum(['all_users', 'all_network', 'specific']),
-  emails: z.array(z.string().email()).optional(),
+  // S10: hard cap — an unbounded custom list could relay arbitrary volume
+  // through the club sender in one request.
+  emails: z.array(z.string().email()).max(500).optional(),
   cc: z.array(z.string().email()).max(50).optional(),
   bcc: z.array(z.string().email()).max(50).optional(),
   subject: z.string().trim().min(1).max(200),
@@ -70,8 +73,8 @@ const MAIL_AUDIENCE_BATCH_SIZE = 500;
 // Search users / network for recipient picker
 mailRouter.get('/recipients', authMiddleware, requireRole('ADMIN'), async (req: Request, res: Response) => {
   try {
-    const search = (req.query.search as string) || '';
-    const type = (req.query.type as string) || 'users';
+    const search = getQueryString(req.query.search) || '';
+    const type = getQueryString(req.query.type) || 'users';
 
     if (type === 'network') {
       const profiles = await prisma.networkProfile.findMany({

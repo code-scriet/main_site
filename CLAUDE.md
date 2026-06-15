@@ -51,7 +51,7 @@ Full-stack monorepo for CCSU's coding club. Events (solo + team + guest invites)
 | Real-time | Socket.io: `/quiz`, `/attendance`, `/notifications` namespaces |
 | Email | Brevo REST API (`BREVO_API_KEY`) |
 | Storage | Cloudinary (images + cert PDFs) |
-| PDF | `@react-pdf/renderer` server-side |
+| PDF | `@react-pdf/renderer` server-side (this is why `react`/`react-dom` are `apps/api` deps — keep them) |
 | Img processing | `sharp` (signature cleanup) |
 | Export | ExcelJS |
 | QR | `qrcode.react` (render) + `html5-qrcode` (scan) |
@@ -89,7 +89,7 @@ apps/
   playground/         execute-server.js (plain JS) + Vite app
 prisma/               schema.prisma + migrations + seed.ts
 workers/executor.js   CF Worker → Wandbox
-scripts/              migrate/sitemap/prerender/streak-backfill
+scripts/              migrate/sitemap(.mjs)/prerender(.mjs)/streak-backfill + dev seed scripts (create_test_*, update_outreach_dsa — moved out of apps/api/src so they no longer compile into dist). Build scripts use explicit .mjs (ESM) / .cjs (CommonJS) extensions to avoid Node's module-type warning.
 render.yaml           4 services
 ```
 
@@ -121,25 +121,32 @@ Startup in `apps/api/src/index.ts`:
 3. Middleware: helmet → compression → CORS allow-list → JSON → CSRF (cookie-auth writes) → optional req logger → rate limits.
 4. Mount routers + health/SEO.
 5. `initializeDatabase()` → hydrate security env → slug backfills.
-6. Background schedulers (event status + reminders + QOTD auto-publish): **ON by default in production**, off in development. `ENABLE_BACKGROUND_SCHEDULERS=true/false` forces it either way (`NODE_ENV` is normalized so anything ≠ `development` ⇒ production). Event-status + QOTD use event-driven in-memory timers (no polling); reminders poll every 6h. The reminder tick also runs retention pruning at most once per 24h (`pruneOldRecords()` in `utils/scheduler.ts`: Execution > 90d, PlaygroundDailyUsage > 60d; AuditLog deliberately untouched — manual run: `npm run db:prune [-- --dry-run]`).
+6. Background schedulers (event status + reminders + QOTD auto-publish): **ON by default in production**, off in development. `ENABLE_BACKGROUND_SCHEDULERS=true/false` forces it either way (`NODE_ENV` is normalized so anything ≠ `development` ⇒ production). Event-status + QOTD use event-driven in-memory timers (no polling); reminders poll every 6h. The reminder tick also runs retention pruning at most once per 24h (`pruneOldRecords()` in `utils/scheduler.ts`: Execution > 90d, PlaygroundDailyUsage > 60d, NotificationFeed expired-or-> 90d, CompetitionAutoSave on FINISHED rounds > 30d, QuizAnswer > 365d **only when `PRUNE_QUIZ_ANSWERS=true`** (default off; QuizParticipant leaderboard aggregates never pruned); AuditLog deliberately untouched — compliance trail, manual `DELETE /api/audit-logs/retention` only — manual run: `npm run db:prune [-- --dry-run]`).
 7. HTTP listen with port-retry on `EADDRINUSE`.
 8. `recoverActiveRounds()` re-arms competition timers.
 
 Shutdown (SIGTERM/SIGINT): stop schedulers → close Socket.io → persist active quizzes as `ABANDONED` → close HTTP → disconnect Prisma → hard-timeout 28s (beats Render's 30s SIGKILL).
+
+Crash handlers (G1): `unhandledRejection` is logged with stack, process keeps running; `uncaughtException` logs then drains through the same `shutdown()` path (live quizzes persist as `ABANDONED`) and exits 1 (`Drained after crash`).
 
 ---
 
 ## Auth Flow
 
 - **Email/password:** JWT in response + `scriet_session` cookie.
-- **OAuth:** redirect → Passport (state-cookie CSRF check) → `/auth/callback?code=<30s exchange JWT>` → frontend `POST /api/auth/exchange-code` → real token to `localStorage`. No long-lived JWT ever appears in a URL. Cross-subdomain cookie on `.codescriet.dev` for playground.
+- **OAuth:** redirect → Passport (state-cookie CSRF check) → `/auth/callback?code=<30s exchange JWT>` → frontend `POST /api/auth/exchange-code` → real token to `localStorage`. No long-lived JWT ever appears in a URL. Exchange codes carry a `jti` and are **single-use**: `consumeOAuthExchangeJti()` (in-memory 60s used-jti map in `utils/jwt.ts`) rejects replays with 400. Cross-subdomain cookie on `.codescriet.dev` for playground.
+- **Return path (`?next=`, UX#2):** SignInPage reads `?next=`, validates via `getSafeNextUrl` (`apps/web/src/lib/safeNext.ts` — origin-allowlist open-redirect guard, unit-tested) and redirects there on email/password login; for OAuth it stashes the validated value in `sessionStorage.post_login_next`, which `AuthCallbackPage` consumes after the code exchange (same-origin only) before its `/dashboard` fallback. EventDetailPage's "Sign in to register/accept" CTAs pass `?next=/events/:slug[?register=1]`.
+- **registrationOpen (L1):** when `Settings.registrationOpen === false`, `POST /auth/register` 403s and routine OAuth first sign-ins are refused (no implicit account creation in passport.ts); existing accounts keep signing in. **Network-intent OAuth signups are exempt** (`shouldBlockImplicitOAuthSignup` returns false when the `oauth_intent=network` cookie is set) so invited guests/speakers/alumni can still create the account their invitation needs — `registrationOpen` governs member signups, `showNetwork` governs the network funnel. 5-min cached settings read, fail-open on read error.
 - **JWT:** 7-day expiry, `{ userId, email, name, role, tokenVersion }`. Force logout = increment DB `tokenVersion`; middleware rejects when DB > claim. `GET /auth/me` echoes the presented token while it is in the front half of its life and only mints a replacement in the back half (caps sliding-session renewal).
 - **Middleware:** `authMiddleware` reads `Authorization: Bearer` or `scriet_session` cookie; user row served from a 30s bounded LRU (`utils/userAuthCache.ts`, 500 entries). Every user-row mutation that affects auth (role/tokenVersion/isDeleted) MUST call `invalidateCachedAuthUser(userId)`.
+- **Purpose allowlist (token partitioning):** access tokens never carry a `purpose` claim; special-purpose tokens do (`oauth_exchange`, `invitation_claim`, `quiz_access` share the main secret; `attendance` uses its own runtime secret, so its purpose rejection is defense-in-depth). Both auth middlewares, `verifyToken` (which also covers socket auth), and the playground's `optionalAuth` reject any purpose-carrying JWT for session auth. New special-purpose tokens MUST set a `purpose` claim.
 - **Password reset:** self-service `POST /api/auth/request-password-reset` (neutral response, 5/15min/IP + 3/15min/email) and admin-initiated `POST /api/users/:id/password-reset` both store a sha-256-hashed 30-min token; consumed by `POST /api/auth/reset-password` (atomic claim, bumps tokenVersion). Frontend: `/forgot-password` + `/reset-password` (one lazy page, two modes).
+- **Password change/add (`/api/users/me/{change,add}-password`):** rotates the session — bumps `tokenVersion` + `invalidateCachedAuthUser()` (kills every other live session immediately), then returns a fresh token + `scriet_session` cookie signed with the new watermark. Frontend adopts it via `adoptToken` (AuthContext) so the current tab survives.
 - **Dev:** `POST /api/auth/dev-login` only when `ENABLE_DEV_AUTH=true`. Returns 404 when disabled.
 - **CSRF guard:** Cookie-authed mutating `/api/*` writes must come from `Origin/Referer` in `isAllowedBrowserOrigin()` allow-list. Bearer bypasses.
 - **CORS:** Explicit allowlist `ALLOWED_CODESCRIET_ORIGINS` (no subdomain wildcard). Dev: localhost/127.0.0.1/LAN IPs.
-- **Rate limits:** General 500/15min/IP, Auth 50/15min, password reset 20/15min.
+- **Rate limits:** General 500/15min/IP, Auth 50/15min, password reset 20/15min, hiring apply 15/15min/IP, polls vote/feedback 60/15min/IP (deliberately above the teams-join 15 — a hall voting behind one campus NAT must survive), teams join 15/15min, mail `emails[]` capped at 500/request.
+- **Client IP (S2):** every IP-keyed limiter + login telemetry resolves via [apps/api/src/utils/clientIp.ts](apps/api/src/utils/clientIp.ts) — `CF-Connecting-IP` honored **only when the peer is inside Cloudflare's published ranges**, else Express `trust proxy` resolution; the Socket.io connection limiter uses `getSocketClientIp` (right-most XFF = the hop the platform proxy saw — never the client-controlled first entry). `LOG_IP_DIAGNOSTICS=true` logs `req.ip` vs `cf-connecting-ip` vs XFF per request for the 24h prod readback (ops-checklist).
 
 ---
 
@@ -150,7 +157,7 @@ PUBLIC=0 · USER=1 · NETWORK=1 · MEMBER=2 · CORE_MEMBER=3 · ADMIN=4 · PRESI
 ```
 
 - Super admin = `SUPER_ADMIN_EMAIL`. Settings writable by superAdmin + PRESIDENT only.
-- `requireRole('ADMIN')` admits PRESIDENT. No literal `requireRole('PRESIDENT')` — use `requireRole('ADMIN')` + inline `isSuperAdmin(u) || u.role === 'PRESIDENT'`. Helpers in [apps/api/src/utils/superAdmin.ts](apps/api/src/utils/superAdmin.ts): `isSuperAdmin`, `isPresident`, `isPresidentOrSuperAdmin`.
+- `requireRole('ADMIN')` admits PRESIDENT. No literal `requireRole('PRESIDENT')` — use `requireRole('ADMIN')` + inline `isSuperAdmin(u) || u.role === 'PRESIDENT'`. Helpers in [apps/api/src/utils/superAdmin.ts](apps/api/src/utils/superAdmin.ts): `isSuperAdmin`, `isPresident`, `isPresidentOrSuperAdmin`. Known exception: `settings.ts` `PUT /api/settings` uses literal `requireRole('PRESIDENT')` (functionally identical to `'ADMIN'` — both level 4; the real gate is the inline `enforceSuperAdminOrPresident`); rename scheduled in the hygiene PR (audit D1).
 - **Admin-deep-control:** Only superAdmin acts on PRESIDENT. PRESIDENT acts on ADMIN-and-below but cannot promote to ADMIN/PRESIDENT, cannot edit existing ADMIN/PRESIDENT. No actor edits self via `/api/users/*` (use `/dashboard/profile`). `PUT /api/users/:id/role` floor = PRESIDENT/superAdmin only.
 
 ---
@@ -171,13 +178,13 @@ PUBLIC=0 · USER=1 · NETWORK=1 · MEMBER=2 · CORE_MEMBER=3 · ADMIN=4 · PRESI
 | `/api/qotd/*` | Mixed | |
 | `/api/users/*` | Yes | Admin-deep-control endpoints below |
 | `/api/stats/*` | No | Public + admin `/dashboard` with 12-tile insights |
-| `/api/settings/*` | Some (superAdmin/PRESIDENT for `/settings`, `/settings/email-templates`, `/settings/security-env`) | Admin manual triggers: `POST /event-status/sync-now`, `POST /reminders/trigger` (runs one reminder pass; respects global toggle + per-event opt-out + dedup) |
-| `/api/hiring/*` | Mixed | |
+| `/api/settings/*` | Some (superAdmin/PRESIDENT for `/settings`, `/settings/email-templates`, `/settings/security-env`) | Admin manual triggers: `POST /event-status/sync-now`, `POST /reminders/trigger` (runs one reminder pass; respects global toggle + per-event opt-out + dedup). `POST /reset` preserves `attendanceJwtSecret` + `indexNowKey` (S9 — wiping them would invalidate every issued 90d attendance QR after the next restart) |
+| `/api/hiring/*` | Mixed | `/apply` stamps `Settings.hiringCycle`, dupes blocked per-cycle; `/applications?cycle=` admin filter; `/cycles` (Admin) distinct-cycles + current |
 | `/api/certificates/*` | Mixed | |
 | `/api/signatories/*` | Admin | |
 | `/api/upload/*` | Yes | `+/history` |
 | `/api/network/*` | Mixed | |
-| `/api/audit-logs/*` | Admin (PRESIDENT/superAdmin gate on the audit log page) | |
+| `/api/audit-logs/*` | Admin (PRESIDENT/superAdmin gate on the audit log page) | `DELETE /retention?days=N` (N min 30, default 90) deletes AuditLog rows older than N days — PRES/superAdmin only (403 inside the ADMIN gate). Retention *policy* decision still open (June 2026 audit); mechanism exists, nothing automatic. |
 | `/api/mail/*` | Admin | |
 | `/api/quiz/*` | Mixed | `POST /import` (CSV/XLSX), `POST /:quizId/open` (DRAFT→WAITING) |
 | `/api/playground/*` | Mixed | `/snippets|stats|history`=User; `/request-reset|my-reset-request`=User; `/admin/*`=Admin |
@@ -194,11 +201,13 @@ PUBLIC=0 · USER=1 · NETWORK=1 · MEMBER=2 · CORE_MEMBER=3 · ADMIN=4 · PRESI
 
 **Admin-deep-control endpoints (`/api/users`):** `:id/full`, `:id/activity`, `:id/audit`, `:id/streak/{reset-current,restore-longest}` (PRES/SA), `:id/blocks` (GET=Admin, POST=PRES/SA), `:id/blocks/:feature` DELETE (PRES/SA), `:id/force-logout` (PRES/SA), `:id/password-reset` (PRES/SA), `:id/restore` (SA only), `:id` DELETE `?hard=true` (soft=PRES, hard=SA).
 
-**Frontend route map:** see `apps/web/src/App.tsx`. All pages lazy-loaded with `React.lazy()` + `<Suspense>`. Notable: `/admin/users` + `/admin/users/:id`, `/admin/{team,achievements,problems,credits,event-registrations,hiring,network,certificates,competition,public-view,audit-log,mail,settings}`, `/admin/competition/:roundId/judge`, `/admin/events/:eventId/attendance`, `/dashboard/{events,announcements,leaderboard,coding,invitations,certificates,profile,attendance,quiz,upload,problems/new}`, `/dashboard/events/:eventId/attendance` (CORE_MEMBER+), `/qotd/{today,:date}`, `/competition/:roundId/solve/:problemId`, `/competition/:roundId/results`, `/polls/:slug`, `/verify/:certId`, `/forgot-password` + `/reset-password` (one `ResetPasswordPage`, mode from URL token).
+**Frontend route map:** see `apps/web/src/App.tsx`. All pages lazy-loaded with `React.lazy()` + `<Suspense>`. Notable: `/admin/users` + `/admin/users/:id`, `/admin/{team,achievements,problems,credits,event-registrations,hiring,network,certificates,competition,public-view,audit-log,mail,notifications,settings}`, `/admin/competition/:roundId/judge`, `/admin/events/:eventId/attendance`, `/dashboard/{events,announcements,leaderboard,coding,invitations,certificates,profile,attendance,quiz,upload,problems/new}`, `/dashboard/events/:eventId/attendance` (CORE_MEMBER+), `/qotd/{today,:date}`, `/competition/:roundId/solve/:problemId`, `/competition/:roundId/results`, `/polls/:slug`, `/verify/:certId`, `/forgot-password` + `/reset-password` (one `ResetPasswordPage`, mode from URL token).
 
 ---
 
 ## DB Schema (Prisma)
+
+**Actor-column rule (audit A3):** `DayAttendance.scannedBy`, `UserBlock.blockedBy`, `Certificate.issuedBy/revokedBy`, `QOTD.heldBy`, `User.deletedBy` are **deliberate plain-string snapshots, not FKs** — they record who acted at that moment and must survive actor deletion. `Event.createdBy` / `Announcement.createdBy` are real FKs. Don't "fix" the snapshot columns into relations ad hoc; they become uuid + `onDelete: SetNull` FKs only as part of the scheduled uuid-migration pass (audit A9).
 
 ### User
 `id, name, email(unique), password?, oauthProvider/Id, role(Role), avatar, bio, github/linkedin/twitter/websiteUrl, branch/course/phone/year, profileCompleted, lastLoginAt/Ip, tokenVersion(default 0), currentStreak/longestStreak/longestStreakAt, isDeleted/deletedAt/deletedBy, passwordResetToken(unique)/ExpiresAt, notificationsReadAt?, createdAt/updatedAt`
@@ -209,7 +218,7 @@ Relations: announcements, registrations, hiringApplications, qotdSubmissions, ne
 `id, userId, feature(UserBlockFeature), blockedAt, blockedBy, reason?, expiresAt?` · unique `[userId,feature]` · index `[feature,expiresAt]`. Lazy expiry via `requireNotBlocked(feature)`.
 
 ### Settings (singleton id='default')
-clubName/Email/Description · registrationOpen · maxEventsPerUser · announcementsEnabled · showAchievements/Leaderboard/QOTD · social URLs · contactPhone? · contactEmails(JSON `{label,email}[]`, admin-managed, shown on public `/contact`) · hiringEnabled + 5 categories · email* template bodies · show_tech_blogs · showNetwork · mailingEnabled · certificatesEnabled · playgroundEnabled · playgroundDailyLimit · competitionEnabled · problemsEnabled · email\*Enabled (welcome/eventCreation/registration/announcement/certificate/reminder/invitation/passwordReset) · emailTestingMode/TestRecipients · attendanceJwtSecret? · indexNowKey? · **accentColor** (default `"rust"`).
+clubName/Email/Description · registrationOpen · maxEventsPerUser · announcementsEnabled · showAchievements/Leaderboard/QOTD · social URLs · contactPhone? · contactEmails(JSON `{label,email}[]`, admin-managed, shown on public `/contact`) · hiringEnabled + 5 categories · hiringCycle (current season label, default "2026"; A11) · email* template bodies · show_tech_blogs · showNetwork · mailingEnabled · certificatesEnabled · playgroundEnabled · playgroundDailyLimit · competitionEnabled · problemsEnabled · email\*Enabled (welcome/eventCreation/registration/announcement/certificate/reminder/invitation/passwordReset) · emailTestingMode/TestRecipients · attendanceJwtSecret? · indexNowKey? · **accentColor** (default `"rust"`).
 
 ### Event
 `id, title, slug(unique), description, status(EventStatus), startDate, endDate?, registrationStartDate?, registrationEndDate?, location?, venue?, capacity?, imageUrl, createdBy, eventDays(default 1), dayLabels(JSON String[])?, eventType?, prerequisites?, registrationFields(JSON)?, agenda?, faqs(JSON)?, featured, highlights?, imageGallery(JSON)?, learningOutcomes?, resources(JSON)?, shortDescription?, speakers(JSON)?, tags(String[]), targetAudience?, videoUrl?, allowLateRegistration, remindersEnabled(default true), teamRegistration(default false), teamMinSize(1), teamMaxSize(4)` · relations: registrations, invitations, certificates, teams, competitionRounds. `remindersEnabled=false` makes the reminder scheduler skip this event's registrations (per-event admin opt-out, set in the event editor's Registration timeline card).
@@ -224,7 +233,7 @@ clubName/Email/Description · registrationOpen · maxEventsPerUser · announceme
 `id, registrationId, dayNumber, attended(default false), scannedAt?, scannedBy?, manualOverride(default false), createdAt/updatedAt` · unique `[registrationId,dayNumber]`.
 
 ### EventTeam / EventTeamMember
-`EventTeam: id, eventId, teamName, inviteCode(unique, 8-char hex), leaderId, isLocked, createdAt` · unique `[eventId,teamName]`. `EventTeamMember: id, teamId, userId, registrationId(unique), role("LEADER"|"MEMBER"), joinedAt` · unique `[teamId,userId]`. Leader has `onDelete: Restrict`. Serializable txn + 3 retries.
+`EventTeam: id, eventId, teamName, inviteCode(unique, 8-char hex), leaderId, isLocked, createdAt` · unique `[eventId,teamName]`. `EventTeamMember: id, teamId, userId, registrationId(unique), role(EventTeamMemberRole LEADER|MEMBER), joinedAt` · unique `[teamId,userId]`. Leader has `onDelete: Restrict`. Serializable txn + 3 retries.
 
 ### CompetitionRound / CompetitionRoundProblem / CompetitionSubmission / CompetitionAutoSave
 Round: `id, eventId, title, description?, duration(sec), status(CompetitionStatus), roundType(IMAGE_TARGET|DSA), participantScope(ALL|SELECTED_TEAMS), leadersOnly, allowedTeamIds(String[]), targetImageUrl?, startedAt?, lockedAt?`. RoundProblem: `id, roundId, problemId, displayOrder, points` unique `[roundId,problemId]`, `[roundId,displayOrder]`. Submission: `id, roundId, teamId?, userId, code, isAutoSubmit, score?, rank?, adminNotes?` unique `[roundId,teamId]`, `[roundId,userId]`. AutoSave: `id, roundId, teamId?, userId, code, savedAt` unique `[roundId,userId]`.
@@ -251,22 +260,25 @@ Problem: `id, slug(unique), title, body, difficulty, tags(String[]), allowedLang
 `id, userId(unique), slug?(unique), legacySlugs(String[]), fullName, designation, company, industry, bio?, profilePhoto?, phone?, linkedinUsername?/twitter?/github?/personalWebsite?, connectionType(NetworkConnectionType), connectionNote?, connectedSince?, passoutYear?, degree?, branch?, rollNumber?, achievements?, currentLocation?, vision?, story?, expertise?, adminNotes?, events(JSON array), isFeatured, status(NetworkStatus), verifiedAt?/By?, rejectionReason?, isPublic, displayOrder`.
 
 ### Certificate
-`id, certId(unique, "ABCD-EFGH-IJKL"), recipientId?(FK), recipientName/Email, eventId?(FK), eventName, type(CertType), position?, domain?, description?, template(default "gold"), pdfUrl?, signatoryId?(FK Signatory), signatoryName/Title/ImageUrl, facultySignatoryId?(FK), facultyName/Title/ImageUrl, issuedBy/At, emailSent/At?, lastEmailResentAt?, isRevoked, revokedAt?/By?/Reason?, viewCount` · unique `[recipientEmail,eventId,type]`.
+`id, certId(unique, "ABCD-EFGH-IJKL"), recipientId?(FK), recipientName/Email, eventId?(FK), eventName, type(CertType), position?, domain?, description?, template(CertTemplate, default gold), emailTemplate(CertEmailTemplate, default default), pdfUrl?, signatoryId?(FK Signatory), signatoryName/Title/ImageUrl, facultySignatoryId?(FK), facultyName/Title/ImageUrl, issuedBy/At, emailSent/At?, lastEmailResentAt?, isRevoked, revokedAt?/By?/Reason?, viewCount` · unique `[recipientEmail,eventId,type]`.
 
 ### Signatory
 `id, name, title(default "Club President"), signatureUrl?, isActive`.
 
 ### HiringApplication
-`id, name, email(unique), phone?, department, year, skills?, applyingRole(ApplyingRole), status(ApplicationStatus), userId?`.
+`id, name, email, phone?, department, year, skills?, applyingRole(ApplyingRole), status(ApplicationStatus), cycle(default "2026"), userId?` · unique `[email, cycle]` (A11 — one application per email **per hiring season**, was global). `cycle` stamped from `Settings.hiringCycle` at apply time.
 
 ### AuditLog
 `id, userId, action, entity, entityId?, metadata(JSON)?, timestamp`.
 
 ### Credit
-`id, title, description?, category, teamMemberId?(FK SetNull), order, createdAt/updatedAt` · index `[category,order]`.
+`id, title, description?, category, teamMemberId?(FK SetNull), order, createdAt/updatedAt` · index `[category,order]`. `category` stays a **plain string** (admins invent categories at will — an enum would fight the feature; deliberately not converted in the A4 enum pass).
 
 ### Quiz models
-Quiz, QuizQuestion, QuizParticipant, QuizAnswer (persisted post-quiz).
+Quiz, QuizQuestion, QuizParticipant, QuizAnswer (persisted post-quiz). `QuizQuestion` has **`@@unique([quizId, position])`** (A5) — the delete-and-recreate PATCH can't persist duplicate positions.
+
+### DB-enforced constraints (migration `20260613120000_constraints_and_enums`)
+CHECKs Postgres now holds (formerly JS-only): `events_team_size_ck` (team_min ≤ team_max), `events_days_ck` (event_days 1–10), `events_capacity_ck` (capacity NULL or ≥ 0), `quiz_q_timelimit_ck` (time_limit_seconds 5–120). Plus `users_email_lower_ux` unique expression index on `lower(email)` (A8) — **not representable in schema.prisma; Prisma 5.x doesn't introspect expression indexes, so it lives outside Prisma's model (no drift, no managed drop). Re-verify on any Prisma upgrade.** Enum conversions used data-preserving `USING` casts (never Prisma's default DROP+ADD COLUMN).
 
 ### Playground models
 Execution (`userId, language, code?, outputText?, executedAt, durationMs?, status`); UserPlaygroundPrefs PK `userId` (`theme, fontSize, keybinding, lastLanguage`); Snippet (`userId, title, language, code, isPublic, shareToken?(unique)`); PlaygroundDailyUsage composite PK `[userId,usageDate]` (`count`); PlaygroundLimitReset (`userId, resetBy, resetAt, note?`); PlaygroundLimitResetRequest (`userId, note?, status, decidedBy?/At?`).
@@ -282,6 +294,10 @@ AnnouncementPriority: LOW|MEDIUM|HIGH|URGENT
 ApplyingRole: TECHNICAL|DSA_CHAMPS|DESIGNING|SOCIAL_MEDIA|MANAGEMENT
 ApplicationStatus: PENDING|INTERVIEW_SCHEDULED|SELECTED|REJECTED
 CertType: PARTICIPATION|COMPLETION|WINNER|SPEAKER
+CertTemplate: gold|dark|white|emerald   (lowercase members — match stored strings)
+CertEmailTemplate: default|faculty_distribution
+EventTeamMemberRole: LEADER|MEMBER
+Difficulty: EASY|MEDIUM|HARD   (Problem.difficulty + QOTD.difficulty)
 RegistrationType: PARTICIPANT|GUEST
 InvitationStatus: PENDING|ACCEPTED|DECLINED|REVOKED   (EXPIRED derived, not stored)
 QuizStatus: DRAFT|WAITING|ACTIVE|FINISHED|ABANDONED
@@ -307,10 +323,13 @@ Mature + optimized. **Don't propose perf refactors** unless a regression is name
 
 - **In-memory during active quiz** — `quizStore.ts` uses `Map<string, QuizRoom>`. No DB writes until quiz ends.
 - **Draft-first persistence** — quizzes saved as `DRAFT`; `POST /api/quiz/:quizId/open` → `WAITING`. CSV/XLSX import via `POST /api/quiz/import`.
+- **Question privacy (B4):** `GET /api/quiz/:quizId` returns `questions: []` to non-hosts while the quiz is DRAFT/WAITING/ACTIVE — players receive questions only via the socket `show_question` event. Creator/admin always sees the full list; FINISHED reveals answers to everyone (review mode); ABANDONED shows questions with answers redacted.
 - **Server-authoritative timers.** Pause clears timers; resume re-arms.
+- **start_quiz guards:** only a `waiting` room starts (double-emit → `control_action_blocked ALREADY_STARTED`, index stays 0); the no-room DB-hydration path refuses non-WAITING/ACTIVE quizzes (`QUIZ_NOT_OPEN` — ACTIVE allowed for crash recovery) and passes `joinCode`/`pin` into `initQuiz` so the host panel keeps its PIN after a restart.
+- **Kick is final:** per-room `kickedUserIds: Set` (bytes per kick, freed with the room); `join_quiz` rejects listed users with `quiz_error KICKED` even though their 20-min access token is still valid.
 - **Scoring:** base 1000 + time bonus (faster=more) + streak bonus. Logic in `quizSocket.ts`.
 - **Rate limit:** 500ms per user per `submit_answer`.
-- **Persistence on end** → `QuizParticipant` + `QuizAnswer`. Set-based: participant scores/ranks + per-question analytics each persist via one `UPDATE … FROM (VALUES …)` (no per-row statement loops). Shutdown persists active as `ABANDONED`.
+- **Persistence on end** → `QuizParticipant` + `QuizAnswer`. Set-based: participant scores/ranks + per-question analytics each persist via one `UPDATE … FROM (VALUES …)` (no per-row statement loops). Shutdown persists active as `ABANDONED`. Persist also nulls `pin`/`joinCode` (both globally `@unique` — retired codes returned to the pool, no P2002 collisions with history) alongside `pinActive: false`.
 - **O(1) room counters** — `QuizRoom.connectedCount/answeredCount/answeredConnectedCount` maintained on every join/answer/disconnect/kick/advance transition; all-answered and answer-count checks never scan the players map. Gate: `quizEngineLoad.test.ts` (150-player churn + throttle parity).
 - **Capacity ceiling ~900 concurrent.**
 
@@ -433,6 +452,7 @@ Event-level toggle (`teamRegistration` + `teamMinSize/teamMaxSize` 1-10). Leader
 
 - **Serializable txn + 3 retries** with jittered exponential backoff (50ms × 2^attempt + jitter) for P2034.
 - **Atomic capacity check** inside txn (filters `registrationType=PARTICIPANT`).
+- **maxEventsPerUser (L2):** every PARTICIPANT intake (solo register, team create, team join) calls `assertWithinActiveEventLimitInTx` ([apps/api/src/utils/registrationIntake.ts](apps/api/src/utils/registrationIntake.ts)) inside its serializable txn — counts the caller's PARTICIPANT registrations on UPCOMING/ONGOING events (guests exempt, PAST events free their slots; limit <1 disables the check). Guest-invitation accept deliberately exempt.
 - **Leader deletion guard:** `onDelete: Restrict` on `EventTeam.leaderId`.
 - **Cannot change `teamRegistration` mode** once event has registrations.
 - **Dissolve** cascades: deletes members + their registrations in one txn.
@@ -514,7 +534,7 @@ PDF via `@react-pdf/renderer` in [apps/api/src/utils/generateCertificatePDF.ts](
 Spec: `tmp/design_bundle/code-scriet-innerdashboard/`. Scoped to `[data-dashboard]` — public site unaffected.
 
 - **Tokens:** rust-accent CSS vars (`--bg-canvas/sunken/raised`, `--ds-text-1/2/3`, `--accent`, semantic + role pills, shadows, motion) in `apps/web/src/index.css` under `[data-dashboard]`. Public site keeps `--background/--foreground`. Shadcn HSL bridge (`--primary`, `--ring`, …) overridden in scope.
-- **Fonts:** Geist + Geist Mono in `apps/web/index.html`, applied inside `[data-dashboard]` only. Public stays on Outfit/Sora.
+- **Fonts:** Geist + Geist Mono in `apps/web/index.html`, applied inside `[data-dashboard]` only. Public pages still *render* on Outfit/Sora, but `index.html` currently loads **both** public stacks (Outfit/Sora *and* Newsreader/Inter Tight/JetBrains Mono) — see the W3 note in Hard rules below.
 - **Accent picker:** `Settings.accentColor` (default `rust`, values `rust|teal|indigo|violet|mint|mono`). Admin picks in `BrandAccentCard` → `PATCH /api/settings/accentColor` → sets `data-accent` on every `[data-dashboard]`.
 - **Density/motion:** `data-density="compact"` and `data-motion="reduced"` attrs supported, currently `regular`/`normal`.
 - **Solve flow is playground-only.** Never add Monaco to the main web app. `QOTDSolvePage`/`CompetitionSolvePage` redirect to playground with `?qotd=<date>` or `?contest=<roundId>&problem=<id>` + one-time auth handoff in URL hash.
@@ -525,7 +545,7 @@ Spec: `tmp/design_bundle/code-scriet-innerdashboard/`. Scoped to `[data-dashboar
 Migration: `prisma/migrations/20260517210000_dashboard_v2/migration.sql` (additive).
 
 ### New endpoints
-`apps/api/src/routes/notifications.ts` → `GET /api/notifications` (aggregates invitations + certs + quiz + audit, grouped) + `POST /mark-read` (updates `User.notificationsReadAt`). `apps/api/src/routes/search.ts` → `GET /api/search/global?q=...` (5 hits each across pages/events/problems/polls/people/announcements; role-aware; capped). `/api/problems/me/recent` · `/api/problems/admin/cap-requests/:counterId/{grant,deny}`. `/api/qotd/leaderboard/around-me` (rank ± window via `RANK() OVER ()` CTE). `/api/teams/my-all`. `/api/upload/history?limit=24`. `/api/stats/dashboard` (admin) → 12-tile `insights`: total users + Δ, active/upcoming events, pending invitations, certs this month, live scans · 1h, quiz sessions · 7d, registration funnel, avg + max streak, AC rate · 7d, top contributor, network-pending, playground daily-quota pressure.
+`apps/api/src/routes/notifications.ts` → `GET /api/notifications` (aggregates invitations + certs + quiz + audit, grouped) + `POST /mark-read` (updates `User.notificationsReadAt`). `apps/api/src/routes/search.ts` → `GET /api/search/global?q=...` (5 hits each across pages/events/problems/polls/people/announcements; role-aware; capped; expired announcements excluded). `/api/problems/me/recent` · `/api/problems/admin/cap-requests/:counterId/{grant,deny}`. `/api/qotd/leaderboard/around-me` (rank ± window via `RANK() OVER ()` CTE). `/api/teams/my-all`. `/api/upload/history?limit=24`. `/api/stats/dashboard` (admin) → 12-tile `insights`: total users + Δ, active/upcoming events, pending invitations, certs this month, live scans · 1h, quiz sessions · 7d, registration funnel, avg + max streak, AC rate · 7d, top contributor, network-pending, playground daily-quota pressure.
 
 ### New socket namespace
 `/notifications`, auth required. Clients join `user:<id>` on connect.
@@ -548,7 +568,7 @@ Migration: `prisma/migrations/20260517210000_dashboard_v2/migration.sql` (additi
 
 ### Hard rules (Dashboard v2)
 - Layout wraps in `<div data-dashboard data-accent={settings.accentColor || 'rust'} data-density data-motion>`. Anything needing new tokens MUST render inside this scope.
-- Public pages stay on Outfit/Sora + amber. **Don't move styles across scopes either direction.**
+- Public pages render on Outfit/Sora + amber, **but the public site is frozen mid-design-migration (audit W3):** `Layout.tsx` wraps every public page in `[data-public]`, `index.css` carries a full parallel cream/ink/ember + Newsreader token system (`--pub-*`), and only `AchievementsPage` consumes it. Finishing or excising that migration is **owner-deferred** — do not extend either public system to more pages, delete the `[data-public]` block, or change the font loads without an explicit owner decision. **Don't move styles across scopes either direction.**
 - Solve flow is playground-only — never add Monaco to the main web app.
 
 ---
@@ -574,7 +594,7 @@ Migration: `prisma/migrations/20260517210000_dashboard_v2/migration.sql` (additi
 - **DB keep-alive:** Opt-in (`ENABLE_DB_KEEPALIVE=true`, interval `DB_KEEPALIVE_INTERVAL_MS` default 240000). Off by default.
 - **Schedulers:** Default ON in production, OFF in development; `ENABLE_BACKGROUND_SCHEDULERS=true/false` overrides. **Event-status + QOTD auto-publish are event-driven** (in-memory timers that sleep until the next exact boundary; re-tuned on writes, re-hydrated on boot) — no fixed-interval polling, so the DB stays asleep between actual transitions. Event reminders still poll every 6h. `EVENT_STATUS_INTERVAL_MS` is no longer used (event-status sleeps until the next event boundary instead).
 - **Email template cache:** 5-min TTL; stale fallback on DB error (prevents blank emails).
-- **Sanitize HTML input:** `sanitizeHtml()`/`sanitizeText()` from [apps/api/src/utils/sanitize.ts](apps/api/src/utils/sanitize.ts).
+- **Sanitize HTML input:** `sanitizeHtml()`/`sanitizeMarkdown()`/`sanitizeText()` from [apps/api/src/utils/sanitize.ts](apps/api/src/utils/sanitize.ts). Backed by **`sanitize-html`** (F1 — consolidated onto the one lib that also powers the mail policy; `isomorphic-dompurify` dropped). Allowlist-based, equal-or-stricter than the old DOMPurify config (it additionally strips `data:` images + protocol-relative URLs). `escapeHtml()` for entity-escaping interpolations (sanitizers strip tags but don't escape entities).
 - **Audit log:** `auditLog(userId, action, entity, entityId, metadata)` on all admin mutations.
 - **Response shape:** `ApiResponse.success()`/`error()`. Frontend `api.ts` unwraps `.data`.
 - **Logger:** `logger` from [apps/api/src/utils/logger.ts](apps/api/src/utils/logger.ts). Never `console.log`.
@@ -619,8 +639,10 @@ Migration: `prisma/migrations/20260517210000_dashboard_v2/migration.sql` (additi
 | `ATTENDANCE_TOKEN_EXPIRES_IN` | no | attendance QR JWT lifetime, default `90d` |
 | `ENABLE_REQUEST_LOGGING` | no | |
 | `ENABLE_DB_KEEPALIVE` | no | default off |
+| `LOG_IP_DIAGNOSTICS` | no | `true` logs `req.ip` vs `cf-connecting-ip` vs XFF per request (24h S2 readback, then unset) |
 | `DB_KEEPALIVE_INTERVAL_MS` | no | default 240000 |
 | `ENABLE_BACKGROUND_SCHEDULERS` | no | default ON in prod, OFF in dev; `true`/`false` overrides |
+| `PRUNE_QUIZ_ANSWERS` | no | `true` opts QuizAnswer (> 365d) into the retention sweep; default off |
 | `EVENT_STATUS_INTERVAL_MS` | no | deprecated — event-status is now event-driven (timer until next boundary), no longer polled |
 | `PORT` | no | default 5001 |
 
@@ -629,8 +651,8 @@ Migration: `prisma/migrations/20260517210000_dashboard_v2/migration.sql` (additi
 ## Deployment (Render)
 
 4 services in `render.yaml`:
-1. **codescriet-api** — Node web. Build: `npm install --include=dev && npx prisma generate --schema=./prisma/schema.prisma && npm run build --workspace=apps/api`. Start: migration resolve/deploy + `npm run start --workspace=apps/api`. Sets `ENABLE_BACKGROUND_SCHEDULERS=true` (event-status sync + event reminders + QOTD auto-publish; safe because UptimeRobot keeps the instance warm).
-2. **codescriet-web** — static. Build: `npm install && node scripts/generate-sitemap.js && npm run build --workspace=apps/web && node scripts/prerender.js` (prerenders route-specific HTML for crawlers/social cards).
+1. **codescriet-api** — Node web. Build: `npm install --include=dev && npx prisma generate --schema=./prisma/schema.prisma && npm run build --workspace=apps/api`. Start: migration resolve/deploy + `npm run start --workspace=apps/api`. Sets `ENABLE_BACKGROUND_SCHEDULERS=true` (event-status sync + event reminders + QOTD auto-publish; safe because UptimeRobot keeps the instance warm). `buildFilter` scopes deploys to `apps/api/**, prisma/**, package.json, package-lock.json` (G2 — web-only commits no longer restart the API and kill live quizzes).
+2. **codescriet-web** — static. Build: `npm install && node scripts/generate-sitemap.mjs && npm run build --workspace=apps/web && node scripts/prerender.mjs` (prerenders route-specific HTML for crawlers/social cards).
 3. **codescriet-playground-api** — Node (`node execute-server.js`).
 4. **codescriet-playground-web** — static (`apps/playground/dist`).
 

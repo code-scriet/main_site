@@ -1,5 +1,7 @@
-import { Router, Request, Response } from 'express';
+import { Router, Response } from 'express';
+import type { Request } from '../lib/http.js';
 import { Prisma } from '@prisma/client';
+import rateLimit from 'express-rate-limit';
 import { z } from 'zod';
 import { prisma, withRetry } from '../lib/prisma.js';
 import { authMiddleware, getAuthUser, optionalAuthMiddleware } from '../middleware/auth.js';
@@ -12,8 +14,23 @@ import { ApiResponse } from '../utils/response.js';
 import { generateSlug, generateUniqueSlug } from '../utils/slug.js';
 import { requireUuid } from '../utils/idParams.js';
 import { sanitizeText } from '../utils/sanitize.js';
+import { getClientIp } from '../utils/clientIp.js';
 
 export const pollsRouter = Router();
+
+// S10: vote/feedback previously rode only the general 500/15min limiter.
+// IP-keyed (the limiter runs before authMiddleware), so the cap must survive
+// a hall of students voting behind one campus NAT during a live event —
+// 60/15min instead of the teams-join 15 (votes are additionally idempotent
+// per user via the [pollId,userId] unique).
+const pollWriteRateLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 60,
+  message: { success: false, error: { message: 'Too many poll submissions from this network. Please try again later.' } },
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => getClientIp(req),
+});
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const FRONTEND_URL = (process.env.FRONTEND_URL || 'https://codescriet.dev').replace(/\/+$/, '');
@@ -1011,7 +1028,7 @@ pollsRouter.get('/:idOrSlug', optionalAuthMiddleware, async (req: Request, res: 
   }
 });
 
-pollsRouter.post('/:idOrSlug/vote', authMiddleware, requireRole('USER'), async (req: Request, res: Response) => {
+pollsRouter.post('/:idOrSlug/vote', pollWriteRateLimiter, authMiddleware, requireRole('USER'), async (req: Request, res: Response) => {
   try {
     const authUser = ensurePollParticipant(req, res);
     if (!authUser) return;
@@ -1112,7 +1129,7 @@ pollsRouter.post('/:idOrSlug/vote', authMiddleware, requireRole('USER'), async (
   }
 });
 
-pollsRouter.post('/:idOrSlug/feedback', authMiddleware, requireRole('USER'), async (req: Request, res: Response) => {
+pollsRouter.post('/:idOrSlug/feedback', pollWriteRateLimiter, authMiddleware, requireRole('USER'), async (req: Request, res: Response) => {
   try {
     const authUser = ensurePollParticipant(req, res);
     if (!authUser) return;

@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import jwt from 'jsonwebtoken';
 import { logger } from './logger.js';
 
@@ -93,11 +94,46 @@ export const signAccessToken = (payload: AccessTokenPayload): string => {
 
 export const signOAuthExchangeCode = (payload: OAuthExchangeCodePayload): string => (
   jwt.sign(
-    { ...payload, purpose: 'oauth_exchange' },
+    // jti makes each code single-use: /api/auth/exchange-code records consumed
+    // jtis (consumeOAuthExchangeJti below) and rejects replays within the 30s TTL.
+    { ...payload, purpose: 'oauth_exchange', jti: randomUUID() },
     getJwtSecret(),
     { algorithm: 'HS256', expiresIn: '30s' },
   )
 );
+
+// ─── Single-use tracking for OAuth exchange codes ───────────────────────────
+// Codes live 30s, so consumed jtis only need to be remembered ~60s (TTL + skew).
+// Bounded by login rate × 60s — a few hundred bytes at any realistic burst.
+// Sweep pattern mirrors quizStore's answerRateLimit sweeper (interval + unref).
+const USED_EXCHANGE_JTI_TTL_MS = 60_000;
+const usedExchangeJtis = new Map<string, number>(); // jti → expiry epoch ms
+let usedJtiSweep: ReturnType<typeof setInterval> | null = null;
+
+function ensureUsedJtiSweep() {
+  if (usedJtiSweep) return;
+  usedJtiSweep = setInterval(() => {
+    const now = Date.now();
+    for (const [jti, expiresAt] of usedExchangeJtis) {
+      if (expiresAt <= now) usedExchangeJtis.delete(jti);
+    }
+  }, USED_EXCHANGE_JTI_TTL_MS);
+  if (typeof usedJtiSweep.unref === 'function') usedJtiSweep.unref();
+}
+
+/**
+ * Marks an exchange-code jti as consumed. Returns false when the jti was
+ * already used (replay) — callers must reject the exchange. Synchronous
+ * has-then-set is race-free on Node's single thread.
+ */
+export const consumeOAuthExchangeJti = (jti: string): boolean => {
+  ensureUsedJtiSweep();
+  if (usedExchangeJtis.has(jti)) {
+    return false;
+  }
+  usedExchangeJtis.set(jti, Date.now() + USED_EXCHANGE_JTI_TTL_MS);
+  return true;
+};
 
 export const signInvitationClaimToken = (payload: InvitationClaimTokenPayload): string => (
   jwt.sign(
@@ -107,17 +143,22 @@ export const signInvitationClaimToken = (payload: InvitationClaimTokenPayload): 
   )
 );
 
-export const verifyOAuthExchangeCode = (code: string): OAuthExchangeCodePayload => {
+export const verifyOAuthExchangeCode = (code: string): OAuthExchangeCodePayload & { jti: string } => {
   const decoded = jwt.verify(code, getJwtSecret(), { algorithms: ['HS256'] }) as Partial<OAuthExchangeCodePayload> & {
     purpose?: string;
+    jti?: string;
   };
 
-  if (decoded.purpose !== 'oauth_exchange' || typeof decoded.userId !== 'string') {
+  // jti required: codes without one predate the single-use scheme, and at a
+  // 30s TTL no legitimately-issued legacy code can still be in flight by the
+  // time a deploy carrying this check finishes.
+  if (decoded.purpose !== 'oauth_exchange' || typeof decoded.userId !== 'string' || typeof decoded.jti !== 'string') {
     throw new Error('Invalid authorization code');
   }
 
   return {
     userId: decoded.userId,
+    jti: decoded.jti,
     intent: decoded.intent === 'network' ? 'network' : undefined,
     networkType:
       decoded.networkType === 'professional' || decoded.networkType === 'alumni'
@@ -148,8 +189,14 @@ export const verifyInvitationClaimToken = (token: string): InvitationClaimTokenP
 export const verifyToken = (token: string): AccessTokenPayload => {
   const decoded = jwt.verify(token, getJwtSecret(), { algorithms: ['HS256'] }) as Partial<AccessTokenPayload> & { purpose?: string };
 
-  if (decoded.purpose === 'attendance') {
-    throw new Error('Attendance tokens cannot be used for authentication');
+  // Purpose allowlist (audit S1): access tokens never carry a `purpose` claim;
+  // special-purpose tokens do. oauth_exchange / invitation_claim / quiz_access
+  // share this signing secret — rejecting on purpose (instead of blocklisting
+  // individual values) partitions them all out of session auth. Attendance QR
+  // tokens use their own runtime secret (attendanceToken.ts), so rejecting
+  // their purpose here is defense-in-depth, not the primary barrier.
+  if (typeof decoded.purpose === 'string') {
+    throw new Error('Special-purpose tokens cannot be used for authentication');
   }
 
   const userId = typeof decoded.userId === 'string'
