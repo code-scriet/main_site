@@ -11,8 +11,22 @@ import { PrismaPg } from '@prisma/adapter-pg';
  * loads dotenv and wires @prisma/adapter-pg against DATABASE_URL — exactly what
  * `apps/api/src/lib/prisma.ts` does for the server.
  */
+// Preserve the frozen connection cap (HC #1/#3), mirroring apps/api/src/lib/prisma.ts.
+// The node-postgres adapter ignores the URL's `connection_limit` (which the native
+// connector used to honour), so derive `max` explicitly — otherwise these CLI scripts
+// would default to pg's max:10 and exceed the cap the server holds at 5.
+const resolvePoolMax = (): number => {
+  try {
+    const raw = new URL(process.env.DATABASE_URL ?? '').searchParams.get('connection_limit');
+    const n = Number(raw);
+    return Number.isInteger(n) && n > 0 ? n : 5;
+  } catch {
+    return 5;
+  }
+};
+
 export function makePrismaClient(): PrismaClient {
   return new PrismaClient({
-    adapter: new PrismaPg({ connectionString: process.env.DATABASE_URL }),
+    adapter: new PrismaPg({ connectionString: process.env.DATABASE_URL, max: resolvePoolMax() }),
   });
 }

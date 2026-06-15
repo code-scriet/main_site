@@ -1,4 +1,5 @@
-import { PrismaClient, NetworkConnectionType, NetworkStatus } from '@prisma/client';
+import { NetworkConnectionType, NetworkStatus } from '@prisma/client';
+import { makePrismaClient } from './prismaClient.js';
 import bcrypt from 'bcryptjs';
 
 const prisma = makePrismaClient();

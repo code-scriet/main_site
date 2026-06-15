@@ -10,7 +10,7 @@ import { ApiResponse } from '../utils/response.js';
 import { zodFieldErrors } from '../utils/zodErrors.js';
 import { emailService } from '../utils/email.js';
 import { logger } from '../utils/logger.js';
-import { parsePaginationNumber } from '../utils/pagination.js';
+import { parsePaginationNumber, getQueryString } from '../utils/pagination.js';
 import { requireUuid } from '../utils/idParams.js';
 import { getClientIp } from '../utils/clientIp.js';
 import { getCachedSettings } from '../utils/settingsCache.js';
@@ -187,9 +187,9 @@ hiringRouter.get('/applications', authMiddleware, requireRole('ADMIN'), async (r
   try {
     const page = parsePaginationNumber(req.query.page, 1, { min: 1, max: 1000000 });
     const limit = parsePaginationNumber(req.query.limit, 20, { min: 1, max: 100 });
-    const status = req.query.status as string;
-    const role = req.query.role as string;
-    const search = req.query.search as string;
+    const status = getQueryString(req.query.status);
+    const role = getQueryString(req.query.role);
+    const search = getQueryString(req.query.search);
     const cycle = typeof req.query.cycle === 'string' ? req.query.cycle.trim() : '';
 
     if (page === null) {

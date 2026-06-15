@@ -4,6 +4,7 @@ import { authMiddleware, getAuthUser } from '../middleware/auth.js';
 import { requireRole } from '../middleware/role.js';
 import { logger } from '../utils/logger.js';
 import { ApiResponse } from '../utils/response.js';
+import { getQueryString } from '../utils/pagination.js';
 
 export const auditRouter = Router();
 
@@ -25,11 +26,10 @@ auditRouter.get('/', authMiddleware, requireRole('ADMIN'), async (req: Request, 
     const limit = Math.min(100, Math.max(1, parseInt(req.query.limit as string) || 50));
     const skip = (page - 1) * limit;
 
-    const entity = req.query.entity as string | undefined;
-    const action = req.query.action as string | undefined;
-    const userId = req.query.userId as string | undefined;
-    const rawSearch = req.query.search;
-    const search = typeof rawSearch === 'string' ? rawSearch.trim() : undefined;
+    const entity = getQueryString(req.query.entity);
+    const action = getQueryString(req.query.action);
+    const userId = getQueryString(req.query.userId);
+    const search = getQueryString(req.query.search)?.trim() || undefined;
 
     if (search && search.length > 500) {
       return ApiResponse.badRequest(res, 'search must be at most 500 characters');

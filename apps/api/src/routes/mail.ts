@@ -7,6 +7,7 @@ import { requireRole } from '../middleware/role.js';
 import { auditLog } from '../utils/audit.js';
 import { emailService, EmailTemplates } from '../utils/email.js';
 import { logger } from '../utils/logger.js';
+import { getQueryString } from '../utils/pagination.js';
 
 export const mailRouter = Router();
 
@@ -72,8 +73,8 @@ const MAIL_AUDIENCE_BATCH_SIZE = 500;
 // Search users / network for recipient picker
 mailRouter.get('/recipients', authMiddleware, requireRole('ADMIN'), async (req: Request, res: Response) => {
   try {
-    const search = (req.query.search as string) || '';
-    const type = (req.query.type as string) || 'users';
+    const search = getQueryString(req.query.search) || '';
+    const type = getQueryString(req.query.type) || 'users';
 
     if (type === 'network') {
       const profiles = await prisma.networkProfile.findMany({
