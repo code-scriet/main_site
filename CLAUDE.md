@@ -578,7 +578,7 @@ Migration: `prisma/migrations/20260517210000_dashboard_v2/migration.sql` (additi
 - **DB keep-alive:** Opt-in (`ENABLE_DB_KEEPALIVE=true`, interval `DB_KEEPALIVE_INTERVAL_MS` default 240000). Off by default.
 - **Schedulers:** Default ON in production, OFF in development; `ENABLE_BACKGROUND_SCHEDULERS=true/false` overrides. **Event-status + QOTD auto-publish are event-driven** (in-memory timers that sleep until the next exact boundary; re-tuned on writes, re-hydrated on boot) — no fixed-interval polling, so the DB stays asleep between actual transitions. Event reminders still poll every 6h. `EVENT_STATUS_INTERVAL_MS` is no longer used (event-status sleeps until the next event boundary instead).
 - **Email template cache:** 5-min TTL; stale fallback on DB error (prevents blank emails).
-- **Sanitize HTML input:** `sanitizeHtml()`/`sanitizeText()` from [apps/api/src/utils/sanitize.ts](apps/api/src/utils/sanitize.ts).
+- **Sanitize HTML input:** `sanitizeHtml()`/`sanitizeMarkdown()`/`sanitizeText()` from [apps/api/src/utils/sanitize.ts](apps/api/src/utils/sanitize.ts). Backed by **`sanitize-html`** (F1 — consolidated onto the one lib that also powers the mail policy; `isomorphic-dompurify` dropped). Allowlist-based, equal-or-stricter than the old DOMPurify config (it additionally strips `data:` images + protocol-relative URLs). `escapeHtml()` for entity-escaping interpolations (sanitizers strip tags but don't escape entities).
 - **Audit log:** `auditLog(userId, action, entity, entityId, metadata)` on all admin mutations.
 - **Response shape:** `ApiResponse.success()`/`error()`. Frontend `api.ts` unwraps `.data`.
 - **Logger:** `logger` from [apps/api/src/utils/logger.ts](apps/api/src/utils/logger.ts). Never `console.log`.
