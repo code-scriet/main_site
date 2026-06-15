@@ -12,6 +12,7 @@
 
 import { prisma } from '../lib/prisma.js';
 import type { Settings } from '@prisma/client';
+import { logger } from './logger.js';
 
 const TTL_MS = 5 * 60 * 1000;
 
@@ -35,6 +36,16 @@ export async function getCachedSettings(): Promise<Settings | null> {
         expiresAt = now + TTL_MS;
       }
       return row;
+    })
+    .catch((err) => {
+      // Fail safe: a Settings read error must NOT 500 every page. The Settings
+      // row only drives feature toggles + copy, and every caller already treats
+      // `null` as "use defaults". This covers transient DB errors and, notably,
+      // schema drift where the deployed client SELECTs a column production hasn't
+      // gained yet (e.g. site_launch_date) — which would otherwise take the whole
+      // public site down. Don't cache the failure; the next call retries.
+      logger.error('getCachedSettings read failed; serving defaults this call', err);
+      return null;
     })
     .finally(() => {
       inflight = null;
