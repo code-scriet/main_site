@@ -4,7 +4,7 @@ import { prisma } from '../lib/prisma.js';
 import { authMiddleware, getAuthUser } from '../middleware/auth.js';
 import { requireRole } from '../middleware/role.js';
 import { participantsOnly } from '../utils/registrationFilters.js';
-import { setPublicCache } from '../utils/response.js';
+import { ApiResponse, setPublicCache } from '../utils/response.js';
 
 export const statsRouter = Router();
 
@@ -350,9 +350,9 @@ const sendPublicStats = async (res: Response) => {
   try {
     const data = await getPublicStatsPayload();
     setPublicCache(res, 60);
-    res.json({ success: true, data });
+    ApiResponse.success(res, data);
   } catch (error) {
-    res.status(500).json({ success: false, error: { message: 'Failed to fetch stats' } });
+    ApiResponse.internal(res, 'Failed to fetch stats');
   }
 };
 
@@ -371,9 +371,9 @@ statsRouter.get('/home', async (_req: Request, res: Response) => {
   try {
     const data = await getHomePayload();
     res.setHeader('Cache-Control', 'public, max-age=60, stale-while-revalidate=120');
-    res.json({ success: true, data });
+    ApiResponse.success(res, data);
   } catch (error) {
-    res.status(500).json({ success: false, error: { message: 'Failed to fetch homepage data' } });
+    ApiResponse.internal(res, 'Failed to fetch homepage data');
   }
 });
 
@@ -584,17 +584,14 @@ statsRouter.get('/dashboard', authMiddleware, requireRole('ADMIN'), async (_req:
       select: { id: true, name: true, email: true, createdAt: true },
     });
 
-    res.json({
-      success: true,
-      data: {
-        overview: { totalUsers, newUsersThisMonth, totalEvents, upcomingEvents, totalRegistrations, recentRegistrations, totalAnnouncements, totalQOTDs, qotdSubmissionsThisWeek },
-        insights,
-        popularEvents,
-        recentUsers,
-      },
+    ApiResponse.success(res, {
+      overview: { totalUsers, newUsersThisMonth, totalEvents, upcomingEvents, totalRegistrations, recentRegistrations, totalAnnouncements, totalQOTDs, qotdSubmissionsThisWeek },
+      insights,
+      popularEvents,
+      recentUsers,
     });
   } catch (error) {
-    res.status(500).json({ success: false, error: { message: 'Failed to fetch dashboard stats' } });
+    ApiResponse.internal(res, 'Failed to fetch dashboard stats');
   }
 });
 
@@ -629,22 +626,19 @@ statsRouter.get('/me', authMiddleware, async (req: Request, res: Response) => {
 
     const streak = me?.currentStreak ?? 0;
 
-    res.json({
-      success: true,
-      data: {
-        eventsRegistered: registrationCount,
-        qotdSubmissions: qotdSubmissionCount,
-        qotdStreak: streak,
-        recentRegistrations: registrations.map((registration) => ({
-          id: registration.id,
-          eventTitle: registration.event.title,
-          eventDate: registration.event.startDate,
-          registeredAt: registration.timestamp,
-        })),
-      },
+    ApiResponse.success(res, {
+      eventsRegistered: registrationCount,
+      qotdSubmissions: qotdSubmissionCount,
+      qotdStreak: streak,
+      recentRegistrations: registrations.map((registration) => ({
+        id: registration.id,
+        eventTitle: registration.event.title,
+        eventDate: registration.event.startDate,
+        registeredAt: registration.timestamp,
+      })),
     });
   } catch (error) {
-    res.status(500).json({ success: false, error: { message: 'Failed to fetch user stats' } });
+    ApiResponse.internal(res, 'Failed to fetch user stats');
   }
 });
 
@@ -662,9 +656,9 @@ statsRouter.get('/events/trends', authMiddleware, requireRole('ADMIN'), async (_
       ORDER BY 1 ASC
     `;
 
-    res.json({ success: true, data: mapDailyAggregateRows(registrations) });
+    ApiResponse.success(res, mapDailyAggregateRows(registrations));
   } catch (error) {
-    res.status(500).json({ success: false, error: { message: 'Failed to fetch trends' } });
+    ApiResponse.internal(res, 'Failed to fetch trends');
   }
 });
 
@@ -682,8 +676,8 @@ statsRouter.get('/qotd/trends', authMiddleware, requireRole('ADMIN'), async (_re
       ORDER BY 1 ASC
     `;
 
-    res.json({ success: true, data: mapDailyAggregateRows(submissions) });
+    ApiResponse.success(res, mapDailyAggregateRows(submissions));
   } catch (error) {
-    res.status(500).json({ success: false, error: { message: 'Failed to fetch QOTD trends' } });
+    ApiResponse.internal(res, 'Failed to fetch QOTD trends');
   }
 });
