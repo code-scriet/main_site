@@ -72,6 +72,7 @@ import { useAuth } from '@/context/AuthContext';
 import { useSettings } from '@/context/SettingsContext';
 import {
   api,
+  ApiError,
   type AttendanceQR,
   type Event,
   type EventRegistrationField,
@@ -576,9 +577,17 @@ export default function EventDetailPage() {
         action: { label: 'View ticket', onClick: () => { void openQrTicket(); } },
       });
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Failed to register';
-      setRegistrationFormError(errorMessage);
-      toast.error(errorMessage);
+      // Server-side per-field validation errors (keyed by registration field id)
+      // are surfaced inline on the matching input; the popup stays open so the
+      // user can fix them. Falls back to a banner/toast for anything else.
+      if (err instanceof ApiError && Object.keys(err.fieldErrors).length > 0) {
+        setRegistrationFieldErrors((prev) => ({ ...prev, ...err.fieldErrors }));
+        setRegistrationFormError('Please fix the highlighted fields.');
+      } else {
+        const errorMessage = err instanceof Error ? err.message : 'Failed to register';
+        setRegistrationFormError(errorMessage);
+        toast.error(errorMessage);
+      }
     } finally {
       setRegistering(false);
     }

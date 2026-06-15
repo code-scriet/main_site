@@ -6,6 +6,7 @@ import { authMiddleware, getAuthUser, optionalAuthMiddleware } from '../middlewa
 import { requireRole } from '../middleware/role.js';
 import { auditLog } from '../utils/audit.js';
 import { ApiResponse } from '../utils/response.js';
+import { zodFieldErrors } from '../utils/zodErrors.js';
 import { emailService } from '../utils/email.js';
 import { logger } from '../utils/logger.js';
 import { parsePaginationNumber } from '../utils/pagination.js';
@@ -58,7 +59,7 @@ hiringRouter.post('/apply', optionalAuthMiddleware, async (req: Request, res: Re
   try {
     const validation = hiringApplicationSchema.safeParse(req.body);
     if (!validation.success) {
-      return ApiResponse.badRequest(res, validation.error.errors[0].message);
+      return ApiResponse.validationError(res, zodFieldErrors(validation.error));
     }
 
     const { name, email, phone, department, year, skills, applyingRole } = validation.data;
@@ -254,7 +255,7 @@ hiringRouter.patch('/applications/:id/status', authMiddleware, requireRole('ADMI
 
     const validation = updateStatusSchema.safeParse(req.body);
     if (!validation.success) {
-      return ApiResponse.badRequest(res, validation.error.errors[0].message);
+      return ApiResponse.validationError(res, zodFieldErrors(validation.error));
     }
 
     const { status } = validation.data;

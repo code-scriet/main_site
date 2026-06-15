@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@/context/AuthContext';
-import { api, type Event, type EventTeam, type EventRegistrationField } from '@/lib/api';
+import { api, ApiError, type Event, type EventTeam, type EventRegistrationField } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -31,6 +31,8 @@ export function TeamJoinModal({ open, onOpenChange, event, onSuccess }: TeamJoin
 
   const [inviteCode, setInviteCode] = useState('');
   const [customFieldResponses, setCustomFieldResponses] = useState<Record<string, string>>({});
+  // Server-side per-field validation errors, keyed by registration field id.
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
 
   const joinMutation = useMutation({
     mutationFn: () => {
@@ -57,6 +59,13 @@ export function TeamJoinModal({ open, onOpenChange, event, onSuccess }: TeamJoin
       onSuccess?.(data.team);
       handleClose();
     },
+    onError: (error) => {
+      // Surface server-side per-field errors (keyed by registration field id)
+      // inline on the matching custom-field input.
+      if (error instanceof ApiError && Object.keys(error.fieldErrors).length > 0) {
+        setFieldErrors(error.fieldErrors);
+      }
+    },
   });
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -71,12 +80,14 @@ export function TeamJoinModal({ open, onOpenChange, event, onSuccess }: TeamJoin
       }
     }
 
+    setFieldErrors({});
     joinMutation.mutate();
   };
 
   const handleClose = () => {
     setInviteCode('');
     setCustomFieldResponses({});
+    setFieldErrors({});
     joinMutation.reset();
     onOpenChange(false);
   };
@@ -91,6 +102,12 @@ export function TeamJoinModal({ open, onOpenChange, event, onSuccess }: TeamJoin
     const value = customFieldResponses[field.id] || '';
     const onChange = (val: string) => {
       setCustomFieldResponses((prev) => ({ ...prev, [field.id]: val }));
+      setFieldErrors((prev) => {
+        if (!prev[field.id]) return prev;
+        const next = { ...prev };
+        delete next[field.id];
+        return next;
+      });
     };
 
     if (field.type === 'TEXTAREA') {
@@ -164,12 +181,17 @@ export function TeamJoinModal({ open, onOpenChange, event, onSuccess }: TeamJoin
                 {field.label} {field.required && '*'}
               </Label>
               {renderCustomFieldInput(field)}
+              {fieldErrors[field.id] && (
+                <p className="text-xs text-destructive">{fieldErrors[field.id]}</p>
+              )}
             </div>
           ))}
 
           {joinMutation.isError && (
             <div className="bg-destructive/10 text-destructive px-3 py-2 rounded-md text-sm">
-              {extractApiErrorMessage(joinMutation.error, 'Failed to join team')}
+              {Object.keys(fieldErrors).length > 0
+                ? 'Please fix the highlighted fields.'
+                : extractApiErrorMessage(joinMutation.error, 'Failed to join team')}
             </div>
           )}
 

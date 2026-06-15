@@ -11,7 +11,7 @@ import {
   Pencil, CheckCircle, XCircle, AlertCircle, Users, GraduationCap, Loader2,
 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
-import { api, type TeamMember, type NetworkProfile } from '@/lib/api';
+import { api, ApiError, type TeamMember, type NetworkProfile } from '@/lib/api';
 import { Avatar, DSCard, Field, Pill, StatTile, roleTone } from '@/components/dash';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -65,6 +65,15 @@ export default function ProfilePage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  // Server-side per-field validation errors, keyed by the API field name.
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+  const clearFieldError = (key: string) =>
+    setFieldErrors((prev) => {
+      if (!prev[key]) return prev;
+      const next = { ...prev };
+      delete next[key];
+      return next;
+    });
 
   // Form fields
   const [name, setName] = useState('');
@@ -169,8 +178,9 @@ export default function ProfilePage() {
     if (!token) return;
     setSaving(true);
     setMessage(null);
+    setFieldErrors({});
     if (phone && !/^[0-9]{10}$/.test(phone)) {
-      setMessage({ type: 'error', text: 'Phone number must be exactly 10 digits' });
+      setFieldErrors({ phone: 'Phone number must be exactly 10 digits' });
       setSaving(false);
       return;
     }
@@ -192,7 +202,12 @@ export default function ProfilePage() {
         setMessage({ type: 'success', text: 'Profile saved.' });
       }
     } catch (e) {
-      setMessage({ type: 'error', text: e instanceof Error ? e.message : 'Failed to save' });
+      if (e instanceof ApiError && Object.keys(e.fieldErrors).length > 0) {
+        setFieldErrors(e.fieldErrors);
+        setMessage({ type: 'error', text: 'Please fix the highlighted fields.' });
+      } else {
+        setMessage({ type: 'error', text: e instanceof Error ? e.message : 'Failed to save' });
+      }
     } finally {
       setSaving(false);
     }
@@ -337,26 +352,26 @@ export default function ProfilePage() {
         <DSCard padded>
           <div className="text-[13.5px] font-semibold mb-4">Personal</div>
           <div className="grid grid-cols-2 gap-3">
-            <Field label="Full name" required className="col-span-2">
-              <Input value={name} onChange={(e) => setName(e.target.value)} />
+            <Field label="Full name" required className="col-span-2" error={fieldErrors.name}>
+              <Input value={name} onChange={(e) => { setName(e.target.value); clearFieldError('name'); }} />
             </Field>
-            <Field label="Avatar URL" hint="paste a public image URL" className="col-span-2">
-              <Input id="avatar-url-input" value={avatarUrl} onChange={(e) => setAvatarUrl(e.target.value)} placeholder="https://…" />
+            <Field label="Avatar URL" hint="paste a public image URL" className="col-span-2" error={fieldErrors.avatarUrl}>
+              <Input id="avatar-url-input" value={avatarUrl} onChange={(e) => { setAvatarUrl(e.target.value); clearFieldError('avatarUrl'); }} placeholder="https://…" />
             </Field>
-            <Field label="Course">
+            <Field label="Course" error={fieldErrors.course}>
               <select
                 value={course}
-                onChange={(e) => { setCourse(e.target.value); setBranch(''); }}
+                onChange={(e) => { setCourse(e.target.value); setBranch(''); clearFieldError('course'); }}
                 className="h-9 w-full px-3 text-[13.5px] bg-[var(--bg-raised)] border border-[var(--border-default)] rounded-[8px] outline-none focus:border-[var(--accent)]"
               >
                 <option value="">Select…</option>
                 {COURSE_OPTIONS.map((c) => <option key={c} value={c}>{c}</option>)}
               </select>
             </Field>
-            <Field label="Branch">
+            <Field label="Branch" error={fieldErrors.branch}>
               <select
                 value={branch}
-                onChange={(e) => setBranch(e.target.value)}
+                onChange={(e) => { setBranch(e.target.value); clearFieldError('branch'); }}
                 disabled={!course}
                 className="h-9 w-full px-3 text-[13.5px] bg-[var(--bg-raised)] border border-[var(--border-default)] rounded-[8px] outline-none focus:border-[var(--accent)] disabled:opacity-60"
               >
@@ -364,23 +379,23 @@ export default function ProfilePage() {
                 {availableBranches.map((b) => <option key={b} value={b}>{b}</option>)}
               </select>
             </Field>
-            <Field label="Year">
+            <Field label="Year" error={fieldErrors.year}>
               <select
                 value={year}
-                onChange={(e) => setYear(e.target.value)}
+                onChange={(e) => { setYear(e.target.value); clearFieldError('year'); }}
                 className="h-9 w-full px-3 text-[13.5px] bg-[var(--bg-raised)] border border-[var(--border-default)] rounded-[8px] outline-none focus:border-[var(--accent)]"
               >
                 <option value="">Select…</option>
                 {YEAR_OPTIONS.map((y) => <option key={y} value={y}>{y}</option>)}
               </select>
             </Field>
-            <Field label="Phone" hint="10 digits, India only">
-              <Input value={phone} onChange={(e) => setPhone(e.target.value.replace(/\D/g, '').slice(0, 10))} placeholder="98XXXXXXXX" />
+            <Field label="Phone" hint="10 digits, India only" error={fieldErrors.phone}>
+              <Input value={phone} onChange={(e) => { setPhone(e.target.value.replace(/\D/g, '').slice(0, 10)); clearFieldError('phone'); }} placeholder="98XXXXXXXX" />
             </Field>
-            <Field label="Bio" className="col-span-2">
+            <Field label="Bio" className="col-span-2" error={fieldErrors.bio}>
               <textarea
                 value={bio}
-                onChange={(e) => setBio(e.target.value)}
+                onChange={(e) => { setBio(e.target.value); clearFieldError('bio'); }}
                 maxLength={500}
                 placeholder="3rd-year CS student. Likes graphs, dislikes off-by-ones."
                 className="w-full h-[68px] p-2.5 text-[13px] bg-[var(--bg-raised)] border border-[var(--border-default)] rounded-[8px] outline-none focus:border-[var(--accent)] resize-y"
@@ -393,28 +408,28 @@ export default function ProfilePage() {
         <DSCard padded>
           <div className="text-[13.5px] font-semibold mb-4">Socials</div>
           <div className="flex flex-col gap-3">
-            <Field label="GitHub">
+            <Field label="GitHub" error={fieldErrors.githubUrl}>
               <div className="relative">
                 <Github size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--ds-text-3)] pointer-events-none" />
-                <Input className="pl-8" value={githubUrl} onChange={(e) => setGithubUrl(e.target.value)} placeholder="https://github.com/username" />
+                <Input className="pl-8" value={githubUrl} onChange={(e) => { setGithubUrl(e.target.value); clearFieldError('githubUrl'); }} placeholder="https://github.com/username" />
               </div>
             </Field>
-            <Field label="LinkedIn">
+            <Field label="LinkedIn" error={fieldErrors.linkedinUrl}>
               <div className="relative">
                 <Linkedin size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--ds-text-3)] pointer-events-none" />
-                <Input className="pl-8" value={linkedinUrl} onChange={(e) => setLinkedinUrl(e.target.value)} placeholder="https://linkedin.com/in/username" />
+                <Input className="pl-8" value={linkedinUrl} onChange={(e) => { setLinkedinUrl(e.target.value); clearFieldError('linkedinUrl'); }} placeholder="https://linkedin.com/in/username" />
               </div>
             </Field>
-            <Field label="Twitter / X">
+            <Field label="Twitter / X" error={fieldErrors.twitterUrl}>
               <div className="relative">
                 <Send size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--ds-text-3)] pointer-events-none" />
-                <Input className="pl-8" value={twitterUrl} onChange={(e) => setTwitterUrl(e.target.value)} placeholder="https://twitter.com/username" />
+                <Input className="pl-8" value={twitterUrl} onChange={(e) => { setTwitterUrl(e.target.value); clearFieldError('twitterUrl'); }} placeholder="https://twitter.com/username" />
               </div>
             </Field>
-            <Field label="Website">
+            <Field label="Website" error={fieldErrors.websiteUrl}>
               <div className="relative">
                 <Globe size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--ds-text-3)] pointer-events-none" />
-                <Input className="pl-8" value={websiteUrl} onChange={(e) => setWebsiteUrl(e.target.value)} placeholder="https://yoursite.dev" />
+                <Input className="pl-8" value={websiteUrl} onChange={(e) => { setWebsiteUrl(e.target.value); clearFieldError('websiteUrl'); }} placeholder="https://yoursite.dev" />
               </div>
             </Field>
           </div>
@@ -490,7 +505,7 @@ export default function ProfilePage() {
 
       {/* Sticky save bar */}
       {dirty && (
-        <div className="fixed bottom-0 left-0 lg:left-[244px] right-0 z-30 frost border-t border-[var(--border-subtle)] px-4 py-3 flex items-center gap-3 lg:pl-6">
+        <div className="fixed bottom-[calc(56px_+_env(safe-area-inset-bottom,0px))] lg:bottom-0 left-0 lg:left-[244px] right-0 z-40 frost border-t border-[var(--border-subtle)] px-4 py-3 flex items-center gap-3 lg:pl-6">
           <Button size="sm" variant="ghost" onClick={discardChanges}>Discard</Button>
           <div className="flex-1 flex items-center gap-2">
             <Pill tone="warning" size="sm" dot>Unsaved changes</Pill>

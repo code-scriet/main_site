@@ -13,6 +13,7 @@ import { computeQOTDStats } from '../utils/qotdStreak.js';
 import { isSuperAdmin, isPresidentOrSuperAdmin } from '../utils/superAdmin.js';
 import { emailService } from '../utils/email.js';
 import { ApiResponse } from '../utils/response.js';
+import { zodFieldErrors } from '../utils/zodErrors.js';
 import { hashPasswordResetToken } from '../utils/passwordReset.js';
 import { invalidateCachedAuthUser } from '../utils/userAuthCache.js';
 import { invalidateUserBlockCache } from '../middleware/blocks.js';
@@ -135,10 +136,7 @@ usersRouter.put('/me', authMiddleware, async (req: Request, res: Response) => {
     const authUser = getAuthUser(req)!;
     const parsed = profileUpdateSchema.safeParse(req.body);
     if (!parsed.success) {
-      return res.status(400).json({
-        success: false,
-        error: { message: parsed.error.errors[0]?.message || 'Invalid profile update payload' },
-      });
+      return ApiResponse.validationError(res, zodFieldErrors(parsed.error));
     }
 
     const { name, bio, avatarUrl, githubUrl, linkedinUrl, twitterUrl, websiteUrl, phone, course, branch, year } = parsed.data;
