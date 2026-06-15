@@ -1,4 +1,5 @@
-import { Router, Request, Response } from 'express';
+import { Router, Response } from 'express';
+import type { Request } from '../lib/http.js';
 import { z } from 'zod';
 import { Prisma, type UserBlockFeature } from '@prisma/client';
 import crypto from 'crypto';

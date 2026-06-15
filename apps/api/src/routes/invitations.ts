@@ -1,7 +1,8 @@
 import { randomUUID } from 'crypto';
 import { CertType, Prisma, RegistrationType } from '@prisma/client';
 import rateLimit from 'express-rate-limit';
-import { Router, Request, Response } from 'express';
+import { Router, Response } from 'express';
+import type { Request } from '../lib/http.js';
 import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
 import { authMiddleware, getAuthUser } from '../middleware/auth.js';

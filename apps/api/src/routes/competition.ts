@@ -1,4 +1,5 @@
-import { Router, Request, Response } from 'express';
+import { Router, Response } from 'express';
+import type { Request } from '../lib/http.js';
 import { Prisma, ProblemLanguage } from '@prisma/client';
 import { z } from 'zod';
 import rateLimit from 'express-rate-limit';
