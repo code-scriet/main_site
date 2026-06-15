@@ -445,57 +445,126 @@ export async function reconcileEventStatusesSoon(): Promise<void> {
   await reconcileEventStatuses();
 }
 
-// ── Retention pruning: keep the free-tier DB from growing forever ──
-// Execution rows carry code + output TEXT per playground run (up to 100/user/day)
-// and PlaygroundDailyUsage adds a row per user per day — neither is ever read
-// again after a few weeks. Piggybacks on the reminder interval (no extra timer)
-// and self-gates to one pass per 24h. AuditLog is deliberately NOT pruned here:
-// it is the compliance trail and needs an explicit retention decision.
-const EXECUTION_RETENTION_DAYS = 90;
-const PLAYGROUND_USAGE_RETENTION_DAYS = 60;
+// ── Retention pruning: keep the free-tier DB from growing forever (A7) ──
+// Piggybacks on the reminder interval (no extra timer) and self-gates to one
+// pass per 24h. The retention windows + rationale live in one place so the
+// manual script (scripts/prune-old-records.ts) can re-export them.
+//
+//   Execution            (90d)  — playground run history (code + output TEXT)
+//   PlaygroundDailyUsage (60d)  — per-user-per-day quota counters
+//   NotificationFeed     (90d OR expired) — bell broadcasts; the CUSTOM feed
+//                                query (take:50) stays fast forever
+//   CompetitionAutoSave  (round FINISHED >30d) — code blobs superseded the
+//                                moment the round locked; final submissions
+//                                live in CompetitionSubmission and are kept
+//   QuizAnswer           (365d) — OFF by default behind PRUNE_QUIZ_ANSWERS;
+//                                QuizParticipant aggregates (the leaderboard
+//                                history) are NEVER pruned
+//
+// AuditLog is deliberately NOT pruned here — it is the compliance trail and
+// keeps its explicit, owner-driven retention via DELETE /api/audit-logs/retention.
+export const EXECUTION_RETENTION_DAYS = 90;
+export const PLAYGROUND_USAGE_RETENTION_DAYS = 60;
+export const NOTIFICATION_FEED_RETENTION_DAYS = 90;
+export const COMPETITION_AUTOSAVE_RETENTION_DAYS = 30;
+export const QUIZ_ANSWER_RETENTION_DAYS = 365;
 const PRUNE_MIN_INTERVAL_MS = 24 * 60 * 60 * 1000;
 let lastPruneAt = 0;
 
 const PRUNE_BATCH_SIZE = 5000;
 
-// Execution rows are TEXT-heavy (code + output), so the first run after months
-// of accumulation could be a very large delete. Batch it so no single statement
-// holds the pooled Neon connection for long while the API serves traffic.
-async function deleteExecutionsInBatches(cutoff: Date): Promise<number> {
+/** QuizAnswer pruning is policy-gated (default off) so the owner opts in explicitly. */
+export function isQuizAnswerPruningEnabled(): boolean {
+  return process.env.PRUNE_QUIZ_ANSWERS === 'true';
+}
+
+export function computePruneCutoffs(now: number = Date.now()) {
+  const day = 24 * 60 * 60 * 1000;
+  return {
+    execution: new Date(now - EXECUTION_RETENTION_DAYS * day),
+    playgroundUsage: new Date(now - PLAYGROUND_USAGE_RETENTION_DAYS * day),
+    notificationFeed: new Date(now - NOTIFICATION_FEED_RETENTION_DAYS * day),
+    competitionAutoSave: new Date(now - COMPETITION_AUTOSAVE_RETENTION_DAYS * day),
+    quizAnswer: new Date(now - QUIZ_ANSWER_RETENTION_DAYS * day),
+  };
+}
+
+// TEXT-heavy tables (code + output) can produce very large first-run deletes,
+// so batch by id so no single statement holds the pooled Neon connection for
+// long while the API serves traffic. Generic over the delegate's where shape.
+async function deleteInBatches(
+  findIds: (take: number) => Promise<Array<{ id: string }>>,
+  deleteByIds: (ids: string[]) => Promise<{ count: number }>,
+): Promise<number> {
   let total = 0;
   for (;;) {
-    const rows = await prisma.execution.findMany({
-      where: { executedAt: { lt: cutoff } },
-      select: { id: true },
-      take: PRUNE_BATCH_SIZE,
-    });
+    const rows = await findIds(PRUNE_BATCH_SIZE);
     if (rows.length === 0) break;
-    const { count } = await prisma.execution.deleteMany({
-      where: { id: { in: rows.map((row) => row.id) } },
-    });
+    const { count } = await deleteByIds(rows.map((row) => row.id));
     total += count;
     if (rows.length < PRUNE_BATCH_SIZE) break;
   }
   return total;
 }
 
-export async function pruneOldRecords(): Promise<{ executions: number; dailyUsage: number }> {
-  const now = Date.now();
-  const executionCutoff = new Date(now - EXECUTION_RETENTION_DAYS * 24 * 60 * 60 * 1000);
-  const usageCutoff = new Date(now - PLAYGROUND_USAGE_RETENTION_DAYS * 24 * 60 * 60 * 1000);
+export interface PruneResult {
+  executions: number;
+  dailyUsage: number;
+  notificationFeed: number;
+  competitionAutoSaves: number;
+  quizAnswers: number;
+}
 
-  const [executions, dailyUsage] = await Promise.all([
-    deleteExecutionsInBatches(executionCutoff),
-    prisma.playgroundDailyUsage.deleteMany({ where: { usageDate: { lt: usageCutoff } } }),
-  ]);
+export async function pruneOldRecords(): Promise<PruneResult> {
+  const cutoffs = computePruneCutoffs();
 
-  if (executions > 0 || dailyUsage.count > 0) {
-    logger.info('🧹 Pruned old records', {
-      executions,
-      playgroundDailyUsage: dailyUsage.count,
-    });
+  const executions = await deleteInBatches(
+    (take) => prisma.execution.findMany({ where: { executedAt: { lt: cutoffs.execution } }, select: { id: true }, take }),
+    (ids) => prisma.execution.deleteMany({ where: { id: { in: ids } } }),
+  );
+
+  const dailyUsage = await prisma.playgroundDailyUsage.deleteMany({
+    where: { usageDate: { lt: cutoffs.playgroundUsage } },
+  });
+
+  // Expired OR older than the window. Both predicates are covered by the
+  // existing [createdAt] / [audience, createdAt] indexes; a small table so no
+  // batching needed.
+  const notificationFeed = await prisma.notificationFeed.deleteMany({
+    where: {
+      OR: [
+        { expiresAt: { not: null, lt: new Date() } },
+        { createdAt: { lt: cutoffs.notificationFeed } },
+      ],
+    },
+  });
+
+  // AutoSaves whose round finished >30d ago are dead weight (final answers are
+  // in CompetitionSubmission). Relation filter on the round's terminal state.
+  const competitionAutoSaves = await prisma.competitionAutoSave.deleteMany({
+    where: { round: { status: 'FINISHED', updatedAt: { lt: cutoffs.competitionAutoSave } } },
+  });
+
+  let quizAnswers = 0;
+  if (isQuizAnswerPruningEnabled()) {
+    quizAnswers = await deleteInBatches(
+      (take) => prisma.quizAnswer.findMany({ where: { submittedAt: { lt: cutoffs.quizAnswer } }, select: { id: true }, take }),
+      (ids) => prisma.quizAnswer.deleteMany({ where: { id: { in: ids } } }),
+    );
   }
-  return { executions, dailyUsage: dailyUsage.count };
+
+  const result: PruneResult = {
+    executions,
+    dailyUsage: dailyUsage.count,
+    notificationFeed: notificationFeed.count,
+    competitionAutoSaves: competitionAutoSaves.count,
+    quizAnswers,
+  };
+
+  if (Object.values(result).some((n) => n > 0)) {
+    logger.info('🧹 Pruned old records', { ...result });
+  }
+  return result;
 }
 
 async function pruneOldRecordsIfDue(): Promise<void> {

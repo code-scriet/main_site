@@ -121,7 +121,7 @@ Startup in `apps/api/src/index.ts`:
 3. Middleware: helmet → compression → CORS allow-list → JSON → CSRF (cookie-auth writes) → optional req logger → rate limits.
 4. Mount routers + health/SEO.
 5. `initializeDatabase()` → hydrate security env → slug backfills.
-6. Background schedulers (event status + reminders + QOTD auto-publish): **ON by default in production**, off in development. `ENABLE_BACKGROUND_SCHEDULERS=true/false` forces it either way (`NODE_ENV` is normalized so anything ≠ `development` ⇒ production). Event-status + QOTD use event-driven in-memory timers (no polling); reminders poll every 6h. The reminder tick also runs retention pruning at most once per 24h (`pruneOldRecords()` in `utils/scheduler.ts`: Execution > 90d, PlaygroundDailyUsage > 60d; AuditLog deliberately untouched — manual run: `npm run db:prune [-- --dry-run]`).
+6. Background schedulers (event status + reminders + QOTD auto-publish): **ON by default in production**, off in development. `ENABLE_BACKGROUND_SCHEDULERS=true/false` forces it either way (`NODE_ENV` is normalized so anything ≠ `development` ⇒ production). Event-status + QOTD use event-driven in-memory timers (no polling); reminders poll every 6h. The reminder tick also runs retention pruning at most once per 24h (`pruneOldRecords()` in `utils/scheduler.ts`: Execution > 90d, PlaygroundDailyUsage > 60d, NotificationFeed expired-or-> 90d, CompetitionAutoSave on FINISHED rounds > 30d, QuizAnswer > 365d **only when `PRUNE_QUIZ_ANSWERS=true`** (default off; QuizParticipant leaderboard aggregates never pruned); AuditLog deliberately untouched — compliance trail, manual `DELETE /api/audit-logs/retention` only — manual run: `npm run db:prune [-- --dry-run]`).
 7. HTTP listen with port-retry on `EADDRINUSE`.
 8. `recoverActiveRounds()` re-arms competition timers.
 
@@ -625,6 +625,7 @@ Migration: `prisma/migrations/20260517210000_dashboard_v2/migration.sql` (additi
 | `ENABLE_DB_KEEPALIVE` | no | default off |
 | `DB_KEEPALIVE_INTERVAL_MS` | no | default 240000 |
 | `ENABLE_BACKGROUND_SCHEDULERS` | no | default ON in prod, OFF in dev; `true`/`false` overrides |
+| `PRUNE_QUIZ_ANSWERS` | no | `true` opts QuizAnswer (> 365d) into the retention sweep; default off |
 | `EVENT_STATUS_INTERVAL_MS` | no | deprecated — event-status is now event-driven (timer until next boundary), no longer polled |
 | `PORT` | no | default 5001 |
 
