@@ -827,6 +827,23 @@ export default function AdminScanner({ eventId, token, onEndSession }: AdminScan
               <span className="text-red-700 dark:text-red-300">Offline — scans saved locally</span>
             </>
           )}
+          {/* UX#6: persistent queue-depth pill so a scanner on bad door Wi-Fi
+              always sees how many scans are still waiting to sync, instead of
+              discovering the backlog only on unload. */}
+          {scanStats.pending > 0 && (
+            <span
+              className="ml-auto inline-flex items-center gap-1.5 rounded-full bg-amber-100 dark:bg-amber-900/40 px-2.5 py-1 text-xs font-medium text-amber-800 dark:text-amber-200"
+              title="Scans captured locally but not yet confirmed by the server"
+              aria-live="polite"
+            >
+              {syncStatus === 'syncing' ? (
+                <Loader2 className="h-3 w-3 animate-spin" />
+              ) : (
+                <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-amber-500" />
+              )}
+              {scanStats.pending} queued{syncStatus === 'syncing' ? ' — syncing…' : ' — will sync'}
+            </span>
+          )}
         </div>
 
         {/* Stats strip — compact tiles, matches design line 113-124. */}

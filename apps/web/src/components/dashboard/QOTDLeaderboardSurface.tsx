@@ -170,6 +170,18 @@ export default function QOTDLeaderboardSurface({
     : tab === 'weekly'
       ? weeklyDailyLoading
       : totalQ.isLoading;
+  // UX#8: a failed fetch must show an explicit error + retry, not be
+  // mistaken for an empty leaderboard.
+  const isError = tab === 'today'
+    ? todayQOTDQ.isError || dailyQ.isError
+    : tab === 'weekly'
+      ? weekHistoryQ.isError || weeklyDailyQueries.some((q) => q.isError)
+      : totalQ.isError;
+  const refetchAll = () => {
+    if (tab === 'today') { void todayQOTDQ.refetch(); void dailyQ.refetch(); }
+    else if (tab === 'weekly') { void weekHistoryQ.refetch(); weeklyDailyQueries.forEach((q) => { void q.refetch(); }); }
+    else { void totalQ.refetch(); }
+  };
   const dailyPublishedAt = todayQOTDQ.data?.publishedAt ?? dailyQ.data?.publishedAt ?? null;
   const weeklyDayCount = weeklyQotdIds.length;
 
@@ -206,6 +218,23 @@ export default function QOTDLeaderboardSurface({
       {loading ? (
         <DSCard padded>
           <div className="animate-pulse h-32" />
+        </DSCard>
+      ) : isError ? (
+        <DSCard padded>
+          <EmptyState
+            icon={<Trophy size={18} />}
+            title="Couldn't load the leaderboard"
+            body="Something went wrong fetching the rankings. Check your connection and try again."
+            action={
+              <button
+                type="button"
+                onClick={refetchAll}
+                className="h-8 px-3 text-[12.5px] font-medium rounded-[6px] bg-[var(--accent)] text-white hover:opacity-90"
+              >
+                Retry
+              </button>
+            }
+          />
         </DSCard>
       ) : tab === 'today' && !todayQOTDQ.data ? (
         <DSCard padded>
