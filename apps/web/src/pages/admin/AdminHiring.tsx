@@ -26,6 +26,7 @@ interface HiringApplication {
   skills?: string;
   applyingRole: string;
   status: string;
+  cycle?: string;
   userId?: string;
   createdAt: string;
 }
@@ -62,6 +63,8 @@ export default function AdminHiring() {
   const [error, setError] = useState<string | null>(null);
   const [roleFilter, setRoleFilter] = useState<string>('all');
   const [statusFilter, setStatusFilter] = useState<'' | Status>('');
+  const [cycleFilter, setCycleFilter] = useState<string>('');
+  const [cycles, setCycles] = useState<Array<{ cycle: string; count: number }>>([]);
   const [search, setSearch] = useState('');
   const [picked, setPicked] = useState<HiringApplication | null>(null);
   const [moving, setMoving] = useState<string | null>(null);
@@ -76,6 +79,7 @@ export default function AdminHiring() {
       const params = new URLSearchParams();
       if (roleFilter !== 'all') params.append('role', roleFilter);
       if (statusFilter) params.append('status', statusFilter);
+      if (cycleFilter) params.append('cycle', cycleFilter);
       params.append('limit', '100');
       const res = await fetch(`${API_URL}/hiring/applications?${params}`, { headers: { Authorization: `Bearer ${token}` } });
       if (!res.ok) throw new Error('Failed to load applications');
@@ -86,9 +90,18 @@ export default function AdminHiring() {
     } finally {
       setLoading(false);
     }
-  }, [token, roleFilter, statusFilter]);
+  }, [token, roleFilter, statusFilter, cycleFilter]);
 
   useEffect(() => { void load(); }, [load]);
+
+  // Load the distinct-cycles list once for the filter dropdown.
+  useEffect(() => {
+    if (!token) return;
+    void fetch(`${API_URL}/hiring/cycles`, { headers: { Authorization: `Bearer ${token}` } })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => { if (data?.data?.cycles) setCycles(data.data.cycles); })
+      .catch(() => { /* dropdown just stays empty on failure */ });
+  }, [token]);
 
   const moveTo = async (id: string, status: Status) => {
     if (!token) return;
@@ -213,6 +226,20 @@ export default function AdminHiring() {
             <option key={s} value={s}>{COL_LABEL[s]}</option>
           ))}
         </select>
+        {cycles.length > 0 && (
+          <select
+            value={cycleFilter}
+            onChange={(e) => setCycleFilter(e.target.value)}
+            className="h-8 px-2.5 text-[12.5px] bg-[var(--bg-raised)] border border-[var(--border-default)] rounded-[6px] outline-none focus:border-[var(--accent)]"
+            aria-label="Filter by hiring cycle"
+            title="Filter by hiring cycle"
+          >
+            <option value="">All cycles</option>
+            {cycles.map(({ cycle, count }) => (
+              <option key={cycle} value={cycle}>{cycle} ({count})</option>
+            ))}
+          </select>
+        )}
       </div>
 
       {error && (

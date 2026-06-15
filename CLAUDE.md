@@ -179,7 +179,7 @@ PUBLIC=0 · USER=1 · NETWORK=1 · MEMBER=2 · CORE_MEMBER=3 · ADMIN=4 · PRESI
 | `/api/users/*` | Yes | Admin-deep-control endpoints below |
 | `/api/stats/*` | No | Public + admin `/dashboard` with 12-tile insights |
 | `/api/settings/*` | Some (superAdmin/PRESIDENT for `/settings`, `/settings/email-templates`, `/settings/security-env`) | Admin manual triggers: `POST /event-status/sync-now`, `POST /reminders/trigger` (runs one reminder pass; respects global toggle + per-event opt-out + dedup). `POST /reset` preserves `attendanceJwtSecret` + `indexNowKey` (S9 — wiping them would invalidate every issued 90d attendance QR after the next restart) |
-| `/api/hiring/*` | Mixed | |
+| `/api/hiring/*` | Mixed | `/apply` stamps `Settings.hiringCycle`, dupes blocked per-cycle; `/applications?cycle=` admin filter; `/cycles` (Admin) distinct-cycles + current |
 | `/api/certificates/*` | Mixed | |
 | `/api/signatories/*` | Admin | |
 | `/api/upload/*` | Yes | `+/history` |
@@ -218,7 +218,7 @@ Relations: announcements, registrations, hiringApplications, qotdSubmissions, ne
 `id, userId, feature(UserBlockFeature), blockedAt, blockedBy, reason?, expiresAt?` · unique `[userId,feature]` · index `[feature,expiresAt]`. Lazy expiry via `requireNotBlocked(feature)`.
 
 ### Settings (singleton id='default')
-clubName/Email/Description · registrationOpen · maxEventsPerUser · announcementsEnabled · showAchievements/Leaderboard/QOTD · social URLs · contactPhone? · contactEmails(JSON `{label,email}[]`, admin-managed, shown on public `/contact`) · hiringEnabled + 5 categories · email* template bodies · show_tech_blogs · showNetwork · mailingEnabled · certificatesEnabled · playgroundEnabled · playgroundDailyLimit · competitionEnabled · problemsEnabled · email\*Enabled (welcome/eventCreation/registration/announcement/certificate/reminder/invitation/passwordReset) · emailTestingMode/TestRecipients · attendanceJwtSecret? · indexNowKey? · **accentColor** (default `"rust"`).
+clubName/Email/Description · registrationOpen · maxEventsPerUser · announcementsEnabled · showAchievements/Leaderboard/QOTD · social URLs · contactPhone? · contactEmails(JSON `{label,email}[]`, admin-managed, shown on public `/contact`) · hiringEnabled + 5 categories · hiringCycle (current season label, default "2026"; A11) · email* template bodies · show_tech_blogs · showNetwork · mailingEnabled · certificatesEnabled · playgroundEnabled · playgroundDailyLimit · competitionEnabled · problemsEnabled · email\*Enabled (welcome/eventCreation/registration/announcement/certificate/reminder/invitation/passwordReset) · emailTestingMode/TestRecipients · attendanceJwtSecret? · indexNowKey? · **accentColor** (default `"rust"`).
 
 ### Event
 `id, title, slug(unique), description, status(EventStatus), startDate, endDate?, registrationStartDate?, registrationEndDate?, location?, venue?, capacity?, imageUrl, createdBy, eventDays(default 1), dayLabels(JSON String[])?, eventType?, prerequisites?, registrationFields(JSON)?, agenda?, faqs(JSON)?, featured, highlights?, imageGallery(JSON)?, learningOutcomes?, resources(JSON)?, shortDescription?, speakers(JSON)?, tags(String[]), targetAudience?, videoUrl?, allowLateRegistration, remindersEnabled(default true), teamRegistration(default false), teamMinSize(1), teamMaxSize(4)` · relations: registrations, invitations, certificates, teams, competitionRounds. `remindersEnabled=false` makes the reminder scheduler skip this event's registrations (per-event admin opt-out, set in the event editor's Registration timeline card).
@@ -266,7 +266,7 @@ Problem: `id, slug(unique), title, body, difficulty, tags(String[]), allowedLang
 `id, name, title(default "Club President"), signatureUrl?, isActive`.
 
 ### HiringApplication
-`id, name, email(unique), phone?, department, year, skills?, applyingRole(ApplyingRole), status(ApplicationStatus), userId?`.
+`id, name, email, phone?, department, year, skills?, applyingRole(ApplyingRole), status(ApplicationStatus), cycle(default "2026"), userId?` · unique `[email, cycle]` (A11 — one application per email **per hiring season**, was global). `cycle` stamped from `Settings.hiringCycle` at apply time.
 
 ### AuditLog
 `id, userId, action, entity, entityId?, metadata(JSON)?, timestamp`.
