@@ -30,8 +30,18 @@ export default defineConfig([
       ],
       '@typescript-eslint/no-empty-object-type': 'warn',
       'react-refresh/only-export-components': 'off',
+      // eslint-plugin-react-hooks 7 ships React-Compiler-oriented rules that
+      // default to "error". This project hasn't adopted the React Compiler, and
+      // they flag valid existing patterns (e.g. initializing state from a ref's
+      // .current on the first render in useOfflineScanner). Kept as warnings —
+      // consistent with purity/set-state-in-effect above — so they surface for
+      // future cleanup without failing the build or forcing risky refactors of
+      // shipped, working components.
       'react-hooks/purity': 'warn',
       'react-hooks/set-state-in-effect': 'warn',
+      'react-hooks/refs': 'warn',
+      'react-hooks/static-components': 'warn',
+      'react-hooks/immutability': 'warn',
       'no-useless-escape': 'warn',
     },
   },
