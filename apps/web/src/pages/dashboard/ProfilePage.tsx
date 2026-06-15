@@ -55,7 +55,7 @@ const getPendingEventRedirectPath = (eventId: string, pendingType: 'solo' | 'tea
   pendingType === 'team' ? `/events/${eventId}` : `/events/${eventId}?register=1`;
 
 export default function ProfilePage() {
-  const { token, user, refreshUser } = useAuth();
+  const { token, user, refreshUser, adoptToken } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const redirectTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
@@ -225,16 +225,22 @@ export default function ProfilePage() {
     }
     setChangingPassword(true);
     try {
+      // S6: the API rotates the session on credential change (tokenVersion bump
+      // kills every other session). Adopt the returned fresh token before any
+      // follow-up request, or this session dies with the old token too.
+      let sessionToken = token;
       if (isAddingPassword || !profile?.hasPassword) {
-        await api.addPassword(newPassword, token);
+        const result = await api.addPassword(newPassword, token);
+        if (result?.token) { adoptToken(result.token); sessionToken = result.token; }
         setMessage({ type: 'success', text: 'Password set. You can now sign in with email + password.' });
       } else {
-        await api.changePassword(currentPassword, newPassword, token);
+        const result = await api.changePassword(currentPassword, newPassword, token);
+        if (result?.token) { adoptToken(result.token); sessionToken = result.token; }
         setMessage({ type: 'success', text: 'Password changed.' });
       }
       setCurrentPassword(''); setNewPassword(''); setConfirmPassword('');
       setShowPasswordForm(false); setIsAddingPassword(false);
-      const fresh = await api.getProfile(token);
+      const fresh = await api.getProfile(sessionToken);
       setProfile(fresh);
       void refreshUser();
     } catch (e) {
