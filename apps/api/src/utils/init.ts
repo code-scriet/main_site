@@ -17,6 +17,24 @@ export async function initializeDatabase() {
   try {
     logger.info('🔧 Initializing database...');
 
+    // Self-heal known Settings schema drift BEFORE any settings read/write.
+    // Production's `settings` table can be missing `site_launch_date` (the
+    // 20260524230555_about_page_content migration is recorded as applied but the
+    // column drifted away), and Prisma 7 SELECTs every schema column — so every
+    // full-row Settings query (getCachedSettings, admin GET, the PATCH upsert's
+    // RETURNING clause) fails with P2022 and 500s the site. `prisma migrate deploy`
+    // won't re-add a column for an already-applied migration, so repair it
+    // idempotently here. No-op on healthy DBs; tolerant so it never blocks startup.
+    try {
+      await prisma.$executeRawUnsafe(
+        `ALTER TABLE "settings" ADD COLUMN IF NOT EXISTS "site_launch_date" TIMESTAMP(3) NOT NULL DEFAULT '2026-01-01T00:00:00Z'`
+      );
+    } catch (healErr) {
+      logger.error('Settings schema self-heal (site_launch_date) failed', {
+        error: healErr instanceof Error ? healErr.message : String(healErr),
+      });
+    }
+
     // Get super admin credentials from environment variables
     const superAdminEmail = process.env.SUPER_ADMIN_EMAIL;
     const superAdminPassword = process.env.SUPER_ADMIN_PASSWORD;
