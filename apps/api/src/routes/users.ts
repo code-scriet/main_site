@@ -397,31 +397,6 @@ usersRouter.get('/search', authMiddleware, requireRole('ADMIN'), async (req: Req
 // Export all users to Excel (admin)
 usersRouter.get('/export', authMiddleware, requireRole('ADMIN'), async (_req: Request, res: Response) => {
   try {
-    const users = await prisma.user.findMany({
-      where: { role: { not: 'NETWORK' } },
-      orderBy: { createdAt: 'desc' },
-      take: 100,
-      select: {
-        id: true,
-        name: true,
-        email: true,
-        role: true,
-        phone: true,
-        course: true,
-        branch: true,
-        year: true,
-        bio: true,
-        profileCompleted: true,
-        oauthProvider: true,
-        githubUrl: true,
-        linkedinUrl: true,
-        twitterUrl: true,
-        websiteUrl: true,
-        createdAt: true,
-        _count: { select: { registrations: true, qotdSubmissions: true } },
-      },
-    });
-
     const ExcelJS = await import('exceljs');
     const workbook = new ExcelJS.default.Workbook();
     workbook.creator = 'code.scriet';
@@ -458,26 +433,73 @@ usersRouter.get('/export', authMiddleware, requireRole('ADMIN'), async (_req: Re
     worksheet.getRow(1).alignment = { horizontal: 'center', vertical: 'middle' };
     worksheet.getRow(1).height = 25;
 
-    // Add data rows
-    users.forEach((user, index) => {
-      worksheet.addRow({
-        sno: index + 1,
-        name: user.name,
-        email: user.email,
-        role: user.role,
-        phone: user.phone || 'N/A',
-        course: user.course || 'N/A',
-        branch: user.branch || 'N/A',
-        year: user.year || 'N/A',
-        profileCompleted: user.profileCompleted ? 'Yes' : 'No',
-        authMethod: user.oauthProvider || 'Email/Password',
-        eventsRegistered: user._count.registrations,
-        qotdSubmissions: user._count.qotdSubmissions,
-        github: user.githubUrl || '',
-        linkedin: user.linkedinUrl || '',
-        joined: user.createdAt.toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }),
+    // C1: the old single query exported only the 100 newest accounts while the
+    // UI labels this "Export all users" — silent data loss in the artifact
+    // admins trust most. Cursor-batch the full table instead (mail.ts
+    // bulk-audience pattern); summary counts accumulate per batch.
+    const EXPORT_BATCH_SIZE = 500;
+    let cursor: string | undefined;
+    let serial = 0;
+    const roleCounts = { ADMIN: 0, CORE_MEMBER: 0, USER: 0 };
+    let profilesCompleted = 0;
+
+    while (true) {
+      const users = await prisma.user.findMany({
+        where: { role: { not: 'NETWORK' } },
+        // Cursor pagination needs a unique tiebreaker; id keeps the
+        // newest-first sheet order stable across batches.
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        take: EXPORT_BATCH_SIZE,
+        ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          role: true,
+          phone: true,
+          course: true,
+          branch: true,
+          year: true,
+          profileCompleted: true,
+          oauthProvider: true,
+          githubUrl: true,
+          linkedinUrl: true,
+          createdAt: true,
+          _count: { select: { registrations: true, qotdSubmissions: true } },
+        },
       });
-    });
+
+      if (users.length === 0) break;
+      cursor = users[users.length - 1].id;
+
+      for (const user of users) {
+        serial += 1;
+        if (user.role === 'ADMIN') roleCounts.ADMIN += 1;
+        else if (user.role === 'CORE_MEMBER') roleCounts.CORE_MEMBER += 1;
+        else if (user.role === 'USER') roleCounts.USER += 1;
+        if (user.profileCompleted) profilesCompleted += 1;
+
+        worksheet.addRow({
+          sno: serial,
+          name: user.name,
+          email: user.email,
+          role: user.role,
+          phone: user.phone || 'N/A',
+          course: user.course || 'N/A',
+          branch: user.branch || 'N/A',
+          year: user.year || 'N/A',
+          profileCompleted: user.profileCompleted ? 'Yes' : 'No',
+          authMethod: user.oauthProvider || 'Email/Password',
+          eventsRegistered: user._count.registrations,
+          qotdSubmissions: user._count.qotdSubmissions,
+          github: user.githubUrl || '',
+          linkedin: user.linkedinUrl || '',
+          joined: user.createdAt.toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }),
+        });
+      }
+
+      if (users.length < EXPORT_BATCH_SIZE) break;
+    }
 
     // Add alternating row colors
     worksheet.eachRow((row, rowNumber) => {
@@ -498,11 +520,11 @@ usersRouter.get('/export', authMiddleware, requireRole('ADMIN'), async (_req: Re
 
     // Add summary sheet
     const summarySheet = workbook.addWorksheet('Summary');
-    summarySheet.addRow(['Total Users', users.length]);
-    summarySheet.addRow(['Admins', users.filter(u => u.role === 'ADMIN').length]);
-    summarySheet.addRow(['Core Members', users.filter(u => u.role === 'CORE_MEMBER').length]);
-    summarySheet.addRow(['Members', users.filter(u => u.role === 'USER').length]);
-    summarySheet.addRow(['Profiles Completed', users.filter(u => u.profileCompleted).length]);
+    summarySheet.addRow(['Total Users', serial]);
+    summarySheet.addRow(['Admins', roleCounts.ADMIN]);
+    summarySheet.addRow(['Core Members', roleCounts.CORE_MEMBER]);
+    summarySheet.addRow(['Members', roleCounts.USER]);
+    summarySheet.addRow(['Profiles Completed', profilesCompleted]);
     summarySheet.addRow(['Export Date', new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })]);
 
     summarySheet.getColumn(1).width = 20;
