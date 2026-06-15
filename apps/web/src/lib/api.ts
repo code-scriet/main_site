@@ -1,7 +1,8 @@
-// Helpers (request, requestEnvelope, requestForm, requestBlob, UnauthorizedError)
-// live in ./api/_internal.ts. The class is re-exported here so existing
-// `import { UnauthorizedError } from '@/lib/api'` call sites keep working.
-import { UnauthorizedError } from './api/_internal';
+// Helpers (request, requestEnvelope, requestForm, requestBlob, UnauthorizedError,
+// ApiError) live in ./api/_internal.ts. The classes are re-exported here so
+// existing `import { UnauthorizedError } from '@/lib/api'` call sites keep
+// working and forms can `import { ApiError } from '@/lib/api'` for field errors.
+import { UnauthorizedError, ApiError } from './api/_internal';
 import { authApi } from './api/auth';
 import { eventsApi } from './api/events';
 import { contentApi } from './api/content';
@@ -10,7 +11,7 @@ import { usersApi } from './api/users';
 import { adminOpsApi } from './api/admin-ops';
 import { eventOpsApi } from './api/event-ops';
 
-export { UnauthorizedError };
+export { UnauthorizedError, ApiError };
 
 
 

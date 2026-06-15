@@ -154,7 +154,7 @@ function validateTeamRegistrationFields(eventRegistrationFields: unknown, submis
     throw {
       status: 400,
       message: 'Additional registration details required',
-      details: validation.errors,
+      details: validation.errors.map((e) => ({ field: e.fieldId, message: e.message })),
     };
   }
 

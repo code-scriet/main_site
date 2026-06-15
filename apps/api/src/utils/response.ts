@@ -1,7 +1,10 @@
 // API Response helpers for consistent response formatting
 import { Response } from 'express';
 
-const isProduction = process.env.NODE_ENV === 'production';
+// Evaluated at call time (not module load) so behavior tracks the current
+// NODE_ENV — required for deterministic unit tests that exercise the
+// production-only sanitization path in a shared test process.
+const isProduction = () => process.env.NODE_ENV === 'production';
 
 /**
  * CDN/browser cache header for anonymous, identical-for-everyone GET responses.
@@ -31,7 +34,7 @@ export function setPublicCache(res: Response, maxAgeSeconds = 60, staleWhileReva
 
 // Filter potentially sensitive information from error details in production
 function sanitizeErrorDetails(details: unknown, seen?: WeakSet<object>): unknown {
-  if (!isProduction || details === undefined) {
+  if (!isProduction() || details === undefined) {
     return details;
   }
 
@@ -51,6 +54,15 @@ function sanitizeErrorDetails(details: unknown, seen?: WeakSet<object>): unknown
       return '[Circular]';
     }
     visited.add(details as object);
+
+    // Preserve arrays as arrays. The generic object path below rebuilds objects
+    // via Object.entries, which would turn [{...}] into a {"0":{...}} map and
+    // break any consumer that relies on Array.isArray — e.g. the field-error
+    // lists in error.details emitted by ApiResponse.validationError(). Recurse
+    // with the same visited set so nested entries are still sanitized.
+    if (Array.isArray(details)) {
+      return details.map((item) => sanitizeErrorDetails(item, visited));
+    }
 
     // If it's an Error-like object, strip the stack
     if ('stack' in details) {

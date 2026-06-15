@@ -146,7 +146,7 @@ registrationsRouter.post('/events/:eventId', authMiddleware, requireNotBlocked('
                 success: false,
                 error: {
                   message: 'Additional registration details required',
-                  details: validation.errors,
+                  details: validation.errors.map((e) => ({ field: e.fieldId, message: e.message })),
                 },
                 data: {
                   requiredFields: registrationFields,
