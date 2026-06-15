@@ -25,6 +25,18 @@ export default tseslint.config(
       ],
       '@typescript-eslint/no-explicit-any': 'warn',
       '@typescript-eslint/no-unused-vars': ['warn', { argsIgnorePattern: '^_' }],
+      // eslint-plugin-react-hooks 7 React-Compiler rules + new eslint 10 core
+      // rules default to "error"; this app hasn't adopted the compiler and the
+      // flagged patterns are valid. Kept as warnings (matches the web config) so
+      // they surface without failing the build or forcing risky refactors.
+      'react-hooks/set-state-in-effect': 'warn',
+      'react-hooks/refs': 'warn',
+      'react-hooks/use-memo': 'warn',
+      'react-hooks/purity': 'warn',
+      'react-hooks/immutability': 'warn',
+      'react-hooks/static-components': 'warn',
+      'no-useless-assignment': 'warn',
+      'preserve-caught-error': 'warn',
     },
   }
 );
