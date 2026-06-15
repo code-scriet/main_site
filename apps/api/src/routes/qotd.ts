@@ -1,4 +1,5 @@
-import { Router, Request, Response } from 'express';
+import { Router, Response } from 'express';
+import type { Request } from '../lib/http.js';
 import { ProblemLanguage, type Problem, type QOTD } from '@prisma/client';
 import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';

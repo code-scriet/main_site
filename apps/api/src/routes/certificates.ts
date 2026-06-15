@@ -1,4 +1,5 @@
-import { Router, Request, Response } from 'express';
+import { Router, Response } from 'express';
+import type { Request } from '../lib/http.js';
 import rateLimit from 'express-rate-limit';
 import { z } from 'zod';
 import fs from 'fs';
