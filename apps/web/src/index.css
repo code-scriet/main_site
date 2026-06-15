@@ -1,6 +1,13 @@
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+/* Tailwind v4: single import replaces the v3 @tailwind directives. The existing
+   v3 JS config (theme tokens, content globs, tailwindcss-animate plugin) is kept
+   verbatim via the @config bridge — lowest-risk migration, all design-system
+   token scopes ([data-dashboard]/[data-public]/.home-v2) below are untouched. */
+@import "tailwindcss";
+/* tailwindcss-animate is a v3 JS plugin that no-ops under v4's plugin API — the
+   shadcn dialog/sheet/dropdown enter/exit utilities (animate-in, fade-in-0,
+   zoom-in-95, slide-in-from-*) come from its v4-native drop-in replacement. */
+@import "tw-animate-css";
+@config "../tailwind.config.js";
 
 @layer base {
   :root {
