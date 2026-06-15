@@ -1,4 +1,4 @@
-// scripts/prerender.js
+// scripts/prerender.mjs
 // Build-time prerender for SEO-critical pages.
 //
 // After `vite build`, this script walks the public API and emits a real HTML

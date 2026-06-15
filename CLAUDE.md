@@ -51,7 +51,7 @@ Full-stack monorepo for CCSU's coding club. Events (solo + team + guest invites)
 | Real-time | Socket.io: `/quiz`, `/attendance`, `/notifications` namespaces |
 | Email | Brevo REST API (`BREVO_API_KEY`) |
 | Storage | Cloudinary (images + cert PDFs) |
-| PDF | `@react-pdf/renderer` server-side |
+| PDF | `@react-pdf/renderer` server-side (this is why `react`/`react-dom` are `apps/api` deps — keep them) |
 | Img processing | `sharp` (signature cleanup) |
 | Export | ExcelJS |
 | QR | `qrcode.react` (render) + `html5-qrcode` (scan) |
@@ -89,7 +89,7 @@ apps/
   playground/         execute-server.js (plain JS) + Vite app
 prisma/               schema.prisma + migrations + seed.ts
 workers/executor.js   CF Worker → Wandbox
-scripts/              migrate/sitemap/prerender/streak-backfill
+scripts/              migrate/sitemap(.mjs)/prerender(.mjs)/streak-backfill + dev seed scripts (create_test_*, update_outreach_dsa — moved out of apps/api/src so they no longer compile into dist). Build scripts use explicit .mjs (ESM) / .cjs (CommonJS) extensions to avoid Node's module-type warning.
 render.yaml           4 services
 ```
 
@@ -636,7 +636,7 @@ Migration: `prisma/migrations/20260517210000_dashboard_v2/migration.sql` (additi
 
 4 services in `render.yaml`:
 1. **codescriet-api** — Node web. Build: `npm install --include=dev && npx prisma generate --schema=./prisma/schema.prisma && npm run build --workspace=apps/api`. Start: migration resolve/deploy + `npm run start --workspace=apps/api`. Sets `ENABLE_BACKGROUND_SCHEDULERS=true` (event-status sync + event reminders + QOTD auto-publish; safe because UptimeRobot keeps the instance warm). `buildFilter` scopes deploys to `apps/api/**, prisma/**, package.json, package-lock.json` (G2 — web-only commits no longer restart the API and kill live quizzes).
-2. **codescriet-web** — static. Build: `npm install && node scripts/generate-sitemap.js && npm run build --workspace=apps/web && node scripts/prerender.js` (prerenders route-specific HTML for crawlers/social cards).
+2. **codescriet-web** — static. Build: `npm install && node scripts/generate-sitemap.mjs && npm run build --workspace=apps/web && node scripts/prerender.mjs` (prerenders route-specific HTML for crawlers/social cards).
 3. **codescriet-playground-api** — Node (`node execute-server.js`).
 4. **codescriet-playground-web** — static (`apps/playground/dist`).
 

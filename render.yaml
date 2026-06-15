@@ -92,7 +92,7 @@ services:
         source: /post-sitemap.xml
         destination: /sitemap.xml
       # Listing/static prerendered routes — make /about resolve to the real
-      # apps/web/dist/about/index.html file built by scripts/prerender.js.
+      # apps/web/dist/about/index.html file built by scripts/prerender.mjs.
       # Render's default routing rewrites every extension-less path to
       # /index.html, bypassing the prerender output, so we need these
       # explicit mappings (clean_urls semantics).
