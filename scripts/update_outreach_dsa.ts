@@ -1,6 +1,6 @@
-import { PrismaClient } from '@prisma/client';
+import { makePrismaClient } from './prismaClient.js';
 
-const prisma = new PrismaClient();
+const prisma = makePrismaClient();
 
 async function main() {
   const result = await prisma.teamMember.updateMany({

@@ -13,7 +13,8 @@
     "lint": "eslint ."
   },
   "dependencies": {
-    "@prisma/client": "^5.8.0",
+    "@prisma/adapter-pg": "^7.8.0",
+    "@prisma/client": "^7.8.0",
     "@react-pdf/renderer": "^4.3.2",
     "bcryptjs": "^3.0.3",
     "bufferutil": "^4.1.0",
@@ -58,7 +59,7 @@
     "@types/react-dom": "^19.2.3",
     "@types/sanitize-html": "^2.16.0",
     "@types/sharp": "^0.31.1",
-    "prisma": "^5.8.0",
+    "prisma": "^7.8.0",
     "tsx": "^4.7.0",
     "typescript": "^5.3.3"
   }

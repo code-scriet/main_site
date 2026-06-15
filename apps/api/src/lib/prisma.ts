@@ -1,13 +1,20 @@
 import { PrismaClient } from '@prisma/client';
+import { PrismaPg } from '@prisma/adapter-pg';
 import { logger } from '../utils/logger.js';
 
 declare global {
   var prisma: PrismaClient | undefined;
 }
 
-// Configure Prisma with retry logic for Neon serverless cold starts
+// Configure Prisma with retry logic for Neon serverless cold starts.
+// Prisma 7 connects through a driver adapter; PrismaPg uses node-postgres against
+// the pooled DATABASE_URL (Neon pooler), matching the prior datasource `url`.
+// Migrate/introspect use DIRECT_URL via prisma.config.ts. The pool/connection
+// limits remain Neon-pooler-managed — no in-process pool tuning added.
 const createPrismaClient = () => {
+  const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL });
   return new PrismaClient({
+    adapter,
     log: process.env.NODE_ENV === 'development' ? ['error', 'warn'] : ['error'],
   });
 };

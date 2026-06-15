@@ -1,6 +1,6 @@
-import { PrismaClient } from '@prisma/client';
+import { makePrismaClient } from './prismaClient.js';
 
-const prisma = new PrismaClient();
+const prisma = makePrismaClient();
 const REGISTRATION_BATCH_SIZE = 100;
 const INSERT_BATCH_SIZE = 100;
 

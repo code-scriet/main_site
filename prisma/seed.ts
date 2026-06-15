@@ -1,10 +1,10 @@
-import { PrismaClient } from '@prisma/client';
+import { makePrismaClient } from '../scripts/prismaClient.js';
 import * as bcrypt from 'bcryptjs';
 import * as dotenv from 'dotenv';
 
 dotenv.config();
 
-const prisma = new PrismaClient();
+const prisma = makePrismaClient();
 
 async function main() {
   console.log('🌱 Starting database seed...');
