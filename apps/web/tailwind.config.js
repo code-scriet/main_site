@@ -71,5 +71,7 @@ export default {
       },
     },
   },
-  plugins: [require('tailwindcss-animate')],
+  // tailwindcss-animate removed (incompatible with the v4 plugin API); its
+  // utilities now come from `@import "tw-animate-css"` in index.css.
+  plugins: [],
 }
