@@ -1136,21 +1136,32 @@ quizRouter.get('/:quizId', authMiddleware, async (req: Request, res: Response) =
 
     const user = getAuthUser(req);
     const isCreator = user?.id === quiz.createdBy;
+    const isAdminRole = ['ADMIN', 'PRESIDENT'].includes(user?.role || '');
+    const isHost = isCreator || isAdminRole;
 
-    // Include correct answers only if quiz is finished or user is the creator
-    const questions = (quiz.status === 'FINISHED' || isCreator)
-      ? quiz.questions
-      : quiz.questions.map((q) => ({
-          id: q.id,
-          position: q.position,
-          questionText: q.questionText,
-          questionType: q.questionType,
-          options: q.options,
-          timeLimitSeconds: q.timeLimitSeconds,
-          points: q.points,
-          mediaUrl: q.mediaUrl,
-          // NO correctAnswer for non-finished quizzes
-        }));
+    // B4: while a quiz is live (or still a draft), non-hosts must not read
+    // question texts over HTTP — a joined player could otherwise fetch every
+    // upcoming question and search answers during the countdowns. Players
+    // receive each question via the socket `show_question` event when it goes
+    // live; only the creator/admin sees the list before the quiz finishes.
+    const questionsHidden = !isHost && quiz.status !== 'FINISHED' && quiz.status !== 'ABANDONED';
+
+    // Include correct answers only if quiz is finished or viewer is the host
+    const questions = questionsHidden
+      ? []
+      : (quiz.status === 'FINISHED' || isHost)
+        ? quiz.questions
+        : quiz.questions.map((q) => ({
+            id: q.id,
+            position: q.position,
+            questionText: q.questionText,
+            questionType: q.questionType,
+            options: q.options,
+            timeLimitSeconds: q.timeLimitSeconds,
+            points: q.points,
+            mediaUrl: q.mediaUrl,
+            // NO correctAnswer for non-finished quizzes
+          }));
 
     return ApiResponse.success(res, {
       id: quiz.id,
