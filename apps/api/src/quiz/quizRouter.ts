@@ -20,6 +20,7 @@ import { QuizCapacityError, quizStore } from './quizStore.js';
 import rateLimit from 'express-rate-limit';
 import { socketEvents } from '../utils/socket.js';
 import { uuidParamGuard } from '../utils/idParams.js';
+import { getClientIp } from '../utils/clientIp.js';
 
 export const quizRouter = Router();
 
@@ -34,6 +35,7 @@ const quizCreateLimiter = rateLimit({
   message: { error: 'Too many quiz creations, please try again later.' },
   standardHeaders: true,
   legacyHeaders: false,
+  keyGenerator: (req) => getClientIp(req),
 });
 
 // Rate limit join-code lookups and PIN joins to reduce brute-force attempts
@@ -43,6 +45,7 @@ const quizLookupLimiter = rateLimit({
   message: { error: 'Too many join-code lookups, please try again later.' },
   standardHeaders: true,
   legacyHeaders: false,
+  keyGenerator: (req) => getClientIp(req),
 });
 
 const quizJoinLimiter = rateLimit({
@@ -52,6 +55,7 @@ const quizJoinLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   skipSuccessfulRequests: true,
+  keyGenerator: (req) => getClientIp(req),
 });
 
 const quizImportUpload = multer({

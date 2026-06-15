@@ -829,10 +829,23 @@ settingsRouter.post('/reset', authMiddleware, requireRole('ADMIN'), async (req: 
       return;
     }
 
+    // S9: reset must not wipe the runtime security env. attendanceJwtSecret
+    // signs every issued 90-day attendance QR — losing it invalidates them all
+    // after the next restart (the in-memory secret cache hides the loss until
+    // then). indexNowKey likewise has no recovery path. Carry both across.
+    const preserved = await prisma.settings.findUnique({
+      where: { id: 'default' },
+      select: { attendanceJwtSecret: true, indexNowKey: true },
+    });
+
     await prisma.settings.delete({ where: { id: 'default' } }).catch(() => {});
 
     const settings = await prisma.settings.create({
-      data: { id: 'default' },
+      data: {
+        id: 'default',
+        ...(preserved?.attendanceJwtSecret ? { attendanceJwtSecret: preserved.attendanceJwtSecret } : {}),
+        ...(preserved?.indexNowKey ? { indexNowKey: preserved.indexNowKey } : {}),
+      },
     });
 
     // Reset blows away every cached setting field — invalidate every settings

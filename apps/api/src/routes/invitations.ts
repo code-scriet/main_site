@@ -19,6 +19,7 @@ import { socketEvents } from '../utils/socket.js';
 import { executeSerializableTransaction, isSerializationConflict } from '../utils/transactionRetry.js';
 import { createEventRegistrationInTx } from '../utils/registrationIntake.js';
 import { requireUuid } from '../utils/idParams.js';
+import { getClientIp } from '../utils/clientIp.js';
 
 export const invitationsRouter = Router();
 
@@ -32,6 +33,7 @@ const claimRateLimiter = rateLimit({
   message: { success: false, error: { message: 'Too many invitation claim attempts. Please try again later.' } },
   standardHeaders: true,
   legacyHeaders: false,
+  keyGenerator: (req) => getClientIp(req),
 });
 
 const invitationDetailInclude = Prisma.validator<Prisma.EventInvitationInclude>()({

@@ -145,7 +145,8 @@ Crash handlers (G1): `unhandledRejection` is logged with stack, process keeps ru
 - **Dev:** `POST /api/auth/dev-login` only when `ENABLE_DEV_AUTH=true`. Returns 404 when disabled.
 - **CSRF guard:** Cookie-authed mutating `/api/*` writes must come from `Origin/Referer` in `isAllowedBrowserOrigin()` allow-list. Bearer bypasses.
 - **CORS:** Explicit allowlist `ALLOWED_CODESCRIET_ORIGINS` (no subdomain wildcard). Dev: localhost/127.0.0.1/LAN IPs.
-- **Rate limits:** General 500/15min/IP, Auth 50/15min, password reset 20/15min.
+- **Rate limits:** General 500/15min/IP, Auth 50/15min, password reset 20/15min, hiring apply 15/15min/IP, polls vote/feedback 60/15min/IP (deliberately above the teams-join 15 — a hall voting behind one campus NAT must survive), teams join 15/15min, mail `emails[]` capped at 500/request.
+- **Client IP (S2):** every IP-keyed limiter + login telemetry resolves via [apps/api/src/utils/clientIp.ts](apps/api/src/utils/clientIp.ts) — `CF-Connecting-IP` honored **only when the peer is inside Cloudflare's published ranges**, else Express `trust proxy` resolution; the Socket.io connection limiter uses `getSocketClientIp` (right-most XFF = the hop the platform proxy saw — never the client-controlled first entry). `LOG_IP_DIAGNOSTICS=true` logs `req.ip` vs `cf-connecting-ip` vs XFF per request for the 24h prod readback (ops-checklist).
 
 ---
 
@@ -177,7 +178,7 @@ PUBLIC=0 · USER=1 · NETWORK=1 · MEMBER=2 · CORE_MEMBER=3 · ADMIN=4 · PRESI
 | `/api/qotd/*` | Mixed | |
 | `/api/users/*` | Yes | Admin-deep-control endpoints below |
 | `/api/stats/*` | No | Public + admin `/dashboard` with 12-tile insights |
-| `/api/settings/*` | Some (superAdmin/PRESIDENT for `/settings`, `/settings/email-templates`, `/settings/security-env`) | Admin manual triggers: `POST /event-status/sync-now`, `POST /reminders/trigger` (runs one reminder pass; respects global toggle + per-event opt-out + dedup) |
+| `/api/settings/*` | Some (superAdmin/PRESIDENT for `/settings`, `/settings/email-templates`, `/settings/security-env`) | Admin manual triggers: `POST /event-status/sync-now`, `POST /reminders/trigger` (runs one reminder pass; respects global toggle + per-event opt-out + dedup). `POST /reset` preserves `attendanceJwtSecret` + `indexNowKey` (S9 — wiping them would invalidate every issued 90d attendance QR after the next restart) |
 | `/api/hiring/*` | Mixed | |
 | `/api/certificates/*` | Mixed | |
 | `/api/signatories/*` | Admin | |
@@ -628,6 +629,7 @@ Migration: `prisma/migrations/20260517210000_dashboard_v2/migration.sql` (additi
 | `ATTENDANCE_TOKEN_EXPIRES_IN` | no | attendance QR JWT lifetime, default `90d` |
 | `ENABLE_REQUEST_LOGGING` | no | |
 | `ENABLE_DB_KEEPALIVE` | no | default off |
+| `LOG_IP_DIAGNOSTICS` | no | `true` logs `req.ip` vs `cf-connecting-ip` vs XFF per request (24h S2 readback, then unset) |
 | `DB_KEEPALIVE_INTERVAL_MS` | no | default 240000 |
 | `ENABLE_BACKGROUND_SCHEDULERS` | no | default ON in prod, OFF in dev; `true`/`false` overrides |
 | `PRUNE_QUIZ_ANSWERS` | no | `true` opts QuizAnswer (> 365d) into the retention sweep; default off |

@@ -1,5 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { Prisma } from '@prisma/client';
+import rateLimit from 'express-rate-limit';
 import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
 import { authMiddleware, getAuthUser, optionalAuthMiddleware } from '../middleware/auth.js';
@@ -10,8 +11,21 @@ import { emailService } from '../utils/email.js';
 import { logger } from '../utils/logger.js';
 import { parsePaginationNumber } from '../utils/pagination.js';
 import { requireUuid } from '../utils/idParams.js';
+import { getClientIp } from '../utils/clientIp.js';
 
 export const hiringRouter = Router();
+
+// S10: /apply is public (optional auth) and previously rode only the general
+// 500/15min limiter — spam could exhaust the unique-email namespace. Teams-join
+// pattern: 15/15min per IP is generous for a form humans submit once.
+const applyRateLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 15,
+  message: { success: false, error: { message: 'Too many applications from this network. Please try again later.' } },
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => getClientIp(req),
+});
 
 const applyingRoles = ['TECHNICAL', 'DSA_CHAMPS', 'DESIGNING', 'SOCIAL_MEDIA', 'MANAGEMENT'] as const;
 const applicationStatuses = ['PENDING', 'INTERVIEW_SCHEDULED', 'SELECTED', 'REJECTED'] as const;
@@ -54,7 +68,7 @@ const sendHiringStatusEmailAsync = (
 };
 
 // Submit a new hiring application (public or authenticated)
-hiringRouter.post('/apply', optionalAuthMiddleware, async (req: Request, res: Response) => {
+hiringRouter.post('/apply', applyRateLimiter, optionalAuthMiddleware, async (req: Request, res: Response) => {
   try {
     const validation = hiringApplicationSchema.safeParse(req.body);
     if (!validation.success) {
