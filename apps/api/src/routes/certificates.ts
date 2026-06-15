@@ -4,7 +4,7 @@ import { z } from 'zod';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { CertType, Prisma } from '@prisma/client';
+import { CertType, CertTemplate, CertEmailTemplate, Prisma } from '@prisma/client';
 import { prisma } from '../lib/prisma.js';
 import { authMiddleware, getAuthUser } from '../middleware/auth.js';
 import { requireRole } from '../middleware/role.js';
@@ -773,11 +773,11 @@ interface IssueCertificateParams {
   domain: string | null | undefined;
   teamName: string | null | undefined;
   description: string | null | undefined;
-  template: string;
+  template: CertTemplate;
   primarySig: ResolvedSignatory;
   facultySig: ResolvedSignatory | null;
   issuedBy: string;
-  emailTemplate?: string;
+  emailTemplate?: CertEmailTemplate;
   emailSignerName?: string | null;
 }
 

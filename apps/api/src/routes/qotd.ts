@@ -65,7 +65,7 @@ const createQotdSchema = z.object({
   problemId: z.string().uuid().optional(),
   newProblem: problemInputSchema.optional(),
   question: z.string().trim().min(5).max(2000).optional(),
-  difficulty: z.string().trim().min(1).max(40).optional(),
+  difficulty: z.enum(['EASY', 'MEDIUM', 'HARD']).optional(),
   problemLink: z.string().url('problemLink must be a valid URL').optional(),
   publishNow: z.boolean().optional(),
   // IST wall-clock time of day to go live (HH:mm). Combined with `date` to build
@@ -77,7 +77,7 @@ const createQotdSchema = z.object({
 
 const updateQotdSchema = z.object({
   question: z.string().trim().min(5).max(2000).optional(),
-  difficulty: z.string().trim().min(1).max(40).optional(),
+  difficulty: z.enum(['EASY', 'MEDIUM', 'HARD']).optional(),
   problemLink: z.string().url('problemLink must be a valid URL').optional(),
   problemId: z.string().uuid().nullable().optional(),
   date: z.coerce.date().optional(),
