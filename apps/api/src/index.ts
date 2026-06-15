@@ -509,6 +509,9 @@ app.use((err: Error, req: express.Request, res: express.Response, _next: express
 // Graceful shutdown
 let shuttingDown = false;
 let shutdownTimer: NodeJS.Timeout | null = null;
+// Set when shutdown was triggered by a crash (uncaughtException) so the
+// otherwise-clean drain still reports failure instead of exit 0.
+let fatalCrash = false;
 
 const shutdown = async () => {
   if (shuttingDown) {
@@ -544,11 +547,11 @@ const shutdown = async () => {
   httpServer.close(async () => {
     try {
       await prisma.$disconnect();
-      logger.info('Clean exit');
+      logger.info(fatalCrash ? 'Drained after crash' : 'Clean exit');
       if (shutdownTimer) {
         clearTimeout(shutdownTimer);
       }
-      process.exit(0);
+      process.exit(fatalCrash ? 1 : 0);
     } catch (error) {
       logger.error('Error during Prisma disconnect', {
         error: error instanceof Error ? error.message : String(error),
@@ -560,6 +563,31 @@ const shutdown = async () => {
 
 process.on('SIGTERM', shutdown);
 process.on('SIGINT', shutdown);
+
+// G1: crash forensics + graceful drain on a 24/7 single process.
+// Node 20's default kills the process on an unhandled rejection with no
+// context. Every `void`ed promise in the codebase (audit writes, socket
+// sweeps, email sends) is individually .catch'ed today, but one future miss
+// inside a socket handler would otherwise take down every live quiz with no
+// diagnostic. Log it; only an uncaught *exception* forces an exit.
+process.on('unhandledRejection', (reason) => {
+  logger.error('Unhandled promise rejection', {
+    reason: reason instanceof Error ? reason.stack || reason.message : String(reason),
+  });
+});
+
+// An uncaught exception leaves undefined state — exit, but through the same
+// graceful path SIGTERM takes: schedulers stop, sockets close, live quizzes
+// persist as ABANDONED. A crash becomes a clean quiz persist instead of data
+// loss. shutdown() is idempotent (shuttingDown flag) and its 28s hard-timeout
+// still guarantees the process dies even if the drain itself is wedged.
+process.on('uncaughtException', (error) => {
+  logger.error('Uncaught exception — draining and exiting', {
+    error: error.stack || error.message,
+  });
+  fatalCrash = true;
+  void shutdown();
+});
 
 const startHttpServerWithRetry = (attempt = 1) => {
   const onError = (error: NodeJS.ErrnoException) => {
