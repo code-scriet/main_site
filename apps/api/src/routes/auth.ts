@@ -15,6 +15,7 @@ import { consumeOAuthExchangeJti, signAccessToken, signOAuthExchangeCode, verify
 import { auditLog } from '../utils/audit.js';
 import { hashPasswordResetToken } from '../utils/passwordReset.js';
 import { oauthStateMatches } from '../utils/oauthEmail.js';
+import { getCachedSettings } from '../utils/settingsCache.js';
 
 export const authRouter = Router();
 
@@ -239,6 +240,15 @@ authRouter.post('/register', registerLimiter, async (req: Request, res: Response
     const validation = registerSchema.safeParse(req.body);
     if (!validation.success) {
       return res.status(400).json({ error: validation.error.errors[0].message });
+    }
+
+    // L1: the admin's registrationOpen toggle must hold server-side — until
+    // now only SignInPage hid the form while direct POSTs sailed through.
+    const settings = await getCachedSettings();
+    if (settings?.registrationOpen === false) {
+      return res.status(403).json({
+        error: 'Registration is currently closed. New account creation is disabled right now — use an existing account or check back later.',
+      });
     }
 
     const { name, email, password } = validation.data;

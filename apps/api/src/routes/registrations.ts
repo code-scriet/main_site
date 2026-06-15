@@ -4,7 +4,7 @@ import { prisma } from '../lib/prisma.js';
 import { authMiddleware, getAuthUser } from '../middleware/auth.js';
 import { requireNotBlocked } from '../middleware/blocks.js';
 import { auditLog } from '../utils/audit.js';
-import { createEventRegistrationInTx } from '../utils/registrationIntake.js';
+import { assertWithinActiveEventLimitInTx, createEventRegistrationInTx, EventLimitExceededError } from '../utils/registrationIntake.js';
 import { emailService } from '../utils/email.js';
 import { logger } from '../utils/logger.js';
 import { requireUuid } from '../utils/idParams.js';
@@ -167,6 +167,21 @@ registrationsRouter.post('/events/:eventId', authMiddleware, requireNotBlocked('
               message: validationError instanceof Error ? validationError.message : 'Invalid registration fields',
             },
           });
+        }
+
+        // L2: Settings.maxEventsPerUser is enforced here, not just in UI copy.
+        try {
+          await assertWithinActiveEventLimitInTx(tx, authUser.id);
+        } catch (limitError) {
+          if (limitError instanceof EventLimitExceededError) {
+            throw new RegistrationHttpError(400, {
+              success: false,
+              error: {
+                message: `You can be registered for at most ${limitError.limit} upcoming events at a time. Leave one or wait for an event to finish before registering for another.`,
+              },
+            });
+          }
+          throw limitError;
         }
 
         const { registration: created, attendanceToken } = await createEventRegistrationInTx(tx, {

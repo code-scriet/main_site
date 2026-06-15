@@ -12,7 +12,7 @@ import { auditLog } from '../utils/audit.js';
 import { logger } from '../utils/logger.js';
 import { emailService } from '../utils/email.js';
 import { getRegistrationStatus } from '../utils/registrationStatus.js';
-import { createEventRegistrationInTx } from '../utils/registrationIntake.js';
+import { assertWithinActiveEventLimitInTx, createEventRegistrationInTx, EventLimitExceededError } from '../utils/registrationIntake.js';
 import { participantsOnly } from '../utils/registrationFilters.js';
 import { executeSerializableTransaction, isSerializationConflict } from '../utils/transactionRetry.js';
 import { sanitizeEventRegistrationFields, validateRegistrationFieldSubmissions } from '../utils/eventRegistrationFields.js';
@@ -337,6 +337,19 @@ teamsRouter.post('/create', authMiddleware, async (req: Request, res: Response) 
           throw { status: 500, message: 'Failed to generate unique invite code. Please try again.' };
         }
 
+        // L2: Settings.maxEventsPerUser is enforced here, not just in UI copy.
+        try {
+          await assertWithinActiveEventLimitInTx(tx, user.id);
+        } catch (limitError) {
+          if (limitError instanceof EventLimitExceededError) {
+            throw {
+              status: 400,
+              message: `You can be registered for at most ${limitError.limit} upcoming events at a time. Leave one or wait for an event to finish before creating a team.`,
+            };
+          }
+          throw limitError;
+        }
+
         // Create registration (+ attendance token + DayAttendance rows)
         const { registration, attendanceToken } = await createEventRegistrationInTx(tx, {
           userId: user.id,
@@ -579,6 +592,19 @@ teamsRouter.post('/join', authMiddleware, joinRateLimiter, async (req: Request, 
             status: 400,
             message: validationError instanceof Error ? validationError.message : 'Invalid registration fields',
           };
+        }
+
+        // L2: Settings.maxEventsPerUser is enforced here, not just in UI copy.
+        try {
+          await assertWithinActiveEventLimitInTx(tx, user.id);
+        } catch (limitError) {
+          if (limitError instanceof EventLimitExceededError) {
+            throw {
+              status: 400,
+              message: `You can be registered for at most ${limitError.limit} upcoming events at a time. Leave one or wait for an event to finish before joining a team.`,
+            };
+          }
+          throw limitError;
         }
 
         // Create registration (+ attendance token + DayAttendance rows)
