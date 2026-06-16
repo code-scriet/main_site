@@ -1,9 +1,11 @@
+// MUST be first: populates process.env before any import constructs the Prisma
+// client (Prisma 7's pg adapter reads DATABASE_URL at import time). See loadEnv.ts.
+import './config/loadEnv.js';
 import express from 'express';
 import compression from 'compression';
 import cors from 'cors';
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
-import dotenv from 'dotenv';
 import passport from 'passport';
 import { createServer } from 'http';
 import { Prisma } from '@prisma/client';
@@ -55,10 +57,8 @@ import { getJwtSecret } from './utils/jwt.js';
 import { setRuntimeAttendanceJwtSecret } from './utils/attendanceToken.js';
 import { getClientIp } from './utils/clientIp.js';
 
-// Load monorepo root .env first, then local .env (local overrides root).
-// In production (Render) neither file exists — env vars come from the dashboard.
-dotenv.config({ path: '../../.env' });
-dotenv.config();
+// Environment is loaded by ./config/loadEnv.js (imported first, above) so the
+// Prisma client sees DATABASE_URL at construction time.
 
 const app = express();
 const httpServer = createServer(app);

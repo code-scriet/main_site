@@ -116,7 +116,7 @@ npm run lint --workspace=apps/{api,web}
 ## Runtime Lifecycle (API)
 
 Startup in `apps/api/src/index.ts`:
-1. Load env (`../../.env` then local), fail-fast on insecure/missing JWT secret.
+1. Load env **first** via `import './config/loadEnv.js'` as index.ts's first import (`../../.env` then local), fail-fast on insecure/missing JWT secret. **Must precede every other import** — Prisma 7's pg adapter captures `DATABASE_URL` at construction (module-import) time, so loading env later (in the body) leaves the client with an undefined connection string → node-postgres defaults the DB to the OS user (local `P1003 database "<user>" does not exist`). Real env vars (Render) always win; this only bites `.env`-file setups.
 2. HTTP + Socket.io (`/quiz` + `/attendance` + `/notifications`).
 3. Middleware: helmet → compression → CORS allow-list → JSON → CSRF (cookie-auth writes) → optional req logger → rate limits.
 4. Mount routers + health/SEO.
