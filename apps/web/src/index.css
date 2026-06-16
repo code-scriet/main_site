@@ -2549,7 +2549,6 @@ html.dark [data-public] {
    * shadow so panels separate from the page. */
   --hx-amber: #ea580c;          /* accent for borders/text — deep enough for cream */
   --hx-amber-2: #f97316;
-  --hx-glow-amber: #f97316;     /* brighter tone reserved for glows/orbs/particles */
   --hx-edge: #ffffff;           /* page colour used for avatar ring gaps */
   --hx-glass: rgba(255, 255, 255, 0.82);
   --hx-glass-2: rgba(255, 255, 255, 0.92);
@@ -2591,7 +2590,6 @@ html.dark [data-public] {
 html.dark .home-v2 {
   --hx-amber: #f97316;          /* brighter accent reads well on charcoal */
   --hx-amber-2: #fbbf24;
-  --hx-glow-amber: #f97316;
   --hx-edge: #161413;
   --hx-glass: rgba(255, 255, 255, 0.04);
   --hx-glass-2: rgba(255, 255, 255, 0.06);
