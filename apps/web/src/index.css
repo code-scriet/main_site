@@ -3135,17 +3135,18 @@ html:not(.dark) .home-v2 .home-orb { opacity: 1; }
  * Scoped to .home-v2; dark mode keeps the charcoal glass look.
  * ========================================================================== */
 .home-v2 {
-  --c-primary: #ff6b35;
-  --c-secondary: #8b5cf6;
-  --c-accent: #3b82f6;
-  --c-success: #22c55e;
-  --c-cyan: #06b6d4;
+  /* Warm, logo-derived accent family (no purple/blue). */
+  --c-primary: #f97316;   /* orange */
+  --c-gold: #f59e0b;      /* amber-gold */
+  --c-red: #ef4444;       /* warm red */
+  --c-rust: #c2410c;      /* deep rust / maroon */
+  --c-success: #22c55e;   /* green — the one tasteful contrast */
 }
 
-/* Multi-colour brand gradient for highlight words (Tomorrow's, Compounds,
- * Stack, Technical Edge, Team, Industry Leaders …). */
+/* Warm brand gradient for highlight words (gold → orange → red), drawn from
+ * the logo's own palette. */
 .home-v2 .hx-grad-text {
-  background: linear-gradient(90deg, #ff6b35 0%, #8b5cf6 52%, #3b82f6 100%);
+  background: linear-gradient(90deg, #fbbf24 0%, #f97316 52%, #dc2626 100%);
   -webkit-background-clip: text;
           background-clip: text;
   -webkit-text-fill-color: transparent;
@@ -3169,20 +3170,20 @@ html:not(.dark) .home-v2 .bento-card:hover {
 .home-v2 .hsec { position: relative; }
 html:not(.dark) .home-v2 .hsec-warm {
   background:
-    radial-gradient(circle at 12% 0%, rgba(255, 107, 53, 0.10), transparent 38%),
-    radial-gradient(circle at 88% 100%, rgba(139, 92, 246, 0.08), transparent 42%),
+    radial-gradient(circle at 12% 0%, rgba(249, 115, 22, 0.12), transparent 38%),
+    radial-gradient(circle at 88% 100%, rgba(239, 68, 68, 0.08), transparent 42%),
     #fff7ed;
 }
 html:not(.dark) .home-v2 .hsec-alt {
   background:
-    radial-gradient(circle at 88% 0%, rgba(59, 130, 246, 0.09), transparent 40%),
-    radial-gradient(circle at 8% 100%, rgba(6, 182, 212, 0.07), transparent 42%),
-    #f8fafc;
+    radial-gradient(circle at 88% 0%, rgba(245, 158, 11, 0.10), transparent 40%),
+    radial-gradient(circle at 8% 100%, rgba(194, 65, 12, 0.07), transparent 42%),
+    #fbf7f0;
 }
 html:not(.dark) .home-v2 .hsec-white {
   background:
-    radial-gradient(circle at 15% 0%, rgba(255, 107, 53, 0.06), transparent 36%),
-    radial-gradient(circle at 90% 90%, rgba(139, 92, 246, 0.05), transparent 40%),
+    radial-gradient(circle at 15% 0%, rgba(249, 115, 22, 0.07), transparent 36%),
+    radial-gradient(circle at 90% 90%, rgba(245, 158, 11, 0.06), transparent 40%),
     #ffffff;
 }
 /* Dark mode: sections stay transparent so the charcoal depth layer shows. */

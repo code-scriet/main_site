@@ -11,7 +11,7 @@ const features = [
     icon: DsaIcon,
     title: 'Master DSA',
     description: 'Deep dive into Data Structures and Algorithms with structured learning paths.',
-    accent: '#8b5cf6', // violet
+    accent: '#f59e0b', // gold
   },
   {
     icon: OpenSourceIcon,
@@ -29,7 +29,7 @@ const features = [
     icon: NetworkIcon,
     title: 'Network',
     description: 'Connect with mentors, peers, and industry professionals.',
-    accent: '#3b82f6', // blue
+    accent: '#ef4444', // red
   },
 ];
 

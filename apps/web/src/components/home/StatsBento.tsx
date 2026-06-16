@@ -67,11 +67,11 @@ export function StatsBento() {
   const networkCount = data?.networkHighlights?.length ?? 0;
 
   const cards: StatCard[] = [
-    { icon: Users, value: stats?.members ?? 0, suffix: '+', label: 'Developers in the community', hero: true, accent: '#3b82f6' },
+    { icon: Users, value: stats?.members ?? 0, suffix: '+', label: 'Developers in the community', hero: true, accent: '#f59e0b' },
     { icon: EventsIcon, value: stats?.events ?? 0, suffix: '+', label: 'Events & workshops hosted', to: '/events', accent: '#ff6b35' },
-    { icon: AchievementsIcon, value: stats?.achievements ?? 0, suffix: '+', label: 'Achievements celebrated', to: '/achievements', accent: '#8b5cf6' },
+    { icon: AchievementsIcon, value: stats?.achievements ?? 0, suffix: '+', label: 'Achievements celebrated', to: '/achievements', accent: '#ef4444' },
     { icon: NetworkIcon, value: networkCount, suffix: '+', label: 'Mentors & industry connections', to: '/network', accent: '#22c55e' },
-    { icon: Terminal, feature: true, title: 'Live Playground', label: 'Run code in 40+ languages, in-browser', accent: '#06b6d4' },
+    { icon: Terminal, feature: true, title: 'Live Playground', label: 'Run code in 40+ languages, in-browser', accent: '#d97706' },
   ];
 
   return (

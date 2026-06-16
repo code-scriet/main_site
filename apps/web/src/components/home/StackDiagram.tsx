@@ -28,11 +28,11 @@ const glyphs: Record<string, ReactNode> = {
 type NodeDef = { key: string; label: string; glyph: ReactNode; x: number; accent: string };
 // viewBox is 1100 x 240; node centers sit on a single horizontal rail.
 const NODES: NodeDef[] = [
-  { key: 'browser', label: 'Browser', glyph: glyphs.browser, x: 90, accent: '#3b82f6' },
+  { key: 'browser', label: 'Browser', glyph: glyphs.browser, x: 90, accent: '#f59e0b' },
   { key: 'cloud', label: 'Cloudflare', glyph: glyphs.cloud, x: 274, accent: '#ff6b35' },
-  { key: 'react', label: 'React Frontend', glyph: glyphs.react, x: 458, accent: '#06b6d4' },
+  { key: 'react', label: 'React Frontend', glyph: glyphs.react, x: 458, accent: '#ef4444' },
   { key: 'node', label: 'Node API', glyph: glyphs.server, x: 642, accent: '#22c55e' },
-  { key: 'pg', label: 'PostgreSQL', glyph: glyphs.db, x: 826, accent: '#8b5cf6' },
+  { key: 'pg', label: 'PostgreSQL', glyph: glyphs.db, x: 826, accent: '#c2410c' },
   { key: 'git', label: 'GitHub CI', glyph: glyphs.git, x: 1010, accent: '#6b7280' },
 ];
 const RAIL_Y = 120;
@@ -109,11 +109,11 @@ export function StackDiagram() {
           <svg viewBox="0 0 1100 240" preserveAspectRatio="none" className="absolute inset-0 h-full w-full">
             <defs>
               <linearGradient id="hx-rail" x1="0" y1="0" x2="1" y2="0">
-                <stop offset="0%" stopColor="#3b82f6" />
+                <stop offset="0%" stopColor="#f59e0b" />
                 <stop offset="22%" stopColor="#ff6b35" />
-                <stop offset="44%" stopColor="#06b6d4" />
+                <stop offset="44%" stopColor="#ef4444" />
                 <stop offset="64%" stopColor="#22c55e" />
-                <stop offset="84%" stopColor="#8b5cf6" />
+                <stop offset="84%" stopColor="#c2410c" />
                 <stop offset="100%" stopColor="#6b7280" />
               </linearGradient>
             </defs>
