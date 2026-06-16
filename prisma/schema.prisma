@@ -1143,6 +1143,9 @@ model ProblemSubmission {
   manualOverride  Boolean            @default(false) @map("manual_override")
   overrideNotes   String?            @map("override_notes") @db.Text
   activeMs        Int?               @map("active_ms")
+  needsReview     Boolean            @default(false) @map("needs_review")
+  appealedAt      DateTime?          @map("appealed_at")
+  appealNote      String?            @map("appeal_note") @db.Text
   submittedAt     DateTime           @default(now()) @map("submitted_at")
   updatedAt       DateTime           @updatedAt @map("updated_at")
 
@@ -1150,6 +1153,7 @@ model ProblemSubmission {
   @@index([problemId, contextType, contextKey])
   @@index([contextType, contextKey])
   @@index([userId, submittedAt])
+  @@index([needsReview, updatedAt])
   @@map("problem_submissions")
 }
 

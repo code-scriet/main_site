@@ -155,9 +155,13 @@ export interface ProblemSubmission {
   compilerOutput?: string | null;
   manualOverride?: boolean;
   overrideNotes?: string | null;
+  needsReview?: boolean;
+  appealedAt?: string | null;
+  appealNote?: string | null;
   submittedAt: string;
   updatedAt: string;
   user?: { id: string; name: string; email?: string; avatar?: string | null };
+  problem?: { id: string; slug: string; title: string; difficulty: string };
 }
 
 export interface ProblemLeaderboardEntry {
@@ -225,6 +229,8 @@ export interface SubmissionResult {
   compilerOutput?: string;
   remainingSubmits: number;
   remainingDailyQuota: number;
+  /** Judging failed (upstream outage) — submission captured for manual review, attempt refunded. */
+  needsReview?: boolean;
 }
 
 export interface TestRunResult {

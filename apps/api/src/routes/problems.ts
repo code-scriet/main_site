@@ -728,6 +728,8 @@ problemsRouter.patch('/:id/override/:submissionId', authMiddleware, requireRole(
         ...(parsed.data.score !== undefined ? { score: parsed.data.score } : {}),
         overrideNotes: parsed.data.notes ?? null,
         manualOverride: true,
+        // Grading the submission resolves it out of the review queue.
+        needsReview: false,
       },
     });
     if (existing.contextType === 'QOTD') invalidateQotdLeaderboardCaches(existing.contextKey);
@@ -739,6 +741,75 @@ problemsRouter.patch('/:id/override/:submissionId', authMiddleware, requireRole(
     return ApiResponse.success(res, { submission });
   } catch (error) {
     return handleProblemError(res, error, 'Failed to override submission');
+  }
+});
+
+// Student appeal — flag a non-accepted submission for manual review. Used when
+// judging was unavailable (the submission was captured with verdict JUDGE_ERROR)
+// or when the student disputes a verdict. Puts the row in the admin review queue.
+problemsRouter.post('/:id/appeal', authMiddleware, async (req: Request, res: Response) => {
+  try {
+    const user = getAuthUser(req);
+    if (!user) return ApiResponse.unauthorized(res);
+    const schema = z.object({
+      contextType: z.nativeEnum(ProblemContextType),
+      contextKey: z.string().min(1).max(200),
+      note: z.string().max(2_000).optional(),
+    });
+    const parsed = schema.safeParse(req.body);
+    if (!parsed.success) return ApiResponse.badRequest(res, parsed.error.errors[0]?.message || 'Invalid appeal payload');
+    const problemId = await resolveProblemId(req.params.id);
+    const existing = await prisma.problemSubmission.findUnique({
+      where: {
+        userId_problemId_contextType_contextKey: {
+          userId: user.id,
+          problemId,
+          contextType: parsed.data.contextType,
+          contextKey: parsed.data.contextKey,
+        },
+      },
+      select: { id: true, verdict: true },
+    });
+    if (!existing) return ApiResponse.notFound(res, 'No submission found to appeal');
+    if (existing.verdict === 'ACCEPTED') {
+      return ApiResponse.badRequest(res, 'This submission was already accepted — nothing to appeal');
+    }
+    const submission = await prisma.problemSubmission.update({
+      where: { id: existing.id },
+      data: {
+        appealedAt: new Date(),
+        appealNote: parsed.data.note ?? null,
+        needsReview: true,
+      },
+    });
+    await auditLog(user.id, 'PROBLEM_SUBMISSION_APPEALED', 'ProblemSubmission', submission.id, {
+      problemId,
+      contextType: parsed.data.contextType,
+      contextKey: parsed.data.contextKey,
+    });
+    return ApiResponse.success(res, { submission });
+  } catch (error) {
+    return handleProblemError(res, error, 'Failed to appeal submission');
+  }
+});
+
+// Admin review queue — every submission flagged for manual review (judge-failed
+// captures + student appeals), newest first, with code + user + problem.
+problemsRouter.get('/admin/review-queue', authMiddleware, requireRole('ADMIN'), async (req: Request, res: Response) => {
+  try {
+    const limit = Math.min(200, Math.max(1, Number(req.query.limit) || 100));
+    const submissions = await prisma.problemSubmission.findMany({
+      where: { needsReview: true },
+      orderBy: [{ appealedAt: 'desc' }, { updatedAt: 'desc' }],
+      take: limit,
+      include: {
+        user: { select: { id: true, name: true, email: true, avatar: true } },
+        problem: { select: { id: true, slug: true, title: true, difficulty: true } },
+      },
+    });
+    return ApiResponse.success(res, { submissions });
+  } catch (error) {
+    return handleProblemError(res, error, 'Failed to fetch review queue');
   }
 });
 

@@ -105,6 +105,7 @@ const AdminNetwork = lazy(() => import('@/pages/admin/AdminNetwork'));
 const AdminCredits = lazy(() => import('@/pages/admin/AdminCredits'));
 const AdminCompetition = lazy(() => import('@/pages/admin/AdminCompetition'));
 const AdminProblems = lazy(() => import('@/pages/admin/AdminProblems'));
+const AdminSubmissionReview = lazy(() => import('@/pages/admin/AdminSubmissionReview'));
 const CompetitionJudge = lazy(() => import('@/pages/admin/CompetitionJudge'));
 const AdminAuditLog = lazy(() => import('@/pages/admin/AdminAuditLog'));
 const AdminMail = lazy(() => import('@/pages/admin/AdminMail'));
@@ -234,6 +235,7 @@ function App() {
                       <Route path="team" element={withRouteBoundary(<AdminTeam />)} />
                       <Route path="achievements" element={withRouteBoundary(<AdminAchievements />)} />
                       <Route path="problems" element={withRouteBoundary(<AdminProblems />)} />
+                      <Route path="submission-review" element={withRouteBoundary(<AdminSubmissionReview />)} />
                       <Route path="event-registrations" element={withRouteBoundary(<AdminEventRegistrations />)} />
                       <Route path="event-registrations/:eventId" element={withRouteBoundary(<AdminEventRegistrationDetail />)} />
                       <Route path="events/:id/edit" element={withRouteBoundary(<EditEvent />)} />

@@ -66,6 +66,9 @@ export interface ProblemSubmission {
   runtimeMs?: number | null;
   compilerOutput?: string | null;
   manualOverride?: boolean;
+  needsReview?: boolean;
+  appealedAt?: string | null;
+  appealNote?: string | null;
   submittedAt: string;
   updatedAt: string;
 }
@@ -100,6 +103,8 @@ export interface SubmissionResult extends ProblemSubmission {
   submissionId: string;
   remainingSubmits: number;
   remainingDailyQuota: number;
+  /** Judging was unavailable — submission captured for manual review, attempt refunded. */
+  needsReview?: boolean;
 }
 
 export interface PlaygroundLimitResetRequest {
@@ -176,6 +181,8 @@ export const mainApi = {
     call<TestRunResult>(`/api/problems/${problemId}/run`, { method: 'POST', body: JSON.stringify(body) }),
   submitProblem: (problemId: string, body: { language: ProblemLanguage; code: string; contextType: ProblemContextType; contextKey: string; activeMs?: number }) =>
     call<SubmissionResult>(`/api/problems/${problemId}/submit`, { method: 'POST', body: JSON.stringify(body) }),
+  appealSubmission: (problemId: string, body: { contextType: ProblemContextType; contextKey: string; note?: string }) =>
+    call<{ submission: ProblemSubmission }>(`/api/problems/${problemId}/appeal`, { method: 'POST', body: JSON.stringify(body) }),
   getMySubmission: (problemId: string, contextType: ProblemContextType, contextKey: string) =>
     call<{
       submission: ProblemSubmission | null;

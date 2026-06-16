@@ -70,6 +70,10 @@ export const codingApi = {
   },
   adminOverrideSubmission: (problemId: string, submissionId: string, override: { verdict?: SubmissionVerdict; score?: number; notes?: string }, token: string) =>
     request<{ submission: ProblemSubmission }>(`/problems/${problemId}/override/${submissionId}`, { method: 'PATCH', body: JSON.stringify(override), token }),
+  appealSubmission: (problemId: string, input: { contextType: ProblemContextType; contextKey: string; note?: string }, token: string) =>
+    request<{ submission: ProblemSubmission }>(`/problems/${problemId}/appeal`, { method: 'POST', body: JSON.stringify(input), token }),
+  adminGetReviewQueue: (token: string, limit = 100) =>
+    request<{ submissions: ProblemSubmission[] }>(`/problems/admin/review-queue?limit=${limit}`, { token }),
   adminRejudgeProblem: (id: string, filter: { contextType?: ProblemContextType; contextKey?: string } | undefined, token: string) =>
     request<{ jobId: string }>(`/problems/${id}/rejudge`, { method: 'POST', body: JSON.stringify(filter ?? {}), token }),
   adminRejudgeStatus: (id: string, jobId: string, token: string) =>

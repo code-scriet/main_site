@@ -465,7 +465,13 @@ export function QOTDSolverShell({ problem, context, onExit }: QOTDSolverShellPro
       activeMs: getActiveElapsedMs(),
     }),
     onSuccess: async (result) => {
-      toast.success(`Submitted. Verdict: ${verdictLabel(result.verdict)}`);
+      if (result.needsReview) {
+        // Judging itself was down (upstream outage). The code was saved and the
+        // attempt refunded; the student can ask for a manual review.
+        toast.warning('Judging is temporarily unavailable. Your submission was saved — you can request a manual review.');
+      } else {
+        toast.success(`Submitted. Verdict: ${verdictLabel(result.verdict)}`);
+      }
       setLastRun(null); // drop any prior test-run state so results reflect this submission
       setRemainingCap(result.remainingSubmits);
       setRemainingDaily(result.remainingDailyQuota);
@@ -473,6 +479,20 @@ export function QOTDSolverShell({ problem, context, onExit }: QOTDSolverShellPro
       setTab('overview');
     },
     onError: (error) => toast.error(error instanceof Error ? error.message : 'Submit failed'),
+  });
+
+  const appealMutation = useMutation({
+    mutationFn: () =>
+      mainApi.appealSubmission(problem.id, {
+        contextType: context.type,
+        contextKey: context.key,
+        note: 'Judging was unavailable when I submitted.',
+      }),
+    onSuccess: async () => {
+      toast.success('Appeal sent — an admin will review your submission.');
+      await queryClient.invalidateQueries({ queryKey: ['qotd-shell-submission', problem.id, context.type, context.key] });
+    },
+    onError: (error) => toast.error(error instanceof Error ? error.message : 'Failed to send appeal'),
   });
 
   const requestCapMutation = useMutation({
@@ -662,6 +682,25 @@ export function QOTDSolverShell({ problem, context, onExit }: QOTDSolverShellPro
                   </div>
                 </div>
                 <CompilerOutputPanel verdict={latestSubmission?.verdict} output={latestSubmission?.compilerOutput} />
+                {(latestSubmission?.needsReview || latestSubmission?.verdict === 'JUDGE_ERROR') && (
+                  <div className="rounded border border-sky-400/30 bg-sky-500/10 px-4 py-3 text-sm text-sky-800 dark:text-sky-200">
+                    {latestSubmission?.appealedAt ? (
+                      <p className="font-medium">Appeal submitted — an admin will review your submission and set the verdict manually.</p>
+                    ) : (
+                      <div className="flex flex-col gap-2">
+                        <p className="font-medium">Judging was temporarily unavailable, so this submission couldn’t be graded automatically. Your code is saved and your attempt was not used.</p>
+                        <button
+                          type="button"
+                          onClick={() => appealMutation.mutate()}
+                          disabled={appealMutation.isPending}
+                          className="self-start rounded bg-sky-600 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-sky-700 disabled:opacity-60"
+                        >
+                          {appealMutation.isPending ? 'Sending…' : 'Request manual review'}
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
                 <ResultBar label="Public Tests" passed={publicPassed} total={publicTotal} onClick={() => { setTab('tests'); setTestPanel('public'); }} />
                 <ResultBar label="Private Tests" passed={privatePassed} total={privateTotal} hidden onClick={() => { setTab('tests'); setTestPanel('private'); }} />
               </div>

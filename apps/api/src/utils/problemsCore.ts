@@ -11,7 +11,7 @@ import { prisma, withRetry } from '../lib/prisma.js';
 import { type AuthUser } from '../middleware/auth.js';
 import { hasPermission } from '../middleware/role.js';
 import { runJudge, type JudgeResult } from './codeJudge.js';
-import { consumeDailyQuota, formatUsageDate, getIstDateKey } from './dailyLimit.js';
+import { consumeDailyQuota, refundDailyQuota, formatUsageDate, getIstDateKey } from './dailyLimit.js';
 import { auditLog } from './audit.js';
 import { sanitizeHtml, sanitizeText } from './sanitize.js';
 import { recomputeUserStreakSafe } from './qotdStreak.js';
@@ -94,6 +94,13 @@ export interface ProblemSubmissionResult {
   compilerOutput?: string;
   remainingSubmits: number;
   remainingDailyQuota: number;
+  /**
+   * True when judging itself failed (upstream outage) and the submission was
+   * captured for manual review instead of graded. The attempt + daily quota are
+   * refunded; the user can retry or appeal. Frontends should show a
+   * "judging unavailable — saved for review" state, not a code-error state.
+   */
+  needsReview: boolean;
 }
 
 export interface ProblemRunResult {
@@ -538,9 +545,16 @@ export async function submitProblemForUser(params: SubmitProblemParams): Promise
     mode: 'submit',
   });
 
-  if (judge.verdict === 'JUDGE_ERROR') {
+  // Judge/infra failure (Wandbox + Judge0 fallback both down) is never the
+  // user's fault. Refund the attempt + daily quota so an upstream outage doesn't
+  // burn their allowance — but STILL persist the submission below with
+  // needs_review=true so their code is captured and an admin can grade it
+  // manually (or the student can appeal). This restores the pre-outage behaviour
+  // where a failed submit was recorded and manually gradable.
+  const isJudgeFailure = judge.verdict === 'JUDGE_ERROR';
+  if (isJudgeFailure) {
     await releaseSubmitCap(capReservation.counterId);
-    throw new ProblemHttpError(503, 'Judge error, try again', 'SERVICE_UNAVAILABLE');
+    await refundDailyQuota(params.user.id, 1);
   }
 
   const scored = calculateScore(judge, sampleTests, hiddenTests);
@@ -580,6 +594,7 @@ export async function submitProblemForUser(params: SubmitProblemParams): Promise
         runtimeMs: judge.totalRuntimeMs,
         compilerOutput: judge.compilerOutput,
         activeMs: params.activeMs,
+        needsReview: isJudgeFailure,
       },
       update: {
         language: params.language,
@@ -599,6 +614,9 @@ export async function submitProblemForUser(params: SubmitProblemParams): Promise
             : undefined,
         manualOverride: false,
         overrideNotes: null,
+        // A real (judged) verdict resolves a prior judge-error/appeal flag; a
+        // fresh judge failure (re)flags it for manual review.
+        needsReview: isJudgeFailure,
       },
     });
   }
@@ -609,6 +627,7 @@ export async function submitProblemForUser(params: SubmitProblemParams): Promise
     score: scored.score,
     contextType: params.contextType,
     contextKey: params.contextKey,
+    needsReview: isJudgeFailure,
   });
 
   // Materialize QOTD streak when a QOTD-context submission becomes ACCEPTED.
@@ -633,8 +652,10 @@ export async function submitProblemForUser(params: SubmitProblemParams): Promise
     perTestVerdicts: scored.perTestVerdicts,
     totalRuntimeMs: judge.totalRuntimeMs,
     compilerOutput: judge.compilerOutput,
-    remainingSubmits: capReservation.remaining,
-    remainingDailyQuota: daily.remaining,
+    // Refunded attempts/quota are reflected back so the client UI stays accurate.
+    remainingSubmits: isJudgeFailure ? capReservation.remaining + 1 : capReservation.remaining,
+    remainingDailyQuota: isJudgeFailure ? daily.remaining + 1 : daily.remaining,
+    needsReview: isJudgeFailure,
   };
 }
 
