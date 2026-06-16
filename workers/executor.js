@@ -65,7 +65,114 @@ function sanitizeError(message) {
     .replace(/wandbox\.org/gi, 'execution service')
     .replace(/https?:\/\/wandbox\.org[^\s]*/gi, '[upstream]')
     .replace(/compile\.json/gi, 'compiler')
+    .replace(/judge0|ce\.judge0\.com/gi, 'execution service')
     .replace(/prog\.\w+/g, 'source file');
+}
+
+// ---------------------------------------------------------------------------
+// Fallback provider (Judge0 CE) — keeps execution alive during an UPSTREAM
+// outage. The primary (Wandbox) periodically fails host-side with
+// "OCI runtime error: crun: clone: Resource temporarily unavailable" (a
+// clone/fork EAGAIN) for EVERY language, even on trivial programs. When we
+// detect that signature we transparently re-run the same program on Judge0 CE
+// and map its response back onto the primary's field names, so neither the
+// judge nor the playground needs to change how it parses results.
+// NOTE: Piston's public API went whitelist-only (401) on 2026-02-15, so it is
+// no longer a usable fallback — Judge0 CE is public and key-free.
+// ---------------------------------------------------------------------------
+const FALLBACK_URL = 'https://ce.judge0.com';
+const INFRA_FAILURE_RE = /OCI runtime|\bcrun\b|\brunc\b|Resource temporarily unavailable|Cannot allocate memory|cannot fork|pthread_create|No space left on device|\bEAGAIN\b/i;
+
+// Map a Wandbox compiler id -> Judge0 CE language_id (+ optional raw compiler
+// options). Versions chosen to match our pins as closely as Judge0 CE offers.
+function judge0Language(compiler) {
+  const c = String(compiler || '');
+  if (c.startsWith('cpython') || c.startsWith('python')) return { id: 100 };          // Python 3.12.5
+  if (c.startsWith('nodejs') || c.startsWith('node')) return { id: 97 };              // Node 20.17.0
+  if (c.startsWith('gcc') || c.startsWith('clang') || c.includes('++')) return { id: 105, options: '-std=c++17 -DONLINE_JUDGE' }; // C++ GCC 14
+  if (c.startsWith('openjdk') || c.startsWith('java')) return { id: 62 };             // OpenJDK 13
+  return null;
+}
+
+// UTF-8 safe base64 (Workers `btoa`/`atob` are latin1-only).
+function b64encodeUtf8(str) {
+  const bytes = new TextEncoder().encode(str || '');
+  let bin = '';
+  const CHUNK = 0x8000;
+  for (let i = 0; i < bytes.length; i += CHUNK) {
+    bin += String.fromCharCode.apply(null, bytes.subarray(i, i + CHUNK));
+  }
+  return btoa(bin);
+}
+function b64decodeUtf8(b64) {
+  if (!b64) return '';
+  const bin = atob(b64);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return new TextDecoder().decode(bytes);
+}
+
+function isUpstreamInfraFailure(result) {
+  if (!result) return false;
+  if (String(result.status) === '126') return true;
+  const blob = `${result.compiler_error || ''}\n${result.program_error || ''}\n${result.compiler_message || ''}`;
+  return INFRA_FAILURE_RE.test(blob);
+}
+
+// Run the same program on Judge0 CE and return it shaped like a Wandbox
+// response, or null if the fallback is unavailable / errored (caller then keeps
+// the original upstream result and degrades gracefully).
+async function runViaFallback(body) {
+  const lang = judge0Language(body.compiler);
+  if (!lang) return null;
+
+  const payload = {
+    language_id: lang.id,
+    source_code: b64encodeUtf8(body.code || ''),
+    stdin: b64encodeUtf8(body.stdin || ''),
+    cpu_time_limit: 10,
+    wall_time_limit: 15,
+    memory_limit: 256000,
+  };
+  if (lang.options) payload.compiler_options = lang.options;
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 12000);
+  try {
+    const resp = await fetch(`${FALLBACK_URL}/submissions?base64_encoded=true&wait=true`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+      signal: controller.signal,
+    });
+    if (!resp.ok) return null;
+    const j = await resp.json();
+    const stdout = b64decodeUtf8(j.stdout);
+    const stderr = b64decodeUtf8(j.stderr);
+    const compileOutput = b64decodeUtf8(j.compile_output);
+    const exitCode = typeof j.exit_code === 'number'
+      ? j.exit_code
+      : (j.status && j.status.id === 3 ? 0 : 1);
+    // Shape exactly like Wandbox. IMPORTANT: leave `signal` EMPTY — the judge
+    // treats any non-empty signal as a global TLE, which would misclassify
+    // every compiled-language run. Per-test status lives in the harness frames.
+    return {
+      status: String(exitCode),
+      signal: '',
+      compiler_output: '',
+      compiler_error: compileOutput,
+      compiler_message: compileOutput,
+      program_output: stdout,
+      program_error: stderr,
+      program_message: stdout,
+      permlink: '',
+      url: '',
+    };
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 // M1: constant-time string compare so the shared secret can't be recovered by
@@ -192,7 +299,16 @@ export default {
         );
       }
 
-      const result = await upstreamResponse.json();
+      let result = await upstreamResponse.json();
+
+      // Upstream host-capacity failure (crun/clone EAGAIN, status 126) — not the
+      // user's code. Transparently re-run on the fallback provider so execution
+      // survives the outage. If the fallback is unavailable we keep the original
+      // result and degrade gracefully to the prior behaviour.
+      if (isUpstreamInfraFailure(result)) {
+        const fallback = await runViaFallback(body);
+        if (fallback) result = fallback;
+      }
 
       // Sanitize any error messages in the response
       if (result.compiler_error) {
