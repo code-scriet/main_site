@@ -544,51 +544,64 @@ export async function submitProblemForUser(params: SubmitProblemParams): Promise
   }
 
   const scored = calculateScore(judge, sampleTests, hiddenTests);
-  const submission = await prisma.problemSubmission.upsert({
-    where: {
-      userId_problemId_contextType_contextKey: {
-        userId: params.user.id,
-        problemId: problem.id,
-        contextType: params.contextType,
-        contextKey: params.contextKey,
-      },
-    },
-    create: {
-      userId: params.user.id,
-      problemId: problem.id,
-      contextType: params.contextType,
-      contextKey: params.contextKey,
-      language: params.language,
-      code: params.code,
-      verdict: judge.verdict,
-      score: scored.score,
-      passedCount: scored.passedCount,
-      totalCount: scored.totalCount,
-      perTestVerdicts: scored.perTestVerdicts as unknown as Prisma.InputJsonValue,
-      runtimeMs: judge.totalRuntimeMs,
-      compilerOutput: judge.compilerOutput,
-      activeMs: params.activeMs,
-    },
-    update: {
-      language: params.language,
-      code: params.code,
-      verdict: judge.verdict,
-      score: scored.score,
-      passedCount: scored.passedCount,
-      totalCount: scored.totalCount,
-      perTestVerdicts: scored.perTestVerdicts as unknown as Prisma.InputJsonValue,
-      runtimeMs: judge.totalRuntimeMs,
-      compilerOutput: judge.compilerOutput,
-      // Only overwrite when the client reports a fresh measurement so a stale
-      // submit (or a client without the timer) doesn't wipe a prior value.
-      activeMs:
-        params.activeMs !== undefined
-          ? { set: params.activeMs }
-          : undefined,
-      manualOverride: false,
-      overrideNotes: null,
-    },
+
+  const submissionKey = {
+    userId: params.user.id,
+    problemId: problem.id,
+    contextType: params.contextType,
+    contextKey: params.contextKey,
+  };
+
+  // Solved status is monotonic: a later non-accepted attempt — including an
+  // upstream judge hiccup that surfaced as a failure — must never un-solve a
+  // problem the user already cleared. If a prior ACCEPTED row exists and this
+  // attempt isn't ACCEPTED, keep the accepted record as the canonical row; the
+  // user still sees their real latest result in the response below.
+  const existingSubmission = await prisma.problemSubmission.findUnique({
+    where: { userId_problemId_contextType_contextKey: submissionKey },
+    select: { id: true, verdict: true },
   });
+
+  let submission: { id: string };
+  if (existingSubmission && existingSubmission.verdict === 'ACCEPTED' && judge.verdict !== 'ACCEPTED') {
+    submission = { id: existingSubmission.id };
+  } else {
+    submission = await prisma.problemSubmission.upsert({
+      where: { userId_problemId_contextType_contextKey: submissionKey },
+      create: {
+        ...submissionKey,
+        language: params.language,
+        code: params.code,
+        verdict: judge.verdict,
+        score: scored.score,
+        passedCount: scored.passedCount,
+        totalCount: scored.totalCount,
+        perTestVerdicts: scored.perTestVerdicts as unknown as Prisma.InputJsonValue,
+        runtimeMs: judge.totalRuntimeMs,
+        compilerOutput: judge.compilerOutput,
+        activeMs: params.activeMs,
+      },
+      update: {
+        language: params.language,
+        code: params.code,
+        verdict: judge.verdict,
+        score: scored.score,
+        passedCount: scored.passedCount,
+        totalCount: scored.totalCount,
+        perTestVerdicts: scored.perTestVerdicts as unknown as Prisma.InputJsonValue,
+        runtimeMs: judge.totalRuntimeMs,
+        compilerOutput: judge.compilerOutput,
+        // Only overwrite when the client reports a fresh measurement so a stale
+        // submit (or a client without the timer) doesn't wipe a prior value.
+        activeMs:
+          params.activeMs !== undefined
+            ? { set: params.activeMs }
+            : undefined,
+        manualOverride: false,
+        overrideNotes: null,
+      },
+    });
+  }
 
   await auditLog(params.user.id, 'PROBLEM_SUBMITTED', 'ProblemSubmission', submission.id, {
     problemId: problem.id,

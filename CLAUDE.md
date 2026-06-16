@@ -394,6 +394,8 @@ Single canonical `Problem` reused across 3 contexts: `PRACTICE`, `QOTD`, `CONTES
 
 - **Per-context cap** via `ProblemSubmissionCounter` (cap override + pending request).
 - **Judge pipeline:** `problemsCore.ts` → `codeJudge.ts` → CF Worker (`workers/executor.js`) → Wandbox.
+- **Upstream-infra errors ≠ code errors:** when Wandbox is out of container capacity it returns `OCI runtime error: crun: clone: Resource temporarily unavailable` (clone/fork `EAGAIN`) in `compiler_error`/stderr with no `__JUDGE:` frame. `codeJudge.ts` (`isInfraFailure()` / `INFRA_FAILURE_RE`) classifies these as `JUDGE_ERROR` (retryable, rolls back the submit cap, never persists), **never `COMPILATION_ERROR`** — a false compile error would also clobber a prior ACCEPTED verdict on resubmit.
+- **Monotonic solved status:** `submitProblemForUser()` never lets a non-ACCEPTED resubmit overwrite an existing ACCEPTED `ProblemSubmission` row (single row per `[userId,problemId,contextType,contextKey]` drives `totalSolved`/leaderboard). The user still sees their real latest result in the response; the canonical row stays ACCEPTED. Admin `rejudgeSubmission()` is exempt (intentional re-eval).
 - **Daily quota** (`dailyLimit.ts`) IST-based, shared with playground.
 - **Feature gate:** non-admins get 404 when `Settings.problemsEnabled !== true`.
 - **Context validation:** `validateProblemContext()` checks event registration, team scope, leader-only, QOTD-date.
@@ -576,7 +578,8 @@ Migration: `prisma/migrations/20260517210000_dashboard_v2/migration.sql` (additi
 ## Playground Architecture
 
 - Frontend: React app at `code.codescriet.dev` (separate Vite).
-- Execute server: `apps/playground/execute-server.js` (plain JS, port 5002). Proxies CF Worker → Wandbox. Fallback Piston. Python: Pyodide (browser, no server call). Daily limits via `Settings.playgroundDailyLimit` (default 100/day). Tables: `PlaygroundDailyUsage`, `PlaygroundLimitReset`, `PlaygroundLimitResetRequest`.
+- Execute server: `apps/playground/execute-server.js` (plain JS, port 5002). Proxies CF Worker → Wandbox. Python: Pyodide (browser, no server call). Daily limits via `Settings.playgroundDailyLimit` (default 100/day). Tables: `PlaygroundDailyUsage`, `PlaygroundLimitReset`, `PlaygroundLimitResetRequest`.
+- **Upstream-capacity retry:** Wandbox host-capacity failures (`isInfraFailure()` / `OCI runtime`/`crun`/`Resource temporarily unavailable`) are detected in `executeCode()` and thrown as a tagged `EXEC_INFRA_UNAVAILABLE`; `executeWithRetry()` retries up to 3× with backoff (transient → almost always succeeds), and a persistent failure returns a friendly **503** "service briefly at capacity, try again" instead of a bogus compile error. Infra failures are never cached. (There is **no** Piston fallback — earlier docs were stale.)
 - Users request same-day reset → admin grant/deny in dashboard `AdminPendingRequestsCard` → grant calls `resetDailyQuotaAndPracticeCounters()`.
 - Pre-flight `isUserBlocked(userId, 'QUIZ')` (and feature-equivalent) in `POST /api/execute`, fail-opens on pre-migration `42P01`.
 - Shares JWT secret with main API, reads `scriet_session` cookie.
