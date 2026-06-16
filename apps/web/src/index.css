@@ -2542,33 +2542,56 @@ html.dark [data-public] {
  * ========================================================================== */
 
 .home-v2 {
-  /* Light theme (default) */
-  --hx-amber: #f97316;
-  --hx-amber-2: #fbbf24;
-  --hx-edge: #f4f0e8;            /* page colour used for avatar ring gaps */
-  --hx-glass: rgba(255, 255, 255, 0.55);
-  --hx-glass-2: rgba(255, 255, 255, 0.7);
-  --hx-glass-border: rgba(27, 23, 20, 0.10);
-  --hx-glass-border-strong: rgba(27, 23, 20, 0.16);
-  --hx-ink: #1b1714;
-  --hx-ink-dim: rgba(27, 23, 20, 0.62);
-  --hx-ink-faint: rgba(27, 23, 20, 0.45);
-  --hx-dot: rgba(27, 23, 20, 0.07);
-  --hx-particle: rgba(249, 115, 22, 0.5);
+  /* Light theme (default).
+   * Built dark-first, so the light palette is tuned to avoid the cream-on-cream
+   * wash-out: opaque glass surfaces, firmer borders, a deeper ember accent (the
+   * amber-400 used in dark mode is near-invisible on cream), and a soft card
+   * shadow so panels separate from the page. */
+  --hx-amber: #ea580c;          /* accent for borders/text — deep enough for cream */
+  --hx-amber-2: #f97316;
+  --hx-glow-amber: #f97316;     /* brighter tone reserved for glows/orbs/particles */
+  --hx-edge: #ffffff;           /* page colour used for avatar ring gaps */
+  --hx-glass: rgba(255, 255, 255, 0.82);
+  --hx-glass-2: rgba(255, 255, 255, 0.92);
+  --hx-glass-border: rgba(27, 23, 20, 0.14);
+  --hx-glass-border-strong: rgba(27, 23, 20, 0.22);
+  --hx-ink: #14100d;
+  --hx-ink-dim: rgba(20, 16, 13, 0.72);
+  --hx-ink-faint: rgba(20, 16, 13, 0.56);
+  --hx-dot: rgba(27, 23, 20, 0.09);
+  --hx-particle: rgba(234, 88, 12, 0.45);
   --hx-glow: rgba(249, 115, 22, 0.15);
+  --hx-card-shadow: 0 1px 2px rgba(27, 23, 20, 0.05), 0 10px 30px -12px rgba(27, 23, 20, 0.18);
   --hx-ease: cubic-bezier(0.22, 0.61, 0.36, 1);
+
+  /* Full-width homepage: sections span the viewport (with comfortable gutters),
+   * capped only on ultrawide so line lengths stay sane. */
+  --hv-maxw: 1760px;
+  --hv-gutter: clamp(20px, 5vw, 72px);
 
   position: relative;
   isolation: isolate;
   background:
-    radial-gradient(120% 80% at 50% -10%, #fdf9f2 0%, transparent 55%),
+    radial-gradient(120% 80% at 50% -10%, #fffdf9 0%, transparent 55%),
     linear-gradient(180deg, #f7f3ec 0%, #f4f0e8 60%, #f2ede4 100%);
   color: var(--hx-ink);
   overflow: clip;
 }
 
+/* Full-width container override (scoped to the homepage). Widens the section
+ * wrappers that use Tailwind `.container`; intentionally-narrow inner caps
+ * (max-w-md/xl/2xl/3xl on text blocks) still win because they are smaller. */
+.home-v2 .container {
+  max-width: var(--hv-maxw);
+  padding-left: var(--hv-gutter);
+  padding-right: var(--hv-gutter);
+}
+
 /* Dark theme — driven by the global theme toggle (html.dark) */
 html.dark .home-v2 {
+  --hx-amber: #f97316;          /* brighter accent reads well on charcoal */
+  --hx-amber-2: #fbbf24;
+  --hx-glow-amber: #f97316;
   --hx-edge: #161413;
   --hx-glass: rgba(255, 255, 255, 0.04);
   --hx-glass-2: rgba(255, 255, 255, 0.06);
@@ -2578,6 +2601,7 @@ html.dark .home-v2 {
   --hx-ink-dim: rgba(255, 255, 255, 0.70);
   --hx-ink-faint: rgba(255, 255, 255, 0.50);
   --hx-dot: rgba(255, 255, 255, 0.05);
+  --hx-card-shadow: none;
   --hx-particle: rgba(251, 191, 36, 0.5);
   background:
     radial-gradient(120% 80% at 50% -10%, #1c1a18 0%, transparent 55%),
@@ -2671,6 +2695,7 @@ html.dark .home-v2 {
   -webkit-backdrop-filter: blur(16px);
   border: 1px solid var(--hx-glass-border);
   border-radius: 20px;
+  box-shadow: var(--hx-card-shadow, none);
   transition:
     transform 260ms var(--hx-ease),
     border-color 260ms var(--hx-ease),
@@ -2694,13 +2719,20 @@ html.dark .home-v2 {
   -webkit-backdrop-filter: blur(12px);
 }
 
-/* Amber gradient text */
+/* Amber gradient text — deeper on cream (light) so it actually reads, brighter
+ * on charcoal (dark). */
 .hx-grad-text {
-  background: linear-gradient(120deg, #fbbf24 0%, #f97316 55%, #fb923c 100%);
+  background: linear-gradient(120deg, #ea580c 0%, #c2410c 50%, #ea580c 100%);
   -webkit-background-clip: text;
           background-clip: text;
   -webkit-text-fill-color: transparent;
   color: transparent;
+}
+html.dark .hx-grad-text {
+  background: linear-gradient(120deg, #fbbf24 0%, #f97316 55%, #fb923c 100%);
+  -webkit-background-clip: text;
+          background-clip: text;
+  -webkit-text-fill-color: transparent;
 }
 
 /* ---- Logo glow ring ---- */
@@ -2772,6 +2804,7 @@ html.dark .home-v2 {
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
   border: 1px solid var(--hx-glass-border);
+  box-shadow: var(--hx-card-shadow, none);
   transition:
     transform 260ms var(--hx-ease),
     border-color 260ms var(--hx-ease),
@@ -2850,18 +2883,6 @@ html.dark .navx-link[data-active="true"] { color: #fdba74; }
   .home-float { animation: none !important; }
   .glass-card,
   .bento-card { transition: none; }
-}
-
-/* On the homepage the footer follows the global theme (light/dark) like the
- * rest of the page; we only retint its ember accent to the home amber. */
-[data-public][data-home] {
-  --pub-ember: #f97316;
-  --pub-ember-hover: #fb923c;
-  --pub-ember-soft: rgba(249, 115, 22, 0.10);
-  --pub-ember-line: rgba(249, 115, 22, 0.26);
-}
-[data-public][data-home] .pub-site-footer {
-  box-shadow: 0 -1px 50px rgba(249, 115, 22, 0.06);
 }
 
 /* Home headings use the bold sans display face (overrides the public-scope

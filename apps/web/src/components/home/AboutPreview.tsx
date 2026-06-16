@@ -11,21 +11,25 @@ const features = [
     icon: DsaIcon,
     title: 'Master DSA',
     description: 'Deep dive into Data Structures and Algorithms with structured learning paths.',
+    accent: '#8b5cf6', // violet
   },
   {
     icon: OpenSourceIcon,
     title: 'Build Projects',
     description: 'Apply your skills by working on real-world projects and collaborations.',
+    accent: '#f97316', // orange
   },
   {
     icon: HackathonsIcon,
     title: 'Compete & Win',
     description: 'Participate in coding competitions and hackathons for prizes.',
+    accent: '#10b981', // emerald
   },
   {
     icon: NetworkIcon,
     title: 'Network',
     description: 'Connect with mentors, peers, and industry professionals.',
+    accent: '#3b82f6', // blue
   },
 ];
 
@@ -90,15 +94,24 @@ export function AboutPreview() {
               className="group relative"
             >
               <div className="glass-card glass-card--lift relative h-full overflow-hidden p-6 sm:p-7">
-                {/* Accent line at top */}
-                <div className="absolute top-0 left-0 right-0 h-[3px] bg-gradient-to-r from-transparent via-[#f97316] to-transparent opacity-0 transition-opacity duration-300 group-hover:opacity-100" />
+                {/* Accent line at top — per-feature colour */}
+                <div
+                  className="absolute top-0 left-0 right-0 h-[3px] opacity-0 transition-opacity duration-300 group-hover:opacity-100"
+                  style={{ background: `linear-gradient(90deg, transparent, ${feature.accent}, transparent)` }}
+                />
 
-                {/* Hover background glow */}
-                <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,rgba(249,115,22,0.12),transparent_70%)] opacity-0 transition-opacity duration-400 group-hover:opacity-100" />
+                {/* Hover background glow — per-feature colour */}
+                <div
+                  className="absolute inset-0 opacity-0 transition-opacity duration-400 group-hover:opacity-100"
+                  style={{ background: `radial-gradient(ellipse at top, ${feature.accent}22, transparent 70%)` }}
+                />
 
-                {/* Icon — uniform amber glass chip with a custom illustrated icon */}
-                <div className="relative mb-5 grid h-12 w-12 place-items-center rounded-xl border border-[#f97316]/25 bg-[#f97316]/12">
-                  <feature.icon size={26} />
+                {/* Icon — per-feature coloured glass chip with a custom illustrated icon */}
+                <div
+                  className="relative mb-5 grid h-12 w-12 place-items-center rounded-xl border"
+                  style={{ borderColor: `${feature.accent}40`, background: `${feature.accent}1f` }}
+                >
+                  <feature.icon size={26} accent={feature.accent} />
                 </div>
 
                 {/* Content */}

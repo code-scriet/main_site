@@ -91,7 +91,7 @@ export function Hero() {
 
   return (
     <section className="relative overflow-hidden px-4 pb-20 pt-12 sm:pb-28 sm:pt-16 lg:pt-20">
-      <div className="container relative mx-auto max-w-6xl">
+      <div className="container relative mx-auto">
         <div className="grid items-center gap-12 lg:grid-cols-[1.05fr_0.95fr] lg:items-start lg:gap-10">
           {/* ---- Left column ---- */}
           <motion.div variants={container} initial="hidden" animate="visible" className="text-center lg:text-left">
@@ -100,8 +100,8 @@ export function Hero() {
               <span className="home-logo-wrap">
                 <span className="home-logo-halo" />
                 <span className="home-logo-ring" />
-                <span className="relative grid h-11 w-11 place-items-center overflow-hidden rounded-xl border border-white/15 bg-white/10 backdrop-blur-md">
-                  <img src="/logo.jpeg" alt="code.scriet" className="h-8 w-8 rounded-lg object-cover" />
+                <span className="relative grid h-14 w-14 place-items-center overflow-hidden rounded-2xl border border-white/15 bg-white/10 shadow-lg backdrop-blur-md">
+                  <img src="/logo.jpeg" alt="code.scriet" className="h-11 w-11 rounded-xl object-cover" />
                 </span>
               </span>
               <span className="glass-pill px-3.5 py-1.5 text-[12px] font-medium text-white/75">

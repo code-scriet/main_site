@@ -46,7 +46,10 @@ export function LatestAnnouncements() {
           className="text-center mb-8 sm:mb-12"
         >
           <h2 className="text-2xl sm:text-4xl md:text-5xl font-bold hx-t1 mb-3 sm:mb-4">
-            Latest <span className="hx-grad-text">Announcements</span>
+            Latest{' '}
+            <span className="bg-gradient-to-r from-violet-500 to-purple-500 bg-clip-text text-transparent">
+              Announcements
+            </span>
           </h2>
           <p className="text-base sm:text-lg hx-t2 max-w-2xl mx-auto px-2">
             Stay informed with our latest updates, news, and important notices

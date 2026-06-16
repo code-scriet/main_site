@@ -102,7 +102,7 @@ export function StackDiagram() {
   // ---- Desktop: horizontal rail, auto-plays on enter ----
   return (
     <section className="relative px-4 py-24">
-      <div className="container mx-auto max-w-5xl">
+      <div className="container mx-auto">
         {Header}
         <div ref={ref} className="relative w-full" style={{ aspectRatio: '1100 / 240' }}>
           <svg viewBox="0 0 1100 240" preserveAspectRatio="none" className="absolute inset-0 h-full w-full">

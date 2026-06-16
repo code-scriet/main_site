@@ -29,7 +29,7 @@ const pop: Variants = {
   }),
 };
 
-type IconProps = { className?: string; size?: number };
+type IconProps = { className?: string; size?: number; accent?: string };
 
 function useDrawProps() {
   const { prefersReducedMotion } = useMotionConfig();
@@ -66,7 +66,7 @@ export function SystemDesignIcon(props: IconProps) {
       <motion.line x1="18" y1="8" x2="13.5" y2="14" variants={stroke} custom={3} />
       <motion.rect x="2.5" y="3.5" width="7" height="5" rx="1.4" variants={stroke} custom={0} />
       <motion.rect x="14.5" y="3.5" width="7" height="5" rx="1.4" variants={stroke} custom={1} />
-      <motion.rect x="8.5" y="14.5" width="7" height="5" rx="1.4" fill={AMBER} stroke={AMBER} variants={pop} custom={2} />
+      <motion.rect x="8.5" y="14.5" width="7" height="5" rx="1.4" fill={props.accent ?? AMBER} stroke={props.accent ?? AMBER} variants={pop} custom={2} />
     </Frame>
   );
 }
@@ -80,7 +80,7 @@ export function OpenSourceIcon(props: IconProps) {
       <motion.path d="M16 13 C 16 16 11 17 6 17" variants={stroke} custom={2} />
       <motion.circle cx="6" cy="6" r="2" fill={WHITE} variants={pop} custom={1} />
       <motion.circle cx="16" cy="13" r="2" variants={pop} custom={2} />
-      <motion.circle cx="6" cy="17" r="2.2" fill={AMBER} stroke={AMBER} variants={pop} custom={3} />
+      <motion.circle cx="6" cy="17" r="2.2" fill={props.accent ?? AMBER} stroke={props.accent ?? AMBER} variants={pop} custom={3} />
     </Frame>
   );
 }
@@ -95,8 +95,8 @@ export function HackathonsIcon(props: IconProps) {
       <motion.path d="M12 13 V16" variants={stroke} custom={2} />
       <motion.path d="M8.5 20 H15.5" variants={stroke} custom={2} />
       <motion.path d="M10 16.5 H14 L13 20" variants={stroke} custom={2} />
-      <motion.path d="M9.3 5.6 L11 6.9 L9.3 8.2" stroke={AMBER_HI} variants={stroke} custom={3} />
-      <motion.line x1="12" y1="8.2" x2="14.5" y2="8.2" stroke={AMBER_HI} variants={stroke} custom={4} />
+      <motion.path d="M9.3 5.6 L11 6.9 L9.3 8.2" stroke={props.accent ?? AMBER_HI} variants={stroke} custom={3} />
+      <motion.line x1="12" y1="8.2" x2="14.5" y2="8.2" stroke={props.accent ?? AMBER_HI} variants={stroke} custom={4} />
     </Frame>
   );
 }
@@ -118,7 +118,7 @@ export function NetworkIcon(props: IconProps) {
       {outer.map(([x, y], i) => (
         <motion.circle key={`c${i}`} cx={x} cy={y} r="1.5" fill={WHITE} variants={pop} custom={i} />
       ))}
-      <motion.circle cx="12" cy="12" r="2.6" fill={AMBER} stroke={AMBER} variants={pop} custom={5} />
+      <motion.circle cx="12" cy="12" r="2.6" fill={props.accent ?? AMBER} stroke={props.accent ?? AMBER} variants={pop} custom={5} />
     </Frame>
   );
 }
@@ -131,8 +131,8 @@ export function EventsIcon(props: IconProps) {
       <motion.line x1="3" y1="9.5" x2="21" y2="9.5" variants={stroke} custom={1} />
       <motion.line x1="8" y1="3" x2="8" y2="6" variants={stroke} custom={1} />
       <motion.line x1="16" y1="3" x2="16" y2="6" variants={stroke} custom={1} />
-      <motion.path d="M9.5 13 L7.5 15.2 L9.5 17.4" stroke={AMBER_HI} variants={stroke} custom={2} />
-      <motion.path d="M14.5 13 L16.5 15.2 L14.5 17.4" stroke={AMBER_HI} variants={stroke} custom={3} />
+      <motion.path d="M9.5 13 L7.5 15.2 L9.5 17.4" stroke={props.accent ?? AMBER_HI} variants={stroke} custom={2} />
+      <motion.path d="M14.5 13 L16.5 15.2 L14.5 17.4" stroke={props.accent ?? AMBER_HI} variants={stroke} custom={3} />
     </Frame>
   );
 }
@@ -149,7 +149,7 @@ export function DsaIcon(props: IconProps) {
       <motion.circle cx="17" cy="12" r="1.8" fill={WHITE} variants={pop} custom={2} />
       <motion.circle cx="4.5" cy="18.5" r="1.6" fill={WHITE} variants={pop} custom={3} />
       <motion.circle cx="9.5" cy="18.5" r="1.6" fill={WHITE} variants={pop} custom={3} />
-      <motion.circle cx="12" cy="5.5" r="2.4" fill={AMBER} stroke={AMBER} variants={pop} custom={0} />
+      <motion.circle cx="12" cy="5.5" r="2.4" fill={props.accent ?? AMBER} stroke={props.accent ?? AMBER} variants={pop} custom={0} />
     </Frame>
   );
 }
@@ -163,8 +163,8 @@ export function AchievementsIcon(props: IconProps) {
       <motion.circle cx="12" cy="16" r="5" variants={stroke} custom={1} />
       <motion.path
         d="M12 13 L12.9 14.9 L15 15.2 L13.5 16.7 L13.8 18.8 L12 17.8 L10.2 18.8 L10.5 16.7 L9 15.2 L11.1 14.9 Z"
-        fill={AMBER}
-        stroke={AMBER}
+        fill={props.accent ?? AMBER}
+        stroke={props.accent ?? AMBER}
         variants={pop}
         custom={2}
       />

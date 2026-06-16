@@ -56,7 +56,7 @@ export function NetworkHighlight() {
 
   return (
     <section className="relative overflow-hidden border-t border-white/8 py-16 sm:py-24 lg:py-28">
-      <div className="container relative z-10 mx-auto max-w-6xl px-4 sm:px-6 lg:px-8">
+      <div className="container relative z-10 mx-auto">
         {/* Section Header */}
         <motion.div
           initial={{ opacity: 0, y: shouldReduceMotion ? 10 : 20 }}

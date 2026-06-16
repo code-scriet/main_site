@@ -75,7 +75,7 @@ export function StatsBento() {
 
   return (
     <section className="relative px-4 py-16 sm:py-20">
-      <div ref={sectionRef} className="container mx-auto max-w-6xl">
+      <div ref={sectionRef} className="container mx-auto">
         <motion.div
           initial={{ opacity: 0, y: shouldReduceMotion ? 10 : 24 }}
           whileInView={{ opacity: 1, y: 0 }}
