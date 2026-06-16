@@ -1,26 +1,10 @@
-import { memo, useEffect, useRef, useState } from 'react';
+import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import { useMotionConfig } from '@/hooks/useMotionConfig';
+import { useHomePageData } from '@/hooks/useHomePageData';
 
-// ---------------------------------------------------------------------------
-// Edit the script here — stats/commands live in one config array so they can be
-// updated without touching the animation logic below.
-// ---------------------------------------------------------------------------
 type Line =
   | { type: 'command'; text: string }
   | { type: 'output'; text: string; tone?: 'success' | 'body' };
-
-const SCRIPT: Line[] = [
-  { type: 'command', text: 'whoami' },
-  { type: 'output', text: 'codescriet — official coding club of SCRIET, CCSU', tone: 'body' },
-  { type: 'command', text: 'codescriet --stats' },
-  { type: 'output', text: '480+ developers · 25+ events · 12 contests hosted', tone: 'body' },
-  { type: 'command', text: 'git log --oneline' },
-  { type: 'output', text: 'a3f9c21 shipped quiz platform', tone: 'success' },
-  { type: 'output', text: '7b2e4d8 won TechSprint finale', tone: 'success' },
-  { type: 'output', text: 'e1c0f55 hosted WebSnap 2026', tone: 'success' },
-  { type: 'command', text: 'join codescriet' },
-  { type: 'output', text: "Welcome aboard. Let's build. ⚡", tone: 'success' },
-];
 
 type RenderedLine = { kind: 'command' | 'output'; text: string; tone?: 'success' | 'body'; typedLen: number };
 
@@ -32,6 +16,38 @@ const toneColor = (line: RenderedLine) => {
 
 export const AnimatedTerminal = memo(function AnimatedTerminal() {
   const { prefersReducedMotion } = useMotionConfig();
+  // Live club data from the shared home-page query (React Query dedupes by key,
+  // so this reuses the cache the rest of the page already fills — no extra call).
+  const { data } = useHomePageData();
+  const s = data?.stats;
+  const statsLine = s
+    ? `${s.members}+ developers · ${s.events}+ events · ${s.achievements}+ achievements`
+    : 'a growing student developer community';
+  // Real recent wins (featured achievements) — no fabricated commit log.
+  const recent = (data?.featuredAchievements ?? [])
+    .slice(0, 3)
+    .map((a) => a.title)
+    .filter(Boolean);
+  const recentKey = recent.join('|');
+
+  // Script is built entirely from live data — nothing hard-coded.
+  const script = useMemo<Line[]>(() => {
+    const out: Line[] = [
+      { type: 'command', text: 'whoami' },
+      { type: 'output', text: 'codescriet — official coding club of SCRIET, CCSU', tone: 'body' },
+      { type: 'command', text: 'codescriet --stats' },
+      { type: 'output', text: statsLine, tone: 'body' },
+    ];
+    if (recent.length) {
+      out.push({ type: 'command', text: 'codescriet --recent' });
+      recent.forEach((t) => out.push({ type: 'output', text: t, tone: 'success' }));
+    }
+    out.push({ type: 'command', text: 'join codescriet' });
+    out.push({ type: 'output', text: "Welcome aboard. Let's build.", tone: 'success' });
+    return out;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [statsLine, recentKey]);
+
   const [lines, setLines] = useState<RenderedLine[]>([]);
   const [cursorLine, setCursorLine] = useState(0);
   // The script is strictly sequential — only one timeout is ever pending — so a
@@ -42,7 +58,7 @@ export const AnimatedTerminal = memo(function AnimatedTerminal() {
     // Reduced motion: render the fully-typed final state, no animation loop.
     if (prefersReducedMotion) {
       setLines(
-        SCRIPT.map((l) => ({
+        script.map((l) => ({
           kind: l.type,
           text: l.text,
           tone: l.type === 'output' ? l.tone : undefined,
@@ -64,12 +80,12 @@ export const AnimatedTerminal = memo(function AnimatedTerminal() {
 
       const next = () => {
         if (cancelled) return;
-        if (index >= SCRIPT.length) {
+        if (index >= script.length) {
           // Loop: pause 3s, fade handled by CSS opacity on restart.
           schedule(run, 3000);
           return;
         }
-        const line = SCRIPT[index];
+        const line = script[index];
         setCursorLine(index);
 
         if (line.type === 'output') {
@@ -111,7 +127,7 @@ export const AnimatedTerminal = memo(function AnimatedTerminal() {
       cancelled = true;
       if (timer.current) clearTimeout(timer.current);
     };
-  }, [prefersReducedMotion]);
+  }, [prefersReducedMotion, script]);
 
   return (
     <div className="hx-underglow home-float">

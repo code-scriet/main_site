@@ -92,16 +92,16 @@ export function Hero() {
   return (
     <section className="relative overflow-hidden px-4 pb-20 pt-12 sm:pb-28 sm:pt-16 lg:pt-20">
       <div className="container relative mx-auto">
-        <div className="grid items-center gap-12 lg:grid-cols-[1.05fr_0.95fr] lg:items-start lg:gap-10">
+        <div className="grid items-center gap-12 lg:grid-cols-[1.05fr_0.95fr] lg:gap-10">
           {/* ---- Left column ---- */}
           <motion.div variants={container} initial="hidden" animate="visible" className="text-center lg:text-left">
-            {/* Brand + eyebrow */}
-            <motion.div variants={item} className="mb-7 flex items-center justify-center gap-3 lg:justify-start">
+            {/* Brand + eyebrow — prominent standalone logo above the pill */}
+            <motion.div variants={item} className="mb-7 flex flex-col items-center gap-4 lg:items-start">
               <span className="home-logo-wrap">
                 <span className="home-logo-halo" />
                 <span className="home-logo-ring" />
-                <span className="relative grid h-14 w-14 place-items-center overflow-hidden rounded-2xl border border-white/15 bg-white/10 shadow-lg backdrop-blur-md">
-                  <img src="/logo.jpeg" alt="code.scriet" className="h-11 w-11 rounded-xl object-cover" />
+                <span className="relative grid h-28 w-28 place-items-center overflow-hidden rounded-3xl border border-white/15 bg-white/10 shadow-2xl backdrop-blur-md">
+                  <img src="/logo.jpeg" alt="code.scriet" className="h-24 w-24 rounded-2xl object-cover" />
                 </span>
               </span>
               <span className="glass-pill px-3.5 py-1.5 text-[12px] font-medium text-white/75">
@@ -140,11 +140,13 @@ export function Hero() {
                 <AvatarStack />
                 <span className="text-sm text-white/55">Built by our growing community</span>
               </div>
-              <div className="flex flex-wrap items-center justify-center gap-2 lg:justify-start">
-                <MiniBadge icon={Users}>{members ? `${members}+` : '480+'} developers</MiniBadge>
-                <MiniBadge icon={CalendarDays}>{events ? `${events}+` : '25+'} events</MiniBadge>
-                <MiniBadge icon={Trophy}>{achievements ? `${achievements}+` : '12+'} wins</MiniBadge>
-              </div>
+              {(members != null || events != null || achievements != null) && (
+                <div className="flex flex-wrap items-center justify-center gap-2 lg:justify-start">
+                  {members != null && <MiniBadge icon={Users}>{members}+ developers</MiniBadge>}
+                  {events != null && <MiniBadge icon={CalendarDays}>{events}+ events</MiniBadge>}
+                  {achievements != null && <MiniBadge icon={Trophy}>{achievements}+ wins</MiniBadge>}
+                </div>
+              )}
             </motion.div>
 
             {/* CTAs */}
@@ -176,7 +178,7 @@ export function Hero() {
             initial={{ opacity: 0, y: shouldReduceMotion ? 12 : 30, scale: shouldReduceMotion ? 1 : 0.97 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             transition={{ duration: shouldReduceMotion ? 0.3 : 0.7, delay: 0.2 }}
-            className="mx-auto w-full max-w-md lg:mt-[72px] lg:max-w-none"
+            className="mx-auto w-full max-w-md lg:max-w-none"
           >
             <AnimatedTerminal />
           </motion.div>

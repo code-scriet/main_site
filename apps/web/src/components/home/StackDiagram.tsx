@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode, type CSSProperties } from 'react';
 import { motion, useInView } from 'framer-motion';
 import { useMotionConfig } from '@/hooks/useMotionConfig';
 import { SystemDesignIcon } from './icons';
@@ -7,7 +7,7 @@ import { SystemDesignIcon } from './icons';
 // Node glyphs — tiny inline duotone icons (white line + amber accent) so the
 // diagram stays on-brand without pulling generic library icons.
 // ---------------------------------------------------------------------------
-const G = { stroke: 'currentColor', amber: '#f97316' };
+const G = { stroke: 'currentColor', amber: 'currentColor' };
 
 function Glyph({ children }: { children: ReactNode }) {
   return (
@@ -25,15 +25,15 @@ const glyphs: Record<string, ReactNode> = {
   git: <Glyph><line x1="7" y1="4" x2="7" y2="20" /><circle cx="7" cy="6" r="1.6" /><circle cx="7" cy="18" r="1.6" /><path d="M7 9c5 0 5 3 10 3" /><circle cx="17" cy="12" r="1.6" fill={G.amber} stroke={G.amber} /></Glyph>,
 };
 
-type NodeDef = { key: string; label: string; glyph: ReactNode; x: number };
+type NodeDef = { key: string; label: string; glyph: ReactNode; x: number; accent: string };
 // viewBox is 1100 x 240; node centers sit on a single horizontal rail.
 const NODES: NodeDef[] = [
-  { key: 'browser', label: 'Browser', glyph: glyphs.browser, x: 90 },
-  { key: 'cloud', label: 'Cloudflare', glyph: glyphs.cloud, x: 274 },
-  { key: 'react', label: 'React Frontend', glyph: glyphs.react, x: 458 },
-  { key: 'node', label: 'Node API', glyph: glyphs.server, x: 642 },
-  { key: 'pg', label: 'PostgreSQL', glyph: glyphs.db, x: 826 },
-  { key: 'git', label: 'GitHub CI', glyph: glyphs.git, x: 1010 },
+  { key: 'browser', label: 'Browser', glyph: glyphs.browser, x: 90, accent: '#3b82f6' },
+  { key: 'cloud', label: 'Cloudflare', glyph: glyphs.cloud, x: 274, accent: '#ff6b35' },
+  { key: 'react', label: 'React Frontend', glyph: glyphs.react, x: 458, accent: '#06b6d4' },
+  { key: 'node', label: 'Node API', glyph: glyphs.server, x: 642, accent: '#22c55e' },
+  { key: 'pg', label: 'PostgreSQL', glyph: glyphs.db, x: 826, accent: '#8b5cf6' },
+  { key: 'git', label: 'GitHub CI', glyph: glyphs.git, x: 1010, accent: '#6b7280' },
 ];
 const RAIL_Y = 120;
 const STEP = 0.22; // seconds between each node revealing
@@ -74,7 +74,7 @@ export function StackDiagram() {
   // ---- Mobile: simple vertical flow ----
   if (isMobile) {
     return (
-      <section className="relative px-4 py-20">
+      <section className="hsec hsec-white relative px-4 py-20">
         <div className="container mx-auto max-w-md">
           {Header}
           <div ref={ref} className="relative pl-2">
@@ -87,6 +87,7 @@ export function StackDiagram() {
                   animate={play ? { opacity: 1, x: 0 } : {}}
                   transition={{ duration: 0.45, delay: i * 0.12 }}
                   className="hx-node"
+                  style={{ '--ca': node.accent } as CSSProperties}
                 >
                   <span className="hx-node-ico">{node.glyph}</span>
                   <span className="text-sm font-medium hx-t1">{node.label}</span>
@@ -101,11 +102,21 @@ export function StackDiagram() {
 
   // ---- Desktop: horizontal rail, auto-plays on enter ----
   return (
-    <section className="relative px-4 py-24">
+    <section className="hsec hsec-white relative px-4 py-24">
       <div className="container mx-auto">
         {Header}
         <div ref={ref} className="relative w-full" style={{ aspectRatio: '1100 / 240' }}>
           <svg viewBox="0 0 1100 240" preserveAspectRatio="none" className="absolute inset-0 h-full w-full">
+            <defs>
+              <linearGradient id="hx-rail" x1="0" y1="0" x2="1" y2="0">
+                <stop offset="0%" stopColor="#3b82f6" />
+                <stop offset="22%" stopColor="#ff6b35" />
+                <stop offset="44%" stopColor="#06b6d4" />
+                <stop offset="64%" stopColor="#22c55e" />
+                <stop offset="84%" stopColor="#8b5cf6" />
+                <stop offset="100%" stopColor="#6b7280" />
+              </linearGradient>
+            </defs>
             {NODES.slice(0, -1).map((node, i) => {
               const to = NODES[i + 1];
               const delay = i * STEP + 0.12;
@@ -116,8 +127,8 @@ export function StackDiagram() {
                     y1={RAIL_Y}
                     x2={to.x}
                     y2={RAIL_Y}
-                    stroke="rgba(249,115,22,0.5)"
-                    strokeWidth={2}
+                    stroke="url(#hx-rail)"
+                    strokeWidth={2.5}
                     strokeLinecap="round"
                     initial={prefersReducedMotion ? false : { pathLength: 0 }}
                     animate={play ? { pathLength: 1 } : {}}
@@ -129,7 +140,7 @@ export function StackDiagram() {
                         key={p}
                         r={3}
                         cy={RAIL_Y}
-                        fill="#fbbf24"
+                        fill={to.accent}
                         initial={{ opacity: 0 }}
                         animate={{ cx: [node.x + 14, to.x - 14], opacity: [0, 1, 1, 0] }}
                         transition={{
@@ -154,6 +165,7 @@ export function StackDiagram() {
               <motion.div
                 className="hx-node"
                 data-active={active === i ? 'true' : undefined}
+                style={{ '--ca': node.accent } as CSSProperties}
                 initial={prefersReducedMotion ? false : { opacity: 0, scale: 0.7 }}
                 animate={play ? { opacity: 1, scale: 1 } : {}}
                 transition={{ duration: 0.4, delay: i * STEP, ease: [0.22, 1, 0.36, 1] }}

@@ -50,7 +50,7 @@ export function AboutPreview() {
   const staggerDelay = shouldReduceMotion ? 0.05 : 0.1;
 
   return (
-    <section className="relative overflow-hidden py-20 sm:py-28">
+    <section className="hsec hsec-alt relative overflow-hidden py-20 sm:py-28">
       <div className="container mx-auto px-4 relative">
         {/* Section Header */}
         <motion.div
@@ -136,7 +136,7 @@ export function AboutPreview() {
         >
           <Link
             to="/about"
-            className="group inline-flex h-12 items-center justify-center gap-2 rounded-full bg-gradient-to-r from-[#f97316] to-[#fb923c] px-7 text-base font-semibold hx-t1 shadow-[0_8px_30px_rgba(249,115,22,0.35)] transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_10px_40px_rgba(249,115,22,0.5)]"
+            className="group inline-flex h-12 items-center justify-center gap-2 rounded-full bg-gradient-to-r from-[#f97316] to-[#fb923c] px-7 text-base font-semibold text-white shadow-[0_8px_30px_rgba(249,115,22,0.35)] transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_10px_40px_rgba(249,115,22,0.5)]"
           >
             Learn More About Us
             <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-1" />

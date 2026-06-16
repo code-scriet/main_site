@@ -2558,7 +2558,7 @@ html.dark [data-public] {
   --hx-ink-dim: rgba(20, 16, 13, 0.72);
   --hx-ink-faint: rgba(20, 16, 13, 0.56);
   --hx-dot: rgba(27, 23, 20, 0.09);
-  --hx-particle: rgba(234, 88, 12, 0.45);
+  --hx-particle: rgba(234, 88, 12, 0.6);
   --hx-glow: rgba(249, 115, 22, 0.15);
   --hx-card-shadow: 0 1px 2px rgba(27, 23, 20, 0.05), 0 10px 30px -12px rgba(27, 23, 20, 0.18);
   --hx-ease: cubic-bezier(0.22, 0.61, 0.36, 1);
@@ -2570,9 +2570,14 @@ html.dark [data-public] {
 
   position: relative;
   isolation: isolate;
+  /* Layered warm blooms (peach / amber / rose) over a cream base give the light
+   * page tonal depth instead of one flat colour. */
   background:
-    radial-gradient(120% 80% at 50% -10%, #fffdf9 0%, transparent 55%),
-    linear-gradient(180deg, #f7f3ec 0%, #f4f0e8 60%, #f2ede4 100%);
+    radial-gradient(70% 55% at 82% 4%, #ffe9d2 0%, transparent 55%),
+    radial-gradient(60% 45% at 6% 26%, #fdeadb 0%, transparent 58%),
+    radial-gradient(75% 55% at 60% 64%, #fbe3d2 0%, transparent 60%),
+    radial-gradient(80% 60% at 30% 100%, #f6e6d6 0%, transparent 62%),
+    linear-gradient(180deg, #faf5ee 0%, #f5ece0 45%, #f7efe5 100%);
   color: var(--hx-ink);
   overflow: clip;
 }
@@ -2681,8 +2686,8 @@ html.dark .home-v2 {
 }
 @keyframes home-particle-rise {
   0% { transform: translate(0, 0); opacity: 0; }
-  10% { opacity: 0.6; }
-  90% { opacity: 0.4; }
+  8% { opacity: 0.9; }
+  88% { opacity: 0.65; }
   100% { transform: translate(var(--drift, 0px), -104vh); opacity: 0; }
 }
 
@@ -2964,8 +2969,8 @@ html.dark .navx-link[data-active="true"] { color: #fdba74; }
   transition: border-color 240ms var(--hx-ease), box-shadow 240ms var(--hx-ease);
 }
 .hx-node[data-active="true"] {
-  border-color: rgba(249, 115, 22, 0.65);
-  box-shadow: 0 0 28px rgba(249, 115, 22, 0.3);
+  border-color: color-mix(in srgb, var(--ca, #f97316) 60%, transparent);
+  box-shadow: 0 0 28px color-mix(in srgb, var(--ca, #f97316) 32%, transparent);
 }
 .hx-node-ico {
   display: grid;
@@ -2974,9 +2979,9 @@ html.dark .navx-link[data-active="true"] { color: #fdba74; }
   height: 34px;
   flex-shrink: 0;
   border-radius: 10px;
-  background: rgba(249, 115, 22, 0.12);
-  border: 1px solid rgba(249, 115, 22, 0.25);
-  color: var(--hx-ink);
+  background: color-mix(in srgb, var(--ca, #f97316) 14%, transparent);
+  border: 1px solid color-mix(in srgb, var(--ca, #f97316) 32%, transparent);
+  color: var(--ca, #f97316);
 }
 
 /* ---- Illustrated icons ---- */
@@ -3049,7 +3054,7 @@ html:not(.dark) .home-v2 .hx-terminal .text-white\/35 { color: rgba(255, 255, 25
 html:not(.dark) .home-v2 .hx-terminal .border-white\/8 { border-color: rgba(255, 255, 255, 0.08); }
 
 /* Lighter, airier orbs on the cream canvas */
-html:not(.dark) .home-v2 .home-orb { opacity: 0.7; }
+html:not(.dark) .home-v2 .home-orb { opacity: 1; }
 
 /* ---- Subtle headline gradient (ink → faint amber, theme-aware) ---- */
 .home-v2 .hx-head-grad {
@@ -3096,4 +3101,108 @@ html:not(.dark) .home-v2 .home-orb { opacity: 0.7; }
 
 @media (prefers-reduced-motion: reduce) {
   .hx-scroll-dot { animation: none; }
+}
+
+/* Floating subtle particles behind the "Be part of something bigger" CTA */
+[data-public] .hcta { position: relative; z-index: 1; }
+[data-public] .hcta-particles {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 0;
+}
+[data-public] .hcta-particles i {
+  position: absolute;
+  bottom: -14px;
+  border-radius: 9999px;
+  background: rgba(249, 115, 22, 0.4);
+  animation: hcta-rise linear infinite;
+  will-change: transform, opacity;
+}
+@keyframes hcta-rise {
+  0% { transform: translateY(0); opacity: 0; }
+  12% { opacity: 0.55; }
+  85% { opacity: 0.35; }
+  100% { transform: translateY(-720px); opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  [data-public] .hcta-particles { display: none; }
+}
+
+/* ============================================================================
+ * LIGHT-THEME COLOUR SYSTEM — multi-accent, alternating sections, depth.
+ * Scoped to .home-v2; dark mode keeps the charcoal glass look.
+ * ========================================================================== */
+.home-v2 {
+  --c-primary: #ff6b35;
+  --c-secondary: #8b5cf6;
+  --c-accent: #3b82f6;
+  --c-success: #22c55e;
+  --c-cyan: #06b6d4;
+}
+
+/* Multi-colour brand gradient for highlight words (Tomorrow's, Compounds,
+ * Stack, Technical Edge, Team, Industry Leaders …). */
+.home-v2 .hx-grad-text {
+  background: linear-gradient(90deg, #ff6b35 0%, #8b5cf6 52%, #3b82f6 100%);
+  -webkit-background-clip: text;
+          background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
+}
+
+/* Sharper headline hierarchy */
+.home-v2 :is(h1, h2, h3) { letter-spacing: -0.04em; }
+
+/* Cards gain real depth in light mode (glassy, not flat) */
+html:not(.dark) .home-v2 .glass-card,
+html:not(.dark) .home-v2 .bento-card {
+  box-shadow: var(--hx-card-shadow);
+}
+html:not(.dark) .home-v2 .glass-card:hover,
+html:not(.dark) .home-v2 .bento-card:hover {
+  box-shadow: 0 1px 2px rgba(27, 23, 20, 0.05), 0 18px 44px -14px rgba(27, 23, 20, 0.28);
+}
+
+/* ---- Alternating section backgrounds + ambient glows (light only) ---- */
+.home-v2 .hsec { position: relative; }
+html:not(.dark) .home-v2 .hsec-warm {
+  background:
+    radial-gradient(circle at 12% 0%, rgba(255, 107, 53, 0.10), transparent 38%),
+    radial-gradient(circle at 88% 100%, rgba(139, 92, 246, 0.08), transparent 42%),
+    #fff7ed;
+}
+html:not(.dark) .home-v2 .hsec-alt {
+  background:
+    radial-gradient(circle at 88% 0%, rgba(59, 130, 246, 0.09), transparent 40%),
+    radial-gradient(circle at 8% 100%, rgba(6, 182, 212, 0.07), transparent 42%),
+    #f8fafc;
+}
+html:not(.dark) .home-v2 .hsec-white {
+  background:
+    radial-gradient(circle at 15% 0%, rgba(255, 107, 53, 0.06), transparent 36%),
+    radial-gradient(circle at 90% 90%, rgba(139, 92, 246, 0.05), transparent 40%),
+    #ffffff;
+}
+/* Dark mode: sections stay transparent so the charcoal depth layer shows. */
+html.dark .home-v2 .hsec-warm,
+html.dark .home-v2 .hsec-alt,
+html.dark .home-v2 .hsec-white { background: transparent; }
+
+/* ---- Category-coloured cards (bento + nodes) via --ca custom prop ---- */
+.home-v2 .cat-chip {
+  display: grid;
+  place-items: center;
+  border-radius: 12px;
+  color: var(--ca, var(--c-primary));
+  background: color-mix(in srgb, var(--ca, var(--c-primary)) 14%, transparent);
+  border: 1px solid color-mix(in srgb, var(--ca, var(--c-primary)) 30%, transparent);
+}
+.home-v2 .bento-card[style*="--ca"]::before {
+  background: radial-gradient(circle, color-mix(in srgb, var(--ca) 22%, transparent), transparent 70%);
+}
+.home-v2 .bento-card[style*="--ca"]:hover {
+  border-color: color-mix(in srgb, var(--ca) 45%, transparent);
+  box-shadow: 0 0 44px color-mix(in srgb, var(--ca) 22%, transparent);
 }

@@ -1,4 +1,4 @@
-import { memo, useEffect, useRef, type ComponentType } from 'react';
+import { memo, useEffect, useRef, type ComponentType, type CSSProperties } from 'react';
 import { motion, useInView } from 'framer-motion';
 import { Link } from 'react-router-dom';
 import { Users, Terminal, ArrowUpRight } from 'lucide-react';
@@ -54,6 +54,7 @@ type StatCard = {
   // Feature cards show a static title instead of an animated count.
   feature?: boolean;
   title?: string;
+  accent: string;
 };
 
 export function StatsBento() {
@@ -66,15 +67,15 @@ export function StatsBento() {
   const networkCount = data?.networkHighlights?.length ?? 0;
 
   const cards: StatCard[] = [
-    { icon: Users, value: stats?.members ?? 0, suffix: '+', label: 'Developers in the community', hero: true },
-    { icon: EventsIcon, value: stats?.events ?? 0, suffix: '+', label: 'Events & workshops hosted', to: '/events' },
-    { icon: AchievementsIcon, value: stats?.achievements ?? 0, suffix: '+', label: 'Achievements celebrated', to: '/achievements' },
-    { icon: NetworkIcon, value: networkCount, suffix: '+', label: 'Mentors & industry connections', to: '/network' },
-    { icon: Terminal, feature: true, title: 'Live Playground', label: 'Run code in 40+ languages, in-browser' },
+    { icon: Users, value: stats?.members ?? 0, suffix: '+', label: 'Developers in the community', hero: true, accent: '#3b82f6' },
+    { icon: EventsIcon, value: stats?.events ?? 0, suffix: '+', label: 'Events & workshops hosted', to: '/events', accent: '#ff6b35' },
+    { icon: AchievementsIcon, value: stats?.achievements ?? 0, suffix: '+', label: 'Achievements celebrated', to: '/achievements', accent: '#8b5cf6' },
+    { icon: NetworkIcon, value: networkCount, suffix: '+', label: 'Mentors & industry connections', to: '/network', accent: '#22c55e' },
+    { icon: Terminal, feature: true, title: 'Live Playground', label: 'Run code in 40+ languages, in-browser', accent: '#06b6d4' },
   ];
 
   return (
-    <section className="relative px-4 py-16 sm:py-20">
+    <section className="hsec hsec-warm relative px-4 py-16 sm:py-20">
       <div ref={sectionRef} className="container mx-auto">
         <motion.div
           initial={{ opacity: 0, y: shouldReduceMotion ? 10 : 24 }}
@@ -101,14 +102,13 @@ export function StatsBento() {
                 transition={{ duration: shouldReduceMotion ? 0.3 : 0.5, delay: i * 0.08 }}
                 viewport={{ once: true, margin: '-50px' }}
                 className={`bento-card group h-full ${card.hero ? 'flex flex-col justify-between' : ''}`}
+                style={{ '--ca': card.accent } as CSSProperties}
               >
                 <div className="relative z-10 flex items-center justify-between">
-                  <span className="grid h-11 w-11 place-items-center rounded-xl border border-[#f97316]/25 bg-[#f97316]/12 text-[#fdba74]">
+                  <span className={`cat-chip ${card.hero ? 'h-12 w-12' : 'h-11 w-11'}`}>
                     <Icon className={card.hero ? 'h-6 w-6' : 'h-5 w-5'} />
                   </span>
-                  {card.to && (
-                    <ArrowUpRight className="h-4 w-4 hx-t3 transition-colors group-hover:text-[#fdba74]" />
-                  )}
+                  {card.to && <ArrowUpRight className="h-4 w-4 hx-t3 transition-colors" />}
                 </div>
                 <div className="relative z-10 mt-6">
                   <p

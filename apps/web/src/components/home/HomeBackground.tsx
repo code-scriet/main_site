@@ -27,7 +27,7 @@ type Particle = {
 export const HomeBackground = memo(function HomeBackground() {
   const { isMobile, prefersReducedMotion } = useMotionConfig();
 
-  const particleCount = prefersReducedMotion ? 0 : isMobile ? 10 : 22;
+  const particleCount = prefersReducedMotion ? 0 : isMobile ? 18 : 40;
 
   const particles = useMemo<Particle[]>(() => {
     return Array.from({ length: particleCount }, (_, index) => {
@@ -35,10 +35,10 @@ export const HomeBackground = memo(function HomeBackground() {
       return {
         id: index,
         left: seededUnit(seed) * 100,
-        size: seededUnit(seed * 2.13) * 2.5 + 1.5,
-        duration: seededUnit(seed * 3.07) * 14 + 16,
-        delay: seededUnit(seed * 4.1) * 18,
-        drift: (seededUnit(seed * 5.7) - 0.5) * 40,
+        size: seededUnit(seed * 2.13) * 3 + 2,
+        duration: seededUnit(seed * 3.07) * 14 + 14,
+        delay: seededUnit(seed * 4.1) * 20,
+        drift: (seededUnit(seed * 5.7) - 0.5) * 60,
       };
     });
   }, [particleCount]);

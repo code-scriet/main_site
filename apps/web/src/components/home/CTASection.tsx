@@ -19,13 +19,41 @@ export function CTASection() {
   const fmt = (n?: number) => (n != null ? n.toLocaleString() : '—');
 
   const stats = [
-    { icon: Users, value: s?.members != null ? `${fmt(s.members)}+` : '—', label: 'Active members', live: true },
-    { icon: CalendarDays, value: fmt(s?.events), label: 'Events hosted', live: false },
-    { icon: Trophy, value: fmt(s?.achievements), label: 'Milestones won', live: false },
+    { icon: Users, value: s?.members != null ? `${fmt(s.members)}+` : '—', label: 'Active members' },
+    { icon: CalendarDays, value: fmt(s?.events), label: 'Events hosted' },
+    { icon: Trophy, value: fmt(s?.achievements), label: 'Milestones won' },
   ];
+
+  // Subtle floating particles drifting up behind the CTA (decorative).
+  const particles = Array.from({ length: 14 }, (_, i) => {
+    const r = (n: number) => {
+      const v = Math.sin((i + 1) * n) * 43758.5453;
+      return v - Math.floor(v);
+    };
+    return {
+      left: r(12.9898) * 100,
+      size: r(2.13) * 3 + 2,
+      duration: r(3.07) * 10 + 14,
+      delay: r(4.1) * 14,
+    };
+  });
 
   return (
     <section className="hcta-section">
+      <div className="hcta-particles" aria-hidden="true">
+        {particles.map((p, i) => (
+          <i
+            key={i}
+            style={{
+              left: `${p.left}%`,
+              width: p.size,
+              height: p.size,
+              animationDuration: `${p.duration}s`,
+              animationDelay: `${p.delay}s`,
+            }}
+          />
+        ))}
+      </div>
       <motion.div
         initial={{ y: shouldReduceMotion ? 8 : 18 }}
         whileInView={{ y: 0 }}
@@ -72,10 +100,7 @@ export function CTASection() {
                 </span>
                 <div>
                   <div className="hcta-stat-num">{stat.value}</div>
-                  <div className="hcta-stat-label">
-                    {stat.live && <span className="hcta-live animate-pulse" aria-hidden="true" />}
-                    {stat.label}
-                  </div>
+                  <div className="hcta-stat-label">{stat.label}</div>
                 </div>
               </div>
             );

@@ -80,7 +80,7 @@ export function UpcomingEvents() {
   const staggerDelay = shouldReduceMotion ? 0.05 : 0.15;
 
   return (
-    <section className="relative overflow-hidden py-24">
+    <section className="hsec hsec-white relative overflow-hidden py-24">
       <div className="container mx-auto px-4 relative">
         {/* Section Header */}
         <motion.div

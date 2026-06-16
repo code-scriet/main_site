@@ -17,7 +17,7 @@ export function AchievementsShowcase() {
   const staggerDelay = shouldReduceMotion ? 0.05 : 0.1;
 
   return (
-    <section className="py-16 sm:py-24 relative overflow-hidden">
+    <section className="hsec hsec-warm py-16 sm:py-24 relative overflow-hidden">
       {/* Faint trophy pattern */}
       <div
         className="absolute inset-0 opacity-[0.04]"
@@ -189,7 +189,7 @@ export function AchievementsShowcase() {
         >
           <Link
             to="/achievements"
-            className="group inline-flex h-14 items-center justify-center gap-2 rounded-full bg-gradient-to-r from-[#f97316] to-[#fb923c] px-8 text-lg font-semibold hx-t1 shadow-[0_8px_30px_rgba(249,115,22,0.35)] transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_10px_40px_rgba(249,115,22,0.5)]"
+            className="group inline-flex h-14 items-center justify-center gap-2 rounded-full bg-gradient-to-r from-[#f97316] to-[#fb923c] px-8 text-lg font-semibold text-white shadow-[0_8px_30px_rgba(249,115,22,0.35)] transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_10px_40px_rgba(249,115,22,0.5)]"
           >
             View All Achievements
             <ArrowRight className="h-5 w-5 transition-transform group-hover:translate-x-1" />

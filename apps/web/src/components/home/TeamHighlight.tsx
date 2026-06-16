@@ -16,7 +16,7 @@ export function TeamHighlight() {
   const staggerDelay = shouldReduceMotion ? 0.05 : 0.1;
 
   return (
-    <section className="relative overflow-hidden py-16 sm:py-24">
+    <section className="hsec hsec-white relative overflow-hidden py-16 sm:py-24">
       <div className="container mx-auto px-4 relative">
         {/* Section Header */}
         <motion.div
@@ -27,10 +27,7 @@ export function TeamHighlight() {
           className="text-center mb-8 sm:mb-12 lg:mb-16"
         >
           <h2 className="mb-3 text-2xl font-bold hx-t1 sm:mb-4 sm:text-4xl md:text-5xl">
-            Meet Our{' '}
-            <span className="bg-gradient-to-r from-blue-500 to-cyan-500 bg-clip-text text-transparent">
-              Team
-            </span>
+            Meet Our <span className="hx-grad-text">Team</span>
           </h2>
           <p className="mx-auto max-w-2xl px-2 text-base hx-t2 sm:text-lg">
             The passionate individuals driving code.scriet forward and building an amazing community

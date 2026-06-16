@@ -55,7 +55,7 @@ export function NetworkHighlight() {
   const professionalsCount = profiles.length - alumniCount;
 
   return (
-    <section className="relative overflow-hidden border-t border-white/8 py-16 sm:py-24 lg:py-28">
+    <section className="hsec hsec-alt relative overflow-hidden border-t border-white/8 py-16 sm:py-24 lg:py-28">
       <div className="container relative z-10 mx-auto">
         {/* Section Header */}
         <motion.div
