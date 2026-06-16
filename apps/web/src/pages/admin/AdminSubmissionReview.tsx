@@ -158,7 +158,7 @@ export default function AdminSubmissionReview() {
       {isLoading ? (
         <div className="flex justify-center py-16"><Loader2 className="h-6 w-6 animate-spin" style={{ color: 'var(--ds-text-3)' }} /></div>
       ) : submissions.length === 0 ? (
-        <EmptyState title="Nothing to review" description="No judge-failed captures or appeals are waiting. You're all caught up." />
+        <EmptyState title="Nothing to review" body="No judge-failed captures or appeals are waiting. You're all caught up." />
       ) : (
         <div className="flex flex-col gap-3">
           {submissions.map((s) => (
