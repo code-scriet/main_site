@@ -29,6 +29,15 @@ export interface InvitationClaimTokenPayload {
   email: string;
 }
 
+export interface QotdReopenTokenPayload {
+  qotdId: string;
+  date: string; // IST YYYY-MM-DD, informational
+  // The reopen-session marker (the QOTD's reopenedAt ISO at issue time). A
+  // close→reopen mints a new reopenedAt, so links from a prior session no longer
+  // match and stop working — even though they target the same QOTD.
+  nonce: string;
+}
+
 const INSECURE_DEFAULT_SECRETS = new Set([
   'secret',
   'your_super_secret_key_change_this_in_production',
@@ -142,6 +151,31 @@ export const signInvitationClaimToken = (payload: InvitationClaimTokenPayload): 
     { algorithm: 'HS256', expiresIn: '30d' },
   )
 );
+
+// QOTD reopen link. The real open/closed gate is QOTD.reopenedAt (admin closes →
+// the link stops working immediately), so a generous TTL is fine — the token only
+// proves the holder has the private link for this specific QOTD.
+export const signQotdReopenToken = (payload: QotdReopenTokenPayload): string => (
+  jwt.sign(
+    { ...payload, purpose: 'qotd_reopen' },
+    getJwtSecret(),
+    { algorithm: 'HS256', expiresIn: '180d' },
+  )
+);
+
+export const verifyQotdReopenToken = (token: string): QotdReopenTokenPayload => {
+  const decoded = jwt.verify(token, getJwtSecret(), { algorithms: ['HS256'] }) as Partial<QotdReopenTokenPayload> & {
+    purpose?: string;
+  };
+  if (decoded.purpose !== 'qotd_reopen' || typeof decoded.qotdId !== 'string' || typeof decoded.nonce !== 'string') {
+    throw new Error('Invalid QOTD reopen token');
+  }
+  return {
+    qotdId: decoded.qotdId,
+    date: typeof decoded.date === 'string' ? decoded.date : '',
+    nonce: decoded.nonce,
+  };
+};
 
 export const verifyOAuthExchangeCode = (code: string): OAuthExchangeCodePayload & { jti: string } => {
   const decoded = jwt.verify(code, getJwtSecret(), { algorithms: ['HS256'] }) as Partial<OAuthExchangeCodePayload> & {

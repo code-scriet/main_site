@@ -37,6 +37,7 @@ export interface QOTDHistoryEntry {
   publishedAt?: string | null;
   heldBy?: string | null;
   holdReason?: string | null;
+  reopenedAt?: string | null;
 }
 
 export interface QOTDDetail extends QOTDHistoryEntry {
@@ -128,6 +129,39 @@ export interface ProblemInput {
   referenceSolution?: string | null;
   referenceLanguage?: ProblemLanguage | null;
   isPublished: boolean;
+}
+
+// S-09 — curated problem sheets ("topic ladders").
+export interface ProblemSheetSummary {
+  id: string;
+  slug: string;
+  title: string;
+  description?: string | null;
+  isPublished: boolean;
+  createdAt: string;
+  total: number;
+  solved: number;
+}
+
+export interface ProblemSheetItem {
+  order: number;
+  id: string;
+  slug: string;
+  title: string;
+  difficulty: 'EASY' | 'MEDIUM' | 'HARD';
+  tags: string[];
+  solved: boolean;
+}
+
+export interface ProblemSheetDetail extends ProblemSheetSummary {
+  items: ProblemSheetItem[];
+}
+
+export interface ProblemSheetInput {
+  title: string;
+  description?: string | null;
+  isPublished?: boolean;
+  problemIds: string[];
 }
 
 export interface ProblemSubmission {
@@ -856,6 +890,7 @@ export interface Poll {
   isAnonymous: boolean;
   isPublished: boolean;
   deadline?: string | null;
+  eventId?: string | null;
   createdAt: string;
   updatedAt: string;
   isClosed: boolean;
@@ -876,6 +911,7 @@ export interface PollInput {
   isAnonymous?: boolean;
   deadline?: string | null;
   isPublished?: boolean;
+  eventId?: string | null;
 }
 
 export interface AdminPollListItem {
@@ -888,6 +924,7 @@ export interface AdminPollListItem {
   isAnonymous: boolean;
   isPublished: boolean;
   deadline?: string | null;
+  eventId?: string | null;
   createdAt: string;
   updatedAt: string;
   isClosed: boolean;
@@ -1556,6 +1593,8 @@ export type {
   NotifAudience,
   ComposeNotificationInput,
   BroadcastRow,
+  OnboardingStatus,
+  MonthlyDigest,
 } from './api/dashboard';
 
 export const api = {

@@ -15,6 +15,8 @@ import { recomputeUserStreakSafe, invalidatePublishedQotdCache, recomputeStreaks
 import { broadcastQotdLive } from '../utils/notifications.js';
 import { armQotdPublishTimer, cancelQotdPublishTimer } from '../utils/scheduler.js';
 import { uuidParamGuard } from '../utils/idParams.js';
+import { isPresidentOrSuperAdmin } from '../utils/superAdmin.js';
+import { signQotdReopenToken } from '../utils/jwt.js';
 
 export const qotdRouter = Router();
 
@@ -664,6 +666,60 @@ qotdRouter.post('/:id/hold', authMiddleware, requireRole('ADMIN'), async (req: R
     return ApiResponse.success(res, updated, 'QOTD held');
   } catch {
     return ApiResponse.internal(res, 'Failed to hold QOTD');
+  }
+});
+
+// Reopen a PAST QOTD for late submissions via a private signed link.
+// PRESIDENT / super admin only. Idempotent — calling it again re-stamps and
+// returns a fresh token. Streak/marks/leaderboard update normally on submit
+// because the QOTD is already published; only the active-day gate is bypassed.
+qotdRouter.post('/:id/reopen', authMiddleware, requireRole('ADMIN'), async (req: Request, res: Response) => {
+  try {
+    const authUser = getAuthUser(req)!;
+    if (!isPresidentOrSuperAdmin(authUser)) {
+      return ApiResponse.forbidden(res, 'Only the President or super admin can reopen a QOTD');
+    }
+    const qotd = await prisma.qOTD.findUnique({
+      where: { id: req.params.id },
+      select: { id: true, date: true, problemId: true, isPublished: true, heldBy: true, reopenedAt: true },
+    });
+    if (!qotd) return ApiResponse.notFound(res, 'QOTD not found');
+    if (!qotd.problemId) return ApiResponse.badRequest(res, 'Legacy text-only QOTDs cannot be reopened');
+    if (!qotd.isPublished || qotd.heldBy) return ApiResponse.badRequest(res, 'Only a published, non-held QOTD can be reopened');
+    if (toIstDateKey(qotd.date) >= formatUsageDate()) {
+      return ApiResponse.badRequest(res, "Only a past QOTD can be reopened (today's is already live)");
+    }
+    // Re-issuing a link for an already-open QOTD must NOT re-stamp reopenedAt:
+    // reopenedAt is the session nonce, so keeping it lets prior links from THIS
+    // session keep working. A fresh open (was closed) mints a new reopenedAt,
+    // which invalidates any link from a previous session.
+    const reopenedAt = qotd.reopenedAt ?? new Date();
+    if (!qotd.reopenedAt) {
+      await prisma.qOTD.update({ where: { id: qotd.id }, data: { reopenedAt, reopenedBy: authUser.id } });
+    }
+    const dateKey = toIstDateKey(qotd.date);
+    const token = signQotdReopenToken({ qotdId: qotd.id, date: dateKey, nonce: reopenedAt.toISOString() });
+    await auditLog(authUser.id, 'QOTD_REOPENED', 'qotd', qotd.id, { date: dateKey, fresh: !qotd.reopenedAt });
+    return ApiResponse.success(res, { id: qotd.id, date: dateKey, reopenedAt, token }, 'QOTD reopened');
+  } catch {
+    return ApiResponse.internal(res, 'Failed to reopen QOTD');
+  }
+});
+
+// Close a reopened QOTD — revokes every outstanding private link immediately.
+qotdRouter.post('/:id/close-reopen', authMiddleware, requireRole('ADMIN'), async (req: Request, res: Response) => {
+  try {
+    const authUser = getAuthUser(req)!;
+    if (!isPresidentOrSuperAdmin(authUser)) {
+      return ApiResponse.forbidden(res, 'Only the President or super admin can close a reopened QOTD');
+    }
+    const qotd = await prisma.qOTD.findUnique({ where: { id: req.params.id }, select: { id: true } });
+    if (!qotd) return ApiResponse.notFound(res, 'QOTD not found');
+    await prisma.qOTD.update({ where: { id: qotd.id }, data: { reopenedAt: null, reopenedBy: null } });
+    await auditLog(authUser.id, 'QOTD_REOPEN_CLOSED', 'qotd', qotd.id);
+    return ApiResponse.success(res, { id: qotd.id, reopenedAt: null }, 'Reopened QOTD closed');
+  } catch {
+    return ApiResponse.internal(res, 'Failed to close reopened QOTD');
   }
 });
 

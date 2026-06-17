@@ -642,6 +642,134 @@ statsRouter.get('/me', authMiddleware, async (req: Request, res: Response) => {
   }
 });
 
+// S-06 — first-week "start here" checklist status. Four cheap, indexed existence
+// checks (all keyed on userId): profile complete, first QOTD solved, first event
+// registered, first snippet saved. Computed live (no schema change). The frontend
+// stops calling this once `allDone` is true, so established users never pay for it.
+statsRouter.get('/onboarding', authMiddleware, async (req: Request, res: Response) => {
+  try {
+    const authUser = getAuthUser(req)!;
+    const [me, qotdLegacy, qotdSolved, registration, snippet] = await Promise.all([
+      prisma.user.findUnique({ where: { id: authUser.id }, select: { profileCompleted: true } }),
+      prisma.qOTDSubmission.findFirst({ where: { userId: authUser.id }, select: { id: true } }),
+      prisma.problemSubmission.findFirst({
+        where: { userId: authUser.id, contextType: 'QOTD', verdict: 'ACCEPTED' },
+        select: { id: true },
+      }),
+      prisma.eventRegistration.findFirst({ where: { userId: authUser.id }, select: { id: true } }),
+      prisma.snippet.findFirst({ where: { userId: authUser.id }, select: { id: true } }),
+    ]);
+    const profileCompleted = Boolean(me?.profileCompleted);
+    const solvedQotd = Boolean(qotdLegacy || qotdSolved);
+    const registeredEvent = Boolean(registration);
+    const savedSnippet = Boolean(snippet);
+    const allDone = profileCompleted && solvedQotd && registeredEvent && savedSnippet;
+    ApiResponse.success(res, { profileCompleted, solvedQotd, registeredEvent, savedSnippet, allDone });
+  } catch {
+    ApiResponse.internal(res, 'Failed to fetch onboarding status');
+  }
+});
+
+// S-08 — monthly "what happened" digest. Computes a one-month-window summary from
+// data the platform already tracks and returns a ready-to-edit markdown body the
+// admin loads into the mailer (AdminMail) or posts as an announcement. Draft-for-
+// approval by design — this endpoint never sends anything itself.
+function digestMonthWindow(monthParam?: string): { start: Date; end: Date; label: string; key: string } {
+  const now = new Date();
+  let year: number;
+  let month: number; // 0-based
+  const m = /^(\d{4})-(\d{2})$/.exec(monthParam ?? '');
+  if (m) {
+    year = Number(m[1]);
+    month = Number(m[2]) - 1;
+  } else {
+    // Default to the previous complete month (the natural recap window).
+    const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1));
+    year = d.getUTCFullYear();
+    month = d.getUTCMonth();
+  }
+  const start = new Date(Date.UTC(year, month, 1));
+  const end = new Date(Date.UTC(year, month + 1, 1));
+  const label = start.toLocaleDateString('en-US', { month: 'long', year: 'numeric', timeZone: 'UTC' });
+  const key = `${year}-${String(month + 1).padStart(2, '0')}`;
+  return { start, end, label, key };
+}
+
+statsRouter.get('/digest', authMiddleware, requireRole('ADMIN'), async (req: Request, res: Response) => {
+  try {
+    const { start, end, label, key } = digestMonthWindow(typeof req.query.month === 'string' ? req.query.month : undefined);
+    const window = { gte: start, lt: end };
+
+    const [
+      newMembers,
+      eventsHeld,
+      attendanceMarks,
+      certificatesIssued,
+      qotdAccepted,
+      qotdLegacy,
+      quizSessions,
+      newNetworkMembers,
+      topStreaks,
+    ] = await Promise.all([
+      prisma.user.count({ where: { createdAt: window, role: { not: 'NETWORK' }, isDeleted: false } }),
+      prisma.event.count({ where: { startDate: window } }),
+      prisma.eventRegistration.count({ where: { ...participantsOnly, attended: true, scannedAt: window } }),
+      prisma.certificate.count({ where: { issuedAt: window, isRevoked: false } }),
+      prisma.problemSubmission.count({ where: { contextType: 'QOTD', verdict: 'ACCEPTED', submittedAt: window } }),
+      prisma.qOTDSubmission.count({ where: { timestamp: window } }),
+      prisma.quiz.count({ where: { status: 'FINISHED', updatedAt: window } }),
+      prisma.networkProfile.count({ where: { verifiedAt: window } }),
+      prisma.user.findMany({
+        where: { currentStreak: { gt: 0 }, isDeleted: false },
+        orderBy: { currentStreak: 'desc' },
+        take: 3,
+        select: { name: true, currentStreak: true },
+      }),
+    ]);
+
+    const qotdSolves = qotdAccepted + qotdLegacy;
+    const summary = {
+      month: key,
+      label,
+      newMembers,
+      eventsHeld,
+      attendanceMarks,
+      certificatesIssued,
+      qotdSolves,
+      quizSessions,
+      newNetworkMembers,
+      topStreaks: topStreaks.map((u) => ({ name: u.name, streak: u.currentStreak })),
+    };
+
+    const lines: string[] = [
+      `## code.scriet — ${label} in review`,
+      '',
+      'Here\'s what the club got up to this month:',
+      '',
+      `- 👥 **${newMembers}** new members joined`,
+      `- 📅 **${eventsHeld}** events held, with **${attendanceMarks}** check-ins`,
+      `- 🔥 **${qotdSolves}** daily problems solved`,
+      `- 🏆 **${certificatesIssued}** certificates issued`,
+      `- 🎮 **${quizSessions}** live quiz sessions`,
+      `- 🌐 **${newNetworkMembers}** new people in our network`,
+    ];
+    if (summary.topStreaks.length > 0) {
+      lines.push('', `**Longest active streaks:** ${summary.topStreaks.map((s) => `${s.name} (${s.streak}🔥)`).join(' · ')}`);
+    }
+    lines.push('', 'Thanks for being part of it. See you next month.');
+
+    return ApiResponse.success(res, {
+      month: key,
+      label,
+      summary,
+      subject: `code.scriet · ${label} in review`,
+      markdown: lines.join('\n'),
+    });
+  } catch {
+    return ApiResponse.internal(res, 'Failed to build digest');
+  }
+});
+
 // Get event registration trends (admin)
 statsRouter.get('/events/trends', authMiddleware, requireRole('ADMIN'), async (_req: Request, res: Response) => {
   try {

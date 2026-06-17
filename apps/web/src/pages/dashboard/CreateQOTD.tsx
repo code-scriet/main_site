@@ -7,7 +7,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   Search, Plus, FileText, Loader2, Check, ChevronLeft, ChevronRight, Link as LinkIcon,
-  Trash2, Pause, Play, BookOpen, BookOpenCheck,
+  Trash2, Pause, Play, BookOpen, BookOpenCheck, RotateCcw, Copy, Square,
 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { api, type Problem, type QOTDHistoryEntry } from '@/lib/api';
@@ -15,8 +15,12 @@ import { DSCard, EmptyState, Field, Pill, Section } from '@/components/dash';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
+import { copyTextToClipboard } from '@/lib/clipboard';
+import { getPlaygroundPublicUrl } from '@/lib/playgroundUrl';
+import { istDateKey } from '@/lib/dateUtils';
 import { useUnsavedChangesWarning } from '@/hooks/useUnsavedChangesWarning';
 
 type Mode = 'pick' | 'create' | 'legacy';
@@ -45,9 +49,15 @@ function dayCellStatus(date: Date, history: QOTDHistoryEntry[]): { status: Statu
 }
 
 export default function CreateQOTD() {
-  const { token } = useAuth();
+  const { token, user } = useAuth();
   const navigate = useNavigate();
   const qc = useQueryClient();
+  // Reopening a past QOTD is President / super-admin only (matches the server gate).
+  const canReopen = Boolean(user?.isSuperAdmin || user?.role === 'PRESIDENT');
+  // IST date key (not browser-local) so the "past QOTD?" check agrees with the server.
+  const todayIso = istDateKey();
+  const [reopenLink, setReopenLink] = useState<string | null>(null);
+  const [reopenLinkCopied, setReopenLinkCopied] = useState(false);
 
   const [mode, setMode] = useState<Mode>('pick');
   const [problemSearch, setProblemSearch] = useState('');
@@ -198,6 +208,27 @@ export default function CreateQOTD() {
     onMutate: (id) => { setRowBusy(id); },
     onSuccess: () => { toast.success('Removed from practice catalog'); qc.invalidateQueries({ queryKey: ['qotd-history-admin'] }); },
     onError: (e: Error) => toast.error(e.message || 'Failed to remove from practice'),
+    onSettled: () => setRowBusy(null),
+  });
+  // Reopen is idempotent on the server: calling it again re-issues a fresh private
+  // link, so this same mutation backs both "Reopen" and "Get link".
+  const reopenMut = useMutation({
+    mutationFn: (id: string) => api.reopenQOTD(id, token!),
+    onMutate: (id) => { setRowBusy(id); },
+    onSuccess: (data) => {
+      const link = getPlaygroundPublicUrl(`/?qotd=${encodeURIComponent(data.date)}&reopen=${encodeURIComponent(data.token)}`);
+      setReopenLink(link);
+      setReopenLinkCopied(false);
+      qc.invalidateQueries({ queryKey: ['qotd-history-admin'] });
+    },
+    onError: (e: Error) => toast.error(e.message || 'Failed to reopen QOTD'),
+    onSettled: () => setRowBusy(null),
+  });
+  const closeReopenMut = useMutation({
+    mutationFn: (id: string) => api.closeReopenQOTD(id, token!),
+    onMutate: (id) => { setRowBusy(id); },
+    onSuccess: () => { toast.success('Reopened QOTD closed — the private link no longer works'); qc.invalidateQueries({ queryKey: ['qotd-history-admin'] }); },
+    onError: (e: Error) => toast.error(e.message || 'Failed to close'),
     onSettled: () => setRowBusy(null),
   });
 
@@ -446,6 +477,24 @@ export default function CreateQOTD() {
                       <BookOpenCheck size={11} />
                     </button>
                   )}
+                  {/* Reopen a past, published, non-held QOTD via a private link (PRES/SA). */}
+                  {canReopen && q.problemId && q.isPublished && !q.heldBy && q.date.slice(0, 10) < todayIso && (
+                    q.reopenedAt ? (
+                      <>
+                        <Pill tone="info" size="xs">Reopened</Pill>
+                        <button onClick={() => reopenMut.mutate(q.id)} disabled={rowBusy === q.id} title="Copy private link" aria-label="Copy private reopen link" className="size-7 rounded-[6px] hover:bg-[var(--accent-subtle)] text-[var(--ds-text-3)] hover:text-[var(--accent)] flex items-center justify-center disabled:opacity-40">
+                          <LinkIcon size={11} />
+                        </button>
+                        <button onClick={() => closeReopenMut.mutate(q.id)} disabled={rowBusy === q.id} title="Close reopen (revokes the link)" aria-label="Close reopen" className="size-7 rounded-[6px] hover:bg-[var(--warning-bg)] text-[var(--ds-text-3)] hover:text-[var(--warning)] flex items-center justify-center disabled:opacity-40">
+                          <Square size={11} />
+                        </button>
+                      </>
+                    ) : (
+                      <button onClick={() => reopenMut.mutate(q.id)} disabled={rowBusy === q.id} title="Reopen for late submissions (private link)" aria-label="Reopen QOTD" className="size-7 rounded-[6px] hover:bg-[var(--accent-subtle)] text-[var(--ds-text-3)] hover:text-[var(--accent)] flex items-center justify-center disabled:opacity-40">
+                        <RotateCcw size={11} />
+                      </button>
+                    )
+                  )}
                   <button onClick={() => setDeleteTarget(q)} disabled={rowBusy === q.id} title="Delete" className="size-7 rounded-[6px] hover:bg-[var(--danger-bg)] text-[var(--ds-text-3)] hover:text-[var(--danger)] flex items-center justify-center disabled:opacity-40">
                     <Trash2 size={11} />
                   </button>
@@ -511,6 +560,34 @@ export default function CreateQOTD() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Private reopen link — share only with the people who should solve it. */}
+      <Dialog open={Boolean(reopenLink)} onOpenChange={(o) => { if (!o) setReopenLink(null); }}>
+        <DialogContent data-dashboard="true" className="bg-[var(--bg-raised)] border-[var(--border-subtle)] max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Private reopen link</DialogTitle>
+          </DialogHeader>
+          <p className="text-[13px] text-[var(--ds-text-2)]">
+            Share this link only with the people who should submit. Anyone who opens it can solve this
+            QOTD and have their streak, marks and leaderboard standing counted — until you close it.
+          </p>
+          <div className="flex items-center gap-2 mt-3">
+            <Input readOnly value={reopenLink ?? ''} className="font-mono text-[12px]" onFocus={(e) => e.currentTarget.select()} />
+            <Button
+              size="sm"
+              onClick={async () => {
+                if (!reopenLink) return;
+                const ok = await copyTextToClipboard(reopenLink);
+                setReopenLinkCopied(ok);
+                toast[ok ? 'success' : 'error'](ok ? 'Link copied' : 'Could not copy');
+              }}
+            >
+              {reopenLinkCopied ? <Check size={13} className="mr-1" /> : <Copy size={13} className="mr-1" />}
+              {reopenLinkCopied ? 'Copied' : 'Copy'}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

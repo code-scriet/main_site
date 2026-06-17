@@ -65,6 +65,18 @@ export default function AdminPublicView() {
     enabled: Boolean(token),
   });
 
+  // S-10: events to offer as the post-event feedback link. Only fetched while the
+  // editor is open so the polls page itself stays lean.
+  const eventsQ = useQuery({
+    queryKey: ['admin-events-for-poll'],
+    queryFn: () => api.getEvents(),
+    enabled: Boolean(token) && editorOpen,
+  });
+  const eventOptions = useMemo(
+    () => (eventsQ.data ?? []).map((e) => ({ id: e.id, title: e.title })),
+    [eventsQ.data],
+  );
+
   const allPolls = useMemo(() => listQ.data?.polls ?? [], [listQ.data]);
   // Status + anonymity filtering (CAT 7). The "active" subset is a derived view of all polls.
   const activePolls = useMemo(() => {
@@ -133,6 +145,7 @@ export default function AdminPublicView() {
       isAnonymous: detail.isAnonymous,
       deadline: detail.deadline ?? '',
       isPublished: detail.isPublished,
+      eventId: detail.eventId ?? '',
     });
     setPollType('NORMAL');
     setEditorOpen(true);
@@ -153,7 +166,8 @@ export default function AdminPublicView() {
     if (cleanedOptions.length < 2) { toast.error('At least two options are required'); return; }
     setSaving(true);
     try {
-      const payload: PollInput = { ...form, options: cleanedOptions };
+      // S-10: empty event link → null (avoids failing the uuid validator).
+      const payload: PollInput = { ...form, options: cleanedOptions, eventId: form.eventId || null };
       if (editorMode === 'edit' && editingPollId) {
         await api.updatePoll(editingPollId, payload, token);
         toast.success('Poll updated');
@@ -479,6 +493,7 @@ export default function AdminPublicView() {
           <PollEditor
             form={form}
             setForm={setForm}
+            events={eventOptions}
             pollType={pollType}
             onPollTypeChange={setPollType}
             onAddOption={handleAddOption}

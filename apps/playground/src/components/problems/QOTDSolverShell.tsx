@@ -44,6 +44,9 @@ export interface QOTDSolverContext {
   practice?: boolean;
   modeLabel: string;
   leaderboardHref?: string;
+  // Signed 'qotd_reopen' token — present when solving a past QOTD via a private
+  // admin link; sent on run/submit so the past day is accepted and scored.
+  reopenToken?: string;
 }
 
 export interface QOTDSolverShellProps {
@@ -444,6 +447,7 @@ export function QOTDSolverShell({ problem, context, onExit }: QOTDSolverShellPro
       code,
       contextType: context.type,
       contextKey: context.key,
+      reopenToken: context.reopenToken,
     }),
     onSuccess: (result) => {
       setLastRun(result);
@@ -463,6 +467,7 @@ export function QOTDSolverShell({ problem, context, onExit }: QOTDSolverShellPro
       contextType: context.type,
       contextKey: context.key,
       activeMs: getActiveElapsedMs(),
+      reopenToken: context.reopenToken,
     }),
     onSuccess: async (result) => {
       if (result.needsReview) {
@@ -797,7 +802,7 @@ export function QOTDSolverShell({ problem, context, onExit }: QOTDSolverShellPro
                 <div className="grid min-h-[360px] place-items-center rounded border border-dashed border-zinc-300 bg-zinc-50 px-8 text-center dark:border-zinc-700 dark:bg-zinc-900">
                   <div>
                     <Lock className="mx-auto h-10 w-10 text-zinc-400" />
-                    <p className="mt-4 text-base font-semibold text-zinc-900 dark:text-zinc-100">Solution unlocks once you have submitted at least 2 times in this problem and the deadline has passed.</p>
+                    <p className="mt-4 text-base font-semibold text-zinc-900 dark:text-zinc-100">Solution unlocks once you solve it — or, after the deadline has passed, once you have submitted at least twice.</p>
                   </div>
                 </div>
               )

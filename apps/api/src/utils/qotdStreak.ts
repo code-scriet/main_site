@@ -1,6 +1,50 @@
 import { prisma } from '../lib/prisma.js';
 import { formatUsageDate } from './dailyLimit.js';
 import { logger } from './logger.js';
+import { broadcastNotification } from './notifications.js';
+
+// S-05 — streak milestone celebrations. When a user's currentStreak crosses one
+// of these on a QOTD submit, ring their bell once. Crossing is detected against
+// the previously-materialized User.currentStreak (old < threshold ≤ new), which
+// makes it idempotent: once the new value is written, a later recompute sees
+// old === new and won't re-fire. Only the single-user submit path
+// (recomputeUserStreak) celebrates — the batch publish/hold recompute deliberately
+// does not, so an admin toggling a QOTD never blasts milestone bells.
+const STREAK_MILESTONES = [7, 30, 50, 100, 365] as const;
+const STREAK_MILESTONE_COPY: Record<number, string> = {
+  7: 'A full week of showing up. The habit is forming.',
+  30: 'Genuinely rare — most people never get here.',
+  50: 'Fifty days straight. Elite consistency.',
+  100: 'Triple digits. This is legendary territory.',
+  365: 'A full year, every single day. Unreal.',
+};
+
+function fireStreakMilestone(userId: string, oldStreak: number, newStreak: number): void {
+  if (newStreak <= oldStreak) return;
+  // Celebrate the highest threshold crossed in this jump (avoids multiple bells
+  // if a recompute leaps several days, e.g. after a publish restores a chain).
+  let crossed = 0;
+  for (const t of STREAK_MILESTONES) {
+    if (oldStreak < t && t <= newStreak) crossed = t;
+  }
+  if (crossed === 0) return;
+  void broadcastNotification({
+    source: 'AUTO_QOTD',
+    audience: 'CUSTOM',
+    audienceUserIds: [userId],
+    category: 'streak',
+    icon: 'zap',
+    title: `🔥 ${crossed}-day streak!`,
+    body: STREAK_MILESTONE_COPY[crossed] ?? `You've solved the daily problem ${crossed} days in a row.`,
+    link: '/qotd/today',
+    refEntity: 'streak-milestone',
+    refEntityId: `${userId}:${crossed}`,
+  }).catch((err) =>
+    logger.warn('streak milestone notification failed', {
+      userId, crossed, err: err instanceof Error ? err.message : String(err),
+    }),
+  );
+}
 
 export type BadgeKind = 'streak' | 'volume';
 
@@ -256,6 +300,9 @@ export async function recomputeUserStreak(userId: string): Promise<StreakResult>
       },
     });
   }
+
+  // S-05: celebrate a freshly-crossed streak milestone (fire-and-forget).
+  fireStreakMilestone(userId, existing?.currentStreak ?? 0, currentStreak);
 
   return { currentStreak, longestStreak, longestStreakAt };
 }

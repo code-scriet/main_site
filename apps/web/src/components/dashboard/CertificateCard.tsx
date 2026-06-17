@@ -22,6 +22,7 @@ export interface CertificateCardData {
   isRevoked?: boolean;
   revokedReason?: string | null;
   recipientName?: string;
+  viewCount?: number;
 }
 
 export function getCertificateCover(index: number): string {

@@ -4,9 +4,10 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Award, ExternalLink, Download, Copy, Check, ArrowDownAZ, ArrowUpAZ, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Award, ExternalLink, Download, Copy, Check, ArrowDownAZ, ArrowUpAZ, ChevronLeft, ChevronRight, Linkedin, Eye } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { api } from '@/lib/api';
+import { linkedInAddCertUrl } from '@/lib/linkedin';
 import { DSCard, EmptyState, MonoChip, Pill, SegmentedTabs } from '@/components/dash';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
@@ -208,6 +209,12 @@ export default function DashboardCertificates() {
                   <span className="text-[12px] text-[var(--ds-text-3)] font-mono tabular-nums">
                     Issued {new Date(picked.issuedAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
                   </span>
+                  {typeof picked.viewCount === 'number' && picked.viewCount > 0 && (
+                    <span className="inline-flex items-center gap-1 text-[12px] text-[var(--ds-text-3)] tabular-nums" title="How many times your verification page has been opened">
+                      <Eye size={12} />
+                      Viewed {picked.viewCount.toLocaleString('en-IN')}{picked.viewCount === 1 ? ' time' : ' times'}
+                    </span>
+                  )}
                   {picked.isRevoked && <Pill tone="danger" size="sm">Revoked</Pill>}
                 </div>
                 {picked.isRevoked && picked.revokedReason && (
@@ -232,6 +239,23 @@ export default function DashboardCertificates() {
                       Open verify page
                     </a>
                   </Button>
+                  {!picked.isRevoked && (
+                    <Button size="sm" variant="outline" asChild>
+                      <a
+                        href={linkedInAddCertUrl({
+                          certId: picked.certId,
+                          type: picked.type,
+                          eventName: picked.eventName,
+                          issuedAt: picked.issuedAt,
+                        })}
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        <Linkedin size={13} className="mr-1.5" />
+                        Add to LinkedIn
+                      </a>
+                    </Button>
+                  )}
                 </div>
               </div>
             </>

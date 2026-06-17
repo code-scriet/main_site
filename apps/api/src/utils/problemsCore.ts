@@ -16,6 +16,7 @@ import { auditLog } from './audit.js';
 import { sanitizeHtml, sanitizeText } from './sanitize.js';
 import { recomputeUserStreakSafe } from './qotdStreak.js';
 import { isUserBlocked } from '../middleware/blocks.js';
+import { verifyQotdReopenToken } from './jwt.js';
 // Lazy import (function reference only, called at request time) avoids a
 // module-load cycle with routes/qotd.ts which also imports from this file.
 import { invalidateQotdLeaderboardCaches } from '../routes/qotd.js';
@@ -65,6 +66,8 @@ export interface SubmitProblemParams {
   // run a timer simply omit it. Persisted as-is and surfaced on the QOTD
   // daily leaderboard as "time taken".
   activeMs?: number;
+  // Signed 'qotd_reopen' link token — lets a past, admin-reopened QOTD be submitted.
+  reopenToken?: string;
 }
 
 export interface RunProblemParams {
@@ -74,6 +77,7 @@ export interface RunProblemParams {
   code: string;
   contextType?: ProblemContextType;
   contextKey?: string;
+  reopenToken?: string;
 }
 
 export interface ProblemSubmissionResult {
@@ -253,16 +257,40 @@ async function canUnlockSolution(
   if (!user || !contextType || !contextKey) return false;
 
   let concluded = false;
+  // A reopened QOTD is "live again" — the engagement-based reveal must stay shut so
+  // a late solver can't submit twice, read the official solution, and copy it.
+  let reopenActive = false;
   if (contextType === 'PRACTICE') {
     concluded = true;
   } else if (contextType === 'QOTD') {
-    const qotd = await prisma.qOTD.findUnique({ where: { id: contextKey }, select: { date: true } });
+    const qotd = await prisma.qOTD.findUnique({ where: { id: contextKey }, select: { date: true, reopenedAt: true } });
     concluded = Boolean(qotd && toIstDateKey(qotd.date) < formatUsageDate());
+    reopenActive = Boolean(qotd?.reopenedAt);
   } else if (contextType === 'CONTEST') {
     const round = await prisma.competitionRound.findUnique({ where: { id: contextKey }, select: { status: true } });
     concluded = Boolean(round && ['LOCKED', 'JUDGING', 'FINISHED'].includes(round.status));
   }
   if (!concluded) return false;
+
+  // S-07: a solver has earned the official solution even on a first-try AC (their
+  // submission count may be 1, below the engagement gate below). "Concluded" is
+  // still required above, so this never leaks during an active QOTD/contest window.
+  const solved = await prisma.problemSubmission.findUnique({
+    where: {
+      userId_problemId_contextType_contextKey: {
+        userId: user.id,
+        problemId,
+        contextType,
+        contextKey,
+      },
+    },
+    select: { verdict: true },
+  });
+  if (solved?.verdict === 'ACCEPTED') return true;
+
+  // While reopened, only an ACCEPTED solver (above) sees the solution — the
+  // count-based reveal would otherwise hand the answer to non-solvers mid-reopen.
+  if (reopenActive) return false;
 
   const counter = await prisma.problemSubmissionCounter.findUnique({
     where: {
@@ -308,12 +336,27 @@ async function getMyTeamInEvent(eventId: string, userId: string) {
   };
 }
 
+// A past, admin-reopened QOTD is submittable only by a holder of the matching
+// private link token AND while it is still open (reopenedAt set). Closing the QOTD
+// (reopenedAt → null) revokes every outstanding link immediately.
+function isQotdReopenAllowed(reopenToken: string | undefined, qotdId: string, reopenedAt: Date | null): boolean {
+  if (!reopenToken || !reopenedAt) return false;
+  try {
+    const payload = verifyQotdReopenToken(reopenToken);
+    // The token must match this QOTD AND the current reopen session: a close→reopen
+    // mints a new reopenedAt, so links issued before the close stop verifying.
+    return payload.qotdId === qotdId && payload.nonce === reopenedAt.toISOString();
+  } catch {
+    return false;
+  }
+}
+
 export async function validateProblemContext(
   problem: Problem,
   user: AuthUser,
   contextType: ProblemContextType,
   contextKey: string,
-  options: { requireActiveContest?: boolean; requireTodayQotd?: boolean } = {},
+  options: { requireActiveContest?: boolean; requireTodayQotd?: boolean; reopenToken?: string } = {},
 ): Promise<void> {
   const requireActiveContest = options.requireActiveContest ?? true;
   const requireTodayQotd = options.requireTodayQotd ?? true;
@@ -322,13 +365,18 @@ export async function validateProblemContext(
   if (contextType === 'QOTD') {
     const qotd = await prisma.qOTD.findUnique({
       where: { id: contextKey },
-      select: { id: true, date: true, problemId: true },
+      select: { id: true, date: true, problemId: true, reopenedAt: true },
     });
     if (!qotd || qotd.problemId !== problem.id) {
       throw new ProblemHttpError(400, 'Invalid QOTD context');
     }
     if (requireTodayQotd && toIstDateKey(qotd.date) !== todayKey) {
-      throw new ProblemHttpError(400, 'QOTD submissions are only scored on the active day');
+      // Reopen escape hatch: a valid private link token for THIS QOTD while it is
+      // open (reopenedAt set) lets a past day be submitted again. Streak/marks then
+      // update through the normal pipeline since the QOTD is already published.
+      if (!isQotdReopenAllowed(options.reopenToken, qotd.id, qotd.reopenedAt)) {
+        throw new ProblemHttpError(400, 'QOTD submissions are only scored on the active day');
+      }
     }
     return;
   }
@@ -471,7 +519,7 @@ export async function runProblemTests(params: RunProblemParams): Promise<Problem
     if (!params.contextType || !params.contextKey) {
       throw new ProblemHttpError(404, 'Problem not found', 'NOT_FOUND');
     }
-    await validateProblemContext(problem, params.user, params.contextType, params.contextKey);
+    await validateProblemContext(problem, params.user, params.contextType, params.contextKey, { reopenToken: params.reopenToken });
   }
   if (!problem.allowedLanguages.includes(params.language)) {
     throw new ProblemHttpError(400, 'Language is not allowed for this problem');
@@ -526,7 +574,7 @@ export async function submitProblemForUser(params: SubmitProblemParams): Promise
     throw new ProblemHttpError(403, 'Your account has been blocked from QOTD submissions.', 'FORBIDDEN');
   }
 
-  await validateProblemContext(problem, params.user, params.contextType, params.contextKey);
+  await validateProblemContext(problem, params.user, params.contextType, params.contextKey, { reopenToken: params.reopenToken });
 
   const capReservation = await reserveSubmitCap(problem, params.user.id, params.contextType, params.contextKey);
   const daily = await consumeDailyQuota(params.user.id, 1);

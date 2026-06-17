@@ -71,6 +71,8 @@ const runSchema = z.object({
   code: z.string().min(1).max(100_000),
   contextType: z.nativeEnum(ProblemContextType).optional(),
   contextKey: z.string().min(1).max(120).optional(),
+  // Signed 'qotd_reopen' link token — allows submitting a past, admin-reopened QOTD.
+  reopenToken: z.string().max(2000).optional(),
 });
 
 const submitSchema = runSchema.extend({

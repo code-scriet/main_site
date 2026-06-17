@@ -32,6 +32,7 @@
     "db:migrate:day-attendance": "npx tsx scripts/migrate-day-attendance.ts",
     "db:audit:competition-autosaves": "tsx scripts/audit-competition-autosaves.ts",
     "db:prune": "tsx scripts/prune-old-records.ts",
+    "db:seed:test-qotd": "tsx scripts/seed-test-qotd.ts",
     "db:seed": "prisma db seed",
     "db:studio": "prisma studio",
     "db:reset": "prisma migrate reset --force",

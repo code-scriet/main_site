@@ -177,9 +177,9 @@ export const mainApi = {
     const query = params.toString();
     return call<{ problem: ProblemDetail }>(`/api/problems/${idOrSlug}${query ? `?${query}` : ''}`);
   },
-  runProblem: (problemId: string, body: { language: ProblemLanguage; code: string; contextType?: ProblemContextType; contextKey?: string }) =>
+  runProblem: (problemId: string, body: { language: ProblemLanguage; code: string; contextType?: ProblemContextType; contextKey?: string; reopenToken?: string }) =>
     call<TestRunResult>(`/api/problems/${problemId}/run`, { method: 'POST', body: JSON.stringify(body) }),
-  submitProblem: (problemId: string, body: { language: ProblemLanguage; code: string; contextType: ProblemContextType; contextKey: string; activeMs?: number }) =>
+  submitProblem: (problemId: string, body: { language: ProblemLanguage; code: string; contextType: ProblemContextType; contextKey: string; activeMs?: number; reopenToken?: string }) =>
     call<SubmissionResult>(`/api/problems/${problemId}/submit`, { method: 'POST', body: JSON.stringify(body) }),
   appealSubmission: (problemId: string, body: { contextType: ProblemContextType; contextKey: string; note?: string }) =>
     call<{ submission: ProblemSubmission }>(`/api/problems/${problemId}/appeal`, { method: 'POST', body: JSON.stringify(body) }),

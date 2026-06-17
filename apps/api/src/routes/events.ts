@@ -17,7 +17,7 @@ import { sanitizeHtml } from '../utils/sanitize.js';
 import { normalizeTrustedVideoEmbedUrl } from '../utils/videoEmbed.js';
 import { deriveInvitationStatus } from '../utils/invitationStatus.js';
 import { isGuest, isParticipant, participantsOnly } from '../utils/registrationFilters.js';
-import { reconcileEventStatusesSoon } from '../utils/scheduler.js';
+import { reconcileEventStatusesSoon, armRegistrationOpenTimer, cancelRegistrationOpenTimer } from '../utils/scheduler.js';
 import { requireUuid } from '../utils/idParams.js';
 import { setPublicCache } from '../utils/response.js';
 
@@ -622,6 +622,8 @@ eventsRouter.post('/', authMiddleware, requireRole('CORE_MEMBER'), async (req: R
 
     // Re-tune the event-status scheduler in case this event is the next boundary.
     void reconcileEventStatusesSoon();
+    // S-01: arm the "registration now open" announcement if it opens in the future.
+    armRegistrationOpenTimer(event);
 
     res.status(201).json({ success: true, data: event, message: 'Event created successfully' });
   } catch (error) {
@@ -670,6 +672,10 @@ eventsRouter.put('/:id', authMiddleware, requireRole('CORE_MEMBER'), async (req:
         teamRegistration: true,
         teamMinSize: true,
         teamMaxSize: true,
+        // S-11: capture pre-update values so we can detect date/venue changes.
+        title: true,
+        venue: true,
+        location: true,
       },
     });
 
@@ -930,6 +936,24 @@ eventsRouter.put('/:id', authMiddleware, requireRole('CORE_MEMBER'), async (req:
 
     // Dates/status may have changed → re-tune the event-status scheduler.
     void reconcileEventStatusesSoon();
+    // S-01: a moved/added registrationStartDate re-arms (or clears) the announcement timer.
+    armRegistrationOpenTimer(event);
+
+    // S-11: if the date/time or venue changed, tell everyone who registered.
+    {
+      const changes: string[] = [];
+      if (existingEvent.startDate.getTime() !== event.startDate.getTime()) {
+        changes.push(`New date & time: ${event.startDate.toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'Asia/Kolkata' })}`);
+      }
+      const oldVenue = (existingEvent.venue || existingEvent.location || '').trim();
+      const newVenue = (event.venue || event.location || '').trim();
+      if (oldVenue !== newVenue) {
+        changes.push(`New venue: ${newVenue || 'To be announced'}`);
+      }
+      if (changes.length > 0) {
+        void notifyEventRegistrants(event.id, event.title, event.slug, 'updated', changes.join(' · '));
+      }
+    }
 
     res.json({ success: true, data: event, message: 'Event updated successfully' });
   } catch (error) {
@@ -951,13 +975,13 @@ eventsRouter.delete('/:id', authMiddleware, requireRole('CORE_MEMBER'), async (r
     // Check event exists and get creator
     const event = await prisma.event.findUnique({
       where: { id: req.params.id },
-      select: { id: true, createdBy: true },
+      select: { id: true, createdBy: true, title: true, slug: true, status: true },
     });
-    
+
     if (!event) {
       return res.status(404).json({ success: false, error: { message: 'Event not found' } });
     }
-    
+
     // Authorization: Only creator, ADMIN, or PRESIDENT can delete events
     const isCreatorOrAdmin = event.createdBy === authUser.id ||
       authUser.role === 'ADMIN' ||
@@ -965,11 +989,29 @@ eventsRouter.delete('/:id', authMiddleware, requireRole('CORE_MEMBER'), async (r
     if (!isCreatorOrAdmin) {
       return res.status(403).json({ success: false, error: { message: 'Only the event creator or an admin can delete this event' } });
     }
-    
+
+    // S-11: capture registrants BEFORE deletion (cascade removes their rows) so we
+    // can tell them the event is cancelled. Skip for events that already happened
+    // (deleting a PAST event is cleanup, not a cancellation).
+    const cancelRecipients = event.status === 'PAST'
+      ? []
+      : await prisma.eventRegistration.findMany({
+          where: { eventId: req.params.id },
+          select: { userId: true, user: { select: { email: true } } },
+        });
+
     await prisma.event.delete({ where: { id: req.params.id } });
     await auditLog(authUser.id, 'DELETE', 'event', req.params.id);
     // The deleted event may have been the next scheduled boundary → re-tune.
     void reconcileEventStatusesSoon();
+    // S-01: drop any pending registration-open announcement timer for this event.
+    cancelRegistrationOpenTimer(req.params.id);
+    // S-11: notify the (now ex-)registrants that the event is cancelled.
+    if (cancelRecipients.length > 0) {
+      const userIds = [...new Set(cancelRecipients.map((r) => r.userId))];
+      const emails = [...new Set(cancelRecipients.map((r) => r.user?.email).filter((e): e is string => Boolean(e)))];
+      void dispatchEventRegistrantNotice(userIds, emails, event.title, event.slug, 'cancelled', 'This event has been cancelled. Apologies for the inconvenience.');
+    }
     res.json({ success: true, message: 'Event deleted successfully' });
   } catch (error) {
     res.status(500).json({ success: false, error: { message: 'Failed to delete event' } });
@@ -1479,6 +1521,70 @@ async function sendNewEventEmailsAsync(event: {
   } catch (error) {
     logger.error('Failed to send new event emails', {
       error: error instanceof Error ? error.message : 'Unknown error',
+    });
+  }
+}
+
+// ── S-11: event change / cancellation notices ──────────────────────────────
+// When a registered-for event's date or venue changes (or the event is deleted,
+// which we treat as a cancellation), tell exactly the people who registered.
+// Bell (in-app, CUSTOM audience targeting their userIds) + a best-effort email.
+// Guests/speakers (NETWORK role) ARE included here — unlike the all-users blast,
+// these are people actually attending who must hear about the change.
+async function dispatchEventRegistrantNotice(
+  userIds: string[],
+  emails: string[],
+  title: string,
+  slug: string,
+  kind: 'updated' | 'cancelled',
+  summary: string,
+): Promise<void> {
+  try {
+    if (userIds.length > 0) {
+      await broadcastNotification({
+        source: 'AUTO_EVENT',
+        audience: 'CUSTOM',
+        audienceUserIds: userIds,
+        category: 'event',
+        icon: 'calendar',
+        title: kind === 'cancelled' ? `Event cancelled: ${title}` : `Event updated: ${title}`,
+        body: summary,
+        link: kind === 'cancelled' ? '/events' : `/events/${slug}`,
+        refEntity: 'event',
+        refEntityId: slug,
+      });
+    }
+    if (emails.length > 0) {
+      await emailService.sendEventUpdate(emails, title, slug, kind, summary);
+    }
+  } catch (error) {
+    logger.error('Failed to dispatch event registrant notice', {
+      slug, kind, error: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
+// Query current registrants and notify them (used for the update/change case,
+// where the registrations still exist). Fire-and-forget.
+async function notifyEventRegistrants(
+  eventId: string,
+  title: string,
+  slug: string,
+  kind: 'updated' | 'cancelled',
+  summary: string,
+): Promise<void> {
+  try {
+    const regs = await prisma.eventRegistration.findMany({
+      where: { eventId },
+      select: { userId: true, user: { select: { email: true } } },
+    });
+    if (regs.length === 0) return;
+    const userIds = [...new Set(regs.map((r) => r.userId))];
+    const emails = [...new Set(regs.map((r) => r.user?.email).filter((e): e is string => Boolean(e)))];
+    await dispatchEventRegistrantNotice(userIds, emails, title, slug, kind, summary);
+  } catch (error) {
+    logger.error('Failed to notify event registrants', {
+      eventId, kind, error: error instanceof Error ? error.message : String(error),
     });
   }
 }
