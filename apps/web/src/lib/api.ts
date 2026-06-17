@@ -495,6 +495,8 @@ export interface Settings {
   emailTestRecipients?: string | null;
   // Dashboard v2 — admin-controlled accent token. rust | teal | indigo | violet | mint | mono.
   accentColor?: string;
+  // Admin-selected primary code-execution provider for the judge + playground. wandbox | godbolt.
+  codeExecutionProvider?: string;
   // ISO date of the club's founding — drives the "months since inception" stat on /about.
   siteLaunchDate?: string | null;
   updatedAt: string;

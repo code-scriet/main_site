@@ -227,6 +227,7 @@ settingsRouter.get('/public', async (req: Request, res: Response) => {
       // Stored as JSONB; coerce to a clean { label, email }[] for the contact page.
       contactEmails: Array.isArray(full.contactEmails) ? full.contactEmails : [],
       accentColor: full.accentColor,
+      codeExecutionProvider: full.codeExecutionProvider,
       // Used by /about to compute the "months since inception" stat.
       siteLaunchDate: full.siteLaunchDate?.toISOString() ?? null,
     };
@@ -267,6 +268,7 @@ settingsRouter.get('/public', async (req: Request, res: Response) => {
           contactPhone: null,
           contactEmails: [],
           accentColor: 'rust',
+          codeExecutionProvider: 'wandbox',
           siteLaunchDate: '2026-01-01T00:00:00.000Z',
         },
       });
@@ -685,6 +687,7 @@ settingsRouter.patch('/:key', authMiddleware, requireRole('ADMIN'), async (req: 
       'discordUrl',
       'whatsappUrl',
       'accentColor',
+      'codeExecutionProvider',
     ];
 
     if (!allowedKeys.includes(key)) {
@@ -775,6 +778,16 @@ settingsRouter.patch('/:key', authMiddleware, requireRole('ADMIN'), async (req: 
         return res.status(400).json({
           success: false,
           error: { message: `accentColor must be one of: ${allowedAccents.join(', ')}` },
+        });
+      }
+    }
+
+    if (key === 'codeExecutionProvider') {
+      const allowedProviders = ['wandbox', 'godbolt'];
+      if (typeof value !== 'string' || !allowedProviders.includes(value)) {
+        return res.status(400).json({
+          success: false,
+          error: { message: `codeExecutionProvider must be one of: ${allowedProviders.join(', ')}` },
         });
       }
     }

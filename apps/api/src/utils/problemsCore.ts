@@ -545,7 +545,7 @@ export async function submitProblemForUser(params: SubmitProblemParams): Promise
     mode: 'submit',
   });
 
-  // Judge/infra failure (Wandbox + Judge0 fallback both down) is never the
+  // Judge/infra failure (every execution provider down) is never the
   // user's fault. Refund the attempt + daily quota so an upstream outage doesn't
   // burn their allowance — but STILL persist the submission below with
   // needs_review=true so their code is captured and an admin can grade it

@@ -193,6 +193,12 @@ model Settings {
   // Allowed values: rust | teal | indigo | violet | mint | mono. Default rust.
   accentColor String @default("rust") @map("accent_color")
 
+  // Admin-selected primary code-execution provider for the judge + playground.
+  // Allowed values: wandbox | godbolt. Default wandbox. The CF Worker tries this
+  // provider first and transparently falls back to the other on an infra failure
+  // (or a language godbolt can't run, e.g. Node/JS). See CLAUDE.md → Execution Resilience.
+  codeExecutionProvider String @default("wandbox") @map("code_execution_provider")
+
   // Site launch date — drives the "months since inception" stat on /about.
   siteLaunchDate DateTime @default("2026-01-01T00:00:00Z") @map("site_launch_date")
 

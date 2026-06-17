@@ -253,6 +253,21 @@ const playgroundSettingsCache = {
   dailyLimit: DEFAULT_PLAYGROUND_DAILY_LIMIT,
 };
 
+// Admin-selected code-execution provider (wandbox | godbolt), forwarded to the CF
+// Worker so the playground honors the same primary as the judge. Cached on its
+// OWN TTL/query — kept separate from the daily-limit read so a missing column on
+// a not-yet-migrated DB can't knock the daily limit back to its default.
+const DEFAULT_CODE_PROVIDER = 'wandbox';
+const VALID_CODE_PROVIDERS = ['wandbox', 'godbolt'];
+const providerCache = {
+  expiresAt: 0,
+  provider: DEFAULT_CODE_PROVIDER,
+};
+
+function normalizeCodeProvider(value) {
+  return VALID_CODE_PROVIDERS.includes(value) ? value : DEFAULT_CODE_PROVIDER;
+}
+
 const userExecCounts = new Map(); // in-memory fallback cache
 const MAX_IP_EXECUTIONS = 30;
 const ipExecCounts = new Map();
@@ -297,6 +312,32 @@ async function getDailyExecutionLimit({ forceRefresh = false } = {}) {
   }
 
   return playgroundSettingsCache.dailyLimit;
+}
+
+// Resolve the admin-selected execution provider (60s cache). `dbQuery` never
+// throws — on a missing column (pre-migration) it returns [] and we fall to the
+// default, so this is safe to call on every execution without a DB hit per call.
+async function getCodeExecutionProvider() {
+  if (!pool) {
+    return normalizeCodeProvider(process.env.CODE_EXECUTION_PROVIDER || DEFAULT_CODE_PROVIDER);
+  }
+
+  const now = Date.now();
+  if (now < providerCache.expiresAt) {
+    return providerCache.provider;
+  }
+
+  const rows = await dbQuery(
+    `SELECT code_execution_provider AS provider
+     FROM settings
+     WHERE id = 'default'
+     LIMIT 1`
+  );
+  providerCache.provider = normalizeCodeProvider(
+    rows[0]?.provider || process.env.CODE_EXECUTION_PROVIDER || DEFAULT_CODE_PROVIDER,
+  );
+  providerCache.expiresAt = now + SETTINGS_CACHE_TTL_MS;
+  return providerCache.provider;
 }
 
 function toHistoryItem(row) {
@@ -737,10 +778,12 @@ async function executeCode(language, code, stdin) {
   const timeout = setTimeout(() => controller.abort(), EXECUTION_TIMEOUT);
 
   try {
+    const provider = await getCodeExecutionProvider();
     const body = {
       compiler: config.compiler,
       code,
       stdin: stdin || '',
+      provider,
     };
 
     // Add compiler options if specified and valid

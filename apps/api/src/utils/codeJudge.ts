@@ -1,5 +1,6 @@
 import { ProblemLanguage, SubmissionVerdict } from '@prisma/client';
 import { logger } from './logger.js';
+import { getCachedSettings } from './settingsCache.js';
 import { buildHarness as buildPythonHarness } from './judgeHarnesses/python.js';
 import { buildHarness as buildJavaScriptHarness } from './judgeHarnesses/javascript.js';
 import { buildHarness as buildCppHarness } from './judgeHarnesses/cpp.js';
@@ -247,6 +248,10 @@ export async function runJudge(req: JudgeRequest): Promise<JudgeResult> {
       req.timeLimitMs,
     );
     const stdin = buildJudgeStdin(req.testCases.map(({ id, input }) => ({ id, input })));
+    // Admin-selected execution provider (wandbox | godbolt), read from the 5-min
+    // settings cache so this stays a no-op DB-wise on the hot judge path. The CF
+    // Worker tries it first and falls back to the other on an infra failure.
+    const provider = (await getCachedSettings())?.codeExecutionProvider || 'wandbox';
     const controller = new AbortController();
     const isCompiled = req.language === 'CPP' || req.language === 'JAVA';
     const ceiling = isCompiled ? COMPILED_EXECUTION_TIMEOUT_MS : EXECUTION_TIMEOUT_MS;
@@ -265,6 +270,7 @@ export async function runJudge(req: JudgeRequest): Promise<JudgeResult> {
           code: wrappedCode,
           stdin,
           options: compiler.options || '',
+          provider,
           ...(compiler.compilerOptionRaw ? { 'compiler-option-raw': compiler.compilerOptionRaw } : {}),
         }),
         signal: controller.signal,

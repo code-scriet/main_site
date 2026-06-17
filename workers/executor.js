@@ -22,7 +22,8 @@
 //      without the matching X-Executor-Secret header — closing the open relay.
 // ---------------------------------------------------------------------------
 
-const UPSTREAM_URL = 'https://wandbox.org/api/compile.json';
+const WANDBOX_URL = 'https://wandbox.org/api/compile.json';
+const GODBOLT_BASE = 'https://godbolt.org/api/compiler';
 
 // Only allow requests from our own origins. Keep this aligned with the
 // ALLOWED_CODESCRIET_ORIGINS list in apps/api/src/index.ts.
@@ -61,110 +62,157 @@ function corsHeaders(origin) {
 function sanitizeError(message) {
   if (!message) return 'Code execution failed';
   return message
-    .replace(/wandbox/gi, 'execution service')
-    .replace(/wandbox\.org/gi, 'execution service')
     .replace(/https?:\/\/wandbox\.org[^\s]*/gi, '[upstream]')
+    .replace(/https?:\/\/godbolt\.org[^\s]*/gi, '[upstream]')
+    .replace(/wandbox\.org/gi, 'execution service')
+    .replace(/godbolt\.org/gi, 'execution service')
+    .replace(/wandbox/gi, 'execution service')
+    .replace(/godbolt|compiler-explorer/gi, 'execution service')
     .replace(/compile\.json/gi, 'compiler')
-    .replace(/judge0|ce\.judge0\.com/gi, 'execution service')
     .replace(/prog\.\w+/g, 'source file');
 }
 
 // ---------------------------------------------------------------------------
-// Fallback provider (Judge0 CE) — keeps execution alive during an UPSTREAM
-// outage. The primary (Wandbox) periodically fails host-side with
-// "OCI runtime error: crun: clone: Resource temporarily unavailable" (a
-// clone/fork EAGAIN) for EVERY language, even on trivial programs. When we
-// detect that signature we transparently re-run the same program on Judge0 CE
-// and map its response back onto the primary's field names, so neither the
-// judge nor the playground needs to change how it parses results.
-// NOTE: Piston's public API went whitelist-only (401) on 2026-02-15, so it is
-// no longer a usable fallback — Judge0 CE is public and key-free.
+// Execution providers — Wandbox and godbolt (Compiler Explorer). The admin picks
+// the primary via Settings.code_execution_provider; both callers (apps/api
+// codeJudge.ts + apps/playground execute-server.js) forward it to us as
+// `body.provider`. We try that provider first and transparently fall back to the
+// other on an UPSTREAM infra failure — Wandbox periodically fails host-side with
+// "OCI runtime error: crun: clone: Resource temporarily unavailable" (clone/fork
+// EAGAIN) for EVERY language, even trivial programs. Each provider's response is
+// shaped to Wandbox field names so neither the judge nor the playground needs to
+// change how it parses results.
+//
+// IMPORTANT: godbolt cannot EXECUTE Node.js / TypeScript (it's a compiler tool,
+// no JS runtime). For those languages godbolt is skipped — so JS/Node runs on
+// Wandbox only and has no fallback. Python / C / C++ / Java get the full
+// Wandbox <-> godbolt chain.
 // ---------------------------------------------------------------------------
-const FALLBACK_URL = 'https://ce.judge0.com';
 const INFRA_FAILURE_RE = /OCI runtime|\bcrun\b|\brunc\b|Resource temporarily unavailable|Cannot allocate memory|cannot fork|pthread_create|No space left on device|\bEAGAIN\b/i;
 
-// Map a Wandbox compiler id -> Judge0 CE language_id (+ optional raw compiler
-// options). Versions chosen to match our pins as closely as Judge0 CE offers.
-function judge0Language(compiler) {
+const VALID_PROVIDERS = ['wandbox', 'godbolt'];
+
+function normalizeProvider(p) {
+  return VALID_PROVIDERS.includes(p) ? p : 'wandbox';
+}
+
+// Strip ANSI color escapes — godbolt forces `-fdiagnostics-color=always`, so its
+// compiler diagnostics arrive wrapped in escape codes; Wandbox returns plain text.
+function stripAnsi(text) {
+  // eslint-disable-next-line no-control-regex
+  return (text || '').replace(/\x1B\[[0-9;]*[a-zA-Z]/g, '');
+}
+
+// Map a Wandbox compiler id -> godbolt compiler id (+ lang key + extra flags).
+// Versions chosen to match our Wandbox pins. Returns null for languages godbolt
+// can't EXECUTE (Node.js, TypeScript) so the chain skips it for those.
+function godboltCompiler(compiler) {
   const c = String(compiler || '');
-  if (c.startsWith('cpython') || c.startsWith('python')) return { id: 100 };          // Python 3.12.5
-  if (c.startsWith('nodejs') || c.startsWith('node')) return { id: 97 };              // Node 20.17.0
-  if (c.startsWith('gcc') || c.startsWith('clang') || c.includes('++')) return { id: 105, options: '-std=c++17 -DONLINE_JUDGE' }; // C++ GCC 14
-  if (c.startsWith('openjdk') || c.startsWith('java')) return { id: 62 };             // OpenJDK 13
-  return null;
+  if (c.startsWith('cpython') || c.startsWith('python')) return { id: 'python312', lang: 'python', args: '' };
+  // Check the C compiler (`gcc-13.2.0-c`) before the C++ gcc match below.
+  if (c.endsWith('-c')) return { id: 'cg132', lang: 'c', args: '-DONLINE_JUDGE' };
+  if (c.startsWith('gcc') || c.startsWith('clang') || c.includes('++')) return { id: 'g132', lang: 'c++', args: '-std=c++17 -DONLINE_JUDGE' };
+  if (c.startsWith('openjdk') || c.startsWith('java')) return { id: 'java2202', lang: 'java', args: '' };
+  return null; // nodejs / node / typescript -> godbolt has no runtime
 }
 
-// UTF-8 safe base64 (Workers `btoa`/`atob` are latin1-only).
-function b64encodeUtf8(str) {
-  const bytes = new TextEncoder().encode(str || '');
-  let bin = '';
-  const CHUNK = 0x8000;
-  for (let i = 0; i < bytes.length; i += CHUNK) {
-    bin += String.fromCharCode.apply(null, bytes.subarray(i, i + CHUNK));
-  }
-  return btoa(bin);
-}
-function b64decodeUtf8(b64) {
-  if (!b64) return '';
-  const bin = atob(b64);
-  const bytes = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-  return new TextDecoder().decode(bytes);
+function providerCanRun(provider, compiler) {
+  if (provider === 'wandbox') return true;        // Wandbox runs every language we support
+  if (provider === 'godbolt') return !!godboltCompiler(compiler);
+  return false;
 }
 
-function isUpstreamInfraFailure(result) {
-  if (!result) return false;
-  if (String(result.status) === '126') return true;
+// An infra failure means the provider's HOST couldn't run the program (not the
+// user's code) — fall through to the other provider. Wandbox signals this with
+// status 126 + a clone/fork EAGAIN message; the regex covers both. The 126
+// heuristic is Wandbox-specific (a real program legitimately exiting 126 must
+// NOT be treated as infra), so it's gated on the provider.
+function isInfraFailure(result, provider) {
+  if (!result) return true;
+  if (provider === 'wandbox' && String(result.status) === '126') return true;
   const blob = `${result.compiler_error || ''}\n${result.program_error || ''}\n${result.compiler_message || ''}`;
   return INFRA_FAILURE_RE.test(blob);
 }
 
-// Run the same program on Judge0 CE and return it shaped like a Wandbox
-// response, or null if the fallback is unavailable / errored (caller then keeps
-// the original upstream result and degrades gracefully).
-async function runViaFallback(body) {
-  const lang = judge0Language(body.compiler);
-  if (!lang) return null;
+// Run on Wandbox. Returns the parsed (already Wandbox-shaped) JSON, or null on a
+// transport/HTTP error so the chain can fall through.
+async function runViaWandbox(body) {
+  try {
+    const resp = await fetch(WANDBOX_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        compiler: body.compiler,
+        code: body.code,
+        stdin: body.stdin || '',
+        options: body.options || '',
+        save: false,
+        ...(body['compiler-option-raw'] ? { 'compiler-option-raw': body['compiler-option-raw'] } : {}),
+        ...(body['runtime-option-raw'] ? { 'runtime-option-raw': body['runtime-option-raw'] } : {}),
+      }),
+    });
+    if (!resp.ok) return null;
+    return await resp.json();
+  } catch {
+    return null;
+  }
+}
+
+// Run the same program on godbolt (Compiler Explorer) and shape the response to
+// Wandbox field names. Returns null if godbolt can't run this language or errors.
+async function runViaGodbolt(body) {
+  const gc = godboltCompiler(body.compiler);
+  if (!gc) return null;
+
+  // Combine the language base flags with any caller-supplied raw flags, deduping
+  // tokens (callers also pass -DONLINE_JUDGE, which gc.args already carries for C/C++).
+  const userArguments = [...new Set(
+    [gc.args, body['compiler-option-raw'] || ''].join(' ').split(/\s+/).filter(Boolean),
+  )].join(' ');
 
   const payload = {
-    language_id: lang.id,
-    source_code: b64encodeUtf8(body.code || ''),
-    stdin: b64encodeUtf8(body.stdin || ''),
-    cpu_time_limit: 10,
-    wall_time_limit: 15,
-    memory_limit: 256000,
+    source: body.code || '',
+    options: {
+      userArguments,
+      executeParameters: { args: [], stdin: body.stdin || '' },
+      compilerOptions: { executorRequest: true },
+      filters: { execute: true },
+    },
+    lang: gc.lang,
   };
-  if (lang.options) payload.compiler_options = lang.options;
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 12000);
   try {
-    const resp = await fetch(`${FALLBACK_URL}/submissions?base64_encoded=true&wait=true`, {
+    const resp = await fetch(`${GODBOLT_BASE}/${gc.id}/compile`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
       body: JSON.stringify(payload),
       signal: controller.signal,
     });
     if (!resp.ok) return null;
-    const j = await resp.json();
-    const stdout = b64decodeUtf8(j.stdout);
-    const stderr = b64decodeUtf8(j.stderr);
-    const compileOutput = b64decodeUtf8(j.compile_output);
-    const exitCode = typeof j.exit_code === 'number'
-      ? j.exit_code
-      : (j.status && j.status.id === 3 ? 0 : 1);
-    // Shape exactly like Wandbox. IMPORTANT: leave `signal` EMPTY — the judge
-    // treats any non-empty signal as a global TLE, which would misclassify
-    // every compiled-language run. Per-test status lives in the harness frames.
+    const g = await resp.json();
+
+    const joinText = (arr) => (Array.isArray(arr) ? arr.map((x) => (x && x.text) || '').join('\n') : '');
+    const build = g.buildResult || {};
+    const buildFailed = typeof build.code === 'number' && build.code !== 0;
+    const compilerDiagnostics = stripAnsi(joinText(build.stderr));
+    const programOutput = joinText(g.stdout);
+    const programError = stripAnsi(joinText(g.stderr));
+    const exitCode = buildFailed ? 1 : (typeof g.code === 'number' ? g.code : 0);
+
+    // Shape exactly like Wandbox. `signal` stays EMPTY for a clean run (the judge
+    // treats any non-empty signal as a global TLE); godbolt's 20s execution cap
+    // (timedOut) IS a global TLE, so we surface that as a signal kill.
     return {
       status: String(exitCode),
-      signal: '',
+      signal: g.timedOut ? 'SIGKILL' : '',
       compiler_output: '',
-      compiler_error: compileOutput,
-      compiler_message: compileOutput,
-      program_output: stdout,
-      program_error: stderr,
-      program_message: stdout,
+      compiler_error: compilerDiagnostics,
+      compiler_message: compilerDiagnostics,
+      program_output: programOutput,
+      program_error: programError,
+      program_message: programOutput,
       permlink: '',
       url: '',
     };
@@ -173,6 +221,28 @@ async function runViaFallback(body) {
   } finally {
     clearTimeout(timer);
   }
+}
+
+const PROVIDER_RUNNERS = { wandbox: runViaWandbox, godbolt: runViaGodbolt };
+
+// Try the admin-chosen provider first, then the other, skipping any provider that
+// can't run the language. Returns the first NON-infra result (a real compile or
+// runtime error from the chosen provider is a valid answer — don't retry it on
+// the other host). If every provider infra-fails, return the last result so the
+// caller degrades gracefully (codeJudge surfaces a friendly "try again").
+async function runWithChain(body) {
+  const primary = normalizeProvider(body.provider);
+  const order = primary === 'godbolt' ? ['godbolt', 'wandbox'] : ['wandbox', 'godbolt'];
+
+  let lastResult = null;
+  for (const provider of order) {
+    if (!providerCanRun(provider, body.compiler)) continue;
+    const result = await PROVIDER_RUNNERS[provider](body);
+    if (!result) continue;            // transport error / language unsupported
+    lastResult = result;
+    if (!isInfraFailure(result, provider)) return result;
+  }
+  return lastResult;
 }
 
 // M1: constant-time string compare so the shared secret can't be recovered by
@@ -266,28 +336,17 @@ export default {
         );
       }
 
-      // Forward to upstream — Cloudflare's IP pool handles the request
-      const upstreamResponse = await fetch(UPSTREAM_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          compiler: body.compiler,
-          code: body.code,
-          stdin: body.stdin || '',
-          options: body.options || '',
-          save: false,
-          // Pass through optional raw flags
-          ...(body['compiler-option-raw'] ? { 'compiler-option-raw': body['compiler-option-raw'] } : {}),
-          ...(body['runtime-option-raw'] ? { 'runtime-option-raw': body['runtime-option-raw'] } : {}),
-        }),
-      });
+      // Run through the provider chain (admin-selected primary first, then the
+      // other on an infra failure). Cloudflare's rotating IP pool handles each
+      // upstream request. `runWithChain` returns a Wandbox-shaped result, or null
+      // only when every provider had a transport/HTTP error (total outage).
+      const result = await runWithChain(body);
 
-      if (!upstreamResponse.ok) {
-        const errText = await upstreamResponse.text().catch(() => '');
+      if (!result) {
         return new Response(
           JSON.stringify({
-            error: sanitizeError(`Compilation service returned HTTP ${upstreamResponse.status}`),
-            status: upstreamResponse.status,
+            error: sanitizeError('Compilation service is temporarily unavailable'),
+            status: 503,
           }),
           {
             status: 502,
@@ -299,21 +358,14 @@ export default {
         );
       }
 
-      let result = await upstreamResponse.json();
-
-      // Upstream host-capacity failure (crun/clone EAGAIN, status 126) — not the
-      // user's code. Transparently re-run on the fallback provider so execution
-      // survives the outage. If the fallback is unavailable we keep the original
-      // result and degrade gracefully to the prior behaviour.
-      if (isUpstreamInfraFailure(result)) {
-        const fallback = await runViaFallback(body);
-        if (fallback) result = fallback;
-      }
-
-      // Sanitize any error messages in the response
+      // Normalize provider-specific source filenames so errors read consistently
+      // regardless of which upstream ran (Wandbox uses prog.*, godbolt uses
+      // example.* / <source>).
       if (result.compiler_error) {
         result.compiler_error = result.compiler_error
-          .replace(/prog\.(java|c|cpp|py|js|ts)/g, (_, ext) => `main.${ext}`);
+          .replace(/prog\.(java|c|cpp|py|js|ts)/g, (_, ext) => `main.${ext}`)
+          .replace(/example\.(java|c|cpp|py|js|ts)/g, (_, ext) => `main.${ext}`)
+          .replace(/<source>/g, 'main');
       }
 
       return new Response(JSON.stringify(result), {
