@@ -2573,11 +2573,14 @@ html.dark [data-public] {
 
   position: relative;
   isolation: isolate;
-  /* Hero base = ivory paper with the faintest saffron warmth (no harsh blooms). */
+  /* Hero base — a warm amber glow blooming from the top (echoing the logo's
+   * radiant gradient) over cream paper, so the page has real warmth + depth
+   * instead of one flat tone. */
   background:
-    radial-gradient(60% 50% at 85% 0%, rgba(245, 158, 11, 0.05), transparent 55%),
-    radial-gradient(55% 45% at 8% 22%, rgba(217, 119, 6, 0.04), transparent 58%),
-    #fcfaf6;
+    radial-gradient(80% 60% at 50% -10%, rgba(245, 158, 11, 0.20), transparent 55%),
+    radial-gradient(65% 55% at 88% 8%, rgba(217, 119, 6, 0.14), transparent 55%),
+    radial-gradient(60% 55% at 6% 34%, rgba(251, 191, 36, 0.12), transparent 58%),
+    linear-gradient(180deg, #fbf3e6 0%, #f6ecda 55%, #f8f1e4 100%);
   color: var(--hx-ink);
   overflow: clip;
 }
@@ -3174,29 +3177,32 @@ html:not(.dark) .home-v2 .bento-card:hover {
 .home-v2 .hsec { position: relative; }
 html:not(.dark) .home-v2 .hsec-ivory {
   background:
-    radial-gradient(circle at 12% 0%, rgba(245, 158, 11, 0.05), transparent 40%),
+    radial-gradient(60% 70% at 14% -5%, rgba(245, 158, 11, 0.14), transparent 50%),
+    radial-gradient(55% 65% at 90% 105%, rgba(217, 119, 6, 0.10), transparent 52%),
     #fcfaf6;
 }
 html:not(.dark) .home-v2 .hsec-sand {
   background:
-    radial-gradient(circle at 86% 0%, rgba(217, 119, 6, 0.05), transparent 42%),
-    radial-gradient(circle at 8% 100%, rgba(251, 191, 36, 0.05), transparent 44%),
+    radial-gradient(60% 75% at 86% -8%, rgba(217, 119, 6, 0.14), transparent 50%),
+    radial-gradient(55% 65% at 6% 108%, rgba(251, 191, 36, 0.12), transparent 52%),
     #f7f1e7;
 }
 html:not(.dark) .home-v2 .hsec-mist {
   background:
-    radial-gradient(circle at 14% 0%, rgba(245, 158, 11, 0.05), transparent 40%),
+    radial-gradient(60% 70% at 12% -5%, rgba(245, 158, 11, 0.13), transparent 50%),
+    radial-gradient(55% 65% at 92% 105%, rgba(217, 119, 6, 0.10), transparent 52%),
     #faf8f3;
 }
 html:not(.dark) .home-v2 .hsec-cream {
   background:
-    radial-gradient(circle at 88% 6%, rgba(217, 119, 6, 0.05), transparent 42%),
-    radial-gradient(circle at 6% 100%, rgba(245, 158, 11, 0.04), transparent 44%),
+    radial-gradient(60% 75% at 88% -6%, rgba(217, 119, 6, 0.13), transparent 50%),
+    radial-gradient(55% 65% at 6% 108%, rgba(245, 158, 11, 0.11), transparent 52%),
     #f5f0e6;
 }
 html:not(.dark) .home-v2 .hsec-honey {
   background:
-    radial-gradient(circle at 84% 0%, rgba(251, 191, 36, 0.06), transparent 42%),
+    radial-gradient(62% 72% at 84% -6%, rgba(251, 191, 36, 0.15), transparent 50%),
+    radial-gradient(55% 65% at 8% 108%, rgba(217, 119, 6, 0.10), transparent 52%),
     #f8f3ea;
 }
 /* Dark mode: sections stay transparent so the charcoal depth layer shows. */
@@ -3225,3 +3231,9 @@ html.dark .home-v2 :is(.hsec-ivory, .hsec-sand, .hsec-mist, .hsec-cream, .hsec-h
 html:not(.dark) [data-public][data-home] .pub-site-footer {
   background: #efe6d8;
 }
+
+/* Warm page canvas (light) so no pure white shows behind the layout, at the
+ * scroll edges, or below the footer — matches the homepage's warm palette. */
+html:not(.dark) { background-color: #f1e8da; }
+html:not(.dark) [data-public][data-home] { --pub-canvas: #f1e8da; }
+html:not(.dark) [data-public][data-home] .pub-site-footer { background: #efe6d8; }
