@@ -5,6 +5,7 @@ import { authMiddleware, getAuthUser } from '../middleware/auth.js';
 import { requireRole } from '../middleware/role.js';
 import { participantsOnly } from '../utils/registrationFilters.js';
 import { ApiResponse, setPublicCache } from '../utils/response.js';
+import { logger } from '../utils/logger.js';
 
 export const statsRouter = Router();
 
@@ -352,6 +353,7 @@ const sendPublicStats = async (res: Response) => {
     setPublicCache(res, 60);
     ApiResponse.success(res, data);
   } catch (error) {
+    logger.error('Failed to fetch stats', { error: error instanceof Error ? error.message : String(error) });
     ApiResponse.internal(res, 'Failed to fetch stats');
   }
 };
@@ -373,6 +375,7 @@ statsRouter.get('/home', async (_req: Request, res: Response) => {
     res.setHeader('Cache-Control', 'public, max-age=60, stale-while-revalidate=120');
     ApiResponse.success(res, data);
   } catch (error) {
+    logger.error('Failed to fetch homepage data', { error: error instanceof Error ? error.message : String(error) });
     ApiResponse.internal(res, 'Failed to fetch homepage data');
   }
 });
@@ -591,6 +594,7 @@ statsRouter.get('/dashboard', authMiddleware, requireRole('ADMIN'), async (_req:
       recentUsers,
     });
   } catch (error) {
+    logger.error('Failed to fetch dashboard stats', { error: error instanceof Error ? error.message : String(error) });
     ApiResponse.internal(res, 'Failed to fetch dashboard stats');
   }
 });
@@ -638,6 +642,7 @@ statsRouter.get('/me', authMiddleware, async (req: Request, res: Response) => {
       })),
     });
   } catch (error) {
+    logger.error('Failed to fetch user stats', { error: error instanceof Error ? error.message : String(error) });
     ApiResponse.internal(res, 'Failed to fetch user stats');
   }
 });
@@ -665,7 +670,8 @@ statsRouter.get('/onboarding', authMiddleware, async (req: Request, res: Respons
     const savedSnippet = Boolean(snippet);
     const allDone = profileCompleted && solvedQotd && registeredEvent && savedSnippet;
     ApiResponse.success(res, { profileCompleted, solvedQotd, registeredEvent, savedSnippet, allDone });
-  } catch {
+  } catch (error) {
+    logger.error('Failed to fetch onboarding status', { error: error instanceof Error ? error.message : String(error) });
     ApiResponse.internal(res, 'Failed to fetch onboarding status');
   }
 });
@@ -717,6 +723,10 @@ statsRouter.get('/digest', authMiddleware, requireRole('ADMIN'), async (req: Req
       prisma.certificate.count({ where: { issuedAt: window, isRevoked: false } }),
       prisma.problemSubmission.count({ where: { contextType: 'QOTD', verdict: 'ACCEPTED', submittedAt: window } }),
       prisma.qOTDSubmission.count({ where: { timestamp: window } }),
+      // FINISHED quizzes use updatedAt as the finish-time proxy (there is no
+      // finishedAt column, and a FINISHED quiz is effectively immutable — it's
+      // read-only review mode — so updatedAt ≈ when it ended). The digest is an
+      // editable draft, so this approximation is acceptable; not worth a migration.
       prisma.quiz.count({ where: { status: 'FINISHED', updatedAt: window } }),
       prisma.networkProfile.count({ where: { verifiedAt: window } }),
       prisma.user.findMany({
@@ -765,7 +775,8 @@ statsRouter.get('/digest', authMiddleware, requireRole('ADMIN'), async (req: Req
       subject: `code.scriet · ${label} in review`,
       markdown: lines.join('\n'),
     });
-  } catch {
+  } catch (error) {
+    logger.error('Failed to build digest', { error: error instanceof Error ? error.message : String(error) });
     return ApiResponse.internal(res, 'Failed to build digest');
   }
 });
@@ -786,6 +797,7 @@ statsRouter.get('/events/trends', authMiddleware, requireRole('ADMIN'), async (_
 
     ApiResponse.success(res, mapDailyAggregateRows(registrations));
   } catch (error) {
+    logger.error('Failed to fetch trends', { error: error instanceof Error ? error.message : String(error) });
     ApiResponse.internal(res, 'Failed to fetch trends');
   }
 });
@@ -806,6 +818,7 @@ statsRouter.get('/qotd/trends', authMiddleware, requireRole('ADMIN'), async (_re
 
     ApiResponse.success(res, mapDailyAggregateRows(submissions));
   } catch (error) {
+    logger.error('Failed to fetch QOTD trends', { error: error instanceof Error ? error.message : String(error) });
     ApiResponse.internal(res, 'Failed to fetch QOTD trends');
   }
 });

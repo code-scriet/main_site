@@ -55,9 +55,9 @@ export default function PlaygroundPage() {
         return detail;
       }
       if (!qotdParam) return null;
-      // Fetch history once and locate the requested day's QOTD.
-      const history = await mainApi.getQOTDHistory(60);
-      return history.find((entry) => entry.date.slice(0, 10) === qotdParam) ?? null;
+      // Resolve the exact requested day directly (robust to age — a reopened past
+      // QOTD older than the recent-history window must still load).
+      return await mainApi.getQOTDByDate(qotdParam);
     },
     enabled: Boolean(qotdParam),
   });
@@ -153,12 +153,15 @@ export default function PlaygroundPage() {
     qotdQuery.data,
     qotdQuery.isLoading,
     qotdQuery.isError,
+    qotdQuery.error,
     qotdProblemQuery.data,
     qotdProblemQuery.isLoading,
     qotdProblemQuery.isError,
+    qotdProblemQuery.error,
     standaloneProblemQuery.data,
     standaloneProblemQuery.isLoading,
     standaloneProblemQuery.isError,
+    standaloneProblemQuery.error,
     isQotdScored,
     isReopen,
     reopenParam,

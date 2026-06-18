@@ -28,9 +28,11 @@ export function ShareStreakButton({
   if (!stats.currentStreak && !stats.totalSolved) return null;
 
   const onShare = async () => {
-    // Copy the caption first so it's on the clipboard the instant the composer opens.
-    const copied = await copyTextToClipboard(buildStreakShareText(stats));
+    // Open the composer synchronously inside the click gesture FIRST — an awaited
+    // clipboard write before window.open loses the user-gesture context and trips
+    // popup blockers. The clipboard copy follows; the toast reports its result.
     window.open(linkedInShareUrl(), '_blank', 'noopener,noreferrer,width=600,height=640');
+    const copied = await copyTextToClipboard(buildStreakShareText(stats));
     setShared(true);
     setTimeout(() => setShared(false), 2500);
     toast[copied ? 'success' : 'message'](

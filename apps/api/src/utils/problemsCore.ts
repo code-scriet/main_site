@@ -647,6 +647,12 @@ export async function submitProblemForUser(params: SubmitProblemParams): Promise
   // accepts it does verdict flip to ACCEPTED and streak/leaderboard recompute. We
   // never downgrade a row the user already cleared on the live day.
   const alreadyAccepted = existingSubmission?.verdict === 'ACCEPTED';
+  // Note: a held reopen solve still consumes its submit-cap + daily-quota unit (it
+  // is NOT refunded). This is deliberate and consistent — every real, judged submit
+  // spends quota regardless of verdict (only a judge/infra failure is refunded
+  // above). A reopen solve really ran the judge, and an eventual admin *reject* is
+  // no different from a same-day WRONG_ANSWER, which also costs a unit. Refunding
+  // here would instead hand reopen-link holders unlimited free, uncapped submits.
   const reopenPendingAccept = viaReopen && judge.verdict === 'ACCEPTED' && !alreadyAccepted;
   // Stored verdict: held at PENDING while awaiting acceptance so no ACCEPTED-filtered
   // query (streak, every QOTD leaderboard) ever counts it; the real (passed) result

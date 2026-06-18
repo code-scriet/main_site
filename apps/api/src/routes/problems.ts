@@ -26,6 +26,7 @@ import { invalidateQotdLeaderboardCaches } from './qotd.js';
 import { recomputeUserStreakSafe } from '../utils/qotdStreak.js';
 import { getCachedSettings } from '../utils/settingsCache.js';
 import { requireUuid } from '../utils/idParams.js';
+import { isPresidentOrSuperAdmin } from '../utils/superAdmin.js';
 
 export const problemsRouter = Router();
 
@@ -721,10 +722,16 @@ problemsRouter.patch('/:id/override/:submissionId', authMiddleware, requireRole(
     const problemId = await resolveProblemId(req.params.id);
     const existing = await prisma.problemSubmission.findUnique({
       where: { id: req.params.submissionId },
-      select: { id: true, userId: true, problemId: true, contextType: true, contextKey: true },
+      select: { id: true, userId: true, problemId: true, contextType: true, contextKey: true, reopenPending: true },
     });
     if (!existing || existing.problemId !== problemId) {
       return ApiResponse.notFound(res, 'Submission not found for this problem');
+    }
+    // A held reopened-QOTD solve grants past-day credit — only the reopen authority
+    // (President / super-admin) may resolve it, even via this generic override path.
+    // This closes the bypass that would otherwise let a plain ADMIN accept it here.
+    if (existing.reopenPending && !isPresidentOrSuperAdmin(admin)) {
+      return ApiResponse.forbidden(res, 'Only the President or super admin can grade a reopened-QOTD solve');
     }
     const submission = await prisma.problemSubmission.update({
       where: { id: req.params.submissionId },
@@ -833,6 +840,12 @@ problemsRouter.post('/admin/reopen/:submissionId/accept', authMiddleware, requir
     if (!requireUuid(res, req.params.submissionId, 'submission ID')) return;
     const admin = getAuthUser(req);
     if (!admin) return ApiResponse.unauthorized(res);
+    // Accepting grants streak/marks/leaderboard credit for a PAST day, so it is gated
+    // to the same authority that can reopen a QOTD (President / super-admin) — not
+    // every ADMIN. The /override bypass is closed with the matching check there.
+    if (!isPresidentOrSuperAdmin(admin)) {
+      return ApiResponse.forbidden(res, 'Only the President or super admin can accept a reopened-QOTD solve');
+    }
     const existing = await prisma.problemSubmission.findUnique({
       where: { id: req.params.submissionId },
       select: { id: true, userId: true, contextType: true, contextKey: true, reopenPending: true },
@@ -878,6 +891,10 @@ problemsRouter.post('/admin/reopen/:submissionId/reject', authMiddleware, requir
     if (!requireUuid(res, req.params.submissionId, 'submission ID')) return;
     const admin = getAuthUser(req);
     if (!admin) return ApiResponse.unauthorized(res);
+    // Symmetric with accept: only the reopen authority works the reopen hold queue.
+    if (!isPresidentOrSuperAdmin(admin)) {
+      return ApiResponse.forbidden(res, 'Only the President or super admin can reject a reopened-QOTD solve');
+    }
     const schema = z.object({ note: z.string().max(2_000).optional() });
     const parsed = schema.safeParse(req.body ?? {});
     if (!parsed.success) return ApiResponse.badRequest(res, parsed.error.errors[0]?.message || 'Invalid payload');

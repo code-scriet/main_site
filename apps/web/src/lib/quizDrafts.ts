@@ -17,6 +17,14 @@ export const QUESTION_TYPE_LABELS: Record<QuestionType, string> = {
   OPEN_ENDED: 'Open Ended',
 };
 
+// Collision-free local id for draft questions. crypto.randomUUID exists in every
+// browser we target; fall back only if it's somehow unavailable (e.g. insecure ctx).
+function genDraftId(): string {
+  return typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+    ? crypto.randomUUID()
+    : `q-${Date.now().toString(36)}${Math.random().toString(36).slice(2)}`;
+}
+
 export const isUnscoredQuestion = (type: QuestionType) =>
   type === 'POLL' || type === 'RATING' || type === 'OPEN_ENDED';
 
@@ -37,7 +45,7 @@ export interface QuestionDraft {
 
 export function createEmptyQuestion(): QuestionDraft {
   return {
-    id: crypto.randomUUID(),
+    id: genDraftId(),
     questionText: '',
     questionType: 'MCQ',
     options: ['', '', '', ''],
@@ -55,7 +63,7 @@ export function createEmptyQuestion(): QuestionDraft {
 // in the last five minutes of a session. All three are unscored question types.
 export function createFeedbackTemplate(): QuestionDraft[] {
   const base = (): Omit<QuestionDraft, 'questionType' | 'questionText' | 'options'> => ({
-    id: crypto.randomUUID(),
+    id: genDraftId(),
     correctAnswer: '',
     correctAnswers: [],
     timeLimitSeconds: 30,

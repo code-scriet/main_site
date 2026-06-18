@@ -73,7 +73,11 @@ export default function AdminPublicView() {
     enabled: Boolean(token) && editorOpen,
   });
   const eventOptions = useMemo(
-    () => (eventsQ.data ?? []).map((e) => ({ id: e.id, title: e.title })),
+    () =>
+      [...(eventsQ.data ?? [])]
+        // Newest events first so the most likely feedback target is at the top.
+        .sort((a, b) => new Date(b.startDate).getTime() - new Date(a.startDate).getTime())
+        .map((e) => ({ id: e.id, title: e.title })),
     [eventsQ.data],
   );
 

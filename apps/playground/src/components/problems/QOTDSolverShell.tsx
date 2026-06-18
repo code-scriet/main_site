@@ -691,7 +691,16 @@ export function QOTDSolverShell({ problem, context, onExit }: QOTDSolverShellPro
                   </div>
                 </div>
                 <CompilerOutputPanel verdict={latestSubmission?.verdict} output={latestSubmission?.compilerOutput} />
-                {(latestSubmission?.needsReview || latestSubmission?.verdict === 'JUDGE_ERROR') && (
+                {latestSubmission?.reopenPending && (
+                  <div className="rounded border border-amber-400/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-800 dark:text-amber-200">
+                    <p className="font-medium">Solved via a reopen link — sent to an admin for acceptance.</p>
+                    <p className="mt-1 text-amber-700/90 dark:text-amber-300/80">
+                      Your code passed ({latestSubmission.passedCount}/{latestSubmission.totalCount}). It only counts toward your streak, marks &amp; leaderboard once an admin accepts it.
+                    </p>
+                  </div>
+                )}
+                {/* "Judging unavailable" is distinct from the reopen hold above — never show both. */}
+                {!latestSubmission?.reopenPending && (latestSubmission?.needsReview || latestSubmission?.verdict === 'JUDGE_ERROR') && (
                   <div className="rounded border border-sky-400/30 bg-sky-500/10 px-4 py-3 text-sm text-sky-800 dark:text-sky-200">
                     {latestSubmission?.appealedAt ? (
                       <p className="font-medium">Appeal submitted — an admin will review your submission and set the verdict manually.</p>

@@ -67,6 +67,8 @@ export interface ProblemSubmission {
   compilerOutput?: string | null;
   manualOverride?: boolean;
   needsReview?: boolean;
+  /** Held reopened-QOTD solve: judged ACCEPTED but parked at PENDING until an admin accepts it. */
+  reopenPending?: boolean;
   appealedAt?: string | null;
   appealNote?: string | null;
   submittedAt: string;
@@ -165,6 +167,12 @@ export const mainApi = {
     const params = new URLSearchParams({ limit: String(limit) });
     if (options?.includeUnpublished) params.set('includeUnpublished', 'true');
     return call<QOTDSummary[]>(`/api/qotd/history?${params.toString()}`);
+  },
+  // Resolve one specific day's QOTD by its calendar date (YYYY-MM-DD). Used by the
+  // reopen-link flow so a past day of ANY age resolves (not just the recent window).
+  getQOTDByDate: (date: string) => {
+    const params = new URLSearchParams({ date, limit: '1' });
+    return call<QOTDSummary[]>(`/api/qotd/history?${params.toString()}`).then((list) => list[0] ?? null);
   },
   getProblems: (filters?: { difficulty?: string; tag?: string; search?: string; limit?: number }) => {
     const params = new URLSearchParams();

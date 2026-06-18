@@ -9,6 +9,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { Loader2, ExternalLink, RefreshCw, Gavel, Check, X } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
+import { useAdminPermissions } from '@/hooks/useAdminPermissions';
 import { api, type ProblemSubmission, type SubmissionVerdict } from '@/lib/api';
 import { DSCard, EmptyState, MonoChip, Pill } from '@/components/dash';
 import { Input } from '@/components/ui/input';
@@ -68,6 +69,12 @@ function ReviewRow({ s, token, onGraded }: { s: ProblemSubmission; token: string
   });
   const reopenBusy = acceptReopen.isPending || rejectReopen.isPending;
 
+  // Accepting/rejecting a reopened-QOTD solve grants past-day credit — President /
+  // super-admin only (mirrors the backend gate). A held row is also un-gradable via
+  // the generic form for a plain ADMIN, so that form is hidden for them below.
+  const { isPresidentOrSuperAdmin } = useAdminPermissions();
+  const reopenLocked = s.reopenPending && !isPresidentOrSuperAdmin;
+
   const who = s.user?.name ?? s.user?.email ?? s.userId.slice(0, 8);
 
   return (
@@ -118,19 +125,28 @@ function ReviewRow({ s, token, onGraded }: { s: ProblemSubmission; token: string
           <span className="text-xs" style={{ color: 'var(--ds-text-2)' }}>
             Late solve via a reopen link — judged {s.passedCount}/{s.totalCount}. Accept to count it toward the solver's streak, marks &amp; leaderboard.
           </span>
-          <div className="flex items-center gap-2">
-            <Button size="sm" onClick={() => acceptReopen.mutate()} disabled={reopenBusy} className="h-9">
-              {acceptReopen.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
-              <span className="ml-1">Accept</span>
-            </Button>
-            <Button size="sm" variant="outline" onClick={() => rejectReopen.mutate()} disabled={reopenBusy} className="h-9">
-              {rejectReopen.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <X className="h-4 w-4" />}
-              <span className="ml-1">Reject</span>
-            </Button>
-          </div>
+          {isPresidentOrSuperAdmin ? (
+            <div className="flex items-center gap-2">
+              <Button size="sm" onClick={() => acceptReopen.mutate()} disabled={reopenBusy} className="h-9">
+                {acceptReopen.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Check className="h-4 w-4" />}
+                <span className="ml-1">Accept</span>
+              </Button>
+              <Button size="sm" variant="outline" onClick={() => rejectReopen.mutate()} disabled={reopenBusy} className="h-9">
+                {rejectReopen.isPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <X className="h-4 w-4" />}
+                <span className="ml-1">Reject</span>
+              </Button>
+            </div>
+          ) : (
+            <span className="text-xs font-medium" style={{ color: 'var(--ds-text-3)' }}>
+              Only the President or super-admin can accept or reject reopened solves.
+            </span>
+          )}
         </div>
       )}
 
+      {/* A held reopen row is resolved only via Accept/Reject above; a plain ADMIN
+          can't grade it (override 403s for held rows), so hide the generic form. */}
+      {!reopenLocked && (
       <div className="flex flex-wrap items-end gap-3 border-t pt-3" style={{ borderColor: 'var(--border)' }}>
         <label className="flex flex-col gap-1 text-xs" style={{ color: 'var(--ds-text-2)' }}>
           Verdict
@@ -156,6 +172,7 @@ function ReviewRow({ s, token, onGraded }: { s: ProblemSubmission; token: string
           <span className="ml-1">Grade</span>
         </Button>
       </div>
+      )}
     </DSCard>
   );
 }

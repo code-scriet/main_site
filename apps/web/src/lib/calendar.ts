@@ -26,8 +26,18 @@ function resolveEnd(start: Date, end?: string | Date | null): Date {
   return new Date(start.getTime() + 2 * 60 * 60 * 1000);
 }
 
+// Trim to ~500 chars on a word boundary (avoid cutting mid-word) with an ellipsis.
+function clampDescription(raw?: string | null): string | undefined {
+  const text = raw?.trim();
+  if (!text) return undefined;
+  if (text.length <= 500) return text;
+  const cut = text.slice(0, 500);
+  const lastSpace = cut.lastIndexOf(' ');
+  return `${(lastSpace > 400 ? cut.slice(0, lastSpace) : cut).trimEnd()}…`;
+}
+
 function details(ev: CalendarEvent): string {
-  return [ev.description?.trim().slice(0, 500), ev.url].filter(Boolean).join('\n\n');
+  return [clampDescription(ev.description), ev.url].filter(Boolean).join('\n\n');
 }
 
 export function googleCalendarUrl(ev: CalendarEvent): string {
@@ -47,6 +57,16 @@ export function googleCalendarUrl(ev: CalendarEvent): string {
 // Escape per RFC 5545 text rules.
 function escapeICS(s: string): string {
   return s.replace(/\\/g, '\\\\').replace(/;/g, '\\;').replace(/,/g, '\\,').replace(/\r?\n/g, '\\n');
+}
+
+// Fold content lines longer than 75 octets per RFC 5545 §3.1 (CRLF + a single
+// leading space continues the line). Strict parsers reject over-long lines; this
+// keeps us conformant. Char-length is a safe approximation for our ASCII content.
+function foldICSLine(line: string): string {
+  if (line.length <= 75) return line;
+  const parts = [line.slice(0, 75)];
+  for (let i = 75; i < line.length; i += 74) parts.push(` ${line.slice(i, i + 74)}`);
+  return parts.join('\r\n');
 }
 
 export function buildICS(ev: CalendarEvent): string {
@@ -74,9 +94,11 @@ export function buildICS(ev: CalendarEvent): string {
   const d = details(ev);
   if (d) lines.push(`DESCRIPTION:${escapeICS(d)}`);
   if (ev.location) lines.push(`LOCATION:${escapeICS(ev.location)}`);
-  if (ev.url) lines.push(`URL:${ev.url}`);
+  // URL is a URI value (not text-escaped), but strip any CR/LF so a stray newline
+  // can't inject extra iCalendar properties.
+  if (ev.url) lines.push(`URL:${ev.url.replace(/[\r\n]/g, '')}`);
   lines.push('END:VEVENT', 'END:VCALENDAR');
-  return lines.join('\r\n');
+  return lines.map(foldICSLine).join('\r\n');
 }
 
 export function downloadICS(ev: CalendarEvent, filename = 'event.ics'): void {

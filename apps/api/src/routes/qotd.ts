@@ -254,9 +254,26 @@ qotdRouter.get('/history', optionalAuthMiddleware, async (req: Request, res: Res
     const authUser = getAuthUser(req);
     // Staff (CORE_MEMBER+) may opt into seeing unpublished/scheduled QOTDs (including future) for admin views.
     const includeUnpublished = req.query.includeUnpublished === 'true' && isStaffAuth(authUser);
-    const baseWhere = includeUnpublished
-      ? {}
-      : { date: { lt: end }, isPublished: true };
+    // Optional single-day lookup (?date=YYYY-MM-DD). The playground uses this to
+    // resolve one specific past day's QOTD (e.g. an admin "reopen" link) directly,
+    // instead of paging through history — so a reopened day of ANY age resolves,
+    // not just one inside the last N entries. QOTD.date is stored at UTC-midnight,
+    // whose date portion IS the QOTD's calendar-date key.
+    const dateParam = typeof req.query.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(req.query.date)
+      ? req.query.date
+      : null;
+    let dateWhere: { gte: Date; lt: Date } | undefined;
+    if (dateParam) {
+      const dayStart = new Date(`${dateParam}T00:00:00.000Z`);
+      if (!Number.isNaN(dayStart.getTime())) {
+        dateWhere = { gte: dayStart, lt: new Date(dayStart.getTime() + 24 * 60 * 60 * 1000) };
+      }
+    }
+    const baseWhere = dateWhere
+      ? { ...(includeUnpublished ? {} : { isPublished: true }), date: dateWhere }
+      : includeUnpublished
+        ? {}
+        : { date: { lt: end }, isPublished: true };
     const [qotds, total] = await Promise.all([
       prisma.qOTD.findMany({
         where: baseWhere,
