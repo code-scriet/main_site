@@ -151,6 +151,8 @@ function OverviewTab({ userId }: { userId: string }) {
   const actions = useUserAdminActions(userId);
   const user = detail.data?.user;
   const counts = detail.data?.counts;
+  const coding = detail.data?.coding;
+  const contentCreated = detail.data?.contentCreated;
   const perms = useAdminPermissions(user ? { id: user.id, email: user.email, role: user.role } : null);
   const [roleDraft, setRoleDraft] = useState(user?.role ?? 'USER');
   const [roleTarget, setRoleTarget] = useState<{ userId: string; userName: string; currentRole: string; newRole: string } | null>(null);
@@ -186,6 +188,47 @@ function OverviewTab({ userId }: { userId: string }) {
         <StatCard icon={<Award className="h-4 w-4 text-violet-500" />} label="Certificates" value={counts.certificates} />
         <StatCard icon={<Code className="h-4 w-4 text-sky-500" />} label="Playground runs" value={counts.executions} />
         <StatCard icon={<Zap className="h-4 w-4 text-pink-500" />} label="Quiz games" value={counts.quizParticipants} />
+        <StatCard icon={<Code className="h-4 w-4 text-emerald-500" />} label="QOTD solved" value={coding?.qotdSolved ?? 0} />
+        <StatCard icon={<Code className="h-4 w-4 text-indigo-500" />} label="AC rate %" value={coding?.acRate ?? 0} />
+        <StatCard icon={<Code className="h-4 w-4 text-rose-500" />} label="Submissions" value={coding?.totalSubmissions ?? 0} />
+      </div>
+
+      {/* Account & details — every stored fact, with inference, for an admin. */}
+      <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-raised)] p-3">
+        <div className="text-xs font-medium text-zinc-500 dark:text-[var(--ds-text-3)] mb-2">Account &amp; details</div>
+        <dl className="grid grid-cols-2 gap-x-4 gap-y-1.5 sm:grid-cols-3 text-sm">
+          <Detail label="Sign-in" value={user.oauthProvider ? `OAuth · ${user.oauthProvider}` : 'Email / password'} />
+          <Detail label="Joined" value={fmtDate(user.createdAt)} />
+          <Detail label="Updated" value={fmtDate(user.updatedAt)} />
+          <Detail label="Profile" value={user.profileCompleted ? 'Complete' : 'Incomplete'} />
+          <Detail label="Branch / year" value={[user.branch, user.year].filter(Boolean).join(' · ') || '—'} />
+          <Detail label="Course" value={user.course || '—'} />
+          <Detail label="Last login" value={fmtDate(user.lastLoginAt)} />
+          {perms.isSuperAdmin && user.lastLoginIp ? <Detail label="Last IP" value={user.lastLoginIp} /> : null}
+          <Detail label="Session ver." value={String(user.tokenVersion ?? 0)} />
+          <Detail label="Problems AC" value={`${coding?.accepted ?? 0} / ${coding?.totalSubmissions ?? 0}`} />
+          <Detail label="Invitations" value={`${counts.invitationsReceived ?? 0} recv · ${counts.invitationsSent ?? 0} sent`} />
+          <Detail label="Uploads" value={String(counts.uploadedImages ?? 0)} />
+        </dl>
+        {contentCreated && (contentCreated.events + contentCreated.announcements + contentCreated.quizzes + contentCreated.qotds + contentCreated.problems + contentCreated.problemSheets + contentCreated.polls > 0) && (
+          <div className="mt-3 border-t border-[var(--border-subtle)] pt-2">
+            <div className="text-xs font-medium text-zinc-500 dark:text-[var(--ds-text-3)] mb-1.5">Created</div>
+            <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-[var(--ds-text-2)]">
+              <span>{contentCreated.events} events</span>
+              <span>{contentCreated.announcements} announcements</span>
+              <span>{contentCreated.quizzes} quizzes</span>
+              <span>{contentCreated.qotds} QOTDs</span>
+              <span>{contentCreated.problems} problems</span>
+              <span>{contentCreated.problemSheets} sheets</span>
+              <span>{contentCreated.polls} polls</span>
+            </div>
+          </div>
+        )}
+        {user.isDeleted && (
+          <div className="mt-3 border-t border-[var(--border-subtle)] pt-2 text-xs text-[var(--danger)]">
+            Soft-deleted {fmtDate(user.deletedAt)}{user.deletedBy ? ` by ${user.deletedBy}` : ''}.
+          </div>
+        )}
       </div>
 
       {perms.canChangeRole && (
@@ -277,6 +320,22 @@ function StatCard({ icon, label, value }: { icon: React.ReactNode; label: string
         {label}
       </div>
       <div className="mt-1 text-2xl font-semibold text-[var(--ds-text-1)]">{value}</div>
+    </div>
+  );
+}
+
+function fmtDate(value?: string | null): string {
+  if (!value) return '—';
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return '—';
+  return d.toLocaleString('en-IN', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kolkata' });
+}
+
+function Detail({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="min-w-0">
+      <dt className="text-[11px] text-zinc-500 dark:text-[var(--ds-text-3)]">{label}</dt>
+      <dd className="truncate text-[13px] text-[var(--ds-text-1)]" title={value}>{value}</dd>
     </div>
   );
 }

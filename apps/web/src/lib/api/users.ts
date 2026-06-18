@@ -303,4 +303,8 @@ export const usersApi = {
     const result = await requestForm<{ url: string }>('/upload/image', formData, { token, method: 'POST' });
     return result.url ?? '';
   },
+
+  // Persist the streak-share card URL → og:image of /share/streak/:userId (S-03).
+  setStreakCard: (url: string, token: string) =>
+    request<{ streakCardUrl: string }>('/users/me/streak-card', { method: 'POST', body: JSON.stringify({ url }), token }),
 } as const;

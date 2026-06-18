@@ -45,7 +45,7 @@ function verdictTone(v: SubmissionVerdict): 'success' | 'danger' | 'warning' | '
   return 'neutral';
 }
 
-export default function AdminProblems() {
+export default function AdminProblems({ embedded = false }: { embedded?: boolean } = {}) {
   const { token } = useAuth();
   const navigate = useNavigate();
   const qc = useQueryClient();
@@ -270,11 +270,13 @@ export default function AdminProblems() {
   return (
     <div className="flex flex-col gap-6">
       <div className="flex items-end justify-between gap-3 flex-wrap">
-        <div>
-          <div className="text-[10.5px] uppercase tracking-[0.06em] font-semibold text-[var(--ds-text-3)]">Admin</div>
-          <h1 className="text-[24px] font-semibold tracking-tight mt-1">Problems</h1>
-          <p className="text-[13px] text-[var(--ds-text-3)] mt-1">The full catalog of practice + competition problems.</p>
-        </div>
+        {embedded ? <div /> : (
+          <div>
+            <div className="text-[10.5px] uppercase tracking-[0.06em] font-semibold text-[var(--ds-text-3)]">Admin</div>
+            <h1 className="text-[24px] font-semibold tracking-tight mt-1">Problems</h1>
+            <p className="text-[13px] text-[var(--ds-text-3)] mt-1">The full catalog of practice + competition problems.</p>
+          </div>
+        )}
         <div className="flex items-center gap-2">
           <Button size="sm" variant="outline" onClick={() => setBulkOpen((o) => !o)}>
             <FileUp size={13} className="mr-1.5" />

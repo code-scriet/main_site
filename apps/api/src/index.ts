@@ -53,6 +53,7 @@ import { requireRole } from './middleware/role.js';
 import { emailService } from './utils/email.js';
 import { auditLog } from './utils/audit.js';
 import { prisma } from './lib/prisma.js';
+import { escapeHtml } from './utils/sanitize.js';
 import { startReminderScheduler, stopReminderScheduler, startQotdAutoPublishScheduler, stopQotdAutoPublishScheduler, startEventStatusScheduler, stopEventStatusScheduler, startRegistrationOpenScheduler, stopRegistrationOpenScheduler } from './utils/scheduler.js';
 import { getJwtSecret } from './utils/jwt.js';
 import { setRuntimeAttendanceJwtSecret } from './utils/attendanceToken.js';
@@ -396,6 +397,52 @@ app.get('/health/db', async (_req, res) => {
 // Simple ping endpoint for uptime bots (lightweight, no JSON parsing)
 app.get('/ping', (req, res) => {
   res.status(200).send('pong');
+});
+
+// S-03 — public OG-image page for a user's streak share. LinkedIn's crawler reads
+// og:image here (it doesn't run JS, so the SPA can't set it); humans are redirected
+// to the dashboard. og:image is ONLY the user's STORED streakCardUrl — never a value
+// from the request — so this can't be turned into an open og:image redirector.
+// This route lives at the API ROOT (outside the `/api` general limiter) but still
+// hits the DB on an attacker-controllable path param, so it carries its own bound.
+const shareLimiter = rateLimit({
+  windowMs: 5 * 60 * 1000,
+  max: 120,
+  message: { error: 'Too many requests, please try again later.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: (req) => getClientIp(req),
+});
+app.get('/share/streak/:userId', shareLimiter, async (req, res) => {
+  const frontend = process.env.FRONTEND_URL || 'https://codescriet.dev';
+  const dest = `${frontend}/dashboard/coding?tab=qotd`;
+  const userId = String(req.params.userId ?? '');
+  try {
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { name: true, streakCardUrl: true, currentStreak: true, isDeleted: true },
+    });
+    if (!user || user.isDeleted || !user.streakCardUrl) return res.redirect(302, dest);
+    const img = escapeHtml(user.streakCardUrl);
+    const title = escapeHtml(`${user.name ?? 'A member'}'s coding streak on code.scriet`);
+    const desc = escapeHtml(`${user.currentStreak ?? 0}-day problem-solving streak on code.scriet. Come build with us.`);
+    const destEsc = escapeHtml(dest);
+    res.set('Content-Type', 'text/html; charset=utf-8');
+    res.set('Cache-Control', 'public, max-age=300');
+    return res.send(`<!doctype html><html lang="en"><head><meta charset="utf-8">
+<title>${title}</title>
+<meta property="og:type" content="website">
+<meta property="og:title" content="${title}">
+<meta property="og:description" content="${desc}">
+<meta property="og:image" content="${img}">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image" content="${img}">
+<meta name="robots" content="noindex">
+<meta http-equiv="refresh" content="0; url=${destEsc}">
+</head><body>Redirecting to <a href="${destEsc}">code.scriet</a>…</body></html>`);
+  } catch {
+    return res.redirect(302, frontend);
+  }
 });
 
 // Sitemap and SEO routes at ROOT level (no rate limiting, for Google bots)

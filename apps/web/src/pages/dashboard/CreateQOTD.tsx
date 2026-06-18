@@ -11,7 +11,8 @@ import {
 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { api, type Problem, type QOTDHistoryEntry } from '@/lib/api';
-import { DSCard, EmptyState, Field, Pill, Section } from '@/components/dash';
+import { DSCard, Field, Pill, Section } from '@/components/dash';
+import { QOTDHistoryList } from '@/components/dashboard/QOTDHistoryList';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
@@ -48,12 +49,23 @@ function dayCellStatus(date: Date, history: QOTDHistoryEntry[]): { status: Statu
   return { status: 'empty', qotd: null };
 }
 
-export default function CreateQOTD() {
+export default function CreateQOTD({ embedded = false }: { embedded?: boolean } = {}) {
   const { token, user } = useAuth();
   const navigate = useNavigate();
   const qc = useQueryClient();
+  const isAdmin = Boolean(user?.isSuperAdmin || user?.role === 'ADMIN' || user?.role === 'PRESIDENT');
+  // Standalone /dashboard/qotd: admins manage QOTDs in the consolidated Problems
+  // hub (tab=qotd) instead, so redirect there; non-admins get the limited "propose"
+  // form (a draft for an admin to review). Embedded inside the hub → full manager.
+  const proposeOnly = !embedded && !isAdmin;
   // Reopening a past QOTD is President / super-admin only (matches the server gate).
   const canReopen = Boolean(user?.isSuperAdmin || user?.role === 'PRESIDENT');
+  // Refresh both the calendar feed (qotd-history-admin) and the paginated archive
+  // list (qotd-history-full, rendered by QOTDHistoryList) after any mutation.
+  const invalidateQotdHistory = () => {
+    qc.invalidateQueries({ queryKey: ['qotd-history-admin'] });
+    qc.invalidateQueries({ queryKey: ['qotd-history-full'] });
+  };
   // IST date key (not browser-local) so the "past QOTD?" check agrees with the server.
   const todayIso = istDateKey();
   const [reopenLink, setReopenLink] = useState<string | null>(null);
@@ -64,7 +76,6 @@ export default function CreateQOTD() {
   const [problemId, setProblemId] = useState<string | null>(null);
   const [date, setDate] = useState<string>(toIsoDate(new Date()));
   const [publishTime, setPublishTime] = useState<string>('00:00');
-  const [publishToPractice, setPublishToPractice] = useState(true);
   const [legacyQuestion, setLegacyQuestion] = useState('');
   const [legacyLink, setLegacyLink] = useState('');
   const [calMonth, setCalMonth] = useState(() => new Date());
@@ -76,7 +87,18 @@ export default function CreateQOTD() {
   // /dashboard/qotd?problemId=<newId>. Pre-select that problem in pick mode + restore the
   // pending date from localStorage so the admin can schedule with one click.
   const [searchParams, setSearchParams] = useSearchParams();
+  // Standalone /dashboard/qotd: admins manage QOTDs in the consolidated Problems hub
+  // (tab=qotd) — redirect there, FORWARDING any ?problemId handoff from CreateProblem
+  // so the one-click "schedule the new problem as QOTD" flow survives the redirect.
   useEffect(() => {
+    if (embedded || !isAdmin) return;
+    const search = searchParams.toString();
+    navigate(`/admin/problems?tab=qotd${search ? `&${search}` : ''}`, { replace: true });
+  }, [embedded, isAdmin, navigate, searchParams]);
+  useEffect(() => {
+    // Skip on the standalone admin page — we're redirecting to the hub and must NOT
+    // consume/clear the ?problemId here; the embedded CreateQOTD picks it up instead.
+    if (!embedded && isAdmin) return;
     const incomingId = searchParams.get('problemId');
     if (!incomingId) return;
     let pendingDate = '';
@@ -103,11 +125,16 @@ export default function CreateQOTD() {
   const historyQ = useQuery({
     queryKey: ['qotd-history-admin'],
     queryFn: () => api.getQOTDHistory(60, 0, { includeUnpublished: true, token: token! }),
-    enabled: Boolean(token),
+    // The calendar/history is admin-only; the propose form doesn't render it.
+    enabled: Boolean(token) && !proposeOnly,
   });
   const problemsQ = useQuery({
-    queryKey: ['admin-problems-for-qotd'],
-    queryFn: () => api.adminGetProblems(token!),
+    queryKey: ['problems-for-qotd', proposeOnly],
+    // Core proposers can only pick from the PUBLISHED catalog (the admin-all
+    // endpoint 403s for them); admins see every problem incl. drafts.
+    queryFn: () => (proposeOnly
+      ? api.getProblems({ published: true, limit: 100 }, token!)
+      : api.adminGetProblems(token!)),
     enabled: Boolean(token) && mode === 'pick',
   });
   const problems: Problem[] = useMemo(() => problemsQ.data?.problems ?? [], [problemsQ.data]);
@@ -153,12 +180,11 @@ export default function CreateQOTD() {
         : mode === 'legacy'
         ? { date, question: legacyQuestion.trim(), problemLink: legacyLink.trim() || undefined }
         : { date };
-      void publishToPractice;
       await api.createQOTD(body, token);
     },
     onSuccess: () => {
-      toast.success('QOTD scheduled');
-      qc.invalidateQueries({ queryKey: ['qotd-history-admin'] });
+      toast.success(proposeOnly ? 'QOTD proposed — an admin will review and publish it' : 'QOTD scheduled');
+      invalidateQotdHistory();
       setProblemId(null);
       setLegacyQuestion('');
       setLegacyLink('');
@@ -169,7 +195,7 @@ export default function CreateQOTD() {
   const publishMut = useMutation({
     mutationFn: (id: string) => api.publishQOTD(id, token!),
     onMutate: (id) => { setRowBusy(id); },
-    onSuccess: () => { toast.success('QOTD published'); qc.invalidateQueries({ queryKey: ['qotd-history-admin'] }); },
+    onSuccess: () => { toast.success('QOTD published'); invalidateQotdHistory(); },
     onError: (e: Error) => toast.error(e.message || 'Failed to publish'),
     onSettled: () => setRowBusy(null),
   });
@@ -180,7 +206,7 @@ export default function CreateQOTD() {
       toast.success('QOTD held');
       setHoldTarget(null);
       setHoldReason('');
-      qc.invalidateQueries({ queryKey: ['qotd-history-admin'] });
+      invalidateQotdHistory();
     },
     onError: (e: Error) => toast.error(e.message || 'Failed to hold'),
     onSettled: () => setRowBusy(null),
@@ -191,7 +217,7 @@ export default function CreateQOTD() {
     onSuccess: () => {
       toast.success('QOTD deleted');
       setDeleteTarget(null);
-      qc.invalidateQueries({ queryKey: ['qotd-history-admin'] });
+      invalidateQotdHistory();
     },
     onError: (e: Error) => toast.error(e.message || 'Failed to delete'),
     onSettled: () => setRowBusy(null),
@@ -199,14 +225,14 @@ export default function CreateQOTD() {
   const publishPracticeMut = useMutation({
     mutationFn: (id: string) => api.publishQOTDToPractice(id, token!),
     onMutate: (id) => { setRowBusy(id); },
-    onSuccess: () => { toast.success('Published to practice catalog'); qc.invalidateQueries({ queryKey: ['qotd-history-admin'] }); },
+    onSuccess: () => { toast.success('Published to practice catalog'); invalidateQotdHistory(); },
     onError: (e: Error) => toast.error(e.message || 'Failed to publish to practice'),
     onSettled: () => setRowBusy(null),
   });
   const unpublishPracticeMut = useMutation({
     mutationFn: (id: string) => api.unpublishQOTDFromPractice(id, token!),
     onMutate: (id) => { setRowBusy(id); },
-    onSuccess: () => { toast.success('Removed from practice catalog'); qc.invalidateQueries({ queryKey: ['qotd-history-admin'] }); },
+    onSuccess: () => { toast.success('Removed from practice catalog'); invalidateQotdHistory(); },
     onError: (e: Error) => toast.error(e.message || 'Failed to remove from practice'),
     onSettled: () => setRowBusy(null),
   });
@@ -219,7 +245,7 @@ export default function CreateQOTD() {
       const link = getPlaygroundPublicUrl(`/?qotd=${encodeURIComponent(data.date)}&reopen=${encodeURIComponent(data.token)}`);
       setReopenLink(link);
       setReopenLinkCopied(false);
-      qc.invalidateQueries({ queryKey: ['qotd-history-admin'] });
+      invalidateQotdHistory();
     },
     onError: (e: Error) => toast.error(e.message || 'Failed to reopen QOTD'),
     onSettled: () => setRowBusy(null),
@@ -227,26 +253,41 @@ export default function CreateQOTD() {
   const closeReopenMut = useMutation({
     mutationFn: (id: string) => api.closeReopenQOTD(id, token!),
     onMutate: (id) => { setRowBusy(id); },
-    onSuccess: () => { toast.success('Reopened QOTD closed — the private link no longer works'); qc.invalidateQueries({ queryKey: ['qotd-history-admin'] }); },
+    onSuccess: () => { toast.success('Reopened QOTD closed — the private link no longer works'); invalidateQotdHistory(); },
     onError: (e: Error) => toast.error(e.message || 'Failed to close'),
     onSettled: () => setRowBusy(null),
   });
 
   const canSchedule = mode === 'pick' ? Boolean(problemId) : mode === 'legacy' ? Boolean(legacyQuestion.trim()) : false;
 
+  // Admins are redirected to the hub (effect above) — render nothing meanwhile.
+  if (!embedded && isAdmin) return null;
+
   return (
     <div className="flex flex-col gap-6">
-      <div className="flex items-end justify-between gap-3 flex-wrap">
-        <div>
-          <div className="text-[10.5px] uppercase tracking-[0.06em] font-semibold text-[var(--ds-text-3)]">Manage</div>
-          <h1 className="text-[24px] font-semibold tracking-tight mt-1">Question of the day</h1>
+      {!embedded && (
+        <div className="flex items-end justify-between gap-3 flex-wrap">
+          <div>
+            <div className="text-[10.5px] uppercase tracking-[0.06em] font-semibold text-[var(--ds-text-3)]">
+              {proposeOnly ? 'Propose' : 'Manage'}
+            </div>
+            <h1 className="text-[24px] font-semibold tracking-tight mt-1">Question of the day</h1>
+            {proposeOnly && (
+              <p className="text-[13px] text-[var(--ds-text-3)] mt-1.5 max-w-prose">
+                Suggest a problem for an upcoming day. Your proposal is saved as a draft — an admin
+                reviews, schedules and publishes it.
+              </p>
+            )}
+          </div>
+          {!proposeOnly && (
+            <Pill tone="neutral" size="sm">
+              <span className="font-mono tabular-nums">{publishedCount}</span> published
+              {' · '}
+              <span className="font-mono tabular-nums ml-1">{scheduledCount}</span> scheduled
+            </Pill>
+          )}
         </div>
-        <Pill tone="neutral" size="sm">
-          <span className="font-mono tabular-nums">{publishedCount}</span> published
-          {' · '}
-          <span className="font-mono tabular-nums ml-1">{scheduledCount}</span> scheduled
-        </Pill>
-      </div>
+      )}
 
       {/* Mode picker */}
       <div className="grid sm:grid-cols-3 gap-2">
@@ -280,9 +321,9 @@ export default function CreateQOTD() {
 
       <div className="grid lg:grid-cols-12 gap-5">
         {/* Form */}
-        <DSCard padded className="lg:col-span-7 flex flex-col gap-3">
+        <DSCard padded className={cn('flex flex-col gap-3', proposeOnly ? 'lg:col-span-12' : 'lg:col-span-7')}>
           <div className="text-[13.5px] font-semibold">
-            {mode === 'pick' ? 'Schedule existing' : mode === 'create' ? 'New problem inline' : 'Quick text question'}
+            {proposeOnly ? 'Propose a problem' : mode === 'pick' ? 'Schedule existing' : mode === 'create' ? 'New problem inline' : 'Quick text question'}
           </div>
 
           {mode === 'pick' && (
@@ -321,14 +362,16 @@ export default function CreateQOTD() {
                   ))
                 )}
               </div>
-              <div className="grid grid-cols-2 gap-3">
-                <Field label="Date" required><Input type="date" value={date} onChange={(e) => setDate(e.target.value)} /></Field>
-                <Field label="Publish time" hint="defaults to 00:00 IST"><Input type="time" value={publishTime} onChange={(e) => setPublishTime(e.target.value)} /></Field>
-              </div>
-              <label className="flex items-center gap-2 text-[12.5px]">
-                <input type="checkbox" checked={publishToPractice} onChange={(e) => setPublishToPractice(e.target.checked)} />
-                Publish to practice catalog after the day ends
-              </label>
+              {proposeOnly ? (
+                <Field label="Suggested date" hint="An admin can change this when scheduling">
+                  <Input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
+                </Field>
+              ) : (
+                <div className="grid grid-cols-2 gap-3">
+                  <Field label="Date" required><Input type="date" value={date} onChange={(e) => setDate(e.target.value)} /></Field>
+                  <Field label="Publish time" hint="defaults to 00:00 IST"><Input type="time" value={publishTime} onChange={(e) => setPublishTime(e.target.value)} /></Field>
+                </div>
+              )}
             </>
           )}
 
@@ -374,12 +417,13 @@ export default function CreateQOTD() {
           <div className="flex items-center justify-end gap-2 pt-2">
             <Button size="sm" onClick={() => scheduleMut.mutate()} disabled={!canSchedule || scheduleMut.isPending}>
               {scheduleMut.isPending && <Loader2 size={13} className="mr-1.5 animate-spin" />}
-              Schedule <Check size={13} className="ml-1" />
+              {proposeOnly ? 'Propose' : 'Schedule'} <Check size={13} className="ml-1" />
             </Button>
           </div>
         </DSCard>
 
         {/* Calendar */}
+        {!proposeOnly && (
         <DSCard padded className="lg:col-span-5">
           <div className="flex items-center justify-between mb-3">
             <div className="text-[13.5px] font-semibold">{monthLabel}</div>
@@ -436,74 +480,71 @@ export default function CreateQOTD() {
             ))}
           </div>
         </DSCard>
+        )}
       </div>
 
-      {/* Recent history with actions */}
-      <Section eyebrow="History" title={`${history.length} entries`}>
-        {historyQ.isLoading ? (
-          <div className="h-24 bg-[var(--surface-soft)] rounded animate-pulse" />
-        ) : history.length === 0 ? (
-          <DSCard padded><EmptyState icon={<BookOpen size={18} />} title="No QOTDs yet" /></DSCard>
-        ) : (
-          <DSCard padded={false}>
-            <div className="divide-y divide-[var(--border-subtle)]">
-              {history.slice(0, 12).map((q) => (
-                <div key={q.id} className="px-4 py-2.5 flex items-center gap-3">
-                  <span className="font-mono tabular-nums text-[12px] text-[var(--ds-text-3)] w-[88px]">
-                    {new Date(q.date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
-                  </span>
-                  <span className="flex-1 truncate text-[13px] font-medium">{q.question}</span>
-                  <Pill tone={q.isPublished && !q.heldBy ? 'success' : q.heldBy ? 'warning' : 'neutral'} size="xs">
-                    {q.heldBy ? 'Held' : q.isPublished ? 'Published' : 'Scheduled'}
-                  </Pill>
-                  {rowBusy === q.id && <Loader2 size={11} className="animate-spin text-[var(--ds-text-3)]" />}
-                  {!q.isPublished && (
-                    <button onClick={() => publishMut.mutate(q.id)} disabled={rowBusy === q.id} title="Publish" className="size-7 rounded-[6px] hover:bg-[var(--accent-subtle)] text-[var(--ds-text-3)] hover:text-[var(--accent)] flex items-center justify-center disabled:opacity-40">
-                      <Play size={11} />
-                    </button>
-                  )}
-                  {q.isPublished && !q.heldBy && (
-                    <button onClick={() => { setHoldTarget(q); setHoldReason(''); }} disabled={rowBusy === q.id} title="Hold" className="size-7 rounded-[6px] hover:bg-[var(--warning-bg)] text-[var(--ds-text-3)] hover:text-[var(--warning)] flex items-center justify-center disabled:opacity-40">
-                      <Pause size={11} />
-                    </button>
-                  )}
-                  {q.problemId && !q.problem?.isPublished && (
-                    <button onClick={() => publishPracticeMut.mutate(q.id)} disabled={rowBusy === q.id} title="Publish to practice catalog" aria-label="Publish to practice catalog" className="size-7 rounded-[6px] hover:bg-[var(--surface-soft)] text-[var(--ds-text-3)] hover:text-[var(--ds-text-1)] flex items-center justify-center disabled:opacity-40">
-                      <BookOpen size={11} />
-                    </button>
-                  )}
-                  {q.problemId && q.problem?.isPublished && (
-                    <button onClick={() => unpublishPracticeMut.mutate(q.id)} disabled={rowBusy === q.id} title="Remove from practice catalog" aria-label="Remove from practice catalog" className="size-7 rounded-[6px] hover:bg-[var(--warning-bg)] text-[var(--ds-text-3)] hover:text-[var(--warning)] flex items-center justify-center disabled:opacity-40">
-                      <BookOpenCheck size={11} />
-                    </button>
-                  )}
-                  {/* Reopen a past, published, non-held QOTD via a private link (PRES/SA). */}
-                  {canReopen && q.problemId && q.isPublished && !q.heldBy && q.date.slice(0, 10) < todayIso && (
-                    q.reopenedAt ? (
-                      <>
-                        <Pill tone="info" size="xs">Reopened</Pill>
-                        <button onClick={() => reopenMut.mutate(q.id)} disabled={rowBusy === q.id} title="Copy private link" aria-label="Copy private reopen link" className="size-7 rounded-[6px] hover:bg-[var(--accent-subtle)] text-[var(--ds-text-3)] hover:text-[var(--accent)] flex items-center justify-center disabled:opacity-40">
-                          <LinkIcon size={11} />
-                        </button>
-                        <button onClick={() => closeReopenMut.mutate(q.id)} disabled={rowBusy === q.id} title="Close reopen (revokes the link)" aria-label="Close reopen" className="size-7 rounded-[6px] hover:bg-[var(--warning-bg)] text-[var(--ds-text-3)] hover:text-[var(--warning)] flex items-center justify-center disabled:opacity-40">
-                          <Square size={11} />
-                        </button>
-                      </>
-                    ) : (
-                      <button onClick={() => reopenMut.mutate(q.id)} disabled={rowBusy === q.id} title="Reopen for late submissions (private link)" aria-label="Reopen QOTD" className="size-7 rounded-[6px] hover:bg-[var(--accent-subtle)] text-[var(--ds-text-3)] hover:text-[var(--accent)] flex items-center justify-center disabled:opacity-40">
-                        <RotateCcw size={11} />
-                      </button>
-                    )
-                  )}
-                  <button onClick={() => setDeleteTarget(q)} disabled={rowBusy === q.id} title="Delete" className="size-7 rounded-[6px] hover:bg-[var(--danger-bg)] text-[var(--ds-text-3)] hover:text-[var(--danger)] flex items-center justify-center disabled:opacity-40">
-                    <Trash2 size={11} />
+      {/* Full QOTD archive with management actions — paginated + searchable, so any
+          past QOTD (e.g. to reopen one) is reachable, not just a recent window. */}
+      {!proposeOnly && (
+        <Section eyebrow="History" title="All QOTDs">
+          <QOTDHistoryList
+            mode="admin"
+            token={token ?? undefined}
+            searchable
+            renderStatus={(q) => (
+              <Pill tone={q.isPublished && !q.heldBy ? 'success' : q.heldBy ? 'warning' : q.publishAt ? 'neutral' : 'info'} size="xs">
+                {q.heldBy ? 'Held' : q.isPublished ? 'Published' : q.publishAt ? 'Scheduled' : 'Proposed'}
+              </Pill>
+            )}
+            renderActions={(q) => (
+              <div className="inline-flex items-center gap-1 justify-end">
+                {rowBusy === q.id && <Loader2 size={11} className="animate-spin text-[var(--ds-text-3)]" />}
+                {!q.isPublished && (
+                  <button onClick={() => publishMut.mutate(q.id)} disabled={rowBusy === q.id} title={q.heldBy ? 'Publish (clears hold)' : 'Publish'} aria-label="Publish" className="size-7 rounded-[6px] hover:bg-[var(--accent-subtle)] text-[var(--ds-text-3)] hover:text-[var(--accent)] flex items-center justify-center disabled:opacity-40">
+                    <Play size={11} />
                   </button>
-                </div>
-              ))}
-            </div>
-          </DSCard>
-        )}
-      </Section>
+                )}
+                {q.isPublished && !q.heldBy && (
+                  <button onClick={() => { setHoldTarget(q); setHoldReason(''); }} disabled={rowBusy === q.id} title="Hold" aria-label="Hold" className="size-7 rounded-[6px] hover:bg-[var(--warning-bg)] text-[var(--ds-text-3)] hover:text-[var(--warning)] flex items-center justify-center disabled:opacity-40">
+                    <Pause size={11} />
+                  </button>
+                )}
+                {q.problemId && !q.problem?.isPublished && (
+                  <button onClick={() => publishPracticeMut.mutate(q.id)} disabled={rowBusy === q.id} title="Publish to practice catalog" aria-label="Publish to practice catalog" className="size-7 rounded-[6px] hover:bg-[var(--surface-soft)] text-[var(--ds-text-3)] hover:text-[var(--ds-text-1)] flex items-center justify-center disabled:opacity-40">
+                    <BookOpen size={11} />
+                  </button>
+                )}
+                {q.problemId && q.problem?.isPublished && (
+                  <button onClick={() => unpublishPracticeMut.mutate(q.id)} disabled={rowBusy === q.id} title="Remove from practice catalog" aria-label="Remove from practice catalog" className="size-7 rounded-[6px] hover:bg-[var(--warning-bg)] text-[var(--ds-text-3)] hover:text-[var(--warning)] flex items-center justify-center disabled:opacity-40">
+                    <BookOpenCheck size={11} />
+                  </button>
+                )}
+                {/* Reopen a past, published, non-held QOTD via a private link (PRES/SA). */}
+                {canReopen && q.problemId && q.isPublished && !q.heldBy && q.date.slice(0, 10) < todayIso && (
+                  q.reopenedAt ? (
+                    <>
+                      <Pill tone="info" size="xs">Reopened</Pill>
+                      <button onClick={() => reopenMut.mutate(q.id)} disabled={rowBusy === q.id} title="Copy private link" aria-label="Copy private reopen link" className="size-7 rounded-[6px] hover:bg-[var(--accent-subtle)] text-[var(--ds-text-3)] hover:text-[var(--accent)] flex items-center justify-center disabled:opacity-40">
+                        <LinkIcon size={11} />
+                      </button>
+                      <button onClick={() => closeReopenMut.mutate(q.id)} disabled={rowBusy === q.id} title="Close reopen (revokes the link)" aria-label="Close reopen" className="size-7 rounded-[6px] hover:bg-[var(--warning-bg)] text-[var(--ds-text-3)] hover:text-[var(--warning)] flex items-center justify-center disabled:opacity-40">
+                        <Square size={11} />
+                      </button>
+                    </>
+                  ) : (
+                    <button onClick={() => reopenMut.mutate(q.id)} disabled={rowBusy === q.id} title="Reopen for late submissions (private link)" aria-label="Reopen QOTD" className="size-7 rounded-[6px] hover:bg-[var(--accent-subtle)] text-[var(--ds-text-3)] hover:text-[var(--accent)] flex items-center justify-center disabled:opacity-40">
+                      <RotateCcw size={11} />
+                    </button>
+                  )
+                )}
+                <button onClick={() => setDeleteTarget(q)} disabled={rowBusy === q.id} title="Delete" aria-label="Delete" className="size-7 rounded-[6px] hover:bg-[var(--danger-bg)] text-[var(--ds-text-3)] hover:text-[var(--danger)] flex items-center justify-center disabled:opacity-40">
+                  <Trash2 size={11} />
+                </button>
+              </div>
+            )}
+          />
+        </Section>
+      )}
 
       <AlertDialog open={Boolean(holdTarget)} onOpenChange={(o) => { if (!o) { setHoldTarget(null); setHoldReason(''); } }}>
         <AlertDialogContent data-dashboard="true" className="bg-[var(--bg-raised)] border-[var(--border-subtle)]">

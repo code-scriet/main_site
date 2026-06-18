@@ -120,6 +120,12 @@ export const codingApi = {
     const query = params.toString() ? `?${params.toString()}` : '';
     return request<QOTDHistoryEntry[]>(`/qotd/history${query}`, options?.token ? { token: options.token } : undefined);
   },
+  // Totals for the "Full history" header — solved/total/left, computed server-side.
+  getQOTDHistorySummary: (token?: string) =>
+    request<{ totalPublished: number; solved: number; left: number }>(
+      '/qotd/history/summary',
+      token ? { token } : undefined,
+    ),
   getQOTDDailyLeaderboard: (qotdId: string) =>
     request<QOTDDailyLeaderboard>(`/qotd/${qotdId}/leaderboard`),
   getQOTDTotalLeaderboard: () =>

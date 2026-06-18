@@ -249,6 +249,26 @@ usersRouter.put('/me', authMiddleware, async (req: Request, res: Response) => {
   }
 });
 
+// S-03 — store the user's latest streak-share card (Cloudinary URL) so the public
+// GET /share/streak/:userId route can serve it as og:image. The URL is validated to
+// the Cloudinary host to stop arbitrary og:image injection on that public page.
+usersRouter.post('/me/streak-card', authMiddleware, async (req: Request, res: Response) => {
+  try {
+    const authUser = getAuthUser(req)!;
+    const parsed = z.object({ url: z.string().url().max(1000) }).safeParse(req.body);
+    if (!parsed.success) return ApiResponse.badRequest(res, 'A valid image URL is required');
+    let host: string;
+    try { host = new URL(parsed.data.url).hostname; } catch { return ApiResponse.badRequest(res, 'Invalid URL'); }
+    if (!parsed.data.url.startsWith('https://') || !/(^|\.)cloudinary\.com$/i.test(host)) {
+      return ApiResponse.badRequest(res, 'Streak card must be an https Cloudinary URL');
+    }
+    await prisma.user.update({ where: { id: authUser.id }, data: { streakCardUrl: parsed.data.url } });
+    return ApiResponse.success(res, { streakCardUrl: parsed.data.url });
+  } catch {
+    return ApiResponse.internal(res, 'Failed to save streak card');
+  }
+});
+
 // Add password for OAuth-only accounts
 usersRouter.post('/me/add-password', authMiddleware, async (req: Request, res: Response) => {
   try {
@@ -1280,6 +1300,18 @@ usersRouter.get('/:id/full', authMiddleware, requireRole('ADMIN'), async (req: R
       auditCount,
       ledTeamsCount,
       teamMembershipsCount,
+      problemSubsTotal,
+      problemSubsAccepted,
+      qotdAcceptedSolved,
+      eventsCreatedCount,
+      announcementsCreatedCount,
+      quizzesCreatedCount,
+      qotdsCreatedCount,
+      problemsCreatedCount,
+      problemSheetsCreatedCount,
+      invitationsReceivedCount,
+      invitationsSentCount,
+      uploadedImagesCount,
     ] = await prisma.$transaction([
       prisma.eventRegistration.findMany({
         where: { userId: targetId },
@@ -1327,6 +1359,21 @@ usersRouter.get('/:id/full', authMiddleware, requireRole('ADMIN'), async (req: R
       prisma.auditLog.count({ where: { OR: [{ userId: targetId }, { entityId: targetId, entity: { in: ['user', 'user_block'] } }] } }),
       prisma.eventTeam.count({ where: { leaderId: targetId } }),
       prisma.eventTeamMember.count({ where: { userId: targetId } }),
+      // Coding: judged-submission volume + AC rate, and QOTD solves (ACCEPTED).
+      prisma.problemSubmission.count({ where: { userId: targetId } }),
+      prisma.problemSubmission.count({ where: { userId: targetId, verdict: 'ACCEPTED' } }),
+      prisma.problemSubmission.count({ where: { userId: targetId, contextType: 'QOTD', verdict: 'ACCEPTED' } }),
+      // Content authored by this user (drives the "Created" section).
+      prisma.event.count({ where: { createdBy: targetId } }),
+      prisma.announcement.count({ where: { createdBy: targetId } }),
+      prisma.quiz.count({ where: { createdBy: targetId } }),
+      prisma.qOTD.count({ where: { createdById: targetId } }),
+      prisma.problem.count({ where: { createdBy: targetId } }),
+      prisma.problemSheet.count({ where: { createdBy: targetId } }),
+      // Network/community + uploads.
+      prisma.eventInvitation.count({ where: { inviteeUserId: targetId } }),
+      prisma.eventInvitation.count({ where: { invitedById: targetId } }),
+      prisma.uploadedImage.count({ where: { userId: targetId } }),
     ]);
 
     return ApiResponse.success(res, {
@@ -1345,6 +1392,25 @@ usersRouter.get('/:id/full', authMiddleware, requireRole('ADMIN'), async (req: R
         ledTeams: ledTeamsCount,
         teamMemberships: teamMembershipsCount,
         auditEntries: auditCount,
+        invitationsReceived: invitationsReceivedCount,
+        invitationsSent: invitationsSentCount,
+        uploadedImages: uploadedImagesCount,
+      },
+      // Coding inference: total judged submissions, accepted, AC rate %, QOTD solves.
+      coding: {
+        totalSubmissions: problemSubsTotal,
+        accepted: problemSubsAccepted,
+        acRate: problemSubsTotal > 0 ? Math.round((problemSubsAccepted / problemSubsTotal) * 100) : 0,
+        qotdSolved: qotdAcceptedSolved,
+      },
+      contentCreated: {
+        events: eventsCreatedCount,
+        announcements: announcementsCreatedCount,
+        quizzes: quizzesCreatedCount,
+        qotds: qotdsCreatedCount,
+        problems: problemsCreatedCount,
+        problemSheets: problemSheetsCreatedCount,
+        polls: createdPollsCount,
       },
       eventRegistrations,
       certificates,
