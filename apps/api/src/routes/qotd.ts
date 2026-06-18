@@ -689,8 +689,10 @@ qotdRouter.post('/:id/hold', authMiddleware, requireRole('ADMIN'), async (req: R
 
 // Reopen a PAST QOTD for late submissions via a private signed link.
 // PRESIDENT / super admin only. Idempotent — calling it again re-stamps and
-// returns a fresh token. Streak/marks/leaderboard update normally on submit
-// because the QOTD is already published; only the active-day gate is bypassed.
+// returns a fresh token. The active-day gate is bypassed for link holders, but a
+// reopen solve does NOT auto-count: it is judged then HELD (verdict PENDING,
+// reopen_pending) and only counts toward streak/marks/leaderboard once an admin
+// accepts it from the review queue (see submitProblemForUser + /admin/reopen).
 qotdRouter.post('/:id/reopen', authMiddleware, requireRole('ADMIN'), async (req: Request, res: Response) => {
   try {
     const authUser = getAuthUser(req)!;

@@ -939,8 +939,10 @@ eventsRouter.put('/:id', authMiddleware, requireRole('CORE_MEMBER'), async (req:
     // S-01: a moved/added registrationStartDate re-arms (or clears) the announcement timer.
     armRegistrationOpenTimer(event);
 
-    // S-11: if the date/time or venue changed, tell everyone who registered.
-    {
+    // S-11: if the date/time or venue changed, tell everyone who registered —
+    // but not for an event that already happened (editing a PAST event is cleanup,
+    // not a change attendees need to hear about; mirrors the delete/cancel path).
+    if (event.status !== 'PAST') {
       const changes: string[] = [];
       // Compare at minute granularity so a no-op re-save (where the datetime-local
       // round-trips to a sub-second-different value) doesn't spuriously notify.

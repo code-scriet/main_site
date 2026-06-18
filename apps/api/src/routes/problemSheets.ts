@@ -70,21 +70,26 @@ problemSheetsRouter.get('/', async (req: Request, res: Response) => {
       select: {
         id: true, slug: true, title: true, description: true, isPublished: true,
         createdAt: true,
-        items: { select: { problemId: true } },
+        items: { select: { problemId: true, problem: { select: { isPublished: true } } } },
       },
     }));
     const allProblemIds = [...new Set(sheets.flatMap((s) => s.items.map((i) => i.problemId)))];
     const solved = await solvedProblemIds(user?.id, allProblemIds);
-    const data = sheets.map((s) => ({
-      id: s.id,
-      slug: s.slug,
-      title: s.title,
-      description: s.description,
-      isPublished: s.isPublished,
-      createdAt: s.createdAt.toISOString(),
-      total: s.items.length,
-      solved: s.items.filter((i) => solved.has(i.problemId)).length,
-    }));
+    const data = sheets.map((s) => {
+      // Non-admins only see published problems in the detail view, so count only
+      // those here too — otherwise the list total/solved overcounts vs the detail.
+      const visibleItems = admin ? s.items : s.items.filter((i) => i.problem.isPublished);
+      return {
+        id: s.id,
+        slug: s.slug,
+        title: s.title,
+        description: s.description,
+        isPublished: s.isPublished,
+        createdAt: s.createdAt.toISOString(),
+        total: visibleItems.length,
+        solved: visibleItems.filter((i) => solved.has(i.problemId)).length,
+      };
+    });
     return ApiResponse.success(res, { sheets: data });
   } catch (error) {
     logger.error('Failed to list problem sheets', { error: errMsg(error) });
