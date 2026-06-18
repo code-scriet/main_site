@@ -37,6 +37,35 @@ export interface GlobalSearchPayload {
   announcements: Array<{ kind: 'announcement'; label: string; icon: string; route: string }>;
 }
 
+// S-08 — monthly digest payload (auto-built recap, editable before sending).
+export interface MonthlyDigest {
+  month: string;
+  label: string;
+  summary: {
+    month: string;
+    label: string;
+    newMembers: number;
+    eventsHeld: number;
+    attendanceMarks: number;
+    certificatesIssued: number;
+    qotdSolves: number;
+    quizSessions: number;
+    newNetworkMembers: number;
+    topStreaks: Array<{ name: string; streak: number }>;
+  };
+  subject: string;
+  markdown: string;
+}
+
+// S-06 — first-week onboarding checklist status.
+export interface OnboardingStatus {
+  profileCompleted: boolean;
+  solvedQotd: boolean;
+  registeredEvent: boolean;
+  savedSnippet: boolean;
+  allDone: boolean;
+}
+
 export interface RecentSubmission {
   id: string;
   problemId: string;
@@ -196,6 +225,10 @@ export const dashboardApi = {
   getMyRecentSubmissions: (token: string, limit = 5) =>
     request<RecentSubmission[]>(`/problems/me/recent?limit=${limit}`, { token }),
 
+  // S-06 — first-week onboarding checklist status
+  getOnboarding: (token: string) =>
+    request<OnboardingStatus>('/stats/onboarding', { token }),
+
   // Rank ± window around me
   getQOTDLeaderboardAroundMe: (token: string, windowSize = 2) =>
     request<AroundMeLeaderboard>(`/qotd/leaderboard/around-me?window=${windowSize}`, { token }),
@@ -211,6 +244,10 @@ export const dashboardApi = {
   // Admin dashboard stats (now with 12-tile insights block)
   getAdminDashboardStats: (token: string) =>
     request<AdminDashboardStats>('/stats/dashboard', { token }),
+
+  // S-08 — monthly "what happened" digest (admin loads → edits → sends via the mailer)
+  getMonthlyDigest: (token: string, month?: string) =>
+    request<MonthlyDigest>(`/stats/digest${month ? `?month=${encodeURIComponent(month)}` : ''}`, { token }),
 
   // Admin: grant or deny a pending cap request (one-click from the overview pending-requests card)
   adminGrantCapRequest: (counterId: string, token: string, body?: { deltaSubmits?: number; newCap?: number }) =>

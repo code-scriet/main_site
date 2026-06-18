@@ -16,6 +16,7 @@ import { auditLog } from './audit.js';
 import { sanitizeHtml, sanitizeText } from './sanitize.js';
 import { recomputeUserStreakSafe } from './qotdStreak.js';
 import { isUserBlocked } from '../middleware/blocks.js';
+import { verifyQotdReopenToken } from './jwt.js';
 // Lazy import (function reference only, called at request time) avoids a
 // module-load cycle with routes/qotd.ts which also imports from this file.
 import { invalidateQotdLeaderboardCaches } from '../routes/qotd.js';
@@ -65,6 +66,8 @@ export interface SubmitProblemParams {
   // run a timer simply omit it. Persisted as-is and surfaced on the QOTD
   // daily leaderboard as "time taken".
   activeMs?: number;
+  // Signed 'qotd_reopen' link token — lets a past, admin-reopened QOTD be submitted.
+  reopenToken?: string;
 }
 
 export interface RunProblemParams {
@@ -74,6 +77,7 @@ export interface RunProblemParams {
   code: string;
   contextType?: ProblemContextType;
   contextKey?: string;
+  reopenToken?: string;
 }
 
 export interface ProblemSubmissionResult {
@@ -101,6 +105,13 @@ export interface ProblemSubmissionResult {
    * "judging unavailable — saved for review" state, not a code-error state.
    */
   needsReview: boolean;
+  /**
+   * True when this was a reopened-past-QOTD solve that judged ACCEPTED but is held
+   * for admin acceptance: the verdict is stored as PENDING and nothing (streak,
+   * marks, leaderboard) counts until an admin approves it from the review queue.
+   * Frontends should show an "awaiting admin acceptance" state, not a solved state.
+   */
+  pendingAcceptance?: boolean;
 }
 
 export interface ProblemRunResult {
@@ -253,16 +264,40 @@ async function canUnlockSolution(
   if (!user || !contextType || !contextKey) return false;
 
   let concluded = false;
+  // A reopened QOTD is "live again" — the engagement-based reveal must stay shut so
+  // a late solver can't submit twice, read the official solution, and copy it.
+  let reopenActive = false;
   if (contextType === 'PRACTICE') {
     concluded = true;
   } else if (contextType === 'QOTD') {
-    const qotd = await prisma.qOTD.findUnique({ where: { id: contextKey }, select: { date: true } });
+    const qotd = await prisma.qOTD.findUnique({ where: { id: contextKey }, select: { date: true, reopenedAt: true } });
     concluded = Boolean(qotd && toIstDateKey(qotd.date) < formatUsageDate());
+    reopenActive = Boolean(qotd?.reopenedAt);
   } else if (contextType === 'CONTEST') {
     const round = await prisma.competitionRound.findUnique({ where: { id: contextKey }, select: { status: true } });
     concluded = Boolean(round && ['LOCKED', 'JUDGING', 'FINISHED'].includes(round.status));
   }
   if (!concluded) return false;
+
+  // S-07: a solver has earned the official solution even on a first-try AC (their
+  // submission count may be 1, below the engagement gate below). "Concluded" is
+  // still required above, so this never leaks during an active QOTD/contest window.
+  const solved = await prisma.problemSubmission.findUnique({
+    where: {
+      userId_problemId_contextType_contextKey: {
+        userId: user.id,
+        problemId,
+        contextType,
+        contextKey,
+      },
+    },
+    select: { verdict: true },
+  });
+  if (solved?.verdict === 'ACCEPTED') return true;
+
+  // While reopened, only an ACCEPTED solver (above) sees the solution — the
+  // count-based reveal would otherwise hand the answer to non-solvers mid-reopen.
+  if (reopenActive) return false;
 
   const counter = await prisma.problemSubmissionCounter.findUnique({
     where: {
@@ -308,13 +343,34 @@ async function getMyTeamInEvent(eventId: string, userId: string) {
   };
 }
 
+// A past, admin-reopened QOTD is submittable only by a holder of the matching
+// private link token AND while it is still open (reopenedAt set). Closing the QOTD
+// (reopenedAt → null) revokes every outstanding link immediately.
+// Exported for unit testing (the token/nonce gate is security-sensitive).
+export function isQotdReopenAllowed(reopenToken: string | undefined, qotdId: string, reopenedAt: Date | null): boolean {
+  if (!reopenToken || !reopenedAt) return false;
+  try {
+    const payload = verifyQotdReopenToken(reopenToken);
+    // The token must match this QOTD AND the current reopen session: a close→reopen
+    // mints a new reopenedAt, so links issued before the close stop verifying.
+    // Compare by millisecond instant (not raw ISO string) so the match survives any
+    // future change to how reopenedAt is stored/serialized, e.g. a Timestamptz(6)
+    // migration where the column carries microseconds the JS ISO string drops.
+    if (payload.qotdId !== qotdId) return false;
+    const nonceMs = new Date(payload.nonce).getTime();
+    return Number.isFinite(nonceMs) && nonceMs === reopenedAt.getTime();
+  } catch {
+    return false;
+  }
+}
+
 export async function validateProblemContext(
   problem: Problem,
   user: AuthUser,
   contextType: ProblemContextType,
   contextKey: string,
-  options: { requireActiveContest?: boolean; requireTodayQotd?: boolean } = {},
-): Promise<void> {
+  options: { requireActiveContest?: boolean; requireTodayQotd?: boolean; reopenToken?: string } = {},
+): Promise<{ viaReopen: boolean }> {
   const requireActiveContest = options.requireActiveContest ?? true;
   const requireTodayQotd = options.requireTodayQotd ?? true;
   const todayKey = formatUsageDate();
@@ -322,15 +378,22 @@ export async function validateProblemContext(
   if (contextType === 'QOTD') {
     const qotd = await prisma.qOTD.findUnique({
       where: { id: contextKey },
-      select: { id: true, date: true, problemId: true },
+      select: { id: true, date: true, problemId: true, reopenedAt: true },
     });
     if (!qotd || qotd.problemId !== problem.id) {
       throw new ProblemHttpError(400, 'Invalid QOTD context');
     }
+    let viaReopen = false;
     if (requireTodayQotd && toIstDateKey(qotd.date) !== todayKey) {
-      throw new ProblemHttpError(400, 'QOTD submissions are only scored on the active day');
+      // Reopen escape hatch: a valid private link token for THIS QOTD while it is
+      // open (reopenedAt set) lets a past day be submitted again. The solve is then
+      // judged but held for admin acceptance (see submitProblemForUser).
+      if (!isQotdReopenAllowed(options.reopenToken, qotd.id, qotd.reopenedAt)) {
+        throw new ProblemHttpError(400, 'QOTD submissions are only scored on the active day');
+      }
+      viaReopen = true;
     }
-    return;
+    return { viaReopen };
   }
 
   if (contextType === 'CONTEST') {
@@ -373,14 +436,14 @@ export async function validateProblemContext(
         throw new ProblemHttpError(403, 'Only the team leader can submit for this round', 'FORBIDDEN');
       }
     }
-    return;
+    return { viaReopen: false };
   }
 
   if (contextType === 'PRACTICE') {
     if (contextKey !== todayKey) {
       throw new ProblemHttpError(400, 'Practice context must use today in IST');
     }
-    if (problem.isPublished) return;
+    if (problem.isPublished) return { viaReopen: false };
 
     const pastQotd = await prisma.qOTD.findFirst({
       where: {
@@ -389,10 +452,12 @@ export async function validateProblemContext(
       },
       select: { id: true },
     });
-    if (pastQotd) return;
+    if (pastQotd) return { viaReopen: false };
 
     throw new ProblemHttpError(400, 'This problem is not available for practice');
   }
+
+  return { viaReopen: false };
 }
 
 async function reserveSubmitCap(problem: Problem, userId: string, contextType: ProblemContextType, contextKey: string) {
@@ -471,7 +536,7 @@ export async function runProblemTests(params: RunProblemParams): Promise<Problem
     if (!params.contextType || !params.contextKey) {
       throw new ProblemHttpError(404, 'Problem not found', 'NOT_FOUND');
     }
-    await validateProblemContext(problem, params.user, params.contextType, params.contextKey);
+    await validateProblemContext(problem, params.user, params.contextType, params.contextKey, { reopenToken: params.reopenToken });
   }
   if (!problem.allowedLanguages.includes(params.language)) {
     throw new ProblemHttpError(400, 'Language is not allowed for this problem');
@@ -526,7 +591,7 @@ export async function submitProblemForUser(params: SubmitProblemParams): Promise
     throw new ProblemHttpError(403, 'Your account has been blocked from QOTD submissions.', 'FORBIDDEN');
   }
 
-  await validateProblemContext(problem, params.user, params.contextType, params.contextKey);
+  const { viaReopen } = await validateProblemContext(problem, params.user, params.contextType, params.contextKey, { reopenToken: params.reopenToken });
 
   const capReservation = await reserveSubmitCap(problem, params.user.id, params.contextType, params.contextKey);
   const daily = await consumeDailyQuota(params.user.id, 1);
@@ -573,12 +638,37 @@ export async function submitProblemForUser(params: SubmitProblemParams): Promise
   // user still sees their real latest result in the response below.
   const existingSubmission = await prisma.problemSubmission.findUnique({
     where: { userId_problemId_contextType_contextKey: submissionKey },
-    select: { id: true, verdict: true },
+    select: { id: true, verdict: true, reopenPending: true },
   });
 
+  // Reopened-past-QOTD acceptance hold: a solve that judged ACCEPTED via a reopen
+  // link is NOT counted immediately. It is stored with verdict PENDING + a
+  // reopen_pending flag and surfaced in the admin review queue; only when an admin
+  // accepts it does verdict flip to ACCEPTED and streak/leaderboard recompute. We
+  // never downgrade a row the user already cleared on the live day.
+  const alreadyAccepted = existingSubmission?.verdict === 'ACCEPTED';
+  // Note: a held reopen solve still consumes its submit-cap + daily-quota unit (it
+  // is NOT refunded). This is deliberate and consistent — every real, judged submit
+  // spends quota regardless of verdict (only a judge/infra failure is refunded
+  // above). A reopen solve really ran the judge, and an eventual admin *reject* is
+  // no different from a same-day WRONG_ANSWER, which also costs a unit. Refunding
+  // here would instead hand reopen-link holders unlimited free, uncapped submits.
+  const reopenPendingAccept = viaReopen && judge.verdict === 'ACCEPTED' && !alreadyAccepted;
+  // Stored verdict: held at PENDING while awaiting acceptance so no ACCEPTED-filtered
+  // query (streak, every QOTD leaderboard) ever counts it; the real (passed) result
+  // still rides back to the user in the response below.
+  const storedVerdict = reopenPendingAccept ? 'PENDING' : judge.verdict;
+  const flagNeedsReview = isJudgeFailure || reopenPendingAccept;
+
   let submission: { id: string };
-  if (existingSubmission && existingSubmission.verdict === 'ACCEPTED' && judge.verdict !== 'ACCEPTED') {
-    submission = { id: existingSubmission.id };
+  // Keep the canonical row when a later non-accepted attempt would erase progress:
+  // (a) an already-cleared (ACCEPTED) row, or (b) a held reopen solve still awaiting
+  // admin acceptance — a stray wrong resubmit mustn't wipe the pending acceptance.
+  const keepExisting = Boolean(existingSubmission)
+    && judge.verdict !== 'ACCEPTED'
+    && (existingSubmission!.verdict === 'ACCEPTED' || existingSubmission!.reopenPending);
+  if (keepExisting) {
+    submission = { id: existingSubmission!.id };
   } else {
     submission = await prisma.problemSubmission.upsert({
       where: { userId_problemId_contextType_contextKey: submissionKey },
@@ -586,7 +676,7 @@ export async function submitProblemForUser(params: SubmitProblemParams): Promise
         ...submissionKey,
         language: params.language,
         code: params.code,
-        verdict: judge.verdict,
+        verdict: storedVerdict,
         score: scored.score,
         passedCount: scored.passedCount,
         totalCount: scored.totalCount,
@@ -594,12 +684,13 @@ export async function submitProblemForUser(params: SubmitProblemParams): Promise
         runtimeMs: judge.totalRuntimeMs,
         compilerOutput: judge.compilerOutput,
         activeMs: params.activeMs,
-        needsReview: isJudgeFailure,
+        needsReview: flagNeedsReview,
+        reopenPending: reopenPendingAccept,
       },
       update: {
         language: params.language,
         code: params.code,
-        verdict: judge.verdict,
+        verdict: storedVerdict,
         score: scored.score,
         passedCount: scored.passedCount,
         totalCount: scored.totalCount,
@@ -616,7 +707,8 @@ export async function submitProblemForUser(params: SubmitProblemParams): Promise
         overrideNotes: null,
         // A real (judged) verdict resolves a prior judge-error/appeal flag; a
         // fresh judge failure (re)flags it for manual review.
-        needsReview: isJudgeFailure,
+        needsReview: flagNeedsReview,
+        reopenPending: reopenPendingAccept,
       },
     });
   }
@@ -624,15 +716,18 @@ export async function submitProblemForUser(params: SubmitProblemParams): Promise
   await auditLog(params.user.id, 'PROBLEM_SUBMITTED', 'ProblemSubmission', submission.id, {
     problemId: problem.id,
     verdict: judge.verdict,
+    storedVerdict,
     score: scored.score,
     contextType: params.contextType,
     contextKey: params.contextKey,
-    needsReview: isJudgeFailure,
+    needsReview: flagNeedsReview,
+    reopenPending: reopenPendingAccept,
   });
 
-  // Materialize QOTD streak when a QOTD-context submission becomes ACCEPTED.
+  // Materialize QOTD streak when a QOTD-context submission becomes ACCEPTED — but
+  // NOT for a held reopen solve (that recomputes on admin acceptance instead).
   // Fire-and-forget; never blocks the response.
-  if (params.contextType === 'QOTD' && judge.verdict === 'ACCEPTED') {
+  if (params.contextType === 'QOTD' && judge.verdict === 'ACCEPTED' && !reopenPendingAccept) {
     recomputeUserStreakSafe(params.user.id);
   }
 
@@ -645,6 +740,8 @@ export async function submitProblemForUser(params: SubmitProblemParams): Promise
 
   return {
     submissionId: submission.id,
+    // Report the real judged verdict so the solver sees they passed; the canonical
+    // row stays PENDING until accepted (pendingAcceptance below tells the UI).
     verdict: judge.verdict,
     score: scored.score,
     passedCount: scored.passedCount,
@@ -655,7 +752,10 @@ export async function submitProblemForUser(params: SubmitProblemParams): Promise
     // Refunded attempts/quota are reflected back so the client UI stays accurate.
     remainingSubmits: isJudgeFailure ? capReservation.remaining + 1 : capReservation.remaining,
     remainingDailyQuota: isJudgeFailure ? daily.remaining + 1 : daily.remaining,
+    // UI hint: "judging unavailable" state. The acceptance hold is a distinct
+    // state (pendingAcceptance) so the solver shows "awaiting acceptance" instead.
     needsReview: isJudgeFailure,
+    pendingAcceptance: reopenPendingAccept,
   };
 }
 

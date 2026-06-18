@@ -132,6 +132,23 @@ export const EmailTemplates = {
       }
     }
 
+    // S-04 — "Add to Google Calendar" deep link. No endDate is passed to this
+    // template, so fall back to start + 2h (same as the QR-window / client helper).
+    const calStamp = (d: Date) => d.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '');
+    const calEnd = new Date(eventDate.getTime() + 2 * 60 * 60 * 1000);
+    const calParams = new URLSearchParams({
+      action: 'TEMPLATE',
+      text: eventTitle,
+      dates: `${calStamp(eventDate)}/${calStamp(calEnd)}`,
+      details: `${SITE_URL}/events/${eventSlug}`,
+    });
+    if (location) calParams.set('location', location);
+    const googleCalendarUrl = `https://calendar.google.com/calendar/render?${calParams.toString()}`;
+    const calendarSection = `
+        <div style="text-align:center; margin: 20px 0 4px;">
+          <a href="${googleCalendarUrl}" target="_blank" style="display:inline-block; padding: 10px 18px; font-size: 13px; font-weight: 600; color: #10b981; text-decoration: none; border: 1px solid #10b98155; border-radius: 10px;">📅 Add to Google Calendar</a>
+        </div>`;
+
     return {
       subject: `Confirmed · ${eventTitle}`,
       attachments,
@@ -166,6 +183,7 @@ export const EmailTemplates = {
             <strong>Insider tip:</strong> Arrive 10 minutes early. The best connections happen before the session starts.
           </p>
         </div>
+        ${calendarSection}
         ${qrSection}
       `,
         cta: { text: 'View Event Details', url: `${SITE_URL}/events/${eventSlug}` },
@@ -412,6 +430,59 @@ export const EmailTemplates = {
     }),
     text: `Registration is now open for ${eventTitle}! Date: ${startDate.toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata' })}. Register: ${SITE_URL}/events/${slug}`,
   }),
+
+  // S-10 — post-event "thanks for coming + feedback" request.
+  eventFeedback: (eventTitle: string, pollSlug: string): EmailTemplate => ({
+    subject: `Thanks for coming · ${eventTitle}`,
+    html: generateEmailTemplate({
+      preheader: `Two quick questions about ${eventTitle}`,
+      accentColor: '#10b981',
+      badge: { text: 'Thanks for Coming', icon: '🙏' },
+      title: `How was ${eventTitle}?`,
+      subtitle: 'Two quick questions — your feedback shapes the next one.',
+      body: `
+        <p style="margin: 0 0 16px; font-size: 15px; color: #d1d5db; line-height: 1.7;">
+          Thanks for being there. It takes under a minute, and we read every response
+          when we plan what comes next.
+        </p>
+      `,
+      cta: { text: 'Share Quick Feedback', url: `${SITE_URL}/polls/${pollSlug}` },
+      footer: 'The best events are shaped by the people in the room.',
+    }),
+    text: `Thanks for coming to ${eventTitle}! Share quick feedback (2 questions): ${SITE_URL}/polls/${pollSlug}`,
+  }),
+
+  // S-11 — event changed / cancelled notice to registrants.
+  eventUpdate: (eventTitle: string, slug: string, kind: 'updated' | 'cancelled', summary: string): EmailTemplate => {
+    const cancelled = kind === 'cancelled';
+    return {
+      subject: cancelled ? `Cancelled · ${eventTitle}` : `Updated · ${eventTitle}`,
+      html: generateEmailTemplate({
+        preheader: cancelled
+          ? `${eventTitle} has been cancelled.`
+          : `Details have changed for ${eventTitle} — please check.`,
+        accentColor: cancelled ? '#ef4444' : '#f59e0b',
+        badge: { text: cancelled ? 'Event Cancelled' : 'Event Updated', icon: cancelled ? '⚠️' : '🔄' },
+        title: eventTitle,
+        subtitle: cancelled
+          ? 'This event will no longer take place. Apologies for the inconvenience.'
+          : 'Some details have changed since you registered. Here is what is new:',
+        body: `
+          <div style="padding: 16px 20px; background: ${cancelled ? 'linear-gradient(135deg, #ef444415, #b91c1c10)' : 'linear-gradient(135deg, #fbbf2415, #f59e0b10)'}; border-left: 3px solid ${cancelled ? '#ef4444' : '#fbbf24'}; border-radius: 0 12px 12px 0;">
+            <p style="margin: 0; font-size: 15px; color: ${cancelled ? '#fca5a5' : '#fcd34d'}; line-height: 1.6;">${summary}</p>
+          </div>
+          ${cancelled ? '' : '<p style="margin: 16px 0 0; font-size: 14px; color: #a1a1aa;">Open the event page for the full, up-to-date details.</p>'}
+        `,
+        cta: cancelled
+          ? { text: 'Browse Other Events', url: `${SITE_URL}/events` }
+          : { text: 'View Updated Details', url: `${SITE_URL}/events/${slug}` },
+        footer: cancelled ? 'Thank you for understanding.' : 'Plans change — we keep you posted.',
+      }),
+      text: cancelled
+        ? `"${eventTitle}" has been cancelled. ${summary}`
+        : `"${eventTitle}" was updated: ${summary}. Details: ${SITE_URL}/events/${slug}`,
+    };
+  },
 
   // Hiring application confirmation
   hiringApplication: (name: string, email: string, applyingRole: string): EmailTemplate => {

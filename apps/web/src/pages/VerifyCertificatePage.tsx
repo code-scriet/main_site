@@ -19,8 +19,10 @@ import {
   ExternalLink,
   Download,
   AlertCircle,
+  Linkedin,
 } from 'lucide-react';
 import { formatDate } from '@/lib/dateUtils';
+import { linkedInAddCertUrl } from '@/lib/linkedin';
 import { SEO } from '@/components/SEO';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5001/api';
@@ -142,16 +144,33 @@ function ValidResult({ result }: { result: VerifyResult }) {
                 </div>
               </div>
 
-              {result.downloadUrl && (
-                <div className="mt-4 flex gap-2">
+              <div className="mt-4 flex flex-wrap gap-2">
+                {result.downloadUrl && (
                   <a href={result.downloadUrl} target="_blank" rel="noopener noreferrer">
                     <Button className="gap-2 bg-amber-500 hover:bg-amber-600 text-white">
                       <Download className="w-4 h-4" />
                       Download Certificate
                     </Button>
                   </a>
-                </div>
-              )}
+                )}
+                {result.certId && (
+                  <a
+                    href={linkedInAddCertUrl({
+                      certId: result.certId,
+                      type: result.type ?? 'PARTICIPATION',
+                      eventName: result.eventName,
+                      issuedAt: result.issuedAt,
+                    })}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    <Button variant="outline" className="gap-2 border-[#0a66c2] text-[#0a66c2] hover:bg-[#0a66c2] hover:text-white">
+                      <Linkedin className="w-4 h-4" />
+                      Add to LinkedIn
+                    </Button>
+                  </a>
+                )}
+              </div>
             </div>
           </div>
         </CardContent>

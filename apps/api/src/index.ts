@@ -41,6 +41,7 @@ import { attendanceRouter } from './routes/attendance.js';
 import { teamsRouter } from './routes/teams.js';
 import competitionRouter, { recoverActiveRounds } from './routes/competition.js';
 import { problemsRouter } from './routes/problems.js';
+import { problemSheetsRouter } from './routes/problemSheets.js';
 import { initializeAttendanceSocket } from './attendance/attendanceSocket.js';
 import { setupPassport } from './config/passport.js';
 import { requestLogger, logger } from './utils/logger.js';
@@ -52,7 +53,7 @@ import { requireRole } from './middleware/role.js';
 import { emailService } from './utils/email.js';
 import { auditLog } from './utils/audit.js';
 import { prisma } from './lib/prisma.js';
-import { startReminderScheduler, stopReminderScheduler, startQotdAutoPublishScheduler, stopQotdAutoPublishScheduler, startEventStatusScheduler, stopEventStatusScheduler } from './utils/scheduler.js';
+import { startReminderScheduler, stopReminderScheduler, startQotdAutoPublishScheduler, stopQotdAutoPublishScheduler, startEventStatusScheduler, stopEventStatusScheduler, startRegistrationOpenScheduler, stopRegistrationOpenScheduler } from './utils/scheduler.js';
 import { getJwtSecret } from './utils/jwt.js';
 import { setRuntimeAttendanceJwtSecret } from './utils/attendanceToken.js';
 import { getClientIp } from './utils/clientIp.js';
@@ -426,6 +427,8 @@ app.use('/api/audit-logs', auditRouter);
 app.use('/api/mail', mailRouter);
 app.use('/api/quiz', quizRouter);
 app.use('/api/playground', playgroundRouter);
+// S-09: mounted BEFORE /api/problems so "sheets" isn't captured by the problems /:idOrSlug route.
+app.use('/api/problems/sheets', problemSheetsRouter);
 app.use('/api/problems', problemsRouter);
 app.use('/api/credits', creditsRouter);
 app.use('/api/attendance', attendanceRouter);
@@ -547,6 +550,7 @@ const shutdown = async () => {
   stopEventStatusScheduler();
   stopReminderScheduler();
   stopQotdAutoPublishScheduler();
+  stopRegistrationOpenScheduler();
 
   // Close Socket.io server first — disconnects all clients (quiz + attendance)
   io.close();
@@ -651,6 +655,7 @@ initializeDatabase()
       startEventStatusScheduler();
       startReminderScheduler();
       startQotdAutoPublishScheduler();
+      startRegistrationOpenScheduler();
     } else {
       logger.info('Background schedulers disabled (development default; set ENABLE_BACKGROUND_SCHEDULERS=true to enable).');
     }

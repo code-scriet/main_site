@@ -4,7 +4,7 @@
 import { prisma } from '../lib/prisma.js';
 import { emailService } from './email.js';
 import { logger } from './logger.js';
-import { broadcastQotdLive } from './notifications.js';
+import { broadcastQotdLive, broadcastNotification } from './notifications.js';
 import { invalidatePublishedQotdCache, recomputeStreaksForQOTDSafe } from './qotdStreak.js';
 import { updateEventStatuses } from './eventStatus.js';
 
@@ -219,6 +219,109 @@ async function sendEventReminders(): Promise<void> {
     logger.error('❌ Error in sendEventReminders:', {
       error: error instanceof Error ? error.message : String(error)
     });
+  }
+}
+
+// ── S-10: post-event feedback requests ──────────────────────────────────────
+// Runs on the same 6h reminder cadence (no extra timer). For each event that
+// (a) ended 2h–96h ago, (b) hasn't had feedback sent, and (c) has a PUBLISHED
+// feedback poll linked (the organizer's opt-in), reserve a per-event marker and
+// notify everyone who attended. The bell is the reliable channel (a DB write);
+// the email is a best-effort nudge, so we don't roll back the reservation if the
+// email fails. Self-disables if the feedback columns aren't migrated yet, so the
+// code can deploy ahead of the migration without erroring every tick.
+const FEEDBACK_MIN_AGE_MS = 2 * 60 * 60 * 1000;   // wait 2h after the event ends
+const FEEDBACK_MAX_AGE_MS = 96 * 60 * 60 * 1000;  // don't chase events older than 4 days
+let feedbackColumnAvailable = true;
+
+async function sendEventFeedbackRequests(): Promise<void> {
+  if (!feedbackColumnAvailable) return;
+  try {
+    const now = Date.now();
+    const minEnd = new Date(now - FEEDBACK_MAX_AGE_MS);
+    const maxEnd = new Date(now - FEEDBACK_MIN_AGE_MS);
+    const candidates = await prisma.event.findMany({
+      where: {
+        feedbackSentAt: null,
+        feedbackPolls: { some: { isPublished: true } },
+        OR: [
+          { endDate: { gte: minEnd, lte: maxEnd } },
+          { endDate: null, startDate: { gte: minEnd, lte: maxEnd } },
+        ],
+      },
+      select: {
+        id: true,
+        title: true,
+        feedbackPolls: {
+          where: { isPublished: true },
+          orderBy: { createdAt: 'desc' },
+          take: 1,
+          select: { slug: true },
+        },
+      },
+      take: 50,
+    });
+
+    for (const ev of candidates) {
+      const pollSlug = ev.feedbackPolls[0]?.slug;
+      if (!pollSlug) continue;
+
+      // Reserve once: only the tick that flips feedback_sent_at from NULL proceeds.
+      const reserved = await prisma.event.updateMany({
+        where: { id: ev.id, feedbackSentAt: null },
+        data: { feedbackSentAt: new Date() },
+      });
+      if (reserved.count === 0) continue;
+
+      const regs = await prisma.eventRegistration.findMany({
+        where: {
+          eventId: ev.id,
+          OR: [{ attended: true }, { dayAttendances: { some: { attended: true } } }],
+        },
+        select: { userId: true, user: { select: { email: true } } },
+      });
+      if (regs.length === 0) continue; // nobody attended — reserved, won't re-fire
+
+      const userIds = [...new Set(regs.map((r) => r.userId))];
+      const emails = [...new Set(regs.map((r) => r.user?.email).filter((e): e is string => Boolean(e)))];
+
+      // Per-event isolation: one event's failure must not abort the batch, and on
+      // a failed bell/email we release the reservation so a later tick retries it.
+      try {
+        // Bell first — the reliable channel (survives even if email is down).
+        await broadcastNotification({
+          source: 'AUTO_EVENT',
+          audience: 'CUSTOM',
+          audienceUserIds: userIds,
+          category: 'event',
+          icon: 'calendar',
+          title: `How was ${ev.title}?`,
+          body: 'Thanks for coming — share quick feedback (2 questions).',
+          link: `/polls/${pollSlug}`,
+          refEntity: 'event-feedback',
+          refEntityId: ev.id,
+        });
+        if (emails.length > 0) {
+          await emailService.sendEventFeedback(emails, ev.title, pollSlug);
+        }
+        logger.info(`📝 Sent post-event feedback request for "${ev.title}"`, { eventId: ev.id, recipients: emails.length });
+      } catch (sendError) {
+        await prisma.event.updateMany({ where: { id: ev.id }, data: { feedbackSentAt: null } }).catch(() => undefined);
+        logger.error('Post-event feedback send failed; reservation released for retry', {
+          eventId: ev.id, error: sendError instanceof Error ? sendError.message : String(sendError),
+        });
+      }
+    }
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error);
+    // Specific to the not-yet-migrated state (events.feedback_sent_at ships in the
+    // same migration as polls.event_id, so this one column is a reliable signal).
+    if (msg.includes('feedback_sent_at')) {
+      feedbackColumnAvailable = false;
+      logger.warn('Feedback scheduler disabled: feedback columns missing. Run latest migrations to enable.');
+      return;
+    }
+    logger.error('❌ Error in sendEventFeedbackRequests', { error: msg });
   }
 }
 
@@ -445,6 +548,183 @@ export async function reconcileEventStatusesSoon(): Promise<void> {
   await reconcileEventStatuses();
 }
 
+// ── Registration-open announcements: precise per-event timers (no polling) ──
+// S-01. The moment an event's registrationStartDate arrives we fire the (until now
+// unused) "Now Open" email + a bell broadcast, so members learn when they can
+// actually register — not weeks earlier when the event was merely created. Same
+// event-driven shape as the QOTD publisher above.
+//
+// Dedup marker is the bell NotificationFeed row itself (refEntity below) — it
+// persists across restarts, so no schema change is needed. Two safety rules keep
+// this from ever spamming: (1) we only arm FUTURE registrationStartDate moments
+// and never fire past-due on boot (unlike QOTD, which must publish), so stale
+// events are never blasted; (2) before sending we re-check the marker and write it
+// first, so a mid-send crash or a double-arm can't double-deliver.
+const registrationOpenTimers = new Map<string, NodeJS.Timeout>();
+let registrationOpenActive = false;
+let registrationOpenHydrateTimeout: NodeJS.Timeout | null = null;
+const REGISTRATION_OPEN_REF = 'event-registration-open';
+
+async function fireRegistrationOpen(eventId: string): Promise<void> {
+  registrationOpenTimers.delete(eventId);
+  if (!registrationOpenActive) return;
+  try {
+    const event = await prisma.event.findUnique({
+      where: { id: eventId },
+      select: {
+        id: true, title: true, slug: true, shortDescription: true,
+        imageUrl: true, startDate: true, status: true,
+        registrationStartDate: true, registrationEndDate: true,
+      },
+    });
+    if (!event || !event.registrationStartDate) return;
+    // Don't announce events whose registration window already closed, or that are over.
+    const now = new Date();
+    if (event.status === 'PAST') return;
+    if (event.registrationEndDate && event.registrationEndDate < now) return;
+
+    // Persistent dedup: the bell row IS the marker. If one already exists we've announced.
+    const already = await prisma.notificationFeed.findFirst({
+      where: { refEntity: REGISTRATION_OPEN_REF, refEntityId: eventId },
+      select: { id: true },
+    });
+    if (already) return;
+
+    // Write the bell first (the dedup marker) so a crash mid-fan-out can't double-blast.
+    await broadcastNotification({
+      source: 'AUTO_EVENT',
+      audience: 'ALL',
+      category: 'event',
+      icon: 'calendar',
+      title: `Registration open: ${event.title}`,
+      body: event.shortDescription || 'Registration is now open — grab your spot.',
+      link: `/events/${event.slug}`,
+      refEntity: REGISTRATION_OPEN_REF,
+      refEntityId: eventId,
+    });
+
+    // Email fan-out (best effort), mirroring sendNewEventEmailsAsync's audience.
+    const users = await prisma.user.findMany({
+      where: { email: { not: '' }, role: { not: 'NETWORK' } },
+      select: { email: true },
+    });
+    const emails = users.map((u) => u.email).filter(Boolean) as string[];
+    if (emails.length > 0) {
+      await emailService.sendRegistrationOpens(
+        emails, event.title, event.startDate, event.slug,
+        event.shortDescription ?? undefined, event.imageUrl ?? undefined,
+      );
+    }
+    logger.info(`📣 Registration-open announced for "${event.title}"`, { eventId, recipients: emails.length });
+  } catch (error) {
+    logger.error('❌ Registration-open announcement failed', {
+      eventId, error: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
+function scheduleRegistrationOpenTimer(id: string, at: Date): void {
+  const remaining = at.getTime() - Date.now();
+  if (remaining <= 0) return; // never fire past-due → already-open events are never blasted
+  const delay = Math.min(remaining, MAX_TIMER_DELAY_MS);
+  const handle = setTimeout(() => {
+    registrationOpenTimers.delete(id);
+    // Capped early fire for a very long schedule → re-arm for the remainder.
+    if (at.getTime() - Date.now() > 1000) scheduleRegistrationOpenTimer(id, at);
+    else void fireRegistrationOpen(id);
+  }, delay);
+  if (typeof handle.unref === 'function') handle.unref();
+  registrationOpenTimers.set(id, handle);
+}
+
+/**
+ * Arm (or re-arm) the registration-open announcement timer for one event. No-op
+ * unless the scheduler is active and registrationStartDate is in the future. Safe
+ * to call on every edit — a moved date replaces the old timer, and the persistent
+ * bell-row dedup guarantees at-most-once delivery however often it's called.
+ */
+export function armRegistrationOpenTimer(
+  event: { id: string; registrationStartDate: Date | null; status?: string },
+): void {
+  if (!registrationOpenActive) return;
+  cancelRegistrationOpenTimer(event.id); // drop any stale timer so a changed date is honored
+  if (!event.registrationStartDate) return;
+  if (event.status === 'PAST') return;
+  if (event.registrationStartDate.getTime() <= Date.now()) return;
+  scheduleRegistrationOpenTimer(event.id, event.registrationStartDate);
+}
+
+/** Drop an armed registration-open timer (on event delete). */
+export function cancelRegistrationOpenTimer(eventId: string): void {
+  const handle = registrationOpenTimers.get(eventId);
+  if (handle) {
+    clearTimeout(handle);
+    registrationOpenTimers.delete(eventId);
+  }
+}
+
+// If registration opened while the instance was spun down (free tier), the
+// in-memory timer never fired. On boot we catch up on any event whose
+// registrationStartDate fell within this window and announce it once. Kept tight
+// so genuinely stale events created long ago with a past open-date aren't blasted.
+const REGISTRATION_OPEN_CATCHUP_MS = 12 * 60 * 60 * 1000; // 12h
+
+// Startup-only: re-arm timers for future opens + catch up on recently-missed ones.
+async function hydrateRegistrationOpenTimers(): Promise<void> {
+  try {
+    const now = new Date();
+    const pending = await prisma.event.findMany({
+      where: { registrationStartDate: { gt: now }, status: { not: 'PAST' } },
+      select: { id: true, registrationStartDate: true, status: true },
+      orderBy: { registrationStartDate: 'asc' },
+      take: 500,
+    });
+    for (const ev of pending) armRegistrationOpenTimer(ev);
+    if (pending.length > 0) logger.info(`📣 Re-armed ${pending.length} registration-open timer(s) on boot`);
+
+    // Catch-up sweep: opens that fell in the recent past during downtime.
+    // fireRegistrationOpen is dedup-guarded (the persistent bell row IS the marker)
+    // and re-checks the window/status, so an already-announced event is a no-op.
+    const missed = await prisma.event.findMany({
+      where: {
+        registrationStartDate: { gt: new Date(now.getTime() - REGISTRATION_OPEN_CATCHUP_MS), lte: now },
+        status: { not: 'PAST' },
+      },
+      select: { id: true },
+      take: 200,
+    });
+    if (missed.length > 0) {
+      logger.info(`📣 Catching up on ${missed.length} recently-opened event(s) missed during downtime`);
+      for (const ev of missed) void fireRegistrationOpen(ev.id);
+    }
+  } catch (error) {
+    logger.error('❌ Registration-open hydration failed', {
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
+export function startRegistrationOpenScheduler(): void {
+  if (registrationOpenActive) return;
+  registrationOpenActive = true;
+  registrationOpenHydrateTimeout = setTimeout(() => {
+    registrationOpenHydrateTimeout = null;
+    void hydrateRegistrationOpenTimers();
+  }, 15_000); // hydrate once the DB is warm
+  logger.info('📣 Registration-open scheduler started (event-driven timers, no polling)');
+}
+
+export function stopRegistrationOpenScheduler(): void {
+  registrationOpenActive = false;
+  if (registrationOpenHydrateTimeout) {
+    clearTimeout(registrationOpenHydrateTimeout);
+    registrationOpenHydrateTimeout = null;
+  }
+  for (const handle of registrationOpenTimers.values()) clearTimeout(handle);
+  registrationOpenTimers.clear();
+  logger.info('📣 Registration-open scheduler stopped');
+}
+
 // ── Retention pruning: keep the free-tier DB from growing forever (A7) ──
 // Piggybacks on the reminder interval (no extra timer) and self-gates to one
 // pass per 24h. The retention windows + rationale live in one place so the
@@ -592,12 +872,14 @@ export function startReminderScheduler(): void {
   reminderStartupTimeout = setTimeout(() => {
     reminderStartupTimeout = null;
     sendEventReminders();
+    void sendEventFeedbackRequests();
     void pruneOldRecordsIfDue();
   }, 10000); // Wait 10 seconds after startup
 
   // Then run every 6 hours (4 times a day is efficient)
   reminderInterval = setInterval(() => {
     sendEventReminders();
+    void sendEventFeedbackRequests();
     void pruneOldRecordsIfDue();
   }, 6 * 60 * 60 * 1000); // Every 6 hours
 

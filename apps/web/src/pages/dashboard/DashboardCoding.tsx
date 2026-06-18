@@ -13,6 +13,7 @@ import { getPlaygroundLaunchUrl } from '@/lib/playgroundUrl';
 import { CountdownPill, DSCard, Difficulty, EmptyState, MonoChip, Pill, SegmentedTabs, UnderlineTabs } from '@/components/dash';
 import { Input } from '@/components/ui/input';
 import QOTDLeaderboardSurface from '@/components/dashboard/QOTDLeaderboardSurface';
+import { ProblemSheets } from '@/components/dashboard/ProblemSheets';
 import { cn } from '@/lib/utils';
 
 type TabId = 'practice' | 'qotd' | 'competitions' | 'leaderboard' | 'playground';
@@ -87,6 +88,8 @@ export default function DashboardCoding() {
 // ─── Practice tab
 function PracticeTab() {
   const { settings } = useSettings();
+  const { user } = useAuth();
+  const canAuthorSheets = ['CORE_MEMBER', 'ADMIN', 'PRESIDENT'].includes(user?.role ?? '');
   const [diff, setDiff] = useState<'ALL' | 'EASY' | 'MEDIUM' | 'HARD'>('ALL');
   const [search, setSearch] = useState('');
   const enabled = settings?.problemsEnabled !== false;
@@ -118,6 +121,9 @@ function PracticeTab() {
 
   return (
     <div className="flex flex-col gap-4">
+      {/* S-09: curated topic-ladder sheets (members see published; CORE_MEMBER+ author) */}
+      <ProblemSheets problems={all} canAuthor={canAuthorSheets} />
+
       <div className="flex items-center gap-2 flex-wrap">
         <Input
           value={search}

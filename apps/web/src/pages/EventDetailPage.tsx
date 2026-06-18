@@ -22,7 +22,9 @@ import {
   ChevronLeft,
   ChevronUp,
   Clock,
+  CalendarPlus,
   Copy as CopyIcon,
+  Download,
   ExternalLink,
   FileText,
   Github,
@@ -87,6 +89,7 @@ import { getRegistrationStatus } from '@/lib/registrationStatus';
 import { getPlaygroundLaunchUrl } from '@/lib/playgroundUrl';
 import { normalizeTrustedVideoEmbedUrl } from '@/lib/videoEmbed';
 import { copyTextToClipboard } from '@/lib/clipboard';
+import { downloadICS, googleCalendarUrl } from '@/lib/calendar';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 
@@ -1773,6 +1776,45 @@ export default function EventDetailPage() {
                     )}
                   </dl>
                 </DSCard>
+              )}
+
+              {/* S-04 — Add to calendar (hidden once the event is over) */}
+              {event.status !== 'PAST' && (
+                <div className="grid grid-cols-2 gap-2">
+                  <a
+                    href={googleCalendarUrl({
+                      title: event.title,
+                      description: event.shortDescription,
+                      location: event.venue || event.location,
+                      startDate: event.startDate,
+                      endDate: event.endDate,
+                      url: window.location.href,
+                    })}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="flex items-center justify-center gap-1.5 h-9 rounded-[8px] text-[12.5px] font-medium text-[var(--ds-text-3)] hover:text-[var(--ds-text-1)] hover:bg-[var(--surface-soft)] border border-[var(--border-subtle)]"
+                  >
+                    <CalendarPlus className="h-3.5 w-3.5" /> Google Calendar
+                  </a>
+                  <button
+                    onClick={() =>
+                      downloadICS(
+                        {
+                          title: event.title,
+                          description: event.shortDescription,
+                          location: event.venue || event.location,
+                          startDate: event.startDate,
+                          endDate: event.endDate,
+                          url: window.location.href,
+                        },
+                        event.slug,
+                      )
+                    }
+                    className="flex items-center justify-center gap-1.5 h-9 rounded-[8px] text-[12.5px] font-medium text-[var(--ds-text-3)] hover:text-[var(--ds-text-1)] hover:bg-[var(--surface-soft)] border border-[var(--border-subtle)]"
+                  >
+                    <Download className="h-3.5 w-3.5" /> .ics file
+                  </button>
+                </div>
               )}
 
               {/* Share helper */}

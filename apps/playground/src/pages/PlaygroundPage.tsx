@@ -40,6 +40,10 @@ export default function PlaygroundPage() {
   const qotdParam = searchParams.get('qotd');
   const problemParam = searchParams.get('problem');
   const practiceParam = searchParams.get('practice');
+  // Admin "reopen a past QOTD" private link: ?qotd=<date>&reopen=<token>. When set,
+  // the past day is solved as a SCORED QOTD (not practice) and the token rides along
+  // on run/submit so the server accepts it and streak/marks/leaderboard all update.
+  const reopenParam = searchParams.get('reopen');
 
   const today = istTodayKey();
 
@@ -51,9 +55,9 @@ export default function PlaygroundPage() {
         return detail;
       }
       if (!qotdParam) return null;
-      // Fetch history once and locate the requested day's QOTD.
-      const history = await mainApi.getQOTDHistory(60);
-      return history.find((entry) => entry.date.slice(0, 10) === qotdParam) ?? null;
+      // Resolve the exact requested day directly (robust to age — a reopened past
+      // QOTD older than the recent-history window must still load).
+      return await mainApi.getQOTDByDate(qotdParam);
     },
     enabled: Boolean(qotdParam),
   });
@@ -61,7 +65,9 @@ export default function PlaygroundPage() {
   const todayKeyForPractice = today;
   const qotdProblemId = qotdQuery.data?.problemId ?? undefined;
   const qotdDateKey = qotdQuery.data?.date ? qotdQuery.data.date.slice(0, 10) : qotdParam;
-  const isQotdScored = qotdParam === 'today' || (qotdDateKey === today);
+  // A reopen link targets a past day; treat it as a scored QOTD so it counts.
+  const isReopen = Boolean(reopenParam) && Boolean(qotdParam) && qotdParam !== 'today';
+  const isQotdScored = qotdParam === 'today' || qotdDateKey === today || isReopen;
 
   const qotdProblemQuery = useQuery({
     queryKey: ['playground-qotd-problem', qotdProblemId, isQotdScored, qotdDateKey, todayKeyForPractice],
@@ -105,9 +111,12 @@ export default function PlaygroundPage() {
             key: qotdQuery.data.id,
             submitEnabled: true,
             practice: false,
-            modeLabel: 'QOTD · Scored',
-            deadlineLabel: 'Scored QOTD — closes at end of today (IST).',
+            modeLabel: isReopen ? `QOTD · Reopened (${qotdDateKey ?? 'past'})` : 'QOTD · Scored',
+            deadlineLabel: isReopen
+              ? 'Reopened by an admin — each solve is sent for admin acceptance before it counts.'
+              : 'Scored QOTD — closes at end of today (IST).',
             leaderboardHref: buildQOTDLeaderboardHref(),
+            reopenToken: isReopen ? (reopenParam ?? undefined) : undefined,
           }
         : {
             type: 'PRACTICE',
@@ -144,13 +153,18 @@ export default function PlaygroundPage() {
     qotdQuery.data,
     qotdQuery.isLoading,
     qotdQuery.isError,
+    qotdQuery.error,
     qotdProblemQuery.data,
     qotdProblemQuery.isLoading,
     qotdProblemQuery.isError,
+    qotdProblemQuery.error,
     standaloneProblemQuery.data,
     standaloneProblemQuery.isLoading,
     standaloneProblemQuery.isError,
+    standaloneProblemQuery.error,
     isQotdScored,
+    isReopen,
+    reopenParam,
     qotdDateKey,
     todayKeyForPractice,
   ]);
@@ -160,6 +174,7 @@ export default function PlaygroundPage() {
     next.delete('qotd');
     next.delete('problem');
     next.delete('practice');
+    next.delete('reopen');
     setSearchParams(next, { replace: true });
   }, [searchParams, setSearchParams]);
 

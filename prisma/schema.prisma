@@ -89,6 +89,7 @@ model User {
   auditLogs               AuditLog[]
   executions              Execution[]
   snippets                Snippet[]
+  problemSheets           ProblemSheet[]      @relation("ProblemSheetCreator") // S-09
   playgroundPrefs         UserPlaygroundPrefs?
   playgroundDailyUsage    PlaygroundDailyUsage[]
   playgroundLimitResets   PlaygroundLimitReset[]
@@ -241,6 +242,9 @@ model Event {
   remindersEnabled      Boolean     @default(true) @map("reminders_enabled")
   eventDays             Int         @default(1) @map("event_days")
   dayLabels             Json?       @map("day_labels")
+  // S-10: per-event reservation marker — set once when the post-event feedback
+  // request goes out, so the 6h scheduler tick never re-sends.
+  feedbackSentAt        DateTime?   @map("feedback_sent_at")
 
   // Team registration fields
   teamRegistration Boolean @default(false) @map("team_registration")
@@ -252,6 +256,7 @@ model Event {
   certificates      Certificate[]
   teams             EventTeam[]
   competitionRounds CompetitionRound[]
+  feedbackPolls     Poll[]              @relation("EventFeedbackPoll") // S-10
   creator           User                @relation("eventCreator", fields: [createdBy], references: [id], onDelete: Restrict)
 
   @@index([status, startDate])
@@ -492,9 +497,12 @@ model Poll {
   deadline             DateTime?
   isPublished          Boolean        @default(true) @map("is_published")
   createdBy            String         @map("created_by")
+  // S-10: optional link making this poll the post-event feedback poll for an event.
+  eventId              String?        @map("event_id")
   createdAt            DateTime       @default(now()) @map("created_at")
   updatedAt            DateTime       @updatedAt @map("updated_at")
   creator              User           @relation(fields: [createdBy], references: [id], onDelete: Restrict)
+  event                Event?         @relation("EventFeedbackPoll", fields: [eventId], references: [id], onDelete: SetNull)
   options              PollOption[]
   votes                PollVote[]
   feedbackEntries      PollFeedback[]
@@ -502,6 +510,7 @@ model Poll {
   @@index([createdBy])
   @@index([isPublished, createdAt(sort: Desc)], map: "polls_published_created_at_desc_idx")
   @@index([deadline, isPublished], map: "polls_deadline_published_idx")
+  @@index([eventId])
   @@map("polls")
 }
 
@@ -632,6 +641,11 @@ model QOTD {
   publishedAt DateTime?        @map("published_at")
   heldBy      String?          @map("held_by")
   holdReason  String?          @map("hold_reason")
+  // Admin "reopen a past QOTD" — when set, the QOTD accepts submissions again via a
+  // private signed link even though its date has passed (streak/marks count normally).
+  // null = closed/never-reopened. reopenedBy is a plain-string actor snapshot.
+  reopenedAt  DateTime?        @map("reopened_at")
+  reopenedBy  String?          @map("reopened_by")
   creator     User?            @relation("qotdCreator", fields: [createdById], references: [id], onDelete: SetNull)
   problem     Problem?         @relation(fields: [problemId], references: [id], onDelete: SetNull)
   submissions QOTDSubmission[]
@@ -1123,10 +1137,43 @@ model Problem {
   counters          ProblemSubmissionCounter[]
   qotds             QOTD[]
   competitionRounds CompetitionRoundProblem[]
+  sheetItems        ProblemSheetItem[] // S-09
 
   @@index([isPublished, difficulty])
   @@index([createdAt])
   @@map("problems")
+}
+
+// S-09 — curated, ordered problem sheets ("topic ladders"). Authored by
+// CORE_MEMBER+, surfaced in the dashboard Practice tab. Per-member progress is
+// computed live from ProblemSubmission (no per-user state → no free-tier cost).
+model ProblemSheet {
+  id          String             @id @default(uuid())
+  slug        String             @unique
+  title       String
+  description String?            @db.Text
+  isPublished Boolean            @default(false) @map("is_published")
+  createdBy   String             @map("created_by")
+  createdAt   DateTime           @default(now()) @map("created_at")
+  updatedAt   DateTime           @updatedAt @map("updated_at")
+  creator     User               @relation("ProblemSheetCreator", fields: [createdBy], references: [id], onDelete: Restrict)
+  items       ProblemSheetItem[]
+
+  @@index([isPublished, createdAt(sort: Desc)])
+  @@map("problem_sheets")
+}
+
+model ProblemSheetItem {
+  id        String       @id @default(uuid())
+  sheetId   String       @map("sheet_id")
+  problemId String       @map("problem_id")
+  order     Int          @default(0)
+  sheet     ProblemSheet @relation(fields: [sheetId], references: [id], onDelete: Cascade)
+  problem   Problem      @relation(fields: [problemId], references: [id], onDelete: Cascade)
+
+  @@unique([sheetId, problemId])
+  @@index([sheetId, order])
+  @@map("problem_sheet_items")
 }
 
 model ProblemSubmission {
@@ -1150,6 +1197,11 @@ model ProblemSubmission {
   overrideNotes   String?            @map("override_notes") @db.Text
   activeMs        Int?               @map("active_ms")
   needsReview     Boolean            @default(false) @map("needs_review")
+  // A reopened-past-QOTD solve is judged but held: verdict stays PENDING and this
+  // flag is set until an admin accepts it, at which point verdict → ACCEPTED and
+  // streak/leaderboard recompute. PENDING never counts on any ACCEPTED-filtered
+  // leaderboard or streak, so the hold needs no extra query guards.
+  reopenPending   Boolean            @default(false) @map("reopen_pending")
   appealedAt      DateTime?          @map("appealed_at")
   appealNote      String?            @map("appeal_note") @db.Text
   submittedAt     DateTime           @default(now()) @map("submitted_at")
