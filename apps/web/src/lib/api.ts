@@ -436,6 +436,7 @@ export interface UserFullDetail {
     profileCompleted?: boolean;
     lastLoginAt?: string | null;
     lastLoginIp?: string | null;
+    streakCardUrl?: string | null;
   };
   counts: {
     eventRegistrations: number;

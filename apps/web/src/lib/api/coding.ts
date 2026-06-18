@@ -112,11 +112,14 @@ export const codingApi = {
 
   // QOTD
   getTodayQOTD: () => request<QOTDDetail | null>('/qotd/today'),
-  getQOTDHistory: (limit?: number, offset?: number, options?: { includeUnpublished?: boolean; token?: string }) => {
+  getQOTDHistory: (limit?: number, offset?: number, options?: { includeUnpublished?: boolean; proposals?: boolean; token?: string }) => {
     const params = new URLSearchParams();
     if (limit) params.append('limit', limit.toString());
     if (offset) params.append('offset', offset.toString());
     if (options?.includeUnpublished) params.append('includeUnpublished', 'true');
+    // Staff-only: return exactly the CORE_MEMBER proposals (unpublished, unscheduled,
+    // not held), server-filtered so old/past-dated ones aren't lost off a page window.
+    if (options?.proposals) params.append('proposals', 'true');
     const query = params.toString() ? `?${params.toString()}` : '';
     return request<QOTDHistoryEntry[]>(`/qotd/history${query}`, options?.token ? { token: options.token } : undefined);
   },

@@ -270,7 +270,15 @@ qotdRouter.get('/history', optionalAuthMiddleware, async (req: Request, res: Res
         dateWhere = { gte: dayStart, lt: new Date(dayStart.getTime() + 24 * 60 * 60 * 1000) };
       }
     }
-    const baseWhere = dateWhere
+    // Proposals view (staff only): exactly the CORE_MEMBER-submitted drafts awaiting
+    // an admin — unpublished, unscheduled (publishAt null), not held. Returned by the
+    // server filter (not a client-side slice of a date-desc page) so the coding-hub
+    // badge + Proposals tab never drop an old or past-dated proposal once the archive
+    // grows past one page. A scheduled QOTD carries publishAt; a held one carries heldBy.
+    const proposalsOnly = req.query.proposals === 'true' && includeUnpublished;
+    const baseWhere = proposalsOnly
+      ? { isPublished: false, publishAt: null, heldBy: null }
+      : dateWhere
       ? { ...(includeUnpublished ? {} : { isPublished: true }), date: dateWhere }
       : includeUnpublished
         ? {}
@@ -590,6 +598,12 @@ qotdRouter.post('/', authMiddleware, requireRole('CORE_MEMBER'), async (req: Req
     const parsed = createQotdSchema.safeParse(req.body);
     if (!parsed.success) return ApiResponse.badRequest(res, parsed.error.errors[0]?.message || 'Invalid QOTD payload');
 
+    // Author authority — computed up-front because it gates BOTH the QOTD publish
+    // state (below) AND the inline-problem publish state (next): a CORE_MEMBER can
+    // only PROPOSE. Super-admin (matched by email) may not carry role ADMIN/PRESIDENT,
+    // so include it explicitly to agree with the frontend's isAdmin.
+    const isAdmin = isAdminAuth(authUser) || isSuperAdmin(authUser);
+
     let problemId = parsed.data.problemId ?? null;
     let legacyFields = {
       question: parsed.data.question,
@@ -598,7 +612,13 @@ qotdRouter.post('/', authMiddleware, requireRole('CORE_MEMBER'), async (req: Req
     };
 
     if (parsed.data.newProblem) {
-      const problem = await createProblemFromInput(parsed.data.newProblem as ProblemInput, authUser.id);
+      // A non-admin proposal must NOT be able to mint a published Problem as a side
+      // effect (the propose-gate forces the QOTD to a draft, but the inline problem
+      // is a separate row). Mirror problems.ts: force isPublished:false for non-admins.
+      const newProblemInput = (isAdmin
+        ? parsed.data.newProblem
+        : { ...parsed.data.newProblem, isPublished: false }) as ProblemInput;
+      const problem = await createProblemFromInput(newProblemInput, authUser.id);
       problemId = problem.id;
       legacyFields = {
         question: problem.title,
@@ -632,11 +652,8 @@ qotdRouter.post('/', authMiddleware, requireRole('CORE_MEMBER'), async (req: Req
     // Non-admin authors (CORE_MEMBER) can only PROPOSE: resolveQotdPublishState
     // forces an unpublished, unscheduled draft (publishAt null → the auto-publish
     // scheduler never arms it) for an admin to review/schedule/publish. Fails closed
-    // (unit-tested in qotdAuthoring.test.ts). Super-admin (matched by email, role
-    // may not be ADMIN/PRESIDENT) is treated as admin here so the server gate agrees
-    // with the frontend's isAdmin (which includes isSuperAdmin) — else a super-admin
-    // could be silently forced into proposal-only mode.
-    const isAdmin = isAdminAuth(authUser) || isSuperAdmin(authUser);
+    // (unit-tested in qotdAuthoring.test.ts). `isAdmin` is computed above (it also
+    // gates the inline-problem publish state).
     const { isPublished, publishAt } = resolveQotdPublishState({
       isAdmin,
       publishNow: computedPublishNow,

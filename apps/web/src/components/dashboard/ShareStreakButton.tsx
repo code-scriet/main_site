@@ -47,6 +47,7 @@ export function ShareStreakButton({
   const name = user?.name ?? stats.name ?? 'code.scriet member';
 
   const onDownload = async () => {
+    if (busy) return; // `disabled` only paints next render — guard fast double-clicks
     if (!cardRef.current) return;
     setBusy('download');
     try {
@@ -68,16 +69,25 @@ export function ShareStreakButton({
   };
 
   const onShare = async () => {
-    // Open a blank tab synchronously (inside the click gesture) so the later
-    // redirect survives the popup blocker after the async upload completes.
-    const win = window.open('', '_blank', 'noopener,noreferrer,width=600,height=640');
+    if (busy) return; // `disabled` only paints next render — guard fast double-clicks
     setBusy('share');
+
+    // Open a REAL blank tab synchronously, inside the click gesture, so navigating it
+    // after the async upload survives the popup blocker. Note: passing `noopener` in the
+    // features string makes window.open return null (per the HTML spec), which would
+    // defeat this entirely — so we omit it and sever the opener manually instead.
+    const win = window.open('about:blank', '_blank', 'width=600,height=640');
+    if (win) win.opener = null;
+
+    // Copy the caption inside the gesture, BEFORE the upload — a clipboard write issued
+    // after a slow async chain is rejected on Safari. Best-effort; reported in the toast.
+    const copied = await copyTextToClipboard(buildStreakShareText({ ...stats, name }));
+
     let shareUrl = linkedInShareUrl();
     let cardAttached = false;
     // Capture → upload → persist as the user's og:image card → share that page.
-    // This is a best-effort enhancement: if capture/upload/persist fails (Cloudinary
-    // down, upload rejected), we fall back to the plain LinkedIn share rather than
-    // aborting the whole action.
+    // Best-effort: if capture/upload/persist fails (Cloudinary down, upload rejected),
+    // fall back to the plain LinkedIn share rather than aborting the whole action.
     try {
       if (cardRef.current && token && user?.id) {
         const blob = await captureBlob(cardRef.current);
@@ -92,22 +102,32 @@ export function ShareStreakButton({
     } catch {
       /* keep the generic shareUrl — card just won't appear in the preview */
     }
-    try {
-      const copied = await copyTextToClipboard(buildStreakShareText({ ...stats, name }));
-      if (win) win.location.href = shareUrl;
-      else window.open(shareUrl, '_blank', 'noopener,noreferrer');
-      setShared(true);
-      setTimeout(() => setShared(false), 2500);
-      const msg = cardAttached
-        ? (copied ? 'Card added to the preview — paste the copied caption (Ctrl/Cmd+V).' : 'Card added to the preview — add your caption and post.')
-        : (copied ? 'LinkedIn opened — caption copied, paste it (Ctrl/Cmd+V).' : 'LinkedIn opened — add your caption and post.');
-      toast[copied ? 'success' : 'message'](msg);
-    } catch {
-      if (win) win.close();
-      toast.error('Could not open the LinkedIn share.');
-    } finally {
-      setBusy(null);
+
+    // Navigate the pre-opened tab; if it was blocked (null), try a direct open as a last
+    // resort. Only claim success when a tab actually opened — never lie to the user.
+    let opened: boolean;
+    if (win) {
+      win.location.href = shareUrl;
+      opened = true;
+    } else {
+      const fallback = window.open(shareUrl, '_blank', 'width=600,height=640');
+      if (fallback) fallback.opener = null;
+      opened = Boolean(fallback);
     }
+
+    setBusy(null);
+    if (!opened) {
+      toast.error(copied
+        ? 'Pop-up blocked — allow pop-ups, then paste the copied caption into LinkedIn.'
+        : 'Pop-up blocked — allow pop-ups to share your streak (or use Download).');
+      return;
+    }
+    setShared(true);
+    setTimeout(() => setShared(false), 2500);
+    const msg = cardAttached
+      ? (copied ? 'Card added to the preview — paste the copied caption (Ctrl/Cmd+V).' : 'Card added to the preview — add your caption and post.')
+      : (copied ? 'LinkedIn opened — caption copied, paste it (Ctrl/Cmd+V).' : 'LinkedIn opened — add your caption and post.');
+    toast[copied ? 'success' : 'message'](msg);
   };
 
   return (

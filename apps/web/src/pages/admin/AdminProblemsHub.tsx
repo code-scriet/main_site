@@ -27,9 +27,12 @@ function ProposalsPanel() {
   const navigate = useNavigate();
   const qc = useQueryClient();
 
+  // Server-filtered proposals (unpublished + unscheduled + not held), so an old or
+  // past-dated proposal is never lost off a date-desc page window. limit 100 ≫ any
+  // realistic pending-proposal count.
   const qotdQ = useQuery({
-    queryKey: ['qotd-history-admin'],
-    queryFn: () => api.getQOTDHistory(60, 0, { includeUnpublished: true, token: token! }),
+    queryKey: ['qotd-proposals'],
+    queryFn: () => api.getQOTDHistory(100, 0, { includeUnpublished: true, proposals: true, token: token! }),
     enabled: Boolean(token),
   });
   const problemsQ = useQuery({
@@ -38,8 +41,8 @@ function ProposalsPanel() {
     enabled: Boolean(token),
   });
 
-  // A "proposed" QOTD is an unpublished, unscheduled draft (publishAt null) — what a
-  // CORE_MEMBER author produces; admin-scheduled ones carry a publishAt.
+  // The server already returns exactly proposals; keep the defensive filter so a
+  // just-published/scheduled row never lingers between fetch and invalidation.
   const proposedQotds = useMemo(
     () => (qotdQ.data ?? []).filter((q) => !q.isPublished && !q.heldBy && !q.publishAt),
     [qotdQ.data],
@@ -50,8 +53,12 @@ function ProposalsPanel() {
   );
 
   const invalidate = () => {
+    // Refresh every surface a publish/reject touches: the proposals list+badge, the
+    // admin calendar/history, the member archive + summary header, and the catalog.
+    qc.invalidateQueries({ queryKey: ['qotd-proposals'] });
     qc.invalidateQueries({ queryKey: ['qotd-history-admin'] });
     qc.invalidateQueries({ queryKey: ['qotd-history-full'] });
+    qc.invalidateQueries({ queryKey: ['qotd-history-summary'] });
     qc.invalidateQueries({ queryKey: ['admin-problems'] });
     // The embedded CreateQOTD "pick existing" list reads this key — refresh it too
     // so a draft problem published/deleted here doesn't linger in the picker.
@@ -105,6 +112,7 @@ function ProposalsPanel() {
                   <button onClick={() => rejectQotd.mutate(q.id)} disabled={busy} title="Reject (delete)" aria-label="Reject" className="size-7 rounded-[6px] hover:bg-[var(--danger-bg)] text-[var(--ds-text-3)] hover:text-[var(--danger)] flex items-center justify-center disabled:opacity-40">
                     <Trash2 size={12} />
                   </button>
+                  {busy && <Loader2 size={11} className="animate-spin text-[var(--ds-text-3)]" />}
                 </div>
               ))}
             </div>
@@ -158,10 +166,11 @@ export default function AdminProblemsHub() {
     setParams(next);
   };
 
-  // Live count for the Proposals tab badge (cheap; shares cache with the panel).
+  // Live count for the Proposals tab badge — shares the server-filtered proposals
+  // cache with the panel (so the badge is exact, not a slice of a recent window).
   const proposalsCountQ = useQuery({
-    queryKey: ['qotd-history-admin'],
-    queryFn: () => api.getQOTDHistory(60, 0, { includeUnpublished: true, token: token! }),
+    queryKey: ['qotd-proposals'],
+    queryFn: () => api.getQOTDHistory(100, 0, { includeUnpublished: true, proposals: true, token: token! }),
     enabled: Boolean(token),
   });
   const proposalsCount = useMemo(
@@ -190,10 +199,13 @@ export default function AdminProblemsHub() {
         onChange={setTab}
       />
 
-      {tab === 'catalog' && <AdminProblems embedded />}
-      {tab === 'qotd' && <CreateQOTD embedded />}
-      {tab === 'review' && <AdminSubmissionReview embedded />}
-      {tab === 'proposals' && <ProposalsPanel />}
+      {/* key={tab} replays a subtle fade on every tab switch (reduced-motion safe). */}
+      <div key={tab} className="motion-safe:animate-in motion-safe:fade-in-0 motion-safe:duration-200">
+        {tab === 'catalog' && <AdminProblems embedded />}
+        {tab === 'qotd' && <CreateQOTD embedded />}
+        {tab === 'review' && <AdminSubmissionReview embedded />}
+        {tab === 'proposals' && <ProposalsPanel />}
+      </div>
     </div>
   );
 }

@@ -282,10 +282,10 @@ function AuditRow({ log, expanded, onToggle, onOpenUser }: { log: AuditLogEntry;
             <span className="text-[11px] text-[var(--ds-text-3)]">on</span>
             <MonoChip>{entityLabel(log.entity)}</MonoChip>
             {log.entityId && (
-              // Only `user` rows reliably carry a user id as entityId. `user_block`
-              // rows are mixed (BLOCK_USER stamps the UserBlock row id, UNBLOCK_USER
-              // the user id), so they're NOT clickable — avoids opening a dead sheet.
-              log.entity === 'user' ? (
+              // `user` and `user_block` rows both carry a user id as entityId
+              // (BLOCK_USER/UNBLOCK_USER both stamp the target user id; the
+              // UserBlock row id lives in metadata), so both are clickable.
+              log.entity === 'user' || log.entity === 'user_block' ? (
                 <button type="button" onClick={() => onOpenUser(log.entityId!)} title="Open this user" className="focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] rounded">
                   <MonoChip>{log.entityId.slice(0, 8)}</MonoChip>
                 </button>

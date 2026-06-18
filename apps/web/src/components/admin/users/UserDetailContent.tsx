@@ -5,8 +5,9 @@
 // rendered as a single panel with sections so the sheet stays scrollable.
 
 import { useEffect, useState } from 'react';
-import { Award, BookOpen, Calendar, ChevronRight, Code, Flame, Loader2, Mail, ShieldAlert, ShieldOff, Sparkles, Trash2, UserCog, Zap } from 'lucide-react';
+import { Award, BadgeCheck, BookOpen, Briefcase, Calendar, Check, ChevronRight, Clock, Code, Copy, Flame, Github, Globe, GraduationCap, Hash, KeyRound, Linkedin, Loader2, Mail, Network, Share2, ShieldAlert, ShieldOff, Sparkles, Trash2, Twitter, UserCog, Zap } from 'lucide-react';
 import { toast } from 'sonner';
+import { copyTextToClipboard } from '@/lib/clipboard';
 import { useQueryClient } from '@tanstack/react-query';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
@@ -179,57 +180,144 @@ function OverviewTab({ userId }: { userId: string }) {
     });
   };
 
+  // Created content — only the non-zero kinds, so the panel stays readable as the
+  // app grows more content types.
+  const createdItems = (Object.entries({
+    events: contentCreated?.events ?? 0,
+    announcements: contentCreated?.announcements ?? 0,
+    quizzes: contentCreated?.quizzes ?? 0,
+    QOTDs: contentCreated?.qotds ?? 0,
+    problems: contentCreated?.problems ?? 0,
+    sheets: contentCreated?.problemSheets ?? 0,
+    polls: contentCreated?.polls ?? 0,
+  }) as Array<[string, number]>).filter(([, n]) => n > 0);
+
+  // Social links the member has filled in — rendered as clickable chips.
+  const socials = [
+    user.githubUrl && { label: 'GitHub', href: user.githubUrl, icon: <Github className="h-3.5 w-3.5" /> },
+    user.linkedinUrl && { label: 'LinkedIn', href: user.linkedinUrl, icon: <Linkedin className="h-3.5 w-3.5" /> },
+    user.twitterUrl && { label: 'Twitter', href: user.twitterUrl, icon: <Twitter className="h-3.5 w-3.5" /> },
+    user.websiteUrl && { label: 'Website', href: user.websiteUrl, icon: <Globe className="h-3.5 w-3.5" /> },
+  ].filter(Boolean) as Array<{ label: string; href: string; icon: React.ReactNode }>;
+
+  // NetworkProfile is loosely typed (Record<string, unknown>) — read defensively.
+  const np = user.networkProfile as Record<string, unknown> | null | undefined;
+  const netStr = (k: string) => (typeof np?.[k] === 'string' ? (np[k] as string) : '');
+
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
         <StatCard icon={<Flame className="h-4 w-4 text-orange-500" />} label="Current streak" value={user.currentStreak ?? 0} />
-        <StatCard icon={<Sparkles className="h-4 w-4 text-amber-500" />} label="Longest streak" value={user.longestStreak ?? 0} />
+        <StatCard icon={<Sparkles className="h-4 w-4 text-amber-500" />} label="Longest streak" value={user.longestStreak ?? 0} hint={user.longestStreakAt ? `Reached ${fmtDate(user.longestStreakAt)}` : undefined} />
         <StatCard icon={<Calendar className="h-4 w-4 text-emerald-500" />} label="Events" value={counts.eventRegistrations} />
         <StatCard icon={<Award className="h-4 w-4 text-violet-500" />} label="Certificates" value={counts.certificates} />
         <StatCard icon={<Code className="h-4 w-4 text-sky-500" />} label="Playground runs" value={counts.executions} />
         <StatCard icon={<Zap className="h-4 w-4 text-pink-500" />} label="Quiz games" value={counts.quizParticipants} />
-        <StatCard icon={<Code className="h-4 w-4 text-emerald-500" />} label="QOTD solved" value={coding?.qotdSolved ?? 0} />
-        <StatCard icon={<Code className="h-4 w-4 text-indigo-500" />} label="AC rate %" value={coding?.acRate ?? 0} />
+        <StatCard icon={<BookOpen className="h-4 w-4 text-emerald-500" />} label="QOTD solved" value={coding?.qotdSolved ?? 0} />
+        <StatCard icon={<Code className="h-4 w-4 text-indigo-500" />} label="AC rate %" value={coding?.acRate ?? 0} hint="Accepted ÷ all judged submissions (PRACTICE + QOTD + CONTEST)" />
         <StatCard icon={<Code className="h-4 w-4 text-rose-500" />} label="Submissions" value={coding?.totalSubmissions ?? 0} />
       </div>
 
-      {/* Account & details — every stored fact, with inference, for an admin. */}
-      <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-raised)] p-3">
-        <div className="text-xs font-medium text-zinc-500 dark:text-[var(--ds-text-3)] mb-2">Account &amp; details</div>
-        <dl className="grid grid-cols-2 gap-x-4 gap-y-1.5 sm:grid-cols-3 text-sm">
-          <Detail label="Sign-in" value={user.oauthProvider ? `OAuth · ${user.oauthProvider}` : 'Email / password'} />
-          <Detail label="Joined" value={fmtDate(user.createdAt)} />
-          <Detail label="Updated" value={fmtDate(user.updatedAt)} />
-          <Detail label="Profile" value={user.profileCompleted ? 'Complete' : 'Incomplete'} />
-          <Detail label="Branch / year" value={[user.branch, user.year].filter(Boolean).join(' · ') || '—'} />
-          <Detail label="Course" value={user.course || '—'} />
-          <Detail label="Last login" value={fmtDate(user.lastLoginAt)} />
-          {perms.isSuperAdmin && user.lastLoginIp ? <Detail label="Last IP" value={user.lastLoginIp} /> : null}
-          <Detail label="Session ver." value={String(user.tokenVersion ?? 0)} />
-          <Detail label="Problems AC" value={`${coding?.accepted ?? 0} / ${coding?.totalSubmissions ?? 0}`} />
-          <Detail label="Invitations" value={`${counts.invitationsReceived ?? 0} recv · ${counts.invitationsSent ?? 0} sent`} />
-          <Detail label="Uploads" value={String(counts.uploadedImages ?? 0)} />
-        </dl>
-        {contentCreated && (contentCreated.events + contentCreated.announcements + contentCreated.quizzes + contentCreated.qotds + contentCreated.problems + contentCreated.problemSheets + contentCreated.polls > 0) && (
-          <div className="mt-3 border-t border-[var(--border-subtle)] pt-2">
-            <div className="text-xs font-medium text-zinc-500 dark:text-[var(--ds-text-3)] mb-1.5">Created</div>
-            <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-[var(--ds-text-2)]">
-              <span>{contentCreated.events} events</span>
-              <span>{contentCreated.announcements} announcements</span>
-              <span>{contentCreated.quizzes} quizzes</span>
-              <span>{contentCreated.qotds} QOTDs</span>
-              <span>{contentCreated.problems} problems</span>
-              <span>{contentCreated.problemSheets} sheets</span>
-              <span>{contentCreated.polls} polls</span>
-            </div>
+      {/* Identity — the stable account facts; id + email are copyable. */}
+      <DetailGroup icon={<Hash className="h-3.5 w-3.5" />} title="Identity">
+        <Detail label="User ID" value={user.id} mono copyable />
+        <Detail label="Email" value={user.email} copyable href={`mailto:${user.email}`} />
+        <Detail label="Phone" value={user.phone || '—'} {...(user.phone ? { href: `tel:${user.phone}` } : {})} />
+        <Detail label="Sign-in" value={user.oauthProvider ? `OAuth · ${user.oauthProvider}` : 'Email / password'} />
+        <Detail label="Role" value={user.role.replace(/_/g, ' ')} />
+        <Detail label="Session ver." value={String(user.tokenVersion ?? 0)} />
+      </DetailGroup>
+
+      {/* Academics & profile */}
+      <DetailGroup icon={<GraduationCap className="h-3.5 w-3.5" />} title="Academics & profile">
+        <Detail label="Branch" value={user.branch || '—'} />
+        <Detail label="Year" value={user.year || '—'} />
+        <Detail label="Course" value={user.course || '—'} />
+        <Detail label="Profile" value={user.profileCompleted ? 'Complete' : 'Incomplete'} tone={user.profileCompleted ? 'ok' : 'warn'} />
+        <Detail label="Uploads" value={String(counts.uploadedImages ?? 0)} />
+        <Detail label="Network" value={np ? 'Has profile' : '—'} />
+      </DetailGroup>
+      {user.bio && (
+        <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-raised)] p-3">
+          <div className="mb-1 flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-zinc-500 dark:text-[var(--ds-text-3)]"><BadgeCheck className="h-3.5 w-3.5" /> Bio</div>
+          <p className="whitespace-pre-wrap text-[13px] leading-relaxed text-[var(--ds-text-2)]">{user.bio}</p>
+        </div>
+      )}
+
+      {/* Engagement timeline */}
+      <DetailGroup icon={<Clock className="h-3.5 w-3.5" />} title="Engagement">
+        <Detail label="Joined" value={fmtDate(user.createdAt)} />
+        <Detail label="Last updated" value={fmtDate(user.updatedAt)} />
+        <Detail label="Last login" value={fmtDate(user.lastLoginAt)} />
+        {perms.isSuperAdmin && user.lastLoginIp ? <Detail label="Last IP" value={user.lastLoginIp} mono /> : null}
+        <Detail label="Longest streak on" value={fmtDate(user.longestStreakAt)} />
+        <Detail label="Streak card" value={user.streakCardUrl ? 'Shared' : 'Not shared'} href={user.streakCardUrl || undefined} tone={user.streakCardUrl ? 'ok' : undefined} />
+      </DetailGroup>
+
+      {/* Coding & community signal */}
+      <DetailGroup icon={<KeyRound className="h-3.5 w-3.5" />} title="Coding & community">
+        <Detail label="Problems AC" value={`${coding?.accepted ?? 0} / ${coding?.totalSubmissions ?? 0}`} />
+        <Detail label="QOTD solved" value={String(coding?.qotdSolved ?? 0)} />
+        <Detail label="Invitations" value={`${counts.invitationsReceived ?? 0} recv · ${counts.invitationsSent ?? 0} sent`} />
+        <Detail label="Polls" value={`${counts.createdPolls} made · ${counts.pollVotes} voted`} />
+        <Detail label="Teams" value={`${counts.ledTeams} led · ${counts.teamMemberships} joined`} />
+        <Detail label="Audit entries" value={String(counts.auditEntries)} />
+      </DetailGroup>
+
+      {createdItems.length > 0 && (
+        <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-raised)] p-3">
+          <div className="mb-2 flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-zinc-500 dark:text-[var(--ds-text-3)]"><Share2 className="h-3.5 w-3.5" /> Created</div>
+          <div className="flex flex-wrap gap-1.5">
+            {createdItems.map(([label, n]) => (
+              <span key={label} className="inline-flex items-center gap-1 rounded-full border border-[var(--border-subtle)] bg-[var(--surface-soft)] px-2 py-0.5 text-[11.5px] text-[var(--ds-text-2)]">
+                <span className="font-semibold tabular-nums text-[var(--ds-text-1)]">{n}</span> {label}
+              </span>
+            ))}
           </div>
-        )}
-        {user.isDeleted && (
-          <div className="mt-3 border-t border-[var(--border-subtle)] pt-2 text-xs text-[var(--danger)]">
-            Soft-deleted {fmtDate(user.deletedAt)}{user.deletedBy ? ` by ${user.deletedBy}` : ''}.
-          </div>
-        )}
-      </div>
+        </div>
+      )}
+
+      {socials.length > 0 && (
+        <div className="flex flex-wrap gap-2">
+          {socials.map((s) => (
+            <a key={s.label} href={s.href} target="_blank" rel="noreferrer" className="inline-flex h-8 items-center gap-1.5 rounded-[8px] border border-[var(--border-subtle)] bg-[var(--bg-raised)] px-2.5 text-[12px] font-medium text-[var(--ds-text-2)] transition-colors hover:border-[var(--accent)] hover:text-[var(--accent)]">
+              {s.icon} {s.label}
+            </a>
+          ))}
+        </div>
+      )}
+
+      {np && (
+        <DetailGroup icon={<Network className="h-3.5 w-3.5" />} title="Network profile">
+          <Detail label="Designation" value={netStr('designation') || '—'} />
+          <Detail label="Company" value={netStr('company') || '—'} />
+          <Detail label="Status" value={netStr('status') || '—'} />
+          <Detail label="Connection" value={(netStr('connectionType') || '—').replace(/_/g, ' ')} />
+          <Detail label="Public" value={np.isPublic === true ? 'Yes' : 'No'} />
+          <Detail label="Featured" value={np.isFeatured === true ? 'Yes' : 'No'} />
+        </DetailGroup>
+      )}
+
+      {user.hiringApplications && user.hiringApplications.length > 0 && (
+        <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-raised)] p-3">
+          <div className="mb-2 flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-zinc-500 dark:text-[var(--ds-text-3)]"><Briefcase className="h-3.5 w-3.5" /> Hiring applications</div>
+          <ul className="divide-y divide-[var(--border-subtle)]">
+            {user.hiringApplications.map((h) => (
+              <li key={h.id} className="flex items-center justify-between py-1.5 text-[13px]">
+                <span className="text-[var(--ds-text-1)]">{h.applyingRole.replace(/_/g, ' ')}</span>
+                <span className="text-[12px] text-[var(--ds-text-3)]">{h.status} · {fmtDate(h.createdAt)}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {user.isDeleted && (
+        <div className="flex items-center gap-2 rounded-lg border border-[var(--danger)]/30 bg-[var(--danger-bg)] px-3 py-2 text-xs text-[var(--danger)]">
+          <Trash2 className="h-3.5 w-3.5 shrink-0" />
+          Soft-deleted {fmtDate(user.deletedAt)}{user.deletedBy ? ` by ${user.deletedBy}` : ''}.
+        </div>
+      )}
 
       {perms.canChangeRole && (
         <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-raised)] p-3">
@@ -312,14 +400,31 @@ function OverviewTab({ userId }: { userId: string }) {
   );
 }
 
-function StatCard({ icon, label, value }: { icon: React.ReactNode; label: string; value: number }) {
+function StatCard({ icon, label, value, hint }: { icon: React.ReactNode; label: string; value: number; hint?: string }) {
   return (
-    <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-raised)] p-3">
+    <div
+      title={hint}
+      className="rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-raised)] p-3 transition-all duration-200 hover:border-[var(--border-default)] hover:shadow-sm motion-safe:hover:-translate-y-0.5"
+    >
       <div className="flex items-center gap-2 text-xs text-zinc-500 dark:text-[var(--ds-text-3)]">
         {icon}
-        {label}
+        <span className="truncate">{label}</span>
       </div>
-      <div className="mt-1 text-2xl font-semibold text-[var(--ds-text-1)]">{value}</div>
+      <div className="mt-1 text-2xl font-semibold tabular-nums text-[var(--ds-text-1)]">{value}</div>
+    </div>
+  );
+}
+
+// Grouped detail card with a labelled header — subtle fade-in on mount (respects
+// reduced-motion via the motion-safe variant). Used across the Overview redesign.
+function DetailGroup({ icon, title, children }: { icon: React.ReactNode; title: string; children: React.ReactNode }) {
+  return (
+    <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-raised)] p-3 motion-safe:animate-in motion-safe:fade-in-0 motion-safe:duration-300">
+      <div className="mb-2 flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-zinc-500 dark:text-[var(--ds-text-3)]">
+        {icon}
+        {title}
+      </div>
+      <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm sm:grid-cols-3">{children}</dl>
     </div>
   );
 }
@@ -331,11 +436,51 @@ function fmtDate(value?: string | null): string {
   return d.toLocaleString('en-IN', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kolkata' });
 }
 
-function Detail({ label, value }: { label: string; value: string }) {
+function Detail({ label, value, mono, copyable, href, tone }: {
+  label: string;
+  value: string;
+  mono?: boolean;
+  copyable?: boolean;
+  href?: string;
+  tone?: 'ok' | 'warn';
+}) {
+  const [copied, setCopied] = useState(false);
+  const valueClass = `truncate text-[13px] ${tone === 'ok' ? 'text-[var(--success)]' : tone === 'warn' ? 'text-[var(--warning)]' : 'text-[var(--ds-text-1)]'} ${mono ? 'font-mono text-[12px]' : ''}`;
+  const copy = async () => {
+    if (await copyTextToClipboard(value)) {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1200);
+    }
+  };
   return (
-    <div className="min-w-0">
+    <div className="group min-w-0">
       <dt className="text-[11px] text-zinc-500 dark:text-[var(--ds-text-3)]">{label}</dt>
-      <dd className="truncate text-[13px] text-[var(--ds-text-1)]" title={value}>{value}</dd>
+      <dd className="flex items-center gap-1">
+        {href ? (
+          <a
+            href={href}
+            target={href.startsWith('http') ? '_blank' : undefined}
+            rel="noreferrer"
+            className={`${valueClass} hover:text-[var(--accent)] hover:underline`}
+            title={value}
+          >
+            {value}
+          </a>
+        ) : (
+          <span className={valueClass} title={value}>{value}</span>
+        )}
+        {copyable && (
+          <button
+            type="button"
+            onClick={copy}
+            aria-label={`Copy ${label.toLowerCase()}`}
+            title={`Copy ${label.toLowerCase()}`}
+            className="shrink-0 rounded text-[var(--ds-text-3)] opacity-0 transition-opacity hover:text-[var(--ds-text-1)] focus:outline-none focus-visible:opacity-100 focus-visible:ring-1 focus-visible:ring-[var(--accent)] group-hover:opacity-100"
+          >
+            {copied ? <Check className="h-3 w-3 text-[var(--success)]" /> : <Copy className="h-3 w-3" />}
+          </button>
+        )}
+      </dd>
     </div>
   );
 }
@@ -555,17 +700,18 @@ function ActivityTab({ userId }: { userId: string }) {
           <Empty>No playground activity.</Empty>
         ) : (
           <div className="flex h-16 items-end gap-1">
-            {data.playgroundUsage.slice().reverse().map((u) => {
-              const max = Math.max(...data.playgroundUsage.map((x) => x.count), 1);
-              return (
+            {(() => {
+              // Hoisted out of the map (was O(n²) — recomputed per bar).
+              const max = Math.max(1, ...data.playgroundUsage.map((x) => x.count));
+              return data.playgroundUsage.slice().reverse().map((u) => (
                 <div
                   key={u.usageDate}
                   title={`${new Date(u.usageDate).toLocaleDateString()} — ${u.count}`}
-                  className="flex-1 rounded-t bg-sky-500/70"
+                  className="flex-1 rounded-t bg-sky-500/70 transition-all"
                   style={{ height: `${Math.max(8, (u.count / max) * 64)}px` }}
                 />
-              );
-            })}
+              ));
+            })()}
           </div>
         )}
       </Section>

@@ -263,6 +263,9 @@ usersRouter.post('/me/streak-card', authMiddleware, async (req: Request, res: Re
       return ApiResponse.badRequest(res, 'Streak card must be an https Cloudinary URL');
     }
     await prisma.user.update({ where: { id: authUser.id }, data: { streakCardUrl: parsed.data.url } });
+    // Trail the change: streakCardUrl is the public og:image of /share/streak/:id, so
+    // keep a record of who set it. Not auth-relevant — no cache/tokenVersion bump.
+    await auditLog(authUser.id, 'UPDATE', 'user', authUser.id, { field: 'streakCardUrl' });
     return ApiResponse.success(res, { streakCardUrl: parsed.data.url });
   } catch {
     return ApiResponse.internal(res, 'Failed to save streak card');
@@ -1250,6 +1253,7 @@ usersRouter.get('/:id/full', authMiddleware, requireRole('ADMIN'), async (req: R
         websiteUrl: true, createdAt: true, updatedAt: true,
         lastLoginAt: true, lastLoginIp: true,
         currentStreak: true, longestStreak: true, longestStreakAt: true,
+        streakCardUrl: true,
         isDeleted: true, deletedAt: true, deletedBy: true,
         tokenVersion: true,
         networkProfile: {
@@ -1628,8 +1632,11 @@ usersRouter.post('/:id/blocks', authMiddleware, requireRole('ADMIN'), async (req
       },
     });
     invalidateUserBlockCache(target.id);
-    await auditLog(authUser.id, 'BLOCK_USER', 'user_block', block.id, {
-      userId: target.id, feature: parsed.data.feature, reason: parsed.data.reason ?? null, expiresAt: parsed.data.expiresAt ?? null,
+    // entityId = the blocked user's id (NOT the UserBlock row id) so this action
+    // surfaces in the target's audit trail (the user-audit query filters
+    // entityId on user/user_block). The UserBlock row id is kept in metadata.
+    await auditLog(authUser.id, 'BLOCK_USER', 'user_block', target.id, {
+      blockId: block.id, feature: parsed.data.feature, reason: parsed.data.reason ?? null, expiresAt: parsed.data.expiresAt ?? null,
     });
     socketEvents.userUpdated(target.id);
     return ApiResponse.success(res, block, 'Block applied');

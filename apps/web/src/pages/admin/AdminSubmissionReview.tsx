@@ -252,7 +252,8 @@ export default function AdminSubmissionReview({ embedded = false }: { embedded?:
             key={f.id}
             type="button"
             onClick={() => setTypeFilter(f.id)}
-            className={`h-8 px-3 rounded-[8px] text-[12.5px] font-medium border transition-colors ${
+            aria-pressed={typeFilter === f.id}
+            className={`h-8 px-3 rounded-[8px] text-[12.5px] font-medium border transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] ${
               typeFilter === f.id
                 ? 'bg-[var(--accent-subtle)] border-[var(--accent)] text-[var(--accent)]'
                 : 'border-[var(--border-subtle)] text-[var(--ds-text-2)] hover:bg-[var(--surface-soft)]'

@@ -65,6 +65,10 @@ export default function CreateQOTD({ embedded = false }: { embedded?: boolean } 
   const invalidateQotdHistory = () => {
     qc.invalidateQueries({ queryKey: ['qotd-history-admin'] });
     qc.invalidateQueries({ queryKey: ['qotd-history-full'] });
+    // Keep the coding-hub Proposals badge/list in sync — publishing/holding/deleting
+    // a QOTD here changes whether it's still a pending proposal.
+    qc.invalidateQueries({ queryKey: ['qotd-proposals'] });
+    qc.invalidateQueries({ queryKey: ['qotd-history-summary'] });
   };
   // IST date key (not browser-local) so the "past QOTD?" check agrees with the server.
   const todayIso = istDateKey();

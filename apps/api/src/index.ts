@@ -54,6 +54,7 @@ import { emailService } from './utils/email.js';
 import { auditLog } from './utils/audit.js';
 import { prisma } from './lib/prisma.js';
 import { escapeHtml } from './utils/sanitize.js';
+import { isUuid } from './utils/idParams.js';
 import { startReminderScheduler, stopReminderScheduler, startQotdAutoPublishScheduler, stopQotdAutoPublishScheduler, startEventStatusScheduler, stopEventStatusScheduler, startRegistrationOpenScheduler, stopRegistrationOpenScheduler } from './utils/scheduler.js';
 import { getJwtSecret } from './utils/jwt.js';
 import { setRuntimeAttendanceJwtSecret } from './utils/attendanceToken.js';
@@ -417,12 +418,22 @@ app.get('/share/streak/:userId', shareLimiter, async (req, res) => {
   const frontend = process.env.FRONTEND_URL || 'https://codescriet.dev';
   const dest = `${frontend}/dashboard/coding?tab=qotd`;
   const userId = String(req.params.userId ?? '');
+  // Reject obviously-malformed ids before touching the DB: user ids are uuids, so a
+  // non-uuid path can never resolve. Skips a wasted lookup on junk/scan traffic
+  // (defense alongside shareLimiter) and matches the project's id-guard convention.
+  if (!isUuid(userId)) {
+    res.set('Cache-Control', 'public, max-age=60');
+    return res.redirect(302, dest);
+  }
   try {
     const user = await prisma.user.findUnique({
       where: { id: userId },
       select: { name: true, streakCardUrl: true, currentStreak: true, isDeleted: true },
     });
-    if (!user || user.isDeleted || !user.streakCardUrl) return res.redirect(302, dest);
+    if (!user || user.isDeleted || !user.streakCardUrl) {
+      res.set('Cache-Control', 'public, max-age=60');
+      return res.redirect(302, dest);
+    }
     const img = escapeHtml(user.streakCardUrl);
     const title = escapeHtml(`${user.name ?? 'A member'}'s coding streak on code.scriet`);
     const desc = escapeHtml(`${user.currentStreak ?? 0}-day problem-solving streak on code.scriet. Come build with us.`);
