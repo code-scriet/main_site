@@ -307,6 +307,14 @@ qotdRouter.get('/leaderboard/total', async (req: Request, res: Response) => {
     // first step inverts the offset and silently drops every row whose IST date
     // differs from its UTC date (i.e. anything submitted before 05:30 IST or
     // QOTD rows whose UTC midnight is the previous IST day).
+    // A reopened-past-QOTD solve is submitted on a LATER day than the QOTD's own
+    // IST date, so the same-day match below would silently drop it forever — even
+    // after an admin accepts it. Such a solve is only ever stored with
+    // verdict='ACCEPTED' once accepted (held solves stay PENDING), and the
+    // active-day gate means the ONLY way a QOTD-context row is off-day is a
+    // reopen-accepted solve. So `OR verdict='ACCEPTED'` re-admits exactly those
+    // accepted late solves (PENDING holds stay excluded) without changing live-day
+    // behaviour, honouring the feature's "marks/leaderboard count normally" intent.
     const rows = await prisma.$queryRaw<Array<{ user_id: string; total_score: bigint | number; first_solve: Date; latest_solve: Date; solve_days: bigint | number }>>`
       SELECT ps.user_id,
              SUM(ps.score)::int AS total_score,
@@ -316,8 +324,11 @@ qotdRouter.get('/leaderboard/total', async (req: Request, res: Response) => {
       FROM problem_submissions ps
       JOIN qotd q ON q.id = ps.context_key
       WHERE ps.context_type = 'QOTD'
-        AND DATE(ps.submitted_at AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Kolkata')
-            = DATE(q.date AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Kolkata')
+        AND (
+          DATE(ps.submitted_at AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Kolkata')
+              = DATE(q.date AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Kolkata')
+          OR ps.verdict = 'ACCEPTED'
+        )
       GROUP BY ps.user_id
       ORDER BY total_score DESC, first_solve ASC
       LIMIT ${limit};
@@ -367,8 +378,14 @@ qotdRouter.get('/leaderboard/around-me', authMiddleware, async (req: Request, re
         FROM problem_submissions ps
         JOIN qotd q ON q.id = ps.context_key
         WHERE ps.context_type = 'QOTD'
-          AND DATE(ps.submitted_at AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Kolkata')
-              = DATE(q.date AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Kolkata')
+          -- Mirror /leaderboard/total: re-admit accepted reopened-past-QOTD
+          -- solves (off-day, verdict ACCEPTED) so a late solve doesn't vanish
+          -- from the rank window once an admin accepts it.
+          AND (
+            DATE(ps.submitted_at AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Kolkata')
+                = DATE(q.date AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Kolkata')
+            OR ps.verdict = 'ACCEPTED'
+          )
         GROUP BY ps.user_id
       ), ranked AS (
         SELECT user_id, total_score, first_solve,
@@ -485,7 +502,10 @@ qotdRouter.get('/:qotdId/leaderboard', async (req: Request, res: Response) => {
     if (!qotd?.problemId) return ApiResponse.success(res, { entries: [], publishedAt: null, date: null });
 
     const submissions = await prisma.problemSubmission.findMany({
-      where: { problemId: qotd.problemId, contextType: 'QOTD', contextKey: qotd.id },
+      // Exclude held reopen solves (verdict PENDING) so an un-accepted late solve
+      // never surfaces on the daily board — matching the guard already in
+      // /problems/:id/leaderboard. Normal non-accepted attempts aren't PENDING.
+      where: { problemId: qotd.problemId, contextType: 'QOTD', contextKey: qotd.id, verdict: { not: 'PENDING' } },
       orderBy: [{ score: 'desc' }, { submittedAt: 'asc' }],
       take: 10,
       include: { user: { select: { id: true, name: true, avatar: true } } },
