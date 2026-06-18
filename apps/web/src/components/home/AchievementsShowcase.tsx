@@ -17,7 +17,7 @@ export function AchievementsShowcase() {
   const staggerDelay = shouldReduceMotion ? 0.05 : 0.1;
 
   return (
-    <section className="hsec hsec-warm py-16 sm:py-24 relative overflow-hidden">
+    <section className="hsec hsec-honey py-16 sm:py-24 relative overflow-hidden">
       {/* Faint trophy pattern */}
       <div
         className="absolute inset-0 opacity-[0.04]"

@@ -50,7 +50,7 @@ export function AboutPreview() {
   const staggerDelay = shouldReduceMotion ? 0.05 : 0.1;
 
   return (
-    <section className="hsec hsec-alt relative overflow-hidden py-20 sm:py-28">
+    <section className="hsec hsec-cream relative overflow-hidden py-20 sm:py-28">
       <div className="container mx-auto px-4 relative">
         {/* Section Header */}
         <motion.div

@@ -2547,20 +2547,23 @@ html.dark [data-public] {
    * wash-out: opaque glass surfaces, firmer borders, a deeper ember accent (the
    * amber-400 used in dark mode is near-invisible on cream), and a soft card
    * shadow so panels separate from the page. */
-  --hx-amber: #ea580c;          /* accent for borders/text — deep enough for cream */
-  --hx-amber-2: #f97316;
-  --hx-edge: #ffffff;           /* page colour used for avatar ring gaps */
-  --hx-glass: rgba(255, 255, 255, 0.82);
-  --hx-glass-2: rgba(255, 255, 255, 0.92);
-  --hx-glass-border: rgba(27, 23, 20, 0.14);
-  --hx-glass-border-strong: rgba(27, 23, 20, 0.22);
-  --hx-ink: #14100d;
-  --hx-ink-dim: rgba(20, 16, 13, 0.72);
-  --hx-ink-faint: rgba(20, 16, 13, 0.56);
-  --hx-dot: rgba(27, 23, 20, 0.09);
-  --hx-particle: rgba(234, 88, 12, 0.6);
-  --hx-glow: rgba(249, 115, 22, 0.15);
-  --hx-card-shadow: 0 1px 2px rgba(27, 23, 20, 0.05), 0 10px 30px -12px rgba(27, 23, 20, 0.18);
+  /* Light theme — warm palette derived from the SCRIET / code.scriet logo:
+   * deep amber, golden orange, soft saffron over ivory/sand/cream papers.
+   * Handcrafted + academic, never pure white or cold grey. */
+  --hx-amber: #d97706;          /* deep amber — borders/accents/text */
+  --hx-amber-2: #f59e0b;        /* golden orange */
+  --hx-edge: #fcfaf6;           /* ivory paper — avatar ring gaps */
+  --hx-glass: #fefcf8;          /* warm card surface (not pure white) */
+  --hx-glass-2: #fffaf2;
+  --hx-glass-border: rgba(217, 119, 6, 0.08);   /* amber-tinted hairline */
+  --hx-glass-border-strong: rgba(217, 119, 6, 0.16);
+  --hx-ink: #2a1d0e;            /* warm near-black */
+  --hx-ink-dim: rgba(60, 44, 24, 0.74);
+  --hx-ink-faint: rgba(60, 44, 24, 0.56);
+  --hx-dot: rgba(120, 80, 20, 0.08);
+  --hx-particle: rgba(217, 119, 6, 0.5);
+  --hx-glow: rgba(245, 158, 11, 0.12);
+  --hx-card-shadow: 0 8px 24px rgba(120, 80, 20, 0.08);
   --hx-ease: cubic-bezier(0.22, 0.61, 0.36, 1);
 
   /* Full-width homepage: sections span the viewport (with comfortable gutters),
@@ -2570,14 +2573,11 @@ html.dark [data-public] {
 
   position: relative;
   isolation: isolate;
-  /* Layered warm blooms (peach / amber / rose) over a cream base give the light
-   * page tonal depth instead of one flat colour. */
+  /* Hero base = ivory paper with the faintest saffron warmth (no harsh blooms). */
   background:
-    radial-gradient(70% 55% at 82% 4%, #ffe9d2 0%, transparent 55%),
-    radial-gradient(60% 45% at 6% 26%, #fdeadb 0%, transparent 58%),
-    radial-gradient(75% 55% at 60% 64%, #fbe3d2 0%, transparent 60%),
-    radial-gradient(80% 60% at 30% 100%, #f6e6d6 0%, transparent 62%),
-    linear-gradient(180deg, #faf5ee 0%, #f5ece0 45%, #f7efe5 100%);
+    radial-gradient(60% 50% at 85% 0%, rgba(245, 158, 11, 0.05), transparent 55%),
+    radial-gradient(55% 45% at 8% 22%, rgba(217, 119, 6, 0.04), transparent 58%),
+    #fcfaf6;
   color: var(--hx-ink);
   overflow: clip;
 }
@@ -3156,40 +3156,53 @@ html:not(.dark) .home-v2 .home-orb { opacity: 1; }
 /* Sharper headline hierarchy */
 .home-v2 :is(h1, h2, h3) { letter-spacing: -0.04em; }
 
-/* Cards gain real depth in light mode (glassy, not flat) */
+/* Cards gain soft warm depth in light mode (warm paper, not flat white) */
 html:not(.dark) .home-v2 .glass-card,
 html:not(.dark) .home-v2 .bento-card {
   box-shadow: var(--hx-card-shadow);
 }
-html:not(.dark) .home-v2 .glass-card:hover,
+html:not(.dark) .home-v2 .glass-card:hover {
+  background: #fff8ee;
+  box-shadow: 0 12px 30px rgba(120, 80, 20, 0.12);
+}
 html:not(.dark) .home-v2 .bento-card:hover {
-  box-shadow: 0 1px 2px rgba(27, 23, 20, 0.05), 0 18px 44px -14px rgba(27, 23, 20, 0.28);
+  box-shadow: 0 12px 30px rgba(120, 80, 20, 0.12);
 }
 
-/* ---- Alternating section backgrounds + ambient glows (light only) ---- */
+/* ---- Alternating warm section backgrounds (light only), shades from the logo.
+ *  Each carries a whisper-faint amber/golden/clay tint so no section is flat. */
 .home-v2 .hsec { position: relative; }
-html:not(.dark) .home-v2 .hsec-warm {
+html:not(.dark) .home-v2 .hsec-ivory {
   background:
-    radial-gradient(circle at 12% 0%, rgba(249, 115, 22, 0.12), transparent 38%),
-    radial-gradient(circle at 88% 100%, rgba(239, 68, 68, 0.08), transparent 42%),
-    #fff7ed;
+    radial-gradient(circle at 12% 0%, rgba(245, 158, 11, 0.05), transparent 40%),
+    #fcfaf6;
 }
-html:not(.dark) .home-v2 .hsec-alt {
+html:not(.dark) .home-v2 .hsec-sand {
   background:
-    radial-gradient(circle at 88% 0%, rgba(245, 158, 11, 0.10), transparent 40%),
-    radial-gradient(circle at 8% 100%, rgba(194, 65, 12, 0.07), transparent 42%),
-    #fbf7f0;
+    radial-gradient(circle at 86% 0%, rgba(217, 119, 6, 0.05), transparent 42%),
+    radial-gradient(circle at 8% 100%, rgba(251, 191, 36, 0.05), transparent 44%),
+    #f7f1e7;
 }
-html:not(.dark) .home-v2 .hsec-white {
+html:not(.dark) .home-v2 .hsec-mist {
   background:
-    radial-gradient(circle at 15% 0%, rgba(249, 115, 22, 0.07), transparent 36%),
-    radial-gradient(circle at 90% 90%, rgba(245, 158, 11, 0.06), transparent 40%),
-    #ffffff;
+    radial-gradient(circle at 14% 0%, rgba(245, 158, 11, 0.05), transparent 40%),
+    #faf8f3;
+}
+html:not(.dark) .home-v2 .hsec-cream {
+  background:
+    radial-gradient(circle at 88% 6%, rgba(217, 119, 6, 0.05), transparent 42%),
+    radial-gradient(circle at 6% 100%, rgba(245, 158, 11, 0.04), transparent 44%),
+    #f5f0e6;
+}
+html:not(.dark) .home-v2 .hsec-honey {
+  background:
+    radial-gradient(circle at 84% 0%, rgba(251, 191, 36, 0.06), transparent 42%),
+    #f8f3ea;
 }
 /* Dark mode: sections stay transparent so the charcoal depth layer shows. */
-html.dark .home-v2 .hsec-warm,
-html.dark .home-v2 .hsec-alt,
-html.dark .home-v2 .hsec-white { background: transparent; }
+html.dark .home-v2 :is(.hsec-ivory, .hsec-sand, .hsec-mist, .hsec-cream, .hsec-honey) {
+  background: transparent;
+}
 
 /* ---- Category-coloured cards (bento + nodes) via --ca custom prop ---- */
 .home-v2 .cat-chip {
@@ -3206,4 +3219,9 @@ html.dark .home-v2 .hsec-white { background: transparent; }
 .home-v2 .bento-card[style*="--ca"]:hover {
   border-color: color-mix(in srgb, var(--ca) 45%, transparent);
   box-shadow: 0 0 44px color-mix(in srgb, var(--ca) 22%, transparent);
+}
+
+/* Homepage footer picks up a warm sand tone in light mode (logo palette). */
+html:not(.dark) [data-public][data-home] .pub-site-footer {
+  background: #efe6d8;
 }

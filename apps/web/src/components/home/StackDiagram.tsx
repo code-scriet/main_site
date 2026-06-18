@@ -74,7 +74,7 @@ export function StackDiagram() {
   // ---- Mobile: simple vertical flow ----
   if (isMobile) {
     return (
-      <section className="hsec hsec-white relative px-4 py-20">
+      <section className="hsec hsec-mist relative px-4 py-20">
         <div className="container mx-auto max-w-md">
           {Header}
           <div ref={ref} className="relative pl-2">
@@ -102,7 +102,7 @@ export function StackDiagram() {
 
   // ---- Desktop: horizontal rail, auto-plays on enter ----
   return (
-    <section className="hsec hsec-white relative px-4 py-24">
+    <section className="hsec hsec-mist relative px-4 py-24">
       <div className="container mx-auto">
         {Header}
         <div ref={ref} className="relative w-full" style={{ aspectRatio: '1100 / 240' }}>

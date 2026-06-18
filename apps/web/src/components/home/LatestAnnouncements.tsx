@@ -35,7 +35,7 @@ export function LatestAnnouncements() {
   const staggerDelay = shouldReduceMotion ? 0.05 : 0.1;
 
   return (
-    <section className="hsec hsec-alt relative overflow-hidden py-16 sm:py-24">
+    <section className="hsec hsec-honey relative overflow-hidden py-16 sm:py-24">
       <div className="container mx-auto px-4 relative">
         {/* Section Header */}
         <motion.div

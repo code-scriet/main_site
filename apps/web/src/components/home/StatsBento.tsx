@@ -75,7 +75,7 @@ export function StatsBento() {
   ];
 
   return (
-    <section className="hsec hsec-warm relative px-4 py-16 sm:py-20">
+    <section className="hsec hsec-sand relative px-4 py-16 sm:py-20">
       <div ref={sectionRef} className="container mx-auto">
         <motion.div
           initial={{ opacity: 0, y: shouldReduceMotion ? 10 : 24 }}
