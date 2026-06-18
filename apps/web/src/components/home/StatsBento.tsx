@@ -71,7 +71,7 @@ export function StatsBento() {
     { icon: EventsIcon, value: stats?.events ?? 0, suffix: '+', label: 'Events & workshops hosted', to: '/events', accent: '#ff6b35' },
     { icon: AchievementsIcon, value: stats?.achievements ?? 0, suffix: '+', label: 'Achievements celebrated', to: '/achievements', accent: '#ef4444' },
     { icon: NetworkIcon, value: networkCount, suffix: '+', label: 'Mentors & industry connections', to: '/network', accent: '#22c55e' },
-    { icon: Terminal, feature: true, title: 'Live Playground', label: 'Run code in 40+ languages, in-browser', accent: '#d97706' },
+    { icon: Terminal, feature: true, title: 'Live Playground', label: 'Write, run & share code in your browser', accent: '#d97706' },
   ];
 
   return (
