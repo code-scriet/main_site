@@ -470,7 +470,11 @@ export function QOTDSolverShell({ problem, context, onExit }: QOTDSolverShellPro
       reopenToken: context.reopenToken,
     }),
     onSuccess: async (result) => {
-      if (result.needsReview) {
+      if (result.pendingAcceptance) {
+        // Reopened past QOTD: judged ACCEPTED but held for admin acceptance. Nothing
+        // counts (streak/marks/leaderboard) until an admin approves it.
+        toast.success('Solved! Sent to an admin for acceptance — your streak and marks update once it\'s approved.');
+      } else if (result.needsReview) {
         // Judging itself was down (upstream outage). The code was saved and the
         // attempt refunded; the student can ask for a manual review.
         toast.warning('Judging is temporarily unavailable. Your submission was saved — you can request a manual review.');

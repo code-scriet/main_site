@@ -1197,6 +1197,11 @@ model ProblemSubmission {
   overrideNotes   String?            @map("override_notes") @db.Text
   activeMs        Int?               @map("active_ms")
   needsReview     Boolean            @default(false) @map("needs_review")
+  // A reopened-past-QOTD solve is judged but held: verdict stays PENDING and this
+  // flag is set until an admin accepts it, at which point verdict → ACCEPTED and
+  // streak/leaderboard recompute. PENDING never counts on any ACCEPTED-filtered
+  // leaderboard or streak, so the hold needs no extra query guards.
+  reopenPending   Boolean            @default(false) @map("reopen_pending")
   appealedAt      DateTime?          @map("appealed_at")
   appealNote      String?            @map("appeal_note") @db.Text
   submittedAt     DateTime           @default(now()) @map("submitted_at")

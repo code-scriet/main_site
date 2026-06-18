@@ -105,6 +105,11 @@ export interface SubmissionResult extends ProblemSubmission {
   remainingDailyQuota: number;
   /** Judging was unavailable — submission captured for manual review, attempt refunded. */
   needsReview?: boolean;
+  /**
+   * Reopened-past-QOTD solve that judged ACCEPTED but is held for admin acceptance:
+   * nothing (streak/marks/leaderboard) counts until an admin approves it.
+   */
+  pendingAcceptance?: boolean;
 }
 
 export interface PlaygroundLimitResetRequest {

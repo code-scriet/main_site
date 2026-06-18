@@ -89,6 +89,11 @@ export const codingApi = {
     request<{ submission: ProblemSubmission }>(`/problems/${problemId}/appeal`, { method: 'POST', body: JSON.stringify(input), token }),
   adminGetReviewQueue: (token: string, limit = 100) =>
     request<{ submissions: ProblemSubmission[] }>(`/problems/admin/review-queue?limit=${limit}`, { token }),
+  // Accept / reject a held reopened-past-QOTD solve (verdict PENDING + reopenPending).
+  adminAcceptReopenSubmission: (submissionId: string, token: string) =>
+    request<{ submission: ProblemSubmission }>(`/problems/admin/reopen/${submissionId}/accept`, { method: 'POST', token }),
+  adminRejectReopenSubmission: (submissionId: string, token: string, note?: string) =>
+    request<{ submission: ProblemSubmission }>(`/problems/admin/reopen/${submissionId}/reject`, { method: 'POST', body: JSON.stringify({ note }), token }),
   adminRejudgeProblem: (id: string, filter: { contextType?: ProblemContextType; contextKey?: string } | undefined, token: string) =>
     request<{ jobId: string }>(`/problems/${id}/rejudge`, { method: 'POST', body: JSON.stringify(filter ?? {}), token }),
   adminRejudgeStatus: (id: string, jobId: string, token: string) =>

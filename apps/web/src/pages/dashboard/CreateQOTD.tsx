@@ -569,7 +569,8 @@ export default function CreateQOTD() {
           </DialogHeader>
           <p className="text-[13px] text-[var(--ds-text-2)]">
             Share this link only with the people who should submit. Anyone who opens it can solve this
-            QOTD and have their streak, marks and leaderboard standing counted — until you close it.
+            QOTD; each solve is sent to the <strong>Submission Review</strong> queue, where an admin accepts
+            it before streak, marks and leaderboard standing count. Close it to revoke the link.
           </p>
           <div className="flex items-center gap-2 mt-3">
             <Input readOnly value={reopenLink ?? ''} className="font-mono text-[12px]" onFocus={(e) => e.currentTarget.select()} />

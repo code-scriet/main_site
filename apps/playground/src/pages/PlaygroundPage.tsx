@@ -113,7 +113,7 @@ export default function PlaygroundPage() {
             practice: false,
             modeLabel: isReopen ? `QOTD · Reopened (${qotdDateKey ?? 'past'})` : 'QOTD · Scored',
             deadlineLabel: isReopen
-              ? 'Reopened by an admin — submissions count until they close it.'
+              ? 'Reopened by an admin — each solve is sent for admin acceptance before it counts.'
               : 'Scored QOTD — closes at end of today (IST).',
             leaderboardHref: buildQOTDLeaderboardHref(),
             reopenToken: isReopen ? (reopenParam ?? undefined) : undefined,

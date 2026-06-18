@@ -52,7 +52,12 @@ function escapeICS(s: string): string {
 export function buildICS(ev: CalendarEvent): string {
   const start = new Date(ev.startDate);
   const end = resolveEnd(start, ev.endDate);
-  const uid = `${toStamp(start)}-${Math.random().toString(36).slice(2)}@codescriet.dev`;
+  // Collision-free UID. crypto.randomUUID exists in every browser we target (and
+  // Node 18+ for any SSR path); fall back only if the API is somehow unavailable.
+  const rand = typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+    ? crypto.randomUUID()
+    : `${Date.now().toString(36)}${Math.random().toString(36).slice(2)}`;
+  const uid = `${toStamp(start)}-${rand}@codescriet.dev`;
   const lines = [
     'BEGIN:VCALENDAR',
     'VERSION:2.0',

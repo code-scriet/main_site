@@ -942,7 +942,10 @@ eventsRouter.put('/:id', authMiddleware, requireRole('CORE_MEMBER'), async (req:
     // S-11: if the date/time or venue changed, tell everyone who registered.
     {
       const changes: string[] = [];
-      if (existingEvent.startDate.getTime() !== event.startDate.getTime()) {
+      // Compare at minute granularity so a no-op re-save (where the datetime-local
+      // round-trips to a sub-second-different value) doesn't spuriously notify.
+      const toMinute = (d: Date) => Math.floor(d.getTime() / 60_000);
+      if (toMinute(existingEvent.startDate) !== toMinute(event.startDate)) {
         changes.push(`New date & time: ${event.startDate.toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'Asia/Kolkata' })}`);
       }
       const oldVenue = (existingEvent.venue || existingEvent.location || '').trim();

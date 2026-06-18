@@ -663,7 +663,13 @@ export function cancelRegistrationOpenTimer(eventId: string): void {
   }
 }
 
-// Startup-only: re-arm timers for events whose registration opens in the future.
+// If registration opened while the instance was spun down (free tier), the
+// in-memory timer never fired. On boot we catch up on any event whose
+// registrationStartDate fell within this window and announce it once. Kept tight
+// so genuinely stale events created long ago with a past open-date aren't blasted.
+const REGISTRATION_OPEN_CATCHUP_MS = 12 * 60 * 60 * 1000; // 12h
+
+// Startup-only: re-arm timers for future opens + catch up on recently-missed ones.
 async function hydrateRegistrationOpenTimers(): Promise<void> {
   try {
     const now = new Date();
@@ -675,6 +681,22 @@ async function hydrateRegistrationOpenTimers(): Promise<void> {
     });
     for (const ev of pending) armRegistrationOpenTimer(ev);
     if (pending.length > 0) logger.info(`📣 Re-armed ${pending.length} registration-open timer(s) on boot`);
+
+    // Catch-up sweep: opens that fell in the recent past during downtime.
+    // fireRegistrationOpen is dedup-guarded (the persistent bell row IS the marker)
+    // and re-checks the window/status, so an already-announced event is a no-op.
+    const missed = await prisma.event.findMany({
+      where: {
+        registrationStartDate: { gt: new Date(now.getTime() - REGISTRATION_OPEN_CATCHUP_MS), lte: now },
+        status: { not: 'PAST' },
+      },
+      select: { id: true },
+      take: 200,
+    });
+    if (missed.length > 0) {
+      logger.info(`📣 Catching up on ${missed.length} recently-opened event(s) missed during downtime`);
+      for (const ev of missed) void fireRegistrationOpen(ev.id);
+    }
   } catch (error) {
     logger.error('❌ Registration-open hydration failed', {
       error: error instanceof Error ? error.message : String(error),

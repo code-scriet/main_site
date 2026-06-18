@@ -41,3 +41,50 @@ export function linkedInAddCertUrl(opts: {
 
   return `https://www.linkedin.com/profile/add?${params.toString()}`;
 }
+
+// ── Share a coding milestone (streak + problems solved) on LinkedIn ──────────
+// LinkedIn's `share-offsite` composer only accepts a `url` (it pulls the link's
+// OG card; it deliberately dropped text/summary prefill years ago). So a true
+// "one-click templated post" isn't possible through the URL alone — the proven
+// pattern is: open the composer to our site URL (one click) AND hand the user a
+// ready-made caption to paste. buildStreakShareText is that caption.
+
+export const CLUB_SHARE_URL = 'https://codescriet.dev';
+
+export interface StreakShareStats {
+  currentStreak: number;
+  longestStreak?: number;
+  totalSolved?: number;
+  name?: string | null;
+}
+
+// The ready-to-paste caption. Kept first-person, specific, and honest about the
+// numbers; ends with the club link + hashtags recruiters search.
+export function buildStreakShareText(stats: StreakShareStats): string {
+  const lines: string[] = [];
+  if (stats.currentStreak > 0) {
+    lines.push(`🔥 ${stats.currentStreak}-day problem-solving streak on code.scriet — showing up every single day.`);
+  } else {
+    lines.push('Sharpening my problem-solving with code.scriet, CCSU\'s coding club.');
+  }
+  const bits: string[] = [];
+  if (typeof stats.totalSolved === 'number' && stats.totalSolved > 0) {
+    bits.push(`${stats.totalSolved} problem${stats.totalSolved === 1 ? '' : 's'} solved`);
+  }
+  if (typeof stats.longestStreak === 'number' && stats.longestStreak > stats.currentStreak) {
+    bits.push(`longest streak ${stats.longestStreak} days`);
+  }
+  if (bits.length > 0) lines.push(bits.join(' · '));
+  lines.push('');
+  lines.push('One problem a day, every day. Come build with us 👇');
+  lines.push(CLUB_SHARE_URL);
+  lines.push('');
+  lines.push('#coding #dsa #competitiveprogramming #codescriet #CCSU');
+  return lines.join('\n');
+}
+
+// The LinkedIn feed composer for a given URL (one click → composer opens with our
+// OG card). `?utm_*` lets us see share-driven traffic without extra tooling.
+export function linkedInShareUrl(url: string = `${CLUB_SHARE_URL}/?utm_source=linkedin&utm_medium=social&utm_campaign=streak_share`): string {
+  return `https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(url)}`;
+}

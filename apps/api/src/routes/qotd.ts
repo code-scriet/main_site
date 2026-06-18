@@ -9,6 +9,7 @@ import { requireNotBlocked } from '../middleware/blocks.js';
 import { auditLog } from '../utils/audit.js';
 import { parsePaginationNumber } from '../utils/pagination.js';
 import { ApiResponse, setPublicCache } from '../utils/response.js';
+import { logger } from '../utils/logger.js';
 import { createProblemFromInput, serializeProblemDetail, toIstDateKey, type ProblemInput } from '../utils/problemsCore.js';
 import { formatUsageDate } from '../utils/dailyLimit.js';
 import { recomputeUserStreakSafe, invalidatePublishedQotdCache, recomputeStreaksForQOTDSafe } from '../utils/qotdStreak.js';
@@ -701,7 +702,8 @@ qotdRouter.post('/:id/reopen', authMiddleware, requireRole('ADMIN'), async (req:
     const token = signQotdReopenToken({ qotdId: qotd.id, date: dateKey, nonce: reopenedAt.toISOString() });
     await auditLog(authUser.id, 'QOTD_REOPENED', 'qotd', qotd.id, { date: dateKey, fresh: !qotd.reopenedAt });
     return ApiResponse.success(res, { id: qotd.id, date: dateKey, reopenedAt, token }, 'QOTD reopened');
-  } catch {
+  } catch (error) {
+    logger.error('Failed to reopen QOTD', { id: req.params.id, error: error instanceof Error ? error.message : String(error) });
     return ApiResponse.internal(res, 'Failed to reopen QOTD');
   }
 });
@@ -718,7 +720,8 @@ qotdRouter.post('/:id/close-reopen', authMiddleware, requireRole('ADMIN'), async
     await prisma.qOTD.update({ where: { id: qotd.id }, data: { reopenedAt: null, reopenedBy: null } });
     await auditLog(authUser.id, 'QOTD_REOPEN_CLOSED', 'qotd', qotd.id);
     return ApiResponse.success(res, { id: qotd.id, reopenedAt: null }, 'Reopened QOTD closed');
-  } catch {
+  } catch (error) {
+    logger.error('Failed to close reopened QOTD', { id: req.params.id, error: error instanceof Error ? error.message : String(error) });
     return ApiResponse.internal(res, 'Failed to close reopened QOTD');
   }
 });

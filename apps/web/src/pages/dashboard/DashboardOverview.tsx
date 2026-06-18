@@ -20,6 +20,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { AdminPendingRequestsCardV2 } from '@/components/dashboard/AdminPendingRequestsCardV2';
 import { CertificateCard, getCertificateCover, type CertificateCardData } from '@/components/dashboard/CertificateCard';
+import { ShareStreakButton } from '@/components/dashboard/ShareStreakButton';
 import { relativeTime } from '@/lib/dateUtils';
 import { getPlaygroundLaunchUrl } from '@/lib/playgroundUrl';
 import { cn } from '@/lib/utils';
@@ -210,6 +211,7 @@ export default function DashboardOverview() {
         qotd={todayQOTDQ.data ?? null}
         currentStreak={qotdStatsQ.data?.currentStreak ?? 0}
         longestStreak={qotdStatsQ.data?.longestStreak ?? 0}
+        totalSolved={totalSolved}
         todaySolved={qotdStatsQ.data?.todaySolved ?? false}
         last30Days={last30}
         onSolve={() => navigate('/qotd/today')}
@@ -452,12 +454,13 @@ function secondsUntilMidnightIST(): number {
 
 // ─── QOTD Hero
 function QOTDHero({
-  loading, qotd, currentStreak, longestStreak, todaySolved, last30Days, onSolve, onHistory,
+  loading, qotd, currentStreak, longestStreak, totalSolved, todaySolved, last30Days, onSolve, onHistory,
 }: {
   loading: boolean;
   qotd: { id: string; date: string; title?: string | null; question?: string; difficulty?: string; tags?: string[]; problemId?: string | null } | null;
   currentStreak: number;
   longestStreak: number;
+  totalSolved: number;
   todaySolved: boolean;
   last30Days?: Array<{ date: string; solved: boolean }>;
   onSolve: () => void;
@@ -589,6 +592,11 @@ function QOTDHero({
           <div className="text-[10.5px] text-[var(--ds-text-3)] mt-1.5 whitespace-nowrap font-mono tabular-nums">
             longest {longestStreak}
           </div>
+          <ShareStreakButton
+            stats={{ currentStreak, longestStreak, totalSolved }}
+            className="mt-3"
+            label="Share streak"
+          />
         </div>
       </div>
     </DSCard>

@@ -23,6 +23,7 @@ import {
 } from '../utils/problemsCore.js';
 import { enqueueRejudgeJob, getRejudgeJob } from '../utils/rejudgeJobs.js';
 import { invalidateQotdLeaderboardCaches } from './qotd.js';
+import { recomputeUserStreakSafe } from '../utils/qotdStreak.js';
 import { getCachedSettings } from '../utils/settingsCache.js';
 import { requireUuid } from '../utils/idParams.js';
 
@@ -656,7 +657,9 @@ problemsRouter.get('/:id/leaderboard', async (req: Request, res: Response) => {
     const problemId = await resolveProblemId(req.params.id);
     const limit = Math.min(10, Math.max(1, Number(req.query.limit) || 10));
     const submissions = await prisma.problemSubmission.findMany({
-      where: { problemId, contextType, contextKey },
+      // Exclude held reopen solves (verdict PENDING) so an unaccepted late solve
+      // never appears on a leaderboard; normal non-accepted attempts aren't PENDING.
+      where: { problemId, contextType, contextKey, verdict: { not: 'PENDING' } },
       orderBy: [{ score: 'desc' }, { submittedAt: 'asc' }],
       take: limit,
       include: { user: { select: { id: true, name: true, avatar: true } } },
@@ -718,7 +721,7 @@ problemsRouter.patch('/:id/override/:submissionId', authMiddleware, requireRole(
     const problemId = await resolveProblemId(req.params.id);
     const existing = await prisma.problemSubmission.findUnique({
       where: { id: req.params.submissionId },
-      select: { id: true, problemId: true, contextType: true, contextKey: true },
+      select: { id: true, userId: true, problemId: true, contextType: true, contextKey: true },
     });
     if (!existing || existing.problemId !== problemId) {
       return ApiResponse.notFound(res, 'Submission not found for this problem');
@@ -730,11 +733,18 @@ problemsRouter.patch('/:id/override/:submissionId', authMiddleware, requireRole(
         ...(parsed.data.score !== undefined ? { score: parsed.data.score } : {}),
         overrideNotes: parsed.data.notes ?? null,
         manualOverride: true,
-        // Grading the submission resolves it out of the review queue.
+        // Grading the submission resolves it out of the review queue and clears any
+        // reopen acceptance hold (the admin's verdict is now authoritative).
         needsReview: false,
+        reopenPending: false,
       },
     });
-    if (existing.contextType === 'QOTD') invalidateQotdLeaderboardCaches(existing.contextKey);
+    if (existing.contextType === 'QOTD') {
+      invalidateQotdLeaderboardCaches(existing.contextKey);
+      // A QOTD verdict moving to/from ACCEPTED changes the user's solved-day set —
+      // recompute their materialized streak so it reflects the manual grade.
+      if (parsed.data.verdict) recomputeUserStreakSafe(existing.userId);
+    }
     await auditLog(admin.id, 'PROBLEM_SUBMISSION_OVERRIDDEN', 'ProblemSubmission', submission.id, {
       problemId,
       verdict: parsed.data.verdict,
@@ -812,6 +822,84 @@ problemsRouter.get('/admin/review-queue', authMiddleware, requireRole('ADMIN'), 
     return ApiResponse.success(res, { submissions });
   } catch (error) {
     return handleProblemError(res, error, 'Failed to fetch review queue');
+  }
+});
+
+// Accept a held reopened-QOTD solve. The solve was judged ACCEPTED but parked at
+// verdict PENDING (reopen_pending=true); accepting flips it to ACCEPTED so it now
+// counts — streak + every QOTD leaderboard recompute — and rings the solver's bell.
+problemsRouter.post('/admin/reopen/:submissionId/accept', authMiddleware, requireRole('ADMIN'), async (req: Request, res: Response) => {
+  try {
+    if (!requireUuid(res, req.params.submissionId, 'submission ID')) return;
+    const admin = getAuthUser(req);
+    if (!admin) return ApiResponse.unauthorized(res);
+    const existing = await prisma.problemSubmission.findUnique({
+      where: { id: req.params.submissionId },
+      select: { id: true, userId: true, contextType: true, contextKey: true, reopenPending: true },
+    });
+    if (!existing) return ApiResponse.notFound(res, 'Submission not found');
+    if (!existing.reopenPending) return ApiResponse.badRequest(res, 'This submission is not awaiting reopen acceptance');
+
+    const submission = await prisma.problemSubmission.update({
+      where: { id: existing.id },
+      data: { verdict: 'ACCEPTED', reopenPending: false, needsReview: false },
+    });
+    // Now that the row is ACCEPTED, the normal pipeline counts it everywhere.
+    if (existing.contextType === 'QOTD') {
+      invalidateQotdLeaderboardCaches(existing.contextKey);
+      recomputeUserStreakSafe(existing.userId);
+    }
+    await auditLog(admin.id, 'QOTD_REOPEN_SUBMISSION_ACCEPTED', 'ProblemSubmission', submission.id, {
+      contextKey: existing.contextKey,
+      userId: existing.userId,
+    });
+    void broadcastNotification({
+      source: 'AUTO_QOTD',
+      audience: 'CUSTOM',
+      audienceUserIds: [existing.userId],
+      category: 'streak',
+      icon: 'check',
+      title: 'Your late QOTD solve was accepted',
+      body: 'An admin accepted your reopened-QOTD solve — your streak, marks and leaderboard standing now count it.',
+      link: '/dashboard/coding',
+      refEntity: 'qotd-reopen-accept',
+      refEntityId: submission.id,
+    }).catch(() => undefined);
+    return ApiResponse.success(res, { submission });
+  } catch (error) {
+    return handleProblemError(res, error, 'Failed to accept reopened submission');
+  }
+});
+
+// Reject a held reopened-QOTD solve. The row stays at verdict PENDING (it never
+// counts) and is cleared out of the review queue. Idempotent on the flag.
+problemsRouter.post('/admin/reopen/:submissionId/reject', authMiddleware, requireRole('ADMIN'), async (req: Request, res: Response) => {
+  try {
+    if (!requireUuid(res, req.params.submissionId, 'submission ID')) return;
+    const admin = getAuthUser(req);
+    if (!admin) return ApiResponse.unauthorized(res);
+    const schema = z.object({ note: z.string().max(2_000).optional() });
+    const parsed = schema.safeParse(req.body ?? {});
+    if (!parsed.success) return ApiResponse.badRequest(res, parsed.error.errors[0]?.message || 'Invalid payload');
+    const existing = await prisma.problemSubmission.findUnique({
+      where: { id: req.params.submissionId },
+      select: { id: true, userId: true, contextKey: true, reopenPending: true },
+    });
+    if (!existing) return ApiResponse.notFound(res, 'Submission not found');
+    if (!existing.reopenPending) return ApiResponse.badRequest(res, 'This submission is not awaiting reopen acceptance');
+
+    const submission = await prisma.problemSubmission.update({
+      where: { id: existing.id },
+      // Verdict stays PENDING (non-counting); just clear the queue/hold flags.
+      data: { reopenPending: false, needsReview: false, overrideNotes: parsed.data.note ?? 'Reopen solve not accepted' },
+    });
+    await auditLog(admin.id, 'QOTD_REOPEN_SUBMISSION_REJECTED', 'ProblemSubmission', submission.id, {
+      contextKey: existing.contextKey,
+      userId: existing.userId,
+    });
+    return ApiResponse.success(res, { submission });
+  } catch (error) {
+    return handleProblemError(res, error, 'Failed to reject reopened submission');
   }
 });
 

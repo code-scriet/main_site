@@ -190,6 +190,9 @@ export interface ProblemSubmission {
   manualOverride?: boolean;
   overrideNotes?: string | null;
   needsReview?: boolean;
+  // A reopened-past-QOTD solve judged ACCEPTED but held for admin acceptance
+  // (verdict stays PENDING and nothing counts until an admin approves it).
+  reopenPending?: boolean;
   appealedAt?: string | null;
   appealNote?: string | null;
   submittedAt: string;
