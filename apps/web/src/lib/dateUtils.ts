@@ -26,6 +26,17 @@ const DATE_STYLE_OPTIONS: Record<DateFormatStyle, Intl.DateTimeFormatOptions> = 
 };
 
 /**
+ * Get the IST calendar date as a YYYY-MM-DD key, independent of the browser's
+ * timezone. Matches the server's getIstDateKey semantics so date comparisons
+ * (e.g. "is this QOTD in the past?") agree with the IST-based backend.
+ */
+export function istDateKey(dateInput: string | Date = new Date()): string {
+  const date = new Date(dateInput);
+  // en-CA renders as ISO YYYY-MM-DD; pin the timezone so the day boundary is IST.
+  return date.toLocaleDateString('en-CA', { timeZone: IST_TIMEZONE });
+}
+
+/**
  * Format a date for datetime-local input field
  * Returns format: YYYY-MM-DDTHH:MM in IST timezone
  */

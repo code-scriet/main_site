@@ -44,6 +44,9 @@ export interface QOTDSolverContext {
   practice?: boolean;
   modeLabel: string;
   leaderboardHref?: string;
+  // Signed 'qotd_reopen' token — present when solving a past QOTD via a private
+  // admin link; sent on run/submit so the past day is accepted and scored.
+  reopenToken?: string;
 }
 
 export interface QOTDSolverShellProps {
@@ -444,6 +447,7 @@ export function QOTDSolverShell({ problem, context, onExit }: QOTDSolverShellPro
       code,
       contextType: context.type,
       contextKey: context.key,
+      reopenToken: context.reopenToken,
     }),
     onSuccess: (result) => {
       setLastRun(result);
@@ -463,9 +467,20 @@ export function QOTDSolverShell({ problem, context, onExit }: QOTDSolverShellPro
       contextType: context.type,
       contextKey: context.key,
       activeMs: getActiveElapsedMs(),
+      reopenToken: context.reopenToken,
     }),
     onSuccess: async (result) => {
-      toast.success(`Submitted. Verdict: ${verdictLabel(result.verdict)}`);
+      if (result.pendingAcceptance) {
+        // Reopened past QOTD: judged ACCEPTED but held for admin acceptance. Nothing
+        // counts (streak/marks/leaderboard) until an admin approves it.
+        toast.success('Solved! Sent to an admin for acceptance — your streak and marks update once it\'s approved.');
+      } else if (result.needsReview) {
+        // Judging itself was down (upstream outage). The code was saved and the
+        // attempt refunded; the student can ask for a manual review.
+        toast.warning('Judging is temporarily unavailable. Your submission was saved — you can request a manual review.');
+      } else {
+        toast.success(`Submitted. Verdict: ${verdictLabel(result.verdict)}`);
+      }
       setLastRun(null); // drop any prior test-run state so results reflect this submission
       setRemainingCap(result.remainingSubmits);
       setRemainingDaily(result.remainingDailyQuota);
@@ -473,6 +488,20 @@ export function QOTDSolverShell({ problem, context, onExit }: QOTDSolverShellPro
       setTab('overview');
     },
     onError: (error) => toast.error(error instanceof Error ? error.message : 'Submit failed'),
+  });
+
+  const appealMutation = useMutation({
+    mutationFn: () =>
+      mainApi.appealSubmission(problem.id, {
+        contextType: context.type,
+        contextKey: context.key,
+        note: 'Judging was unavailable when I submitted.',
+      }),
+    onSuccess: async () => {
+      toast.success('Appeal sent — an admin will review your submission.');
+      await queryClient.invalidateQueries({ queryKey: ['qotd-shell-submission', problem.id, context.type, context.key] });
+    },
+    onError: (error) => toast.error(error instanceof Error ? error.message : 'Failed to send appeal'),
   });
 
   const requestCapMutation = useMutation({
@@ -662,6 +691,34 @@ export function QOTDSolverShell({ problem, context, onExit }: QOTDSolverShellPro
                   </div>
                 </div>
                 <CompilerOutputPanel verdict={latestSubmission?.verdict} output={latestSubmission?.compilerOutput} />
+                {latestSubmission?.reopenPending && (
+                  <div className="rounded border border-amber-400/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-800 dark:text-amber-200">
+                    <p className="font-medium">Solved via a reopen link — sent to an admin for acceptance.</p>
+                    <p className="mt-1 text-amber-700/90 dark:text-amber-300/80">
+                      Your code passed ({latestSubmission.passedCount}/{latestSubmission.totalCount}). It only counts toward your streak, marks &amp; leaderboard once an admin accepts it.
+                    </p>
+                  </div>
+                )}
+                {/* "Judging unavailable" is distinct from the reopen hold above — never show both. */}
+                {!latestSubmission?.reopenPending && (latestSubmission?.needsReview || latestSubmission?.verdict === 'JUDGE_ERROR') && (
+                  <div className="rounded border border-sky-400/30 bg-sky-500/10 px-4 py-3 text-sm text-sky-800 dark:text-sky-200">
+                    {latestSubmission?.appealedAt ? (
+                      <p className="font-medium">Appeal submitted — an admin will review your submission and set the verdict manually.</p>
+                    ) : (
+                      <div className="flex flex-col gap-2">
+                        <p className="font-medium">Judging was temporarily unavailable, so this submission couldn’t be graded automatically. Your code is saved and your attempt was not used.</p>
+                        <button
+                          type="button"
+                          onClick={() => appealMutation.mutate()}
+                          disabled={appealMutation.isPending}
+                          className="self-start rounded bg-sky-600 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-sky-700 disabled:opacity-60"
+                        >
+                          {appealMutation.isPending ? 'Sending…' : 'Request manual review'}
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
                 <ResultBar label="Public Tests" passed={publicPassed} total={publicTotal} onClick={() => { setTab('tests'); setTestPanel('public'); }} />
                 <ResultBar label="Private Tests" passed={privatePassed} total={privateTotal} hidden onClick={() => { setTab('tests'); setTestPanel('private'); }} />
               </div>
@@ -758,7 +815,7 @@ export function QOTDSolverShell({ problem, context, onExit }: QOTDSolverShellPro
                 <div className="grid min-h-[360px] place-items-center rounded border border-dashed border-zinc-300 bg-zinc-50 px-8 text-center dark:border-zinc-700 dark:bg-zinc-900">
                   <div>
                     <Lock className="mx-auto h-10 w-10 text-zinc-400" />
-                    <p className="mt-4 text-base font-semibold text-zinc-900 dark:text-zinc-100">Solution unlocks once you have submitted at least 2 times in this problem and the deadline has passed.</p>
+                    <p className="mt-4 text-base font-semibold text-zinc-900 dark:text-zinc-100">Solution unlocks once you solve it — or, after the deadline has passed, once you have submitted at least twice.</p>
                   </div>
                 </div>
               )

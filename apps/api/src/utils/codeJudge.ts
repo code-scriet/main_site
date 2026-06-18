@@ -1,5 +1,6 @@
 import { ProblemLanguage, SubmissionVerdict } from '@prisma/client';
 import { logger } from './logger.js';
+import { getCachedSettings } from './settingsCache.js';
 import { buildHarness as buildPythonHarness } from './judgeHarnesses/python.js';
 import { buildHarness as buildJavaScriptHarness } from './judgeHarnesses/javascript.js';
 import { buildHarness as buildCppHarness } from './judgeHarnesses/cpp.js';
@@ -83,6 +84,20 @@ class Semaphore {
 
 const submitSemaphore = new Semaphore(SUBMIT_CONCURRENCY);
 const testRunSemaphore = new Semaphore(TESTRUN_CONCURRENCY);
+
+// Wandbox runs every execution in a throwaway container. When its host is out of
+// capacity the upstream returns messages like
+//   "Error: OCI runtime error: crun: clone: Resource temporarily unavailable"
+// (a clone()/fork() EAGAIN) inside compiler_error / stderr, with no program
+// output. That is an infrastructure outage — NOT the student's code. It must
+// surface as JUDGE_ERROR (retryable, rolls back the submit cap, never persists a
+// verdict), never as COMPILATION_ERROR, which would both mislead the user and
+// clobber a prior ACCEPTED verdict on resubmit.
+const INFRA_FAILURE_RE = /OCI runtime|\bcrun\b|\brunc\b|Resource temporarily unavailable|Cannot allocate memory|cannot fork|pthread_create|No space left on device|\bEAGAIN\b/i;
+
+function isInfraFailure(text: string | undefined): boolean {
+  return !!text && INFRA_FAILURE_RE.test(text);
+}
 
 function truncate(value: string | undefined, maxBytes: number): string | undefined {
   if (!value) return undefined;
@@ -233,6 +248,10 @@ export async function runJudge(req: JudgeRequest): Promise<JudgeResult> {
       req.timeLimitMs,
     );
     const stdin = buildJudgeStdin(req.testCases.map(({ id, input }) => ({ id, input })));
+    // Admin-selected execution provider (wandbox | godbolt), read from the 5-min
+    // settings cache so this stays a no-op DB-wise on the hot judge path. The CF
+    // Worker tries it first and falls back to the other on an infra failure.
+    const provider = (await getCachedSettings())?.codeExecutionProvider || 'wandbox';
     const controller = new AbortController();
     const isCompiled = req.language === 'CPP' || req.language === 'JAVA';
     const ceiling = isCompiled ? COMPILED_EXECUTION_TIMEOUT_MS : EXECUTION_TIMEOUT_MS;
@@ -251,6 +270,7 @@ export async function runJudge(req: JudgeRequest): Promise<JudgeResult> {
           code: wrappedCode,
           stdin,
           options: compiler.options || '',
+          provider,
           ...(compiler.compilerOptionRaw ? { 'compiler-option-raw': compiler.compilerOptionRaw } : {}),
         }),
         signal: controller.signal,
@@ -303,6 +323,18 @@ export async function runJudge(req: JudgeRequest): Promise<JudgeResult> {
     const status = Number.parseInt(String(workerResult.status ?? '0'), 10) || 0;
     const signal = cleanWorkerText(workerResult.signal);
     const combinedCompilerOutput = truncate([compilerOutput, compilerError, stderr].filter(Boolean).join('\n'), COMPILER_OUTPUT_LIMIT);
+
+    // Upstream container/host capacity failure (no program ran) — classify as a
+    // retryable judge outage, not a code-compilation failure.
+    if (!stdout.includes('__JUDGE:') && (isInfraFailure(compilerError) || isInfraFailure(stderr))) {
+      logger.warn('Judge upstream resource failure', { snippet: (compilerError || stderr).slice(0, 200) });
+      return {
+        verdict: 'JUDGE_ERROR',
+        perTestVerdicts: [],
+        totalRuntimeMs: Date.now() - totalStartedAt,
+        compilerOutput: 'Execution service is temporarily unavailable. Please try again in a moment.',
+      };
+    }
 
     if (compilerError && !stdout.includes('__JUDGE:')) {
       return {

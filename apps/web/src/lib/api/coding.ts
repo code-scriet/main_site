@@ -10,6 +10,9 @@ import type {
   ProblemInput,
   ProblemLanguage,
   ProblemLeaderboardEntry,
+  ProblemSheetDetail,
+  ProblemSheetInput,
+  ProblemSheetSummary,
   ProblemSubmission,
   QOTDDailyLeaderboard,
   QOTDDetail,
@@ -51,6 +54,18 @@ export const codingApi = {
     request<{ success: boolean }>(`/problems/${id}`, { method: 'DELETE', token }),
   setProblemPublished: (id: string, isPublished: boolean, token: string) =>
     request<{ problem: Problem }>(`/problems/${id}/publish`, { method: 'PATCH', body: JSON.stringify({ isPublished }), token }),
+
+  // S-09 — curated problem sheets ("topic ladders")
+  getProblemSheets: (token?: string) =>
+    request<{ sheets: ProblemSheetSummary[] }>('/problems/sheets', token ? { token } : {}),
+  getProblemSheet: (slug: string, token?: string) =>
+    request<{ sheet: ProblemSheetDetail }>(`/problems/sheets/${slug}`, token ? { token } : {}),
+  createProblemSheet: (input: ProblemSheetInput, token: string) =>
+    request<{ sheet: { id: string; slug: string } }>('/problems/sheets', { method: 'POST', body: JSON.stringify(input), token }),
+  updateProblemSheet: (id: string, input: Partial<ProblemSheetInput>, token: string) =>
+    request<{ sheet: { id: string; slug: string } }>(`/problems/sheets/${id}`, { method: 'PUT', body: JSON.stringify(input), token }),
+  deleteProblemSheet: (id: string, token: string) =>
+    request<{ id: string }>(`/problems/sheets/${id}`, { method: 'DELETE', token }),
   runProblem: (id: string, data: { language: ProblemLanguage; code: string; contextType?: ProblemContextType; contextKey?: string }, token: string) =>
     request<TestRunResult>(`/problems/${id}/run`, { method: 'POST', body: JSON.stringify(data), token }),
   submitProblem: (id: string, data: { language: ProblemLanguage; code: string; contextType: ProblemContextType; contextKey: string }, token: string) =>
@@ -70,6 +85,15 @@ export const codingApi = {
   },
   adminOverrideSubmission: (problemId: string, submissionId: string, override: { verdict?: SubmissionVerdict; score?: number; notes?: string }, token: string) =>
     request<{ submission: ProblemSubmission }>(`/problems/${problemId}/override/${submissionId}`, { method: 'PATCH', body: JSON.stringify(override), token }),
+  appealSubmission: (problemId: string, input: { contextType: ProblemContextType; contextKey: string; note?: string }, token: string) =>
+    request<{ submission: ProblemSubmission }>(`/problems/${problemId}/appeal`, { method: 'POST', body: JSON.stringify(input), token }),
+  adminGetReviewQueue: (token: string, limit = 100) =>
+    request<{ submissions: ProblemSubmission[] }>(`/problems/admin/review-queue?limit=${limit}`, { token }),
+  // Accept / reject a held reopened-past-QOTD solve (verdict PENDING + reopenPending).
+  adminAcceptReopenSubmission: (submissionId: string, token: string) =>
+    request<{ submission: ProblemSubmission }>(`/problems/admin/reopen/${submissionId}/accept`, { method: 'POST', token }),
+  adminRejectReopenSubmission: (submissionId: string, token: string, note?: string) =>
+    request<{ submission: ProblemSubmission }>(`/problems/admin/reopen/${submissionId}/reject`, { method: 'POST', body: JSON.stringify({ note }), token }),
   adminRejudgeProblem: (id: string, filter: { contextType?: ProblemContextType; contextKey?: string } | undefined, token: string) =>
     request<{ jobId: string }>(`/problems/${id}/rejudge`, { method: 'POST', body: JSON.stringify(filter ?? {}), token }),
   adminRejudgeStatus: (id: string, jobId: string, token: string) =>
@@ -110,6 +134,11 @@ export const codingApi = {
     request<{ success: boolean; problemId: string }>(`/qotd/${id}/publish-practice`, { method: 'POST', token }),
   unpublishQOTDFromPractice: (id: string, token: string) =>
     request<{ success: boolean }>(`/qotd/${id}/unpublish-practice`, { method: 'POST', token }),
+  // Reopen a past QOTD (PRES/SA) → returns the signed private-link token.
+  reopenQOTD: (id: string, token: string) =>
+    request<{ id: string; date: string; reopenedAt: string | null; token: string }>(`/qotd/${id}/reopen`, { method: 'POST', token }),
+  closeReopenQOTD: (id: string, token: string) =>
+    request<{ id: string; reopenedAt: null }>(`/qotd/${id}/close-reopen`, { method: 'POST', token }),
   submitQOTD: (id: string, token: string) =>
     request(`/qotd/${id}/submit`, { method: 'POST', token }),
   deleteQOTD: (id: string, token: string) =>

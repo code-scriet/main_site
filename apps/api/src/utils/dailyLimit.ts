@@ -98,6 +98,20 @@ export async function consumeDailyQuota(
   };
 }
 
+/**
+ * Give back a previously-consumed daily-quota unit (bounded at 0). Used when a
+ * submit fails for a reason that is NOT the user's fault (judge/infra outage),
+ * so an upstream failure never burns the student's daily allowance.
+ */
+export async function refundDailyQuota(userId: string, amount = 1): Promise<void> {
+  if (amount < 1) return;
+  const usageDate = getUsageDate();
+  await prisma.playgroundDailyUsage.updateMany({
+    where: { userId, usageDate, count: { gte: amount } },
+    data: { count: { decrement: amount } },
+  });
+}
+
 export async function resetDailyQuotaAndPracticeCounters(userId: string): Promise<void> {
   const usageDate = getUsageDate();
   const todayKey = formatUsageDate();

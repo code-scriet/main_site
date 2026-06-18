@@ -60,24 +60,48 @@ string __judge_b64(const string& in) {
   return out;
 }
 
+// Read the WHOLE judge protocol straight off fd 0 with a raw read() syscall —
+// deliberately bypassing cin / the C stdin FILE. The parent must never touch the
+// standard input streams: each forked child re-points fd 0 at its own pipe and
+// relies on cin/scanf being pristine (see __run_one_test). If the parent consumed
+// stdin through cin, the child would inherit a spent/at-EOF stream buffer.
+static string __judge_read_all_stdin() {
+  string data;
+  char buf[65536];
+  ssize_t n;
+  while ((n = read(STDIN_FILENO, buf, sizeof(buf))) > 0) {
+    data.append(buf, buf + n);
+  }
+  return data;
+}
+
 vector<__JudgeTest> __judge_read_tests() {
+  string data = __judge_read_all_stdin();
+  size_t off = 0;
+  auto readLine = [&]() -> string {
+    size_t nl = data.find('\\n', off);
+    size_t end = (nl == string::npos) ? data.size() : nl;
+    if (end > off && data[end - 1] == '\\r') end -= 1;
+    string line = data.substr(off, end - off);
+    off = (nl == string::npos) ? data.size() : nl + 1;
+    return line;
+  };
+
   vector<__JudgeTest> tests;
-  string header;
-  getline(cin, header);
+  string header = readLine();
   if (header.rfind("__N=", 0) != 0) throw runtime_error("invalid judge input");
   int total = stoi(header.substr(4));
   for (int i = 0; i < total; ++i) {
-    string idLine, lenLine;
-    getline(cin, idLine);
-    getline(cin, lenLine);
+    string idLine = readLine();
+    string lenLine = readLine();
     if (idLine.rfind("__ID=", 0) != 0 || lenLine.rfind("__LEN=", 0) != 0) {
       throw runtime_error("invalid judge metadata");
     }
     int length = stoi(lenLine.substr(6));
-    string body(length, '\\0');
-    cin.read(&body[0], length);
-    if (cin.peek() == '\\r') cin.get();
-    if (cin.peek() == '\\n') cin.get();
+    string body = data.substr(off, length);
+    off += length;
+    if (off < data.size() && data[off] == '\\r') off += 1;
+    if (off < data.size() && data[off] == '\\n') off += 1;
     tests.push_back({ idLine.substr(5), body });
   }
   return tests;
@@ -115,19 +139,15 @@ __TestOutcome __run_one_test(const __JudgeTest& test) {
     close(inPipe[0]); close(inPipe[1]);
     close(outPipe[0]); close(outPipe[1]);
 
-    // Force the C++ iostreams to read/write from the new fds. The parent's cin
-    // already consumed the protocol bytes, so we have to rebind cin's streambuf
-    // and resync with the new C-stream state. Heap-allocated so they outlive
-    // any function frame (child will _exit anyway).
-    freopen("/dev/stdin", "r", stdin);
-    freopen("/dev/stdout", "w", stdout);
-    freopen("/dev/stderr", "w", stderr);
-    auto* freshIn = new ifstream("/dev/stdin");
-    auto* freshOut = new ofstream("/dev/stdout");
-    auto* freshErr = new ofstream("/dev/stderr");
-    cin.rdbuf(freshIn->rdbuf());
-    cout.rdbuf(freshOut->rdbuf());
-    cerr.rdbuf(freshErr->rdbuf());
+    // Do NOT reopen /dev/stdin|stdout|stderr here. The execution sandbox (both
+    // Wandbox and godbolt) does not expose those device files — fopen returns
+    // NULL and ofstream("/dev/stdout") silently fails to open, which used to
+    // rebind cout to a dead streambuf and DISCARD every byte the user printed
+    // (every C++ submission came back with empty output → wrong answer).
+    // Instead we rely on the dup2 above: fd 0/1/2 already point at the pipes,
+    // and because the parent read the protocol via a raw read() syscall (never
+    // through cin / the C stdin FILE), the child's cin/cout/scanf/printf are
+    // pristine and operate directly on the new fds. Nothing to rebind.
     cin.clear();
     cout.clear();
     cerr.clear();

@@ -9,12 +9,15 @@ import { requireNotBlocked } from '../middleware/blocks.js';
 import { auditLog } from '../utils/audit.js';
 import { parsePaginationNumber } from '../utils/pagination.js';
 import { ApiResponse, setPublicCache } from '../utils/response.js';
+import { logger } from '../utils/logger.js';
 import { createProblemFromInput, serializeProblemDetail, toIstDateKey, type ProblemInput } from '../utils/problemsCore.js';
 import { formatUsageDate } from '../utils/dailyLimit.js';
 import { recomputeUserStreakSafe, invalidatePublishedQotdCache, recomputeStreaksForQOTDSafe } from '../utils/qotdStreak.js';
 import { broadcastQotdLive } from '../utils/notifications.js';
 import { armQotdPublishTimer, cancelQotdPublishTimer } from '../utils/scheduler.js';
 import { uuidParamGuard } from '../utils/idParams.js';
+import { isPresidentOrSuperAdmin } from '../utils/superAdmin.js';
+import { signQotdReopenToken } from '../utils/jwt.js';
 
 export const qotdRouter = Router();
 
@@ -251,9 +254,26 @@ qotdRouter.get('/history', optionalAuthMiddleware, async (req: Request, res: Res
     const authUser = getAuthUser(req);
     // Staff (CORE_MEMBER+) may opt into seeing unpublished/scheduled QOTDs (including future) for admin views.
     const includeUnpublished = req.query.includeUnpublished === 'true' && isStaffAuth(authUser);
-    const baseWhere = includeUnpublished
-      ? {}
-      : { date: { lt: end }, isPublished: true };
+    // Optional single-day lookup (?date=YYYY-MM-DD). The playground uses this to
+    // resolve one specific past day's QOTD (e.g. an admin "reopen" link) directly,
+    // instead of paging through history — so a reopened day of ANY age resolves,
+    // not just one inside the last N entries. QOTD.date is stored at UTC-midnight,
+    // whose date portion IS the QOTD's calendar-date key.
+    const dateParam = typeof req.query.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(req.query.date)
+      ? req.query.date
+      : null;
+    let dateWhere: { gte: Date; lt: Date } | undefined;
+    if (dateParam) {
+      const dayStart = new Date(`${dateParam}T00:00:00.000Z`);
+      if (!Number.isNaN(dayStart.getTime())) {
+        dateWhere = { gte: dayStart, lt: new Date(dayStart.getTime() + 24 * 60 * 60 * 1000) };
+      }
+    }
+    const baseWhere = dateWhere
+      ? { ...(includeUnpublished ? {} : { isPublished: true }), date: dateWhere }
+      : includeUnpublished
+        ? {}
+        : { date: { lt: end }, isPublished: true };
     const [qotds, total] = await Promise.all([
       prisma.qOTD.findMany({
         where: baseWhere,
@@ -287,6 +307,14 @@ qotdRouter.get('/leaderboard/total', async (req: Request, res: Response) => {
     // first step inverts the offset and silently drops every row whose IST date
     // differs from its UTC date (i.e. anything submitted before 05:30 IST or
     // QOTD rows whose UTC midnight is the previous IST day).
+    // A reopened-past-QOTD solve is submitted on a LATER day than the QOTD's own
+    // IST date, so the same-day match below would silently drop it forever — even
+    // after an admin accepts it. Such a solve is only ever stored with
+    // verdict='ACCEPTED' once accepted (held solves stay PENDING), and the
+    // active-day gate means the ONLY way a QOTD-context row is off-day is a
+    // reopen-accepted solve. So `OR verdict='ACCEPTED'` re-admits exactly those
+    // accepted late solves (PENDING holds stay excluded) without changing live-day
+    // behaviour, honouring the feature's "marks/leaderboard count normally" intent.
     const rows = await prisma.$queryRaw<Array<{ user_id: string; total_score: bigint | number; first_solve: Date; latest_solve: Date; solve_days: bigint | number }>>`
       SELECT ps.user_id,
              SUM(ps.score)::int AS total_score,
@@ -296,8 +324,11 @@ qotdRouter.get('/leaderboard/total', async (req: Request, res: Response) => {
       FROM problem_submissions ps
       JOIN qotd q ON q.id = ps.context_key
       WHERE ps.context_type = 'QOTD'
-        AND DATE(ps.submitted_at AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Kolkata')
-            = DATE(q.date AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Kolkata')
+        AND (
+          DATE(ps.submitted_at AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Kolkata')
+              = DATE(q.date AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Kolkata')
+          OR ps.verdict = 'ACCEPTED'
+        )
       GROUP BY ps.user_id
       ORDER BY total_score DESC, first_solve ASC
       LIMIT ${limit};
@@ -347,8 +378,14 @@ qotdRouter.get('/leaderboard/around-me', authMiddleware, async (req: Request, re
         FROM problem_submissions ps
         JOIN qotd q ON q.id = ps.context_key
         WHERE ps.context_type = 'QOTD'
-          AND DATE(ps.submitted_at AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Kolkata')
-              = DATE(q.date AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Kolkata')
+          -- Mirror /leaderboard/total: re-admit accepted reopened-past-QOTD
+          -- solves (off-day, verdict ACCEPTED) so a late solve doesn't vanish
+          -- from the rank window once an admin accepts it.
+          AND (
+            DATE(ps.submitted_at AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Kolkata')
+                = DATE(q.date AT TIME ZONE 'UTC' AT TIME ZONE 'Asia/Kolkata')
+            OR ps.verdict = 'ACCEPTED'
+          )
         GROUP BY ps.user_id
       ), ranked AS (
         SELECT user_id, total_score, first_solve,
@@ -465,7 +502,10 @@ qotdRouter.get('/:qotdId/leaderboard', async (req: Request, res: Response) => {
     if (!qotd?.problemId) return ApiResponse.success(res, { entries: [], publishedAt: null, date: null });
 
     const submissions = await prisma.problemSubmission.findMany({
-      where: { problemId: qotd.problemId, contextType: 'QOTD', contextKey: qotd.id },
+      // Exclude held reopen solves (verdict PENDING) so an un-accepted late solve
+      // never surfaces on the daily board — matching the guard already in
+      // /problems/:id/leaderboard. Normal non-accepted attempts aren't PENDING.
+      where: { problemId: qotd.problemId, contextType: 'QOTD', contextKey: qotd.id, verdict: { not: 'PENDING' } },
       orderBy: [{ score: 'desc' }, { submittedAt: 'asc' }],
       take: 10,
       include: { user: { select: { id: true, name: true, avatar: true } } },
@@ -664,6 +704,64 @@ qotdRouter.post('/:id/hold', authMiddleware, requireRole('ADMIN'), async (req: R
     return ApiResponse.success(res, updated, 'QOTD held');
   } catch {
     return ApiResponse.internal(res, 'Failed to hold QOTD');
+  }
+});
+
+// Reopen a PAST QOTD for late submissions via a private signed link.
+// PRESIDENT / super admin only. Idempotent — calling it again re-stamps and
+// returns a fresh token. The active-day gate is bypassed for link holders, but a
+// reopen solve does NOT auto-count: it is judged then HELD (verdict PENDING,
+// reopen_pending) and only counts toward streak/marks/leaderboard once an admin
+// accepts it from the review queue (see submitProblemForUser + /admin/reopen).
+qotdRouter.post('/:id/reopen', authMiddleware, requireRole('ADMIN'), async (req: Request, res: Response) => {
+  try {
+    const authUser = getAuthUser(req)!;
+    if (!isPresidentOrSuperAdmin(authUser)) {
+      return ApiResponse.forbidden(res, 'Only the President or super admin can reopen a QOTD');
+    }
+    const qotd = await prisma.qOTD.findUnique({
+      where: { id: req.params.id },
+      select: { id: true, date: true, problemId: true, isPublished: true, heldBy: true, reopenedAt: true },
+    });
+    if (!qotd) return ApiResponse.notFound(res, 'QOTD not found');
+    if (!qotd.problemId) return ApiResponse.badRequest(res, 'Legacy text-only QOTDs cannot be reopened');
+    if (!qotd.isPublished || qotd.heldBy) return ApiResponse.badRequest(res, 'Only a published, non-held QOTD can be reopened');
+    if (toIstDateKey(qotd.date) >= formatUsageDate()) {
+      return ApiResponse.badRequest(res, "Only a past QOTD can be reopened (today's is already live)");
+    }
+    // Re-issuing a link for an already-open QOTD must NOT re-stamp reopenedAt:
+    // reopenedAt is the session nonce, so keeping it lets prior links from THIS
+    // session keep working. A fresh open (was closed) mints a new reopenedAt,
+    // which invalidates any link from a previous session.
+    const reopenedAt = qotd.reopenedAt ?? new Date();
+    if (!qotd.reopenedAt) {
+      await prisma.qOTD.update({ where: { id: qotd.id }, data: { reopenedAt, reopenedBy: authUser.id } });
+    }
+    const dateKey = toIstDateKey(qotd.date);
+    const token = signQotdReopenToken({ qotdId: qotd.id, date: dateKey, nonce: reopenedAt.toISOString() });
+    await auditLog(authUser.id, 'QOTD_REOPENED', 'qotd', qotd.id, { date: dateKey, fresh: !qotd.reopenedAt });
+    return ApiResponse.success(res, { id: qotd.id, date: dateKey, reopenedAt, token }, 'QOTD reopened');
+  } catch (error) {
+    logger.error('Failed to reopen QOTD', { id: req.params.id, error: error instanceof Error ? error.message : String(error) });
+    return ApiResponse.internal(res, 'Failed to reopen QOTD');
+  }
+});
+
+// Close a reopened QOTD — revokes every outstanding private link immediately.
+qotdRouter.post('/:id/close-reopen', authMiddleware, requireRole('ADMIN'), async (req: Request, res: Response) => {
+  try {
+    const authUser = getAuthUser(req)!;
+    if (!isPresidentOrSuperAdmin(authUser)) {
+      return ApiResponse.forbidden(res, 'Only the President or super admin can close a reopened QOTD');
+    }
+    const qotd = await prisma.qOTD.findUnique({ where: { id: req.params.id }, select: { id: true } });
+    if (!qotd) return ApiResponse.notFound(res, 'QOTD not found');
+    await prisma.qOTD.update({ where: { id: qotd.id }, data: { reopenedAt: null, reopenedBy: null } });
+    await auditLog(authUser.id, 'QOTD_REOPEN_CLOSED', 'qotd', qotd.id);
+    return ApiResponse.success(res, { id: qotd.id, reopenedAt: null }, 'Reopened QOTD closed');
+  } catch (error) {
+    logger.error('Failed to close reopened QOTD', { id: req.params.id, error: error instanceof Error ? error.message : String(error) });
+    return ApiResponse.internal(res, 'Failed to close reopened QOTD');
   }
 });
 

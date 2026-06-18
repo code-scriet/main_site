@@ -1,9 +1,11 @@
+// MUST be first: populates process.env before any import constructs the Prisma
+// client (Prisma 7's pg adapter reads DATABASE_URL at import time). See loadEnv.ts.
+import './config/loadEnv.js';
 import express from 'express';
 import compression from 'compression';
 import cors from 'cors';
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
-import dotenv from 'dotenv';
 import passport from 'passport';
 import { createServer } from 'http';
 import { Prisma } from '@prisma/client';
@@ -39,6 +41,7 @@ import { attendanceRouter } from './routes/attendance.js';
 import { teamsRouter } from './routes/teams.js';
 import competitionRouter, { recoverActiveRounds } from './routes/competition.js';
 import { problemsRouter } from './routes/problems.js';
+import { problemSheetsRouter } from './routes/problemSheets.js';
 import { initializeAttendanceSocket } from './attendance/attendanceSocket.js';
 import { setupPassport } from './config/passport.js';
 import { requestLogger, logger } from './utils/logger.js';
@@ -50,15 +53,13 @@ import { requireRole } from './middleware/role.js';
 import { emailService } from './utils/email.js';
 import { auditLog } from './utils/audit.js';
 import { prisma } from './lib/prisma.js';
-import { startReminderScheduler, stopReminderScheduler, startQotdAutoPublishScheduler, stopQotdAutoPublishScheduler, startEventStatusScheduler, stopEventStatusScheduler } from './utils/scheduler.js';
+import { startReminderScheduler, stopReminderScheduler, startQotdAutoPublishScheduler, stopQotdAutoPublishScheduler, startEventStatusScheduler, stopEventStatusScheduler, startRegistrationOpenScheduler, stopRegistrationOpenScheduler } from './utils/scheduler.js';
 import { getJwtSecret } from './utils/jwt.js';
 import { setRuntimeAttendanceJwtSecret } from './utils/attendanceToken.js';
 import { getClientIp } from './utils/clientIp.js';
 
-// Load monorepo root .env first, then local .env (local overrides root).
-// In production (Render) neither file exists — env vars come from the dashboard.
-dotenv.config({ path: '../../.env' });
-dotenv.config();
+// Environment is loaded by ./config/loadEnv.js (imported first, above) so the
+// Prisma client sees DATABASE_URL at construction time.
 
 const app = express();
 const httpServer = createServer(app);
@@ -426,6 +427,8 @@ app.use('/api/audit-logs', auditRouter);
 app.use('/api/mail', mailRouter);
 app.use('/api/quiz', quizRouter);
 app.use('/api/playground', playgroundRouter);
+// S-09: mounted BEFORE /api/problems so "sheets" isn't captured by the problems /:idOrSlug route.
+app.use('/api/problems/sheets', problemSheetsRouter);
 app.use('/api/problems', problemsRouter);
 app.use('/api/credits', creditsRouter);
 app.use('/api/attendance', attendanceRouter);
@@ -547,6 +550,7 @@ const shutdown = async () => {
   stopEventStatusScheduler();
   stopReminderScheduler();
   stopQotdAutoPublishScheduler();
+  stopRegistrationOpenScheduler();
 
   // Close Socket.io server first — disconnects all clients (quiz + attendance)
   io.close();
@@ -651,6 +655,7 @@ initializeDatabase()
       startEventStatusScheduler();
       startReminderScheduler();
       startQotdAutoPublishScheduler();
+      startRegistrationOpenScheduler();
     } else {
       logger.info('Background schedulers disabled (development default; set ENABLE_BACKGROUND_SCHEDULERS=true to enable).');
     }

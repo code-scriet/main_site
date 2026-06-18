@@ -37,6 +37,7 @@ export interface QOTDHistoryEntry {
   publishedAt?: string | null;
   heldBy?: string | null;
   holdReason?: string | null;
+  reopenedAt?: string | null;
 }
 
 export interface QOTDDetail extends QOTDHistoryEntry {
@@ -130,6 +131,39 @@ export interface ProblemInput {
   isPublished: boolean;
 }
 
+// S-09 — curated problem sheets ("topic ladders").
+export interface ProblemSheetSummary {
+  id: string;
+  slug: string;
+  title: string;
+  description?: string | null;
+  isPublished: boolean;
+  createdAt: string;
+  total: number;
+  solved: number;
+}
+
+export interface ProblemSheetItem {
+  order: number;
+  id: string;
+  slug: string;
+  title: string;
+  difficulty: 'EASY' | 'MEDIUM' | 'HARD';
+  tags: string[];
+  solved: boolean;
+}
+
+export interface ProblemSheetDetail extends ProblemSheetSummary {
+  items: ProblemSheetItem[];
+}
+
+export interface ProblemSheetInput {
+  title: string;
+  description?: string | null;
+  isPublished?: boolean;
+  problemIds: string[];
+}
+
 export interface ProblemSubmission {
   id: string;
   userId: string;
@@ -155,9 +189,16 @@ export interface ProblemSubmission {
   compilerOutput?: string | null;
   manualOverride?: boolean;
   overrideNotes?: string | null;
+  needsReview?: boolean;
+  // A reopened-past-QOTD solve judged ACCEPTED but held for admin acceptance
+  // (verdict stays PENDING and nothing counts until an admin approves it).
+  reopenPending?: boolean;
+  appealedAt?: string | null;
+  appealNote?: string | null;
   submittedAt: string;
   updatedAt: string;
   user?: { id: string; name: string; email?: string; avatar?: string | null };
+  problem?: { id: string; slug: string; title: string; difficulty: string };
 }
 
 export interface ProblemLeaderboardEntry {
@@ -225,6 +266,8 @@ export interface SubmissionResult {
   compilerOutput?: string;
   remainingSubmits: number;
   remainingDailyQuota: number;
+  /** Judging failed (upstream outage) — submission captured for manual review, attempt refunded. */
+  needsReview?: boolean;
 }
 
 export interface TestRunResult {
@@ -489,6 +532,8 @@ export interface Settings {
   emailTestRecipients?: string | null;
   // Dashboard v2 — admin-controlled accent token. rust | teal | indigo | violet | mint | mono.
   accentColor?: string;
+  // Admin-selected primary code-execution provider for the judge + playground. wandbox | godbolt.
+  codeExecutionProvider?: string;
   // ISO date of the club's founding — drives the "months since inception" stat on /about.
   siteLaunchDate?: string | null;
   updatedAt: string;
@@ -848,6 +893,7 @@ export interface Poll {
   isAnonymous: boolean;
   isPublished: boolean;
   deadline?: string | null;
+  eventId?: string | null;
   createdAt: string;
   updatedAt: string;
   isClosed: boolean;
@@ -868,6 +914,7 @@ export interface PollInput {
   isAnonymous?: boolean;
   deadline?: string | null;
   isPublished?: boolean;
+  eventId?: string | null;
 }
 
 export interface AdminPollListItem {
@@ -880,6 +927,7 @@ export interface AdminPollListItem {
   isAnonymous: boolean;
   isPublished: boolean;
   deadline?: string | null;
+  eventId?: string | null;
   createdAt: string;
   updatedAt: string;
   isClosed: boolean;
@@ -1548,6 +1596,8 @@ export type {
   NotifAudience,
   ComposeNotificationInput,
   BroadcastRow,
+  OnboardingStatus,
+  MonthlyDigest,
 } from './api/dashboard';
 
 export const api = {

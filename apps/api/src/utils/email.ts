@@ -1245,7 +1245,20 @@ class EmailService {
       shortDescription ? sanitizeText(shortDescription) : undefined,
       imageUrl,
     );
-    return this.sendBulk(emails, template.subject, template.html, template.text);
+    // Governed by the same admin toggle as "new event created" emails (event_creation).
+    return this.sendBulk(emails, template.subject, template.html, template.text, 'event_creation');
+  }
+
+  // S-11 — event changed / cancelled notice to registrants.
+  async sendEventUpdate(emails: string[], eventTitle: string, slug: string, kind: 'updated' | 'cancelled', summary: string): Promise<boolean> {
+    const template = EmailTemplates.eventUpdate(sanitizeText(eventTitle), slug, kind, sanitizeText(summary));
+    return this.sendBulk(emails, template.subject, template.html, template.text, 'event_creation');
+  }
+
+  // S-10 — post-event "thanks for coming + feedback" request to attendees.
+  async sendEventFeedback(emails: string[], eventTitle: string, pollSlug: string): Promise<boolean> {
+    const template = EmailTemplates.eventFeedback(sanitizeText(eventTitle), pollSlug);
+    return this.sendBulk(emails, template.subject, template.html, template.text, 'event_creation');
   }
 
   async sendHiringApplication(email: string, name: string, applyingRole: string): Promise<boolean> {

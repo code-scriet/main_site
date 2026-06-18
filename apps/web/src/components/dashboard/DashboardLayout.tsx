@@ -166,6 +166,7 @@ function getNav(opts: {
     { route: 'admin-team', href: '/admin/team', label: 'Team Management', icon: Layers },
     { route: 'admin-achievements', href: '/admin/achievements', label: 'Achievements', icon: Star },
     ...(flags.problems ? [{ route: 'admin-problems', href: '/admin/problems', label: 'Problems', icon: Terminal }] : []),
+    ...(flags.problems ? [{ route: 'admin-submission-review', href: '/admin/submission-review', label: 'Submission Review', icon: Shield }] : []),
     { route: 'admin-credits', href: '/admin/credits', label: 'Credits', icon: BookOpen },
     { route: 'admin-public-view', href: '/admin/public-view', label: 'Public View', icon: Activity },
     ...(flags.hiring ? [{ route: 'admin-hiring', href: '/admin/hiring', label: 'Hiring Applications', icon: Briefcase }] : []),

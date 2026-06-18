@@ -12,6 +12,7 @@ import { SwitchRow } from './atoms';
 interface PollEditorProps {
   form: PollInput;
   setForm: Dispatch<SetStateAction<PollInput>>;
+  events?: Array<{ id: string; title: string }>;
   pollType: PollType;
   onPollTypeChange: (type: PollType) => void;
   onAddOption: () => void;
@@ -27,6 +28,7 @@ interface PollEditorProps {
 export function PollEditor({
   form,
   setForm,
+  events = [],
   pollType,
   onPollTypeChange,
   onAddOption,
@@ -159,6 +161,25 @@ export function PollEditor({
           <div className="rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-soft)] px-4 py-3 text-sm text-[var(--ds-text-2)]">
             Share URL becomes available after save and always points to the public poll page.
           </div>
+        </div>
+
+        {/* S-10: link this poll to an event so it becomes the post-event feedback poll. */}
+        <div className="space-y-2">
+          <Label htmlFor="poll-event">Post-event feedback for (optional)</Label>
+          <select
+            id="poll-event"
+            value={form.eventId ?? ''}
+            onChange={(event) => setForm((current) => ({ ...current, eventId: event.target.value || null }))}
+            className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            <option value="">— Not a feedback poll —</option>
+            {events.map((ev) => (
+              <option key={ev.id} value={ev.id}>{ev.title}</option>
+            ))}
+          </select>
+          <p className="text-xs text-[var(--ds-text-3)]">
+            When linked and published, attendees of this event are automatically asked for feedback (with a link to this poll) about a day after it ends.
+          </p>
         </div>
 
         <div className="grid gap-3 md:grid-cols-2">

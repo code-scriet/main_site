@@ -16,6 +16,7 @@ import { RegistrationEventsCard } from '@/components/admin/settings/Registration
 import { SocialLinksCard } from '@/components/admin/settings/SocialLinksCard';
 import { ContactChannelsCard } from '@/components/admin/settings/ContactChannelsCard';
 import { BrandAccentCard } from '@/components/admin/settings/BrandAccentCard';
+import { CodeExecutionCard } from '@/components/admin/settings/CodeExecutionCard';
 import { SettingsCard } from '@/components/admin/settings/SettingsCard';
 
 const ToggleRow = SharedToggleRow;
@@ -306,6 +307,9 @@ export default function AdminSettings() {
 
       {/* Dashboard v2 — accent picker (writes Settings.accentColor and live-applies via [data-accent]) */}
       <BrandAccentCard settings={settings} onChange={setSettings} lastSavedAt={lastSavedAt} onSaved={() => setLastSavedAt(Date.now())} />
+
+      {/* Code execution provider picker (writes Settings.codeExecutionProvider; honored by judge + playground) */}
+      <CodeExecutionCard settings={settings} onChange={setSettings} lastSavedAt={lastSavedAt} onSaved={() => setLastSavedAt(Date.now())} />
 
       <RegistrationEventsCard settings={settings} onChange={setSettings} lastSavedAt={lastSavedAt} />
 

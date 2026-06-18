@@ -9,16 +9,18 @@ import { Link, useNavigate } from 'react-router-dom';
 import {
   Zap, Calendar, Trophy, Terminal, Inbox, Briefcase,
   ChevronRight, ArrowRight, Flame, Check, Bookmark, Activity, TrendingUp,
+  Circle, User,
 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { useSettings } from '@/context/SettingsContext';
-import { api } from '@/lib/api';
+import { api, type OnboardingStatus } from '@/lib/api';
 import {
   Avatar, DSCard, Difficulty, MonoChip, Pill, Section, roleTone,
 } from '@/components/dash';
 import { Button } from '@/components/ui/button';
 import { AdminPendingRequestsCardV2 } from '@/components/dashboard/AdminPendingRequestsCardV2';
 import { CertificateCard, getCertificateCover, type CertificateCardData } from '@/components/dashboard/CertificateCard';
+import { ShareStreakButton } from '@/components/dashboard/ShareStreakButton';
 import { relativeTime } from '@/lib/dateUtils';
 import { getPlaygroundLaunchUrl } from '@/lib/playgroundUrl';
 import { cn } from '@/lib/utils';
@@ -119,6 +121,21 @@ export default function DashboardOverview() {
     queryFn: () => api.getMyHiringApplication(token!),
     enabled: Boolean(token),
   });
+  // S-06 — first-week checklist. Once everything's done we set a localStorage flag
+  // and never query again, so established members pay nothing for this.
+  const [onboardingDismissed] = useState(() => {
+    try { return localStorage.getItem('cs_onboarding_done_v1') === '1'; } catch { return false; }
+  });
+  const onboardingQ = useQuery({
+    queryKey: ['onboarding-status'],
+    queryFn: () => api.getOnboarding(token!),
+    enabled: Boolean(token) && !isAdmin && !isNetwork && !onboardingDismissed,
+  });
+  useEffect(() => {
+    if (onboardingQ.data?.allDone) {
+      try { localStorage.setItem('cs_onboarding_done_v1', '1'); } catch { /* ignore */ }
+    }
+  }, [onboardingQ.data?.allDone]);
   const adminStatsQ = useQuery({
     queryKey: ['admin-dashboard-stats'],
     queryFn: () => api.getAdminDashboardStats(token!),
@@ -185,11 +202,16 @@ export default function DashboardOverview() {
       {isAdmin && adminStatsQ.data && <AdminStatStrip data={adminStatsQ.data} />}
       {isAdmin && <AdminPendingRequestsCardV2 />}
 
+      {!isAdmin && onboardingQ.data && !onboardingQ.data.allDone && (
+        <StartHereSection status={onboardingQ.data} onNavigate={(to) => navigate(to)} />
+      )}
+
       <QOTDHero
         loading={todayQOTDQ.isLoading || qotdStatsQ.isLoading}
         qotd={todayQOTDQ.data ?? null}
         currentStreak={qotdStatsQ.data?.currentStreak ?? 0}
         longestStreak={qotdStatsQ.data?.longestStreak ?? 0}
+        totalSolved={totalSolved}
         todaySolved={qotdStatsQ.data?.todaySolved ?? false}
         last30Days={last30}
         onSolve={() => navigate('/qotd/today')}
@@ -247,6 +269,68 @@ export default function DashboardOverview() {
 
       {settings?.playgroundEnabled !== false && <PlaygroundPromoSection />}
     </div>
+  );
+}
+
+// ─── S-06: first-week "start here" checklist (new members only; self-hides when done)
+function StartHereSection({
+  status, onNavigate,
+}: {
+  status: OnboardingStatus;
+  onNavigate: (to: string) => void;
+}) {
+  const items = [
+    { done: status.profileCompleted, Icon: User, label: 'Complete your profile', desc: 'Add your branch, year and links', action: () => onNavigate('/dashboard/profile') },
+    { done: status.solvedQotd, Icon: Zap, label: 'Solve your first daily problem', desc: 'QOTD is the heartbeat — start a streak', action: () => onNavigate('/qotd/today') },
+    { done: status.registeredEvent, Icon: Calendar, label: 'Register for an event', desc: 'Workshops, contests and quiz nights', action: () => onNavigate('/events') },
+    { done: status.savedSnippet, Icon: Terminal, label: 'Save a playground snippet', desc: 'Write and run code in the browser', action: () => window.open(getPlaygroundLaunchUrl(), '_blank', 'noopener,noreferrer') },
+  ];
+  const completed = items.filter((i) => i.done).length;
+  return (
+    <Section eyebrow="Getting started" title="Your first week">
+      <DSCard className="p-5 sm:p-6">
+        <div className="flex items-center justify-between gap-3 mb-4">
+          <p className="text-[13.5px] text-[var(--ds-text-3)]">
+            Four steps to get the most out of code.scriet.
+          </p>
+          <span className="text-[12px] font-mono tabular-nums text-[var(--ds-text-3)] shrink-0">{completed}/{items.length}</span>
+        </div>
+        <div className="h-1.5 rounded-full bg-[var(--surface-soft)] overflow-hidden mb-5">
+          <div className="h-full rounded-full bg-[var(--accent)] transition-[width] duration-500" style={{ width: `${(completed / items.length) * 100}%` }} />
+        </div>
+        <ul className="flex flex-col gap-1.5">
+          {items.map((it) => (
+            <li
+              key={it.label}
+              className={cn(
+                'flex items-center gap-3 rounded-[10px] px-3 py-2.5',
+                it.done ? 'opacity-65' : 'hover:bg-[var(--surface-soft)]',
+              )}
+            >
+              <span
+                className={cn(
+                  'shrink-0 grid place-items-center w-7 h-7 rounded-full',
+                  it.done ? 'bg-[var(--success)]/15 text-[var(--success)]' : 'bg-[var(--accent-subtle)] text-[var(--accent)]',
+                )}
+              >
+                {it.done ? <Check size={15} /> : <it.Icon size={15} />}
+              </span>
+              <div className="flex-1 min-w-0">
+                <div className={cn('text-[13.5px] font-medium', it.done && 'line-through text-[var(--ds-text-3)]')}>{it.label}</div>
+                <div className="text-[12px] text-[var(--ds-text-3)] truncate">{it.desc}</div>
+              </div>
+              {it.done ? (
+                <Circle size={6} className="fill-[var(--success)] text-[var(--success)] shrink-0" />
+              ) : (
+                <Button size="sm" variant="outline" onClick={it.action} className="shrink-0">
+                  Go <ArrowRight size={13} className="ml-1" />
+                </Button>
+              )}
+            </li>
+          ))}
+        </ul>
+      </DSCard>
+    </Section>
   );
 }
 
@@ -370,12 +454,13 @@ function secondsUntilMidnightIST(): number {
 
 // ─── QOTD Hero
 function QOTDHero({
-  loading, qotd, currentStreak, longestStreak, todaySolved, last30Days, onSolve, onHistory,
+  loading, qotd, currentStreak, longestStreak, totalSolved, todaySolved, last30Days, onSolve, onHistory,
 }: {
   loading: boolean;
   qotd: { id: string; date: string; title?: string | null; question?: string; difficulty?: string; tags?: string[]; problemId?: string | null } | null;
   currentStreak: number;
   longestStreak: number;
+  totalSolved: number;
   todaySolved: boolean;
   last30Days?: Array<{ date: string; solved: boolean }>;
   onSolve: () => void;
@@ -507,6 +592,11 @@ function QOTDHero({
           <div className="text-[10.5px] text-[var(--ds-text-3)] mt-1.5 whitespace-nowrap font-mono tabular-nums">
             longest {longestStreak}
           </div>
+          <ShareStreakButton
+            stats={{ currentStreak, longestStreak, totalSolved }}
+            className="mt-3"
+            label="Share streak"
+          />
         </div>
       </div>
     </DSCard>

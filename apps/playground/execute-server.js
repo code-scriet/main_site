@@ -253,6 +253,21 @@ const playgroundSettingsCache = {
   dailyLimit: DEFAULT_PLAYGROUND_DAILY_LIMIT,
 };
 
+// Admin-selected code-execution provider (wandbox | godbolt), forwarded to the CF
+// Worker so the playground honors the same primary as the judge. Cached on its
+// OWN TTL/query — kept separate from the daily-limit read so a missing column on
+// a not-yet-migrated DB can't knock the daily limit back to its default.
+const DEFAULT_CODE_PROVIDER = 'wandbox';
+const VALID_CODE_PROVIDERS = ['wandbox', 'godbolt'];
+const providerCache = {
+  expiresAt: 0,
+  provider: DEFAULT_CODE_PROVIDER,
+};
+
+function normalizeCodeProvider(value) {
+  return VALID_CODE_PROVIDERS.includes(value) ? value : DEFAULT_CODE_PROVIDER;
+}
+
 const userExecCounts = new Map(); // in-memory fallback cache
 const MAX_IP_EXECUTIONS = 30;
 const ipExecCounts = new Map();
@@ -297,6 +312,32 @@ async function getDailyExecutionLimit({ forceRefresh = false } = {}) {
   }
 
   return playgroundSettingsCache.dailyLimit;
+}
+
+// Resolve the admin-selected execution provider (60s cache). `dbQuery` never
+// throws — on a missing column (pre-migration) it returns [] and we fall to the
+// default, so this is safe to call on every execution without a DB hit per call.
+async function getCodeExecutionProvider() {
+  if (!pool) {
+    return normalizeCodeProvider(process.env.CODE_EXECUTION_PROVIDER || DEFAULT_CODE_PROVIDER);
+  }
+
+  const now = Date.now();
+  if (now < providerCache.expiresAt) {
+    return providerCache.provider;
+  }
+
+  const rows = await dbQuery(
+    `SELECT code_execution_provider AS provider
+     FROM settings
+     WHERE id = 'default'
+     LIMIT 1`
+  );
+  providerCache.provider = normalizeCodeProvider(
+    rows[0]?.provider || process.env.CODE_EXECUTION_PROVIDER || DEFAULT_CODE_PROVIDER,
+  );
+  providerCache.expiresAt = now + SETTINGS_CACHE_TTL_MS;
+  return providerCache.provider;
 }
 
 function toHistoryItem(row) {
@@ -718,6 +759,17 @@ function sanitizeError(message) {
     .replace(/prog\.(java|c|cpp|py|js|ts)/g, (_, ext) => `source.${ext}`);
 }
 
+// Wandbox runs every execution in a throwaway container. When its host is out of
+// capacity the upstream returns "OCI runtime error: crun: clone: Resource
+// temporarily unavailable" (a clone()/fork() EAGAIN) in compiler_error / stderr
+// with no program output — an infrastructure blip, not the user's code. We
+// detect it so the run can be retried and, if it still fails, shown as a
+// friendly "try again" instead of a bogus compilation error.
+const INFRA_FAILURE_RE = /OCI runtime|\bcrun\b|\brunc\b|Resource temporarily unavailable|Cannot allocate memory|cannot fork|pthread_create|No space left on device|\bEAGAIN\b/i;
+function isInfraFailure(text) {
+  return !!text && INFRA_FAILURE_RE.test(text);
+}
+
 async function executeCode(language, code, stdin) {
   const config = COMPILERS[language];
   if (!config) throw new Error(`Unsupported language: ${language}. Supported: ${SUPPORTED_LANGUAGES.join(', ')}`);
@@ -726,10 +778,12 @@ async function executeCode(language, code, stdin) {
   const timeout = setTimeout(() => controller.abort(), EXECUTION_TIMEOUT);
 
   try {
+    const provider = await getCodeExecutionProvider();
     const body = {
       compiler: config.compiler,
       code,
       stdin: stdin || '',
+      provider,
     };
 
     // Add compiler options if specified and valid
@@ -779,6 +833,15 @@ async function executeCode(language, code, stdin) {
     const compilerOut = clean(result.compiler_output);
     const signal = result.signal || null;
 
+    // Upstream host capacity failure (no program ran) — not the user's code.
+    // Throw a tagged retryable error so the caller can retry / show a friendly
+    // message instead of presenting it as a spurious compilation error.
+    if (!stdout && isInfraFailure(compilerErr || stderr)) {
+      const infraErr = new Error('EXEC_INFRA_UNAVAILABLE');
+      infraErr.code = 'EXEC_INFRA_UNAVAILABLE';
+      throw infraErr;
+    }
+
     // Determine if this is truly an error:
     // - If we have stdout (program_output), the program ran successfully.
     //   stderr may contain warnings which are informational, not errors.
@@ -817,6 +880,24 @@ async function executeCode(language, code, stdin) {
   } finally {
     clearTimeout(timeout);
   }
+}
+
+// Wandbox occasionally can't spawn a container (host capacity / clone EAGAIN).
+// That failure is transient — a short retry almost always lands on a healthy
+// host, so in normal operation the user never sees an error.
+async function executeWithRetry(language, code, stdin, attempts = 3) {
+  let lastErr;
+  for (let i = 0; i < attempts; i++) {
+    try {
+      return await executeCode(language, code, stdin);
+    } catch (err) {
+      lastErr = err;
+      const retryable = err?.code === 'EXEC_INFRA_UNAVAILABLE' || isInfraFailure(err?.message);
+      if (!retryable || i === attempts - 1) throw err;
+      await new Promise((resolve) => setTimeout(resolve, 250 * (i + 1)));
+    }
+  }
+  throw lastErr;
 }
 
 // ---------------------------------------------------------------------------
@@ -955,7 +1036,7 @@ app.post('/api/execute', async (req, res) => {
       fromCache = true;
       console.log(`[Execute] Cache hit for ${language} (${code.length} chars)`);
     } else {
-      result = await executeCode(language, code, stdin);
+      result = await executeWithRetry(language, code, stdin);
       setCachedExecution(language, code, stdin, result, cacheScope);
     }
     const durationMs = fromCache ? 0 : (Date.now() - startMs);
@@ -992,6 +1073,12 @@ app.post('/api/execute', async (req, res) => {
     const message = error instanceof Error ? error.message : 'Code execution failed';
     if (message.includes('abort')) {
       return res.status(408).json({ success: false, error: 'Execution timed out (15s limit).' });
+    }
+    if (error?.code === 'EXEC_INFRA_UNAVAILABLE' || isInfraFailure(message)) {
+      return res.status(503).json({
+        success: false,
+        error: 'The execution service is briefly at capacity. Please run it again in a moment.',
+      });
     }
     return res.status(500).json({ success: false, error: sanitizeError(message) || 'Code execution failed' });
   }

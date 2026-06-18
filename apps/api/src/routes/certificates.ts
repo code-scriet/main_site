@@ -1657,6 +1657,7 @@ certificatesRouter.get('/mine', authMiddleware, async (req: Request, res: Respon
           template: true,
           issuedAt: true,
           pdfUrl: true,
+          viewCount: true, // S-03: surface "viewed N times" to the recipient
           event: {
             select: {
               title: true,

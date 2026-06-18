@@ -144,3 +144,20 @@ apps/web/design-ref/
 # Personal/per-machine Claude Code config (keep local; never commit)
 .claude/settings.local.json
 .claude/skills/
+
+# design-sync (claude.ai/design) — build artifacts & machine state (durable inputs are committed)
+.ds-sync/
+ds-bundle/
+.design-sync/.cache/
+.design-sync/learnings/
+.design-sync/node_modules/
+apps/web/.ds-styles.css
+apps/web/.ds-tw-utils.css
+
+# design tooling — local only, never commit (design-sync workspace + agent skills + .ds-* scratch)
+.design-sync/
+.agents/
+apps/web/.ds-entry.tsx
+apps/web/.ds-stubs/
+apps/web/.ds-tsconfig.json
+apps/web/.ds-tw-input.css

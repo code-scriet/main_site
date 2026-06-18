@@ -47,6 +47,8 @@ const createPollSchema = z.object({
   isAnonymous: z.boolean().optional(),
   deadline: z.coerce.date().optional().nullable(),
   isPublished: z.boolean().optional(),
+  // S-10: link this poll to an event as its post-event feedback poll.
+  eventId: z.string().uuid().optional().nullable(),
 });
 
 const updatePollSchema = createPollSchema
@@ -229,6 +231,7 @@ function serializePublicPoll(poll: PublicPollRecord) {
     isAnonymous: poll.isAnonymous,
     isPublished: poll.isPublished,
     deadline: poll.deadline?.toISOString() ?? null,
+    eventId: poll.eventId ?? null,
     createdAt: poll.createdAt.toISOString(),
     updatedAt: poll.updatedAt.toISOString(),
     isClosed: isPollClosed(poll.deadline),
@@ -275,6 +278,7 @@ function serializeAdminPollDetail(poll: AdminPollDetailRecord) {
     isAnonymous: poll.isAnonymous,
     isPublished: poll.isPublished,
     deadline: poll.deadline?.toISOString() ?? null,
+    eventId: poll.eventId ?? null,
     createdAt: poll.createdAt.toISOString(),
     updatedAt: poll.updatedAt.toISOString(),
     isClosed: isPollClosed(poll.deadline),
@@ -598,6 +602,12 @@ pollsRouter.post('/', authMiddleware, requireRole('ADMIN'), async (req: Request,
       return ApiResponse.badRequest(res, 'Provide either zero options (question-only mode) or at least two unique options');
     }
 
+    // S-10: a linked event must exist (clean 400 instead of an FK 500).
+    if (parsed.data.eventId) {
+      const event = await prisma.event.findUnique({ where: { id: parsed.data.eventId }, select: { id: true } });
+      if (!event) return ApiResponse.badRequest(res, 'Linked event does not exist');
+    }
+
     const slug = await generatePollSlug(parsed.data.question);
     const description = normalizeOptionalText(parsed.data.description);
 
@@ -612,6 +622,7 @@ pollsRouter.post('/', authMiddleware, requireRole('ADMIN'), async (req: Request,
           isAnonymous: parsed.data.isAnonymous ?? false,
           deadline: parsed.data.deadline ? new Date(parsed.data.deadline) : null,
           isPublished: parsed.data.isPublished ?? true,
+          eventId: parsed.data.eventId ?? null,
           createdBy: authUser.id,
           options: {
             create: normalizedOptions.map((text, index) => ({
@@ -677,6 +688,12 @@ pollsRouter.put('/:id', authMiddleware, requireRole('ADMIN'), async (req: Reques
       return ApiResponse.conflict(res, 'Anonymity cannot be changed after voting has started');
     }
 
+    // S-10: a linked event must exist (clean 400 instead of an FK 500).
+    if (parsed.data.eventId) {
+      const event = await prisma.event.findUnique({ where: { id: parsed.data.eventId }, select: { id: true } });
+      if (!event) return ApiResponse.badRequest(res, 'Linked event does not exist');
+    }
+
     const normalizedOptions = parsed.data.options ? normalizeOptionTexts(parsed.data.options) : null;
     if (parsed.data.options && (!normalizedOptions || normalizedOptions.length === 1)) {
       return ApiResponse.badRequest(res, 'Provide either zero options (question-only mode) or at least two unique options');
@@ -709,6 +726,9 @@ pollsRouter.put('/:id', authMiddleware, requireRole('ADMIN'), async (req: Reques
         : {}),
       ...(parsed.data.isPublished !== undefined
         ? { isPublished: parsed.data.isPublished }
+        : {}),
+      ...(parsed.data.eventId !== undefined
+        ? { eventId: parsed.data.eventId || null }
         : {}),
     };
 
