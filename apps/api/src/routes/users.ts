@@ -274,12 +274,12 @@ usersRouter.post('/me/streak-card', authMiddleware, async (req: Request, res: Re
         if (match?.[1]) {
           const publicId = match[1];
           cloudinary.uploader.destroy(publicId).catch(() => undefined);
-          // Streak cards are uploaded via the generic /upload/image path, which also
-          // writes an UploadedImage gallery row (publicId === Cloudinary public_id).
-          // Destroying the asset without deleting that row leaves a 404 thumbnail in
-          // the member's upload gallery and inflates counts.uploadedImages — so drop
-          // the row alongside the asset. Fire-and-forget, like the destroy above.
-          prisma.uploadedImage.deleteMany({ where: { publicId } }).catch(() => undefined);
+          // New cards live in the dedicated streak-cards/ folder (no gallery row), but
+          // cards uploaded before that change went through /upload/image and DID create
+          // an UploadedImage row (publicId === Cloudinary public_id). Drop any such row
+          // alongside the asset so it can't resurface as a 404 gallery thumbnail. Scoped
+          // to the owner; fire-and-forget, like the destroy above.
+          prisma.uploadedImage.deleteMany({ where: { publicId, userId: authUser.id } }).catch(() => undefined);
         }
       }
     }

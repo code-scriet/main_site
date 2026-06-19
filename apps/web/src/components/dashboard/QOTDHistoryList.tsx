@@ -127,7 +127,7 @@ export function QOTDHistoryList({
                     </td>
                     <td className="px-4 py-2.5 font-medium truncate max-w-[320px]">{q.question}</td>
                     <td className="px-4 py-2.5">
-                      <Difficulty level={String(q.difficulty || 'EASY').toUpperCase()} />
+                      <Difficulty level={q.difficulty || 'EASY'} />
                     </td>
                     <td className="px-4 py-2.5">{(renderStatus ?? ((e) => defaultStatus(e, todayId)))(q)}</td>
                     <td className="px-4 py-2.5 text-right">{(renderActions ?? defaultActions)(q)}</td>

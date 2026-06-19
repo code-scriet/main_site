@@ -262,7 +262,7 @@ function QOTDTab() {
           {today ? (
             <>
               <div className="flex items-center gap-1.5 flex-wrap">
-                <Difficulty level={String(today.difficulty || 'EASY').toUpperCase()} />
+                <Difficulty level={today.difficulty || 'EASY'} />
                 {todayTags.slice(0, 4).map((t) => (
                   <MonoChip key={t}>{t}</MonoChip>
                 ))}
@@ -355,7 +355,7 @@ function QOTDTab() {
                         </td>
                         <td className="px-4 py-2.5 font-medium truncate max-w-[320px]">{q.question}</td>
                         <td className="px-4 py-2.5">
-                          <Difficulty level={String(q.difficulty || 'EASY').toUpperCase()} />
+                          <Difficulty level={q.difficulty || 'EASY'} />
                         </td>
                         <td className="px-4 py-2.5">
                           {isHeld ? (

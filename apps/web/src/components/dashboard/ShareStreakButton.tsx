@@ -125,7 +125,8 @@ export function ShareStreakButton({
       if (cardRef.current && token && user?.id) {
         const blob = await getCardBlob();
         const file = new File([blob], 'streak.png', { type: 'image/png' });
-        const cardUrl = await api.uploadImage(file, token);
+        // Dedicated streak-cards/ upload: no gallery row, open to any signed-in user.
+        const cardUrl = await api.uploadStreakCard(file, token);
         if (cardUrl) {
           await api.setStreakCard(cardUrl, token);
           shareUrl = linkedInShareUrl(`${SHARE_ORIGIN}/share/streak/${user.id}`);

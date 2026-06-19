@@ -189,6 +189,82 @@ uploadRouter.post(
 );
 
 /**
+ * Upload a streak-share card (S-03).
+ * POST /api/upload/streak-card
+ *
+ * Distinct from /image on purpose: the card lands in a dedicated `streak-cards/`
+ * folder and does NOT write an UploadedImage gallery row — it's a transient share
+ * asset (the og:image of /share/streak/:id), not a library upload, so it must never
+ * appear in the member's upload gallery or inflate counts.uploadedImages. Any
+ * authenticated user may upload their OWN card (unlike /image, which is CORE_MEMBER+).
+ * The previous card is destroyed by POST /users/me/streak-card when the new URL is
+ * persisted, so storage stays ~1 asset per user.
+ */
+uploadRouter.post(
+  '/streak-card',
+  authMiddleware,
+  upload.single('image'),
+  uploadErrorHandler,
+  async (req: Request, res: Response) => {
+    try {
+      if (!isCloudinaryConfigured) {
+        return ApiResponse.error(res, {
+          code: ErrorCodes.INTERNAL_ERROR,
+          message: 'Image upload is not configured. Please contact the administrator.',
+          status: 503,
+        });
+      }
+
+      if (!req.file) {
+        return ApiResponse.error(res, { code: ErrorCodes.VALIDATION_ERROR, message: 'No image file provided', status: 400 });
+      }
+
+      // Same magic-byte gate as /image — don't trust the client mimetype.
+      if (!validateImageMagicBytes(req.file.buffer)) {
+        return ApiResponse.error(res, {
+          code: ErrorCodes.VALIDATION_ERROR,
+          message: 'Invalid image file. Only JPEG, PNG, GIF, and WebP are allowed.',
+          status: 400,
+        });
+      }
+
+      const authUser = getAuthUser(req)!;
+      const buffer = req.file.buffer;
+      const uploaded = await new Promise<{ secure_url: string; public_id: string }>((resolve, reject) => {
+        const stream = cloudinary.uploader.upload_stream(
+          {
+            folder: 'streak-cards',
+            resource_type: 'image',
+            // 1200px wide covers the 1200×630 OG target; no fetch_format:auto so
+            // crawlers get a stable format regardless of Accept negotiation.
+            transformation: [{ width: 1200, crop: 'limit' }, { quality: 'auto:good' }],
+          },
+          (error, result) => {
+            if (error || !result) return reject(error ?? new Error('Upload failed - no result'));
+            resolve(result as { secure_url: string; public_id: string });
+          },
+        );
+        stream.end(buffer);
+      });
+
+      res.status(201);
+      return ApiResponse.success(res, {
+        url: uploaded.secure_url,
+        publicId: uploaded.public_id,
+        uploadedBy: authUser.id,
+      }, 'Streak card uploaded successfully');
+    } catch (error) {
+      logger.error('Streak card upload error:', { error: error instanceof Error ? error.message : String(error) });
+      return ApiResponse.error(res, {
+        code: ErrorCodes.INTERNAL_ERROR,
+        message: 'Failed to upload streak card',
+        status: 500,
+      });
+    }
+  }
+);
+
+/**
  * Dashboard v2 — list the caller's past uploads for the image-library gallery.
  * GET /api/upload/history?limit=24
  */

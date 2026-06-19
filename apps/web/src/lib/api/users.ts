@@ -304,6 +304,16 @@ export const usersApi = {
     return result.url ?? '';
   },
 
+  // Upload a streak-share card to the dedicated streak-cards/ folder (S-03).
+  // Unlike uploadImage, this creates NO gallery row and is open to any authenticated
+  // user (not just CORE_MEMBER+). Returns the Cloudinary URL to persist via setStreakCard.
+  uploadStreakCard: async (file: File, token: string): Promise<string> => {
+    const formData = new FormData();
+    formData.append('image', file);
+    const result = await requestForm<{ url: string }>('/upload/streak-card', formData, { token, method: 'POST' });
+    return result.url ?? '';
+  },
+
   // Persist the streak-share card URL → og:image of /share/streak/:userId (S-03).
   setStreakCard: (url: string, token: string) =>
     request<{ streakCardUrl: string }>('/users/me/streak-card', { method: 'POST', body: JSON.stringify({ url }), token }),
