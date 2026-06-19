@@ -5,11 +5,32 @@
 // to decide whether to deliver, and `applyTestingMode` / `applyTestingModeBulk`
 // to redirect / rewrite the payload when Settings.emailTestingMode is on.
 //
-// Cache TTL is 5 minutes; stale fallback on DB error matches the original
-// behaviour in utils/email.ts before the split.
+// The email-shaped notification view is *derived* from the single in-process
+// Settings cache (utils/settingsCache.ts) — there is no second TTL'd cache to
+// invalidate. This module used to keep its own 5-min cache over the Settings
+// singleton; a settings write then had to remember to clear both. Now one read
+// seam, one invalidation.
+//
+// Degraded-read fallback: getCachedSettings() returns null on a transient DB
+// error AND in a schema-drift window (it SELECTs the whole Settings row, so a
+// column the migration hasn't added yet fails the read). Mapping that null to
+// all-enabled defaults would silently re-open admin-disabled categories and flip
+// emailTestingMode off mid-outage (real mail escaping the test redirect). So we
+// hold a last-known-good projection and serve it when the read fails — sticky,
+// not TTL'd, refreshed on every successful read, never needs invalidation.
+//
+// Cold-start-inside-the-drift-window corner: a last-known-good cache needs one
+// good read to seed it, so if the very first read lands inside a drift window we
+// have nothing sticky to serve and would concede to defaults. Before doing so,
+// readNotificationColumns() does a narrow SELECT over *only* the email columns —
+// which can't trip a drift on some unrelated column (e.g. site_launch_date), the
+// way the pre-cache code never selected them. Only a real DB outage (the narrow
+// read also throws) falls through to the all-enabled defaults.
 
+import type { Settings } from '@prisma/client';
 import { prisma } from '../lib/prisma.js';
 import { logger } from './logger.js';
+import { getCachedSettings, invalidateSettingsCache } from './settingsCache.js';
 
 export type EmailCategory =
   | 'welcome'
@@ -50,8 +71,6 @@ export const CATEGORY_TOGGLE_MAP: Record<EmailCategory, keyof NotificationSettin
   other: null,
 };
 
-const NOTIFICATION_CACHE_TTL = 5 * 60 * 1000;
-
 const ALL_ENABLED_DEFAULTS: NotificationSettings = {
   emailWelcomeEnabled: true,
   emailEventCreationEnabled: true,
@@ -66,22 +85,82 @@ const ALL_ENABLED_DEFAULTS: NotificationSettings = {
   emailTestRecipients: null,
 };
 
-let notificationSettingsCache: NotificationSettings | null = null;
-let lastNotificationFetch = 0;
-
+// Back-compat alias. The notification view is derived from the shared Settings
+// cache, so there is no separate cache to clear — invalidating the one Settings
+// cache refreshes it. Kept so existing callers (routes/settings.ts via
+// email.ts) keep working and a caller that only knows this name stays correct.
 export function invalidateNotificationSettingsCache(): void {
-  notificationSettingsCache = null;
-  lastNotificationFetch = 0;
+  invalidateSettingsCache();
 }
 
-export async function getNotificationSettings(): Promise<NotificationSettings> {
-  const now = Date.now();
-  if (notificationSettingsCache && (now - lastNotificationFetch) < NOTIFICATION_CACHE_TTL) {
-    return notificationSettingsCache;
-  }
+// The exact Settings columns the email view is derived from. A narrow SELECT
+// over just these (readNotificationColumns) survives a schema-drift failure on
+// any *other* column. Full `Settings` is assignable to this, so the whole-row
+// callers (projectNotificationSettings via getCachedSettings) keep working.
+type NotificationSettingsColumns = Pick<
+  Settings,
+  | 'emailWelcomeEnabled'
+  | 'emailEventCreationEnabled'
+  | 'emailRegistrationEnabled'
+  | 'emailAnnouncementEnabled'
+  | 'emailCertificateEnabled'
+  | 'emailReminderEnabled'
+  | 'emailInvitationEnabled'
+  | 'emailPasswordResetEnabled'
+  | 'mailingEnabled'
+  | 'emailTestingMode'
+  | 'emailTestRecipients'
+>;
 
+// Pure projection of the Settings singleton onto the email-shaped view. A null
+// row (no Settings yet, or a fail-safe read miss in getCachedSettings) maps to
+// the all-enabled defaults — the policy's safe direction. This is the test
+// surface: the mapping is verifiable without a database.
+export function projectNotificationSettings(
+  settings: NotificationSettingsColumns | null,
+): NotificationSettings {
+  if (!settings) {
+    return { ...ALL_ENABLED_DEFAULTS };
+  }
+  return {
+    emailWelcomeEnabled: settings.emailWelcomeEnabled ?? true,
+    emailEventCreationEnabled: settings.emailEventCreationEnabled ?? true,
+    emailRegistrationEnabled: settings.emailRegistrationEnabled ?? true,
+    emailAnnouncementEnabled: settings.emailAnnouncementEnabled ?? true,
+    emailCertificateEnabled: settings.emailCertificateEnabled ?? true,
+    emailReminderEnabled: settings.emailReminderEnabled ?? true,
+    emailInvitationEnabled: settings.emailInvitationEnabled ?? true,
+    emailPasswordResetEnabled: settings.emailPasswordResetEnabled ?? true,
+    mailingEnabled: settings.mailingEnabled ?? true,
+    emailTestingMode: settings.emailTestingMode ?? false,
+    emailTestRecipients: settings.emailTestRecipients ?? null,
+  };
+}
+
+// Pure resolution of the degraded-read fallback, in priority order: a present
+// row projects normally; otherwise the sticky last-known-good toggles; otherwise
+// the narrow email-only read (cold start inside a drift window); only when all
+// three are absent do we concede to the all-enabled defaults. Kept pure +
+// exported so the precedence is testable without a database — same discipline as
+// projectNotificationSettings.
+export function resolveNotificationSettings(
+  settings: NotificationSettingsColumns | null,
+  lastKnownGood: NotificationSettings | null,
+  narrowFallback: NotificationSettings | null = null,
+): NotificationSettings {
+  if (settings) {
+    return projectNotificationSettings(settings);
+  }
+  return lastKnownGood ?? narrowFallback ?? projectNotificationSettings(null);
+}
+
+// Narrow degraded-read fallback (see the cold-start corner in the header): read
+// ONLY the email columns so an unrelated not-yet-migrated column can't fail the
+// read. Returns null on a missing row or a genuine DB error (caller then concedes
+// to defaults). Booleans default-coalesce in projectNotificationSettings.
+async function readNotificationColumns(): Promise<NotificationSettings | null> {
   try {
-    const settings = await prisma.settings.findUnique({
+    const row = await prisma.settings.findUnique({
       where: { id: 'default' },
       select: {
         emailWelcomeEnabled: true,
@@ -97,29 +176,39 @@ export async function getNotificationSettings(): Promise<NotificationSettings> {
         emailTestRecipients: true,
       },
     });
-
-    notificationSettingsCache = {
-      emailWelcomeEnabled: settings?.emailWelcomeEnabled ?? true,
-      emailEventCreationEnabled: settings?.emailEventCreationEnabled ?? true,
-      emailRegistrationEnabled: settings?.emailRegistrationEnabled ?? true,
-      emailAnnouncementEnabled: settings?.emailAnnouncementEnabled ?? true,
-      emailCertificateEnabled: settings?.emailCertificateEnabled ?? true,
-      emailReminderEnabled: settings?.emailReminderEnabled ?? true,
-      emailInvitationEnabled: settings?.emailInvitationEnabled ?? true,
-      emailPasswordResetEnabled: settings?.emailPasswordResetEnabled ?? true,
-      mailingEnabled: settings?.mailingEnabled ?? true,
-      emailTestingMode: settings?.emailTestingMode ?? false,
-      emailTestRecipients: settings?.emailTestRecipients ?? null,
-    };
-    lastNotificationFetch = now;
-    return notificationSettingsCache;
-  } catch (error) {
-    logger.error('Failed to fetch notification settings', {
-      error: error instanceof Error ? error.message : String(error),
+    return row ? projectNotificationSettings(row) : null;
+  } catch (err) {
+    logger.error('readNotificationColumns email-only fallback read failed', {
+      error: err instanceof Error ? err.message : String(err),
     });
-    if (notificationSettingsCache) return notificationSettingsCache;
-    return ALL_ENABLED_DEFAULTS;
+    return null;
   }
+}
+
+// Last successfully-projected view (see "Degraded-read fallback" in the header).
+// Only consulted when getCachedSettings() returns null; refreshed on every
+// successful read, so normal toggle changes (which invalidate the Settings cache)
+// always propagate.
+let lastKnownGoodNotificationSettings: NotificationSettings | null = null;
+
+export async function getNotificationSettings(): Promise<NotificationSettings> {
+  const settings = await getCachedSettings();
+  // Only pay for the narrow read in the rare cold-start-inside-a-drift-window
+  // case: whole-row cache unreadable AND no sticky value to fall back on. Warm
+  // cache or an existing last-known-good skips the extra round-trip entirely.
+  const narrowFallback =
+    !settings && !lastKnownGoodNotificationSettings ? await readNotificationColumns() : null;
+  const view = resolveNotificationSettings(
+    settings,
+    lastKnownGoodNotificationSettings,
+    narrowFallback,
+  );
+  // Seed/refresh the sticky cache from any real read — full row, or the narrow
+  // one — so a later drift-window call serves it without re-reading.
+  if (settings || narrowFallback) {
+    lastKnownGoodNotificationSettings = view;
+  }
+  return view;
 }
 
 // True when the category is allowed to send under the current notification toggles.

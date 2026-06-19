@@ -315,3 +315,70 @@ export async function unmarkDayAttendanceAtomic(
   });
   return updated.count > 0 ? 'unmarked' : 'not-marked';
 }
+
+// The present/absent change an admin edit applies, or undefined to leave the
+// attendance state untouched (an override-only edit). 'mark' carries the exact
+// scannedAt to stamp — an admin edit deliberately *overwrites* the timestamp on
+// an already-attended row, which is precisely why it cannot reuse
+// markDayAttendanceAtomic (whose job is duplicate-detection, not force-set).
+export type DayAttendanceEdit =
+  | { kind: 'mark'; scannedAt: Date }
+  | { kind: 'unmark' };
+
+export interface EditDayAttendanceParams {
+  registrationId: string;
+  dayNumber: number;
+  // Recorded as scannedBy when marking. Ignored when not marking.
+  editorId: string;
+  // undefined → leave attended/scannedAt/scannedBy untouched.
+  attendance?: DayAttendanceEdit;
+  // Explicit manualOverride. undefined → default false on create, untouched on
+  // update. Note an 'unmark' edit deliberately does NOT clear manualOverride
+  // (unlike unmarkDayAttendanceAtomic) — the admin edit only changes what it was
+  // told to. To clear it, pass manualOverride: false.
+  manualOverride?: boolean;
+}
+
+// Apply an admin edit to a single (registration, day) and keep the row's four
+// fields mutually consistent (attended ↔ scannedAt ↔ scannedBy). This is the
+// /edit endpoint's write seam: it owns the upsert so no route hand-rolls a
+// DayAttendance create/update in place. After calling this, the caller MUST run
+// syncRegistrationAttendance to reconcile the legacy EventRegistration columns —
+// same contract as the atomic mark/unmark helpers.
+//
+// upsert (not check-then-create) makes the create-vs-update divergence explicit
+// in one atomic call: a fresh row is built whole; an existing row is touched
+// sparsely so an override-only edit never disturbs attended/scannedAt.
+export async function editDayAttendance(
+  client: AttendanceDbClient,
+  params: EditDayAttendanceParams,
+): Promise<void> {
+  const { registrationId, dayNumber, editorId, attendance, manualOverride } = params;
+
+  const update: Prisma.DayAttendanceUncheckedUpdateInput = {};
+  if (attendance?.kind === 'mark') {
+    update.attended = true;
+    update.scannedAt = attendance.scannedAt;
+    update.scannedBy = editorId;
+  } else if (attendance?.kind === 'unmark') {
+    update.attended = false;
+    update.scannedAt = null;
+    update.scannedBy = null;
+  }
+  if (manualOverride !== undefined) {
+    update.manualOverride = manualOverride;
+  }
+
+  await client.dayAttendance.upsert({
+    where: { registrationId_dayNumber: { registrationId, dayNumber } },
+    create: {
+      registrationId,
+      dayNumber,
+      attended: attendance?.kind === 'mark',
+      scannedAt: attendance?.kind === 'mark' ? attendance.scannedAt : null,
+      scannedBy: attendance?.kind === 'mark' ? editorId : null,
+      manualOverride: manualOverride ?? false,
+    },
+    update,
+  });
+}

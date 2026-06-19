@@ -2,18 +2,26 @@ import { Router, Response } from 'express';
 import type { Request } from '../lib/http.js';
 import rateLimit from 'express-rate-limit';
 import { z } from 'zod';
-import fs from 'fs';
-import path from 'path';
-import { fileURLToPath } from 'url';
-import { CertType, CertTemplate, CertEmailTemplate, Prisma } from '@prisma/client';
+import { CertType, Prisma } from '@prisma/client';
 import { prisma } from '../lib/prisma.js';
 import { authMiddleware, getAuthUser } from '../middleware/auth.js';
 import { requireRole } from '../middleware/role.js';
 import { ApiResponse, ErrorCodes } from '../utils/response.js';
 import { logger } from '../utils/logger.js';
-import { generateCertId } from '../utils/generateCertId.js';
-import { formatPosition, generateCertificatePDF } from '../utils/generateCertificatePDF.js';
-import { uploadCertificate } from '../utils/uploadCertificate.js';
+import { formatPosition } from '../utils/generateCertificatePDF.js';
+import {
+  resolveSignatory,
+  issueOneCertificate,
+  renderAndUploadCertificatePdf,
+  recoverMissingCertificateCloudAsset,
+  CertificateIssuanceError,
+} from '../utils/certificateIssuance.js';
+import {
+  updateCertificateWithSchemaFallback,
+  isCertificateIdCollisionError,
+  isCertificateSchemaDriftError,
+  readCertificateTeamName,
+} from '../utils/certificatePersistence.js';
 import { emailService } from '../utils/email.js';
 import { sanitizeText } from '../utils/sanitize.js';
 import { auditLog } from '../utils/audit.js';
@@ -36,27 +44,6 @@ const requireValidCertIdParam = (res: Response, certId: string): boolean => {
   ApiResponse.badRequest(res, 'Invalid certificate ID format');
   return false;
 };
-
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const LOGOS_DIR = path.join(__dirname, '..', '..', 'public', 'logos');
-
-// Pre-load logos as base64 at startup so they're available to PDF generation.
-// Fails gracefully (undefined) if the files are not yet present on this server instance.
-function loadLogoBase64(filename: string): string | undefined {
-  const logoPath = path.join(LOGOS_DIR, filename);
-  try {
-    if (fs.existsSync(logoPath)) {
-      const ext = path.extname(filename).replace('.', '');
-      const mime = ext === 'svg' ? 'image/svg+xml' : `image/${ext}`;
-      const b64 = fs.readFileSync(logoPath).toString('base64');
-      return `data:${mime};base64,${b64}`;
-    }
-  } catch { /* file missing or unreadable — skip */ }
-  return undefined;
-}
-
-const CODESCRIET_LOGO = loadLogoBase64('codescriet.png') ?? loadLogoBase64('codescriet.jpg') ?? loadLogoBase64('codescriet.jpeg');
-const CCSU_LOGO       = loadLogoBase64('ccsu.png') ?? loadLogoBase64('ccsu.jpg') ?? loadLogoBase64('ccsu.jpeg');
 
 export const certificatesRouter = Router();
 
@@ -173,10 +160,6 @@ const editCertificateSchema = z.object({
 }).refine((value) => Object.keys(value).length > 0, {
   message: 'No fields provided to update',
 });
-
-const isSchemaDriftError = (error: unknown): error is Prisma.PrismaClientKnownRequestError => (
-  error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2022'
-);
 
 type CertificateFileRecord = {
   certId: string;
@@ -501,72 +484,6 @@ async function fetchCertificateFileRecord(certId: string): Promise<CertificateFi
   });
 }
 
-async function recoverMissingCertificateCloudAsset(certId: string): Promise<string | null> {
-  if (!isCloudinaryConfigured) {
-    return null;
-  }
-
-  try {
-    const certificate = await prisma.certificate.findUnique({
-      where: { certId },
-      select: {
-        certId: true,
-        recipientName: true,
-        eventName: true,
-        type: true,
-        position: true,
-        domain: true,
-        description: true,
-        issuedAt: true,
-        signatoryName: true,
-        signatoryTitle: true,
-        signatoryImageUrl: true,
-        facultyName: true,
-        facultyTitle: true,
-        facultySignatoryImageUrl: true,
-      },
-    });
-
-    if (!certificate) {
-      return null;
-    }
-
-    const pdfBuffer = await generateCertificatePDF({
-      recipientName: sanitizeText(certificate.recipientName),
-      eventName: sanitizeText(certificate.eventName),
-      type: certificate.type,
-      position: certificate.position ? sanitizeText(certificate.position) : undefined,
-      domain: certificate.domain ? sanitizeText(certificate.domain) : undefined,
-      description: certificate.description ? sanitizeText(certificate.description) : undefined,
-      certId: certificate.certId,
-      issuedAt: certificate.issuedAt,
-      signatoryName: sanitizeText(certificate.signatoryName),
-      signatoryTitle: sanitizeText(certificate.signatoryTitle),
-      signatoryImageUrl: certificate.signatoryImageUrl || undefined,
-      facultyName: certificate.facultyName ? sanitizeText(certificate.facultyName) : undefined,
-      facultyTitle: certificate.facultyTitle ? sanitizeText(certificate.facultyTitle) : undefined,
-      facultySignatoryImageUrl: certificate.facultySignatoryImageUrl || undefined,
-      codescrietLogoUrl: CODESCRIET_LOGO,
-      ccsuLogoUrl: CCSU_LOGO,
-    });
-
-    const cloudUrl = await uploadCertificate(certificate.certId, pdfBuffer);
-    await prisma.certificate.update({
-      where: { certId: certificate.certId },
-      data: { pdfUrl: cloudUrl },
-    });
-
-    logger.info('Recovered missing certificate cloud asset by regeneration', { certId: certificate.certId });
-    return cloudUrl;
-  } catch (error) {
-    logger.error('Failed to recover missing certificate cloud asset', {
-      certId,
-      error: error instanceof Error ? error.message : String(error),
-    });
-    return null;
-  }
-}
-
 async function sendCertificateFile(
   res: Response,
   cert: Pick<CertificateFileRecord, 'certId' | 'pdfUrl'>,
@@ -625,252 +542,6 @@ function buildCertificateEventScope(eventName: string | null | undefined, eventI
     eventId: null,
     eventName: normalizedEventName,
   };
-}
-
-interface ResolvedSignatory {
-  id: string | null;
-  name: string;
-  title: string;
-  processedImageUrl: string | undefined;  // base64 data URI after processing, or undefined
-  rawImageUrl: string | null;             // original URL to store in certificate record
-}
-
-/**
- * Resolve signatory data from either a Signatory ID, an inline base64 image, or plain text.
- *
- * Priority order:
- *   1. signatoryId       → fetch DB record, process its stored signatureUrl
- *   2. inlineImageUrl    → Cloudinary URL uploaded by admin for custom signatory
- *   3. text only         → name/title rendered as GreatVibes cursive text (no image)
- */
-async function resolveSignatory(
-  signatoryId: string | null | undefined,
-  fallbackName: string | null | undefined,
-  fallbackTitle: string | null | undefined,
-  defaultName: string,
-  defaultTitle: string,
-  inlineImageUrl?: string | null,
-): Promise<ResolvedSignatory> {
-  // 1. Signatory ID — fetch from DB and process stored image
-  if (signatoryId) {
-    const signatory = await prisma.signatory.findUnique({
-      where: { id: signatoryId },
-      select: { id: true, name: true, title: true, signatureUrl: true },
-    });
-
-    if (signatory) {
-      return {
-        id: signatory.id,
-        name: sanitizeText(signatory.name),
-        title: sanitizeText(signatory.title),
-        processedImageUrl: signatory.signatureUrl || undefined,
-        rawImageUrl: signatory.signatureUrl,
-      };
-    }
-
-    logger.warn('Signatory ID not found — falling back to text/image fields', { signatoryId });
-  }
-
-  // 2. Inline Cloudinary URL (custom signatory — image uploaded just for this certificate batch)
-  if (inlineImageUrl?.trim()) {
-    return {
-      id: null,
-      name: sanitizeText(fallbackName?.trim() || defaultName),
-      title: sanitizeText(fallbackTitle?.trim() || defaultTitle),
-      processedImageUrl: inlineImageUrl.trim(),
-      rawImageUrl: inlineImageUrl.trim(),
-    };
-  }
-
-  // 3. Text-only fallback
-  return {
-    id: null,
-    name: sanitizeText(fallbackName?.trim() || defaultName),
-    title: sanitizeText(fallbackTitle?.trim() || defaultTitle),
-    processedImageUrl: undefined,
-    rawImageUrl: null,
-  };
-}
-
-function getUniqueConstraintTargets(error: unknown): string[] {
-  if (!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== 'P2002') {
-    return [];
-  }
-
-  const rawTarget = (error.meta as { target?: unknown } | undefined)?.target;
-  if (Array.isArray(rawTarget)) {
-    return rawTarget.map((value) => String(value).toLowerCase());
-  }
-  if (typeof rawTarget === 'string') {
-    return [rawTarget.toLowerCase()];
-  }
-  return [];
-}
-
-function isCertificateIdCollisionError(error: unknown): boolean {
-  const targets = getUniqueConstraintTargets(error);
-  return targets.some((target) => target.includes('cert_id') || target.includes('certid'));
-}
-
-async function createCertificateWithSchemaFallback(
-  certId: string,
-  fullData: Prisma.CertificateUncheckedCreateInput,
-  legacyData: Prisma.CertificateUncheckedCreateInput,
-) {
-  try {
-    return await prisma.certificate.create({ data: fullData });
-  } catch (error) {
-    if (!isSchemaDriftError(error)) {
-      throw error;
-    }
-
-    logger.warn('Certificate schema drift detected during create; retrying with legacy columns only', { certId });
-    return prisma.certificate.create({ data: legacyData });
-  }
-}
-
-async function updateCertificateWithSchemaFallback(
-  certId: string,
-  fullData: Prisma.CertificateUncheckedUpdateInput,
-  legacyData: Prisma.CertificateUncheckedUpdateInput,
-) {
-  try {
-    return await prisma.certificate.update({
-      where: { certId },
-      data: fullData,
-    });
-  } catch (error) {
-    if (!isSchemaDriftError(error)) {
-      throw error;
-    }
-
-    logger.warn('Certificate schema drift detected during update; retrying with legacy columns only', { certId });
-    return prisma.certificate.update({
-      where: { certId },
-      data: legacyData,
-    });
-  }
-}
-
-// ──────────────────────────────────────────────────────────────────
-// Issuance orchestrator — single source of truth for certificate
-// generation. Used by both POST /generate and POST /bulk so the
-// "generateCertId → PDF render → Cloudinary upload → DB write with
-// schema fallback → certId collision retry" sequence lives in one
-// place. Caller is responsible for: signatory resolution (passed in,
-// done once for bulk), pre-checks (duplicates / event existence /
-// recipient validation), and post-write side effects (email send,
-// audit log, socket notification).
-// ──────────────────────────────────────────────────────────────────
-
-interface IssueCertificateParams {
-  recipientName: string;            // pre-sanitized
-  recipientEmail: string;
-  recipientId: string | null;
-  eventId: string | null;
-  eventName: string;                // pre-sanitized
-  type: CertType;
-  position: string | null | undefined;
-  domain: string | null | undefined;
-  teamName: string | null | undefined;
-  description: string | null | undefined;
-  template: CertTemplate;
-  primarySig: ResolvedSignatory;
-  facultySig: ResolvedSignatory | null;
-  issuedBy: string;
-  emailTemplate?: CertEmailTemplate;
-  emailSignerName?: string | null;
-}
-
-interface IssueCertificateResult {
-  certId: string;
-  pdfUrl: string;
-}
-
-class CertificateIssuanceError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = 'CertificateIssuanceError';
-  }
-}
-
-async function issueOneCertificate(params: IssueCertificateParams): Promise<IssueCertificateResult> {
-  const MAX_CERT_ID_CREATE_RETRIES = 3;
-
-  for (let attempt = 1; attempt <= MAX_CERT_ID_CREATE_RETRIES; attempt++) {
-    const certId = generateCertId();
-
-    const pdfBuffer = await generateCertificatePDF({
-      recipientName: params.recipientName,
-      eventName: params.eventName,
-      type: params.type,
-      position: params.position ?? undefined,
-      domain: params.domain ?? undefined,
-      teamName: params.teamName ?? undefined,
-      description: params.description ?? undefined,
-      certId,
-      issuedAt: new Date(),
-      signatoryName: params.primarySig.name,
-      signatoryTitle: params.primarySig.title,
-      signatoryImageUrl: params.primarySig.processedImageUrl,
-      facultyName: params.facultySig?.name || undefined,
-      facultyTitle: params.facultySig?.title || undefined,
-      facultySignatoryImageUrl: params.facultySig?.processedImageUrl,
-      codescrietLogoUrl: CODESCRIET_LOGO,
-      ccsuLogoUrl: CCSU_LOGO,
-    });
-
-    const pdfUrl = await uploadCertificate(certId, pdfBuffer);
-
-    const legacyCertificateData: Prisma.CertificateUncheckedCreateInput = {
-      certId,
-      recipientName: params.recipientName,
-      recipientEmail: params.recipientEmail,
-      recipientId: params.recipientId,
-      eventId: params.eventId,
-      eventName: params.eventName,
-      type: params.type,
-      position: params.position ?? null,
-      domain: params.domain ?? null,
-      template: params.template,
-      pdfUrl,
-      issuedBy: params.issuedBy,
-    };
-
-    try {
-      await createCertificateWithSchemaFallback(
-        certId,
-        {
-          ...legacyCertificateData,
-          description: params.description ?? null,
-          signatoryId: params.primarySig.id,
-          signatoryName: params.primarySig.name,
-          signatoryTitle: params.primarySig.title,
-          signatoryImageUrl: params.primarySig.rawImageUrl,
-          facultySignatoryId: params.facultySig?.id || null,
-          facultyName: params.facultySig?.name || null,
-          facultyTitle: params.facultySig?.title || null,
-          facultySignatoryImageUrl: params.facultySig?.rawImageUrl || null,
-          emailTemplate: params.emailTemplate ?? 'default',
-          emailSignerName: params.emailSignerName ?? null,
-        },
-        legacyCertificateData,
-      );
-      return { certId, pdfUrl };
-    } catch (createError) {
-      if (isCertificateIdCollisionError(createError) && attempt < MAX_CERT_ID_CREATE_RETRIES) {
-        logger.warn('Certificate ID collision detected during create; retrying', {
-          certId,
-          attempt,
-          recipientEmail: params.recipientEmail,
-        });
-        continue;
-      }
-      throw createError;
-    }
-  }
-
-  throw new CertificateIssuanceError('Failed to generate unique certificate ID');
 }
 
 // ──────────────────────────────────────────────────────────────────
@@ -1795,7 +1466,7 @@ certificatesRouter.patch('/:certId', authMiddleware, requireRole('ADMIN'), async
         select: { ...baseEditSelect, emailTemplate: true, emailSignerName: true },
       });
     } catch (error) {
-      if (!isSchemaDriftError(error)) {
+      if (!isCertificateSchemaDriftError(error)) {
         throw error;
       }
       // Same drift tolerance as GET /:certId — a DB predating the email-template
@@ -1915,26 +1586,27 @@ certificatesRouter.patch('/:certId', authMiddleware, requireRole('ADMIN'), async
         domain: data.domain !== undefined ? (data.domain as string | null) : cert.domain,
         description: data.description !== undefined ? (data.description as string | null) : cert.description,
       };
-      const pdfBuffer = await generateCertificatePDF({
-        recipientName: sanitizeText(merged.recipientName),
-        eventName: sanitizeText(merged.eventName),
-        type: merged.type,
-        position: merged.position ? sanitizeText(merged.position) : undefined,
-        domain: merged.domain ? sanitizeText(merged.domain) : undefined,
-        description: merged.description ? sanitizeText(merged.description) : undefined,
+      // Restore the persisted team name (graceful — null on an un-migrated DB).
+      const regenTeamName = await readCertificateTeamName(cert.certId);
+      // Single render+upload seam. overwrite:true replaces the same public_id
+      // (certificates/<certId>) + invalidates the CDN.
+      data.pdfUrl = await renderAndUploadCertificatePdf({
         certId: cert.certId,
+        recipientName: merged.recipientName,
+        eventName: merged.eventName,
+        type: merged.type,
+        position: merged.position,
+        domain: merged.domain,
+        teamName: regenTeamName,
+        description: merged.description,
         issuedAt: cert.issuedAt,
-        signatoryName: sanitizeText(cert.signatoryName),
-        signatoryTitle: sanitizeText(cert.signatoryTitle),
-        signatoryImageUrl: cert.signatoryImageUrl || undefined,
-        facultyName: cert.facultyName ? sanitizeText(cert.facultyName) : undefined,
-        facultyTitle: cert.facultyTitle ? sanitizeText(cert.facultyTitle) : undefined,
-        facultySignatoryImageUrl: cert.facultySignatoryImageUrl || undefined,
-        codescrietLogoUrl: CODESCRIET_LOGO,
-        ccsuLogoUrl: CCSU_LOGO,
-      });
-      // overwrite:true replaces the same public_id (certificates/<certId>) + invalidates CDN.
-      data.pdfUrl = await uploadCertificate(cert.certId, pdfBuffer, { overwrite: true });
+        signatoryName: cert.signatoryName ?? '',
+        signatoryTitle: cert.signatoryTitle ?? '',
+        signatoryImageUrl: cert.signatoryImageUrl,
+        facultyName: cert.facultyName,
+        facultyTitle: cert.facultyTitle,
+        facultySignatoryImageUrl: cert.facultySignatoryImageUrl,
+      }, { overwrite: true });
     }
 
     // Single write. Legacy fallback omits the email-template columns if the DB predates them.
@@ -2041,7 +1713,7 @@ certificatesRouter.post('/:certId/resend', authMiddleware, requireRole('ADMIN'),
         },
       });
     } catch (error) {
-      if (!isSchemaDriftError(error)) {
+      if (!isCertificateSchemaDriftError(error)) {
         throw error;
       }
 
@@ -2165,7 +1837,7 @@ certificatesRouter.get('/:certId', authMiddleware, requireRole('ADMIN'), async (
         },
       });
     } catch (error) {
-      if (!isSchemaDriftError(error)) {
+      if (!isCertificateSchemaDriftError(error)) {
         throw error;
       }
 

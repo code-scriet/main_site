@@ -1357,6 +1357,7 @@ model Certificate {
   position    String? // e.g. "1st Place" — only for WINNER type
   domain      String? // e.g. "Web Development"
   description String? // Optional description rendered on the certificate
+  teamName    String? @map("team_name") // WINNER team certs — persisted so regeneration can restore it (graceful via schema-fallback if not yet migrated)
 
   template CertTemplate @default(gold)
 

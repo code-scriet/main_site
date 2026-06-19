@@ -2,7 +2,6 @@ import { Router, Request, Response } from 'express';
 import express from 'express';
 import rateLimit from 'express-rate-limit';
 import ExcelJS from 'exceljs';
-import { z } from 'zod';
 import { prisma } from '../lib/prisma.js';
 import { authMiddleware, getAuthUser } from '../middleware/auth.js';
 import { requireRole } from '../middleware/role.js';
@@ -19,6 +18,7 @@ import {
   AttendanceBulkUpdateConflictError,
   CLIENT_SCAN_FUTURE_TOLERANCE_MS,
   CLIENT_SCAN_MAX_AGE_MS,
+  editDayAttendance,
   isRegistrationBoundToPayload,
   markDayAttendanceAtomic,
   normalizeEventDays,
@@ -30,7 +30,6 @@ import {
   resolveStoredAttendanceTokenPayloads,
   syncRegistrationAttendance,
   unmarkDayAttendanceAtomic,
-  type AttendanceTokenPayload,
 } from '../utils/attendanceDomain.js';
 import { isGuest, isParticipant, participantsOnly } from '../utils/registrationFilters.js';
 import { isUuid, requireUuid } from '../utils/idParams.js';
@@ -1047,13 +1046,16 @@ router.patch('/edit/:registrationId', authMiddleware, requireRole('CORE_MEMBER')
       return ApiResponse.badRequest(res, `dayNumber must be between 1 and ${eventDays}`);
     }
 
-    const updateData: Record<string, unknown> = {};
-    let shouldMarkAttended: boolean | undefined;
+    // Translate the HTTP body into a domain edit intent. Request-shape
+    // validation stays here; the DayAttendance write (and the legacy-sync
+    // invariant) lives behind editDayAttendance.
+    const changes: Record<string, unknown> = {};
+    let attendance: { kind: 'mark'; scannedAt: Date } | { kind: 'unmark' } | undefined;
 
     if (scannedAt !== undefined) {
       if (scannedAt === null || scannedAt === '') {
-        updateData.scannedAt = null;
-        shouldMarkAttended = false;
+        attendance = { kind: 'unmark' };
+        changes.scannedAt = null;
       } else if (typeof scannedAt !== 'string') {
         return ApiResponse.badRequest(res, 'scannedAt must be an ISO string, empty string, or null');
       } else {
@@ -1071,56 +1073,26 @@ router.patch('/edit/:registrationId', authMiddleware, requireRole('CORE_MEMBER')
           return ApiResponse.badRequest(res, 'scannedAt must be within the last 24 hours and not in the future');
         }
 
-        updateData.scannedAt = parsed;
-        shouldMarkAttended = true;
+        attendance = { kind: 'mark', scannedAt: parsed };
+        changes.scannedAt = parsed;
       }
     }
 
     if (manualOverride !== undefined) {
-      updateData.manualOverride = manualOverride;
+      changes.manualOverride = manualOverride;
     }
 
-    if (Object.keys(updateData).length === 0) {
+    if (attendance === undefined && manualOverride === undefined) {
       return ApiResponse.badRequest(res, 'At least one field (scannedAt, manualOverride) must be provided');
     }
 
-    const existingDay = await prisma.dayAttendance.findUnique({
-      where: {
-        registrationId_dayNumber: {
-          registrationId,
-          dayNumber: effectiveDayNumber,
-        },
-      },
-    });
-
-    if (!existingDay) {
-      await prisma.dayAttendance.create({
-        data: {
-          registrationId,
-          dayNumber: effectiveDayNumber,
-          attended: shouldMarkAttended ?? false,
-          scannedAt: (updateData.scannedAt as Date | null | undefined) ?? null,
-          scannedBy: shouldMarkAttended ? admin.id : null,
-          manualOverride: typeof updateData.manualOverride === 'boolean' ? updateData.manualOverride : false,
-        },
-      });
-    } else {
-      await prisma.dayAttendance.update({
-        where: {
-          registrationId_dayNumber: {
-            registrationId,
-            dayNumber: effectiveDayNumber,
-          },
-        },
-        data: {
-          ...(updateData.scannedAt !== undefined && { scannedAt: updateData.scannedAt as Date | null }),
-          ...(updateData.manualOverride !== undefined && { manualOverride: updateData.manualOverride as boolean }),
-          ...(shouldMarkAttended !== undefined && { attended: shouldMarkAttended }),
-          ...(shouldMarkAttended === false && { scannedBy: null }),
-          ...(shouldMarkAttended === true && { scannedBy: admin.id }),
-        },
-      });
-    }
+    await withRetry(() => editDayAttendance(prisma, {
+      registrationId,
+      dayNumber: effectiveDayNumber,
+      editorId: admin.id,
+      attendance,
+      manualOverride,
+    }));
 
     await syncRegistrationAttendance(registrationId);
 
@@ -1136,7 +1108,7 @@ router.patch('/edit/:registrationId', authMiddleware, requireRole('CORE_MEMBER')
     await auditLog(admin.id, 'ATTENDANCE_EDIT', 'eventRegistration', registrationId, {
       eventId: registration.eventId,
       dayNumber: effectiveDayNumber,
-      changes: updateData,
+      changes,
     });
 
     return ApiResponse.success(res, updated);
