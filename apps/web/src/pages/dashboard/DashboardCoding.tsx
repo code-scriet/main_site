@@ -230,6 +230,7 @@ function QOTDTab() {
     queryKey: ['qotd-history-summary', token],
     queryFn: () => api.getQOTDHistorySummary(token ?? undefined),
     enabled: fullHistoryOpen,
+    staleTime: 5 * 60 * 1000,
   });
 
   const today = todayQ.data;

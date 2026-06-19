@@ -13,7 +13,7 @@ import { logger } from '../utils/logger.js';
 import { createProblemFromInput, serializeProblemDetail, toIstDateKey, type ProblemInput } from '../utils/problemsCore.js';
 import { formatUsageDate } from '../utils/dailyLimit.js';
 import { recomputeUserStreakSafe, invalidatePublishedQotdCache, recomputeStreaksForQOTDSafe } from '../utils/qotdStreak.js';
-import { broadcastQotdLive } from '../utils/notifications.js';
+import { broadcastQotdLive, broadcastNotification } from '../utils/notifications.js';
 import { armQotdPublishTimer, cancelQotdPublishTimer } from '../utils/scheduler.js';
 import { uuidParamGuard } from '../utils/idParams.js';
 import { isPresidentOrSuperAdmin, isSuperAdmin } from '../utils/superAdmin.js';
@@ -710,6 +710,22 @@ qotdRouter.post('/:id/publish', authMiddleware, requireRole('ADMIN'), async (req
     recomputeStreaksForQOTDSafe(qotd.id);
     await auditLog(authUser.id, 'QOTD_PUBLISHED', 'qotd', qotd.id);
     broadcastQotdLive(updated, authUser.id).catch(() => undefined);
+    // Notify the proposer when an admin publishes someone else's draft. Link to the
+    // QOTD's own date (not /qotd/today): a future-dated proposal published "now" is
+    // live but isn't today's, so /qotd/today wouldn't resolve to it — a dead link.
+    if (qotd.createdById && qotd.createdById !== authUser.id) {
+      broadcastNotification({
+        source: 'SYSTEM',
+        audience: 'CUSTOM',
+        audienceUserIds: [qotd.createdById],
+        category: 'qotd',
+        icon: 'zap',
+        title: 'Your QOTD proposal was published and is now live!',
+        link: `/qotd/${toIstDateKey(qotd.date)}`,
+        refEntity: 'qotd',
+        refEntityId: qotd.id,
+      }).catch(() => undefined);
+    }
     return ApiResponse.success(res, updated, 'QOTD published');
   } catch {
     return ApiResponse.internal(res, 'Failed to publish QOTD');
@@ -846,7 +862,7 @@ qotdRouter.put('/:id', authMiddleware, requireRole('CORE_MEMBER'), async (req: R
     });
     if (!existingQotd) return ApiResponse.notFound(res, 'QOTD not found');
 
-    const isAdmin = authUser.role === 'ADMIN' || authUser.role === 'PRESIDENT';
+    const isAdmin = isAdminAuth(authUser) || isSuperAdmin(authUser);
     const isOwner = existingQotd.createdById === authUser.id;
     if (!isAdmin && !isOwner) return ApiResponse.forbidden(res, 'You can only edit QOTDs created by you');
 
@@ -865,9 +881,27 @@ qotdRouter.put('/:id', authMiddleware, requireRole('CORE_MEMBER'), async (req: R
 qotdRouter.delete('/:id', authMiddleware, requireRole('ADMIN'), async (req: Request, res: Response) => {
   try {
     const authUser = getAuthUser(req)!;
+    const qotd = await prisma.qOTD.findUnique({
+      where: { id: req.params.id },
+      select: { id: true, isPublished: true, createdById: true },
+    });
+    if (!qotd) return ApiResponse.notFound(res, 'QOTD not found');
     await prisma.qOTD.delete({ where: { id: req.params.id } });
     cancelQotdPublishTimer(req.params.id); // drop any armed auto-publish timer
     await auditLog(authUser.id, 'DELETE', 'qotd', req.params.id);
+    // Notify the proposer when their unpublished draft is rejected.
+    if (!qotd.isPublished && qotd.createdById && qotd.createdById !== authUser.id) {
+      broadcastNotification({
+        source: 'SYSTEM',
+        audience: 'CUSTOM',
+        audienceUserIds: [qotd.createdById],
+        category: 'qotd',
+        icon: 'bell',
+        title: 'Your QOTD proposal was not selected.',
+        refEntity: 'qotd',
+        refEntityId: qotd.id,
+      }).catch(() => undefined);
+    }
     return ApiResponse.success(res, { success: true }, 'QOTD deleted successfully');
   } catch {
     return ApiResponse.internal(res, 'Failed to delete QOTD');

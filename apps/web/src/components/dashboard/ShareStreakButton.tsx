@@ -17,11 +17,24 @@ import { copyTextToClipboard } from '@/lib/clipboard';
 import { cn } from '@/lib/utils';
 
 // The share page lives at the API ROOT (not under /api), e.g. api.codescriet.dev.
-const SHARE_ORIGIN = API_URL.replace(/\/api\/?$/, '');
+// Use URL.origin so this is correct for any VITE_API_URL shape (with or without a
+// path prefix, versioned paths, etc.) rather than a fragile regex strip.
+const SHARE_ORIGIN = (() => { try { return new URL(API_URL).origin; } catch { return API_URL.replace(/\/api\/?$/, ''); } })();
 
 async function captureBlob(node: HTMLElement): Promise<Blob> {
   const html2canvas = (await import('html2canvas')).default;
-  const canvas = await html2canvas(node, { backgroundColor: null, scale: 2, useCORS: true, logging: false });
+  // Normalise the html2canvas viewport to start at the element's exact position.
+  // Without this, a `position: fixed; left: -10000px` wrapper produces a blank
+  // canvas because html2canvas clips to the viewport bounds at capture time.
+  const { left, top } = node.getBoundingClientRect();
+  const canvas = await html2canvas(node, {
+    backgroundColor: null,
+    scale: 2,
+    useCORS: true,
+    logging: false,
+    scrollX: -left,
+    scrollY: -top,
+  });
   return new Promise<Blob>((resolve, reject) =>
     canvas.toBlob((b) => (b ? resolve(b) : reject(new Error('Capture failed'))), 'image/png'),
   );
@@ -38,6 +51,11 @@ export function ShareStreakButton({
 }) {
   const { user, token } = useAuth();
   const cardRef = useRef<HTMLDivElement>(null);
+  // Cache the last captured PNG keyed by the card's content. Share and Download
+  // both need the same image; without this, doing both (or retrying) re-runs a
+  // full html2canvas pass each time. Invalidates automatically when the stats or
+  // name that the card renders from change (the key embeds them).
+  const blobCache = useRef<{ key: string; blob: Blob } | null>(null);
   const [shared, setShared] = useState(false);
   const [busy, setBusy] = useState<null | 'download' | 'share'>(null);
 
@@ -46,12 +64,27 @@ export function ShareStreakButton({
 
   const name = user?.name ?? stats.name ?? 'code.scriet member';
 
+  // Hero metric: a live streak leads; with no current streak but solved problems
+  // we lead with the solved count instead of a deflating "0 day streak".
+  const hasStreak = (stats.currentStreak ?? 0) > 0;
+  const heroValue = hasStreak ? stats.currentStreak : (stats.totalSolved ?? 0);
+  const heroLabel = hasStreak ? 'day streak' : 'problems solved';
+
+  const cardKey = `${stats.currentStreak ?? ''}|${stats.longestStreak ?? ''}|${stats.totalSolved ?? ''}|${name}`;
+  const getCardBlob = async (): Promise<Blob> => {
+    if (!cardRef.current) throw new Error('Card not ready');
+    if (blobCache.current?.key === cardKey) return blobCache.current.blob;
+    const blob = await captureBlob(cardRef.current);
+    blobCache.current = { key: cardKey, blob };
+    return blob;
+  };
+
   const onDownload = async () => {
     if (busy) return; // `disabled` only paints next render — guard fast double-clicks
     if (!cardRef.current) return;
     setBusy('download');
     try {
-      const blob = await captureBlob(cardRef.current);
+      const blob = await getCardBlob();
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
@@ -90,7 +123,7 @@ export function ShareStreakButton({
     // fall back to the plain LinkedIn share rather than aborting the whole action.
     try {
       if (cardRef.current && token && user?.id) {
-        const blob = await captureBlob(cardRef.current);
+        const blob = await getCardBlob();
         const file = new File([blob], 'streak.png', { type: 'image/png' });
         const cardUrl = await api.uploadImage(file, token);
         if (cardUrl) {
@@ -182,20 +215,37 @@ export function ShareStreakButton({
 
           <div>
             <div style={{ display: 'flex', alignItems: 'baseline', gap: 12 }}>
-              <span style={{ fontSize: 84, fontWeight: 800, lineHeight: 1, color: '#fff' }}>{stats.currentStreak}</span>
-              <span style={{ fontSize: 26, fontWeight: 600, color: '#e7633f' }}>day streak 🔥</span>
+              {/* No emoji in the hero — html2canvas rasterizes emoji inconsistently
+                  across platforms, which would degrade the OG/preview image. */}
+              <span style={{ fontSize: 84, fontWeight: 800, lineHeight: 1, color: '#fff' }}>{heroValue}</span>
+              <span style={{ fontSize: 26, fontWeight: 600, color: '#e7633f' }}>{heroLabel}</span>
             </div>
             <div style={{ marginTop: 14, display: 'flex', gap: 28, fontSize: 15, color: '#d8c4b8' }}>
               {typeof stats.longestStreak === 'number' && (
                 <span>Longest <b style={{ color: '#fff' }}>{stats.longestStreak}</b></span>
               )}
-              {typeof stats.totalSolved === 'number' && (
+              {/* Skip when the solved count is already the hero metric (no streak). */}
+              {hasStreak && typeof stats.totalSolved === 'number' && (
                 <span>Solved <b style={{ color: '#fff' }}>{stats.totalSolved}</b></span>
               )}
             </div>
           </div>
 
-          <div style={{ fontSize: 16, fontWeight: 600, color: '#fff' }}>{name}</div>
+          {/* maxWidth = card width (600) − horizontal padding (36 × 2); truncate so a
+              long display name can't overflow the fixed-width card. */}
+          <div
+            style={{
+              fontSize: 16,
+              fontWeight: 600,
+              color: '#fff',
+              maxWidth: 528,
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            {name}
+          </div>
         </div>
       </div>
     </div>

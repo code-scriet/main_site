@@ -66,13 +66,18 @@ export function QOTDHistoryList({
     queryKey: ['qotd-history-full', mode, token ?? null],
     initialPageParam: 0,
     queryFn: ({ pageParam }) =>
-      api.getQOTDHistory(pageSize, pageParam, { includeUnpublished, token: token ?? undefined }),
-    // No total in the unwrapped payload — a short page means we've hit the end.
-    getNextPageParam: (lastPage, allPages) =>
-      lastPage.length === pageSize ? allPages.length * pageSize : undefined,
+      api.getQOTDHistoryPage(pageSize, pageParam, { includeUnpublished, token: token ?? undefined }),
+    getNextPageParam: (lastPage, allPages) => {
+      const loaded = allPages.reduce((n, p) => n + p.entries.length, 0);
+      // Prefer the server total: stop precisely, so an exact page-multiple count
+      // doesn't trigger one wasted empty fetch. Fall back to the short-page
+      // heuristic only if total is missing.
+      if (lastPage.total != null) return loaded < lastPage.total ? loaded : undefined;
+      return lastPage.entries.length === pageSize ? loaded : undefined;
+    },
   });
 
-  const entries = useMemo(() => query.data?.pages.flat() ?? [], [query.data]);
+  const entries = useMemo(() => query.data?.pages.flatMap((p) => p.entries) ?? [], [query.data]);
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     if (!q) return entries;

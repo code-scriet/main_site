@@ -30,6 +30,7 @@ import {
 import { useAuth } from '@/context/AuthContext';
 import { api, type UserBlock, type UserBlockFeature } from '@/lib/api';
 import { extractApiErrorMessage } from '@/lib/error';
+import { formatIstDateTime } from '@/lib/dateUtils';
 import { getRoleBadge, relativeTime } from '@/lib/userBadges';
 import { useUserAdminActions, useUserAudit, useUserBlocks, useUserFull } from '@/hooks/useUserDetail';
 import { useAdminPermissions } from '@/hooks/useAdminPermissions';
@@ -430,10 +431,7 @@ function DetailGroup({ icon, title, children }: { icon: React.ReactNode; title: 
 }
 
 function fmtDate(value?: string | null): string {
-  if (!value) return '—';
-  const d = new Date(value);
-  if (Number.isNaN(d.getTime())) return '—';
-  return d.toLocaleString('en-IN', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Kolkata' });
+  return formatIstDateTime(value) || '—';
 }
 
 function Detail({ label, value, mono, copyable, href, tone }: {

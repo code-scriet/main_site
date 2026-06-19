@@ -2,7 +2,7 @@
 // with a date and publish lifecycle, and submissions flow through the same
 // ProblemSubmission table via contextType/contextKey.
 
-import { request } from './_internal';
+import { request, requestEnvelope } from './_internal';
 import type {
   PendingCapRequest,
   Problem,
@@ -122,6 +122,26 @@ export const codingApi = {
     if (options?.proposals) params.append('proposals', 'true');
     const query = params.toString() ? `?${params.toString()}` : '';
     return request<QOTDHistoryEntry[]>(`/qotd/history${query}`, options?.token ? { token: options.token } : undefined);
+  },
+  // Paginated variant for the infinite "Full history" list: keeps the server's
+  // pagination.total (which the plain getQOTDHistory unwrap discards) so the list
+  // can stop exactly at total instead of probing one empty page when the row count
+  // is an exact multiple of pageSize.
+  getQOTDHistoryPage: (limit: number, offset: number, options?: { includeUnpublished?: boolean; token?: string }) => {
+    const params = new URLSearchParams();
+    params.append('limit', String(limit));
+    if (offset) params.append('offset', String(offset));
+    if (options?.includeUnpublished) params.append('includeUnpublished', 'true');
+    return requestEnvelope<QOTDHistoryEntry[]>(
+      `/qotd/history?${params.toString()}`,
+      options?.token ? { token: options.token } : undefined,
+    ).then((env) => {
+      const total = (env.pagination as { total?: unknown } | undefined)?.total;
+      return {
+        entries: env.data ?? [],
+        total: typeof total === 'number' ? total : null,
+      };
+    });
   },
   // Totals for the "Full history" header — solved/total/left, computed server-side.
   getQOTDHistorySummary: (token?: string) =>

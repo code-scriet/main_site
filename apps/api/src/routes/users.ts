@@ -20,6 +20,7 @@ import { signAccessToken } from '../utils/jwt.js';
 import { invalidateCachedAuthUser } from '../utils/userAuthCache.js';
 import { invalidateUserBlockCache } from '../middleware/blocks.js';
 import { uuidParamGuard } from '../utils/idParams.js';
+import { cloudinary, isCloudinaryConfigured } from '../config/cloudinary.js';
 
 const USER_BLOCK_FEATURES = ['EVENT', 'PLAYGROUND', 'QOTD', 'QUIZ', 'NETWORK'] as const;
 type UserBlockFeatureKey = (typeof USER_BLOCK_FEATURES)[number];
@@ -261,6 +262,26 @@ usersRouter.post('/me/streak-card', authMiddleware, async (req: Request, res: Re
     try { host = new URL(parsed.data.url).hostname; } catch { return ApiResponse.badRequest(res, 'Invalid URL'); }
     if (!parsed.data.url.startsWith('https://') || !/(^|\.)cloudinary\.com$/i.test(host)) {
       return ApiResponse.badRequest(res, 'Streak card must be an https Cloudinary URL');
+    }
+    // Best-effort: delete the previous streak card from Cloudinary before overwriting
+    // the URL. Each share generates a new unique asset; without cleanup, every active
+    // user accumulates one orphaned asset per share click (storage quota drain).
+    // Fire-and-forget — don't let a Cloudinary outage block the user's share flow.
+    if (isCloudinaryConfigured) {
+      const prev = await prisma.user.findUnique({ where: { id: authUser.id }, select: { streakCardUrl: true } });
+      if (prev?.streakCardUrl && prev.streakCardUrl !== parsed.data.url) {
+        const match = prev.streakCardUrl.match(/\/upload\/(?:v\d+\/)?(.+?)(?:\.[a-z]+)?$/i);
+        if (match?.[1]) {
+          const publicId = match[1];
+          cloudinary.uploader.destroy(publicId).catch(() => undefined);
+          // Streak cards are uploaded via the generic /upload/image path, which also
+          // writes an UploadedImage gallery row (publicId === Cloudinary public_id).
+          // Destroying the asset without deleting that row leaves a 404 thumbnail in
+          // the member's upload gallery and inflates counts.uploadedImages — so drop
+          // the row alongside the asset. Fire-and-forget, like the destroy above.
+          prisma.uploadedImage.deleteMany({ where: { publicId } }).catch(() => undefined);
+        }
+      }
     }
     await prisma.user.update({ where: { id: authUser.id }, data: { streakCardUrl: parsed.data.url } });
     // Trail the change: streakCardUrl is the public og:image of /share/streak/:id, so

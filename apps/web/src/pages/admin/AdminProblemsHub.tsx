@@ -10,10 +10,12 @@
 import { useMemo } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import type { UseQueryResult } from '@tanstack/react-query';
 import { Loader2, Play, Pencil, Trash2, Check } from 'lucide-react';
 import { toast } from 'sonner';
 import { useAuth } from '@/context/AuthContext';
-import { api } from '@/lib/api';
+import { api, type QOTDHistoryEntry } from '@/lib/api';
+import { istDateKey } from '@/lib/dateUtils';
 import { DSCard, Difficulty, EmptyState, Pill, Section, UnderlineTabs } from '@/components/dash';
 import AdminProblems from './AdminProblems';
 import AdminSubmissionReview from './AdminSubmissionReview';
@@ -22,19 +24,14 @@ import CreateQOTD from '../dashboard/CreateQOTD';
 type HubTab = 'catalog' | 'qotd' | 'review' | 'proposals';
 const TABS: HubTab[] = ['catalog', 'qotd', 'review', 'proposals'];
 
-function ProposalsPanel() {
+// qotdQ is lifted to the hub so the badge count and the panel list share a single
+// React Query subscription. Passing it as a prop avoids a second useQuery call
+// that could silently diverge if one side's queryFn args are updated independently.
+function ProposalsPanel({ qotdQ }: { qotdQ: UseQueryResult<QOTDHistoryEntry[]> }) {
   const { token } = useAuth();
   const navigate = useNavigate();
   const qc = useQueryClient();
 
-  // Server-filtered proposals (unpublished + unscheduled + not held), so an old or
-  // past-dated proposal is never lost off a date-desc page window. limit 100 ≫ any
-  // realistic pending-proposal count.
-  const qotdQ = useQuery({
-    queryKey: ['qotd-proposals'],
-    queryFn: () => api.getQOTDHistory(100, 0, { includeUnpublished: true, proposals: true, token: token! }),
-    enabled: Boolean(token),
-  });
   const problemsQ = useQuery({
     queryKey: ['admin-problems'],
     queryFn: () => api.adminGetProblems(token!),
@@ -44,7 +41,7 @@ function ProposalsPanel() {
   // The server already returns exactly proposals; keep the defensive filter so a
   // just-published/scheduled row never lingers between fetch and invalidation.
   const proposedQotds = useMemo(
-    () => (qotdQ.data ?? []).filter((q) => !q.isPublished && !q.heldBy && !q.publishAt),
+    () => (qotdQ.data ?? []).filter((q: QOTDHistoryEntry) => !q.isPublished && !q.heldBy && !q.publishAt),
     [qotdQ.data],
   );
   const draftProblems = useMemo(
@@ -88,6 +85,22 @@ function ProposalsPanel() {
 
   const busy = publishQotd.isPending || rejectQotd.isPending || publishProblem.isPending || deleteProblemMut.isPending;
 
+  // "Publish now" sets isPublished + pings everyone immediately. For a FUTURE-dated
+  // proposal that's wrong: it goes live today (not on its date) and the proposer's
+  // "now live" link points at today's QOTD, not this one. Warn + offer the QOTD tab
+  // (where it can be scheduled for its date) before publishing such a proposal.
+  const todayKey = istDateKey();
+  const handlePublishQotd = (q: QOTDHistoryEntry) => {
+    if (q.date.slice(0, 10) > todayKey) {
+      const fmt = new Date(q.date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
+      const ok = window.confirm(
+        `This proposal is dated ${fmt}. "Publish now" makes it live TODAY and announces it to everyone — it won't appear as that day's QOTD.\n\nTo schedule it for ${fmt} instead, cancel and open the QOTD tab.`,
+      );
+      if (!ok) return;
+    }
+    publishQotd.mutate(q.id);
+  };
+
   return (
     <div className="flex flex-col gap-6">
       <Section eyebrow="Proposals" title={`QOTD drafts (${proposedQotds.length})`}>
@@ -104,9 +117,9 @@ function ProposalsPanel() {
                     {new Date(q.date).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
                   </span>
                   <span className="flex-1 truncate text-[13px] font-medium">{q.question}</span>
-                  <Difficulty level={String(q.difficulty || 'EASY').toUpperCase()} />
+                  <Difficulty level={q.difficulty || 'EASY'} />
                   <Pill tone="info" size="xs">Proposed</Pill>
-                  <button onClick={() => publishQotd.mutate(q.id)} disabled={busy} title="Publish now" aria-label="Publish now" className="size-7 rounded-[6px] hover:bg-[var(--accent-subtle)] text-[var(--ds-text-3)] hover:text-[var(--accent)] flex items-center justify-center disabled:opacity-40">
+                  <button onClick={() => handlePublishQotd(q)} disabled={busy} title="Publish now" aria-label="Publish now" className="size-7 rounded-[6px] hover:bg-[var(--accent-subtle)] text-[var(--ds-text-3)] hover:text-[var(--accent)] flex items-center justify-center disabled:opacity-40">
                     <Check size={12} />
                   </button>
                   <button onClick={() => rejectQotd.mutate(q.id)} disabled={busy} title="Reject (delete)" aria-label="Reject" className="size-7 rounded-[6px] hover:bg-[var(--danger-bg)] text-[var(--ds-text-3)] hover:text-[var(--danger)] flex items-center justify-center disabled:opacity-40">
@@ -166,16 +179,16 @@ export default function AdminProblemsHub() {
     setParams(next);
   };
 
-  // Live count for the Proposals tab badge — shares the server-filtered proposals
-  // cache with the panel (so the badge is exact, not a slice of a recent window).
-  const proposalsCountQ = useQuery({
+  // Single proposals query — drives both the badge count and the ProposalsPanel list.
+  // Passed as a prop to ProposalsPanel so both consumers stay on the same subscription.
+  const proposalsQ = useQuery({
     queryKey: ['qotd-proposals'],
     queryFn: () => api.getQOTDHistory(100, 0, { includeUnpublished: true, proposals: true, token: token! }),
     enabled: Boolean(token),
   });
   const proposalsCount = useMemo(
-    () => (proposalsCountQ.data ?? []).filter((q) => !q.isPublished && !q.heldBy && !q.publishAt).length,
-    [proposalsCountQ.data],
+    () => (proposalsQ.data ?? []).filter((q) => !q.isPublished && !q.heldBy && !q.publishAt).length,
+    [proposalsQ.data],
   );
 
   return (
@@ -204,7 +217,7 @@ export default function AdminProblemsHub() {
         {tab === 'catalog' && <AdminProblems embedded />}
         {tab === 'qotd' && <CreateQOTD embedded />}
         {tab === 'review' && <AdminSubmissionReview embedded />}
-        {tab === 'proposals' && <ProposalsPanel />}
+        {tab === 'proposals' && <ProposalsPanel qotdQ={proposalsQ} />}
       </div>
     </div>
   );
