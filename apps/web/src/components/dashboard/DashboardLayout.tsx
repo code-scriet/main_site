@@ -62,7 +62,7 @@ const breadcrumbNames: Record<string, string> = {
   '/dashboard/attendance': 'Take Attendance',
   '/dashboard/events/new': 'Create Event',
   '/dashboard/announcements/new': 'Create Announcement',
-  '/dashboard/qotd': 'Manage QOTD',
+  '/dashboard/qotd': 'Propose QOTD',
   '/dashboard/quiz': 'Quiz Manager',
   '/dashboard/upload': 'Upload Image',
   '/dashboard/problems/new': 'Create Problem',
@@ -156,7 +156,7 @@ function getNav(opts: {
     { route: 'create-event', href: '/dashboard/events/new', label: 'Create Event', icon: Plus },
     { route: 'create-announcement', href: '/dashboard/announcements/new', label: 'Create Announcement', icon: Megaphone },
     { route: 'create-problem', href: '/dashboard/problems/new', label: 'Create Problem', icon: FileText },
-    { route: 'manage-qotd', href: '/dashboard/qotd', label: 'Manage QOTD', icon: Zap },
+    { route: 'manage-qotd', href: '/dashboard/qotd', label: 'Propose QOTD', icon: Zap },
     { route: 'quiz-manager', href: '/dashboard/quiz', label: 'Quiz Manager', icon: Play },
     { route: 'upload-image', href: '/dashboard/upload', label: 'Upload Image', icon: UploadIcon },
   ];
@@ -165,8 +165,8 @@ function getNav(opts: {
     { route: 'admin-users', href: '/admin/users', label: 'User Management', icon: Users },
     { route: 'admin-team', href: '/admin/team', label: 'Team Management', icon: Layers },
     { route: 'admin-achievements', href: '/admin/achievements', label: 'Achievements', icon: Star },
+    // QOTD scheduling + Submission Review are now tabs inside the Problems hub.
     ...(flags.problems ? [{ route: 'admin-problems', href: '/admin/problems', label: 'Problems', icon: Terminal }] : []),
-    ...(flags.problems ? [{ route: 'admin-submission-review', href: '/admin/submission-review', label: 'Submission Review', icon: Shield }] : []),
     { route: 'admin-credits', href: '/admin/credits', label: 'Credits', icon: BookOpen },
     { route: 'admin-public-view', href: '/admin/public-view', label: 'Public View', icon: Activity },
     ...(flags.hiring ? [{ route: 'admin-hiring', href: '/admin/hiring', label: 'Hiring Applications', icon: Briefcase }] : []),

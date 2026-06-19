@@ -181,6 +181,10 @@ export function formatIstTime(dateString: string | Date | undefined | null): str
 export function formatIstDateTime(dateString: string | Date | undefined | null): string {
   if (!dateString) return '';
   const date = new Date(dateString);
+  // A malformed string yields an Invalid Date whose toLocaleString is the truthy
+  // literal "Invalid Date" — that slips past a caller's `|| '—'` fallback. Return
+  // '' instead so those fallbacks fire, matching relativeTime() below.
+  if (!Number.isFinite(date.getTime())) return '';
   return date.toLocaleString(LOCALE, {
     timeZone: IST_TIMEZONE,
     day: 'numeric',

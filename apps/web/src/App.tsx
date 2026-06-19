@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect, type ReactNode } from 'react';
-import { BrowserRouter as Router, Routes, Route, useLocation } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Loader2 } from 'lucide-react';
 import { MotionConfig } from 'framer-motion';
@@ -104,8 +104,7 @@ const AdminCertificates = lazy(() => import('@/pages/admin/AdminCertificates'));
 const AdminNetwork = lazy(() => import('@/pages/admin/AdminNetwork'));
 const AdminCredits = lazy(() => import('@/pages/admin/AdminCredits'));
 const AdminCompetition = lazy(() => import('@/pages/admin/AdminCompetition'));
-const AdminProblems = lazy(() => import('@/pages/admin/AdminProblems'));
-const AdminSubmissionReview = lazy(() => import('@/pages/admin/AdminSubmissionReview'));
+const AdminProblemsHub = lazy(() => import('@/pages/admin/AdminProblemsHub'));
 const CompetitionJudge = lazy(() => import('@/pages/admin/CompetitionJudge'));
 const AdminAuditLog = lazy(() => import('@/pages/admin/AdminAuditLog'));
 const AdminMail = lazy(() => import('@/pages/admin/AdminMail'));
@@ -234,8 +233,9 @@ function App() {
                       <Route path="users/:id" element={withRouteBoundary(<UserDetailPage />)} />
                       <Route path="team" element={withRouteBoundary(<AdminTeam />)} />
                       <Route path="achievements" element={withRouteBoundary(<AdminAchievements />)} />
-                      <Route path="problems" element={withRouteBoundary(<AdminProblems />)} />
-                      <Route path="submission-review" element={withRouteBoundary(<AdminSubmissionReview />)} />
+                      <Route path="problems" element={withRouteBoundary(<AdminProblemsHub />)} />
+                      {/* Submission Review folded into the hub — keep the old path as a redirect. */}
+                      <Route path="submission-review" element={<Navigate to="/admin/problems?tab=review" replace />} />
                       <Route path="event-registrations" element={withRouteBoundary(<AdminEventRegistrations />)} />
                       <Route path="event-registrations/:eventId" element={withRouteBoundary(<AdminEventRegistrationDetail />)} />
                       <Route path="events/:id/edit" element={withRouteBoundary(<EditEvent />)} />

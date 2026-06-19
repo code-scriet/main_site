@@ -13,11 +13,12 @@ import { logger } from '../utils/logger.js';
 import { createProblemFromInput, serializeProblemDetail, toIstDateKey, type ProblemInput } from '../utils/problemsCore.js';
 import { formatUsageDate } from '../utils/dailyLimit.js';
 import { recomputeUserStreakSafe, invalidatePublishedQotdCache, recomputeStreaksForQOTDSafe } from '../utils/qotdStreak.js';
-import { broadcastQotdLive } from '../utils/notifications.js';
+import { broadcastQotdLive, broadcastNotification } from '../utils/notifications.js';
 import { armQotdPublishTimer, cancelQotdPublishTimer } from '../utils/scheduler.js';
 import { uuidParamGuard } from '../utils/idParams.js';
-import { isPresidentOrSuperAdmin } from '../utils/superAdmin.js';
+import { isPresidentOrSuperAdmin, isSuperAdmin } from '../utils/superAdmin.js';
 import { signQotdReopenToken } from '../utils/jwt.js';
+import { resolveQotdPublishState } from '../utils/qotdAuthoring.js';
 
 export const qotdRouter = Router();
 
@@ -269,7 +270,15 @@ qotdRouter.get('/history', optionalAuthMiddleware, async (req: Request, res: Res
         dateWhere = { gte: dayStart, lt: new Date(dayStart.getTime() + 24 * 60 * 60 * 1000) };
       }
     }
-    const baseWhere = dateWhere
+    // Proposals view (staff only): exactly the CORE_MEMBER-submitted drafts awaiting
+    // an admin — unpublished, unscheduled (publishAt null), not held. Returned by the
+    // server filter (not a client-side slice of a date-desc page) so the coding-hub
+    // badge + Proposals tab never drop an old or past-dated proposal once the archive
+    // grows past one page. A scheduled QOTD carries publishAt; a held one carries heldBy.
+    const proposalsOnly = req.query.proposals === 'true' && includeUnpublished;
+    const baseWhere = proposalsOnly
+      ? { isPublished: false, publishAt: null, heldBy: null }
+      : dateWhere
       ? { ...(includeUnpublished ? {} : { isPublished: true }), date: dateWhere }
       : includeUnpublished
         ? {}
@@ -289,6 +298,28 @@ qotdRouter.get('/history', optionalAuthMiddleware, async (req: Request, res: Res
     return res.json({ success: true, data, pagination: { total, limit, offset } });
   } catch {
     return ApiResponse.internal(res, 'Failed to fetch QOTD history');
+  }
+});
+
+// Lightweight totals for the "Full history" header — how many published QOTDs
+// exist up to today and how many the caller has solved. Bounded: one row per QOTD
+// day (id + problemId only), so it stays cheap even years in. solved is computed
+// with the same getSubmittedQotdIds split used by /history, so the count is
+// byte-identical to the per-row hasSubmitted there.
+qotdRouter.get('/history/summary', optionalAuthMiddleware, async (req: Request, res: Response) => {
+  try {
+    const { end } = qotdDateRange();
+    const authUser = getAuthUser(req);
+    const qotds = await prisma.qOTD.findMany({
+      where: { date: { lt: end }, isPublished: true },
+      select: { id: true, problemId: true },
+    });
+    const totalPublished = qotds.length;
+    const solved = (await getSubmittedQotdIds(qotds, authUser?.id)).size;
+    return ApiResponse.success(res, { totalPublished, solved, left: Math.max(0, totalPublished - solved) });
+  } catch (error) {
+    logger.error('Failed to fetch QOTD history summary', { error: error instanceof Error ? error.message : String(error) });
+    return ApiResponse.internal(res, 'Failed to fetch QOTD history summary');
   }
 });
 
@@ -587,6 +618,12 @@ qotdRouter.post('/', authMiddleware, requireRole('CORE_MEMBER'), async (req: Req
     const parsed = createQotdSchema.safeParse(req.body);
     if (!parsed.success) return ApiResponse.badRequest(res, parsed.error.errors[0]?.message || 'Invalid QOTD payload');
 
+    // Author authority — computed up-front because it gates BOTH the QOTD publish
+    // state (below) AND the inline-problem publish state (next): a CORE_MEMBER can
+    // only PROPOSE. Super-admin (matched by email) may not carry role ADMIN/PRESIDENT,
+    // so include it explicitly to agree with the frontend's isAdmin.
+    const isAdmin = isAdminAuth(authUser) || isSuperAdmin(authUser);
+
     let problemId = parsed.data.problemId ?? null;
     let legacyFields = {
       question: parsed.data.question,
@@ -595,7 +632,13 @@ qotdRouter.post('/', authMiddleware, requireRole('CORE_MEMBER'), async (req: Req
     };
 
     if (parsed.data.newProblem) {
-      const problem = await createProblemFromInput(parsed.data.newProblem as ProblemInput, authUser.id);
+      // A non-admin proposal must NOT be able to mint a published Problem as a side
+      // effect (the propose-gate forces the QOTD to a draft, but the inline problem
+      // is a separate row). Mirror problems.ts: force isPublished:false for non-admins.
+      const newProblemInput = (isAdmin
+        ? parsed.data.newProblem
+        : { ...parsed.data.newProblem, isPublished: false }) as ProblemInput;
+      const problem = await createProblemFromInput(newProblemInput, authUser.id);
       problemId = problem.id;
       legacyFields = {
         question: problem.title,
@@ -619,12 +662,23 @@ qotdRouter.post('/', authMiddleware, requireRole('CORE_MEMBER'), async (req: Req
     // instant regardless of the server's timezone. Falls back to IST midnight
     // if, somehow, the constructed date is invalid.
     const publishTime = parsed.data.publishTime ?? '00:00';
-    let publishAt = new Date(`${dateKey}T${publishTime}:00+05:30`);
-    if (Number.isNaN(publishAt.getTime())) publishAt = midnightIstUtcFor(parsed.data.date);
+    let computedPublishAt = new Date(`${dateKey}T${publishTime}:00+05:30`);
+    if (Number.isNaN(computedPublishAt.getTime())) computedPublishAt = midnightIstUtcFor(parsed.data.date);
     // Auto-publish immediately when the scheduled instant has already passed,
     // unless the caller explicitly forces publishNow on/off.
-    const publishNow = parsed.data.publishNow === true
-      || (parsed.data.publishNow !== false && publishAt.getTime() <= now.getTime());
+    const computedPublishNow = parsed.data.publishNow === true
+      || (parsed.data.publishNow !== false && computedPublishAt.getTime() <= now.getTime());
+
+    // Non-admin authors (CORE_MEMBER) can only PROPOSE: resolveQotdPublishState
+    // forces an unpublished, unscheduled draft (publishAt null → the auto-publish
+    // scheduler never arms it) for an admin to review/schedule/publish. Fails closed
+    // (unit-tested in qotdAuthoring.test.ts). `isAdmin` is computed above (it also
+    // gates the inline-problem publish state).
+    const { isPublished, publishAt } = resolveQotdPublishState({
+      isAdmin,
+      publishNow: computedPublishNow,
+      publishAt: computedPublishAt,
+    });
 
     const qotd = await prisma.qOTD.create({
       data: {
@@ -634,9 +688,9 @@ qotdRouter.post('/', authMiddleware, requireRole('CORE_MEMBER'), async (req: Req
         problemId,
         date: parsed.data.date,
         createdById: authUser.id,
-        isPublished: publishNow,
+        isPublished,
         publishAt,
-        publishedAt: publishNow ? now : null,
+        publishedAt: isPublished ? now : null,
       },
       include: { problem: true },
     });
@@ -646,13 +700,14 @@ qotdRouter.post('/', authMiddleware, requireRole('CORE_MEMBER'), async (req: Req
       // Fire the bell notification when a QOTD goes live on creation. Scheduled
       // QOTDs get theirs later from the auto-publish scheduler instead.
       broadcastQotdLive(qotd, authUser.id).catch(() => undefined);
-    } else {
-      // Arm the in-memory publish timer now so the QOTD goes live exactly at its
-      // publishAt (the scheduler is event-driven; no polling catches it otherwise).
+    } else if (qotd.publishAt) {
+      // Arm the in-memory publish timer for an admin-SCHEDULED QOTD so it goes live
+      // exactly at publishAt (event-driven scheduler, no polling). A bare proposal
+      // (publishAt null) waits for an admin to schedule/publish it.
       armQotdPublishTimer(qotd);
     }
-    await auditLog(authUser.id, 'CREATE', 'qotd', qotd.id, { question: qotd.question, problemId: qotd.problemId, isPublished: qotd.isPublished });
-    return ApiResponse.created(res, qotd, 'QOTD created successfully');
+    await auditLog(authUser.id, isAdmin ? 'CREATE' : 'QOTD_PROPOSED', 'qotd', qotd.id, { question: qotd.question, problemId: qotd.problemId, isPublished: qotd.isPublished });
+    return ApiResponse.created(res, qotd, isAdmin ? 'QOTD created successfully' : 'QOTD proposed — an admin will review and publish it');
   } catch {
     return ApiResponse.internal(res, 'Failed to create QOTD');
   }
@@ -675,6 +730,22 @@ qotdRouter.post('/:id/publish', authMiddleware, requireRole('ADMIN'), async (req
     recomputeStreaksForQOTDSafe(qotd.id);
     await auditLog(authUser.id, 'QOTD_PUBLISHED', 'qotd', qotd.id);
     broadcastQotdLive(updated, authUser.id).catch(() => undefined);
+    // Notify the proposer when an admin publishes someone else's draft. Link to the
+    // QOTD's own date (not /qotd/today): a future-dated proposal published "now" is
+    // live but isn't today's, so /qotd/today wouldn't resolve to it — a dead link.
+    if (qotd.createdById && qotd.createdById !== authUser.id) {
+      broadcastNotification({
+        source: 'SYSTEM',
+        audience: 'CUSTOM',
+        audienceUserIds: [qotd.createdById],
+        category: 'qotd',
+        icon: 'zap',
+        title: 'Your QOTD proposal was published and is now live!',
+        link: `/qotd/${toIstDateKey(qotd.date)}`,
+        refEntity: 'qotd',
+        refEntityId: qotd.id,
+      }).catch(() => undefined);
+    }
     return ApiResponse.success(res, updated, 'QOTD published');
   } catch {
     return ApiResponse.internal(res, 'Failed to publish QOTD');
@@ -811,7 +882,7 @@ qotdRouter.put('/:id', authMiddleware, requireRole('CORE_MEMBER'), async (req: R
     });
     if (!existingQotd) return ApiResponse.notFound(res, 'QOTD not found');
 
-    const isAdmin = authUser.role === 'ADMIN' || authUser.role === 'PRESIDENT';
+    const isAdmin = isAdminAuth(authUser) || isSuperAdmin(authUser);
     const isOwner = existingQotd.createdById === authUser.id;
     if (!isAdmin && !isOwner) return ApiResponse.forbidden(res, 'You can only edit QOTDs created by you');
 
@@ -830,9 +901,27 @@ qotdRouter.put('/:id', authMiddleware, requireRole('CORE_MEMBER'), async (req: R
 qotdRouter.delete('/:id', authMiddleware, requireRole('ADMIN'), async (req: Request, res: Response) => {
   try {
     const authUser = getAuthUser(req)!;
+    const qotd = await prisma.qOTD.findUnique({
+      where: { id: req.params.id },
+      select: { id: true, isPublished: true, createdById: true },
+    });
+    if (!qotd) return ApiResponse.notFound(res, 'QOTD not found');
     await prisma.qOTD.delete({ where: { id: req.params.id } });
     cancelQotdPublishTimer(req.params.id); // drop any armed auto-publish timer
     await auditLog(authUser.id, 'DELETE', 'qotd', req.params.id);
+    // Notify the proposer when their unpublished draft is rejected.
+    if (!qotd.isPublished && qotd.createdById && qotd.createdById !== authUser.id) {
+      broadcastNotification({
+        source: 'SYSTEM',
+        audience: 'CUSTOM',
+        audienceUserIds: [qotd.createdById],
+        category: 'qotd',
+        icon: 'bell',
+        title: 'Your QOTD proposal was not selected.',
+        refEntity: 'qotd',
+        refEntityId: qotd.id,
+      }).catch(() => undefined);
+    }
     return ApiResponse.success(res, { success: true }, 'QOTD deleted successfully');
   } catch {
     return ApiResponse.internal(res, 'Failed to delete QOTD');

@@ -177,10 +177,30 @@ function ReviewRow({ s, token, onGraded }: { s: ProblemSubmission; token: string
   );
 }
 
-export default function AdminSubmissionReview() {
+const TYPE_FILTERS = [
+  { id: 'all', label: 'All' },
+  { id: 'judge', label: 'Judge errors' },
+  { id: 'appealed', label: 'Appealed' },
+  { id: 'reopen', label: 'Reopen holds' },
+] as const;
+type TypeFilter = (typeof TYPE_FILTERS)[number]['id'];
+type CtxFilter = 'all' | 'QOTD' | 'CONTEST' | 'PRACTICE';
+type SortKey = 'newest' | 'oldest' | 'verdict';
+
+function matchesType(s: ProblemSubmission, t: TypeFilter): boolean {
+  if (t === 'all') return true;
+  if (t === 'judge') return s.verdict === 'JUDGE_ERROR';
+  if (t === 'appealed') return Boolean(s.appealedAt);
+  return Boolean(s.reopenPending);
+}
+
+export default function AdminSubmissionReview({ embedded = false }: { embedded?: boolean } = {}) {
   const { token } = useAuth();
   const qc = useQueryClient();
   const queryKey = useMemo(() => ['admin-review-queue'], []);
+  const [typeFilter, setTypeFilter] = useState<TypeFilter>('all');
+  const [ctxFilter, setCtxFilter] = useState<CtxFilter>('all');
+  const [sort, setSort] = useState<SortKey>('newest');
 
   const { data, isLoading, isFetching, refetch } = useQuery({
     queryKey,
@@ -188,30 +208,96 @@ export default function AdminSubmissionReview() {
     enabled: Boolean(token),
   });
 
-  const submissions = data?.submissions ?? [];
+  const submissions = useMemo(() => data?.submissions ?? [], [data]);
+  const counts = useMemo(
+    () => ({
+      all: submissions.length,
+      judge: submissions.filter((s) => s.verdict === 'JUDGE_ERROR').length,
+      appealed: submissions.filter((s) => Boolean(s.appealedAt)).length,
+      reopen: submissions.filter((s) => Boolean(s.reopenPending)).length,
+    }),
+    [submissions],
+  );
+  const visible = useMemo(() => {
+    const ts = (s: ProblemSubmission) => new Date(s.appealedAt || s.updatedAt).getTime();
+    return submissions
+      .filter((s) => matchesType(s, typeFilter))
+      .filter((s) => ctxFilter === 'all' || s.contextType === ctxFilter)
+      .sort((a, b) =>
+        sort === 'verdict' ? a.verdict.localeCompare(b.verdict) : sort === 'oldest' ? ts(a) - ts(b) : ts(b) - ts(a),
+      );
+  }, [submissions, typeFilter, ctxFilter, sort]);
 
   return (
     <div className="flex flex-col gap-5">
       <div className="flex items-center justify-between gap-3">
-        <div>
-          <h1 className="text-xl font-semibold" style={{ color: 'var(--ds-text-1)' }}>Submission Review</h1>
-          <p className="text-sm" style={{ color: 'var(--ds-text-3)' }}>
-            Captures made while judging was unavailable, student appeals, and late solves of reopened QOTDs awaiting your acceptance.
-          </p>
-        </div>
+        {embedded ? <div /> : (
+          <div>
+            <h1 className="text-xl font-semibold" style={{ color: 'var(--ds-text-1)' }}>Submission Review</h1>
+            <p className="text-sm" style={{ color: 'var(--ds-text-3)' }}>
+              Captures made while judging was unavailable, student appeals, and late solves of reopened QOTDs awaiting your acceptance.
+            </p>
+          </div>
+        )}
         <Button variant="outline" onClick={() => refetch()} disabled={isFetching} className="h-9">
           <RefreshCw className={`h-4 w-4 ${isFetching ? 'animate-spin' : ''}`} />
           <span className="ml-1">Refresh</span>
         </Button>
       </div>
 
+      {/* Filters — type chips (with live counts) + context + sort. */}
+      <div className="flex flex-wrap items-center gap-2">
+        {TYPE_FILTERS.map((f) => (
+          <button
+            key={f.id}
+            type="button"
+            onClick={() => setTypeFilter(f.id)}
+            aria-pressed={typeFilter === f.id}
+            className={`h-8 px-3 rounded-[8px] text-[12.5px] font-medium border transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)] ${
+              typeFilter === f.id
+                ? 'bg-[var(--accent-subtle)] border-[var(--accent)] text-[var(--accent)]'
+                : 'border-[var(--border-subtle)] text-[var(--ds-text-2)] hover:bg-[var(--surface-soft)]'
+            }`}
+          >
+            {f.label} <span className="font-mono tabular-nums opacity-70">{counts[f.id]}</span>
+          </button>
+        ))}
+        <div className="ml-auto flex items-center gap-2">
+          <select
+            value={ctxFilter}
+            onChange={(e) => setCtxFilter(e.target.value as CtxFilter)}
+            className="h-8 rounded-[8px] border border-[var(--border-subtle)] bg-transparent px-2 text-[12.5px]"
+            style={{ color: 'var(--ds-text-1)' }}
+            aria-label="Filter by context"
+          >
+            <option value="all">All contexts</option>
+            <option value="QOTD">QOTD</option>
+            <option value="CONTEST">Contest</option>
+            <option value="PRACTICE">Practice</option>
+          </select>
+          <select
+            value={sort}
+            onChange={(e) => setSort(e.target.value as SortKey)}
+            className="h-8 rounded-[8px] border border-[var(--border-subtle)] bg-transparent px-2 text-[12.5px]"
+            style={{ color: 'var(--ds-text-1)' }}
+            aria-label="Sort"
+          >
+            <option value="newest">Newest first</option>
+            <option value="oldest">Oldest first</option>
+            <option value="verdict">By verdict</option>
+          </select>
+        </div>
+      </div>
+
       {isLoading ? (
         <div className="flex justify-center py-16"><Loader2 className="h-6 w-6 animate-spin" style={{ color: 'var(--ds-text-3)' }} /></div>
       ) : submissions.length === 0 ? (
         <EmptyState title="Nothing to review" body="No judge-failed captures or appeals are waiting. You're all caught up." />
+      ) : visible.length === 0 ? (
+        <EmptyState title="No matches" body="No submissions match the current filters." />
       ) : (
         <div className="flex flex-col gap-3">
-          {submissions.map((s) => (
+          {visible.map((s) => (
             <ReviewRow key={s.id} s={s} token={token!} onGraded={() => qc.invalidateQueries({ queryKey })} />
           ))}
         </div>

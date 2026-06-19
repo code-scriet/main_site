@@ -427,6 +427,16 @@ export interface UserFullDetail {
     hiringApplications?: Array<{ id: string; applyingRole: string; status: string; department: string; year: string; createdAt: string }>;
     blocks?: UserBlock[];
     tokenVersion?: number;
+    oauthProvider?: string | null;
+    createdAt?: string;
+    updatedAt?: string;
+    longestStreakAt?: string | null;
+    deletedAt?: string | null;
+    deletedBy?: string | null;
+    profileCompleted?: boolean;
+    lastLoginAt?: string | null;
+    lastLoginIp?: string | null;
+    streakCardUrl?: string | null;
   };
   counts: {
     eventRegistrations: number;
@@ -442,7 +452,12 @@ export interface UserFullDetail {
     ledTeams: number;
     teamMemberships: number;
     auditEntries: number;
+    invitationsReceived?: number;
+    invitationsSent?: number;
+    uploadedImages?: number;
   };
+  coding?: { totalSubmissions: number; accepted: number; acRate: number; qotdSolved: number };
+  contentCreated?: { events: number; announcements: number; quizzes: number; qotds: number; problems: number; problemSheets: number; polls: number };
   eventRegistrations: Array<{
     id: string;
     eventId: string;

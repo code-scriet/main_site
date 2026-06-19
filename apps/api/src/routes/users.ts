@@ -20,6 +20,7 @@ import { signAccessToken } from '../utils/jwt.js';
 import { invalidateCachedAuthUser } from '../utils/userAuthCache.js';
 import { invalidateUserBlockCache } from '../middleware/blocks.js';
 import { uuidParamGuard } from '../utils/idParams.js';
+import { cloudinary, isCloudinaryConfigured } from '../config/cloudinary.js';
 
 const USER_BLOCK_FEATURES = ['EVENT', 'PLAYGROUND', 'QOTD', 'QUIZ', 'NETWORK'] as const;
 type UserBlockFeatureKey = (typeof USER_BLOCK_FEATURES)[number];
@@ -246,6 +247,49 @@ usersRouter.put('/me', authMiddleware, async (req: Request, res: Response) => {
     res.json({ success: true, data: user, message: 'Profile updated successfully' });
   } catch (error) {
     res.status(500).json({ success: false, error: { message: 'Failed to update profile' } });
+  }
+});
+
+// S-03 — store the user's latest streak-share card (Cloudinary URL) so the public
+// GET /share/streak/:userId route can serve it as og:image. The URL is validated to
+// the Cloudinary host to stop arbitrary og:image injection on that public page.
+usersRouter.post('/me/streak-card', authMiddleware, async (req: Request, res: Response) => {
+  try {
+    const authUser = getAuthUser(req)!;
+    const parsed = z.object({ url: z.string().url().max(1000) }).safeParse(req.body);
+    if (!parsed.success) return ApiResponse.badRequest(res, 'A valid image URL is required');
+    let host: string;
+    try { host = new URL(parsed.data.url).hostname; } catch { return ApiResponse.badRequest(res, 'Invalid URL'); }
+    if (!parsed.data.url.startsWith('https://') || !/(^|\.)cloudinary\.com$/i.test(host)) {
+      return ApiResponse.badRequest(res, 'Streak card must be an https Cloudinary URL');
+    }
+    // Best-effort: delete the previous streak card from Cloudinary before overwriting
+    // the URL. Each share generates a new unique asset; without cleanup, every active
+    // user accumulates one orphaned asset per share click (storage quota drain).
+    // Fire-and-forget — don't let a Cloudinary outage block the user's share flow.
+    if (isCloudinaryConfigured) {
+      const prev = await prisma.user.findUnique({ where: { id: authUser.id }, select: { streakCardUrl: true } });
+      if (prev?.streakCardUrl && prev.streakCardUrl !== parsed.data.url) {
+        const match = prev.streakCardUrl.match(/\/upload\/(?:v\d+\/)?(.+?)(?:\.[a-z]+)?$/i);
+        if (match?.[1]) {
+          const publicId = match[1];
+          cloudinary.uploader.destroy(publicId).catch(() => undefined);
+          // New cards live in the dedicated streak-cards/ folder (no gallery row), but
+          // cards uploaded before that change went through /upload/image and DID create
+          // an UploadedImage row (publicId === Cloudinary public_id). Drop any such row
+          // alongside the asset so it can't resurface as a 404 gallery thumbnail. Scoped
+          // to the owner; fire-and-forget, like the destroy above.
+          prisma.uploadedImage.deleteMany({ where: { publicId, userId: authUser.id } }).catch(() => undefined);
+        }
+      }
+    }
+    await prisma.user.update({ where: { id: authUser.id }, data: { streakCardUrl: parsed.data.url } });
+    // Trail the change: streakCardUrl is the public og:image of /share/streak/:id, so
+    // keep a record of who set it. Not auth-relevant — no cache/tokenVersion bump.
+    await auditLog(authUser.id, 'UPDATE', 'user', authUser.id, { field: 'streakCardUrl' });
+    return ApiResponse.success(res, { streakCardUrl: parsed.data.url });
+  } catch {
+    return ApiResponse.internal(res, 'Failed to save streak card');
   }
 });
 
@@ -1230,6 +1274,7 @@ usersRouter.get('/:id/full', authMiddleware, requireRole('ADMIN'), async (req: R
         websiteUrl: true, createdAt: true, updatedAt: true,
         lastLoginAt: true, lastLoginIp: true,
         currentStreak: true, longestStreak: true, longestStreakAt: true,
+        streakCardUrl: true,
         isDeleted: true, deletedAt: true, deletedBy: true,
         tokenVersion: true,
         networkProfile: {
@@ -1280,6 +1325,18 @@ usersRouter.get('/:id/full', authMiddleware, requireRole('ADMIN'), async (req: R
       auditCount,
       ledTeamsCount,
       teamMembershipsCount,
+      problemSubsTotal,
+      problemSubsAccepted,
+      qotdAcceptedSolved,
+      eventsCreatedCount,
+      announcementsCreatedCount,
+      quizzesCreatedCount,
+      qotdsCreatedCount,
+      problemsCreatedCount,
+      problemSheetsCreatedCount,
+      invitationsReceivedCount,
+      invitationsSentCount,
+      uploadedImagesCount,
     ] = await prisma.$transaction([
       prisma.eventRegistration.findMany({
         where: { userId: targetId },
@@ -1327,6 +1384,21 @@ usersRouter.get('/:id/full', authMiddleware, requireRole('ADMIN'), async (req: R
       prisma.auditLog.count({ where: { OR: [{ userId: targetId }, { entityId: targetId, entity: { in: ['user', 'user_block'] } }] } }),
       prisma.eventTeam.count({ where: { leaderId: targetId } }),
       prisma.eventTeamMember.count({ where: { userId: targetId } }),
+      // Coding: judged-submission volume + AC rate, and QOTD solves (ACCEPTED).
+      prisma.problemSubmission.count({ where: { userId: targetId } }),
+      prisma.problemSubmission.count({ where: { userId: targetId, verdict: 'ACCEPTED' } }),
+      prisma.problemSubmission.count({ where: { userId: targetId, contextType: 'QOTD', verdict: 'ACCEPTED' } }),
+      // Content authored by this user (drives the "Created" section).
+      prisma.event.count({ where: { createdBy: targetId } }),
+      prisma.announcement.count({ where: { createdBy: targetId } }),
+      prisma.quiz.count({ where: { createdBy: targetId } }),
+      prisma.qOTD.count({ where: { createdById: targetId } }),
+      prisma.problem.count({ where: { createdBy: targetId } }),
+      prisma.problemSheet.count({ where: { createdBy: targetId } }),
+      // Network/community + uploads.
+      prisma.eventInvitation.count({ where: { inviteeUserId: targetId } }),
+      prisma.eventInvitation.count({ where: { invitedById: targetId } }),
+      prisma.uploadedImage.count({ where: { userId: targetId } }),
     ]);
 
     return ApiResponse.success(res, {
@@ -1345,6 +1417,25 @@ usersRouter.get('/:id/full', authMiddleware, requireRole('ADMIN'), async (req: R
         ledTeams: ledTeamsCount,
         teamMemberships: teamMembershipsCount,
         auditEntries: auditCount,
+        invitationsReceived: invitationsReceivedCount,
+        invitationsSent: invitationsSentCount,
+        uploadedImages: uploadedImagesCount,
+      },
+      // Coding inference: total judged submissions, accepted, AC rate %, QOTD solves.
+      coding: {
+        totalSubmissions: problemSubsTotal,
+        accepted: problemSubsAccepted,
+        acRate: problemSubsTotal > 0 ? Math.round((problemSubsAccepted / problemSubsTotal) * 100) : 0,
+        qotdSolved: qotdAcceptedSolved,
+      },
+      contentCreated: {
+        events: eventsCreatedCount,
+        announcements: announcementsCreatedCount,
+        quizzes: quizzesCreatedCount,
+        qotds: qotdsCreatedCount,
+        problems: problemsCreatedCount,
+        problemSheets: problemSheetsCreatedCount,
+        polls: createdPollsCount,
       },
       eventRegistrations,
       certificates,
@@ -1562,8 +1653,11 @@ usersRouter.post('/:id/blocks', authMiddleware, requireRole('ADMIN'), async (req
       },
     });
     invalidateUserBlockCache(target.id);
-    await auditLog(authUser.id, 'BLOCK_USER', 'user_block', block.id, {
-      userId: target.id, feature: parsed.data.feature, reason: parsed.data.reason ?? null, expiresAt: parsed.data.expiresAt ?? null,
+    // entityId = the blocked user's id (NOT the UserBlock row id) so this action
+    // surfaces in the target's audit trail (the user-audit query filters
+    // entityId on user/user_block). The UserBlock row id is kept in metadata.
+    await auditLog(authUser.id, 'BLOCK_USER', 'user_block', target.id, {
+      blockId: block.id, feature: parsed.data.feature, reason: parsed.data.reason ?? null, expiresAt: parsed.data.expiresAt ?? null,
     });
     socketEvents.userUpdated(target.id);
     return ApiResponse.success(res, block, 'Block applied');

@@ -12,7 +12,9 @@ import { api, type Problem } from '@/lib/api';
 import { getPlaygroundLaunchUrl } from '@/lib/playgroundUrl';
 import { CountdownPill, DSCard, Difficulty, EmptyState, MonoChip, Pill, SegmentedTabs, UnderlineTabs } from '@/components/dash';
 import { Input } from '@/components/ui/input';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import QOTDLeaderboardSurface from '@/components/dashboard/QOTDLeaderboardSurface';
+import { QOTDHistoryList } from '@/components/dashboard/QOTDHistoryList';
 import { ProblemSheets } from '@/components/dashboard/ProblemSheets';
 import { cn } from '@/lib/utils';
 
@@ -223,6 +225,13 @@ function QOTDTab() {
     queryFn: () => api.getQOTDStats(token!),
     enabled: Boolean(token),
   });
+  const [fullHistoryOpen, setFullHistoryOpen] = useState(false);
+  const summaryQ = useQuery({
+    queryKey: ['qotd-history-summary', token],
+    queryFn: () => api.getQOTDHistorySummary(token ?? undefined),
+    enabled: fullHistoryOpen,
+    staleTime: 5 * 60 * 1000,
+  });
 
   const today = todayQ.data;
   const todayDateLabel = today?.date
@@ -253,7 +262,7 @@ function QOTDTab() {
           {today ? (
             <>
               <div className="flex items-center gap-1.5 flex-wrap">
-                <Difficulty level={String(today.difficulty || 'EASY').toUpperCase()} />
+                <Difficulty level={today.difficulty || 'EASY'} />
                 {todayTags.slice(0, 4).map((t) => (
                   <MonoChip key={t}>{t}</MonoChip>
                 ))}
@@ -299,11 +308,20 @@ function QOTDTab() {
         <DSCard padded={false}>
           <div className="flex items-center justify-between px-4 py-3 gap-2">
             <div className="text-[13.5px] font-semibold">Your history</div>
-            {history.length > 0 && (
-              <span className="text-[11.5px] text-[var(--ds-text-3)] font-mono tabular-nums whitespace-nowrap">
-                {solvedCount}/{history.length} solved
-              </span>
-            )}
+            <div className="flex items-center gap-3">
+              {history.length > 0 && (
+                <span className="text-[11.5px] text-[var(--ds-text-3)] font-mono tabular-nums whitespace-nowrap">
+                  {solvedCount}/{history.length} solved
+                </span>
+              )}
+              <button
+                type="button"
+                onClick={() => setFullHistoryOpen(true)}
+                className="text-[12px] font-medium text-[var(--accent)] hover:underline whitespace-nowrap"
+              >
+                Full history
+              </button>
+            </div>
           </div>
           {historyQ.isLoading ? (
             <div className="p-6 animate-pulse text-[12px] text-[var(--ds-text-3)] text-center border-t border-[var(--border-subtle)]">Loading…</div>
@@ -337,7 +355,7 @@ function QOTDTab() {
                         </td>
                         <td className="px-4 py-2.5 font-medium truncate max-w-[320px]">{q.question}</td>
                         <td className="px-4 py-2.5">
-                          <Difficulty level={String(q.difficulty || 'EASY').toUpperCase()} />
+                          <Difficulty level={q.difficulty || 'EASY'} />
                         </td>
                         <td className="px-4 py-2.5">
                           {isHeld ? (
@@ -448,6 +466,22 @@ function QOTDTab() {
           </div>
         </DSCard>
       </div>
+
+      <Dialog open={fullHistoryOpen} onOpenChange={setFullHistoryOpen}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Your QOTD history</DialogTitle>
+          </DialogHeader>
+          <div className="flex items-center gap-4 text-[12.5px] text-[var(--ds-text-2)] font-mono tabular-nums">
+            <span>Solved <span className="text-[var(--ds-text-1)] font-semibold">{summaryQ.data?.solved ?? '—'}</span></span>
+            <span>Total <span className="text-[var(--ds-text-1)] font-semibold">{summaryQ.data?.totalPublished ?? '—'}</span></span>
+            <span>Left <span className="text-[var(--ds-text-1)] font-semibold">{summaryQ.data?.left ?? '—'}</span></span>
+          </div>
+          <div className="max-h-[60vh] overflow-y-auto">
+            <QOTDHistoryList mode="member" todayId={today?.id} token={token ?? undefined} searchable />
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

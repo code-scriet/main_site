@@ -44,7 +44,7 @@ const STATIC_PAGES: Array<{ label: string; route: string; icon: string; tags: st
   { label: 'Take Attendance',   route: 'attendance',        icon: 'scan',     tags: ['attendance', 'scan', 'qr'],                        minTier: 3 },
   { label: 'Create Event',      route: 'create-event',      icon: 'plus',     tags: ['create', 'event', 'new'],                          minTier: 3 },
   { label: 'Create Announcement', route: 'create-announcement', icon: 'megaphone', tags: ['create', 'announcement', 'post'],            minTier: 3 },
-  { label: 'Manage QOTD',       route: 'manage-qotd',       icon: 'zap',      tags: ['qotd', 'schedule', 'publish'],                     minTier: 3 },
+  { label: 'Propose QOTD',      route: 'manage-qotd',       icon: 'zap',      tags: ['qotd', 'schedule', 'publish', 'propose'],          minTier: 3 },
   { label: 'Quiz Manager',      route: 'quiz-manager',      icon: 'play',     tags: ['quiz', 'manager', 'host'],                         minTier: 3 },
   { label: 'Upload Image',      route: 'upload-image',      icon: 'upload',   tags: ['upload', 'image', 'gallery'],                      minTier: 3 },
   { label: 'User Management',   route: 'admin-users',       icon: 'users',    tags: ['users', 'admin', 'members'],                       minTier: 4 },
