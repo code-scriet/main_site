@@ -126,9 +126,16 @@ export default function CreateQOTD({ embedded = false }: { embedded?: boolean } 
   // Per-row spinner (CAT 4).
   const [rowBusy, setRowBusy] = useState<string | null>(null);
 
+  // Fetch exactly the visible calendar month (not a recent-N window) so far-back
+  // months render their real statuses instead of blank cells. React Query caches
+  // each month under its own key; paging re-fetches the new month once. A month is
+  // ≤31 rows, well under the limit. Invalidation uses the ['qotd-history-admin']
+  // prefix, so it still refreshes whichever month is in view after a mutation.
+  const calFrom = toIsoDate(new Date(calMonth.getFullYear(), calMonth.getMonth(), 1));
+  const calTo = toIsoDate(new Date(calMonth.getFullYear(), calMonth.getMonth() + 1, 0));
   const historyQ = useQuery({
-    queryKey: ['qotd-history-admin'],
-    queryFn: () => api.getQOTDHistory(60, 0, { includeUnpublished: true, token: token! }),
+    queryKey: ['qotd-history-admin', calFrom, calTo],
+    queryFn: () => api.getQOTDHistory(100, 0, { includeUnpublished: true, from: calFrom, to: calTo, token: token! }),
     // The calendar/history is admin-only; the propose form doesn't render it.
     enabled: Boolean(token) && !proposeOnly,
   });
