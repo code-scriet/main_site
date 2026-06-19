@@ -112,7 +112,7 @@ export const codingApi = {
 
   // QOTD
   getTodayQOTD: () => request<QOTDDetail | null>('/qotd/today'),
-  getQOTDHistory: (limit?: number, offset?: number, options?: { includeUnpublished?: boolean; proposals?: boolean; token?: string }) => {
+  getQOTDHistory: (limit?: number, offset?: number, options?: { includeUnpublished?: boolean; proposals?: boolean; from?: string; to?: string; token?: string }) => {
     const params = new URLSearchParams();
     if (limit) params.append('limit', limit.toString());
     if (offset) params.append('offset', offset.toString());
@@ -120,6 +120,10 @@ export const codingApi = {
     // Staff-only: return exactly the CORE_MEMBER proposals (unpublished, unscheduled,
     // not held), server-filtered so old/past-dated ones aren't lost off a page window.
     if (options?.proposals) params.append('proposals', 'true');
+    // Inclusive date range (YYYY-MM-DD) — the admin calendar fetches one month at a
+    // time so far-back months render their real statuses, not a recent-N window.
+    if (options?.from) params.append('from', options.from);
+    if (options?.to) params.append('to', options.to);
     const query = params.toString() ? `?${params.toString()}` : '';
     return request<QOTDHistoryEntry[]>(`/qotd/history${query}`, options?.token ? { token: options.token } : undefined);
   },

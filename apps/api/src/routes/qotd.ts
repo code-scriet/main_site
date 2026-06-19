@@ -263,11 +263,24 @@ qotdRouter.get('/history', optionalAuthMiddleware, async (req: Request, res: Res
     const dateParam = typeof req.query.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(req.query.date)
       ? req.query.date
       : null;
+    // Optional inclusive [from, to] range (?from=YYYY-MM-DD&to=YYYY-MM-DD). Powers the
+    // admin QOTD calendar's per-month fetch so far-back months render their REAL
+    // statuses (published/scheduled/held) instead of being blank because they fell
+    // outside a recent-N window. `to` defaults to `from` (single day). Bounded by the
+    // same `limit` as every other history query — a wide range can't unbound the result.
+    const rangeFrom = typeof req.query.from === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(req.query.from) ? req.query.from : null;
+    const rangeTo = typeof req.query.to === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(req.query.to) ? req.query.to : null;
     let dateWhere: { gte: Date; lt: Date } | undefined;
     if (dateParam) {
       const dayStart = new Date(`${dateParam}T00:00:00.000Z`);
       if (!Number.isNaN(dayStart.getTime())) {
         dateWhere = { gte: dayStart, lt: new Date(dayStart.getTime() + 24 * 60 * 60 * 1000) };
+      }
+    } else if (rangeFrom) {
+      const gte = new Date(`${rangeFrom}T00:00:00.000Z`);
+      const toStart = new Date(`${rangeTo ?? rangeFrom}T00:00:00.000Z`);
+      if (!Number.isNaN(gte.getTime()) && !Number.isNaN(toStart.getTime()) && toStart.getTime() >= gte.getTime()) {
+        dateWhere = { gte, lt: new Date(toStart.getTime() + 24 * 60 * 60 * 1000) };
       }
     }
     // Proposals view (staff only): exactly the CORE_MEMBER-submitted drafts awaiting
