@@ -122,6 +122,32 @@ function providerCanRun(provider, compiler) {
   return false;
 }
 
+// Upstream stall guard (ms). A provider that connects but never responds must not
+// hold the whole chain — bounding each attempt lets `runWithChain` fall over to the
+// other provider, and aborting on the client's signal frees the subrequest the moment
+// the caller (judge/playground) gives up. Normal runs finish in ~5-8s, so this only
+// ever trips on a genuine stall, never a healthy (if slow) compile.
+const UPSTREAM_TIMEOUT_MS = 12000;
+
+// Single bounded fetch for every upstream: aborts on OUR timeout OR when the incoming
+// request is aborted (client gave up). Previously only godbolt was bounded; a stalled
+// Wandbox would hold the request until the caller's own abort and the fallback never ran.
+async function fetchUpstream(url, init, clientSignal, timeoutMs = UPSTREAM_TIMEOUT_MS) {
+  const controller = new AbortController();
+  const onTimeout = setTimeout(() => controller.abort(), timeoutMs);
+  const onClientAbort = () => controller.abort();
+  if (clientSignal) {
+    if (clientSignal.aborted) controller.abort();
+    else clientSignal.addEventListener('abort', onClientAbort, { once: true });
+  }
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } finally {
+    clearTimeout(onTimeout);
+    if (clientSignal) clientSignal.removeEventListener('abort', onClientAbort);
+  }
+}
+
 // An infra failure means the provider's HOST couldn't run the program (not the
 // user's code) — fall through to the other provider. Wandbox signals this with
 // status 126 + a clone/fork EAGAIN message; the regex covers both. The 126
@@ -135,10 +161,10 @@ function isInfraFailure(result, provider) {
 }
 
 // Run on Wandbox. Returns the parsed (already Wandbox-shaped) JSON, or null on a
-// transport/HTTP error so the chain can fall through.
-async function runViaWandbox(body) {
+// transport/HTTP error / timeout / abort so the chain can fall through.
+async function runViaWandbox(body, clientSignal) {
   try {
-    const resp = await fetch(WANDBOX_URL, {
+    const resp = await fetchUpstream(WANDBOX_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -150,7 +176,7 @@ async function runViaWandbox(body) {
         ...(body['compiler-option-raw'] ? { 'compiler-option-raw': body['compiler-option-raw'] } : {}),
         ...(body['runtime-option-raw'] ? { 'runtime-option-raw': body['runtime-option-raw'] } : {}),
       }),
-    });
+    }, clientSignal);
     if (!resp.ok) return null;
     return await resp.json();
   } catch {
@@ -160,7 +186,7 @@ async function runViaWandbox(body) {
 
 // Run the same program on godbolt (Compiler Explorer) and shape the response to
 // Wandbox field names. Returns null if godbolt can't run this language or errors.
-async function runViaGodbolt(body) {
+async function runViaGodbolt(body, clientSignal) {
   const gc = godboltCompiler(body.compiler);
   if (!gc) return null;
 
@@ -181,15 +207,12 @@ async function runViaGodbolt(body) {
     lang: gc.lang,
   };
 
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 12000);
   try {
-    const resp = await fetch(`${GODBOLT_BASE}/${gc.id}/compile`, {
+    const resp = await fetchUpstream(`${GODBOLT_BASE}/${gc.id}/compile`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
       body: JSON.stringify(payload),
-      signal: controller.signal,
-    });
+    }, clientSignal);
     if (!resp.ok) return null;
     const g = await resp.json();
 
@@ -218,8 +241,6 @@ async function runViaGodbolt(body) {
     };
   } catch {
     return null;
-  } finally {
-    clearTimeout(timer);
   }
 }
 
@@ -230,15 +251,17 @@ const PROVIDER_RUNNERS = { wandbox: runViaWandbox, godbolt: runViaGodbolt };
 // runtime error from the chosen provider is a valid answer — don't retry it on
 // the other host). If every provider infra-fails, return the last result so the
 // caller degrades gracefully (codeJudge surfaces a friendly "try again").
-async function runWithChain(body) {
+async function runWithChain(body, clientSignal) {
   const primary = normalizeProvider(body.provider);
   const order = primary === 'godbolt' ? ['godbolt', 'wandbox'] : ['wandbox', 'godbolt'];
 
   let lastResult = null;
   for (const provider of order) {
     if (!providerCanRun(provider, body.compiler)) continue;
-    const result = await PROVIDER_RUNNERS[provider](body);
-    if (!result) continue;            // transport error / language unsupported
+    // If the caller already gave up, stop — there's no budget left for a fallback.
+    if (clientSignal && clientSignal.aborted) break;
+    const result = await PROVIDER_RUNNERS[provider](body, clientSignal);
+    if (!result) continue;            // transport error / timeout / language unsupported
     lastResult = result;
     if (!isInfraFailure(result, provider)) return result;
   }
@@ -340,7 +363,7 @@ export default {
       // other on an infra failure). Cloudflare's rotating IP pool handles each
       // upstream request. `runWithChain` returns a Wandbox-shaped result, or null
       // only when every provider had a transport/HTTP error (total outage).
-      const result = await runWithChain(body);
+      const result = await runWithChain(body, request.signal);
 
       if (!result) {
         return new Response(
