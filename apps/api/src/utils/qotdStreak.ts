@@ -110,38 +110,6 @@ function shiftIstDay(istKey: string, deltaDays: number): string {
   return `${base.getUTCFullYear().toString().padStart(4, '0')}-${(base.getUTCMonth() + 1).toString().padStart(2, '0')}-${base.getUTCDate().toString().padStart(2, '0')}`;
 }
 
-function computeStreaks(solvedDays: Set<string>, today: string): { currentStreak: number; longestStreak: number } {
-  if (solvedDays.size === 0) return { currentStreak: 0, longestStreak: 0 };
-
-  // Current streak: walk back from today (or yesterday if today not solved) while every consecutive IST day is in the set.
-  let cursor = today;
-  if (!solvedDays.has(cursor)) {
-    cursor = shiftIstDay(cursor, -1); // grace: a user who hasn't solved today yet still has yesterday's streak intact
-  }
-  let currentStreak = 0;
-  while (solvedDays.has(cursor)) {
-    currentStreak += 1;
-    cursor = shiftIstDay(cursor, -1);
-  }
-
-  // Longest streak: sort all solved days, walk through finding the longest consecutive run.
-  const sorted = Array.from(solvedDays).sort();
-  let longestStreak = 0;
-  let run = 0;
-  let prev: string | null = null;
-  for (const day of sorted) {
-    if (prev === null || shiftIstDay(prev, 1) === day) {
-      run += 1;
-    } else {
-      run = 1;
-    }
-    if (run > longestStreak) longestStreak = run;
-    prev = day;
-  }
-
-  return { currentStreak, longestStreak };
-}
-
 function makeBadges(currentStreak: number, longestStreak: number, totalSolved: number): { badges: Badge[]; nextMilestone: QOTDStats['nextMilestone'] } {
   const badges: Badge[] = [
     ...STREAK_BADGES.map((b) => ({ ...b, earned: longestStreak >= b.threshold || currentStreak >= b.threshold })),
@@ -229,11 +197,24 @@ function computePublishAwareStreaks(
   todayKey: string,
 ): { currentStreak: number; longestStreak: number } {
   let currentStreak = 0;
+  // Today-grace: if the most-recent non-future published day is *today* and the
+  // user hasn't solved it yet, don't break the streak on it — they still have
+  // until end of day (IST). Granted at most once, only for today (a past
+  // unsolved published day is a real break). At materialize time the user has
+  // just solved, so this branch never fires there — materialized values are
+  // unchanged; it only affects the live read (computeQOTDStats).
+  let todayGraceUsed = false;
   for (let i = publishedDates.length - 1; i >= 0; i--) {
     const d = publishedDates[i];
     if (d > todayKey) continue;
-    if (solvedDays.has(d)) currentStreak += 1;
-    else break;
+    if (solvedDays.has(d)) {
+      currentStreak += 1;
+    } else if (d === todayKey && !todayGraceUsed) {
+      todayGraceUsed = true;
+      continue;
+    } else {
+      break;
+    }
   }
 
   let longestStreak = 0;
@@ -310,6 +291,12 @@ export async function recomputeUserStreak(userId: string): Promise<StreakResult>
 export async function computeQOTDStats(userId: string): Promise<QOTDStats> {
   const today = formatUsageDate();
 
+  // Single source of truth for the streak: the publish-aware walk shared with the
+  // materialized User.currentStreak (days with no published QOTD are transparent;
+  // held days excluded). Loaded once and reused below so this read agrees with the
+  // dashboard widget, share card, admin stats and leaderboard.
+  const publishedDates = await loadPublishedQotdDates();
+
   // Pull every QOTD that this user has either legacy-submitted or solved via the problems judge.
   const [legacyRows, problemRows, recentProblemSubs, recentLegacySubs] = await Promise.all([
     prisma.qOTDSubmission.findMany({
@@ -352,7 +339,7 @@ export async function computeQOTDStats(userId: string): Promise<QOTDStats> {
     if (q) solvedDays.add(formatUsageDate(q.date));
   }
 
-  const { currentStreak, longestStreak } = computeStreaks(solvedDays, today);
+  const { currentStreak, longestStreak } = computePublishAwareStreaks(publishedDates, solvedDays, today);
   const totalSolved = solvedDays.size;
   const todaySolved = solvedDays.has(today);
 

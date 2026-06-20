@@ -31,7 +31,9 @@ interface Props {
 
 function defaultStatus(entry: QOTDHistoryEntry, todayId?: string): ReactNode {
   if (entry.heldBy) return <Pill tone="warning" size="xs">Held</Pill>;
-  if (entry.hasSubmitted) return <Pill tone="success" size="xs">Solved</Pill>;
+  if (entry.hasSolved) return <Pill tone="success" size="xs">Solved</Pill>;
+  // Submitted but not accepted — truthful "you tried, not solved" state.
+  if (entry.hasSubmitted) return <Pill tone="accent" size="xs">Attempted</Pill>;
   if (todayId && entry.id === todayId) return <Pill tone="info" size="xs" dot>Live</Pill>;
   return <Pill tone="neutral" size="xs">Missed</Pill>;
 }

@@ -7,12 +7,13 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   Search, Plus, FileText, Loader2, Check, ChevronLeft, ChevronRight, Link as LinkIcon,
-  Trash2, Pause, Play, BookOpen, BookOpenCheck, RotateCcw, Copy, Square,
+  Trash2, Pause, Play, BookOpen, BookOpenCheck, RotateCcw, Copy, Square, Pencil,
 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { api, type Problem, type QOTDHistoryEntry } from '@/lib/api';
 import { DSCard, Field, Pill, Section } from '@/components/dash';
 import { QOTDHistoryList } from '@/components/dashboard/QOTDHistoryList';
+import { EditQOTDDialog } from '@/components/dashboard/EditQOTDDialog';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
@@ -123,6 +124,9 @@ export default function CreateQOTD({ embedded = false }: { embedded?: boolean } 
   const [holdReason, setHoldReason] = useState('');
   // Delete dialog (CAT 41): named confirmation before destructive delete.
   const [deleteTarget, setDeleteTarget] = useState<QOTDHistoryEntry | null>(null);
+  // Edit dialog — only for an UNPUBLISHED QOTD (proposal/scheduled); the server
+  // refuses edits to a published/held one.
+  const [editTarget, setEditTarget] = useState<QOTDHistoryEntry | null>(null);
   // Per-row spinner (CAT 4).
   const [rowBusy, setRowBusy] = useState<string | null>(null);
 
@@ -510,6 +514,13 @@ export default function CreateQOTD({ embedded = false }: { embedded?: boolean } 
             renderActions={(q) => (
               <div className="inline-flex items-center gap-1 justify-end">
                 {rowBusy === q.id && <Loader2 size={11} className="animate-spin text-[var(--ds-text-3)]" />}
+                {/* Edit is only offered for an unpublished QOTD (proposal/scheduled);
+                    a published/held one is managed via publish/hold/delete. */}
+                {!q.isPublished && !q.heldBy && (
+                  <button onClick={() => setEditTarget(q)} disabled={rowBusy === q.id} title="Edit" aria-label="Edit" className="size-7 rounded-[6px] hover:bg-[var(--surface-soft)] text-[var(--ds-text-3)] hover:text-[var(--ds-text-1)] flex items-center justify-center disabled:opacity-40">
+                    <Pencil size={11} />
+                  </button>
+                )}
                 {!q.isPublished && (
                   <button onClick={() => publishMut.mutate(q.id)} disabled={rowBusy === q.id} title={q.heldBy ? 'Publish (clears hold)' : 'Publish'} aria-label="Publish" className="size-7 rounded-[6px] hover:bg-[var(--accent-subtle)] text-[var(--ds-text-3)] hover:text-[var(--accent)] flex items-center justify-center disabled:opacity-40">
                     <Play size={11} />
@@ -612,6 +623,14 @@ export default function CreateQOTD({ embedded = false }: { embedded?: boolean } 
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Edit an unpublished QOTD (proposal/scheduled) in place. */}
+      <EditQOTDDialog
+        target={editTarget}
+        token={token ?? ''}
+        onClose={() => setEditTarget(null)}
+        onSaved={invalidateQotdHistory}
+      />
 
       {/* Private reopen link — share only with the people who should solve it. */}
       <Dialog open={Boolean(reopenLink)} onOpenChange={(o) => { if (!o) setReopenLink(null); }}>

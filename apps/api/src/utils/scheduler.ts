@@ -345,6 +345,15 @@ const qotdPublishTimers = new Map<string, NodeJS.Timeout>();
 let qotdSchedulerActive = false;
 let qotdHydrateStartupTimeout: NodeJS.Timeout | null = null;
 
+// The QOTD leaderboard caches (daily/total/weekly) live in routes/qotd.ts, which
+// already imports this scheduler — so we can't import back without a cycle. Instead
+// that module registers its invalidator here at load time and we call it when an
+// auto-publish changes the published-day set (the weekly board's window membership).
+let qotdLeaderboardInvalidator: ((qotdId?: string) => void) | null = null;
+export function setQotdLeaderboardInvalidator(fn: (qotdId?: string) => void): void {
+  qotdLeaderboardInvalidator = fn;
+}
+
 // Flip a single scheduled QOTD to published and fire the bell notification.
 // Idempotent + race-safe: re-reads state and only flips if still unpublished/unheld.
 async function publishDueQotd(id: string): Promise<void> {
@@ -370,6 +379,7 @@ async function publishDueQotd(id: string): Promise<void> {
     if (flipped.count === 0) return;
 
     invalidatePublishedQotdCache(); // published-day set changed → streak inputs shift
+    qotdLeaderboardInvalidator?.(id); // window membership changed → drop the weekly/daily/total board caches
     recomputeStreaksForQOTDSafe(id); // credit anyone who solved while it was scheduled
     broadcastQotdLive(qotd, qotd.createdById).catch(() => undefined);
     logger.info(`📅 Auto-published scheduled QOTD "${qotd.question}"`, { qotdId: id });

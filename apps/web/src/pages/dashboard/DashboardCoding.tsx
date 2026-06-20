@@ -92,6 +92,7 @@ function PracticeTab() {
   const { settings } = useSettings();
   const { user } = useAuth();
   const canAuthorSheets = ['CORE_MEMBER', 'ADMIN', 'PRESIDENT'].includes(user?.role ?? '');
+  const canPublishSheets = Boolean(user?.isSuperAdmin) || ['ADMIN', 'PRESIDENT'].includes(user?.role ?? '');
   const [diff, setDiff] = useState<'ALL' | 'EASY' | 'MEDIUM' | 'HARD'>('ALL');
   const [search, setSearch] = useState('');
   const enabled = settings?.problemsEnabled !== false;
@@ -124,7 +125,7 @@ function PracticeTab() {
   return (
     <div className="flex flex-col gap-4">
       {/* S-09: curated topic-ladder sheets (members see published; CORE_MEMBER+ author) */}
-      <ProblemSheets problems={all} canAuthor={canAuthorSheets} />
+      <ProblemSheets problems={all} canAuthor={canAuthorSheets} canPublish={canPublishSheets} />
 
       <div className="flex items-center gap-2 flex-wrap">
         <Input
@@ -240,7 +241,7 @@ function QOTDTab() {
   const todayTags = today?.problem?.tags ?? [];
 
   const history = historyQ.data ?? [];
-  const solvedCount = history.filter((q) => q.hasSubmitted).length;
+  const solvedCount = history.filter((q) => q.hasSolved).length;
   const calendar = statsQ.data?.last30Days ?? [];
 
   return (
@@ -360,8 +361,10 @@ function QOTDTab() {
                         <td className="px-4 py-2.5">
                           {isHeld ? (
                             <Pill tone="warning" size="xs">Held</Pill>
-                          ) : q.hasSubmitted ? (
+                          ) : q.hasSolved ? (
                             <Pill tone="success" size="xs">Solved</Pill>
+                          ) : q.hasSubmitted ? (
+                            <Pill tone="accent" size="xs">Attempted</Pill>
                           ) : isToday ? (
                             <Pill tone="info" size="xs" dot>Live</Pill>
                           ) : (

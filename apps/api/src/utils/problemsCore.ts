@@ -282,17 +282,25 @@ async function canUnlockSolution(
   // S-07: a solver has earned the official solution even on a first-try AC (their
   // submission count may be 1, below the engagement gate below). "Concluded" is
   // still required above, so this never leaks during an active QOTD/contest window.
-  const solved = await prisma.problemSubmission.findUnique({
-    where: {
-      userId_problemId_contextType_contextKey: {
-        userId: user.id,
-        problemId,
-        contextType,
-        contextKey,
-      },
-    },
-    select: { verdict: true },
-  });
+  // PRACTICE is keyed by the IST day, so an AC from a PRIOR day lives under a
+  // different contextKey — match ANY practice day so a returning solver doesn't see
+  // the solution re-lock. QOTD/CONTEST stay keyed to the exact context.
+  const solved = contextType === 'PRACTICE'
+    ? await prisma.problemSubmission.findFirst({
+        where: { userId: user.id, problemId, contextType: 'PRACTICE', verdict: 'ACCEPTED' },
+        select: { verdict: true },
+      })
+    : await prisma.problemSubmission.findUnique({
+        where: {
+          userId_problemId_contextType_contextKey: {
+            userId: user.id,
+            problemId,
+            contextType,
+            contextKey,
+          },
+        },
+        select: { verdict: true },
+      });
   if (solved?.verdict === 'ACCEPTED') return true;
 
   // While reopened, only an ACCEPTED solver (above) sees the solution — the
@@ -531,6 +539,10 @@ function calculateScore(
 }
 
 export async function runProblemTests(params: RunProblemParams): Promise<ProblemRunResult> {
+  // PRACTICE is bucketed by IST day — stamp the key server-side so a client whose
+  // clock straddles the IST midnight boundary can't send a key the server rejects
+  // (and so the read/write day always agree). QOTD/CONTEST keys are ids, untouched.
+  if (params.contextType === 'PRACTICE') params.contextKey = formatUsageDate();
   const problem = await validateProblemAccess(params.problemId, params.user, false);
   if (!problem.isPublished && !isAdminUser(params.user)) {
     if (!params.contextType || !params.contextKey) {
@@ -540,6 +552,15 @@ export async function runProblemTests(params: RunProblemParams): Promise<Problem
   }
   if (!problem.allowedLanguages.includes(params.language)) {
     throw new ProblemHttpError(400, 'Language is not allowed for this problem');
+  }
+
+  // Feature blocks apply to a Test Run too (it executes user code): QOTD context →
+  // QOTD block, PRACTICE context → PLAYGROUND block. Mirrors the submit gate.
+  if (params.contextType === 'QOTD' && await isUserBlocked(params.user.id, 'QOTD')) {
+    throw new ProblemHttpError(403, 'Your account has been blocked from QOTD submissions.', 'FORBIDDEN');
+  }
+  if (params.contextType === 'PRACTICE' && await isUserBlocked(params.user.id, 'PLAYGROUND')) {
+    throw new ProblemHttpError(403, 'Your account has been blocked from the playground.', 'FORBIDDEN');
   }
 
   const daily = await consumeDailyQuota(params.user.id, 1);
@@ -557,6 +578,10 @@ export async function runProblemTests(params: RunProblemParams): Promise<Problem
   });
 
   if (judge.verdict === 'JUDGE_ERROR') {
+    // Judge/infra outage is not the user's fault — give back the quota unit we
+    // consumed above (mirrors the submit path's refund) so a Test Run during an
+    // upstream outage never burns the student's daily allowance.
+    await refundDailyQuota(params.user.id, 1);
     throw new ProblemHttpError(503, 'Judge error, try again', 'SERVICE_UNAVAILABLE');
   }
 
@@ -579,6 +604,9 @@ export async function runProblemTests(params: RunProblemParams): Promise<Problem
 }
 
 export async function submitProblemForUser(params: SubmitProblemParams): Promise<ProblemSubmissionResult> {
+  // Server-stamp the PRACTICE day key (see runProblemTests) so validate/cap/store
+  // all key off the server's IST today — race-free at the midnight boundary.
+  if (params.contextType === 'PRACTICE') params.contextKey = formatUsageDate();
   const problem = await validateProblemAccess(params.problemId, params.user, false);
   if (!problem.allowedLanguages.includes(params.language)) {
     throw new ProblemHttpError(400, 'Language is not allowed for this problem');
@@ -586,9 +614,14 @@ export async function submitProblemForUser(params: SubmitProblemParams): Promise
 
   // admin-deep-control: QOTD block applies to problem-backed QOTD submissions too.
   // The legacy /api/qotd/:id/submit path is gated by requireNotBlocked middleware;
-  // this is the parallel gate for problem-backed QOTDs.
+  // this is the parallel gate for problem-backed QOTDs. Practice solving IS the
+  // playground (it executes user code), so a PLAYGROUND block gates it too — closing
+  // the gap where a PLAYGROUND-blocked user could still run/submit practice problems.
   if (params.contextType === 'QOTD' && await isUserBlocked(params.user.id, 'QOTD')) {
     throw new ProblemHttpError(403, 'Your account has been blocked from QOTD submissions.', 'FORBIDDEN');
+  }
+  if (params.contextType === 'PRACTICE' && await isUserBlocked(params.user.id, 'PLAYGROUND')) {
+    throw new ProblemHttpError(403, 'Your account has been blocked from the playground.', 'FORBIDDEN');
   }
 
   const { viaReopen } = await validateProblemContext(problem, params.user, params.contextType, params.contextKey, { reopenToken: params.reopenToken });

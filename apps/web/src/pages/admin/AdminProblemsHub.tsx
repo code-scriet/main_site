@@ -19,10 +19,11 @@ import { istDateKey } from '@/lib/dateUtils';
 import { DSCard, Difficulty, EmptyState, Pill, Section, UnderlineTabs } from '@/components/dash';
 import AdminProblems from './AdminProblems';
 import AdminSubmissionReview from './AdminSubmissionReview';
+import AdminSheets from './AdminSheets';
 import CreateQOTD from '../dashboard/CreateQOTD';
 
-type HubTab = 'catalog' | 'qotd' | 'review' | 'proposals';
-const TABS: HubTab[] = ['catalog', 'qotd', 'review', 'proposals'];
+type HubTab = 'catalog' | 'qotd' | 'review' | 'proposals' | 'sheets';
+const TABS: HubTab[] = ['catalog', 'qotd', 'review', 'proposals', 'sheets'];
 
 // qotdQ is lifted to the hub so the badge count and the panel list share a single
 // React Query subscription. Passing it as a prop avoids a second useQuery call
@@ -191,6 +192,17 @@ export default function AdminProblemsHub() {
     [proposalsQ.data],
   );
 
+  // Shares AdminSheets' cache key, so the badge and the tab don't double-fetch.
+  const sheetsQ = useQuery({
+    queryKey: ['admin-sheets'],
+    queryFn: () => api.getProblemSheets(token!),
+    enabled: Boolean(token),
+  });
+  const draftSheetsCount = useMemo(
+    () => (sheetsQ.data?.sheets ?? []).filter((s) => !s.isPublished).length,
+    [sheetsQ.data],
+  );
+
   return (
     <div className="flex flex-col gap-5">
       <div>
@@ -207,6 +219,7 @@ export default function AdminProblemsHub() {
           { value: 'qotd', label: 'QOTD' },
           { value: 'review', label: 'Review' },
           { value: 'proposals', label: 'Proposals', count: proposalsCount || undefined },
+          { value: 'sheets', label: 'Sheets', count: draftSheetsCount || undefined },
         ]}
         value={tab}
         onChange={setTab}
@@ -218,6 +231,7 @@ export default function AdminProblemsHub() {
         {tab === 'qotd' && <CreateQOTD embedded />}
         {tab === 'review' && <AdminSubmissionReview embedded />}
         {tab === 'proposals' && <ProposalsPanel qotdQ={proposalsQ} />}
+        {tab === 'sheets' && <AdminSheets />}
       </div>
     </div>
   );

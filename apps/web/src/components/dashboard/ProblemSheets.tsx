@@ -17,7 +17,7 @@ import { toast } from 'sonner';
 import { getPlaygroundLaunchUrl } from '@/lib/playgroundUrl';
 import { cn } from '@/lib/utils';
 
-export function ProblemSheets({ problems, canAuthor }: { problems: Problem[]; canAuthor: boolean }) {
+export function ProblemSheets({ problems, canAuthor, canPublish = false }: { problems: Problem[]; canAuthor: boolean; canPublish?: boolean }) {
   const { token } = useAuth();
   const qc = useQueryClient();
   const [openSlug, setOpenSlug] = useState<string | null>(null);
@@ -92,6 +92,7 @@ export function ProblemSheets({ problems, canAuthor }: { problems: Problem[]; ca
       {canAuthor && (
         <CreateSheetDialog
           open={createOpen}
+          canPublish={canPublish}
           onClose={() => setCreateOpen(false)}
           problems={problems}
           onCreated={() => { setCreateOpen(false); qc.invalidateQueries({ queryKey: ['problem-sheets'] }); }}
@@ -158,9 +159,10 @@ function SheetDetailDialog({ slug, onClose }: { slug: string | null; onClose: ()
 }
 
 function CreateSheetDialog({
-  open, onClose, problems, onCreated,
+  open, canPublish, onClose, problems, onCreated,
 }: {
   open: boolean;
+  canPublish: boolean;
   onClose: () => void;
   problems: Problem[];
   onCreated: () => void;
@@ -189,8 +191,10 @@ function CreateSheetDialog({
     if (picked.length === 0) { toast.error('Add at least one problem'); return; }
     setSaving(true);
     try {
-      await api.createProblemSheet({ title: title.trim(), description: description.trim() || null, isPublished, problemIds: picked }, token);
-      toast.success('Sheet created');
+      // Non-admins can only propose: the server forces a draft, so don't send a
+      // publish intent and tell them it's queued for an admin (mirrors QOTD propose).
+      await api.createProblemSheet({ title: title.trim(), description: description.trim() || null, isPublished: canPublish ? isPublished : false, problemIds: picked }, token);
+      toast.success(canPublish ? 'Sheet created' : 'Sheet proposed — an admin will review & publish it');
       reset();
       onCreated();
     } catch (err) {
@@ -209,10 +213,14 @@ function CreateSheetDialog({
         <div className="space-y-4">
           <Input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Sheet title (e.g. Arrays: easy → hard)" />
           <Textarea value={description} onChange={(e) => setDescription(e.target.value)} placeholder="What this sheet is for…" rows={2} />
-          <label className="flex items-center gap-2 text-[13px] text-[var(--ds-text-2)]">
-            <input type="checkbox" checked={isPublished} onChange={(e) => setIsPublished(e.target.checked)} />
-            Publish now (admins only — otherwise saved as a draft)
-          </label>
+          {canPublish ? (
+            <label className="flex items-center gap-2 text-[13px] text-[var(--ds-text-2)]">
+              <input type="checkbox" checked={isPublished} onChange={(e) => setIsPublished(e.target.checked)} />
+              Publish now (otherwise saved as a draft)
+            </label>
+          ) : (
+            <p className="text-[12px] text-[var(--ds-text-3)]">Saved as a draft — an admin reviews and publishes it.</p>
+          )}
           <div>
             <div className="flex items-center justify-between mb-2">
               <span className="text-[12.5px] font-medium">Problems <span className="text-[var(--ds-text-3)]">({picked.length} picked)</span></span>

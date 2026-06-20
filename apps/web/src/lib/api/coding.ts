@@ -19,6 +19,7 @@ import type {
   QOTDHistoryEntry,
   QOTDStats,
   QOTDTotalLeaderboard,
+  QOTDWeeklyLeaderboard,
   SubmissionResult,
   SubmissionVerdict,
   TestRunResult,
@@ -157,8 +158,15 @@ export const codingApi = {
     request<QOTDDailyLeaderboard>(`/qotd/${qotdId}/leaderboard`),
   getQOTDTotalLeaderboard: () =>
     request<QOTDTotalLeaderboard>('/qotd/leaderboard/total'),
+  // 7-day board — one server-side query (replaces the old 7-daily-boards rollup).
+  getQOTDWeeklyLeaderboard: () =>
+    request<QOTDWeeklyLeaderboard>('/qotd/leaderboard/weekly'),
   createQOTD: (data: { date: string; question?: string; problemLink?: string; difficulty?: string; problemId?: string; newProblem?: ProblemInput; publishNow?: boolean; publishTime?: string }, token: string) =>
     request('/qotd', { method: 'POST', body: JSON.stringify(data), token }),
+  // Edit an UNPUBLISHED QOTD (proposal/scheduled) — swap problem, move date/time, or
+  // fix legacy text. The server rejects edits to a published/held QOTD.
+  updateQOTD: (id: string, data: { question?: string; difficulty?: string; problemLink?: string; problemId?: string | null; date?: string; publishTime?: string }, token: string) =>
+    request(`/qotd/${id}`, { method: 'PUT', body: JSON.stringify(data), token }),
   publishQOTD: (id: string, token: string) =>
     request(`/qotd/${id}/publish`, { method: 'POST', token }),
   holdQOTD: (id: string, reason: string | undefined, token: string) =>
