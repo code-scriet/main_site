@@ -22,6 +22,7 @@ import {
   type ProblemInput,
 } from '../utils/problemsCore.js';
 import { enqueueRejudgeJob, getRejudgeJob } from '../utils/rejudgeJobs.js';
+import { formatUsageDate } from '../utils/dailyLimit.js';
 import { invalidateQotdLeaderboardCaches } from './qotd.js';
 import { recomputeUserStreakSafe } from '../utils/qotdStreak.js';
 import { getCachedSettings } from '../utils/settingsCache.js';
@@ -616,8 +617,11 @@ problemsRouter.get('/:id/my-submission', authMiddleware, async (req: Request, re
     const user = getAuthUser(req);
     if (!user) return ApiResponse.unauthorized(res);
     const contextType = req.query.contextType as ProblemContextType | undefined;
-    const contextKey = typeof req.query.contextKey === 'string' ? req.query.contextKey : undefined;
-    if (!contextType || !contextKey) return ApiResponse.badRequest(res, 'contextType and contextKey are required');
+    const rawContextKey = typeof req.query.contextKey === 'string' ? req.query.contextKey : undefined;
+    if (!contextType || !rawContextKey) return ApiResponse.badRequest(res, 'contextType and contextKey are required');
+    // PRACTICE is server-keyed by IST day on write (submitProblemForUser) — resolve
+    // the same key here so the read matches the write across the midnight boundary.
+    const contextKey = contextType === 'PRACTICE' ? formatUsageDate() : rawContextKey;
     const problemId = await resolveProblemId(req.params.id);
     const [submission, counter, problem] = await Promise.all([
       prisma.problemSubmission.findUnique({

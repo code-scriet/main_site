@@ -13,10 +13,10 @@
 //     when the host wants a tighter footprint (the coding hub does this).
 
 import { useMemo, useState } from 'react';
-import { useQueries, useQuery } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import { Clock, Search, Trophy } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
-import { api, type ProblemLeaderboardEntry } from '@/lib/api';
+import { api } from '@/lib/api';
 import { Avatar, DSCard, EmptyState, Pill, SegmentedTabs } from '@/components/dash';
 import { Input } from '@/components/ui/input';
 import { formatDurationMs, formatIstTime } from '@/lib/dateUtils';
@@ -92,60 +92,28 @@ export default function QOTDLeaderboardSurface({
     enabled: Boolean(token) && tab === 'total' && showAroundMeCta,
   });
 
-  // ── Weekly aggregation — client-side roll-up of the last 7 published daily boards.
-  const weekHistoryQ = useQuery({
-    queryKey: ['qotd-history', 'weekly-window'],
-    queryFn: () => api.getQOTDHistory(14, 0),
+  // ── Weekly board — one server-side query. Replaces the old client-side roll-up of
+  // 7 daily boards, which summed only each day's top-10 (dropping anyone outside it).
+  const weeklyQ = useQuery({
+    queryKey: ['qotd-leaderboard-weekly'],
+    queryFn: () => api.getQOTDWeeklyLeaderboard(),
     enabled: tab === 'weekly',
     staleTime: 60_000,
   });
-
-  const weeklyQotdIds = useMemo<string[]>(() => {
-    const list = weekHistoryQ.data ?? [];
-    return list
-      .filter((q) => q.isPublished && !q.heldBy)
-      .slice(0, 7)
-      .map((q) => q.id);
-  }, [weekHistoryQ.data]);
-
-  const weeklyDailyQueries = useQueries({
-    queries: weeklyQotdIds.map((qid) => ({
-      queryKey: ['qotd', 'leaderboard', 'daily', qid],
-      queryFn: () => api.getQOTDDailyLeaderboard(qid),
-      enabled: tab === 'weekly',
-      staleTime: 60_000,
-    })),
-  });
-  const weeklyDailyLoading = tab === 'weekly' && (
-    weekHistoryQ.isLoading || weeklyDailyQueries.some((q) => q.isLoading)
-  );
+  const weeklyDailyLoading = tab === 'weekly' && weeklyQ.isLoading;
 
   const weeklyEntries = useMemo<WeeklyEntry[]>(() => {
     if (tab !== 'weekly') return [];
-    const acc = new Map<string, { name: string; avatar?: string | null; score: number; daysSolved: number }>();
-    for (const q of weeklyDailyQueries) {
-      const board = q.data?.entries as ProblemLeaderboardEntry[] | undefined;
-      if (!board) continue;
-      for (const e of board) {
-        const prev = acc.get(e.userId);
-        if (prev) {
-          prev.score += e.score ?? 0;
-          prev.daysSolved += 1;
-        } else {
-          acc.set(e.userId, {
-            name: e.name,
-            avatar: e.avatar ?? null,
-            score: e.score ?? 0,
-            daysSolved: 1,
-          });
-        }
-      }
-    }
-    return Array.from(acc.entries())
-      .map(([userId, v]) => ({ userId, ...v, you: userId === user?.id, rank: 0 }))
-      .sort((a, b) => (b.score - a.score) || (b.daysSolved - a.daysSolved))
-      .map((e, i) => ({ ...e, rank: i + 1 }));
-  }, [tab, weeklyDailyQueries, user?.id]);
+    return (weeklyQ.data?.entries ?? []).map((e) => ({
+      userId: e.userId,
+      name: e.name,
+      avatar: e.avatar ?? null,
+      score: e.score,
+      daysSolved: e.daysSolved,
+      rank: e.rank,
+      you: e.userId === user?.id,
+    }));
+  }, [tab, weeklyQ.data, user?.id]);
 
   const entries = useMemo(() => {
     if (tab === 'weekly') return weeklyEntries;
@@ -175,15 +143,15 @@ export default function QOTDLeaderboardSurface({
   const isError = tab === 'today'
     ? todayQOTDQ.isError || dailyQ.isError
     : tab === 'weekly'
-      ? weekHistoryQ.isError || weeklyDailyQueries.some((q) => q.isError)
+      ? weeklyQ.isError
       : totalQ.isError;
   const refetchAll = () => {
     if (tab === 'today') { void todayQOTDQ.refetch(); void dailyQ.refetch(); }
-    else if (tab === 'weekly') { void weekHistoryQ.refetch(); weeklyDailyQueries.forEach((q) => { void q.refetch(); }); }
+    else if (tab === 'weekly') { void weeklyQ.refetch(); }
     else { void totalQ.refetch(); }
   };
   const dailyPublishedAt = todayQOTDQ.data?.publishedAt ?? dailyQ.data?.publishedAt ?? null;
-  const weeklyDayCount = weeklyQotdIds.length;
+  const weeklyDayCount = weeklyQ.data?.dayCount ?? 0;
 
   return (
     <div className="flex flex-col gap-4">

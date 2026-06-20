@@ -31,7 +31,10 @@ export interface QOTDHistoryEntry {
   difficulty: 'Easy' | 'Medium' | 'Hard' | 'EASY' | 'MEDIUM' | 'HARD';
   problemId?: string | null;
   problem?: Problem | null;
+  /** The user has any submission row for this QOTD (even a non-accepted attempt). */
   hasSubmitted?: boolean;
+  /** The user has an ACCEPTED solve (legacy text-only QOTDs: a self-report counts). */
+  hasSolved?: boolean;
   isPublished?: boolean;
   publishAt?: string | null;
   publishedAt?: string | null;
@@ -228,6 +231,23 @@ export interface QOTDDailyLeaderboard {
 
 export interface QOTDTotalLeaderboard {
   entries: ProblemLeaderboardEntry[];
+}
+
+export interface QOTDWeeklyLeaderboardEntry {
+  rank: number;
+  userId: string;
+  name: string;
+  avatar?: string | null;
+  /** Sum of best per-day scores over the 7-day window. */
+  score: number;
+  /** Distinct QOTD days solved in the window. */
+  daysSolved: number;
+}
+
+export interface QOTDWeeklyLeaderboard {
+  /** Published-and-not-held QOTD days that fall in the trailing 7-day window (0..7). */
+  dayCount: number;
+  entries: QOTDWeeklyLeaderboardEntry[];
 }
 
 export interface PendingCapRequest {

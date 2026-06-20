@@ -48,11 +48,14 @@ const sheetSchema = z.object({
 
 const errMsg = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
-// Per-user solved set for a list of problemIds (PRACTICE-context ACCEPTED).
+// Per-user solved set for a list of problemIds. A problem counts as solved if the
+// user has an ACCEPTED submission in ANY context (practice, QOTD, or contest) — so
+// a problem cleared as that day's QOTD shows ticked on a sheet, not just a practice
+// solve. Held reopen solves are PENDING, so they correctly don't count.
 async function solvedProblemIds(userId: string | undefined, problemIds: string[]): Promise<Set<string>> {
   if (!userId || problemIds.length === 0) return new Set();
   const rows = await prisma.problemSubmission.findMany({
-    where: { userId, problemId: { in: problemIds }, contextType: 'PRACTICE', verdict: 'ACCEPTED' },
+    where: { userId, problemId: { in: problemIds }, verdict: 'ACCEPTED' },
     select: { problemId: true },
   });
   return new Set(rows.map((r) => r.problemId));
