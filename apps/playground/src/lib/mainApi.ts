@@ -126,6 +126,37 @@ export interface PlaygroundLimitResetRequest {
   user?: { id: string; name: string; email: string; avatar: string | null };
 }
 
+export interface ContestRoundProblem {
+  id: string;
+  slug: string;
+  title: string;
+  difficulty: string;
+  allowedLanguages: ProblemLanguage[];
+  points: number;
+  displayOrder: number;
+  submission: { problemId: string; score: number; verdict: SubmissionVerdict; updatedAt: string } | null;
+}
+
+export interface ContestRoundDetail {
+  id: string;
+  eventId: string;
+  title: string;
+  description?: string;
+  duration: number;
+  status: 'DRAFT' | 'ACTIVE' | 'LOCKED' | 'JUDGING' | 'FINISHED';
+  roundType?: 'IMAGE_TARGET' | 'DSA';
+  proctored?: boolean;
+  penaltyModel?: 'BEST_SCORE' | 'ICPC';
+  leaderboardFreezeMinutes?: number | null;
+  startedAt?: string;
+  lockedAt?: string;
+  serverTime?: string;
+  remainingSeconds?: number | null;
+  hasSubmitted?: boolean;
+  problems: ContestRoundProblem[];
+  myTeam?: { id: string; teamName: string; memberCount: number } | null;
+}
+
 export class ApiError extends Error {
   status: number;
   code?: string;
@@ -195,16 +226,7 @@ export const mainApi = {
   // labels the solver). Mirrors the main app's GET /api/competition/:roundId, which
   // returns the round fields at the top level of `data`.
   getCompetitionRound: (roundId: string) =>
-    call<{
-      id: string;
-      title: string;
-      status: 'DRAFT' | 'ACTIVE' | 'LOCKED' | 'JUDGING' | 'FINISHED';
-      roundType?: 'IMAGE_TARGET' | 'DSA';
-      duration: number;
-      remainingSeconds?: number | null;
-      proctored?: boolean;
-      penaltyModel?: 'BEST_SCORE' | 'ICPC';
-    }>(`/api/competition/${roundId}`),
+    call<ContestRoundDetail>(`/api/competition/${roundId}`),
   // Proctoring (Phase C). The client force-submits its draft then reports the violation;
   // a proctored round locks the participant (server-enforced) until an admin unlocks.
   reportProctorViolation: (roundId: string, body: { kind: ProctorViolationKind; detail?: string }) =>

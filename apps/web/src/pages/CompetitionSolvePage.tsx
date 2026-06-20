@@ -12,10 +12,11 @@ export default function CompetitionSolvePage() {
   const [redirectFailed, setRedirectFailed] = useState(false);
 
   const target = useMemo(() => {
-    const qs = new URLSearchParams();
-    if (roundId) qs.set('contest', roundId);
-    if (problemId) qs.set('problem', problemId);
-    return getPlaygroundLaunchUrl(`/?${qs.toString()}`);
+    // DSA contests open the multi-problem arena; a specific problem (if any) preselects
+    // via ?problem=. The arena hosts the solver, timer, scoreboard and proctor engine.
+    if (!roundId) return getPlaygroundLaunchUrl('/');
+    const suffix = problemId ? `?problem=${encodeURIComponent(problemId)}` : '';
+    return getPlaygroundLaunchUrl(`/contest/${roundId}${suffix}`);
   }, [roundId, problemId]);
 
   useEffect(() => {
