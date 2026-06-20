@@ -1090,6 +1090,13 @@ export interface CompetitionRound {
   participantScope?: 'ALL' | 'SELECTED_TEAMS';
   leadersOnly?: boolean;
   allowedTeamIds?: string[];
+  // Contest config (redesign). finalWeight = raw weight in the event-final aggregation;
+  // difficultyWeights = optional EASY/MED/HARD presets that seed per-problem weights.
+  finalWeight?: number;
+  proctored?: boolean;
+  penaltyModel?: 'BEST_SCORE' | 'ICPC';
+  leaderboardFreezeMinutes?: number | null;
+  difficultyWeights?: { EASY?: number; MEDIUM?: number; HARD?: number } | null;
   isEligible?: boolean;
   eligibilityReason?: string;
   targetImageUrl?: string;

@@ -219,6 +219,11 @@ export const eventOpsApi = {
     targetImageUrl?: string;
     problemIds?: string[];
     problems?: Array<{ problemId: string; displayOrder?: number; points?: number }>;
+    finalWeight?: number;
+    proctored?: boolean;
+    penaltyModel?: 'BEST_SCORE' | 'ICPC';
+    leaderboardFreezeMinutes?: number | null;
+    difficultyWeights?: { EASY?: number; MEDIUM?: number; HARD?: number } | null;
   }, token: string) =>
     request<{ round: CompetitionRound }>('/competition', { method: 'POST', body: JSON.stringify(data), token }),
   getCompetitionRoundsAdmin: (eventId: string, token: string) =>
@@ -269,6 +274,11 @@ export const eventOpsApi = {
     targetImageUrl?: string | null;
     problemIds?: string[];
     problems?: Array<{ problemId: string; displayOrder?: number; points?: number }>;
+    finalWeight?: number;
+    proctored?: boolean;
+    penaltyModel?: 'BEST_SCORE' | 'ICPC';
+    leaderboardFreezeMinutes?: number | null;
+    difficultyWeights?: { EASY?: number; MEDIUM?: number; HARD?: number } | null;
   }, token: string) =>
     request<{ round: CompetitionRound }>(`/competition/${roundId}`, { method: 'PUT', body: JSON.stringify(data), token }),
   publishContestAsPractice: (roundId: string, token: string) =>

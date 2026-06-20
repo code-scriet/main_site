@@ -68,6 +68,22 @@ const submitLimiter = rateLimit({
   message: { success: false, error: { message: 'Too many submit attempts. Please wait.' } },
 });
 
+// Contest-config fields shared by create + update (Phase B). finalWeight is the round's
+// raw weight in the event-final aggregation; difficultyWeights are optional EASY/MED/HARD
+// presets the admin UI uses to seed per-problem weights (the raw weight still lives on
+// each problem's `points`).
+const contestConfigShape = {
+  finalWeight: z.number().min(0).max(1000).optional(),
+  proctored: z.boolean().optional(),
+  penaltyModel: z.enum(['BEST_SCORE', 'ICPC']).optional(),
+  leaderboardFreezeMinutes: z.number().int().min(0).max(1440).nullable().optional(),
+  difficultyWeights: z.object({
+    EASY: z.number().min(0).max(1000),
+    MEDIUM: z.number().min(0).max(1000),
+    HARD: z.number().min(0).max(1000),
+  }).partial().nullable().optional(),
+};
+
 const createRoundSchema = z.object({
   eventId: z.string().uuid(),
   title: z.string().min(1).max(200),
@@ -84,6 +100,7 @@ const createRoundSchema = z.object({
     points: z.number().int().min(1).max(1000).optional(),
     displayOrder: z.number().int().min(0).optional(),
   })).max(50).optional(),
+  ...contestConfigShape,
 });
 
 const updateRoundSchema = z.object({
@@ -101,6 +118,7 @@ const updateRoundSchema = z.object({
     points: z.number().int().min(1).max(1000).optional(),
     displayOrder: z.number().int().min(0).optional(),
   })).max(50).optional(),
+  ...contestConfigShape,
 }).refine((value) => Object.keys(value).length > 0, {
   message: 'At least one field is required',
 });
@@ -212,6 +230,10 @@ async function ensureRegisteredForRound(roundId: string, userId: string) {
       participantScope: true,
       leadersOnly: true,
       allowedTeamIds: true,
+      proctored: true,
+      penaltyModel: true,
+      leaderboardFreezeMinutes: true,
+      finalWeight: true,
       problems: {
         orderBy: { displayOrder: 'asc' },
         include: {
@@ -528,6 +550,11 @@ competitionRouter.post('/', authMiddleware, requireRole('ADMIN'), async (req: Re
         allowedTeamIds,
         targetImageUrl: roundType === 'DSA' ? null : (parsed.data.targetImageUrl || null),
         status: 'DRAFT',
+        ...(parsed.data.finalWeight !== undefined ? { finalWeight: parsed.data.finalWeight } : {}),
+        ...(parsed.data.proctored !== undefined ? { proctored: parsed.data.proctored } : {}),
+        ...(parsed.data.penaltyModel !== undefined ? { penaltyModel: parsed.data.penaltyModel } : {}),
+        ...(parsed.data.leaderboardFreezeMinutes !== undefined ? { leaderboardFreezeMinutes: parsed.data.leaderboardFreezeMinutes } : {}),
+        ...(parsed.data.difficultyWeights !== undefined ? { difficultyWeights: parsed.data.difficultyWeights ?? Prisma.DbNull } : {}),
         ...(roundType === 'DSA' ? {
           problems: {
             create: linkedProblems.map((item) => ({
@@ -629,6 +656,11 @@ competitionRouter.get('/event/:eventId', optionalAuthMiddleware, async (req: Req
       participantScope: round.participantScope,
       leadersOnly: round.leadersOnly,
       allowedTeamIds: canViewTeamSelection ? round.allowedTeamIds : undefined,
+      finalWeight: round.finalWeight,
+      proctored: round.proctored,
+      penaltyModel: round.penaltyModel,
+      leaderboardFreezeMinutes: round.leaderboardFreezeMinutes,
+      difficultyWeights: canViewTeamSelection ? round.difficultyWeights : undefined,
       startedAt: round.startedAt?.toISOString(),
       lockedAt: round.lockedAt?.toISOString(),
       problems: round.problems.map((link) => ({
@@ -909,6 +941,9 @@ competitionRouter.get('/:roundId', authMiddleware, async (req: Request, res: Res
       participantScope: round.participantScope,
       leadersOnly: round.leadersOnly,
       allowedTeamIds: round.allowedTeamIds,
+      proctored: round.proctored,
+      penaltyModel: round.penaltyModel,
+      leaderboardFreezeMinutes: round.leaderboardFreezeMinutes,
       startedAt: round.startedAt?.toISOString(),
       lockedAt: round.lockedAt?.toISOString(),
       problems: round.problems.map((link) => ({
@@ -2366,6 +2401,11 @@ competitionRouter.put('/:roundId', authMiddleware, requireRole('ADMIN'), async (
           targetImageUrl: nextRoundType === 'DSA'
             ? null
             : (parsed.data.targetImageUrl !== undefined ? parsed.data.targetImageUrl || null : undefined),
+          ...(parsed.data.finalWeight !== undefined ? { finalWeight: parsed.data.finalWeight } : {}),
+          ...(parsed.data.proctored !== undefined ? { proctored: parsed.data.proctored } : {}),
+          ...(parsed.data.penaltyModel !== undefined ? { penaltyModel: parsed.data.penaltyModel } : {}),
+          ...(parsed.data.leaderboardFreezeMinutes !== undefined ? { leaderboardFreezeMinutes: parsed.data.leaderboardFreezeMinutes } : {}),
+          ...(parsed.data.difficultyWeights !== undefined ? { difficultyWeights: parsed.data.difficultyWeights ?? Prisma.DbNull } : {}),
         },
       });
       if (nextRoundType === 'IMAGE_TARGET') {

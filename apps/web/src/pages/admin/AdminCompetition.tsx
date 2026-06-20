@@ -57,6 +57,12 @@ type FormState = {
   targetImageUrl: string;
   roundType: 'IMAGE_TARGET' | 'DSA';
   problems: Array<{ problemId: string; displayOrder: number; points: number }>;
+  // Contest config (redesign). finalWeight = this round's raw weight in the event-final;
+  // penaltyModel / proctored / freeze drive ranking + the live arena.
+  finalWeight: number;
+  proctored: boolean;
+  penaltyModel: 'BEST_SCORE' | 'ICPC';
+  leaderboardFreezeMinutes: number;
 };
 
 const DEFAULT_FORM: FormState = {
@@ -70,7 +76,17 @@ const DEFAULT_FORM: FormState = {
   targetImageUrl: '',
   roundType: 'IMAGE_TARGET',
   problems: [],
+  finalWeight: 1,
+  proctored: false,
+  penaltyModel: 'BEST_SCORE',
+  leaderboardFreezeMinutes: 0,
 };
+
+// Default per-problem weight seeded from difficulty (the admin can still override).
+const DIFFICULTY_WEIGHT: Record<string, number> = { EASY: 100, MEDIUM: 200, HARD: 300 };
+function seedWeightFromDifficulty(difficulty?: string): number {
+  return DIFFICULTY_WEIGHT[(difficulty || '').toUpperCase()] ?? 100;
+}
 
 // Map each round status to a dashboard v2 Pill tone (matches design line 387).
 const statusPill: Record<CompetitionRound['status'], { tone: PillTone; label: string; dot: boolean }> = {
@@ -307,6 +323,10 @@ export default function AdminCompetition() {
         displayOrder: link.displayOrder ?? index,
         points: link.points ?? 100,
       })).filter((link) => link.problemId),
+      finalWeight: round.finalWeight ?? 1,
+      proctored: round.proctored ?? false,
+      penaltyModel: round.penaltyModel ?? 'BEST_SCORE',
+      leaderboardFreezeMinutes: round.leaderboardFreezeMinutes ?? 0,
     });
     setCreateOpen(true);
   };
@@ -338,6 +358,10 @@ export default function AdminCompetition() {
         problems: form.roundType === 'DSA'
           ? form.problems.map((problem, index) => ({ ...problem, displayOrder: index }))
           : undefined,
+        finalWeight: form.finalWeight,
+        proctored: form.proctored,
+        penaltyModel: form.penaltyModel,
+        leaderboardFreezeMinutes: form.leaderboardFreezeMinutes > 0 ? form.leaderboardFreezeMinutes : null,
       };
       if (!payload.eventId) {
         throw new Error('Please select an event');
@@ -360,6 +384,10 @@ export default function AdminCompetition() {
           allowedTeamIds: payload.allowedTeamIds,
           targetImageUrl: payload.roundType === 'DSA' ? null : payload.targetImageUrl || null,
           problems: payload.problems,
+          finalWeight: payload.finalWeight,
+          proctored: payload.proctored,
+          penaltyModel: payload.penaltyModel,
+          leaderboardFreezeMinutes: payload.leaderboardFreezeMinutes,
         }, token);
         setSuccess('Round updated successfully');
       } else {
@@ -984,6 +1012,60 @@ export default function AdminCompetition() {
               />
             </div>
 
+            {/* Contest settings — ranking model, event-final weight, proctoring, freeze */}
+            <div className="rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-sunken)] p-3 space-y-3">
+              <p className="text-xs font-semibold uppercase tracking-[0.06em] text-[var(--ds-text-3)]">Contest settings</p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label htmlFor="competition-penalty" className="text-sm font-medium text-[var(--ds-text-2)] mb-1 block">Ranking model</label>
+                  <select
+                    id="competition-penalty"
+                    value={form.penaltyModel}
+                    onChange={(e) => setForm((prev) => ({ ...prev, penaltyModel: e.target.value as 'BEST_SCORE' | 'ICPC' }))}
+                    className="h-10 w-full rounded-lg border border-[var(--border-default)] bg-[var(--bg-raised)] px-3 text-sm text-[var(--ds-text-2)]"
+                  >
+                    <option value="BEST_SCORE">Best score (ties: earliest)</option>
+                    <option value="ICPC">ICPC (ties: penalty)</option>
+                  </select>
+                </div>
+                <div>
+                  <label htmlFor="competition-final-weight" className="text-sm font-medium text-[var(--ds-text-2)] mb-1 block">Event-final weight</label>
+                  <Input
+                    id="competition-final-weight"
+                    type="number"
+                    min={0}
+                    max={1000}
+                    step={0.1}
+                    value={form.finalWeight}
+                    onChange={(e) => setForm((prev) => ({ ...prev, finalWeight: Number(e.target.value || 0) }))}
+                  />
+                  <p className="mt-1 text-[11px] text-[var(--ds-text-3)]">Relative weight of this round in the event final (normalized across rounds).</p>
+                </div>
+                <div>
+                  <label htmlFor="competition-freeze" className="text-sm font-medium text-[var(--ds-text-2)] mb-1 block">Leaderboard freeze (min)</label>
+                  <Input
+                    id="competition-freeze"
+                    type="number"
+                    min={0}
+                    max={1440}
+                    value={form.leaderboardFreezeMinutes}
+                    onChange={(e) => setForm((prev) => ({ ...prev, leaderboardFreezeMinutes: Number(e.target.value || 0) }))}
+                  />
+                  <p className="mt-1 text-[11px] text-[var(--ds-text-3)]">Freeze the public board in the final N minutes (0 = never).</p>
+                </div>
+                <label htmlFor="competition-proctored" className="flex items-center gap-2 self-end pb-2 text-sm font-medium text-[var(--ds-text-2)]">
+                  <input
+                    id="competition-proctored"
+                    type="checkbox"
+                    checked={form.proctored}
+                    onChange={(e) => setForm((prev) => ({ ...prev, proctored: e.target.checked }))}
+                    className="h-4 w-4 rounded border-[var(--accent-ring)] text-[var(--accent)] focus:ring-[var(--accent)]"
+                  />
+                  Proctored (auto-submit + lock on tab switch)
+                </label>
+              </div>
+            </div>
+
             {form.roundType === 'IMAGE_TARGET' ? (
               <div>
                 <label htmlFor="competition-target-image" className="text-sm font-medium text-[var(--ds-text-2)] mb-1 block">Reference image URL (optional)</label>
@@ -997,16 +1079,18 @@ export default function AdminCompetition() {
               </div>
             ) : (
               <div>
-                <p className="mb-1 block text-sm font-medium text-[var(--ds-text-2)]">Problems</p>
+                <p className="mb-1 block text-sm font-medium text-[var(--ds-text-2)]">Problems &amp; weights</p>
+                <p className="mb-1 text-[11px] text-[var(--ds-text-3)]">Weight seeds from difficulty (Easy 100 · Medium 200 · Hard 300) — edit freely. Each problem&apos;s share is normalized within the round; its weight is split across the problem&apos;s private tests only.</p>
                 <div className="space-y-2 rounded-lg border border-[var(--accent-ring)] bg-[var(--accent-subtle)]/40 p-3">
                   <select
                     value=""
                     onChange={(event) => {
                       const problemId = event.target.value;
                       if (!problemId || form.problems.some((item) => item.problemId === problemId)) return;
+                      const added = problemCatalog.find((item) => item.id === problemId);
                       setForm((prev) => ({
                         ...prev,
-                        problems: [...prev.problems, { problemId, displayOrder: prev.problems.length, points: 100 }],
+                        problems: [...prev.problems, { problemId, displayOrder: prev.problems.length, points: seedWeightFromDifficulty(added?.difficulty) }],
                       }));
                     }}
                     className="h-10 w-full rounded-lg border border-[var(--accent-ring)] bg-[var(--bg-raised)] px-3 text-sm text-[var(--ds-text-2)]"
@@ -1016,32 +1100,41 @@ export default function AdminCompetition() {
                       <option key={problem.id} value={problem.id}>{problem.title} ({problem.difficulty})</option>
                     ))}
                   </select>
-                  {form.problems.map((link, index) => {
-                    const problem = problemCatalog.find((item) => item.id === link.problemId);
-                    return (
-                      <div key={link.problemId} className="grid grid-cols-[1fr,96px,36px] items-center gap-2 rounded-md border border-[var(--border-subtle)] bg-[var(--bg-raised)] px-3 py-2 text-sm">
-                        <span className="min-w-0 truncate font-medium text-[var(--ds-text-1)]">{problem?.title ?? link.problemId}</span>
-                        <Input
-                          type="number"
-                          min={1}
-                          max={1000}
-                          value={link.points}
-                          onChange={(event) => setForm((prev) => ({
-                            ...prev,
-                            problems: prev.problems.map((item, itemIndex) => itemIndex === index ? { ...item, points: Number(event.target.value) } : item),
-                          }))}
-                        />
-                        <button
-                          type="button"
-                          onClick={() => setForm((prev) => ({ ...prev, problems: prev.problems.filter((_, itemIndex) => itemIndex !== index) }))}
-                          className="rounded p-2 text-[var(--danger)] hover:bg-[var(--danger-bg)]"
-                          title="Remove problem"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </button>
-                      </div>
-                    );
-                  })}
+                  {(() => {
+                    const totalWeight = form.problems.reduce((sum, item) => sum + (item.points || 0), 0) || 1;
+                    return form.problems.map((link, index) => {
+                      const problem = problemCatalog.find((item) => item.id === link.problemId);
+                      const sharePct = Math.round(((link.points || 0) / totalWeight) * 1000) / 10;
+                      return (
+                        <div key={link.problemId} className="grid grid-cols-[1fr,96px,52px,36px] items-center gap-2 rounded-md border border-[var(--border-subtle)] bg-[var(--bg-raised)] px-3 py-2 text-sm">
+                          <span className="min-w-0 truncate font-medium text-[var(--ds-text-1)]">
+                            {problem?.title ?? link.problemId}
+                            {problem?.difficulty && <span className="ml-1.5 text-[11px] text-[var(--ds-text-3)]">{problem.difficulty}</span>}
+                          </span>
+                          <Input
+                            type="number"
+                            min={1}
+                            max={1000}
+                            value={link.points}
+                            aria-label="Weight"
+                            onChange={(event) => setForm((prev) => ({
+                              ...prev,
+                              problems: prev.problems.map((item, itemIndex) => itemIndex === index ? { ...item, points: Number(event.target.value) } : item),
+                            }))}
+                          />
+                          <span className="text-right font-mono tabular-nums text-[12px] text-[var(--ds-text-3)]">{sharePct}%</span>
+                          <button
+                            type="button"
+                            onClick={() => setForm((prev) => ({ ...prev, problems: prev.problems.filter((_, itemIndex) => itemIndex !== index) }))}
+                            className="rounded p-2 text-[var(--danger)] hover:bg-[var(--danger-bg)]"
+                            title="Remove problem"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+                        </div>
+                      );
+                    });
+                  })()}
                 </div>
               </div>
             )}
