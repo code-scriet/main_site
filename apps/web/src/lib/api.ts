@@ -238,9 +238,9 @@ export interface QOTDWeeklyLeaderboardEntry {
   userId: string;
   name: string;
   avatar?: string | null;
-  /** Sum of best per-day scores over the 7-day window. */
+  /** Sum over the 7-day window of each day's stored score (latest judged attempt, floored at the accepted run; partials included — not a per-day max). */
   score: number;
-  /** Distinct QOTD days solved in the window. */
+  /** In-window days with a non-pending submission (attempted-or-better, matching the daily board — not strictly ACCEPTED-only). */
   daysSolved: number;
 }
 

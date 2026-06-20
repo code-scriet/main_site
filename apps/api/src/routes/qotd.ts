@@ -14,7 +14,7 @@ import { createProblemFromInput, serializeProblemDetail, toIstDateKey, type Prob
 import { formatUsageDate } from '../utils/dailyLimit.js';
 import { recomputeUserStreakSafe, invalidatePublishedQotdCache, recomputeStreaksForQOTDSafe } from '../utils/qotdStreak.js';
 import { broadcastQotdLive, broadcastNotification } from '../utils/notifications.js';
-import { armQotdPublishTimer, cancelQotdPublishTimer } from '../utils/scheduler.js';
+import { armQotdPublishTimer, cancelQotdPublishTimer, setQotdLeaderboardInvalidator } from '../utils/scheduler.js';
 import { uuidParamGuard } from '../utils/idParams.js';
 import { isPresidentOrSuperAdmin, isSuperAdmin } from '../utils/superAdmin.js';
 import { signQotdReopenToken } from '../utils/jwt.js';
@@ -114,7 +114,28 @@ function isStaffAuth(user: { role?: string } | undefined): boolean {
 
 const dailyLeaderboardCache = new Map<string, { data: unknown; expiresAt: number }>();
 let totalLeaderboardCache: { data: unknown; expiresAt: number } | null = null;
-let weeklyLeaderboardCache: { data: unknown; expiresAt: number } | null = null;
+let weeklyLeaderboardCache: { data: WeeklyLeaderboardPayload; expiresAt: number } | null = null;
+
+interface WeeklyLeaderboardPayload {
+  // Published-and-not-held QOTD days inside the trailing 7-day window (0..7).
+  dayCount: number;
+  entries: Array<{
+    rank: number;
+    userId: string;
+    name: string;
+    avatar: string | null;
+    score: number;
+    daysSolved: number;
+  }>;
+}
+
+// The weekly cache holds the FULL board (up to WEEKLY_LEADERBOARD_MAX rows). Each
+// request slices it to its own `limit`, so `?limit=` stays honoured on cache hits
+// instead of inheriting whatever the request that populated the cache asked for.
+const WEEKLY_LEADERBOARD_MAX = 50;
+function sliceWeeklyLeaderboard(full: WeeklyLeaderboardPayload, limit: number): WeeklyLeaderboardPayload {
+  return { dayCount: full.dayCount, entries: full.entries.slice(0, limit) };
+}
 
 // Free expired entries every 60s so a fresh insert isn't blocked by stale
 // keys squatting on the 30-entry cap. Readers already gate on expiresAt.
@@ -137,6 +158,11 @@ export function invalidateQotdLeaderboardCaches(qotdId?: string): void {
   totalLeaderboardCache = null;
   weeklyLeaderboardCache = null;
 }
+
+// Let the auto-publish scheduler drop these caches when a scheduled QOTD goes live
+// (its window membership shifts the weekly board). One-way: the scheduler never
+// imports this route module, so no import cycle — see setQotdLeaderboardInvalidator.
+setQotdLeaderboardInvalidator(invalidateQotdLeaderboardCaches);
 
 function rememberDailyCache(qotdId: string, data: unknown): void {
   dailyLeaderboardCache.set(qotdId, { data, expiresAt: Date.now() + 60_000 });
@@ -503,21 +529,26 @@ qotdRouter.get('/leaderboard/around-me', authMiddleware, async (req: Request, re
 });
 
 // 7-day QOTD leaderboard — server-side roll-up of the last 7 published-and-not-held
-// QOTD days. Computed in one grouped query so EVERY solver counts (the old
-// client-side rollup summed only each day's top-10 daily board, silently dropping
-// anyone outside it) and so the surface makes one request instead of 7+1.
-// `score` = sum of each day's best score (partial credit allowed, matching the
-// daily board's "ordered by score" semantics); `daysSolved` = days with a
-// non-pending submission. Held reopen solves (verdict PENDING) are excluded, like
-// the daily/total boards.
+// QOTD days in one grouped query, so EVERY solver counts (the old client-side rollup
+// summed only each day's top-10 daily board, silently dropping anyone outside it) and
+// the surface makes one request instead of 7+1.
+//   • `score`      = sum over the window of each day's STORED row score for the user.
+//                    The stored score is the latest judged attempt, floored at the
+//                    accepted run once solved (a later miss never un-solves) — it is
+//                    NOT a per-day max. Partial credit is included, matching the daily
+//                    board's score order.
+//   • `daysSolved` = count of in-window days the user has a non-PENDING submission for
+//                    (attempted-or-better — mirrors the daily board, which ranks
+//                    partials too; not strictly ACCEPTED-only).
+// Held reopen solves (verdict PENDING) are excluded, like the daily/total boards.
 qotdRouter.get('/leaderboard/weekly', async (req: Request, res: Response) => {
   try {
-    // Default 50 (not 10) so the weekly list + in-surface search keep the wider set
-    // the old client-side rollup surfaced — the podium still shows the top 3.
-    const limit = Math.min(50, Math.max(1, Number(req.query.limit) || 50));
+    // Default 50 (not 10) so the list + in-surface search keep the wider set the old
+    // client rollup surfaced; the podium still shows the top 3.
+    const limit = Math.min(WEEKLY_LEADERBOARD_MAX, Math.max(1, Number(req.query.limit) || WEEKLY_LEADERBOARD_MAX));
     if (weeklyLeaderboardCache && Date.now() < weeklyLeaderboardCache.expiresAt) {
       setPublicCache(res, 60);
-      return ApiResponse.success(res, weeklyLeaderboardCache.data);
+      return ApiResponse.success(res, sliceWeeklyLeaderboard(weeklyLeaderboardCache.data, limit));
     }
 
     const { end } = qotdDateRange();
@@ -531,14 +562,16 @@ qotdRouter.get('/leaderboard/weekly', async (req: Request, res: Response) => {
     const dayCount = windowIds.length;
 
     if (windowIds.length === 0) {
-      const empty = { entries: [], dayCount: 0 };
+      const empty: WeeklyLeaderboardPayload = { entries: [], dayCount: 0 };
       weeklyLeaderboardCache = { data: empty, expiresAt: Date.now() + 60_000 };
       setPublicCache(res, 60);
       return ApiResponse.success(res, empty);
     }
 
-    // One row per (user, QOTD) — the [userId, problemId, QOTD, contextKey] unique key
-    // means _count._all is exactly the user's distinct solved-day count in the window.
+    // At most one row per (user, in-window QOTD): the [userId, problemId, contextType,
+    // contextKey] unique key plus the publish-locked edit guard (a QOTD's problemId
+    // can't change once it has gone live) mean _count._all is the user's distinct
+    // in-window day count.
     const grouped = await prisma.problemSubmission.groupBy({
       by: ['userId'],
       where: { contextType: 'QOTD', verdict: { not: 'PENDING' }, contextKey: { in: windowIds } },
@@ -546,7 +579,7 @@ qotdRouter.get('/leaderboard/weekly', async (req: Request, res: Response) => {
       _count: { _all: true },
       _min: { submittedAt: true },
       orderBy: [{ _sum: { score: 'desc' } }, { _min: { submittedAt: 'asc' } }],
-      take: limit,
+      take: WEEKLY_LEADERBOARD_MAX,
     });
 
     const users = grouped.length
@@ -556,7 +589,7 @@ qotdRouter.get('/leaderboard/weekly', async (req: Request, res: Response) => {
         })
       : [];
     const usersById = new Map(users.map((u) => [u.id, u]));
-    const data = {
+    const data: WeeklyLeaderboardPayload = {
       dayCount,
       entries: grouped.map((g, index) => {
         const u = usersById.get(g.userId);
@@ -572,7 +605,7 @@ qotdRouter.get('/leaderboard/weekly', async (req: Request, res: Response) => {
     };
     weeklyLeaderboardCache = { data, expiresAt: Date.now() + 60_000 };
     setPublicCache(res, 60);
-    return ApiResponse.success(res, data);
+    return ApiResponse.success(res, sliceWeeklyLeaderboard(data, limit));
   } catch {
     return ApiResponse.internal(res, 'Failed to fetch QOTD weekly leaderboard');
   }

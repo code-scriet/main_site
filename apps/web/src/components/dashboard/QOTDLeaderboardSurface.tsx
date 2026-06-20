@@ -29,9 +29,9 @@ interface WeeklyEntry {
   name: string;
   avatar?: string | null;
   rank: number;
-  /** Total points across the last 7 published QOTDs. */
+  /** Total points across the last 7 published QOTDs (each day's stored score, partials included). */
   score: number;
-  /** Distinct QOTD days solved in that window (1..7). */
+  /** In-window days with a non-pending submission (attempted-or-better, matching the daily board), 1..7. */
   daysSolved: number;
   you: boolean;
   // Inlined for TS — these are never set on weekly entries; declaring them as
