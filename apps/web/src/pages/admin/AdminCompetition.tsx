@@ -2,7 +2,7 @@
 // Design source: code-scriet-innerdashboard/project/js/screen-admin.jsx
 //   - AdminCompetitionScreen (lines 371-431) — header, round-card grid, global lifecycle stepper.
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/context/AuthContext';
 import { api, type CompetitionRound, type Event, type EventTeam, type Problem } from '@/lib/api';
@@ -226,9 +226,18 @@ export default function AdminCompetition() {
   // Live-round poll: refresh ONLY the rounds of events that currently have an ACTIVE
   // round — not the full load() (events list + problem catalog + every event's
   // rounds/teams). Keeps the 10s tick cheap while a round is running.
+  //
+  // `refreshActiveRounds` reads the latest rounds from a ref (not a closure dep) so it
+  // stays referentially stable — otherwise it would be re-created on every poll (each
+  // poll calls setRoundsByEvent), tearing down and recreating the interval each tick.
+  const roundsByEventRef = useRef(roundsByEvent);
+  useEffect(() => {
+    roundsByEventRef.current = roundsByEvent;
+  }, [roundsByEvent]);
+
   const refreshActiveRounds = useCallback(async () => {
     if (!token) return;
-    const activeEventIds = Object.entries(roundsByEvent)
+    const activeEventIds = Object.entries(roundsByEventRef.current)
       .filter(([, list]) => list.some((round) => round.status === 'ACTIVE'))
       .map(([eventId]) => eventId);
     if (activeEventIds.length === 0) return;
@@ -241,18 +250,24 @@ export default function AdminCompetition() {
     } catch {
       // transient poll failure — keep the last good rounds; next tick retries.
     }
-  }, [token, roundsByEvent]);
+  }, [token]);
+
+  // A boolean gate (not roundsByEvent itself) so the interval is created once when a
+  // round goes active and torn down once it ends — it doesn't re-arm on every poll.
+  const hasActiveRound = useMemo(
+    () => Object.values(roundsByEvent).some((list) =>
+      list.some((round) => round.status === 'ACTIVE'),
+    ),
+    [roundsByEvent],
+  );
 
   useEffect(() => {
-    const activePresent = Object.values(roundsByEvent).some((list) =>
-      list.some((round) => round.status === 'ACTIVE'),
-    );
-    if (!activePresent) return;
+    if (!hasActiveRound) return;
     const id = window.setInterval(() => {
       void refreshActiveRounds();
     }, 10_000);
     return () => window.clearInterval(id);
-  }, [roundsByEvent, refreshActiveRounds]);
+  }, [hasActiveRound, refreshActiveRounds]);
 
   useEffect(() => {
     if (!success) return;

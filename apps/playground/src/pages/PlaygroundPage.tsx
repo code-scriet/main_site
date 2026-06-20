@@ -161,6 +161,10 @@ export default function PlaygroundPage() {
         if (competitionRoundQuery.isLoading) return { kind: 'problem-loading', problemId: problemParam };
         const round = competitionRoundQuery.data;
         const isActive = round?.status === 'ACTIVE';
+        // A failed round fetch (transient/network) is not the same as a closed round —
+        // submit stays disabled either way, but the label shouldn't claim the round is
+        // closed when we simply couldn't read its status.
+        const roundUnreadable = competitionRoundQuery.isError || !round;
         const context: QOTDSolverContext = {
           type: 'CONTEST',
           key: contestParam,
@@ -169,7 +173,9 @@ export default function PlaygroundPage() {
           modeLabel: round?.title ? `Contest · ${round.title}` : 'Contest',
           deadlineLabel: isActive
             ? 'Live contest round — submissions are judged and ranked.'
-            : 'This contest round is not accepting submissions right now.',
+            : roundUnreadable
+              ? "Couldn't load this round's status — you can run code, but submissions are disabled."
+              : 'This contest round is not accepting submissions right now.',
         };
         return { kind: 'solver', problem: standaloneProblemQuery.data.problem, context };
       }
@@ -190,6 +196,7 @@ export default function PlaygroundPage() {
     contestParam,
     competitionRoundQuery.data,
     competitionRoundQuery.isLoading,
+    competitionRoundQuery.isError,
     qotdQuery.data,
     qotdQuery.isLoading,
     qotdQuery.isError,

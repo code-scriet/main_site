@@ -12,6 +12,7 @@ import { auditLog } from '../utils/audit.js';
 import { logger } from '../utils/logger.js';
 import { getCachedSettings } from '../utils/settingsCache.js';
 import { uuidParamGuard } from '../utils/idParams.js';
+import { computeRanksFromScores } from '../utils/competitionRanks.js';
 
 const competitionRouter = Router();
 const activeTimers = new Map<string, NodeJS.Timeout>();
@@ -438,16 +439,10 @@ async function recomputeRoundRanks(
   });
   if (submissions.length === 0) return 0;
 
-  const ids: string[] = [];
-  const ranks: number[] = [];
-  let currentRank = 1;
-  for (let index = 0; index < submissions.length; index += 1) {
-    if (index > 0 && submissions[index].score !== submissions[index - 1].score) {
-      currentRank = index + 1;
-    }
-    ids.push(submissions[index].id);
-    ranks.push(currentRank);
-  }
+  // Pure 1224 ranking lives in utils (unit-tested); this layer owns the query + write.
+  const ranked = computeRanksFromScores(submissions);
+  const ids = ranked.map((row) => row.id);
+  const ranks = ranked.map((row) => row.rank);
 
   // One set-based UPDATE zips ids[]↔ranks[] via unnest (mirrors the raise-cap
   // optimization) instead of N per-row updates inside the txn. `rank` has no @map;
