@@ -1,6 +1,6 @@
-import { Fragment, type ElementType } from 'react';
+import { Fragment, useMemo, useRef, type CSSProperties, type ElementType } from 'react';
 import { Link } from 'react-router-dom';
-import { motion } from 'framer-motion';
+import { motion, useScroll, useTransform } from 'framer-motion';
 import { ArrowRight } from 'lucide-react';
 import { Layout } from '@/components/layout/Layout';
 import { SEO } from '@/components/SEO';
@@ -8,6 +8,17 @@ import { useAboutPageData } from '@/hooks/useAboutPageData';
 import { useMotionConfig } from '@/hooks/useMotionConfig';
 import type { AboutPageStats } from '@/hooks/useAboutPageData';
 import { monthsWord, type AboutStoryParagraph, type AboutTeamItem } from '@/lib/aboutContent';
+
+// Animated <Link> for staggered team-row + CTA-card reveals. Defined at module
+// scope so the wrapped component identity is stable across renders.
+const MotionLink = motion(Link);
+
+// Deterministic pseudo-random (matches HomeBackground) so the ambient particle
+// positions are stable across renders + SSR/prerender without a dependency.
+const seededUnit = (seed: number) => {
+  const value = Math.sin(seed * 12.9898) * 43758.5453;
+  return value - Math.floor(value);
+};
 
 // Render editorial copy that may contain a small set of inline HTML tags
 // (<strong>, <em>, <br>, <span class="ab-em">). This content is NOT user- or
@@ -91,8 +102,59 @@ function HeroStats({ stats }: { stats: AboutPageStats }) {
 
 export default function AboutPage() {
   const { stats, content } = useAboutPageData();
-  const { shouldReduceMotion } = useMotionConfig();
+  const { shouldReduceMotion, disableParallax, isMobile, prefersReducedMotion } = useMotionConfig();
   const { hero, thesis, manifesto, story, teams, closing } = content;
+
+  // Sparse rising copper/amber particles drifting up through the dark atmosphere
+  // (dark theme only — gated to display:none in light via CSS). Fewer than the
+  // home page (calmer, editorial); disabled entirely for reduced motion.
+  const particles = useMemo(() => {
+    const count = prefersReducedMotion ? 0 : isMobile ? 12 : 24;
+    return Array.from({ length: count }, (_, index) => {
+      const seed = index + 1;
+      return {
+        id: index,
+        left: seededUnit(seed) * 100,
+        size: seededUnit(seed * 2.13) * 2.5 + 1.5,
+        duration: seededUnit(seed * 3.07) * 16 + 16,
+        delay: seededUnit(seed * 4.1) * 22,
+        drift: (seededUnit(seed * 5.7) - 0.5) * 60,
+      };
+    });
+  }, [isMobile, prefersReducedMotion]);
+
+  // Parallax: the ambient grid drifts a touch slower than the page, and the hero
+  // title lifts gently as the hero scrolls away. Amplitudes are deliberately tiny
+  // ("almost unnoticeable"). Both fall back to a static value when the user (or a
+  // mobile device) has reduced motion. useScroll relies on IntersectionObserver /
+  // scroll listeners, so the page is fully styled even if no scroll value arrives.
+  const heroRef = useRef<HTMLElement>(null);
+  const { scrollYProgress } = useScroll();
+  const { scrollYProgress: heroProgress } = useScroll({
+    target: heroRef,
+    offset: ['start start', 'end start'],
+  });
+  const gridParallax = useTransform(scrollYProgress, [0, 1], [0, 90]);
+  const heroTitleParallax = useTransform(heroProgress, [0, 1], [0, -26]);
+  const gridY = disableParallax ? 0 : gridParallax;
+  const heroTitleY = disableParallax ? 0 : heroTitleParallax;
+
+  // Sections (and staggered children) fade up 22px over ~600ms as they enter the
+  // viewport; reduced motion collapses to a short opacity-only fade.
+  const sectionReveal = (i = 0) =>
+    shouldReduceMotion
+      ? {
+          initial: { opacity: 0 },
+          whileInView: { opacity: 1 },
+          viewport: { once: true, amount: 0.15 } as const,
+          transition: { duration: 0.4, delay: i * 0.05 },
+        }
+      : {
+          initial: { opacity: 0, y: 22 },
+          whileInView: { opacity: 1, y: 0 },
+          viewport: { once: true, amount: 0.15 } as const,
+          transition: { duration: 0.6, delay: Math.min(i * 0.07, 0.5), ease: [0.22, 0.61, 0.36, 1] as const },
+        };
 
   // Story paragraphs fade-up + stagger as they scroll into view. The aside itself
   // stays as a plain <aside> so position: sticky (left-column heading that hangs
@@ -137,8 +199,33 @@ export default function AboutPage() {
         url="/about"
       />
 
+      {/* Ambient atmosphere — fixed behind all content (dark theme only via CSS).
+          Slow-drifting copper/orange light forms + an animated dot grid. Purely
+          decorative, so aria-hidden and pointer-events:none. */}
+      <div className="ab-page">
+        <div className="ab-atmos" aria-hidden="true">
+          <motion.div className="ab-atmos-grid" style={{ y: gridY }} />
+          <span className="ab-orb ab-orb--1" />
+          <span className="ab-orb ab-orb--2" />
+          <span className="ab-orb ab-orb--3" />
+          {particles.map((p) => (
+            <span
+              key={p.id}
+              className="ab-particle"
+              style={{
+                left: `${p.left}%`,
+                width: p.size,
+                height: p.size,
+                '--drift': `${p.drift}px`,
+                animationDuration: `${p.duration}s`,
+                animationDelay: `${p.delay}s`,
+              } as CSSProperties}
+            />
+          ))}
+        </div>
+
       {/* HERO */}
-      <section className="ab-hero">
+      <motion.section className="ab-hero" ref={heroRef} {...sectionReveal(0)}>
         <div className="pub-container">
           <div className="ab-hero-eyebrow-row">
             {hero.eyebrow.left ? <span className="ab-ember">{hero.eyebrow.left}</span> : null}
@@ -148,12 +235,12 @@ export default function AboutPage() {
             {hero.eyebrow.right ? <span>{hero.eyebrow.right}</span> : null}
           </div>
 
-          <h1>
+          <motion.h1 style={{ y: heroTitleY }}>
             {hero.titlePre}
             <br />
             <span className="ab-em">{hero.titleEmphasis}</span>
             {hero.titlePost}
-          </h1>
+          </motion.h1>
 
           <div className="ab-hero-meta">
             <p className="ab-hero-meta-lede">{hero.lede}</p>
@@ -178,10 +265,10 @@ export default function AboutPage() {
             <span className="ab-status-ember">curiosity required</span>
           </div>
         </div>
-      </section>
+      </motion.section>
 
       {/* THESIS */}
-      <section className="ab-thesis">
+      <motion.section className="ab-thesis" {...sectionReveal(0)}>
         <div className="pub-container">
           {thesis.prelude ? <div className="ab-thesis-prelude">{thesis.prelude}</div> : null}
           <p className="ab-thesis-body">
@@ -189,10 +276,10 @@ export default function AboutPage() {
             {thesis.small ? <span className="ab-small">{thesis.small}</span> : null}
           </p>
         </div>
-      </section>
+      </motion.section>
 
       {/* MANIFESTO */}
-      <section className="ab-manifesto">
+      <motion.section className="ab-manifesto" {...sectionReveal(0)}>
         <div className="pub-container">
           <div className="ab-section-head">
             <div className="pub-eyebrow">
@@ -204,19 +291,19 @@ export default function AboutPage() {
             {manifesto.lede ? <p className="ab-lede">{manifesto.lede}</p> : null}
           </div>
           <div className="ab-tenets">
-            {manifesto.tenets.map((t) => (
-              <div className="ab-tenet" key={`${t.num}-${t.title}`}>
+            {manifesto.tenets.map((t, i) => (
+              <motion.div className="ab-tenet" key={`${t.num}-${t.title}`} {...sectionReveal(i)}>
                 <div className="ab-tenet-num" aria-hidden="true">{t.num}</div>
                 <div className="ab-tenet-body">
                   <h3>{t.title}</h3>
                   <InlineHtml as="p" html={t.body} />
                   {t.commentary ? <p className="ab-tenet-commentary">{t.commentary}</p> : null}
                 </div>
-              </div>
+              </motion.div>
             ))}
           </div>
         </div>
-      </section>
+      </motion.section>
 
       {/* STORY — aside is intentionally NOT wrapped in motion.aside; framer-motion
           leaves inline transforms that fight position: sticky in some browsers, and
@@ -243,7 +330,7 @@ export default function AboutPage() {
 
       {/* TEAMS — section 03 is gone (the old Timeline). Anything time-bound
           lives on /events + /achievements; About stays evergreen. */}
-      <section className="ab-teams">
+      <motion.section className="ab-teams" {...sectionReveal(0)}>
         <div className="pub-container">
           <div className="ab-section-head">
             <div className="pub-eyebrow">
@@ -255,8 +342,8 @@ export default function AboutPage() {
             {teams.lede ? <p className="ab-lede">{teams.lede}</p> : null}
           </div>
           <div className="ab-team-list">
-            {teams.items.map((t) => (
-              <Link to="/team" className="ab-team-row" key={`${t.num}-${t.name}`}>
+            {teams.items.map((t, i) => (
+              <MotionLink to="/team" className="ab-team-row" key={`${t.num}-${t.name}`} {...sectionReveal(i)}>
                 <span className="ab-team-num">{t.num}</span>
                 <div>
                   <h3>{t.name}</h3>
@@ -265,15 +352,15 @@ export default function AboutPage() {
                 <span className="ab-team-count">
                   {teamCountLabel(t, stats.teamMembers, singleUnsetCount)}
                 </span>
-              </Link>
+              </MotionLink>
             ))}
           </div>
         </div>
-      </section>
+      </motion.section>
 
       {/* CLOSING — role-aware CTA stack. Visitor self-selects (student /
           event-goer / external) instead of us guessing via auth state. */}
-      <section className="ab-close">
+      <motion.section className="ab-close" {...sectionReveal(0)}>
         <div className="pub-container">
           {closing.eyebrow ? <div className="ab-close-eyebrow">{closing.eyebrow}</div> : null}
           <h2>
@@ -286,10 +373,16 @@ export default function AboutPage() {
             {closing.ctas.map((cta, i) => {
               const isPrimary = cta.primary === true;
               return (
-                <Link
+                <MotionLink
                   key={`${cta.href}-${i}`}
                   to={cta.href}
                   className={isPrimary ? 'ab-close-cta-card ab-close-cta-card--primary' : 'ab-close-cta-card'}
+                  {...sectionReveal(i)}
+                  whileHover={
+                    shouldReduceMotion
+                      ? undefined
+                      : { y: -5, transition: { duration: 0.25, ease: [0.22, 0.61, 0.36, 1] } }
+                  }
                 >
                   {cta.audience ? (
                     <span className="ab-close-cta-card-tag">
@@ -302,12 +395,13 @@ export default function AboutPage() {
                   <span className="ab-close-cta-card-arrow" aria-hidden="true">
                     <ArrowRight size={18} />
                   </span>
-                </Link>
+                </MotionLink>
               );
             })}
           </div>
         </div>
-      </section>
+      </motion.section>
+      </div>
     </Layout>
   );
 }

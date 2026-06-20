@@ -2006,6 +2006,97 @@ html.dark [data-public] .pub-site-header { background: rgba(10, 9, 8, 0.85); }
   color: var(--pub-ember);
 }
 
+/* ============================================================
+ * About page — warm editorial dark refinement (scoped, colour-only)
+ * ------------------------------------------------------------
+ * Re-tints ONLY the six About sections. Layout, typography, spacing,
+ * motion, component structure and content are all untouched — every
+ * rule below adjusts colour, surface or border treatment exclusively.
+ * Shared --pub-* tokens, the header, footer and AchievementsPage are
+ * NOT affected (the overrides live on the .ab-* section elements, so
+ * they cascade only to About descendants).
+ *
+ * Palette — ink #040404 · sunken #0B0707 · surface #111111 ·
+ * ivory #F3EEE6 · warm grays #B5ADA3 / #8F877D · faint #6E665C ·
+ * orange #FF5C35 (active states, highlighted words, key calls) ·
+ * copper #C9824A (metadata, section labels, counters, supporting).
+ *
+ * DARK THEME ONLY. Every selector is gated on `html.dark` so the
+ * light (cream/ink/ember) About page is left exactly as it was —
+ * this refines the dark aesthetic and nothing else.
+ * ============================================================ */
+html.dark [data-public] :is(.ab-page, .ab-hero, .ab-thesis, .ab-manifesto, .ab-story, .ab-teams, .ab-close) {
+  --pub-canvas: #141312;   /* warm charcoal — matches the home dark base, never pure black */
+  --pub-canvas-2: #191614; /* raised warm slab (story/teams) */
+  --pub-paper: #1c1916;
+  --pub-ink: #F3EEE6;
+  --pub-ink-2: #B5ADA3;
+  --pub-ink-3: #8F877D;
+  --pub-ink-4: #6E665C;
+  --pub-ember: #FF5C35;
+  --pub-ember-hover: #FF7150;
+  --pub-ember-soft: rgba(255, 92, 53, 0.08);
+  --pub-ember-line: rgba(255, 92, 53, 0.22);
+  --pub-copper: #C9824A;
+  --pub-line: rgba(243, 238, 230, 0.06);
+  --pub-line-2: rgba(243, 238, 230, 0.10);
+  --pub-line-3: rgba(243, 238, 230, 0.16);
+}
+/* In dark, the warm-ink canvas lives on the .ab-page wrapper so the fixed/absolute
+   ambient atmosphere (grid + light forms) can show through the transparent primary
+   sections; story + teams keep their own (now #0B0707) sunken surface, reading as
+   raised slabs stacked over the atmosphere. background:transparent also drops the
+   light-mode dot-grid background-image from .ab-hero/.ab-thesis in dark (the
+   animated atmosphere grid replaces it). */
+html.dark [data-public] .ab-page {
+  background:
+    radial-gradient(120% 80% at 50% -10%, #211d19 0%, transparent 55%),
+    radial-gradient(70% 50% at 88% 6%, rgba(201, 130, 74, 0.10), transparent 60%),
+    linear-gradient(180deg, #141312 0%, #121212 38%, #161413 100%);
+}
+html.dark [data-public] :is(.ab-hero, .ab-thesis, .ab-manifesto, .ab-close) { background: transparent; }
+/* Lift every section above the z-0 atmosphere layer. */
+html.dark [data-public] .ab-page > :is(.ab-hero, .ab-thesis, .ab-manifesto, .ab-story, .ab-teams, .ab-close) {
+  position: relative;
+  z-index: 1;
+}
+
+/* Copper for metadata, section labels, counters and supporting details.
+   Orange stays reserved for highlighted words, active states and key calls. */
+html.dark [data-public] .ab-hero-eyebrow-row .ab-ember,
+html.dark [data-public] .ab-hero-meta-cell .ab-k,
+html.dark [data-public] .ab-hero-meta-cell .ab-v small,
+html.dark [data-public] .ab-thesis-prelude,
+html.dark [data-public] .ab-manifesto .pub-eyebrow,
+html.dark [data-public] .ab-manifesto .pub-eyebrow .pub-eyebrow-num,
+html.dark [data-public] .ab-teams .pub-eyebrow,
+html.dark [data-public] .ab-teams .pub-eyebrow .pub-eyebrow-num,
+html.dark [data-public] .ab-tenet-commentary,
+html.dark [data-public] .ab-story-aside-eyebrow,
+html.dark [data-public] .ab-story-body .ab-pull cite,
+html.dark [data-public] .ab-story-body .ab-pull::before,
+html.dark [data-public] .ab-team-num,
+html.dark [data-public] .ab-team-count,
+html.dark [data-public] .ab-close-eyebrow,
+html.dark [data-public] .ab-close-cta-card-tag {
+  color: var(--pub-copper);
+}
+/* Match the eyebrow dot + the tenet-aside hairline to copper too. */
+html.dark [data-public] .ab-manifesto .pub-eyebrow .pub-eyebrow-dot,
+html.dark [data-public] .ab-teams .pub-eyebrow .pub-eyebrow-dot { background: var(--pub-copper); }
+html.dark [data-public] .ab-tenet-commentary { border-top-color: rgba(201, 130, 74, 0.28); opacity: 0.85; }
+
+/* Charcoal CTA cards: brighten the border + a soft low-opacity orange-tinted
+   shadow on hover. The 4–6px lift itself is driven by framer whileHover so it
+   composes with the reveal transform (no CSS/JS transform clash). */
+html.dark [data-public] .ab-close-cta-card:hover {
+  border-color: rgba(255, 92, 53, 0.40);
+  box-shadow: 0 18px 44px -22px rgba(255, 92, 53, 0.28), 0 10px 28px -18px rgba(0, 0, 0, 0.8);
+}
+html.dark [data-public] .ab-close-cta-card--primary:hover {
+  box-shadow: 0 20px 48px -22px rgba(255, 92, 53, 0.42), 0 10px 28px -18px rgba(0, 0, 0, 0.7);
+}
+
 /* ── Partner / collaboration band (Achievements closing CTA) ────────────────
    Full-width editorial band: a left-aligned intro, then a row of large "door"
    cards that open on hover — each with a different reveal (slide-from-left,
@@ -3147,3 +3238,188 @@ html:not(.dark) [data-public][data-home] .pub-site-footer {
 html:not(.dark) { background-color: #f1e8da; }
 html:not(.dark) [data-public][data-home] { --pub-canvas: #f1e8da; }
 html:not(.dark) [data-public][data-home] .pub-site-footer { background: #efe6d8; }
+
+/* ============================================================
+ * About page — ambient motion & atmosphere (DARK THEME ONLY)
+ * ------------------------------------------------------------
+ * Adds quiet, premium motion on top of the warm editorial palette:
+ * slow-drifting copper/orange light forms, an animated dot grid,
+ * restrained word/number glows, a quote spotlight, and team-row
+ * reveals. Layout, typography, content and hierarchy are untouched.
+ * Everything is transform/opacity only (GPU-cheap) and switches off
+ * under prefers-reduced-motion. Light theme is unaffected.
+ * ============================================================ */
+
+/* Positioning context for the absolute atmosphere layer (both themes; harmless
+   in light where .ab-atmos is display:none). */
+[data-public] .ab-page { position: relative; }
+
+/* ── Ambient atmosphere ───────────────────────────────────── */
+[data-public] .ab-atmos { display: none; }
+html.dark [data-public] .ab-atmos {
+  display: block;
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  overflow: hidden;        /* clips the orbs without touching the sticky aside's ancestors */
+  pointer-events: none;
+}
+
+/* Animated dot grid — taller than the layer so the parallax translate never
+   reveals a seam. Masked to fade at the edges; opacity breathes very slowly. */
+html.dark [data-public] .ab-atmos-grid {
+  position: absolute;
+  left: 0; right: 0;
+  top: -180px; bottom: -180px;
+  background-image: radial-gradient(circle, rgba(243, 238, 230, 0.05) 1px, transparent 1px);
+  background-size: 30px 30px;
+  background-position: -1px -1px;
+  -webkit-mask-image: radial-gradient(ellipse 85% 70% at 50% 20%, #000 35%, transparent 84%);
+          mask-image: radial-gradient(ellipse 85% 70% at 50% 20%, #000 35%, transparent 84%);
+  will-change: opacity, transform;
+  animation: ab-grid-breathe 18s ease-in-out infinite;
+}
+@keyframes ab-grid-breathe {
+  0%, 100% { opacity: 0.5; }
+  50%      { opacity: 1; }
+}
+
+/* Floating light forms — large, heavily blurred copper/orange radials drifting
+   on 45–58s loops. Tuned to the home page's warmth so the dark canvas reads as
+   warm charcoal with real depth, not flat black. Atmospheric, not decorative. */
+html.dark [data-public] .ab-orb {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(120px);
+  will-change: transform;
+}
+html.dark [data-public] .ab-orb--1 {
+  width: 560px; height: 560px;
+  top: -120px; left: -120px;
+  background: radial-gradient(circle, rgba(249, 115, 22, 0.20), transparent 70%);
+  animation: ab-orb-1 46s ease-in-out infinite;
+}
+html.dark [data-public] .ab-orb--2 {
+  width: 640px; height: 640px;
+  top: 38%; right: -180px;
+  background: radial-gradient(circle, rgba(201, 130, 74, 0.15), transparent 70%);
+  animation: ab-orb-2 58s ease-in-out infinite;
+}
+html.dark [data-public] .ab-orb--3 {
+  width: 500px; height: 500px;
+  bottom: 2%; left: 6%;
+  background: radial-gradient(circle, rgba(234, 88, 12, 0.13), transparent 70%);
+  animation: ab-orb-3 52s ease-in-out infinite;
+}
+@keyframes ab-orb-1 {
+  0%, 100% { transform: translate3d(0, 0, 0); }
+  50%      { transform: translate3d(42px, 30px, 0); }
+}
+@keyframes ab-orb-2 {
+  0%, 100% { transform: translate3d(0, 0, 0); }
+  50%      { transform: translate3d(-52px, -34px, 0); }
+}
+@keyframes ab-orb-3 {
+  0%, 100% { transform: translate3d(0, 0, 0); }
+  50%      { transform: translate3d(30px, -28px, 0); }
+}
+
+/* Rising copper/amber particles — sparse warm motes drifting up through the
+   atmosphere (echoing the home page). Dark theme only; markup is gated to
+   reduced motion in AboutPage, and the animation is killed below as defense. */
+html.dark [data-public] .ab-particle {
+  position: absolute;
+  bottom: -10px;
+  border-radius: 9999px;
+  background: rgba(201, 130, 74, 0.5);
+  will-change: transform, opacity;
+  animation: ab-particle-rise linear infinite;
+}
+@keyframes ab-particle-rise {
+  0%   { transform: translate(0, 0); opacity: 0; }
+  8%   { opacity: 0.8; }
+  88%  { opacity: 0.5; }
+  100% { transform: translate(var(--drift, 0px), -104vh); opacity: 0; }
+}
+
+/* ── Restrained accent glows ──────────────────────────────── */
+/* Warm halo behind the highlighted italics ("code", "you"). isolation keeps the
+   z-index:-1 glow tucked behind the glyphs but in front of the page canvas. */
+html.dark [data-public] .ab-hero h1 .ab-em,
+html.dark [data-public] .ab-close h2 .ab-em {
+  position: relative;
+  isolation: isolate;
+}
+html.dark [data-public] .ab-hero h1 .ab-em::before,
+html.dark [data-public] .ab-close h2 .ab-em::before {
+  content: '';
+  position: absolute;
+  inset: -0.32em -0.5em;
+  z-index: -1;
+  background: radial-gradient(60% 60% at 50% 56%, rgba(255, 92, 53, 0.16), transparent 72%);
+  pointer-events: none;
+}
+/* Quiet copper aura behind each manifesto numeral, brightening on row hover. */
+html.dark [data-public] .ab-tenet-num {
+  position: relative;
+  isolation: isolate;
+}
+html.dark [data-public] .ab-tenet-num::before {
+  content: '';
+  position: absolute;
+  inset: -16% -22%;
+  z-index: -1;
+  background: radial-gradient(50% 50% at 42% 46%, rgba(201, 130, 74, 0.13), transparent 70%);
+  opacity: 0.55;
+  transition: opacity 320ms var(--pub-ease);
+  pointer-events: none;
+}
+html.dark [data-public] .ab-tenet:hover .ab-tenet-num::before { opacity: 1; }
+
+/* ── Quote spotlight ──────────────────────────────────────── */
+/* Soft warm spotlight behind the pull quote. It rides the paragraph's existing
+   scroll-reveal opacity, so it fades in gently as the quote enters view. */
+html.dark [data-public] .ab-story-body .ab-pull { isolation: isolate; }
+html.dark [data-public] .ab-story-body .ab-pull::after {
+  content: '';
+  position: absolute;
+  z-index: -1;
+  left: -10%; right: 8%;
+  top: -22%; bottom: -22%;
+  background:
+    radial-gradient(55% 60% at 30% 50%, rgba(201, 130, 74, 0.11), transparent 72%),
+    radial-gradient(40% 50% at 24% 46%, rgba(255, 92, 53, 0.06), transparent 70%);
+  pointer-events: none;
+}
+
+/* ── Team rows ────────────────────────────────────────────── */
+/* Copper highlight line wipes in under the row on hover; the count slides + warms. */
+html.dark [data-public] .ab-team-row { position: relative; }
+html.dark [data-public] .ab-team-row::after {
+  content: '';
+  position: absolute;
+  left: 0; bottom: -1px;
+  height: 1px; width: 100%;
+  background: linear-gradient(90deg, var(--pub-copper), rgba(201, 130, 74, 0));
+  transform: scaleX(0);
+  transform-origin: left;
+  transition: transform 420ms var(--pub-ease);
+  pointer-events: none;
+}
+html.dark [data-public] .ab-team-row:hover::after { transform: scaleX(1); }
+html.dark [data-public] .ab-team-count {
+  transition: color 280ms var(--pub-ease), transform 280ms var(--pub-ease);
+}
+html.dark [data-public] .ab-team-row:hover .ab-team-count {
+  color: var(--pub-ember);
+  transform: translateX(-4px);
+}
+
+/* ── Reduced motion ───────────────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  html.dark [data-public] .ab-atmos-grid,
+  html.dark [data-public] .ab-orb,
+  html.dark [data-public] .ab-particle { animation: none; }
+  html.dark [data-public] .ab-particle { display: none; }
+  html.dark [data-public] .ab-team-row::after { transition: none; }
+}
