@@ -16,7 +16,9 @@ import type {
   CertificateBulkGenerateResponse,
   CertificateDetail,
   CertificateUpdateInput,
+  CompetitionClarification,
   CompetitionMissingTeam,
+  CompetitionMonitorResponse,
   CompetitionResult,
   CompetitionResultsSummaryResponse,
   CompetitionRound,
@@ -260,6 +262,13 @@ export const eventOpsApi = {
   // Proctoring (admin): release a participant's proctor lock so they can resume.
   unlockCompetitionParticipant: (roundId: string, userId: string, token: string) =>
     request<{ unlocked: boolean }>(`/competition/${roundId}/proctor/unlock/${userId}`, { method: 'POST', token }),
+  // Live monitor + clarifications (Phase E).
+  getCompetitionMonitor: (roundId: string, token: string) =>
+    request<CompetitionMonitorResponse>(`/competition/${roundId}/monitor`, { token }),
+  getCompetitionClarifications: (roundId: string, token: string) =>
+    request<{ clarifications: CompetitionClarification[] }>(`/competition/${roundId}/clarifications`, { token }),
+  postCompetitionClarification: (roundId: string, message: string, token: string) =>
+    request<{ clarification: CompetitionClarification }>(`/competition/${roundId}/clarifications`, { method: 'POST', body: JSON.stringify({ message }), token }),
   getCompetitionResults: (roundId: string) =>
     request<{ round: CompetitionRound; results: CompetitionResult[] }>(`/competition/${roundId}/results`),
   getCompetitionResultsSummary: (eventId: string, token: string) =>

@@ -24,6 +24,7 @@ import {
 import { RoundActionDialog } from '@/components/admin/competition/RoundActionDialog';
 import { NumericPromptDialog } from '@/components/dash';
 import {
+  Activity,
   AlertCircle,
   Calendar,
   Check,
@@ -733,8 +734,11 @@ export default function AdminCompetition() {
                             )}
                             {round.status === 'ACTIVE' && (
                               <>
-                                <Button size="sm" variant="secondary" onClick={() => navigate(`/admin/competition/${round.id}/judge`)} className="gap-1.5">
-                                  <Eye className="h-3.5 w-3.5" /> View submissions
+                                <Button size="sm" variant="secondary" onClick={() => navigate(`/admin/competition/${round.id}/monitor`)} className="gap-1.5">
+                                  <Activity className="h-3.5 w-3.5" /> Monitor
+                                </Button>
+                                <Button size="sm" variant="ghost" onClick={() => navigate(`/admin/competition/${round.id}/judge`)} className="gap-1.5">
+                                  <Eye className="h-3.5 w-3.5" /> Submissions
                                 </Button>
                                 <Button size="sm" variant="ghost" onClick={() => setRoundActionDialog({ action: 'lock', round })} className="gap-1.5">
                                   <Square className="h-3.5 w-3.5" /> Lock

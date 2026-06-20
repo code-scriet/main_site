@@ -480,6 +480,88 @@ async function recomputeRoundRanks(
   return submissions.length;
 }
 
+interface DsaLbProblemLink { problemId: string; points: number; problem: { title: string } }
+interface DsaLbSubmission {
+  problemId: string; userId: string; score: number; verdict: string; runtimeMs: number | null;
+  contestWrongAttempts: number; contestSolvedAt: Date | null;
+  user: { id: string; name: string; avatar: string | null };
+}
+
+// Shared DSA leaderboard builder (Phase A scoring + Phase E live board). Computes each
+// participant's normalized 0–100 round score (Σ best% × normalized problem weight),
+// ICPC penalty, and 1224 rank under the round's penalty model. Used by GET /results
+// (FINISHED, top 10) and GET /leaderboard (live, larger cut).
+function buildDsaLeaderboard(
+  links: DsaLbProblemLink[],
+  submissions: DsaLbSubmission[],
+  startedMs: number | null,
+  penaltyModel: 'BEST_SCORE' | 'ICPC',
+  limit: number,
+) {
+  const normWeights = normalizeWeights(links.map((link) => link.points));
+  const weightByProblem = new Map(links.map((link, i) => [link.problemId, normWeights[i]]));
+
+  type Cell = { score: number; verdict: string; runtimeMs: number | null; wrongAttempts: number; solvedAt: Date | null };
+  const byUser = new Map<string, {
+    userId: string; userName: string; avatar: string | null;
+    cells: Map<string, Cell>; totalRuntimeMs: number;
+  }>();
+  for (const submission of submissions) {
+    if (!weightByProblem.has(submission.problemId)) continue;
+    const entry = byUser.get(submission.userId) ?? {
+      userId: submission.userId, userName: submission.user.name, avatar: submission.user.avatar,
+      cells: new Map<string, Cell>(), totalRuntimeMs: 0,
+    };
+    entry.cells.set(submission.problemId, {
+      score: submission.score, verdict: submission.verdict, runtimeMs: submission.runtimeMs,
+      wrongAttempts: submission.contestWrongAttempts, solvedAt: submission.contestSolvedAt,
+    });
+    entry.totalRuntimeMs += submission.runtimeMs ?? 0;
+    byUser.set(submission.userId, entry);
+  }
+
+  const computed = Array.from(byUser.values()).map((entry) => {
+    const totalScore = aggregateWeighted(links.map((link) => ({
+      weight: link.points,
+      score: entry.cells.get(link.problemId)?.score ?? 0,
+    })));
+    const solved: SolvedProblemPenalty[] = [];
+    let completionMs = startedMs ?? 0;
+    for (const link of links) {
+      const cell = entry.cells.get(link.problemId);
+      if (cell?.verdict === 'ACCEPTED' && cell.solvedAt) {
+        const minutesToSolve = startedMs ? Math.max(0, Math.floor((cell.solvedAt.getTime() - startedMs) / 60000)) : 0;
+        solved.push({ wrongAttempts: cell.wrongAttempts, minutesToSolve });
+        completionMs = Math.max(completionMs, cell.solvedAt.getTime());
+      }
+    }
+    const problems = links
+      .filter((link) => entry.cells.has(link.problemId))
+      .map((link) => {
+        const cell = entry.cells.get(link.problemId)!;
+        return {
+          problemId: link.problemId,
+          title: link.problem.title,
+          score: cell.score,
+          weightedScore: Math.round(cell.score * (weightByProblem.get(link.problemId) ?? 0) * 100) / 100,
+          verdict: cell.verdict,
+          runtimeMs: cell.runtimeMs,
+        };
+      });
+    return { userId: entry.userId, userName: entry.userName, avatar: entry.avatar, totalScore, penalty: computeIcpcPenalty(solved), totalRuntimeMs: entry.totalRuntimeMs, completionMs, problems };
+  });
+
+  const ranks = rankEntries(
+    computed.map((c) => ({ score: c.totalScore, penalty: c.penalty, earliestMs: c.completionMs })),
+    penaltyModel,
+  );
+  return computed
+    .map((c, index) => ({ rank: ranks[index], ...c }))
+    .sort((a, b) => (a.rank - b.rank) || (a.completionMs - b.completionMs))
+    .slice(0, limit)
+    .map(({ completionMs: _completionMs, ...entry }) => entry);
+}
+
 competitionRouter.post('/', authMiddleware, requireRole('ADMIN'), async (req: Request, res: Response) => {
   try {
     const admin = getAuthUser(req)!;
@@ -2059,80 +2141,13 @@ competitionRouter.get('/:roundId/results', async (req: Request, res: Response) =
         where: { contextType: 'CONTEST', contextKey: round.id },
         include: { user: { select: { id: true, name: true, avatar: true } } },
       });
-      const links = round.problems; // displayOrder asc
-      const startedMs = round.startedAt ? round.startedAt.getTime() : null;
-      // Per-problem normalized weight within the round (difficulty/manual `points`,
-      // normalized to sum 1) — drives both the 0–100 round score and the per-problem
-      // contribution shown in the breakdown.
-      const normWeights = normalizeWeights(links.map((link) => link.points));
-      const weightByProblem = new Map(links.map((link, i) => [link.problemId, normWeights[i]]));
-
-      type Cell = { score: number; verdict: string; runtimeMs: number | null; wrongAttempts: number; solvedAt: Date | null };
-      const byUser = new Map<string, {
-        userId: string; userName: string; avatar: string | null;
-        cells: Map<string, Cell>; totalRuntimeMs: number;
-      }>();
-      for (const submission of submissions) {
-        if (!weightByProblem.has(submission.problemId)) continue;
-        const entry = byUser.get(submission.userId) ?? {
-          userId: submission.userId, userName: submission.user.name, avatar: submission.user.avatar,
-          cells: new Map<string, Cell>(), totalRuntimeMs: 0,
-        };
-        entry.cells.set(submission.problemId, {
-          score: submission.score,
-          verdict: submission.verdict,
-          runtimeMs: submission.runtimeMs,
-          wrongAttempts: submission.contestWrongAttempts,
-          solvedAt: submission.contestSolvedAt,
-        });
-        entry.totalRuntimeMs += submission.runtimeMs ?? 0;
-        byUser.set(submission.userId, entry);
-      }
-
-      const computed = Array.from(byUser.values()).map((entry) => {
-        // Round score = Σ(problem private-% × normalized problem weight) over ALL round
-        // problems (an unsolved problem contributes 0), capped 0–100.
-        const totalScore = aggregateWeighted(links.map((link) => ({
-          weight: link.points,
-          score: entry.cells.get(link.problemId)?.score ?? 0,
-        })));
-        // ICPC penalty over solved problems + completion time (BEST_SCORE tie-break).
-        const solved: SolvedProblemPenalty[] = [];
-        let completionMs = startedMs ?? 0;
-        for (const link of links) {
-          const cell = entry.cells.get(link.problemId);
-          if (cell?.verdict === 'ACCEPTED' && cell.solvedAt) {
-            const minutesToSolve = startedMs ? Math.max(0, Math.floor((cell.solvedAt.getTime() - startedMs) / 60000)) : 0;
-            solved.push({ wrongAttempts: cell.wrongAttempts, minutesToSolve });
-            completionMs = Math.max(completionMs, cell.solvedAt.getTime());
-          }
-        }
-        const penalty = computeIcpcPenalty(solved);
-        const problems = links
-          .filter((link) => entry.cells.has(link.problemId))
-          .map((link) => {
-            const cell = entry.cells.get(link.problemId)!;
-            return {
-              problemId: link.problemId,
-              title: link.problem.title,
-              score: cell.score,
-              weightedScore: Math.round(cell.score * (weightByProblem.get(link.problemId) ?? 0) * 100) / 100,
-              verdict: cell.verdict,
-              runtimeMs: cell.runtimeMs,
-            };
-          });
-        return { userId: entry.userId, userName: entry.userName, avatar: entry.avatar, totalScore, penalty, totalRuntimeMs: entry.totalRuntimeMs, completionMs, problems };
-      });
-
-      const ranks = rankEntries(
-        computed.map((c) => ({ score: c.totalScore, penalty: c.penalty, earliestMs: c.completionMs })),
+      const results = buildDsaLeaderboard(
+        round.problems,
+        submissions,
+        round.startedAt ? round.startedAt.getTime() : null,
         round.penaltyModel,
+        10,
       );
-      const results = computed
-        .map((c, index) => ({ rank: ranks[index], ...c }))
-        .sort((a, b) => (a.rank - b.rank) || (a.completionMs - b.completionMs))
-        .slice(0, 10)
-        .map(({ completionMs: _completionMs, ...entry }) => entry);
 
       return ApiResponse.success(res, {
         round: {
@@ -2603,6 +2618,157 @@ competitionRouter.post('/:roundId/proctor/unlock/:userId', authMiddleware, requi
     return ApiResponse.success(res, { unlocked: true });
   } catch (error) {
     return mapRoundError(res, error, 'Failed to unlock participant');
+  }
+});
+
+// ─── Live leaderboard / clarifications / monitor (Phase E) ───────────────────
+
+const DSA_LB_SELECT = {
+  orderBy: { displayOrder: 'asc' as const },
+  select: { problemId: true, points: true, problem: { select: { title: true } } },
+};
+
+// Live DSA leaderboard (works while ACTIVE). Non-admins inside the freeze window get a
+// full freeze (board hidden) for the final N minutes; admins always see live.
+competitionRouter.get('/:roundId/leaderboard', authMiddleware, async (req: Request, res: Response) => {
+  try {
+    const user = getAuthUser(req)!;
+    const isAdmin = hasPermission(user.role, 'ADMIN');
+    const round = await prisma.competitionRound.findUnique({
+      where: { id: req.params.roundId },
+      select: {
+        id: true, eventId: true, roundType: true, status: true, startedAt: true, duration: true,
+        penaltyModel: true, leaderboardFreezeMinutes: true, problems: DSA_LB_SELECT,
+      },
+    });
+    if (!round) return ApiResponse.notFound(res, 'Round not found');
+    if (!isAdmin) {
+      const reg = await prisma.eventRegistration.findUnique({
+        where: { userId_eventId: { userId: user.id, eventId: round.eventId } },
+        select: { id: true },
+      });
+      if (!reg) return ApiResponse.forbidden(res, 'Register for this event to view the leaderboard.');
+    }
+    if (round.roundType !== 'DSA') {
+      return ApiResponse.success(res, { roundType: round.roundType, frozen: false, results: [], penaltyModel: round.penaltyModel });
+    }
+    const remaining = computeRemainingSeconds(round, Date.now());
+    const freezeSec = (round.leaderboardFreezeMinutes ?? 0) * 60;
+    const frozen = !isAdmin && round.status === 'ACTIVE' && freezeSec > 0 && remaining !== null && remaining <= freezeSec;
+    if (frozen) {
+      return ApiResponse.success(res, { roundType: 'DSA', frozen: true, results: [], penaltyModel: round.penaltyModel });
+    }
+    const submissions = await prisma.problemSubmission.findMany({
+      where: { contextType: 'CONTEST', contextKey: round.id },
+      include: { user: { select: { id: true, name: true, avatar: true } } },
+    });
+    const results = buildDsaLeaderboard(round.problems, submissions, round.startedAt ? round.startedAt.getTime() : null, round.penaltyModel, 100);
+    return ApiResponse.success(res, { roundType: 'DSA', frozen: false, results, penaltyModel: round.penaltyModel });
+  } catch (error) {
+    return mapRoundError(res, error, 'Failed to fetch leaderboard');
+  }
+});
+
+competitionRouter.get('/:roundId/clarifications', authMiddleware, async (req: Request, res: Response) => {
+  try {
+    const items = await prisma.competitionClarification.findMany({
+      where: { roundId: req.params.roundId },
+      orderBy: { createdAt: 'desc' },
+      take: 100,
+      select: { id: true, message: true, createdAt: true },
+    });
+    return ApiResponse.success(res, { clarifications: items.map((c) => ({ ...c, createdAt: c.createdAt.toISOString() })) });
+  } catch (error) {
+    return mapRoundError(res, error, 'Failed to fetch clarifications');
+  }
+});
+
+competitionRouter.post('/:roundId/clarifications', authMiddleware, requireRole('ADMIN'), async (req: Request, res: Response) => {
+  try {
+    const admin = getAuthUser(req)!;
+    const parsed = z.object({ message: z.string().min(1).max(2000) }).safeParse(req.body);
+    if (!parsed.success) return ApiResponse.badRequest(res, 'Message is required');
+    const round = await prisma.competitionRound.findUnique({ where: { id: req.params.roundId }, select: { id: true } });
+    if (!round) return ApiResponse.notFound(res, 'Round not found');
+    const created = await prisma.competitionClarification.create({
+      data: { roundId: round.id, message: sanitizeText(parsed.data.message), createdBy: admin.id },
+      select: { id: true, message: true, createdAt: true },
+    });
+    await auditLog(admin.id, 'COMPETITION_CLARIFICATION', 'CompetitionRound', round.id, { clarificationId: created.id });
+    return ApiResponse.created(res, { clarification: { ...created, createdAt: created.createdAt.toISOString() } });
+  } catch (error) {
+    return mapRoundError(res, error, 'Failed to post clarification');
+  }
+});
+
+// Admin live monitor: participant proctor state (online via lastSeenAt, lock, violations)
+// merged with DSA score, plus a recent submission feed. Polling-based (no socket).
+competitionRouter.get('/:roundId/monitor', authMiddleware, requireRole('ADMIN'), async (req: Request, res: Response) => {
+  try {
+    const round = await prisma.competitionRound.findUnique({
+      where: { id: req.params.roundId },
+      select: { id: true, title: true, status: true, roundType: true, startedAt: true, penaltyModel: true, problems: DSA_LB_SELECT },
+    });
+    if (!round) return ApiResponse.notFound(res, 'Round not found');
+
+    const [states, dsaSubs] = await Promise.all([
+      prisma.competitionParticipantState.findMany({
+        where: { roundId: round.id },
+        select: { userId: true, locked: true, lockReason: true, violationCount: true, lastViolationAt: true, lastSeenAt: true, user: { select: { name: true, email: true, avatar: true } } },
+      }),
+      round.roundType === 'DSA'
+        ? prisma.problemSubmission.findMany({
+            where: { contextType: 'CONTEST', contextKey: round.id },
+            include: { user: { select: { id: true, name: true, avatar: true } } },
+          })
+        : Promise.resolve([] as never[]),
+    ]);
+
+    const lb = round.roundType === 'DSA'
+      ? buildDsaLeaderboard(round.problems, dsaSubs, round.startedAt ? round.startedAt.getTime() : null, round.penaltyModel, 1000)
+      : [];
+    const scoreByUser = new Map(lb.map((row) => [row.userId, row]));
+
+    // Union of proctor-state users and leaderboard users (a non-proctored round has no
+    // states; a joined-but-not-submitted user has a state but no leaderboard row).
+    const userIds = new Set<string>([...states.map((s) => s.userId), ...lb.map((r) => r.userId)]);
+    const stateByUser = new Map(states.map((s) => [s.userId, s]));
+    const participants = Array.from(userIds).map((userId) => {
+      const s = stateByUser.get(userId);
+      const row = scoreByUser.get(userId);
+      return {
+        userId,
+        name: s?.user.name ?? row?.userName ?? 'Participant',
+        email: s?.user.email ?? null,
+        avatar: s?.user.avatar ?? row?.avatar ?? null,
+        locked: s?.locked ?? false,
+        lockReason: s?.lockReason ?? null,
+        violationCount: s?.violationCount ?? 0,
+        lastViolationAt: s?.lastViolationAt?.toISOString() ?? null,
+        lastSeenAt: s?.lastSeenAt?.toISOString() ?? null,
+        score: row?.totalScore ?? 0,
+        rank: row?.rank ?? null,
+        penalty: row?.penalty ?? 0,
+      };
+    }).sort((a, b) => (b.score - a.score) || (a.name.localeCompare(b.name)));
+
+    const recentSubmissions = round.roundType === 'DSA'
+      ? [...dsaSubs]
+          .sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime())
+          .slice(0, 30)
+          .map((sub) => ({
+            id: sub.id, userName: sub.user.name, problemId: sub.problemId,
+            verdict: sub.verdict, score: sub.score, updatedAt: sub.updatedAt.toISOString(),
+          }))
+      : [];
+
+    return ApiResponse.success(res, {
+      round: { id: round.id, title: round.title, status: round.status, roundType: round.roundType },
+      participants,
+      recentSubmissions,
+    });
+  } catch (error) {
+    return mapRoundError(res, error, 'Failed to fetch monitor');
   }
 });
 

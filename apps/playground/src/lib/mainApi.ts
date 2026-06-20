@@ -157,6 +157,17 @@ export interface ContestRoundDetail {
   myTeam?: { id: string; teamName: string; memberCount: number } | null;
 }
 
+export interface ContestLeaderboardRow {
+  rank: number;
+  userId: string;
+  userName: string;
+  avatar: string | null;
+  totalScore: number;
+  penalty: number;
+  totalRuntimeMs: number;
+  problems: Array<{ problemId: string; title: string; score: number; weightedScore: number; verdict: string; runtimeMs: number | null }>;
+}
+
 export class ApiError extends Error {
   status: number;
   code?: string;
@@ -235,6 +246,12 @@ export const mainApi = {
     call<{ locked: boolean; lockReason: string | null; violationCount: number }>(`/api/competition/${roundId}/proctor/heartbeat`, { method: 'POST' }),
   getProctorState: (roundId: string) =>
     call<{ locked: boolean; lockReason: string | null; violationCount: number; proctored: boolean }>(`/api/competition/${roundId}/proctor/me`),
+  // Live leaderboard + clarifications (Phase E). Leaderboard is frozen (hidden) for
+  // non-admins in the final N minutes when the round sets a freeze window.
+  getContestLeaderboard: (roundId: string) =>
+    call<{ roundType?: string; frozen: boolean; penaltyModel?: 'BEST_SCORE' | 'ICPC'; results: ContestLeaderboardRow[] }>(`/api/competition/${roundId}/leaderboard`),
+  getContestClarifications: (roundId: string) =>
+    call<{ clarifications: Array<{ id: string; message: string; createdAt: string }> }>(`/api/competition/${roundId}/clarifications`),
   runProblem: (problemId: string, body: { language: ProblemLanguage; code: string; contextType?: ProblemContextType; contextKey?: string; reopenToken?: string }) =>
     call<TestRunResult>(`/api/problems/${problemId}/run`, { method: 'POST', body: JSON.stringify(body) }),
   submitProblem: (problemId: string, body: { language: ProblemLanguage; code: string; contextType: ProblemContextType; contextKey: string; activeMs?: number; reopenToken?: string }) =>

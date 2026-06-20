@@ -1114,6 +1114,33 @@ export interface CompetitionRound {
   updatedAt?: string;
 }
 
+export interface CompetitionClarification {
+  id: string;
+  message: string;
+  createdAt: string;
+}
+
+export interface CompetitionMonitorParticipant {
+  userId: string;
+  name: string;
+  email: string | null;
+  avatar: string | null;
+  locked: boolean;
+  lockReason: string | null;
+  violationCount: number;
+  lastViolationAt: string | null;
+  lastSeenAt: string | null;
+  score: number;
+  rank: number | null;
+  penalty: number;
+}
+
+export interface CompetitionMonitorResponse {
+  round: { id: string; title: string; status: CompetitionRound['status']; roundType?: 'IMAGE_TARGET' | 'DSA' };
+  participants: CompetitionMonitorParticipant[];
+  recentSubmissions: Array<{ id: string; userName: string; problemId: string; verdict: string; score: number; updatedAt: string }>;
+}
+
 export interface CompetitionSubmission {
   id: string;
   roundId: string;

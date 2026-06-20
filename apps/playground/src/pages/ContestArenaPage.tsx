@@ -93,6 +93,22 @@ export default function ContestArenaPage() {
 
   const isActive = round?.status === 'ACTIVE';
 
+  const [tab, setTab] = useState<'problems' | 'leaderboard' | 'clarifications'>('problems');
+
+  const leaderboardQuery = useQuery({
+    queryKey: ['contest-arena-leaderboard', roundId],
+    queryFn: () => mainApi.getContestLeaderboard(roundId),
+    enabled: Boolean(roundId) && tab === 'leaderboard',
+    refetchInterval: tab === 'leaderboard' && isActive ? 15_000 : false,
+  });
+  const clarificationsQuery = useQuery({
+    queryKey: ['contest-arena-clarifications', roundId],
+    queryFn: () => mainApi.getContestClarifications(roundId),
+    enabled: Boolean(roundId) && tab === 'clarifications',
+    refetchInterval: tab === 'clarifications' && isActive ? 20_000 : false,
+  });
+  const clarificationCount = clarificationsQuery.data?.clarifications.length ?? 0;
+
   const { locked: proctorLocked, awayMsLeft } = useProctor({
     roundId,
     enabled: Boolean(round?.proctored) && isActive,
@@ -188,6 +204,69 @@ export default function ContestArenaPage() {
         </div>
       </div>
 
+      {/* Tab strip */}
+      <div className="h-9 border-b border-zinc-200 dark:border-zinc-800 px-2 flex items-center gap-1 bg-warmwhite dark:bg-inknight">
+        {([['problems', 'Problems'], ['leaderboard', 'Leaderboard'], ['clarifications', `Clarifications${clarificationCount ? ` (${clarificationCount})` : ''}`]] as const).map(([id, label]) => (
+          <button
+            key={id}
+            onClick={() => setTab(id)}
+            className={cn(
+              'h-7 px-3 rounded-md text-[12.5px] font-medium transition-colors',
+              tab === id ? 'bg-amber-100 text-amber-900 dark:bg-zinc-800 dark:text-zinc-100' : 'text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800',
+            )}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {tab === 'leaderboard' ? (
+        <div className="flex-1 min-h-0 overflow-y-auto p-4">
+          {leaderboardQuery.isLoading ? (
+            <div className="flex justify-center py-12"><Loader2 className="h-7 w-7 animate-spin text-primary" /></div>
+          ) : leaderboardQuery.data?.frozen ? (
+            <div className="max-w-md mx-auto text-center py-12 text-sm text-muted-foreground">🔒 The leaderboard is frozen for the final minutes of the round.</div>
+          ) : (
+            <table className="w-full max-w-3xl mx-auto text-sm">
+              <thead>
+                <tr className="text-left text-zinc-400 border-b border-zinc-200 dark:border-zinc-800">
+                  <th className="py-2 pr-3 w-12">#</th>
+                  <th className="py-2 pr-3">Participant</th>
+                  <th className="py-2 pr-3 text-right">Score</th>
+                  {leaderboardQuery.data?.penaltyModel === 'ICPC' && <th className="py-2 pr-3 text-right">Penalty</th>}
+                </tr>
+              </thead>
+              <tbody>
+                {(leaderboardQuery.data?.results ?? []).map((row) => (
+                  <tr key={row.userId} className="border-b border-zinc-100 dark:border-zinc-800/60">
+                    <td className="py-2 pr-3 font-mono font-semibold">{row.rank}</td>
+                    <td className="py-2 pr-3 truncate">{row.userName}</td>
+                    <td className="py-2 pr-3 text-right font-mono font-semibold">{row.totalScore}</td>
+                    {leaderboardQuery.data?.penaltyModel === 'ICPC' && <td className="py-2 pr-3 text-right font-mono text-zinc-500">{row.penalty}</td>}
+                  </tr>
+                ))}
+                {(leaderboardQuery.data?.results.length ?? 0) === 0 && (
+                  <tr><td colSpan={4} className="py-10 text-center text-zinc-400">No scores yet.</td></tr>
+                )}
+              </tbody>
+            </table>
+          )}
+        </div>
+      ) : tab === 'clarifications' ? (
+        <div className="flex-1 min-h-0 overflow-y-auto p-4">
+          <div className="max-w-2xl mx-auto space-y-2">
+            {(clarificationsQuery.data?.clarifications ?? []).map((c) => (
+              <div key={c.id} className="rounded-lg border border-zinc-200 dark:border-zinc-800 bg-warmwhite dark:bg-zinc-900/40 p-3">
+                <p className="text-sm text-zinc-800 dark:text-zinc-200 whitespace-pre-wrap">{c.message}</p>
+                <p className="text-[11px] text-zinc-400 mt-1">{new Date(c.createdAt).toLocaleString()}</p>
+              </div>
+            ))}
+            {clarificationCount === 0 && !clarificationsQuery.isLoading && (
+              <p className="text-center text-sm text-zinc-400 py-10">No clarifications yet.</p>
+            )}
+          </div>
+        </div>
+      ) : (
       <div className="flex-1 min-h-0 flex">
         {/* Problem navigator */}
         <aside className="w-[230px] shrink-0 border-r border-zinc-200 dark:border-zinc-800 overflow-y-auto bg-warmwhite dark:bg-inknight">
@@ -234,6 +313,7 @@ export default function ContestArenaPage() {
           )}
         </main>
       </div>
+      )}
 
       {/* Proctor: away-countdown warning */}
       {awayMsLeft !== null && !proctorLocked && (

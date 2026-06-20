@@ -106,6 +106,7 @@ const AdminCredits = lazy(() => import('@/pages/admin/AdminCredits'));
 const AdminCompetition = lazy(() => import('@/pages/admin/AdminCompetition'));
 const AdminProblemsHub = lazy(() => import('@/pages/admin/AdminProblemsHub'));
 const CompetitionJudge = lazy(() => import('@/pages/admin/CompetitionJudge'));
+const CompetitionMonitor = lazy(() => import('@/pages/admin/CompetitionMonitor'));
 const AdminAuditLog = lazy(() => import('@/pages/admin/AdminAuditLog'));
 const AdminMail = lazy(() => import('@/pages/admin/AdminMail'));
 const AdminNotifications = lazy(() => import('@/pages/admin/AdminNotifications'));
@@ -244,6 +245,7 @@ function App() {
                       <Route path="credits" element={withRouteBoundary(<AdminCredits />)} />
                       <Route path="competition" element={withRouteBoundary(<AdminCompetition />)} />
                       <Route path="competition/:roundId/judge" element={withRouteBoundary(<CompetitionJudge />)} />
+                      <Route path="competition/:roundId/monitor" element={withRouteBoundary(<CompetitionMonitor />)} />
                       <Route element={<SuperAdminOrPresidentRoute />}>
                         <Route path="settings" element={withRouteBoundary(<AdminSettings />)} />
                       </Route>
