@@ -190,6 +190,18 @@ export const mainApi = {
     const query = params.toString();
     return call<{ problem: ProblemDetail }>(`/api/problems/${idOrSlug}${query ? `?${query}` : ''}`);
   },
+  // Round status + title for the DSA contest solve context (gates submit on ACTIVE,
+  // labels the solver). Mirrors the main app's GET /api/competition/:roundId, which
+  // returns the round fields at the top level of `data`.
+  getCompetitionRound: (roundId: string) =>
+    call<{
+      id: string;
+      title: string;
+      status: 'DRAFT' | 'ACTIVE' | 'LOCKED' | 'JUDGING' | 'FINISHED';
+      roundType?: 'IMAGE_TARGET' | 'DSA';
+      duration: number;
+      remainingSeconds?: number | null;
+    }>(`/api/competition/${roundId}`),
   runProblem: (problemId: string, body: { language: ProblemLanguage; code: string; contextType?: ProblemContextType; contextKey?: string; reopenToken?: string }) =>
     call<TestRunResult>(`/api/problems/${problemId}/run`, { method: 'POST', body: JSON.stringify(body) }),
   submitProblem: (problemId: string, body: { language: ProblemLanguage; code: string; contextType: ProblemContextType; contextKey: string; activeMs?: number; reopenToken?: string }) =>

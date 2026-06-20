@@ -422,6 +422,37 @@ export async function recoverActiveRounds(): Promise<void> {
   }
 }
 
+// Standard competition ranking (1224) from scores: highest score = rank 1, equal
+// scores share a rank, earlier submission sorts first for display. Single source of
+// truth for both the finish (initial publish) path AND re-scoring an already-FINISHED
+// round — without the latter, a corrected score would leave `rank` stale (results +
+// exports read `rank`, so a stale rank silently misorders the podium).
+async function recomputeRoundRanks(
+  tx: Prisma.TransactionClient,
+  roundId: string,
+): Promise<number> {
+  const submissions = await tx.competitionSubmission.findMany({
+    where: { roundId },
+    select: { id: true, score: true },
+    orderBy: [
+      { score: 'desc' },
+      { submittedAt: 'asc' },
+    ],
+  });
+
+  let currentRank = 1;
+  for (let index = 0; index < submissions.length; index += 1) {
+    if (index > 0 && submissions[index].score !== submissions[index - 1].score) {
+      currentRank = index + 1;
+    }
+    await tx.competitionSubmission.update({
+      where: { id: submissions[index].id },
+      data: { rank: currentRank },
+    });
+  }
+  return submissions.length;
+}
+
 competitionRouter.post('/', authMiddleware, requireRole('ADMIN'), async (req: Request, res: Response) => {
   try {
     const admin = getAuthUser(req)!;
@@ -526,7 +557,7 @@ competitionRouter.get('/event/:eventId', optionalAuthMiddleware, async (req: Req
   try {
     const user = getAuthUser(req);
     const { eventId } = req.params;
-    const canViewTeamSelection = user?.role === 'ADMIN' || user?.role === 'PRESIDENT';
+    const canViewTeamSelection = user ? hasPermission(user.role, 'ADMIN') : false;
     const event = await prisma.event.findUnique({
       where: { id: eventId },
       select: { id: true, teamRegistration: true },
@@ -1077,51 +1108,20 @@ competitionRouter.patch('/:roundId/finish', authMiddleware, requireRole('ADMIN')
       return ApiResponse.badRequest(res, 'All submissions must have a score before publishing results');
     }
 
-    // Auto-compute ranks from scores using standard competition ranking (1224).
-    // Earlier submissions still sort first for display, but equal scores share the same rank.
-    const submissions = await prisma.competitionSubmission.findMany({
-      where: { roundId: round.id },
-      select: { id: true, score: true, submittedAt: true },
-      orderBy: [
-        { score: 'desc' },
-        { submittedAt: 'asc' },
-      ],
-    });
-
-    let currentRank = 1;
-    const rankedSubmissions = submissions.map((submission, index) => {
-      if (index > 0 && submission.score !== submissions[index - 1].score) {
-        currentRank = index + 1;
-      }
-
-      return {
-        id: submission.id,
-        rank: currentRank,
-      };
-    });
-
-    // Assign ranks and update round status in a single transaction
-    await prisma.$transaction([
-      ...rankedSubmissions.map((submission) =>
-        prisma.competitionSubmission.update({
-          where: { id: submission.id },
-          data: { rank: submission.rank },
-        }),
-      ),
-      prisma.competitionRound.update({
+    // Auto-compute ranks from scores (standard 1224) and flip to FINISHED atomically.
+    let rankedCount = 0;
+    const updated = await prisma.$transaction(async (tx) => {
+      rankedCount = await recomputeRoundRanks(tx, round.id);
+      return tx.competitionRound.update({
         where: { id: round.id },
         data: { status: 'FINISHED' },
-      }),
-    ]);
-
-    const updated = await prisma.competitionRound.findUniqueOrThrow({
-      where: { id: round.id },
+      });
     });
 
     await auditLog(admin.id, 'COMPETITION_ROUND_FINISHED', 'CompetitionRound', round.id, {
       title: round.title,
       eventId: round.eventId,
-      rankedCount: submissions.length,
+      rankedCount,
     });
 
     return ApiResponse.success(res, {
@@ -1726,17 +1726,34 @@ competitionRouter.patch('/:roundId/score/:submissionId', authMiddleware, require
     // Rank uniqueness check removed — ranks are auto-computed from scores on publish.
     // Manual rank override is still accepted but not enforced as unique.
 
-    const updated = await prisma.competitionSubmission.update({
-      where: { id: req.params.submissionId },
-      data: {
-        ...(parsed.data.score !== undefined ? { score: parsed.data.score } : {}),
-        ...(parsed.data.rank !== undefined ? { rank: parsed.data.rank } : {}),
-        ...(parsed.data.adminNotes !== undefined ? { adminNotes: sanitizeText(parsed.data.adminNotes) } : {}),
-      },
-      include: {
-        team: { select: { teamName: true } },
-        user: { select: { name: true } },
-      },
+    // Correcting a score on an already-FINISHED round must re-derive the whole board's
+    // ranks from scores (same as publish), or `rank` drifts out of sync with `score`.
+    // A pure rank override (explicit `rank` in the payload) is honored as-is and skips
+    // the recompute, preserving the manual-override escape hatch.
+    const shouldRecomputeRanks =
+      round.status === 'FINISHED'
+      && parsed.data.score !== undefined
+      && parsed.data.rank === undefined;
+
+    const updated = await prisma.$transaction(async (tx) => {
+      await tx.competitionSubmission.update({
+        where: { id: req.params.submissionId },
+        data: {
+          ...(parsed.data.score !== undefined ? { score: parsed.data.score } : {}),
+          ...(parsed.data.rank !== undefined ? { rank: parsed.data.rank } : {}),
+          ...(parsed.data.adminNotes !== undefined ? { adminNotes: sanitizeText(parsed.data.adminNotes) } : {}),
+        },
+      });
+      if (shouldRecomputeRanks) {
+        await recomputeRoundRanks(tx, round.id);
+      }
+      return tx.competitionSubmission.findUniqueOrThrow({
+        where: { id: req.params.submissionId },
+        include: {
+          team: { select: { teamName: true } },
+          user: { select: { name: true } },
+        },
+      });
     });
 
     await auditLog(admin.id, 'COMPETITION_SUBMISSION_SCORED', 'CompetitionSubmission', updated.id, {

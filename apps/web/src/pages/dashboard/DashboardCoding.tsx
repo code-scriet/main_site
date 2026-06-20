@@ -8,7 +8,7 @@ import { useSearchParams } from 'react-router-dom';
 import { Search, ExternalLink, Trophy, ArrowUpRight, Calendar, Clock } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { useSettings } from '@/context/SettingsContext';
-import { api, type Problem } from '@/lib/api';
+import { api, type Problem, type CompetitionRoundPreview } from '@/lib/api';
 import { getPlaygroundLaunchUrl } from '@/lib/playgroundUrl';
 import { CountdownPill, DSCard, Difficulty, EmptyState, MonoChip, Pill, SegmentedTabs, UnderlineTabs } from '@/components/dash';
 import { Input } from '@/components/ui/input';
@@ -527,6 +527,22 @@ function CompetitionsTab() {
   );
 }
 
+// Where a contestant goes for an ACTIVE round: DSA opens the first problem in the
+// playground's contest context (via the main-app solve redirect), IMAGE_TARGET opens
+// the playground build editor. Mirrors AdminCompetition.getCompetitionRoundUrl so the
+// two surfaces never diverge. Non-active rounds link to results.
+function competitionRoundHref(round: CompetitionRoundPreview): string {
+  if (round.status !== 'ACTIVE') return `/competition/${round.id}/results`;
+  if (round.roundType === 'DSA') {
+    const first = (round.problems ?? [])[0];
+    const problemId = first?.problem?.id ?? first?.problemId ?? first?.id;
+    return problemId
+      ? `/competition/${round.id}/solve/${problemId}`
+      : `/competition/${round.id}/results`;
+  }
+  return getPlaygroundLaunchUrl(`/competition/${round.id}`);
+}
+
 function CompetitionEventCard({ eventId, eventTitle, eventStatus }: { eventId: string; eventTitle: string; eventStatus: string }) {
   const { token } = useAuth();
   const roundsQ = useQuery({
@@ -534,7 +550,7 @@ function CompetitionEventCard({ eventId, eventTitle, eventStatus }: { eventId: s
     queryFn: () => api.getCompetitionRounds(eventId, token!),
     enabled: Boolean(token),
   });
-  const rounds = (roundsQ.data as { rounds?: Array<{ id: string; title: string; status: string; duration?: number }> } | undefined)?.rounds ?? [];
+  const rounds: CompetitionRoundPreview[] = roundsQ.data?.rounds ?? [];
 
   return (
     <DSCard padded className="flex flex-col gap-3">
@@ -558,7 +574,7 @@ function CompetitionEventCard({ eventId, eventTitle, eventStatus }: { eventId: s
           {rounds.slice(0, 3).map((r) => (
             <a
               key={r.id}
-              href={r.status === 'ACTIVE' ? getPlaygroundLaunchUrl(`/?contest=${r.id}`) : `/competition/${r.id}/results`}
+              href={competitionRoundHref(r)}
               target={r.status === 'ACTIVE' ? '_blank' : undefined}
               rel="noreferrer"
               className="flex items-center gap-2 py-1.5 -mx-1 px-1 rounded-[6px] hover:bg-[var(--surface-soft)] transition-colors"
@@ -571,8 +587,8 @@ function CompetitionEventCard({ eventId, eventTitle, eventStatus }: { eventId: s
               >
                 {r.status}
               </Pill>
-              {r.status === 'ACTIVE' && r.duration && (
-                <CountdownPill seconds={r.duration} tone="accent" />
+              {r.status === 'ACTIVE' && typeof r.remainingSeconds === 'number' && r.remainingSeconds > 0 && (
+                <CountdownPill seconds={r.remainingSeconds} tone="accent" />
               )}
             </a>
           ))}

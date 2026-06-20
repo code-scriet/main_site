@@ -40,6 +40,11 @@ export default function PlaygroundPage() {
   const qotdParam = searchParams.get('qotd');
   const problemParam = searchParams.get('problem');
   const practiceParam = searchParams.get('practice');
+  // DSA contest solve: ?contest=<roundId>&problem=<problemId>. The problem is loaded
+  // and judged in the CONTEST context (contextKey = roundId) so submissions count
+  // toward the round's results/leaderboard — without this the playground falls back
+  // to PRACTICE and the solve never reaches the contest.
+  const contestParam = searchParams.get('contest');
   // Admin "reopen a past QOTD" private link: ?qotd=<date>&reopen=<token>. When set,
   // the past day is solved as a SCORED QOTD (not practice) and the token rides along
   // on run/submit so the server accepts it and streak/marks/leaderboard all update.
@@ -79,9 +84,22 @@ export default function PlaygroundPage() {
   });
 
   const standaloneProblemQuery = useQuery({
-    queryKey: ['playground-standalone-problem', problemParam, todayKeyForPractice],
-    queryFn: () => mainApi.getProblem(problemParam!, { contextType: 'PRACTICE', contextKey: todayKeyForPractice }),
+    queryKey: ['playground-standalone-problem', problemParam, contestParam, todayKeyForPractice],
+    queryFn: () => mainApi.getProblem(
+      problemParam!,
+      contestParam
+        ? { contextType: 'CONTEST', contextKey: contestParam }
+        : { contextType: 'PRACTICE', contextKey: todayKeyForPractice },
+    ),
     enabled: Boolean(problemParam),
+  });
+
+  // Resolve the round (status + title) for a contest solve so we can gate submit on
+  // ACTIVE and label the solver. Access errors surface via the problem query above.
+  const competitionRoundQuery = useQuery({
+    queryKey: ['playground-contest-round', contestParam],
+    queryFn: () => mainApi.getCompetitionRound(contestParam!),
+    enabled: Boolean(contestParam) && Boolean(problemParam),
   });
 
   const mode = useMemo<Mode>(() => {
@@ -136,6 +154,25 @@ export default function PlaygroundPage() {
       if (!standaloneProblemQuery.data) {
         return { kind: 'problem-error', problemId: problemParam, reason: 'Problem not found or not available for practice.' };
       }
+      if (contestParam) {
+        // DSA contest solve — submissions are judged in the CONTEST context and count
+        // toward this round. Wait for the round status before rendering so submit
+        // is only enabled while the round is live (the server is the real gate).
+        if (competitionRoundQuery.isLoading) return { kind: 'problem-loading', problemId: problemParam };
+        const round = competitionRoundQuery.data;
+        const isActive = round?.status === 'ACTIVE';
+        const context: QOTDSolverContext = {
+          type: 'CONTEST',
+          key: contestParam,
+          submitEnabled: isActive,
+          practice: false,
+          modeLabel: round?.title ? `Contest · ${round.title}` : 'Contest',
+          deadlineLabel: isActive
+            ? 'Live contest round — submissions are judged and ranked.'
+            : 'This contest round is not accepting submissions right now.',
+        };
+        return { kind: 'solver', problem: standaloneProblemQuery.data.problem, context };
+      }
       const context: QOTDSolverContext = {
         type: 'PRACTICE',
         key: todayKeyForPractice,
@@ -150,6 +187,9 @@ export default function PlaygroundPage() {
     practiceParam,
     qotdParam,
     problemParam,
+    contestParam,
+    competitionRoundQuery.data,
+    competitionRoundQuery.isLoading,
     qotdQuery.data,
     qotdQuery.isLoading,
     qotdQuery.isError,
@@ -175,6 +215,7 @@ export default function PlaygroundPage() {
     next.delete('problem');
     next.delete('practice');
     next.delete('reopen');
+    next.delete('contest');
     setSearchParams(next, { replace: true });
   }, [searchParams, setSearchParams]);
 
