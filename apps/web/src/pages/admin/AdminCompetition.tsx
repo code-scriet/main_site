@@ -223,16 +223,36 @@ export default function AdminCompetition() {
     void load();
   }, [load]);
 
+  // Live-round poll: refresh ONLY the rounds of events that currently have an ACTIVE
+  // round — not the full load() (events list + problem catalog + every event's
+  // rounds/teams). Keeps the 10s tick cheap while a round is running.
+  const refreshActiveRounds = useCallback(async () => {
+    if (!token) return;
+    const activeEventIds = Object.entries(roundsByEvent)
+      .filter(([, list]) => list.some((round) => round.status === 'ACTIVE'))
+      .map(([eventId]) => eventId);
+    if (activeEventIds.length === 0) return;
+    try {
+      const entries = await Promise.all(activeEventIds.map(async (eventId) => {
+        const response = await api.getCompetitionRoundsAdmin(eventId, token);
+        return [eventId, response.rounds] as const;
+      }));
+      setRoundsByEvent((prev) => ({ ...prev, ...Object.fromEntries(entries) }));
+    } catch {
+      // transient poll failure — keep the last good rounds; next tick retries.
+    }
+  }, [token, roundsByEvent]);
+
   useEffect(() => {
     const activePresent = Object.values(roundsByEvent).some((list) =>
       list.some((round) => round.status === 'ACTIVE'),
     );
     if (!activePresent) return;
     const id = window.setInterval(() => {
-      void load();
+      void refreshActiveRounds();
     }, 10_000);
     return () => window.clearInterval(id);
-  }, [roundsByEvent, load]);
+  }, [roundsByEvent, refreshActiveRounds]);
 
   useEffect(() => {
     if (!success) return;

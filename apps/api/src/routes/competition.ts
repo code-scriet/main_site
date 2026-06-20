@@ -1,6 +1,6 @@
 import { Router, Response } from 'express';
 import type { Request } from '../lib/http.js';
-import { Prisma, ProblemLanguage } from '@prisma/client';
+import { Prisma } from '@prisma/client';
 import { z } from 'zod';
 import rateLimit from 'express-rate-limit';
 import { prisma, withRetry } from '../lib/prisma.js';
@@ -10,7 +10,6 @@ import { ApiResponse, ErrorCodes } from '../utils/response.js';
 import { sanitizeText } from '../utils/sanitize.js';
 import { auditLog } from '../utils/audit.js';
 import { logger } from '../utils/logger.js';
-import { ProblemHttpError, submitProblemForUser } from '../utils/problemsCore.js';
 import { getCachedSettings } from '../utils/settingsCache.js';
 import { uuidParamGuard } from '../utils/idParams.js';
 
@@ -110,8 +109,6 @@ const saveSchema = z.object({
 
 const submitSchema = z.object({
   code: z.string().max(MAX_CODE_BYTES),
-  problemId: z.string().uuid().optional(),
-  language: z.nativeEnum(ProblemLanguage).optional(),
 });
 
 const scoreSchema = z.object({
@@ -439,17 +436,28 @@ async function recomputeRoundRanks(
       { submittedAt: 'asc' },
     ],
   });
+  if (submissions.length === 0) return 0;
 
+  const ids: string[] = [];
+  const ranks: number[] = [];
   let currentRank = 1;
   for (let index = 0; index < submissions.length; index += 1) {
     if (index > 0 && submissions[index].score !== submissions[index - 1].score) {
       currentRank = index + 1;
     }
-    await tx.competitionSubmission.update({
-      where: { id: submissions[index].id },
-      data: { rank: currentRank },
-    });
+    ids.push(submissions[index].id);
+    ranks.push(currentRank);
   }
+
+  // One set-based UPDATE zips ids[]↔ranks[] via unnest (mirrors the raise-cap
+  // optimization) instead of N per-row updates inside the txn. `rank` has no @map;
+  // updated_at (@updatedAt) has no DB default, so raw SQL supplies it.
+  await tx.$executeRaw`
+    UPDATE competition_submissions AS cs
+    SET rank = v.rank, updated_at = now()
+    FROM unnest(${ids}::text[], ${ranks}::int[]) AS v(id, rank)
+    WHERE cs.id = v.id;
+  `;
   return submissions.length;
 }
 
@@ -1314,21 +1322,9 @@ competitionRouter.post('/:roundId/submit', authMiddleware, submitLimiter, async 
     }
 
     if (round.roundType === 'DSA') {
-      if (!parsed.data.problemId || !parsed.data.language) {
-        return ApiResponse.badRequest(res, 'problemId and language are required for DSA rounds.');
-      }
-      const result = await submitProblemForUser({
-        user,
-        problemId: parsed.data.problemId,
-        language: parsed.data.language,
-        code: parsed.data.code,
-        contextType: 'CONTEST',
-        contextKey: round.id,
-      });
-      return ApiResponse.success(res, {
-        submission: result,
-        message: 'Submitted successfully',
-      });
+      // DSA solves are judged via the Problems pipeline (`/api/problems/:id/submit`,
+      // CONTEST context) from the playground shell — mirrors `/save`'s DSA rejection.
+      return ApiResponse.badRequest(res, 'DSA rounds submit through the problem judge, not competition submit.');
     }
 
     if (myTeam) {

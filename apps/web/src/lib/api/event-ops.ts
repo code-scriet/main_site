@@ -25,8 +25,6 @@ import type {
   EventInvitation,
   EventTeam,
   EventTeamMemberInfo,
-  ProblemLanguage,
-  SubmissionResult,
 } from '../api';
 
 export const eventOpsApi = {
@@ -237,8 +235,10 @@ export const eventOpsApi = {
     request<{ round: CompetitionRound }>(`/competition/${roundId}/finish`, { method: 'PATCH', token }),
   saveCompetitionCode: (roundId: string, data: { code: string }, token: string) =>
     request<{ savedAt: string; serverTime: string }>(`/competition/${roundId}/save`, { method: 'POST', body: JSON.stringify(data), token }),
-  submitCompetitionCode: (roundId: string, data: { code: string; problemId?: string; language?: ProblemLanguage }, token: string) =>
-    request<{ submission?: { id: string; submittedAt: string }; result?: SubmissionResult; message: string }>(`/competition/${roundId}/submit`, { method: 'POST', body: JSON.stringify(data), token }),
+  // IMAGE_TARGET final submit. DSA rounds submit through the Problems judge
+  // (`/api/problems/:id/submit`, CONTEST context) from the playground shell, not here.
+  submitCompetitionCode: (roundId: string, data: { code: string }, token: string) =>
+    request<{ submission: { id: string; submittedAt: string }; message: string }>(`/competition/${roundId}/submit`, { method: 'POST', body: JSON.stringify(data), token }),
   getMyCompetitionSubmission: (roundId: string, token: string) =>
     request<{
       submission: (CompetitionSubmission & { submittedAt: string }) | null;
