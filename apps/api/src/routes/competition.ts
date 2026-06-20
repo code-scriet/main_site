@@ -13,6 +13,7 @@ import { logger } from '../utils/logger.js';
 import { getCachedSettings } from '../utils/settingsCache.js';
 import { uuidParamGuard } from '../utils/idParams.js';
 import { computeRanksFromScores } from '../utils/competitionRanks.js';
+import { aggregateWeighted, computeIcpcPenalty, normalizeWeights, rankEntries, type SolvedProblemPenalty } from '../utils/contestScoring.js';
 
 const competitionRouter = Router();
 const activeTimers = new Map<string, NodeJS.Timeout>();
@@ -1995,6 +1996,7 @@ competitionRouter.get('/:roundId/results', async (req: Request, res: Response) =
         status: true,
         roundType: true,
         startedAt: true,
+        penaltyModel: true,
         event: {
           select: { id: true, title: true },
         },
@@ -2015,46 +2017,80 @@ competitionRouter.get('/:roundId/results', async (req: Request, res: Response) =
         where: { contextType: 'CONTEST', contextKey: round.id },
         include: { user: { select: { id: true, name: true, avatar: true } } },
       });
-      const problemLinks = new Map(round.problems.map((link) => [link.problemId, link]));
+      const links = round.problems; // displayOrder asc
+      const startedMs = round.startedAt ? round.startedAt.getTime() : null;
+      // Per-problem normalized weight within the round (difficulty/manual `points`,
+      // normalized to sum 1) — drives both the 0–100 round score and the per-problem
+      // contribution shown in the breakdown.
+      const normWeights = normalizeWeights(links.map((link) => link.points));
+      const weightByProblem = new Map(links.map((link, i) => [link.problemId, normWeights[i]]));
+
+      type Cell = { score: number; verdict: string; runtimeMs: number | null; wrongAttempts: number; solvedAt: Date | null };
       const byUser = new Map<string, {
-        userId: string;
-        userName: string;
-        avatar: string | null;
-        totalScore: number;
-        totalRuntimeMs: number;
-        problems: Array<{ problemId: string; title: string; score: number; weightedScore: number; verdict: string; runtimeMs: number | null }>;
+        userId: string; userName: string; avatar: string | null;
+        cells: Map<string, Cell>; totalRuntimeMs: number;
       }>();
       for (const submission of submissions) {
-        const link = problemLinks.get(submission.problemId);
-        if (!link) continue;
+        if (!weightByProblem.has(submission.problemId)) continue;
         const entry = byUser.get(submission.userId) ?? {
-          userId: submission.userId,
-          userName: submission.user.name,
-          avatar: submission.user.avatar,
-          totalScore: 0,
-          totalRuntimeMs: 0,
-          problems: [],
+          userId: submission.userId, userName: submission.user.name, avatar: submission.user.avatar,
+          cells: new Map<string, Cell>(), totalRuntimeMs: 0,
         };
-        const weightedScore = Math.round(submission.score * (link.points / 100));
-        entry.totalScore += weightedScore;
-        entry.totalRuntimeMs += submission.runtimeMs ?? 0;
-        entry.problems.push({
-          problemId: submission.problemId,
-          title: link.problem.title,
+        entry.cells.set(submission.problemId, {
           score: submission.score,
-          weightedScore,
           verdict: submission.verdict,
           runtimeMs: submission.runtimeMs,
+          wrongAttempts: submission.contestWrongAttempts,
+          solvedAt: submission.contestSolvedAt,
         });
+        entry.totalRuntimeMs += submission.runtimeMs ?? 0;
         byUser.set(submission.userId, entry);
       }
-      const results = Array.from(byUser.values())
-        .sort((a, b) => {
-          if (a.totalScore !== b.totalScore) return b.totalScore - a.totalScore;
-          return a.totalRuntimeMs - b.totalRuntimeMs;
-        })
+
+      const computed = Array.from(byUser.values()).map((entry) => {
+        // Round score = Σ(problem private-% × normalized problem weight) over ALL round
+        // problems (an unsolved problem contributes 0), capped 0–100.
+        const totalScore = aggregateWeighted(links.map((link) => ({
+          weight: link.points,
+          score: entry.cells.get(link.problemId)?.score ?? 0,
+        })));
+        // ICPC penalty over solved problems + completion time (BEST_SCORE tie-break).
+        const solved: SolvedProblemPenalty[] = [];
+        let completionMs = startedMs ?? 0;
+        for (const link of links) {
+          const cell = entry.cells.get(link.problemId);
+          if (cell?.verdict === 'ACCEPTED' && cell.solvedAt) {
+            const minutesToSolve = startedMs ? Math.max(0, Math.floor((cell.solvedAt.getTime() - startedMs) / 60000)) : 0;
+            solved.push({ wrongAttempts: cell.wrongAttempts, minutesToSolve });
+            completionMs = Math.max(completionMs, cell.solvedAt.getTime());
+          }
+        }
+        const penalty = computeIcpcPenalty(solved);
+        const problems = links
+          .filter((link) => entry.cells.has(link.problemId))
+          .map((link) => {
+            const cell = entry.cells.get(link.problemId)!;
+            return {
+              problemId: link.problemId,
+              title: link.problem.title,
+              score: cell.score,
+              weightedScore: Math.round(cell.score * (weightByProblem.get(link.problemId) ?? 0) * 100) / 100,
+              verdict: cell.verdict,
+              runtimeMs: cell.runtimeMs,
+            };
+          });
+        return { userId: entry.userId, userName: entry.userName, avatar: entry.avatar, totalScore, penalty, totalRuntimeMs: entry.totalRuntimeMs, completionMs, problems };
+      });
+
+      const ranks = rankEntries(
+        computed.map((c) => ({ score: c.totalScore, penalty: c.penalty, earliestMs: c.completionMs })),
+        round.penaltyModel,
+      );
+      const results = computed
+        .map((c, index) => ({ rank: ranks[index], ...c }))
+        .sort((a, b) => (a.rank - b.rank) || (a.completionMs - b.completionMs))
         .slice(0, 10)
-        .map((entry, index) => ({ rank: index + 1, ...entry }));
+        .map(({ completionMs: _completionMs, ...entry }) => entry);
 
       return ApiResponse.success(res, {
         round: {
@@ -2063,6 +2099,7 @@ competitionRouter.get('/:roundId/results', async (req: Request, res: Response) =
           eventId: round.event.id,
           eventTitle: round.event.title,
           roundType: round.roundType,
+          penaltyModel: round.penaltyModel,
           problems: round.problems.map((link) => ({
             id: link.problem.id,
             slug: link.problem.slug,

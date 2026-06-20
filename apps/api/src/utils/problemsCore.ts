@@ -507,9 +507,15 @@ function calculateScore(
   judge: JudgeResult,
   sampleTests: ProblemTestCase[],
   hiddenTests: ProblemTestCase[],
+  options: { privateOnly?: boolean } = {},
 ): { score: number; passedCount: number; totalCount: number; perTestVerdicts: ProblemSubmissionResult['perTestVerdicts'] } {
+  // CONTEST scoring is private-only: sample/public tests carry 0 weight (they exist
+  // for the contestant to self-test), and the problem's weight is distributed across
+  // its hidden tests (by per-test points, default equal). QOTD/Practice keep sample
+  // weight 1 (unchanged). passedCount/totalCount stay informational across all tests.
+  const sampleWeight = options.privateOnly ? 0 : 1;
   const weightedCases = [
-    ...sampleTests.map((test) => ({ ...test, isHidden: false, weight: 1 })),
+    ...sampleTests.map((test) => ({ ...test, isHidden: false, weight: sampleWeight })),
     ...hiddenTests.map((test) => ({ ...test, isHidden: true, weight: Math.max(1, Math.round(test.points ?? 1)) })),
   ];
   const verdictById = new Map(judge.perTestVerdicts.map((verdict) => [verdict.testId, verdict]));
@@ -655,7 +661,9 @@ export async function submitProblemForUser(params: SubmitProblemParams): Promise
     await refundDailyQuota(params.user.id, 1);
   }
 
-  const scored = calculateScore(judge, sampleTests, hiddenTests);
+  const scored = calculateScore(judge, sampleTests, hiddenTests, {
+    privateOnly: params.contextType === 'CONTEST',
+  });
 
   const submissionKey = {
     userId: params.user.id,
@@ -671,7 +679,7 @@ export async function submitProblemForUser(params: SubmitProblemParams): Promise
   // user still sees their real latest result in the response below.
   const existingSubmission = await prisma.problemSubmission.findUnique({
     where: { userId_problemId_contextType_contextKey: submissionKey },
-    select: { id: true, verdict: true, reopenPending: true },
+    select: { id: true, verdict: true, reopenPending: true, contestWrongAttempts: true, contestSolvedAt: true },
   });
 
   // Reopened-past-QOTD acceptance hold: a solve that judged ACCEPTED via a reopen
@@ -692,6 +700,23 @@ export async function submitProblemForUser(params: SubmitProblemParams): Promise
   // still rides back to the user in the response below.
   const storedVerdict = reopenPendingAccept ? 'PENDING' : judge.verdict;
   const flagNeedsReview = isJudgeFailure || reopenPendingAccept;
+
+  // CONTEST ICPC penalty bookkeeping: count non-ACCEPTED *judged* attempts before the
+  // first AC, and stamp the first AC time. Once solved, stop counting (attempts after
+  // an AC carry no penalty in ICPC). Judge/infra failures are not the user's fault, so
+  // they never add a wrong attempt. Untouched (0/null) for non-contest contexts.
+  const isContest = params.contextType === 'CONTEST';
+  const prevContestWrong = existingSubmission?.contestWrongAttempts ?? 0;
+  const prevContestSolvedAt = existingSubmission?.contestSolvedAt ?? null;
+  const contestAlreadySolved = Boolean(prevContestSolvedAt) || alreadyAccepted;
+  const contestSolvedAt = isContest
+    ? (prevContestSolvedAt ?? (judge.verdict === 'ACCEPTED' ? new Date() : null))
+    : null;
+  const contestWrongAttempts = isContest
+    ? (!contestAlreadySolved && !isJudgeFailure && judge.verdict !== 'ACCEPTED'
+        ? prevContestWrong + 1
+        : prevContestWrong)
+    : 0;
 
   let submission: { id: string };
   // Keep the canonical row when a later non-accepted attempt would erase progress:
@@ -719,6 +744,8 @@ export async function submitProblemForUser(params: SubmitProblemParams): Promise
         activeMs: params.activeMs,
         needsReview: flagNeedsReview,
         reopenPending: reopenPendingAccept,
+        contestWrongAttempts,
+        contestSolvedAt,
       },
       update: {
         language: params.language,
@@ -742,6 +769,8 @@ export async function submitProblemForUser(params: SubmitProblemParams): Promise
         // fresh judge failure (re)flags it for manual review.
         needsReview: flagNeedsReview,
         reopenPending: reopenPendingAccept,
+        // CONTEST penalty fields only — leave untouched for QOTD/Practice rows.
+        ...(isContest ? { contestWrongAttempts, contestSolvedAt } : {}),
       },
     });
   }
@@ -809,7 +838,9 @@ export async function rejudgeSubmission(
   if (judge.verdict === 'JUDGE_ERROR') {
     throw new Error(`Judge error while rejudging submission ${submission.id}`);
   }
-  const scored = calculateScore(judge, sampleTests, hiddenTests);
+  const scored = calculateScore(judge, sampleTests, hiddenTests, {
+    privateOnly: submission.contextType === 'CONTEST',
+  });
   await prisma.problemSubmission.update({
     where: { id: submission.id },
     data: {

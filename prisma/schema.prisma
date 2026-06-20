@@ -84,6 +84,9 @@ model User {
   teamMemberships         EventTeamMember[]             @relation("teamMemberships")
   competitionSubmissions  CompetitionSubmission[]
   competitionAutoSaves    CompetitionAutoSave[]
+  competitionParticipantStates CompetitionParticipantState[]
+  competitionViolations   CompetitionViolation[]
+  competitionClarifications CompetitionClarification[]
   createdPolls            Poll[]
   pollVotes               PollVote[]
   pollFeedback            PollFeedback[]
@@ -406,15 +409,27 @@ model CompetitionRound {
   leadersOnly      Boolean                     @default(false) @map("leaders_only")
   allowedTeamIds   String[]                    @default([]) @map("allowed_team_ids")
   targetImageUrl   String?                     @map("target_image_url")
+  // Contest config (Phase A redesign). finalWeight = this round's raw weight in the
+  // event-final aggregation (normalized at compute). difficultyWeights = optional
+  // {EASY,MEDIUM,HARD} presets that seed per-problem weights in the admin UI; the raw
+  // per-problem weight still lives on CompetitionRoundProblem.points.
+  finalWeight              Float                      @default(1) @map("final_weight")
+  proctored                Boolean                    @default(false)
+  penaltyModel             CompetitionPenaltyModel    @default(BEST_SCORE) @map("penalty_model")
+  leaderboardFreezeMinutes Int?                       @map("leaderboard_freeze_minutes")
+  difficultyWeights        Json?                      @map("difficulty_weights")
   startedAt        DateTime?                   @map("started_at")
   lockedAt         DateTime?                   @map("locked_at")
   createdAt        DateTime                    @default(now()) @map("created_at")
   updatedAt        DateTime                    @updatedAt @map("updated_at")
 
-  event       Event                     @relation(fields: [eventId], references: [id], onDelete: Cascade)
-  submissions CompetitionSubmission[]
-  autoSaves   CompetitionAutoSave[]
-  problems    CompetitionRoundProblem[]
+  event            Event                          @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  submissions      CompetitionSubmission[]
+  autoSaves        CompetitionAutoSave[]
+  problems         CompetitionRoundProblem[]
+  participantState CompetitionParticipantState[]
+  violations       CompetitionViolation[]
+  clarifications   CompetitionClarification[]
 
   @@index([eventId])
   @@index([status, startedAt])
@@ -462,6 +477,66 @@ model CompetitionAutoSave {
   @@unique([roundId, userId])
   @@index([teamId])
   @@map("competition_auto_saves")
+}
+
+// Per-participant contest state (Phase A redesign). One row per [roundId, userId].
+// Powers proctor lock (server-enforced) + the live admin monitor (online via
+// lastSeenAt heartbeat, violation count, lock state). DB-backed + prunable — no
+// in-memory growth with participant count.
+model CompetitionParticipantState {
+  id              String    @id @default(uuid())
+  roundId         String    @map("round_id")
+  userId          String    @map("user_id")
+  locked          Boolean   @default(false)
+  lockReason      String?   @map("lock_reason")
+  lockedAt        DateTime? @map("locked_at")
+  unlockedBy      String?   @map("unlocked_by")
+  unlockedAt      DateTime? @map("unlocked_at")
+  violationCount  Int       @default(0) @map("violation_count")
+  lastViolationAt DateTime? @map("last_violation_at")
+  lastSeenAt      DateTime? @map("last_seen_at")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  round CompetitionRound @relation(fields: [roundId], references: [id], onDelete: Cascade)
+  user  User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([roundId, userId])
+  @@index([roundId, locked])
+  @@index([roundId, lastSeenAt])
+  @@map("competition_participant_states")
+}
+
+// Append-only proctoring violation log (drives the admin violation feed).
+model CompetitionViolation {
+  id      String                   @id @default(uuid())
+  roundId String                   @map("round_id")
+  userId  String                   @map("user_id")
+  kind    CompetitionViolationKind
+  detail  String?
+  at      DateTime                 @default(now())
+
+  round CompetitionRound @relation(fields: [roundId], references: [id], onDelete: Cascade)
+  user  User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([roundId, at])
+  @@index([roundId, userId])
+  @@map("competition_violations")
+}
+
+// Admin-broadcast clarifications/announcements during a live round; contestants poll.
+model CompetitionClarification {
+  id        String   @id @default(uuid())
+  roundId   String   @map("round_id")
+  message   String   @db.Text
+  createdBy String   @map("created_by")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  round   CompetitionRound @relation(fields: [roundId], references: [id], onDelete: Cascade)
+  creator User             @relation(fields: [createdBy], references: [id], onDelete: Cascade)
+
+  @@index([roundId, createdAt])
+  @@map("competition_clarifications")
 }
 
 model Announcement {
@@ -821,6 +896,23 @@ enum CompetitionStatus {
 enum CompetitionParticipantScope {
   ALL
   SELECTED_TEAMS
+}
+
+// Contest ranking model (Phase A redesign). BEST_SCORE = score desc + earliest
+// submission tie-break (today's behaviour). ICPC = score desc, then total penalty asc
+// (wrong attempts × 20min + minutes-to-first-AC across solved problems).
+enum CompetitionPenaltyModel {
+  BEST_SCORE
+  ICPC
+}
+
+enum CompetitionViolationKind {
+  BLUR
+  HIDDEN
+  CLICK_OUT
+  FULLSCREEN_EXIT
+  COPY_PASTE
+  OTHER
 }
 
 // Network Feature - Industry Professionals & Alumni
@@ -1209,6 +1301,10 @@ model ProblemSubmission {
   reopenPending   Boolean            @default(false) @map("reopen_pending")
   appealedAt      DateTime?          @map("appealed_at")
   appealNote      String?            @map("appeal_note") @db.Text
+  // CONTEST-only penalty bookkeeping (ICPC model). wrongAttempts counts non-ACCEPTED
+  // judged submits before the first AC; solvedAt stamps the first AC. Null/0 elsewhere.
+  contestWrongAttempts Int           @default(0) @map("contest_wrong_attempts")
+  contestSolvedAt DateTime?          @map("contest_solved_at")
   submittedAt     DateTime           @default(now()) @map("submitted_at")
   updatedAt       DateTime           @updatedAt @map("updated_at")
 

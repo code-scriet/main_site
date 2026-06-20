@@ -238,7 +238,12 @@ clubName/Email/Description · registrationOpen · maxEventsPerUser · announceme
 `EventTeam: id, eventId, teamName, inviteCode(unique, 8-char hex), leaderId, isLocked, createdAt` · unique `[eventId,teamName]`. `EventTeamMember: id, teamId, userId, registrationId(unique), role(EventTeamMemberRole LEADER|MEMBER), joinedAt` · unique `[teamId,userId]`. Leader has `onDelete: Restrict`. Serializable txn + 3 retries.
 
 ### CompetitionRound / CompetitionRoundProblem / CompetitionSubmission / CompetitionAutoSave
-Round: `id, eventId, title, description?, duration(sec), status(CompetitionStatus), roundType(IMAGE_TARGET|DSA), participantScope(ALL|SELECTED_TEAMS), leadersOnly, allowedTeamIds(String[]), targetImageUrl?, startedAt?, lockedAt?`. RoundProblem: `id, roundId, problemId, displayOrder, points` unique `[roundId,problemId]`, `[roundId,displayOrder]`. Submission: `id, roundId, teamId?, userId, code, isAutoSubmit, score?, rank?, adminNotes?` unique `[roundId,teamId]`, `[roundId,userId]`. AutoSave: `id, roundId, teamId?, userId, code, savedAt` unique `[roundId,userId]`.
+Round: `id, eventId, title, description?, duration(sec), status(CompetitionStatus), roundType(IMAGE_TARGET|DSA), participantScope(ALL|SELECTED_TEAMS), leadersOnly, allowedTeamIds(String[]), targetImageUrl?, finalWeight(Float, default 1 — raw weight in the event-final aggregation, normalized at compute), proctored(default false), penaltyModel(CompetitionPenaltyModel, default BEST_SCORE), leaderboardFreezeMinutes?, difficultyWeights(JSON? — optional EASY/MED/HARD presets seeding the admin weight UI; raw per-problem weight still on RoundProblem.points), startedAt?, lockedAt?` (contest-redesign fields additive — migration `20260621000000_contest_redesign_phase_a`). RoundProblem: `id, roundId, problemId, displayOrder, points` (`points` = the **raw within-round problem weight**) unique `[roundId,problemId]`, `[roundId,displayOrder]`. Submission: `id, roundId, teamId?, userId, code, isAutoSubmit, score?, rank?, adminNotes?` unique `[roundId,teamId]`, `[roundId,userId]`. AutoSave: `id, roundId, teamId?, userId, code, savedAt` unique `[roundId,userId]`.
+
+### CompetitionParticipantState / CompetitionViolation / CompetitionClarification (contest redesign)
+ParticipantState (one per `[roundId,userId]`): `locked, lockReason?, lockedAt?, unlockedBy?/At?, violationCount, lastViolationAt?, lastSeenAt?` — proctor lock (server-enforced) + live-monitor heartbeat. Violation (append log): `roundId, userId, kind(CompetitionViolationKind), detail?, at`. Clarification: `roundId, message, createdBy, createdAt` — admin broadcast, contestants poll. All cascade with the round; DB-backed + prunable. **Tables land in Phase A; the proctor/monitor/clarification endpoints + UI ship in Phases C/E.**
+
+**Contest scoring (CONTEST-only, [apps/api/src/utils/contestScoring.ts](apps/api/src/utils/contestScoring.ts), unit-tested):** 3-level normalized hierarchy, each capped 0–100. **Problem** = private-test pass % — `calculateScore(..., {privateOnly:true})` weights sample/public tests **0** (contestant self-test only) and distributes weight across hidden tests by their `points`; stored at submit on `ProblemSubmission.score` (QOTD/Practice keep sample weight 1, unchanged). **Round** = Σ(problem% × normalized RoundProblem.points) via `aggregateWeighted`. **Event-final** = Σ(round% × normalized Round.finalWeight) — read-time, so admin weight retunes need no rejudge. **Ranking** (`rankEntries`, 1224): `BEST_SCORE` = score desc + earliest completion; `ICPC` = score desc + penalty asc (penalty = wrong attempts × 20min + minutes-to-AC; tracked on `ProblemSubmission.contestWrongAttempts`/`contestSolvedAt`, CONTEST-only). The DSA `GET /:roundId/results` consumes this; event-final publish is Phase F.
 
 ### Announcement
 `id, title, body, slug(unique), priority, createdBy, featured, pinned, shortDescription?, imageUrl?, imageGallery?, attachments?, links?, tags(String[]), expiresAt?, createdAt/updatedAt`.
@@ -313,6 +318,8 @@ NetworkConnectionType: GUEST_SPEAKER|GMEET_SESSION|EVENT_JUDGE|MENTOR|INDUSTRY_P
 NetworkStatus: PENDING|VERIFIED|REJECTED
 ExecutionStatus: SUCCESS|ERROR|TIMEOUT
 CompetitionStatus: DRAFT|ACTIVE|LOCKED|JUDGING|FINISHED
+CompetitionPenaltyModel: BEST_SCORE|ICPC
+CompetitionViolationKind: BLUR|HIDDEN|CLICK_OUT|FULLSCREEN_EXIT|COPY_PASTE|OTHER
 CompetitionRoundType: IMAGE_TARGET|DSA
 CompetitionParticipantScope: ALL|SELECTED_TEAMS
 ProblemContextType: QOTD|CONTEST|PRACTICE
@@ -721,6 +728,7 @@ CORS subdomain wildcard removed (explicit allowlist) · URL sanitization XSS (st
 | Scheduler | [apps/api/src/utils/scheduler.ts](apps/api/src/utils/scheduler.ts) |
 | Code judge | [apps/api/src/utils/codeJudge.ts](apps/api/src/utils/codeJudge.ts) |
 | Problems core | [apps/api/src/utils/problemsCore.ts](apps/api/src/utils/problemsCore.ts) |
+| Contest scoring engine | [apps/api/src/utils/contestScoring.ts](apps/api/src/utils/contestScoring.ts) |
 | Rejudge queue | [apps/api/src/utils/rejudgeJobs.ts](apps/api/src/utils/rejudgeJobs.ts) |
 | Daily limit | [apps/api/src/utils/dailyLimit.ts](apps/api/src/utils/dailyLimit.ts) |
 | QOTD streak | [apps/api/src/utils/qotdStreak.ts](apps/api/src/utils/qotdStreak.ts) |
