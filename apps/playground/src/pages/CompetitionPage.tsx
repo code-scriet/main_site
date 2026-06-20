@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import Editor from '@monaco-editor/react';
 import { Panel, PanelGroup, PanelResizeHandle } from 'react-resizable-panels';
@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button';
 import { BASE_MONACO_EDITOR_OPTIONS, registerMonacoEmmet } from '@/lib/monacoEditor';
 import { cn } from '@/lib/utils';
 import { getMainSiteOrigin, requestMainApiJson } from '@/lib/utils';
+import { useProctor } from '@/hooks/useProctor';
 import { toast } from 'sonner';
 
 type CompetitionStatus = 'DRAFT' | 'ACTIVE' | 'LOCKED' | 'JUDGING' | 'FINISHED';
@@ -25,6 +26,7 @@ type RoundResponse = {
   serverTime?: string;
   remainingSeconds?: number;
   hasSubmitted?: boolean;
+  proctored?: boolean;
   myTeam?: { id: string; teamName: string; memberCount: number } | null;
 };
 
@@ -401,6 +403,27 @@ export default function CompetitionPage() {
     [submission, round?.hasSubmitted],
   );
 
+  // Proctor: on 10s away → force-submit the current code, then the server locks the
+  // participant (admin unlock required). Active only for a proctored, live round the
+  // contestant hasn't already submitted.
+  const autoSubmitForProctor = useCallback(async () => {
+    if (!token || !roundId) return;
+    try {
+      await requestMainApiJson(`/api/competition/${roundId}/submit`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ code: latestCodeRef.current }),
+      });
+    } catch { /* best effort — the lock still applies even if the submit fails */ }
+  }, [token, roundId]);
+
+  const { locked: proctorLocked, awayMsLeft } = useProctor({
+    roundId,
+    enabled: Boolean(round?.proctored) && round?.status === 'ACTIVE' && !hasServerSubmission,
+    onAutoSubmit: autoSubmitForProctor,
+  });
+
   // Trigger server auto-save when tab becomes hidden (data loss prevention)
   useEffect(() => {
     if (!round || round.status !== 'ACTIVE' || isReadOnly) return;
@@ -665,7 +688,7 @@ export default function CompetitionPage() {
                     setIsDirty(true);
                   }
                 }}
-                options={{ ...BASE_MONACO_EDITOR_OPTIONS, readOnly: isReadOnly, fontSize: 14 }}
+                options={{ ...BASE_MONACO_EDITOR_OPTIONS, readOnly: isReadOnly || proctorLocked, fontSize: 14 }}
                 theme={editorTheme}
               />
             </div>
@@ -713,6 +736,28 @@ export default function CompetitionPage() {
         <div>Characters: {code.length}</div>
         <div className="truncate max-w-[120px] sm:max-w-[220px] text-right">{round.myTeam?.teamName || 'No team'}</div>
       </div>
+
+      {/* Proctor: away-countdown warning (before the lock trips) */}
+      {awayMsLeft !== null && !proctorLocked && (
+        <div className="fixed top-3 left-1/2 -translate-x-1/2 z-[60] rounded-lg border border-amber-400 bg-amber-50 text-amber-900 px-4 py-2 text-sm font-medium shadow-lg flex items-center gap-2">
+          <AlertCircle className="h-4 w-4" />
+          Return to the contest window — auto-submit &amp; lock in {Math.ceil(awayMsLeft / 1000)}s
+        </div>
+      )}
+
+      {/* Proctor: locked overlay (auto-submit already fired; admin unlock required) */}
+      {proctorLocked && (
+        <div className="fixed inset-0 z-[70] bg-black/70 flex items-center justify-center p-4">
+          <div className="w-full max-w-md rounded-xl border border-red-400 bg-card p-6 text-center space-y-3">
+            <AlertCircle className="h-10 w-10 text-red-500 mx-auto" />
+            <h2 className="text-xl font-semibold">Submission locked</h2>
+            <p className="text-sm text-muted-foreground">
+              You left the contest window, so your work was auto-submitted and your session is locked.
+              Contact an invigilator to unlock — your editor stays read-only until then.
+            </p>
+          </div>
+        </div>
+      )}
 
       {showSubmitConfirm && (
         <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4">

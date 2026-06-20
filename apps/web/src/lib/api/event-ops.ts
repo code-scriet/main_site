@@ -257,6 +257,9 @@ export const eventOpsApi = {
     }>(`/competition/${roundId}/submissions`, { token }),
   scoreCompetitionSubmission: (roundId: string, submissionId: string, data: { score?: number; rank?: number; adminNotes?: string }, token: string) =>
     request<{ submission: CompetitionSubmission }>(`/competition/${roundId}/score/${submissionId}`, { method: 'PATCH', body: JSON.stringify(data), token }),
+  // Proctoring (admin): release a participant's proctor lock so they can resume.
+  unlockCompetitionParticipant: (roundId: string, userId: string, token: string) =>
+    request<{ unlocked: boolean }>(`/competition/${roundId}/proctor/unlock/${userId}`, { method: 'POST', token }),
   getCompetitionResults: (roundId: string) =>
     request<{ round: CompetitionRound; results: CompetitionResult[] }>(`/competition/${roundId}/results`),
   getCompetitionResultsSummary: (eventId: string, token: string) =>

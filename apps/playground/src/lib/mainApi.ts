@@ -3,6 +3,7 @@ import { requestMainApiJson } from './utils';
 
 export type ProblemLanguage = 'PYTHON' | 'JAVASCRIPT' | 'CPP' | 'JAVA';
 export type ProblemContextType = 'QOTD' | 'CONTEST' | 'PRACTICE';
+export type ProctorViolationKind = 'BLUR' | 'HIDDEN' | 'CLICK_OUT' | 'FULLSCREEN_EXIT' | 'COPY_PASTE' | 'OTHER';
 export type SubmissionVerdict =
   | 'PENDING'
   | 'ACCEPTED'
@@ -201,7 +202,17 @@ export const mainApi = {
       roundType?: 'IMAGE_TARGET' | 'DSA';
       duration: number;
       remainingSeconds?: number | null;
+      proctored?: boolean;
+      penaltyModel?: 'BEST_SCORE' | 'ICPC';
     }>(`/api/competition/${roundId}`),
+  // Proctoring (Phase C). The client force-submits its draft then reports the violation;
+  // a proctored round locks the participant (server-enforced) until an admin unlocks.
+  reportProctorViolation: (roundId: string, body: { kind: ProctorViolationKind; detail?: string }) =>
+    call<{ locked: boolean }>(`/api/competition/${roundId}/proctor/violation`, { method: 'POST', body: JSON.stringify(body) }),
+  proctorHeartbeat: (roundId: string) =>
+    call<{ locked: boolean; lockReason: string | null; violationCount: number }>(`/api/competition/${roundId}/proctor/heartbeat`, { method: 'POST' }),
+  getProctorState: (roundId: string) =>
+    call<{ locked: boolean; lockReason: string | null; violationCount: number; proctored: boolean }>(`/api/competition/${roundId}/proctor/me`),
   runProblem: (problemId: string, body: { language: ProblemLanguage; code: string; contextType?: ProblemContextType; contextKey?: string; reopenToken?: string }) =>
     call<TestRunResult>(`/api/problems/${problemId}/run`, { method: 'POST', body: JSON.stringify(body) }),
   submitProblem: (problemId: string, body: { language: ProblemLanguage; code: string; contextType: ProblemContextType; contextKey: string; activeMs?: number; reopenToken?: string }) =>

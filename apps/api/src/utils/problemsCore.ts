@@ -425,6 +425,18 @@ export async function validateProblemContext(
     if (requireActiveContest && round.status !== 'ACTIVE') {
       throw new ProblemHttpError(400, 'This contest round is not accepting submissions');
     }
+    // Proctor lock: gated on requireActiveContest so it blocks run/submit (an action)
+    // but never the read-only problem view (GET passes requireActiveContest:false), so
+    // a locked contestant still sees the problem behind the arena's locked overlay.
+    if (requireActiveContest) {
+      const lockState = await prisma.competitionParticipantState.findUnique({
+        where: { roundId_userId: { roundId: round.id, userId: user.id } },
+        select: { locked: true },
+      });
+      if (lockState?.locked) {
+        throw new ProblemHttpError(403, 'You are locked by the proctor. Contact an invigilator to unlock.', 'FORBIDDEN');
+      }
+    }
     const registration = await prisma.eventRegistration.findUnique({
       where: { userId_eventId: { userId: user.id, eventId: round.eventId } },
       select: { id: true },

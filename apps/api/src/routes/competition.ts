@@ -23,6 +23,7 @@ const activeTimers = new Map<string, NodeJS.Timeout>();
 competitionRouter.param('roundId', uuidParamGuard('round ID'));
 competitionRouter.param('eventId', uuidParamGuard('event ID'));
 competitionRouter.param('submissionId', uuidParamGuard('submission ID'));
+competitionRouter.param('userId', uuidParamGuard('user ID'));
 
 // Feature gate: the `competitionEnabled` setting hides the UI but, prior to
 // this gate, the API still served reads, saves, submits and admin actions.
@@ -1219,6 +1220,9 @@ competitionRouter.post('/:roundId/save', authMiddleware, saveLimiter, async (req
     if (participationError) {
       return ApiResponse.forbidden(res, participationError);
     }
+    if (await isParticipantLocked(round.id, user.id)) {
+      return ApiResponse.forbidden(res, 'You are locked by the proctor. Contact an invigilator to unlock.');
+    }
     if (round.roundType === 'DSA') {
       return ApiResponse.badRequest(res, 'DSA rounds use problem drafts in the browser instead of competition autosave.');
     }
@@ -1350,6 +1354,9 @@ competitionRouter.post('/:roundId/submit', authMiddleware, submitLimiter, async 
     const participationError = getRoundParticipationError(round, myTeam);
     if (participationError) {
       return ApiResponse.forbidden(res, participationError);
+    }
+    if (await isParticipantLocked(round.id, user.id)) {
+      return ApiResponse.forbidden(res, 'You are locked by the proctor. Contact an invigilator to unlock.');
     }
 
     if (round.roundType === 'DSA') {
@@ -2476,6 +2483,126 @@ competitionRouter.delete('/:roundId', authMiddleware, requireRole('ADMIN'), asyn
       error: error instanceof Error ? error.message : String(error),
     });
     return ApiResponse.internal(res, 'Failed to delete round');
+  }
+});
+
+// ─── Proctoring (Phase C) ───────────────────────────────────────────────────
+// Server-enforced anti-cheat lock. The contestant's client force-submits its draft
+// then reports the violation; for a proctored round this LOCKS the participant and the
+// submit/run paths reject until an admin unlocks. Detection is client-reported (a
+// deterrent, not airtight) — the lock itself is the server-side teeth.
+
+const violationSchema = z.object({
+  kind: z.enum(['BLUR', 'HIDDEN', 'CLICK_OUT', 'FULLSCREEN_EXIT', 'COPY_PASTE', 'OTHER']),
+  detail: z.string().max(500).optional(),
+});
+
+// Server-side teeth of the proctor lock: the IMAGE_TARGET save/submit paths consult
+// this (the DSA run/submit path checks the same row inside validateProblemContext).
+async function isParticipantLocked(roundId: string, userId: string): Promise<boolean> {
+  const state = await prisma.competitionParticipantState.findUnique({
+    where: { roundId_userId: { roundId, userId } },
+    select: { locked: true },
+  });
+  return Boolean(state?.locked);
+}
+
+function mapRoundError(res: Response, error: unknown, fallback: string): Response {
+  const err = error as { status?: number; code?: string; message?: string };
+  if (err.status && err.code && err.message) {
+    return ApiResponse.error(res, { code: err.code, message: err.message, status: err.status });
+  }
+  logger.error(fallback, { error: error instanceof Error ? error.message : String(error) });
+  return ApiResponse.internal(res, fallback);
+}
+
+competitionRouter.post('/:roundId/proctor/violation', authMiddleware, async (req: Request, res: Response) => {
+  try {
+    const user = getAuthUser(req)!;
+    const parsed = violationSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return ApiResponse.badRequest(res, parsed.error.errors[0]?.message || 'Invalid violation');
+    }
+    const round = await ensureRegisteredForRound(req.params.roundId, user.id);
+    // Lock only a proctored round that is still live/finalizing; a violation reported
+    // after the round ends is logged but never locks (nothing left to protect).
+    const shouldLock = round.proctored && (round.status === 'ACTIVE' || round.status === 'LOCKED');
+    const now = new Date();
+    const reason = `Proctor: ${parsed.data.kind}`;
+    await prisma.$transaction([
+      prisma.competitionViolation.create({
+        data: { roundId: round.id, userId: user.id, kind: parsed.data.kind, detail: parsed.data.detail ? sanitizeText(parsed.data.detail) : null },
+      }),
+      prisma.competitionParticipantState.upsert({
+        where: { roundId_userId: { roundId: round.id, userId: user.id } },
+        create: {
+          roundId: round.id, userId: user.id, violationCount: 1, lastViolationAt: now, lastSeenAt: now,
+          locked: shouldLock, lockReason: shouldLock ? reason : null, lockedAt: shouldLock ? now : null,
+        },
+        update: {
+          violationCount: { increment: 1 }, lastViolationAt: now, lastSeenAt: now,
+          ...(shouldLock ? { locked: true, lockReason: reason, lockedAt: now } : {}),
+        },
+      }),
+    ]);
+    return ApiResponse.success(res, { locked: shouldLock });
+  } catch (error) {
+    return mapRoundError(res, error, 'Failed to record violation');
+  }
+});
+
+competitionRouter.post('/:roundId/proctor/heartbeat', authMiddleware, async (req: Request, res: Response) => {
+  try {
+    const user = getAuthUser(req)!;
+    const round = await ensureRegisteredForRound(req.params.roundId, user.id);
+    const now = new Date();
+    const state = await prisma.competitionParticipantState.upsert({
+      where: { roundId_userId: { roundId: round.id, userId: user.id } },
+      create: { roundId: round.id, userId: user.id, lastSeenAt: now },
+      update: { lastSeenAt: now },
+      select: { locked: true, lockReason: true, violationCount: true },
+    });
+    // Heartbeat doubles as the arena's lock poll so an admin lock/unlock propagates.
+    return ApiResponse.success(res, { locked: state.locked, lockReason: state.lockReason, violationCount: state.violationCount });
+  } catch (error) {
+    return mapRoundError(res, error, 'Failed to record heartbeat');
+  }
+});
+
+competitionRouter.get('/:roundId/proctor/me', authMiddleware, async (req: Request, res: Response) => {
+  try {
+    const user = getAuthUser(req)!;
+    const round = await ensureRegisteredForRound(req.params.roundId, user.id);
+    const state = await prisma.competitionParticipantState.findUnique({
+      where: { roundId_userId: { roundId: round.id, userId: user.id } },
+      select: { locked: true, lockReason: true, violationCount: true, lastSeenAt: true },
+    });
+    return ApiResponse.success(res, {
+      locked: state?.locked ?? false,
+      lockReason: state?.lockReason ?? null,
+      violationCount: state?.violationCount ?? 0,
+      proctored: round.proctored,
+    });
+  } catch (error) {
+    return mapRoundError(res, error, 'Failed to fetch proctor state');
+  }
+});
+
+competitionRouter.post('/:roundId/proctor/unlock/:userId', authMiddleware, requireRole('ADMIN'), async (req: Request, res: Response) => {
+  try {
+    const admin = getAuthUser(req)!;
+    const round = await prisma.competitionRound.findUnique({ where: { id: req.params.roundId }, select: { id: true } });
+    if (!round) return ApiResponse.notFound(res, 'Round not found');
+    const now = new Date();
+    await prisma.competitionParticipantState.upsert({
+      where: { roundId_userId: { roundId: round.id, userId: req.params.userId } },
+      create: { roundId: round.id, userId: req.params.userId, locked: false, unlockedBy: admin.id, unlockedAt: now },
+      update: { locked: false, lockReason: null, unlockedBy: admin.id, unlockedAt: now },
+    });
+    await auditLog(admin.id, 'COMPETITION_PROCTOR_UNLOCK', 'CompetitionRound', round.id, { userId: req.params.userId });
+    return ApiResponse.success(res, { unlocked: true });
+  } catch (error) {
+    return mapRoundError(res, error, 'Failed to unlock participant');
   }
 });
 
