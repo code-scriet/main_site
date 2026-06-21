@@ -853,6 +853,9 @@ export default function AdminCompetition() {
                                 <Button size="sm" variant="secondary" onClick={() => viewResults(round.id)} className="gap-1.5">
                                   <Eye className="h-3.5 w-3.5" /> Results
                                 </Button>
+                                <Button size="sm" variant="ghost" onClick={() => navigate(`/admin/competition/${round.id}/judge`)} className="gap-1.5">
+                                  <FileText className="h-3.5 w-3.5" /> Submissions
+                                </Button>
                                 <Button size="sm" variant="ghost" onClick={() => navigate(`/admin/competition/${round.id}/monitor`)} className="gap-1.5">
                                   <Activity className="h-3.5 w-3.5" /> Monitor &amp; logs
                                 </Button>

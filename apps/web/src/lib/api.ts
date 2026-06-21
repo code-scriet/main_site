@@ -1220,6 +1220,8 @@ export interface CompetitionResult {
   avatar?: string | null;
   totalScore?: number;
   totalRuntimeMs?: number;
+  penalty?: number;
+  isTeam?: boolean;
   problems?: Array<{ problemId: string; title: string; score: number; weightedScore: number; verdict: string; runtimeMs: number | null }>;
 }
 
