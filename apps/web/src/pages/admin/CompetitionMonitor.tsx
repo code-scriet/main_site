@@ -15,7 +15,7 @@ import { formatDateTime } from '@/lib/dateUtils';
 import { Avatar, DSCard, EmptyState, Pill } from '@/components/dash';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
-import { AlertCircle, ChevronLeft, Loader2, Lock, MessageSquarePlus, RefreshCw, Send, Unlock } from 'lucide-react';
+import { AlertCircle, ChevronLeft, Download, Loader2, Lock, MessageSquarePlus, RefreshCw, Send, Unlock } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 const ONLINE_WINDOW_MS = 60_000;
@@ -62,19 +62,35 @@ export default function CompetitionMonitor() {
   });
   useEffect(() => () => { if (refetchTimerRef.current) window.clearTimeout(refetchTimerRef.current); }, []);
 
-  const unlock = useCallback(async (userId: string) => {
+  const setLock = useCallback(async (userId: string, locked: boolean) => {
     if (!token) return;
     setUnlocking(userId);
     setError(null);
     try {
-      await api.unlockCompetitionParticipant(roundId, userId, token);
+      if (locked) await api.lockCompetitionParticipant(roundId, userId, token);
+      else await api.unlockCompetitionParticipant(roundId, userId, token);
       await monitorQuery.refetch();
     } catch (err) {
-      setError(extractApiErrorMessage(err, 'Failed to unlock participant'));
+      setError(extractApiErrorMessage(err, locked ? 'Failed to lock participant' : 'Failed to unlock participant'));
     } finally {
       setUnlocking(null);
     }
   }, [token, roundId, monitorQuery]);
+
+  const exportCsv = useCallback(async (sheet?: 'violations') => {
+    if (!token) return;
+    try {
+      const blob = await api.exportCompetitionMonitor(roundId, token, sheet);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${monitor?.round.title.replace(/[^a-z0-9-_]+/gi, '_').slice(0, 60) || 'round'}-${sheet ?? 'monitor'}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      setError(extractApiErrorMessage(err, 'Export failed'));
+    }
+  }, [token, roundId, monitor]);
 
   const postClarification = useCallback(async () => {
     if (!token || !clarification.trim()) return;
@@ -127,6 +143,8 @@ export default function CompetitionMonitor() {
           <h1 className="text-[20px] font-semibold tracking-tight truncate">{monitor.round.title}</h1>
         </div>
         <Pill tone={monitor.round.status === 'ACTIVE' ? 'success' : 'neutral'} dot={monitor.round.status === 'ACTIVE'} size="md">{monitor.round.status}</Pill>
+        <Button variant="outline" size="sm" onClick={() => void exportCsv()} className="gap-1.5"><Download className="h-3.5 w-3.5" />CSV</Button>
+        <Button variant="outline" size="sm" onClick={() => void exportCsv('violations')} className="gap-1.5"><Download className="h-3.5 w-3.5" />Violations</Button>
         <Button variant="outline" size="sm" onClick={() => void monitorQuery.refetch()} className="gap-1.5"><RefreshCw className="h-3.5 w-3.5" />Refresh</Button>
       </div>
 
@@ -179,12 +197,15 @@ export default function CompetitionMonitor() {
                     </td>
                     <td className="py-2.5 px-3 text-right">
                       {p.locked ? (
-                        <Button size="sm" variant="outline" disabled={unlocking === p.userId} onClick={() => void unlock(p.userId)} className="gap-1.5 text-[var(--danger)] border-[var(--danger-border)]">
+                        <Button size="sm" variant="outline" disabled={unlocking === p.userId} onClick={() => void setLock(p.userId, false)} className="gap-1.5 text-[var(--danger)] border-[var(--danger-border)]">
                           {unlocking === p.userId ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Unlock className="h-3.5 w-3.5" />}
                           Unlock
                         </Button>
                       ) : (
-                        <Pill tone="success" size="xs">OK</Pill>
+                        <Button size="sm" variant="ghost" disabled={unlocking === p.userId} onClick={() => void setLock(p.userId, true)} className="gap-1.5 text-[var(--ds-text-3)]" title="Lock this participant">
+                          {unlocking === p.userId ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Lock className="h-3.5 w-3.5" />}
+                          Lock
+                        </Button>
                       )}
                     </td>
                   </tr>

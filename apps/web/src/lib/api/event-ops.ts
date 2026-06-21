@@ -261,9 +261,22 @@ export const eventOpsApi = {
     }>(`/competition/${roundId}/submissions`, { token }),
   scoreCompetitionSubmission: (roundId: string, submissionId: string, data: { score?: number; rank?: number; adminNotes?: string }, token: string) =>
     request<{ submission: CompetitionSubmission }>(`/competition/${roundId}/score/${submissionId}`, { method: 'PATCH', body: JSON.stringify(data), token }),
-  // Proctoring (admin): release a participant's proctor lock so they can resume.
+  // Proctoring (admin): release / apply a participant's proctor lock.
   unlockCompetitionParticipant: (roundId: string, userId: string, token: string) =>
     request<{ unlocked: boolean }>(`/competition/${roundId}/proctor/unlock/${userId}`, { method: 'POST', token }),
+  lockCompetitionParticipant: (roundId: string, userId: string, token: string) =>
+    request<{ locked: boolean }>(`/competition/${roundId}/proctor/lock/${userId}`, { method: 'POST', token }),
+  // Admin power-ups (Phase H3): extend a live round, rejudge all, export the monitor.
+  extendCompetitionRound: (roundId: string, addMinutes: number, token: string) =>
+    request<{ duration: number; remainingSeconds: number }>(`/competition/${roundId}/extend`, { method: 'PATCH', body: JSON.stringify({ addMinutes }), token }),
+  rejudgeCompetitionRound: (roundId: string, token: string) =>
+    request<{ jobIds: string[] }>(`/competition/${roundId}/rejudge`, { method: 'POST', token }),
+  exportCompetitionMonitor: async (roundId: string, token: string, sheet?: 'violations') => {
+    const q = sheet ? `?sheet=${sheet}` : '';
+    const res = await fetch(`${API_URL}/competition/${roundId}/monitor/export${q}`, { headers: { Authorization: `Bearer ${token}` }, credentials: 'include' });
+    if (!res.ok) throw new Error('Export failed');
+    return res.blob();
+  },
   // Live monitor + clarifications (Phase E).
   getCompetitionMonitor: (roundId: string, token: string) =>
     request<CompetitionMonitorResponse>(`/competition/${roundId}/monitor`, { token }),

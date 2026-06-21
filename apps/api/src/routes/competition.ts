@@ -15,7 +15,8 @@ import { uuidParamGuard } from '../utils/idParams.js';
 import { computeRanksFromScores } from '../utils/competitionRanks.js';
 import { normalizeWeights } from '../utils/contestScoring.js';
 import { incActiveRounds, decActiveRounds, setActiveRoundCount } from '../competition/contestMode.js';
-import { emitRoundStatus, emitClarification, emitProctor, emitViolation, evictContestRoom, computeContestLeaderboard, isLeaderboardFrozen } from '../competition/competitionRealtime.js';
+import { emitRoundStatus, emitClarification, emitProctor, emitViolation, evictContestRoom, computeContestLeaderboard, isLeaderboardFrozen, emitRoundUpdate, broadcastLeaderboard } from '../competition/competitionRealtime.js';
+import { enqueueRejudgeJob } from '../utils/rejudgeJobs.js';
 
 const competitionRouter = Router();
 const activeTimers = new Map<string, NodeJS.Timeout>();
@@ -2684,6 +2685,75 @@ competitionRouter.post('/:roundId/proctor/unlock/:userId', authMiddleware, requi
   }
 });
 
+// Admin manual lock — the mirror of unlock, so an invigilator can freeze a participant
+// directly (not only via a proctor violation).
+competitionRouter.post('/:roundId/proctor/lock/:userId', authMiddleware, requireRole('ADMIN'), async (req: Request, res: Response) => {
+  try {
+    const admin = getAuthUser(req)!;
+    const round = await prisma.competitionRound.findUnique({ where: { id: req.params.roundId }, select: { id: true } });
+    if (!round) return ApiResponse.notFound(res, 'Round not found');
+    const now = new Date();
+    await prisma.competitionParticipantState.upsert({
+      where: { roundId_userId: { roundId: round.id, userId: req.params.userId } },
+      create: { roundId: round.id, userId: req.params.userId, locked: true, lockReason: 'Locked by admin', lockedAt: now },
+      update: { locked: true, lockReason: 'Locked by admin', lockedAt: now },
+    });
+    emitProctor(round.id, req.params.userId, true, 'Locked by admin');
+    await auditLog(admin.id, 'COMPETITION_PROCTOR_LOCK', 'CompetitionRound', round.id, { userId: req.params.userId });
+    return ApiResponse.success(res, { locked: true });
+  } catch (error) {
+    return mapRoundError(res, error, 'Failed to lock participant');
+  }
+});
+
+// Extend an ACTIVE round by N minutes: bump duration, re-arm the auto-lock timer, push
+// the change so every arena's countdown extends live.
+competitionRouter.patch('/:roundId/extend', authMiddleware, requireRole('ADMIN'), async (req: Request, res: Response) => {
+  try {
+    const admin = getAuthUser(req)!;
+    const parsed = z.object({ addMinutes: z.number().int().min(1).max(600) }).safeParse(req.body);
+    if (!parsed.success) return ApiResponse.badRequest(res, 'addMinutes (1–600) is required');
+    const round = await prisma.competitionRound.findUnique({
+      where: { id: req.params.roundId },
+      select: { id: true, status: true, duration: true, startedAt: true },
+    });
+    if (!round) return ApiResponse.notFound(res, 'Round not found');
+    if (round.status !== 'ACTIVE' || !round.startedAt) return ApiResponse.badRequest(res, 'Only an active round can be extended');
+
+    const newDuration = round.duration + parsed.data.addMinutes * 60;
+    await prisma.competitionRound.update({ where: { id: round.id }, data: { duration: newDuration } });
+    const remaining = Math.max(1, computeRemainingSeconds({ duration: newDuration, startedAt: round.startedAt }, Date.now()) ?? 1);
+    scheduleRoundLock(round.id, remaining);
+    emitRoundUpdate(round.id);
+    await auditLog(admin.id, 'COMPETITION_ROUND_EXTENDED', 'CompetitionRound', round.id, { addMinutes: parsed.data.addMinutes, newDuration });
+    return ApiResponse.success(res, { duration: newDuration, remainingSeconds: remaining });
+  } catch (error) {
+    return mapRoundError(res, error, 'Failed to extend round');
+  }
+});
+
+// Rejudge every CONTEST submission for each of the round's problems (admin — e.g. after
+// fixing test data), then push a fresh leaderboard. Reuses the bounded rejudge queue.
+competitionRouter.post('/:roundId/rejudge', authMiddleware, requireRole('ADMIN'), async (req: Request, res: Response) => {
+  try {
+    const admin = getAuthUser(req)!;
+    const round = await prisma.competitionRound.findUnique({
+      where: { id: req.params.roundId },
+      select: { id: true, roundType: true, problems: { select: { problemId: true } } },
+    });
+    if (!round) return ApiResponse.notFound(res, 'Round not found');
+    if (round.roundType !== 'DSA') return ApiResponse.badRequest(res, 'Only DSA rounds can be rejudged');
+    const jobIds = round.problems.map((link) =>
+      enqueueRejudgeJob({ problemId: link.problemId, contextType: 'CONTEST', contextKey: round.id, requestedBy: admin.id }).id,
+    );
+    broadcastLeaderboard(round.id); // immediate refresh; jobs trickle in + the monitor poll catches up
+    await auditLog(admin.id, 'COMPETITION_ROUND_REJUDGED', 'CompetitionRound', round.id, { problemCount: round.problems.length });
+    return ApiResponse.success(res, { jobIds });
+  } catch (error) {
+    return mapRoundError(res, error, 'Failed to rejudge round');
+  }
+});
+
 // ─── Live leaderboard / clarifications / monitor (Phase E) ───────────────────
 
 // Live DSA leaderboard (works while ACTIVE). Non-admins inside the freeze window get a
@@ -2825,6 +2895,60 @@ competitionRouter.get('/:roundId/monitor', authMiddleware, requireRole('ADMIN'),
     });
   } catch (error) {
     return mapRoundError(res, error, 'Failed to fetch monitor');
+  }
+});
+
+// CSV export of the monitor (participants) or the violation log (?sheet=violations).
+competitionRouter.get('/:roundId/monitor/export', authMiddleware, requireRole('ADMIN'), async (req: Request, res: Response) => {
+  try {
+    const round = await prisma.competitionRound.findUnique({ where: { id: req.params.roundId }, select: { id: true, title: true } });
+    if (!round) return ApiResponse.notFound(res, 'Round not found');
+    const safeTitle = round.title.replace(/[^a-zA-Z0-9-_]+/g, '_').slice(0, 60) || 'round';
+    const esc = (v: string) => `"${v.replace(/"/g, '""')}"`;
+    const send = (header: string[], rows: string[][], suffix: string) => {
+      const csv = [header, ...rows].map((r) => r.map(esc).join(',')).join('\n');
+      res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+      res.setHeader('Content-Disposition', `attachment; filename="${safeTitle}-${suffix}.csv"`);
+      return res.status(200).send(csv);
+    };
+
+    if (req.query.sheet === 'violations') {
+      const violations = await prisma.competitionViolation.findMany({
+        where: { roundId: round.id },
+        orderBy: { at: 'desc' },
+        take: 5000,
+        select: { kind: true, detail: true, at: true, user: { select: { name: true, email: true } } },
+      });
+      return send(
+        ['User', 'Email', 'Kind', 'Detail', 'At'],
+        violations.map((v) => [v.user.name, v.user.email, v.kind, v.detail ?? '', v.at.toISOString()]),
+        'violations',
+      );
+    }
+
+    const [states, lb] = await Promise.all([
+      prisma.competitionParticipantState.findMany({
+        where: { roundId: round.id },
+        select: { userId: true, locked: true, violationCount: true, lastSeenAt: true, user: { select: { name: true, email: true } } },
+      }),
+      computeContestLeaderboard(req.params.roundId, 100000),
+    ]);
+    const rowById = new Map((lb?.results ?? []).map((r) => [r.userId, r]));
+    const scoreFor = (userId: string) => rowById.get(lb?.teamByUser?.get(userId)?.teamId ?? userId) ?? null;
+    return send(
+      ['User', 'Email', 'Team', 'Score', 'Rank', 'Penalty', 'Violations', 'Locked', 'Last seen'],
+      states.map((s) => {
+        const row = scoreFor(s.userId);
+        return [
+          s.user.name, s.user.email, lb?.teamByUser?.get(s.userId)?.teamName ?? '',
+          String(row?.totalScore ?? 0), String(row?.rank ?? ''), String(row?.penalty ?? 0),
+          String(s.violationCount), s.locked ? 'YES' : 'no', s.lastSeenAt?.toISOString() ?? '',
+        ];
+      }),
+      'monitor',
+    );
+  } catch (error) {
+    return mapRoundError(res, error, 'Failed to export monitor');
   }
 });
 

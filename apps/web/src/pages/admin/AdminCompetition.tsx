@@ -172,6 +172,7 @@ export default function AdminCompetition() {
   const [eventTeamsMap, setEventTeamsMap] = useState<Record<string, EventTeam[]>>({});
   // NumericPromptDialog replaces the window.prompt for "raise submit cap" on a round.
   const [capTarget, setCapTarget] = useState<CompetitionRound | null>(null);
+  const [extendTarget, setExtendTarget] = useState<CompetitionRound | null>(null);
   const [finalEvent, setFinalEvent] = useState<Event | null>(null);
   const [problemCatalog, setProblemCatalog] = useState<Problem[]>([]);
   const [roundActionDialog, setRoundActionDialog] = useState<{
@@ -521,6 +522,29 @@ export default function AdminCompetition() {
     }
   };
 
+  const commitExtend = async (addMinutes: number) => {
+    if (!token || !extendTarget) return;
+    try {
+      await api.extendCompetitionRound(extendTarget.id, Math.max(1, Math.round(addMinutes)), token);
+      setSuccess(`Extended by ${Math.round(addMinutes)} min`);
+      setExtendTarget(null);
+      await load();
+    } catch (err) {
+      setError(extractApiErrorMessage(err, 'Failed to extend round'));
+    }
+  };
+
+  const rejudgeRound = async (round: CompetitionRound) => {
+    if (!token) return;
+    try {
+      await api.rejudgeCompetitionRound(round.id, token);
+      setSuccess('Rejudge queued for all problems');
+      await load();
+    } catch (err) {
+      setError(extractApiErrorMessage(err, 'Failed to rejudge round'));
+    }
+  };
+
   if (loading) {
     return (
       <div data-dashboard data-accent={accent} className="flex items-center justify-center py-20">
@@ -758,10 +782,18 @@ export default function AdminCompetition() {
                                 <Button size="sm" variant="ghost" onClick={() => setRoundActionDialog({ action: 'lock', round })} className="gap-1.5">
                                   <Square className="h-3.5 w-3.5" /> Lock
                                 </Button>
+                                <Button size="sm" variant="ghost" onClick={() => setExtendTarget(round)} className="gap-1.5">
+                                  <Clock className="h-3.5 w-3.5" /> Extend
+                                </Button>
                                 {round.roundType === 'DSA' && (
-                                  <Button size="sm" variant="ghost" onClick={() => void raiseCap(round)} className="gap-1.5">
-                                    Raise cap
-                                  </Button>
+                                  <>
+                                    <Button size="sm" variant="ghost" onClick={() => void raiseCap(round)} className="gap-1.5">
+                                      Raise cap
+                                    </Button>
+                                    <Button size="sm" variant="ghost" onClick={() => void rejudgeRound(round)} className="gap-1.5">
+                                      <RefreshCw className="h-3.5 w-3.5" /> Rejudge
+                                    </Button>
+                                  </>
                                 )}
                                 <Button size="sm" variant="ghost" onClick={() => setRoundActionDialog({ action: 'delete', round })} className="gap-1.5 text-[var(--danger)]">
                                   <Trash2 className="h-3.5 w-3.5" />
@@ -1218,6 +1250,19 @@ export default function AdminCompetition() {
         max={1000}
         confirmLabel="Raise cap"
         onCommit={(value) => void commitRaiseCap(Math.max(1, Math.round(value)))}
+      />
+
+      <NumericPromptDialog
+        open={Boolean(extendTarget)}
+        onOpenChange={(o) => !o && setExtendTarget(null)}
+        title="Extend round time"
+        description={extendTarget ? `Round: ${extendTarget.title}` : undefined}
+        label="Add minutes"
+        defaultValue={10}
+        min={1}
+        max={600}
+        confirmLabel="Extend"
+        onCommit={(value) => void commitExtend(value)}
       />
     </div>
   );

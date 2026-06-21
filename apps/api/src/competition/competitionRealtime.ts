@@ -196,6 +196,20 @@ export function emitRoundStatus(roundId: string, status: string): void {
   if (status === 'FINISHED' || status === 'DRAFT') evictContestRoom(roundId);
 }
 
+// Round-config change (e.g. admin extends time) → clients refetch the round so the
+// countdown + duration update live, without a status change.
+export function emitRoundUpdate(roundId: string): void {
+  const io = getIO();
+  if (!io) return;
+  io.of(COMPETITION_NS).to(roomAll(roundId)).emit('contest:round', {});
+  io.of(COMPETITION_NS).to(roomAdmin(roundId)).emit('contest:round', {});
+}
+
+/** Recompute + push the leaderboard now (used after an admin rejudge). */
+export function broadcastLeaderboard(roundId: string): void {
+  void scheduleLeaderboardBroadcast(roundId);
+}
+
 export function emitProctor(roundId: string, userId: string, locked: boolean, lockReason: string | null): void {
   const io = getIO();
   if (!io) return;
