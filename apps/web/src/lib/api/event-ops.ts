@@ -24,6 +24,7 @@ import type {
   CompetitionRound,
   CompetitionRoundPreview,
   CompetitionSubmission,
+  EventFinalResponse,
   EventInvitation,
   EventTeam,
   EventTeamMemberInfo,
@@ -274,6 +275,11 @@ export const eventOpsApi = {
     request<{ round: CompetitionRound; results: CompetitionResult[] }>(`/competition/${roundId}/results`),
   getCompetitionResultsSummary: (eventId: string, token: string) =>
     request<CompetitionResultsSummaryResponse>(`/competition/event/${eventId}/results-summary`, { token }),
+  // Event-final standings (Phase F): combined weighted standings across FINISHED rounds.
+  getEventFinal: (eventId: string, token?: string) =>
+    request<EventFinalResponse>(`/competition/event/${eventId}/final`, { ...(token ? { token } : {}) }),
+  publishEventFinal: (eventId: string, publish: boolean, token: string) =>
+    request<{ published: boolean }>(`/competition/event/${eventId}/publish-final`, { method: 'POST', body: JSON.stringify({ publish }), token }),
   deleteCompetitionRound: (roundId: string, token: string) =>
     request<{ message: string }>(`/competition/${roundId}`, { method: 'DELETE', token }),
   updateCompetitionRound: (roundId: string, data: {

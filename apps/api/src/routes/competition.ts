@@ -13,6 +13,7 @@ import { logger } from '../utils/logger.js';
 import { getCachedSettings } from '../utils/settingsCache.js';
 import { uuidParamGuard } from '../utils/idParams.js';
 import { computeRanksFromScores } from '../utils/competitionRanks.js';
+import { normalizeWeights } from '../utils/contestScoring.js';
 import { incActiveRounds, decActiveRounds, setActiveRoundCount } from '../competition/contestMode.js';
 import { emitRoundStatus, emitClarification, emitProctor, emitViolation, evictContestRoom, computeContestLeaderboard, isLeaderboardFrozen } from '../competition/competitionRealtime.js';
 
@@ -889,6 +890,117 @@ competitionRouter.get('/event/:eventId/results-summary', authMiddleware, require
       error: error instanceof Error ? error.message : String(error),
     });
     return ApiResponse.internal(res, 'Failed to fetch competition results summary');
+  }
+});
+
+// ─── Event-final standings (Phase F) ─────────────────────────────────────────
+// Combine an event's FINISHED rounds by their normalized finalWeight into one capped
+// 0–100 standing per entrant (team for team events, user for solo), with a per-round
+// breakdown. Admins always see the draft; the public sees it once published.
+
+type FinalEntrant = { id: string; name: string; isTeam: boolean; perRound: Map<string, number>; final: number };
+
+// Per-round entrant→score(0–100). DSA uses the team-aware leaderboard; IMAGE_TARGET uses
+// the admin-scored CompetitionSubmission rows (keyed by team for team events, else user).
+async function getRoundStandings(round: { id: string; roundType: string }, teamRegistration: boolean): Promise<Map<string, { name: string; score: number; isTeam: boolean }>> {
+  const out = new Map<string, { name: string; score: number; isTeam: boolean }>();
+  if (round.roundType === 'DSA') {
+    const lb = await computeContestLeaderboard(round.id, 100000);
+    for (const row of lb?.results ?? []) {
+      out.set(row.userId, { name: row.userName, score: row.totalScore, isTeam: Boolean(row.isTeam) });
+    }
+    return out;
+  }
+  const subs = await prisma.competitionSubmission.findMany({
+    where: { roundId: round.id },
+    select: { score: true, userId: true, user: { select: { name: true } }, team: { select: { id: true, teamName: true } } },
+  });
+  for (const s of subs) {
+    if (teamRegistration && s.team) out.set(s.team.id, { name: s.team.teamName, score: s.score ?? 0, isTeam: true });
+    else out.set(s.userId, { name: s.user.name, score: s.score ?? 0, isTeam: false });
+  }
+  return out;
+}
+
+async function computeEventFinal(eventId: string) {
+  const event = await prisma.event.findUnique({
+    where: { id: eventId },
+    select: { id: true, title: true, teamRegistration: true, competitionFinalPublishedAt: true },
+  });
+  if (!event) return null;
+  const rounds = await prisma.competitionRound.findMany({
+    where: { eventId, status: 'FINISHED' },
+    orderBy: { createdAt: 'asc' },
+    select: { id: true, title: true, roundType: true, finalWeight: true },
+  });
+  const normWeights = normalizeWeights(rounds.map((r) => r.finalWeight));
+  const weightByRound = new Map(rounds.map((r, i) => [r.id, normWeights[i]]));
+
+  const entrants = new Map<string, FinalEntrant>();
+  for (const round of rounds) {
+    const standings = await getRoundStandings(round, event.teamRegistration);
+    const w = weightByRound.get(round.id) ?? 0;
+    for (const [id, row] of standings) {
+      const e = entrants.get(id) ?? { id, name: row.name, isTeam: row.isTeam, perRound: new Map(), final: 0 };
+      e.name = row.name; // freshest display name
+      e.perRound.set(round.id, row.score);
+      e.final += row.score * w;
+      entrants.set(id, e);
+    }
+  }
+
+  const ranked = Array.from(entrants.values())
+    .map((e) => ({ ...e, final: Math.round(Math.min(100, e.final) * 100) / 100 }))
+    .sort((a, b) => b.final - a.final);
+  let currentRank = 1;
+  const standings = ranked.map((e, i) => {
+    if (i > 0 && e.final !== ranked[i - 1].final) currentRank = i + 1;
+    return {
+      rank: currentRank,
+      entrantId: e.id,
+      name: e.name,
+      isTeam: e.isTeam,
+      final: e.final,
+      perRound: rounds.map((r) => ({ roundId: r.id, title: r.title, score: e.perRound.get(r.id) ?? null })),
+    };
+  });
+
+  return {
+    event: { id: event.id, title: event.title, teamRegistration: event.teamRegistration, publishedAt: event.competitionFinalPublishedAt?.toISOString() ?? null },
+    rounds: rounds.map((r, i) => ({ id: r.id, title: r.title, weight: normWeights[i] })),
+    standings,
+  };
+}
+
+competitionRouter.get('/event/:eventId/final', async (req: Request, res: Response) => {
+  try {
+    const user = getAuthUser(req);
+    const isAdmin = Boolean(user && hasPermission(user.role, 'ADMIN'));
+    const final = await computeEventFinal(req.params.eventId);
+    if (!final) return ApiResponse.notFound(res, 'Event not found');
+    if (!isAdmin && !final.event.publishedAt) {
+      return ApiResponse.forbidden(res, 'Final standings are not published yet');
+    }
+    return ApiResponse.success(res, final);
+  } catch (error) {
+    return mapRoundError(res, error, 'Failed to compute event final');
+  }
+});
+
+competitionRouter.post('/event/:eventId/publish-final', authMiddleware, requireRole('ADMIN'), async (req: Request, res: Response) => {
+  try {
+    const admin = getAuthUser(req)!;
+    const event = await prisma.event.findUnique({ where: { id: req.params.eventId }, select: { id: true } });
+    if (!event) return ApiResponse.notFound(res, 'Event not found');
+    const publish = req.body?.publish !== false; // default true; pass { publish:false } to unpublish
+    await prisma.event.update({
+      where: { id: event.id },
+      data: { competitionFinalPublishedAt: publish ? new Date() : null },
+    });
+    await auditLog(admin.id, publish ? 'COMPETITION_FINAL_PUBLISHED' : 'COMPETITION_FINAL_UNPUBLISHED', 'Event', event.id, {});
+    return ApiResponse.success(res, { published: publish });
+  } catch (error) {
+    return mapRoundError(res, error, 'Failed to publish event final');
   }
 });
 

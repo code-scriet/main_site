@@ -1121,6 +1121,21 @@ export interface CompetitionClarification {
   createdAt: string;
 }
 
+export interface EventFinalStanding {
+  rank: number;
+  entrantId: string;
+  name: string;
+  isTeam: boolean;
+  final: number;
+  perRound: Array<{ roundId: string; title: string; score: number | null }>;
+}
+
+export interface EventFinalResponse {
+  event: { id: string; title: string; teamRegistration: boolean; publishedAt: string | null };
+  rounds: Array<{ id: string; title: string; weight: number }>;
+  standings: EventFinalStanding[];
+}
+
 export interface CompetitionMonitorParticipant {
   userId: string;
   name: string;

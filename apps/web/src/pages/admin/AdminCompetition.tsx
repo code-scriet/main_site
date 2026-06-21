@@ -3,6 +3,7 @@
 //   - AdminCompetitionScreen (lines 371-431) — header, round-card grid, global lifecycle stepper.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '@/context/AuthContext';
 import { api, type CompetitionRound, type Event, type EventTeam, type Problem } from '@/lib/api';
@@ -171,6 +172,7 @@ export default function AdminCompetition() {
   const [eventTeamsMap, setEventTeamsMap] = useState<Record<string, EventTeam[]>>({});
   // NumericPromptDialog replaces the window.prompt for "raise submit cap" on a round.
   const [capTarget, setCapTarget] = useState<CompetitionRound | null>(null);
+  const [finalEvent, setFinalEvent] = useState<Event | null>(null);
   const [problemCatalog, setProblemCatalog] = useState<Problem[]>([]);
   const [roundActionDialog, setRoundActionDialog] = useState<{
     action: 'start' | 'lock' | 'delete';
@@ -620,10 +622,18 @@ export default function AdminCompetition() {
                       <span className="ml-2 font-mono tabular-nums">{rounds.length} round{rounds.length === 1 ? '' : 's'}</span>
                     </p>
                   </div>
-                  <Button size="sm" variant="outline" onClick={() => openCreate(event.id)} className="gap-1.5 shrink-0">
-                    <Plus className="h-3.5 w-3.5" />
-                    Add round
-                  </Button>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    {rounds.some((r) => r.status === 'FINISHED') && (
+                      <Button size="sm" variant="ghost" onClick={() => setFinalEvent(event)} className="gap-1.5">
+                        <Trophy className="h-3.5 w-3.5" />
+                        Final standings
+                      </Button>
+                    )}
+                    <Button size="sm" variant="outline" onClick={() => openCreate(event.id)} className="gap-1.5">
+                      <Plus className="h-3.5 w-3.5" />
+                      Add round
+                    </Button>
+                  </div>
                 </div>
 
                 {rounds.length === 0 ? (
@@ -1177,6 +1187,10 @@ export default function AdminCompetition() {
         </DialogContent>
       </Dialog>
 
+      {finalEvent && token && (
+        <FinalStandingsDialog event={finalEvent} token={token} onClose={() => setFinalEvent(null)} />
+      )}
+
       <RoundActionDialog
         action={roundActionDialog}
         onCancel={() => setRoundActionDialog(null)}
@@ -1206,5 +1220,107 @@ export default function AdminCompetition() {
         onCommit={(value) => void commitRaiseCap(Math.max(1, Math.round(value)))}
       />
     </div>
+  );
+}
+
+// Event-final standings (Phase F): combined weighted standings across an event's FINISHED
+// rounds, with publish toggle + CSV export. Admin-only.
+function FinalStandingsDialog({ event, token, onClose }: { event: Event; token: string; onClose: () => void }) {
+  const { settings } = useSettings();
+  const accent = settings?.accentColor || 'rust';
+  const queryClient = useQueryClient();
+  const finalQuery = useQuery({
+    queryKey: ['event-final', event.id],
+    queryFn: () => api.getEventFinal(event.id, token),
+  });
+  const data = finalQuery.data;
+  const [busy, setBusy] = useState(false);
+
+  const togglePublish = async () => {
+    if (!data) return;
+    setBusy(true);
+    try {
+      await api.publishEventFinal(event.id, !data.event.publishedAt, token);
+      await queryClient.invalidateQueries({ queryKey: ['event-final', event.id] });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const exportCsv = () => {
+    if (!data) return;
+    const head = ['Rank', data.event.teamRegistration ? 'Team' : 'Participant', 'Final', ...data.rounds.map((r) => r.title)];
+    const rows = data.standings.map((s) => [
+      String(s.rank), s.name, String(s.final),
+      ...data.rounds.map((r) => { const pr = s.perRound.find((p) => p.roundId === r.id); return pr?.score == null ? '' : String(pr.score); }),
+    ]);
+    const csv = [head, ...rows].map((r) => r.map((c) => `"${c.replace(/"/g, '""')}"`).join(',')).join('\n');
+    const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${event.title.replace(/[^a-z0-9-_]+/gi, '_').slice(0, 60)}-final.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  return (
+    <Dialog open onOpenChange={(o) => !o && onClose()}>
+      <DialogContent data-dashboard data-accent={accent} className="max-w-3xl">
+        <DialogHeader>
+          <DialogTitle>Final standings — {event.title}</DialogTitle>
+          <DialogDescription>
+            Combined across finished rounds by each round&apos;s normalized weight (capped 0–100).
+          </DialogDescription>
+        </DialogHeader>
+        {finalQuery.isLoading ? (
+          <div className="flex justify-center py-10"><Loader2 className="h-7 w-7 animate-spin text-[var(--accent)]" /></div>
+        ) : !data || data.standings.length === 0 ? (
+          <p className="py-8 text-center text-sm text-[var(--ds-text-3)]">No finished rounds with results yet.</p>
+        ) : (
+          <>
+            <div className="flex items-center gap-2 flex-wrap text-[11.5px] text-[var(--ds-text-3)]">
+              <span>Round weights:</span>
+              {data.rounds.map((r) => (
+                <span key={r.id} className="rounded border border-[var(--border-subtle)] px-1.5 py-0.5">{r.title}: {Math.round(r.weight * 100)}%</span>
+              ))}
+            </div>
+            <div className="max-h-[50vh] overflow-auto mt-2">
+              <table className="w-full text-[13px]">
+                <thead>
+                  <tr className="text-left text-[var(--ds-text-3)] border-b border-[var(--border-subtle)]">
+                    <th className="py-1.5 pr-2 w-10">#</th>
+                    <th className="py-1.5 pr-2">{data.event.teamRegistration ? 'Team' : 'Participant'}</th>
+                    {data.rounds.map((r) => <th key={r.id} className="py-1.5 px-2 text-right">{r.title}</th>)}
+                    <th className="py-1.5 pl-2 text-right">Final</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.standings.map((s) => (
+                    <tr key={s.entrantId} className="border-b border-[var(--border-subtle)]">
+                      <td className="py-1.5 pr-2 font-mono font-semibold">{s.rank}</td>
+                      <td className="py-1.5 pr-2 truncate">{s.name}</td>
+                      {data.rounds.map((r) => {
+                        const pr = s.perRound.find((p) => p.roundId === r.id);
+                        return <td key={r.id} className="py-1.5 px-2 text-right font-mono tabular-nums text-[var(--ds-text-2)]">{pr?.score == null ? '–' : pr.score}</td>;
+                      })}
+                      <td className="py-1.5 pl-2 text-right font-mono font-semibold tabular-nums">{s.final}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
+        )}
+        <DialogFooter className="gap-2">
+          <Button variant="outline" size="sm" onClick={exportCsv} disabled={!data || data.standings.length === 0} className="gap-1.5">
+            <Download className="h-3.5 w-3.5" /> CSV
+          </Button>
+          <Button size="sm" onClick={() => void togglePublish()} disabled={busy || !data} className="gap-1.5">
+            {busy && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+            {data?.event.publishedAt ? 'Unpublish' : 'Publish to public'}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
